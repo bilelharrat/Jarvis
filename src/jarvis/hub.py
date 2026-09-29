@@ -2474,6 +2474,7 @@ class Hub:
             self._listener.on_early = lambda number, audio: loop.call_soon_threadsafe(
                 queue.put_nowait, ("early", number, audio, time.monotonic())
             )
+            self._listener.on_double_clap = lambda: loop.call_soon_threadsafe(self.double_clap)
             try:
                 self._listener.start()
             except Exception as exc:  # no microphone
@@ -3364,6 +3365,14 @@ class Hub:
             ]
         path.write_text("\n".join(lines))
         return path
+
+    def double_clap(self) -> None:
+        """Two claps: hand control on (never off, so a stray pair can't end it mid-use).
+        Not while JARVIS itself is talking, and not when Settings turns claps off."""
+        if not self.prefs.clap_hands or self.state == "speaking":
+            return
+        log.info("two claps: hand control on")
+        self.emit("ui", action="hands", on=True)
 
     async def window_apply(self, command: ui.Command) -> None:
         """Open or close a panel, change the look, turn hand control on or off."""

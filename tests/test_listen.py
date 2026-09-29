@@ -347,3 +347,41 @@ def test_a_new_hands_free_listener_waits_for_the_old_one(monkeypatch):
     listener.stop()
     listener._thread.join(3)
     assert opened and not listener.running
+
+
+def test_hands_free_hears_two_claps_and_sends_nothing_to_transcribe(monkeypatch):
+    import sounddevice as sd
+    from test_claps import clap, room
+
+    from jarvis import listen
+
+    audio = room(3)
+    clap(audio, 1.5)
+    clap(audio, 1.85)
+    opened, claps, utterances = [], [], []
+
+    class Mic:
+        def __init__(self, callback, **_kw):
+            self.callback = callback
+
+        def __enter__(self):
+            opened.append(1)
+            if len(opened) > 1:  # the recording has played: end it there
+                listener.stop()
+                return self
+            for i in range(0, audio.size - 800 + 1, 800):
+                self.callback(audio[i : i + 800].reshape(-1, 1), 800, None, None)
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(sd, "InputStream", Mic)
+    monkeypatch.setattr(sd, "query_devices", lambda *_a, **_k: {"name": "Test mic"})
+    monkeypatch.setattr(listen, "STALL_SECONDS", 0.05)
+    monkeypatch.setattr(listen, "pick_input_device", lambda _p: None)
+    listener = listen.ContinuousListener(utterances.append)
+    listener.on_double_clap = lambda: claps.append(1)
+    listener._run()
+    assert claps == [1]
+    assert utterances == []

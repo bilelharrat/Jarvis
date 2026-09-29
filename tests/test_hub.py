@@ -868,3 +868,26 @@ async def test_a_streamed_reply_goes_to_the_windows_a_few_times_and_ends_whole(s
     replies = [e["text"] for e in drain(q) if e["type"] == "reply"]
     assert len(replies) <= 4, len(replies)  # was 400: the whole text again on every delta
     assert replies[0] == "word0" and replies[-1] == full
+
+
+async def test_two_claps_turn_hand_control_on(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.listener_factory = Listener
+    await hub.start()
+    hub.set_prefs({"hands_free": True})
+    q = hub.subscribe()
+    hub._listener.on_double_clap()  # as the microphone's thread calls it
+    await asyncio.sleep(0.01)
+    assert {"type": "ui", "action": "hands", "on": True} in drain(q)
+
+    hub.state = "speaking"  # JARVIS's own voice never counts
+    hub._listener.on_double_clap()
+    await asyncio.sleep(0.01)
+    assert not [e for e in drain(q) if e["type"] == "ui"]
+
+    hub.state = "idle"
+    hub.set_prefs({"clap_hands": False})  # turned off in Settings
+    drain(q)
+    hub._listener.on_double_clap()
+    await asyncio.sleep(0.01)
+    assert not [e for e in drain(q) if e["type"] == "ui"]

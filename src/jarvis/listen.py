@@ -246,6 +246,11 @@ class Segmenter:
     def _fresh(self, number: int) -> bool:
         return bool(number) and number == self._early and self.in_speech
 
+    def drop(self) -> None:
+        """Forget the utterance in progress (it was two claps, not words)."""
+        with self._lock:
+            self._end()
+
     def _end(self) -> None:
         self.in_speech = False
         self._early = 0
@@ -312,6 +317,111 @@ class Segmenter:
                 self.threshold = level
 
 
+class ClapDetector:
+    """Two claps in a row, heard in the hands-free microphone stream.
+
+    The stream is read in 5 ms frames. A clap is a sharp click: the level jumps from quiet
+    to loud within one frame, and has mostly died away 20-80 ms later (echo included); a
+    spoken "p" or "t" runs on into a vowel instead. Two claps 0.15-0.8 s apart, of about
+    the same loudness, with nothing else heard from `quiet` before the first to `quiet`
+    after the second, are a double clap. Typing (a stream of clicks), talking and a third
+    clap all break the pattern. feed() says True once, about `quiet` after the second clap.
+    """
+
+    FRAME = 80  # samples: 5 ms at 16 kHz
+
+    def __init__(
+        self,
+        sample_rate: int = SAMPLE_RATE,
+        min_gap: float = 0.15,
+        max_gap: float = 0.8,
+        quiet: float = 0.35,
+        level: float = 0.05,
+        on_clap: Callable[[float], None] | None = None,
+    ) -> None:
+        per_second = sample_rate / self.FRAME
+        self.min_gap = round(min_gap * per_second)
+        self.max_gap = round(max_gap * per_second)
+        self.quiet = round(quiet * per_second)
+        self.level = level  # a clap's loudest frame is at least this loud (RMS)
+        self.on_clap = on_clap  # each single clap, with its level (for tuning from the log)
+        self.window = round(0.15 * per_second)  # a clap's own sound, echo included
+        self.echo = round(0.35 * per_second)  # after that, a fading echo still isn't "noise"
+        self._energy: deque[float] = deque(maxlen=2 * self.quiet + self.max_gap + self.echo + 8)
+        self._frame = 0  # the number of the next frame
+        self._rest = np.zeros(0, dtype=np.float32)
+        self._onsets: deque[int] = deque()  # sharp rises waiting to be judged
+        self._claps: deque[tuple[int, float]] = deque()  # (first frame, peak)
+        self._last_onset = -(10**9)
+        self._cooldown_until = 0
+
+    def feed(self, block: np.ndarray, threshold: float) -> bool:
+        """One block of audio; threshold is the level speech is heard at (the segmenter's)."""
+        samples = np.concatenate([self._rest, block]) if len(self._rest) else block
+        count = len(samples) // self.FRAME
+        self._rest = samples[count * self.FRAME :].astype(np.float32, copy=True)
+        heard = False
+        if count:
+            frames = samples[: count * self.FRAME].reshape(count, self.FRAME)
+            for energy in np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1)):
+                heard = self._step(float(energy), threshold) or heard
+        return heard
+
+    def _at(self, frame: int) -> float:
+        first = self._frame - len(self._energy)
+        return self._energy[frame - first] if first <= frame < self._frame else 0.0
+
+    def _step(self, energy: float, threshold: float) -> bool:
+        now = self._frame
+        before = sum(self._at(f) for f in range(now - 4, now)) / 4
+        self._energy.append(energy)
+        self._frame += 1
+        if (
+            energy >= max(self.level, threshold * 4)
+            and energy >= 6 * max(before, 1e-4)
+            and now - self._last_onset > self.window
+        ):
+            self._onsets.append(now)
+            self._last_onset = now
+        while self._onsets and self._onsets[0] + self.window <= self._frame:
+            self._judge(self._onsets.popleft())
+        while self._claps and self._claps[0][0] < self._frame - self._energy.maxlen:
+            self._claps.popleft()
+        if len(self._claps) >= 2 and self._claps[-1][0] + self.quiet == now:
+            return self._pair(threshold)
+        return False
+
+    def _judge(self, onset: int) -> None:
+        peak = max(self._at(onset + i) for i in range(3))
+        body = [self._at(onset + i) for i in range(4, 16)]  # 20-80 ms
+        tail = [self._at(onset + i) for i in range(16, self.window)]  # 80-150 ms
+        if sum(body) / len(body) <= 0.3 * peak and sum(tail) / len(tail) <= 0.12 * peak:
+            self._claps.append((onset, peak))
+            if self.on_clap is not None:
+                self.on_clap(peak)
+
+    def _pair(self, threshold: float) -> bool:
+        (first, one), (second, two) = self._claps[-2], self._claps[-1]
+        if not self.min_gap <= second - first <= self.max_gap or self._frame < self._cooldown_until:
+            return False
+        if max(one, two) > 3 * min(one, two):
+            return False
+        for frame in range(first - self.quiet, second + self.quiet):
+            energy = self._at(frame)
+            if energy < threshold:
+                continue
+            # the latest clap it could belong to (its first sliver can land a frame early)
+            own = next((c for c in (second, first) if c - 2 <= frame < c + self.echo), None)
+            if own is None:
+                return False  # talking, typing, another clap
+            peak = one if own == first else two
+            if frame >= own + self.window and energy > 0.1 * peak:
+                return False  # still loud long after the click: not a clap's echo
+        self._claps.clear()
+        self._cooldown_until = self._frame + self.quiet * 3
+        return True
+
+
 # Words an unfinished sentence tends to stop on ("what's the weather in…").
 _TRAILING = {
     "and", "but", "or", "so", "the", "a", "an", "to", "of", "for", "with", "in", "on", "at",
@@ -360,6 +470,7 @@ class ContinuousListener:
         # Smart endpointing (set by the hub): an early copy after this much quiet.
         self.early_seconds: float | None = None
         self.on_early: Callable[[int, np.ndarray], None] | None = None
+        self.on_double_clap: Callable[[], None] | None = None  # two claps (set by the hub)
         self.segmenter: Segmenter | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -414,6 +525,7 @@ class ContinuousListener:
                 on_early=self.on_early,
             )
             self.segmenter = segmenter
+            claps = ClapDetector(on_clap=lambda level: log.debug("a clap (level %.3f)", level))
             try:
                 if failures >= RESET_AFTER_FAILURES:
                     log.info("resetting the audio system to find the microphone again")
@@ -444,6 +556,11 @@ class ContinuousListener:
                         rms = float(np.sqrt(np.mean(block**2)))
                         if self.on_level is not None:
                             self.on_level(rms)
+                        if self.on_double_clap is not None and claps.feed(
+                            block, segmenter.threshold
+                        ):
+                            segmenter.drop()  # the claps, not words: nothing to transcribe
+                            self.on_double_clap()
                         utterance = segmenter.feed(block, rms)
                         if utterance is not None:
                             self.on_utterance(utterance)

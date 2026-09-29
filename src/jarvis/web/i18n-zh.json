@@ -133,6 +133,8 @@
   "Hand gestures": "手势动作",
   "Hands": "手势",
   "Hands-free": "免提唤醒",
+  "Clap twice for hand control": "拍手两下开启手势控制",
+  "Two claps turn hand control on while hands-free is listening.": "免提唤醒开启时，拍手两下即可打开手势控制。",
   "Heads up": "注意",
   "Heads-ups": "提醒",
   "Hide sidebar": "隐藏边栏",

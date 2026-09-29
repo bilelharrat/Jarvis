@@ -83,6 +83,7 @@ class Prefs:
     voice_effect: bool = True
     mic: str = "builtin"  # builtin | default
     hands_free: bool = True
+    clap_hands: bool = True  # two claps (heard while hands-free listens) turn hand control on
     briefing_enabled: bool = True
     briefing_time: str = "08:00"
     last_briefing: str = ""
@@ -250,6 +251,7 @@ def _clean(name: str, value: Any) -> Any:
         "code_ultracode",
         "file_index",
         "pay_enabled",
+        "clap_hands",
     }:
         return bool(value)
     return None

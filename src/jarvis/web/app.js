@@ -637,6 +637,7 @@ function renderPrefs(p) {
   $('mic-select').value = p.mic || 'builtin';
   setSwitch('sw-location', p.use_location !== false);
   setSwitch('sw-handsfree', p.hands_free);
+  setSwitch('sw-clap', p.clap_hands !== false);
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
   setSwitch('sw-screen', p.screen_aware);
@@ -739,6 +740,7 @@ $('sw-effect').addEventListener('click', () => setPrefs({ voice_effect: !prefs.v
 $('mic-select').addEventListener('change', (e) => setPrefs({ mic: e.target.value }));
 $('sw-location').addEventListener('click', () => setPrefs({ use_location: prefs.use_location === false }));
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
+$('sw-clap').addEventListener('click', () => setPrefs({ clap_hands: prefs.clap_hands === false }));
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
 $('sw-screen').addEventListener('click', () => setPrefs({ screen_aware: !prefs.screen_aware }));
