@@ -24,6 +24,8 @@ def main() -> None:
     import fcntl
 
     args = json.loads(sys.argv[1])
+    # The folder first: on a fresh install there's none yet for the lock file to go in.
+    Path(args["store"]).parent.mkdir(parents=True, exist_ok=True)
     # One rebuild at a time, even if an earlier app run left one going.
     lock = open(Path(args["store"]).with_suffix(".lock"), "w")  # noqa: SIM115 - held until exit
     try:

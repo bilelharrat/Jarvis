@@ -100,3 +100,15 @@ def test_a_hello_that_fails_leaves_no_queue_behind(client):
     except Exception:
         pass
     assert not app_hub._subscribers
+
+
+def test_odd_values_never_stop_a_windows_events():
+    import json as _json
+
+    from jarvis.server import event_text
+
+    text = event_text(
+        {"type": "files", "name": "bad\udc80name", "cpu": float("nan"), "at": object()}
+    )
+    event = _json.loads(text)
+    assert event["type"] == "files" and event["cpu"] is None and "name" in event["name"]

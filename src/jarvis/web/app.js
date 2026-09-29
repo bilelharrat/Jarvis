@@ -1945,7 +1945,7 @@ function localSlash(text) {
       setMode(mode);
       return true;
     }
-    case 'add-dir': addFolder(); return true;
+    case 'add-dir': addCodeFolder(); return true;
     case 'model': if (!arg) { modelMenu(); return true; } return false;
     case 'init': if (t) send({ type: 'task_send', id: t.id, text: 'Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.' }); return true;
     case 'review': if (t) send({ type: 'task_send', id: t.id, text: 'Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.' }); return true;
@@ -2077,9 +2077,14 @@ function fileKind(file) {
 function jcNote(text) { notice('Jarvis Code', '', text, 6000); }
 function sizeText(n) { return n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`; }
 
+// What one message may carry in all (base64 or text): well under the window socket's frame.
+const MAX_ATTACH_TOTAL = 24_000_000;
+
 function addFile(file) {
   if (!file) return;
   if (attachments.length >= 6) { jcNote('Up to six attachments per message.'); return; }
+  const used = attachments.reduce((n, a) => n + (a.data ? a.data.length : 0), 0);
+  if (used + file.size * (fileKind(file) === 'text' ? 1 : 1.37) > MAX_ATTACH_TOTAL) { jcNote(`${file.name} would make this message too big to send. Send it in a message of its own.`); return; }
   const kind = fileKind(file);
   if (!kind) { jcNote(`${file.name} can’t be attached: pictures, PDFs and text or code files only.`); return; }
   if (kind === 'text' && file.size > MAX_TEXT_FILE) { jcNote(`${file.name} is over 400 KB. Put it in the project and mention it with @ instead.`); return; }
@@ -2541,14 +2546,14 @@ async function pickFolderPath(question) {
   const typed = prompt(tr(question));
   return typed ? typed.trim() : null;
 }
-async function addFolder() {
+async function addCodeFolder() {
   const path = await pickFolderPath('The full path of the folder:');
   if (!path) return;
   const t = currentTask();
   if (t) send({ type: 'task_add_dir', id: t.id, directory: path });
   else if (!pending.dirs.includes(path)) { pending.dirs.push(path); renderAttachments(); }
 }
-async function addPlugin() {
+async function addCodePlugin() {
   const path = await pickFolderPath('The full path of the plugin folder (the one with .claude-plugin/plugin.json):');
   if (!path) return;
   const t = currentTask();
@@ -2595,10 +2600,10 @@ function plusMenu() {
   const t = currentTask();
   openMenu($('jc-plus'), [
     { icon: 'clip', label: 'Add files or photos', key: '⌘U', run: () => $('jc-file').click() },
-    { icon: 'folder', label: 'Add folder', note: t ? '' : 'Joins the next session', run: addFolder },
+    { icon: 'folder', label: 'Add folder', note: t ? '' : 'Joins the next session', run: addCodeFolder },
     { icon: 'slash', label: 'Slash commands', key: '/', run: showSlash },
     { icon: 'plug', label: 'Connectors', sub: connectorItems, subKind: 'connectors' },
-    { icon: 'puzzle', label: 'Add plugins', note: t ? '' : 'Joins the next session', run: addPlugin },
+    { icon: 'puzzle', label: 'Add plugins', note: t ? '' : 'Joins the next session', run: addCodePlugin },
     '-',
     { icon: 'gear', label: 'Jarvis Code settings', key: '⌘,', run: () => openJcSettings('general') },
   ]);

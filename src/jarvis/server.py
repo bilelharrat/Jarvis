@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
+import math
 import re
 import secrets
 from pathlib import Path
+from typing import Any
 
 from starlette.applications import Starlette
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse
@@ -72,6 +75,9 @@ def create_app(hub: Hub, token: str) -> Starlette:
             tmp.replace(path)
         return FileResponse(path, media_type="application/octet-stream")
 
+    async def send_event(ws: WebSocket, event: dict[str, Any]) -> None:
+        await ws.send_text(event_text(event))
+
     async def socket(ws: WebSocket) -> None:
         offered = ws.query_params.get("token", "")
         origin = ws.headers.get("origin", "")
@@ -85,13 +91,13 @@ def create_app(hub: Hub, token: str) -> Starlette:
 
         async def pump() -> None:
             while (event := await queue.get()) is not None:
-                await ws.send_json(event)
+                await send_event(ws, event)
             # Fell too far behind: close, and the window reconnects to a fresh snapshot.
             with contextlib.suppress(Exception):
                 await ws.close(code=4408)
 
         try:
-            await ws.send_json(hub.snapshot())
+            await send_event(ws, hub.snapshot())
             sender = asyncio.create_task(pump())
             while True:
                 try:
@@ -130,6 +136,33 @@ def create_app(hub: Hub, token: str) -> Starlette:
         ],
         lifespan=lifespan,
     )
+
+
+def _finite(value: Any) -> Any:
+    """The same data with NaN and infinities as null: the browser's JSON can't read them."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(v) for v in value]
+    return value
+
+
+def event_text(event: dict[str, Any]) -> str:
+    """An event as the window reads it, whatever is in it: an odd value (a lone surrogate
+    from a file name, a NaN from a sensor, an object) never stops a window's events."""
+    try:
+        text = json.dumps(
+            event, ensure_ascii=False, separators=(",", ":"), default=str, allow_nan=False
+        )
+    except ValueError:  # NaN or infinity somewhere
+        text = json.dumps(_finite(event), ensure_ascii=False, separators=(",", ":"), default=str)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:  # half of a surrogate pair: becomes U+FFFD
+        text = text.encode("utf-8", "replace").decode("utf-8", "replace")
+    return text
 
 
 def serve(port: int, token: str) -> None:
@@ -177,4 +210,5 @@ def serve(port: int, token: str) -> None:
 
     app = create_app(Hub(load_settings()), token)
     print(f"JARVIS listening on http://127.0.0.1:{port}/?token={token}", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    # Frames up to 64 MiB: a message with its attachments (the composer caps them at 24 MB).
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning", ws_max_size=64 * 1024 * 1024)
