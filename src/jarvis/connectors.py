@@ -48,6 +48,9 @@ class CatalogEntry:
 
 _G = "https://www.googleapis.com/auth/"
 GOOGLE_HELP = (
+    "Easier route: add your Google account in System Settings > Internet Accounts (Jarvis "
+    "already reads Mail and Calendar) and install Google Drive for desktop, then add its "
+    "folder to the second brain. This connector is only needed for more than that. "
     "Google's connectors are a developer preview. Join the Workspace Developer Preview, "
     "create a Google Cloud project, enable the API and its MCP API, set up the OAuth "
     f"consent screen, and create a Web OAuth client with redirect URI {REDIRECT_URI}. "

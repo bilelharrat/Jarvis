@@ -392,3 +392,11 @@ body.in-app .galaxy-top { left: 92px; }
 .custom-form .btn { align-self: flex-start; margin-top: 6px; }
 code { font-family: var(--mono); font-size: 12px; background: var(--bg); border-radius: 5px; padding: 1px 5px; }
 @media (max-width: 700px) { .catalog-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* links inside panels and cards */
+.sheet a, .card a, .note-panel a {
+  color: var(--action); text-decoration: underline; text-underline-offset: 3px;
+  font-size: 14px; align-self: flex-start;
+}
+.sheet a:hover, .card a:hover { filter: brightness(1.15); }
+.sheet a:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 3px; }
