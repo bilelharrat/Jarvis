@@ -526,6 +526,9 @@ class Hub:
         self._code_stt: Any = None
         self._turn_text = ""
         self._turn_reads: dict[str, Any] = {}  # what this turn has read (the turn gate)
+        # What the whole conversation has read: it stays in Claude's context after the
+        # turn that read it, so the gates count it until the conversation starts afresh.
+        self._session_reads: dict[str, Any] = {"private": False, "web": False, "what": []}
         self._early_reads: list[str] = []  # marked before a turn began: for the next one
         self._spoke_until = 0.0
         self._hands_free_before_meeting: bool | None = None
@@ -664,6 +667,8 @@ class Hub:
         options.include_partial_messages = True
         if resume:
             options.resume = resume
+        else:  # a new conversation: nothing earlier is in its context
+            self._session_reads = {"private": False, "web": False, "what": []}
         self.client = self.client_factory(options=options)
         await self.client.connect()
 
@@ -743,7 +748,7 @@ class Hub:
         the user is asked first."""
         pattern = FEATURE_ASKED.get(action)
         pattern_zh = lang.FEATURE_ASKED_ZH.get(action) if lang.is_zh(self.language) else None
-        reads = self._reads()
+        reads = self._gate_reads()
         tainted = action in STANDING_ACTIONS and (reads["private"] or reads["web"])
         asked = (pattern is not None and user_asked(pattern, self._turn_text)) or (
             pattern_zh is not None and lang.user_asked_zh(pattern_zh, self._turn_text)
@@ -761,7 +766,9 @@ class Hub:
         Called before a turn has begun, it applies to the next one."""
         what = reason or "private content"
         if not self._rid:
-            self._early_reads.append(what)
+            if what not in self._early_reads:
+                self._early_reads.append(what)
+                del self._early_reads[:-20]
         else:
             self._note_read("private", what)
 
@@ -773,10 +780,25 @@ class Hub:
             self._note_read(kind, tool_label(tool_name))
 
     def _note_read(self, kind: str, what: str) -> None:
-        reads = self._reads()
-        reads[kind] = True
-        if what not in reads["what"]:
-            reads["what"].append(what)
+        for reads in (self._reads(), self._session_reads):
+            reads[kind] = True
+            if what not in reads["what"]:
+                reads["what"].append(what)
+                del reads["what"][:-40]
+
+    def _gate_reads(self) -> dict[str, Any]:
+        """What the gates weigh: this turn's reads and everything earlier in the same
+        conversation (turn 1 reads the inbox, turn 2 is asked to fetch a page: the inbox
+        is still in context, so that page needs the user's OK too)."""
+        turn, session = self._reads(), self._session_reads
+        what = list(turn["what"]) + [w for w in session["what"] if w not in turn["what"]]
+        return {
+            "private": turn["private"] or session["private"],
+            "web": turn["web"] or session["web"],
+            "what": what,
+            "earlier": (session["private"] or session["web"])
+            and not (turn["private"] or turn["web"]),
+        }
 
     def _reads(self) -> dict[str, Any]:
         """What this turn has read so far: private data, web pages. Each turn starts clean."""
@@ -794,13 +816,14 @@ class Hub:
                 "so I check before anything leaves the Mac."
             )
         seen = "; ".join(reads["what"][:6]) or "outside content"
+        where = "this conversation" if reads.get("earlier") else "this request"
         if reads["private"]:
             return (
-                f"Earlier in this request: {seen}. An address or request like this can carry "
+                f"Earlier in {where}: {seen}. An address or request like this can carry "
                 "some of that out, so check it before you allow it."
             )
         return (
-            f"Earlier in this request: {seen}. Pages can hide instructions, and you didn't "
+            f"Earlier in {where}: {seen}. Pages can hide instructions, and you didn't "
             "name this site yourself, so check it before you allow it."
         )
 
@@ -828,7 +851,7 @@ class Hub:
         or outside content (and from the start when no one typed or said the request: a
         routine, the briefing), an address goes out only with the user's OK, unless it's a
         site they named in their own words this turn and nothing private was read."""
-        reads = self._reads()
+        reads = self._gate_reads()
         if tool_name == task_tool("start_research"):
             # The research desk fetches whatever the topic leads to. A routine's own
             # "research X overnight" was the user's (they approved the routine).
@@ -902,7 +925,7 @@ class Hub:
         )
         if asked and not (starts or request):
             return True  # only voice focus on a session, as they asked
-        reads = self._reads()
+        reads = self._gate_reads()
         in_projects = target.parent == self.settings.projects_dir.resolve()
         if (
             asked
@@ -946,7 +969,7 @@ class Hub:
         if task is None or task.kind != "code" or not message:
             return True  # nothing is sent: the tool says there's no such session
         words_said = self._turn_text
-        reads = self._reads()
+        reads = self._gate_reads()
         others = [
             t
             for t in self.tasks.tasks.values()
@@ -1651,6 +1674,7 @@ class Hub:
             self.transactions.reset_turn()
             rid = uuid.uuid4().hex[:8]
             self._rid = rid
+            self._reads()  # the new turn's record, with anything marked before it began
             self.commands += 1
             self.history.append({"role": "user", "text": display or text, "at": _now()})
             self.turn = {"rid": rid, "user": display or text, "reply": ""}
@@ -3577,7 +3601,7 @@ class Hub:
         """A conversation may go ahead without a card per message only when the user's own
         words this turn said so, the turn read no web page, and the only private thing it
         read was the contact lookup (a mail or page can't widen what's shared unseen)."""
-        reads = self._reads()
+        reads = self._gate_reads()
         return (
             delegate.granted_autonomy(self._turn_text)
             and not reads["web"]
