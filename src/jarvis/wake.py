@@ -75,6 +75,69 @@ def is_stop(text: str) -> bool:
     return phrase in STOP_PHRASES or any(phrase.startswith(p + " ") for p in STOP_PHRASES)
 
 
+YES = {
+    "yes",
+    "yeah",
+    "yep",
+    "yup",
+    "sure",
+    "ok",
+    "okay",
+    "confirm",
+    "confirmed",
+    "correct",
+    "go ahead",
+    "do it",
+    "send it",
+    "send",
+    "yes please",
+    "go for it",
+    "run it",
+    "allow",
+    "approve",
+    "approved",
+    "absolutely",
+    "definitely",
+    "of course",
+    "affirmative",
+}
+NO = {
+    "no",
+    "nope",
+    "nah",
+    "cancel",
+    "don't",
+    "dont",
+    "do not",
+    "don't send",
+    "don't send it",
+    "never mind",
+    "nevermind",
+    "negative",
+    "stop",
+    "deny",
+    "not now",
+    "no thanks",
+    "hold on",
+    "wait",
+    "abort",
+}
+
+
+def yes_no(text: str) -> bool | None:
+    """A short spoken answer to a question JARVIS just asked: True, False, or None."""
+    w = [t.replace("’", "'") for t in words(text) if not _is_wake_token(t)]
+    if not w or len(w) > 5:
+        return None
+    for size in (3, 2, 1):  # "no, don't send it" is a no, though it contains "send it"
+        lead = " ".join(w[:size])
+        if lead in NO:
+            return False
+        if lead in YES:
+            return True
+    return None
+
+
 def is_echo(heard: str, speaking: str, threshold: float = 0.6) -> bool:
     """True when what the mic heard is mostly JARVIS's own voice from the speakers."""
     heard_words = [w for w in words(heard) if len(w) > 2]

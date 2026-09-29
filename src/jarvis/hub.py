@@ -48,7 +48,7 @@ from .proactive import Alert, Watcher, in_quiet_hours
 from .routines import RoutineStore
 from .speech import Speaker, SpeechQueue, cloud_voice_from, split_sentences
 from .tasks import ClaudeTask, TaskManager
-from .wake import find_wake, is_echo, is_stop, words
+from .wake import find_wake, is_echo, is_stop, words, yes_no
 
 TOOL_LABELS = {
     "open_app": "Opened an app",
@@ -226,6 +226,7 @@ class Hub:
         self.meetings_dir = meetings_dir
         self._alert_notes: deque[tuple[float, str]] = deque(maxlen=3)
         self._silent = False
+        self._approval_at = 0.0
         self._turn_text = ""
         self._spoke_until = 0.0
         self._hands_free_before_meeting: bool | None = None
@@ -365,6 +366,8 @@ class Hub:
         """In a meeting, anything not addressed to JARVIS goes into the notes."""
         if find_wake(text)[0] or (self._armed_until and time.monotonic() < self._armed_until):
             return False  # for JARVIS: a command, or the question after a bare "Jarvis"
+        if self.approvals and yes_no(text) is not None:
+            return False  # the answer to a question JARVIS just asked
         if self.state == "speaking":
             return True  # its own voice isn't part of the meeting
         just_spoke = time.monotonic() - self._spoke_until < ECHO_SECONDS
@@ -593,6 +596,7 @@ class Hub:
             **(context or {}),
         }
         future = asyncio.get_running_loop().create_future()
+        self._approval_at = time.monotonic()
         self.approvals[approval_id] = approval
         self._futures[approval_id] = future
         self.emit("approval", **approval)
@@ -626,6 +630,22 @@ class Hub:
             question, detail, [("allow", "Send"), ("deny", "Don't send")]
         )
         return choice == "allow"
+
+    def answer_by_voice(self, text: str) -> bool:
+        """'Yes' or 'no' to the question JARVIS just asked, without the wake word: the
+        newest open approval, within a minute of asking."""
+        if not self.approvals or time.monotonic() - self._approval_at > 60:
+            return False
+        if self.state == "speaking" or time.monotonic() - self._spoke_until < 0.8:
+            return False  # never let it hear its own "sure" as the user's yes
+        answer = yes_no(text)
+        if answer is None:
+            return False
+        approval = list(self.approvals.values())[-1]
+        choices = [c["id"] for c in approval["choices"]]
+        log.info("approval answered by voice: %s", "yes" if answer else "no")
+        self.emit("heard", text=text)
+        return self.resolve(approval["id"], choices[0] if answer else choices[-1])
 
     async def confirm(self, question: str) -> bool:
         """The chat's permission gate: speak the question, wait for a tap."""
@@ -1063,6 +1083,8 @@ class Hub:
         """One hands-free utterance: wake word, barge-in, or ignore."""
         text = text.strip()
         if not text:
+            return
+        if self.answer_by_voice(text):
             return
         woke, command = find_wake(text)
         busy = self._lock.locked()

@@ -527,3 +527,27 @@ async def test_quiet_hours_routine_runs_without_a_sound(settings, quiet_speaker,
     hub.speech.push = spoken.append
     await hub.run_routine(Routine("r", "Research", "Research X", "once", "01:00"))
     assert spoken == [] and hub.history[-1]["text"] == "Two meetings tomorrow."
+
+
+async def test_spoken_yes_or_no_answers_the_open_question(settings, quiet_speaker, isolated):
+    from jarvis.wake import yes_no
+
+    assert yes_no("Yes") is True and yes_no("yeah, send it") is True
+    assert yes_no("no, don't send it") is False and yes_no("Jarvis, cancel") is False
+    assert yes_no("what's the weather like") is None
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    pending = asyncio.create_task(hub.send_gate("Send this to Ben?", "hi"))
+    await asyncio.sleep(0)
+    hub.state = "speaking"
+    await hub.on_heard("sure")  # its own voice while it talks: ignored
+    assert not pending.done()
+    hub.state = "idle"
+    hub._spoke_until = 0
+    await hub.on_heard("yes, send it")
+    assert await pending is True
+    no = asyncio.create_task(hub.confirm("Quit Music?"))
+    await asyncio.sleep(0)
+    await hub.on_heard("no")
+    assert await no is False
