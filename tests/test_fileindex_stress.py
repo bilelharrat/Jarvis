@@ -236,3 +236,35 @@ def test_the_write_ahead_log_is_kept_to_a_size(tmp_path):
     index = FileIndex(tmp_path / "files.db", [], home=tmp_path)
     with index._db() as conn:
         assert conn.execute("PRAGMA journal_size_limit").fetchone()[0] == 64 * 1024 * 1024
+
+
+def test_an_index_made_before_the_newer_columns_is_brought_up_to_date(tmp_path):
+    """The files table gained tries, retry_at and offline without a version change: an index
+    made before them failed every refresh ("no such column: retry_at") until it's updated."""
+    import sqlite3
+
+    from jarvis import fileindex as fi
+
+    db = tmp_path / "files.db"
+    old = sqlite3.connect(db, isolation_level=None)
+    old.execute("PRAGMA journal_mode = WAL")
+    for statement in fi.SCHEMA:
+        if statement.startswith("CREATE TABLE files ("):  # as it was before the new columns
+            statement = (
+                "CREATE TABLE files (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, "
+                "dir TEXT NOT NULL, name TEXT NOT NULL, ext TEXT NOT NULL, kind TEXT NOT NULL, "
+                "size INTEGER NOT NULL, modified REAL NOT NULL, "
+                "pending INTEGER NOT NULL DEFAULT 0)"
+            )
+        old.execute(statement)
+    old.execute(f"PRAGMA user_version = {fi.SCHEMA_VERSION}")
+    old.close()
+    docs = tmp_path / "Documents"
+    docs.mkdir()
+    (docs / "budget notes.txt").write_text("the quarterly budget for the offsite")
+    index = fi.FileIndex(db, [docs], home=tmp_path)
+    stats = index.refresh(lambda *_: None, lambda: False)
+    assert "error" not in stats, stats
+    assert index.status()["files"] == 1
+    columns = {row[1] for row in sqlite3.connect(db).execute("PRAGMA table_info(files)")}
+    assert {"tries", "retry_at", "offline"} <= columns

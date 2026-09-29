@@ -1155,6 +1155,31 @@ def _drop_and_create(conn: sqlite3.Connection) -> None:
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
+# Columns the files table gained after its version was last raised. An index made before
+# them is only missing them: they're added in place, and the index is kept (a rebuild of a
+# big one takes minutes). Without them every refresh failed ("no such column: retry_at").
+ADDED_COLUMNS = (
+    ("tries", "INTEGER NOT NULL DEFAULT 0"),
+    ("retry_at", "REAL NOT NULL DEFAULT 0"),
+    ("offline", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    def missing() -> list[tuple[str, str]]:
+        have = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+        return [(name, decl) for name, decl in ADDED_COLUMNS if have and name not in have]
+
+    if not missing():
+        return
+    with _transaction(conn):
+        todo = missing()  # again, inside the write: another process may have just added them
+        for name, decl in todo:
+            conn.execute(f"ALTER TABLE files ADD COLUMN {name} {decl}")
+    if todo:
+        log.info("file index: brought up to date (%s)", ", ".join(name for name, _ in todo))
+
+
 @contextlib.contextmanager
 def _transaction(conn: sqlite3.Connection) -> Iterator[None]:
     """A short write: readers carry on meanwhile (WAL), and nothing half-done is kept."""
@@ -1933,6 +1958,7 @@ class FileIndex:
                 os.chmod(self.path, 0o600)
             conn.execute("PRAGMA journal_mode = WAL")
             if conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION:
+                _add_missing_columns(conn)
                 return
             with _transaction(conn):
                 if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
