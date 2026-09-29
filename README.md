@@ -117,7 +117,7 @@ default calendar, and where the BSH research center lives.
 - `src/jarvis/speech.py`: markdown → speakable text, and `say`
 
 ```sh
-uv run pytest && uv run ruff check .
+uv run pytest && uv run ruff check . && node --test tests/web/
 ```
 
 Known limit: Calendar's AppleScript only reports a repeating event on the day of its

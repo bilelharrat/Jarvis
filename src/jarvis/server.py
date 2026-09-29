@@ -21,6 +21,17 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from .hub import Hub
 
+
+class FreshStaticFiles(StaticFiles):
+    """The window's own scripts, revalidated on every load so a module another module
+    imports (which can't carry a ?v= stamp) is never a stale copy."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 WEB_DIR = Path(__file__).parent / "web"
 VISION_DIR = (
     Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@mediapipe" / "tasks-vision"
@@ -101,7 +112,7 @@ def create_app(hub: Hub, token: str) -> Starlette:
             Route("/health", health),
             Route("/models/hand_landmarker.task", hand_model),
             WebSocketRoute("/ws", socket),
-            Mount("/static", StaticFiles(directory=WEB_DIR)),
+            Mount("/static", FreshStaticFiles(directory=WEB_DIR)),
             Mount("/vision", StaticFiles(directory=VISION_DIR, check_dir=False)),
         ],
         lifespan=lifespan,

@@ -25,6 +25,11 @@ def test_page_and_health_are_served(client):
     assert client.get("/static/app.js").status_code == 200
 
 
+def test_window_modules_are_revalidated(client):
+    # gestures.js is imported by hands.js without a version stamp
+    assert client.get("/static/gestures.js").headers["cache-control"] == "no-cache"
+
+
 def test_socket_needs_the_token(client):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect(
