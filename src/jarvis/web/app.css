@@ -1730,3 +1730,169 @@ body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: n
   .jc-round.live { animation: none; }
   .jc-gauge .g-fill, .jcs-switch::after { transition: none; }
 }
+
+/* ═════════════ Settings & sheets — Apple-style glass ═════════════ */
+/* Grouped inset cards with hairline rows, a frosted sheet, iOS switches and segmented
+   controls. Scoped to .sheet so the dashboard, deck and mode selector are untouched. */
+.sheet {
+  --s-card: rgba(120, 120, 128, 0.06);
+  --s-line: rgba(60, 60, 67, 0.13);
+  --s-track: rgba(120, 120, 128, 0.16);
+  --s-switch: rgba(120, 120, 128, 0.32);
+  --s-seg: #ffffff;
+  --s-seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --s-input: rgba(120, 120, 128, 0.07);
+  --s-rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.55);
+  --s-fill: rgba(250, 250, 252, 0.78);
+  --s-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 180px);
+  --s-blur: blur(30px) saturate(180%);
+  --s-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 30px 80px -20px rgba(0, 0, 0, 0.35);
+}
+@media (prefers-color-scheme: dark) {
+  .sheet {
+    --s-card: rgba(255, 255, 255, 0.05);
+    --s-line: rgba(255, 255, 255, 0.09);
+    --s-track: rgba(0, 0, 0, 0.24);
+    --s-switch: rgba(120, 120, 128, 0.42);
+    --s-seg: rgba(235, 235, 245, 0.16);
+    --s-seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
+    --s-input: rgba(255, 255, 255, 0.05);
+    --s-rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.09);
+    --s-fill: rgba(28, 28, 32, 0.72);
+    --s-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 180px);
+    --s-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* Stark HUD and Command Center are dark whatever the system setting, so their sheet uses the dark set */
+body[data-look="hud"] .sheet,
+body[data-look="console"] .sheet {
+  --s-card: rgba(255, 255, 255, 0.05);
+  --s-line: rgba(255, 255, 255, 0.09);
+  --s-track: rgba(0, 0, 0, 0.24);
+  --s-switch: rgba(120, 120, 128, 0.42);
+  --s-seg: rgba(235, 235, 245, 0.16);
+  --s-seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
+  --s-input: rgba(255, 255, 255, 0.05);
+  --s-rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.09);
+}
+
+/* the sheet as one frosted panel (the Glass look; HUD and Console keep their own material) */
+body[data-look="orb"] .sheet {
+  background: var(--s-sheen), var(--s-fill);
+  -webkit-backdrop-filter: var(--s-blur); backdrop-filter: var(--s-blur);
+  border-left: 0.5px solid var(--s-line);
+  box-shadow: var(--s-shadow);
+  padding: 24px 20px 40px;
+}
+
+.sheet .drawer-head { margin-bottom: 20px; }
+.sheet .drawer-head h2 { font-size: 25px; font-weight: 640; letter-spacing: -0.021em; }
+.sheet .drawer-head .icon-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--s-card); border: 0.5px solid var(--s-line); color: var(--ink-2);
+}
+.sheet .drawer-head .icon-btn:hover { background: var(--s-track); color: var(--ink); }
+
+/* each section: a rounded inset card, its rows split by hairlines, its title and note inside */
+.sheet .group {
+  gap: 0; padding: 0 15px; margin: 0 0 16px; border: 0; border-radius: 15px;
+  background: var(--s-card); box-shadow: var(--s-rim), 0 0 0 0.5px var(--s-line);
+}
+.sheet .group > * { padding: 12px 1px; }
+.sheet .group > * + * { border-top: 0.5px solid var(--s-line); }
+.sheet .group > h3 + * { border-top: 0; }
+.sheet .group > h3 + .row { padding-top: 2px; }
+.sheet .group h3 {
+  padding: 14px 1px 10px; font-size: 12px; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--muted); font-weight: 600;
+}
+.sheet .group > .group-note,
+.sheet .group > .small-status {
+  border-top: 0; padding: 2px 1px 14px; color: var(--muted); font-size: 12.5px; line-height: 1.45;
+}
+
+.sheet .row { gap: 16px; font-size: 15px; }
+.sheet .row strong { font-weight: 500; letter-spacing: -0.01em; }
+.sheet .row small { font-size: 13px; line-height: 1.4; }
+/* a stacked row's hint sits under its label (rows showing a value, like Humor, keep it on the right) */
+.sheet .row.stack > span:has(> small) { flex-direction: column; justify-content: flex-start; gap: 3px; }
+
+/* iOS-style switches */
+.sheet .switch {
+  width: 51px; height: 31px; border-radius: 16px;
+  background: var(--s-switch); box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+.sheet .switch::after {
+  top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+.sheet .switch[aria-checked="true"] { background: var(--action); }
+.sheet .switch[aria-checked="true"]::after { transform: translateX(20px); }
+
+/* iOS-style segmented control: a raised pill slides over an inset track */
+.sheet .segmented {
+  grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0;
+  padding: 2px; background: var(--s-track); border-radius: 10px; box-shadow: inset 0 0 0 0.5px var(--s-line);
+}
+.sheet .group > .segmented { margin: 2px 0 12px; }
+.sheet .group > .segmented:has(+ .group-note, + .small-status) { margin-bottom: 6px; }
+.sheet .segmented button {
+  min-height: 30px; padding: 0 6px; border: 0; background: transparent; border-radius: 7.5px; white-space: nowrap;
+  font-size: 13px; font-weight: 500; color: var(--ink); transition: background 150ms ease, box-shadow 150ms ease;
+}
+.sheet .segmented button[aria-checked="true"] {
+  background: var(--s-seg); box-shadow: var(--s-seg-shadow); color: var(--ink); font-weight: 600;
+}
+
+/* inputs, selects, textareas */
+.sheet select,
+.sheet input[type="text"],
+.sheet input[type="url"],
+.sheet input[type="time"],
+.sheet input[type="number"],
+.sheet .folder-form input,
+.sheet textarea {
+  background: var(--s-input); border: 0.5px solid var(--s-line); border-radius: 10px; min-height: 38px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.sheet select:focus,
+.sheet input:focus,
+.sheet textarea:focus {
+  outline: 0; border-color: var(--action);
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--action) 20%, transparent);
+}
+
+/* buttons: Apple's tinted style (soft accent fill, accent label), never wrapping */
+.sheet .btn {
+  min-height: 36px; padding: 0 14px; border: 0; border-radius: 10px; white-space: nowrap;
+  background: color-mix(in srgb, var(--action) 12%, transparent); color: var(--action); font-weight: 500;
+  transition: background 150ms ease;
+}
+.sheet .btn:hover { background: color-mix(in srgb, var(--action) 19%, transparent); }
+.sheet .btn.primary { background: var(--action); color: var(--action-ink); font-weight: 600; }
+
+/* add forms: the field takes the room; with a menu it gets its own line, menu and button below */
+.sheet .folder-form { flex-wrap: wrap; align-items: center; }
+.sheet .folder-form input { flex: 1 1 0; min-width: 0; }
+.sheet .folder-form:has(select) input { flex-basis: 100%; }
+.sheet .folder-form select { flex: 1 1 0; min-width: 0; }
+.sheet .folder-form .btn { flex: none; }
+
+/* a time range stacks under its label, the two times side by side */
+.sheet .row:has(> .time-range) { flex-direction: column; align-items: stretch; gap: 8px; }
+.sheet .time-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* disclosure rows get a chevron instead of the triangle */
+.sheet details > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.sheet details > summary::-webkit-details-marker { display: none; }
+.sheet details > summary::after {
+  content: ""; width: 7px; height: 7px; margin-right: 4px; border: solid var(--muted);
+  border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform 180ms ease;
+}
+.sheet details[open] > summary::after { transform: rotate(45deg); }
+
+/* a button placed straight in a card is a button, not a row */
+.sheet .group > .btn { padding: 0 14px; margin: 12px 0; }
+.sheet .group > .btn + .btn { margin-top: -4px; }
+.sheet .group > ul:empty { display: none; }
