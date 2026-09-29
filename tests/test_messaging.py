@@ -80,3 +80,26 @@ async def test_hub_offers_send_tools_with_a_tap_to_send(settings, quiet_speaker,
     assert [c["label"] for c in approval["choices"]] == ["Send", "Don't send"]
     hub.resolve(approval["id"], "allow")
     assert await pending is True
+
+
+async def test_a_misheard_name_still_finds_the_person():
+    calls = []
+
+    async def lookup(query):
+        calls.append(query)
+        return [BEN, {**BEN, "name": "Ben Stone"}] if query == "Ben" else []
+
+    assert await resolve("Ben MA", "imessage", lookup) == ("Ben Ma", "+1 415 555 0199")
+    assert calls == ["Ben MA", "Ben"]
+
+
+async def test_find_contact_lists_numbers_and_addresses():
+    async def approve(_q, _d):
+        return False
+
+    tools = {t.name: t.handler for t in build_tools(approve, lookup_ben)}
+    out = await tools["find_contact"]({"name": "Ben"})
+    assert (
+        "Ben Ma: work +1 415 555 0100, iPhone +1 415 555 0199; ben@example.com"
+        == out["content"][0]["text"]
+    )

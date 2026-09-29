@@ -10,6 +10,8 @@
 	<string>J.A.R.V.I.S. reads your calendar to brief you, answer questions about your day and tell you when to leave.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>J.A.R.V.I.S. reads your calendar to brief you, answer questions about your day and tell you when to leave.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>J.A.R.V.I.S. looks people up in your Contacts when you ask it to message, email or call someone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>J.A.R.V.I.S. shows your camera in the Command Center when you turn it on. Nothing is recorded or sent.</string>
 	<key>NSLocationUsageDescription</key>

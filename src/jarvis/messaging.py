@@ -82,6 +82,18 @@ async def find_contacts(query: str) -> list[dict[str, Any]]:
         return []
 
 
+async def search_people(query: str, lookup=find_contacts) -> list[dict[str, Any]]:
+    """Contacts matching a spoken name. Speech often splits or mangles a name ("Ben MA"),
+    so when the whole phrase finds no one, search by its first word and keep the people
+    whose name contains every word."""
+    people = await lookup(query)
+    words = query.lower().split()
+    if people or len(words) < 2:
+        return people
+    wider = await lookup(query.split()[0])
+    return [p for p in wider if all(w in p["name"].lower() for w in words)] or wider[:5]
+
+
 def _pick(values: list[dict[str, str]], prefer: tuple[str, ...]) -> str:
     for label in prefer:
         for v in values:
@@ -98,7 +110,7 @@ async def resolve(to: str, kind: str, lookup=find_contacts) -> tuple[str, str] |
     if kind == "imessage" and (is_email(to) or is_phone(to)):
         return to, to
     try:
-        people = await lookup(to)
+        people = await search_people(to, lookup)
     except mac_tools.ToolFailure as exc:
         return f"I couldn't search Contacts: {exc}"
     exact = [p for p in people if p["name"].lower() == to.lower()]
@@ -181,7 +193,26 @@ def build_tools(approve: Approve, lookup=find_contacts, run=mac_tools.run_apples
             return _text(f"Mail couldn't send it: {exc}", error=True)
         return _text(f"Emailed {name}.")
 
-    return [send_message, send_email]
+    @tool(
+        "find_contact",
+        "Look someone up in the user's Contacts: their phone numbers and email addresses.",
+        {"name": str},
+    )
+    async def find_contact(args):
+        try:
+            people = await search_people(str(args.get("name", "")), lookup)
+        except mac_tools.ToolFailure as exc:
+            return _text(f"I couldn't search Contacts: {exc}", error=True)
+        if not people:
+            return _text("No one by that name in Contacts.")
+        lines = []
+        for p in people[:5]:
+            phones = ", ".join(f"{x['label'] or 'phone'} {x['value']}" for x in p["phones"])
+            emails = ", ".join(x["value"] for x in p["emails"])
+            lines.append(f"{p['name']}: {phones or 'no phone'}; {emails or 'no email'}")
+        return _text("\n".join(lines))
+
+    return [send_message, send_email, find_contact]
 
 
 def build_server(approve: Approve):
