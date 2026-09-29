@@ -19,6 +19,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from .config import MAX_BUFFER
 from .knowledge import MEETINGS_DIR  # filed where the second brain looks
 
 log = logging.getLogger("jarvis")
@@ -160,6 +161,7 @@ async def claude_summarize(prompt: str, model: str, cwd: str) -> str:
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
 
     options = ClaudeAgentOptions(
+        max_buffer_size=MAX_BUFFER,
         model=model,
         system_prompt="You write crisp, accurate meeting notes in Markdown.",
         tools=[],

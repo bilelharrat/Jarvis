@@ -38,7 +38,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .config import Settings
+from .config import MAX_BUFFER, Settings
 from .knowledge import RESEARCH_DIR
 
 READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite"]
@@ -324,6 +324,7 @@ class TaskManager:
     def options_for(self, task: ClaudeTask) -> ClaudeAgentOptions:
         if task.kind == "research":
             return ClaudeAgentOptions(
+                max_buffer_size=MAX_BUFFER,
                 model=self.model,
                 effort=self.settings.task_effort,
                 cwd=str(task.cwd),
@@ -336,6 +337,7 @@ class TaskManager:
                 strict_mcp_config=True,
             )
         options = ClaudeAgentOptions(
+            max_buffer_size=MAX_BUFFER,
             model=self.model,
             effort=self.settings.task_effort,
             cwd=str(task.cwd),

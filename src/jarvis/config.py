@@ -13,6 +13,11 @@ DEFAULT_PROJECTS_DIR = Path.home() / "Investment agent"
 DEFAULT_BSH_DIR = DEFAULT_PROJECTS_DIR / "bsh-research-center"
 
 
+# The SDK's default 1 MB cap on one message from Claude Code is smaller than a
+# full-screen screenshot or a long PDF read; going over it killed the whole turn.
+MAX_BUFFER = 32 * 1024 * 1024
+
+
 @dataclass(frozen=True)
 class Settings:
     model: str = "claude-opus-5-5"

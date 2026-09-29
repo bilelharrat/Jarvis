@@ -15,7 +15,7 @@ from claude_agent_sdk import (
 )
 
 from . import computer, mac_tools
-from .config import Settings
+from .config import MAX_BUFFER, Settings
 from .prefs import PERSONAS, Prefs
 
 BSH_SERVER = "bsh"
@@ -271,6 +271,7 @@ def build_options(
     # Auto-allowed tools skipping can_use_tool is the design, not an accident.
     warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
     return ClaudeAgentOptions(
+        max_buffer_size=MAX_BUFFER,
         model=prefs.model_id() if prefs else settings.model,
         effort=settings.effort,
         system_prompt=system_prompt(settings, bsh_enabled, prefs, accounts, extra_prompt),

@@ -84,6 +84,23 @@ class EndpointDetector:
         return self._quiet_run >= self.silence_blocks
 
 
+# PortAudio is only used for input now (playback goes through the native player), so the
+# listener may reset it to re-list devices. The lock keeps a reset from pulling the rug out
+# from under a push-to-talk recording.
+PORTAUDIO_LOCK = threading.Lock()
+RESET_AFTER_FAILURES = 3
+
+
+def reset_portaudio() -> None:
+    """Forget PortAudio's device list and build it again. After sleep or a device change,
+    opening a stream can fail with -9986 forever until this happens."""
+    import sounddevice as sd
+
+    with PORTAUDIO_LOCK:
+        sd._terminate()
+        sd._initialize()
+
+
 def record_utterance(
     silence_seconds: float,
     on_level: Callable[[float], None] | None = None,
@@ -99,13 +116,16 @@ def record_utterance(
 
     detector = EndpointDetector(silence_seconds=silence_seconds)
     captured: list[np.ndarray] = []
-    with sd.InputStream(
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="float32",
-        blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
-        callback=on_audio,
-        device=device,
+    with (
+        PORTAUDIO_LOCK,
+        sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+            blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+            callback=on_audio,
+            device=device,
+        ),
     ):
         while True:
             block = blocks.get()
@@ -218,8 +238,9 @@ class ContinuousListener:
             blocks: queue.Queue[np.ndarray] = queue.Queue()
             segmenter = Segmenter(silence_seconds=self.silence_seconds)
             try:
-                # Never reset PortAudio here (sd._terminate): it would kill a reply that's
-                # playing and crash the process. A fresh stream is enough.
+                if failures >= RESET_AFTER_FAILURES:
+                    log.info("resetting the audio system to find the microphone again")
+                    reset_portaudio()
                 device = pick_input_device(self.device_preference)
                 with sd.InputStream(
                     samplerate=SAMPLE_RATE,
