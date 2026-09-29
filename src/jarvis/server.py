@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import secrets
 from pathlib import Path
 
 from starlette.applications import Starlette
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -21,7 +22,9 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from .hub import Hub
 
 WEB_DIR = Path(__file__).parent / "web"
-VISION_DIR = Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@mediapipe" / "tasks-vision"
+VISION_DIR = (
+    Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@mediapipe" / "tasks-vision"
+)
 HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/"
     "float16/latest/hand_landmarker.task"
@@ -30,7 +33,12 @@ HAND_MODEL_URL = (
 
 def create_app(hub: Hub, token: str) -> Starlette:
     async def index(_request):
-        return FileResponse(WEB_DIR / "index.html", headers={"Cache-Control": "no-store"})
+        # Stamp script and stylesheet links with a version so an update is never hidden by
+        # the window's cache.
+        version = str(int(max(f.stat().st_mtime for f in WEB_DIR.iterdir() if f.is_file())))
+        html = (WEB_DIR / "index.html").read_text()
+        html = re.sub(r'(/static/[\w-]+\.(?:js|css))"', rf'\1?v={version}"', html)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     async def health(_request):
         return JSONResponse({"ok": True})

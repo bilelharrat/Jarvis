@@ -21,11 +21,21 @@ from .knowledge import Collector, KnowledgeBase
 
 
 def main() -> None:
+    import fcntl
+
     args = json.loads(sys.argv[1])
+    # One rebuild at a time, even if an earlier app run left one going.
+    lock = open(Path(args["store"]).with_suffix(".lock"), "w")  # noqa: SIM115 - held until exit
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(json.dumps({"busy": True}), flush=True)
+        return
     try:
         os.nice(10)  # the voice loop comes first
     except OSError:
         pass
+    Path(args["store"]).parent.mkdir(parents=True, exist_ok=True)
     kb = KnowledgeBase(Path(args["store"]))
     kb.load()
     collector = Collector(kb, Path(args["bsh"]) if args.get("bsh") else None)

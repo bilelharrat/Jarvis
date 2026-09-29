@@ -51,12 +51,11 @@ def _jxa(script: str, timeout: int = 600) -> str:
 # ── computer files ──
 
 
-def collect_computer(folders: list[Path] | None = None, per_folder: int = 1500) -> list[Note]:
+def collect_computer(folders: list[Path] | None = None, per_folder: int = 600) -> list[Note]:
+    """The newest documents in Documents, Desktop and Downloads."""
     notes: list[Note] = []
     for folder in folders or COMPUTER_FOLDERS:
-        found = collect_folder(folder, source="computer")
-        found.sort(key=lambda n: n.modified, reverse=True)
-        notes.extend(found[:per_folder])
+        notes.extend(collect_folder(folder, source="computer", limit=per_folder, newest_first=True))
     return notes
 
 
@@ -117,23 +116,28 @@ def collect_photos(run=_jxa, limit: int = MAX_PHOTOS) -> list[Note]:
 
 MAIL_JXA = """
 const Mail = Application('Mail');
-const cutoff = new Date(Date.now() - %d * 86400000);
-const msgs = Mail.inbox.messages.whose({dateReceived: {'>': cutoff}});
-const ids = msgs.messageId(), senders = msgs.sender(), subjects = msgs.subject(),
-      dates = msgs.dateReceived();
+const cutoff = Date.now() - %d * 86400000;
+const msgs = Mail.inbox.messages;
+// One Apple Event per property for the whole inbox is far faster than 'whose' filtering.
+const dates = msgs.dateReceived();
+const picks = [];
+for (let i = 0; i < dates.length; i++) if (dates[i] && dates[i].getTime() > cutoff) picks.push(i);
+picks.sort((a, b) => dates[b] - dates[a]);
 const out = [];
-for (let i = 0; i < ids.length && i < 600; i++) {
+for (const i of picks.slice(0, %d)) {
+  const m = msgs[i];
   let body = '';
-  try { body = msgs[i].content().slice(0, 4000); } catch (e) {}
-  out.push({id: ids[i], sender: senders[i], subject: subjects[i],
-            date: dates[i] ? dates[i].toISOString() : '', body: body});
+  try { body = m.content().slice(0, 3000); } catch (e) {}
+  out.push({id: m.messageId(), sender: m.sender(), subject: m.subject(),
+            date: dates[i].toISOString(), body: body});
 }
 JSON.stringify(out);
 """
+MAX_MAIL = 150
 
 
 def collect_mail(run=_jxa, days: int = RECENT_DAYS) -> list[Note]:
-    items = json.loads(run(MAIL_JXA % days) or "[]")
+    items = json.loads(run(MAIL_JXA % (days, MAX_MAIL)) or "[]")
     notes = []
     for m in items:
         when = _parse_iso(m.get("date"))

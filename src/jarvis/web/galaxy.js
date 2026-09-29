@@ -26,7 +26,7 @@ class Galaxy {
     this.edges = [];
     this.byId = new Map();
     this.yaw = 0.6;
-    this.pitch = 0.35;
+    this.pitch = 0.95; // look down onto the spiral disc
     this.dist = 3.6;
     this.goalDist = 3.6;
     this.clusters = [];
@@ -167,16 +167,24 @@ class Galaxy {
     }
     ctx.globalAlpha = 1;
 
-    // Cluster names float faintly over their star systems.
+    // Cluster names float over their star systems, biggest first, never overlapping.
     ctx.font = '600 11px "Instrument Sans", -apple-system, sans-serif';
     ctx.textAlign = 'center';
-    for (const c of this.clusters) {
-      if (!c.label || c.size < 4) continue;
+    const placed = [];
+    const clusters = [...this.clusters].filter((c) => c.label && c.size >= 6).sort((a, b) => b.size - a.size);
+    for (const c of clusters) {
       const p = this.project(c.p, w, h);
       if (!p || p[2] < 0.4) continue;
-      ctx.globalAlpha = Math.max(0.15, Math.min(0.6, 2.2 / p[2]));
+      const label = c.label.toUpperCase();
+      const tw = ctx.measureText(label).width + 16;
+      const box = { x: p[0] - tw / 2, y: p[1] - Math.min(70, 120 / p[2]) - 9, w: tw, h: 20 };
+      if (box.x < 4 || box.x + box.w > w - 4 || box.y < 70) continue;
+      if (placed.some((o) => box.x < o.x + o.w && o.x < box.x + box.w && box.y < o.y + o.h && o.y < box.y + box.h)) continue;
+      placed.push(box);
+      ctx.globalAlpha = Math.max(0.3, Math.min(0.75, 2.4 / p[2]));
       ctx.fillStyle = '#b9c9dd';
-      ctx.fillText(c.label.toUpperCase(), p[0], p[1] - Math.min(60, 110 / p[2]));
+      ctx.fillText(label, p[0], box.y + 14);
+      if (placed.length >= 14) break;
     }
     ctx.globalAlpha = 1;
     ctx.textAlign = 'left';

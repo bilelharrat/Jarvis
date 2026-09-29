@@ -76,6 +76,8 @@ class ClaudeTask:
     result: str = ""
     cost_usd: float | None = None
     allow_edits: bool = False
+    files_changed: set[str] = field(default_factory=set)
+    commands: int = 0
     kind: str = "code"  # code | research
     report_path: str = ""
     mode: str = "ask"
@@ -100,6 +102,9 @@ class ClaudeTask:
             "session_id": self.session_id,
             "busy": self.busy,
             "entries": len(self.transcript),
+            "files_changed": sorted(self.files_changed)[:50],
+            "commands": self.commands,
+            "path": str(self.cwd),
             "report_path": self.report_path,
             "status": self.status,
             "last_action": self.last_action,
@@ -258,15 +263,35 @@ class TaskManager:
             )
         return out
 
-    def _log(self, task: ClaudeTask, role: str, text: str) -> None:
+    def _log(self, task: ClaudeTask, role: str, text: str, **extra: Any) -> None:
         entry = {
             "role": role,
             "text": text[:8000],
             "at": datetime.now().isoformat(timespec="seconds"),
+            **extra,
         }
         task.transcript.append(entry)
         del task.transcript[:-400]
         self.emit("task_log", id=task.id, entry=entry)
+
+    def _tool_result(self, task: ClaudeTask, block: Any) -> None:
+        """Attach a step's outcome and a bit of its output to its timeline entry."""
+        content = block.content
+        if isinstance(content, list):
+            content = "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
+        output = str(content or "")[:2000]
+        status = "failed" if block.is_error else "done"
+        for entry in reversed(task.transcript):
+            if entry.get("tool_id") == block.tool_use_id:
+                entry["status"], entry["output"] = status, output
+                self.emit(
+                    "task_log_update",
+                    id=task.id,
+                    tool_id=block.tool_use_id,
+                    status=status,
+                    output=output,
+                )
+                break
 
     def start_research(self, topic: str) -> ClaudeTask:
         RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -386,15 +411,28 @@ class TaskManager:
             for block in message.content:
                 if isinstance(block, ToolUseBlock):
                     task.last_action = describe_tool(block.name, block.input)
-                    self._log(task, "tool", task.last_action)
+                    path = block.input.get("file_path") or block.input.get("notebook_path")
+                    if block.name in EDIT_TOOLS and path:
+                        task.files_changed.add(str(path))
+                    if block.name == "Bash":
+                        task.commands += 1
+                    self._log(
+                        task,
+                        "tool",
+                        task.last_action,
+                        tool=block.name,
+                        tool_id=block.id,
+                        detail=approval_detail(block.name, block.input, task.cwd)[:4000],
+                        status="running",
+                    )
                     self._changed()
                 elif isinstance(block, TextBlock) and block.text.strip():
                     task.result = block.text.strip()
                     self._log(task, "assistant", block.text.strip())
         elif isinstance(message, UserMessage) and isinstance(message.content, list):
             for block in message.content:
-                if isinstance(block, ToolResultBlock) and block.is_error:
-                    self._log(task, "tool", "↳ that step failed or was declined")
+                if isinstance(block, ToolResultBlock):
+                    self._tool_result(task, block)
         elif isinstance(message, ResultMessage):
             task.session_id = message.session_id or task.session_id
             task.cost_usd = (task.cost_usd or 0) + (message.total_cost_usd or 0)
@@ -466,6 +504,7 @@ class TaskManager:
                 f"Claude Code in {task.cwd.name} wants to {verb}",
                 approval_detail(tool_name, tool_input, task.cwd),
                 choices,
+                context={"task_id": task.id, "tool": tool_name},
             )
             if choice == ALLOW_EDITS:
                 task.allow_edits = True

@@ -52,6 +52,7 @@ LOOKS = ("orb", "hud", "console")
 class Prefs:
     look: str = "orb"
     weather_city: str = ""
+    use_location: bool = True
     model: str = "opus"
     persona: str = "jarvis"
     humor: int = 60
@@ -131,6 +132,7 @@ def _clean(name: str, value: Any) -> Any:
         "brain_photos",
         "brain_mail",
         "brain_messages",
+        "use_location",
     }:
         return bool(value)
     return None

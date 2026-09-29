@@ -122,12 +122,30 @@ def _run_jxa(script: str) -> str:
     return proc.stdout
 
 
-def collect_folder(folder: Path, source: str = "files") -> list[Note]:
-    notes: list[Note] = []
+def collect_folder(
+    folder: Path,
+    source: str = "files",
+    limit: int = MAX_FILES_PER_FOLDER,
+    newest_first: bool = False,
+) -> list[Note]:
+    """Index a folder's documents. Paths are listed and sorted first (cheap), and only the
+    ones that make the cut are read; reading runs on a few worker processes, since PDFs
+    are slow to parse."""
     if not folder.is_dir():
-        return notes
-    for path in _walk(folder):
-        text = read_document(path)
+        return []
+    paths = list(_walk(folder))
+    if newest_first:
+        paths.sort(key=_mtime, reverse=True)
+    paths = paths[:limit]
+    if len(paths) > 40:
+        from concurrent.futures import ProcessPoolExecutor
+
+        with ProcessPoolExecutor(max_workers=4) as pool:
+            texts = list(pool.map(read_document, paths, chunksize=8))
+    else:
+        texts = [read_document(p) for p in paths]
+    notes: list[Note] = []
+    for path, text in zip(paths, texts, strict=True):
         if not text or not text.strip():
             continue
         notes.append(
@@ -138,12 +156,17 @@ def collect_folder(folder: Path, source: str = "files") -> list[Note]:
                 text=text[:MAX_TEXT],
                 ref=str(path),
                 group=folder.name if path.parent == folder else path.parent.name,
-                modified=datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
+                modified=datetime.fromtimestamp(_mtime(path)).isoformat(timespec="seconds"),
             )
         )
-        if len(notes) >= MAX_FILES_PER_FOLDER:
-            break
     return notes
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def _walk(folder: Path):
@@ -168,7 +191,7 @@ def read_document(path: Path, limit: int = MAX_TEXT) -> str:
     """Plain text from a text, Markdown, PDF, Word, RTF or Pages file ('' if unreadable)."""
     suffix = path.suffix.lower()
     try:
-        if path.stat().st_size > 40_000_000:
+        if path.stat().st_size > 25_000_000:
             return ""
         if suffix in TEXT_SUFFIXES:
             return path.read_text(errors="replace")[:limit]
@@ -177,7 +200,7 @@ def read_document(path: Path, limit: int = MAX_TEXT) -> str:
 
             reader = PdfReader(str(path))
             parts, size = [], 0
-            for page in reader.pages[:200]:
+            for page in reader.pages[:40]:
                 text = page.extract_text() or ""
                 parts.append(text)
                 size += len(text)
@@ -609,20 +632,13 @@ class Collector:
         # A partial rebuild keeps the other sources' problems on record.
         errors: dict[str, str] = {k: v for k, v in self.kb.errors.items() if only and k not in only}
 
+        jobs: dict[str, Callable[[], list[Note]]] = {}
+
         def gather(source: str, fn: Callable[[], list[Note]]) -> None:
             if only is not None and source not in only:
                 collected[source] = previous.get(source, [])
-                return
-            progress(f"Reading {source}…")
-            started = time.monotonic()
-            try:
-                collected[source] = fn()
-            except Exception as exc:  # permission denied, BSH broken, Notes busy
-                errors[source] = str(exc)[:300]
-                collected[source] = previous.get(source, [])
-            progress(
-                f"Read {len(collected[source])} from {source} in {time.monotonic() - started:.0f}s"
-            )
+            else:
+                jobs[source] = fn
 
         if notes:
             gather("notes", collect_apple_notes)
@@ -641,6 +657,31 @@ class Collector:
         if messages:
             gather("messages", more.collect_messages)
         gather("research", lambda: collect_folder(RESEARCH_DIR, source="research"))
+
+        # Sources are independent (mostly other apps answering), so read them side by
+        # side; a slow one can't hold up the rest, and none may take over five minutes.
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FutureTimeout
+
+        started = time.monotonic()
+        pool = ThreadPoolExecutor(max_workers=max(1, len(jobs)))
+        futures = {source: pool.submit(fn) for source, fn in jobs.items()}
+        for source, future in futures.items():
+            progress(f"Reading {source}…")
+            try:
+                collected[source] = future.result(
+                    timeout=max(1, 300 - (time.monotonic() - started))
+                )
+            except FutureTimeout:
+                errors[source] = "took too long; kept the last copy"
+                collected[source] = previous.get(source, [])
+            except Exception as exc:  # permission denied, BSH broken, Notes busy
+                errors[source] = str(exc)[:300]
+                collected[source] = previous.get(source, [])
+            progress(
+                f"Read {len(collected[source])} from {source} ({time.monotonic() - started:.0f}s)"
+            )
+        pool.shutdown(wait=False, cancel_futures=True)
         progress("Arranging the galaxy…")
         self.kb.build(collected, errors)
         self.kb.save()

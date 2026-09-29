@@ -101,15 +101,29 @@ function onEvent(ev) {
     }
     case 'sources': onSources(ev); break;
     case 'tool': onTool(ev); break;
-    case 'approval': showApproval(ev); break;
-    case 'approval_resolved': { const n = document.querySelector(`[data-approval="${CSS.escape(ev.id)}"]`); if (n) n.remove(); break; }
+    case 'approval': showApproval(ev); pendingApprovals.set(ev.id, ev); renderInlineApprovals(); break;
+    case 'approval_resolved': {
+      document.querySelectorAll(`[data-approval="${CSS.escape(ev.id)}"]`).forEach((n) => n.remove());
+      pendingApprovals.delete(ev.id);
+      break;
+    }
     case 'status': renderStatus(ev); break;
-    case 'tasks': renderTasks(ev.items); renderCC(ev.items); break;
-    case 'task_log': if (ev.id === ccSelected) appendTranscript(ev.entry); break;
-    case 'task_transcript': if (ev.id === ccSelected) { $('cc-transcript').replaceChildren(); ev.entries.forEach(appendTranscript); } break;
+    case 'tasks': {
+      const before = new Set(ccTasks.map((t) => t.id));
+      renderTasks(ev.items);
+      renderCC(ev.items);
+      const fresh = ev.items.find((t) => t.kind === 'code' && !before.has(t.id));
+      if (fresh && awaitingNewSession) { awaitingNewSession = false; selectTask(fresh.id); }
+      break;
+    }
+    case 'task_log': if (ev.id === ccSelected) appendEntry(ev.entry); break;
+    case 'task_log_update': if (ev.id === ccSelected) updateEntry(ev); break;
+    case 'project_git': if (ev.directory === deckProject) renderGit(ev); break;
+    case 'task_transcript': if (ev.id === ccSelected) { $('deck-timeline').replaceChildren(); ev.entries.forEach(appendEntry); renderInlineApprovals(); } break;
     case 'claude_projects': renderProjects(ev.items); break;
     case 'browser_cmd': runBrowserCommand(ev); break;
-    case 'claude_sessions': renderPast(ev.items, ev.directory); break;
+    case 'location_request': sendLocation(); break;
+    case 'claude_sessions': if (ev.directory === deckProject) { pastSessions = ev.items; renderDeckList(); } break;
     case 'task_finished': onTaskFinished(ev); break;
     case 'muted': setMuted(ev.value); break;
     case 'prefs': renderPrefs(ev); break;
@@ -289,7 +303,7 @@ async function startHandControl() {
   $('hand-panel').hidden = false;
   $('hand-status').textContent = 'Loading hand tracking…';
   try {
-    handsModule = handsModule || (await import('/static/hands.js'));
+    handsModule = handsModule || (await import(`/static/hands.js?v=${Date.now()}`));
     await handsModule.startHands(galaxy, {
       overlayCanvas: $('hand-overlay'),
       statusEl: $('hand-status'),
@@ -386,6 +400,7 @@ function renderPrefs(p) {
     : [document.createTextNode('Tap the orb, or press '), el('kbd', '', '⌥ Space'), document.createTextNode(' anywhere')]));
   setSwitch('sw-effect', p.voice_effect);
   $('mic-select').value = p.mic || 'builtin';
+  setSwitch('sw-location', p.use_location !== false);
   setSwitch('sw-handsfree', p.hands_free);
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-notes', p.brain_notes);
@@ -454,6 +469,7 @@ $('model-chip').addEventListener('click', () => { toggleSettings(true); $('model
 $('sw-voice').addEventListener('click', () => send({ type: 'mute', value: !muted }));
 $('sw-effect').addEventListener('click', () => setPrefs({ voice_effect: !prefs.voice_effect }));
 $('mic-select').addEventListener('change', (e) => setPrefs({ mic: e.target.value }));
+$('sw-location').addEventListener('click', () => setPrefs({ use_location: prefs.use_location === false }));
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-notes').addEventListener('click', () => setPrefs({ brain_notes: !prefs.brain_notes }));
@@ -665,7 +681,7 @@ function renderWeather(w) {
     return;
   }
   chip.hidden = false;
-  chip.textContent = `${w.temp}${w.unit}  ${w.city}`;
+  chip.textContent = `${w.from_location ? '⌖ ' : ''}${w.temp}${w.unit}  ${w.city}`;
   const now = el('div', 'weather-now');
   const place = el('span');
   place.append(document.createTextNode(`${w.city}${w.region ? `, ${w.region}` : ''}`), el('br'), document.createTextNode(w.summary));
@@ -744,109 +760,313 @@ async function toggleCamera() {
 $('camera-btn').addEventListener('click', toggleCamera);
 $('c-camera').addEventListener('click', toggleCamera);
 
-// ── Claude Code control room ──
+// ── Claude Code deck ──
 
 let ccSelected = null;
 let ccTasks = [];
-const MODE_NAMES = { ask: 'Ask', edits: 'Auto-edits', auto: 'Full auto' };
+let deckProject = null;
+let deckProjects = [];
+let deckTab = 'active';
+let pastSessions = [];
+let newMode = 'ask';
+let awaitingNewSession = false;
+const pendingApprovals = new Map();
+const MODE_NAMES = { ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
+
+const TOOL_ICONS = {
+  read: 'M2 8s2.5-4.5 6-4.5S14 8 14 8s-2.5 4.5-6 4.5S2 8 2 8z M8 6.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
+  edit: 'M10.5 2.5l3 3L6 13H3v-3z',
+  run: 'M2.5 3.5h11v9h-11z M4.5 7l2 1.5-2 1.5 M8 10.5h3',
+  search: 'M7 3a4 4 0 110 8 4 4 0 010-8z M10 10l3.5 3.5',
+  web: 'M8 1.8a6.2 6.2 0 110 12.4A6.2 6.2 0 018 1.8z M1.8 8h12.4 M8 1.8c1.8 2 2.6 4 2.6 6.2S9.8 12.2 8 14.2 M8 1.8C6.2 3.8 5.4 5.8 5.4 8s.8 4.2 2.6 6.2',
+  other: 'M3 8h10 M8 3v10',
+};
+function toolKind(name) {
+  if (['Read', 'NotebookRead'].includes(name)) return 'read';
+  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(name)) return 'edit';
+  if (name === 'Bash') return 'run';
+  if (['Grep', 'Glob', 'LS'].includes(name)) return 'search';
+  if (['WebSearch', 'WebFetch'].includes(name)) return 'web';
+  return 'other';
+}
+function icon(kind) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('width', '15'); svg.setAttribute('height', '15'); svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.4');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', TOOL_ICONS[kind] || TOOL_ICONS.other);
+  svg.append(path);
+  return svg;
+}
 
 function toggleCC(open) {
   $('cc').hidden = !open;
   $('cc-btn').setAttribute('aria-expanded', String(open));
-  if (open) { send({ type: 'claude_projects' }); if (ccSelected) send({ type: 'task_transcript', id: ccSelected }); }
+  if (open) {
+    send({ type: 'claude_projects' });
+    if (ccSelected) send({ type: 'task_transcript', id: ccSelected });
+  }
 }
 $('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
 $('cc-close').addEventListener('click', () => toggleCC(false));
 
 function renderProjects(items) {
-  for (const id of ['cc-project', 'cc-past-project']) {
-    const sel = $(id);
-    const keep = sel.value;
-    sel.replaceChildren(...items.map((p) => { const o = el('option', '', p); o.value = p; return o; }));
-    if (items.includes(keep)) sel.value = keep;
+  deckProjects = items;
+  if (!deckProject && items.length) { selectProject((items.find((p) => p.running) || items[0]).name); return; }
+  const filter = $('deck-filter').value.trim().toLowerCase();
+  $('deck-project-list').replaceChildren(...items.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
+    const li = el('li');
+    const b = el('button');
+    b.type = 'button';
+    b.setAttribute('aria-current', String(p.name === deckProject));
+    b.append(el('span', '', p.name));
+    const running = ccTasks.filter((t) => t.folder === p.name && t.busy).length;
+    if (running) b.append(el('span', 'run-count', String(running)));
+    if (p.branch) b.append(el('small', '', `⎇ ${p.branch}`));
+    b.addEventListener('click', () => selectProject(p.name));
+    li.append(b);
+    return li;
+  }));
+  const keep = $('deck-new-project').value;
+  $('deck-new-project').replaceChildren(...items.map((p) => { const o = el('option', '', p.name); o.value = p.name; return o; }));
+  $('deck-new-project').value = keep || deckProject || '';
+}
+$('deck-filter').addEventListener('input', () => renderProjects(deckProjects));
+
+function selectProject(name) {
+  deckProject = name;
+  pastSessions = [];
+  const p = deckProjects.find((x) => x.name === name);
+  $('deck-project-name').textContent = name;
+  $('deck-branch').textContent = p && p.branch ? `⎇ ${p.branch}` : '';
+  send({ type: 'claude_sessions', directory: name });
+  if (deckTab === 'changes') send({ type: 'project_git', directory: name });
+  renderProjects(deckProjects);
+  renderDeckList();
+}
+
+document.querySelectorAll('.deck-tabs button').forEach((b) => b.addEventListener('click', () => {
+  deckTab = b.dataset.tab;
+  document.querySelectorAll('.deck-tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  $('deck-list').hidden = deckTab === 'changes';
+  $('deck-changes').hidden = deckTab !== 'changes';
+  if (deckTab === 'changes' && deckProject) send({ type: 'project_git', directory: deckProject });
+  renderDeckList();
+}));
+
+function statusOf(t) { return t.busy ? 'busy' : t.status === 'failed' ? 'failed' : t.status === 'waiting' ? 'waiting' : 'idle'; }
+function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended' }[t.status] || t.status; }
+
+function renderDeckList() {
+  const list = $('deck-list');
+  if (deckTab === 'active') {
+    const mine = ccTasks.filter((t) => !deckProject || t.folder === deckProject);
+    if (!mine.length) { list.replaceChildren(el('li', 'empty', 'No sessions in this project yet.')); return; }
+    list.replaceChildren(...mine.map((t) => {
+      const li = el('li');
+      const b = el('button', 'deck-item');
+      b.type = 'button';
+      b.setAttribute('aria-current', String(t.id === ccSelected));
+      const meta = el('small');
+      meta.append(el('span', `dot ${statusOf(t)}`), document.createTextNode(`${statusText(t)} · ${MODE_NAMES[t.mode]}${t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : ''}`));
+      b.append(el('strong', '', t.title || t.prompt || 'Session'), meta, el('small', '', t.last_action));
+      b.addEventListener('click', () => selectTask(t.id));
+      li.append(b);
+      return li;
+    }));
+  } else if (deckTab === 'past') {
+    if (!pastSessions.length) { list.replaceChildren(el('li', 'empty', 'No past sessions found here.')); return; }
+    list.replaceChildren(...pastSessions.map((p) => {
+      const li = el('li');
+      const b = el('button', 'deck-item');
+      b.type = 'button';
+      const meta = el('small', '', `${new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${p.branch ? ` · ⎇ ${p.branch}` : ''} · resume`);
+      b.append(el('strong', '', p.title || 'Untitled session'), meta);
+      b.addEventListener('click', () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, mode: 'ask', prompt: '' }); });
+      li.append(b);
+      return li;
+    }));
   }
+}
+
+function renderGit(g) {
+  const box = $('deck-changes');
+  if (g.error) { box.replaceChildren(el('p', 'muted', g.error)); return; }
+  if (!g.git) { box.replaceChildren(el('p', 'muted', 'Not a git repository.')); return; }
+  const files = el('ul');
+  files.append(...g.files.map((f) => { const li = el('li'); li.append(el('span', 'st', f.status), document.createTextNode(f.path)); return li; }));
+  const log = el('ul');
+  log.append(...g.log.map((l) => el('li', '', l)));
+  box.replaceChildren(
+    el('strong', '', `⎇ ${g.branch}`),
+    el('p', 'muted', g.files.length ? `${g.files.length} changed file${g.files.length === 1 ? '' : 's'}${g.stat ? ` · ${g.stat}` : ''}` : 'Working tree clean.'),
+    files, el('strong', '', 'Recent commits'), log,
+  );
 }
 
 function renderCC(items) {
   ccTasks = items.filter((t) => t.kind === 'code');
   const running = ccTasks.filter((t) => t.busy).length;
+  const waiting = ccTasks.filter((t) => !t.busy && t.status === 'waiting').length;
   $('cc-label').textContent = running ? `Claude Code · ${running} working` : ccTasks.length ? `Claude Code · ${ccTasks.length}` : 'Claude Code';
-  $('cc-empty').hidden = ccTasks.length > 0;
-  $('cc-list').replaceChildren(...ccTasks.map((t) => {
-    const li = el('li');
-    const b = el('button', 'cc-item');
-    b.type = 'button';
-    b.setAttribute('aria-current', String(t.id === ccSelected));
-    const st = el('small');
-    const status = t.busy ? 'working' : t.status;
-    const dot = el('span', t.busy ? 'st-running' : '', `● ${status}`);
-    st.append(dot, document.createTextNode(` · ${t.folder} · ${MODE_NAMES[t.mode] || t.mode}${t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : ''}`));
-    b.append(el('strong', '', t.title || t.prompt || 'Session'), st, el('small', '', t.last_action));
-    b.addEventListener('click', () => selectTask(t.id));
-    li.append(b);
-    return li;
-  }));
+  $('deck-summary').textContent = [running && `${running} working`, waiting && `${waiting} waiting for you`].filter(Boolean).join(' · ');
+  if (deckTab === 'active') renderDeckList();
   const t = ccTasks.find((x) => x.id === ccSelected);
-  if (t) {
-    $('cc-title').textContent = t.title || t.prompt || 'Session';
-    $('cc-meta').textContent = `${t.folder} · ${t.busy ? 'working' : t.status}${t.session_id ? ` · ${t.session_id.slice(0, 8)}` : ''}`;
-    $('cc-view-mode').value = t.mode;
-    $('cc-interrupt').disabled = !t.busy;
-  }
+  if (!t) return;
+  $('ds-title').textContent = t.title || t.prompt || 'Session';
+  $('ds-meta').textContent = `${t.folder}${t.session_id ? ` · ${t.session_id.slice(0, 8)}` : ''}`;
+  $('ds-badge').className = `badge-status ${statusOf(t)}`;
+  $('ds-badge').textContent = statusText(t);
+  document.querySelectorAll('#ds-mode button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === t.mode)));
+  $('ds-interrupt').disabled = !t.busy;
+  $('st-files').textContent = t.files_changed.length;
+  $('st-files').title = t.files_changed.join('\n');
+  $('st-commands').textContent = t.commands;
+  $('st-cost').textContent = `$${(t.cost_usd || 0).toFixed(2)}`;
+}
+
+setInterval(() => {
+  const t = ccTasks.find((x) => x.id === ccSelected);
+  if (!t || $('cc').hidden) return;
+  const secs = Math.max(0, Math.round((Date.now() - new Date(t.started).getTime()) / 1000));
+  $('st-time').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+}, 1000);
+
+function showPane(which) {
+  $('deck-empty').hidden = which !== 'empty';
+  $('deck-new-form').hidden = which !== 'new';
+  $('deck-session').hidden = which !== 'session';
 }
 
 function selectTask(id) {
   ccSelected = id;
-  $('cc-none').hidden = true;
-  $('cc-view').hidden = false;
-  $('cc-transcript').replaceChildren();
+  showPane('session');
+  $('deck-timeline').replaceChildren();
   send({ type: 'task_transcript', id });
   renderCC(ccTasks);
+  $('deck-input').focus();
 }
 
-function appendTranscript(entry) {
-  const li = el('li', entry.role, entry.text);
-  $('cc-transcript').append(li);
-  $('cc-transcript').scrollTop = $('cc-transcript').scrollHeight;
+// Markdown-lite: code fences become <pre>, `code` and **bold** inline. Built with DOM nodes.
+function richText(text) {
+  const box = el('div');
+  text.split('```').forEach((part, i) => {
+    if (i % 2) {
+      box.append(el('pre', '', part.replace(/^[\w+-]*\n/, '')));
+      return;
+    }
+    for (const para of part.split(/\n{2,}/)) {
+      if (!para.trim()) continue;
+      const p = el('p');
+      for (const bit of para.split(/(`[^`]+`|\*\*[^*]+\*\*)/)) {
+        if (bit.startsWith('`') && bit.endsWith('`') && bit.length > 2) p.append(el('code', '', bit.slice(1, -1)));
+        else if (bit.startsWith('**') && bit.endsWith('**') && bit.length > 4) p.append(el('strong', '', bit.slice(2, -2)));
+        else p.append(document.createTextNode(bit));
+      }
+      box.append(p);
+    }
+  });
+  return box;
 }
 
-function renderPast(items, directory) {
-  $('cc-past').replaceChildren(...(items.length ? items : []).map((p) => {
-    const li = el('li');
-    const b = el('button', 'cc-item');
-    b.type = 'button';
-    b.append(el('strong', '', p.title || 'Untitled session'), el('small', '', `${new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${p.branch ? ` · ${p.branch}` : ''} · Resume`));
-    b.addEventListener('click', () => send({ type: 'task_new', directory, session_id: p.session_id, title: p.title, mode: $('cc-mode').value, prompt: '' }));
-    li.append(b);
-    return li;
-  }));
-  if (!items.length) $('cc-past').replaceChildren(el('li', 'empty', 'No past sessions in this project.'));
+function diffBlock(text) {
+  const pre = el('pre');
+  for (const line of text.split('\n')) {
+    const cls = line.startsWith('+ ') ? 'diff-add' : line.startsWith('- ') ? 'diff-del' : '';
+    pre.append(cls ? el('span', cls, `${line}\n`) : document.createTextNode(`${line}\n`));
+  }
+  return pre;
 }
 
-$('cc-new').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const prompt = $('cc-prompt').value.trim();
-  if (!prompt) return;
-  if ($('cc-mode').value === 'auto' && !confirm('Full auto lets Claude Code run any command in this project without asking. Start anyway?')) return;
-  send({ type: 'task_new', directory: $('cc-project').value, prompt, mode: $('cc-mode').value });
-  $('cc-prompt').value = '';
-});
-$('cc-past-load').addEventListener('click', () => send({ type: 'claude_sessions', directory: $('cc-past-project').value }));
-$('cc-send').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const text = $('cc-input').value.trim();
+function appendEntry(e) {
+  const tl = $('deck-timeline');
+  const nearBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 80;
+  let li;
+  if (e.role === 'user') li = el('li', 't-user', e.text);
+  else if (e.role === 'assistant') { li = el('li', 't-assistant'); li.append(richText(e.text)); }
+  else if (e.role === 'tool' && e.tool) {
+    li = el('li', `t-tool ${e.status || ''}`);
+    li.dataset.toolId = e.tool_id || '';
+    const det = el('details');
+    const sum = el('summary');
+    sum.append(icon(toolKind(e.tool)), el('span', '', e.text), el('span', 'st', e.status === 'running' ? '…' : e.status === 'failed' ? 'failed' : '✓'));
+    det.append(sum);
+    if (e.detail) det.append(diffBlock(e.detail));
+    const out = el('pre', 'out', e.output || '');
+    out.hidden = !e.output;
+    det.append(out);
+    li.append(det);
+  } else li = el('li', 't-system', e.text);
+  const firstApproval = tl.querySelector('.t-approval');
+  tl.insertBefore(li, firstApproval);
+  if (nearBottom) tl.scrollTop = tl.scrollHeight;
+}
+
+function updateEntry(ev) {
+  const li = [...$('deck-timeline').children].find((n) => n.dataset.toolId === ev.tool_id);
+  if (!li) return;
+  li.className = `t-tool ${ev.status}`;
+  li.querySelector('.st').textContent = ev.status === 'failed' ? 'failed' : '✓';
+  const out = li.querySelector('pre.out');
+  out.textContent = ev.output;
+  out.hidden = !ev.output;
+}
+
+function renderInlineApprovals() {
+  document.querySelectorAll('#deck-timeline .t-approval').forEach((n) => n.remove());
+  for (const a of pendingApprovals.values()) {
+    if (a.task_id !== ccSelected) continue;
+    const li = el('li', 't-approval');
+    li.dataset.approval = a.id;
+    li.append(el('strong', '', a.question));
+    if (a.detail) li.append(diffBlock(a.detail));
+    const actions = el('div', 'card-actions');
+    a.choices.forEach((c, i) => {
+      const b = el('button', i === 0 ? 'btn primary' : 'btn', c.label);
+      b.type = 'button';
+      b.addEventListener('click', () => { send({ type: 'approve', id: a.id, choice: c.id }); document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove()); });
+      actions.append(b);
+    });
+    li.append(actions);
+    $('deck-timeline').append(li);
+    $('deck-timeline').scrollTop = $('deck-timeline').scrollHeight;
+  }
+}
+
+function sendToSession(text) {
+  text = text.trim();
   if (!text || !ccSelected) return;
   send({ type: 'task_send', id: ccSelected, text });
-  $('cc-input').value = '';
+}
+$('deck-composer').addEventListener('submit', (e) => { e.preventDefault(); sendToSession($('deck-input').value); $('deck-input').value = ''; $('deck-input').style.height = ''; });
+$('deck-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('deck-composer').requestSubmit(); }
 });
-$('cc-interrupt').addEventListener('click', () => ccSelected && send({ type: 'task_interrupt', id: ccSelected }));
-$('cc-end').addEventListener('click', () => ccSelected && send({ type: 'task_cancel', id: ccSelected }));
-$('cc-view-mode').addEventListener('change', (e) => {
-  if (e.target.value === 'auto' && !confirm('Full auto lets this session run any command without asking. Switch?')) {
-    renderCC(ccTasks);
-    return;
-  }
-  send({ type: 'task_mode', id: ccSelected, mode: e.target.value });
+$('deck-input').addEventListener('input', () => { $('deck-input').style.height = 'auto'; $('deck-input').style.height = `${Math.min(180, $('deck-input').scrollHeight)}px`; });
+document.querySelectorAll('#deck-quick button').forEach((b) => b.addEventListener('click', () => sendToSession(b.dataset.say)));
+$('ds-interrupt').addEventListener('click', () => ccSelected && send({ type: 'task_interrupt', id: ccSelected }));
+$('ds-close').addEventListener('click', () => ccSelected && send({ type: 'task_cancel', id: ccSelected }));
+document.querySelectorAll('#ds-mode button').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.mode === 'auto' && !confirm('Full auto lets this session run any command without asking. Switch?')) return;
+  send({ type: 'task_mode', id: ccSelected, mode: b.dataset.mode });
+}));
+
+$('deck-new').addEventListener('click', () => { showPane('new'); if (deckProject) $('deck-new-project').value = deckProject; $('deck-new-task').focus(); });
+$('deck-new-cancel').addEventListener('click', () => showPane(ccSelected ? 'session' : 'empty'));
+document.querySelectorAll('#deck-new-mode button').forEach((b) => b.addEventListener('click', () => {
+  newMode = b.dataset.mode;
+  document.querySelectorAll('#deck-new-mode button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+}));
+$('deck-new-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const prompt = $('deck-new-task').value.trim();
+  if (!prompt) return;
+  if (newMode === 'auto' && !confirm('Full auto lets Claude Code run any command in this project without asking. Start anyway?')) return;
+  send({ type: 'task_new', directory: $('deck-new-project').value, prompt, mode: newMode });
+  $('deck-new-task').value = '';
+  awaitingNewSession = true;
+  showPane('empty');
 });
 
 // ── built-in browser (in the J.A.R.V.I.S. app only) ──
@@ -902,6 +1122,17 @@ async function runBrowserCommand(ev) {
   }
   $('br-jarvis').hidden = true;
   send({ type: 'browser_result', id: ev.id, result });
+}
+
+// ── location (the app window holds macOS's location permission) ──
+
+function sendLocation() {
+  if (!navigator.geolocation) { send({ type: 'location_fix', error: 'No location services in this window.' }); return; }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => send({ type: 'location_fix', lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+    (err) => send({ type: 'location_fix', error: err.code === 1 ? 'Location access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Location Services).' : `No location fix: ${err.message}` }),
+    { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60 * 1000 },
+  );
 }
 
 // ── cards ──

@@ -82,6 +82,9 @@ TOOL_LABELS = {
     "switch_model": "Switched models",
     "set_personality": "Adjusted personality",
     "set_hands_free": "Changed hands-free mode",
+    "where_am_i": "Checked your location",
+    "weather_report": "Checked the weather",
+    "drive_time": "Checked traffic",
     "see_screen": "Looked at your screen",
     "click": "Clicked",
     "type_text": "Typed",
@@ -194,6 +197,9 @@ class Hub:
         self.commands = 0
         self.history: deque[dict[str, Any]] = deque(maxlen=80)
         self.weather: dict[str, Any] | None = None
+        self.location: dict[str, Any] | None = None
+        self._build_proc: Any = None
+        self._location_future: asyncio.Future | None = None
         self.browser_available = False
         self._fillers: list[tuple[Any, int]] = []
         self._filler_order = itertools.count()
@@ -226,7 +232,7 @@ class Hub:
             self._spawn(self._vitals_loop())
             self._spawn(self._prepare_player())
             self._spawn(self._prepare_fillers())
-            self._spawn(self._weather_loop())
+            self._spawn(self._location_loop())
         if self.prefs.hands_free:
             self._apply_hands_free()
 
@@ -257,6 +263,8 @@ class Hub:
     async def close(self) -> None:
         if self._listener is not None:
             self._listener.stop()
+        if self._build_proc is not None and self._build_proc.returncode is None:
+            self._build_proc.kill()  # never leave a rebuild running behind
         for task in list(self._background):
             task.cancel()
         await self.tasks.close()
@@ -311,6 +319,7 @@ class Hub:
             "history": list(self.history),
             "vitals": self.vitals(),
             "weather": self.weather,
+            "location": self.location,
             "accounts": self.connectors.connected_names(),
         }
 
@@ -322,7 +331,11 @@ class Hub:
     # ── approvals ──
 
     async def request_approval(
-        self, question: str, detail: str = "", choices: list[tuple[str, str]] | None = None
+        self,
+        question: str,
+        detail: str = "",
+        choices: list[tuple[str, str]] | None = None,
+        context: dict[str, Any] | None = None,
     ) -> str:
         choices = choices or [("allow", "Allow"), ("deny", "Not now")]
         approval_id = uuid.uuid4().hex[:12]
@@ -331,6 +344,7 @@ class Hub:
             "question": question,
             "detail": detail,
             "choices": [{"id": c, "label": label} for c, label in choices],
+            **(context or {}),
         }
         future = asyncio.get_running_loop().create_future()
         self.approvals[approval_id] = approval
@@ -816,7 +830,7 @@ class Hub:
             "only": sorted(only) if only is not None else None,
         }
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = self._build_proc = await asyncio.create_subprocess_exec(
                 sys.executable,
                 "-m",
                 "jarvis.brain_build",
@@ -828,7 +842,10 @@ class Hub:
                 with contextlib.suppress(ValueError):
                     event = json.loads(line)
                     if "progress" in event:
+                        log.info("second brain: %s", event["progress"])
                         self._brain_status("building", event["progress"])
+                    if event.get("busy"):
+                        log.info("second brain: another rebuild is already running")
             await proc.wait()
             if proc.returncode != 0:
                 raise RuntimeError(f"the rebuild stopped (exit {proc.returncode})")
@@ -932,6 +949,57 @@ class Hub:
     async def _quiet(self, coro) -> None:
         with contextlib.suppress(mac_tools.ToolFailure):
             await coro
+
+    # ── Claude Code deck: projects and git ──
+
+    async def _git(self, path: Path, *args: str) -> str:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "-C",
+            str(path),
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await proc.communicate()
+        return out.decode(errors="replace").strip() if proc.returncode == 0 else ""
+
+    async def _projects_overview(self) -> list[dict[str, Any]]:
+        items = []
+        for name in self.tasks.projects():
+            path = self.settings.projects_dir / name
+            branch = await self._git(path, "rev-parse", "--abbrev-ref", "HEAD")
+            running = sum(
+                1
+                for t in self.tasks.tasks.values()
+                if t.kind == "code" and t.cwd.name == name and t.busy
+            )
+            items.append({"name": name, "branch": branch, "git": bool(branch), "running": running})
+        return items
+
+    async def _git_status(self, directory: str) -> dict[str, Any]:
+        try:
+            path = self.tasks.resolve_dir(directory)
+        except ValueError as exc:
+            return {"directory": directory, "error": str(exc)}
+        branch = await self._git(path, "rev-parse", "--abbrev-ref", "HEAD")
+        if not branch:
+            return {"directory": directory, "git": False}
+        status = await self._git(path, "status", "--porcelain")
+        stat = await self._git(path, "diff", "--stat", "HEAD")
+        log_lines = await self._git(path, "log", "--oneline", "-8")
+        files = [
+            {"status": line[:2].strip() or "?", "path": line[3:]}
+            for line in status.splitlines()[:200]
+        ]
+        return {
+            "directory": directory,
+            "git": True,
+            "branch": branch,
+            "files": files,
+            "stat": stat.splitlines()[-1] if stat else "",
+            "log": log_lines.splitlines(),
+        }
 
     # ── the built-in browser ──
 
@@ -1127,8 +1195,101 @@ class Hub:
             hub.set_prefs({"hands_free": bool(args["enabled"])}, from_tool=True)
             return _text("Hands-free is on." if hub.prefs.hands_free else "Hands-free is off.")
 
+        @tool(
+            "where_am_i",
+            "The user's current location from the Mac's location services: coordinates, "
+            "neighborhood, street, city, region.",
+            {},
+        )
+        async def where_am_i(_args):
+            if not hub.prefs.use_location:
+                return _text(
+                    "Location is switched off in Settings; the weather city is "
+                    + (hub.prefs.weather_city or "not set")
+                    + "."
+                )
+            if hub.location is None:
+                await hub._refresh_location()
+            if hub.location is None:
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "I don't have a location fix. Location Services may be off for J.A.R.V.I.S.",
+                        }
+                    ],
+                    "is_error": True,
+                }
+            return _text(json.dumps(hub.location))
+
+        @tool(
+            "weather_report",
+            "Weather where the user is (or their weather city): now, today's high, low and "
+            "rain chance, the next six hours, and tomorrow.",
+            {},
+        )
+        async def weather_report(_args):
+            await hub._refresh_weather()
+            if not hub.weather or hub.weather.get("error"):
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "No weather: set a city in Settings or allow location.",
+                        }
+                    ],
+                    "is_error": True,
+                }
+            return _text(json.dumps(hub.weather))
+
+        @tool(
+            "drive_time",
+            "Live, traffic-aware travel time from where the user is now to a place (Apple "
+            "Maps). mode: driving (default), walking or transit. Use for 'how's traffic to…', "
+            "'how long to get to…', 'when should I leave for…'.",
+            {
+                "type": "object",
+                "properties": {"destination": {"type": "string"}, "mode": {"type": "string"}},
+                "required": ["destination"],
+            },
+        )
+        async def drive_time(args):
+            from .maps import run_helper
+
+            if hub.location is None:
+                await hub._refresh_location()
+            if hub.location is None:
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "I need your location for that; allow Location Services for J.A.R.V.I.S.",
+                        }
+                    ],
+                    "is_error": True,
+                }
+            result = await run_helper(
+                "eta",
+                str(hub.location["lat"]),
+                str(hub.location["lon"]),
+                str(args["destination"]),
+                str(args.get("mode") or "driving"),
+            )
+            if result.get("error"):
+                return {"content": [{"type": "text", "text": result["error"]}], "is_error": True}
+            return _text(json.dumps(result))
+
         return create_sdk_mcp_server(
-            name="jarvis", version="0.1.0", tools=[switch_model, set_personality, set_hands_free]
+            name="jarvis",
+            version="0.1.0",
+            tools=[
+                switch_model,
+                set_personality,
+                set_hands_free,
+                where_am_i,
+                weather_report,
+                drive_time,
+            ],
         )
 
     def set_prefs(self, changes: dict[str, Any], from_tool: bool = False) -> list[str]:
@@ -1149,6 +1310,8 @@ class Hub:
             )
         if "weather_city" in changed:
             self._spawn(self._refresh_weather())
+        if "use_location" in changed:
+            self._spawn(self._refresh_location())
         if "voice_effect" in changed:
             self.speaker.effect = self.prefs.voice_effect
         if "hands_free" in changed:
@@ -1244,7 +1407,9 @@ class Hub:
             task_id = int(msg.get("id", 0))
             self.emit("task_transcript", id=task_id, entries=self.tasks.transcript(task_id))
         elif kind == "claude_projects":
-            self.emit("claude_projects", items=self.tasks.projects())
+            self.emit("claude_projects", items=await self._projects_overview())
+        elif kind == "project_git":
+            self.emit("project_git", **await self._git_status(str(msg.get("directory", ""))))
         elif kind == "claude_sessions":
             try:
                 items = await asyncio.to_thread(
@@ -1288,6 +1453,19 @@ class Hub:
             if future is not None and not future.done():
                 result = msg.get("result")
                 future.set_result(result if isinstance(result, dict) else {"error": "bad result"})
+        elif kind == "location_fix":
+            future = self._location_future
+            if future is not None and not future.done():
+                if msg.get("error"):
+                    future.set_result({"error": str(msg["error"])[:200]})
+                else:
+                    future.set_result(
+                        {
+                            "lat": float(msg.get("lat", 0)),
+                            "lon": float(msg.get("lon", 0)),
+                            "accuracy": float(msg.get("accuracy", 0)),
+                        }
+                    )
         elif kind == "clear_history":
             self.history.clear()
             self.emit("history", items=[])
@@ -1359,21 +1537,74 @@ class Hub:
                 self.emit("vitals", **self.vitals())
             await asyncio.sleep(3)
 
+    async def _refresh_location(self) -> None:
+        if not self.prefs.use_location:
+            self.location = None
+            self.emit("location", location=None)
+            await self._refresh_weather()
+            return
+        found = await self._window_location()
+        if found.get("error"):
+            log.info("location unavailable: %s", found["error"])
+            if self.location is None:
+                self.emit("location", location=None, error=found["error"])
+        else:
+            self.location = found
+            self.emit("location", location=found)
+        await self._refresh_weather()
+
     async def _refresh_weather(self) -> None:
         from .weather import current_weather
 
         try:
-            self.weather = await current_weather(self.prefs.weather_city)
+            if self.location:
+                loc = self.location
+                place = {
+                    "city": loc.get("city") or loc.get("neighborhood") or "Here",
+                    "region": loc.get("region", ""),
+                    "country": loc.get("country", ""),
+                    "from_location": True,
+                }
+                self.weather = await current_weather(lat=loc["lat"], lon=loc["lon"], place=place)
+            elif self.prefs.weather_city:
+                self.weather = await current_weather(self.prefs.weather_city)
+            else:
+                return
         except Exception as exc:  # offline, service down
             log.warning("weather failed: %s", exc)
             return
         self.emit("weather", weather=self.weather)
 
-    async def _weather_loop(self) -> None:
+    async def _window_location(self) -> dict[str, Any]:
+        """Ask the J.A.R.V.I.S. window for a position: macOS only grants location to the
+        app bundle, not to helper processes. The place name comes from Apple's geocoder."""
+        from .maps import run_helper
+
+        if not self.browser_available:  # i.e. no app window connected yet
+            return {"error": "The J.A.R.V.I.S. window isn't open."}
+        future = asyncio.get_running_loop().create_future()
+        self._location_future = future
+        self.emit("location_request")
+        try:
+            fix = await asyncio.wait_for(future, 20)
+        except TimeoutError:
+            return {"error": "No location fix yet."}
+        finally:
+            self._location_future = None
+        if fix.get("error"):
+            return fix
+        place = await run_helper("reverse", str(fix["lat"]), str(fix["lon"]))
+        return {**fix, **{k: v for k, v in place.items() if k != "error"}}
+
+    async def _location_loop(self) -> None:
+        for _ in range(20):  # wait for the app window to say it can locate
+            if self.browser_available:
+                break
+            await asyncio.sleep(1)
         while True:
-            if self.prefs.weather_city:
-                await self._refresh_weather()
-            await asyncio.sleep(20 * 60)
+            await self._refresh_location()
+            # Until the first fix (permission pending, no signal) try again every minute.
+            await asyncio.sleep(15 * 60 if self.location else 60)
 
     # ── live status ──
 

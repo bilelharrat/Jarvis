@@ -17,7 +17,7 @@ from jarvis.tasks import ALLOW_EDITS, DENY, ClaudeTask, TaskManager, approval_de
 def manager(settings, answers=(), script=()):
     asked, events = [], []
 
-    async def approve(question, detail, choices):
+    async def approve(question, detail, choices, context=None):
         asked.append((question, detail, [c for c, _ in choices]))
         return answers[len(asked) - 1]
 
