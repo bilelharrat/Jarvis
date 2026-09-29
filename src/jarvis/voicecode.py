@@ -916,7 +916,7 @@ class VoiceCoder:
                     f"Run the tests in {intent.text} and tell me the result in a sentence or "
                     "two; if anything fails, say what."
                 )
-            await self._send(task, prompt)
+            await self._send(task, prompt, plain=True)  # git's own wording: no ultracode
             say({"commit": "Committing.", "push": "Pushing.", "pr": "Opening a pull request.",
                  "tests": "Running the tests."}[intent.arg], follow_up=False)  # fmt: skip
         else:
@@ -969,11 +969,14 @@ class VoiceCoder:
         more = " There's more; say read the rest." if len(parts) > start + 4 else ""
         return " ".join(chunk) + more
 
-    async def _send(self, task, text: str, hint: bool = True) -> None:
+    async def _send(self, task, text: str, hint: bool = True, plain: bool = False) -> None:
         typed = getattr(self, "_typed", False)
         if hint and not typed:  # typed names are already exact
             text = await self.hub.with_code_hints(task, text)
-        self.hub.tasks.send(task.id, text)
+        if plain:
+            self.hub.tasks.send(task.id, text, plain=True)
+        else:
+            self.hub.tasks.send(task.id, text)
         if typed:
             return
         self.hub.acknowledge()  # "On it." right away; the work takes a moment

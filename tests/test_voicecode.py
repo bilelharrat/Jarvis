@@ -179,7 +179,7 @@ async def test_voice_focus_routes_speech_to_the_session(
     assert reply.startswith("Voice coding in proj") and hub.voicecode.focus is not None
     task = hub.voicecode.task
     sent = []
-    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    hub.tasks.send = lambda task_id, text, **_k: sent.append(text) or True
     hub._armed_until = __import__("time").monotonic() + 5
     await hub.on_heard("add a retry around the query")
     assert sent == ["add a retry around the query"] and hub.client.queries == []
@@ -385,7 +385,7 @@ async def test_typed_slash_commands_answer_in_the_transcript(
     assert notes == [vc.MODE_NAMES["plan"], "No file changes yet in this session."]
     assert spoken == []  # typed commands answer on screen, not out loud
     sent = []
-    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    hub.tasks.send = lambda task_id, text, **_k: sent.append(text) or True
     await hub.handle({"type": "code_command", "id": task.id, "text": "/review-pr 12"})
     await asyncio.sleep(0.01)
     assert sent == ["/review-pr 12"]  # the project's own commands pass through to Claude Code
@@ -596,7 +596,7 @@ async def test_a_mode_with_a_request_says_the_mode_it_set(
     hub.acknowledge = lambda: None
     await hub.voice_code("proj")
     task = hub.voicecode.task
-    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    hub.tasks.send = lambda task_id, text, **_k: sent.append(text) or True
     await hub.voicecode.handle("full auto and fix the tests")
     assert task.mode == "auto" and said[-1] == "Full auto. On it." and sent == ["fix the tests"]
     await hub.voicecode.handle("accept edits, then add a retry")
@@ -614,7 +614,7 @@ async def test_typed_slash_commands_keep_what_follows_them(
     await hub.start()
     task = hub.tasks.start("", "proj")
     sent, models = [], []
-    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    hub.tasks.send = lambda task_id, text, **_k: sent.append(text) or True
 
     async def set_model(task_id, model):
         models.append(model)

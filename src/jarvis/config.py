@@ -15,7 +15,7 @@ DEFAULT_BSH_DIR = DEFAULT_PROJECTS_DIR / "bsh-research-center"
 
 # The SDK's default 1 MB cap on one message from Claude Code is smaller than a
 # full-screen screenshot or a long PDF read; going over it killed the whole turn.
-MAX_BUFFER = 32 * 1024 * 1024
+MAX_BUFFER = 96 * 1024 * 1024  # one message from the CLI (a big tool result, an echoed attachment)
 
 
 @dataclass(frozen=True)

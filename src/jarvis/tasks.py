@@ -292,6 +292,7 @@ MODE_LABELS = {
 }
 PLAN_APPROVE_EDITS, PLAN_APPROVE, PLAN_KEEP = "plan_edits", "plan_ask", "plan_keep"
 IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
+MAX_ENDED = 20  # ended sessions kept in the list; older ones are let go (still resumable)
 # A question on a card goes unanswered after five minutes (the hub's APPROVAL_TIMEOUT). The
 # turn then stops, rather than Claude asking again (and again) while the user is away.
 UNANSWERED_SECONDS = 295
@@ -332,9 +333,21 @@ class Inbox:
         self._items: list[dict[str, Any]] = []
         self._ids = itertools.count(1)
 
-    def put(self, text: str, images: list[dict[str, str]] | None = None) -> int:
-        item = {"id": next(self._ids), "text": text, "images": list(images or [])}
-        self._items.append(item)
+    def put(
+        self,
+        text: str,
+        images: list[dict[str, str]] | None = None,
+        *,
+        front: bool = False,
+        plain: bool = False,
+    ) -> int:
+        """plain: sent as it is (a git command's wording), never with the ultracode
+        keyword."""
+        item = {"id": next(self._ids), "text": text, "images": list(images or []), "plain": plain}
+        if front:
+            self._items.insert(0, item)
+        else:
+            self._items.append(item)
         return item["id"]
 
     def take(self) -> dict[str, Any] | None:
@@ -420,11 +433,14 @@ class ClaudeTask:
     model_ref: str = ""  # the model as the picker knows it ("sonnet", "custom:…")
     reopen: bool = False  # reopen the same conversation between turns (new folders…)
     steered: int = 0  # messages sent into the running step, not yet taken up
+    # ... and those messages, so a connection that closes first gives them back to the queue
+    steered_items: list[dict[str, Any]] = field(default_factory=list)
+    ending: bool = False  # End session pressed: a second press must not cut the shutdown short
 
     def public(self) -> dict[str, Any]:
         return {
             "id": self.id,
-            "prompt": self.prompt,
+            "prompt": self.prompt[:500],
             "folder": self.cwd.name,
             "kind": self.kind,
             "label": "Research" if self.kind == "research" else f"Jarvis Code · {self.cwd.name}",
@@ -437,7 +453,7 @@ class ClaudeTask:
             "ultracode": self.ultracode,
             "model_label": self.model_label,
             "model_ref": self.model_ref,
-            "plan": self.plan,
+            "plan": self.plan[:4000],
             "can_undo": bool(self.checkpoints),
             "effort": self.effort,
             "todos": self.todos,
@@ -454,7 +470,7 @@ class ClaudeTask:
             "report_path": self.report_path,
             "status": self.status,
             "last_action": self.last_action,
-            "result": self.result,
+            "result": self.result[-2000:],
             "cost_usd": self.cost_usd,
             "started": self.started.isoformat(timespec="seconds"),
         }
@@ -670,9 +686,17 @@ class TaskManager:
         same.sort(key=lambda t: (t.handle is not None and not t.handle.done(), t.id))
         return same[-1] if same else None
 
-    def send(self, task_id: int, text: str, images: list[dict[str, str]] | None = None) -> bool:
+    def send(
+        self,
+        task_id: int,
+        text: str,
+        images: list[dict[str, str]] | None = None,
+        *,
+        plain: bool = False,
+    ) -> bool:
         """A follow-up message; queued if the session is mid-step, and it reopens a
-        finished session by resuming it. images: [{media_type, data (base64)}]."""
+        finished session by resuming it. images: [{media_type, data (base64)}]; plain:
+        exactly this wording (a git command), never with the ultracode keyword."""
         task = self.tasks.get(task_id)
         text = text.strip()
         if task is None or task.kind != "code" or not (text or images):
@@ -687,7 +711,7 @@ class TaskManager:
             # Into the running step: Claude Code takes it up after the tool it's on.
             asyncio.create_task(self._steer(task, text, (images or [])[:6]))
             return True
-        task.inbox.put(text, (images or [])[:6])
+        task.inbox.put(text, (images or [])[:6], plain=plain)
         task.stirred.set()
         if task.handle is None or task.handle.done():
             task.status = "running"
@@ -697,12 +721,16 @@ class TaskManager:
 
     async def _steer(self, task: ClaudeTask, text: str, images: list[dict[str, str]]) -> None:
         task.steered += 1
+        steered = {"text": text, "images": images}
+        task.steered_items.append(steered)
         self._log(task, "user", text, **attachment_counts(images))
         self._changed()
         try:
             await task.client.query(_with_images(text, images) if images else text)
         except Exception:  # the connection just went: send it as a normal follow-up
-            task.steered = max(0, task.steered - 1)
+            if steered in task.steered_items:
+                task.steered_items.remove(steered)
+                task.steered = max(0, task.steered - 1)
             task.inbox.put(text, images)
             task.stirred.set()
 
@@ -1144,16 +1172,29 @@ class TaskManager:
         return task
 
     def cancel(self, task_id: int) -> bool:
+        """End a session. A second press while it's ending does nothing: cancelling again
+        would cut short the SDK's shutdown and leave Claude Code running."""
         task = self.tasks.get(task_id)
         if task is None or task.handle is None or task.handle.done():
             return False
+        if task.ending:
+            return True
+        task.ending = True
+        task.last_action = "Ending…"
         task.handle.cancel()
+        self._changed()
         return True
 
     async def close(self) -> None:
-        for task in self.tasks.values():
-            if task.handle is not None and not task.handle.done():
-                task.handle.cancel()
+        """The app is quitting: end every session and wait (briefly) for their Claude
+        Code processes to go, so none outlives the app."""
+        handles = [
+            t.handle for t in self.tasks.values() if t.handle is not None and not t.handle.done()
+        ]
+        for handle in handles:
+            handle.cancel()
+        if handles:
+            await asyncio.wait(handles, timeout=12)
 
     def public(self) -> list[dict[str, Any]]:
         """Every session for the windows, with the model and effort it actually uses."""
@@ -1168,6 +1209,23 @@ class TaskManager:
 
     def _changed(self) -> None:
         self.emit("tasks", items=self.public())
+
+    def _prune(self, keep: int | None = None) -> None:
+        """Sessions that ended stay listed (and resumable) up to MAX_ENDED of them, newest
+        first; older ones go (Claude Code keeps their conversations, to resume)."""
+        keep = MAX_ENDED if keep is None else keep
+        current = asyncio.current_task()  # a session pruning as it ends counts as ended
+        ended = sorted(
+            (
+                t
+                for t in self.tasks.values()
+                if (t.handle is None or t.handle.done() or t.handle is current)
+                and t.status in ("closed", "stopped", "failed", "done")
+            ),
+            key=lambda t: t.id,
+        )
+        for task in ended[: max(0, len(ended) - keep)]:
+            del self.tasks[task.id]
 
     def options_for(self, task: ClaudeTask) -> ClaudeAgentOptions:
         if task.kind == "research":
@@ -1243,9 +1301,8 @@ class TaskManager:
             await self._run(task)
             return
         task.status = "running"
-        ended = _GONE
         try:
-            while (ended := await self._connect(task)) == _REOPEN:
+            while await self._connect(task) == _REOPEN:
                 pass
             task.status = "closed"
         except asyncio.CancelledError:
@@ -1266,19 +1323,25 @@ class TaskManager:
             if mid_turn or task.status == "failed":  # nothing else will say it's over
                 status = "failed" if task.status == "failed" else "stopped"
                 self._turn_finished(task, status, always=True)
-            if task.status == "closed" and ended == _IDLE and not task.inbox.empty():
-                # A message came in just as it closed for being idle: open it for that.
+            ending, task.ending = task.ending, False
+            if task.status in ("closed", "stopped") and not task.inbox.empty() and not ending:
+                # A message came in while it was closing (idle, or Claude Code exited):
+                # open it again for that, rather than leave it waiting unsent. After End
+                # session, the queue waits for the user.
                 task.status = "running"
                 task.handle = asyncio.create_task(self._session(task))
+            self._prune()
 
     async def _connect(self, task: ClaudeTask) -> str:
         """One connection to Claude Code: a reader that takes in everything it says for as
         long as it runs, and the user's messages sent a turn at a time. Says how it ended:
         _REOPEN (a new effort), _IDLE or _GONE."""
         task.reopen = False  # these options have every change made so far
+        task.turns_pending, task.steered = 0, 0  # a new connection has nothing in flight
         options = self.options_for(task)
         async with self.client_factory(options=options) as client:
             task.client, task.live_effort, task.conn_cost = client, options.effort, None
+            await self._catch_up(task, client, options)
             self._changed()
             reader = asyncio.create_task(self._read(task, client))
             item: Any = _GONE
@@ -1294,9 +1357,42 @@ class TaskManager:
             finally:
                 reader.cancel()
                 await asyncio.gather(reader, return_exceptions=True)
+                self._connection_gone(task)
             if not reader.cancelled() and reader.exception() is not None:
                 raise reader.exception()
         return item
+
+    async def _catch_up(self, task: ClaudeTask, client: Any, options: Any) -> None:
+        """A mode or model picked while this connection was opening reached no one (the old
+        client was closed, or there was none yet): apply it now, so what the window shows
+        is what Claude Code runs."""
+        mode = SDK_MODES[task.mode]
+        if options.permission_mode != mode:
+            try:
+                await client.set_permission_mode(mode)
+            except Exception as exc:
+                self._log(task, "system", f"Couldn't switch mode: {exc}")
+        wanted = task.model or self.model
+        if not task.provider_settings and wanted and options.model != wanted:
+            try:
+                await client.set_model(wanted)
+            except Exception as exc:
+                self._log(task, "system", f"Couldn't switch model: {exc}")
+
+    def _connection_gone(self, task: ClaudeTask) -> None:
+        """A connection closed: what lived in that Claude Code process went with it.
+        Background tasks (a dev server) are gone, and messages steered into its step
+        that it never took up go back to the front of the queue, in order."""
+        task.client = None  # a switch from now on waits for the next connection
+        if task.background:
+            task.background.clear()
+            self._log(task, "system", "Background tasks ended with the connection.")
+        for steered in reversed(task.steered_items):
+            task.inbox.put(steered["text"], steered["images"], front=True)
+        if task.steered_items:
+            task.stirred.set()
+        task.steered_items.clear()
+        task.steered = 0
 
     async def _read(self, task: ClaudeTask, client: Any) -> None:
         """Everything Claude Code says, as it says it: replies to the user's turns and
@@ -1318,7 +1414,11 @@ class TaskManager:
             if task.busy or task.background:
                 idle_since = time.monotonic()  # working, or a dev server running: stay
             if not task.busy:
-                if (self._effort_pending(task) or task.reopen) and not task.background:
+                if (
+                    (self._effort_pending(task) or task.reopen)
+                    and not task.background
+                    and not task.steered
+                ):
                     task.reopen = False
                     return _REOPEN
                 item = task.inbox.take()
@@ -1343,7 +1443,13 @@ class TaskManager:
     async def _send_turn(self, task: ClaudeTask, client: Any, item: dict[str, Any]) -> None:
         text, images = item["text"], item["images"]
         sent = text
-        if task.ultracode and "ultracode" not in text.lower() and not text.startswith("/"):
+        plain = item.get("plain", False)  # a git command's own wording
+        if (
+            task.ultracode
+            and not plain
+            and "ultracode" not in text.lower()
+            and not text.startswith("/")
+        ):
             sent = f"{text}\n\nultracode"  # the keyword that turns on workflow orchestration
         task.turns_pending += 1
         task.busy = True
@@ -1383,9 +1489,13 @@ class TaskManager:
         fork back to, and where the turn's reply and changes begin."""
         if task.steered and task.current == "user":
             task.steered -= 1  # sent into the running step: the turn goes on
+            if task.steered_items:
+                task.steered_items.pop(0)
         else:
             if task.steered and not task.current:
                 task.steered -= 1  # it came after the step after all: a turn of its own
+                if task.steered_items:
+                    task.steered_items.pop(0)
                 task.turns_pending += 1
                 task.busy = True
             task.current = "user"
