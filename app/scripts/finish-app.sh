@@ -1,9 +1,37 @@
 #!/bin/sh
-# Give the packaged app its full name and re-sign it (ad hoc) after editing Info.plist.
+# Give the packaged app its full name and re-sign it after editing Info.plist.
+#
+# Signing with a real certificate (BSH Ventures' team, 9ZSY5R8A5C) gives the app a
+# stable identity, so macOS keeps its permissions (Full Disk Access, microphone,
+# location, calendars) across rebuilds; an ad hoc signature changes every build and
+# silently voids them. JARVIS_SIGN_IDENTITY overrides the choice; with no certificate
+# in the keychain it falls back to ad hoc.
 set -e
 APP="dist/J.A.R.V.I.S-darwin-arm64/J.A.R.V.I.S.app"
+TEAM="${JARVIS_TEAM_ID:-9ZSY5R8A5C}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName J.A.R.V.I.S." "$APP/Contents/Info.plist"
 # CFBundleName stays "J.A.R.V.I.S": Electron finds "J.A.R.V.I.S Helper.app" by it, and a
 # mismatch crashes the app at launch. The menu bar name comes from app.setName in main.js.
-codesign --force --deep --sign - "$APP"
+
+IDENTITY="$JARVIS_SIGN_IDENTITY"
+if [ -z "$IDENTITY" ]; then
+  # The first code-signing certificate issued to the team (its OU is the team id).
+  for hash in $(security find-identity -v -p codesigning | awk '/"/ {print $2}'); do
+    if security find-certificate -a -Z -p 2>/dev/null | awk -v h="$hash" '
+        /^SHA-1 hash:/ {keep = ($3 == h)} keep' | openssl x509 -noout -subject 2>/dev/null |
+        grep -q "OU=$TEAM"; then
+      IDENTITY="$hash"
+      break
+    fi
+  done
+fi
+
+if [ -n "$IDENTITY" ]; then
+  codesign --force --deep --timestamp=none --sign "$IDENTITY" "$APP"
+  echo "Signed with $(codesign -dvv "$APP" 2>&1 | awk -F= '/^Authority/ {print $2; exit}')"
+else
+  codesign --force --deep --sign - "$APP"
+  echo "No team $TEAM certificate in the keychain: signed ad hoc (permissions reset each build)"
+fi
+codesign --verify --deep "$APP"
 echo "Finished $APP"
