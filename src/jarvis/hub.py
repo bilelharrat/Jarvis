@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 import uuid
+import weakref
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
@@ -160,6 +161,8 @@ TOOL_LABELS.update(
 )
 
 log = logging.getLogger("jarvis")
+BRAIN_BUILD_SECONDS = 15 * 60  # a whole rebuild: sources get 5 min, layout and save the rest
+BRAIN_DONE_GRACE = 30  # a rebuild that has said it's done must be gone by then
 
 APPROVAL_TIMEOUT = 300
 ARMED_SECONDS = 8.0
@@ -446,6 +449,14 @@ def tool_label(name: str) -> str:
     return TOOL_LABELS.get(short, short.replace("_", " ").capitalize())
 
 
+async def _last_bytes(stream: asyncio.StreamReader | None, keep: int) -> bytes:
+    """Read a stream to its end, keeping only the last `keep` bytes (a traceback's end)."""
+    last = b""
+    while stream is not None and (chunk := await stream.read(65536)):
+        last = (last + chunk)[-keep:]
+    return last
+
+
 def _text(text: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}]}
 
@@ -675,6 +686,11 @@ class Hub:
         self.weather: dict[str, Any] | None = None
         self.location: dict[str, Any] | None = None
         self._build_proc: Any = None
+        # The galaxy each window was last sent. Every window gets every emit, and every one
+        # asks after galaxy_changed: W windows got the whole galaxy W times each.
+        self._galaxy_sent: weakref.WeakKeyDictionary[WindowQueue, dict[str, Any]] = (
+            weakref.WeakKeyDictionary()
+        )
         self._location_future: asyncio.Future | None = None
         self.browser_available = False
         self.research_available = False
@@ -2741,6 +2757,7 @@ class Hub:
             "messages": self.prefs.brain_messages,
             "only": sorted(only) if only is not None else None,
         }
+        proc = None
         try:
             proc = self._build_proc = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -2748,28 +2765,65 @@ class Hub:
                 "jarvis.brain_build",
                 json.dumps(args),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            async for line in proc.stdout:
-                with contextlib.suppress(ValueError):
-                    event = json.loads(line)
-                    if "progress" in event:
-                        log.info("second brain: %s", event["progress"])
-                        self._brain_status("building", event["progress"])
-                    if event.get("busy"):
-                        log.info("second brain: another rebuild is already running")
-            await proc.wait()
-            if proc.returncode != 0:
+            done = await asyncio.wait_for(self._follow_build(proc), BRAIN_BUILD_SECONDS)
+            if not done and proc.returncode != 0:
                 raise RuntimeError(f"the rebuild stopped (exit {proc.returncode})")
             await asyncio.to_thread(self.kb.load)
+        except TimeoutError:
+            log.warning("second brain: the rebuild ran past %ss; stopped", BRAIN_BUILD_SECONDS)
+            self._brain_status("error", "the rebuild took too long, so it was stopped")
+            return
         except Exception as exc:
             self._brain_status("error", str(exc)[:300])
             return
+        finally:
+            if proc is not None and proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()  # stuck past its time, or the app is stopping
         self._brain_status("ready", "")
         self.emit("galaxy_changed")
         again, self._rebuild_again = self._rebuild_again, None
         if again:
             self._spawn(self.rebuild_brain(only=None if "*" in again else again))
+
+    async def _follow_build(self, proc: asyncio.subprocess.Process) -> bool:
+        """Relay the rebuild's progress until it's done and gone. True once it has said
+        it's done (the index is saved by then). A builder that says so but doesn't leave
+        is stopped: only a reader stuck on some file is left in it."""
+        tail = asyncio.create_task(_last_bytes(proc.stderr, 2000))
+        done = False
+        try:
+            async for line in proc.stdout:
+                with contextlib.suppress(ValueError):
+                    event = json.loads(line)
+                    if not isinstance(event, dict):
+                        continue
+                    if "progress" in event:
+                        log.info("second brain: %s", event["progress"])
+                        self._brain_status("building", event["progress"])
+                    if event.get("busy"):
+                        log.info("second brain: another rebuild is already running")
+                    if "done" in event:
+                        done = True
+                        break
+            try:
+                await asyncio.wait_for(proc.wait(), BRAIN_DONE_GRACE if done else None)
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
+            if not done and proc.returncode != 0:
+                with contextlib.suppress(TimeoutError):
+                    last = (await asyncio.wait_for(tail, 2)).decode(errors="replace").strip()
+                    if last:
+                        log.warning("second brain: the rebuild failed:\n%s", last)
+                        raise RuntimeError(
+                            f"the rebuild stopped (exit {proc.returncode}): {last.splitlines()[-1]}"
+                        )
+            return done
+        finally:
+            tail.cancel()
 
     def _brain_status(self, state: str, detail: str) -> None:
         self.brain_state = {"state": state, "detail": detail}
@@ -2785,7 +2839,7 @@ class Hub:
             {"query": str},
         )
         async def search_notes(args):
-            return _text(hub.search_notes(str(args["query"])))
+            return _text(await hub.find_notes(str(args["query"])))
 
         @tool("read_note", "Read one note from the second brain in full, by its id.", {"id": str})
         async def read_note(args):
@@ -2802,7 +2856,7 @@ class Hub:
                     {"id": note.id, "title": note.title, "source": note.source, "group": note.group}
                 ],
             )
-            return _text(f"{note.title}\n\n{note.text[:12000]}")
+            return _text(hub.note_text(note))
 
         @tool("second_brain_status", "How many notes the second brain holds, by source.", {})
         async def second_brain_status(_args):
@@ -2814,7 +2868,24 @@ class Hub:
         )
 
     def search_notes(self, query: str) -> str:
-        hits = self.kb.search(query, k=6)
+        return self.notes_found(self.kb.search(query, k=6))
+
+    async def find_notes(self, query: str) -> str:
+        """search_notes for Claude: the search runs off the event loop (on a big brain it
+        takes a while), the answer and the window's sources are made on it."""
+        return self.notes_found(await asyncio.to_thread(self.kb.search, query, 6))
+
+    @staticmethod
+    def note_text(note) -> str:
+        """A note as read_note hands it to Claude: its first 12,000 characters, with what
+        looks like a password, key or card number blanked out, as the file index does (a
+        little past the cut too, so no secret is left half-shown there). An index built
+        before the brain blanked them out when reading still holds them."""
+        text = fileindex.redact(note.text[:12400])[:12000]
+        return f"{fileindex.redact(note.title)}\n\n{text}"
+
+    def notes_found(self, hits: list[dict[str, Any]]) -> str:
+        """What search_notes tells Claude, and the sources it shows in the window."""
         self.emit(
             "sources",
             rid=self._rid,
@@ -4224,7 +4295,14 @@ class Hub:
         elif kind == "briefing":
             self._spawn(self.briefing())
         elif kind == "galaxy":
-            self.emit("galaxy", **self.kb.galaxy())
+            galaxy = await asyncio.to_thread(self.kb.galaxy)  # made once per build or load
+            event = {"type": "galaxy", **galaxy}
+            for queue in list(self._subscribers):  # each window once per build, not W times
+                if self._galaxy_sent.get(queue) is not galaxy:
+                    self._galaxy_sent[queue] = galaxy
+                    queue.put_nowait(event)
+                    if queue.cut_off:
+                        self._subscribers.discard(queue)
         elif kind == "brain_rebuild":
             self._spawn(self.rebuild_brain())
         elif kind == "note":
@@ -4386,9 +4464,15 @@ class Hub:
                     "the user deleted some remembered facts in Settings; stop using them."
                 )
         elif kind == "files_clear":
-            await asyncio.to_thread(self.files.clear)
+            erased = await asyncio.to_thread(self.files.clear)
             self._shown_files.clear()
             self.emit("files_status", **self.files.status())
+            if not erased:
+                self.emit(
+                    "error",
+                    text="Your file index is cleared, but a search still running holds some of "
+                    "it on disk. It's overwritten as soon as that search ends.",
+                )
         elif kind == "found_file_open":
             path = str(msg.get("path", ""))
             if path in self._shown_files and Path(path).exists():  # only what the index showed

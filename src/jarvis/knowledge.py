@@ -8,16 +8,23 @@ similar things drift together.
 
 from __future__ import annotations
 
+import heapq
 import json
+import logging
 import math
+import os
 import re
+import stat
 import subprocess
 import threading
 import time
+import unicodedata
+from array import array
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
+from itertools import filterfalse, islice, repeat
 from pathlib import Path
 from typing import Any
 
@@ -25,16 +32,38 @@ import numpy as np
 
 from .prefs import APP_SUPPORT
 
+log = logging.getLogger("jarvis")
+
 RESEARCH_DIR = Path.home() / "Documents" / "Jarvis" / "Research"
 MEETINGS_DIR = Path.home() / "Documents" / "Jarvis" / "Meetings"
 TEXT_SUFFIXES = {".md", ".markdown", ".txt", ".org", ".rst"}
 RICH_SUFFIXES = {".docx", ".doc", ".rtf", ".rtfd", ".pages"}
+DOC_SUFFIXES = TEXT_SUFFIXES | RICH_SUFFIXES | {".pdf"}
 SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".venv", "venv", "dist", "build"}
+FOLDER_SOURCES = {"files", "computer", "research", "meetings"}
 MAX_FILES_PER_FOLDER = 4000
 MAX_TEXT = 200_000
 CHUNK = 1200
+SOURCE_SECONDS = 300  # all sources' share of a rebuild; past it a source keeps its last copy
+READ_SECONDS = 60  # one document; past it (a PDF the parser goes round in circles on) it's skipped
+READERS = 4  # processes reading documents, shared by every folder source of a rebuild
+MAX_QUERY_CHARS = 400  # a search reads this much of the query...
+MAX_QUERY_TERMS = 12  # ...and at most this many of its words, the rarest
+SF_DATALESS = 0x40000000  # stat flag: an iCloud file whose contents aren't on this Mac yet
 
-_WORD = re.compile(r"[a-z0-9][a-z0-9'\-]+")
+_ASCII_WORD = re.compile(r"[a-z0-9][a-z0-9'\-]{2,}")  # three characters or more
+# Words in any alphabet: letters and digits, with ' and - inside ("can't", "wi-fi"). "_" is
+# made a space first, so snake_case splits the way it does in ASCII.
+_WORD = re.compile(r"\w[\w'\-]{2,}")
+# Chinese and Japanese have no spaces between words: a run of them is indexed as its
+# characters and its overlapping pairs (预算会议: 预 算 会 议 预算 算会 会议), so a word of any
+# length inside it is found, and a pair that matches counts for more than lone characters.
+# The same characters fileindex treats as CJK.
+_CJK = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0002fa1f"
+_CJK_RUN = re.compile(f"[{_CJK}]+")
+_LATIN_MARKS = re.compile("[\u0300-\u036f]")
+# What fold() has to take accents off: accented Latin letters, and accents on their own.
+_ACCENTED = re.compile("[\u00c0-\u024f\u0300-\u036f\u1e00-\u1eff]")
 _STOP = set(
     "the and for with that this from are was were has have its our their into not but you they "
     "them than then will would can could should about which what when where who how also just "
@@ -49,8 +78,29 @@ _LABEL_STOP = _STOP | set(
 )
 
 
+def fold(text: str) -> str:
+    """Lowercase, in NFKC form (full-width Ｑ３ as q3), without the accents on Latin letters
+    (résumé as resume, Zürich as zurich): how fileindex compares text too."""
+    if text.isascii():
+        return text.lower()
+    if unicodedata.is_normalized("NFKC", text) and not _ACCENTED.search(text):
+        return text.lower()  # curly quotes and dashes, say: nothing to fold (and it's quick)
+    decomposed = unicodedata.normalize("NFD", unicodedata.normalize("NFKC", text).lower())
+    return unicodedata.normalize("NFC", _LATIN_MARKS.sub("", decomposed))
+
+
 def tokens(text: str) -> list[str]:
-    return [w for w in _WORD.findall(text.lower()) if w not in _STOP and len(w) > 2]
+    text = fold(text)
+    if text.isascii():
+        return list(filterfalse(_STOP.__contains__, _ASCII_WORD.findall(text)))
+    runs = _CJK_RUN.findall(text)
+    if runs:
+        text = _CJK_RUN.sub(" ", text)
+    words = list(filterfalse(_STOP.__contains__, _WORD.findall(text.replace("_", " "))))
+    for run in runs:
+        words += run  # each character
+        words += [run[i : i + 2] for i in range(len(run) - 1)]  # and each pair
+    return words
 
 
 @dataclass
@@ -62,6 +112,30 @@ class Note:
     ref: str  # Apple Notes id, file path, or BSH reference
     group: str = ""
     modified: str = ""
+
+
+_NOTE_FIELDS = {f.name for f in fields(Note)}
+
+
+def _saved_note(raw: Any) -> Note | None:
+    """A note as index.json has it, or None if it isn't one. Fields another version of the
+    app added are left out; missing optional ones take their defaults."""
+    if not isinstance(raw, dict):
+        return None
+    kept = {k: v for k, v in raw.items() if k in _NOTE_FIELDS and isinstance(v, str)}
+    if not all(k in kept for k in ("id", "source", "title", "text", "ref")):
+        return None
+    return Note(**kept)
+
+
+def _redacted(note: Note) -> Note:
+    """The note with what looks like a password, key, token, card or account number blanked
+    out (fileindex.redact), before it's stored or handed to Claude."""
+    from .fileindex import redact
+
+    note.title = redact(note.title)
+    note.text = redact(note.text)
+    return note
 
 
 # ── collectors ──
@@ -128,23 +202,29 @@ def collect_folder(
     source: str = "files",
     limit: int = MAX_FILES_PER_FOLDER,
     newest_first: bool = False,
+    readers: Any = None,
 ) -> list[Note]:
-    """Index a folder's documents. Paths are listed and sorted first (cheap), and only the
-    ones that make the cut are read; reading runs on a few worker processes, since PDFs
-    are slow to parse."""
+    """Index a folder's documents. The walk stops at `limit` documents (or, newest first,
+    keeps only the newest `limit`), and only those are read, on reader processes
+    (`readers`, the rebuild's, or a few of its own): PDFs are slow to parse, and a document
+    that takes the parser round in circles is given up on after READ_SECONDS. What the file
+    index keeps out stays out: files named for what they guard, private ones, links, iCloud
+    files not on this Mac, and passwords, keys and card numbers in the rest (blanked out)."""
     if not folder.is_dir():
         return []
-    paths = list(_walk(folder))
-    if newest_first:
-        paths.sort(key=_mtime, reverse=True)
-    paths = paths[:limit]
-    if len(paths) > 40:
+    if newest_first:  # every document's date is needed, but never a list of them all
+        paths = heapq.nlargest(limit, _walk(folder), key=_mtime)
+    else:  # the walk stops at the cut (70,000 paths were listed to keep 4,000)
+        paths = list(islice(_walk(folder), limit))
+    if readers is not None:
+        texts = list(readers.map(_read_one, paths, chunksize=8))
+    elif len(paths) > 40 or any(p.suffix.lower() == ".pdf" for p in paths):
         from concurrent.futures import ProcessPoolExecutor
 
-        with ProcessPoolExecutor(max_workers=4) as pool:
-            texts = list(pool.map(read_document, paths, chunksize=8))
-    else:
-        texts = [read_document(p) for p in paths]
+        with ProcessPoolExecutor(max_workers=READERS, initializer=_reader_start) as pool:
+            texts = list(pool.map(_read_one, paths, chunksize=8))
+    else:  # a few text files: never blocking (see read_document), no need for processes
+        texts = [_read_one(p, deadline=False) for p in paths]
     notes: list[Note] = []
     for path, text in zip(paths, texts, strict=True):
         if not text or not text.strip():
@@ -171,43 +251,96 @@ def _mtime(path: Path) -> float:
 
 
 def _walk(folder: Path):
-    stack = [folder]
+    """The documents under a folder, the way the file index walks: no hidden or build
+    folders, nothing named for a secret (Passwords.txt, Recovery codes/…) or private
+    (computer.is_sensitive), and no links, which could lead anywhere. os.scandir says what
+    each entry is from the folder's listing, without a stat per file."""
+    from .computer import is_sensitive
+    from .fileindex import SECRET_NAME
+
+    stack = [str(folder)]
     while stack:
         current = stack.pop()
         try:
-            entries = sorted(current.iterdir())
+            with os.scandir(current) as listing:
+                entries = sorted(listing, key=lambda e: e.name)
         except OSError:
             continue
         for entry in entries:
-            if entry.name.startswith("."):
+            name = entry.name
+            if name.startswith(".") or entry.is_symlink() or SECRET_NAME.search(name):
                 continue
-            if entry.is_dir():
-                if entry.name not in SKIP_DIRS and not entry.is_symlink():
-                    stack.append(entry)
-            elif entry.suffix.lower() in TEXT_SUFFIXES | RICH_SUFFIXES | {".pdf"}:
-                yield entry
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                is_dir = False
+            if is_dir:
+                if name not in SKIP_DIRS:
+                    stack.append(entry.path)
+            elif os.path.splitext(name)[1].lower() in DOC_SUFFIXES:
+                path = Path(entry.path)
+                if not is_sensitive(path):
+                    yield path
 
 
-def read_document(path: Path, limit: int = MAX_TEXT) -> str:
-    """Plain text from a text, Markdown, PDF, Word, RTF or Pages file ('' if unreadable)."""
-    suffix = path.suffix.lower()
+class _TooSlow(BaseException):
+    """A document past READ_SECONDS. Not an Exception, so no `except Exception` in a parser
+    swallows it and carries on."""
+
+
+def _reader_start() -> None:
+    """Each reader process: SIGALRM ends a document that takes too long (_read_one), and
+    the process leaves once the rebuild that started it is gone, rather than wait on."""
+    import signal
+
+    def too_slow(_signum, _frame):
+        raise _TooSlow
+
+    signal.signal(signal.SIGALRM, too_slow)
+    parent = os.getppid()
+
+    def watch() -> None:
+        while os.getppid() == parent:
+            time.sleep(2)
+        os._exit(0)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
+def _read_one(path: Path, deadline: bool = True) -> str:
+    """A document's text for the brain, secrets blanked out. In a reader process it gets
+    READ_SECONDS at most."""
+    import signal
+
+    from .fileindex import redact
+
     try:
-        if path.stat().st_size > 25_000_000:
-            return ""
-        if suffix in TEXT_SUFFIXES:
-            return path.read_text(errors="replace")[:limit]
-        if suffix == ".pdf":
-            from pypdf import PdfReader
+        if deadline:
+            signal.alarm(READ_SECONDS)
+        try:
+            return redact(read_document(path, download=False))
+        finally:
+            if deadline:
+                signal.alarm(0)
+    except _TooSlow:
+        log.info("second brain: a document took too long to read; skipped")
+        return ""
 
-            reader = PdfReader(str(path))
-            parts, size = [], 0
-            for page in reader.pages[:40]:
-                text = page.extract_text() or ""
-                parts.append(text)
-                size += len(text)
-                if size > limit:
-                    break
-            return "\n".join(parts)[:limit]
+
+def read_document(path: Path, limit: int = MAX_TEXT, *, download: bool = True) -> str:
+    """Plain text from a text, Markdown, PDF, Word, RTF or Pages file ('' if unreadable).
+    Only a plain file is read (a pipe named notes.md would never answer); with
+    download=False, an iCloud file whose contents aren't on this Mac is skipped rather than
+    fetched just to be read."""
+    suffix = path.suffix.lower()
+    if suffix not in DOC_SUFFIXES:
+        return ""
+    try:
+        info = os.stat(path, follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 25_000_000:
+            return ""
+        if not download and getattr(info, "st_flags", 0) & SF_DATALESS:
+            return ""
         if suffix in RICH_SUFFIXES:
             out = subprocess.run(
                 ["textutil", "-convert", "txt", "-stdout", str(path)],
@@ -216,9 +349,26 @@ def read_document(path: Path, limit: int = MAX_TEXT) -> str:
                 timeout=60,
             )
             return out.stdout[:limit] if out.returncode == 0 else ""
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as fh:
+            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                return ""  # swapped for something else since it was looked at
+            if suffix in TEXT_SUFFIXES:
+                # Enough bytes for `limit` characters of any UTF-8, never a 25 MB log whole.
+                return fh.read(limit * 4).decode("utf-8", "replace")[:limit]
+            from pypdf import PdfReader
+
+            reader = PdfReader(fh)
+            parts, size = [], 0
+            for page in reader.pages[:40]:
+                text = page.extract_text() or ""
+                parts.append(text)
+                size += len(text)
+                if size > limit:
+                    break
+            return "\n".join(parts)[:limit]
     except Exception:  # corrupt PDF, permission denied, odd encoding
         return ""
-    return ""
 
 
 def _title_for(path: Path, text: str) -> str:
@@ -280,6 +430,98 @@ def chunk_text(title: str, text: str, size: int = CHUNK) -> list[str]:
     return chunks or [title]
 
 
+class _Vocab(dict):
+    """Word -> id, a new word getting the next one."""
+
+    def __missing__(self, word: str) -> int:
+        self[word] = n = len(self)
+        return n
+
+
+def _grouped(keys: np.ndarray) -> np.ndarray:
+    """The order that groups equal keys, keeping their order within a group: a stable
+    argsort done as radix passes over 16 bits at a time (a tenth of the time numpy's
+    stable sort takes on 32-bit keys)."""
+    order = np.argsort((keys & 0xFFFF).astype(np.uint16), kind="stable")
+    if len(keys) and keys.max() > 0xFFFF:
+        high = (keys >> 16).astype(np.uint16)[order]
+        order = order[np.argsort(high, kind="stable")]
+    return order
+
+
+@dataclass
+class _Index:
+    """BM25 postings in flat numpy arrays: a term's chunks are ids[starts[t]:starts[t+1]].
+    As Python lists of (chunk, count) tuples they cost ~100 bytes a posting (5.5x the text
+    they index), and every full garbage collection walked them all, pausing the app for
+    0.1-1.4 s; as arrays they cost 6 bytes a posting and the collector never looks inside.
+    Chunks aren't kept as text: a hit's chunk is cut again from its note for the excerpt."""
+
+    by_id: dict[str, int]
+    by_source: dict[str, int]
+    terms: dict[str, int]  # word -> its row in starts
+    starts: np.ndarray  # int64, len(terms) + 1
+    ids: np.ndarray  # int32 chunk ids, grouped by term, ascending within each
+    tfs: np.ndarray  # uint16 counts, alongside ids
+    chunk_note: np.ndarray  # int32: the note each chunk is from
+    chunk_pos: np.ndarray  # int32: which of its note's chunks it is
+    chunk_len: np.ndarray  # float32: words in the chunk
+    avg_len: float
+
+    @classmethod
+    def of(cls, notes: list[Note]) -> _Index:
+        vocab = _Vocab()
+        term_of, chunk_of, count_of = array("i"), array("i"), array("I")
+        chunk_note, chunk_pos, chunk_len = array("i"), array("i"), array("f")
+        for i, n in enumerate(notes):
+            for pos, chunk in enumerate(chunk_text(n.title, n.text)):
+                c = len(chunk_note)
+                words = tokens(f"{n.title} {chunk}")
+                chunk_note.append(i)
+                chunk_pos.append(pos)
+                chunk_len.append(len(words))
+                counts = Counter(words)
+                term_of.extend([vocab[w] for w in counts])
+                count_of.extend(counts.values())
+                chunk_of.extend(repeat(c, len(counts)))
+        terms_arr = np.frombuffer(term_of, dtype=np.int32) if term_of else np.zeros(0, np.int32)
+        order = _grouped(terms_arr)
+        starts = np.zeros(len(vocab) + 1, dtype=np.int64)
+        np.cumsum(np.bincount(terms_arr, minlength=len(vocab)), out=starts[1:])
+        lengths = (
+            np.frombuffer(chunk_len, dtype=np.float32).copy()
+            if chunk_len
+            else np.zeros(0, np.float32)
+        )
+        return cls(
+            by_id={n.id: i for i, n in enumerate(notes)},
+            by_source=dict(Counter(n.source for n in notes)),
+            terms=vocab,
+            starts=starts,
+            ids=np.frombuffer(chunk_of, dtype=np.int32)[order]
+            if chunk_of
+            else np.zeros(0, np.int32),
+            tfs=np.minimum(np.frombuffer(count_of, dtype=np.uint32)[order], 65535).astype(np.uint16)
+            if count_of
+            else np.zeros(0, np.uint16),
+            chunk_note=np.frombuffer(chunk_note, dtype=np.int32).copy()
+            if chunk_note
+            else np.zeros(0, np.int32),
+            chunk_pos=np.frombuffer(chunk_pos, dtype=np.int32).copy()
+            if chunk_pos
+            else np.zeros(0, np.int32),
+            chunk_len=lengths,
+            avg_len=float(lengths.mean()) if len(lengths) else 1.0,
+        )
+
+    def posting(self, word: str) -> tuple[np.ndarray, np.ndarray] | None:
+        row = self.terms.get(word)
+        if row is None:
+            return None
+        start, end = self.starts[row], self.starts[row + 1]
+        return self.ids[start:end], self.tfs[start:end]
+
+
 class KnowledgeBase:
     def __init__(self, store: Path | None = None) -> None:
         self.store = store or APP_SUPPORT / "brain" / "index.json"
@@ -289,11 +531,11 @@ class KnowledgeBase:
         self.clusters: list[dict[str, Any]] = []
         self.built_at = ""
         self.errors: dict[str, str] = {}
-        self._by_id: dict[str, int] = {}
-        self._chunks: list[tuple[int, str]] = []
-        self._postings: dict[str, list[tuple[int, int]]] = {}
-        self._chunk_len: list[int] = []
-        self._avg_len = 1.0
+        self._index = _Index.of([])
+        self._galaxy: dict[str, Any] | None = None
+        # Held only to swap in a finished index and to take a consistent look at one. The
+        # slow work (parsing, indexing, laying out) happens before it's taken, so a search
+        # or a window's hello never waits behind a load or a build.
         self._lock = threading.RLock()
 
     # building
@@ -308,30 +550,17 @@ class KnowledgeBase:
         positions, edges, clusters = layout(
             [f"{n.title}\n{n.text}" for n in unique], [n.source for n in unique]
         )
+        index = _Index.of(unique)
+        built_at = datetime.now().isoformat(timespec="seconds")
         with self._lock:
             self.notes = unique
             self.positions = positions
             self.edges = edges
             self.clusters = clusters
             self.errors = dict(errors or {})
-            self.built_at = datetime.now().isoformat(timespec="seconds")
-            self._reindex()
-
-    def _reindex(self) -> None:
-        self._by_id = {n.id: i for i, n in enumerate(self.notes)}
-        self._chunks = []
-        for i, n in enumerate(self.notes):
-            for chunk in chunk_text(n.title, n.text):
-                self._chunks.append((i, chunk))
-        postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
-        self._chunk_len = []
-        for c, (i, chunk) in enumerate(self._chunks):
-            words = tokens(f"{self.notes[i].title} {chunk}")
-            self._chunk_len.append(len(words))
-            for word, tf in Counter(words).items():
-                postings[word].append((c, tf))
-        self._postings = dict(postings)
-        self._avg_len = (sum(self._chunk_len) / len(self._chunk_len)) if self._chunk_len else 1.0
+            self.built_at = built_at
+            self._index = index
+            self._galaxy = None
 
     # persistence
 
@@ -351,18 +580,29 @@ class KnowledgeBase:
         tmp.replace(self.store)
 
     def load(self) -> bool:
+        """Read the saved index. It's only a cache of the sources: one that can't be read,
+        or that another version of the app wrote in a shape this one doesn't know, leaves
+        the brain as it was (the next rebuild writes a good one) instead of raising."""
         try:
             data = json.loads(self.store.read_text())
-        except (OSError, ValueError):
+            notes, positions, edges, clusters = _saved_state(data)
+            index = _Index.of(notes)
+        except Exception as exc:  # unreadable, a shape this version doesn't know, too deep
+            if not isinstance(exc, FileNotFoundError):
+                log.warning("second brain: the saved index can't be used (%s)", type(exc).__name__)
             return False
+        errors = data.get("errors")
         with self._lock:
-            self.notes = [Note(**n) for n in data.get("notes", [])]
-            self.positions = np.array(data.get("positions") or [], dtype=np.float32).reshape(-1, 3)
-            self.edges = [tuple(e) for e in data.get("edges", [])]
-            self.clusters = data.get("clusters", [])
-            self.built_at = data.get("built_at", "")
-            self.errors = data.get("errors", {})
-            self._reindex()
+            self.notes = notes
+            self.positions = positions
+            self.edges = edges
+            self.clusters = clusters
+            self.built_at = str(data.get("built_at") or "")
+            self.errors = (
+                {str(k): str(v) for k, v in errors.items()} if isinstance(errors, dict) else {}
+            )
+            self._index = index
+            self._galaxy = None
         return True
 
     def notes_by_source(self) -> dict[str, list[Note]]:
@@ -372,83 +612,128 @@ class KnowledgeBase:
         return dict(grouped)
 
     def age_hours(self) -> float:
-        if not self.built_at:
+        try:
+            built = datetime.fromisoformat(self.built_at)
+        except ValueError:  # never built, or a date this version can't read
             return math.inf
-        return (datetime.now() - datetime.fromisoformat(self.built_at)).total_seconds() / 3600
+        return (datetime.now() - built).total_seconds() / 3600
 
     # querying
 
     def search(self, query: str, k: int = 6) -> list[dict[str, Any]]:
-        words = tokens(query)
+        from .fileindex import redact
+
+        words = tokens(str(query)[:MAX_QUERY_CHARS])
         with self._lock:
-            if not words or not self._chunks:
-                return []
-            n_chunks = len(self._chunks)
-            scores: dict[int, float] = defaultdict(float)
-            for word in set(words):
-                posting = self._postings.get(word)
-                if not posting:
-                    continue
-                idf = math.log(1 + (n_chunks - len(posting) + 0.5) / (len(posting) + 0.5))
-                for c, tf in posting:
-                    norm = (
-                        tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * self._chunk_len[c] / self._avg_len))
-                    )
-                    scores[c] += idf * norm
-            best: dict[int, tuple[float, int]] = {}
-            for c, score in scores.items():
-                note = self._chunks[c][0]
-                if note not in best or score > best[note][0]:
-                    best[note] = (score, c)
-            ranked = sorted(best.items(), key=lambda item: -item[1][0])[:k]
-            return [
+            notes, index = self.notes, self._index
+        n_chunks = len(index.chunk_note)
+        if not words or not n_chunks:
+            return []
+        found = [p for w in dict.fromkeys(words) if (p := index.posting(w)) is not None]
+        # A pasted page of text is searched by its most telling words, not every one.
+        found = sorted(found, key=lambda p: len(p[0]))[:MAX_QUERY_TERMS]
+        if not found:
+            return []
+        scores = np.zeros(n_chunks, dtype=np.float32)
+        for ids, counts in found:
+            tf = counts.astype(np.float32)
+            idf = math.log(1 + (n_chunks - len(ids) + 0.5) / (len(ids) + 0.5))
+            norm = tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * index.chunk_len[ids] / index.avg_len))
+            scores[ids] += idf * norm  # a chunk is in a word's postings once
+        hit = np.flatnonzero(scores)
+        ranked = hit[np.argsort(-scores[hit], kind="stable")]
+        _, first = np.unique(index.chunk_note[ranked], return_index=True)
+        best = ranked[np.sort(first)][:k]  # each note's best chunk, best notes first
+        out = []
+        for c in best:
+            n = notes[int(index.chunk_note[c])]
+            chunks = chunk_text(n.title, n.text)
+            chunk = chunks[min(int(index.chunk_pos[c]), len(chunks) - 1)]
+            out.append(
                 {
-                    "id": self.notes[i].id,
-                    "title": self.notes[i].title,
-                    "source": self.notes[i].source,
-                    "group": self.notes[i].group,
-                    "score": round(score, 3),
-                    "excerpt": excerpt(self._chunks[c][1], words),
+                    "id": n.id,
+                    "title": redact(n.title),
+                    "source": n.source,
+                    "group": n.group,
+                    "score": round(float(scores[c]), 3),
+                    "excerpt": excerpt(redact(chunk), words),
                 }
-                for i, (score, c) in ranked
-            ]
+            )
+        return out
 
     def get(self, note_id: str) -> Note | None:
         with self._lock:
-            i = self._by_id.get(note_id)
+            i = self._index.by_id.get(note_id)
             return self.notes[i] if i is not None else None
 
     def galaxy(self) -> dict[str, Any]:
+        """The galaxy for the windows: made once per build or load, then the same one."""
         with self._lock:
-            return {
-                "nodes": [
-                    {
-                        "id": n.id,
-                        "title": n.title,
-                        "source": n.source,
-                        "group": n.group,
-                        "p": [round(float(v), 4) for v in self.positions[i]],
-                    }
-                    for i, n in enumerate(self.notes)
-                ],
-                "edges": self.edges,
-                "clusters": self.clusters,
-                "built_at": self.built_at,
-            }
+            if self._galaxy is not None:
+                return self._galaxy
+            notes, positions = self.notes, self.positions
+            edges, clusters, built_at = self.edges, self.clusters, self.built_at
+        # float64 before rounding: a float32 0.1234 prints as 0.12340000271797180.
+        points = positions.astype(np.float64).round(4).tolist()
+        if len(points) != len(notes):  # never, since load() and build() check; never a crash
+            points = [[0.0, 0.0, 0.0]] * len(notes)
+        galaxy = {
+            "nodes": [
+                {"id": n.id, "title": n.title, "source": n.source, "group": n.group, "p": points[i]}
+                for i, n in enumerate(notes)
+            ],
+            "edges": edges,
+            "clusters": clusters,
+            "built_at": built_at,
+        }
+        with self._lock:
+            if self.notes is not notes:  # replaced meanwhile: this was the old brain's
+                return galaxy
+            if self._galaxy is None:  # two made at once: one of them is the build's
+                self._galaxy = galaxy
+            return self._galaxy
 
     def summary(self) -> dict[str, Any]:
         with self._lock:
-            counts = Counter(n.source for n in self.notes)
             return {
                 "notes": len(self.notes),
-                "by_source": dict(counts),
+                "by_source": dict(self._index.by_source),
                 "built_at": self.built_at,
                 "errors": self.errors,
             }
 
 
+def _saved_state(data: Any) -> tuple[list[Note], np.ndarray, list[tuple[int, int]], list]:
+    """What index.json holds, checked: its notes, their positions (laid out again when they
+    don't match the notes), the edges between them and the clusters."""
+    if not isinstance(data, dict):
+        raise ValueError("not an index")
+    raw = data.get("notes") or []
+    if not isinstance(raw, list):
+        raise ValueError("notes aren't a list")
+    notes = [n for n in map(_saved_note, raw) if n is not None]
+    try:
+        positions = np.asarray(data.get("positions") or [], dtype=np.float32).reshape(-1, 3)
+    except (ValueError, TypeError):
+        positions = np.zeros((0, 3), dtype=np.float32)
+    edges = [
+        (int(e[0]), int(e[1]))
+        for e in (data.get("edges") or [])
+        if isinstance(e, list | tuple) and len(e) == 2
+    ]
+    clusters = [c for c in (data.get("clusters") or []) if isinstance(c, dict)]
+    if len(notes) != len(raw) or len(positions) != len(notes):
+        positions, edges, clusters = layout(
+            [f"{n.title}\n{n.text}" for n in notes], [n.source for n in notes]
+        )
+    edges = [(a, b) for a, b in edges if 0 <= a < len(notes) and 0 <= b < len(notes)]
+    return notes, positions, edges, clusters
+
+
 def excerpt(text: str, words: list[str], width: int = 360) -> str:
-    lower = text.lower()
+    lower = fold(text)
+    if len(lower) != len(text):  # folding changed the length: positions wouldn't line up
+        lower = text.lower()
     hits = [lower.find(w) for w in words if lower.find(w) >= 0]
     start = max(0, min(hits) - width // 3) if hits else 0
     snippet = text[start : start + width].strip()
@@ -510,6 +795,26 @@ def _ball(m: int, rng) -> np.ndarray:
     ring = np.sqrt(np.clip(1 - z * z, 0, 1))
     pts = np.stack([ring * np.cos(theta), z, ring * np.sin(theta)], axis=1) * radius[:, None]
     return pts + rng.normal(0, 0.02, pts.shape)
+
+
+NEAREST_BLOCK = 1 << 22  # similarities worked out at once: 16 MB of float32
+
+
+def _nearest(vectors: np.ndarray, block: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Each row's most similar other row, and how similar, a block of rows at a time (16 MB
+    of similarities however big the cluster). The whole m x m matrix for a cluster of m
+    look-alike notes (statements, receipts) took 4*m^2 bytes: 1.6 GB for 20,000 of them."""
+    m = len(vectors)
+    block = block or max(1, NEAREST_BLOCK // max(1, m))
+    best = np.zeros(m, dtype=np.int64)
+    score = np.full(m, -1.0, dtype=np.float32)
+    for start in range(0, m, block):
+        sims = vectors[start : start + block] @ vectors.T
+        rows = np.arange(sims.shape[0])
+        sims[rows, rows + start] = -1  # not itself
+        best[start : start + block] = np.argmax(sims, axis=1)
+        score[start : start + block] = sims[rows, best[start : start + block]]
+    return best, score
 
 
 def layout(
@@ -577,21 +882,25 @@ def layout(
         members = np.where(labels == c)[0]
         if len(members) < 2 or not has_words[members].all():
             continue
-        sims = reduced[members] @ reduced[members].T
-        np.fill_diagonal(sims, -1)
-        best = np.argmax(sims, axis=1)
+        best, score = _nearest(reduced[members])
         for a, b in enumerate(best):
-            if sims[a, b] > 0.35:
+            if score[a] > 0.35:
                 i, j = int(members[a]), int(members[b])
                 edges.add((min(i, j), max(i, j)))
     return positions, sorted(edges), clusters
+
+
+def _label_word(w: str) -> bool:
+    if w in _LABEL_STOP or w.isdigit():
+        return False
+    return len(w) > 3 or (len(w) == 2 and bool(_CJK_RUN.fullmatch(w)))  # 会议, 预算
 
 
 def _cluster_label(docs, members, df_all, n, sources) -> str:
     """The words that set this cluster apart: common inside it, rarer everywhere else."""
     inside: Counter = Counter()
     for i in members:
-        inside.update(w for w in docs[i] if w not in _LABEL_STOP and not w.isdigit() and len(w) > 3)
+        inside.update(w for w in docs[i] if _label_word(w))
     m = len(members)
     scored = [
         (count / m * math.log(n / df_all[w]), w)
@@ -628,62 +937,73 @@ class Collector:
         only: set[str] | None = None,
         progress: Callable[[str], None] = lambda _msg: None,
     ) -> dict[str, Any]:
+        from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FutureTimeout
+
         previous = self.kb.notes_by_source()
         collected: dict[str, list[Note]] = {}
         # A partial rebuild keeps the other sources' problems on record.
         errors: dict[str, str] = {k: v for k, v in self.kb.errors.items() if only and k not in only}
+        # One set of reader processes for all the folder sources (started as they're needed):
+        # four sources with four each ran sixteen PDF parsers at once.
+        readers = ProcessPoolExecutor(max_workers=READERS, initializer=_reader_start)
 
         jobs: dict[str, Callable[[], list[Note]]] = {}
 
         def gather(source: str, fn: Callable[[], list[Note]]) -> None:
             if only is not None and source not in only:
                 collected[source] = previous.get(source, [])
-            else:
+            elif source in FOLDER_SOURCES:  # blanked out already, in the readers
                 jobs[source] = fn
+            else:
+                jobs[source] = lambda: [_redacted(n) for n in fn()]
 
         if notes:
             gather("notes", collect_apple_notes)
         if bsh and self.bsh_dir is not None:
             gather("bsh", lambda: collect_bsh(self.bsh_dir))
         if folders:
-            gather("files", lambda: [n for f in folders for n in collect_folder(Path(f))])
+            gather(
+                "files",
+                lambda: [n for f in folders for n in collect_folder(Path(f), readers=readers)],
+            )
         from . import sources as more
 
         if computer:
-            gather("computer", more.collect_computer)
+            gather("computer", lambda: more.collect_computer(readers=readers))
         if photos:
             gather("photos", more.collect_photos)
         if mail:
             gather("mail", more.collect_mail_fast)
         if messages:
             gather("messages", more.collect_messages)
-        gather("research", lambda: collect_folder(RESEARCH_DIR, source="research"))
-        gather("meetings", lambda: collect_folder(MEETINGS_DIR, source="meetings"))
+        gather("research", lambda: collect_folder(RESEARCH_DIR, source="research", readers=readers))
+        gather("meetings", lambda: collect_folder(MEETINGS_DIR, source="meetings", readers=readers))
 
         # Sources are independent (mostly other apps answering), so read them side by
-        # side; a slow one can't hold up the rest, and none may take over five minutes.
-        from concurrent.futures import ThreadPoolExecutor
-        from concurrent.futures import TimeoutError as FutureTimeout
-
+        # side; a slow one can't hold up the rest, and all must be done in SOURCE_SECONDS.
         started = time.monotonic()
         pool = ThreadPoolExecutor(max_workers=max(1, len(jobs)))
-        futures = {source: pool.submit(fn) for source, fn in jobs.items()}
-        for source, future in futures.items():
-            progress(f"Reading {source}…")
-            try:
-                collected[source] = future.result(
-                    timeout=max(1, 300 - (time.monotonic() - started))
+        try:
+            futures = {source: pool.submit(fn) for source, fn in jobs.items()}
+            for source, future in futures.items():
+                progress(f"Reading {source}…")
+                try:
+                    collected[source] = future.result(
+                        timeout=max(1, SOURCE_SECONDS - (time.monotonic() - started))
+                    )
+                except FutureTimeout:
+                    errors[source] = "took too long; kept the last copy"
+                    collected[source] = previous.get(source, [])
+                except Exception as exc:  # permission denied, BSH broken, Notes busy
+                    errors[source] = str(exc)[:300]
+                    collected[source] = previous.get(source, [])
+                progress(
+                    f"Read {len(collected[source])} from {source} ({time.monotonic() - started:.0f}s)"
                 )
-            except FutureTimeout:
-                errors[source] = "took too long; kept the last copy"
-                collected[source] = previous.get(source, [])
-            except Exception as exc:  # permission denied, BSH broken, Notes busy
-                errors[source] = str(exc)[:300]
-                collected[source] = previous.get(source, [])
-            progress(
-                f"Read {len(collected[source])} from {source} ({time.monotonic() - started:.0f}s)"
-            )
-        pool.shutdown(wait=False, cancel_futures=True)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+            readers.shutdown(wait=False, cancel_futures=True)
         progress("Arranging the galaxy…")
         self.kb.build(collected, errors)
         self.kb.save()

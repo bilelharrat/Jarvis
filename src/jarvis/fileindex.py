@@ -98,6 +98,9 @@ REFRESH_EVERY = 30 * 60
 RELATED_DAYS = 30
 MEETING_AHEAD_MIN = 30
 SPOTLIGHT_SECONDS = 20
+RANK_ALL = 30_000  # matches ranked by relevance; past that, those in names and the latest
+ROOT_RESERVE = 4  # each root is sure of max_files / (ROOT_RESERVE x roots), whatever the rest hold
+CLEAR_TRIES = 3  # checkpoints clear() tries (each waits BUSY_SECONDS for readers) before saying so
 MDIMPORT = "/usr/bin/mdimport"
 RETRY_SECONDS = 30 * 60  # a text Spotlight failed to read: tried again after this, then 4x
 MAX_TRIES = 5  # ...and after this many failures, left findable by name until it changes
@@ -523,7 +526,7 @@ def _unescape_plist(value: str) -> str:
     return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 
 
-def spotlight_text(path: str) -> str:
+def spotlight_text(path: str, stop: Callable[[], bool] | None = None) -> str:
     """The text Spotlight's own importer reads from a PDF, Pages, Numbers, RTF or older
     Office file.
 
@@ -533,19 +536,32 @@ def spotlight_text(path: str) -> str:
     second (Spotlight takes these one at a time, so there's nothing to gain in parallel).
 
     Raises ReadFailed when the importer couldn't be run or didn't answer in time, so the
-    file is tried again later instead of being taken for one with no text."""
+    file is tried again later instead of being taken for one with no text, and when
+    `stop` says to stop (the importer is ended then, not waited out)."""
     if not os.path.isabs(path):
         return ""  # an absolute path can never be taken for one of mdimport's options
     try:
-        done = subprocess.run(
-            [MDIMPORT, "-t", "-d3", path],
-            capture_output=True,
-            timeout=SPOTLIGHT_SECONDS,
-            check=False,
+        proc = subprocess.Popen(
+            [MDIMPORT, "-t", "-d3", path], stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ReadFailed(type(exc).__name__) from None
-    for stream in (done.stdout, done.stderr):
+    deadline = time.monotonic() + SPOTLIGHT_SECONDS
+    try:
+        while True:
+            try:
+                out, err = proc.communicate(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() > deadline:
+                    raise ReadFailed("TimeoutExpired") from None
+                if stop is not None and stop():
+                    raise ReadFailed("stopped") from None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    for stream in (out, err):
         text = parse_mdimport((stream or b"").decode("utf-8", "replace"))
         if text:
             return text
@@ -642,15 +658,21 @@ class Query:
         return " ".join(t.fts() for t in self.terms)
 
     def loose(self) -> str:
-        """Any of the terms, and runs of Chinese broken into pairs of characters."""
+        """Any of the terms, and runs of Chinese broken into pairs of characters: at most
+        MAX_TERMS pairs from a run, spread along it, and MAX_TERMS parts in all (a pasted
+        400-character sentence made 399 pairs, each looked up in every file with those
+        characters: seconds a search)."""
         parts: list[str] = []
         for term in self.terms:
             chars = term.tokens
             if not term.exact and len(chars) > 2 and all(_CJK_ANY.search(c) for c in chars):
-                parts += [Term(chars[i : i + 2], True).fts() for i in range(len(chars) - 1)]
+                pairs = len(chars) - 1
+                count = min(pairs, MAX_TERMS)
+                picks = sorted({round(k * (pairs - 1) / max(1, count - 1)) for k in range(count)})
+                parts += [Term(chars[i : i + 2], True).fts() for i in picks]
             else:
                 parts.append(term.fts())
-        return " OR ".join(dict.fromkeys(parts))
+        return " OR ".join(list(dict.fromkeys(parts))[:MAX_TERMS])
 
 
 def _cjk_pieces(word: str, kinds: set[str], kind_terms: list[Term]) -> list[str]:
@@ -1027,7 +1049,9 @@ class _Run:
     read: int = 0
     failed: int = 0  # texts Spotlight couldn't read this time: tried again later
     stopped: bool = False
-    capped: bool = False
+    capped: bool = False  # some root was cut short at the cap
+    limit: int = MAX_FILES  # files scanned in all, this root included, before it stops
+    root_capped: bool = False  # this root was
     visited: set[str] = field(default_factory=set)
     unreadable: list[str] = field(default_factory=list)
     rows: list[_Row] = field(default_factory=list)
@@ -1189,8 +1213,8 @@ class FileIndex:
         self.roots = self._clean_roots(
             roots if roots is not None else default_roots(home=Path(self.home))
         )
-        self.pdf_text = pdf_text or spotlight_text
-        self.rich_text = rich_text or spotlight_text
+        self.pdf_text = pdf_text or self._spotlight
+        self.rich_text = rich_text or self._spotlight
         self.max_files = max_files
         self.clock = clock
         self.state = "idle"  # idle | indexing
@@ -1199,6 +1223,14 @@ class FileIndex:
         self._schema_lock = threading.Lock()
         self._refresh_lock = threading.Lock()
         self._cancel = threading.Event()
+        self._run: _Run | None = None  # the refresh in progress
+
+    def _spotlight(self, path: str) -> str:
+        """spotlight_text(), ended at once when the refresh is stopped or the index cleared."""
+        run = self._run
+        return spotlight_text(
+            path, stop=lambda: self._cancel.is_set() or (run is not None and run.halted())
+        )
 
     # ── refreshing ──
 
@@ -1211,6 +1243,8 @@ class FileIndex:
         if not self._refresh_lock.acquire(blocking=False):
             return {"busy": True}
         try:
+            with contextlib.suppress(sqlite3.Error, OSError):  # _refresh reports it
+                self._ensure_schema()  # before our lock: an old index can then start afresh
             with self._process_lock(wait=False) as held:
                 if not held:
                     return {"busy": True}
@@ -1225,12 +1259,18 @@ class FileIndex:
     ) -> dict[str, Any]:
         wanted_stop = should_stop or (lambda: False)
         run = _Run(lambda: self._cancel.is_set() or wanted_stop(), progress)
+        self._run = run
         self.state = "indexing"
+        # The cap is shared: each root may fill it, less a share kept for the roots after it,
+        # so a Documents folder at the cap can't leave Desktop and Downloads out.
+        reserve = self.max_files // (ROOT_RESERVE * max(1, len(self.roots)))
         try:
             with self._db() as conn:
-                for root in self.roots:
-                    if run.halted() or run.capped:
+                for i, root in enumerate(self.roots):
+                    if run.halted():
                         break
+                    run.limit = self.max_files - reserve * (len(self.roots) - 1 - i)
+                    run.root_capped = False
                     self._walk(conn, root, run)
                 self._flush(conn, run)
                 self._sweep(conn, run)
@@ -1242,6 +1282,7 @@ class FileIndex:
             stats = {**self._counts(run), "error": "I couldn't update the file index."}
         finally:
             self.state = "idle"
+            self._run = None
         return stats
 
     @contextlib.contextmanager
@@ -1275,7 +1316,7 @@ class FileIndex:
         rest of the folder it stopped in goes, and _sweep() drops the folders it never got
         to, so the index never outgrows the cap or holds files nobody checked."""
         stack = [root]
-        while stack and not run.halted() and not run.capped:
+        while stack and not run.halted() and not run.root_capped:
             folder = stack.pop()
             try:
                 with os.scandir(folder) as listing:
@@ -1294,7 +1335,7 @@ class FileIndex:
             subfolders: list[str] = []
             finished = True
             for entry in entries:
-                if run.halted() or run.capped:
+                if run.halted() or run.root_capped:
                     finished = False
                     break
                 item = self._item(entry)
@@ -1303,8 +1344,9 @@ class FileIndex:
                 if item.is_dir:
                     subfolders.append(item.path)
                     continue
-                if run.scanned >= self.max_files:
-                    run.capped, finished = True, False
+                if run.scanned >= run.limit:
+                    run.capped = run.root_capped = True
+                    finished = False
                     break
                 run.scanned += 1
                 present.add(item.path)
@@ -1316,7 +1358,7 @@ class FileIndex:
                 if run.due():
                     self._flush(conn, run)
                     run.report("files")
-            if finished or (run.capped and not run.stopped):
+            if finished or (run.root_capped and not run.stopped):
                 gone = [p for p in known if p not in present]
                 run.gone += gone
                 run.removed += len(gone)
@@ -1475,6 +1517,8 @@ class FileIndex:
                 if run.halted():
                     break
                 body = self._slow_body(path, ext)
+                if body is None and run.halted():
+                    break  # stopped, not failed: it's read on the next refresh
                 run.bodies.append((file_id, body))
                 if body is None:
                     run.failed += 1
@@ -1523,6 +1567,17 @@ class FileIndex:
         return None if text is None else clean_body(text)
 
     def _flush(self, conn: sqlite3.Connection, run: _Run) -> None:
+        # A folder emptied at once can leave tens of thousands gone: short transactions,
+        # so a stop (or "forget my files") isn't kept waiting for all of them.
+        while len(run.gone) > BATCH_ROWS and not run.halted():
+            with _transaction(conn):
+                conn.executemany(
+                    "DELETE FROM files WHERE path = ?", [(p,) for p in run.gone[:BATCH_ROWS]]
+                )
+            del run.gone[:BATCH_ROWS]
+        if run.halted() and len(run.gone) > BATCH_ROWS:  # the rest are found gone next time
+            run.removed -= len(run.gone) - BATCH_ROWS
+            del run.gone[BATCH_ROWS:]
         if run.rows or run.gone or run.bodies:
             now = self.clock()
             with _transaction(conn):
@@ -1561,6 +1616,8 @@ class FileIndex:
             if whole or not inside or not os.path.isdir(folder):
                 doomed.append(folder)
         for start in range(0, len(doomed), BATCH_ROWS):
+            if run.halted():
+                return  # what's left goes on the next refresh
             with _transaction(conn):
                 for folder in doomed[start : start + BATCH_ROWS]:
                     cursor = conn.execute("DELETE FROM files WHERE dir = ?", (folder,))
@@ -1582,9 +1639,7 @@ class FileIndex:
         }
 
     def _summary(self, conn: sqlite3.Connection, run: _Run) -> dict[str, Any]:
-        files, pending = conn.execute(
-            "SELECT count(*), coalesce(sum(pending), 0) FROM files"
-        ).fetchone()
+        files, pending = _file_counts(conn)
         return {**self._counts(run), "files": files, "pending": pending}
 
     def _save_meta(self, conn: sqlite3.Connection, stats: dict[str, Any]) -> None:
@@ -1695,10 +1750,19 @@ class FileIndex:
     def _matches(
         self, conn: sqlite3.Connection, match: str, kinds: set[str] | None, cap: int
     ) -> list[_Found]:
+        """The best `cap` matches. Ranking scores every file that matches (2-10 us each): a
+        word in most of 200,000 files, or a folder's name (which every file in it has), took
+        0.35-2 s. Past RANK_ALL matches, the matches in names are ranked instead (or, past
+        RANK_ALL of those too, the latest of them taken), and the latest of the rest fill
+        up; search() orders them all by its own score."""
         clause, values = _kinds_clause(kinds)
-        sql = SEARCH_SQL + clause + " ORDER BY files_fts.rank LIMIT ?"
         try:
-            return [_Found(*r) for r in conn.execute(sql, (match, *values, cap))]
+            if not _many(conn, match):
+                return _ranked(conn, match, clause, values, cap)
+            named = f"{{name}} : ({match})"
+            pick = _latest if _many(conn, named) else _ranked
+            rows = pick(conn, named, clause, values, cap)
+            return _merged(rows, _latest(conn, match, clause, values, cap))[:cap]
         except sqlite3.OperationalError as exc:
             if "fts5" in str(exc):  # a query the full-text engine can't read matches nothing
                 return []
@@ -1728,12 +1792,15 @@ class FileIndex:
     # ── the rest ──
 
     def status(self) -> dict[str, Any]:
-        """How many files are in, how many still wait for their text, when it last ran."""
+        """How many files are in, how many still wait for their text, when it last ran.
+        While another thread is still setting the index up (a first open can replace an old
+        version's), it answers from memory rather than wait: it's called on the event loop."""
+        if not self._ready and self._schema_lock.locked():
+            return {"state": self.state, "files": 0, "pending": 0, "refreshed_at": "",
+                    "last": self.last, "roots": [self.where(r) for r in self.roots]}  # fmt: skip
         try:
             with self._db() as conn:
-                files, pending = conn.execute(
-                    "SELECT count(*), coalesce(sum(pending), 0) FROM files"
-                ).fetchone()
+                files, pending = _file_counts(conn)
                 meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
         except (sqlite3.Error, OSError):
             files, pending, meta = 0, 0, {}
@@ -1751,23 +1818,29 @@ class FileIndex:
             "roots": [self.where(r) for r in self.roots],
         }
 
-    def clear(self) -> None:
+    def clear(self) -> bool:
         """Forget everything indexed, overwriting it on disk (Settings: forget my files). A
         refresh in progress here stops first, and one in another process (a command-line
         run) is waited for, so nothing it read comes back; the next refresh starts from
-        scratch. Blocks: call it off the event loop."""
+        scratch. Blocks: call it off the event loop. True once the old text is gone from the
+        disk; False while another connection's read still holds it there (a search running
+        for more than CLEAR_TRIES x BUSY_SECONDS): it goes when that read ends."""
         self._cancel.set()
+        erased = False
         try:
             with self._refresh_lock, self._process_lock(wait=True), self._db() as conn:
                 conn.execute("PRAGMA secure_delete = ON")
                 with _transaction(conn):
                     _drop_and_create(conn)
                 with contextlib.suppress(sqlite3.Error):
-                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                     conn.execute("VACUUM")
+                # Until a checkpoint gets through, the old pages are still in files.db: one
+                # blocked by a reader returns "busy" rather than failing, so it's checked.
+                erased = _checkpointed(conn)
         finally:
             self._cancel.clear()
         self.last = {}
+        return erased
 
     def where(self, folder: str) -> str:
         """A folder the way the user knows it: "Documents › Clients", "iCloud Drive › Tax",
@@ -1847,12 +1920,69 @@ class FileIndex:
             # its -wal and -shm files the same mode, so this goes first.
             with contextlib.suppress(OSError):
                 os.chmod(self.path, 0o600)
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version not in (0, SCHEMA_VERSION):
+            self._start_afresh()  # or, while a refresh has it open, its tables are dropped below
+        with contextlib.closing(
+            sqlite3.connect(self.path, timeout=BUSY_SECONDS, isolation_level=None)
+        ) as conn:
+            with contextlib.suppress(OSError):
+                os.chmod(self.path, 0o600)
             conn.execute("PRAGMA journal_mode = WAL")
             if conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION:
                 return
             with _transaction(conn):
                 if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
                     _drop_and_create(conn)
+
+    def _start_afresh(self) -> bool:
+        """Another version's index is only a cache: its files are deleted, rather than its
+        tables dropped (which read and rewrote a gigabyte, seconds under the schema lock).
+        Only when no refresh has it open, here or in another process (True when done)."""
+        with self._process_lock(wait=False) as held:
+            if not held:
+                return False
+            for suffix in ("", "-wal", "-shm"):
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(f"{self.path}{suffix}")
+            return True
+
+
+def _many(conn: sqlite3.Connection, match: str) -> bool:
+    """More than RANK_ALL files match (counting stops there: it's cheap)."""
+    sql = "SELECT count(*) FROM (SELECT 1 FROM files_fts WHERE files_fts MATCH ? LIMIT ?)"
+    return conn.execute(sql, (match, RANK_ALL + 1)).fetchone()[0] > RANK_ALL
+
+
+def _ranked(conn, match: str, clause: str, values: list[str], cap: int) -> list[_Found]:
+    sql = SEARCH_SQL + clause + " ORDER BY files_fts.rank LIMIT ?"
+    return [_Found(*r) for r in conn.execute(sql, (match, *values, cap))]
+
+
+def _latest(conn, match: str, clause: str, values: list[str], cap: int) -> list[_Found]:
+    """The most recently indexed matches, without ranking them all (their rank is still read)."""
+    sql = SEARCH_SQL + clause + " ORDER BY files_fts.rowid DESC LIMIT ?"
+    return [_Found(*r) for r in conn.execute(sql, (match, *values, cap))]
+
+
+def _file_counts(conn: sqlite3.Connection) -> tuple[int, int]:
+    """Files indexed and files whose text is still to come, from the indexes alone:
+    sum(pending) read every row of the table, 78 ms at 190,000 files, on the event loop."""
+    files = conn.execute("SELECT count(*) FROM files").fetchone()[0]
+    pending = conn.execute("SELECT count(*) FROM files WHERE pending = 1").fetchone()[0]
+    return files, pending
+
+
+def _checkpointed(conn: sqlite3.Connection) -> bool:
+    """A TRUNCATE checkpoint that got through (each try waits BUSY_SECONDS for readers)."""
+    for _ in range(CLEAR_TRIES):
+        try:
+            busy, _log, _moved = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        except sqlite3.Error:
+            return False
+        if not busy:
+            return True
+    return False
 
 
 def _ids_matching(conn: sqlite3.Connection, match: str, window: dict[int, float]) -> set[int]:

@@ -52,11 +52,18 @@ def _jxa(script: str, timeout: int = 600) -> str:
 # ── computer files ──
 
 
-def collect_computer(folders: list[Path] | None = None, per_folder: int = 600) -> list[Note]:
-    """The newest documents in Documents, Desktop and Downloads."""
+def collect_computer(
+    folders: list[Path] | None = None, per_folder: int = 600, readers=None
+) -> list[Note]:
+    """The newest documents in Documents, Desktop and Downloads (read on the rebuild's
+    reader processes, `readers`, when given)."""
     notes: list[Note] = []
     for folder in folders or COMPUTER_FOLDERS:
-        notes.extend(collect_folder(folder, source="computer", limit=per_folder, newest_first=True))
+        notes.extend(
+            collect_folder(
+                folder, source="computer", limit=per_folder, newest_first=True, readers=readers
+            )
+        )
     return notes
 
 

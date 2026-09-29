@@ -14,7 +14,6 @@ import shutil
 import sqlite3
 import stat
 import struct
-import subprocess
 import threading
 import time
 import zipfile
@@ -1496,7 +1495,19 @@ def test_clean_body_is_one_short_line():
     assert clean_body("") == ""
 
 
-def test_spotlight_text_asks_the_importer(monkeypatch):
+def _fake_mdimport(tmp_path, monkeypatch, body: str) -> None:
+    """Spotlight's importer, played by a script: `body` runs with sys and time imported."""
+    import sys
+
+    script = tmp_path / "mdimport.py"
+    script.write_text(f"import sys, time\n{body}\n")
+    tool = tmp_path / "mdimport"  # a shell wrapper: the interpreter's path may have spaces
+    tool.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
+    tool.chmod(0o755)
+    monkeypatch.setattr(fileindex, "MDIMPORT", str(tool))
+
+
+def test_spotlight_text_asks_the_importer(monkeypatch, tmp_path):
     output = (
         "Imported '/tmp/x.pdf' of type 'com.adobe.pdf'\n{\n"
         '    kMDItemContentType = "com.adobe.pdf";\n'
@@ -1507,38 +1518,41 @@ def test_spotlight_text_asks_the_importer(monkeypatch):
     assert parse_mdimport(output) == expected
     assert parse_mdimport("    kMDItemTextContent = Okin;\n") == "Okin"
     assert parse_mdimport("no text here") == ""
-    calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        assert kwargs["timeout"] == fileindex.SPOTLIGHT_SECONDS
-        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=output.encode())
-
-    monkeypatch.setattr(fileindex.subprocess, "run", fake_run)
+    asked = tmp_path / "asked"
+    _fake_mdimport(
+        tmp_path,
+        monkeypatch,
+        f"open({str(asked)!r}, 'w').write(repr(sys.argv[1:])); sys.stderr.write({output!r})",
+    )
     assert spotlight_text("/tmp/x.pdf") == expected
-    assert calls == [[fileindex.MDIMPORT, "-t", "-d3", "/tmp/x.pdf"]]
-    assert spotlight_text("-rf.pdf") == "" and len(calls) == 1  # never taken for an option
+    assert asked.read_text() == repr(["-t", "-d3", "/tmp/x.pdf"])
+    asked.unlink()
+    assert spotlight_text("-rf.pdf") == "" and not asked.exists()  # never taken for an option
 
-    def no_text(cmd, **kwargs):
-        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"Imported, no text\n")
-
-    monkeypatch.setattr(fileindex.subprocess, "run", no_text)
+    _fake_mdimport(tmp_path, monkeypatch, "sys.stderr.write('Imported, no text')")
     assert spotlight_text("/tmp/scan.pdf") == ""  # read fine: there's just no text in it
 
-    def missing(cmd, **kwargs):
-        raise FileNotFoundError(cmd[0])
-
     # A failed read isn't "no text": it's said, so the file is tried again later.
-    monkeypatch.setattr(fileindex.subprocess, "run", missing)
+    monkeypatch.setattr(fileindex, "MDIMPORT", str(tmp_path / "missing"))
     with pytest.raises(fileindex.ReadFailed):
         spotlight_text("/tmp/x.pdf")
 
-    def too_slow(cmd, **kwargs):
-        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
-
-    monkeypatch.setattr(fileindex.subprocess, "run", too_slow)
+    pid = tmp_path / "pid"
+    stuck = f"open({str(pid)!r}, 'w').write(str(__import__('os').getpid())); time.sleep(60)"
+    _fake_mdimport(tmp_path, monkeypatch, stuck)  # stuck on the file
+    monkeypatch.setattr(fileindex, "SPOTLIGHT_SECONDS", 0.5)
     with pytest.raises(fileindex.ReadFailed):
         spotlight_text("/tmp/x.pdf")
+    with pytest.raises(ProcessLookupError):  # ended, not left behind
+        os.kill(int(pid.read_text()), 0)
+    # Stop (or "forget my files") doesn't wait the importer out.
+    monkeypatch.setattr(fileindex, "SPOTLIGHT_SECONDS", 60)
+    started = time.monotonic()
+    with pytest.raises(fileindex.ReadFailed):
+        spotlight_text("/tmp/x.pdf", stop=lambda: time.monotonic() - started > 0.3)
+    assert time.monotonic() - started < 5
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid.read_text()), 0)
 
 
 # ── in the background ──
