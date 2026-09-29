@@ -2911,6 +2911,21 @@ class Hub:
             index = next(self._filler_order) % len(self._fillers)
             self.speech.push_clip(self._fillers[index], self._filler_phrases()[index])
 
+    async def _revert_file(self, task, path: str) -> str:
+        """One changed file back as it is in the last commit (the Changes pane's Revert).
+        Only a file the pane lists as changed, and never a new one: reverting that would
+        delete it."""
+        changed = {f["path"]: f for f in await self._diff_files(task)}
+        change = changed.get(path)
+        if change is None:
+            return f"{path or 'That file'} has no changes to revert."
+        if change["new"]:
+            return f"{path} is a new file; delete it yourself if you don't want it."
+        await self._git(task.cwd, "restore", "--source=HEAD", "--staged", "--worktree", "--", path)
+        if any(f["path"] == path for f in await self._diff_files(task)):
+            return f"Couldn't revert {path}."
+        return f"Reverted {path} to the last commit."
+
     async def _diff_files(self, task) -> list[dict[str, Any]]:
         """Every changed file with its lines, for the Changes view."""
         from . import diffspeak
@@ -4820,6 +4835,11 @@ class Hub:
         elif kind == "task_diff":
             task = self.tasks.tasks.get(int(msg.get("id", 0)))
             if task is not None:
+                self.emit("task_diff", id=task.id, files=await self._diff_files(task))
+        elif kind == "task_revert":  # the Changes pane's Revert: one file back to HEAD
+            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            if task is not None and task.kind == "code":
+                self.emit("caption", text=await self._revert_file(task, str(msg.get("path", ""))))
                 self.emit("task_diff", id=task.id, files=await self._diff_files(task))
         elif kind == "project_files":
             from .code_vocab import vocab_for

@@ -1416,7 +1416,10 @@
   "Find in this session": "在此会话中查找",
   "Previous match (⏎)": "上一个匹配（⏎）",
   "Next match (⇧⏎)": "下一个匹配（⇧⏎）",
-  "Close find": "关闭查找"
+  "Close find": "关闭查找",
+  "Revert": "还原",
+  "Click to revert": "再点一下以还原",
+  "Put this file back as it is in the last commit": "把这个文件恢复成上次提交时的样子"
  },
  "patterns": [
   [

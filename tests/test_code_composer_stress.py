@@ -137,3 +137,38 @@ async def test_an_export_that_cannot_be_saved_says_so(hub, tmp_path, monkeypatch
     captions = [d["text"] for k, d in sent if k == "caption"]
     assert captions and captions[-1].startswith("Couldn't save the transcript")
     task.handle.cancel()
+
+
+async def test_revert_puts_one_changed_file_back_and_never_deletes_a_new_one(hub, tmp_path):
+    import subprocess
+
+    project = tmp_path / "proj"
+    project.mkdir()
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (project / "a.py").write_text("x = 1\n")
+    (project / "b.py").write_text("y = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "one")
+    (project / "a.py").write_text("x = 2\n")
+    (project / "b.py").write_text("y = 2\n")
+    (project / "new.py").write_text("z = 1\n")
+    task = hub.tasks.start("", "proj")
+    sent = _record(hub)
+    await hub.handle({"type": "task_revert", "id": task.id, "path": "a.py"})
+    assert (project / "a.py").read_text() == "x = 1\n"
+    assert (project / "b.py").read_text() == "y = 2\n"  # only the file asked for
+    assert ("caption", {"text": "Reverted a.py to the last commit."}) in sent
+    files = [d["files"] for k, d in sent if k == "task_diff"][-1]
+    assert sorted(f["path"] for f in files) == ["b.py", "new.py"]
+    for path in ("new.py", "../outside.py", "a.py", ""):
+        await hub.handle({"type": "task_revert", "id": task.id, "path": path})
+    captions = [d["text"] for k, d in sent if k == "caption"][-4:]
+    assert captions[0].startswith("new.py is a new file") and (project / "new.py").exists()
+    assert all("no changes to revert" in c for c in captions[1:])
+    task.handle.cancel()

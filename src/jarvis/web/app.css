@@ -1099,6 +1099,8 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-note, .jc-turn { font-size: 12px; color: rgb(var(--c-muted)); }
 .jc-note { display: flex; gap: 6px; }
 .jc-note > span:last-child { white-space: pre-line; }  /* /agents, /hooks: a line each */
+.jc-diff-file .jc-revert { margin-left: 8px; }
+.jc-revert.armed { color: rgb(var(--c-danger)); }
 .jc-turn { align-self: center; font-variant-numeric: tabular-nums; }
 /* an approval, as a sheet in the flow */
 .jc-ask { background: rgb(var(--c-raised)); border-radius: 16px; box-shadow: var(--shadow-sheet), inset 0 0 0 1px rgb(var(--c-accent) / 0.35); padding: 14px 16px; }
