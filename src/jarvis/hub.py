@@ -1257,6 +1257,27 @@ class Hub:
         if follow_up and self._listener is not None and self._listener.running:
             self._arm(seconds=FOCUS_FOLLOW_UP, chime=False)
 
+    async def _code_command(self, task, text: str) -> None:
+        from .voicecode import SLASH
+
+        name, _, rest = text[1:].partition(" ")
+        name = name.lower()
+        if name == "voice":
+            if self.voicecode.focus == task.id:
+                self.voicecode.exit()
+            else:
+                self.emit("caption", text=await self.voice_code(task_id=task.id))
+            return
+        utterance = SLASH.get(name)
+        if utterance is None:  # Claude Code's own or the project's custom command
+            self.tasks.send(task.id, text)
+            return
+        await self.voicecode.handle(
+            utterance.format(arg=rest.strip()) if "{arg}" in utterance else utterance,
+            task=task,
+            typed=True,
+        )
+
     def acknowledge(self) -> None:
         """A short pre-voiced 'On it.' so a request never meets silence."""
         if self._fillers and not self._silent and not self.speaker.muted:
@@ -2235,8 +2256,24 @@ class Hub:
                     self.emit("error", text=reply)
         elif kind == "meeting_stop":
             self._spawn(self._stop_meeting_from_window())
+        elif kind == "code_command":
+            # A slash command typed in the Claude Code panel: /plan, /undo, /diff…
+            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            text = str(msg.get("text", "")).strip()
+            if task is not None and text:
+                await self._code_command(task, text)
+        elif kind == "task_context":
+            usage = await self.tasks.context_usage(int(msg.get("id", 0)))
+            if usage:
+                self.emit("task_context", id=int(msg.get("id", 0)), **usage)
         elif kind == "task_undo":
             self.emit("caption", text=await self.tasks.undo(int(msg.get("id", 0))))
+        elif kind == "voicecode_start":
+            reply = await self.voice_code(str(msg.get("directory", "")))
+            self.emit("caption", text=reply)
+            if self.voicecode.focus is not None:
+                self.emit("show_session", id=self.voicecode.focus)
+                self.say(reply)
         elif kind == "voicecode_enter":
             self.emit("caption", text=await self.voice_code(task_id=int(msg.get("id", 0))))
         elif kind == "voicecode_exit":

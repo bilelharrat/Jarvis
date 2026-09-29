@@ -147,7 +147,8 @@ function onEvent(ev) {
         notice('Location', 'Turn on location for J.A.R.V.I.S.', 'For local weather and live traffic: switch on J.A.R.V.I.S. under Location Services.', 0, openBtn);
       }
       break;
-    case 'claude_sessions': if (ev.directory === deckProject) { pastSessions = ev.items; renderDeckList(); } break;
+    case 'claude_sessions': if (ev.directory === deckProject) { pastSessions = ev.items; renderPast(); } break;
+    case 'task_context': ccContext[ev.id] = ev.percent; renderCC(ccTasks); break;
     case 'task_finished': onTaskFinished(ev); break;
     case 'muted': setMuted(ev.value); break;
     case 'prefs': renderPrefs(ev); break;
@@ -905,7 +906,7 @@ let pastSessions = [];
 let newMode = 'ask';
 let awaitingNewSession = false;
 const pendingApprovals = new Map();
-const MODE_NAMES = { ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
+const MODE_NAMES = { plan: 'Plan mode', ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
 
 const TOOL_ICONS = {
   read: 'M2 8s2.5-4.5 6-4.5S14 8 14 8s-2.5 4.5-6 4.5S2 8 2 8z M8 6.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
@@ -939,105 +940,94 @@ function toggleCC(open) {
   $('cc-btn').setAttribute('aria-expanded', String(open));
   if (open) {
     send({ type: 'claude_projects' });
-    if (ccSelected) send({ type: 'task_transcript', id: ccSelected });
+    if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }
+    setTimeout(() => $('deck-input').focus(), 30);
   }
 }
 $('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
 $('cc-close').addEventListener('click', () => toggleCC(false));
+
+// ── sidebar: projects, each with its sessions ──
 
 function renderProjects(items) {
   deckProjects = items;
   if (!deckProject && items.length) { selectProject((items.find((p) => p.running) || items[0]).name); return; }
   const filter = $('deck-filter').value.trim().toLowerCase();
   $('deck-project-list').replaceChildren(...items.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
-    const li = el('li');
-    const b = el('button');
+    const li = el('li', p.name === deckProject ? 'open' : '');
+    const b = el('button', 'cc-project');
     b.type = 'button';
     b.setAttribute('aria-current', String(p.name === deckProject));
-    b.append(el('span', '', p.name));
-    const running = ccTasks.filter((t) => t.folder === p.name && t.busy).length;
-    if (running) b.append(el('span', 'run-count', String(running)));
+    b.append(el('span', 'cc-folder', p.name === deckProject ? '▾' : '▸'), el('span', 'cc-pname', p.name));
     if (p.branch) b.append(el('small', '', `⎇ ${p.branch}`));
     b.addEventListener('click', () => selectProject(p.name));
     li.append(b);
+    if (p.name === deckProject) {
+      const sessions = el('ul', 'cc-sessions');
+      const mine = ccTasks.filter((t) => t.folder === p.name);
+      for (const t of mine) {
+        const row = el('button', 'cc-session');
+        row.type = 'button';
+        row.setAttribute('aria-current', String(t.id === ccSelected));
+        const voiced = voiceFocus && voiceFocus.id === t.id ? ' 🎙' : '';
+        row.append(el('span', `dot ${statusOf(t)}`), el('span', 'cc-stitle', (t.title || t.prompt || 'New session') + voiced), el('small', '', statusText(t)));
+        row.addEventListener('click', () => selectTask(t.id));
+        const item = el('li');
+        item.append(row);
+        sessions.append(item);
+      }
+      const add = el('button', 'cc-session add', '+ New session');
+      add.type = 'button';
+      add.addEventListener('click', () => newSession(false));
+      const addLi = el('li');
+      addLi.append(add);
+      sessions.append(addLi);
+      li.append(sessions);
+    }
     return li;
   }));
-  const keep = $('deck-new-project').value;
-  $('deck-new-project').replaceChildren(...items.map((p) => { const o = el('option', '', p.name); o.value = p.name; return o; }));
-  $('deck-new-project').value = keep || deckProject || '';
 }
 $('deck-filter').addEventListener('input', () => renderProjects(deckProjects));
 
 function selectProject(name) {
   deckProject = name;
   pastSessions = [];
-  const p = deckProjects.find((x) => x.name === name);
-  $('deck-project-name').textContent = name;
-  $('deck-branch').textContent = p && p.branch ? `⎇ ${p.branch}` : '';
   send({ type: 'claude_sessions', directory: name });
-  if (deckTab === 'changes') send({ type: 'project_git', directory: name });
+  document.querySelectorAll('.cc-project-name').forEach((n) => { n.textContent = name; });
+  $('cc-cwd').textContent = `cwd: ~/…/${name}`;
   renderProjects(deckProjects);
-  renderDeckList();
+  renderPast();
 }
 
-document.querySelectorAll('.deck-tabs button').forEach((b) => b.addEventListener('click', () => {
-  deckTab = b.dataset.tab;
-  document.querySelectorAll('.deck-tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
-  $('deck-list').hidden = deckTab === 'changes';
-  $('deck-changes').hidden = deckTab !== 'changes';
-  if (deckTab === 'changes' && deckProject) send({ type: 'project_git', directory: deckProject });
-  renderDeckList();
-}));
+function renderPast() {
+  $('cc-past-wrap').hidden = !pastSessions.length;
+  $('cc-past').replaceChildren(...pastSessions.slice(0, 6).map((p) => {
+    const li = el('li');
+    const b = el('button', 'cc-past-item');
+    b.type = 'button';
+    b.append(el('span', '', p.title || 'Untitled session'), el('small', 'dim', new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })));
+    b.addEventListener('click', () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, mode: 'ask', prompt: '' }); });
+    li.append(b);
+    return li;
+  }));
+}
+
+function renderDeckList() { renderProjects(deckProjects); renderPast(); }
+function renderGit() { /* folded into /diff */ }
 
 function statusOf(t) { return t.busy ? 'busy' : t.status === 'failed' ? 'failed' : t.status === 'waiting' ? 'waiting' : 'idle'; }
-function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended' }[t.status] || t.status; }
+function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended', running: 'starting' }[t.status] || t.status; }
 
-function renderDeckList() {
-  const list = $('deck-list');
-  if (deckTab === 'active') {
-    const mine = ccTasks.filter((t) => !deckProject || t.folder === deckProject);
-    if (!mine.length) { list.replaceChildren(el('li', 'empty', 'No sessions in this project yet.')); return; }
-    list.replaceChildren(...mine.map((t) => {
-      const li = el('li');
-      const b = el('button', 'deck-item');
-      b.type = 'button';
-      b.setAttribute('aria-current', String(t.id === ccSelected));
-      const meta = el('small');
-      meta.append(el('span', `dot ${statusOf(t)}`), document.createTextNode(`${statusText(t)} · ${MODE_NAMES[t.mode]}${t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : ''}`));
-      b.append(el('strong', '', t.title || t.prompt || 'Session'), meta, el('small', '', t.last_action));
-      b.addEventListener('click', () => selectTask(t.id));
-      li.append(b);
-      return li;
-    }));
-  } else if (deckTab === 'past') {
-    if (!pastSessions.length) { list.replaceChildren(el('li', 'empty', 'No past sessions found here.')); return; }
-    list.replaceChildren(...pastSessions.map((p) => {
-      const li = el('li');
-      const b = el('button', 'deck-item');
-      b.type = 'button';
-      const meta = el('small', '', `${new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${p.branch ? ` · ⎇ ${p.branch}` : ''} · resume`);
-      b.append(el('strong', '', p.title || 'Untitled session'), meta);
-      b.addEventListener('click', () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, mode: 'ask', prompt: '' }); });
-      li.append(b);
-      return li;
-    }));
-  }
-}
+// ── the session: status line, spinner ──
 
-function renderGit(g) {
-  const box = $('deck-changes');
-  if (g.error) { box.replaceChildren(el('p', 'muted', g.error)); return; }
-  if (!g.git) { box.replaceChildren(el('p', 'muted', 'Not a git repository.')); return; }
-  const files = el('ul');
-  files.append(...g.files.map((f) => { const li = el('li'); li.append(el('span', 'st', f.status), document.createTextNode(f.path)); return li; }));
-  const log = el('ul');
-  log.append(...g.log.map((l) => el('li', '', l)));
-  box.replaceChildren(
-    el('strong', '', `⎇ ${g.branch}`),
-    el('p', 'muted', g.files.length ? `${g.files.length} changed file${g.files.length === 1 ? '' : 's'}${g.stat ? ` · ${g.stat}` : ''}` : 'Working tree clean.'),
-    files, el('strong', '', 'Recent commits'), log,
-  );
-}
+const MODE_LINES = {
+  plan: '⏸ plan mode on',
+  ask: '? ask before edits',
+  edits: '⏵⏵ accept edits on',
+  auto: '⏵⏵⏵ full auto on',
+};
+let ccContext = {};
+let workingSince = 0;
 
 function renderCC(items) {
   ccTasks = items.filter((t) => t.kind === 'code');
@@ -1045,48 +1035,58 @@ function renderCC(items) {
   const waiting = ccTasks.filter((t) => !t.busy && t.status === 'waiting').length;
   $('cc-label').textContent = running ? `Claude Code · ${running} working` : ccTasks.length ? `Claude Code · ${ccTasks.length}` : 'Claude Code';
   $('deck-summary').textContent = [running && `${running} working`, waiting && `${waiting} waiting for you`].filter(Boolean).join(' · ');
-  if (deckTab === 'active') renderDeckList();
+  renderProjects(deckProjects);
   const t = ccTasks.find((x) => x.id === ccSelected);
-  if (!t) return;
-  $('ds-title').textContent = t.title || t.prompt || 'Session';
-  $('ds-meta').textContent = `${t.folder}${t.session_id ? ` · ${t.session_id.slice(0, 8)}` : ''}`;
-  $('ds-badge').className = `badge-status ${statusOf(t)}`;
-  $('ds-badge').textContent = statusText(t);
-  document.querySelectorAll('#ds-mode button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === t.mode)));
-  $('ds-interrupt').disabled = !t.busy;
-  $('ds-undo').disabled = t.busy || !t.can_undo;
+  $('cc-welcome').hidden = !!t && $('deck-timeline').children.length > 0;
+  if (!t) { $('cc-mode').textContent = '? for shortcuts'; $('cc-meta').textContent = ''; $('cc-working').hidden = true; return; }
+  $('cc-mode').textContent = `${MODE_LINES[t.mode] || t.mode} (⇧tab to cycle)`;
+  const ctx = ccContext[t.id];
+  $('cc-meta').textContent = [
+    t.model ? t.model.replace('claude-', '').replace(/-(\d)-(\d)$/, ' $1.$2') : '',
+    ctx ? `${ctx}% context` : '',
+    t.files_changed.length ? `${t.files_changed.length} file${t.files_changed.length === 1 ? '' : 's'} changed` : '',
+    t.cost_usd ? `$${t.cost_usd.toFixed(2)}` : '',
+  ].filter(Boolean).join(' · ');
+  if (t.busy && !workingSince) workingSince = Date.now();
+  if (!t.busy) workingSince = 0;
+  $('cc-working').hidden = !t.busy;
+  $('cc-working-text').textContent = `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`;
   $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === t.id));
-  $('st-files').textContent = t.files_changed.length;
-  $('st-files').title = t.files_changed.join('\n');
-  $('st-commands').textContent = t.commands;
-  $('st-cost').textContent = `$${(t.cost_usd || 0).toFixed(2)}`;
 }
 
 setInterval(() => {
-  const t = ccTasks.find((x) => x.id === ccSelected);
-  if (!t || $('cc').hidden) return;
-  const secs = Math.max(0, Math.round((Date.now() - new Date(t.started).getTime()) / 1000));
-  $('st-time').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  if (!workingSince || $('cc').hidden) return;
+  const secs = Math.round((Date.now() - workingSince) / 1000);
+  $('cc-working-time').textContent = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }, 1000);
 
-function showPane(which) {
-  $('deck-empty').hidden = which !== 'empty';
-  $('deck-new-form').hidden = which !== 'new';
-  $('deck-session').hidden = which !== 'session';
-}
+function showPane() { /* one pane now: the transcript, with the welcome above it */ }
 
 function selectTask(id) {
   ccSelected = id;
-  showPane('session');
+  const t = ccTasks.find((x) => x.id === id);
+  if (t && t.folder !== deckProject) selectProject(t.folder);
   $('deck-timeline').replaceChildren();
   send({ type: 'task_transcript', id });
+  send({ type: 'task_context', id });
   renderCC(ccTasks);
   $('deck-input').focus();
 }
 
+function newSession(voice) {
+  if (!deckProject) return;
+  awaitingNewSession = true;
+  if (voice) send({ type: 'voicecode_start', directory: deckProject });
+  else send({ type: 'task_new', directory: deckProject, prompt: '', mode: 'ask' });
+}
+$('cc-start-voice').addEventListener('click', () => newSession(true));
+$('cc-start-typed').addEventListener('click', () => newSession(false));
+
+// ── the transcript, Claude Code style ──
+
 // Markdown-lite: code fences become <pre>, `code` and **bold** inline. Built with DOM nodes.
 function richText(text) {
-  const box = el('div');
+  const box = el('div', 'cc-md');
   text.split('```').forEach((part, i) => {
     if (i % 2) {
       box.append(el('pre', '', part.replace(/^[\w+-]*\n/, '')));
@@ -1107,89 +1107,241 @@ function richText(text) {
 }
 
 function diffBlock(text) {
-  const pre = el('pre');
+  const pre = el('pre', 'cc-diff');
   for (const line of text.split('\n')) {
-    const cls = line.startsWith('+ ') ? 'diff-add' : line.startsWith('- ') ? 'diff-del' : '';
+    const cls = /^\+ ?/.test(line) && !line.startsWith('+++') ? 'diff-add' : /^- ?/.test(line) && !line.startsWith('---') ? 'diff-del' : '';
     pre.append(cls ? el('span', cls, `${line}\n`) : document.createTextNode(`${line}\n`));
   }
   return pre;
 }
 
+// Claude Code's own names for its tools, as its terminal shows them.
+const TOOL_TITLES = { Edit: 'Update', MultiEdit: 'Update', Write: 'Write', Read: 'Read', Bash: 'Bash', Grep: 'Search', Glob: 'Search', WebFetch: 'Fetch', WebSearch: 'Web Search', TodoWrite: 'Update Todos', Task: 'Task', NotebookEdit: 'Update' };
+
+function toolCall(e) {
+  const detail = e.detail || '';
+  let arg = '';
+  if (e.tool === 'Bash') arg = detail.replace(/^\$ /, '').split('\n')[0];
+  else if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(e.tool)) arg = detail.split('\n')[0].replace(' (new contents)', '');
+  else arg = e.text.replace(/^(Reading|Searching for|Editing|Writing|Running)\s*/, '');
+  return [TOOL_TITLES[e.tool] || e.tool, arg.slice(0, 120)];
+}
+
+function resultLine(e) {
+  if (e.status === 'running') return '';
+  if (e.status === 'failed') return `Error: ${(e.output || 'failed').split('\n')[0].slice(0, 200)}`;
+  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(e.tool)) {
+    const lines = (e.detail || '').split('\n');
+    const add = lines.filter((l) => l.startsWith('+ ')).length;
+    const del = lines.filter((l) => l.startsWith('- ')).length;
+    return e.tool === 'Write' ? `Wrote ${add} line${add === 1 ? '' : 's'}` : `Updated with ${add} addition${add === 1 ? '' : 's'} and ${del} removal${del === 1 ? '' : 's'}`;
+  }
+  const out = (e.output || '').trim();
+  if (!out) return 'Done';
+  const lines = out.split('\n');
+  return lines.length > 3 ? `${lines.slice(0, 3).join('\n')}\n… +${lines.length - 3} lines` : out;
+}
+
 function appendEntry(e) {
   const tl = $('deck-timeline');
-  const nearBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 80;
+  const box = $('cc-scroll');
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   let li;
-  if (e.role === 'user') li = el('li', 't-user', e.text);
-  else if (e.role === 'assistant') { li = el('li', 't-assistant'); li.append(richText(e.text)); }
-  else if (e.role === 'tool' && e.tool) {
-    li = el('li', `t-tool ${e.status || ''}`);
+  if (e.role === 'user') {
+    li = el('li', 'cc-user');
+    li.append(el('span', 'cc-gutter', '>'), el('span', '', e.text));
+  } else if (e.role === 'assistant') {
+    li = el('li', 'cc-say');
+    li.append(el('span', 'cc-dot', '⏺'), richText(e.text));
+  } else if (e.role === 'tool' && e.tool) {
+    li = el('li', `cc-tool ${e.status || ''}`);
     li.dataset.toolId = e.tool_id || '';
-    const det = el('details');
-    const sum = el('summary');
-    sum.append(icon(toolKind(e.tool)), el('span', '', e.text), el('span', 'st', e.status === 'running' ? '…' : e.status === 'failed' ? 'failed' : '✓'));
-    det.append(sum);
-    if (e.detail) det.append(diffBlock(e.detail));
-    const out = el('pre', 'out', e.output || '');
-    out.hidden = !e.output;
-    det.append(out);
-    li.append(det);
+    const [name, arg] = toolCall(e);
+    const head = el('div', 'cc-call');
+    head.append(el('span', 'cc-dot', '⏺'), el('strong', '', name), el('span', 'cc-arg', arg ? `(${arg})` : ''));
+    const res = el('div', 'cc-result');
+    res.append(el('span', 'cc-elbow', '⎿'), el('span', 'cc-result-text', resultLine(e)));
+    li.append(head, res);
+    if (['Edit', 'MultiEdit', 'Write'].includes(e.tool) && e.detail) li.append(diffBlock(e.detail.split('\n').slice(1).join('\n')));
+    res.hidden = e.status === 'running';
   } else if (e.role === 'plan') {
-    li = el('li', 't-plan');
-    li.append(el('strong', '', 'Plan'), richText(e.text));
-  } else li = el('li', 't-system', e.text);
-  const firstApproval = tl.querySelector('.t-approval');
-  tl.insertBefore(li, firstApproval);
-  if (nearBottom) tl.scrollTop = tl.scrollHeight;
+    li = el('li', 'cc-plan');
+    li.append(el('p', 'cc-plan-head', 'Here is Claude’s plan:'), richText(e.text));
+  } else if (e.role === 'note') {
+    li = el('li', 'cc-note');
+    li.append(el('span', 'cc-elbow', '⎿'), el('span', '', e.text));
+  } else {
+    li = el('li', 'cc-sys', e.text);
+  }
+  tl.insertBefore(li, tl.querySelector('.cc-ask'));
+  $('cc-welcome').hidden = true;
+  if (nearBottom) box.scrollTop = box.scrollHeight;
 }
 
 function updateEntry(ev) {
   const li = [...$('deck-timeline').children].find((n) => n.dataset.toolId === ev.tool_id);
   if (!li) return;
-  li.className = `t-tool ${ev.status}`;
-  li.querySelector('.st').textContent = ev.status === 'failed' ? 'failed' : '✓';
-  const out = li.querySelector('pre.out');
-  out.textContent = ev.output;
-  out.hidden = !ev.output;
+  li.className = `cc-tool ${ev.status}`;
+  const res = li.querySelector('.cc-result');
+  const tool = li.querySelector('.cc-call strong').textContent;
+  const entry = { status: ev.status, output: ev.output, tool: Object.keys(TOOL_TITLES).find((k) => TOOL_TITLES[k] === tool) || tool, detail: '' };
+  if (!['Update', 'Write'].includes(tool) || ev.status === 'failed') li.querySelector('.cc-result-text').textContent = resultLine(entry);
+  res.hidden = false;
 }
 
+// An approval as Claude Code asks it: a bordered box with numbered choices.
 function renderInlineApprovals() {
-  document.querySelectorAll('#deck-timeline .t-approval').forEach((n) => n.remove());
+  document.querySelectorAll('#deck-timeline .cc-ask').forEach((n) => n.remove());
   for (const a of pendingApprovals.values()) {
     if (a.task_id !== ccSelected) continue;
-    const li = el('li', 't-approval');
+    const li = el('li', 'cc-ask');
     li.dataset.approval = a.id;
-    li.append(el('strong', '', a.question));
-    if (a.detail) li.append(diffBlock(a.detail));
-    const actions = el('div', 'card-actions');
+    const kind = a.ask_kind === 'plan' ? 'Ready to code?' : a.ask_kind === 'question' ? a.question : a.tool === 'Bash' ? 'Bash command' : ['Edit', 'MultiEdit', 'Write'].includes(a.tool) ? (a.tool === 'Write' ? 'Create file' : 'Edit file') : a.question;
+    li.append(el('p', 'cc-ask-head', kind));
+    if (a.detail) li.append(a.ask_kind === 'plan' ? richText(a.detail) : diffBlock(a.detail));
+    if (a.ask_kind !== 'question') li.append(el('p', '', a.ask_kind === 'plan' ? 'Would you like to proceed?' : 'Do you want to proceed?'));
+    const list = el('ol', 'cc-choices');
     a.choices.forEach((c, i) => {
-      const b = el('button', i === 0 ? 'btn primary' : 'btn', c.label);
+      const item = el('li');
+      const b = el('button', i === 0 ? 'cc-choice active' : 'cc-choice');
       b.type = 'button';
-      b.addEventListener('click', () => { send({ type: 'approve', id: a.id, choice: c.id }); document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove()); });
-      actions.append(b);
+      b.append(el('span', 'cc-pointer', i === 0 ? '❯' : ' '), document.createTextNode(`${i + 1}. ${c.label}`));
+      b.addEventListener('click', () => answerApproval(a, c.id));
+      item.append(b);
+      list.append(item);
     });
-    li.append(actions);
+    li.append(list, el('p', 'dim cc-ask-hint', 'Press a number, or say “yes”, “no” or “option 2”.'));
     $('deck-timeline').append(li);
-    $('deck-timeline').scrollTop = $('deck-timeline').scrollHeight;
+    $('cc-welcome').hidden = true;
+    $('cc-scroll').scrollTop = $('cc-scroll').scrollHeight;
   }
+}
+
+function answerApproval(a, choice) {
+  send({ type: 'approve', id: a.id, choice });
+  document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove());
+}
+
+// ── the prompt: messages, slash commands, shortcuts ──
+
+const SLASH_COMMANDS = [
+  ['plan', 'Plan mode: plan first, you approve'],
+  ['ask', 'Ask before each edit and command'],
+  ['edits', 'Accept edits automatically'],
+  ['auto', 'Full auto: run anything'],
+  ['undo', 'Undo the last round of file changes'],
+  ['diff', 'What changed, summarised'],
+  ['commit', 'Commit the changes'],
+  ['pr', 'Push and open a pull request'],
+  ['test', 'Run the tests'],
+  ['compact', 'Compact the conversation'],
+  ['context', 'Context window used'],
+  ['cost', 'What this session has cost'],
+  ['model', 'Switch model: /model sonnet'],
+  ['new', 'New session in this project'],
+  ['voice', 'Voice coding on or off for this session'],
+  ['stop', 'Interrupt the current step'],
+];
+let slashIndex = 0;
+
+function slashMatches() {
+  const v = $('deck-input').value;
+  if (!v.startsWith('/') || v.includes(' ')) return [];
+  const q = v.slice(1).toLowerCase();
+  return SLASH_COMMANDS.filter(([name]) => name.startsWith(q));
+}
+
+function renderSlash() {
+  const items = slashMatches();
+  $('cc-slash').hidden = !items.length;
+  slashIndex = Math.min(slashIndex, Math.max(0, items.length - 1));
+  $('cc-slash').replaceChildren(...items.map(([name, help], i) => {
+    const b = el('button', i === slashIndex ? 'active' : '');
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.append(el('strong', '', `/${name}`), el('span', 'dim', help));
+    b.addEventListener('mousedown', (e) => { e.preventDefault(); pickSlash(name); });
+    return b;
+  }));
+}
+
+function pickSlash(name) {
+  $('deck-input').value = name === 'model' ? '/model ' : `/${name}`;
+  $('cc-slash').hidden = true;
+  if (name !== 'model') $('deck-composer').requestSubmit();
+  else $('deck-input').focus();
 }
 
 function sendToSession(text) {
   text = text.trim();
-  if (!text || !ccSelected) return;
+  if (!text) return;
+  if (!ccSelected) {  // nothing open yet: the message starts a session here
+    if (!deckProject) return;
+    awaitingNewSession = true;
+    send({ type: 'task_new', directory: deckProject, prompt: text, mode: 'ask' });
+    return;
+  }
+  if (text.startsWith('/')) {
+    if (text === '/new' || text === '/clear') awaitingNewSession = true;
+    send({ type: 'code_command', id: ccSelected, text });
+    return;
+  }
   send({ type: 'task_send', id: ccSelected, text });
 }
-$('deck-composer').addEventListener('submit', (e) => { e.preventDefault(); sendToSession($('deck-input').value); $('deck-input').value = ''; $('deck-input').style.height = ''; });
-$('deck-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('deck-composer').requestSubmit(); }
+
+$('deck-composer').addEventListener('submit', (e) => {
+  e.preventDefault();
+  sendToSession($('deck-input').value);
+  $('deck-input').value = '';
+  $('deck-input').style.height = '';
+  $('cc-slash').hidden = true;
 });
-$('deck-input').addEventListener('input', () => { $('deck-input').style.height = 'auto'; $('deck-input').style.height = `${Math.min(180, $('deck-input').scrollHeight)}px`; });
-document.querySelectorAll('#deck-quick button').forEach((b) => b.addEventListener('click', () => sendToSession(b.dataset.say)));
-$('ds-interrupt').addEventListener('click', () => ccSelected && send({ type: 'task_interrupt', id: ccSelected }));
-$('ds-undo').addEventListener('click', () => ccSelected && send({ type: 'task_undo', id: ccSelected }));
+
+const MODE_CYCLE = ['ask', 'edits', 'plan'];
+$('deck-input').addEventListener('keydown', (e) => {
+  const items = slashMatches();
+  if (items.length && !$('cc-slash').hidden) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); slashIndex = (slashIndex + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; renderSlash(); return; }
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pickSlash(items[slashIndex][0]); return; }
+  }
+  if (e.key === 'Tab' && e.shiftKey) {  // like Claude Code: shift+tab cycles the mode
+    e.preventDefault();
+    const t = ccTasks.find((x) => x.id === ccSelected);
+    if (t) send({ type: 'task_mode', id: t.id, mode: MODE_CYCLE[(MODE_CYCLE.indexOf(t.mode) + 1) % MODE_CYCLE.length] });
+    return;
+  }
+  if (e.key === 'Escape') {
+    const t = ccTasks.find((x) => x.id === ccSelected);
+    if (t && t.busy) { e.preventDefault(); send({ type: 'task_interrupt', id: t.id }); }
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
+});
+$('deck-input').addEventListener('input', () => {
+  slashIndex = 0;
+  renderSlash();
+  $('deck-input').style.height = 'auto';
+  $('deck-input').style.height = `${Math.min(180, $('deck-input').scrollHeight)}px`;
+});
+
+// Number keys answer the approval on screen, as in Claude Code.
+document.addEventListener('keydown', (e) => {
+  if ($('cc').hidden || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (document.activeElement === $('deck-input') && $('deck-input').value) return;
+  const a = [...pendingApprovals.values()].find((x) => x.task_id === ccSelected);
+  const n = Number(e.key);
+  if (a && n >= 1 && n <= a.choices.length) { e.preventDefault(); answerApproval(a, a.choices[n - 1].id); }
+});
+
 $('ds-voice').addEventListener('click', () => {
-  if (!ccSelected) return;
+  if (!ccSelected) { newSession(true); return; }
   if (voiceFocus && voiceFocus.id === ccSelected) send({ type: 'voicecode_exit' });
   else send({ type: 'voicecode_enter', id: ccSelected });
+});
+$('cc-voice-head').addEventListener('click', () => {
+  if (voiceFocus) send({ type: 'voicecode_exit' });
+  else if (ccSelected) send({ type: 'voicecode_enter', id: ccSelected });
+  else newSession(true);
 });
 $('code-exit').addEventListener('click', () => send({ type: 'voicecode_exit' }));
 
@@ -1201,30 +1353,12 @@ function onVoiceCode(focus) {
   voiceFocus = focus || null;
   $('code-pill').hidden = !voiceFocus;
   if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
-  if (ccSelected) $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === ccSelected));
+  $('cc-voice-head').setAttribute('aria-pressed', String(!!voiceFocus));
+  $('cc-voice-label').textContent = voiceFocus ? `Voice coding · ${voiceFocus.folder}` : 'Voice coding off';
+  $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === ccSelected));
+  $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type' : 'Try “plan a retry for the query”, or just talk';
+  renderProjects(deckProjects);
 }
-$('ds-close').addEventListener('click', () => ccSelected && send({ type: 'task_cancel', id: ccSelected }));
-document.querySelectorAll('#ds-mode button').forEach((b) => b.addEventListener('click', () => {
-  if (b.dataset.mode === 'auto' && !confirm('Full auto lets this session run any command without asking. Switch?')) return;
-  send({ type: 'task_mode', id: ccSelected, mode: b.dataset.mode });
-}));
-
-$('deck-new').addEventListener('click', () => { showPane('new'); if (deckProject) $('deck-new-project').value = deckProject; $('deck-new-task').focus(); });
-$('deck-new-cancel').addEventListener('click', () => showPane(ccSelected ? 'session' : 'empty'));
-document.querySelectorAll('#deck-new-mode button').forEach((b) => b.addEventListener('click', () => {
-  newMode = b.dataset.mode;
-  document.querySelectorAll('#deck-new-mode button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
-}));
-$('deck-new-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const prompt = $('deck-new-task').value.trim();
-  if (!prompt) return;
-  if (newMode === 'auto' && !confirm('Full auto lets Claude Code run any command in this project without asking. Start anyway?')) return;
-  send({ type: 'task_new', directory: $('deck-new-project').value, prompt, mode: newMode });
-  $('deck-new-task').value = '';
-  awaitingNewSession = true;
-  showPane('empty');
-});
 
 // ── built-in browser (in the J.A.R.V.I.S. app only) ──
 
@@ -1515,6 +1649,7 @@ $('meeting-stop').addEventListener('click', () => send({ type: 'meeting_stop' })
 $('chip-meeting').addEventListener('click', () => send({ type: 'meeting_start', title: 'Meeting' }));
 
 function onTaskFinished(ev) {
+  if (ev.id === ccSelected) send({ type: 'task_context', id: ev.id });
   const title = { done: ev.task_kind === 'research' ? 'Report ready' : 'Finished', stopped: 'Stopped', failed: 'Didn’t finish' }[ev.status] || ev.status;
   let extra = null;
   if (ev.report_path) {

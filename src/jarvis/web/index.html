@@ -378,100 +378,63 @@
   <div id="browser-slot" class="browser-slot"></div>
 </section>
 
-<section id="cc" class="deck" hidden aria-label="Claude Code">
+<section id="cc" class="deck cc" hidden aria-label="Claude Code">
   <header class="deck-head">
     <div class="deck-title">
-      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6.5l2 1.5-2 1.5M8.5 10h3"/></svg>
+      <span class="cc-mark" aria-hidden="true">✻</span>
       <h2>Claude Code</h2>
       <span id="deck-summary" class="deck-summary"></span>
     </div>
-    <button id="cc-close" class="icon-btn" type="button" aria-label="Close Claude Code">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-    </button>
+    <div class="cc-head-actions">
+      <button id="cc-voice-head" class="cc-voice-chip" type="button" aria-pressed="false">🎙 <span id="cc-voice-label">Voice coding off</span></button>
+      <button id="cc-close" class="icon-btn" type="button" aria-label="Close Claude Code">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
   </header>
-  <div class="deck-grid">
-    <nav class="deck-projects" aria-label="Projects">
+  <div class="cc-grid">
+    <nav class="cc-side" aria-label="Projects and sessions">
       <label for="deck-filter" class="sr-only">Filter projects</label>
       <input id="deck-filter" placeholder="Filter projects" autocomplete="off">
-      <ul id="deck-project-list" class="deck-project-list"></ul>
+      <ul id="deck-project-list" class="cc-projects"></ul>
     </nav>
-    <div class="deck-sessions">
-      <div class="deck-sessions-head">
-        <div><strong id="deck-project-name">Projects</strong><small id="deck-branch"></small></div>
-        <button id="deck-new" class="btn primary" type="button">New session</button>
-      </div>
-      <div class="deck-tabs" role="tablist" aria-label="Sessions">
-        <button type="button" role="tab" data-tab="active" aria-selected="true">Active</button>
-        <button type="button" role="tab" data-tab="past" aria-selected="false">Past</button>
-        <button type="button" role="tab" data-tab="changes" aria-selected="false">Changes</button>
-      </div>
-      <ul id="deck-list" class="deck-list"></ul>
-      <div id="deck-changes" class="deck-changes" hidden></div>
-    </div>
-    <div class="deck-main">
-      <div id="deck-empty" class="deck-empty">
-        <svg width="46" height="46" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6.5l2 1.5-2 1.5M8.5 10h3"/></svg>
-        <p>Pick a session to watch it live, or start a new one.</p>
-        <p class="muted">You can also just say: “Jarvis, have Claude Code fix the failing tests in bsh-research-center.”</p>
+
+    <div class="cc-main">
+      <div class="cc-scroll" id="cc-scroll">
+        <div class="cc-welcome" id="cc-welcome">
+          <div class="cc-box">
+            <p><span class="cc-accent">✻</span> Welcome to <strong>Claude Code</strong>, by voice</p>
+            <p class="dim">/help for commands · <span id="cc-cwd">pick a project</span></p>
+          </div>
+          <p class="dim cc-tips-head">Tips for getting started:</p>
+          <ol class="cc-tips">
+            <li>Say <em>“Jarvis, let’s code in <span class="cc-project-name">jarvis</span>”</em>, then just talk: <em>“plan a retry for the query”</em>, <em>“undo that”</em>, <em>“what changed?”</em></li>
+            <li>Or type below. <kbd>/</kbd> for commands, <kbd>⇧ Tab</kbd> to switch modes, <kbd>Esc</kbd> to interrupt.</li>
+            <li>Approvals answer by voice (“yes”, “option two”), by number key, or by click.</li>
+          </ol>
+          <div class="cc-start">
+            <button type="button" class="cc-btn accent" id="cc-start-voice">🎙 Start voice coding</button>
+            <button type="button" class="cc-btn" id="cc-start-typed">New session</button>
+          </div>
+          <div class="cc-past" id="cc-past-wrap" hidden>
+            <p class="dim">Resume a past session:</p>
+            <ul id="cc-past" class="cc-past-list"></ul>
+          </div>
+        </div>
+        <ol id="deck-timeline" class="cc-log" aria-live="polite"></ol>
+        <div id="cc-working" class="cc-working" hidden><span class="cc-spin" aria-hidden="true">✻</span> <span id="cc-working-text">Working…</span> <span class="dim">(<span id="cc-working-time">0s</span> · esc to interrupt)</span></div>
       </div>
 
-      <form id="deck-new-form" class="deck-new" hidden autocomplete="off">
-        <h3>New Claude Code session</h3>
-        <label for="deck-new-project">Project</label>
-        <select id="deck-new-project"></select>
-        <label for="deck-new-task">What should it do?</label>
-        <textarea id="deck-new-task" rows="5" placeholder="e.g. Find why the spend test is flaky, fix it, and run the whole suite."></textarea>
-        <span class="label">Permissions</span>
-        <div class="segmented modes" id="deck-new-mode" role="radiogroup" aria-label="Permissions">
-          <button type="button" role="radio" data-mode="plan" aria-checked="false">Plan first<small>you approve the plan</small></button>
-          <button type="button" role="radio" data-mode="ask" aria-checked="true">Ask first<small>edits &amp; commands</small></button>
-          <button type="button" role="radio" data-mode="edits" aria-checked="false">Auto-edits<small>commands still ask</small></button>
-          <button type="button" role="radio" data-mode="auto" aria-checked="false">Full auto<small>runs anything</small></button>
-        </div>
-        <div class="deck-new-actions">
-          <button class="btn" type="button" id="deck-new-cancel">Cancel</button>
-          <button class="btn primary" type="submit">Start session</button>
-        </div>
+      <div class="cc-slash" id="cc-slash" hidden role="listbox" aria-label="Commands"></div>
+      <form id="deck-composer" class="cc-prompt" autocomplete="off">
+        <span class="cc-caret" aria-hidden="true">&gt;</span>
+        <label for="deck-input" class="sr-only">Message Claude Code</label>
+        <textarea id="deck-input" rows="1" placeholder="Try “plan a retry for the query”, or just talk"></textarea>
+        <button type="button" class="cc-mic" id="ds-voice" aria-pressed="false" aria-label="Voice coding for this session">🎙</button>
       </form>
-
-      <div id="deck-session" class="deck-session" hidden>
-        <div class="deck-session-head">
-          <div class="deck-session-title">
-            <span id="ds-badge" class="badge-status">idle</span>
-            <div><strong id="ds-title"></strong><small id="ds-meta"></small></div>
-          </div>
-          <div class="deck-session-actions">
-            <div class="segmented modes compact" id="ds-mode" role="radiogroup" aria-label="Permissions for this session">
-              <button type="button" role="radio" data-mode="plan">Plan</button>
-              <button type="button" role="radio" data-mode="ask">Ask</button>
-              <button type="button" role="radio" data-mode="edits">Auto-edits</button>
-              <button type="button" role="radio" data-mode="auto">Full auto</button>
-            </div>
-            <button type="button" class="btn" id="ds-voice" aria-pressed="false">🎙 Voice</button>
-            <button type="button" class="btn" id="ds-undo">Undo</button>
-            <button type="button" class="btn" id="ds-interrupt">Interrupt</button>
-            <button type="button" class="btn" id="ds-close">End session</button>
-          </div>
-        </div>
-        <div class="deck-stats">
-          <div><b id="st-files">0</b><small>files changed</small></div>
-          <div><b id="st-commands">0</b><small>commands run</small></div>
-          <div><b id="st-cost">$0.00</b><small>spent</small></div>
-          <div><b id="st-time">0:00</b><small>session time</small></div>
-        </div>
-        <ol id="deck-timeline" class="timeline" aria-live="polite"></ol>
-        <div class="deck-quick" id="deck-quick">
-          <button type="button" data-say="Run the full test suite and tell me what fails.">Run the tests</button>
-          <button type="button" data-say="Explain what you changed and why, briefly.">Explain changes</button>
-          <button type="button" data-say="Review your changes for bugs before we commit.">Review for bugs</button>
-          <button type="button" data-say="Commit these changes with a clear message.">Commit</button>
-          <button type="button" data-say="Undo your last change.">Undo last change</button>
-        </div>
-        <form id="deck-composer" class="deck-composer" autocomplete="off">
-          <label for="deck-input" class="sr-only">Message this session</label>
-          <textarea id="deck-input" rows="2" placeholder="Message Claude Code…  (⌘↵ to send)"></textarea>
-          <button type="submit" class="send-btn" aria-label="Send"><svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><path d="M2 9l14-6-5 14-2-6z"/></svg></button>
-        </form>
+      <div class="cc-status">
+        <span id="cc-mode" class="cc-mode">? for shortcuts</span>
+        <span id="cc-meta" class="cc-meta"></span>
       </div>
     </div>
   </div>

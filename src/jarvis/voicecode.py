@@ -44,6 +44,31 @@ ORDINALS = {
     "sixth": 5, "six": 5, "6": 5, "6th": 5,
 }  # fmt: skip
 
+# Slash commands typed in the panel, as the words that mean them by voice.
+SLASH = {
+    "plan": "plan mode",
+    "ask": "ask first",
+    "edits": "accept edits",
+    "auto": "full auto",
+    "undo": "undo that",
+    "diff": "what changed",
+    "changes": "what changed",
+    "cost": "what's this cost",
+    "context": "how much context",
+    "status": "status",
+    "model": "use {arg}",
+    "commit": "commit that",
+    "push": "push it",
+    "pr": "open a pull request",
+    "test": "run the tests",
+    "tests": "run the tests",
+    "new": "new session",
+    "clear": "new session",
+    "stop": "stop",
+    "branch": "what branch am I on",
+    "readplan": "read the whole plan",
+}
+
 GIT_PROMPTS = {
     "commit": "Commit the changes you made with a clear commit message, then tell me the "
     "message in one sentence.",
@@ -379,13 +404,23 @@ class VoiceCoder:
 
     # ── what the user says ──
 
-    async def handle(self, text: str) -> None:
-        task = self.task
+    async def handle(self, text: str, task: Any = None, typed: bool = False) -> None:
+        """One utterance for the focused session, or (typed=True) a slash command typed
+        in the panel for any session, answered in its transcript instead of out loud."""
+        task = task or self.task
         if task is None:
             self.exit()
             return
         intent = parse(text)
-        say, tasks = self.hub.say, self.hub.tasks
+        tasks = self.hub.tasks
+        self._typed = typed
+        if typed:
+
+            def say(note: str, follow_up: bool = True) -> None:
+                tasks._log(task, "note", note)
+
+        else:
+            say = self.hub.say
         if intent.kind == "exit":
             self.exit()
             say("Leaving code mode.", follow_up=False)
@@ -433,8 +468,10 @@ class VoiceCoder:
             say(f"Switched this session to {name}." if ok else "Couldn't switch models.")
         elif intent.kind == "new_session":
             fresh = tasks.start("", str(task.cwd), mode=task.mode)
-            self.focus = fresh.id
-            self._changed()
+            if self.focus == task.id:
+                self.focus = fresh.id
+                self._changed()
+            self.hub.emit("show_session", id=fresh.id)
             say(f"Fresh session in {task.cwd.name}. What should we do?")
         elif intent.kind == "repeat":
             say(self._last_reply_spoken or "I haven't said anything about this session yet.")
@@ -471,9 +508,12 @@ class VoiceCoder:
         return " ".join(chunk) + more
 
     async def _send(self, task, text: str, hint: bool = True) -> None:
-        if hint:
+        typed = getattr(self, "_typed", False)
+        if hint and not typed:  # typed names are already exact
             text = await self.hub.with_code_hints(task, text)
         self.hub.tasks.send(task.id, text)
+        if typed:
+            return
         self.hub.acknowledge()  # "On it." right away; the work takes a moment
         self._narrated = self._clock()  # nothing to narrate for a moment
         self.hub.set_state("thinking")

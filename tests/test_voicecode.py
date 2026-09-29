@@ -355,3 +355,36 @@ async def test_resume_a_past_session_by_name(settings, quiet_speaker, isolated, 
     assert "couldn't tell" in await hub.resume_by_voice(first, "quantum widgets")
     for t in hub.tasks.tasks.values():
         t.handle.cancel()
+
+
+async def test_typed_slash_commands_answer_in_the_transcript(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    spoken = []
+    hub.say = lambda text, follow_up=True: spoken.append(text)
+    task = hub.tasks.start("", "proj")
+    q = hub.subscribe()
+    await hub.handle({"type": "code_command", "id": task.id, "text": "/plan"})
+    assert task.mode == "plan"
+    await hub.handle({"type": "code_command", "id": task.id, "text": "/diff"})
+    from test_hub import drain
+
+    notes = [
+        e["entry"]["text"]
+        for e in drain(q)
+        if e["type"] == "task_log" and e["entry"]["role"] == "note"
+    ]
+    assert notes == [vc.MODE_NAMES["plan"], "No file changes yet in this session."]
+    assert spoken == []  # typed commands answer on screen, not out loud
+    sent = []
+    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    await hub.handle({"type": "code_command", "id": task.id, "text": "/review-pr 12"})
+    assert sent == ["/review-pr 12"]  # the project's own commands pass through to Claude Code
+    await hub.handle({"type": "voicecode_start", "directory": "proj"})
+    assert hub.voicecode.focus == task.id
+    task.handle.cancel()
