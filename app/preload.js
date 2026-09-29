@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('jarvisApp', {
     data: (action, url, title) => ipcRenderer.invoke('browser:data', { action, url, title }),
     download: (id, action) => ipcRenderer.invoke('browser:download', { id, action }),
     shortcut: (action) => ipcRenderer.invoke('browser:shortcut', action),
+    shields: (action) => ipcRenderer.invoke('browser:shields', { action }),
     onFound: (callback) => ipcRenderer.on('browser:found', (_e, r) => callback(r)),
     onShortcut: (callback) => ipcRenderer.on('browser:shortcut', (_e, action) => callback(action)),
     onDownload: (callback) => ipcRenderer.on('browser:download', (_e, d) => callback(d)),

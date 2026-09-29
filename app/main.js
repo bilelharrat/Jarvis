@@ -286,8 +286,10 @@ function sendBrowserState(extra = {}) {
   if (!browserView || !win) return;
   const wc = browserView.webContents;
   const url = wc.getURL();
+  const guard = shields();
   win.webContents.send('browser:state', {
     tabs: tabList(),
+    shields: { on: guard.adblock && Boolean(blocker), ready: Boolean(blocker), site: hostOf(url), allowed: guard.allow.includes(hostOf(url)), research: onResearch(url), blocked: blockedOn.get(wc.id) || 0, total: blockedTotal },
     url,
     title: wc.getTitle(),
     loading: wc.isLoading(),
@@ -309,6 +311,7 @@ function updateLock() {
 
 function ensureBrowser() {
   readyDownloads();
+  readyAdblock();
   if (!browserView) {
     browserView = createTab();
     tabs.push(browserView);
@@ -431,6 +434,8 @@ function browserStore() {
   browserData = {
     history: Array.isArray(raw.history) ? raw.history.filter((h) => h && typeof h.url === 'string').slice(-2000) : [],
     bookmarks: Array.isArray(raw.bookmarks) ? raw.bookmarks.filter((b) => b && typeof b.url === 'string') : [],
+    adblock: raw.adblock !== false,
+    allow: Array.isArray(raw.allow) ? raw.allow.filter((h) => typeof h === 'string').slice(0, 500) : [],
   };
   return browserData;
 }
@@ -558,6 +563,113 @@ function readyDownloads() {
   });
 }
 
+// ── Ad and tracker blocking: Ghostery's engine with EasyList, EasyPrivacy, uBlock Origin's
+// filters, privacy, badware, quick fixes and unbreak lists, and the cookie-banner and
+// annoyance lists; uBlock's scriptlets (which beat in-page ads like YouTube's) and cosmetic
+// hiding included. The compiled engine is cached and rebuilt from fresh lists daily (an old
+// copy is kept if the lists can't be fetched). Never on the Research Center, or a site the
+// user allowed. ──
+const ADBLOCK_DAY = 24 * 60 * 60 * 1000;
+let blocker = null;
+let adblockReady = false;
+const blockedOn = new Map(); // webContents id -> blocked on its current page
+let blockedTotal = 0;
+let blockedTimer = null;
+const adblockFile = () => path.join(app.getPath('userData'), 'adblock-engine.bin');
+
+function shields() {
+  const store = browserStore();
+  if (typeof store.adblock !== 'boolean') store.adblock = true;
+  if (!Array.isArray(store.allow)) store.allow = [];
+  return store;
+}
+function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } }
+function shielded(pageUrl) {
+  const s = shields();
+  return Boolean(blocker) && s.adblock && /^https?:/.test(pageUrl || '') && !onResearch(pageUrl) && !s.allow.includes(hostOf(pageUrl));
+}
+function pageOf(details) {
+  if (details.resourceType === 'mainFrame') return details.url;
+  try { if (details.webContents && !details.webContents.isDestroyed()) return details.webContents.getURL(); } catch {}
+  return details.referrer || '';
+}
+// Some players retry a blocked ad request in a tight loop (CNN's, thousands a second). The
+// same request blocked again and again on a tab gets its refusal 2 s late: the loop crawls
+// instead of spinning the CPU, and it counts once.
+const repeats = new Map();
+function retrying(details) {
+  const id = details.webContents && !details.webContents.isDestroyed() ? details.webContents.id : 0;
+  const key = `${id}|${details.url.split('?')[0]}`;
+  const now = Date.now();
+  let seen = repeats.get(key);
+  if (!seen || now - seen.since > 3000) {
+    seen = { n: 0, since: now };
+    repeats.set(key, seen);
+    if (repeats.size > 5000) repeats.clear();
+  }
+  seen.n += 1;
+  return seen.n > 5;
+}
+function countBlocked(details) {
+  blockedTotal += 1;
+  const id = details.webContents && !details.webContents.isDestroyed() ? details.webContents.id : 0;
+  if (id) blockedOn.set(id, (blockedOn.get(id) || 0) + 1);
+  if (!blockedTimer) blockedTimer = setTimeout(() => { blockedTimer = null; sendBrowserState(); }, 400);
+}
+
+async function buildBlocker() {
+  const { ElectronBlocker, fullLists } = require('@ghostery/adblocker-electron');
+  const file = adblockFile();
+  const cached = () => { try { return ElectronBlocker.deserialize(new Uint8Array(fs.readFileSync(file))); } catch { return null; } };
+  let age = Infinity;
+  try { age = Date.now() - fs.statSync(file).mtimeMs; } catch {}
+  if (age < ADBLOCK_DAY) { const engine = cached(); if (engine) return engine; }
+  try {
+    const engine = await ElectronBlocker.fromLists(fetch, fullLists, {
+      enableCompression: true, loadExtendedSelectors: true, guessRequestTypeFromUrl: true,
+    });
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, engine.serialize());
+    fs.renameSync(tmp, file);
+    return engine;
+  } catch (err) {
+    console.error('adblock: lists unavailable, using the last copy', err && err.message);
+    return cached();
+  }
+}
+
+function readyAdblock() {
+  if (adblockReady) return;
+  adblockReady = true;
+  const ses = session.fromPartition('persist:jarvis-browser');
+  ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+    if (!shielded(pageOf(details))) { callback({}); return; }
+    blocker.onBeforeRequest(details, (response) => {
+      if (!(response && (response.cancel || response.redirectURL))) { callback(response); return; }
+      if (retrying(details)) { setTimeout(() => callback(response), 2000); return; } // a retry loop, slowed
+      countBlocked(details);
+      callback(response);
+    });
+  });
+  ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
+    if (!shielded(pageOf(details))) { callback({}); return; }
+    blocker.onHeadersReceived(details, callback);
+  });
+  ses.registerPreloadScript({ type: 'frame', filePath: require.resolve('@ghostery/adblocker-electron-preload') });
+  ipcMain.handle('@ghostery/adblocker/inject-cosmetic-filters', (event, url, msg) => {
+    let top = url;
+    try { top = event.sender.getURL() || url; } catch {}
+    return shielded(top) ? blocker.onInjectCosmeticFilters(event, url, msg) : undefined;
+  });
+  ipcMain.handle('@ghostery/adblocker/is-mutation-observer-enabled', (event) => (blocker ? blocker.onIsMutationObserverEnabled(event) : false));
+  const refresh = async () => {
+    const engine = await buildBlocker();
+    if (engine) { blocker = engine; sendBrowserState(); }
+  };
+  refresh();
+  setInterval(refresh, ADBLOCK_DAY).unref();
+}
+
 function tabById(id) { return tabs.find((view) => view.webContents.id === Number(id)); }
 
 function createTab() {
@@ -591,7 +703,7 @@ function createTab() {
     view.favicon = url.startsWith('data:') ? url.slice(0, 90000) : await faviconData(wc.session, url);
     sendBrowserState();
   });
-  wc.on('did-navigate', (_event, url) => rememberVisit(url, wc));
+  wc.on('did-navigate', (_event, url) => { blockedOn.set(wc.id, 0); rememberVisit(url, wc); });
   wc.on('page-title-updated', () => retitleVisit(wc.getURL(), wc.getTitle()));
   wc.on('enter-html-full-screen', () => { if (active() && win) win.webContents.send('browser:page-fullscreen', true); });
   wc.on('leave-html-full-screen', () => { if (win) win.webContents.send('browser:page-fullscreen', false); });
@@ -855,6 +967,18 @@ ipcMain.handle('browser:find', async (event, { text, forward = true, stop = fals
   const r = await pageCall('find', { text: String(text || ''), forward, stop: stop || !text }, 3000);
   if (win && !stop && text) win.webContents.send('browser:found', { matches: r.matches || 0, active: r.active || 0 });
   return r;
+});
+ipcMain.handle('browser:shields', (event, { action } = {}) => {
+  if (!fromWindow(event) || !browserView) return;
+  const guard = shields();
+  const host = hostOf(browserView.webContents.getURL());
+  if (action === 'site' && host) {
+    guard.allow = guard.allow.includes(host) ? guard.allow.filter((h) => h !== host) : [...guard.allow, host];
+    browserView.webContents.reload();
+  }
+  if (action === 'toggle') { guard.adblock = !guard.adblock; browserView.webContents.reload(); }
+  saveBrowserStore();
+  sendBrowserState();
 });
 ipcMain.handle('browser:data', (event, { action, url, title } = {}) => {
   if (!fromWindow(event)) return null;

@@ -2242,3 +2242,11 @@ body.in-app.browser-full .bd-panel { margin-top: 40px; }
   .hand-status { color: #0a7fd4; }
   .hand-help { color: rgb(29 29 31 / 0.68); }
 }
+
+/* the ad blocker's shield: green with the count while it's blocking, grey when the site is allowed */
+.bd-shield { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 6px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; font: 600 11px var(--sans); font-variant-numeric: tabular-nums; color: rgb(var(--c-muted)); }
+.bd-shield[hidden] { display: none; }
+.bd-shield svg path { fill: none; }
+.bd-shield:hover { background: rgb(var(--c-ink) / 0.07); }
+.bd-shield[aria-pressed="true"] { color: rgb(var(--c-success)); }
+.bd-shield[aria-pressed="true"] svg path { fill: rgb(var(--c-success) / 0.25); }

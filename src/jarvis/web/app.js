@@ -3923,6 +3923,20 @@ if (app && app.browser && app.browser.find) {
   $('bd-lib-done').addEventListener('click', closeLibrary);
   $('bd-lib-clear').addEventListener('click', () => refreshLibrary('clear-history'));
   $('br-full').addEventListener('click', () => setBrowserFull(!document.body.classList.contains('browser-full')));
+  // The shield: ads and trackers blocked on this page; a click allows this site (or blocks it
+  // again), ⌥-click turns blocking off or on everywhere.
+  $('br-shield').addEventListener('click', (e) => app.browser.shields(e.altKey ? 'toggle' : 'site'));
+  app.browser.onState((st) => {
+    const sh = st.shields;
+    $('br-shield').hidden = !sh || !sh.ready || sh.research || !/^https?:/.test(st.url || '');
+    if (!sh) return;
+    const on = sh.on && !sh.allowed;
+    $('br-shield').setAttribute('aria-pressed', String(on));
+    $('br-blocked').textContent = on && sh.blocked ? String(sh.blocked > 999 ? '999+' : sh.blocked) : '';
+    $('br-shield').title = !sh.on ? tr('Ad blocking is off everywhere · ⌥-click to turn it on')
+      : sh.allowed ? `${tr('Ads allowed on')} ${sh.site} · ${tr('click to block them again')}`
+        : `${sh.blocked} ${tr('ads and trackers blocked on this page')} · ${tr('click to allow them on')} ${sh.site} · ${tr('⌥-click: off everywhere')}`;
+  });
   let starFor = '';
   app.browser.onState((st) => {
     if (st.url !== starFor) { starFor = st.url; refreshLibrary(); }
