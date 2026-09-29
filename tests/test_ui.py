@@ -103,3 +103,22 @@ async def test_requests_wait_their_turn_and_can_be_taken_back(hub):
     await asyncio.wait_for(asyncio.gather(first, second), 5)
     assert asked == ["what's the weather"]
     assert [d["items"] for k, d in sent if k == "ask_queue"][-1] == []
+
+
+async def test_bang_runs_in_the_project_and_hash_saves_a_memory(hub, tmp_path, monkeypatch):
+    sent = []
+    hub.emit = lambda kind, **data: sent.append((kind, data))
+    project = tmp_path / "proj"
+    project.mkdir()
+    monkeypatch.setattr(hub.tasks, "resolve_dir", lambda _d: project)
+    await hub.task_bash({"directory": "proj", "command": "echo hello; exit 3", "ref": "b1"})
+    kind, data = sent[-1]
+    assert kind == "task_bash" and data["ref"] == "b1"
+    assert data["output"].strip() == "hello" and data["code"] == 3
+    hub.task_memory({"directory": "proj", "text": "  always use   pnpm "})
+    hub.task_memory({"directory": "proj", "text": "tests live in tests/"})
+    assert (project / "CLAUDE.md").read_text() == "- always use pnpm\n- tests live in tests/\n"
+    assert sent[-1] == (
+        "task_memory",
+        {"ok": True, "text": "tests live in tests/", "path": str(project / "CLAUDE.md")},
+    )

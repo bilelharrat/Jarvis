@@ -146,6 +146,8 @@ function onEvent(ev) {
     case 'ui': applyUi(ev); break;
     case 'defense': renderDefense(ev); break;
     case 'ask_queue': renderAskQueue(ev.items || []); break;
+    case 'task_bash': onBang(ev); break;
+    case 'task_memory': onMemory(ev); break;
     case 'pdf_cmd': makePdf(ev); break;
     case 'saved': onSaved(ev); break;
     case 'location_request': sendLocation(); break;
@@ -1762,7 +1764,58 @@ function sendToSession(text) {
     send({ type: 'code_command', id: t.id, text });
     return;
   }
+  if (text.startsWith('!') && !images.length) { runBang(t, text.slice(1).trim()); return; }
+  if (text.startsWith('#') && !images.length) { saveMemory(t, text.slice(1).trim()); return; }
+  const ran = bangContext.get(t.id);
+  if (ran && ran.length) {
+    // What the user ran with ! goes to Claude with their next message, as in Claude Code.
+    const blocks = ran.map((r) => `$ ${r.command}\n${r.output.trim() || '(no output)'}${r.code ? `\n(exit ${r.code})` : ''}`);
+    text = `I ran this in the project first:\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\`\n\n${text}`;
+    bangContext.delete(t.id);
+  }
   send({ type: 'task_send', id: t.id, text, images });
+}
+
+// ! runs a command in the project (its output rides along with the next message); #
+// saves a line to the project's CLAUDE.md.
+const bangContext = new Map();
+const bangEntries = new Map();
+let bangRef = 0;
+
+function runBang(t, command) {
+  if (!command) return;
+  const ref = `b${++bangRef}`;
+  const li = el('li', 'jc-bang');
+  const head = el('div', 'jc-bang-head');
+  head.append(el('span', 'jc-bang-prompt', '$'), el('code', '', command), el('span', 'jc-bang-state', 'Running…'));
+  li.append(head);
+  $('deck-timeline').append(li);
+  $('cc-scroll').scrollTop = $('cc-scroll').scrollHeight;
+  bangEntries.set(ref, { li, task: t.id });
+  send({ type: 'task_bash', id: t.id, command, ref });
+}
+
+function onBang(ev) {
+  const entry = bangEntries.get(ev.ref);
+  if (!entry) return;
+  bangEntries.delete(ev.ref);
+  entry.li.querySelector('.jc-bang-state').textContent = ev.code ? `exit ${ev.code}` : 'Done · goes with your next message';
+  entry.li.classList.toggle('failed', !!ev.code);
+  const out = el('pre', 'jc-bang-out', ev.output || '(no output)');
+  entry.li.append(out);
+  const list = bangContext.get(entry.task) || [];
+  list.push({ command: ev.command, output: (ev.output || '').slice(-8000), code: ev.code });
+  bangContext.set(entry.task, list);
+}
+
+function saveMemory(t, note) {
+  if (!note) return;
+  send({ type: 'task_memory', id: t.id, text: note });
+}
+
+function onMemory(ev) {
+  const li = el('li', 'jc-note', ev.ok ? `Remembered in ${ev.path.split('/').slice(-2).join('/')}: ${ev.text}` : 'Couldn’t save that to CLAUDE.md.');
+  $('deck-timeline').append(li);
 }
 
 $('deck-composer').addEventListener('submit', (e) => {

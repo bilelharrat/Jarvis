@@ -1325,3 +1325,11 @@ body.in-app.rc-open .cards { top: 118px; }
 .df-shields li.off span { color: #f0a458; }
 .df-shields li.unknown span { color: var(--muted); }
 body[data-look="hud"] #p-defense { gap: 10px; }
+/* Jarvis Code: ! commands and # memories */
+.jc-bang { list-style: none; border-radius: 12px; background: rgb(var(--c-ink) / 0.04); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08); overflow: hidden; }
+.jc-bang-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; font: 12.5px var(--mono); }
+.jc-bang-prompt { color: rgb(var(--c-accent)); font-weight: 600; }
+.jc-bang-head code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jc-bang-state { font: 11.5px var(--sans); color: rgb(var(--c-muted)); white-space: nowrap; }
+.jc-bang.failed .jc-bang-state { color: rgb(var(--c-danger-ink)); }
+.jc-bang-out { margin: 0; padding: 10px 12px; max-height: 260px; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre-wrap; border-top: 0.5px solid rgb(var(--c-ink) / 0.08); color: rgb(var(--c-ink-2)); }

@@ -13,7 +13,9 @@ import functools
 import itertools
 import json
 import logging
+import os
 import re
+import signal
 import subprocess
 import time
 import uuid
@@ -122,6 +124,8 @@ _FIRST_CLAUSE = re.compile(r"^(.{12,}?[,;:—–])\s")
 CHIME = "/System/Library/Sounds/Tink.aiff"
 
 CONVERSATIONS_DIR = Path.home() / "Documents" / "Jarvis" / "Conversations"
+BASH_SECONDS = 120  # "!command" in Jarvis Code: how long it may run
+BASH_OUTPUT = 20_000  # characters of its output kept
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 RESEARCH_FOLLOW_UP = 15.0  # after a Research Center command, the next needs no wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
@@ -1906,6 +1910,65 @@ class Hub:
             self._speak(reply)
         return True
 
+    # ── Jarvis Code: ! runs a command, # saves a memory (as in Claude Code) ──
+
+    def _code_folder(self, msg: dict[str, Any]) -> Path | None:
+        task = (
+            self.tasks.tasks.get(int(msg.get("id") or 0))
+            if str(msg.get("id") or "").isdigit()
+            else None
+        )
+        if task is not None and task.kind == "code":
+            return task.cwd
+        try:
+            return self.tasks.resolve_dir(str(msg.get("directory") or ""))
+        except (ValueError, OSError):
+            return None
+
+    async def task_bash(self, msg: dict[str, Any]) -> None:
+        """ "!npm test" in the composer: the command runs in the project, the window shows
+        its output, and the output goes to Claude with the user's next message."""
+        command = str(msg.get("command", "")).strip()[:2000]
+        folder = self._code_folder(msg)
+        ref = str(msg.get("ref", ""))
+        if not command or folder is None:
+            self.emit("task_bash", ref=ref, command=command, output="No project folder.", code=-1)
+            return
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(folder),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            stdin=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), BASH_SECONDS)
+            output = out.decode(errors="replace")
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGTERM)
+            await proc.wait()
+            output = f"(stopped after {BASH_SECONDS} seconds)"
+        if len(output) > BASH_OUTPUT:
+            output = "…" + output[-BASH_OUTPUT:]
+        self.emit("task_bash", ref=ref, command=command, output=output, code=proc.returncode)
+
+    def task_memory(self, msg: dict[str, Any]) -> None:
+        """ "# always use pnpm" in the composer: a line in the project's CLAUDE.md, which
+        every session there reads."""
+        note = re.sub(r"\s+", " ", str(msg.get("text", ""))).strip()[:500]
+        folder = self._code_folder(msg)
+        if not note or folder is None:
+            self.emit("task_memory", ok=False, text=note, path="")
+            return
+        path = folder / "CLAUDE.md"
+        existing = path.read_text() if path.exists() else ""
+        lead = "" if not existing or existing.endswith("\n") else "\n"
+        with path.open("a") as f:
+            f.write(f"{lead}- {note}\n")
+        self.emit("task_memory", ok=True, text=note, path=str(path))
+
     # ── the window itself ──
 
     async def pdf_call(self, page: str) -> bytes | None:
@@ -2808,6 +2871,10 @@ class Hub:
             ticket = msg.get("id")
             self.waiting = [w for w in self.waiting if w["id"] != ticket]
             self.emit("ask_queue", items=list(self.waiting))
+        elif kind == "task_bash":
+            self._spawn(self.task_bash(msg))
+        elif kind == "task_memory":
+            self.task_memory(msg)
         elif kind == "export_history":
             path = self.export_history()
             if path is None:
