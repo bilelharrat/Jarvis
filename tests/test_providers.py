@@ -328,6 +328,11 @@ def test_a_key_pasted_under_the_wrong_provider_is_refused(tmp_path):
         store.add_provider("anthropic", "", OR_KEY)
     with pytest.raises(ValueError, match="shouldn't go to OpenRouter"):
         store.add_provider("openrouter", "", ANT_KEY)
+    # Google's keys (Gemini API and Vertex AI express) belong under Google Gemini.
+    for google_key in ("AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY", "AQ." + "Ab8RN6" * 8):
+        for kind in ("openrouter", "anthropic"):
+            with pytest.raises(ValueError, match="add it as Google Gemini"):
+                store.add_provider(kind, "Gemini", google_key)
     assert vault.data == {}
     # A custom endpoint may be a gateway that passes either kind on.
     store.add_provider("custom", "", ANT_KEY, "https://gw.example.com", auth="x-api-key")
@@ -1298,6 +1303,18 @@ async def test_a_rejected_openrouter_key_stops_the_check(tmp_path):
     assert len(seen) == 1  # the model list is never asked for with a bad key
     status = store.public()["providers"][0]["status"]
     assert status["ok"] is False and OR_KEY not in json.dumps(store.public())
+
+
+async def test_a_google_key_saved_as_openrouter_is_told_where_it_goes(tmp_path):
+    # Saved before the check existed: the check says what to do, and sends nothing.
+    store = make_store(tmp_path)
+    pid = store.add_provider("openrouter", "Gemini", OR_KEY)["id"]
+    store._set_key(store.providers[pid], "AQ." + "Ab8RN6" * 8)
+    seen = []
+    async with router_client({}, seen) as client:
+        result = await store.check(pid, client)
+    assert not result["ok"] and "add it as Google Gemini" in result["error"]
+    assert seen == []
 
 
 @pytest.mark.parametrize(

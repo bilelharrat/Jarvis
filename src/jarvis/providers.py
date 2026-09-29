@@ -496,7 +496,10 @@ def _clean_auth(spec: Kind, value: Any) -> str:
 
 def _check_key_kind(spec: Kind, key: str) -> None:
     """Catch a key pasted under the wrong provider before it's sent anywhere: an
-    Anthropic key never goes to OpenRouter, nor an OpenRouter key to Anthropic."""
+    Anthropic key never goes to OpenRouter, nor an OpenRouter key to Anthropic, nor a
+    Google key to either (it would only be turned down, and Gemini would never answer)."""
+    if spec.id in ("anthropic", "openrouter") and key.startswith(("AIza", "AQ.")):
+        raise ValueError("That's a Google key; add it as Google Gemini instead.")
     if spec.id == "anthropic" and key.startswith("sk-or-"):
         raise ValueError("That's an OpenRouter key; add it as OpenRouter instead.")
     if spec.id == "gemini" and key.startswith(("sk-", "sk_")):
@@ -1126,6 +1129,10 @@ class ProviderStore:
         version = self._versions.get(provider.id, 0)
         try:
             key = self._key(provider)
+            # One saved before the type existed (a Google key added as OpenRouter, say)
+            # is told what to do, not sent where it can only be turned down.
+            if provider.kind in KINDS:
+                _check_key_kind(KINDS[provider.kind], key)
         except ValueError as exc:
             return self._note(provider, version, _checked(False, error=str(exc)))
         try:
