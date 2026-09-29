@@ -50,3 +50,18 @@ def test_similar_words_do_not_wake():
         "Joggers",
     ]:
         assert find_wake(text)[0] is False, text
+
+
+def test_hey_jarvis_and_its_mishearings():
+    from jarvis.wake import find_wake
+
+    for said, command in (
+        ("Hey Jarvis, what time is it?", "what time is it"),
+        ("Hey, Jarvis. What time is it?", "What time is it"),
+        ("Hey Travis, turn the lights off.", "turn the lights off"),
+        ("Okay Marvis, play some music", "play some music"),
+        ("Hey Jarvis.", ""),
+    ):
+        assert find_wake(said) == (True, command), said
+    for not_me in ("Travis called me yesterday", "I told Travis about it", "Harvest time is here"):
+        assert find_wake(not_me)[0] is False, not_me

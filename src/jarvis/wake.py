@@ -27,6 +27,9 @@ STOP_PHRASES = {
 }
 
 _WORD = re.compile(r"[a-z']+")
+# "Hey Jarvis" and friends. After one of these, looser sound-alikes count too: Whisper
+# often writes "Hey Travis" or "Hey Harvis" for "Hey Jarvis".
+GREETINGS = {"hey", "hi", "okay", "ok", "yo", "hello", "a", "hay", "heh"}
 
 
 def words(text: str) -> list[str]:
@@ -42,6 +45,11 @@ def _is_wake_token(token: str) -> bool:
     return difflib.SequenceMatcher(None, token, "jarvis").ratio() >= 0.76
 
 
+def _is_greeted_wake(token: str) -> bool:
+    """A near-miss of "jarvis" that only counts right after a greeting."""
+    return 4 <= len(token) <= 9 and difflib.SequenceMatcher(None, token, "jarvis").ratio() >= 0.6
+
+
 def find_wake(text: str) -> tuple[bool, str]:
     """(woke, command). "Jarvis" can be anywhere: "Jarvis, what's next?" and "What's the
     weather, Jarvis?" both wake it; the command is the rest of the sentence. Whisper
@@ -52,7 +60,8 @@ def find_wake(text: str) -> tuple[bool, str]:
     tokens = [(i, t) for i, t in tokens if t]
     for n, (i, token) in enumerate(tokens):
         span = None
-        if _is_wake_token(token):
+        greeted = n > 0 and tokens[n - 1][1] in GREETINGS
+        if _is_wake_token(token) or (greeted and _is_greeted_wake(token)):
             span = (i, i)
         elif n + 1 < len(tokens) and _is_wake_token(token + tokens[n + 1][1]):
             span = (i, tokens[n + 1][0])

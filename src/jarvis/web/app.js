@@ -979,6 +979,22 @@ function toggleCC(open) {
   }
 }
 $('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
+
+// The sidebar folds away (and stays folded next time).
+function setSide(open) {
+  $('cc').classList.toggle('side-hidden', !open);
+  const b = $('jc-side-toggle');
+  b.setAttribute('aria-expanded', String(open));
+  b.setAttribute('aria-label', open ? 'Hide sidebar' : 'Show sidebar');
+  b.title = open ? 'Hide sidebar (⌘\\)' : 'Show sidebar (⌘\\)';
+  try { localStorage.setItem('jc.side', open ? 'open' : 'closed'); } catch (_) { /* private mode */ }
+  setTimeout(() => { setThumb(); moveGlider(); }, 380);
+}
+$('jc-side-toggle').addEventListener('click', () => setSide($('cc').classList.contains('side-hidden')));
+try { if (localStorage.getItem('jc.side') === 'closed') setSide(false); } catch (_) { /* private mode */ }
+document.addEventListener('keydown', (e) => {
+  if (!$('cc').hidden && e.metaKey && e.key === '\\') { e.preventDefault(); setSide($('cc').classList.contains('side-hidden')); }
+});
 $('cc-close').addEventListener('click', () => toggleCC(false));
 
 // ── sidebar: projects, each with its sessions ──
@@ -1009,8 +1025,9 @@ function renderProjects(items) {
         row.type = 'button';
         row.dataset.task = t.id;
         row.setAttribute('aria-current', String(t.id === ccSelected));
-        const voiced = voiceFocus && voiceFocus.id === t.id ? ' 🎙' : '';
-        row.append(el('span', `jc-dot ${statusOf(t)}`), el('span', 'jc-stitle', (t.title || t.prompt || 'New session') + voiced), el('small', '', `${statusText(t)} · ${MODE_NAMES[t.mode] || t.mode}`));
+        const title = el('span', 'jc-stitle', t.title || t.prompt || 'New session');
+        if (voiceFocus && voiceFocus.id === t.id) { const r = el('span', 'jc-mini-reactor'); r.title = 'Voice coding'; title.append(r); }
+        row.append(el('span', `jc-dot ${statusOf(t)}`), title, el('small', '', `${statusText(t)} · ${MODE_NAMES[t.mode] || t.mode}`));
         row.addEventListener('click', () => selectTask(t.id));
         const item = el('li');
         item.append(row);

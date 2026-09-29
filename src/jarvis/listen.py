@@ -373,6 +373,8 @@ class Transcriber:
             language="en",
             beam_size=1,
             vad_filter=False,
+            # Just the name: a longer hint ("Hey Jarvis, Jarvis") made Whisper treat the
+            # phrase as already said and drop it (11/32 woke vs 30/32, measured).
             hotwords=hotwords or "Jarvis",
             # Faster, and nothing here needs timestamps or the previous utterance.
             without_timestamps=True,
