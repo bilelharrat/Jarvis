@@ -566,3 +566,35 @@ async def test_mouse_and_keyboard_can_be_always_allowed(settings, quiet_speaker,
     await hub.reset()
     assert "taking over the mouse and keyboard" not in hub.client.options.system_prompt
     assert "never click to buy" in hub.client.options.system_prompt
+
+
+async def test_a_finished_request_is_answered_before_the_full_silence(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+
+    class Words:
+        def transcribe(self, audio, hotwords="Jarvis"):
+            return audio
+
+    class Listener:
+        running = True
+
+        def __init__(self):
+            self.committed = []
+
+        def commit(self, number):
+            self.committed.append(number)
+            return True
+
+    hub.transcriber = Words()
+    hub._listener = Listener()
+    await hub._early_utterance(3, "Jarvis, what's on my calendar tomorrow?")
+    await asyncio.sleep(0.05)
+    assert hub._listener.committed == [3]
+    assert [q.rstrip("?") for q in hub.client.queries] == ["what's on my calendar tomorrow"]
+    await hub._early_utterance(4, "Jarvis, what's the weather in")  # sounds unfinished: wait
+    hub._armed_until = 0.0  # the follow-up window after its answer has passed
+    await hub._early_utterance(5, "so anyway the meeting went fine.")  # not for JARVIS
+    assert hub._listener.committed == [3]

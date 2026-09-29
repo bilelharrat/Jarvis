@@ -66,3 +66,51 @@ def test_agent_options_allow_big_tool_results(settings):
         return False
 
     assert build_options(settings, confirm).max_buffer_size == MAX_BUFFER > 1024 * 1024
+
+
+def test_sounds_finished():
+    from jarvis.listen import sounds_finished
+
+    for done in (
+        "Jarvis, what's the weather tomorrow?",
+        "Jarvis, turn the lights off.",
+        "Yes, send it.",
+    ):
+        assert sounds_finished(done), done
+    for more in (
+        "Jarvis, what's the weather in",
+        "Jarvis, tell me about...",
+        "Jarvis, email Ann and",
+        "Jarvis.",
+        "Jarvis, what's the weather in.",
+    ):
+        assert not sounds_finished(more), more
+
+
+def test_segmenter_hands_over_an_early_copy_and_can_be_committed():
+    import numpy as np
+
+    from jarvis.listen import BLOCK_SECONDS, Segmenter
+
+    early = []
+    seg = Segmenter(
+        silence_seconds=0.6,
+        calibration_blocks=1,
+        early_seconds=0.2,
+        on_early=lambda n, a: early.append((n, len(a))),
+    )
+    loud, quiet = (
+        np.full(int(16000 * BLOCK_SECONDS), 0.2, np.float32),
+        np.zeros(int(16000 * BLOCK_SECONDS), np.float32),
+    )
+    seg.feed(quiet, 0.0)  # calibration
+    for _ in range(12):
+        assert seg.feed(loud, 0.2) is None
+    for _ in range(round(0.2 / BLOCK_SECONDS)):
+        assert seg.feed(quiet, 0.0) is None
+    assert len(early) == 1 and early[0][0] == 1
+    assert seg.commit(1)
+    assert seg.feed(quiet, 0.0) is None and not seg.in_speech  # ended, no second copy
+    for _ in range(12):
+        seg.feed(loud, 0.2)
+    assert seg.number == 2 and not seg.commit(1)  # a stale early copy can't end a new one

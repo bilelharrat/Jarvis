@@ -276,6 +276,10 @@ def build_options(
         max_buffer_size=MAX_BUFFER,
         model=prefs.model_id() if prefs else settings.model,
         effort=settings.effort,
+        # No thinking pass before a spoken reply: measured, it halves the wait for the
+        # first word (1.07s -> 0.49s). Deep work goes to Claude Code sessions and research,
+        # which think as hard as their effort setting says.
+        thinking={"type": "disabled"},
         system_prompt=system_prompt(settings, bsh_enabled, prefs, accounts, extra_prompt),
         tools=WEB_TOOLS,
         allowed_tools=allowed,

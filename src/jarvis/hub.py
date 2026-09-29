@@ -114,9 +114,10 @@ log = logging.getLogger("jarvis")
 APPROVAL_TIMEOUT = 300
 ARMED_SECONDS = 8.0
 FOLLOW_UP_SECONDS = 7.0  # after a reply, answer back without saying "Jarvis"
-HANDS_FREE_ENDPOINT = 0.6  # seconds of quiet that end an utterance
+HANDS_FREE_ENDPOINT = 0.6  # seconds of quiet that surely end an utterance
+EARLY_ENDPOINT = 0.2  # ...but a finished-sounding request is answered after this much
 FILLERS = ["One moment.", "On it.", "Let me check."]
-_FIRST_CLAUSE = re.compile(r"^(.{24,}?[,;:—–])\s")
+_FIRST_CLAUSE = re.compile(r"^(.{12,}?[,;:—–])\s")
 CHIME = "/System/Library/Sounds/Tink.aiff"
 
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
@@ -573,7 +574,7 @@ class Hub:
         await self.tasks.close()
         await self.connectors.close()
         await self.remote.stop()
-        self.speaker.stop()
+        getattr(self.speaker, "shutdown", self.speaker.stop)()
         if self.client is not None:
             with contextlib.suppress(Exception):
                 await self.client.disconnect()
@@ -915,7 +916,9 @@ class Hub:
         path = await asyncio.to_thread(ensure_player)
         if path is not None and hasattr(self.speaker, "player_path"):
             self.speaker.player_path = path
-            log.info("streaming voice player ready")
+            # Start the live player now, so the first reply doesn't wait for it.
+            if await self.speaker.live() is not None:
+                log.info("live voice player ready")
 
     async def _prepare_fillers(self) -> None:
         """Voice the short fillers once, so they play instantly while tools run."""
@@ -985,7 +988,12 @@ class Hub:
                 if match and not re.search(r"[.!?]", match.group(1)):
                     self._speak(match.group(1))
                     self._stream_buf = self._stream_buf[match.end() :]
-            sentences, self._stream_buf = split_sentences(self._stream_buf)
+            # The first sentence goes as soon as it's whole, however short ("Canberra.");
+            # later short ones wait to join the next, so each clip is worth a request.
+            first = not self._spoke_this_turn
+            sentences, self._stream_buf = split_sentences(
+                self._stream_buf, min_chars=4 if first else 12
+            )
             for sentence in sentences:
                 self._speak(sentence)
         elif kind in ("content_block_stop", "message_stop"):
@@ -1132,6 +1140,10 @@ class Hub:
             if self.listener_factory is None:
                 args.append(self.prefs.mic)
             self._listener = factory(*args)
+            self._listener.early_seconds = EARLY_ENDPOINT
+            self._listener.on_early = lambda number, audio: loop.call_soon_threadsafe(
+                queue.put_nowait, ("early", number, audio)
+            )
             try:
                 self._listener.start()
             except Exception as exc:  # no microphone
@@ -1151,6 +1163,12 @@ class Hub:
             audio = await queue.get()
             if audio is None:
                 return
+            if isinstance(audio, tuple):  # ("early", number, audio): smart endpointing
+                try:
+                    await self._early_utterance(*audio[1:])
+                except Exception:
+                    log.exception("early transcription failed")
+                continue
             self._heard_at = time.monotonic()
             try:
                 if self.voicecode.focus is not None and self._code_hotwords:
@@ -1171,6 +1189,32 @@ class Hub:
                 await self.on_heard(text)
             except Exception:  # never let one bad utterance end hands-free listening
                 log.exception("hands-free handling failed")
+
+    async def _early_utterance(self, number: int, audio: Any) -> None:
+        """An utterance 0.2s into the silence after it. If it reads as a finished request
+        for JARVIS, answer now instead of waiting out the full silence (it saves the rest
+        of that wait and the whole transcription). Otherwise the full utterance follows."""
+        if self.meeting is not None or self.state == "speaking":
+            return
+        heard_at = time.monotonic()
+        stt = self.transcriber
+        if self.voicecode.focus is not None and self._code_hotwords:
+            if self._code_stt is not None and self._code_stt.loaded():
+                stt = self._code_stt
+            text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
+        else:
+            text = await asyncio.to_thread(stt.transcribe, audio)
+        from .listen import sounds_finished
+
+        armed = self._armed_until and time.monotonic() < self._armed_until
+        for_me = find_wake(text)[0] or armed or bool(self.approvals)
+        if not (for_me and sounds_finished(text)):
+            return
+        if self._listener is None or not self._listener.commit(number):
+            return  # they kept talking: the full utterance will come instead
+        log.info("answered early (smart endpoint)")
+        self._heard_at = heard_at
+        await self.on_heard(text)
 
     def _arm(self, seconds: float = ARMED_SECONDS, chime: bool = True) -> None:
         self._armed_until = time.monotonic() + seconds

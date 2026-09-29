@@ -288,6 +288,102 @@ def ensure_player() -> Path | None:
     return binary
 
 
+class LivePlayer:
+    """The native player kept running between sentences (jarvis-player --live).
+
+    Sentences are written into it back to back, so there's no process to start, no
+    engine to spin up and no pre-buffer before each one: the first words play the moment
+    they arrive and the next sentence follows without a gap. A marker after each
+    sentence tells us when it has actually been heard.
+    """
+
+    def __init__(self, path: Path, rate: int, effect: bool) -> None:
+        self.path, self.rate, self.effect = path, rate, effect
+        self.proc: asyncio.subprocess.Process | None = None
+        self._markers: dict[int, asyncio.Future] = {}
+        self._next = 0
+        self._reader: asyncio.Task | None = None
+
+    @property
+    def alive(self) -> bool:
+        return self.proc is not None and self.proc.returncode is None
+
+    async def start(self) -> None:
+        args = [str(self.path), str(self.rate), "--live"] + (["--effect"] if self.effect else [])
+        self.proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        self._reader = asyncio.create_task(self._read())
+
+    async def _read(self) -> None:
+        proc = self.proc
+        try:
+            while proc is not None and (line := await proc.stdout.readline()):
+                parts = line.decode(errors="replace").split()
+                if parts[:1] == ["M"] and len(parts) == 2 and parts[1].isdigit():
+                    self._settle(int(parts[1]))
+                elif parts[:1] == ["R"]:  # output device changed: queued audio is gone
+                    self._settle_all()
+        finally:
+            self._settle_all()  # it exited: nobody waits forever
+
+    def _settle(self, marker: int) -> None:
+        for key in [k for k in self._markers if k <= marker]:
+            future = self._markers.pop(key)
+            if not future.done():
+                future.set_result(None)
+
+    def _settle_all(self) -> None:
+        self._settle(self._next)
+
+    def _frame(self, kind: str, value: int, payload: bytes = b"") -> bytes:
+        return kind.encode() + value.to_bytes(4, "little") + payload
+
+    async def write(self, pcm: bytes) -> None:
+        if not pcm or not self.alive:
+            return
+        self.proc.stdin.write(self._frame("A", len(pcm), pcm))
+        await self.proc.stdin.drain()
+
+    async def mark(self) -> None:
+        """Wait until everything written so far has been heard."""
+        if not self.alive:
+            return
+        self._next += 1
+        future = asyncio.get_running_loop().create_future()
+        self._markers[self._next] = future
+        self.proc.stdin.write(self._frame("M", self._next))
+        await self.proc.stdin.drain()
+        await future
+
+    def stop_now(self) -> None:
+        """Barge-in: silence at once, and nothing waits on what was dropped."""
+        if self.alive:
+            try:
+                self.proc.stdin.write(self._frame("S", 0))
+            except (BrokenPipeError, ConnectionResetError, RuntimeError):
+                pass
+        self._settle_all()
+
+    def close(self) -> None:
+        if self.alive:
+            self.proc.kill()
+        self._settle_all()
+
+
+def resample(pcm: bytes, rate: int, to_rate: int) -> bytes:
+    """16-bit mono PCM from one rate to another (the Mac voice's rate differs)."""
+    if rate == to_rate or not pcm:
+        return pcm
+    audio = np.frombuffer(pcm[: len(pcm) - len(pcm) % 2], dtype="<i2").astype(np.float32)
+    n = max(1, int(len(audio) * to_rate / rate))
+    out = np.interp(np.linspace(0, len(audio) - 1, n), np.arange(len(audio)), audio)
+    return out.astype("<i2").tobytes()
+
+
 class Source:
     """One sentence's audio, arriving as raw PCM chunks (None marks the end)."""
 
@@ -332,11 +428,48 @@ class Speaker:
         self._playing = False
         self.player_path: Path | None = None  # set once the native player is built
         self._streams = asyncio.Semaphore(3)
+        self._live: LivePlayer | None = None
+        self._live_lock: asyncio.Lock | None = None
+
+    @property
+    def live_rate(self) -> int:
+        return self.cloud.stream_rate if self.cloud is not None else EFFECT_RATE
+
+    async def live(self) -> LivePlayer | None:
+        """The running live player, started (or restarted for a new effect setting) as
+        needed. None when the native player isn't built."""
+        if self.player_path is None:
+            return None
+        if self._live_lock is None:
+            self._live_lock = asyncio.Lock()
+        async with self._live_lock:
+            current = self._live
+            if current is not None and current.alive and current.effect == self.effect:
+                return current
+            if current is not None:
+                current.close()
+            fresh = LivePlayer(self.player_path, self.live_rate, self.effect)
+            try:
+                await fresh.start()
+            except OSError as exc:
+                log.warning("live player didn't start (%s)", exc)
+                return None
+            self._live = fresh
+            return fresh
+
+    def shutdown(self) -> None:
+        """Quitting: the live player goes too."""
+        self.stop()
+        if self._live is not None:
+            self._live.close()
+            self._live = None
 
     def stop(self) -> None:
         for proc in (self._proc, self._player):
             if proc is not None and proc.returncode is None:
                 proc.kill()
+        if self._live is not None:
+            self._live.stop_now()
 
     def _say_args(self) -> list[str]:
         args = ["say", "-r", str(self.rate)]
@@ -398,6 +531,20 @@ class Speaker:
         first = await src.chunks.get()
         if first is None:
             return
+        live = await self.live()
+        if live is not None:
+            self._playing = True
+            try:
+                chunk = first
+                while chunk is not None:
+                    await live.write(resample(chunk, src.rate, live.rate))
+                    chunk = await src.chunks.get()
+                await live.mark()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the player went away; the next sentence starts a new one
+            finally:
+                self._playing = False
+            return
         if self.player_path is None:  # no native player: gather it all and use afplay
             parts = [first]
             while (chunk := await src.chunks.get()) is not None:
@@ -438,8 +585,10 @@ class Speaker:
             try:
                 audio, rate = await self.cloud.synthesize(spoken)
                 self.cloud_error = ""
+                # The native player adds the effect itself; only afplay needs it baked in.
+                baked = self.effect and self.player_path is None
                 return (
-                    await asyncio.to_thread(ai_voice_effect, audio, rate) if self.effect else audio
+                    await asyncio.to_thread(ai_voice_effect, audio, rate) if baked else audio
                 ), rate
             except Exception as exc:  # bad key, no credit, offline: fall back to the Mac voice
                 self.cloud_error = str(exc)[:200]
@@ -450,7 +599,7 @@ class Speaker:
             if not path.exists():
                 return None
             audio, rate = read_wav(path)
-        if self.effect:
+        if self.effect and self.player_path is None:
             audio = await asyncio.to_thread(ai_voice_effect, audio, rate)
         return audio, rate
 
@@ -467,6 +616,22 @@ class Speaker:
             self._proc = None
 
     async def play(self, audio: np.ndarray, rate: int) -> None:
+        """Play a finished clip: through the live player when it's running (instant), else
+        macOS's own player (afplay)."""
+        live = await self.live()
+        if live is not None:
+            self._playing = True
+            try:
+                await live.write(resample(to_pcm(audio), rate, live.rate))
+                await live.mark()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            finally:
+                self._playing = False
+            return
+        await self._afplay(audio, rate)
+
+    async def _afplay(self, audio: np.ndarray, rate: int) -> None:
         """Play a clip through macOS's own player (afplay).
 
         Not PortAudio: it reads the audio devices once at startup, so when AirPods switch

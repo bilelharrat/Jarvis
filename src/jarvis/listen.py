@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 from collections.abc import Callable
 
@@ -154,8 +155,17 @@ class Segmenter:
         max_seconds: float = 20.0,
         min_seconds: float = 0.35,
         block_seconds: float = BLOCK_SECONDS,
+        early_seconds: float | None = None,
+        on_early: Callable[[int, np.ndarray], None] | None = None,
     ) -> None:
+        """early_seconds/on_early: after that much quiet, hand over the utterance so far
+        (with its number) so it can be transcribed while we wait to be sure you've
+        finished; commit(number) then ends it there, as if the full silence had passed."""
         self.silence_blocks = round(silence_seconds / block_seconds)
+        self.early_blocks = round(early_seconds / block_seconds) if early_seconds else 0
+        self.on_early = on_early
+        self.number = 0  # counts utterances
+        self._committed = -1
         self.max_blocks = round(max_seconds / block_seconds)
         self.min_blocks = round(min_seconds / block_seconds)
         self.calibration_blocks = calibration_blocks
@@ -166,6 +176,14 @@ class Segmenter:
         self._loud_run = 0
         self._quiet_run = 0
         self.in_speech = False
+
+    def commit(self, number: int) -> bool:
+        """End utterance `number` now (its early copy was enough). False if speech
+        already started again, in which case the early copy is stale."""
+        if number != self.number or not self.in_speech or self._quiet_run < self.early_blocks:
+            return False
+        self._committed = number
+        return True
 
     def feed(self, block: np.ndarray, rms: float) -> np.ndarray | None:
         """Returns a finished utterance, or None."""
@@ -180,11 +198,23 @@ class Segmenter:
             self._loud_run = self._loud_run + 1 if loud else 0
             if self._loud_run >= 2:
                 self.in_speech = True
+                self.number += 1
                 self._current = list(self._preroll)
                 self._quiet_run = 0
             return None
         self._current.append(block)
         self._quiet_run = 0 if loud else self._quiet_run + 1
+        if self._committed == self.number:  # already taken early: this one's done
+            self.in_speech = False
+            self._current, self._preroll, self._loud_run = [], [], 0
+            return None
+        if (
+            self.early_blocks
+            and self.on_early is not None
+            and self._quiet_run == self.early_blocks
+            and len(self._current) - self._quiet_run >= self.min_blocks
+        ):
+            self.on_early(self.number, np.concatenate(self._current))
         if self._quiet_run >= self.silence_blocks or len(self._current) >= self.max_blocks:
             voiced = len(self._current) - self._quiet_run
             audio = np.concatenate(self._current)
@@ -192,6 +222,27 @@ class Segmenter:
             self._current, self._preroll, self._loud_run = [], [], 0
             return audio if voiced >= self.min_blocks else None
         return None
+
+
+# Words an unfinished sentence tends to stop on ("what's the weather in…").
+_TRAILING = {
+    "and", "but", "or", "so", "the", "a", "an", "to", "of", "for", "with", "in", "on", "at",
+    "my", "your", "our", "their", "is", "are", "was", "were", "um", "uh", "like", "because",
+    "then", "that", "if", "when", "about", "from", "into", "than", "as", "by", "please",
+    "what", "which", "who", "how", "can", "could", "would", "should", "will", "me", "it's",
+}  # fmt: skip
+
+
+def sounds_finished(text: str) -> bool:
+    """Whether a transcript reads like a finished request: it ends like a sentence and
+    not on a word that promises more. Used to answer before the full silence passes."""
+    text = text.strip()
+    if not text or text.endswith(("...", "…", ",", "-", "—")):
+        return False
+    if not text.endswith((".", "?", "!")):
+        return False
+    words = re.findall(r"[a-z']+", text.lower())
+    return len(words) >= 2 and words[-1] not in _TRAILING
 
 
 class ContinuousListener:
@@ -208,6 +259,10 @@ class ContinuousListener:
         self.on_utterance = on_utterance
         self.on_level = on_level
         self.silence_seconds = silence_seconds
+        # Smart endpointing (set by the hub): an early copy after this much quiet.
+        self.early_seconds: float | None = None
+        self.on_early: Callable[[int, np.ndarray], None] | None = None
+        self.segmenter: Segmenter | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -225,6 +280,10 @@ class ContinuousListener:
     def stop(self) -> None:
         self._stop.set()
 
+    def commit(self, number: int) -> bool:
+        """End utterance `number` now: its early copy was enough."""
+        return self.segmenter.commit(number) if self.segmenter is not None else False
+
     def _run(self) -> None:
         """Keep a stream open for as long as hands-free is on.
 
@@ -236,7 +295,12 @@ class ContinuousListener:
         failures = 0
         while not self._stop.is_set():
             blocks: queue.Queue[np.ndarray] = queue.Queue()
-            segmenter = Segmenter(silence_seconds=self.silence_seconds)
+            segmenter = Segmenter(
+                silence_seconds=self.silence_seconds,
+                early_seconds=self.early_seconds,
+                on_early=self.on_early,
+            )
+            self.segmenter = segmenter
             try:
                 if failures >= RESET_AFTER_FAILURES:
                     log.info("resetting the audio system to find the microphone again")
@@ -289,7 +353,9 @@ class Transcriber:
             if self._model is None:
                 from faster_whisper import WhisperModel
 
-                self._model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+                self._model = WhisperModel(
+                    self.model_name, device="cpu", compute_type="int8", cpu_threads=8
+                )
             return self._model
 
     def loaded(self) -> bool:
@@ -303,7 +369,14 @@ class Transcriber:
         # (Measured with scripts/stress_hands_free.py: 86% -> 88% wake detection.)
         padded = np.concatenate([np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32), audio])
         segments, _info = self._load().transcribe(
-            padded, language="en", beam_size=1, vad_filter=False, hotwords=hotwords or "Jarvis"
+            padded,
+            language="en",
+            beam_size=1,
+            vad_filter=False,
+            hotwords=hotwords or "Jarvis",
+            # Faster, and nothing here needs timestamps or the previous utterance.
+            without_timestamps=True,
+            condition_on_previous_text=False,
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         return "" if is_hallucination(text) else text
