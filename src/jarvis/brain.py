@@ -189,6 +189,9 @@ _SAID_HOST = re.compile(
     r"(?<![\w.@-])(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?![\w-])"
 )
 _NOT_A_SITE = {"co", "com", "org", "net", "gov", "edu", "ac", "or", "ne", "go"}
+# "the verge dot com". Tried only where a run of spaces begins: from inside a long run
+# with no "dot" after it, each space rescanned the rest of it.
+_SPOKEN_DOT = re.compile(r"(?<!\s)\s+dot\s+(?=[a-z0-9])")
 
 
 def url_host(url: str) -> str | None:
@@ -223,7 +226,7 @@ def browser_address(text: str) -> str | None:
 
 def hosts_said(text: str) -> set[str]:
     """Web hosts in what the user said, without a leading www."""
-    spoken = re.sub(r"\s+dot\s+(?=[a-z0-9])", ".", str(text or "").lower())
+    spoken = _SPOKEN_DOT.sub(".", str(text or "").lower())
     found = set()
     for match in _SAID_HOST.finditer(spoken):
         host = match.group(1).removeprefix("www.")

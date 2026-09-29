@@ -76,6 +76,16 @@ def test_choosing_by_voice():
     assert vc.pick_choice("postgres", ["SQLite", "Postgres", "Skip"]) == 1
 
 
+def test_a_huge_result_is_read_only_as_far_as_it_is_said():
+    import time
+
+    # Three sentences are said: a 2 MB result was cleaned and split whole on the hub's loop.
+    started = time.perf_counter()
+    spoken = vc.speakable("The build passed and every test is green. " * 50_000)
+    assert time.perf_counter() - started < 0.05  # about 2 ms here; 0.25 s whole
+    assert spoken == "The build passed and every test is green. " * 3 + "The rest is on screen."
+
+
 def test_replies_plans_and_approvals_become_speech():
     reply = "Fixed it. The retry wraps `query()`.\n\n```python\nretry()\n```\n\nI also added a test. And docs. And more."
     spoken = vc.speakable(reply)

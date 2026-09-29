@@ -16,12 +16,16 @@ from typing import Any
 import numpy as np
 
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
-_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+# Each of these is linear however long a run of spaces, blank lines or "[": a line start
+# never looks past its own line, and a run is tried only from where it begins. A link's
+# address may hold one level of brackets (Wikipedia's Foo_(bar)).
+_LINK = re.compile(r"\[([^\[\]]+)\]\((?:[^()]|\([^()]*\))+\)")
 _URL = re.compile(r"https?://\S+")
-_BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+", re.MULTILINE)
-_HEADING = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
+_BULLET = re.compile(r"^[^\S\n]*(?:[-*•]|\d+[.)])\s+", re.MULTILINE)
+_HEADING = re.compile(r"^[^\S\n]*#{1,6}\s*", re.MULTILINE)
 _EMPHASIS = re.compile(r"[*_`~]+")
-_CITATION = re.compile(r"\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
+_CITATION = re.compile(r"(?<!\s)\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
+_LINE_BREAKS = re.compile(r"(?<!\s)\s*\n\s*")
 
 log = logging.getLogger("jarvis")
 
@@ -37,7 +41,7 @@ def clean_for_speech(text: str) -> str:
     text = _HEADING.sub("", text)
     text = _BULLET.sub("", text)
     text = _EMPHASIS.sub("", text)
-    text = re.sub(r"\s*\n+\s*", ". ", text.strip())
+    text = _LINE_BREAKS.sub(". ", text.strip())
     text = re.sub(r"([.!?])\.\s", r"\1 ", text)
     return re.sub(r"\s{2,}", " ", text).strip()
 
@@ -725,30 +729,31 @@ _SENTENCE = re.compile(r"(.+?[.!?…:;])(\s+|$)", re.DOTALL)
 # Mid-stream, a sentence only ends where whitespace follows: "It is 23." or "at 3:" at the
 # end of the buffer may be "23.5 degrees" or "3:30" once the next words arrive.
 _SENTENCE_SO_FAR = re.compile(r"(.+?[.!?…:;])(\s+)", re.DOTALL)
+_NOT_SPACE = re.compile(r"\S")
 
 
 def split_sentences(buffer: str, final: bool = False, min_chars: int = 12) -> tuple[list[str], str]:
     """Pull complete sentences off the front of a streaming buffer.
 
     Very short fragments ("Sure.") wait to join the next sentence so every clip is worth a
-    round trip to the voice service. With final=True the rest is flushed.
+    round trip to the voice service. With final=True the rest is flushed. The buffer is
+    read by position, never sliced per sentence: a long reply splits in linear time.
     """
     pattern = _SENTENCE if final else _SENTENCE_SO_FAR
     out: list[str] = []
-    rest = buffer
-    pending = ""
-    while True:
-        match = pattern.match(rest)
-        if not match:
-            break
+    pos, pending = 0, ""
+    while (match := pattern.match(buffer, pos)) is not None:
         sentence = (pending + " " + match.group(1)).strip()
-        rest = rest[match.end() :]
-        if len(sentence) < min_chars and rest.strip():
+        pos = match.end()
+        if len(sentence) < min_chars and _NOT_SPACE.search(buffer, pos):
             pending = sentence
             continue
         out.append(sentence)
         pending = ""
-    rest = (pending + " " + rest).strip() if pending else rest
+    rest = buffer[pos:]
+    # The tail keeps its trailing space: the next chunk may go on with another word
+    # ("Sure. The quick " + "brown fox."), and only the final flush trims.
+    rest = f"{pending} {rest.lstrip()}" if pending else rest
     if final and rest.strip():
         out.append(rest.strip())
         rest = ""

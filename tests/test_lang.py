@@ -1059,6 +1059,23 @@ def test_clean_for_speech_in_chinese():
     assert lang.clean_for_speech(english, "en") == clean_for_speech(english)
 
 
+def test_a_link_with_brackets_in_its_address_is_said_as_its_text():
+    link = "见[维基](https://en.wikipedia.org/wiki/Foo_(bar))。"
+    assert lang.clean_for_speech_zh(link) == "见维基。"  # was "见[维基](屏幕上的链接。"
+
+
+def test_a_long_reply_splits_in_linear_time():
+    import time
+
+    # Read by position, stop to stop: sliced again after every sentence, 2 MB took 8 s.
+    reply = ("今天天气很好，我们去公园散步。明天要开会，记得带报告。" * 80_000)[:2_000_000]
+    started = time.perf_counter()
+    sentences, rest = lang.split_sentences_zh(reply, final=True)
+    assert time.perf_counter() - started < 2.0  # about 0.3 s here
+    assert "".join(sentences) == reply and rest == ""
+    assert sentences[:2] == ["今天天气很好，我们去公园散步。", "明天要开会，记得带报告。"]
+
+
 # ── numbers the Mandarin way ──
 
 
@@ -1195,6 +1212,45 @@ def test_spoken_numbers(text, said):
 )
 def test_ranges_survive_clean_for_speech(text, said):
     assert lang.clean_for_speech_zh(text) == said
+
+
+def test_a_number_past_the_int_limit_is_read_digit_by_digit():
+    # int() refuses more than 4,300 digits: the ValueError cost the hub a second model turn.
+    digits = "7" * 4400
+    for text in (
+        f"第{digits}号。",
+        f"{digits}%",
+        f"{digits}个",
+        f"${digits}",
+        f"{digits}万",
+        f"{digits}°C",
+        f"-{digits}度",
+        "7" + ",777" * 1500 + "。",
+    ):
+        assert "七七七七" in lang.clean_for_speech_zh(f"结果是{text}"), text[-8:]
+    assert lang.number_zh("1" * 5000) == "一" * 5000
+    assert lang.number_zh("12345678901234567890") == "一二三四五六七八九零一二三四五六七八九零"
+    assert lang.number_zh("0005") == "五" and lang.number_zh("10500") == "一万零五百"
+    assert lang.spoken_numbers_zh("第2名，第0005号") == "第二名，第五号"
+
+
+def test_digit_runs_in_any_script_are_read_in_linear_time():
+    import time
+
+    # \d takes every script's digits (\uff17 full-width, \u0663 Arabic-Indic): a range or a
+    # dashed code was tried again from each digit of such a run, and a percentage from
+    # each group of "123,123,…" (3 to 33 s each before).
+    for run in ("\uff17" * 16_000, "\u0663" * 16_000, "1," * 8000, "12," * 5000, "123," * 4000):
+        started = time.perf_counter()
+        lang.spoken_numbers_zh(f"编号{run}。")
+        assert time.perf_counter() - started < 0.3, run[:6]  # 0.05 s at most here
+    # Ranges and comma lists read as before.
+    assert lang.spoken_numbers_zh("1,234-5,678") == "一千二百三十四到五千六百七十八"
+    assert lang.spoken_numbers_zh("1,2,3,4,5,6,7,8-9") == "一,二,三,四,五,六,七,八到九"
+    assert lang.spoken_numbers_zh("气温1,-5度") == "气温一,零下五度"
+    assert lang.spoken_numbers_zh("\uff11\uff12\uff13-\uff14\uff15\uff16") == (
+        "一百二十三到四百五十六"
+    )
 
 
 # ── the markets and the weather ──

@@ -38,6 +38,49 @@ def test_mid_stream_numbers_and_times_are_not_cut_at_their_dot():
     assert split_sentences("It is 23.", final=True) == (["It is 23."], "")
 
 
+def test_a_held_short_sentence_keeps_the_space_before_the_next_chunk():
+    # "Sure." waits to join the next sentence; the tail kept after it must keep its
+    # trailing space, or the next chunk is glued on: "Sure. The quickbrown fox."
+    done, rest = split_sentences("Sure. The quick ")
+    assert done == [] and rest == "Sure. The quick "
+    done, rest = split_sentences(rest + "brown fox jumps. Then")
+    assert done == ["Sure. The quick brown fox jumps."] and rest == "Then"
+    assert split_sentences("Sure. The quick ", final=True) == (["Sure. The quick"], "")
+
+
+def test_a_long_reply_splits_in_linear_time():
+    import time
+
+    # Read by position: sliced again after every sentence, 4 MB took 3.6 s.
+    reply = ("The report is ready, and the team meets at 3:30pm tomorrow. " * 70_000)[:4_000_000]
+    started = time.perf_counter()
+    sentences, rest = split_sentences(reply, final=True)
+    assert time.perf_counter() - started < 0.5  # about 0.06 s here
+    assert " ".join(sentences) == reply.strip() and rest == ""
+
+
+def test_speech_cleaning_is_linear_on_long_runs():
+    import time
+
+    from jarvis.voicecode import speakable
+
+    # A line start never looks past its own line, and a run is tried only from where it
+    # begins: 16,000 blank lines took 3.7 s to clean and 7 s to make speakable.
+    runs = ["\n" * 16_000, " \n" * 8000, " " * 16_000, "\u3000" * 16_000, "\t" * 16_000]
+    runs += ["[" * 16_000, "[a](b" * 3200]
+    for run in runs:
+        for clean in (clean_for_speech, speakable):
+            started = time.perf_counter()
+            clean(f"Done.{run}ok")
+            assert time.perf_counter() - started < 0.05, (clean.__name__, run[:5])  # ~3 ms
+
+
+def test_a_link_with_brackets_in_its_address_is_said_as_its_text():
+    link = "[the page](https://en.wikipedia.org/wiki/Foo_(bar))"
+    assert clean_for_speech(f"See {link} now.") == "See the page now."  # was "the page) now."
+    assert clean_for_speech("- one\n- two [1]\n\n  ## Next\nthree") == "one. two. Next. three"
+
+
 class FakeLive:
     rate = 24000
 

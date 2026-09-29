@@ -63,13 +63,15 @@ def find_wake(text: str) -> tuple[bool, str]:
         span = None
         greeted = n == 1 and tokens[0][1] in GREETINGS
         if _is_wake_token(token) or (greeted and token in GREETED_MISHEARINGS):
-            span = (i, i)
+            span, next_token = (i, i), n + 1
         elif n + 1 < len(tokens) and _is_wake_token(token + tokens[n + 1][1]):
-            span = (i, tokens[n + 1][0])
+            span, next_token = (i, tokens[n + 1][0]), n + 2
         if span is None:
             continue
-        following = [t for j, t in tokens if j > span[1]][:1]
-        if following and following[0] in _PANEL and not re.search(r"\W$", pieces[span[1]]):
+        # The word after the name, by index: gathering all the rest for each name made
+        # "Jarvis Code, Jarvis Code, …" quadratic.
+        following = tokens[next_token][1] if next_token < len(tokens) else ""
+        if following in _PANEL and not re.search(r"\W$", pieces[span[1]]):
             continue  # "Jarvis Code finished in…": the panel's name, likely its own voice
         before = "".join(pieces[: span[0]]).strip(" ,.!?;:-")
         after = "".join(pieces[span[1] + 1 :]).strip(" ,.!?;:-")

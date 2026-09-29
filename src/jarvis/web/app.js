@@ -3340,7 +3340,7 @@ function browserOpen() { return browserOpenNow; }
 function researchBaseUrl() { return (prefs && prefs.research_url) || RC_DEFAULT; }
 
 function pageName(url, title) {
-  const own = String(title || '').replace(/\s*[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
+  const own = String(title || '').replace(/[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
   if (own && !/^BSH Research Center$/i.test(own)) return own;
   let path = '/';
   try {
@@ -3350,7 +3350,8 @@ function pageName(url, title) {
     path = path.slice(0, end) || '/';
   } catch (_) { return own; }
   if (RC_NAMES[path]) return RC_NAMES[path];
-  const last = decodeURIComponent(path.split('/').filter(Boolean).pop() || '');
+  let last = path.split('/').filter(Boolean).pop() || '';
+  try { last = decodeURIComponent(last); } catch (_) { /* a malformed %-escape: shown as it is */ }
   return last ? last.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Home';
 }
 

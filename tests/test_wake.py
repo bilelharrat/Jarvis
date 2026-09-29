@@ -87,6 +87,19 @@ def test_jarvis_code_is_the_panel_not_the_wake_word():
         "say exit code mode to stop."
     )[0]
     assert find_wake("Jarvis, code in proj")[0] is True  # said to it, with a pause
+    assert find_wake("Jari ves code now")[0] is False  # the name split in two, then "code"
+    assert find_wake("Jari ves, code now") == (True, "code now")
+
+
+def test_the_panels_name_said_over_and_over_is_read_in_linear_time():
+    import time
+
+    # The word after each name is looked up, not gathered again from all the rest: these
+    # took 2 s.
+    started = time.perf_counter()
+    assert find_wake("jarvis code " * 4000) == (False, "")
+    assert find_wake("Jarvis code " * 4000 + "Jarvis, what time is it") == (True, "what time is it")
+    assert time.perf_counter() - started < 0.5  # about 0.08 s here
 
 
 def test_greetings_only_count_at_the_start():

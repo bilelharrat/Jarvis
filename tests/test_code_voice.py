@@ -47,6 +47,32 @@ def test_names_resolve_to_the_projects_files_and_symbols(repo):
     assert vocab.hint("hello there") == ""
 
 
+def test_blank_stretches_in_a_source_file_are_scanned_in_linear_time(repo):
+    import time
+
+    def names(text):
+        return [m.group(1) or m.group(2) or m.group(3) for m in code_vocab._DEFS.finditer(text)]
+
+    # A line start never looks past its own line: 8,000 indented blank lines took 15 s,
+    # holding the GIL, so one odd file froze the whole app during voice coding.
+    for filler in ("\n", "    \n", "\r\n", "ABC: 1\n"):
+        text = "def first_thing():\n    pass\n" + filler * 8000 + "print(1)\n"
+        started = time.perf_counter()
+        assert names(text) == ["first_thing"]
+        assert time.perf_counter() - started < 0.1, repr(filler)  # ~5 ms here
+    assert names("\n\n    \n  def last_thing():\n") == ["last_thing"]
+    # A constant's type stays on its line: "ABC: 1" with an "=" lines below isn't one.
+    assert names("ABC: 1\n\nx = 2\nLIMIT: int = 3\n") == ["LIMIT"]
+    (repo / "src" / "gen.py").write_text(
+        "def a_func():\n    pass\n" + "    \n" * 8000 + "LIMIT = 3\n"
+    )
+    vocab = code_vocab.ProjectVocab(repo)
+    started = time.perf_counter()
+    vocab.refresh(force=True)
+    assert time.perf_counter() - started < 1.0
+    assert {"a_func", "LIMIT", "Hub", "speakable"} <= set(vocab.idents)
+
+
 def test_the_diff_out_loud(repo):
     (repo / "src" / "hub.py").write_text(
         "MAX_RETRIES = 5\n\nclass Hub:\n    def ask(self):\n        return 1 + 1\n\n    def notify(self):\n        return 2\n"

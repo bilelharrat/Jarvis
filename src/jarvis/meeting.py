@@ -10,9 +10,9 @@ the app quits mid-meeting. Notes live in ~/Documents/Jarvis/Meetings.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +27,10 @@ log = logging.getLogger("jarvis")
 
 NOTES_MODEL = "small.en"
 MIN_WORDS_FOR_SUMMARY = 25
+# Each quick line is appended to the notes file as it's heard. The notes model's better
+# lines need the whole file written again, so that happens at most this often (and at the
+# end): once per line was quadratic over a long meeting.
+REWRITE_SECONDS = 60.0
 
 SUMMARY_PROMPT = """Below is a machine transcript of a meeting the user asked you to take notes on. It has no speaker labels and may mishear words; infer sensibly and don't invent.
 
@@ -65,6 +69,8 @@ class Meeting:
         if self.path.exists():  # two meetings in the same minute with the same title
             self.path = directory / f"{self.started:%Y-%m-%d %H%M%S} {_slug(self.title)}.md"
         self.lines: list[tuple[datetime, str]] = []
+        self._dirty = False  # the file lacks a better line, or one an append missed
+        self._written_at = 0.0  # when the whole file was last written
         self._pending: asyncio.Queue = asyncio.Queue()
         self._worker: asyncio.Task | None = None
         self._write()
@@ -94,18 +100,22 @@ class Meeting:
             better = " ".join(str(better).split())
             if better and index < len(self.lines):
                 self.lines[index] = (self.lines[index][0], better)
-                try:
-                    self._write()
-                except OSError as exc:
-                    log.warning("couldn't save meeting notes: %s", exc)
+                self._save_soon()
 
     def add(self, audio: Any, quick_text: str, at: datetime | None = None) -> None:
         """Save the quick transcript now; refine it in the background if a notes model
         is running. Lines the quick model heard as nothing still get a second listen."""
         at = at or datetime.now()
-        self.lines.append((at, " ".join(str(quick_text).split())))
-        with contextlib.suppress(OSError):
-            self._write()
+        text = " ".join(str(quick_text).split())
+        self.lines.append((at, text))
+        if text:
+            try:
+                with self.path.open("a") as notes:
+                    notes.write(f"[{at:%H:%M}] {text}\n")
+            except OSError:  # a full disk: the next whole write puts it in
+                self._dirty = True
+        if self._dirty:
+            self._save_soon()
         if self._worker is not None and audio is not None:
             self._pending.put_nowait((len(self.lines) - 1, audio))
 
@@ -117,6 +127,8 @@ class Meeting:
             self._pending.put_nowait(None)
             await self._worker
             self._worker = None
+        if self._dirty:
+            self._save()
 
     def transcript(self) -> str:
         return "\n".join(f"[{at:%H:%M}] {text}" for at, text in self.lines if text)
@@ -129,10 +141,27 @@ class Meeting:
 
     # ── the notes file ──
 
+    def _save_soon(self) -> None:
+        """Write the whole file for the lines it lacks, at most every REWRITE_SECONDS
+        (finish_transcript writes the rest)."""
+        self._dirty = True
+        if time.monotonic() - self._written_at >= REWRITE_SECONDS:
+            self._save()
+
+    def _save(self) -> None:
+        try:
+            self._write()
+        except OSError as exc:  # tried again a while later, and at the end
+            self._written_at = time.monotonic()
+            log.warning("couldn't save meeting notes: %s", exc)
+
     def _write(self, notes: str = "") -> None:
         head = f"# {self.title}\n\n{self.started:%A %d %B %Y, %H:%M}"
         body = f"\n\n{notes.strip()}\n" if notes else ""
-        self.path.write_text(f"{head}\n{body}\n## Transcript\n\n{self.transcript()}\n")
+        # Every line ends in a newline, as add() appends them.
+        lines = "".join(f"[{at:%H:%M}] {text}\n" for at, text in self.lines if text)
+        self.path.write_text(f"{head}\n{body}\n## Transcript\n\n{lines}")
+        self._dirty, self._written_at = False, time.monotonic()
 
     async def write_up(self, summarize: Summarize) -> dict[str, Any]:
         await self.finish_transcript()

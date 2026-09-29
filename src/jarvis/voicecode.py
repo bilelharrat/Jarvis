@@ -640,8 +640,10 @@ def _question_answer(said: str, w: list[str], ids: list[str], labels: list[str])
 def speakable(text: str, sentences: int = 3) -> str:
     """A reply, a few spoken sentences long; code stays on screen."""
     text = re.sub(r"```.*?```", " (code on screen) ", text or "", flags=re.DOTALL)
-    text = re.sub(r"^\s*#+\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*(?:[-*]|\d+[.)])\s+", "", text, flags=re.MULTILINE)
+    text = text[: 400 * sentences + 4000]  # only what can be said; runs on the hub loop
+    # A line start never looks past its own line: blank lines are each tried once.
+    text = re.sub(r"^[^\S\n]*#+\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[^\S\n]*(?:[-*]|\d+[.)])\s+", "", text, flags=re.MULTILINE)
     text = clean_for_speech(text)
     parts, rest = split_sentences(text, final=True)
     parts = [p for p in parts + ([rest] if rest.strip() else []) if p.strip()]

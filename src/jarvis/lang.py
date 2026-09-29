@@ -1253,15 +1253,18 @@ def _join(a: str, b: str) -> str:
     return a + b if _is_cjk_char(a[-1]) or a[-1] in _STOPS_ZH + _CLOSERS else f"{a} {b}"
 
 
-def _sentence_end(text: str, final: bool) -> int | None:
-    """Where the first whole sentence in text ends, or None. A Chinese stop (。！？；：…)
-    ends one at once; an English one only before a space or Chinese, so "23.5" and "3:30"
-    aren't cut. One more character must have arrived ("……", "。”"), unless final."""
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] not in _STOPS_ZH + _STOPS_EN:
-            i += 1
-            continue
+_STOP_CHAR = re.compile(f"[{re.escape(_STOPS_ZH + _STOPS_EN)}]")
+_SPACES = re.compile(r"\s*")
+
+
+def _sentence_end(text: str, final: bool, start: int = 0) -> int | None:
+    """Where the first whole sentence in text from start ends, or None. A Chinese stop
+    (。！？；：…) ends one at once; an English one only before a space or Chinese, so
+    "23.5" and "3:30" aren't cut. One more character must have arrived ("……", "。”"),
+    unless final."""
+    i, n = start, len(text)
+    while (stop := _STOP_CHAR.search(text, i)) is not None:  # straight to the next stop
+        i = stop.start()
         j = i + 1
         while j < n and text[j] in _STOPS_ZH + _STOPS_EN:
             j += 1
@@ -1282,18 +1285,20 @@ def split_sentences_zh(
     """speech.split_sentences for Chinese replies, with the same signature: whole
     sentences off the front of a streaming buffer, short ones held to join the next.
     A Chinese character counts double toward min_chars, so the hub's 4 and 12 mean about
-    two and six characters."""
+    two and six characters. The buffer is read by position, never sliced per sentence:
+    a long reply splits in linear time."""
     out: list[str] = []
-    rest, pending = buffer, ""
-    while (end := _sentence_end(rest, final)) is not None:
-        sentence = _join(pending, rest[:end].strip())
-        rest = rest[end:].lstrip()
-        if _units(sentence) < min_chars and rest.strip():
+    pos, pending = 0, ""
+    while (end := _sentence_end(buffer, final, pos)) is not None:
+        sentence = _join(pending, buffer[pos:end].strip())
+        pos = _SPACES.match(buffer, end).end()
+        if _units(sentence) < min_chars and pos < len(buffer):
             pending = sentence
             continue
         if sentence:
             out.append(sentence)
         pending = ""
+    rest = buffer[pos:]
     if pending:
         # The tail keeps its trailing space: the next chunk may go on with another word
         # ("NVDA is " + "up today。"), and only the final flush trims.
@@ -1323,7 +1328,8 @@ def first_clause_zh(buffer: str, min_chars: int = 12) -> tuple[str, str] | None:
 # Each of these scans a run of spaces, brackets or lines once, from its start (never
 # again from inside it): a reply with a long run of either stays linear.
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
-_LINK = re.compile(r"\[([^\[\]]+)\]\([^()]+\)")
+# [text](address), with one level of brackets in the address (Wikipedia's Foo_(bar)).
+_LINK = re.compile(r"\[([^\[\]]+)\]\((?:[^()]|\([^()]*\))+\)")
 _URL = re.compile(r"https?://[^\s，。！？、；：“”（）《》]+")
 _BULLET = re.compile(r"^[ \t]*(?:[-*•][ \t]+|\d+[.)][ \t]+|\d+、)", re.MULTILINE)
 _HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]*", re.MULTILINE)
@@ -1440,7 +1446,11 @@ def number_zh(value: Any, measure: bool = False) -> str:
         return str(value)
     sign = "负" if text.startswith("-") else ""
     whole, _, frac = text.lstrip("-").partition(".")
-    out = _int_zh(int(whole), measure=measure and not frac)
+    whole = whole.lstrip("0") or "0"
+    if len(whole) > 16:  # past 万亿 it's read digit by digit, as _int_zh would, without
+        out = digits_zh(whole)  # int(), which refuses more than 4,300 digits
+    else:
+        out = _int_zh(int(whole), measure=measure and not frac)
     if frac:
         out += "点" + "".join(_DIGITS_ZH[int(d)] for d in frac)
     return sign + out
@@ -1491,6 +1501,9 @@ def clock_zh(hour: int, minute: int = 0, meridiem: str = "", spoken: bool = True
 
 
 _NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+# The same below 10^21 (at most seven thousands groups), for a pattern that can fail after
+# it: unbounded, a long run of "123,123,…" was read again from every group to its end.
+_NUM_SHORT = r"\d{1,3}(?:,\d{3}){1,6}(?:\.\d+)?|\d+(?:\.\d+)?"
 _MEASURES = (
     r"个|位|名|条|封|件|次|天|周|小时|分钟|秒钟?|年|岁|块|元|美元|欧元|英镑|日元|张|本|只|支|辆|台|部|家|"
     r"份|杯|瓶|公里|千米|英里|公斤|斤|米|倍|首|篇|项|笔|页|股|手|场|点钟|点(?!\d)|层|间|种|句|段|步|分"
@@ -1500,23 +1513,27 @@ _YEAR_MONTH = re.compile(r"(?<![\d\-])(\d{4})-(0?[1-9]|1[0-2])(?![\d\-])")  # 20
 # Where a number may start: not inside a Latin word, a longer number or a dashed code
 # (GPT-4, INV-2026-004). Chinese right before it is fine ("涨幅3-5%").
 _NUMBER_START = r"(?<![A-Za-z0-9_.:\-−])"
+# Nor inside a run of another script's digits (１２３, ٣٣٣): \d takes those too, and a range
+# or a dashed code was otherwise tried from every one of them.
+_DIGITS_START = rf"{_NUMBER_START}(?<!\d)"
 # A range between two numbers: 3-5%, 3%-5%, 18~22°C, 3～5天, 10:00-11:00, 3 PM–4 PM,
 # $10-20. A hyphen is one only between two numbers ("3-5", "3 - 5"): in "500 -0.77%" it
-# is a minus sign.
+# is a minus sign. The first number takes at most seven groups, so "1,1,1,…" isn't read
+# again from each digit to its end.
 _RANGE = re.compile(
-    rf"{_NUMBER_START}(?P<a>[$¥€£]?[-−]?\d+(?:[.,:]\d+)*)"
+    rf"{_DIGITS_START}(?P<a>[$¥€£]?[-−]?\d+(?:[.,:]\d+){{0,6}})"
     r"(?P<unit>\s*(?:%|°\s*[CF]?|[AaPp]\.?[Mm]\.?(?![A-Za-z])))?"
     r"(?P<sep>\s*[~～–—]\s*|-|\s+-\s+)"
     r"(?P<b>[$¥€£]?[-−]?\d+(?:[.,:]\d+)*)(?P<pct>\s*%)?"
 )
-_DASHED = re.compile(_NUMBER_START + r"\d+(?:[-–]\d+)+(?![A-Za-z0-9_.])")  # 555-0100
+_DASHED = re.compile(_DIGITS_START + r"\d+(?:[-–]\d+)+(?![A-Za-z0-9_.])")  # 555-0100
 # ~5%: about 5% ("约~5%" says 约 once).
 _ABOUT = re.compile(r"(?<![A-Za-z0-9_.%°])(?:(约|大约)\s*)?[~～]\s*(?=[+\-−]?\d)")
 _AMPM = re.compile(r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?(?![A-Za-z])")
 _CLOCK = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?![\d:])")
 _YEAR = re.compile(r"(?<![\d.])(\d{4})(?=\s*(?:年|到\s*\d{4}\s*年))")
 # A sign only where no number, % or ° comes right before it ("3-5%" is a range).
-_PERCENT = re.compile(rf"(?<![\d%°])([+\-−]?)({_NUM})\s*%")
+_PERCENT = re.compile(rf"(?<![\d%°])([+\-−]?)({_NUM_SHORT})\s*%")
 _MONEY = re.compile(rf"([$¥€£])\s?({_NUM})\s*(万亿|亿|万)?")
 _MONEY_SIGNS = {"$": "美元", "¥": "元", "€": "欧元", "£": "英镑"}
 _TEMP = re.compile(r"(?<![\d%°])([+\-−]?\d+(?:\.\d+)?)\s*°\s*([CF])?")
@@ -1606,7 +1623,7 @@ def spoken_numbers_zh(text: str) -> str:
     text = _TEMP.sub(lambda m: _degrees_zh(m.group(1).replace("−", "-"), m.group(2) == "F"), text)
     text = _NEGATIVE_DEGREES.sub(lambda m: "零下" + number_zh(m.group(1)), text)
     text = _NEGATIVE.sub("负", text)
-    text = _ORDINAL.sub(lambda m: "第" + _int_zh(int(m.group(1))), text)
+    text = _ORDINAL.sub(lambda m: "第" + number_zh(m.group(1)), text)
     text = _BIG.sub(lambda m: number_zh(m.group(1), measure=True) + m.group(2), text)
     text = _MEASURED.sub(lambda m: number_zh(m.group(1), measure=True), text)
     return _PLAIN.sub(_plain_zh, text)

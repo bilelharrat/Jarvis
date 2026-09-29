@@ -122,6 +122,20 @@ def test_collect_mail_titles_and_body():
     assert notes[0].group == "Ann Lee" and "Draft attached." in notes[0].text
 
 
+def test_a_sender_is_named_in_linear_time():
+    import time
+
+    # Split, not matched: the pattern it was took 1.3 s for a name of 1,500 spaces (cubic).
+    started = time.perf_counter()
+    assert sources._short_sender(" " * 2000 + "x") == "x"
+    assert sources._short_sender(" " * 2000 + "Ann <ann@x.com>") == "Ann"
+    assert time.perf_counter() - started < 0.01
+    assert sources._short_sender('"Ann Lee" <ann@x.com>') == "Ann Lee"
+    assert sources._short_sender("Ann Lee<ann@x.com>") == "Ann Lee"
+    assert sources._short_sender(" ann@x.com ") == "ann@x.com"
+    assert sources._short_sender("<ann@x.com>") == "<ann@x.com>"
+
+
 def test_layout_spreads_wordless_notes_and_labels_clusters():
     texts = [f"sourdough bread starter flour bake {i}" for i in range(20)]
     texts += [f"marathon running training tempo long run {i}" for i in range(20)]

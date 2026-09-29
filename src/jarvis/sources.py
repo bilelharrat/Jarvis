@@ -280,8 +280,11 @@ def collect_mail(run=_jxa, days: int = RECENT_DAYS) -> list[Note]:
 
 
 def _short_sender(sender: str) -> str:
-    match = re.match(r'\s*"?([^"<]+?)"?\s*<', sender)
-    return (match.group(1) if match else sender).strip()[:40]
+    """'Ann Lee <ann@x.com>' or '"Ann Lee" <ann@x.com>' -> Ann Lee; else the sender. Split,
+    not matched: the pattern it replaces was cubic in a run of spaces."""
+    name, bracket, _ = sender.partition("<")
+    name = name.strip().strip('"').strip()
+    return (name if bracket and name else sender.strip())[:40]
 
 
 # ── recent texts ──

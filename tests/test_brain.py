@@ -194,3 +194,16 @@ def test_web_addresses_are_read_the_way_browsers_read_them():
     assert not brain.host_said("example.com", "email bob@example.com")
     assert not brain.host_said("co.uk", "anything on co.uk")
     assert not brain.host_said("evil.example", "")
+
+
+def test_hosts_said_is_read_in_linear_time():
+    import time
+
+    # A spoken "dot" is looked for only where a run of spaces begins: from each space of a
+    # long run these took 1 s.
+    started = time.perf_counter()
+    assert brain.hosts_said("a" + "\u3000" * 16_000 + "b") == set()
+    assert brain.hosts_said("open" + " " * 16_000 + "x") == set()
+    assert time.perf_counter() - started < 0.05  # a few ms here
+    said = brain.hosts_said("open the verge  dot  com and bbc dot co dot uk")
+    assert said == {"verge.com", "bbc.co.uk"}

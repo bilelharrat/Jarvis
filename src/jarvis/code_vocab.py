@@ -36,10 +36,14 @@ SPOKEN_EXTS = {
     "toml": "toml", "sh": "sh", "txt": "txt", "sql": "sql",
 }  # fmt: skip
 _DEFS = re.compile(
-    r"^\s*(?:export\s+)?(?:async\s+)?(?:def|class|function|func|fn|struct|enum|interface|type"
-    r"|protocol)\s+([A-Za-z_]\w{2,})"
-    r"|^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_]\w{2,})\s*=\s*(?:async\s*)?(?:\(|function)"
-    r"|^(?:export\s+)?(?:const\s+)?([A-Z][A-Z0-9_]{2,})\s*(?::[^=]+)?=",  # module constants
+    # A line start never looks past its own line: with ^\s*, every line of a long blank
+    # stretch rescanned the rest of it (15 s for 8,000 indented blank lines, the GIL
+    # held), and a constant's type ran on to the next "=" anywhere below.
+    r"^[^\S\n]*(?:export\s+)?(?:async\s+)?(?:def|class|function|func|fn|struct|enum|interface"
+    r"|type|protocol)\s+([A-Za-z_]\w{2,})"
+    r"|^[^\S\n]*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_]\w{2,})\s*=\s*(?:async\s*)?"
+    r"(?:\(|function)"
+    r"|^(?:export\s+)?(?:const\s+)?([A-Z][A-Z0-9_]{2,})[^\S\n]*(?::[^=\n]+)?=",  # constants
     re.MULTILINE,
 )
 _WORD = re.compile(r"[a-z0-9]+")

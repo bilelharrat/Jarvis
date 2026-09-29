@@ -148,6 +148,63 @@ async def test_a_failing_notes_model_keeps_the_quick_lines(tmp_path):
     assert [t for _, t in m.lines] == ["first", "second"]
 
 
+async def test_a_long_meeting_appends_each_line(tmp_path):
+    import time
+
+    # The whole file was written again for every line: 6,000 lines (a long day) took 30 s
+    # and wrote 1.6 GB, on the voice loop.
+    m = Meeting("All day", tmp_path)
+    started = time.perf_counter()
+    for i in range(6000):
+        m.add(None, f"line {i} of what was said in the room")
+    assert time.perf_counter() - started < 2.0  # about 0.3 s here
+    text = m.path.read_text()
+    assert text.count("\n[") == 6000 and text.endswith("line 5999 of what was said in the room\n")
+    m._write()
+    assert m.path.read_text() == text  # appended lines read exactly as a whole write
+
+
+async def test_better_lines_are_written_once_a_minute_and_at_the_end(tmp_path, monkeypatch):
+    from jarvis import meeting
+
+    class Notes:
+        def transcribe(self, audio):
+            return f"refined {audio}"
+
+    async def refined(m, count):
+        for _ in range(500):
+            if sum(t.startswith("refined") for _, t in m.lines) == count:
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError("the notes model never caught up")
+
+    m = Meeting("Board prep", tmp_path)
+    m.start_worker(Notes())
+    m.add("a1", "quick one")
+    m.add("a2", "quick two")
+    await refined(m, 2)
+    text = m.path.read_text()
+    assert "quick two" in text and "refined" not in text  # not a whole write per line
+    monkeypatch.setattr(meeting, "REWRITE_SECONDS", 0.0)  # a minute later
+    m.add("a3", "quick three")
+    await refined(m, 3)
+    text = m.path.read_text()
+    assert "refined a1" in text and "refined a3" in text and "quick" not in text
+    await m.finish_transcript()
+
+
+async def test_a_line_that_couldnt_be_appended_is_written_at_the_end(tmp_path):
+    m = Meeting("Full disk", tmp_path)
+    notes = m.path
+    m.path = tmp_path / "missing" / "notes.md"  # appending fails, as on a full disk
+    m.add(None, "said while the disk was full")
+    m.path = notes
+    m.add(None, "said after")
+    await m.finish_transcript()
+    text = notes.read_text()
+    assert text.index("while the disk was full") < text.index("said after")
+
+
 async def test_meeting_speech_that_echoes_the_title_is_kept(
     settings, quiet_speaker, isolated, tmp_path
 ):
