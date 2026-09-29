@@ -937,12 +937,16 @@ class Hub:
     async def _prepare_player(self) -> None:
         from .speech import ensure_player
 
-        path = await asyncio.to_thread(ensure_player)
-        if path is not None and hasattr(self.speaker, "player_path"):
-            self.speaker.player_path = path
-            # Start the live player now, so the first reply doesn't wait for it.
-            if await self.speaker.live() is not None:
-                log.info("live voice player ready")
+        try:
+            path = await asyncio.to_thread(ensure_player)
+            log.info("voice player built: %s", "yes" if path else "no (afplay fallback)")
+            if path is not None and hasattr(self.speaker, "player_path"):
+                self.speaker.player_path = path
+                # Start the live player now, so the first reply doesn't wait for it.
+                live = await asyncio.wait_for(self.speaker.live(), 10)
+                log.info("live voice player %s", "ready" if live is not None else "unavailable")
+        except Exception:
+            log.exception("voice player setup failed")
 
     async def _prepare_fillers(self) -> None:
         """Voice the short fillers once, so they play instantly while tools run."""
