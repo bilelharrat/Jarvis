@@ -100,11 +100,13 @@ class EnhancedDelegation:
                 with open(self.delegations_file) as f:
                     data = json.load(f)
                     # Reconstruct delegations (simplified)
-                    for del_data in data.get("delegations", []):
-                        delegation_id = del_data.get("delegation_id")
-                        if delegation_id:
-                            self.delegations[delegation_id] = del_data
-            except (json.JSONDecodeError, TypeError):
+                    delegations_list = data.get("delegations", []) if isinstance(data, dict) else []
+                    for del_data in delegations_list:
+                        if isinstance(del_data, dict):
+                            delegation_id = del_data.get("delegation_id")
+                            if delegation_id:
+                                self.delegations[delegation_id] = del_data
+            except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
     
     def _save_delegations(self) -> None:
@@ -172,8 +174,12 @@ class EnhancedDelegation:
             return {"success": False, "error": "Delegation not found"}
         
         delegation = self.delegations[delegation_id]
-        delegation["status"] = DelegationStatus.EXECUTING.value if isinstance(delegation, dict) else DelegationStatus.EXECUTING
-        delegation["started_at"] = datetime.now().isoformat()
+        if isinstance(delegation, dict):
+            delegation["status"] = DelegationStatus.EXECUTING.value
+            delegation["started_at"] = datetime.now().isoformat()
+        else:
+            delegation.status = DelegationStatus.EXECUTING
+            delegation.started_at = datetime.now().isoformat()
         
         self._save_delegations()
         

@@ -97,11 +97,13 @@ class SmartHomeControl:
                 with open(self.devices_file) as f:
                     data = json.load(f)
                     # Reconstruct devices (simplified)
-                    for dev_data in data.get("devices", []):
-                        device_id = dev_data.get("device_id")
-                        if device_id:
-                            self.devices[device_id] = dev_data
-            except (json.JSONDecodeError, TypeError):
+                    devices_list = data.get("devices", []) if isinstance(data, dict) else []
+                    for dev_data in devices_list:
+                        if isinstance(dev_data, dict):
+                            device_id = dev_data.get("device_id")
+                            if device_id:
+                                self.devices[device_id] = dev_data
+            except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
     
     def _save_devices(self) -> None:
