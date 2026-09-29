@@ -75,9 +75,11 @@ function onEvent(ev) {
       $('v-model').textContent = ev.model_name || '–';
       renderMemory(ev.memory || []);
       renderRoutines(ev.routines || []);
+      onMeeting(ev.meeting || { active: false });
       break;
     case 'memory': renderMemory(ev.items || []); break;
     case 'routines': renderRoutines(ev.items || []); break;
+    case 'meeting': onMeeting(ev); break;
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
     case 'weather': renderWeather(ev.weather); break;
@@ -191,7 +193,7 @@ function ask(text) {
 $('orb').addEventListener('click', talkOrStop);
 document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('click', () => {
   if (chip.dataset.action === 'briefing') send({ type: 'briefing' });
-  else ask(chip.dataset.ask);
+  else if (chip.dataset.ask) ask(chip.dataset.ask);
 }));
 $('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1302,11 +1304,56 @@ const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power'
 // A heads-up JARVIS raised on its own. Claude Code already has its own cards; everything
 // else gets one, plus a macOS notification when the window isn't in front.
 function onAlert(ev) {
-  if (ev.alert_kind !== 'task') notice(ALERT_KICKERS[ev.alert_kind] || 'Heads-up', ev.title, ev.text, 60000);
+  if (!['task', 'meeting'].includes(ev.alert_kind)) notice(ALERT_KICKERS[ev.alert_kind] || 'Heads-up', ev.title, ev.text, 60000);
   if (document.hidden || !document.hasFocus()) {
     try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }
   }
 }
+
+// ── meeting notes ──
+
+let meetingStarted = null;
+let meetingTimer = null;
+
+function onMeeting(ev) {
+  const pill = $('meeting-pill');
+  clearInterval(meetingTimer);
+  if (ev.active) {
+    meetingStarted = new Date(ev.started);
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - meetingStarted) / 1000));
+      const clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      $('meeting-text').textContent = `Taking notes · ${ev.title} · ${clock}`;
+    };
+    tick();
+    meetingTimer = setInterval(tick, 1000);
+    pill.hidden = false;
+    pill.dataset.mode = 'live';
+    $('meeting-stop').hidden = false;
+    $('chip-meeting').hidden = true;
+    return;
+  }
+  meetingStarted = null;
+  $('chip-meeting').hidden = false;
+  if (ev.writing) {
+    pill.hidden = false;
+    pill.dataset.mode = 'writing';
+    $('meeting-text').textContent = `Writing up ${ev.title}…`;
+    $('meeting-stop').hidden = true;
+    return;
+  }
+  pill.hidden = true;
+  if (ev.path) {
+    const open = el('button', 'btn primary', 'Open notes');
+    open.type = 'button';
+    open.addEventListener('click', () => send({ type: 'open_report', path: ev.path }));
+    const text = `${ev.minutes} min · ${ev.decisions} decision${ev.decisions === 1 ? '' : 's'} · ${ev.actions} action item${ev.actions === 1 ? '' : 's'}`;
+    notice('Meeting notes', ev.title, text, 60000, open);
+  }
+}
+
+$('meeting-stop').addEventListener('click', () => send({ type: 'meeting_stop' }));
+$('chip-meeting').addEventListener('click', () => send({ type: 'meeting_start', title: 'Meeting' }));
 
 function onTaskFinished(ev) {
   const title = { done: ev.task_kind === 'research' ? 'Report ready' : 'Finished', stopped: 'Stopped', failed: 'Didn’t finish' }[ev.status] || ev.status;

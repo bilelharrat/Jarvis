@@ -26,6 +26,7 @@ import numpy as np
 from .prefs import APP_SUPPORT
 
 RESEARCH_DIR = Path.home() / "Documents" / "Jarvis" / "Research"
+MEETINGS_DIR = Path.home() / "Documents" / "Jarvis" / "Meetings"
 TEXT_SUFFIXES = {".md", ".markdown", ".txt", ".org", ".rst"}
 RICH_SUFFIXES = {".docx", ".doc", ".rtf", ".rtfd", ".pages"}
 SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".venv", "venv", "dist", "build"}
@@ -55,7 +56,7 @@ def tokens(text: str) -> list[str]:
 @dataclass
 class Note:
     id: str
-    source: str  # notes | files | computer | bsh | research | photos | mail | messages
+    source: str  # notes | files | computer | bsh | research | meetings | photos | mail | messages
     title: str
     text: str
     ref: str  # Apple Notes id, file path, or BSH reference
@@ -657,6 +658,7 @@ class Collector:
         if messages:
             gather("messages", more.collect_messages)
         gather("research", lambda: collect_folder(RESEARCH_DIR, source="research"))
+        gather("meetings", lambda: collect_folder(MEETINGS_DIR, source="meetings"))
 
         # Sources are independent (mostly other apps answering), so read them side by
         # side; a slow one can't hold up the rest, and none may take over five minutes.

@@ -802,3 +802,19 @@ body[data-look="hud"] .sheet, body[data-look="console"] .sheet { box-shadow: -24
 
 @media (max-width: 900px) { .galaxy-hint { display: none; } .legend { flex-wrap: wrap; right: 40px; } }
 .deck-empty[hidden] { display: none; }
+
+/* ── meeting notes ── */
+.meeting-pill {
+  position: fixed; top: 74px; left: 50%; transform: translateX(-50%); z-index: 40;
+  display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 22px;
+  background: var(--card); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  font-size: 13px; color: var(--ink); max-width: calc(100vw - 32px);
+}
+.meeting-pill[hidden] { display: none; }
+.meeting-pill i { width: 9px; height: 9px; border-radius: 5px; background: #ef4444; flex: none; animation: rec-pulse 1.6s ease-in-out infinite; }
+.meeting-pill[data-mode="writing"] i { background: var(--action); }
+.meeting-pill span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.meeting-pill button { font: inherit; font-size: 12px; border: 0; border-radius: 16px; padding: 6px 12px; min-height: 30px; background: var(--ink); color: var(--bg); }
+.meeting-pill button[hidden] { display: none; }
+@keyframes rec-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .meeting-pill i { animation: none; } }

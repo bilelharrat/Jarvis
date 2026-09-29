@@ -9,13 +9,14 @@ const SOURCE_COLORS = {
   computer: '#6ee7b7',
   bsh: '#5fc8ff',
   research: '#c9a2ff',
+  meetings: '#f5d0fe',
   photos: '#ff8fc7',
   mail: '#ff8a65',
   messages: '#b8f26b',
 };
 const SOURCE_NAMES = {
   notes: 'Apple Notes', files: 'Folders', computer: 'Files', bsh: 'BSH desk',
-  research: 'Research', photos: 'Photos', mail: 'Email', messages: 'Texts',
+  research: 'Research', meetings: 'Meetings', photos: 'Photos', mail: 'Email', messages: 'Texts',
 };
 
 class Galaxy {

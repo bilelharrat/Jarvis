@@ -152,6 +152,9 @@ class Hub:
         connectors: ConnectorManager | None = None,
         memory: MemoryStore | None = None,
         routines: RoutineStore | None = None,
+        notes_transcriber: Any = "auto",
+        summarize: Callable[[str], Any] | None = None,
+        meetings_dir: Path | None = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -200,6 +203,9 @@ class Hub:
         self.shortcuts = Shortcuts()
         self.routines = routines or RoutineStore()
         self.meeting: Any = None  # meeting notes in progress
+        self.notes_transcriber = notes_transcriber
+        self._summarize = summarize
+        self.meetings_dir = meetings_dir
         self._alert_notes: deque[str] = deque(maxlen=3)
         self.watcher = Watcher(
             self.notify,
@@ -288,9 +294,10 @@ class Hub:
         await self.client.connect()
 
     def _feature_servers(self) -> dict[str, Any]:
-        from . import memory, routines
+        from . import meeting, memory, routines
 
         return {
+            "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(self.memory, self._memory_changed),
             routines.SERVER_NAME: routines.build_server(
                 self.routines, self.confirm, self._routines_changed
@@ -303,6 +310,11 @@ class Hub:
             "the user's Shortcuts (they reach HomeKit). For anything like that, list_shortcuts "
             "to find the right one and run_shortcut it. Shortcuts the user made instant run "
             "without asking."
+            "\n- Meeting notes: start_meeting_notes when the user asks you to take notes or "
+            "record a meeting; everything said is transcribed locally until "
+            "stop_meeting_notes, which files a write-up with decisions and action items in "
+            "the second brain. While notes run, meeting_transcript has what's been said. Stay "
+            "brief during a meeting."
             "\n- Routines: create_routine schedules something for you to do on your own "
             "(daily, weekdays, weekly or once), e.g. 'brief me every weekday at 7' or 'research "
             "X overnight'; list_routines, pause_routine and delete_routine manage them. When a "
@@ -311,6 +323,80 @@ class Hub:
             "remember something (or state something clearly stable about themselves); recall "
             "looks facts up; forget removes one." + self.memory.prompt_block()
         )
+
+    # ── meeting notes ──
+
+    def _meeting_capture(self, audio: Any, text: str) -> bool:
+        """In a meeting, anything not addressed to JARVIS goes into the notes."""
+        if find_wake(text)[0]:
+            return False
+        if self.state == "speaking" or is_echo(text, self.turn.get("reply", "")):
+            return True  # its own voice isn't part of the meeting
+        self.meeting.add(audio, text)
+        self.emit("meeting_line", text=text)
+        return True
+
+    async def start_meeting(self, title: str) -> str:
+        from .listen import Transcriber
+        from .meeting import NOTES_MODEL, Meeting
+
+        if self.meeting is not None:
+            return f"Already taking notes for {self.meeting.title}."
+        if not self.prefs.hands_free:
+            self.set_prefs({"hands_free": True})
+        if self._listener is None or not self._listener.running:
+            return "I can't hear the room: the microphone isn't available."
+        self.meeting = Meeting(title, self.meetings_dir)
+        if self.notes_transcriber == "auto":
+            self.notes_transcriber = Transcriber(NOTES_MODEL)
+            self.notes_transcriber.warm_up()  # downloads once (~480 MB)
+        if self.notes_transcriber is not None:
+            self.meeting.start_worker(self.notes_transcriber)
+        self.emit(
+            "meeting",
+            active=True,
+            title=self.meeting.title,
+            started=self.meeting.started.isoformat(timespec="seconds"),
+        )
+        log.info("meeting notes started")
+        return (
+            f"Taking notes for {self.meeting.title}. Everything said is transcribed here on "
+            "the Mac until the user says stop."
+        )
+
+    async def stop_meeting(self) -> str:
+        meeting, self.meeting = self.meeting, None
+        if meeting is None:
+            return "No meeting notes were running."
+        self.emit("meeting", active=False, writing=True, title=meeting.title)
+        summarize = self._summarize or self._claude_summarize
+        result = await meeting.write_up(summarize)
+        self.emit(
+            "meeting",
+            active=False,
+            writing=False,
+            title=meeting.title,
+            path=result["path"],
+            minutes=meeting.minutes(),
+            decisions=result.get("decisions", 0),
+            actions=result.get("actions", 0),
+        )
+        self._spawn(self.rebuild_brain(only={"meetings"}))
+        if result.get("short"):
+            return "Stopped. Too little was said to summarize; the transcript is saved."
+        if result.get("error"):
+            return f"Stopped. The transcript is saved, but the write-up failed: {result['error']}"
+        return (
+            f"Notes for {meeting.title} saved to the second brain: "
+            f"{result['decisions']} decisions and {result['actions']} action items, "
+            f"{meeting.minutes()} minutes. Offer to read the action items."
+        )
+
+    async def _claude_summarize(self, prompt: str) -> str:
+        from .brain import _workspace
+        from .meeting import claude_summarize
+
+        return await claude_summarize(prompt, self.prefs.model_id(), str(_workspace()))
 
     def _routines_changed(self) -> None:
         self.emit("routines", items=self.routines.public())
@@ -323,6 +409,17 @@ class Hub:
                     self._routines_changed()
                     self._spawn(self.run_routine(routine))
             await asyncio.sleep(30)
+
+    async def _stop_meeting_from_window(self) -> None:
+        reply = await self.stop_meeting()
+        self.notify(
+            Alert(
+                f"meeting:{time.monotonic():.0f}",
+                "meeting",
+                "Meeting notes",
+                reply.split(" Offer")[0],
+            )
+        )
 
     async def run_routine(self, routine) -> None:
         await self.ask(routine.prompt, display=f"Routine · {routine.name}")
@@ -393,6 +490,13 @@ class Hub:
             "accounts": self.connectors.connected_names(),
             "memory": self.memory.public(),
             "routines": self.routines.public(),
+            "meeting": {
+                "active": True,
+                "title": self.meeting.title,
+                "started": self.meeting.started.isoformat(timespec="seconds"),
+            }
+            if self.meeting is not None
+            else None,
         }
 
     def set_state(self, state: str) -> None:
@@ -551,7 +655,10 @@ class Hub:
                 await self._apply_pending_model()
                 log.info("turn %s done in %.1fs", rid, time.monotonic() - started)
                 follow_up = (
-                    not self._stopping and self._listener is not None and self._listener.running
+                    not self._stopping
+                    and self._listener is not None
+                    and self._listener.running
+                    and self.meeting is None  # in a meeting, only the wake word is for me
                 )
                 self.set_state("idle")
                 self.emit("turn_done", rid=rid)
@@ -832,6 +939,8 @@ class Hub:
             except Exception as exc:  # model still loading, odd audio
                 log.warning("hands-free transcription failed: %s", exc)
                 continue
+            if self.meeting is not None and self._meeting_capture(audio, text):
+                continue
             try:
                 await self.on_heard(text)
             except Exception:  # never let one bad utterance end hands-free listening
@@ -1046,7 +1155,7 @@ class Hub:
             self._spawn(self._quiet(mac_tools.run_command("open", url)))
         elif note.source == "messages":
             self._spawn(self._quiet(mac_tools.run_command("open", "-a", "Messages")))
-        elif note.source in ("files", "computer", "research"):
+        elif note.source in ("files", "computer", "research", "meetings"):
             try:
                 path = computer.safe_path(note.ref)
             except ValueError:
@@ -1672,6 +1781,13 @@ class Hub:
         elif kind == "shortcuts":
             names = await self.shortcuts.refresh(force=bool(msg.get("refresh")))
             self.emit("shortcuts", names=names, instant=self.prefs.instant_shortcuts)
+        elif kind == "meeting_start":
+            if self.meeting is None:
+                reply = await self.start_meeting(str(msg.get("title", "")) or "Meeting")
+                if self.meeting is None:
+                    self.emit("error", text=reply)
+        elif kind == "meeting_stop":
+            self._spawn(self._stop_meeting_from_window())
         elif kind == "routine_delete":
             if self.routines.remove(str(msg.get("id", ""))):
                 self._routines_changed()
