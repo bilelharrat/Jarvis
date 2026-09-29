@@ -112,7 +112,7 @@ async def test_hub_meeting_mode(settings, quiet_speaker, isolated, tmp_path):
     await asyncio.sleep(0.2)
     assert hub.meeting.words() > 25
     assert "what time" not in hub.meeting.transcript()
-    assert hub.client.queries[-1] == "what time is it"
+    assert hub.client.said[-1] == "what time is it"
     reply = await hub.stop_meeting()
     assert "2 decisions and 1 action items" in reply and hub.meeting is None
     [notes] = list((tmp_path / "meetings").glob("*.md"))
