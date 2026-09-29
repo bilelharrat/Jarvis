@@ -64,3 +64,64 @@ async def test_pressing_the_mic_again_stops_it(settings, quiet_speaker, isolated
     await hub.dictate(False)
     assert hub._dictating_until == 0.0
     assert {"type": "dictation", "text": "", "done": True} in drain(q)
+
+
+async def test_stop_during_push_to_talk_asks_nothing(settings, quiet_speaker, isolated):
+    import asyncio
+    import time
+
+    def slow_recorder(_silence, on_level):
+        time.sleep(0.3)
+        return np.zeros(1600, dtype=np.float32)
+
+    hub = make_hub(settings, quiet_speaker, recorder=slow_recorder, isolated=isolated)
+    await hub.start()
+    q = hub.subscribe()
+    listening = asyncio.create_task(hub.listen())
+    await asyncio.sleep(0.05)
+    await hub.stop()  # the orb tapped again
+    await listening
+    events = drain(q)
+    assert {"type": "heard", "text": ""} in events
+    assert hub.client.queries == [] and hub.state == "idle"
+
+
+async def test_on_off_on_keeps_what_was_said_after_the_second_press(
+    settings, quiet_speaker, isolated
+):
+    import asyncio
+    import time
+
+    def slow_recorder(_silence, on_level):
+        time.sleep(0.2)
+        return np.zeros(1600, dtype=np.float32)
+
+    hub = make_hub(settings, quiet_speaker, recorder=slow_recorder, isolated=isolated)
+    await hub.start()
+    q = hub.subscribe()
+    first = asyncio.create_task(hub.dictate(True))
+    await asyncio.sleep(0.02)
+    await hub.dictate(False)
+    second = asyncio.create_task(hub.dictate(True))
+    await asyncio.gather(first, second)
+    texts = [e["text"] for e in drain(q) if e["type"] == "dictation"]
+    assert texts == ["", "what's on tomorrow"]  # the off press, then the new recording's words
+    assert hub.client.queries == []
+
+
+async def test_a_stop_over_a_reply_is_not_typed_into_the_composer(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    hub._dictating_until = 10**12
+    stopped = []
+
+    async def stop():
+        stopped.append(True)
+
+    hub.stop = stop
+    hub.state = "speaking"
+    q = hub.subscribe()
+    await hub.on_heard("Jarvis, stop")
+    assert stopped and not any(e["type"] == "dictation" for e in drain(q))

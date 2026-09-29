@@ -76,3 +76,27 @@ def test_a_bad_frame_or_a_failing_command_keeps_the_socket_open(client):
         while not seen or seen[-1]["type"] != "turn_done":
             seen.append(ws.receive_json())
         assert any(e["type"] == "reply" and e["text"] == "Two meetings tomorrow." for e in seen)
+
+
+def test_a_hello_that_fails_leaves_no_queue_behind(client):
+    hub = client.app.state.hub if hasattr(client.app.state, "hub") else None
+    app_hub = hub or next(
+        c.cell_contents
+        for route in client.app.routes
+        if getattr(route, "path", "") == "/ws"
+        for c in (route.endpoint.__closure__ or ())
+        if isinstance(c.cell_contents, Hub)
+    )
+
+    def broken():
+        raise RuntimeError("snapshot failed")
+
+    app_hub.snapshot = broken
+    try:
+        with client.websocket_connect(
+            "/ws?token=s3cret", headers={"origin": "http://testserver"}
+        ) as ws:
+            ws.receive_json()
+    except Exception:
+        pass
+    assert not app_hub._subscribers

@@ -17,6 +17,7 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 import uuid
 from collections import deque
@@ -175,6 +176,72 @@ BASH_OUTPUT = 20_000  # characters of its output kept
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 DICTATION_SECONDS = 20.0  # the composer's mic waits this long for the user to start
 REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they hear "busy"
+WINDOW_QUEUE = 3000  # events waiting for one window; one that stops reading is cut off
+COALESCE_AT = 200  # past this many waiting, only the newest copy of LATEST_ONLY kinds stays
+# Events where a window needs only the newest copy (the whole state, not a change).
+LATEST_ONLY = frozenset(
+    {
+        "reply", "level", "vitals", "defense", "history", "ask_queue", "tasks", "markets",
+        "prefs", "files_status", "purchases", "delegations", "goals", "providers", "state",
+        "weather", "remote", "status", "brain", "memory", "routines", "connectors",
+    }
+)  # fmt: skip
+
+
+class WindowQueue:
+    """One window's events. A window that falls behind gets only the newest copy of the
+    kinds where that's all it needs; one that stops reading altogether is cut off (the
+    server closes its socket, and it comes back to a fresh snapshot), so a stalled window
+    can't grow the backend's memory without end."""
+
+    def __init__(self, maxsize: int | None = None) -> None:
+        self._items: deque[dict[str, Any]] = deque()
+        self._ready = asyncio.Event()
+        self.maxsize = maxsize or WINDOW_QUEUE
+        self.cut_off = False
+
+    def put_nowait(self, event: dict[str, Any]) -> None:
+        if self.cut_off:
+            return
+        kind = event.get("type")
+        if len(self._items) >= COALESCE_AT and kind in LATEST_ONLY:
+            key = (kind, event.get("rid"))
+            for i in range(len(self._items) - 1, -1, -1):
+                queued = self._items[i]
+                if (queued.get("type"), queued.get("rid")) == key:
+                    del self._items[i]  # the newer copy goes at the end, in order
+                    break
+        if len(self._items) >= self.maxsize:
+            self.cut_off = True
+            self._items.clear()
+        else:
+            self._items.append(event)
+        self._ready.set()
+
+    def get_nowait(self) -> dict[str, Any]:
+        if not self._items:
+            raise asyncio.QueueEmpty
+        event = self._items.popleft()
+        if not self._items:
+            self._ready.clear()
+        return event
+
+    async def get(self) -> dict[str, Any] | None:
+        """The next event, or None once this window has been cut off."""
+        while not self._items:
+            if self.cut_off:
+                return None
+            self._ready.clear()
+            await self._ready.wait()
+        return self.get_nowait()
+
+    def empty(self) -> bool:
+        return not self._items
+
+    def qsize(self) -> int:
+        return len(self._items)
+
+
 RESEARCH_FOLLOW_UP = 15.0  # after a Research Center command, the next needs no wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
 ECHO_WINDOW = 12.0  # what it said this recently may come back through the microphone
@@ -413,7 +480,7 @@ class Hub:
         self.activity: deque[dict[str, Any]] = deque(maxlen=60)
         self.approvals: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, asyncio.Future] = {}
-        self._subscribers: set[asyncio.Queue] = set()
+        self._subscribers: set[WindowQueue] = set()
         self._lock = asyncio.Lock()
         self._tools: dict[str, dict[str, Any]] = {}
         self._background: set[asyncio.Task] = set()
@@ -426,6 +493,9 @@ class Hub:
         self._dictating_until = 0.0  # hands-free: the next utterance is typed, not asked
         self._dictation = 0  # which press of the composer's mic is current
         self._remote_turns: set[asyncio.Task] = set()
+        self._listen_gen = 0  # push-to-talk: Stop bumps it, and a stale recording is dropped
+        self._mic_cancel: threading.Event | None = None  # the recording Stop should end
+        self._dictation_cancel: threading.Event | None = None  # the composer mic's recording
         self._listener: Any = None
         self._heard: asyncio.Queue | None = None
         self.kb = kb or KnowledgeBase()
@@ -1339,20 +1409,22 @@ class Hub:
 
     # ── events ──
 
-    def subscribe(self) -> asyncio.Queue:
-        queue: asyncio.Queue = asyncio.Queue()
+    def subscribe(self) -> WindowQueue:
+        queue = WindowQueue()
         self._subscribers.add(queue)
         return queue
 
-    def unsubscribe(self, queue: asyncio.Queue) -> None:
+    def unsubscribe(self, queue: WindowQueue) -> None:
         self._subscribers.discard(queue)
         if not self._subscribers:  # the last window went: no one to stream pictures to
             self.workbench.watch_simulator(None)
 
     def emit(self, kind: str, **data: Any) -> None:
         event = {"type": kind, **data}
-        for queue in self._subscribers:
+        for queue in list(self._subscribers):
             queue.put_nowait(event)
+            if queue.cut_off:  # stopped reading: no more events pile up for it
+                self._subscribers.discard(queue)
 
     def prefs_payload(self) -> dict[str, Any]:
         return {
@@ -1947,7 +2019,11 @@ class Hub:
         if self._lock.locked() and self.client is not None:
             with contextlib.suppress(Exception):
                 await self.client.interrupt()
-        elif self.state == "listening" and self._listener is not None:
+        elif self.state in ("listening", "transcribing"):
+            # Push-to-talk tapped again or Esc: the recording ends and nothing is asked.
+            self._listen_gen += 1
+            if self._mic_cancel is not None:
+                self._mic_cancel.set()
             self.set_state("idle")
 
     async def reset(self) -> None:
@@ -2004,6 +2080,9 @@ class Hub:
             return
         if self._lock.locked() or self.state == "listening":
             return
+        self._listen_gen += 1
+        gen = self._listen_gen
+        cancel = self._mic_cancel = threading.Event()
         self.set_state("listening")
         try:
             recorder = self.recorder
@@ -2011,12 +2090,12 @@ class Hub:
                 from .listen import pick_input_device, record_utterance
 
                 recorder = functools.partial(
-                    record_utterance, device=pick_input_device(self.prefs.mic)
+                    record_utterance, device=pick_input_device(self.prefs.mic), cancel=cancel
                 )
             audio = await asyncio.to_thread(
                 recorder, self.settings.silence_seconds, self._level_callback()
             )
-            if audio is None:
+            if audio is None or gen != self._listen_gen:  # silence, or Stop meanwhile
                 self.emit("heard", text="")
                 return
             self.set_state("transcribing")
@@ -2026,20 +2105,28 @@ class Hub:
             self.emit("error", text=f"I couldn't use the microphone: {exc}")
             return
         finally:
-            if self.state in ("listening", "transcribing"):
+            if self._mic_cancel is cancel:
+                self._mic_cancel = None
+            if gen == self._listen_gen and self.state in ("listening", "transcribing"):
                 self.set_state("idle")
+        if gen != self._listen_gen:  # stopped while it was being transcribed
+            self.emit("heard", text="")
+            return
         self.emit("heard", text=text)
         if text:
             await self.ask(text)
 
     async def dictate(self, on: bool = True) -> None:
         """The composer's mic, as in Claude Code: what the user says next is typed into
-        the text box for them to read and send; nothing is asked. Pressed again, it stops."""
+        the text box for them to read and send; nothing is asked. Pressed again, it stops
+        (the recording ends there). One recording at a time: pressed on again while one is
+        running, that one's words are what arrive."""
         self._dictation += 1
-        press = self._dictation
         if not on:
             self._dictating_until = 0.0
-            if self.state == "listening":
+            if self._dictation_cancel is not None:
+                self._dictation_cancel.set()
+            if self.state == "listening" and not self._lock.locked():
                 self.set_state("idle")
             self.emit("dictation", text="", done=True)
             return
@@ -2050,17 +2137,28 @@ class Hub:
         if self._listener is not None and self._listener.running:
             # Hands-free has the microphone: its next utterance is the dictation.
             until = self._dictating_until = time.monotonic() + DICTATION_SECONDS
-            self.set_state("listening")
+            busy = self._lock.locked() or self.state == "speaking"
+            if not busy:  # never flip the orb mid-reply
+                self.set_state("listening")
             await asyncio.sleep(DICTATION_SECONDS + 0.2)
             if self._dictating_until == until:
                 self._dictating_until = 0.0
-                if self.state == "listening":
+                if self.state == "listening" and not self._lock.locked():
                     self.set_state("idle")
                 self.emit("dictation", text="", done=True)
             return
-        if self.state in ("listening", "transcribing"):
+        # A recording already running: if it wasn't stopped, its words go to the composer;
+        # if it was (on, off, on), wait for it to end, then record afresh.
+        for _ in range(100):
+            if self._dictation_cancel is None:
+                break
+            if not self._dictation_cancel.is_set():
+                return
+            await asyncio.sleep(0.02)
+        if self._dictation_cancel is not None or self.state in ("listening", "transcribing"):
             self.emit("dictation", text="", done=True)  # the microphone is busy
             return
+        cancel = self._dictation_cancel = threading.Event()
         self.set_state("listening")
         text = ""
         try:
@@ -2069,20 +2167,22 @@ class Hub:
                 from .listen import pick_input_device, record_utterance
 
                 recorder = functools.partial(
-                    record_utterance, device=pick_input_device(self.prefs.mic)
+                    record_utterance, device=pick_input_device(self.prefs.mic), cancel=cancel
                 )
             audio = await asyncio.to_thread(
                 recorder, self.settings.silence_seconds, self._level_callback()
             )
-            if audio is not None and press == self._dictation:
+            if audio is not None and not cancel.is_set():
                 self.set_state("transcribing")
                 text = await asyncio.to_thread(self.transcriber.transcribe, audio)
         except Exception as exc:  # no microphone, permission denied
             self.emit("error", text=f"I couldn't use the microphone: {exc}")
         finally:
+            if self._dictation_cancel is cancel:
+                self._dictation_cancel = None
             if self.state in ("listening", "transcribing"):
                 self.set_state("idle")
-        if press == self._dictation:  # not stopped, nor pressed again, meanwhile
+        if not cancel.is_set():  # pressed off meanwhile: that press already said done
             self.emit("dictation", text=(text or "").strip(), done=True)
 
     # ── hands-free ──
@@ -2227,7 +2327,11 @@ class Hub:
         if not (stop and len(lang.words(text, language)) <= short) and self._echo(text):
             log.info("ignored: its own voice")
             return
-        if self._dictating_until and time.monotonic() < self._dictating_until:
+        if (
+            self._dictating_until
+            and time.monotonic() < self._dictating_until
+            and not (woke or stop)  # "Jarvis, stop" over a reply is still a stop
+        ):
             self._dictating_until = 0.0  # the composer's mic: typed for them, never asked
             if self.state == "listening":
                 self.set_state("idle")

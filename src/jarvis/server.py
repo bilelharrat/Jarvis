@@ -17,7 +17,7 @@ from starlette.applications import Starlette
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
-from starlette.websockets import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocket
 
 from .hub import Hub
 
@@ -81,14 +81,18 @@ def create_app(hub: Hub, token: str) -> Starlette:
             return
         await ws.accept()
         queue = hub.subscribe()
-        await ws.send_json(hub.snapshot())
+        sender: asyncio.Task | None = None
 
         async def pump() -> None:
-            while True:
-                await ws.send_json(await queue.get())
+            while (event := await queue.get()) is not None:
+                await ws.send_json(event)
+            # Fell too far behind: close, and the window reconnects to a fresh snapshot.
+            with contextlib.suppress(Exception):
+                await ws.close(code=4408)
 
-        sender = asyncio.create_task(pump())
         try:
+            await ws.send_json(hub.snapshot())
+            sender = asyncio.create_task(pump())
             while True:
                 try:
                     msg = await ws.receive_json()
@@ -97,11 +101,14 @@ def create_app(hub: Hub, token: str) -> Starlette:
                 if isinstance(msg, dict):
                     # Never raises; slow commands run in the background (Hub.handle).
                     await hub.handle(msg)
-        except (WebSocketDisconnect, RuntimeError):
+        except Exception:  # disconnected, or the socket failed: the window is gone either way
             pass
         finally:
-            sender.cancel()
+            if sender is not None:
+                sender.cancel()
             hub.unsubscribe(queue)
+            with contextlib.suppress(Exception):  # already closed by the other side, mostly
+                await ws.close()
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):

@@ -130,8 +130,10 @@ def record_utterance(
     silence_seconds: float,
     on_level: Callable[[float], None] | None = None,
     device: int | None = None,
+    cancel: threading.Event | None = None,
 ) -> np.ndarray | None:
-    """Blocks until the speaker finishes. Returns 16 kHz mono float32 audio, or None."""
+    """Blocks until the speaker finishes. Returns 16 kHz mono float32 audio, or None (no
+    speech, or cancel was set: Stop, or the composer's mic pressed off)."""
     import sounddevice as sd
 
     blocks: queue.Queue[np.ndarray] = queue.Queue()
@@ -159,6 +161,8 @@ def record_utterance(
             except queue.Empty:  # a stalled device would otherwise hold the lock forever
                 stalled = True
                 break
+            if cancel is not None and cancel.is_set():
+                return None  # the microphone closes as the with-block ends
             captured.append(block)
             rms = float(np.sqrt(np.mean(block**2)))
             if on_level is not None:
