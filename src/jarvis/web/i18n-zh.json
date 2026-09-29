@@ -134,6 +134,21 @@
   "Hands": "手势",
   "Hands-free": "免提唤醒",
   "Steer": "引导",
+  "Context window": "上下文窗口",
+  "Compact": "压缩",
+  "Clear": "清空",
+  "Click again to clear": "再点一次清空",
+  "Summarize the conversation so far and keep going with room to spare": "把目前的对话总结一下，腾出空间继续",
+  "Start this session over with an empty context": "以空的上下文重新开始这个会话",
+  "Auto-compact is off: compact or clear before it fills up.": "自动压缩已关闭：在占满之前请压缩或清空。",
+  "Compacts on its own when it fills up.": "快满时会自动压缩。",
+  "Compacting: the conversation so far becomes a summary, and the session keeps going.": "正在压缩：目前的对话会变成一份摘要，会话继续。",
+  "Rewind": "回退",
+  "Fork": "分叉",
+  "Click to rewind files": "再点一次回退文件",
+  "Put the files back as they were before this message": "把文件恢复到这条消息之前的样子",
+  "A new session from just before this message": "从这条消息之前开一个新会话",
+  "Ready once Claude Code has taken this message": "Claude Code 接收这条消息后即可使用",
   "New tab": "新标签页",
   "New tab (⌘T)": "新标签页（⌘T）",
   "Close tab": "关闭标签页",
@@ -1776,6 +1791,10 @@
   [
    "^“(.+)” needs a second pinch$",
    "“$1”需要再捏合一次"
+  ],
+  [
+   "^Compacts on its own at (\\d+)% \\(the mark\\)\\.$",
+   "在 $1% 时自动压缩（标记处）。"
   ],
   [
    "^The Research Center at (\\S+) isn't answering \\((.+)\\)\\. Start it, or set its address in Settings › Research Center\\.$",

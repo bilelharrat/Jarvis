@@ -290,6 +290,41 @@ async def test_rewind_fork_rename_export_and_effort(settings, tmp_path, monkeypa
         t.handle.cancel()
 
 
+async def test_rewind_reopens_a_closed_session_and_says_how_it_went(settings, tmp_path):
+    (tmp_path / "proj").mkdir()
+    tm, _, _ = manager(settings)
+    task = tm.start("", "proj")
+    for _ in range(50):
+        if task.client is not None:
+            break
+        await asyncio.sleep(0.01)
+    tm._log(task, "user", "add a retry")
+    tm._on_task_message(task, UserMessage(content="add a retry", uuid="u-1"))
+    task.session_id = "sess"
+    task.handle.cancel()  # it closed (an idle hour, say)
+    for _ in range(50):
+        if task.client is None:
+            break
+        await asyncio.sleep(0.01)
+    assert task.client is None
+    reply = await tm.rewind_to(task.id, "u-1")
+    assert reply == "Rewound: the files are back as they were before that message."
+    assert task.client.rewound == ["u-1"]
+    notes = [e["text"] for e in task.transcript if e["role"] == "system"]
+    assert notes[-1] == reply  # said where the button was pressed
+    assert (await tm.rewind_to(task.id, "u-9")).startswith("Couldn't rewind to that message")
+    assert [e["text"] for e in task.transcript if e["role"] == "system"][-1].startswith(
+        "Couldn't rewind"
+    )
+    assert tm.fork(task.id, "u-9") is None
+    assert task.transcript[-1]["text"] == "Couldn't fork from that message: it's too far back."
+    task.session_id = ""
+    assert tm.fork(task.id) is None
+    assert "hasn't started" in task.transcript[-1]["text"]
+    for t in tm.tasks.values():
+        t.handle.cancel()
+
+
 async def test_pictures_go_to_claude_with_the_message():
     from jarvis.tasks import _with_images
 

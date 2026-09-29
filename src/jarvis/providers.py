@@ -287,6 +287,40 @@ _DATED = r"(?:[-@](?:\d{8}|\d{4}-\d{2}-\d{2})|-latest)"
 # ── what's kept ──
 
 
+# Context windows of other providers' models, in tokens, matched on the id's last part (the
+# first pattern that matches wins, so specific ones come first). Claude Code knows its own
+# models' windows; for anyone else's it guesses, so the window shows these instead. As
+# published by each provider; a model not listed shows what Claude Code reports.
+CONTEXT_WINDOWS: list[tuple[str, int]] = [
+    (r"gemini-1\.5-pro", 2_000_000),
+    (r"gemini-(1\.5-flash|2|3)", 1_048_576),
+    (r"gpt-5", 400_000),
+    (r"gpt-4\.1", 1_047_576),
+    (r"gpt-4o|gpt-4-turbo", 128_000),
+    (r"\bo[134](-mini|-pro)?\b", 200_000),
+    (r"grok-4-fast", 2_000_000),
+    (r"grok-4|grok-code", 256_000),
+    (r"grok-3", 131_072),
+    (r"llama-4-scout", 10_000_000),
+    (r"llama-4-maverick", 1_000_000),
+    (r"deepseek", 128_000),
+    (r"kimi-k2", 262_144),
+    (r"qwen3-coder", 262_144),
+    (r"mistral-large|codestral", 128_000),
+]
+
+
+def context_window(model: str | None) -> int | None:
+    """A non-Claude model's context window in tokens, or None (Claude, or not listed)."""
+    name = str(model or "").strip().lower().rsplit("/", 1)[-1]
+    if not name or name.startswith("claude"):
+        return None
+    for pattern, tokens in CONTEXT_WINDOWS:
+        if re.search(pattern, name):
+            return tokens
+    return None
+
+
 @dataclass
 class Provider:
     id: str

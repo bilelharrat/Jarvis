@@ -358,6 +358,37 @@ Approve = Callable[[str, str, list[tuple[str, str]]], Awaitable[str]]
 Emit = Callable[..., None]
 
 
+def shape_context(usage: dict[str, Any], model: str | None) -> dict[str, Any]:
+    """What the context window shows: how full it is, of what, and when it compacts. For
+    another provider's model the window is that model's (Claude Code only knows Claude's:
+    Gemini's 2M would otherwise read as Claude's 200K)."""
+    from .providers import context_window
+
+    total = int(usage.get("totalTokens") or 0)
+    window = context_window(model) or int(usage.get("rawMaxTokens") or usage.get("maxTokens") or 0)
+    categories = [
+        {"name": str(c.get("name", "")), "tokens": int(c.get("tokens") or 0)}
+        for c in usage.get("categories") or []
+        if int(c.get("tokens") or 0) > 0
+        and not c.get("isDeferred")
+        and not re.search(r"free space|autocompact buffer", str(c.get("name", "")), re.I)
+    ]
+    threshold = usage.get("autoCompactThreshold")
+    return {
+        "percent": round(100 * total / window)
+        if window
+        else round(float(usage.get("percentage") or 0)),
+        "tokens": total,
+        "max": window or None,
+        "categories": categories,
+        "autocompact": bool(usage.get("isAutoCompactEnabled")),
+        "compact_at": round(100 * int(threshold) / window) if threshold and window else None,
+    }
+
+
+REOPEN_POLLS = 100  # 20 s for a closed session to reopen (for a rewind)
+
+
 class Inbox:
     """Messages waiting for a session, in order. Each has a stable id, so one can be
     taken back before it's sent; once the session takes it, it's gone from here."""
@@ -918,22 +949,40 @@ class TaskManager:
         return "Undone: the files are back as they were before that change."
 
     async def rewind_to(self, task_id: int, uuid: str) -> str:
-        """Files back to how they were just before one of the user's messages."""
+        """Files back to how they were just before one of the user's messages. A session
+        that closed (an idle hour) is reopened for it. The outcome is noted in the session,
+        where the user pressed the button."""
         task = self.tasks.get(task_id)
-        if task is None or task.client is None:
-            return "That session isn't open."
+        if task is None:
+            return "That session is gone."
+        reply = await self._rewind(task, uuid)
+        self._log(task, "system", reply)
+        self._changed()
+        return reply
+
+    async def _rewind(self, task: ClaudeTask, uuid: str) -> str:
         if task.busy:
-            return "It's still working; stop it first."
+            return "It's still working. Stop it first, then rewind."
         if uuid not in task.checkpoints:
-            return "I can't rewind to that message."
+            return "Couldn't rewind to that message: it's too far back, or already undone."
+        if task.client is None:
+            if not task.session_id:
+                return "Couldn't rewind: the session never started."
+            if task.handle is None or task.handle.done():
+                task.status, task.restarts = "running", 0
+                task.handle = asyncio.create_task(self._session(task))
+            for _ in range(REOPEN_POLLS):
+                if task.client is not None:
+                    break
+                await asyncio.sleep(0.2)
+            else:
+                return "Couldn't reopen the session to rewind it. Try again in a moment."
         try:
             await task.client.rewind_files(uuid)
         except Exception as exc:
             return f"Couldn't rewind: {exc}"
         if uuid in task.checkpoints:
             del task.checkpoints[task.checkpoints.index(uuid) :]
-        self._log(task, "system", "Rewound the code to before that message.")
-        self._changed()
         return "Rewound: the files are back as they were before that message."
 
     def fork(self, task_id: int, uuid: str = "") -> ClaudeTask | None:
@@ -941,11 +990,19 @@ class TaskManager:
         original is untouched. With a message's uuid, it starts from just before that
         message (the message itself and everything after are left out)."""
         task = self.tasks.get(task_id)
-        if task is None or task.kind != "code" or not task.session_id:
+        if task is None or task.kind != "code":
+            return None
+        if not task.session_id:
+            self._log(
+                task, "system", "Couldn't fork: the session hasn't started a conversation yet."
+            )
+            self._changed()
             return None
         resume_at = ""
         if uuid:
             if uuid not in task.fork_points:
+                self._log(task, "system", "Couldn't fork from that message: it's too far back.")
+                self._changed()
                 return None
             resume_at = task.fork_points[uuid]  # Claude Code resumes up to and including it
         fresh = bool(uuid) and not resume_at  # before the very first message: a clean slate
@@ -1152,11 +1209,7 @@ class TaskManager:
             usage = await task.client.get_context_usage()
         except Exception:
             return None
-        return {
-            "percent": round(float(usage.get("percentage") or 0)),
-            "tokens": usage.get("totalTokens"),
-            "max": usage.get("maxTokens"),
-        }
+        return shape_context(usage, task.model)
 
     def transcript(self, task_id: int) -> list[dict[str, Any]]:
         task = self.tasks.get(task_id)

@@ -207,7 +207,7 @@ function onEvent(ev) {
       }
       break;
     case 'claude_sessions': if (ev.directory === deckProject) { pastSessions = ev.items; renderPast(); } break;
-    case 'task_context': ccContext[ev.id] = ev.percent; renderCC(ccTasks); break;
+    case 'task_context': ccContext[ev.id] = ev; renderCC(ccTasks); if (ev.id === ccSelected) renderCtxPop(); break;
     case 'task_finished': onTaskFinished(ev); break;
     case 'muted': setMuted(ev.value); break;
     case 'prefs': renderPrefs(ev); break;
@@ -1480,7 +1480,7 @@ function renderCC(items) {
     t.cost_usd ? `$${t.cost_usd.toFixed(2)}` : '',
     t.queued ? `${t.queued} queued` : '',
   ].filter(Boolean).join(' · ');
-  setCtx(ccContext[t.id]);
+  setCtx(ccContext[t.id] ? ccContext[t.id].percent : null);
   if (t.busy && !workingSince) workingSince = Date.now();
   if (!t.busy) workingSince = 0;
   $('cc-working').hidden = !t.busy;
@@ -1778,27 +1778,65 @@ function appendEntry(e, replaying = false) {
   while (tl.childElementCount > keep) tl.firstElementChild.remove();
 }
 
+const ACT_ICONS = {
+  rewind: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5A5 5 0 1 1 3 9.5"/><path d="M3 2.8v3.9h3.9"/></svg>',
+  fork: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="11.5" cy="3.5" r="1.6"/><circle cx="8" cy="12.5" r="1.6"/><path d="M4.5 5.1v1.4c0 1.5 1.2 2.5 3.5 2.5s3.5-1 3.5-2.5V5.1M8 9v1.9"/></svg>',
+};
+const ACT_WAIT = 'Ready once Claude Code has taken this message';
+
+// Under a message of yours, on hover: put the files back as they were before it (a second
+// click confirms), or start a new session from just before it.
 function userActions(e) {
   const wrap = el('span', 'jc-user-actions');
-  const rewind = el('button', 'jc-mini', '⟲ Rewind code to here');
-  rewind.type = 'button';
-  const fork = el('button', 'jc-mini', '⑂ Fork from here');
-  fork.type = 'button';
-  const ready = () => !!wrap.closest('li').dataset.uuid;
+  const button = (kind, label, title) => {
+    const b = el('button', `jc-act ${kind}`);
+    b.type = 'button';
+    b.dataset.title = title;
+    b.insertAdjacentHTML('beforeend', ACT_ICONS[kind]);
+    b.append(el('span', 'jc-act-label', label));
+    return b;
+  };
+  const rewind = button('rewind', 'Rewind', 'Put the files back as they were before this message');
+  const fork = button('fork', 'Fork', 'A new session from just before this message');
+  const uuid = () => { const li = wrap.closest('li'); return li ? li.dataset.uuid : ''; };
+  let armed = 0;
+  const disarm = () => { clearTimeout(armed); armed = 0; rewind.classList.remove('armed'); rewind.querySelector('.jc-act-label').textContent = tr('Rewind'); };
   rewind.addEventListener('click', () => {
-    if (!ready()) return;
-    if (confirm(tr('Put the files back as they were before this message?'))) send({ type: 'task_rewind', id: ccSelected, uuid: wrap.closest('li').dataset.uuid });
+    if (!uuid()) return;
+    if (!armed) {
+      rewind.classList.add('armed');
+      rewind.querySelector('.jc-act-label').textContent = tr('Click to rewind files');
+      armed = setTimeout(disarm, 3500);
+      return;
+    }
+    disarm();
+    send({ type: 'task_rewind', id: ccSelected, uuid: uuid() });
   });
-  fork.addEventListener('click', () => { if (ready()) { awaitingNewSession = true; send({ type: 'task_fork', id: ccSelected, uuid: wrap.closest('li').dataset.uuid }); } });
+  rewind.addEventListener('mouseleave', () => { if (armed) disarm(); });
+  fork.addEventListener('click', () => { if (uuid()) { awaitingNewSession = true; send({ type: 'task_fork', id: ccSelected, uuid: uuid() }); } });
   wrap.append(rewind, fork);
-  if (e.uuid) requestAnimationFrame(() => { const li = wrap.closest('li'); if (li) li.dataset.uuid = e.uuid; });
+  requestAnimationFrame(() => {
+    const li = wrap.closest('li');
+    if (li && e.uuid) li.dataset.uuid = e.uuid;
+    actionsReady(wrap, !!(li && li.dataset.uuid));
+  });
   return wrap;
+}
+
+function actionsReady(wrap, ready) {
+  for (const b of wrap.querySelectorAll('.jc-act')) {
+    b.disabled = !ready;
+    b.title = tr(ready ? b.dataset.title : ACT_WAIT);
+  }
 }
 
 function onEntryMeta(ev) {
   if (ev.id !== ccSelected) return;
   const li = [...$('deck-timeline').querySelectorAll('.jc-user')].find((n) => String(n.dataset.n) === String(ev.n));
-  if (li) li.dataset.uuid = ev.uuid;
+  if (!li) return;
+  li.dataset.uuid = ev.uuid;
+  const wrap = li.querySelector('.jc-user-actions');
+  if (wrap) actionsReady(wrap, true);
 }
 
 function updateEntry(ev) {
@@ -2639,6 +2677,93 @@ function showEffortValue(stop) {
   $('ep-range').parentElement.style.setProperty('--p', String(stop / 5));
   $('jc-effort-pop').classList.toggle('ultra', stop === 5);
 }
+// The context window: how full it is and with what, sized for the session's model (a
+// Gemini session's 2M, not Claude's), with Compact (summarize, keep going) and Clear.
+const CX_COLORS = ['var(--cx-1)', 'var(--cx-2)', 'var(--cx-3)', 'var(--cx-4)', 'var(--cx-5)', 'var(--cx-6)'];
+function tokens(n) {
+  if (!n) return '0';
+  if (n >= 1e6) return `${+(n / 1e6).toFixed(n % 1e6 ? 2 : 0)}M`;
+  if (n >= 1e3) return `${+(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k`;
+  return String(n);
+}
+let cxArmed = 0;
+function cxDisarm() { clearTimeout(cxArmed); cxArmed = 0; $('cx-clear').classList.remove('armed'); $('cx-clear').textContent = tr('Clear'); }
+function renderCtxPop() {
+  const pop = $('jc-ctx-pop');
+  if (pop.hidden) return;
+  const c = ccContext[ccSelected];
+  if (!c) { $('cx-total').textContent = '…'; return; }
+  $('cx-total').textContent = c.max ? `${tokens(c.tokens)} / ${tokens(c.max)} (${c.percent}%)` : tokens(c.tokens);
+  const cats = c.categories || [];
+  $('cx-bar').replaceChildren(...cats.map((cat, i) => {
+    const seg = el('i');
+    seg.style.width = `${c.max ? (100 * cat.tokens) / c.max : 0}%`;
+    seg.style.background = CX_COLORS[i % CX_COLORS.length];
+    return seg;
+  }));
+  if (c.compact_at) {
+    const mark = el('b', 'cx-mark');
+    mark.style.left = `${c.compact_at}%`;
+    $('cx-bar').append(mark);
+  }
+  $('cx-legend').replaceChildren(...cats.map((cat, i) => {
+    const li = el('li');
+    const dot = el('i');
+    dot.style.background = CX_COLORS[i % CX_COLORS.length];
+    li.append(dot, el('span', '', cat.name), el('b', '', tokens(cat.tokens)));
+    return li;
+  }));
+  $('cx-note').textContent = c.autocompact
+    ? (c.compact_at ? `Compacts on its own at ${c.compact_at}% (the mark).` : 'Compacts on its own when it fills up.')
+    : 'Auto-compact is off: compact or clear before it fills up.';
+}
+function openCtx() {
+  const pop = $('jc-ctx-pop');
+  if (!pop.hidden) { closeCtx(true); return; }
+  closeMenu();
+  closeEffort();
+  pop.hidden = false;
+  cxDisarm();
+  renderCtxPop();
+  placePopup(pop, $('jc-ctx'), 'auto');
+  $('jc-ctx').setAttribute('aria-expanded', 'true');
+  if (ccSelected) send({ type: 'task_context', id: ccSelected });
+}
+function closeCtx(refocus) {
+  const pop = $('jc-ctx-pop');
+  if (pop.hidden) return;
+  pop.hidden = true;
+  cxDisarm();
+  $('jc-ctx').setAttribute('aria-expanded', 'false');
+  if (refocus) $('jc-ctx').focus();
+}
+$('jc-ctx').addEventListener('click', openCtx);
+$('cx-compact').addEventListener('click', () => {
+  const t = currentTask();
+  if (!t) return;
+  send({ type: 'code_command', id: t.id, text: '/compact' });
+  closeCtx();
+  jcNote('Compacting: the conversation so far becomes a summary, and the session keeps going.');
+});
+$('cx-clear').addEventListener('click', () => {
+  const t = currentTask();
+  if (!t) return;
+  if (!cxArmed) {
+    $('cx-clear').classList.add('armed');
+    $('cx-clear').textContent = tr('Click again to clear');
+    cxArmed = setTimeout(cxDisarm, 3500);
+    return;
+  }
+  cxDisarm();
+  closeCtx();
+  awaitingNewSession = true;
+  send({ type: 'code_command', id: t.id, text: '/clear' });
+});
+document.addEventListener('pointerdown', (e) => {
+  if (!$('jc-ctx-pop').hidden && !e.target.closest('#jc-ctx-pop, #jc-ctx')) closeCtx();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('jc-ctx-pop').hidden) { e.stopPropagation(); closeCtx(true); } }, true);
+
 function openEffort() {
   const pop = $('jc-effort-pop');
   if (!pop.hidden) { closeEffort(true); return; }
