@@ -1,3 +1,5 @@
+import pytest
+
 from jarvis.wake import find_wake, is_echo, is_stop
 
 
@@ -106,3 +108,35 @@ def test_greetings_only_count_at_the_start():
     for not_me in ("We should plan a Paris trip.", "It was a harvest moon", "Hi Harris"):
         assert find_wake(not_me)[0] is False, not_me
     assert find_wake("Hey Travis, turn the lights off.") == (True, "turn the lights off")
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "wake up daddy's home",
+        "Wake up, daddy's home!",
+        "wake up daddy is home",
+        "wakeup daddys home",
+        "wake up it's daddy's home",
+        "wake up daddy's back",
+    ],
+)
+def test_wake_up_daddys_home_wakes_jarvis(said):
+    assert find_wake(said)[0] is True
+
+
+def test_the_wake_phrase_carries_a_command_after_it():
+    assert find_wake("wake up daddy's home, what's the weather?") == (True, "what's the weather")
+    assert find_wake("wake up daddy's home") == (True, "")
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "wake up early, daddy is not home yet",  # "wake up" but not the phrase
+        "daddy's home",  # the phrase needs "wake up", so this on its own doesn't
+        "I woke up before daddy got home",
+    ],
+)
+def test_ordinary_talk_does_not_trigger_the_wake_phrase(said):
+    assert find_wake(said)[0] is False

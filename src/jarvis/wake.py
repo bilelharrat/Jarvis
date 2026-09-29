@@ -37,6 +37,14 @@ GREETED_MISHEARINGS = {
 # "Jarvis Code", the coding panel, is a name JARVIS says itself: never a wake word.
 _PANEL = {"code", "codes"}
 
+# An extra wake phrase besides the name, forgiving of how Whisper writes it ("wake up
+# daddy's home", "wake up, daddy is home", "wakeup daddys home"). It needs the whole
+# phrase, so a plain "daddy's home" on its own never wakes it.
+_WAKE_PHRASE = re.compile(
+    r"\bwake\s*up\b[\s,.!:-]*(?:it'?s\s+)?daddy'?s?\b[\s,]*(?:is\s+)?(?:home|back)\b",
+    re.IGNORECASE,
+)
+
 
 def words(text: str) -> list[str]:
     return _WORD.findall(text.lower().replace("’", "'"))
@@ -56,6 +64,11 @@ def find_wake(text: str) -> tuple[bool, str]:
     weather, Jarvis?" both wake it; the command is the rest of the sentence. Whisper
     sometimes splits the name ("Jari ves"), so adjacent word pairs are checked too."""
     raw = text.strip()
+    phrase = _WAKE_PHRASE.search(raw)
+    if phrase:  # "wake up daddy's home" wakes it, and anything else said counts as the command
+        before = raw[: phrase.start()].strip(" ,.!?;:-")
+        after = raw[phrase.end() :].strip(" ,.!?;:-")
+        return True, f"{before} {after}".strip()
     pieces = [p for p in re.split(r"(\s+)", raw)]
     tokens = [(i, "".join(_WORD.findall(p.lower())).replace("'", "")) for i, p in enumerate(pieces)]
     tokens = [(i, t) for i, t in tokens if t]
