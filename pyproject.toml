@@ -1,0 +1,40 @@
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "A voice assistant for your Mac: Claude is the brain, MCP tools are the hands."
+authors = [
+    { name = "bilelharrat", email = "bilel@harratglobalholdings.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "claude-agent-sdk>=0.2.161",
+    "faster-whisper>=1.2.1",
+    "numpy>=2.5.3",
+    "python-dotenv>=1.2.3",
+    "sounddevice>=0.5.6",
+]
+
+[project.scripts]
+jarvis = "jarvis:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.9",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]  # embedded AppleScript and prompt text; ruff format owns code width
