@@ -183,7 +183,10 @@ BRAIN_DONE_GRACE = 30  # a rebuild that has said it's done must be gone by then
 APPROVAL_TIMEOUT = 300
 ARMED_SECONDS = 8.0
 FOLLOW_UP_SECONDS = 7.0  # after a reply, answer back without saying "Jarvis"
-HANDS_FREE_ENDPOINT = 0.6  # seconds of quiet that surely end an utterance
+# Seconds of quiet that surely end an utterance. A request that already sounds finished is
+# answered after EARLY_ENDPOINT, so this only times out a pause mid-sentence ("open my…
+# mail"), and at 0.6 it cut people off while they thought of the next word.
+HANDS_FREE_ENDPOINT = 1.1
 EARLY_ENDPOINT = 0.2  # ...but a finished-sounding request is answered after this much
 FILLERS = ["One moment.", "On it.", "Let me check."]
 _FIRST_CLAUSE = re.compile(r"^(.{12,}?[,;:—–])\s")
@@ -197,6 +200,9 @@ _HOLD_SPACE = re.compile(r"\s+")
 CODE_ON_SCREEN = "```\n```"
 ANNOUNCE_IN_FULL = 2  # a burst of heads-ups says this many in full; the rest are on screen
 STALE_UTTERANCE = 10.0  # hands-free: speech that ended this long ago is never acted on
+# Talking again this soon after a request ended, before its answer is spoken, is the rest of
+# that request (a longer pause mid-sentence), not a new one that needs the wake word.
+CONTINUE_GAP = 1.5
 ASK_QUEUE_MAX = 20  # requests waiting behind the current one; past that, new ones are refused
 STYLE_NOTES = 6  # notes for the next request kept word for word; older ones are summed up
 PART_WAY = (
@@ -582,6 +588,11 @@ class Hub:
         self._style_notes: list[str] = []  # what _style_note is made of
         self._style_dropped = False  # older notes were summed up
         self._armed_until = 0.0
+        # The end of the latest listening window, kept after it times out: an utterance that
+        # began inside it is for JARVIS even when it ends (and is transcribed) after.
+        self._armed_window = 0.0
+        # The latest request heard hands-free and when its utterance ended.
+        self._last_voice: tuple[str, float] | None = None
         self._dictating_until = 0.0  # hands-free: the next utterance is typed, not asked
         self._dictation = 0  # which press of the composer's mic is current
         self._remote_turns: set[asyncio.Task] = set()
@@ -697,6 +708,7 @@ class Hub:
         self._voice_link: tuple[Any, str] = (None, "")  # (task, words) it just said aloud
         self._voice_asked: dict[str, dict[str, Any]] = {}  # questions put by voice: what, when
         self._utterance_began: float | None = None  # when the utterance being handled began
+        self._utterance_ended: float | None = None  # ...and when it ended
         self._stops = 0  # counts stop(): speech it cut short isn't followed by listening
         self._code_hotwords = ""
         self._code_stt: Any = None
@@ -1240,9 +1252,7 @@ class Hub:
 
     def _meeting_capture(self, audio: Any, text: str) -> bool:
         """In a meeting, anything not addressed to JARVIS goes into the notes."""
-        if lang.find_wake(text, self.language)[0] or (
-            self._armed_until and time.monotonic() < self._armed_until
-        ):
+        if lang.find_wake(text, self.language)[0] or self._armed():
             return False  # for JARVIS: a command, or the question after a bare "Jarvis"
         if self._voice_question() is not None and lang.yes_no(text, self.language) is not None:
             return False  # the answer to a question JARVIS just asked
@@ -2366,7 +2376,7 @@ class Hub:
     async def stop(self) -> None:
         self._stopping = True
         self._stops += 1
-        self._armed_until = 0.0
+        self._armed_until = self._armed_window = 0.0
         self._stream_buf, self._in_code, self._code_tail = "", False, ""
         self.speech.clear()
         if self._lock.locked() and self.client is not None:
@@ -2621,6 +2631,7 @@ class Hub:
                 log.warning("hands-free transcription failed: %s", exc)
                 continue
             self._utterance_began = ended - _audio_seconds(audio)
+            self._utterance_ended = ended
             try:
                 if self.meeting is not None and self._meeting_capture(audio, text):
                     continue
@@ -2630,7 +2641,7 @@ class Hub:
             except Exception:  # never let one bad utterance end hands-free listening
                 log.exception("hands-free handling failed")
             finally:
-                self._utterance_began = None
+                self._utterance_began = self._utterance_ended = None
 
     async def _early_utterance(self, number: int, audio: Any, at: float | None = None) -> None:
         """An utterance 0.2s into the silence after it. If it reads as a finished request
@@ -2652,7 +2663,8 @@ class Hub:
         else:
             text = await asyncio.to_thread(stt.transcribe, audio)
 
-        armed = self._armed_until and time.monotonic() < self._armed_until
+        began = (at or heard_at) - _audio_seconds(audio)
+        armed = self._armed(began)
         for_me = (
             lang.find_wake(text, self.language)[0] or armed or self._voice_question() is not None
         )
@@ -2662,14 +2674,14 @@ class Hub:
             return  # they kept talking: the full utterance will come instead
         log.info("answered early (smart endpoint)")
         self._heard_at = heard_at
-        self._utterance_began = (at or heard_at) - _audio_seconds(audio)
+        self._utterance_began, self._utterance_ended = began, at or heard_at
         try:
             await self.on_heard(text)
         finally:
-            self._utterance_began = None
+            self._utterance_began = self._utterance_ended = None
 
     def _arm(self, seconds: float = ARMED_SECONDS, chime: bool = True) -> None:
-        self._armed_until = time.monotonic() + seconds
+        self._armed_until = self._armed_window = time.monotonic() + seconds
         self.set_state("listening")
         if chime:
             with contextlib.suppress(OSError):
@@ -2680,9 +2692,42 @@ class Hub:
 
     async def _disarm_later(self, until: float, seconds: float) -> None:
         await asyncio.sleep(seconds + 0.2)
+        # Mid-sentence when the window closes: keep listening until they've finished (what
+        # they're saying began in the window, so it's for JARVIS).
+        for _ in range(int(30 / 0.25)):
+            if self._armed_until != until or not self._speaking_now():
+                break
+            await asyncio.sleep(0.25)
         if self._armed_until == until and self.state == "listening":
             self._armed_until = 0.0
             self.set_state("idle")
+
+    def _speaking_now(self) -> bool:
+        """Whether the hands-free microphone is in the middle of someone's utterance."""
+        segmenter = getattr(self._listener, "segmenter", None)
+        return bool(getattr(segmenter, "in_speech", False))
+
+    def _armed(self, began: float | None = None) -> bool:
+        """Whether the utterance being handled is for JARVIS without the wake word: the
+        listening window is open, or was when the utterance began."""
+        if self._armed_until and time.monotonic() < self._armed_until:
+            return True
+        began = self._utterance_began if began is None else began
+        return bool(self._armed_window and began is not None and began <= self._armed_window)
+
+    def _continues_request(self) -> bool:
+        """Whether this utterance is the rest of the last request: it began within
+        CONTINUE_GAP of that one ending, and its answer hasn't been spoken yet."""
+        if self._last_voice is None or self._utterance_began is None:
+            return False
+        if self.state == "speaking":
+            return False
+        return 0 <= self._utterance_began - self._last_voice[1] <= CONTINUE_GAP
+
+    def _ask_by_voice(self, request: str) -> None:
+        self.emit("heard", text=request)
+        self._last_voice = (request, self._utterance_ended or time.monotonic())
+        self._spawn(self.ask(request))
 
     async def on_heard(self, text: str) -> None:
         """One hands-free utterance: wake word, barge-in, or ignore. Its own voice coming
@@ -2728,8 +2773,15 @@ class Hub:
             and not lang.is_echo(text, self.turn.get("reply", ""), language)
         ):
             log.info("research follow-up (%d words)", len(lang.words(text, language)))
-            self.emit("heard", text=text)
-            self._spawn(self.ask(text))
+            self._ask_by_voice(text)
+            return
+        if busy and not woke and not stop and self._continues_request():
+            # A pause mid-sentence ended the utterance and its first half went off as a
+            # request: ask again with all of it.
+            earlier = self._last_voice[0] if self._last_voice else ""
+            log.info("continued the last request after a pause")
+            await self.stop()
+            self._ask_by_voice(f"{earlier} {text}".strip())
             return
         if busy or self.state == "speaking":
             if woke or lang.is_stop(text, language):
@@ -2738,22 +2790,19 @@ class Hub:
                     r"\b(notes?|meeting|recording)\b|记录|会议|笔记|录音", command or ""
                 )
                 if woke and command and (not lang.is_stop(command, language) or about_notes):
-                    self.emit("heard", text=command)
-                    self._spawn(self.ask(command))
+                    self._ask_by_voice(command)
                 elif woke and not stop:  # "Jarvis, stop" isn't an invitation to talk
                     self._arm()
             return
-        if self._armed_until and time.monotonic() < self._armed_until:
-            self._armed_until = 0.0
+        if self._armed():
+            self._armed_until = self._armed_window = 0.0
             request = command if woke and command else text
             log.info("follow-up/armed request (%d words)", len(lang.words(request, language)))
-            self.emit("heard", text=request)
-            self._spawn(self.ask(request))
+            self._ask_by_voice(request)
         elif woke:
             log.info("wake word heard (%d-word command)", len(lang.words(command, language)))
             if len(lang.words(command, language)) >= 2:
-                self.emit("heard", text=command)
-                self._spawn(self.ask(command))
+                self._ask_by_voice(command)
             elif is_homecoming(text):  # "wake up, daddy's home": a welcome, then listening
                 welcome = (
                     f"Welcome home, {self.prefs.address}."
@@ -2777,7 +2826,7 @@ class Hub:
         already dropped JARVIS's own voice.) An answer to the session's open question is
         taken as one, even said over the question as it's read."""
         woke, command = lang.find_wake(text, self.language)
-        armed = self._armed_until and time.monotonic() < self._armed_until
+        armed = self._armed()
         if self.state == "speaking":
             if woke or lang.is_stop(text, self.language):
                 await self.stop()  # quiet JARVIS first
@@ -2800,7 +2849,7 @@ class Hub:
             return
         if not (woke or armed):
             return
-        self._armed_until = 0.0
+        self._armed_until = self._armed_window = 0.0
         request = command if woke else text
         self.emit("heard", text=request)
         if self._answer_code_approval(request, woke=woke):
@@ -2832,8 +2881,12 @@ class Hub:
     async def _code_command(self, task, text: str) -> None:
         from .voicecode import slash_intent
 
-        name, _, rest = text[1:].partition(" ")
+        name, _, rest = text[1:].strip().partition(" ")
+        name, newline, first_line = name.partition("\n")  # "/plan" then Shift+Enter
+        rest = f"{first_line} {rest}".strip() if newline else rest
         name = name.lower()
+        if not name:  # a slash and nothing more: no command, and nothing for Claude
+            return
         if name == "voice":
             if self.voicecode.focus == task.id:
                 self.voicecode.exit()

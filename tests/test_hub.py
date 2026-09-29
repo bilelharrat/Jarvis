@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import numpy as np
 from conftest import CALENDAR_TURN, FakeClient, result
@@ -601,7 +602,7 @@ async def test_a_finished_request_is_answered_before_the_full_silence(
     assert hub._listener.committed == [3]
     assert [q.rstrip("?") for q in hub.client.said] == ["what's on my calendar tomorrow"]
     await hub._early_utterance(4, "Jarvis, what's the weather in")  # sounds unfinished: wait
-    hub._armed_until = 0.0  # the follow-up window after its answer has passed
+    hub._armed_until, hub._armed_window = 0.0, time.monotonic() - 1  # the window has passed
     await hub._early_utterance(5, "so anyway the meeting went fine.")  # not for JARVIS
     assert hub._listener.committed == [3]
 
