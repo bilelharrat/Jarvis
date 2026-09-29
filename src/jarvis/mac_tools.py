@@ -528,6 +528,139 @@ def make_create_event(default_calendar: str):
     return create_event
 
 
+async def _one_event(args: dict[str, Any]) -> dict[str, Any]:
+    """The one event remove_event means, looked up afresh: {"event": row} or {"error": why}.
+    Only ever one: a request that could mean several gets asked which."""
+    from . import calendar_kit
+
+    title, start = str(args.get("title") or "").strip(), str(args.get("start") or "").strip()
+    found = await calendar_kit.events_at(start)
+    if "error" in found:
+        return found
+    hits = calendar_kit.choose(found["events"], title, str(args.get("calendar") or ""))
+    if not hits:
+        return {
+            "error": f"Nothing called “{title}” starts at {start}. Look it up with "
+            "list_events and use its exact title and start."
+        }
+    if len(hits) > 1:
+        where = ", ".join(sorted({f"“{h['title']}” ({h['calendar']})" for h in hits}))
+        return {
+            "error": f"More than one event starts then: {where}. Ask the user which "
+            "one, and give its calendar."
+        }
+    if not hits[0].get("writable"):
+        return {
+            "error": f"“{hits[0]['title']}” is on the {hits[0]['calendar']} calendar, "
+            "which can't be changed from here (it's read-only or subscribed)."
+        }
+    return {"event": hits[0]}
+
+
+def _today():
+    return datetime.now().date()
+
+
+def spoken_when(begin: str, all_day: bool, language: str = "en") -> str:
+    """An event's time the way it's said, in the card and out loud: "today at 3:00 PM",
+    "Wednesday 30 September", 明天下午3:00 (an ISO date read aloud is a string of numbers)."""
+    from . import lang
+
+    moment = datetime.fromisoformat(begin)
+    days = (moment.date() - _today()).days
+    if lang.is_zh(language):
+        day = (
+            "今天"
+            if days == 0
+            else "明天"
+            if days == 1
+            else f"{moment.month}月{moment.day}日（周{'一二三四五六日'[moment.weekday()]}）"
+        )
+        half = "上午" if moment.hour < 12 else "下午"
+        return day if all_day else f"{day}{half}{moment.hour % 12 or 12}:{moment.minute:02d}"
+    day = (
+        "today"
+        if days == 0
+        else "tomorrow"
+        if days == 1
+        else f"{moment:%A} {moment.day} {moment:%B}"
+    )
+    return day if all_day else f"{day} at {moment:%-I:%M %p}"
+
+
+def _names(people: list[str]) -> str:
+    shown = ", ".join(people[:3])
+    return shown + (f" and {len(people) - 3} more" if len(people) > 3 else "")
+
+
+async def removal_question(args: dict[str, Any], language: str = "en") -> tuple[str, str]:
+    """remove_event's card, from the event itself: what and when, which calendar, whether
+    it repeats (and how much goes), and who else may hear of it. ("", why) when there's no
+    one event it could remove, so no card is shown. The time is said in the language the
+    user speaks; the rest is translated with the card."""
+    found = await _one_event(args)
+    if "error" in found:
+        return "", found["error"]
+    e = found["event"]
+    when = spoken_when(e["begin"], e["all_day"], language)
+    if e["all_day"]:
+        parts = [f"Remove the all-day “{e['title']}”, {when}, from the {e['calendar']} calendar?"]
+    else:
+        parts = [f"Remove “{e['title']}”, {when}, from the {e['calendar']} calendar?"]
+    if e.get("repeats"):
+        parts.append(
+            "It repeats: this one and every later one go."
+            if args.get("future")
+            else "It repeats: only this one goes."
+        )
+    if e.get("attendees") and e.get("mine"):
+        parts.append(
+            f"Others are in it ({_names(e['attendees'])}): they may be told it's cancelled."
+        )
+    elif not e.get("mine"):  # an invitation: removing it may answer it
+        parts.append(
+            f"It's {e['organizer']}'s invitation: they may be told you declined."
+            if e.get("organizer")
+            else "It's an invitation: its organizer may be told you declined."
+        )
+    return "\n\n".join(parts), ""
+
+
+@tool(
+    "remove_event",
+    "Remove an event from Calendar. Find it with list_events first, then give its title and "
+    "start (local time in ISO format, e.g. 2026-09-30T15:00; just the date, 2026-09-30, for "
+    "an all-day event), and its calendar if several share that time. For a repeating event "
+    "only that occurrence goes, unless future is true (it and every later one: only when "
+    "the user says so). Asks the user first, showing the event.",
+    {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "start": {"type": "string"},
+            "calendar": {"type": "string"},
+            "future": {"type": "boolean"},
+        },
+        "required": ["title", "start"],
+    },
+)
+@_guarded
+async def remove_event(args):
+    from . import calendar_kit
+
+    found = await _one_event(args)
+    if "error" in found:
+        raise ToolFailure(found["error"])
+    e = found["event"]
+    done = await calendar_kit.remove_at(
+        str(args["start"]).strip(), e["id"], e["calendar"], bool(args.get("future"))
+    )
+    if "error" in done:
+        raise ToolFailure(done["error"])
+    later = " and every later one" if done.get("span") == "future" else ""
+    return f"Removed “{e['title']}” ({e['begin'].replace('T', ' ')}{later}) from the {e['calendar']} calendar."
+
+
 # ── Server ───────────────────────────────────────────────────────────────────
 
 # Low-stakes tools run without asking. open_url isn't one: an address can carry what a
@@ -546,7 +679,7 @@ AUTO_ALLOWED = [
     "list_events",
     "snap_window",
 ]
-NEEDS_CONFIRMATION = ["run_shortcut", "create_event", "quit_app"]
+NEEDS_CONFIRMATION = ["run_shortcut", "create_event", "remove_event", "quit_app"]
 
 
 def build_server(default_calendar: str = ""):
@@ -566,5 +699,6 @@ def build_server(default_calendar: str = ""):
         draft_email,
         list_events,
         make_create_event(default_calendar),
+        remove_event,
     ]
     return create_sdk_mcp_server(name=SERVER_NAME, version="0.1.0", tools=tools)

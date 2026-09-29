@@ -102,6 +102,7 @@ TOOL_LABELS = {
     "draft_email": "Drafted an email",
     "list_events": "Checked your calendar",
     "create_event": "Added a calendar event",
+    "remove_event": "Removed a calendar event",
     "run_claude_code": "Started Jarvis Code",
     "start_research": "Started research",
     "claude_task_status": "Checked background tasks",
