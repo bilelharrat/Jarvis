@@ -3770,6 +3770,8 @@ function renderTabs(list) {
   plus.title = 'New tab (⌘T)';
   plus.addEventListener('click', () => { app.browser.tab('new'); setTimeout(() => $('br-url').focus(), 120); });
   strip.append(plus);
+  const active = strip.querySelector('.bd-tab.active');
+  if (active) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   requestAnimationFrame(syncBrowserBounds); // the strip's height is the slot's
 }
 // ── Chrome's everyday features: shortcuts, find, bookmarks and history, suggestions,
