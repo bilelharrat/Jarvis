@@ -579,7 +579,7 @@ def test_public_is_what_the_panel_needs(tmp_path):
     store = make_store(tmp_path)
     state = store.public()
     kinds = {k["id"]: k for k in state["kinds"]}
-    assert set(kinds) == {"anthropic", "openrouter", "custom"}
+    assert set(kinds) == {"anthropic", "openrouter", "gemini", "custom"}
     assert kinds["custom"]["needs_base_url"]
     assert kinds["custom"]["auth_choices"] == ["bearer", "x-api-key"]
     assert not kinds["openrouter"]["needs_base_url"]

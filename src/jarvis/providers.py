@@ -111,6 +111,18 @@ KINDS: dict[str, Kind] = {
         "https://openrouter.ai/settings/keys",
         ("openai/gpt-5", "google/gemini-2.5-pro", "x-ai/grok-4", "deepseek/deepseek-r1"),
     ),
+    "gemini": Kind(
+        "gemini",
+        "Google Gemini",
+        "https://generativelanguage.googleapis.com",
+        "x-api-key",
+        "Your Google key, from Google AI Studio (AIza…) or Vertex AI express mode (AQ.…): "
+        "Gemini 2.5 Flash, Pro and the rest, with every JARVIS tool, through JARVIS's own "
+        "Gemini relay on this Mac.",
+        "AIza",
+        "https://aistudio.google.com/app/apikey",
+        ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-3-pro-preview"),
+    ),
     "custom": Kind(
         "custom",
         "Custom endpoint",
@@ -324,7 +336,7 @@ def context_window(model: str | None) -> int | None:
 @dataclass
 class Provider:
     id: str
-    kind: str  # anthropic | openrouter | custom
+    kind: str  # anthropic | openrouter | gemini | custom
     name: str
     base_url: str  # the Anthropic-compatible endpoint, without /v1
     auth: str  # how the key is sent: "bearer" or "x-api-key"
@@ -481,6 +493,8 @@ def _check_key_kind(spec: Kind, key: str) -> None:
     Anthropic key never goes to OpenRouter, nor an OpenRouter key to Anthropic."""
     if spec.id == "anthropic" and key.startswith("sk-or-"):
         raise ValueError("That's an OpenRouter key; add it as OpenRouter instead.")
+    if spec.id == "gemini" and key.startswith(("sk-", "sk_")):
+        raise ValueError("That isn't a Google key; Gemini keys start with AIza or AQ.")
     if spec.id == "openrouter" and key.startswith("sk-ant-"):
         raise ValueError(
             "That's an Anthropic key; add it as Anthropic API instead. It shouldn't go to "
@@ -979,6 +993,12 @@ class ProviderStore:
             raise
         return True
 
+    def kind_of(self, ref: str | None) -> str:
+        """The provider kind behind a model ref ("gemini", "openrouter"…); "" for Claude's own."""
+        entry = self._entry(str(ref or "")) if str(ref or "").startswith(CUSTOM) else None
+        provider = self.providers.get(entry.provider) if entry is not None else None
+        return provider.kind if provider is not None else ""
+
     def _entry(self, ref: str) -> ModelEntry | None:
         ref = str(ref or "").strip()
         return self.entries.get(ref.removeprefix(CUSTOM))
@@ -1218,7 +1238,16 @@ def session_pins(provider: Provider, model: str, environ: Mapping[str, str]) -> 
     provider gets the chosen model for every tier. No key: that comes from the helper."""
     pins = dict.fromkeys((*DESTINATION_ENV, *CREDENTIAL_ENV, *MODEL_ENV), "")
     pins["ANTHROPIC_MODEL"] = model
-    if provider.kind != "anthropic":
+    if provider.kind == "gemini":
+        # Gemini speaks its own API: Claude Code talks to JARVIS's relay on this Mac, which
+        # takes the key from each request (the helper's) on to Google, and nowhere else.
+        from .gemini_proxy import PROXY
+
+        if not PROXY.address:
+            raise ValueError("The Gemini relay isn't running yet; try again in a moment.")
+        pins["ANTHROPIC_BASE_URL"] = PROXY.address
+        pins.update(dict.fromkeys(TIER_ENV, model))
+    elif provider.kind != "anthropic":
         pins["ANTHROPIC_BASE_URL"] = provider.base_url
         pins.update(dict.fromkeys(TIER_ENV, model))
     for name in NETWORK_ENV:
@@ -1271,7 +1300,29 @@ async def _probe(provider: Provider, key: str, client: httpx.AsyncClient) -> dic
 
 
 async def _ask(provider: Provider, key: str, client: httpx.AsyncClient) -> dict[str, Any]:
-    """OpenRouter's model list is public, so its key is tried on its own first."""
+    """OpenRouter's model list is public, so its key is tried on its own first. A Google
+    key is tried with a one-word Gemini request through the relay's own translation."""
+    if provider.kind == "gemini":
+        from .gemini_proxy import GeminiRelay
+
+        relay = GeminiRelay(client)
+        status, body, _ = await relay.messages(
+            key,
+            {
+                "model": "gemini-2.5-flash",
+                "max_tokens": 8,
+                "messages": [{"role": "user", "content": "Say OK."}],
+            },
+        )
+        if status != 200:
+            said = (
+                (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
+            )
+            return _checked(False, error=f"Google didn't accept that key. {said}".strip())
+        which = next(iter(relay.endpoints.values()), "gemini")
+        where = "Vertex AI (express mode)" if which == "vertex" else "the Gemini API"
+        models = [{"id": m, "name": m, "tools": True} for m in KINDS["gemini"].suggested]
+        return _checked(True, models=models, note=f"Gemini works, through {where}.")
     headers = _headers(provider, key)
     note = ""
     try:

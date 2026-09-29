@@ -389,6 +389,11 @@ def shape_context(usage: dict[str, Any], model: str | None) -> dict[str, Any]:
 REOPEN_POLLS = 100  # 20 s for a closed session to reopen (for a rewind)
 
 
+# An answer that says Claude itself couldn't: its usage limit, a rate limit, an outage, a
+# sign-in or billing problem. These send a session to the fallback model when one is set.
+CLAUDE_DOWN = frozenset({"rate_limit", "billing_error", "server_error", "authentication_failed"})
+
+
 class Inbox:
     """Messages waiting for a session, in order. Each has a stable id, so one can be
     taken back before it's sent; once the session takes it, it's gone from here."""
@@ -480,6 +485,7 @@ class ClaudeTask:
     turns_pending: int = 0  # the user's messages sent whose turns haven't ended
     injected: bool = False  # Claude Code is on a turn it started itself
     current: str = ""  # whose turn Claude Code is on: "user", "claude" or ""
+    falling_back: bool = False  # moving to the fallback model after Claude couldn't answer
     turn_started: float = 0.0
     turn_files: set[str] = field(default_factory=set)  # what this turn changed
     pending_edits: dict[str, str] = field(default_factory=dict)  # tool id -> path, till done
@@ -669,6 +675,9 @@ class TaskManager:
         self.session_servers: Callable[[Path], dict[str, Any]] | None = None
         # True when follow-ups should steer the running step (the owner's setting).
         self.steer_now: Callable[[], bool] | None = None
+        # Claude couldn't answer a session (its limit, an outage): the hub's fallback, which
+        # moves the session to the fallback model and sends the message again.
+        self.on_claude_down: Callable[[ClaudeTask, str], Awaitable[None]] | None = None
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
         # connection re-derives the session's settings, re-checking the key's Keychain seal.
         self.providers: Any = None
@@ -1941,6 +1950,11 @@ class TaskManager:
             return
         if isinstance(message, AssistantMessage):
             parent = getattr(message, "parent_tool_use_id", None) or None
+            error = getattr(message, "error", None)
+            if error in CLAUDE_DOWN and not parent and self.on_claude_down is not None:
+                if not task.falling_back:
+                    task.falling_back = True
+                    asyncio.create_task(self.on_claude_down(task, error))
             if not parent:
                 self._claude_turn(task)
                 task.last_uuid = getattr(message, "uuid", None) or task.last_uuid

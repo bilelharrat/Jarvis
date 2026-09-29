@@ -86,8 +86,16 @@ from .providers import ProviderStore
 from .providers import build_server as models_server
 from .routines import RoutineStore
 from .speech import Speaker, SpeechQueue, cloud_voice_from
-from .tasks import ClaudeTask, TaskManager
+from .tasks import CLAUDE_DOWN, ClaudeTask, TaskManager
 from .wake import find_wake
+
+FALLBACK_SECONDS = 30 * 60  # on the fallback model this long after Claude couldn't answer
+CLAUDE_WHY = {
+    "rate_limit": "its usage limit or a rate limit",
+    "billing_error": "a billing problem",
+    "server_error": "an outage",
+    "authentication_failed": "a sign-in problem",
+}
 
 TOOL_LABELS = {
     "open_app": "Opened an app",
@@ -671,6 +679,12 @@ class Hub:
         )
         # Settings › Queue Jarvis Code follow-ups off: they steer the running step.
         self.tasks.steer_now = lambda: not self.prefs.code_queue
+        # The fallback model (Settings › Brain): Claude down (its limit, an outage) means the
+        # turn runs again on it, and JARVIS stays on it half an hour before trying Claude.
+        self.tasks.on_claude_down = self._code_fallback
+        self._fallback_until = 0.0
+        self._connected_ref = ""  # the added model the conversation runs on ("": Claude)
+        self._claude_down = ""  # why Claude couldn't answer this turn
         self.models, self.model_names = MODELS, MODEL_NAMES
         from .remote import RemoteServer
 
@@ -815,6 +829,7 @@ class Hub:
             self._spawn(self._markets_loop())
             self._spawn(self._defense_loop())
             self._spawn(self._awake_loop())
+        await self._relay_if_needed()
         # Hands steering the Mac: lets go of a held button if the window stops talking.
         self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
         if self.prefs.remote_enabled:
@@ -846,6 +861,18 @@ class Hub:
             turn_gate=self.turn_gate,
             on_tool_result=self.note_tool_result,
         )
+        self._connected_ref = ""
+        ref = self._main_ref()
+        if ref:
+            try:
+                await self._gemini_ready(ref)
+                cfg = self.providers.session_config(ref)
+                options.model = cfg["model"]
+                options.env = {**(options.env or {}), **cfg["env"]}
+                options.settings = cfg.get("settings")
+                self._connected_ref = ref
+            except ValueError as exc:  # gone, or its key: Claude it is, and say why
+                self.emit("error", text=f"The fallback model isn't usable: {exc}")
         # Stream text as it's written, so the first sentence can be spoken right away.
         options.include_partial_messages = True
         if resume:
@@ -1521,6 +1548,11 @@ class Hub:
 
     async def close(self) -> None:
         self.desktop_hands.release_all()
+        from .gemini_proxy import PROXY
+
+        if PROXY.port:
+            with contextlib.suppress(Exception):
+                await PROXY.close()
         self._save_prefs_if_pending()  # a last try at a settings save that failed
         if self._listener is not None:
             self._listener.stop()
@@ -2037,7 +2069,14 @@ class Hub:
                         query = f"[Note from the app: {' '.join(notes)}]\n\n{text}"
                         self._style_note, self._style_notes, self._style_dropped = "", [], False
                         self._alert_notes.clear()
+                    self._claude_down = ""
+                    if (
+                        self._main_ref() != self._connected_ref
+                    ):  # the fallback's time is up (or began)
+                        await self._reconnect()
                     await self._run_query(rid, query, images)
+                    if self._claude_down and not self._turn_progress and await self._fall_back():
+                        await self._run_query(rid, query, images)
             except Exception as exc:  # the Claude Code process died: reconnect and retry once
                 # Once a tool ran, a card went up or words came out, the same request again
                 # would do it all twice: reconnect, and say it was cut off instead.
@@ -2168,6 +2207,10 @@ class Hub:
             self._on_stream(rid, message.event)
             return
         if isinstance(message, AssistantMessage):
+            error = getattr(message, "error", None)
+            if error in CLAUDE_DOWN and not self._connected_ref and self._fallback_ref():
+                self._claude_down = error  # not said: the turn runs again on the fallback
+                return
             streamed, self._streamed = self._streamed, False
             for block in message.content:
                 if isinstance(block, TextBlock) and block.text.strip() and not streamed:
@@ -2187,7 +2230,7 @@ class Hub:
                     self._tool_finished(block.tool_use_id, ok=not block.is_error)
         elif isinstance(message, ResultMessage) and message.session_id:
             self._session_id = message.session_id
-            if message.is_error and not self._stopping:
+            if message.is_error and not self._stopping and not self._claude_down:
                 detail = "; ".join(message.errors or []) or message.subtype
                 self.emit("error", text=f"Claude stopped: {detail}")
         elif isinstance(message, ResultMessage) and message.is_error and not self._stopping:
@@ -4208,6 +4251,104 @@ class Hub:
     async def briefing(self) -> None:
         await self.ask(BRIEFING_PROMPT, display="Morning briefing")
 
+    # ── the fallback model ──
+
+    def _fallback_ref(self) -> str:
+        ref = self.prefs.fallback_model
+        return ref if ref and self.providers.known(ref) else ""
+
+    def _main_ref(self) -> str:
+        """The added model the conversation should run on now: the fallback when it's set to
+        always, or for half an hour after Claude couldn't answer; "" means Claude."""
+        ref = self._fallback_ref()
+        if ref and (self.prefs.fallback_always or time.monotonic() < self._fallback_until):
+            return ref
+        return ""
+
+    async def _relay_if_needed(self) -> None:
+        """The Gemini relay runs whenever a Gemini provider is added (sessions are set up
+        without waiting, so it has to be listening already)."""
+        if any(p.kind == "gemini" for p in self.providers.providers.values()):
+            from .gemini_proxy import PROXY
+
+            try:
+                await PROXY.start()
+            except Exception as exc:  # a port refused, say: Gemini waits, nothing else does
+                log.warning("gemini relay didn't start: %s", exc)
+
+    async def _gemini_added(self, provider_id: str) -> None:
+        """One paste is enough: a Gemini key brings Gemini 2.5 Flash (fast; the fallback when
+        none is set) and 2.5 Pro to the model lists."""
+        refs = []
+        for model, label in (
+            ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ):
+            try:
+                refs.append(self.providers.add_model(provider_id, model, label)["ref"])
+            except ValueError:  # already there, or the list is full
+                pass
+        if refs and not self._fallback_ref():
+            self.set_prefs({"fallback_model": refs[0]})
+
+    async def _gemini_ready(self, ref: str) -> None:
+        """A Gemini model needs JARVIS's relay listening before a session points at it."""
+        if self.providers.kind_of(ref) == "gemini":
+            from .gemini_proxy import PROXY
+
+            await PROXY.start()
+
+    async def _reconnect(self) -> None:
+        with contextlib.suppress(Exception):
+            await self.client.disconnect()
+        await self._connect(resume=self._session_id)
+
+    async def _fall_back(self) -> bool:
+        """Claude couldn't answer: on to the fallback model for half an hour. False when there
+        isn't one (the turn keeps Claude's error)."""
+        ref, why = self._fallback_ref(), self._claude_down
+        self._claude_down = ""
+        if not ref:
+            return False
+        self._fallback_until = time.monotonic() + FALLBACK_SECONDS
+        name = self.providers.describe(ref)
+        log.info("claude down (%s): falling back to %s", why, name)
+        self.emit(
+            "notice",
+            title="Fallback",
+            text=f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}). Using {name} for the next half hour.",
+        )
+        await self._reconnect()
+        return self._connected_ref == ref
+
+    async def _code_fallback(self, task: Any, why: str) -> None:
+        """A Jarvis Code session Claude couldn't answer: on to the fallback model, and the
+        message it was on goes again."""
+        try:
+            ref = self._fallback_ref()
+            if not ref or not self.prefs.fallback_code or task.model_ref == ref:
+                return
+            last = next(
+                (
+                    e.get("text", "")
+                    for e in reversed(task.transcript)
+                    if e.get("role") == "user" and e.get("text")
+                ),
+                "",
+            )
+            await self._gemini_ready(ref)
+            await self._task_model(task.id, ref)
+            self.tasks._log(
+                task,
+                "system",
+                f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}); this session is on {self.providers.describe(ref)} now.",
+            )
+            self.tasks._changed()
+            if last:
+                self.tasks.send(task.id, last)
+        finally:
+            task.falling_back = False
+
     async def _phone_command(self, kind: str, msg: dict[str, Any]) -> None:
         """Settings › Phone. The token only ever goes one way: into the Keychain."""
         note = ""
@@ -4391,13 +4532,16 @@ class Hub:
         store = self.providers
         try:
             if kind == "providers_add":
-                store.add_provider(
+                added = store.add_provider(
                     str(msg.get("kind", "")),
                     str(msg.get("name", "")),
                     str(msg.get("key", "")),
                     str(msg.get("base_url", "")) or None,
                     auth=str(msg.get("auth", "")) or None,
                 )
+                await self._relay_if_needed()
+                if added.get("kind") == "gemini":
+                    await self._gemini_added(added["id"])
             elif kind == "providers_set_key":
                 store.replace_key(str(msg.get("id", "")), str(msg.get("key", "")))
             elif kind == "providers_remove":

@@ -225,6 +225,7 @@ function onEvent(ev) {
       if (ev.accounts && ev.accounts.length) notice('Tools & Accounts', 'Tools updated', `Connected: ${ev.accounts.join(', ')}`, 6000);
       break;
     case 'error': notice('Heads up', 'Something went wrong', ev.text, 10000); break;
+    case 'notice': notice('Heads up', ev.title || '', ev.text || '', ev.ms || 10000); break;
   }
 }
 
@@ -728,6 +729,7 @@ function renderPrefs(p) {
   if (document.activeElement !== $('phone-from')) $('phone-from').value = p.phone_from || '';
   if (document.activeElement !== $('phone-me')) $('phone-me').value = p.phone_me || '';
   setSwitch('sw-wake-call', p.wake_call);
+  renderFallback();
   $('wake-call-time').value = p.wake_call_time || '07:00';
   $('folders').replaceChildren(...(p.brain_folders || []).map((f) => {
     const li = el('li');
@@ -763,7 +765,7 @@ function setPrefs(changes) {
 
 function toggleSettings(open) {
   $('settings').hidden = !open;
-  if (open) { send({ type: 'shortcuts' }); send({ type: 'phone_status' }); }
+  if (open) { send({ type: 'shortcuts' }); send({ type: 'phone_status' }); send({ type: 'providers_list' }); }
   $('settings-btn').setAttribute('aria-expanded', String(open));
 }
 
@@ -938,6 +940,25 @@ $('phone-test').addEventListener('click', () => { $('phone-note').textContent = 
 $('phone-from').addEventListener('change', (e) => setPrefs({ phone_from: e.target.value }));
 $('phone-me').addEventListener('change', (e) => setPrefs({ phone_me: e.target.value }));
 $('sw-wake-call').addEventListener('click', () => setPrefs({ wake_call: !prefs.wake_call }));
+
+// Settings › Brain › Fallback model: any added model (a Gemini key adds Gemini 2.5 Flash and
+// Pro, and picks Flash when none is set).
+function renderFallback() {
+  if (!prefs) return;
+  const added = ((typeof providerInfo !== 'undefined' && providerInfo && providerInfo.models) || []).filter((m) => !m.builtin);
+  const sel = $('fallback-select');
+  const none = el('option', '', tr('None'));
+  none.value = '';
+  sel.replaceChildren(none, ...added.map((m) => { const o = el('option', '', m.name || m.label || m.model); o.value = m.ref; return o; }));
+  sel.value = added.some((m) => m.ref === prefs.fallback_model) ? prefs.fallback_model : '';
+  setSwitch('sw-fallback-code', prefs.fallback_code !== false);
+  setSwitch('sw-fallback-always', !!prefs.fallback_always);
+  $('fallback-add').hidden = added.some((m) => /gemini/i.test(m.model || ''));
+}
+$('fallback-select').addEventListener('change', (e) => setPrefs({ fallback_model: e.target.value }));
+$('sw-fallback-code').addEventListener('click', () => setPrefs({ fallback_code: prefs.fallback_code === false }));
+$('sw-fallback-always').addEventListener('click', () => setPrefs({ fallback_always: !prefs.fallback_always }));
+$('fallback-add').addEventListener('click', () => { toggleSettings(false); toggleCC(true); jcsKind = 'gemini'; openJcSettings('models'); });
 $('wake-call-time').addEventListener('change', (e) => setPrefs({ wake_call_time: e.target.value }));
 function onPhoneStatus(ev) {
   $('phone-signed').textContent = ev.signed_in ? tr('Signed in') + ` · ${ev.sid_hint}` : tr('Not set up yet');
@@ -3050,6 +3071,7 @@ $('jcs-awake').addEventListener('click', () => send({ type: 'awake', on: !awake 
 
 function onProviders(ev) {
   providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '' };
+  renderFallback();
   $('jcs-advice').textContent = providerInfo.advice;
   $('jcs-advice').hidden = !providerInfo.advice;
   modelList = providerInfo.models;

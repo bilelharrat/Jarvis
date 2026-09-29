@@ -253,6 +253,11 @@
     <h3>Brain</h3>
     <label class="row" for="model-select"><span><strong>Model</strong><small>Switch any time, or just say “use Sonnet”</small></span>
       <select id="model-select"></select></label>
+    <label class="row" for="fallback-select"><span><strong>Fallback model</strong><small>Takes over when Claude can’t answer (its usage limit, an outage), with every tool</small></span>
+      <select id="fallback-select"><option value="">None</option></select></label>
+    <div class="row"><span><strong>Jarvis Code too</strong><small>A session Claude can’t answer moves to it and sends your message again</small></span><button type="button" class="switch" role="switch" id="sw-fallback-code" aria-checked="true" aria-label="Fallback in Jarvis Code too"></button></div>
+    <div class="row"><span><strong>Always use it</strong><small>Run Jarvis on it all the time, not only when Claude is down (Gemini Flash answers quickly)</small></span><button type="button" class="switch" role="switch" id="sw-fallback-always" aria-checked="false" aria-label="Always use the fallback model"></button></div>
+    <button type="button" class="btn" id="fallback-add">Add a Gemini key…</button>
   </section>
 
   <section class="group">

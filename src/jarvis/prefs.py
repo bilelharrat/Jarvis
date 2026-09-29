@@ -89,6 +89,9 @@ class Prefs:
     phone_from: str = ""  # their Twilio number, that calls come from
     wake_call: bool = False  # a wake-up call with the morning brief
     wake_call_time: str = "07:00"
+    fallback_model: str = ""  # a model ref ("custom:…") JARVIS turns to when Claude can't answer
+    fallback_code: bool = True  # … Jarvis Code sessions too
+    fallback_always: bool = False  # run JARVIS on it all the time, not only when Claude is down
     briefing_enabled: bool = True
     briefing_time: str = "08:00"
     last_briefing: str = ""
@@ -209,7 +212,7 @@ def _clean(name: str, value: Any) -> Any:
         from .transactions import clean_currency
 
         return clean_currency(value)
-    if name == "code_model":
+    if name in ("code_model", "fallback_model"):
         return clean_text(value or "").strip()[:120]
     if name == "code_effort":
         return value if value in ("", "low", "medium", "high", "xhigh", "max") else None
@@ -265,6 +268,8 @@ def _clean(name: str, value: Any) -> Any:
         "clap_hands",
         "desktop_hands",
         "wake_call",
+        "fallback_code",
+        "fallback_always",
     }:
         return bool(value)
     return None
