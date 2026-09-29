@@ -27,7 +27,18 @@ def test_meeting_soon_only_for_events_in_the_next_ten_minutes_without_travel():
         event("Later", 45),
         event("Holiday", 5, all_day=True),
     ]
-    assert [a.text for a in proactive.meeting_soon(events, NOW)] == ["Standup starts in 8 minutes."]
+    # No travel time for Lunch yet (location off, Maps unsure): it still gets a heads-up.
+    assert [a.text for a in proactive.meeting_soon(events, NOW)] == [
+        "Standup starts in 8 minutes.",
+        "Lunch starts in 8 minutes.",
+    ]
+    # With a real travel time, time_to_leave covers Lunch instead.
+    etas = {proactive.event_key(events[1]): 20}
+    assert [a.title for a in proactive.meeting_soon(events, NOW, etas)] == ["Standup"]
+    # A two-minute "trip" means you're there: back to the plain heads-up.
+    near = {proactive.event_key(events[1]): 2}
+    assert len(proactive.meeting_soon(events, NOW, near)) == 2
+    assert proactive.time_to_leave(events, NOW, near) == []
 
 
 def test_time_to_leave_uses_traffic():
@@ -62,7 +73,11 @@ def test_battery_and_rain():
     }
     [rain] = proactive.rain_alerts(weather, NOW)
     assert "15:00" in rain.text
-    assert proactive.rain_alerts({**weather, "summary": "Light rain"}, NOW) == []
+    assert rain.key == "rain:20260929"  # once a day, however the window slides
+    assert proactive.rain_alerts({**weather, "code": 63}, NOW) == []  # already raining
+    assert proactive.rain_alerts({**weather, "code": 95}, NOW) == []  # a storm counts
+    soon = {**weather, "next_hours": [{"time": "15:00", "rain": 80}]}
+    assert proactive.rain_alerts(soon, NOW)  # the very next hour counts
 
 
 def test_urgent_or_known_senders_only():
@@ -76,6 +91,17 @@ def test_urgent_or_known_senders_only():
         "Email from Bob Smith: URGENT: wire cutoff.",
         "Email from Ann Lee: Lunch?.",
     ]
+    # Name parts match whole words only, and two-letter ones don't count.
+    others = [
+        SimpleNamespace(id="4", group="Annabel Leeds", title="Hi — Annabel Leeds"),
+        SimpleNamespace(id="5", group="Li Ed", title="Hi — Li Ed"),
+        SimpleNamespace(id="6", group="Promo", title="Important update to our terms — Promo"),
+    ]
+    vip = "Ann Lee is the user's co-founder; Ed likes Li's cooking."
+    assert proactive.urgent_mail(others, set(), vip_text=vip) == []
+    # Mail from before the watcher started is never news.
+    old = SimpleNamespace(id="7", group="Bob", title="URGENT — Bob", modified="2026-09-29T09:00:00")
+    assert proactive.urgent_mail([old], set(), since=datetime(2026, 9, 29, 10, 0)) == []
 
 
 def test_quiet_hours_wrap_midnight():

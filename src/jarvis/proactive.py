@@ -26,7 +26,9 @@ ETA_EVERY = 10 * 60
 LEAVE_BUFFER_MIN = 5  # announce this long before you'd have to be out the door
 LEAVE_LOOKAHEAD_H = 3
 SOON_MIN = 10
+NEAR_MIN = 3  # an ETA this short means you're basically there
 RAIN_CHANCE = 60
+RAINY_CODES = 51  # WMO weather codes from 51 up are drizzle, rain, snow, showers, storms
 
 _VIRTUAL = re.compile(
     r"(https?://|zoom\.us|meet\.google|teams\.microsoft|microsoft teams|webex|facetime|"
@@ -35,7 +37,7 @@ _VIRTUAL = re.compile(
 )
 _URGENT = re.compile(
     r"\b(urgent|asap|emergency|time[- ]sensitive|action required|immediately|"
-    r"deadline today|due today|important)\b",
+    r"deadline today|due today)\b",
     re.IGNORECASE,
 )
 
@@ -56,13 +58,24 @@ def _clock(when: datetime) -> str:
     return when.strftime("%-I:%M %p").replace(":00 ", " ")
 
 
-def meeting_soon(events: list[dict[str, Any]], now: datetime) -> list[Alert]:
+def _travels(e: dict[str, Any], etas: dict[str, int | None]) -> bool:
+    """Needs a trip we can time: a real place and a Maps ETA worth announcing."""
+    minutes = etas.get(event_key(e))
+    return is_travel(e.get("location", "")) and minutes is not None and minutes > NEAR_MIN
+
+
+def meeting_soon(
+    events: list[dict[str, Any]], now: datetime, etas: dict[str, int | None] | None = None
+) -> list[Alert]:
+    """Starting within ten minutes, unless time_to_leave already covers it (a place we
+    have a real travel time for). A room name Maps can't place still gets this."""
+    etas = etas or {}
     out = []
     for e in events:
         if e.get("all_day"):
             continue
         minutes = (e["begin"] - now).total_seconds() / 60
-        if 0 < minutes <= SOON_MIN and not is_travel(e.get("location", "")):
+        if 0 < minutes <= SOON_MIN and not _travels(e, etas):
             left = max(1, round(minutes))
             out.append(
                 Alert(
@@ -85,7 +98,7 @@ def time_to_leave(
             continue
         key = event_key(e)
         minutes = etas.get(key)
-        if minutes is None or e["begin"] <= now:
+        if minutes is None or minutes <= NEAR_MIN or e["begin"] <= now:
             continue
         leave_at = e["begin"] - timedelta(minutes=minutes + LEAVE_BUFFER_MIN)
         if now >= leave_at:
@@ -135,16 +148,18 @@ def battery_alerts(battery: dict[str, Any] | None) -> list[Alert]:
 
 
 def rain_alerts(weather: dict[str, Any] | None, now: datetime) -> list[Alert]:
-    """Rain likely within the next two hours when it isn't raining now."""
+    """Rain likely within the next two hours when it isn't already coming down. Once a
+    day: a wet afternoon is one heads-up, not one an hour."""
     if not weather or weather.get("error"):
         return []
-    if "rain" in weather.get("summary", "").lower() or "drizzle" in weather.get("summary", ""):
+    if int(weather.get("code") or 0) >= RAINY_CODES:
         return []
-    for hour in (weather.get("next_hours") or [])[1:3]:
+    # next_hours starts at the first whole hour at or after now, so [0:2] is the next two.
+    for hour in (weather.get("next_hours") or [])[0:2]:
         if (hour.get("rain") or 0) >= RAIN_CHANCE:
             return [
                 Alert(
-                    f"rain:{now:%Y%m%d}:{hour['time']}",
+                    f"rain:{now:%Y%m%d}",
                     "rain",
                     "Rain on the way",
                     f"Rain's likely around {hour['time']}, {hour['rain']} percent chance. "
@@ -154,17 +169,33 @@ def rain_alerts(weather: dict[str, Any] | None, now: datetime) -> list[Alert]:
     return []
 
 
-def urgent_mail(notes: list[Any], seen: set[str], vip_text: str = "") -> list[Alert]:
-    """New inbox mail that looks urgent, or comes from someone the user told JARVIS about."""
-    vip = vip_text.lower()
+def _known(sender: str, vip_text: str) -> bool:
+    """Someone the user told JARVIS about: their first (and last) name appear as whole
+    words in what it remembers. Names of two letters are too common to count."""
+    parts = [p for p in re.findall(r"[\w'-]+", sender.lower())[:2] if len(p) > 2]
+    words = set(re.findall(r"[\w'-]+", vip_text.lower()))
+    return bool(parts) and all(p in words for p in parts)
+
+
+def urgent_mail(
+    notes: list[Any], seen: set[str], vip_text: str = "", since: datetime | None = None
+) -> list[Alert]:
+    """New inbox mail that looks urgent, or comes from someone the user told JARVIS about.
+    since: only mail received after this (the watcher's start), so nothing old is news."""
     out = []
     for note in notes:
         if note.id in seen:
             continue
         seen.add(note.id)
+        if since is not None and getattr(note, "modified", ""):
+            try:
+                if datetime.fromisoformat(note.modified) < since:
+                    continue
+            except ValueError:
+                pass
         sender = note.group or ""
         subject = note.title.rsplit(" — ", 1)[0]
-        known = bool(sender) and all(part.lower() in vip for part in sender.split()[:2])
+        known = bool(sender) and _known(sender, vip_text)
         if _URGENT.search(subject) or known:
             out.append(
                 Alert(
@@ -219,6 +250,7 @@ class Watcher:
         self._mail_seen: set[str] | None = None
         self._mail_at: datetime | None = None
         self._mail_off_until: datetime | None = None
+        self._started: datetime | None = None
 
     async def run(self) -> None:
         while True:
@@ -233,8 +265,9 @@ class Watcher:
             return []
         alerts: list[Alert] = []
         await self._refresh_events(now)
-        alerts += meeting_soon(self._events, now)
-        alerts += time_to_leave(self._events, now, await self._etas_for(now))
+        etas = await self._etas_for(now)
+        alerts += meeting_soon(self._events, now, etas)
+        alerts += time_to_leave(self._events, now, etas)
         alerts += battery_alerts(self._battery_fn())
         alerts += rain_alerts(self._weather_fn(), now)
         alerts += await self._mail(now)
@@ -288,5 +321,6 @@ class Watcher:
             return []
         if self._mail_seen is None:  # first look: everything already there is old news
             self._mail_seen = {n.id for n in notes}
+            self._started = now
             return []
-        return urgent_mail(notes, self._mail_seen, self._vip_fn())
+        return urgent_mail(notes, self._mail_seen, self._vip_fn(), since=self._started)

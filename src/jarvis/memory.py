@@ -24,6 +24,34 @@ SERVER_NAME = "memory"
 MAX_FACTS = 200
 MAX_FACT_CHARS = 300
 PROMPT_FACTS = 80  # newest facts that ride along in the system prompt
+MAX_FORGET = 3
+_COMMON = {
+    "the",
+    "a",
+    "an",
+    "that",
+    "this",
+    "it",
+    "is",
+    "are",
+    "was",
+    "my",
+    "me",
+    "i",
+    "user",
+    "user's",
+    "about",
+    "of",
+    "to",
+    "and",
+    "or",
+    "in",
+    "on",
+    "for",
+    "with",
+    "fact",
+    "thing",
+}
 
 # Things that must never be stored, even when asked: they'd sit in plain text on disk
 # and in every prompt.
@@ -92,12 +120,15 @@ class MemoryStore:
         return fact
 
     def forget(self, key: str) -> list[Fact]:
-        """Remove by id, or every fact containing the given words."""
+        """Remove by id, or the facts containing all the given words (common words don't
+        count). Refuses to sweep up more than a few at once."""
         key = key.strip()
         if not key:
             return []
-        wanted = _words(key)
+        wanted = _words(key) - _COMMON
         gone = [f for f in self.facts if f.id == key or (wanted and wanted <= _words(f.text))]
+        if len(gone) > MAX_FORGET:
+            raise ValueError(f"That matches {len(gone)} facts; say which one.")
         if gone:
             self.facts = [f for f in self.facts if f not in gone]
             self.save()
@@ -134,7 +165,14 @@ def _text(text: str, error: bool = False) -> dict[str, Any]:
     return result
 
 
-def build_tools(store: MemoryStore, on_change=None) -> list:
+async def _always(_action: str, _question: str) -> bool:
+    return True
+
+
+def build_tools(store: MemoryStore, on_change=None, gate=_always) -> list:
+    """gate(action, question) decides whether a change may go ahead: the app lets it through when
+    the user plainly asked for it this turn, and asks them otherwise."""
+
     def changed() -> None:
         if on_change is not None:
             on_change()
@@ -151,7 +189,10 @@ def build_tools(store: MemoryStore, on_change=None) -> list:
     )
     async def remember(args):
         try:
-            fact = store.add(str(args.get("fact", "")))
+            fact_text = str(args.get("fact", ""))
+            if not await gate("remember", f"Remember that {fact_text.rstrip('.')}?"):
+                return _text("The user didn't want that remembered.", error=True)
+            fact = store.add(fact_text)
         except ValueError as exc:
             return _text(str(exc), error=True)
         changed()
@@ -175,7 +216,13 @@ def build_tools(store: MemoryStore, on_change=None) -> list:
         {"what": str},
     )
     async def forget(args):
-        gone = store.forget(str(args.get("what", "")))
+        what = str(args.get("what", ""))
+        if not await gate("forget", f"Forget what I know about {what}?"):
+            return _text("The user said no.", error=True)
+        try:
+            gone = store.forget(what)
+        except ValueError as exc:
+            return _text(str(exc), error=True)
         if not gone:
             return _text("I had nothing like that remembered.")
         changed()
@@ -184,7 +231,7 @@ def build_tools(store: MemoryStore, on_change=None) -> list:
     return [remember, recall, forget]
 
 
-def build_server(store: MemoryStore, on_change=None):
+def build_server(store: MemoryStore, on_change=None, gate=_always):
     return create_sdk_mcp_server(
-        name=SERVER_NAME, version="0.1.0", tools=build_tools(store, on_change)
+        name=SERVER_NAME, version="0.1.0", tools=build_tools(store, on_change, gate)
     )

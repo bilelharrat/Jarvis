@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -372,6 +373,7 @@ class TaskManager:
                     task.last_action = "Working"
                     self._log(task, "user", text)
                     self._changed()
+                    turn_started = time.monotonic()
                     await client.query(text)
                     async for message in client.receive_response():
                         self._on_task_message(task, message)
@@ -389,6 +391,7 @@ class TaskManager:
                             status="done",
                             result=_brief(task),
                             report_path="",
+                            elapsed=round(time.monotonic() - turn_started),
                         )
             task.status = "closed"
         except asyncio.CancelledError:

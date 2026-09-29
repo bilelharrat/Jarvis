@@ -38,7 +38,7 @@ BLOCKED_BUILTINS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Gr
 Confirm = Callable[[str], Awaitable[bool]]
 Gate = Callable[[], Awaitable[bool]]
 ToolGate = Callable[[str, dict[str, Any]], Awaitable[bool | None]]
-ShortcutGate = Callable[[str], Awaitable[bool]]
+ShortcutGate = Callable[[str, bool], Awaitable[bool]]
 
 
 def mac_tool(name: str) -> str:
@@ -170,7 +170,7 @@ def make_permission_policy(
         tool_name: str, tool_input: dict[str, Any], _context: ToolPermissionContext
     ):
         if tool_name == mac_tool("run_shortcut") and shortcut_gate is not None:
-            if await shortcut_gate(str(tool_input.get("name", ""))):
+            if await shortcut_gate(str(tool_input.get("name", "")), bool(tool_input.get("input"))):
                 return PermissionResultAllow()
             return PermissionResultDeny(message="The user said no. Don't do it.")
         if tool_name in confirmable:

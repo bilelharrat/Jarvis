@@ -36,6 +36,15 @@ def test_each_occurrence_runs_once_and_once_switches_off(tmp_path):
     assert [x.name for x in again.take_due(datetime(2026, 9, 29, 7, 1))] == ["Brief"]
 
 
+def test_a_once_routine_in_the_past_is_refused():
+    from jarvis.routines import validate
+
+    late = datetime(2026, 9, 28, 23, 30)
+    with pytest.raises(ValueError, match="already passed"):
+        validate("once", "01:00", date="2026-09-28", now=late)  # "tonight at 1am", dated today
+    assert validate("once", "01:00", date="2026-09-29", now=late)[3] == "2026-09-29"
+
+
 def test_bad_schedules_are_refused(tmp_path):
     store = RoutineStore(tmp_path / "routines.json")
     for kwargs in (
@@ -84,5 +93,5 @@ async def test_hub_runs_a_due_routine(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
     await hub.run_routine(r("daily"))
-    assert hub.client.queries[-1] == "Brief me"
+    assert hub.client.queries[-1] == "[Routine: Brief] Brief me"  # marked, as the prompt says
     assert hub.history[0]["text"] == "Routine · Brief"

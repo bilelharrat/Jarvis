@@ -184,3 +184,12 @@ test('app: pinch and drag scrolls; a quick pinch presses', () => {
   r.step([hand({ up: ['index'] })], 1200);
   assert.equal(r.statuses.at(-1), 'Pinch to press');
 });
+
+test('a fist held on fires once until the hand opens', () => {
+  const r = rig();
+  for (let t = 0; t <= 5000; t += 100) r.step([hand()], t);
+  assert.equal(r.closed(), 1);
+  r.step([hand({ up: ['index', 'middle', 'ring', 'pinky'] })], 5100);
+  for (let t = 5200; t <= 6500; t += 100) r.step([hand()], t);
+  assert.equal(r.closed(), 2);
+});

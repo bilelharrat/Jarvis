@@ -51,6 +51,7 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
   let palmSince = 0;
   let palmDone = false;
   let fistSince = 0;
+  let fistDone = false; // one fist, one action: open the hand to do it again
   let pinching = [false, false];
   let trail = []; // open-palm positions for swipes
   let swipedAt = -1e9;
@@ -70,6 +71,7 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
       pinch = null;
       span = null;
       palmSince = fistSince = 0;
+      fistDone = false;
       palmDone = false;
       pinching = [false, false];
       trail = [];
@@ -126,20 +128,27 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
 
     if (kind === 'fist') {
       fistSince = fistSince || now;
-      if (now - fistSince >= FIST_MS) {
-        fistSince = 0;
+      if (!fistDone && now - fistSince >= FIST_MS) {
+        fistDone = true;
         close();
         return;
       }
-      status(say.closeHold);
+      if (!fistDone) status(say.closeHold);
+    } else if (kind !== 'other') {
+      // A relaxed, half-curled hand reads as "other" and flickers; only a clearly open
+      // or pointing hand re-arms the fist.
+      fistSince = 0;
+      fistDone = false;
     } else fistSince = 0;
 
     if (kind === 'pinch') {
       if (!pinch) {
-        pinch = { t: now, target: galaxy.pickAtClient(pt.x, pt.y), moved: 0, last: pt };
+        pinch = { t: now, target: galaxy.pickAtClient(pt.x, pt.y), moved: 0, last: pt, start: pt };
       } else {
         const dx = pt.x - pinch.last.x, dy = pt.y - pinch.last.y;
-        pinch.moved += Math.abs(dx) + Math.abs(dy);
+        // How far from where the pinch began (not the path length: the smoothed cursor
+        // keeps settling for a moment after a pinch starts).
+        pinch.moved = Math.max(pinch.moved, Math.hypot(pt.x - pinch.start.x, pt.y - pinch.start.y));
         if (galaxy.drag) galaxy.drag(dx, dy);
         else if (galaxy.rotateBy) galaxy.rotateBy(dx * 0.006, dy * 0.006);
         pinch.last = pt;

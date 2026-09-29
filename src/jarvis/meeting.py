@@ -10,6 +10,7 @@ the app quits mid-meeting. Notes live in ~/Documents/Jarvis/Meetings.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -61,6 +62,8 @@ class Meeting:
         directory = directory or MEETINGS_DIR
         directory.mkdir(parents=True, exist_ok=True)
         self.path = directory / f"{self.started:%Y-%m-%d %H%M} {_slug(self.title)}.md"
+        if self.path.exists():  # two meetings in the same minute with the same title
+            self.path = directory / f"{self.started:%Y-%m-%d %H%M%S} {_slug(self.title)}.md"
         self.lines: list[tuple[datetime, str]] = []
         self._pending: asyncio.Queue = asyncio.Queue()
         self._worker: asyncio.Task | None = None
@@ -73,33 +76,41 @@ class Meeting:
         self._worker = asyncio.create_task(self._work(transcriber))
 
     async def _work(self, transcriber: Any) -> None:
+        """Swap each quick line for the notes model's better one. The quick line is
+        already saved, so a slow model download or a crash loses nothing."""
         while True:
             item = await self._pending.get()
             if item is None:
                 return
-            audio, fallback, at = item
-            text = fallback
-            if transcriber is not None:
+            index, audio = item
+            if transcriber is None:
+                continue
+            try:
+                better = await asyncio.to_thread(transcriber.transcribe, audio)
+            except Exception as exc:  # model download failed, odd audio
+                log.info("notes model unavailable (%s); keeping the quick transcript", exc)
+                transcriber = None
+                continue
+            better = " ".join(str(better).split())
+            if better and index < len(self.lines):
+                self.lines[index] = (self.lines[index][0], better)
                 try:
-                    text = await asyncio.to_thread(transcriber.transcribe, audio) or fallback
-                except Exception as exc:  # model download failed, odd audio
-                    log.info("notes model unavailable (%s); keeping the quick transcript", exc)
-                    transcriber = None
-            self.add_text(text, at)
+                    self._write()
+                except OSError as exc:
+                    log.warning("couldn't save meeting notes: %s", exc)
 
     def add(self, audio: Any, quick_text: str, at: datetime | None = None) -> None:
+        """Save the quick transcript now; refine it in the background if a notes model
+        is running. Lines the quick model heard as nothing still get a second listen."""
         at = at or datetime.now()
-        if self._worker is None:
-            self.add_text(quick_text, at)
-        else:
-            self._pending.put_nowait((audio, quick_text, at))
+        self.lines.append((at, " ".join(str(quick_text).split())))
+        with contextlib.suppress(OSError):
+            self._write()
+        if self._worker is not None and audio is not None:
+            self._pending.put_nowait((len(self.lines) - 1, audio))
 
     def add_text(self, text: str, at: datetime | None = None) -> None:
-        text = " ".join(str(text).split())
-        if not text:
-            return
-        self.lines.append((at or datetime.now(), text))
-        self._write()
+        self.add(None, text, at)
 
     async def finish_transcript(self) -> None:
         if self._worker is not None:
@@ -108,7 +119,7 @@ class Meeting:
             self._worker = None
 
     def transcript(self) -> str:
-        return "\n".join(f"[{at:%H:%M}] {text}" for at, text in self.lines)
+        return "\n".join(f"[{at:%H:%M}] {text}" for at, text in self.lines if text)
 
     def words(self) -> int:
         return sum(len(text.split()) for _, text in self.lines)
@@ -198,7 +209,10 @@ def build_tools(hub: Any) -> list:
         {"title": str},
     )
     async def start_meeting_notes(args):
-        return _text(await hub.start_meeting(str(args.get("title", "")) or "Meeting"))
+        title = str(args.get("title", "")) or "Meeting"
+        if not await hub.feature_gate("start_meeting", f"Start taking notes for {title}?"):
+            return _text("The user said no. Don't take notes.", error=True)
+        return _text(await hub.start_meeting(title))
 
     @tool(
         "stop_meeting_notes",

@@ -80,8 +80,28 @@ def events(hours_back: float, hours_ahead: float) -> dict[str, Any]:
     return {"events": out}
 
 
+_lock: asyncio.Lock | None = None
+_lock_loop: Any = None
+_denied_until = 0.0
+DENIED_RETRY = 120  # after "no access", don't ask the helper again for a while
+
+
 async def fetch(hours_back: float = 0, hours_ahead: float = 24, timeout: float = 70) -> dict:
-    """Run the helper from the app. {"events": [...]} or {"error": ...}."""
+    """Run the helper from the app. {"events": [...]} or {"error": ...}. One at a time:
+    while macOS shows the access prompt, a second helper would only wait on it too."""
+    global _lock, _lock_loop, _denied_until
+    if _lock is None or _lock_loop is not asyncio.get_running_loop():
+        _lock, _lock_loop = asyncio.Lock(), asyncio.get_running_loop()
+    async with _lock:
+        if time.monotonic() < _denied_until:
+            return {"error": NO_ACCESS}
+        found = await _fetch(hours_back, hours_ahead, timeout)
+        if found.get("error") == NO_ACCESS:
+            _denied_until = time.monotonic() + DENIED_RETRY
+        return found
+
+
+async def _fetch(hours_back: float, hours_ahead: float, timeout: float) -> dict:
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
@@ -96,6 +116,7 @@ async def fetch(hours_back: float = 0, hours_ahead: float = 24, timeout: float =
         out, _ = await asyncio.wait_for(proc.communicate(), timeout)
     except TimeoutError:
         proc.kill()
+        await proc.wait()  # reap it
         return {"error": "The calendar took too long to answer."}
     try:
         return json.loads(out.decode().strip().splitlines()[-1])

@@ -49,3 +49,27 @@ async def test_tools_round_trip(tmp_path):
     assert "aisle seats" in listed["content"][0]["text"]
     gone = await tools["forget"]({"what": store.facts[0].id})
     assert "Forgot" in gone["content"][0]["text"] and store.facts == [] and changes == [1, 1]
+
+
+def test_forget_ignores_common_words_and_refuses_sweeps(tmp_path):
+    store = MemoryStore(tmp_path / "memory.json")
+    for fact in ["Ann likes tea.", "Bob likes that bakery.", "Cy likes jazz.", "Di likes golf."]:
+        store.add(fact)
+    assert store.forget("that") == []  # "that" alone means nothing
+    with pytest.raises(ValueError, match="matches 4 facts"):
+        store.forget("likes")
+    assert [f.text for f in store.forget("that bakery")] == ["Bob likes that bakery."]
+
+
+async def test_changes_go_through_the_gate(tmp_path):
+    store = MemoryStore(tmp_path / "memory.json")
+    asked = []
+
+    async def gate(action, question):
+        asked.append((action, question))
+        return False
+
+    tools = {t.name: t.handler for t in build_tools(store, gate=gate)}
+    out = await tools["remember"]({"fact": "The user's new PIN pad is by the door."})
+    assert out["is_error"] and store.facts == []
+    assert asked[0][0] == "remember"

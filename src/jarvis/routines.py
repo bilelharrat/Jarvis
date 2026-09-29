@@ -88,7 +88,11 @@ class Routine:
 
 
 def validate(
-    kind: str, time: str, days: list[Any] | None = None, date: str = ""
+    kind: str,
+    time: str,
+    days: list[Any] | None = None,
+    date: str = "",
+    now: datetime | None = None,
 ) -> tuple[str, str, list[int], str]:
     kind = str(kind).strip().lower()
     if kind not in KINDS:
@@ -103,9 +107,13 @@ def validate(
         raise ValueError("weekly routines need days, 0 = Monday … 6 = Sunday")
     if kind == "once":
         try:
-            datetime.fromisoformat(str(date))
+            day = datetime.fromisoformat(str(date))
         except ValueError:
             raise ValueError("once needs a date, YYYY-MM-DD") from None
+        hour, minute = map(int, time.split(":"))
+        if day.replace(hour=hour, minute=minute) <= (now or datetime.now()):
+            # e.g. "tonight at 1am" said at 23:30 but dated today: it would never run.
+            raise ValueError("that time has already passed; use the next date it happens")
     return kind, time, clean_days if kind == "weekly" else [], str(date) if kind == "once" else ""
 
 
@@ -190,10 +198,15 @@ def _text(text: str, error: bool = False) -> dict[str, Any]:
     return out
 
 
+async def _always(_action: str, _question: str) -> bool:
+    return True
+
+
 def build_tools(
     store: RoutineStore,
     confirm: Callable[[str], Awaitable[bool]],
     on_change: Callable[[], None] = lambda: None,
+    gate: Callable[[str, str], Awaitable[bool]] = _always,
 ) -> list:
     @tool(
         "create_routine",
@@ -254,7 +267,12 @@ def build_tools(
         {"routine": str},
     )
     async def delete_routine(args):
-        routine = store.remove(str(args.get("routine", "")))
+        found = store.find(str(args.get("routine", "")))
+        if found is None:
+            return _text("No routine like that.", error=True)
+        if not await gate("delete_routine", f"Delete the routine “{found.name}”?"):
+            return _text("The user said no.", error=True)
+        routine = store.remove(found.id)
         if routine is None:
             return _text("No routine like that.", error=True)
         on_change()
@@ -266,7 +284,14 @@ def build_tools(
         {"routine": str, "enabled": bool},
     )
     async def pause_routine(args):
-        routine = store.set_enabled(str(args.get("routine", "")), bool(args.get("enabled")))
+        found = store.find(str(args.get("routine", "")))
+        on = bool(args.get("enabled"))
+        if found is None:
+            return _text("No routine like that.", error=True)
+        verb = "Resume" if on else "Pause"
+        if not await gate("pause_routine", f"{verb} the routine “{found.name}”?"):
+            return _text("The user said no.", error=True)
+        routine = store.set_enabled(found.id, on)
         if routine is None:
             return _text("No routine like that.", error=True)
         on_change()
@@ -275,7 +300,7 @@ def build_tools(
     return [create_routine, list_routines, delete_routine, pause_routine]
 
 
-def build_server(store, confirm, on_change=lambda: None):
+def build_server(store, confirm, on_change=lambda: None, gate=_always):
     return create_sdk_mcp_server(
-        name=SERVER_NAME, version="0.1.0", tools=build_tools(store, confirm, on_change)
+        name=SERVER_NAME, version="0.1.0", tools=build_tools(store, confirm, on_change, gate)
     )

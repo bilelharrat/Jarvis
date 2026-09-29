@@ -1256,7 +1256,10 @@ function sendLocation() {
 
 // ── cards ──
 
+let instantShortcuts = new Set();
+
 function renderShortcuts(names, instant) {
+  instantShortcuts = new Set(instant);
   const list = $('shortcut-list');
   if (!names.length) {
     list.replaceChildren(el('li', 'muted', 'No shortcuts on this Mac yet. Make some in the Shortcuts app (Home scenes work well).'));
@@ -1273,9 +1276,9 @@ function renderShortcuts(names, instant) {
     sw.addEventListener('click', () => {
       const on = sw.getAttribute('aria-checked') !== 'true';
       sw.setAttribute('aria-checked', String(on));
-      const now = new Set(prefs.instant_shortcuts || []);
-      if (on) now.add(name); else now.delete(name);
-      setPrefs({ instant_shortcuts: [...now] });
+      // Kept locally too, so two quick toggles don't race the settings echo.
+      if (on) instantShortcuts.add(name); else instantShortcuts.delete(name);
+      setPrefs({ instant_shortcuts: [...instantShortcuts] });
     });
     li.append(label, sw);
     return li;

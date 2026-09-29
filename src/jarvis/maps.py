@@ -172,6 +172,7 @@ async def run_helper(*args: str, timeout: float = 25) -> dict[str, Any]:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout)
     except TimeoutError:
         proc.kill()
+        await proc.wait()  # reap it
         return {"error": "Location services took too long."}
     try:
         return json.loads(out.decode().strip().splitlines()[-1])

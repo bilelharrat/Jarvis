@@ -120,3 +120,44 @@ async def test_hub_meeting_mode(settings, quiet_speaker, isolated, tmp_path):
     await asyncio.sleep(0)
     assert rebuilt == [{"meetings"}]
     hub.set_prefs({"hands_free": False})
+
+
+async def test_lines_are_saved_before_the_notes_model_finishes(tmp_path):
+    class Slow:
+        def transcribe(self, audio):
+            return f"refined {audio}"
+
+    m = Meeting("x", tmp_path)
+    m.start_worker(Slow())
+    m.add("a1", "quick one")
+    assert "quick one" in m.path.read_text()  # on disk straight away
+    await m.finish_transcript()
+    assert "refined a1" in m.path.read_text() and "quick one" not in m.path.read_text()
+
+
+async def test_a_failing_notes_model_keeps_the_quick_lines(tmp_path):
+    class Broken:
+        def transcribe(self, audio):
+            raise RuntimeError("no model")
+
+    m = Meeting("x", tmp_path)
+    m.start_worker(Broken())
+    m.add("a1", "first")
+    m.add("a2", "second")
+    await m.finish_transcript()
+    assert [t for _, t in m.lines] == ["first", "second"]
+
+
+async def test_meeting_speech_that_echoes_the_title_is_kept(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import make_hub
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.meeting = Meeting("budget review", tmp_path)
+    hub.turn = {"reply": "Taking notes for the budget review. Everything said is transcribed."}
+    hub._spoke_until = 0  # JARVIS finished talking long ago
+    assert hub._meeting_capture(None, "So the budget review is done")
+    assert "budget review is done" in hub.meeting.transcript()
+    hub._armed_until = __import__("time").monotonic() + 5  # "Jarvis" … then the question
+    assert hub._meeting_capture(None, "what's the weather") is False
