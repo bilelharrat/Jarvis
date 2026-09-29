@@ -3242,7 +3242,12 @@ function pageName(url, title) {
   const own = String(title || '').replace(/\s*[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
   if (own && !/^BSH Research Center$/i.test(own)) return own;
   let path = '/';
-  try { path = new URL(url).pathname.replace(/\/+$/, '') || '/'; } catch (_) { return own; }
+  try {
+    path = new URL(url).pathname;
+    let end = path.length;
+    while (end > 0 && path[end - 1] === '/') end -= 1; // a loop: /\/+$/ is quadratic on long runs
+    path = path.slice(0, end) || '/';
+  } catch (_) { return own; }
   if (RC_NAMES[path]) return RC_NAMES[path];
   const last = decodeURIComponent(path.split('/').filter(Boolean).pop() || '');
   return last ? last.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Home';

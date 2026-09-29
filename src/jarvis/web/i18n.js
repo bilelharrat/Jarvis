@@ -20,20 +20,36 @@
     shown: new WeakMap(), // text node -> the Chinese we put there
     attrSource: new WeakMap(), // element -> { attr: English }
     observer: null,
+    memo: new Map(), // English -> its Chinese (or null): each string is worked out once
   };
+  // Longer texts are the user's words or data (a pasted path, a reply), never one of the
+  // window's own sentences: only the dictionary is asked, not the ~340 patterns.
+  const PATTERN_MAX = 500;
+  const MEMO_MAX = 5000;
 
-  function lookup(text) {
-    const key = text.replace(/\s+/g, ' ').trim();
-    if (!key || !state.strings) return null;
+  function translate(key) {
     let out = state.strings[key];
-    if (out === undefined) {
+    if (out === undefined && key.length <= PATTERN_MAX) {
       for (const [re, rep] of state.patterns) {
         if (re.test(key)) { out = key.replace(re, rep); break; }
       }
     }
-    if (out === undefined || out === key) return null;
-    const lead = text.match(/^\s*/)[0];
-    const tail = text.match(/\s*$/)[0];
+    return out === undefined || out === key ? null : out;
+  }
+
+  function lookup(text) {
+    const key = text.replace(/\s+/g, ' ').trim();
+    if (!key || !state.strings) return null;
+    let out = state.memo.get(key);
+    if (out === undefined) {
+      out = translate(key);
+      if (state.memo.size >= MEMO_MAX) state.memo.clear();
+      state.memo.set(key, out);
+    }
+    if (out === null) return null;
+    // Sliced, not matched: /\s*$/ is tried from every space of a long run.
+    const lead = text.slice(0, text.length - text.trimStart().length);
+    const tail = text.slice(text.trimEnd().length);
     return lead + out + tail;
   }
 
@@ -148,9 +164,14 @@
     if (lang === 'zh') await load();
     state.lang = lang;
     document.documentElement.lang = lang === 'zh' ? 'zh-Hans' : 'en';
-    if (lang === 'zh') walk(document.body);
-    else restore(document.body);
-    watch();
+    if (lang === 'zh') {
+      walk(document.body);
+      watch();
+    } else {
+      restore(document.body);
+      // English is what the window writes: nothing to watch for until 中文 again.
+      if (state.observer) { state.observer.disconnect(); state.observer = null; }
+    }
   }
 
   window.jarvisI18n = {
