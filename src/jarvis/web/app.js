@@ -311,6 +311,7 @@ function onSources(ev) {
   const list = sources.get(ev.rid) || [];
   for (const item of ev.items) if (!list.some((s) => s.id === item.id)) list.push(item);
   sources.set(ev.rid, list);
+  forgetOldTurns(sources);
   if (ev.rid === currentRid) renderSources();
   // The galaxy flies to the note Jarvis is drawing on.
   if (galaxyData && galaxyData.nodes.length) {
@@ -320,11 +321,18 @@ function onSources(ev) {
   }
 }
 
+// One entry per request: only the recent ones can still be shown, so the rest go.
+const TURNS_KEPT = 50;
+function forgetOldTurns(map) {
+  while (map.size > TURNS_KEPT) map.delete(map.keys().next().value);
+}
+
 // Files the index found for a request: open one, or ⌥-click to show it in Finder.
 const foundFiles = new Map();
 function onFiles(ev) {
   if (!ev.items || !ev.items.length) return;
   foundFiles.set(ev.rid, ev.items);
+  forgetOldTurns(foundFiles);
   if (ev.rid === currentRid) renderFiles();
 }
 function renderFiles() {
