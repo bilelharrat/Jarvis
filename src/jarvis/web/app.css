@@ -2413,3 +2413,9 @@ body[data-look="orb"] .wx-pop {
 @media (prefers-reduced-motion: reduce) {
   #p-weather.wx-ready:hover, #p-weather.wx-ready:focus-visible { transform: none; }
 }
+
+/* A video's write-up in full, on its card: scrolls rather than filling the window. */
+.video-summary { max-height: 50vh; overflow-y: auto; white-space: normal; }
+.video-summary h4 { margin: 8px 0 4px; font-size: 12px; opacity: .8; }
+.video-summary p { margin: 0 0 6px; }
+.video-summary .li { margin: 2px 0 2px 4px; }

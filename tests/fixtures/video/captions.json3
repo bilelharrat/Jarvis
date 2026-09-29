@@ -1,0 +1,55 @@
+{
+ "wireMagic": "pb3",
+ "pens": [
+  {}
+ ],
+ "events": [
+  {
+   "tStartMs": 0,
+   "dDurationMs": 1000,
+   "id": 1,
+   "wpWinPosId": 1,
+   "wsWinStyleId": 1
+  },
+  {
+   "tStartMs": 1200,
+   "dDurationMs": 4000,
+   "segs": [
+    {
+     "utf8": "Welcome to the quarterly review."
+    }
+   ]
+  },
+  {
+   "tStartMs": 5200,
+   "dDurationMs": 3000,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 34000,
+   "dDurationMs": 5000,
+   "segs": [
+    {
+     "utf8": "Revenue grew "
+    },
+    {
+     "utf8": "twelve percent."
+    }
+   ]
+  },
+  {
+   "tStartMs": 65500,
+   "dDurationMs": 6000,
+   "segs": [
+    {
+     "utf8": "Sarah will send the budget by Friday &amp; we launch in November."
+    }
+   ]
+  }
+ ]
+}

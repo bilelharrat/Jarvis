@@ -482,6 +482,86 @@ test('/rename with nothing after it names the session in place', async () => {
   assert(!(await sent()).includes('task_rename'), 'renamed to nothing');
 });
 
+// ── what JARVIS learns (suggestions, interruptions, your words), documents and videos ──
+
+const clickText = (root, label) => js(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(root)} + ' button')].find((x) => x.textContent === ${JSON.stringify(label)}); if (!b) return false; b.click(); return true; })()`);
+const sentOf = (type) => js(`__sent.filter((m) => m.type === ${JSON.stringify(type)})`);
+
+test('A suggestion card tells the hub once which button was pressed, and goes', async () => {
+  const card = (key) => `onEvent({ type: 'suggestion', key: '${key}', category: 'habit', title: 'Your usual', text: 'The weather, as most weekdays around now?', request: 'what’s the weather?' })`;
+  await js(card('habit:a'));
+  assert(await clickText('[data-suggestion="habit:a"]', 'Do it'), 'no Do it');
+  await js(card('habit:b'));
+  assert(await clickText('[data-suggestion="habit:b"]', 'Don’t suggest this'), 'no Don’t suggest this');
+  const r = await sentOf('suggestion_reaction');
+  assert(JSON.stringify(r.map((m) => [m.key, m.action])) === JSON.stringify([['habit:a', 'accepted'], ['habit:b', 'never']]), JSON.stringify(r));
+  assert(await js('!document.querySelector("[data-suggestion]")'), 'a suggestion card stayed');
+});
+
+test('An interruption card has Open; Open and Dismiss teach, other heads-ups have no Open', async () => {
+  await js('onEvent({ type: "alert", key: "interrupt:message:5", alert_kind: "message", title: "Bob Chen", text: "Call me asap" })');
+  assert(await clickText('#cards .card.plain', 'Dismiss'), 'no Dismiss');
+  await js('onEvent({ type: "alert", key: "interrupt:mail:9", alert_kind: "mail", title: "Ann", text: "Contract" })');
+  assert(await clickText('#cards .card.plain', 'Open'), 'no Open');
+  await js('onEvent({ type: "alert", key: "rain:1", alert_kind: "rain", title: "Rain", text: "Rain at 5" })');
+  const r = await js('({ sent: __sent.filter((m) => m.type === "alert_reaction").map((m) => m.key + " " + m.action), opens: [...$("cards").querySelectorAll("button")].filter((b) => b.textContent === "Open").length, cards: $("cards").querySelectorAll(".card.plain").length })');
+  assert(JSON.stringify(r.sent) === JSON.stringify(['interrupt:message:5 dismissed', 'interrupt:mail:9 opened']), JSON.stringify(r));
+  assert(r.opens === 0 && r.cards === 1, JSON.stringify(r));
+});
+
+test('Settings lists what was learned and your documents, each with its button', async () => {
+  await js(`
+    onEvent({ type: 'hearing', corrections: [{ heard: 'akin', meant: 'Okin', count: 1, at: '' }], words: [{ word: 'Okin', count: 3, why: 'corrected' }] });
+    onEvent({ type: 'interrupt_learning', items: [{ who: 'Bob Chen', state: 'muted', why: 'I stopped interrupting you for Bob Chen: you dismissed his last 5.' }] });
+    onEvent({ type: 'documents', items: [{ path: '/Users/x/Documents/JARVIS/Memo.docx', title: 'Memo', gist: 'the Q3 plan', format: 'docx', action: 'wrote', at: '' }] });
+    onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, learn_speech: true, learn_interruptions: false, suggestions: true, documents_folder: '~/Work' });
+    toggleSettings(true); __sent.length = 0; true`);
+  const shown = await js('({ hearing: $("hearing-list").textContent, learned: $("interrupt-learning-list").textContent, docs: $("document-list").textContent, speech: $("sw-learn-speech").getAttribute("aria-checked"), interrupts: $("sw-learn-interrupts").getAttribute("aria-checked"), folder: $("documents-folder").value })');
+  assert(shown.hearing.includes('akin → Okin') && shown.hearing.includes('Words I listen for: Okin'), JSON.stringify(shown));
+  assert(shown.learned.includes('Bob Chen') && shown.docs.includes('Memo — the Q3 plan'), JSON.stringify(shown));
+  assert(shown.speech === 'true' && shown.interrupts === 'false' && shown.folder === '~/Work', JSON.stringify(shown));
+  await clickText('#hearing-list', 'Forget');
+  await clickText('#interrupt-learning-list', 'Undo');
+  await clickText('#document-list', 'Open');
+  await js('$("sw-learn-interrupts").click(); true');
+  const r = await js('__sent.map((m) => [m.type, m.what || m.who || m.path || JSON.stringify(m.changes || "")])');
+  assert(JSON.stringify(r) === JSON.stringify([['hearing_forget', 'akin'], ['interrupt_learning_reset', 'Bob Chen'], ['document_open', '/Users/x/Documents/JARVIS/Memo.docx'], ['set_prefs', '{"learn_interruptions":true}']]), JSON.stringify(r));
+  await js('onEvent({ type: "hearing", corrections: [], words: [] }); true');
+  assert(await js('$("hearing-list").textContent') === 'Nothing learned yet.', 'empty list not said');
+});
+
+test('A video card shows progress and Cancel, then the write-up as text, never as HTML', async () => {
+  await js('__sent.length = 0; onEvent({ type: "video", job: { id: 3, title: "Q3 review", kind: "file", state: "transcribing", progress: 0.42 } })');
+  assert(await js('$("cards").textContent.includes("Transcribing… 42%")'), 'no progress');
+  await clickText('#cards .card.plain', 'Cancel');
+  await js(`onEvent({ type: 'video_summary', id: 3, title: 'Q3 review', path: '/Users/x/Documents/Jarvis/Videos/Q3 review.md',
+    markdown: '## Summary\\nRevenue grew <img src=x onerror="window.__pwned=1">.\\n## Key points\\n- Budget due Friday\\n- [ ] Sarah sends it' })`);
+  await frames(2);
+  const r = await js('({ imgs: $("cards").querySelectorAll(".video-summary img").length, pwned: !!window.__pwned, text: $("cards").querySelector(".video-summary").textContent, cards: $("cards").querySelectorAll(".card.plain").length })');
+  assert(r.imgs === 0 && !r.pwned && r.text.includes('<img src=x') && r.text.includes('• Sarah sends it'), JSON.stringify(r));
+  assert(r.cards === 1, 'the write-up should replace the progress card');
+  await js('onEvent({ type: "video", job: { id: 3, title: "Q3 review", kind: "file", state: "ready", progress: 1 } })');
+  assert(await js('$("cards").querySelector(".video-summary") !== null'), 'progress replaced the write-up');
+  await clickText('#cards .card.plain', 'Open');
+  const s = await js('__sent.map((m) => m.type + " " + m.id)');
+  assert(JSON.stringify(s) === JSON.stringify(['video_cancel 3', 'video_open 3']), JSON.stringify(s));
+});
+
+test('A file dropped on the window never replaces it; a video dropped is sent to be summarized', async () => {
+  const drop = (name, type) => js(`(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['x'], ${JSON.stringify(name)}, { type: ${JSON.stringify(type)} }));
+    const ev = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true });
+    $('orb').dispatchEvent(ev);
+    return ev.defaultPrevented;
+  })()`);
+  await js('window.jarvisApp = { pathFor: (f) => "/Users/x/Movies/" + f.name }; __sent.length = 0; true');
+  assert(await drop('notes.pdf', 'application/pdf'), 'a PDF drop would open the file in the window');
+  assert(await drop('talk.mov', 'video/quicktime'), 'the video drop was not taken');
+  const r = await js('__sent');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'video_summarize', path: '/Users/x/Movies/talk.mov' }]), JSON.stringify(r));
+});
+
 // ──
 
 let base;

@@ -154,6 +154,14 @@ QUIET_RESULTS = frozenset(
         # Their results carry no one's words: a mode, a status.
         "mcp__interrupts__set_interruptions",
         "mcp__interrupts__interruptions_status",
+        "mcp__interrupts__reset_interruption_learning",
+        # What was learned of the owner's words, and where a document went.
+        "mcp__hearing__learn_word",
+        "mcp__hearing__learned_words",
+        "mcp__hearing__forget_word",
+        "mcp__documents__write_document",
+        "mcp__documents__open_document",
+        "mcp__suggestions__reset_suggestions",
     }
 )
 # Web pages: anyone's words (so possibly instructions), but not the user's secrets.

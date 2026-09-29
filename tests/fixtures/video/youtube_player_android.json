@@ -1,0 +1,30 @@
+{
+ "playabilityStatus": {
+  "status": "OK"
+ },
+ "videoDetails": {
+  "videoId": "AbCdEfGhIjK",
+  "title": "Quarterly Review: Launch Plan",
+  "author": "Summit Labs",
+  "lengthSeconds": "95"
+ },
+ "captions": {
+  "playerCaptionsTracklistRenderer": {
+   "captionTracks": [
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=AbCdEfGhIjK&caps=asr&lang=en&kind=asr&fmt=srv3&signature=abc",
+     "languageCode": "en",
+     "kind": "asr"
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=AbCdEfGhIjK&lang=en&signature=def",
+     "languageCode": "en"
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=AbCdEfGhIjK&lang=de&signature=ghi",
+     "languageCode": "de"
+    }
+   ]
+  }
+ }
+}

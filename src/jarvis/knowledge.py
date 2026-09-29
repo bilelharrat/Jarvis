@@ -36,11 +36,12 @@ log = logging.getLogger("jarvis")
 
 RESEARCH_DIR = Path.home() / "Documents" / "Jarvis" / "Research"
 MEETINGS_DIR = Path.home() / "Documents" / "Jarvis" / "Meetings"
+VIDEOS_DIR = Path.home() / "Documents" / "Jarvis" / "Videos"  # video.py files write-ups here
 TEXT_SUFFIXES = {".md", ".markdown", ".txt", ".org", ".rst"}
 RICH_SUFFIXES = {".docx", ".doc", ".rtf", ".rtfd", ".pages"}
 DOC_SUFFIXES = TEXT_SUFFIXES | RICH_SUFFIXES | {".pdf"}
 SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".venv", "venv", "dist", "build"}
-FOLDER_SOURCES = {"files", "computer", "research", "meetings"}
+FOLDER_SOURCES = {"files", "computer", "research", "meetings", "videos"}
 MAX_FILES_PER_FOLDER = 4000
 MAX_TEXT = 200_000
 CHUNK = 1200
@@ -979,6 +980,7 @@ class Collector:
             gather("messages", more.collect_messages)
         gather("research", lambda: collect_folder(RESEARCH_DIR, source="research", readers=readers))
         gather("meetings", lambda: collect_folder(MEETINGS_DIR, source="meetings", readers=readers))
+        gather("videos", lambda: collect_folder(VIDEOS_DIR, source="videos", readers=readers))
 
         # Sources are independent (mostly other apps answering), so read them side by
         # side; a slow one can't hold up the rest, and all must be done in SOURCE_SECONDS.

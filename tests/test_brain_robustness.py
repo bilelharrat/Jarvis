@@ -298,6 +298,7 @@ def test_a_rebuild_starts_one_set_of_readers(tmp_path, monkeypatch):
             (tmp_path / name / f"{name} {i}.md").write_text(f"# {name} {i}\nbudget review")
     monkeypatch.setattr(knowledge, "RESEARCH_DIR", tmp_path / "Research")
     monkeypatch.setattr(knowledge, "MEETINGS_DIR", tmp_path / "Meetings")
+    monkeypatch.setattr(knowledge, "VIDEOS_DIR", tmp_path / "Videos")
     kb = KnowledgeBase(tmp_path / "index.json")
     summary = Collector(kb, None).run(notes=False, bsh=False, folders=[str(tmp_path / "Chosen")])
     assert summary["by_source"] == {"files": 60, "meetings": 60, "research": 60}
@@ -312,6 +313,7 @@ def test_search_and_other_sources_never_hand_over_a_secret(tmp_path, monkeypatch
 
     monkeypatch.setattr(knowledge, "RESEARCH_DIR", tmp_path / "none")
     monkeypatch.setattr(knowledge, "MEETINGS_DIR", tmp_path / "none")
+    monkeypatch.setattr(knowledge, "VIDEOS_DIR", tmp_path / "none")
     monkeypatch.setattr(
         knowledge,
         "collect_apple_notes",

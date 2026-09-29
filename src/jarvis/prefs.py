@@ -132,6 +132,10 @@ class Prefs:
     interruptions: str = "urgent"  # texts and email that interrupt: urgent | all | off
     vips: list[str] = field(default_factory=list)  # names, numbers or emails that always count
     file_index: bool = True  # JARVIS's own index of their files, kept on this Mac
+    learn_speech: bool = True  # learn the owner's words and corrections (hearing.py)
+    learn_interruptions: bool = True  # learn from how they react to interruptions
+    suggestions: bool = True  # gentle suggestions: habits, meeting prep, email due dates
+    documents_folder: str = ""  # where documents are saved ("": ~/Documents/JARVIS)
     # Purchases in the built-in browser, one confirmation each; Settings only, never a tool.
     pay_enabled: bool = True
     pay_currency: str = "USD"
@@ -201,6 +205,14 @@ def _clean(name: str, value: Any) -> Any:
         return re.sub(r"\s+", " ", clean_text(value or "")).strip()[:40]
     if name == "interruptions":
         return value if value in ("urgent", "all", "off") else None
+    if name == "documents_folder":
+        from .documents import default_folder, usable_folder
+
+        raw = clean_text(value or "").strip()[:500]
+        try:
+            return str(usable_folder(raw, default_folder())) if raw else ""
+        except (ValueError, OSError):
+            return None
     if name == "vips":
         if not isinstance(value, list):
             return None
@@ -266,6 +278,9 @@ def _clean(name: str, value: Any) -> Any:
         "code_queue",
         "code_ultracode",
         "file_index",
+        "learn_speech",
+        "learn_interruptions",
+        "suggestions",
         "pay_enabled",
         "clap_hands",
         "desktop_hands",

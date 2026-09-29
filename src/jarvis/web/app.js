@@ -105,6 +105,10 @@ function onEvent(ev) {
       $('v-accounts').textContent = (ev.accounts || []).length;
       $('v-model').textContent = ev.model_name || '–';
       renderMemory(ev.memory || []);
+      if (ev.hearing) renderHearing(ev.hearing);
+      if (ev.documents) renderDocuments(ev.documents);
+      if (ev.interrupt_learning) renderInterruptLearning(ev.interrupt_learning);
+      (ev.videos || []).filter((j) => !VIDEO_DONE.includes(j.state)).forEach(onVideo);  // still going
       if (ev.providers) onProviders(ev.providers);
       if (ev.goals) renderGoals(ev.goals);
       if (ev.delegations) renderDelegations(ev.delegations);
@@ -116,6 +120,12 @@ function onEvent(ev) {
       onVoiceCode(ev.voicecode);
       break;
     case 'memory': renderMemory(ev.items || []); break;
+    case 'hearing': renderHearing(ev); break;
+    case 'documents': renderDocuments(ev.items || []); break;
+    case 'interrupt_learning': renderInterruptLearning(ev.items || []); break;
+    case 'suggestion': onSuggestion(ev); break;
+    case 'video': onVideo(ev.job); break;
+    case 'video_summary': onVideoSummary(ev); break;
     case 'goals': renderGoals(ev); break;
     case 'delegations': renderDelegations(ev.items || []); break;
     case 'purchases': renderPurchases(ev); break;
@@ -725,6 +735,10 @@ function renderPrefs(p) {
   }
   if (p.pay_currency) $('pay-currency').value = p.pay_currency;
   setSwitch('sw-file-index', p.file_index !== false);
+  setSwitch('sw-learn-speech', p.learn_speech !== false);
+  setSwitch('sw-learn-interrupts', p.learn_interruptions !== false);
+  setSwitch('sw-suggestions', p.suggestions !== false);
+  if (document.activeElement !== $('documents-folder')) $('documents-folder').value = p.documents_folder || '';
   $('briefing-time').value = p.briefing_time;
   if (document.activeElement !== $('phone-from')) $('phone-from').value = p.phone_from || '';
   if (document.activeElement !== $('phone-me')) $('phone-me').value = p.phone_me || '';
@@ -817,6 +831,10 @@ $('owner-name').addEventListener('change', (e) => setPrefs({ owner_name: e.targe
 // ── interruptions, purchases, the file index (Settings) ──
 document.querySelectorAll('#interrupt-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ interruptions: b.dataset.mode })));
 $('vips').addEventListener('change', (e) => setPrefs({ vips: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) }));
+$('sw-learn-speech').addEventListener('click', () => setPrefs({ learn_speech: prefs.learn_speech === false }));
+$('sw-learn-interrupts').addEventListener('click', () => setPrefs({ learn_interruptions: prefs.learn_interruptions === false }));
+$('sw-suggestions').addEventListener('click', () => setPrefs({ suggestions: prefs.suggestions === false }));
+$('documents-folder').addEventListener('change', (e) => setPrefs({ documents_folder: e.target.value.trim() }));
 $('sw-pay').addEventListener('click', () => setPrefs({ pay_enabled: prefs.pay_enabled === false }));
 for (const [id, key] of [['pay-purchase', 'pay_limit_purchase'], ['pay-transfer', 'pay_limit_transfer'], ['pay-day', 'pay_limit_day']]) {
   $(id).addEventListener('change', (e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) setPrefs({ [key]: n }); });
@@ -4863,6 +4881,169 @@ $('memory-form').addEventListener('submit', (e) => {
   $('memory-input').value = '';
 });
 
+// ── what JARVIS has learned: your words, who's worth an interruption; your documents ──
+
+function renderHearing(h) {
+  const rows = (h.corrections || []).map((c) => {
+    const li = el('li');
+    const rm = el('button', 'btn', 'Forget');
+    rm.type = 'button';
+    rm.setAttribute('aria-label', `Forget: ${c.heard}`);
+    rm.addEventListener('click', () => send({ type: 'hearing_forget', what: c.heard }));
+    li.append(mine(el('span', 'fact', `${c.heard} → ${c.meant}`)), rm);
+    return li;
+  });
+  const words = (h.words || []).map((w) => w.word).slice(0, 40);
+  if (words.length) {
+    const line = el('span', 'fact');  // one piece, so the row doesn't spread it apart
+    line.append(el('span', '', 'Words I listen for'), document.createTextNode(': '), mine(el('span', '', words.join(', '))));
+    const li = el('li', 'muted');
+    li.append(line);
+    rows.push(li);
+  }
+  $('hearing-list').replaceChildren(...(rows.length ? rows : [el('li', 'muted', 'Nothing learned yet.')]));
+}
+
+function renderInterruptLearning(items) {
+  $('interrupt-learning-list').replaceChildren(...(items.length ? items.map((r) => {
+    const li = el('li');
+    const undo = el('button', 'btn', 'Undo');
+    undo.type = 'button';
+    undo.setAttribute('aria-label', `Undo: ${r.who}`);
+    undo.addEventListener('click', () => send({ type: 'interrupt_learning_reset', who: r.who }));
+    li.append(mine(el('span', 'fact', r.why)), undo);  // the reason, in the owner's language
+    return li;
+  }) : [el('li', 'muted', 'Nothing learned yet.')]));
+}
+
+function renderDocuments(items) {
+  $('document-list').replaceChildren(...(items.length ? items.slice(0, 12).map((d) => {
+    const li = el('li');
+    const name = mine(el('span', 'fact', d.gist ? `${d.title} — ${d.gist}` : d.title));
+    name.title = d.path;
+    const open = el('button', 'btn', 'Open');
+    open.type = 'button';
+    open.addEventListener('click', () => send({ type: 'document_open', path: d.path }));
+    const rm = el('button', 'btn', 'Forget');
+    rm.type = 'button';
+    rm.setAttribute('aria-label', `Forget: ${d.title}`);
+    rm.addEventListener('click', () => send({ type: 'document_forget', path: d.path }));
+    li.append(name, open, rm);
+    return li;
+  }) : [el('li', 'muted', 'None yet.')]));
+}
+
+// A suggestion of what you'll likely want next: nothing happens without a tap. "Not now"
+// and "Don't suggest this" teach it what to leave alone; one left on screen closes quietly.
+const SUGGESTION_MS = 10 * 60 * 1000;
+function onSuggestion(ev) {
+  const key = String(ev.key || '');
+  $('cards').querySelectorAll(`[data-suggestion="${CSS.escape(key)}"]`).forEach((n) => n.remove());
+  const card = el('div', 'card plain');
+  card.dataset.suggestion = key;
+  card.append(el('div', 'card-kicker', 'Suggestion'));
+  if (ev.title) card.append(mine(el('div', 'card-title', ev.title)));  // may quote a meeting or an email
+  if (ev.text) card.append(mine(el('div', 'card-text', ev.text)));
+  const actions = el('div', 'card-actions');
+  let answered = false;
+  const react = (action) => {
+    if (answered) return;
+    answered = true;
+    send({ type: 'suggestion_reaction', key, action });
+    card.remove();
+    syncDismissAll();
+  };
+  for (const [label, action, cls] of [['Do it', 'accepted', 'btn primary'], ['Not now', 'dismissed', 'btn'], ['Don’t suggest this', 'never', 'btn']]) {
+    const b = el('button', cls, label);
+    b.type = 'button';
+    b.addEventListener('click', () => react(action));
+    actions.append(b);
+  }
+  card.append(actions);
+  $('cards').append(card);
+  syncDismissAll();
+  setTimeout(() => react('closed'), SUGGESTION_MS);  // also after "Dismiss all" took it away
+}
+
+// ── videos: drop one on the window (or name one) to have it summarized ──
+
+const VIDEO_FILE = /\.(mp4|m4v|mov|qt|m4a|m4b|mp3|wav|aiff?|aifc|caf|aac|3gp|3g2|flac|webm|mkv|avi)$/i;
+const VIDEO_DONE = ['ready', 'failed', 'cancelled'];
+const VIDEO_STATE = { starting: 'Starting…', fetching: 'Fetching…', extracting: 'Pulling out the sound…', ready: 'Ready', failed: 'Failed', cancelled: 'Cancelled' };
+const videoCards = new Map();
+const isMedia = (f) => f.type.startsWith('video/') || f.type.startsWith('audio/') || VIDEO_FILE.test(f.name);
+const dragsFiles = (e) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+document.addEventListener('dragover', (e) => { if (dragsFiles(e)) e.preventDefault(); });
+document.addEventListener('drop', (e) => {
+  if (!dragsFiles(e) || (e.target.closest && e.target.closest('#deck-composer'))) return;  // the composer attaches its own
+  e.preventDefault();  // never open a dropped file in place of the window
+  const file = [...e.dataTransfer.files].find(isMedia);
+  if (!file) return;
+  const path = window.jarvisApp && window.jarvisApp.pathFor ? window.jarvisApp.pathFor(file) : '';
+  if (!path) { notice('Video', '', 'Drop the file from Finder.', 5000); return; }
+  send({ type: 'video_summarize', path });
+});
+
+function dropVideoCard(id, card) {
+  card.remove();
+  videoCards.delete(id);
+  syncDismissAll();
+}
+
+function onVideo(job) {
+  if (!job) return;
+  let card = videoCards.get(job.id);
+  if (!card) {
+    card = el('div', 'card plain');
+    card.append(el('div', 'card-kicker', 'Video'), mine(el('div', 'card-title')), el('div', 'card-text'), el('div', 'card-actions'));
+    videoCards.set(job.id, card);
+    $('cards').append(card);
+  }
+  if (card.dataset.summary) return;  // the write-up is showing: progress has nothing to add
+  card.querySelector('.card-title').textContent = job.title;
+  const text = card.querySelector('.card-text');
+  if (job.state === 'transcribing') text.textContent = `Transcribing… ${Math.round((job.progress || 0) * 100)}%`;
+  else if (job.state === 'failed') mine(text).textContent = job.error || 'Failed';
+  else text.textContent = VIDEO_STATE[job.state] || '';
+  const actions = card.querySelector('.card-actions');
+  const done = VIDEO_DONE.includes(job.state);
+  const b = el('button', 'btn', done ? 'Dismiss' : 'Cancel');
+  b.type = 'button';
+  b.addEventListener('click', () => (done ? dropVideoCard(job.id, card) : send({ type: 'video_cancel', id: job.id })));
+  actions.replaceChildren(b);
+  syncDismissAll();
+}
+
+// The write-up in full: headings, bullets and text as plain text (never HTML).
+function onVideoSummary(ev) {
+  const card = videoCards.get(ev.id) || el('div', 'card plain');
+  card.dataset.summary = '1';
+  card.replaceChildren(el('div', 'card-kicker', 'Video summary'), mine(el('div', 'card-title', ev.title)));
+  const body = mine(el('div', 'card-text video-summary'));
+  for (const line of String(ev.markdown || '').split('\n')) {
+    if (!line.trim()) continue;
+    const h = line.match(/^#{1,4}\s+(.*)/);
+    const b = line.match(/^\s*[-*]\s+(?:\[[ x]\]\s+)?(.*)/);
+    body.append(h ? el('h4', '', h[1]) : b ? el('div', 'li', `• ${b[1]}`) : el('p', '', line));
+  }
+  const actions = el('div', 'card-actions');
+  if (ev.path) {
+    const open = el('button', 'btn primary', 'Open');
+    open.type = 'button';
+    open.title = '⌥-click to show it in Finder';
+    open.addEventListener('click', (e) => send({ type: 'video_open', id: ev.id, reveal: e.altKey }));
+    actions.append(open);
+  }
+  const close = el('button', 'btn', 'Dismiss');
+  close.type = 'button';
+  close.addEventListener('click', () => dropVideoCard(ev.id, card));
+  actions.append(close);
+  card.append(body, actions);
+  if (!card.isConnected) $('cards').append(card);
+  videoCards.set(ev.id, card);
+  syncDismissAll();
+}
+
 // What the user, Claude or their data says stays as it is; the window's own words are
 // translated around it (i18n.js skips anything inside data-no-i18n).
 function tr(text) { return window.jarvisI18n ? window.jarvisI18n.t(text) : text; }
@@ -4923,7 +5104,8 @@ function showApproval(a) {
   if (app) app.attention();
 }
 
-function notice(kicker, title, text, ms, extra) {
+// onDismiss: called only when the Dismiss button is pressed (not when the card times out).
+function notice(kicker, title, text, ms, extra, onDismiss) {
   const card = el('div', 'card plain');
   card.append(el('div', 'card-kicker', kicker));
   if (title) card.append(el('div', 'card-title', title));
@@ -4932,12 +5114,13 @@ function notice(kicker, title, text, ms, extra) {
   if (extra) actions.append(extra);
   const dismiss = el('button', 'btn', 'Dismiss');
   dismiss.type = 'button';
-  dismiss.addEventListener('click', () => { card.remove(); syncDismissAll(); });
+  dismiss.addEventListener('click', () => { card.remove(); syncDismissAll(); if (onDismiss) onDismiss(); });
   actions.append(dismiss);
   card.append(actions);
   $('cards').append(card);
   syncDismissAll();
   if (ms) setTimeout(() => { card.remove(); syncDismissAll(); }, ms);
+  return card;
 }
 
 // Two or more notices: one button clears them all (approvals stay).
@@ -4954,12 +5137,21 @@ function syncDismissAll() {
   if ($('cards').firstElementChild !== all) $('cards').prepend(all);
 }
 
-const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work' };
+const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work', learned: 'Learned' };
 
 // A heads-up JARVIS raised on its own. Claude Code already has its own cards; everything
 // else gets one, plus a macOS notification when the window isn't in front.
 function onAlert(ev) {
-  if (!['task', 'meeting'].includes(ev.alert_kind)) notice(ALERT_KICKERS[ev.alert_kind] || 'Heads-up', ev.title, ev.text, 60000);
+  const kicker = ALERT_KICKERS[ev.alert_kind] || 'Heads-up';
+  const key = String(ev.key || '');
+  if (key.startsWith('interrupt:')) {
+    // A text or email that interrupted: opening or dismissing its card teaches which
+    // senders are worth it (a card that just times out teaches nothing).
+    const open = el('button', 'btn primary', 'Open');
+    open.type = 'button';
+    const card = notice(kicker, ev.title, ev.text, 60000, open, () => send({ type: 'alert_reaction', key, action: 'dismissed' }));
+    open.addEventListener('click', () => { send({ type: 'alert_reaction', key, action: 'opened' }); card.remove(); syncDismissAll(); });
+  } else if (!['task', 'meeting'].includes(ev.alert_kind)) notice(kicker, ev.title, ev.text, 60000);
   if (document.hidden || !document.hasFocus()) {
     try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }
   }

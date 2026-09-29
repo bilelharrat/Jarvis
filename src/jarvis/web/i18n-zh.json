@@ -1445,7 +1445,31 @@
   "Close find": "关闭查找",
   "Revert": "还原",
   "Click to revert": "再点一下以还原",
-  "Put this file back as it is in the last commit": "把这个文件恢复成上次提交时的样子"
+  "Put this file back as it is in the last commit": "把这个文件恢复成上次提交时的样子",
+  "Learn my words": "学习我的用词",
+  "Names and words you use, and your corrections (“no, I said Okin”), so I hear them right. Only from what you say or type to me.": "你常用的名字和词语，以及你的纠正（“不对，我说的是 Okin”），让我听得更准。只从你对我说或输入的内容中学习。",
+  "Words I listen for": "我会留意的词",
+  "Nothing learned yet.": "还没有学到任何内容。",
+  "Learn who matters": "学习谁更重要",
+  "Senders you always dismiss stop interrupting; ones you always answer get through. VIPs always do. I’ll say when it changes.": "你总是关掉的发件人不再打扰你；你总是回复的人会直接提醒你。VIP 始终会提醒。有变化时我会告诉你。",
+  "Gentle cards: what you usually ask around now, prep for tomorrow’s meetings, emails due soon. Never done without your tap.": "温和的提示卡片：你通常在这个时间问的事、明天会议的准备、快到期的邮件。不经你点按绝不执行。",
+  "Undo": "撤销",
+  "Learned": "已学习",
+  "Suggestion": "建议",
+  "Do it": "去做",
+  "Don’t suggest this": "不再建议此项",
+  "Documents": "文档",
+  "Memos, letters and reports Jarvis writes for you. Say “Jarvis, draft a cover letter in Word.”": "Jarvis 为你撰写的备忘录、信件和报告。说“贾维斯，用 Word 起草一封求职信。”",
+  "Save documents in": "文档保存位置",
+  "A folder in your home folder. Empty: Documents › JARVIS. Nothing is ever written over.": "个人文件夹中的一个文件夹。留空：文稿 › JARVIS。绝不覆盖已有文件。",
+  "Video": "视频",
+  "Videos": "视频",
+  "Video summary": "视频摘要",
+  "Fetching…": "正在获取…",
+  "Pulling out the sound…": "正在提取音频…",
+  "Ready": "已完成",
+  "Drop the file from Finder.": "请从访达拖入文件。",
+  "⌥-click to show it in Finder": "按住 ⌥ 点按可在访达中显示"
  },
  "patterns": [
   [
@@ -2851,6 +2875,22 @@
   [
    "^(.+) · paused$",
    "$1 · 已暂停"
+  ],
+  [
+   "^Transcribing… (\\d+)%$",
+   "正在转写… $1%"
+  ],
+  [
+   "^Summarize “(.+)”$",
+   "总结“$1”"
+  ],
+  [
+   "^Video: (.+)$",
+   "视频：$1"
+  ],
+  [
+   "^Undo: (.+)$",
+   "撤销：$1"
   ]
  ]
 }

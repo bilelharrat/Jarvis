@@ -1,7 +1,7 @@
 // The only things the page gets from Electron: hear about ⌥Space and ⌥⇧Space, ask for attention, pick
 // a folder for the second brain, lay out a PDF, and show and drive the built-in browser
 // (where the BSH Research Center opens).
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('jarvisApp', {
   onSummon: (callback) => ipcRenderer.on('jarvis:summon', () => callback()),
@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('jarvisApp', {
   pdf: (page) => ipcRenderer.invoke('jarvis:pdf', page),
   desktopHands: (on) => ipcRenderer.send('jarvis:desktop-hands', !!on),
   handHud: (update) => ipcRenderer.send('jarvis:hand-hud', update),
+  // Where a file dropped on the window lives (a video to summarize): only the file the
+  // user dropped, which the page can't learn otherwise.
+  pathFor: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   browser: {
     show: (bounds) => ipcRenderer.invoke('browser:show', bounds),
     hide: () => ipcRenderer.invoke('browser:hide'),

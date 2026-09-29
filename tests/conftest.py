@@ -199,10 +199,14 @@ def isolated(tmp_path):
         return {"error": "no browser in tests"}
 
     from jarvis.delegate import DelegationStore
+    from jarvis.documents import DocumentStore
     from jarvis.fileindex import FileIndex
     from jarvis.goals import GoalStore
+    from jarvis.hearing import Hearing
     from jarvis.interrupts import Interrupter
     from jarvis.providers import ProviderStore
+    from jarvis.suggestions import Suggester
+    from jarvis.video import VideoDesk
 
     store = PrefsStore(tmp_path / "prefs.json")
     store.prefs.hands_free = False  # never open the real microphone in tests
@@ -231,4 +235,13 @@ def isolated(tmp_path):
         "interrupter": Interrupter(
             lambda _alert: None, state_path=tmp_path / "interrupts.json", enabled=lambda: False
         ),
+        "hearing_store": Hearing(tmp_path / "hearing.json"),
+        # Documents in the temp folder, and never opened in a real app.
+        "document_store": DocumentStore(
+            tmp_path / "documents.json", folder=tmp_path / "Documents", opener=lambda _p: None
+        ),
+        # No real calendar or Mail behind it.
+        "suggester": Suggester(lambda _s: None, tmp_path / "suggestions.json"),
+        # Videos only from the temp folder, and write-ups filed there.
+        "video_desk": VideoDesk(roots=[tmp_path], notes_dir=tmp_path / "Videos"),
     }

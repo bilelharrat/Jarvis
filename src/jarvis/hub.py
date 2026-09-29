@@ -46,8 +46,10 @@ from . import (
     computer,
     defense,
     delegate,
+    documents,
     fileindex,
     goals,
+    hearing,
     interrupts,
     invoices,
     lang,
@@ -56,9 +58,11 @@ from . import (
     phone,
     research,
     screenwatch,
+    suggestions,
     system_voice,
     transactions,
     ui,
+    video,
 )
 from .brain import (
     EGRESS_TOOLS,
@@ -453,9 +457,14 @@ FEATURE_ASKED = {
 }
 FEATURE_ASKED.update({action: _asks(pattern) for action, pattern in goals.ASKED.items()})
 FEATURE_ASKED["set_interruptions"] = _asks(interrupts.ASKED_PATTERN)
+FEATURE_ASKED["reset_interruption_learning"] = _asks(interrupts.LEARNING_ASKED_PATTERN)
+FEATURE_ASKED["summarize_video"] = _asks(video.ASKED_PATTERN)
+for _kit in (hearing, documents, suggestions):
+    FEATURE_ASKED.update({action: _asks(p) for action, p in _kit.ASKED.items()})
 # Goals and rules ride into every future request: a turn that read someone else's words
 # (an email, a web page) never changes them unasked, whatever the user's own words were.
-STANDING_ACTIONS = frozenset(goals.ASKED)
+# A learned word rides into every transcription: never learned unasked after a read.
+STANDING_ACTIONS = frozenset(goals.ASKED) | {"learn_word"}
 # "Let's code in jarvis", "voice code the BSH repo", "work on X with me".
 CODE_ASKED = _asks(
     _WANT_TO + r"(?:do\s+some\s+)?(?:voice[\s-]?)?cod(?:e|ing)\b"
@@ -543,6 +552,10 @@ class Hub:
         delegation_store: Any = None,
         transaction_desk: Any = None,
         file_index: Any = None,
+        hearing_store: Any = None,
+        suggester: Any = None,
+        document_store: Any = None,
+        video_desk: Any = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -736,6 +749,15 @@ class Hub:
             roots=fileindex.default_roots(self.settings.projects_dir)
         )
         self._shown_files: set[str] = set()  # what the index showed: the only files opened
+        # "Summarize this video": a file, a link or a YouTube video, transcribed here.
+        self.video = video_desk or video.VideoDesk(
+            self.emit,
+            self._video_transcriber,  # a factory: Whisper loads only when a video comes
+            find=self._video_find,
+            language=lambda: self.language,
+        )
+        # A test's own desk keeps its folders and transcriber but reports here all the same.
+        self.video.emit, self.video.on_ready = self.emit, self._video_ready
         self._loop: asyncio.AbstractEventLoop | None = None  # for threads that report back
         self._files_told = 0.0
         from .sources import CHAT_DB, contact_names, mail_index
@@ -752,6 +774,36 @@ class Hub:
             quiet_hours=lambda: self.prefs.quiet_hours,
             busy=self._in_meeting,
             classify=self._triage_message,
+            lang=lambda: self.prefs.language,
+            learner=interrupts.ReactionLearner(
+                self.prefs_store.path.with_name("interrupt_learning.json"),
+                enabled=lambda: self.prefs.learn_interruptions,
+            ),
+            on_learned=self._interruption_learned,
+        )
+        # Beside prefs.json, so a test's temp prefs folder holds these too.
+        data = self.prefs_store.path.parent
+        # The owner's own words, learned so Whisper hears them (Settings › Voice).
+        self.hearing = hearing_store or hearing.Hearing(
+            data / "hearing.json",
+            enabled=lambda: self.prefs.learn_speech,
+            lang=lambda: self.prefs.language,
+        )
+        # Documents JARVIS writes (~/Documents/JARVIS) and the ones it remembers.
+        self.documents = document_store or documents.DocumentStore(
+            data / "documents.json",
+            folder=lambda: self.prefs.documents_folder or documents.default_folder(),
+        )
+        # Gentle cards: a habit's usual request, meeting prep, an email due soon.
+        self.suggester = suggester or suggestions.Suggester(
+            self._suggest,
+            data / "suggestions.json",
+            events=self._upcoming_events,
+            mail=self._recent_mail,
+            has_prep=self._has_prep,
+            enabled=lambda: self.prefs.proactive and self.prefs.suggestions,
+            quiet_hours=lambda: self.prefs.quiet_hours,
+            busy=self._in_meeting,
             lang=lambda: self.prefs.language,
         )
         self._session_id = ""
@@ -832,6 +884,8 @@ class Hub:
             self._spawn(self.shortcuts.refresh())
             self._spawn(self.watcher.run())
             self._spawn(self.interrupts.run())
+            self._spawn(self.suggester.run())
+            self._spawn(self._hearing_names_loop())
             self._spawn(self.delegate.run())
             self._spawn(
                 fileindex.keep_fresh(
@@ -909,6 +963,14 @@ class Hub:
                 self.goal_store, self.feature_gate, self._goals_changed
             ),
             interrupts.SERVER_NAME: interrupts.build_server(self.interrupts, self.feature_gate),
+            hearing.SERVER_NAME: hearing.build_server(
+                self.hearing, self.feature_gate, self._hearing_changed
+            ),
+            documents.SERVER_NAME: documents.build_server(
+                self.documents, self.feature_gate, self._documents_changed
+            ),
+            suggestions.SERVER_NAME: suggestions.build_server(self.suggester, self.feature_gate),
+            video.SERVER_NAME: video.build_server(self.video, self.feature_gate),
             delegate.SERVER_NAME: delegate.build_server(self.delegate),
             transactions.SERVER_NAME: transactions.build_server(self.transactions),
             fileindex.SERVER_NAME: fileindex.build_server(
@@ -958,11 +1020,16 @@ class Hub:
             + invoices.PROMPT
             + goals.PROMPT
             + interrupts.PROMPT
+            + hearing.PROMPT
+            + documents.PROMPT
+            + suggestions.PROMPT
             + delegate.PROMPT
             + transactions.PROMPT
             + fileindex.PROMPT
             + screenwatch.PROMPT
+            + video.PROMPT
             + self.memory.prompt_block()
+            + self.documents.prompt_block()
             + self.goal_store.prompt_block()
             + goals.UNCERTAINTY_PROMPT
             + lang.reply_instruction(self.language)
@@ -1502,6 +1569,106 @@ class Hub:
         )
         self._style_note = " ".join(earlier + self._style_notes)
 
+    # ── learning: the owner's words, reactions and habits; documents ──
+
+    def _transcribe(self, stt: Any, audio: Any) -> str:
+        """Whisper with the owner's learned words as hints (nothing learned: exactly as
+        before). Runs in a thread; hearing.fix() then applies corrections on the loop."""
+        base = lang.WAKE_HINT_ZH if lang.is_zh(self.language) else "Jarvis"
+        hints = self.hearing.hotwords(base)
+        return stt.transcribe(audio, hints) if hints != base else stt.transcribe(audio)
+
+    def _video_transcriber(self) -> Any:
+        """Whisper for a video, made when the first one comes: the meeting-notes model
+        (small.en), or the one Settings picked for notes."""
+        from .listen import Transcriber
+        from .meeting import NOTES_MODEL
+
+        stt = self.notes_transcriber
+        if not isinstance(stt, Transcriber):  # "auto" or None: its own, the notes model
+            stt = Transcriber(lang.whisper_model(self.language, NOTES_MODEL), self.language)
+        return video.whisper_transcribe(stt)
+
+    def _video_find(self, name: str) -> list[str]:
+        """A video named rather than pathed ("the Okin demo"): the file index, if it's on."""
+        return [h.path for h in self.files.search(name, 10)] if self.prefs.file_index else []
+
+    def _video_ready(self, job: Any) -> None:
+        """A long video finished (or failed) after its turn ended: a turn of its own, shown
+        by its title, and gated like a routine's (the title is a file's or a page's)."""
+        self._spawn(self.ask(video.ready_request(job), display=f"Video: {job.title}"))
+
+    def _hearing_changed(self) -> None:
+        self.emit("hearing", **self.hearing.public())
+
+    def _documents_changed(self) -> None:
+        self.emit("documents", items=self.documents.public())
+
+    def _interruption_learned(self, text: str) -> None:
+        """A sender stopped interrupting, or now always gets through: said once, with why."""
+        title = "打扰提醒" if lang.is_zh(self.language) else "Interruptions"
+        self.notify(Alert(f"learned:{uuid.uuid4().hex[:8]}", "learned", title, text))
+        self._interrupt_learning_changed()
+
+    def _interrupt_learning_changed(self) -> None:
+        self.emit("interrupt_learning", items=self.interrupts.learner.public(self.language))
+
+    def _suggest(self, suggestion: suggestions.Suggestion) -> None:
+        """A suggestion: a card with Do it / Not now; never spoken, never acted on alone."""
+        self.emit("suggestion", **suggestion.public())
+
+    async def _suggestion_reaction(self, msg: dict[str, Any]) -> None:
+        key, action = str(msg.get("key") or ""), str(msg.get("action") or "")
+        card = self.suggester.open.get(key)
+        if card is None:
+            return
+        if action not in ("accepted", "dismissed", "never"):
+            self.suggester.closed(key)  # timed out on screen: nothing to learn
+            return
+        told = self.suggester.react(key, action)
+        if told:
+            self.emit("caption", text=told)
+        if action != "accepted" or not card.request:
+            return
+        if card.suggestion == "habit":  # the owner's own earlier words, asked again
+            self._spawn(self.ask(card.request))
+            return
+        # Built around a meeting title or an email subject (someone else's words): shown
+        # as a suggestion, and gated like a routine's request, never as the owner's own.
+        self.mark_turn_untrusted("a meeting title" if card.suggestion == "prep" else "an email")
+        self._spawn(self.ask(card.request, display=card.title))
+
+    async def _recent_mail(self) -> list[Any]:
+        from .sources import collect_mail_index
+
+        return await asyncio.to_thread(collect_mail_index, None, suggestions.MAIL_DAYS, 100)
+
+    async def _has_prep(self, event: dict[str, Any]) -> bool:
+        """Something to prepare from: a document JARVIS wrote about it, or files the index
+        ties to the meeting."""
+        if self.documents.mentions(str(event.get("title") or "")):
+            return True
+        if not self.prefs.file_index:
+            return False
+        found = await asyncio.to_thread(
+            fileindex.meeting_material, [event], self.files, datetime.now(), 48 * 60
+        )
+        return bool(found)
+
+    async def _hearing_names_loop(self) -> None:
+        """Names the owner keeps (people in upcoming meetings, what memory holds, their
+        Contacts) as hints for Whisper; refreshed every half hour."""
+        while True:
+            try:
+                events = getattr(self.watcher, "_events", None) or []
+                people = [p for e in events for p in e.get("attendees") or []]
+                self.hearing.seed("calendar", people)
+                self.hearing.seed("memory", hearing.names_in(f.text for f in self.memory.facts))
+                self.hearing.seed("contacts", self.interrupts.known_names())
+            except Exception:
+                log.exception("hearing: couldn't refresh names")
+            await asyncio.sleep(1800)
+
     def _memory_changed(self) -> None:
         self.emit("memory", items=self.memory.public())
 
@@ -1583,10 +1750,14 @@ class Hub:
                 await asyncio.wait_for(self.meeting.finish_transcript(), 10)
         if self._build_proc is not None and self._build_proc.returncode is None:
             self._build_proc.kill()  # never leave a rebuild running behind
+        with contextlib.suppress(Exception):
+            await self.video.close()  # stop a transcription (and its afconvert) midway
         for task in list(self._background):
             task.cancel()
         with contextlib.suppress(Exception):
             self.interrupts.close()
+        with contextlib.suppress(Exception):
+            self.hearing.flush()
         await self.tasks.close()
         await self.connectors.close()
         await self.remote.stop()
@@ -1680,6 +1851,10 @@ class Hub:
             "location": self.location,
             "accounts": self.connectors.connected_names(),
             "memory": self.memory.public(),
+            "hearing": self.hearing.public(),
+            "documents": self.documents.public(),
+            "interrupt_learning": self.interrupts.learner.public(self.prefs.language),
+            "videos": [j.public() for j in self.video.jobs.values()],
             "goals": self._goals_payload(),
             "delegations": self.delegations.public(),
             "purchases": self.transactions.public(),
@@ -2012,6 +2187,14 @@ class Hub:
             self._stopping = False
             self._silent = silent
             self._turn_text = text if display is None else ""
+            heard_note = ""
+            if display is None:  # the owner's own words, typed or said: never a routine's
+                correction = self.hearing.owner_said(text)
+                if correction is not None:  # "no, I said Okin": Claude hears what it fixed
+                    heard_note = correction.note()
+                    self._hearing_changed()
+                else:
+                    self.suggester.note_request(text)
             self.transactions.reset_turn()
             rid = uuid.uuid4().hex[:8]
             self._rid = rid
@@ -2042,6 +2225,8 @@ class Hub:
                     pass
                 else:
                     notes = [self._style_note] if self._style_note else []
+                    if heard_note:
+                        notes.append(heard_note)
                     fresh = [n for at, n in self._alert_notes if time.monotonic() - at < 600]
                     if self.research.get("open") and display is None:
                         page = self.research.get("title") or self.research.get("url") or "a page"
@@ -2466,7 +2651,9 @@ class Hub:
                 return
             self.set_state("transcribing")
             self._heard_at = time.monotonic()
-            text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+            text = self.hearing.fix(
+                await asyncio.to_thread(self._transcribe, self.transcriber, audio)
+            )
         except Exception as exc:  # no microphone, permission denied
             self.emit("error", text=f"I couldn't use the microphone: {exc}")
             return
@@ -2540,7 +2727,9 @@ class Hub:
             )
             if audio is not None and not cancel.is_set():
                 self.set_state("transcribing")
-                text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+                text = self.hearing.fix(
+                    await asyncio.to_thread(self._transcribe, self.transcriber, audio)
+                )
         except Exception as exc:  # no microphone, permission denied
             self.emit("error", text=f"I couldn't use the microphone: {exc}")
         finally:
@@ -2626,7 +2815,8 @@ class Hub:
                     )
                     text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
                 else:
-                    text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+                    text = await asyncio.to_thread(self._transcribe, self.transcriber, audio)
+                text = self.hearing.fix(text)
             except Exception as exc:  # model still loading, odd audio
                 log.warning("hands-free transcription failed: %s", exc)
                 continue
@@ -2661,7 +2851,8 @@ class Hub:
                 stt = self._code_stt
             text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
         else:
-            text = await asyncio.to_thread(stt.transcribe, audio)
+            text = await asyncio.to_thread(self._transcribe, stt, audio)
+        text = self.hearing.fix(text)
 
         began = (at or heard_at) - _audio_seconds(audio)
         armed = self._armed(began)
@@ -3291,7 +3482,7 @@ class Hub:
             self._spawn(self._quiet(mac_tools.run_command("open", url)))
         elif note.source == "messages":
             self._spawn(self._quiet(mac_tools.run_command("open", "-a", "Messages")))
-        elif note.source in ("files", "computer", "research", "meetings"):
+        elif note.source in ("files", "computer", "research", "meetings", "videos"):
             try:
                 path = computer.safe_path(note.ref)
             except ValueError:
@@ -4710,6 +4901,53 @@ class Hub:
             await self.stop()
         elif kind == "approve":
             self.resolve(str(msg.get("id")), str(msg.get("choice")), str(msg.get("feedback", "")))
+        elif kind == "alert_reaction":  # an interruption's card: "opened" or "dismissed"
+            key, action = str(msg.get("key") or ""), str(msg.get("action") or "")
+            self.interrupts.card_reaction(key, action)
+            if action == "opened" and key.startswith("interrupt:"):
+                mail = key.startswith("interrupt:mail:")
+                app = "com.apple.mail" if mail else "com.apple.MobileSMS"
+                with contextlib.suppress(OSError):
+                    subprocess.Popen(["open", "-b", app])
+        elif kind == "suggestion_reaction":  # "accepted", "dismissed", "never", "closed"
+            await self._suggestion_reaction(msg)
+        elif kind == "heard_edit":  # the owner fixed a transcript in the window
+            original, edited = str(msg.get("original") or ""), str(msg.get("edited") or "")
+            if self.hearing.learn_edit(original[:2000], edited[:2000]):
+                self._hearing_changed()
+        elif kind == "hearing_forget":
+            if self.hearing.forget(str(msg.get("what") or "")[:80]):
+                self._hearing_changed()
+        elif kind == "hearing_clear":
+            self.hearing.clear()
+            self._hearing_changed()
+        elif kind == "interrupt_learning_reset":
+            self.interrupts.learner.reset(str(msg.get("who") or "")[:80], self.prefs.language)
+            self._interrupt_learning_changed()
+        elif kind == "suggestions_reset":
+            self.suggester.reset(str(msg.get("kind") or ""))
+        elif kind == "document_open":
+            with contextlib.suppress(ValueError, OSError):
+                await asyncio.to_thread(self.documents.open, str(msg.get("path") or ""))
+        elif kind == "document_forget":
+            if self.documents.forget(str(msg.get("path") or "")):
+                self._documents_changed()
+        elif kind == "video_summarize":  # a video dropped on the window
+            path = str(msg.get("path") or "")[:1000]
+            if path:
+                self._spawn(
+                    self.ask(
+                        f"Summarize the video at {path}", display=f"Summarize “{Path(path).name}”"
+                    )
+                )
+        elif kind == "video_cancel":
+            self.video.cancel(msg.get("id"))
+        elif kind == "video_open":  # only a write-up the desk filed itself
+            job = self.video.job(msg.get("id"))
+            if job is not None and job.path is not None and job.path.exists():
+                reveal = ["-R"] if msg.get("reveal") else []  # ⌥-click: show it in Finder
+                with contextlib.suppress(OSError):
+                    subprocess.Popen(["open", *reveal, str(job.path)])  # noqa: S603
         elif kind == "mute":
             self.speaker.muted = bool(msg.get("value"))
             if self.speaker.muted:  # silence the reply in progress too, and what's queued
