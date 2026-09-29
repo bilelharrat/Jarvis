@@ -81,6 +81,7 @@ class Prefs:
     control_always: bool = False  # mouse, keyboard and browser clicks without asking
     proactive_voice: bool = True
     quiet_hours: str = "22:00-07:00"
+    research_url: str = "http://127.0.0.1:8010"  # the BSH Research Center behind Markets
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -123,6 +124,10 @@ def _clean(name: str, value: Any) -> Any:
         return str(value).strip()[:40]
     if name == "briefing_time":
         return value if isinstance(value, str) and _TIME.match(value) else None
+    if name == "research_url":
+        from .research import clean_url
+
+        return clean_url(value)
     if name == "watchlist":
         from .markets import clean_watchlist
 

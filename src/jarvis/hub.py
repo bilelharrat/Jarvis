@@ -36,7 +36,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import computer, mac_tools
+from . import computer, mac_tools, research
 from .brain import build_options
 from .config import Settings
 from .connectors import ConnectorManager
@@ -121,6 +121,7 @@ _FIRST_CLAUSE = re.compile(r"^(.{12,}?[,;:—–])\s")
 CHIME = "/System/Library/Sounds/Tink.aiff"
 
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
+RESEARCH_FOLLOW_UP = 15.0  # after a Research Center command, the next needs no wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
 CODE_ANNOUNCE_SECONDS = 20  # Claude Code turns shorter than this finish unannounced
 FEATURE_ASKED = {
@@ -279,6 +280,10 @@ class Hub:
         self._build_proc: Any = None
         self._location_future: asyncio.Future | None = None
         self.browser_available = False
+        self.research_available = False
+        self.research: dict[str, Any] = {"open": False}  # what the Research Center shows
+        self._research_calls: dict[str, asyncio.Future] = {}
+        self._research_follow_until = 0.0
         self._fillers: list[tuple[Any, int]] = []
         self._filler_order = itertools.count()
         self._heard_at = 0.0
@@ -351,6 +356,7 @@ class Hub:
         from . import meeting, memory, messaging, routines
 
         return {
+            research.SERVER_NAME: research.build_server(self.research_call, self.confirm),
             messaging.SERVER_NAME: messaging.build_server(self.send_gate),
             "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(
@@ -378,7 +384,7 @@ class Hub:
             "routine runs, its request arrives marked 'Routine'; carry it out, briefly."
             "\n- Memory: remember saves a lasting fact about the user when they tell you to "
             "remember something (or state something clearly stable about themselves); recall "
-            "looks facts up; forget removes one." + self.memory.prompt_block()
+            "looks facts up; forget removes one." + research.PROMPT + self.memory.prompt_block()
         )
 
     async def feature_gate(self, action: str, question: str) -> bool:
@@ -855,11 +861,21 @@ class Hub:
             query = text
             started = time.monotonic()
             try:
-                if display is None and await self._instant_shortcut(rid, text):
+                if display is None and (
+                    await self._instant_research(rid, text)
+                    or await self._instant_shortcut(rid, text)
+                ):
                     pass
                 else:
                     notes = [self._style_note] if self._style_note else []
                     fresh = [n for at, n in self._alert_notes if time.monotonic() - at < 600]
+                    if self.research.get("open") and display is None:
+                        page = self.research.get("title") or self.research.get("url") or "a page"
+                        notes.append(
+                            f"the BSH Research Center is open in the window on “{page}”; only "
+                            "you drive it, so requests about the page or scrolling, opening and "
+                            "pressing things are about it"
+                        )
                     if fresh:
                         notes.append(
                             "in the last few minutes the app gave the user these heads-ups "
@@ -1272,6 +1288,16 @@ class Hub:
             return
         woke, command = find_wake(text)
         busy = self._lock.locked()
+        if (
+            not woke
+            and not busy
+            and self.research_heard(text)
+            and not is_echo(text, self.turn.get("reply", ""))
+        ):
+            log.info("research follow-up (%d words)", len(words(text)))
+            self.emit("heard", text=text)
+            self._spawn(self.ask(text))
+            return
         if busy or self.state == "speaking":
             if not woke and is_echo(text, self.turn.get("reply", "")):
                 log.info("ignored: its own voice")
@@ -1758,6 +1784,65 @@ class Hub:
             "stat": stat.splitlines()[-1] if stat else "",
             "log": log_lines.splitlines(),
         }
+
+    # ── the BSH Research Center ──
+
+    async def research_call(
+        self, action: str, args: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Ask the J.A.R.V.I.S. window to act on the Research Center; the answer comes back
+        over the socket."""
+        if not self.research_available:
+            return {"error": "The Research Center only opens in the J.A.R.V.I.S. app window."}
+        call_id = uuid.uuid4().hex[:10]
+        future = asyncio.get_running_loop().create_future()
+        self._research_calls[call_id] = future
+        self.emit("research_cmd", id=call_id, action=action, args=args or {})
+        try:
+            result = await asyncio.wait_for(future, 45)
+            if not result.get("error") and action != "close":
+                self._research_follow_until = time.monotonic() + RESEARCH_FOLLOW_UP
+            return result
+        except TimeoutError:
+            return {"error": "The Research Center didn't answer in time."}
+        finally:
+            self._research_calls.pop(call_id, None)
+
+    async def _instant_research(self, rid: str, text: str) -> bool:
+        """'Scroll down', 'go back', 'open reports', 'click earnings': with the Research
+        Center open, short commands run at once, without asking Claude."""
+        if not self.research.get("open"):
+            return False
+        command = research.parse(text)
+        if command is None:
+            return False
+        log.info("instant research command: %s", command.action)
+        if command.action == "click":
+            result = await research.press(
+                self.research_call, self.confirm, command.args.get("text", "")
+            )
+        else:
+            result = await self.research_call(command.action, command.args)
+        failed = result.get("error") or result.get("ok") is False
+        reply = (
+            (result.get("error") or result.get("message") or "That didn't work.")
+            if failed
+            else (command.reply or result.get("message") or "")
+        )
+        self._research_follow_until = time.monotonic() + RESEARCH_FOLLOW_UP
+        self.turn["reply"] = reply
+        self.emit("reply", rid=rid, text=reply)
+        if reply and (failed or command.speak):
+            self._speak(reply)
+        return True
+
+    def research_heard(self, text: str) -> bool:
+        """Right after a Research Center command, the next one needs no wake word."""
+        return (
+            bool(self.research.get("open"))
+            and time.monotonic() < self._research_follow_until
+            and research.parse(text) is not None
+        )
 
     # ── the built-in browser ──
 
@@ -2434,6 +2519,21 @@ class Hub:
             self._spawn(self._connector_command(kind, msg))
         elif kind == "capabilities":
             self.browser_available = bool(msg.get("browser"))
+            self.research_available = bool(msg.get("research"))
+        elif kind == "research_state":
+            self.research = {
+                "open": bool(msg.get("open")),
+                "url": str(msg.get("url", ""))[:300],
+                "title": str(msg.get("title", ""))[:200],
+                "locked": bool(msg.get("locked", True)),
+            }
+            if not self.research["open"]:
+                self._research_follow_until = 0.0
+        elif kind == "research_result":
+            future = self._research_calls.get(str(msg.get("id")))
+            if future is not None and not future.done():
+                result = msg.get("result")
+                future.set_result(result if isinstance(result, dict) else {"error": "bad result"})
         elif kind == "browser_result":
             future = self._browser_calls.get(str(msg.get("id")))
             if future is not None and not future.done():

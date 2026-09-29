@@ -15,6 +15,11 @@ const TOKEN = crypto.randomBytes(24).toString('hex');
 const SHORTCUT = 'Alt+Space';
 const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
 const LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', 'Jarvis');
+// Development only: show a backend that's already running (no microphone of its own)
+// instead of starting one, with a profile of its own and without the global shortcuts,
+// so it can run beside the installed app.
+const DEV_URL = process.env.JARVIS_BACKEND_URL || '';
+if (DEV_URL) app.setPath('userData', path.join(os.tmpdir(), 'jarvis-dev-profile'));
 
 let win = null;
 let backend = null;
@@ -119,7 +124,11 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.once('ready-to-show', () => win.show());
+  if (DEV_URL) {
+    // A test window: labelled, never takes focus, and clicks pass through it.
+    win.setTitle('J.A.R.V.I.S. (test)');
+    win.once('ready-to-show', () => { win.showInactive(); win.setIgnoreMouseEvents(true); });
+  } else win.once('ready-to-show', () => win.show());
   win.loadFile(path.join(__dirname, 'loading.html'));
 
   // The window only ever shows Jarvis; any other link opens in the browser.
@@ -348,12 +357,293 @@ ipcMain.handle('browser:command', async (_event, command) => {
   }
 });
 
+// ── The BSH Research Center ──
+// The owner's research app, shown in the J.A.R.V.I.S. window and driven only by
+// J.A.R.V.I.S.: direct mouse, trackpad and keyboard input never reach it, except on its
+// sign-in pages, which the user fills in themselves. Hands and voice go through
+// research-preload.js, which runs in the page's isolated world.
+
+const RESEARCH_AUTH = /^\/(login|reset|terms|account\/password)(\/|$)/;
+const RESEARCH_KEEP_MS = 5 * 60 * 1000; // closed this long, the page is let go
+let researchView = null;
+let researchShown = false;
+let researchBase = '';
+let researchLocked = true;
+let researchSynthetic = false; // true only while J.A.R.V.I.S. itself sends input
+let researchDrop = null;
+let researchZoom = 1; // this session's zoom; Chromium would otherwise keep it per host forever
+const researchCalls = new Map();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function researchOrigin() {
+  try { return new URL(researchBase).origin; } catch { return ''; }
+}
+
+function sameOrigin(url) {
+  try { return new URL(url).origin === researchOrigin(); } catch { return false; }
+}
+
+function researchState(extra = {}) {
+  if (!researchView || !win) return;
+  const wc = researchView.webContents;
+  win.webContents.send('research:state', {
+    url: wc.getURL(),
+    title: wc.getTitle(),
+    loading: wc.isLoading(),
+    locked: researchLocked,
+    canBack: wc.navigationHistory.canGoBack(),
+    canForward: wc.navigationHistory.canGoForward(),
+    zoom: Math.round(wc.getZoomFactor() * 100),
+    ...extra,
+  });
+}
+
+function updateResearchLock() {
+  const wc = researchView.webContents;
+  let pathname = '/';
+  try { pathname = new URL(wc.getURL()).pathname; } catch {}
+  researchLocked = !RESEARCH_AUTH.test(pathname);
+  wc.send('jarvis:locked', researchLocked);
+  researchState();
+}
+
+function ensureResearch() {
+  if (researchView) return researchView;
+  researchView = new WebContentsView({
+    webPreferences: {
+      partition: 'persist:jarvis-research',
+      preload: path.join(__dirname, 'research-preload.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  const wc = researchView.webContents;
+  wc.setVisualZoomLevelLimits(1, 1); // no trackpad pinch-zoom
+  wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  // Direct input never reaches the page while J.A.R.V.I.S. is in control.
+  wc.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape' && win) win.webContents.send('research:escape');
+    if (researchLocked && !researchSynthetic) event.preventDefault();
+  });
+  wc.on('before-mouse-event', (event) => { if (researchLocked && !researchSynthetic) event.preventDefault(); });
+  // It stays on the research center; links elsewhere open in the user's browser.
+  wc.on('will-navigate', (event, url) => {
+    if (sameOrigin(url)) return;
+    event.preventDefault();
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+  });
+  wc.setWindowOpenHandler(({ url }) => {
+    if (sameOrigin(url)) wc.loadURL(url);
+    else if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  for (const event of ['did-navigate', 'did-navigate-in-page']) wc.on(event, updateResearchLock);
+  wc.on('did-finish-load', () => wc.setZoomFactor(researchZoom));
+  for (const event of ['page-title-updated', 'did-start-loading', 'did-stop-loading']) wc.on(event, () => researchState());
+  wc.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) {
+      researchState({ error: `The Research Center isn't answering at ${researchOrigin() || researchBase} (${description}).` });
+    }
+  });
+  wc.on('render-process-gone', () => researchState({ error: 'The Research Center page stopped. Close it and open it again.' }));
+  return researchView;
+}
+
+function dropResearch() {
+  if (!researchView) return;
+  if (researchShown) win.contentView.removeChildView(researchView);
+  researchShown = false;
+  researchView.webContents.close();
+  researchView = null;
+}
+
+function researchInput(fn) {
+  researchSynthetic = true;
+  try { fn(researchView.webContents); } finally { researchSynthetic = false; }
+}
+
+function researchClickAt(x, y) {
+  researchInput((wc) => {
+    wc.sendInputEvent({ type: 'mouseMove', x, y });
+    wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+    wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+  });
+}
+
+function researchPageCall(action, args = {}, ms = 6000) {
+  return new Promise((resolve) => {
+    const id = crypto.randomBytes(6).toString('hex');
+    const timer = setTimeout(() => {
+      researchCalls.delete(id);
+      resolve({ ok: false, message: 'The page did not answer.' });
+    }, ms);
+    researchCalls.set(id, (result) => { clearTimeout(timer); resolve(result || {}); });
+    researchView.webContents.send('jarvis:command', { id, action, args });
+  });
+}
+
+function researchUrl(pathname) {
+  const base = researchBase.replace(/\/+$/, '');
+  return `${base}${typeof pathname === 'string' && pathname.startsWith('/') ? pathname : '/'}`;
+}
+
+async function researchOpen(pathname) {
+  const wc = ensureResearch().webContents;
+  if (sameOrigin(wc.getURL()) && !wc.isLoading()) {
+    const moved = await researchPageCall('navigate', { path: pathname || '/' }, 3000);
+    if (moved.ok) return;
+  }
+  await wc.loadURL(researchUrl(pathname)).catch(() => {});
+}
+
+const fromResearch = (event) => researchView && event.sender === researchView.webContents;
+const fromWindow = (event) => win && event.sender === win.webContents;
+
+ipcMain.on('research:result', (event, message) => {
+  if (!fromResearch(event) || !message) return;
+  const done = researchCalls.get(message.id);
+  if (done) {
+    researchCalls.delete(message.id);
+    done(message.result);
+  }
+});
+ipcMain.on('research:hover', (event, hover) => { if (fromResearch(event)) win.webContents.send('research:hover', hover); });
+ipcMain.on('research:note', (event, note) => { if (fromResearch(event)) win.webContents.send('research:note', note); });
+ipcMain.on('research:pointer', (event, p) => {
+  if (!fromResearch(event) || !p) return;
+  researchInput((wc) => wc.sendInputEvent({ type: 'mouseMove', x: Number(p.x) || 0, y: Number(p.y) || 0 }));
+});
+ipcMain.on('research:click', (event, p) => {
+  if (fromResearch(event) && p) researchClickAt(Number(p.x) || 0, Number(p.y) || 0);
+});
+
+ipcMain.handle('research:show', async (event, { bounds, base, path: pathname } = {}) => {
+  if (!fromWindow(event)) return { error: 'not allowed' };
+  if (/^https?:\/\//.test(String(base || '')) && base !== researchBase) {
+    if (researchView && researchBase) dropResearch(); // a different research center
+    researchBase = base;
+  }
+  if (!researchBase) return { error: 'No Research Center address is set.' };
+  clearTimeout(researchDrop);
+  const view = ensureResearch();
+  if (!researchShown) {
+    win.contentView.addChildView(view);
+    researchShown = true;
+  }
+  view.setBounds(fitBounds(bounds));
+  await researchOpen(pathname || '/markets');
+  researchState();
+  return { ok: true };
+});
+ipcMain.handle('research:hide', (event) => {
+  if (!fromWindow(event) || !researchView) return;
+  if (researchShown) win.contentView.removeChildView(researchView);
+  researchShown = false;
+  clearTimeout(researchDrop);
+  researchDrop = setTimeout(dropResearch, RESEARCH_KEEP_MS);
+});
+ipcMain.handle('research:bounds', (event, bounds) => {
+  if (fromWindow(event) && researchView && researchShown) researchView.setBounds(fitBounds(bounds));
+});
+ipcMain.on('research:hand', (event, message) => {
+  if (!fromWindow(event) || !researchView || !researchShown || !message) return;
+  if (message.t === 'zoom') {
+    const wc = researchView.webContents;
+    researchZoom = Math.min(1.8, Math.max(0.6, wc.getZoomFactor() * (Number(message.f) || 1)));
+    wc.setZoomFactor(researchZoom);
+    researchState();
+    return;
+  }
+  researchView.webContents.send('jarvis:hand', message);
+});
+
+async function runResearchCommand({ action, args = {} }) {
+  if (!researchView) return { error: 'The Research Center is not open.' };
+  const wc = researchView.webContents;
+  const where = () => ({ url: wc.getURL(), title: wc.getTitle() });
+  if (!researchLocked && !['read', 'screenshot', 'open'].includes(action)) {
+    return { error: 'The Research Center is on its sign-in page. The user signs in themselves; after that I can drive it.' };
+  }
+  switch (action) {
+    case 'open':
+      await researchOpen(String(args.path || '/markets'));
+      await waitForLoad(wc, 15000);
+      return { ok: true, ...where() };
+    case 'read':
+      return { ...(await researchPageCall('read')), locked: researchLocked };
+    case 'click': {
+      const found = await researchPageCall('locate', { text: String(args.text || '') });
+      if (!found.ok) return found;
+      if (found.risky && !args.force) {
+        return { ok: false, needsConfirm: true, label: found.label, message: `“${found.label}” needs the user's OK first.` };
+      }
+      researchClickAt(found.x, found.y);
+      await waitForLoad(wc, 8000);
+      return { ok: true, message: `Pressed “${found.label}”`, ...where() };
+    }
+    case 'scroll':
+      return { ...(await researchPageCall('scroll', { direction: args.direction, amount: args.amount })), ...where() };
+    case 'search': {
+      const query = String(args.query || '').slice(0, 80);
+      let done = await researchPageCall('search', { query });
+      if (!done.ok) {
+        await researchOpen('/market-radar'); // the market desk has the search box
+        await waitForLoad(wc, 15000);
+        await sleep(700);
+        done = await researchPageCall('search', { query });
+      }
+      if (!done.ok) return done;
+      await waitForLoad(wc, 8000);
+      return { ok: true, message: `Searched the market desk for ${query}`, ...where() };
+    }
+    case 'back':
+      if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+      await waitForLoad(wc);
+      return { ok: true, ...where() };
+    case 'forward':
+      if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+      await waitForLoad(wc);
+      return { ok: true, ...where() };
+    case 'zoom': {
+      const now = wc.getZoomFactor();
+      const next = args.direction === 'in' ? now * 1.15 : args.direction === 'out' ? now / 1.15 : 1;
+      researchZoom = Math.min(1.8, Math.max(0.6, next));
+      wc.setZoomFactor(researchZoom);
+      researchState();
+      return { ok: true, zoom: Math.round(wc.getZoomFactor() * 100) };
+    }
+    case 'screenshot': {
+      const image = await wc.capturePage();
+      const size = image.getSize();
+      const scaled = size.width > 1280 ? image.resize({ width: 1280 }) : image;
+      return { png: scaled.toPNG().toString('base64'), ...where() };
+    }
+    default:
+      return { error: `Unknown Research Center action ${action}` };
+  }
+}
+
+ipcMain.handle('research:command', async (event, command) => {
+  if (!fromWindow(event)) return { error: 'not allowed' };
+  try {
+    return await runResearchCommand(command || {});
+  } catch (err) {
+    return { error: String(err && err.message ? err.message : err) };
+  }
+});
+
 ipcMain.on('jarvis:attention', () => {
   if (win && !win.isFocused()) app.dock?.bounce('informational');
 });
 
 app.whenReady().then(async () => {
   createWindow();
+  if (DEV_URL) {
+    port = Number(new URL(DEV_URL).port);
+    win.loadURL(DEV_URL);
+    return;
+  }
   port = await freePort();
   startBackend();
   try {

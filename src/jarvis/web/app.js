@@ -68,7 +68,7 @@ function onEvent(ev) {
       send({ type: 'galaxy' });
       if (!$('cc').hidden) { send({ type: 'claude_projects' }); if (deckProject) send({ type: 'claude_sessions', directory: deckProject }); }
       send({ type: 'connectors' });
-      if (app && app.browser) send({ type: 'capabilities', browser: true });
+      if (app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.research });
       history = ev.history || [];
       renderHistory();
       if (ev.vitals) renderVitals(ev.vitals);
@@ -141,6 +141,7 @@ function onEvent(ev) {
     case 'task_transcript': if (ev.id === ccSelected) { $('deck-timeline').replaceChildren(); ev.entries.forEach(appendEntry); renderInlineApprovals(); } break;
     case 'claude_projects': renderProjects(ev.items); break;
     case 'browser_cmd': runBrowserCommand(ev); break;
+    case 'research_cmd': runResearchCmd(ev); break;
     case 'location_request': sendLocation(); break;
     case 'location':
       if (!ev.location && ev.error && /off for J\.A\.R\.V\.I\.S/.test(ev.error) && !locationWarned) {
@@ -219,7 +220,8 @@ document.addEventListener('keydown', (e) => {
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
   if (e.key === 'Escape') {
     if (typing) e.target.blur();
-    if (!$('browser').hidden && !typing) toggleBrowser(false);
+    if (rcOpen && !typing) closeResearch();
+    else if (!$('browser').hidden && !typing) toggleBrowser(false);
     else if (!$('cc').hidden) { if (!jcEscape(e)) toggleCC(false); }
     else if (!$('accounts').hidden) toggleAccounts(false);
     else if (!$('settings').hidden) toggleSettings(false);
@@ -334,6 +336,7 @@ let handHover = null;
 let handPoint = { x: 0, y: 0 };
 const LOOK_ORDER = ['orb', 'hud', 'console'];
 const HAND_HELP = {
+  research: '✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close',
   galaxy: '☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close',
   app: '☝ point · pinch to press · pinch and move to scroll · swipe an open hand to change the look · hold an open palm to talk · hold a fist to stop me',
 };
@@ -341,7 +344,7 @@ const HAND_HELP = {
 function clickableAt(x, y) {
   handPoint = { x, y };
   const hit = document.elementFromPoint(x, y);
-  const target = hit && hit.closest('button, a[href], [role="switch"], [role="radio"], input, select, summary');
+  const target = hit && hit.closest('button, a[href], [role="button"], [role="switch"], [role="radio"], input, select, summary');
   return target && !target.disabled ? target : null;
 }
 
@@ -382,6 +385,7 @@ const appTarget = {
 };
 
 function handTarget() {
+  if (rcOpen) return { target: researchTarget, close: closeResearch, help: HAND_HELP.research };
   return galaxyMode === 'open'
     ? { target: galaxy, close: () => setGalaxyMode('off'), help: HAND_HELP.galaxy }
     : { target: appTarget, close: () => send({ type: 'stop' }), help: HAND_HELP.app };
@@ -395,7 +399,8 @@ function retargetHands() {
 }
 
 function setHandButtons(on) {
-  ['hand-btn', 'hands-pill'].forEach((id) => $(id).setAttribute('aria-pressed', String(on)));
+  ['hand-btn', 'hands-pill', 'rc-hands'].forEach((id) => $(id).setAttribute('aria-pressed', String(on)));
+  placeHandPanel();
 }
 
 async function startHandControl() {
@@ -429,7 +434,7 @@ function stopHandControl() {
   $('hand-panel').hidden = true;
 }
 
-['hand-btn', 'hands-pill'].forEach((id) => $(id).addEventListener('click', () => {
+['hand-btn', 'hands-pill', 'rc-hands'].forEach((id) => $(id).addEventListener('click', () => {
   if (handsOn) stopHandControl();
   else startHandControl();
 }));
@@ -532,6 +537,7 @@ function renderPrefs(p) {
   setSwitch('sw-control', p.control_always);
   setSwitch('sw-code-narrate', p.code_narrate);
   if (document.activeElement !== $('watchlist')) $('watchlist').value = (p.watchlist || []).join(' ');
+  if (document.activeElement !== $('research-url')) $('research-url').value = p.research_url || '';
   $('code-sentences').value = String(p.code_sentences || 3);
   setSwitch('sw-remote', p.remote_enabled);
   setSwitch('sw-proactive-voice', p.proactive_voice);
@@ -930,6 +936,7 @@ function renderMarkets(m) {
 }
 
 $('watchlist').addEventListener('change', (e) => setPrefs({ watchlist: e.target.value }));
+$('research-url').addEventListener('change', (e) => setPrefs({ research_url: e.target.value }));
 
 // ── Claude Code deck ──
 
@@ -2173,6 +2180,183 @@ async function runBrowserCommand(ev) {
   }
   $('br-jarvis').hidden = true;
   send({ type: 'browser_result', id: ev.id, result });
+}
+
+// ── BSH Research Center ──
+// The market breakdown opens the owner's research app inside the window. Only J.A.R.V.I.S.
+// drives it: the page ignores the mouse and keyboard (main.js) and answers to voice (the
+// research tools) and hands (a "page" target: aim with the hand, pinch to open, pinch
+// and move to scroll, swipe to go back, fist to close).
+
+const RC_DEFAULT = 'http://127.0.0.1:8010';
+// What the header calls each page (the app's own titles don't say).
+const RC_NAMES = {
+  '/': 'Home', '/markets': 'Markets', '/market-radar': 'Markets · Market', '/weekly-summary': 'Markets · Pulse',
+  '/news-desk': 'Markets · News', '/research-desk': 'Research desk', '/reports': 'Reports', '/tracking': 'Tracking',
+  '/messages': 'Messages', '/trader-stats': 'Trader stats', '/stock-research': 'Stock research',
+  '/source-library': 'Source library', '/innovation-lab': 'Innovation lab', '/help': 'Help', '/settings': 'Settings',
+  '/login': 'Sign in',
+};
+
+function rcPageName(url, title) {
+  const own = String(title || '').replace(/\s*[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
+  if (own && !/^BSH Research Center$/i.test(own)) return own;
+  let path = '/';
+  try { path = new URL(url).pathname.replace(/\/+$/, '') || '/'; } catch (_) { return own; }
+  if (RC_NAMES[path]) return RC_NAMES[path];
+  const last = decodeURIComponent(path.split('/').filter(Boolean).pop() || '');
+  return last ? last.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Home';
+}
+let rcOpen = false;
+let rcPath = '/markets';
+let rcHover = null; // what a pinch would open, as the page reports it
+let rcState = {};
+let rcNoteUntil = 0;
+
+function rcBounds() {
+  const r = $('rc-slot').getBoundingClientRect();
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
+}
+
+function rcBase() {
+  return (prefs && prefs.research_url) || RC_DEFAULT;
+}
+
+async function openResearch(path = '/markets') {
+  rcPath = path;
+  if (!app || !app.research) {
+    window.open(`${rcBase()}${path}`, '_blank', 'noopener');
+    return { ok: true };
+  }
+  if (!rcOpen) {
+    rcOpen = true;
+    rcState = {};
+    $('rc').hidden = false;
+    document.body.classList.add('rc-open');
+    $('rc-page').textContent = 'Opening the market breakdown…';
+    $('rc-progress').hidden = false;
+    retargetHands();
+  }
+  $('rc-message').hidden = true;
+  await new Promise((r) => requestAnimationFrame(r));
+  placeHandPanel();
+  const result = await app.research.show(rcBounds(), rcBase(), path);
+  if (result && result.error) showResearchError(result.error);
+  return result || { ok: true };
+}
+
+function closeResearch() {
+  if (!rcOpen) return;
+  rcOpen = false;
+  $('rc').hidden = true;
+  document.body.classList.remove('rc-open');
+  if (app && app.research) app.research.hide();
+  rcHover = null;
+  placeHandPanel();
+  retargetHands();
+  send({ type: 'research_state', open: false });
+}
+
+function showResearchError(text) {
+  $('rc-message-text').textContent = `${text} Start it, or set its address in Settings → Research Center.`;
+  $('rc-message').hidden = false;
+  $('rc-progress').hidden = true;
+  if (app && app.research) app.research.hide();
+}
+
+function showRcNote(text) {
+  rcNoteUntil = Date.now() + 2600;
+  $('rc-status').textContent = text;
+  $('rc-status').classList.add('note');
+  setTimeout(() => {
+    if (Date.now() < rcNoteUntil) return;
+    $('rc-status').classList.remove('note');
+    $('rc-status').textContent = handsOn ? $('hand-status').textContent : 'Say “Jarvis, …” or raise a hand';
+  }, 2700);
+}
+
+// The hand camera lives in the rail while the research center is open.
+function placeHandPanel() {
+  const panel = $('hand-panel');
+  const cam = $('rc-cam');
+  const inRail = rcOpen && handsOn;
+  cam.hidden = !inRail;
+  if (inRail) {
+    const r = cam.getBoundingClientRect();
+    Object.assign(panel.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, right: 'auto', bottom: 'auto' });
+  } else {
+    ['left', 'top', 'width', 'right', 'bottom'].forEach((k) => { panel.style[k] = ''; });
+  }
+}
+
+const researchTarget = {
+  kind: 'page',
+  move: (x, y, mode) => app.research.hand({ t: 'move', x, y, mode }),
+  hide: () => app.research.hand({ t: 'hide', x: 0, y: 0 }),
+  press: (x, y) => app.research.hand({ t: 'press', x, y }),
+  drag: (dx, dy) => app.research.hand({ t: 'drag', dx, dy, x: 0, y: 0 }),
+  release: ({ tap, vx, vy }) => app.research.hand({ t: 'release', tap, vx, vy, x: 0, y: 0 }),
+  swipe: (dir) => app.research.command({ action: dir > 0 ? 'back' : 'forward' }),
+  zoomBy: (f) => app.research.hand({ t: 'zoom', f }),
+  hoverLabel: () => (rcHover ? rcHover.label : ''),
+};
+
+async function runResearchCmd(ev) {
+  const args = ev.args || {};
+  let result;
+  try {
+    if (!app || !app.research) result = { error: 'The Research Center only opens in the J.A.R.V.I.S. app window.' };
+    else if (ev.action === 'open') {
+      result = rcOpen ? await app.research.command({ action: 'open', args }) : await openResearch(args.path || '/markets');
+      if (result && !result.error && !result.url) result = { ...result, url: rcState.url || '', title: rcState.title || '' };
+    } else if (ev.action === 'close') {
+      closeResearch();
+      result = { ok: true };
+    } else if (!rcOpen) result = { error: 'The Research Center is closed. Open it first.' };
+    else result = await app.research.command({ action: ev.action, args });
+  } catch (err) {
+    result = { error: String(err) };
+  }
+  send({ type: 'research_result', id: ev.id, result });
+}
+
+$('p-markets').addEventListener('click', () => openResearch('/markets'));
+$('p-markets').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openResearch('/markets'); }
+});
+$('rc-close').addEventListener('click', closeResearch);
+$('rc-retry').addEventListener('click', () => openResearch(rcPath));
+// What JARVIS hears and says shows in the rail too (the dashboard is behind the page).
+new MutationObserver(() => { $('rc-heard').textContent = $('heard').textContent; }).observe($('heard'), { childList: true, characterData: true, subtree: true });
+new MutationObserver(() => { $('rc-reply').textContent = $('reply').textContent; }).observe($('reply'), { childList: true, characterData: true, subtree: true });
+new MutationObserver(() => {
+  if (rcOpen && Date.now() >= rcNoteUntil) $('rc-status').textContent = $('hand-status').textContent;
+}).observe($('hand-status'), { childList: true, characterData: true, subtree: true });
+
+if (app && app.research) {
+  app.research.onState((st) => {
+    if (!rcOpen) return;
+    rcState = st;
+    const title = rcPageName(st.url, st.title);
+    $('rc-page').textContent = title;
+    $('rc-progress').hidden = !st.loading;
+    $('rc-lock').classList.toggle('open', !st.locked);
+    $('rc-lock-text').textContent = st.locked ? 'J.A.R.V.I.S. only' : 'Sign in yourself, then I take over';
+    $('rc-zoom').hidden = !st.zoom || st.zoom === 100;
+    $('rc-zoom').textContent = `${st.zoom}%`;
+    if (st.error) { showResearchError(st.error); return; }
+    send({ type: 'research_state', open: true, url: st.url || '', title, locked: !!st.locked });
+  });
+  app.research.onHover((hover) => { rcHover = hover; });
+  app.research.onNote((note) => { if (note && note.text) showRcNote(note.text); });
+  if (app.research.onEscape) app.research.onEscape(closeResearch);
+  const follow = () => {
+    if (!rcOpen) return;
+    placeHandPanel();
+    if ($('rc-message').hidden) app.research.setBounds(rcBounds());
+  };
+  new ResizeObserver(follow).observe($('rc-slot'));
+  window.addEventListener('resize', follow);
 }
 
 // ── location (the app window holds macOS's location permission) ──

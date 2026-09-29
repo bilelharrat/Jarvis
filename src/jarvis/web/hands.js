@@ -1,9 +1,10 @@
 // Hand control, Stark-style: MediaPipe's hand tracker runs locally in the window (the
 // camera never leaves this Mac) and gestures.js turns hands into actions on a target:
-// the knowledge galaxy while it's open, the rest of the app otherwise.
+// the knowledge galaxy while it's open, the Research Center while it's open (a "page"
+// target, which draws its own cursor), the rest of the app otherwise.
 
 import { FilesetResolver, HandLandmarker } from '/vision/vision_bundle.mjs';
-import { createGestures } from './gestures.js';
+import { createGestures, createPageGestures } from './gestures.js';
 
 let landmarker = null;
 let video = null;
@@ -32,8 +33,14 @@ function toScreen(p, mode) {
 }
 
 function hideCursor() {
-  cursor.hidden = true;
+  if (cursor) cursor.hidden = true;
   smooth.x = smooth.y = null;
+}
+
+function letGoOf(target) {
+  if (!target) return;
+  if (target.kind === 'page') target.hide();
+  else target.hoverAtClient(null, null);
 }
 
 function onFrame(result) {
@@ -77,12 +84,19 @@ async function loop() {
   video.requestVideoFrameCallback(loop);
 }
 
-// Point the same hands at something else (the galaxy opening or closing).
+// Point the same hands at something else (the galaxy or the Research Center opening or
+// closing).
 export function setTarget(target, close) {
-  if (galaxyRef && galaxyRef !== target) galaxyRef.hoverAtClient(null, null);
+  if (galaxyRef && galaxyRef !== target) letGoOf(galaxyRef);
   galaxyRef = target;
   closeFn = close;
-  step = createGestures({ galaxy: target, toScreen, hideCursor, status: setStatus, close: () => closeFn && closeFn() });
+  const closeIt = () => closeFn && closeFn();
+  if (target.kind === 'page') {
+    hideCursor(); // the page draws its own
+    step = createPageGestures({ page: target, status: setStatus, close: closeIt });
+  } else {
+    step = createGestures({ galaxy: target, toScreen, hideCursor, status: setStatus, close: closeIt });
+  }
 }
 
 export async function startHands(target, { overlayCanvas, statusEl, cursorEl, close }) {
@@ -118,7 +132,7 @@ export function stopHands() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
   if (cursor) cursor.hidden = true;
-  if (galaxyRef) galaxyRef.hoverAtClient(null, null);
+  letGoOf(galaxyRef);
 }
 
 export function handsRunning() { return running; }
