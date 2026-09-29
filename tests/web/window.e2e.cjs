@@ -456,6 +456,32 @@ test('Revert in Changes asks for a second click, and new files have none', async
   assert(r.sent.join() === 'a.py' && r.open === wasOpen, JSON.stringify(r));
 });
 
+test('Slash commands before there is a session: a mode starts one in it, the rest open or start', async () => {
+  await js('deckProjects = [{ name: "alpha", branch: "main" }]; deckProject = "alpha"; openProjects.add("alpha"); onEvent({ type: "tasks", items: [] }); toggleCC(true); ccSelected = null; __sent.length = 0');
+  await sleep(80);
+  await js('$("deck-input").focus()');
+  await typeText('/plan add a cache');
+  await press('Enter');
+  await typeText('/help');
+  await press('Enter');  // picks from the palette it opens: nothing is started
+  await sleep(20);
+  const palette = await js('!$("cc-slash").hidden && $("deck-input").value === "/"');
+  await js('$("deck-input").value = ""; $("cc-slash").hidden = true');
+  await typeText('/review-pr 3');
+  await js('$("cc-slash").hidden = true; $("deck-composer").requestSubmit()');
+  const r = await js('__sent.filter((m) => m.type === "task_new").map((m) => `${m.mode || "-"}:${m.prompt}`)');
+  assert(r.join('|') === 'plan:add a cache|-:/review-pr 3', r.join('|'));
+  assert(palette, '/help did not open the command palette');
+});
+
+test('/rename with nothing after it names the session in place', async () => {
+  await open(1, '$("deck-input").focus()');
+  await typeText('/rename');
+  await js('$("cc-slash").hidden = true; $("deck-composer").requestSubmit()');
+  assert(await js('$("jc-title").isContentEditable'), 'the title is not being renamed');
+  assert(!(await sent()).includes('task_rename'), 'renamed to nothing');
+});
+
 // ──
 
 let base;

@@ -2554,13 +2554,36 @@ function recallMessage(step) {
   return true;
 }
 
+const SLASH_MODE_IDS = { manual: 'ask', ask: 'ask', edits: 'edits', auto: 'smart', bypass: 'auto', plan: 'plan' };
+// With no session open yet, these work on their own; a mode command starts the session in
+// that mode ("/plan add a cache": planning that). Anything else starts one with it.
+const SLASH_WITHOUT_SESSION = new Set(['files', 'terminal', 'help', 'resume', 'memory', 'settings', 'config', 'effort', 'ultracode', 'add-dir']);
+function slashWithoutSession(text) {
+  const [word, ...rest] = text.slice(1).split(/\s+/);
+  const name = word.toLowerCase();
+  const arg = rest.join(' ').trim();
+  if (!name) return true;  // a bare slash: nothing to start
+  if (SLASH_MODE_IDS[name]) {
+    const mode = SLASH_MODE_IDS[name];
+    if (mode === 'smart' && !autoCapable(composerState().modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return true; }
+    if (mode === 'auto' && !confirm(tr('Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?'))) return true;
+    if (!send({ type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins] })) return unsent();
+    takePending();
+    awaitingNewSession = true;
+    return true;
+  }
+  if (name === 'model' && !arg) { modelMenu(); return true; }
+  if (SLASH_WITHOUT_SESSION.has(name)) { localSlash(text); return true; }
+  return false;
+}
+
 function localSlash(text) {
   const [name, ...rest] = text.slice(1).split(' ');
   const arg = rest.join(' ').trim();
   const t = currentTask();
   switch (name) {
     case 'files': openPane('files'); return true;
-    case 'help': showSlash(); return true;
+    case 'help': setTimeout(showSlash); return true;  // once the composer has been cleared
     case 'copy': copyLastReply(); return true;
     case 'resume': resumeMenu(); return true;
     case 'rewind': if (t) rewindMenu(); return true;
@@ -2575,7 +2598,10 @@ function localSlash(text) {
     case 'permissions': openPane('rules'); return true;
     case 'diff': openPane('diff'); return false;  // also says it out loud / in the log
     case 'fork': if (t) { awaitingNewSession = true; send({ type: 'task_fork', id: t.id }); } return true;
-    case 'rename': if (t && arg) send({ type: 'task_rename', id: t.id, title: arg }); return true;
+    case 'rename':
+      if (t && arg) send({ type: 'task_rename', id: t.id, title: arg });
+      else if (t) $('jc-title').dispatchEvent(new MouseEvent('dblclick'));  // name it in place
+      return true;
     case 'export': if (t) send({ type: 'task_export', id: t.id }); return true;
     case 'effort':
       if (arg === 'ultracode') applyEffort(5);
@@ -2585,7 +2611,7 @@ function localSlash(text) {
     case 'ultracode': applyEffort(composerState().ultracode ? EFFORTS.indexOf('high') : 5); return true;
     case 'settings': case 'config': openJcSettings('general'); return true;
     case 'manual': case 'ask': case 'edits': case 'auto': case 'bypass': case 'plan': {
-      const mode = { manual: 'ask', ask: 'ask', edits: 'edits', auto: 'smart', bypass: 'auto', plan: 'plan' }[name];
+      const mode = SLASH_MODE_IDS[name];
       if (name === 'plan' && arg) return false;  // "/plan the migration": plan mode, then that ask
       setMode(mode);
       return true;
@@ -2616,6 +2642,7 @@ function sendToSession(text, steer) {
   const t = currentTask();
   if (!t) {
     if (!deckProject) return false;
+    if (text.startsWith('/') && !images.length && slashWithoutSession(text)) return true;
     const extra = { add_dirs: [...pending.dirs], plugins: [...pending.plugins] };
     if (!send({ type: 'task_new', directory: deckProject, prompt: text, images, ...extra })) return unsent();
     takePending();  // the folders and plugins went with it
