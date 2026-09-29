@@ -41,6 +41,24 @@ origin, so other pages in your browser can't drive your Mac through it.
 - **Model switching:** "use Sonnet" or the model chip. Opus, Sonnet, Haiku and Fable.
 - **Morning briefing:** at a set time or with "Brief me": calendar, unread mail, BSH alerts
   and finished tasks.
+- **Heads-ups:** JARVIS speaks up on its own: time to leave (live Apple Maps traffic to
+  the next event's location), a meeting starting, low battery, rain within two hours, an
+  urgent email or one from someone you told it about, Claude Code done or waiting. Cards
+  only during quiet hours or meeting notes (Settings › Speaking up).
+- **Memory:** "Jarvis, remember Ann is my co-founder." Facts ride along in every
+  conversation; review and delete them in Settings › Memory. Passwords, keys and card
+  numbers are refused.
+- **Routines:** "every weekday at 7, brief me", "tonight at 1, research…". Listed in
+  Settings › Routines with pause, run now and delete.
+- **Meeting notes:** "Jarvis, take notes" transcribes the room on the Mac until "stop
+  taking notes", then files a summary, decisions and action items in
+  ~/Documents/Jarvis/Meetings and the second brain.
+- **Home & Shortcuts:** your Shortcuts reach HomeKit. Mark one instant and saying its
+  name ("Jarvis, movie mode") runs it straight away.
+- **What's this? (⌥⇧ Space):** JARVIS looks at the screen you're on and explains it.
+- **Hands:** the Hands pill turns on camera hand control for the whole app: point and
+  pinch to press, pinch and drag to scroll, swipe to change the look, hold an open palm
+  to talk, hold a fist to stop. In the galaxy the same hands spin, zoom and open stars.
 
 - **Tools & Accounts** (the link icon, top right): connect Notion, Linear, Jira &
   Confluence, monday, Todoist, Sentry, Vercel, Supabase, Hugging Face, Stripe, Zapier and
@@ -51,9 +69,11 @@ origin, so other pages in your browser can't drive your Mac through it.
   first, with "Always allow this" per tool, or set a service to Allow everything or
   Read-only. Tokens and sign-ins live in the macOS Keychain.
 
-macOS will ask once each for Microphone, Automation (Mail, Calendar, Notes, Music),
-Screen Recording (screenshots) and Accessibility (mouse and keyboard). Grant them to
-Jarvis, or to Electron when running from `npm start`.
+macOS will ask once each for Microphone, Calendars, Location, Automation (Mail,
+Calendar, Notes, Music), Screen Recording (screenshots) and Accessibility (mouse and
+keyboard); texts and email in the second brain need Full Disk Access. Grant them to
+J.A.R.V.I.S. The app is signed with the BSH Ventures team certificate
+(`app/scripts/finish-app.sh`), so the grants survive rebuilds.
 
 ## Terminal mode
 
@@ -120,5 +140,6 @@ default calendar, and where the BSH research center lives.
 uv run pytest && uv run ruff check . && node --test tests/web/
 ```
 
-Known limit: Calendar's AppleScript only reports a repeating event on the day of its
-first occurrence.
+The calendar is read through EventKit (every account, repeating events included); the
+AppleScript fallback, used until J.A.R.V.I.S. has calendar access, only reports a
+repeating event on the day of its first occurrence.
