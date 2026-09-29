@@ -122,3 +122,38 @@ async def test_bang_runs_in_the_project_and_hash_saves_a_memory(hub, tmp_path, m
         "task_memory",
         {"ok": True, "text": "tests live in tests/", "path": str(project / "CLAUDE.md")},
     )
+
+
+def test_awake_only_while_jarvis_code_works(hub, monkeypatch):
+    from types import SimpleNamespace
+
+    calls = []
+    monkeypatch.setattr(hub.workbench, "set_awake", lambda on: calls.append(on) or on)
+    sent = []
+    hub.emit = lambda kind, **data: sent.append((kind, data))
+    hub.tasks.tasks = {1: SimpleNamespace(kind="code", busy=True)}
+    hub.prefs.code_keep_awake = True
+    hub._sync_awake()
+    assert calls[-1] is True and sent[-1] == ("awake", {"on": True, "active": True})
+    hub.tasks.tasks[1].busy = False
+    hub._sync_awake()
+    assert calls[-1] is False
+    count = len(sent)
+    hub._sync_awake()  # nothing changed: nothing said
+    assert len(sent) == count
+
+
+def test_open_project_file_stays_inside_the_project(hub, tmp_path, monkeypatch):
+    from jarvis import hub as hub_module
+
+    opened = []
+    monkeypatch.setattr(hub_module.subprocess, "Popen", lambda args, **_k: opened.append(args))
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "report.html").write_text("<p>hi</p>")
+    (project / ".env").write_text("SECRET=1")
+    monkeypatch.setattr(hub.tasks, "resolve_dir", lambda _d: project)
+    hub.open_project_file({"directory": "proj", "path": "report.html"})
+    hub.open_project_file({"directory": "proj", "path": "../../etc/hosts"})
+    hub.open_project_file({"directory": "proj", "path": ".env"})
+    assert opened == [["open", str((project / "report.html").resolve())]]

@@ -548,6 +548,7 @@ function renderPrefs(p) {
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
   setSwitch('sw-screen', p.screen_aware);
+  awake = p.code_keep_awake !== false;
   $('screen-pill').hidden = !p.screen_aware;
   setSwitch('sw-control', p.control_always);
   setSwitch('sw-code-narrate', p.code_narrate);
@@ -1996,7 +1997,7 @@ $('jc-more').addEventListener('click', () => {
     { label: 'Interrupt', key: 'Esc', run: () => t && send({ type: 'task_interrupt', id: t.id }) },
     { label: 'End session', run: () => t && send({ type: 'task_cancel', id: t.id }) },
     '-',
-    { label: 'Keep computer awake', note: 'Only while Jarvis is running', switch: awake, run: () => send({ type: 'awake', on: !awake }) },
+    { label: 'Keep computer awake', note: 'While Jarvis Code works', switch: awake, run: () => send({ type: 'awake', on: !awake }) },
   ]);
 });
 function awakeNewSessionFork(t) { awaitingNewSession = true; send({ type: 'task_fork', id: t.id }); }
@@ -2170,14 +2171,79 @@ function renderFilesPane(body, files, placeholder) {
   filter.focus();
 }
 
+// Files and artifacts: Markdown, HTML, CSV and JSON show as what they are (Source flips
+// to the text); Open hands the file to its own app.
+const PREVIEWS = { md: 'markdown', markdown: 'markdown', html: 'html', htm: 'html', csv: 'csv', tsv: 'csv', json: 'json' };
+let viewSource = false;
+
+function csvRows(text, sep) {
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  for (let i = 0; i < text.length && rows.length < 201; i += 1) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i += 1; } else if (c === '"') quoted = false; else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === sep) { row.push(cell); cell = ''; }
+    else if (c === '\n') { row.push(cell.replace(/\r$/, '')); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+function previewOf(path, text) {
+  const kind = PREVIEWS[(path.split('.').pop() || '').toLowerCase()];
+  if (!kind || viewSource) return null;
+  if (kind === 'markdown') { const d = el('div', 'jc-preview jc-md'); d.append(richText(text)); return d; }
+  if (kind === 'html') {
+    const frame = document.createElement('iframe');
+    frame.className = 'jc-preview jc-html';
+    frame.setAttribute('sandbox', ''); // no scripts, no forms, no same-origin
+    frame.srcdoc = text;
+    return frame;
+  }
+  if (kind === 'json') {
+    try { const pre = el('pre', 'jc-code'); pre.textContent = JSON.stringify(JSON.parse(text), null, 2); return pre; } catch (_) { return null; }
+  }
+  const rows = csvRows(text, path.toLowerCase().endsWith('.tsv') ? '\t' : ',');
+  if (!rows.length) return null;
+  const wrap = el('div', 'jc-preview jc-table-wrap');
+  const table = el('table', 'jc-table');
+  rows.forEach((r, i) => {
+    const tr = el('tr');
+    r.forEach((c) => tr.append(el(i === 0 ? 'th' : 'td', '', c)));
+    table.append(tr);
+  });
+  wrap.append(table);
+  return wrap;
+}
+
 function drawViewer(viewer) {
   viewer = viewer || document.querySelector('#jc-pane-body .jc-viewer');
   if (!viewer || !fileView) return;
   if (!fileView.text && !fileView.error) { viewer.replaceChildren(el('p', 'jc-dim', `Opening ${fileView.path}…`)); return; }
-  if (fileView.error) { viewer.replaceChildren(el('p', 'jc-dim', fileView.error)); return; }
-  const pre = el('pre', 'jc-code');
-  for (const line of fileView.text.split('\n').slice(0, 4000)) pre.append(el('span', 'ln', `${line}\n`));
-  viewer.replaceChildren(el('p', 'jc-label', fileView.path + (fileView.truncated ? ' (first 300 KB)' : '')), pre);
+  const bar = el('div', 'jc-viewer-bar');
+  bar.append(el('span', 'jc-label', fileView.path + (fileView.truncated ? ' (first 300 KB)' : '')));
+  const kind = PREVIEWS[(fileView.path.split('.').pop() || '').toLowerCase()];
+  if (kind && !fileView.error) {
+    const flip = el('button', 'jc-btn small', viewSource ? 'Preview' : 'Source');
+    flip.type = 'button';
+    flip.addEventListener('click', () => { viewSource = !viewSource; drawViewer(viewer); });
+    bar.append(flip);
+  }
+  const open = el('button', 'jc-btn small', 'Open');
+  open.type = 'button';
+  open.title = 'Open in its own app';
+  open.addEventListener('click', () => send({ type: 'file_open', directory: deckProject, path: fileView.path }));
+  bar.append(open);
+  if (fileView.error) { viewer.replaceChildren(bar, el('p', 'jc-dim', fileView.error)); return; }
+  let body = previewOf(fileView.path, fileView.text);
+  if (!body) {
+    body = el('pre', 'jc-code');
+    for (const line of fileView.text.split('\n').slice(0, 4000)) body.append(el('span', 'ln', `${line}\n`));
+  }
+  viewer.replaceChildren(bar, body);
   viewer.scrollIntoView({ block: 'nearest' });
 }
 

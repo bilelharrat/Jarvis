@@ -85,6 +85,7 @@ class Prefs:
     invoice_from: str = ""  # the business at the top of invoices (the user fills it in)
     invoice_payment: str = ""  # how to pay, printed on invoices
     screen_aware: bool = False  # keep an eye on the screen (pictures stay in memory, 2 min)
+    code_keep_awake: bool = True  # keep the Mac awake while Jarvis Code works
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -178,6 +179,7 @@ def _clean(name: str, value: Any) -> Any:
         "remote_enabled",
         "code_narrate",
         "screen_aware",
+        "code_keep_awake",
     }:
         return bool(value)
     return None

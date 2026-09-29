@@ -252,6 +252,7 @@ class Hub:
         self.screen_watch = screen_watch or screenwatch.ScreenWatcher(app_name=frontmost_app)
         self._whats_this_app = "their Mac"
         self.net = defense.NetMeter()
+        self._awake_shown = False
         self.defense: dict[str, Any] = {"shields": [], "link": {}, "latency": None}
         self.meeting: Any = None  # meeting notes in progress
         self.notes_transcriber = notes_transcriber
@@ -344,6 +345,7 @@ class Hub:
             self._spawn(self._routine_clock())
             self._spawn(self._markets_loop())
             self._spawn(self._defense_loop())
+            self._spawn(self._awake_loop())
         if self.prefs.remote_enabled:
             await self.remote.start()
         if self.prefs.hands_free:
@@ -1969,6 +1971,31 @@ class Hub:
             f.write(f"{lead}- {note}\n")
         self.emit("task_memory", ok=True, text=note, path=str(path))
 
+    def _sync_awake(self, force: bool = False) -> None:
+        """Awake while any Jarvis Code session is working (when that's switched on), and
+        asleep-able again as soon as they're all done."""
+        working = any(t.busy for t in self.tasks.tasks.values() if t.kind == "code")
+        on = self.workbench.set_awake(self.prefs.code_keep_awake and working)
+        if force or on != self._awake_shown:
+            self._awake_shown = on
+            self.emit("awake", on=self.prefs.code_keep_awake, active=on)
+
+    async def _awake_loop(self) -> None:
+        while True:
+            await asyncio.sleep(5)
+            self._sync_awake()
+
+    def open_project_file(self, msg: dict[str, Any]) -> None:
+        """Open a project file in its own app (Preview, a browser, Numbers…): only inside
+        the project, never credentials or private folders."""
+        try:
+            root = self.tasks.resolve_dir(str(msg.get("directory", ""))).resolve()
+        except ValueError:
+            return
+        path = (root / str(msg.get("path", ""))).resolve()
+        if root in path.parents and path.is_file() and not computer.is_sensitive(path):
+            subprocess.Popen(["open", str(path)])  # noqa: S603, S607
+
     # ── the window itself ──
 
     async def pdf_call(self, page: str) -> bytes | None:
@@ -2789,7 +2816,11 @@ class Hub:
             if term is not None:
                 term.resize(int(msg.get("cols", 0)), int(msg.get("rows", 0)))
         elif kind == "awake":
-            self.emit("awake", on=self.workbench.set_awake(bool(msg.get("on"))))
+            # The More menu's switch: keep the Mac awake while Jarvis Code works.
+            self.set_prefs({"code_keep_awake": bool(msg.get("on"))})
+            self._sync_awake(force=True)
+        elif kind == "file_open":
+            self.open_project_file(msg)
         elif kind == "sim_list":
             self.emit("sim_list", devices=await self.workbench.simulators())
         elif kind == "sim_boot":
