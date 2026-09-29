@@ -98,7 +98,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="A voice assistant for your Mac.")
     parser.add_argument("--text", action="store_true", help="type instead of speaking")
     parser.add_argument("--mute", action="store_true", help="don't speak replies aloud")
+    parser.add_argument(
+        "command", nargs="?", choices=["serve"], help="serve: run the backend for the JARVIS app"
+    )
+    parser.add_argument("--port", type=int, default=8765, help="port for serve")
     args = parser.parse_args()
+    if args.command == "serve":
+        import os
+        import secrets
+
+        from .server import serve
+
+        # The app passes its own token; a manual run gets a fresh one.
+        serve(args.port, os.environ.get("JARVIS_TOKEN") or secrets.token_urlsafe(24))
+        return
     try:
         asyncio.run(run(text_mode=args.text, muted=args.mute))
     except KeyboardInterrupt:

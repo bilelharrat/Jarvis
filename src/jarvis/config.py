@@ -9,7 +9,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_BSH_DIR = Path.home() / "Investment agent" / "bsh-research-center"
+DEFAULT_PROJECTS_DIR = Path.home() / "Investment agent"
+DEFAULT_BSH_DIR = DEFAULT_PROJECTS_DIR / "bsh-research-center"
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class Settings:
     address: str = ""
     calendar: str = ""
     bsh_dir: Path | None = DEFAULT_BSH_DIR
+    projects_dir: Path = DEFAULT_PROJECTS_DIR
+    task_effort: str = "high"
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -40,4 +43,6 @@ def load_settings(env_file: Path | None = None) -> Settings:
         calendar=env.get("JARVIS_CALENDAR", "").strip(),
         # An empty JARVIS_BSH_DIR turns the research-desk tools off.
         bsh_dir=Path(bsh).expanduser() if bsh else None,
+        projects_dir=Path(env.get("JARVIS_PROJECTS_DIR", str(DEFAULT_PROJECTS_DIR))).expanduser(),
+        task_effort=env.get("JARVIS_TASK_EFFORT", Settings.task_effort),
     )

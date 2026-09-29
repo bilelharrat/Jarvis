@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:">
+<title>Jarvis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&amp;family=Instrument+Sans:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-state="idle">
+<header class="top">
+  <span class="wordmark">Jarvis</span>
+  <div class="meta">
+    <span id="clock"></span>
+    <span id="battery"></span>
+    <div class="settings">
+      <button id="settings-btn" class="icon-btn" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="9" cy="9" r="2.5"/><path d="M9 1.5V4M9 14v2.5M1.5 9H4M14 9h2.5M3.7 3.7l1.8 1.8M12.5 12.5l1.8 1.8M3.7 14.3l1.8-1.8M12.5 5.5l1.8-1.8"/></svg>
+      </button>
+      <div id="settings" class="popover" hidden>
+        <button id="mute-btn" type="button">Voice replies: on</button>
+        <button id="reset-btn" type="button">New conversation</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="stage">
+  <h1 id="greeting">Hello.</h1>
+  <p id="next-event" class="subline" hidden></p>
+
+  <button id="orb" class="orb" type="button" aria-label="Talk to Jarvis">
+    <span class="orb-core"></span>
+    <span class="orb-sheen"></span>
+  </button>
+  <p id="state-line" class="state-line">Tap the orb or press ⌥ Space</p>
+
+  <section class="caption" aria-live="polite">
+    <p id="heard" class="heard"></p>
+    <p id="reply" class="reply"></p>
+  </section>
+
+  <div class="chips">
+    <button type="button" class="chip" data-ask="What's next on my calendar today?">What’s next today?</button>
+    <button type="button" class="chip" data-ask="Play some focus music.">Play focus music</button>
+    <button type="button" class="chip" data-ask="Summarize my unread email.">Summarize unread mail</button>
+    <button type="button" class="chip" data-ask="How's the BSH portfolio looking?">How’s the portfolio?</button>
+  </div>
+
+  <form id="ask-form" class="ask" autocomplete="off">
+    <label for="ask-input" class="sr-only">Type a request</label>
+    <input id="ask-input" placeholder="Or type a request…">
+  </form>
+</main>
+
+<aside id="cards" class="cards" aria-live="polite"></aside>
+
+<footer class="bottom">
+  <button id="activity-btn" class="pill" type="button" aria-expanded="false" aria-controls="activity">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 10l4-4 4 4"/></svg>
+    <span id="activity-label">Activity</span>
+  </button>
+  <div class="hint">Tap the orb, or press <kbd>⌥ Space</kbd> anywhere</div>
+</footer>
+
+<section id="activity" class="drawer" hidden>
+  <div class="drawer-head">
+    <h2>Activity</h2>
+    <button id="activity-close" class="icon-btn" type="button" aria-label="Close activity">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+    </button>
+  </div>
+  <div id="tasks-list" class="tasks"></div>
+  <ol id="activity-list" class="activity-list"></ol>
+  <p id="activity-empty" class="empty">Nothing yet today.</p>
+</section>
+
+<div id="offline" class="offline" hidden>Reconnecting to Jarvis…</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

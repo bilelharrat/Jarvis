@@ -40,6 +40,11 @@ class Speaker:
         self.voice = voice if voice in available_voices() else ""
         self.rate = rate
         self.muted = muted
+        self._proc: asyncio.subprocess.Process | None = None
+
+    def stop(self) -> None:
+        if self._proc is not None and self._proc.returncode is None:
+            self._proc.kill()
 
     async def say(self, text: str) -> None:
         spoken = clean_for_speech(text)
@@ -50,8 +55,11 @@ class Speaker:
             args += ["-v", self.voice]
         # Text goes over stdin so a reply starting with "-" is never read as a flag.
         proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE)
+        self._proc = proc
         try:
             await proc.communicate(spoken.encode())
         except asyncio.CancelledError:
             proc.kill()
             raise
+        finally:
+            self._proc = None

@@ -83,3 +83,25 @@ def test_event_args_splits_iso_time():
 
 def test_midnight_offsets():
     assert mac_tools.midnight(1, now=datetime(2026, 9, 28, 17, 5)) == datetime(2026, 9, 29)
+
+
+def test_parse_events_structured():
+    start = datetime(2026, 9, 28)
+    events = mac_tools.parse_events("3600\t7200\tfalse\tWork\tStandup\n", start)
+    assert events == [
+        {
+            "begin": datetime(2026, 9, 28, 1),
+            "end": datetime(2026, 9, 28, 2),
+            "all_day": False,
+            "calendar": "Work",
+            "title": "Standup",
+        }
+    ]
+
+
+async def test_snap_window_validates_position(calls):
+    bad = await mac_tools.snap_window.handler({"app": "Safari", "position": "diagonal"})
+    assert bad["is_error"] and calls == []
+    ok = await mac_tools.snap_window.handler({"app": "Safari", "position": "left"})
+    assert not ok.get("is_error")
+    assert calls[0][0][2:] == ("Safari", "left")

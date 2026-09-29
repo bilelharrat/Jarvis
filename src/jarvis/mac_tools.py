@@ -44,6 +44,11 @@ async def run_command(*args: str, stdin: str | None = None, timeout: float = 30)
                 " (Allow this in System Settings > Privacy & Security > Automation"
                 " for the app running JARVIS.)"
             )
+        elif "assistive access" in message or "-25211" in message or "-1719" in message:
+            message += (
+                " (Allow this in System Settings > Privacy & Security > Accessibility"
+                " for the app running JARVIS.)"
+            )
         raise ToolFailure(message or f"{args[0]} exited with {proc.returncode}")
     return out.decode().strip()
 
@@ -71,13 +76,13 @@ def _guarded(fn):
     return wrapper
 
 
-def _running(app: str) -> bool:
+def app_running(app: str) -> bool:
     return subprocess.run(["pgrep", "-xq", app]).returncode == 0
 
 
 def _active_player() -> str | None:
     for app in ("Spotify", "Music"):
-        if _running(app):
+        if app_running(app):
             return app
     return None
 
@@ -107,6 +112,63 @@ async def open_url(args):
         raise ValueError("Only http and https links can be opened.")
     await run_command("open", url)
     return f"Opened {url}."
+
+
+# ── Windows ──────────────────────────────────────────────────────────────────
+
+SNAP_SCRIPT = """on run argv
+    set pos to item 2 of argv
+    tell application "Finder" to set b to bounds of window of desktop
+    set W to item 3 of b
+    set H to item 4 of b
+    tell application (item 1 of argv) to activate
+    delay 0.4
+    tell application "System Events"
+        tell (first application process whose frontmost is true)
+            set f to front window
+            if pos is "left" then
+                set position of f to {0, 0}
+                set size of f to {W div 2, H}
+            else if pos is "right" then
+                set position of f to {W div 2, 0}
+                set size of f to {W div 2, H}
+            else
+                set position of f to {0, 0}
+                set size of f to {W, H}
+            end if
+        end tell
+    end tell
+end run"""
+
+SNAP_POSITIONS = ("left", "right", "full")
+
+
+@tool(
+    "snap_window",
+    "Bring an app forward and snap its front window to the left half, right half, or full "
+    "screen. position: left, right or full.",
+    {"app": str, "position": str},
+)
+@_guarded
+async def snap_window(args):
+    name = args["app"].strip()
+    position = args["position"].strip().lower()
+    if not name or "/" in name:
+        raise ValueError("Give an application name, not a path.")
+    if position not in SNAP_POSITIONS:
+        raise ValueError(f"position must be one of {', '.join(SNAP_POSITIONS)}")
+    await run_applescript(SNAP_SCRIPT, name, position)
+    return f"{name} is on the {position}." if position != "full" else f"{name} fills the screen."
+
+
+@tool("quit_app", "Quit a running Mac application by name. Asks the user first.", {"name": str})
+@_guarded
+async def quit_app(args):
+    name = args["name"].strip()
+    if not name or "/" in name:
+        raise ValueError("Give an application name, not a path.")
+    await run_applescript("on run argv\ntell application (item 1 of argv) to quit\nend run", name)
+    return f"Quit {name}."
 
 
 @tool("system_status", "Current local date and time, and battery level.", {})
@@ -326,24 +388,39 @@ def midnight(offset_days: int = 0, now: datetime | None = None) -> datetime:
     return now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=offset_days)
 
 
-def format_events(raw: str, start: datetime) -> str:
+def parse_events(raw: str, start: datetime) -> list[dict[str, Any]]:
     events = []
     for line in raw.splitlines():
         parts = line.split("\t", 4)
         if len(parts) < 5:
             continue
-        begin = start + timedelta(seconds=float(parts[0]))
-        end = start + timedelta(seconds=float(parts[1]))
-        all_day = parts[2] == "true"
-        events.append((begin, end, all_day, parts[3], parts[4]))
-    events.sort(key=lambda e: e[0])
-    rows = []
-    for begin, end, all_day, cal, title in events:
-        when = begin.strftime("%a %d %b") + (
-            " (all day)" if all_day else f" {begin:%H:%M}–{end:%H:%M}"
+        events.append(
+            {
+                "begin": start + timedelta(seconds=float(parts[0])),
+                "end": start + timedelta(seconds=float(parts[1])),
+                "all_day": parts[2] == "true",
+                "calendar": parts[3],
+                "title": parts[4],
+            }
         )
-        rows.append(f"- {when}: {title} [{cal}]")
+    events.sort(key=lambda e: e["begin"])
+    return events
+
+
+def format_events(raw: str, start: datetime) -> str:
+    rows = []
+    for e in parse_events(raw, start):
+        begin, end = e["begin"], e["end"]
+        when = begin.strftime("%a %d %b") + (
+            " (all day)" if e["all_day"] else f" {begin:%H:%M}–{end:%H:%M}"
+        )
+        rows.append(f"- {when}: {e['title']} [{e['calendar']}]")
     return "\n".join(rows)
+
+
+async def fetch_events(offset_days: int = 0, days: int = 1) -> list[dict[str, Any]]:
+    raw = await run_applescript(LIST_EVENTS_SCRIPT, str(offset_days), str(days), timeout=90)
+    return parse_events(raw, midnight(offset_days))
 
 
 @tool(
@@ -456,14 +533,17 @@ AUTO_ALLOWED = [
     "list_emails",
     "draft_email",
     "list_events",
+    "snap_window",
 ]
-NEEDS_CONFIRMATION = ["run_shortcut", "create_event"]
+NEEDS_CONFIRMATION = ["run_shortcut", "create_event", "quit_app"]
 
 
 def build_server(default_calendar: str = ""):
     tools = [
         open_app,
         open_url,
+        snap_window,
+        quit_app,
         system_status,
         media_control,
         now_playing,

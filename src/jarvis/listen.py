@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+from collections.abc import Callable
 
 import numpy as np
 
@@ -57,7 +58,9 @@ class EndpointDetector:
         return self._quiet_run >= self.silence_blocks
 
 
-def record_utterance(silence_seconds: float) -> np.ndarray | None:
+def record_utterance(
+    silence_seconds: float, on_level: Callable[[float], None] | None = None
+) -> np.ndarray | None:
     """Blocks until the speaker finishes. Returns 16 kHz mono float32 audio, or None."""
     import sounddevice as sd
 
@@ -78,7 +81,10 @@ def record_utterance(silence_seconds: float) -> np.ndarray | None:
         while True:
             block = blocks.get()
             captured.append(block)
-            if detector.feed(float(np.sqrt(np.mean(block**2)))):
+            rms = float(np.sqrt(np.mean(block**2)))
+            if on_level is not None:
+                on_level(rms)
+            if detector.feed(rms):
                 break
     if not detector.heard_speech:
         return None

@@ -1,0 +1,19 @@
+:root { --bg: #f4f0e8; --ink: #4f4b44; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111317; --ink: #c9c4bb; } }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 36px;
+  -webkit-app-region: drag;
+}
+.orb {
+  width: 200px; height: 200px; border-radius: 50%;
+  background: radial-gradient(circle at 36% 32%, #f2fbff 0%, #a4e4ff 16%, #3fb8f2 44%, #1677c9 72%, #0a3d84 100%);
+  box-shadow: 0 30px 90px rgba(24, 132, 214, 0.34), 0 0 0 18px rgba(56, 176, 240, 0.13), 0 0 0 40px rgba(56, 176, 240, 0.06);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+body.error .orb { animation: none; filter: grayscale(0.6); }
+p { max-width: 520px; text-align: center; line-height: 1.5; margin: 0; }
+@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+@media (prefers-reduced-motion: reduce) { .orb { animation: none; } }

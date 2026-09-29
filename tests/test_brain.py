@@ -66,3 +66,17 @@ async def test_unknown_tools_are_denied_without_asking():
 def test_address_is_optional():
     assert "Address the user" not in brain.system_prompt(Settings(), False)
     assert '"sir"' in brain.system_prompt(replace(Settings(), address="sir"), False)
+
+
+def test_tasks_server_and_its_gate(tmp_path):
+    from jarvis.tasks import TaskManager
+
+    settings = replace(Settings(), bsh_dir=None, projects_dir=tmp_path)
+    tm = TaskManager(settings, None, lambda *a, **k: None)
+    opts = brain.build_options(settings, never, tm.build_server())
+    assert "claude" in opts.mcp_servers
+    assert "mcp__claude__claude_task_status" in opts.allowed_tools
+    assert "mcp__claude__run_claude_code" not in opts.allowed_tools
+    assert "Start Claude Code in jarvis" in brain.describe_action(
+        "mcp__claude__run_claude_code", {"directory": "jarvis", "task": "add tests"}
+    )
