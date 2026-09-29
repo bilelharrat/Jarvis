@@ -4186,6 +4186,8 @@ function applyDockWidth(w) {
   document.body.style.setProperty('--bd-w', `${w}px`);
   // The dashboard shares the window with the dock: its side panels step back when narrow.
   document.body.classList.toggle('browser-narrow', window.innerWidth - w < 1100);
+  // A slim dock keeps room for the address: Bookmarks is then a tab in History's panel.
+  document.body.classList.toggle('browser-slim', w < 460);
 }
 
 function slotBounds() {
@@ -4305,7 +4307,7 @@ function browserKey(action) {
     case 'address': $('br-url').focus(); $('br-url').select(); break;
     case 'find': openFind(); break;
     case 'bookmark': toggleBookmark(); break;
-    case 'history': openLibrary('history'); break;
+    case 'history': toggleLibrary('history'); break;
     case 'full': setBrowserFull(!document.body.classList.contains('browser-full')); break;
     case 'close': toggleBrowser(false); break;
     default: break;
@@ -4397,10 +4399,17 @@ function toggleBookmark() {
   if (!/^https?:/.test(url)) return;
   refreshLibrary('bookmark', url, browserState.title || url);
 }
+// History (the clock) and Bookmarks (the book) are one panel with two tabs: each button
+// opens its tab, switches to it when the other is showing, and closes it when it's lit.
+function toggleLibrary(kind) {
+  if ($('bd-lib').hidden) return openLibrary(kind);
+  if (libKind === kind) return closeLibrary();
+  libKind = kind;
+  renderLibrary();
+}
 function openLibrary(kind) {
   libKind = kind;
   $('bd-lib').hidden = false;
-  $('br-library').setAttribute('aria-pressed', 'true');
   app.browser.hide(); // the page is a native view over the slot: it steps aside
   refreshLibrary();
   renderLibrary();
@@ -4411,11 +4420,14 @@ function closeLibrary() {
   if ($('bd-lib').hidden) return;
   $('bd-lib').hidden = true;
   $('br-library').setAttribute('aria-pressed', 'false');
+  $('br-history').setAttribute('aria-pressed', 'false');
   if (browserOpenNow && $('br-message').hidden) app.browser.show(slotBounds());
 }
 function renderLibrary() {
   $('bd-lib-bookmarks').setAttribute('aria-selected', String(libKind === 'bookmarks'));
   $('bd-lib-history').setAttribute('aria-selected', String(libKind === 'history'));
+  $('br-library').setAttribute('aria-pressed', String(libKind === 'bookmarks'));
+  $('br-history').setAttribute('aria-pressed', String(libKind === 'history'));
   $('bd-lib-clear').hidden = libKind !== 'history' || !libData.history.length;
   const q = $('bd-lib-search').value.trim().toLowerCase();
   const items = (libKind === 'bookmarks' ? libData.bookmarks.slice().reverse() : libData.history)
@@ -4524,7 +4536,8 @@ if (app && app.browser && app.browser.find) {
   $('bd-find-prev').addEventListener('click', () => findStep(false));
   $('bd-find-done').addEventListener('click', closeFind);
   $('br-star').addEventListener('click', toggleBookmark);
-  $('br-library').addEventListener('click', () => ($('bd-lib').hidden ? openLibrary('bookmarks') : closeLibrary()));
+  $('br-library').addEventListener('click', () => toggleLibrary('bookmarks'));
+  $('br-history').addEventListener('click', () => toggleLibrary('history'));
   $('bd-lib-bookmarks').addEventListener('click', () => { libKind = 'bookmarks'; renderLibrary(); });
   $('bd-lib-history').addEventListener('click', () => { libKind = 'history'; renderLibrary(); });
   $('bd-lib-search').addEventListener('input', renderLibrary);

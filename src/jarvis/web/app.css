@@ -2212,6 +2212,7 @@ button.jc-ctx:hover, button.jc-ctx[aria-expanded="true"] { background: var(--pil
 .bd-lib-foot { padding: 6px 12px 10px; display: flex; justify-content: flex-end; }
 .bd-lib-clear { height: 26px; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger) / 0.12); }
 .bd-lib-clear[hidden] { display: none; }
+body.browser-slim #br-library { display: none; }
 
 /* downloads: a strip under the page, each asking before it saves */
 .bd-downloads { flex: none; list-style: none; margin: 0; padding: 0 6px; display: flex; flex-direction: column; gap: 6px; }
