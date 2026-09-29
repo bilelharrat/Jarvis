@@ -1,4 +1,6 @@
-"""Voice control of the window itself, and saving the conversation."""
+"""Voice control of the window itself, saving the conversation, and the request queue."""
+
+import asyncio
 
 import pytest
 
@@ -79,3 +81,25 @@ def test_export_history(hub, tmp_path, monkeypatch):
     assert first.exists() and second.exists() and first != second
     text = first.read_text()
     assert "**You** · 09:15" in text and "How's the market?" in text and "Down a little." in text
+
+
+async def test_requests_wait_their_turn_and_can_be_taken_back(hub):
+    sent = []
+    hub.emit = lambda kind, **data: sent.append((kind, data))
+    asked = []
+
+    async def fake_run(rid, query):
+        asked.append(query)
+
+    hub._run_query = fake_run
+    await hub._lock.acquire()  # something is being answered
+    first = asyncio.create_task(hub.ask("what's the weather"))
+    second = asyncio.create_task(hub.ask("and tomorrow"))
+    await asyncio.sleep(0.01)
+    queued = [d["items"] for k, d in sent if k == "ask_queue"][-1]
+    assert [q["text"] for q in queued] == ["what's the weather", "and tomorrow"]
+    await hub.handle({"type": "unqueue", "id": queued[1]["id"]})  # take the second back
+    hub._lock.release()
+    await asyncio.wait_for(asyncio.gather(first, second), 5)
+    assert asked == ["what's the weather"]
+    assert [d["items"] for k, d in sent if k == "ask_queue"][-1] == []

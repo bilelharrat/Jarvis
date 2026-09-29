@@ -143,6 +143,7 @@ function onEvent(ev) {
     case 'browser_cmd': runBrowserCommand(ev); break;
     case 'research_cmd': runResearchCmd(ev); break;
     case 'ui': applyUi(ev); break;
+    case 'ask_queue': renderAskQueue(ev.items || []); break;
     case 'saved': onSaved(ev); break;
     case 'location_request': sendLocation(); break;
     case 'location':
@@ -879,6 +880,23 @@ document.querySelectorAll('#look-group button').forEach((b) => b.addEventListene
 $('weather-city').addEventListener('change', (e) => setPrefs({ weather_city: e.target.value }));
 $('clear-history').addEventListener('click', () => send({ type: 'clear_history' }));
 $('export-history').addEventListener('click', () => send({ type: 'export_history' }));
+
+// Requests typed or said while JARVIS is still answering wait here, in order; ✕ takes one
+// back before it's sent.
+function renderAskQueue(items) {
+  const list = $('ask-queue');
+  list.hidden = !items.length;
+  list.replaceChildren(...items.map((item) => {
+    const li = el('li', 'ask-queued');
+    li.append(el('span', 'ask-queued-kicker', 'Next'), el('span', 'ask-queued-text', item.text));
+    const x = el('button', 'ask-queued-x', '✕');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Don’t send this');
+    x.addEventListener('click', () => send({ type: 'unqueue', id: item.id }));
+    li.append(x);
+    return li;
+  }));
+}
 
 function onSaved(ev) {
   let reveal = null;

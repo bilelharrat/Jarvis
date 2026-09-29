@@ -287,6 +287,8 @@ class Hub:
         self._research_follow_until = 0.0
         self._fillers: list[tuple[Any, int]] = []
         self._filler_order = itertools.count()
+        self._ask_ids = itertools.count(1)
+        self.waiting: list[dict[str, Any]] = []  # requests queued behind the current one
         self._heard_at = 0.0
         self._asked_at = 0.0
         self._first_sound_logged = True
@@ -847,7 +849,20 @@ class Hub:
         text = text.strip()
         if not text:
             return ""
+        ticket = 0
+        if self._lock.locked():
+            # Something is still being answered: this one waits its turn, visibly, and
+            # the user can take it back before it's sent.
+            ticket = next(self._ask_ids)
+            self.waiting.append({"id": ticket, "text": (display or text)[:300]})
+            self.emit("ask_queue", items=list(self.waiting))
         async with self._lock:
+            if ticket:
+                still_wanted = any(w["id"] == ticket for w in self.waiting)
+                self.waiting = [w for w in self.waiting if w["id"] != ticket]
+                self.emit("ask_queue", items=list(self.waiting))
+                if not still_wanted:
+                    return ""  # taken back while it waited
             self._stopping = False
             self._silent = silent
             self._turn_text = text if display is None else ""
@@ -2709,6 +2724,10 @@ class Hub:
         elif kind == "clear_history":
             self.history.clear()
             self.emit("history", items=[])
+        elif kind == "unqueue":
+            ticket = msg.get("id")
+            self.waiting = [w for w in self.waiting if w["id"] != ticket]
+            self.emit("ask_queue", items=list(self.waiting))
         elif kind == "export_history":
             path = self.export_history()
             if path is None:
