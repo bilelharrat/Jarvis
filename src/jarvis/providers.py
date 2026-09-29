@@ -47,6 +47,7 @@ from urllib.parse import urlsplit
 import httpx
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import jsonstore
 from .connectors import SERVICE, Vault
 from .prefs import APP_SUPPORT, MODEL_NAMES, MODELS
 
@@ -518,6 +519,15 @@ def _dicts(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
+def _read_row(read: Callable[[dict[str, Any]], Any], raw: dict[str, Any]) -> Any:
+    """One row of the file, or None when it's too odd to read (nested past reason, a
+    number past what a float holds): it never stops the rest from loading."""
+    try:
+        return read(raw)
+    except (RecursionError, OverflowError, TypeError, ValueError):
+        return None
+
+
 def _provider_from(raw: dict[str, Any]) -> Provider | None:
     """A provider read back from the file, checked again: the file is plain text anyone
     can edit. Its key's Keychain entry says where the key may go, so an address or kind
@@ -583,19 +593,23 @@ class ProviderStore:
         self.entries: dict[str, ModelEntry] = {}
         self.status: dict[str, dict[str, Any]] = {}  # each provider's last check, this run
         self._versions: dict[str, int] = {}  # bumped when a provider's key changes or goes
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self._load()
 
     # persistence
 
     def _load(self) -> None:
+        """A damaged file is kept aside and its last good copy read; one that can't be read
+        just now is left alone, and nothing is saved over it."""
         try:
-            data = json.loads(self.path.read_text())
-        except (OSError, ValueError, RecursionError):
+            data = jsonstore.load_json(self.path, dict)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
             return
         if not isinstance(data, dict):
             return
         for raw in _dicts(data.get("providers"))[: MAX_PROVIDERS * 5]:
-            provider = _provider_from(raw)
+            provider = _read_row(_provider_from, raw)
             if provider is None or provider.id in self.providers:
                 continue
             if len(self.providers) >= MAX_PROVIDERS:
@@ -610,7 +624,7 @@ class ProviderStore:
         counts: dict[str, int] = {}
         pairs: set[tuple[str, str]] = set()
         for raw in raws:
-            entry = _entry_from(raw)
+            entry = _read_row(_entry_from, raw)
             if entry is None or entry.id in self.entries or entry.provider not in self.providers:
                 continue
             pair = (entry.provider, entry.model)
@@ -630,15 +644,14 @@ class ProviderStore:
                 entry.label = entry.model
 
     def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
+        if self.unreadable:
+            raise jsonstore.refusal(self.path, self.unreadable)
         data = {
             "version": 1,
             "providers": [asdict(p) for p in self.providers.values()],
             "models": [asdict(m) for m in self.entries.values()],
         }
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-        tmp.replace(self.path)
+        jsonstore.save_json(self.path, data)
 
     def _persist(self) -> None:
         try:

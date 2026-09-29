@@ -125,6 +125,18 @@ def quiet_speaker():
     return speaker
 
 
+@pytest.fixture(autouse=True)
+def _quick_saves(monkeypatch):
+    """Store saves in tests skip only the drive-cache flush (F_FULLFSYNC, about 5 ms a
+    save; a plain fsync still runs): tests check what's written, not the drive's cache.
+    test_jsonstore checks that the real saves ask for the flush."""
+    import os
+
+    from jarvis import jsonstore
+
+    monkeypatch.setattr(jsonstore, "_sync", os.fsync)
+
+
 @pytest.fixture
 def isolated(tmp_path):
     """Prefs and second-brain index in a temp folder, never the user's real ones."""

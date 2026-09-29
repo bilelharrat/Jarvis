@@ -25,7 +25,6 @@ import contextlib
 import copy
 import json
 import logging
-import os
 import re
 import unicodedata
 import uuid
@@ -37,6 +36,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import jsonstore
 from .prefs import APP_SUPPORT
 
 log = logging.getLogger("jarvis")
@@ -451,8 +451,9 @@ class GoalStore:
 
     def load(self) -> None:
         """Read the file. One that isn't a goals file (not JSON, the wrong shape) is kept
-        aside under a name of its own and the store starts empty; one that can't be read
-        just now (its permissions, say) is left where it is, untouched."""
+        aside under a name of its own, and the last good copy is read (or the store starts
+        empty); one that can't be read just now (its permissions, say) is left where it is,
+        untouched."""
         self.goals, self.constraints, self.priorities = [], [], []
         self.unreadable = ""
         try:
@@ -463,15 +464,23 @@ class GoalStore:
             self.unreadable = exc.strerror or type(exc).__name__
             log.warning("goals: %s can't be read (%s); leaving it be", self.path.name, exc)
             return
-        if not raw.strip():
-            return  # an empty file holds nothing to keep
+        if not raw.strip():  # nothing to keep aside, but maybe a last good copy to read
+            data = jsonstore.last_good(self.path, dict)
+            if data is not None:
+                self._read(data)
+            return
         try:  # (an editor's byte-order mark is fine)
             data = json.loads(raw.decode("utf-8-sig"))
         except (ValueError, RecursionError):  # not JSON, not UTF-8, or nested past reason
             data = None
         if not isinstance(data, dict):
-            self._set_aside()
-            return
+            if jsonstore.set_aside(self.path, self.clock) is None:
+                self.unreadable = "it isn't a goals file and couldn't be moved aside"
+                return
+            data = jsonstore.last_good(self.path, dict)
+            if data is None:
+                return
+            log.warning("goals: using the last good copy of %s", self.path.name)
         self._read(data)
 
     def _read(self, data: dict[str, Any]) -> None:
@@ -492,24 +501,6 @@ class GoalStore:
         self.priorities = [i.lower() for i in order if isinstance(i, str)]
         self._tidy()
 
-    def _set_aside(self) -> None:
-        """A file that isn't goals is kept beside the new one under a name of its own, never
-        over an earlier one; if it can't be moved, nothing is saved over it either."""
-        stamp = self.clock().strftime("%Y%m%d-%H%M%S")
-        for n in range(1, 100):
-            suffix = f"-{n}" if n > 1 else ""
-            backup = self.path.with_name(f"{self.path.name}.bad-{stamp}{suffix}")
-            if os.path.lexists(backup):
-                continue
-            try:
-                self.path.rename(backup)
-            except OSError as exc:
-                log.warning("goals: %s couldn't be moved aside (%s)", self.path.name, exc)
-                break
-            log.warning("goals: the file couldn't be read; it's kept as %s", backup.name)
-            return
-        self.unreadable = "it isn't a goals file and couldn't be moved aside"
-
     def _retry(self) -> None:
         """After a read that failed, try the file again: it may be readable now."""
         if self.unreadable:
@@ -525,20 +516,7 @@ class GoalStore:
             "constraints": [asdict(item) for item in self.constraints],
             "priorities": list(self.priorities),
         }
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".tmp")
-        try:
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as out:
-                os.fchmod(out.fileno(), 0o600)
-                json.dump(data, out, indent=2, ensure_ascii=False)
-                out.flush()
-                os.fsync(out.fileno())
-            tmp.replace(self.path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                tmp.unlink()
-            raise
+        jsonstore.save_json(self.path, data)  # a temp file of its own, on the disk, then swapped
 
     @contextlib.contextmanager
     def _change(self) -> Iterator[None]:

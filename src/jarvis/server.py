@@ -199,6 +199,23 @@ def event_text(event: dict[str, Any]) -> str:
 def serve(port: int, token: str) -> None:
     import logging
     import logging.handlers
+    import sys
+
+    from . import jsonstore
+    from .prefs import APP_SUPPORT
+
+    # One backend per Mac: two on the same files would save over each other's changes,
+    # hand out the same invoice numbers and answer the same conversations twice. The lock
+    # is held while this process lives, and the system lets go of it however it ends.
+    try:
+        instance = jsonstore.claim_folder(APP_SUPPORT)
+    except jsonstore.FolderTaken as exc:
+        print(
+            f"JARVIS can't start: {exc.strerror} ({APP_SUPPORT}). Quit that one first.",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(75) from None  # EX_TEMPFAIL: the app shows it rather than retrying
 
     # PortAudio first, while nothing else runs: importing sounddevice starts it with the
     # whole process's stderr pointed at /dev/null for a moment. Done later, on the
@@ -243,3 +260,5 @@ def serve(port: int, token: str) -> None:
     print(f"JARVIS listening on http://127.0.0.1:{port}/?token={token}", flush=True)
     # Frames up to 64 MiB: a message with its attachments (the composer caps them at 24 MB).
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning", ws_max_size=64 * 1024 * 1024)
+    if instance is not None:  # held until the server has stopped
+        instance.close()

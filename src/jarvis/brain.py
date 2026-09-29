@@ -503,6 +503,12 @@ def build_options(
     allowed = [name for name in allowed if name not in TURN_GATED]
     # Auto-allowed tools skipping can_use_tool is the design, not an accident.
     warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
+    from .textclean import argv_text
+
+    # The prompt rides on Claude Code's command line: a NUL or half a surrogate pair from a
+    # fact or a setting would stop it starting at all, on every launch. The stores clean
+    # what they keep; this is the last line of defense.
+    prompt = argv_text(system_prompt(settings, bsh_enabled, prefs, accounts, extra_prompt))
     return ClaudeAgentOptions(
         max_buffer_size=MAX_BUFFER,
         model=prefs.model_id() if prefs else settings.model,
@@ -511,7 +517,7 @@ def build_options(
         # first word (1.07s -> 0.49s). Deep work goes to Claude Code sessions and research,
         # which think as hard as their effort setting says.
         thinking={"type": "disabled"},
-        system_prompt=system_prompt(settings, bsh_enabled, prefs, accounts, extra_prompt),
+        system_prompt=prompt,
         tools=WEB_TOOLS,
         allowed_tools=allowed,
         disallowed_tools=BLOCKED_BUILTINS,

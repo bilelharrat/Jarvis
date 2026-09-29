@@ -8,18 +8,22 @@ through the usual confirmations. Stored in ~/Library/Application Support/Jarvis/
 
 from __future__ import annotations
 
-import json
+import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import jsonstore
 from .prefs import APP_SUPPORT
+from .textclean import clean_text
+
+log = logging.getLogger("jarvis")
 
 SERVER_NAME = "routines"
 KINDS = ("daily", "weekdays", "weekly", "once")
@@ -117,28 +121,83 @@ def validate(
     return kind, time, clean_days if kind == "weekly" else [], str(date) if kind == "once" else ""
 
 
+_FIELDS = frozenset(f.name for f in fields(Routine))
+
+
+def _when(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _routine_from(raw: Any) -> Routine | None:
+    """A routine from the file that can be shown and scheduled, tidied as add() tidies
+    them; None for one that can't (another build's time format, a name that isn't text)."""
+    try:
+        routine = Routine(**{k: v for k, v in raw.items() if k in _FIELDS})
+    except (AttributeError, TypeError):  # not an object, or a field it needs is missing
+        return None
+    text = (routine.id, routine.name, routine.prompt, routine.kind, routine.time)
+    if not all(isinstance(v, str) for v in (*text, routine.date, routine.last_run)):
+        return None
+    routine.name = clean_text(routine.name).strip()[:80]
+    routine.prompt = clean_text(routine.prompt).strip()[:2000]
+    if not (routine.id and routine.name and routine.prompt) or routine.kind not in KINDS:
+        return None
+    if not _TIME.fullmatch(routine.time):
+        return None
+    days = routine.days
+    if not isinstance(days, list) or not all(type(d) is int and 0 <= d <= 6 for d in days):
+        return None
+    if routine.kind == "once":
+        day = _when(routine.date)
+        if day is None or day.tzinfo is not None:
+            return None
+    if routine.last_run:
+        ran = _when(routine.last_run)
+        if ran is None:
+            return None
+        if ran.tzinfo is not None:  # another build's zoned time: this Mac's clock, like the rest
+            routine.last_run = ran.astimezone().replace(tzinfo=None).isoformat(timespec="minutes")
+    routine.enabled = routine.enabled is True  # "false", 0, null: paused, never run by surprise
+    return routine
+
+
 class RoutineStore:
+    """The routines file. One that can't be read is kept aside for the owner and its last
+    good copy used; a single routine that can't be scheduled is left out (never shown or
+    run) and written back as it was, so nothing another build made is lost."""
+
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or APP_SUPPORT / "routines.json"
         self.items: list[Routine] = []
+        self.broken: list[Any] = []  # rows it can't use, kept in the file as they were
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
+        self.save_error = ""  # why the last save failed, until one works (a full disk)
         try:
-            data = json.loads(self.path.read_text())
-        except (OSError, ValueError):
-            data = []
-        for raw in data if isinstance(data, list) else []:
-            try:
-                self.items.append(Routine(**raw))
-            except TypeError:
-                continue
+            data = jsonstore.load_json(self.path, list)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            log.warning("routines: %s can't be read (%s); leaving it be", self.path.name, exc)
+            data = None
+        for raw in data or []:
+            routine = _routine_from(raw)
+            if routine is not None:
+                self.items.append(routine)
+            elif jsonstore.shallow(raw):
+                self.broken.append(raw)
+        if self.broken:
+            log.warning("routines: %d can't be scheduled; kept in the file", len(self.broken))
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps([asdict(r) for r in self.items], indent=2))
-        tmp.replace(self.path)
+        if self.unreadable:
+            raise jsonstore.refusal(self.path, self.unreadable)
+        jsonstore.save_json(self.path, [asdict(r) for r in self.items] + self.broken)
+        self.save_error = ""
 
     def add(self, name: str, prompt: str, kind: str, time: str, days=None, date="") -> Routine:
-        name, prompt = str(name).strip()[:80], str(prompt).strip()[:2000]
+        name, prompt = clean_text(name).strip()[:80], clean_text(prompt).strip()[:2000]
         if not name or not prompt:
             raise ValueError("a routine needs a name and what to do")
         kind, time, days, date = validate(kind, time, days, date)
@@ -148,7 +207,11 @@ class RoutineStore:
         if latest is not None and kind != "once":
             routine.last_run = latest.isoformat(timespec="minutes")
         self.items.append(routine)
-        self.save()
+        try:
+            self.save()
+        except OSError:  # not on disk, so not added: what's listed is what's kept
+            self.items.remove(routine)
+            raise
         return routine
 
     def find(self, key: str) -> Routine | None:
@@ -161,30 +224,51 @@ class RoutineStore:
     def remove(self, key: str) -> Routine | None:
         routine = self.find(key)
         if routine is not None:
+            before = list(self.items)
             self.items.remove(routine)
-            self.save()
+            try:
+                self.save()
+            except OSError:
+                self.items = before
+                raise
         return routine
 
     def set_enabled(self, key: str, on: bool) -> Routine | None:
         routine = self.find(key)
         if routine is not None:
-            routine.enabled = bool(on)
-            self.save()
+            was, routine.enabled = routine.enabled, bool(on)
+            try:
+                self.save()
+            except OSError:
+                routine.enabled = was
+                raise
         return routine
 
     def take_due(self, now: datetime) -> list[Routine]:
-        """Routines due now, marked as run (a once-routine switches itself off)."""
+        """Routines due now, marked as run (a once-routine switches itself off). One that
+        can't be scheduled never stops the rest, and a save that fails (a full disk) never
+        stops them running: they're marked as run in memory, save_error says why, and the
+        save is tried again at every check until it works."""
         due = []
         for routine in self.items:
-            when = routine.due(now)
+            try:
+                when = routine.due(now)
+            except (TypeError, ValueError, AttributeError):  # edited after it was loaded
+                log.warning("routines: one can't be scheduled")
+                continue
             if when is None:
                 continue
             routine.last_run = when.isoformat(timespec="minutes")
             if routine.kind == "once":
                 routine.enabled = False
             due.append(routine)
-        if due:
-            self.save()
+        if due or self.save_error:
+            try:
+                self.save()
+            except OSError as exc:
+                if not self.save_error:
+                    log.warning("routines: couldn't save (%s)", exc)
+                self.save_error = exc.strerror or str(exc) or "the disk may be full"
         return due
 
     def public(self) -> list[dict[str, Any]]:
@@ -240,13 +324,17 @@ def build_tools(
         except ValueError as exc:
             return _text(str(exc), error=True)
         preview = Routine("", str(args.get("name", "")), "", kind, time, days, date)
-        what = str(args.get("prompt", "")).strip().rstrip("?.! ")
+        # The card shows the prompt exactly as it will be kept and run, hidden text and all
+        # taken out.
+        what = clean_text(args.get("prompt", "")).strip()[:2000].rstrip("?.! ")
         if not await confirm(f"Add a routine, {preview.describe()}: {what}?"):
             return _text("The user said no. Don't add it.", error=True)
         try:
             routine = store.add(args["name"], args["prompt"], kind, time, days, date)
         except ValueError as exc:
             return _text(str(exc), error=True)
+        except OSError as exc:
+            return _text(f"I couldn't save the routine ({exc.strerror or exc}).", error=True)
         on_change()
         return _text(f"Added “{routine.name}”, {routine.describe()}.")
 

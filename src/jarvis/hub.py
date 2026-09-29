@@ -480,6 +480,8 @@ class Hub:
         self.client_factory = client_factory
         self.prefs_store = prefs_store or PrefsStore()
         self.prefs = self.prefs_store.prefs
+        self._prefs_unsaved = False  # a settings save failed (a full disk): tried again
+        self._routine_error_told = ""  # the routines' save failure the user was told of
         self.speaker = speaker or Speaker(
             settings.voice,
             settings.speech_rate,
@@ -692,6 +694,9 @@ class Hub:
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
+        notice = getattr(self.prefs_store, "notice", "")
+        if notice:  # the settings file was damaged or can't be read: said, not hidden
+            self.history.append({"role": "assistant", "text": notice, "at": _now()})
         if self.transcriber is None:
             from .listen import Transcriber
 
@@ -699,7 +704,19 @@ class Hub:
                 lang.whisper_model(self.language, self.settings.whisper_model), self.language
             )
             self.transcriber.warm_up()
-        await self._connect()
+        try:
+            await self._connect()
+        except Exception as exc:  # Claude Code won't start: the window still opens to fix it
+            log.exception("couldn't start Claude Code")
+            self.client = None  # ask() connects again, and says if it still can't
+            self.history.append(
+                {
+                    "role": "assistant",
+                    "text": f"I couldn't start Claude ({str(exc)[:200]}). Settings still "
+                    "work, and I'll try again when you ask me something.",
+                    "at": _now(),
+                }
+            )
         await self.connectors.start_all()
         if self.poll:
             self._spawn(self._poll_status())
@@ -1393,6 +1410,7 @@ class Hub:
             )
 
     async def close(self) -> None:
+        self._save_prefs_if_pending()  # a last try at a settings save that failed
         if self._listener is not None:
             self._listener.stop()
         self.screen_watch.stop()
@@ -3534,11 +3552,14 @@ class Hub:
             self.prefs_store.save()
         except OSError as exc:  # a full disk, a folder it can't write: said, not swallowed
             log.warning("couldn't save settings: %s", exc)
+            self._prefs_unsaved = True  # the briefing clock tries again every 30 s
             self.emit(
                 "error",
-                text="Your settings apply now, but I couldn't save them, so they won't last "
-                f"past a restart ({exc.strerror or exc}).",
+                text=f"Your settings apply now, but I couldn't save them ({exc.strerror or exc}). "
+                "I'll keep trying; until then they won't last past a restart.",
             )
+        else:
+            self._prefs_unsaved = False
         self.emit("prefs", **self.prefs_payload())
         return changed
 
@@ -3847,12 +3868,41 @@ class Hub:
         return due <= now <= due.replace(hour=min(23, hour + 3))
 
     async def _briefing_clock(self) -> None:
+        """The morning briefing, and every 30 s the saves that failed tried again. Nothing
+        stops it: a full disk only means the date is saved later."""
         while True:
-            if self.briefing_due() and not self._lock.locked():
-                self.prefs.last_briefing = datetime.now().date().isoformat()
-                self.prefs_store.save()
-                self._spawn(self.briefing())
+            try:
+                self._save_prefs_if_pending()
+                error = getattr(self.routines, "save_error", "")
+                if error and error != self._routine_error_told:  # said once, not every tick
+                    self.emit(
+                        "error",
+                        text=f"Routines ran, but I couldn't save that they did ({error}). "
+                        "I'll keep trying.",
+                    )
+                self._routine_error_told = error
+                if self.briefing_due() and not self._lock.locked():
+                    self.prefs.last_briefing = datetime.now().date().isoformat()
+                    try:
+                        self.prefs_store.save()
+                    except OSError as exc:  # brief anyway: the date is saved on a later tick
+                        log.warning("couldn't save the briefing date: %s", exc)
+                        self._prefs_unsaved = True
+                    self._spawn(self.briefing())
+            except Exception:  # one bad tick never ends the briefings for the session
+                log.exception("briefing check failed")
             await asyncio.sleep(30)
+
+    def _save_prefs_if_pending(self) -> None:
+        """A settings save that failed (a full disk) is tried again, so what the user
+        switched off is on disk as soon as there's room, and stays off after a restart."""
+        if not self._prefs_unsaved:
+            return
+        try:
+            self.prefs_store.save()
+        except OSError:
+            return
+        self._prefs_unsaved = False
 
     # ── commands from windows ──
 

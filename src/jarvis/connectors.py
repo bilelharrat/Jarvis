@@ -13,16 +13,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import re
 import shlex
 import subprocess
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from . import jsonstore
 from .prefs import APP_SUPPORT
+from .textclean import clean_text
+
+log = logging.getLogger("jarvis")
 
 SERVICE = "Jarvis connectors"
 CALLBACK_PORT = 47823
@@ -31,6 +36,7 @@ SERVER_PREFIX = "acct_"
 SIGN_IN_TIMEOUT = 300
 
 POLICIES = ("ask", "allow", "read_only")
+KINDS = ("http", "stdio")
 
 
 @dataclass(frozen=True)
@@ -228,6 +234,34 @@ class Connection:
     policy: str = "ask"
     always_allow: list[str] = field(default_factory=list)
     enabled: bool = True
+
+
+_CONNECTION_FIELDS = frozenset(f.name for f in fields(Connection))
+
+
+def _connection_from(raw: Any) -> Connection | None:
+    """A connection from the file, or None when it can't be used as one. What would let a
+    tool run unasked is never guessed at: an unknown policy is "ask", and only a plain true
+    starts it."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        conn = Connection(**{k: v for k, v in raw.items() if k in _CONNECTION_FIELDS})
+    except TypeError:  # a field it needs is missing
+        return None
+    texts = (conn.id, conn.name, conn.kind, conn.url, conn.auth, conn.scope, conn.policy)
+    if not all(isinstance(v, str) for v in texts) or not conn.id or conn.kind not in KINDS:
+        return None
+    for name in ("command", "always_allow"):
+        value = getattr(conn, name)
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            return None
+    if conn.kind == "stdio" and not conn.command:
+        return None
+    conn.name = clean_text(conn.name).strip()[:40] or conn.id
+    conn.policy = conn.policy if conn.policy in POLICIES else "ask"
+    conn.enabled = conn.enabled is True
+    return conn
 
 
 # ── secrets ──
@@ -546,27 +580,34 @@ class ConnectorManager:
         self.live: dict[str, Live] = {}
         self.signing_in: dict[str, str] = {}
         self.on_tools_changed: Callable[[], None] | None = None
+        self.broken: list[Any] = []  # connections it can't use, kept in the file as they were
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self._load()
 
     # persistence
 
     def _load(self) -> None:
+        """Each connection on its own: one this build can't use is left out, and written
+        back as it was. A damaged file is kept aside and its last good copy read."""
         try:
-            data = json.loads(self.store.read_text())
-        except (OSError, ValueError):
+            data = jsonstore.load_json(self.store, dict)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            log.warning("connectors: %s can't be read (%s); leaving it be", self.store.name, exc)
             return
-        for item in data.get("connections", []):
-            with contextlib.suppress(TypeError):
-                conn = Connection(**item)
+        rows = (data or {}).get("connections")
+        for item in rows if isinstance(rows, list) else []:
+            conn = _connection_from(item)
+            if conn is not None and conn.id not in self.connections:
                 self.connections[conn.id] = conn
+            elif conn is None and jsonstore.shallow(item):
+                self.broken.append(item)
 
     def _save(self) -> None:
-        self.store.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.store.with_suffix(".tmp")
-        tmp.write_text(
-            json.dumps({"connections": [asdict(c) for c in self.connections.values()]}, indent=2)
-        )
-        tmp.replace(self.store)
+        if self.unreadable:
+            raise jsonstore.refusal(self.store, self.unreadable)
+        rows = [asdict(c) for c in self.connections.values()] + self.broken
+        jsonstore.save_json(self.store, {"connections": rows})
 
     # state for the window
 
@@ -674,7 +715,7 @@ class ConnectorManager:
         self.vault.set(conn.id, "oauth_client", info.model_dump_json(exclude_none=True))
 
     async def add_custom(self, name: str, target: str, token: str = "") -> Connection:
-        name = name.strip()[:40] or "Custom tool"
+        name = clean_text(name).strip()[:40] or "Custom tool"  # shown on cards and to Claude
         target = target.strip()
         slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:24] or "custom"
         conn_id = slug

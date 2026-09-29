@@ -1,4 +1,4 @@
-from jarvis.prefs import Prefs, PrefsStore
+from jarvis.prefs import CAUTIOUS, Prefs, PrefsStore
 
 
 def test_update_validates(tmp_path):
@@ -32,6 +32,11 @@ def test_store_round_trip(tmp_path):
 
 
 def test_corrupt_file_falls_back(tmp_path):
+    """A damaged file with no good copy starts with the microphone and private indexing off
+    and says so; the damaged file is kept. (It used to fall back to the product defaults,
+    which switched the always-on microphone and mail and messages indexing back on.)"""
     path = tmp_path / "prefs.json"
     path.write_text("{not json")
-    assert PrefsStore(path).prefs == Prefs()
+    store = PrefsStore(path)
+    assert store.prefs == Prefs(**CAUTIOUS) and store.notice
+    assert [p.read_text() for p in tmp_path.glob("prefs.json.bad-*")] == ["{not json"]

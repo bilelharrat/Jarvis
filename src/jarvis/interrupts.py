@@ -29,7 +29,6 @@ import asyncio
 import bisect
 import hashlib
 import inspect
-import json
 import logging
 import os
 import re
@@ -45,6 +44,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import jsonstore
 from .prefs import APP_SUPPORT
 from .proactive import Alert, in_quiet_hours
 from .sources import APPLE_EPOCH_UNIX, FULL_DISK_ACCESS, decode_attributed_body
@@ -1495,19 +1495,25 @@ class Interrupter:
     # ── state on disk: row numbers and keys, never words ──
 
     def _load(self) -> None:
+        """Whatever of the state can be read. A damaged file is kept aside and its last good
+        copy read; one that can't be read just now is left alone (and never saved over)."""
+        self.unreadable = ""
         try:
-            data = json.loads(self.path.read_text())
-        except (OSError, ValueError):
+            data = jsonstore.load_json(self.path, dict)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            log.info("interruptions: %s can't be read (%s)", self.path.name, exc)
             return
-        if not isinstance(data, dict):
+        if data is None:
             return
-        for source, mark in (data.get("sources") or {}).items():
+        sources = data.get("sources")
+        for source, mark in sources.items() if isinstance(sources, dict) else ():
             if source in self._marks and isinstance(mark, dict):
                 self._marks[source] = Mark(
                     seen=_int_or_none(mark.get("seen")),
                     digest_from=_int_or_none(mark.get("digest_from")),
-                    db=str(mark.get("db") or ""),
-                    ident=str(mark.get("ident") or ""),
+                    db=_text_or_empty(mark.get("db")),
+                    ident=_text_or_empty(mark.get("ident")),
                 )
         told = data.get("told")
         if isinstance(told, list):
@@ -1518,14 +1524,17 @@ class Interrupter:
         hold = data.get("hold")
         if isinstance(hold, dict) and hold.get("mode") in MODES:
             try:
-                self._hold = (hold["mode"], datetime.fromisoformat(str(hold.get("until"))))
+                until = datetime.fromisoformat(_text_or_empty(hold.get("until")))
             except ValueError:
-                self._hold = None
+                until = None
+            if until is not None and until.tzinfo is not None:  # compared with local time
+                until = until.astimezone().replace(tzinfo=None)
+            self._hold = (hold["mode"], until) if until is not None else None
         if data.get("mode") in MODES:
             self._mode = data["mode"]
 
     def _save(self) -> None:
-        if not self._dirty:
+        if not self._dirty or self.unreadable:
             return
         hold = None
         if self._hold is not None:
@@ -1538,10 +1547,7 @@ class Interrupter:
             "mode": self._mode,
         }
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, indent=1))
-            tmp.replace(self.path)
+            jsonstore.save_json(self.path, data, indent=1)
             self._dirty = False
         except OSError as exc:
             log.info("interruptions: couldn't save state (%s)", exc)
@@ -1998,8 +2004,12 @@ class Interrupter:
 def _int_or_none(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: Infinity in the file
         return None
+
+
+def _text_or_empty(value: Any) -> str:
+    return value if isinstance(value, str) else ""
 
 
 def _span(minutes: int, lang: str) -> str:

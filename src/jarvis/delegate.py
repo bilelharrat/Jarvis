@@ -23,7 +23,6 @@ and the owner can read the transcript or stop it at any time. Stored in
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import functools
 import inspect
 import itertools
@@ -43,6 +42,7 @@ from typing import Any, NamedTuple
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import jsonstore
 from .config import MAX_BUFFER
 from .prefs import APP_SUPPORT
 
@@ -112,6 +112,7 @@ class Delegation:
     messages_sent: int = 0
     drafts: int = 0
     failures: int = 0
+    sending: str = ""  # handed to Messages or Mail, its outcome not yet recorded
 
     @property
     def is_open(self) -> bool:
@@ -316,6 +317,7 @@ _TEXT_FIELDS = (
     "since",
     "expires",
     "created",
+    "sending",
 )
 
 
@@ -362,35 +364,48 @@ def _load_one(raw: Any) -> Delegation | None:
     return d
 
 
+def _read_one(raw: Any) -> Delegation | None:
+    """_load_one, where anything odd enough to trip it (nested past reason, a number too
+    big for a float) only loses that one conversation."""
+    try:
+        return _load_one(raw)
+    except Exception:
+        log.warning("delegations: skipped one that can't be read")
+        return None
+
+
 class DelegationStore:
     """The conversations, in Application Support (delegations.json, readable by the owner only)."""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or APP_SUPPORT / "delegations.json"
         self.items: list[Delegation] = []
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self._load()
 
     def _load(self) -> None:
+        """A damaged file is kept aside and its last good copy read; one that can't be read
+        just now is left alone, and nothing is saved over it."""
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            data = jsonstore.load_json(self.path, dict)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            log.warning("delegations: %s can't be read (%s); leaving it be", self.path.name, exc)
             return
-        rows = data.get("delegations") if isinstance(data, dict) else None
-        loaded = (_load_one(row) for row in (rows if isinstance(rows, list) else []))
+        rows = (data or {}).get("delegations")
+        loaded = (_read_one(row) for row in (rows if isinstance(rows, list) else []))
         self.items = [d for d in loaded if d is not None]
 
     def save(self) -> None:
+        if self.unreadable:
+            raise jsonstore.refusal(self.path, self.unreadable)
         finished = [d for d in self.items if not d.is_open]
         if len(finished) > KEEP:
             gone = {d.id for d in finished[: len(finished) - KEEP]}
             self.items = [d for d in self.items if d.id not in gone]
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        data = {"delegations": [asdict(d) for d in self.items]}
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        with contextlib.suppress(OSError):
-            tmp.chmod(0o600)  # other people's words: for the owner's eyes only
-        tmp.replace(self.path)
+        # Other people's words: for the owner's eyes only (0600). Half a surrogate pair from
+        # the model is escaped, never a reason no conversation can be saved again.
+        jsonstore.save_json(self.path, {"delegations": [asdict(d) for d in self.items]})
 
     def add(self, d: Delegation) -> None:
         taken = {item.id for item in self.items}
@@ -1557,6 +1572,23 @@ _NOTICES = {
             "what to change, or say stop."
         ),
         "held_question": "The last message didn't go out. What should I change?",
+        "unsaved": (
+            "My message to {contact} went out, but I couldn't save the conversation (the disk "
+            "may be full), so it's paused. Tell me to go on, or say stop."
+        ),
+        "unsaved_question": (
+            "My last message went out, but I couldn't save the conversation. Tell me to go "
+            "on, or say stop."
+        ),
+        "unsure": (
+            "My last message to {contact} may have gone out just as the app stopped, so the "
+            "conversation is paused. Check whether it arrived, then tell me to go on (I'll "
+            "show you the next message before it's sent), or say stop."
+        ),
+        "unsure_question": (
+            "Did my last message arrive? It may have gone out just as the app stopped: "
+            "“{text}”. Tell me to go on, or say stop."
+        ),
         "done": "The conversation with {contact} is done. {summary}",
         "expired": "The conversation with {contact} ran out of time without wrapping up.",
         "max": (
@@ -1597,6 +1629,18 @@ _NOTICES = {
         "rule_question": "我的回复{why}。告诉我怎么做，或者说停止。",
         "held": "给{contact}的消息没有发出去，对话先暂停了。告诉我要改什么，或者说停止。",
         "held_question": "上一条消息没有发出去。要改什么？",
+        "unsaved": (
+            "给{contact}的消息已经发出，但我没能保存这段对话（磁盘可能满了），对话先暂停了。"
+            "告诉我继续，或者说停止。"
+        ),
+        "unsaved_question": "上一条消息已经发出，但对话没能保存。告诉我继续，或者说停止。",
+        "unsure": (
+            "给{contact}的上一条消息可能在应用停止时已经发出，对话先暂停了。请先确认对方是否收到，"
+            "再告诉我继续（下一条消息发出前我会先给你看），或者说停止。"
+        ),
+        "unsure_question": (
+            "上一条消息对方收到了吗？应用停止时它可能已经发出：“{text}”。告诉我继续，或者说停止。"
+        ),
         "done": "和{contact}的对话完成了。{summary}",
         "expired": "和{contact}的对话超时了，还没有谈完。",
         "max": "我已经给{contact}发了{count}条消息还没谈妥，先停下来问问你。",
@@ -1968,6 +2012,8 @@ class DelegateEngine:
 
     async def _tick(self, d: Delegation) -> str:
         try:
+            if d.sending:  # handed over before the app stopped: settled with the owner first
+                return await self._unsure(d)
             fresh = await self._fetch(d)
             if fresh:
                 d.transcript.extend(fresh)
@@ -2026,6 +2072,8 @@ class DelegateEngine:
         back to the owner. announce: tell the owner (a move made in the background).
         Returns what happened: sent, waiting, done, escalated, held, failed, stopped or
         expired."""
+        if d.sending:  # a message handed over earlier whose fate was never noted
+            return await self._unsure(d)
         if d.drafts >= d.max_messages * DRAFTS_PER_MESSAGE + 2:
             return await self._hand_back(
                 d, reason=self._t("long", contact=d.contact), announce=announce
@@ -2118,12 +2166,20 @@ class DelegateEngine:
             return await self._hand_back(d, reason=reason, announce=announce)
         if first_email:
             d.subject = subject  # the send path reads it from the store
-        self._save()
+        # On disk before it can go out, marked as on its way: if the app stops before the
+        # outcome is noted, it's never sent a second time (see _unsure).
+        d.sending = reply
+        try:
+            self._save()
+        except BaseException:
+            d.sending = ""
+            raise
         try:
             sent = await self.send(d.channel, d.handle, reply, d.autonomy != "autonomous")
         except Exception as exc:
             log.warning("conversation %s: send failed (%s)", d.id, type(exc).__name__)
             sent = False
+        d.sending = ""
         if not sent:
             d.held = reply
             if first_email:
@@ -2138,8 +2194,27 @@ class DelegateEngine:
         d.messages_sent += 1
         d.held = ""
         self._trim(d)
-        self._save()
+        try:
+            self._save()
+        except OSError as exc:  # sent, but not noted on disk: paused until the owner says
+            log.warning("conversation %s: sent but not saved (%s)", d.id, type(exc).__name__)
+            if d.status == "active":
+                d.status, d.need_owner = "waiting_owner", self._t("unsaved_question")
+            await self._tell(self._t("unsaved", contact=d.contact))
         return "sent"
+
+    async def _unsure(self, d: Delegation) -> str:
+        """A message handed to Messages or Mail whose outcome never reached the file (the
+        app stopped, the disk was full). It may well have gone out, so it's never sent again
+        on its own: the conversation waits for the owner, and its next message goes on a
+        Send card, where a repeat can be caught."""
+        text, d.sending = d.sending, ""
+        d.held, d.autonomy = text, "approve_each"
+        if d.is_open:
+            d.status, d.need_owner = "waiting_owner", self._t("unsure_question", text=text)
+        self._save()
+        await self._tell(self._t("unsure", contact=d.contact))
+        return "escalated"
 
     async def _hand_back(
         self,

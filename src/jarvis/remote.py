@@ -90,29 +90,76 @@ def _hash(token: str) -> str:
 
 
 class Devices:
+    """The paired phones and watches. Each record is read on its own: one this build can't
+    use (another build's, a hand edit) is kept in the file as it was but never trusted, and
+    fields it doesn't know are written back as they came, so no device is unpaired by it."""
+
     def __init__(self, path: Path | None = None) -> None:
+        from . import jsonstore
+
         self.path = path or APP_SUPPORT / "devices.json"
         self.items: list[Device] = []
+        self.broken: list[Any] = []  # records it can't use: kept, never matched
+        self.extra: dict[str, dict[str, Any]] = {}  # fields another build added, by id
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self.code: str | None = None
         self.code_expires = 0.0
         # Wrong codes per address: someone else on the network can't lock the owner out.
         self.failures: dict[str, deque[float]] = {}
         self.all_failures: deque[float] = deque()  # and a cap for many addresses at once
         try:
-            self.items = [Device(**d) for d in json.loads(self.path.read_text())]
-        except (OSError, ValueError, TypeError):
-            self.items = []
+            rows = jsonstore.load_json(self.path, list)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            log.warning("devices: %s can't be read (%s); leaving it be", self.path.name, exc)
+            rows = None
+        read: list[tuple[Device, Any]] = []
+        for row in rows or []:
+            device = self._read(row)
+            if device is not None:
+                read.append((device, row))
+            elif jsonstore.shallow(row):
+                self.broken.append(row)
+        # More than it pairs (a hand edit, another build): the newest are paired, and the
+        # rest kept in the file as they were.
+        self.broken += [row for _device, row in read[:-MAX_DEVICES] if jsonstore.shallow(row)]
+        self.items = [device for device, _row in read[-MAX_DEVICES:]]
         self._index()
+
+    def _read(self, row: Any) -> Device | None:
+        """One record, or None when it can't be trusted as a device."""
+        from .textclean import clean_text
+
+        known = Device.__dataclass_fields__
+        if not isinstance(row, dict):
+            return None
+        try:
+            device = Device(**{k: v for k, v in row.items() if k in known})
+        except TypeError:  # a field it needs is missing
+            return None
+        if not all(isinstance(getattr(device, k), str) for k in known) or not device.token_hash:
+            return None
+        device.name = " ".join(clean_text(device.name).split())[:40] or "Phone"
+        extra = {k: v for k, v in row.items() if k not in known}
+        if extra and all(isinstance(k, str) for k in extra):
+            from . import jsonstore
+
+            if jsonstore.shallow(extra):
+                self.extra[device.id] = extra
+        return device
 
     def _index(self) -> None:
         self._by_hash = {d.token_hash: d for d in self.items}
 
-    def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps([asdict(d) for d in self.items], indent=2))
-        tmp.chmod(0o600)
-        tmp.replace(self.path)
+    def save(self, *, keep_copy: bool = True) -> None:
+        """keep_copy False: a device just removed doesn't stay in the backup copy, so it can
+        never be brought back from it."""
+        from . import jsonstore
+
+        if self.unreadable:
+            raise jsonstore.refusal(self.path, self.unreadable)
+        rows = [{**self.extra.get(d.id, {}), **asdict(d)} for d in self.items] + self.broken
+        jsonstore.save_json(self.path, rows, backup=keep_copy)
 
     def start_pairing(self) -> str:
         self.code = f"{secrets.randbelow(10**6):06d}"
@@ -145,19 +192,27 @@ class Devices:
             raise PermissionError(
                 "That code isn't right, or it expired. Make a new one on the Mac."
             )
+        from .textclean import clean_text
+
         self.code = None  # one pairing per code
         token = secrets.token_urlsafe(32)
         device = Device(
             uuid.uuid4().hex[:8],
-            " ".join(str(name).split())[:40] or "Phone",
+            " ".join(clean_text(name).split())[:40] or "Phone",
             _hash(token),
             datetime.now().isoformat(timespec="seconds"),
         )
+        before = list(self.items)
         self.items.append(device)
         while len(self.items) > MAX_DEVICES:  # the phone used longest ago makes room
             self.items.remove(min(self.items, key=lambda d: d.last_seen or d.paired))
         self._index()
-        self.save()
+        try:
+            self.save(keep_copy=len(self.items) > len(before))  # one made room: no copy of it
+        except OSError:  # not saved, not paired: its token would stop working at a restart
+            self.items = before
+            self._index()
+            raise
         return token
 
     def check(self, token: str) -> Device | None:
@@ -171,14 +226,17 @@ class Devices:
         now = datetime.now().isoformat(timespec="minutes")
         if device.last_seen != now:
             device.last_seen = now
-            self.save()
+            with contextlib.suppress(OSError):  # only when it was last seen: never worth a failure
+                self.save()
 
     def remove(self, device_id: str) -> bool:
+        """Unpaired at once, even when the file can't be saved (the error says so)."""
         before = len(self.items)
         self.items = [d for d in self.items if d.id != device_id]
         if len(self.items) != before:
+            self.extra.pop(device_id, None)
             self._index()
-            self.save()
+            self.save(keep_copy=False)
             return True
         return False
 

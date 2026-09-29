@@ -240,16 +240,28 @@ def rule_allows(rule: str, command: str, cwd: Path | None = None) -> bool:
 
 class RuleStore:
     """'Don't ask again' rules per project folder, kept by JARVIS (never written into
-    the project's own Claude Code settings). path None keeps them in memory."""
+    the project's own Claude Code settings). path None keeps them in memory. Whatever is in
+    the file, the permission check never fails over it: anything that isn't a rule is left
+    out (the owner is simply asked again). Saves are written whole and swapped in, so a
+    full disk or a crash mid-save never loses the rules already kept."""
 
     def __init__(self, path: Path | None = None) -> None:
+        from . import jsonstore
+
         self.path = path
         self.rules: dict[str, list[str]] = {}
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         if path is not None:
             try:
-                self.rules = json.loads(path.read_text())
-            except (OSError, ValueError):
-                self.rules = {}
+                data = jsonstore.load_json(path, dict) or {}
+            except jsonstore.Unreadable as exc:
+                self.unreadable = exc.strerror or "it can't be read"
+                data = {}
+            self.rules = {
+                folder: list(dict.fromkeys(r for r in rules if isinstance(r, str) and r))
+                for folder, rules in data.items()
+                if isinstance(rules, list)
+            }
 
     def for_project(self, cwd: Path) -> list[str]:
         return list(self.rules.get(str(cwd), []))
@@ -266,9 +278,16 @@ class RuleStore:
             self._save()
 
     def _save(self) -> None:
-        if self.path is not None:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self.rules, indent=2))
+        """A save that fails (a full disk) keeps the change for this session; the owner's
+        yes never turns into an error."""
+        from . import jsonstore
+
+        if self.path is None or self.unreadable:
+            return
+        try:
+            jsonstore.save_json(self.path, self.rules)
+        except OSError as exc:
+            log.warning("couldn't save the don't-ask-again rules (%s)", exc)
 
 
 MODES = ("plan", "ask", "edits", "smart", "auto")

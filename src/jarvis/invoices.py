@@ -10,18 +10,26 @@ the top come from Settings › Invoices, which the user fills in themselves.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import html
-import json
+import logging
+import math
+import os
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import jsonstore
 from .prefs import APP_SUPPORT
+from .textclean import clean_text
+
+log = logging.getLogger("jarvis")
 
 SERVER_NAME = "invoices"
 INVOICES_DIR = Path.home() / "Documents" / "Jarvis" / "Invoices"
@@ -90,7 +98,7 @@ def clean_lines(items: Any) -> list[Line]:
     for raw in items[:MAX_ITEMS]:
         if not isinstance(raw, dict):
             raise ValueError("Each line needs a description, a quantity and a unit price.")
-        description = re.sub(r"\s+", " ", str(raw.get("description", ""))).strip()[:200]
+        description = re.sub(r"\s+", " ", clean_text(raw.get("description", ""))).strip()[:200]
         try:
             given = raw.get("quantity")
             quantity = 1.0 if given in (None, "") else float(given)
@@ -107,40 +115,100 @@ def clean_lines(items: Any) -> list[Line]:
     return lines
 
 
+_INVOICE_FIELDS = frozenset(f.name for f in fields(Invoice)) - {"lines"}
+_TEXT_FIELDS = ("number", "issued", "due", "client", "currency", "notes", "status", "path")
+_CLEANED = ("client", "notes", "client_email", "client_address")
+
+
+def _invoices_file(data: Any) -> bool:
+    return isinstance(data, dict) and isinstance(data.get("invoices", []), list)
+
+
+def _invoice_from(item: Any) -> Invoice | None:
+    """An invoice from the file that can be listed, laid out and added up, with nothing
+    hidden in its words; None for one that can't (another build's, a hand edit)."""
+    try:
+        lines = [
+            Line(clean_text(x["description"]), float(x["quantity"]), float(x["unit_price"]))
+            for x in item["lines"]
+        ]
+        invoice = Invoice(lines=lines, **{k: v for k, v in item.items() if k in _INVOICE_FIELDS})
+        if not all(isinstance(getattr(invoice, k), str) for k in (*_TEXT_FIELDS, *_CLEANED)):
+            return None
+        datetime.fromisoformat(invoice.issued)
+        datetime.fromisoformat(invoice.due)
+        invoice.tax_percent = float(invoice.tax_percent)
+    except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
+        return None
+    numbers = [
+        invoice.tax_percent,
+        *(x for line in lines for x in (line.quantity, line.unit_price)),
+    ]
+    if not all(math.isfinite(n) for n in numbers):
+        return None
+    for name in _CLEANED:
+        setattr(invoice, name, clean_text(getattr(invoice, name)))
+    return invoice
+
+
+def _write_new(path: Path, data: bytes) -> Path:
+    """Create the file, never writing over one that's there (an invoice already issued):
+    "INV-2026-004 Acme (2).pdf" when the name is taken."""
+    for n in range(1, 100):
+        candidate = path if n == 1 else path.with_name(f"{path.stem} ({n}){path.suffix}")
+        try:
+            fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+        return candidate
+    raise FileExistsError(errno.EEXIST, "Too many invoices by that name", str(path))
+
+
 class InvoiceStore:
-    """Issued invoices and the numbering, in Application Support."""
+    """Issued invoices and the numbering, in Application Support. An invoice in the file
+    that can't be read is left out (never listed or laid out) and written back as it was."""
 
     def __init__(self, path: Path | None = None, folder: Path | None = None) -> None:
         self.path = path or APP_SUPPORT / "invoices.json"
         self.folder = folder or INVOICES_DIR
         self.invoices: list[Invoice] = []
+        self.broken: list[Any] = []  # invoices it can't use, kept in the file as they were
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self._load()
 
     def _load(self) -> None:
         try:
-            data = json.loads(self.path.read_text())
-        except (OSError, ValueError):
+            data = jsonstore.load_json(self.path, _invoices_file)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            log.warning("invoices: %s can't be read (%s); leaving it be", self.path.name, exc)
             return
-        for item in data.get("invoices", []) if isinstance(data, dict) else []:
-            try:
-                lines = [Line(**line) for line in item.pop("lines", [])]
-                self.invoices.append(Invoice(lines=lines, **item))
-            except TypeError:
-                continue
+        for item in (data or {}).get("invoices", []):
+            invoice = _invoice_from(item)
+            if invoice is not None:
+                self.invoices.append(invoice)
+            elif jsonstore.shallow(item):
+                self.broken.append(item)
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"invoices": [asdict(i) for i in self.invoices]}, indent=2))
-        tmp.replace(self.path)
+        if self.unreadable:
+            raise jsonstore.refusal(self.path, self.unreadable)
+        rows = [asdict(i) for i in self.invoices] + self.broken
+        jsonstore.save_json(self.path, {"invoices": rows})
 
     def next_number(self, today: date) -> str:
+        """The year's next number. The issued files count too, and invoices it couldn't
+        read: a lost or damaged list never hands out a number already on an invoice (and
+        the file named after it)."""
         prefix = f"INV-{today.year}-"
-        taken = [
-            int(i.number.removeprefix(prefix))
-            for i in self.invoices
-            if i.number.startswith(prefix) and i.number.removeprefix(prefix).isdigit()
-        ]
+        names = [i.number for i in self.invoices]
+        names += [str(r.get("number", "")) for r in self.broken if isinstance(r, dict)]
+        with contextlib.suppress(OSError):
+            names += [p.name for p in self.folder.iterdir()]
+        pattern = re.compile(re.escape(prefix) + r"([0-9]+)(?![0-9])")
+        taken = [int(m.group(1)) for name in names if (m := pattern.match(name))]
         return f"{prefix}{max(taken, default=0) + 1:03d}"
 
     def create(
@@ -156,7 +224,7 @@ class InvoiceStore:
         client_address: str = "",
         today: date | None = None,
     ) -> Invoice:
-        client = re.sub(r"\s+", " ", client or "").strip()[:120]
+        client = re.sub(r"\s+", " ", clean_text(client or "")).strip()[:120]
         if not client:
             raise ValueError("Who is the invoice for?")
         currency = (currency or "USD").strip().upper()[:3]
@@ -172,12 +240,18 @@ class InvoiceStore:
             lines=clean_lines(items),
             currency=currency,
             tax_percent=max(0.0, min(50.0, float(tax_percent or 0))),
-            notes=str(notes or "").strip()[:600],
-            client_email=str(client_email or "").strip()[:120],
-            client_address=str(client_address or "").strip()[:300],
+            notes=clean_text(notes or "").strip()[:600],
+            client_email=clean_text(client_email or "").strip()[:120],
+            client_address=clean_text(client_address or "").strip()[:300],
         )
         self.invoices.append(invoice)
-        self.save()
+        try:
+            self.save()
+        except OSError as exc:  # not on disk, so not issued: the number stays free
+            self.invoices.remove(invoice)
+            raise ValueError(
+                f"I couldn't save the invoice ({exc.strerror or exc}), so nothing was issued."
+            ) from None
         return invoice
 
     def find(self, number: str) -> Invoice | None:
@@ -270,16 +344,15 @@ Script = Callable[..., Awaitable[str]]
 
 
 async def issue(store: InvoiceStore, invoice: Invoice, pdf: Pdf, sender: str, payment: str) -> Path:
-    """Lay the invoice out and file it: a PDF when the window can draw one, else HTML."""
+    """Lay the invoice out and file it: a PDF when the window can draw one, else HTML.
+    Never over a file that's there: an invoice once issued stays as it was sent."""
     page = render_html(invoice, sender, payment)
     store.folder.mkdir(parents=True, exist_ok=True)
     data = await pdf(page)
     if data:
-        path = store.file_name(invoice, "pdf")
-        path.write_bytes(data)
+        path = _write_new(store.file_name(invoice, "pdf"), data)
     else:
-        path = store.file_name(invoice, "html")
-        path.write_text(page)
+        path = _write_new(store.file_name(invoice, "html"), page.encode("utf-8", "replace"))
     invoice.path = str(path)
     store.save()
     return path
@@ -400,8 +473,13 @@ def build_tools(store: InvoiceStore, pdf: Pdf, prefs: Callable[[], Any], applesc
         invoice = store.find(str(args.get("number", "")))
         if invoice is None:
             return _text("I can't find that invoice.", error=True)
+        was = invoice.status
         invoice.status = "paid" if args.get("paid", True) is not False else "open"
-        store.save()
+        try:
+            store.save()
+        except OSError as exc:  # what's shown stays what's saved
+            invoice.status = was
+            return _text(f"I couldn't save that ({exc.strerror or exc}).", error=True)
         return _text(f"{invoice.number} is marked {invoice.status}.")
 
     return [create_invoice, email_invoice, list_invoices, mark_invoice_paid]

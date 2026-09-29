@@ -1964,32 +1964,52 @@ class TransactionLog:
         self._load()
 
     def _load(self) -> None:
+        """Anything short of a whole, readable log marks it damaged: never an error at
+        startup, never a reset day."""
         try:
-            raw = self.path.read_text()
+            raw = self.path.read_bytes()
         except FileNotFoundError:
             return
         except OSError:
             self.damaged = True
             return
         try:
-            data = json.loads(raw)
-        except ValueError:
+            data = json.loads(raw.decode("utf-8-sig"))
+        except (ValueError, RecursionError):  # not JSON, a byte that isn't UTF-8, nesting
             self.damaged = True
             return
         items = data.get("transactions") if isinstance(data, dict) else None
-        cleaned = [_clean_entry(i) for i in items] if isinstance(items, list) else [None]
+        try:
+            cleaned = [_clean_entry(i) for i in items] if isinstance(items, list) else [None]
+        except (OverflowError, RecursionError):  # an amount too big for a float, nesting
+            cleaned = [None]
         if any(entry is None for entry in cleaned):
             self.damaged = True
             return
         self.entries = [e for e in cleaned if e]
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        from . import jsonstore
+
         self.entries = self.entries[-MAX_LOG:]
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"transactions": self.entries}, indent=2, ensure_ascii=False))
-        tmp.chmod(0o600)  # what the owner bought is theirs alone to read
-        tmp.replace(self.path)
+        # What the owner bought is theirs alone to read (0600). Written whole to a temp file
+        # of its own, on the disk, then swapped in.
+        jsonstore.save_json(self.path, {"transactions": self.entries}, backup=False)
+
+    def _set_aside(self) -> None:
+        """The unreadable log, kept for the owner under a name of its own, never over an
+        earlier damaged copy."""
+        for n in range(1, 100):
+            target = self.path.with_name(
+                f"{self.path.stem}.damaged{'' if n == 1 else f'-{n}'}.json"
+            )
+            if target.exists() or target.is_symlink():
+                continue
+            try:
+                self.path.rename(target)
+            except OSError as exc:
+                log.warning("the purchase log couldn't be moved aside (%s)", exc)
+            return
 
     def record(
         self,
@@ -2006,10 +2026,7 @@ class TransactionLog:
         unconfirmed: bool = False,
     ) -> dict[str, Any]:
         if self.damaged:  # keep the unreadable file for the owner; start a fresh one
-            try:
-                self.path.replace(self.path.with_name(f"{self.path.stem}.damaged.json"))
-            except OSError:
-                pass
+            self._set_aside()
             self.entries, self.damaged = [], False
         entry = _clean_entry(
             {

@@ -69,8 +69,8 @@ def clean_url(value: Any) -> str | None:
         return None  # javascript:, file:, mailto: …
     if "://" not in text:
         text = f"http://{text}"
-    parts = urlsplit(text)
-    try:
+    try:  # both raise ValueError: a bracketed host that isn't IPv6 ("http://[zz"), a bad port
+        parts = urlsplit(text)
         parts.port  # noqa: B018 - raises for a port that isn't a number
     except ValueError:
         return None

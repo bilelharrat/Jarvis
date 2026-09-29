@@ -26,6 +26,23 @@ let backend = null;
 let port = 0;
 let quitting = false;
 
+// One Jarvis at a time: a second launch (npm start twice, a dev build beside the installed
+// app) brings the running one forward instead of starting a second backend on the same
+// files. Asked after the dev profile is set above, so the test window, with a profile of
+// its own, never collides with the installed app.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) app.quit();
+app.on('second-instance', () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  if (DEV_URL) {
+    win.showInactive(); // the test window never takes focus
+  } else {
+    win.show();
+    win.focus();
+  }
+});
+
 function jarvisHome() {
   if (process.env.JARVIS_HOME) return process.env.JARVIS_HOME;
   const baked = path.join(__dirname, 'jarvis-home.json');
@@ -96,12 +113,17 @@ let restarts = [];
 function restartBackend(code) {
   const now = Date.now();
   restarts = restarts.filter((t) => now - t < 5 * 60_000);
+  // 75: another backend holds the data folder (server.serve): one still quitting, or a
+  // `jarvis serve` started in a terminal.
+  const taken = code === 75;
   if (restarts.length >= 3) {
-    showProblem(`The backend stopped (exit ${code}) three times in five minutes. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+    showProblem(taken
+      ? 'Another JARVIS backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Jarvis again.'
+      : `The backend stopped (exit ${code}) three times in five minutes. Details are in ~/Library/Logs/Jarvis/backend.log.`);
     return;
   }
   restarts.push(now);
-  showProblem(`The backend stopped (exit ${code}). Starting it again…`);
+  showProblem(taken ? 'Another JARVIS backend is still using your data. Waiting for it to finish…' : `The backend stopped (exit ${code}). Starting it again…`);
   setTimeout(async () => {
     if (quitting || backend) return;
     startBackend();
@@ -557,6 +579,7 @@ ipcMain.on('jarvis:attention', () => {
 });
 
 app.whenReady().then(async () => {
+  if (!gotLock) return; // quitting: the Jarvis already running has been brought forward
   createWindow();
   if (DEV_URL) {
     port = Number(new URL(DEV_URL).port);

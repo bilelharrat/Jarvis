@@ -2,13 +2,31 @@
 
 from __future__ import annotations
 
-import json
+import logging
 import re
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from . import jsonstore
+from .textclean import clean_text
+
+log = logging.getLogger("jarvis")
+
 APP_SUPPORT = Path.home() / "Library" / "Application Support" / "Jarvis"
+
+# What a damaged settings file must never switch on by itself: the always-on microphone,
+# indexing private mail, messages, photos and files, and what watches the screen or acts.
+CAUTIOUS = {
+    "hands_free": False,
+    "brain_mail": False,
+    "brain_messages": False,
+    "brain_photos": False,
+    "brain_computer": False,
+    "remote_enabled": False,
+    "screen_aware": False,
+    "control_always": False,
+}
 
 MODELS = {
     "opus": "claude-opus-5-5",
@@ -113,12 +131,19 @@ class Prefs:
         return data
 
     def update(self, changes: dict[str, Any]) -> list[str]:
-        """Apply validated changes; returns the names that actually changed."""
-        changed = []
+        """Apply validated changes; returns the names that actually changed. A value of the
+        wrong kind (a hand edit, another build's file) is left out, never an error."""
+        changed: list[str] = []
+        if not isinstance(changes, dict):
+            return changed
         for f in fields(self):
             if f.name not in changes or f.name == "last_briefing":
                 continue
-            value = _clean(f.name, changes[f.name])
+            try:
+                value = _clean(f.name, changes[f.name])
+            except Exception:  # a list for a name, infinity for a number, nested past reason
+                log.warning("prefs: ignored a bad value for %s", f.name)
+                continue
             if value is not None and value != getattr(self, f.name):
                 setattr(self, f.name, value)
                 changed.append(f.name)
@@ -131,7 +156,7 @@ def _clean(name: str, value: Any) -> Any:
     if name == "look":
         return value if value in LOOKS else None
     if name == "weather_city":
-        return str(value).strip()[:80]
+        return clean_text(value).strip()[:80]
     if name == "model":
         return value if value in MODELS else None
     if name == "persona":
@@ -139,25 +164,25 @@ def _clean(name: str, value: Any) -> Any:
     if name == "humor":
         try:
             return max(0, min(100, int(value)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
     if name == "address":
-        return str(value).strip()[:40]
+        return clean_text(value).strip()[:40]
     if name == "briefing_time":
         return value if isinstance(value, str) and _TIME.match(value) else None
     if name in ("invoice_from", "invoice_payment"):
-        lines = [line.strip() for line in str(value or "").splitlines()]
+        lines = [line.strip() for line in clean_text(value or "").splitlines()]
         return "\n".join(line for line in lines if line)[:600]
     if name == "language":
         return value if value in ("en", "zh") else None
     if name == "owner_name":
-        return re.sub(r"\s+", " ", str(value or "")).strip()[:40]
+        return re.sub(r"\s+", " ", clean_text(value or "")).strip()[:40]
     if name == "interruptions":
         return value if value in ("urgent", "all", "off") else None
     if name == "vips":
         if not isinstance(value, list):
             return None
-        cleaned = [re.sub(r"\s+", " ", str(v)).strip()[:120] for v in value]
+        cleaned = [re.sub(r"\s+", " ", clean_text(v)).strip()[:120] for v in value]
         return list(dict.fromkeys(v for v in cleaned if v))[:100]
     if name.startswith("pay_limit_"):
         from .transactions import clean_limit
@@ -168,7 +193,7 @@ def _clean(name: str, value: Any) -> Any:
 
         return clean_currency(value)
     if name == "code_model":
-        return str(value or "").strip()[:120]
+        return clean_text(value or "").strip()[:120]
     if name == "code_effort":
         return value if value in ("", "low", "medium", "high", "xhigh", "max") else None
     if name == "code_mode":
@@ -184,7 +209,7 @@ def _clean(name: str, value: Any) -> Any:
     if name == "code_sentences":
         try:
             return max(1, min(8, int(value)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
     if name == "quiet_hours":
         parts = str(value).split("-")
@@ -193,17 +218,10 @@ def _clean(name: str, value: Any) -> Any:
     if name == "instant_shortcuts":
         if not isinstance(value, list):
             return None
-        return sorted({str(v).strip()[:120] for v in value[:100] if str(v).strip()})
+        names = (clean_text(v).strip()[:120] for v in value[:100])
+        return sorted({v for v in names if v})
     if name == "brain_folders":
-        if not isinstance(value, list):
-            return None
-        home = Path.home().resolve()
-        kept = []
-        for item in value[:20]:
-            path = Path(str(item)).expanduser().resolve()
-            if path.is_dir() and (path == home or home in path.parents) and str(path) not in kept:
-                kept.append(str(path))
-        return kept
+        return _brain_folders(value)
     if name in {
         "voice_effect",
         "hands_free",
@@ -232,24 +250,77 @@ def _clean(name: str, value: Any) -> Any:
     return None
 
 
+def _brain_folders(value: Any) -> list[str] | None:
+    """Folders in the home folder. One that's there but can't be looked at just now (macOS
+    privacy protection) is kept; one that can't even be named (~nosuchuser, a NUL, a
+    symlink loop) is dropped. Never raises: startup reads this."""
+    if not isinstance(value, list):
+        return None
+    home = Path.home().resolve()
+    kept: list[str] = []
+    for item in value[:20]:
+        try:
+            path = Path(str(item)).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not (path == home or home in path.parents) or str(path) in kept:
+            continue
+        try:
+            usable = path.is_dir()
+        except OSError:  # EACCES/EPERM on the way there: it's there, just not ours right now
+            usable = True
+        except ValueError:
+            usable = False
+        if usable:
+            kept.append(str(path))
+    return kept
+
+
 class PrefsStore:
+    """The settings file. A damaged one is kept aside and its last good copy read; with no
+    good copy, or a file that can't be read, the app starts with the microphone and private
+    indexing off (CAUTIOUS) and says so once (notice)."""
+
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or APP_SUPPORT / "prefs.json"
+        self.notice = ""  # something to tell the owner about their settings at startup
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self.prefs = self._load()
 
     def _load(self) -> Prefs:
-        prefs = Prefs()
         try:
-            data = json.loads(self.path.read_text())
-        except (OSError, ValueError):
-            return prefs
-        if isinstance(data, dict):
-            prefs.update(data)
-            prefs.last_briefing = str(data.get("last_briefing", ""))
+            data, how = jsonstore.read_json(self.path, dict)
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            self.notice = (
+                f"Your settings file can't be read ({self.unreadable}), so the microphone and "
+                "private indexing stay off for now, and changes won't be saved over it."
+            )
+            return Prefs(**CAUTIOUS)
+        if how in ("damaged", "empty"):  # our own saves are never empty: that's damage too
+            kept = " (a copy is kept beside it)" if how == "damaged" else ""
+            self.notice = (
+                f"Your settings file was damaged{kept}, so the microphone and private "
+                "indexing are off until you turn them back on."
+            )
+            return Prefs(**CAUTIOUS)
+        prefs = Prefs()
+        if data is None:
+            return prefs  # a first start: the product's defaults
+        prefs.update(data)
+        for name, off in CAUTIOUS.items():
+            if name in data and not isinstance(data[name], bool):
+                setattr(prefs, name, off)  # "yes", 1, null: never read as switched on
+        last = data.get("last_briefing")
+        prefs.last_briefing = last[:10] if isinstance(last, str) else ""
+        if how == "restored":
+            self.notice = (
+                "Your settings file was damaged, so I went back to its last good copy (the "
+                "damaged one is kept beside it)."
+            )
         return prefs
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(asdict(self.prefs), indent=2))
-        tmp.replace(self.path)
+        if self.unreadable:
+            raise jsonstore.refusal(self.path, self.unreadable)
+        jsonstore.save_json(self.path, asdict(self.prefs))
