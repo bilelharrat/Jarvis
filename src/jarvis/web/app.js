@@ -621,6 +621,7 @@ function toggleSettings(open) {
   $('settings').hidden = !open;
   if (open) send({ type: 'shortcuts' });
   $('settings-btn').setAttribute('aria-expanded', String(open));
+  sheetsChanged();
 }
 
 $('settings-btn').addEventListener('click', () => toggleSettings($('settings').hidden));
@@ -695,6 +696,16 @@ function toggleAccounts(open) {
   $('accounts').hidden = !open;
   $('accounts-btn').setAttribute('aria-expanded', String(open));
   if (open) { toggleSettings(false); send({ type: 'connectors' }); }
+  sheetsChanged();
+}
+
+// The Research Center's page sits above everything in the window, so it steps aside
+// while a sheet (Settings, Tools & Accounts) is open and comes back as it was.
+function sheetsChanged() {
+  if (typeof rcOpen === 'undefined' || !rcOpen || !app || !app.research) return;
+  const covered = !$('settings').hidden || !$('accounts').hidden;
+  if (covered) app.research.hide();
+  else if ($('rc-message').hidden) app.research.show(rcBounds(), rcBase(), null);
 }
 $('accounts-btn').addEventListener('click', () => toggleAccounts($('accounts').hidden));
 $('accounts-close').addEventListener('click', () => toggleAccounts(false));
@@ -961,6 +972,8 @@ function applyUi(ev) {
   }
   if (ev.action !== 'panel') return;
   const open = ev.open !== false;
+  // Another full panel asked for while the Research Center is up: it takes its place.
+  if (open && rcOpen && !['research', 'settings', 'accounts'].includes(ev.name)) closeResearch();
   switch (ev.name) {
     case 'code': toggleCC(open); break;
     case 'browser': if (app && app.browser) toggleBrowser(open); break;

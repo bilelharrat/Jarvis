@@ -532,7 +532,8 @@ ipcMain.handle('research:show', async (event, { bounds, base, path: pathname } =
     researchShown = true;
   }
   view.setBounds(fitBounds(bounds));
-  await researchOpen(pathname || '/markets');
+  // No path: just show it again as it was (after a sheet covered it).
+  if (pathname || !view.webContents.getURL()) await researchOpen(pathname || '/markets');
   researchState();
   return { ok: true };
 });
