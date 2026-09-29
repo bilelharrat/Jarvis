@@ -197,6 +197,9 @@ async function ask(text) {
     renderApprovals(data.approvals || []);
     if (!data.done && (data.approvals || []).length) {
       $('reply').textContent = 'I need your OK for that; tap below.';
+    } else if (!data.done) {
+      // Past the phone's wait: it goes on on the Mac, where the answer shows.
+      $('reply').textContent = data.reply ? `${data.reply}…` : 'Still working on it on the Mac…';
     } else {
       $('reply').textContent = data.reply || 'Done.';
       speak(data.reply);
