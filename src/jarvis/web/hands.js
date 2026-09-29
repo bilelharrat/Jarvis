@@ -1,12 +1,6 @@
-// Hand control for the knowledge galaxy, Stark-style. Runs MediaPipe's hand tracker
-// locally in the window (the camera never leaves this Mac).
-//
-//   Point (index finger up)          move the cursor; hovering a star shows its name
-//   Pinch and move (one hand)        spin the galaxy
-//   Quick pinch on a star            open it
-//   Two hands pinching, pull apart   zoom in; push together to zoom out
-//   Open palm, held for a second     reset the view
-//   Fist, held for a second          close the galaxy
+// Hand control, Stark-style: MediaPipe's hand tracker runs locally in the window (the
+// camera never leaves this Mac) and gestures.js turns hands into actions on a target:
+// the knowledge galaxy while it's open, the rest of the app otherwise.
 
 import { FilesetResolver, HandLandmarker } from '/vision/vision_bundle.mjs';
 import { createGestures } from './gestures.js';
@@ -20,6 +14,7 @@ let overlay = null;
 let status = null;
 let cursor = null;
 let step = null;
+let closeFn = null;
 const smooth = { x: null, y: null };
 
 function setStatus(text) { if (status) status.textContent = text; }
@@ -82,10 +77,17 @@ async function loop() {
   video.requestVideoFrameCallback(loop);
 }
 
-export async function startHands(galaxy, { overlayCanvas, statusEl, cursorEl, close }) {
+// Point the same hands at something else (the galaxy opening or closing).
+export function setTarget(target, close) {
+  if (galaxyRef && galaxyRef !== target) galaxyRef.hoverAtClient(null, null);
+  galaxyRef = target;
+  closeFn = close;
+  step = createGestures({ galaxy: target, toScreen, hideCursor, status: setStatus, close: () => closeFn && closeFn() });
+}
+
+export async function startHands(target, { overlayCanvas, statusEl, cursorEl, close }) {
+  setTarget(target, close);
   if (running) return;
-  galaxyRef = galaxy;
-  step = createGestures({ galaxy, toScreen, hideCursor, status: setStatus, close: () => close && close() });
   overlay = overlayCanvas;
   status = statusEl;
   cursor = cursorEl;

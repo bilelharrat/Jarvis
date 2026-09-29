@@ -266,7 +266,7 @@ function setGalaxyMode(mode) {
   document.body.classList.toggle('galaxy-open', mode === 'open');
   $('galaxy').hidden = mode !== 'open';
   galaxy.interactive = mode === 'open';
-  if (mode !== 'open') stopHandControl();
+  retargetHands();
   if (mode === 'off') {
     galaxy.stop();
     galaxy.reset();
@@ -314,36 +314,112 @@ $('brain-btn').addEventListener('click', () => setGalaxyMode(galaxyMode === 'ope
 $('galaxy-close').addEventListener('click', () => setGalaxyMode('off'));
 
 // ── hand control (hands.js loads MediaPipe only when you turn it on) ──
+// The same hands drive the galaxy while it's open and the rest of the app otherwise.
 let handsModule = null;
+let handsOn = false;
+let handHover = null;
+let handPoint = { x: 0, y: 0 };
+const LOOK_ORDER = ['orb', 'hud', 'console'];
+const HAND_HELP = {
+  galaxy: '☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close',
+  app: '☝ point · pinch to press · pinch and move to scroll · swipe an open hand to change the look · hold an open palm to talk · hold a fist to stop me',
+};
+
+function clickableAt(x, y) {
+  handPoint = { x, y };
+  const hit = document.elementFromPoint(x, y);
+  const target = hit && hit.closest('button, a[href], [role="switch"], [role="radio"], input, select, summary');
+  return target && !target.disabled ? target : null;
+}
+
+function scrollableAt(x, y) {
+  for (let node = document.elementFromPoint(x, y); node && node !== document.body; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+  }
+  return null;
+}
+
+const appTarget = {
+  labels: {
+    resetHold: 'Hold open palm to talk…', reset: 'Listening', closeHold: 'Hold fist to stop me…',
+    drag: 'Scrolling', hover: 'Pinch to press', opened: 'Pressed',
+  },
+  pickAtClient: (x, y) => clickableAt(x, y),
+  hoverAtClient(x, y) {
+    const target = x === null ? null : clickableAt(x, y);
+    if (handHover !== target) {
+      if (handHover) handHover.classList.remove('hand-hover');
+      if (target) target.classList.add('hand-hover');
+      handHover = target;
+    }
+    return target;
+  },
+  select(target) { if (target.isConnected) target.click(); },
+  reset() { if (state === 'idle') send({ type: 'listen' }); },
+  drag(dx, dy) {
+    handPoint = { x: handPoint.x + dx, y: handPoint.y + dy };
+    const box = scrollableAt(handPoint.x, handPoint.y);
+    if (box) box.scrollBy(0, -dy * 1.6); // like a touchscreen: pull up to read on
+  },
+  swipe(dir) {
+    const i = LOOK_ORDER.indexOf(prefs.look || 'orb');
+    setPrefs({ look: LOOK_ORDER[(i + dir + LOOK_ORDER.length) % LOOK_ORDER.length] });
+  },
+};
+
+function handTarget() {
+  return galaxyMode === 'open'
+    ? { target: galaxy, close: () => setGalaxyMode('off'), help: HAND_HELP.galaxy }
+    : { target: appTarget, close: () => send({ type: 'stop' }), help: HAND_HELP.app };
+}
+
+function retargetHands() {
+  if (!handsOn || !handsModule) return;
+  const { target, close, help } = handTarget();
+  handsModule.setTarget(target, close);
+  $('hand-help').textContent = help;
+}
+
+function setHandButtons(on) {
+  ['hand-btn', 'hands-pill'].forEach((id) => $(id).setAttribute('aria-pressed', String(on)));
+}
 
 async function startHandControl() {
-  $('hand-btn').setAttribute('aria-pressed', 'true');
+  handsOn = true;
+  setHandButtons(true);
   $('hand-panel').hidden = false;
   $('hand-status').textContent = 'Loading hand tracking…';
+  const { target, close, help } = handTarget();
+  $('hand-help').textContent = help;
   try {
     handsModule = handsModule || (await import(`/static/hands.js?v=${Date.now()}`));
-    await handsModule.startHands(galaxy, {
+    await handsModule.startHands(target, {
       overlayCanvas: $('hand-overlay'),
       statusEl: $('hand-status'),
       cursorEl: $('hand-cursor'),
-      close: () => setGalaxyMode('off'),
+      close,
     });
   } catch (err) {
     $('hand-status').textContent = `Hand control couldn't start: ${err.message || err}`;
-    $('hand-btn').setAttribute('aria-pressed', 'false');
+    handsOn = false;
+    setHandButtons(false);
   }
 }
 
 function stopHandControl() {
+  handsOn = false;
   if (handsModule) handsModule.stopHands();
-  $('hand-btn').setAttribute('aria-pressed', 'false');
+  if (handHover) handHover.classList.remove('hand-hover');
+  handHover = null;
+  setHandButtons(false);
   $('hand-panel').hidden = true;
 }
 
-$('hand-btn').addEventListener('click', () => {
-  if ($('hand-btn').getAttribute('aria-pressed') === 'true') stopHandControl();
+['hand-btn', 'hands-pill'].forEach((id) => $(id).addEventListener('click', () => {
+  if (handsOn) stopHandControl();
   else startHandControl();
-});
+}));
 $('galaxy-search').addEventListener('submit', (e) => {
   e.preventDefault();
   const q = $('galaxy-q').value.trim().toLowerCase();
@@ -408,6 +484,7 @@ function placePanels(look) {
   if (look === 'orb') right.prepend(...moved);
   else left.append(...moved);
 }
+placePanels(document.body.dataset.look);
 
 function renderPrefs(p) {
   if (!p) return;

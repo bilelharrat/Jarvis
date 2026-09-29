@@ -438,6 +438,7 @@ body[data-look="console"] .chips, body[data-look="console"] .ask, body[data-look
 .meter span { color: var(--ink-2); }
 .meter b { font-weight: 500; font-variant-numeric: tabular-nums; }
 .meter i, .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; display: block; }
+.bar em.full { width: 100%; }
 .meter em, .bar em { display: block; height: 100%; width: 0; background: var(--action); transition: width 600ms ease; }
 .kv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .kv-grid > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; background: var(--chip-hover); }
@@ -778,7 +779,7 @@ body.cards-open .browser-pane { right: 384px; }
 }
 .hand-btn[aria-pressed="true"] { border-color: #4fd3ff; color: #4fd3ff; box-shadow: 0 0 18px rgba(79, 211, 255, 0.3); }
 .hand-panel {
-  position: absolute; right: 40px; bottom: 116px; width: 320px; border-radius: 14px; overflow: hidden;
+  position: fixed; z-index: 45; right: 24px; bottom: 116px; width: 320px; border-radius: 14px; overflow: hidden;
   border: 1px solid #22304a; background: rgba(6, 12, 22, 0.92);
 }
 .hand-panel[hidden] { display: none; }
@@ -795,6 +796,8 @@ body.cards-open .browser-pane { right: 384px; }
 .hand-cursor[data-mode="palm"] { border-style: dashed; }
 .hand-cursor[data-mode="fist"] { border-color: #f0a458; box-shadow: 0 0 18px rgba(240, 164, 88, 0.7); }
 .galaxy-hint { right: 200px !important; }
+.hand-hover { outline: 2px solid #4fd3ff !important; outline-offset: 3px; box-shadow: 0 0 16px rgba(79, 211, 255, 0.45) !important; }
+#hands-pill[aria-pressed="true"] { color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
 
 /* Side sheets are solid in every look, so the dashboard never shows through. */
 .sheet { background: var(--bg); }

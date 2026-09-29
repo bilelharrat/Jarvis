@@ -14,6 +14,15 @@ const TAP_MOVE = 25; // px a pinch may drift and still count as a tap
 const TAP_MS = 600;
 const PALM_MS = 1000;
 const FIST_MS = 1100;
+const SWIPE_SPAN = 0.22; // of the camera frame
+const SWIPE_MS = 450;
+
+// What the status line says for each gesture; a target can override any of them.
+const GALAXY_LABELS = {
+  idle: 'Show me your hand', resetHold: 'Hold open palm to reset…', reset: 'View reset',
+  closeHold: 'Hold fist to close…', drag: 'Spinning', pinch: 'Pinch', hover: 'Pinch to open',
+  point: 'Pointing', opened: 'Opened', zoom: 'Zoom',
+};
 
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
@@ -31,7 +40,9 @@ export function classify(lm, wasPinching = false) {
   return 'other';
 }
 
-// galaxy: { pickAtClient, hoverAtClient, rotateBy, zoomBy, reset, select }
+// galaxy (any target): { pickAtClient, hoverAtClient, select, reset } plus optional
+// rotateBy / drag (pinch and move), zoomBy (two-hand pinch), swipe(dir) (open palm swept
+// sideways, dir 1 = right) and labels (status text overrides).
 // toScreen(p, kind) maps a normalized point to a (smoothed) screen point and shows the
 // cursor there; hideCursor(), status(text) and close() drive the rest of the UI.
 export function createGestures({ galaxy, toScreen, hideCursor, status, close }) {
@@ -41,11 +52,14 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
   let palmDone = false;
   let fistSince = 0;
   let pinching = [false, false];
+  let trail = []; // open-palm positions for swipes
+  let swipedAt = -1e9;
+  const say = { ...GALAXY_LABELS, ...(galaxy.labels || {}) };
 
   function release(now) {
     if (pinch && pinch.moved < TAP_MOVE && now - pinch.t < TAP_MS && pinch.target) {
       galaxy.select(pinch.target);
-      status('Opened');
+      status(say.opened);
     }
     pinch = null;
   }
@@ -58,8 +72,9 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
       palmSince = fistSince = 0;
       palmDone = false;
       pinching = [false, false];
+      trail = [];
       galaxy.hoverAtClient(null, null);
-      status('Show me your hand');
+      status(say.idle);
       return;
     }
     const kinds = hands.map((lm, i) => classify(lm, pinching[i]));
@@ -68,10 +83,10 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
     // Two hands pinching: zoom by the change in distance between them.
     if (hands.length >= 2 && kinds[0] === 'pinch' && kinds[1] === 'pinch') {
       const now2 = dist(hands[0][TIP.index], hands[1][TIP.index]);
-      if (span) galaxy.zoomBy(Math.pow(span / now2, 1.6));
+      if (span && galaxy.zoomBy) galaxy.zoomBy(Math.pow(span / now2, 1.6));
       span = now2;
       pinch = null; // a zoom never ends in a tap
-      status('Zoom');
+      status(say.zoom);
       return;
     }
     span = null;
@@ -83,13 +98,27 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
       : lm[TIP.index];
     const pt = toScreen(tip, kind);
 
+    if (kind === 'palm' && galaxy.swipe) {
+      // A quick sideways sweep of the open hand. Camera x is mirrored: x falling means
+      // the hand moved to the user's right.
+      trail = trail.filter((p) => now - p.t <= SWIPE_MS);
+      trail.push({ x: lm[0].x, t: now });
+      const dx = trail[0].x - lm[0].x;
+      if (Math.abs(dx) >= SWIPE_SPAN && now - swipedAt > 900) {
+        swipedAt = now;
+        trail = [];
+        palmDone = true; // a swipe is not a held palm
+        galaxy.swipe(dx > 0 ? 1 : -1);
+      }
+    } else trail = [];
+
     if (kind === 'palm') {
       palmSince = palmSince || now;
-      if (!palmDone && now - palmSince >= PALM_MS) {
+      if (!palmDone && now - palmSince >= PALM_MS && now - swipedAt > PALM_MS) {
         galaxy.reset();
         palmDone = true;
       }
-      status(palmDone ? 'View reset' : 'Hold open palm to reset…');
+      if (now - swipedAt > 400) status(palmDone ? say.reset : say.resetHold);
     } else {
       palmSince = 0;
       palmDone = false;
@@ -102,7 +131,7 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
         close();
         return;
       }
-      status('Hold fist to close…');
+      status(say.closeHold);
     } else fistSince = 0;
 
     if (kind === 'pinch') {
@@ -111,12 +140,13 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
       } else {
         const dx = pt.x - pinch.last.x, dy = pt.y - pinch.last.y;
         pinch.moved += Math.abs(dx) + Math.abs(dy);
-        galaxy.rotateBy(dx * 0.006, dy * 0.006);
+        if (galaxy.drag) galaxy.drag(dx, dy);
+        else if (galaxy.rotateBy) galaxy.rotateBy(dx * 0.006, dy * 0.006);
         pinch.last = pt;
       }
-      status(pinch.moved > TAP_MOVE ? 'Spinning' : 'Pinch');
+      status(pinch.moved > TAP_MOVE ? say.drag : say.pinch);
     } else release(now);
 
-    if (kind === 'point') status(galaxy.hoverAtClient(pt.x, pt.y) ? 'Pinch to open' : 'Pointing');
+    if (kind === 'point') status(galaxy.hoverAtClient(pt.x, pt.y) ? say.hover : say.point);
   };
 }

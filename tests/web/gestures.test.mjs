@@ -126,3 +126,61 @@ test('losing the hand mid-pinch opens nothing and clears the hover', () => {
   assert.equal(r.named('select').length, 0);
   assert.equal(r.statuses[1], 'Show me your hand');
 });
+
+function appRig() {
+  const calls = [];
+  const target = {
+    pickAtClient: () => 'button',
+    hoverAtClient: (x) => (x === null ? null : 'button'),
+    select: (t) => calls.push(['press', t]),
+    reset: () => calls.push(['talk']),
+    drag: (dx, dy) => calls.push(['scroll', dx, dy]),
+    swipe: (dir) => calls.push(['swipe', dir]),
+    labels: { hover: 'Pinch to press', reset: 'Listening' },
+  };
+  const statuses = [];
+  const step = createGestures({
+    galaxy: target,
+    toScreen: (p) => ({ x: p.x * 1000, y: p.y * 1000 }),
+    hideCursor: () => {},
+    status: (s) => statuses.push(s),
+    close: () => calls.push(['stop']),
+  });
+  return { step, calls, statuses, named: (n) => calls.filter((c) => c[0] === n) };
+}
+
+const PALM = ['index', 'middle', 'ring', 'pinky'];
+
+test('app: an open palm swept sideways switches looks, and is not a held palm', () => {
+  const r = appRig();
+  // camera x falls from 0.7 to 0.4 in 300 ms: the hand moved to the user's right
+  [0.7, 0.6, 0.5, 0.4].forEach((cx, i) => r.step([hand({ up: PALM, cx })], i * 100));
+  assert.deepEqual(r.named('swipe'), [['swipe', 1]]);
+  for (let t = 400; t <= 1300; t += 100) r.step([hand({ up: PALM, cx: 0.4 })], t);
+  assert.equal(r.named('talk').length, 0, 'the swipe did not also start listening');
+  r.step([hand()], 1400);
+  [0.3, 0.45, 0.6].forEach((cx, i) => r.step([hand({ up: PALM, cx })], 2500 + i * 100));
+  assert.deepEqual(r.named('swipe').at(-1), ['swipe', -1]);
+});
+
+test('app: a slow drift is not a swipe; a still palm held talks', () => {
+  const r = appRig();
+  for (let i = 0; i <= 12; i++) r.step([hand({ up: PALM, cx: 0.5 + i * 0.01 })], i * 100);
+  assert.equal(r.named('swipe').length, 0);
+  assert.equal(r.named('talk').length, 1);
+  assert.equal(r.statuses.at(-1), 'Listening');
+});
+
+test('app: pinch and drag scrolls; a quick pinch presses', () => {
+  const r = appRig();
+  r.step([hand({ up: ['index'], pinch: true, cy: 0.3 })], 0);
+  r.step([hand({ up: ['index'], pinch: true, cy: 0.4 })], 50);
+  assert.equal(r.named('scroll').length, 1);
+  r.step([hand({ up: ['index'] })], 100);
+  assert.equal(r.named('press').length, 0);
+  r.step([hand({ up: ['index'], pinch: true })], 1000);
+  r.step([hand({ up: ['index'] })], 1100);
+  assert.deepEqual(r.named('press'), [['press', 'button']]);
+  r.step([hand({ up: ['index'] })], 1200);
+  assert.equal(r.statuses.at(-1), 'Pinch to press');
+});
