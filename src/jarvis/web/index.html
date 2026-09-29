@@ -395,6 +395,24 @@
   </section>
 
   <section class="group">
+    <h3>Phone</h3>
+    <p class="small-status">Jarvis calls you through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can call your own verified number). Your Account SID and Auth Token go into the Mac’s Keychain.</p>
+    <label class="row stack" for="phone-sid"><span><strong>Twilio Account SID</strong><small id="phone-signed">Not set up yet</small></span>
+      <input type="text" id="phone-sid" placeholder="AC…" autocomplete="off" spellcheck="false"></label>
+    <label class="row stack" for="phone-token"><span><strong>Twilio Auth Token</strong><small>Goes straight into your Keychain and is never shown again</small></span>
+      <input type="password" id="phone-token" placeholder="Paste your Auth Token" autocomplete="off" spellcheck="false"></label>
+    <div class="folder-form"><button type="button" class="btn" id="phone-save">Save to Keychain</button><button type="button" class="btn danger" id="phone-forget" hidden>Forget sign-in</button></div>
+    <label class="row stack" for="phone-from"><span><strong>Your Twilio number</strong><small>The number Jarvis calls from</small></span>
+      <input type="text" id="phone-from" placeholder="+1 415 555 0100" autocomplete="off"></label>
+    <label class="row stack" for="phone-me"><span><strong>Your phone number</strong><small>The only number Jarvis calls on its own</small></span>
+      <input type="text" id="phone-me" placeholder="+1 415 555 0199" autocomplete="off"></label>
+    <div class="row"><span><strong>Wake-up call</strong><small>Jarvis rings you with the morning brief (while it’s running on this Mac)</small></span><button type="button" class="switch" role="switch" id="sw-wake-call" aria-checked="false" aria-label="Wake-up call"></button></div>
+    <label class="row" for="wake-call-time"><span><strong>Call at</strong></span><input type="time" id="wake-call-time" value="07:00"></label>
+    <button type="button" class="btn" id="phone-test">Call me now</button>
+    <p class="small-status" id="phone-note" aria-live="polite"></p>
+  </section>
+
+  <section class="group">
     <h3>Second brain</h3>
     <div class="row"><span><strong>Apple Notes</strong></span><button type="button" class="switch" role="switch" id="sw-notes" aria-checked="true" aria-label="Apple Notes"></button></div>
     <div class="row"><span><strong>BSH research desk</strong></span><button type="button" class="switch" role="switch" id="sw-bsh" aria-checked="true" aria-label="BSH research desk"></button></div>

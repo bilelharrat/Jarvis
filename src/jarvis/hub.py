@@ -23,7 +23,7 @@ import uuid
 import weakref
 from collections import deque
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -53,6 +53,7 @@ from . import (
     lang,
     livecontext,
     mac_tools,
+    phone,
     research,
     screenwatch,
     system_voice,
@@ -586,6 +587,7 @@ class Hub:
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
         self.screen = computer.Screen()
         self.desktop_hands = DesktopHands()
+        self.phone = phone.Phone(lambda: self.prefs)
         from .prefs import APP_SUPPORT
         from .tasks import RuleStore
 
@@ -873,6 +875,7 @@ class Hub:
                 self.invoices, self.pdf_call, lambda: self.prefs, mac_tools.run_applescript
             ),
             messaging.SERVER_NAME: messaging.build_server(self.send_gate),
+            phone.SERVER_NAME: phone.build_server(self.phone, self.confirm),
             "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(
                 self.memory, self._memory_changed, self.feature_gate
@@ -901,6 +904,7 @@ class Hub:
             "remember something (or state something clearly stable about themselves); recall "
             "looks facts up; forget removes one."
             + research.PROMPT
+            + phone.PROMPT
             + MODELS_PROMPT
             + ui.PROMPT
             + invoices.PROMPT
@@ -4197,6 +4201,52 @@ class Hub:
     async def briefing(self) -> None:
         await self.ask(BRIEFING_PROMPT, display="Morning briefing")
 
+    async def _phone_command(self, kind: str, msg: dict[str, Any]) -> None:
+        """Settings › Phone. The token only ever goes one way: into the Keychain."""
+        note = ""
+        try:
+            if kind == "phone_credentials":
+                note = await asyncio.to_thread(
+                    self.phone.save_credentials, str(msg.get("sid", "")), str(msg.get("token", ""))
+                )
+            elif kind == "phone_forget":
+                await asyncio.to_thread(self.phone.keychain.clear)
+                note = "Forgot the Twilio sign-in."
+            elif kind == "phone_test":
+                await self.phone.call_me(
+                    "Hello, this is Jarvis. Your phone calls are set up. "
+                    "This is how your wake-up calls will sound."
+                )
+                note = "Calling you now."
+        except phone.PhoneError as exc:
+            note = str(exc)
+        except Exception as exc:  # the Keychain refused, say
+            log.warning("phone settings: %s", type(exc).__name__)
+            note = "Couldn't reach the Keychain. Try again."
+        status = await asyncio.to_thread(self.phone.status)
+        self.emit("phone_status", note=note, **status)
+
+    async def wake_up_call(self) -> None:
+        """The morning brief, written quietly, then read to the owner on the phone."""
+        text = ""
+        try:
+            text = await self.ask(BRIEFING_PROMPT, display="Wake-up call", silent=True)
+        except Exception:  # the call still comes, with less in it
+            log.exception("wake-up brief failed")
+        try:
+            await self.phone.call_me(text or "Good morning. This is your wake-up call.")
+        except phone.PhoneError as exc:
+            self.emit("error", text=f"The wake-up call didn't go through: {exc}")
+
+    def wake_call_due(self, now: datetime | None = None) -> bool:
+        now = now or datetime.now()
+        if not self.prefs.wake_call or self.prefs.last_wake_call == now.date().isoformat():
+            return False
+        hour, minute = map(int, self.prefs.wake_call_time.split(":"))
+        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        # A wake-up call is for waking: only within 20 minutes of the time, never later.
+        return due <= now <= due + timedelta(minutes=20)
+
     def briefing_due(self, now: datetime | None = None) -> bool:
         now = now or datetime.now()
         if not self.prefs.briefing_enabled or self.prefs.last_briefing == now.date().isoformat():
@@ -4228,6 +4278,13 @@ class Hub:
                         log.warning("couldn't save the briefing date: %s", exc)
                         self._prefs_unsaved = True
                     self._spawn(self.briefing())
+                if self.wake_call_due() and not self._lock.locked():
+                    self.prefs.last_wake_call = datetime.now().date().isoformat()
+                    try:
+                        self.prefs_store.save()
+                    except OSError:  # call anyway: the date is saved on a later tick
+                        self._prefs_unsaved = True
+                    self._spawn(self.wake_up_call())
             except Exception:  # one bad tick never ends the briefings for the session
                 log.exception("briefing check failed")
             await asyncio.sleep(30)
@@ -4371,6 +4428,9 @@ class Hub:
 
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
+        if kind in ("phone_status", "phone_credentials", "phone_forget", "phone_test"):
+            await self._phone_command(kind, msg)
+            return
         if kind == "desktop_hand":  # ~30/s while steering the Mac; posting is sub-millisecond
             event = self.desktop_hands.handle(msg)
             if event:

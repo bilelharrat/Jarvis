@@ -85,9 +85,14 @@ class Prefs:
     hands_free: bool = True
     clap_hands: bool = True  # two claps (heard while hands-free listens) turn hand control on
     desktop_hands: bool = False  # hand control steers the whole Mac
+    phone_me: str = ""  # the owner's own number: the only one JARVIS calls on its own
+    phone_from: str = ""  # their Twilio number, that calls come from
+    wake_call: bool = False  # a wake-up call with the morning brief
+    wake_call_time: str = "07:00"
     briefing_enabled: bool = True
     briefing_time: str = "08:00"
     last_briefing: str = ""
+    last_wake_call: str = ""  # the day of the last wake-up call (kept, never set by the window)
     brain_notes: bool = True
     brain_bsh: bool = True
     brain_computer: bool = True
@@ -135,6 +140,7 @@ class Prefs:
     def public(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("last_briefing")
+        data.pop("last_wake_call")
         return data
 
     def update(self, changes: dict[str, Any]) -> list[str]:
@@ -144,7 +150,7 @@ class Prefs:
         if not isinstance(changes, dict):
             return changed
         for f in fields(self):
-            if f.name not in changes or f.name == "last_briefing":
+            if f.name not in changes or f.name in ("last_briefing", "last_wake_call"):
                 continue
             try:
                 value = _clean(f.name, changes[f.name])
@@ -175,8 +181,12 @@ def _clean(name: str, value: Any) -> Any:
             return None
     if name == "address":
         return clean_text(value).strip()[:40]
-    if name == "briefing_time":
+    if name in ("briefing_time", "wake_call_time"):
         return value if isinstance(value, str) and _TIME.match(value) else None
+    if name in ("phone_me", "phone_from"):
+        from .phone import clean_number
+
+        return clean_number(value)
     if name in ("invoice_from", "invoice_payment"):
         lines = [line.strip() for line in clean_text(value or "").splitlines()]
         return "\n".join(line for line in lines if line)[:600]
@@ -254,6 +264,7 @@ def _clean(name: str, value: Any) -> Any:
         "pay_enabled",
         "clap_hands",
         "desktop_hands",
+        "wake_call",
     }:
         return bool(value)
     return None
@@ -322,6 +333,8 @@ class PrefsStore:
                 setattr(prefs, name, off)  # "yes", 1, null: never read as switched on
         last = data.get("last_briefing")
         prefs.last_briefing = last[:10] if isinstance(last, str) else ""
+        woke = data.get("last_wake_call")
+        prefs.last_wake_call = woke[:10] if isinstance(woke, str) else ""
         version = data.get("version")
         if not isinstance(version, int) or version < 2:
             if prefs.research_url == LEGACY_RESEARCH_URL:

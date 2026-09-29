@@ -138,6 +138,32 @@ def _quick_saves(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_keychain(monkeypatch):
+    """Phone credentials in tests live in a dict, never the login keychain."""
+    from jarvis import phone
+
+    class Memory:
+        def __init__(self):
+            self.items = {}
+
+        def get_password(self, service, user):
+            return self.items.get((service, user))
+
+        def set_password(self, service, user, secret):
+            self.items[(service, user)] = secret
+
+        def delete_password(self, service, user):
+            self.items.pop((service, user), None)
+
+    real = phone.Keychain.__init__
+
+    def init(self, backend=None):
+        real(self, backend if backend is not None else Memory())
+
+    monkeypatch.setattr(phone.Keychain, "__init__", init)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_mac_commands(monkeypatch):
     """A request that reads like "open Safari" or "press command T" never opens, clicks or
     types on the real Mac in a test: the instant command says it isn't one (so it goes on to

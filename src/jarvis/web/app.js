@@ -191,6 +191,7 @@ function onEvent(ev) {
     case 'research_cmd': runResearchCmd(ev); break;
     case 'ui': applyUi(ev); break;
     case 'desktop_hands': onDesktopHands(ev); break;
+    case 'phone_status': onPhoneStatus(ev); break;
     case 'defense': renderDefense(ev); break;
     case 'ask_queue': renderAskQueue(ev.items || []); break;
     case 'task_bash': onBang(ev); break;
@@ -724,6 +725,10 @@ function renderPrefs(p) {
   if (p.pay_currency) $('pay-currency').value = p.pay_currency;
   setSwitch('sw-file-index', p.file_index !== false);
   $('briefing-time').value = p.briefing_time;
+  if (document.activeElement !== $('phone-from')) $('phone-from').value = p.phone_from || '';
+  if (document.activeElement !== $('phone-me')) $('phone-me').value = p.phone_me || '';
+  setSwitch('sw-wake-call', p.wake_call);
+  $('wake-call-time').value = p.wake_call_time || '07:00';
   $('folders').replaceChildren(...(p.brain_folders || []).map((f) => {
     const li = el('li');
     const name = el('span', '', f);
@@ -758,7 +763,7 @@ function setPrefs(changes) {
 
 function toggleSettings(open) {
   $('settings').hidden = !open;
-  if (open) send({ type: 'shortcuts' });
+  if (open) { send({ type: 'shortcuts' }); send({ type: 'phone_status' }); }
   $('settings-btn').setAttribute('aria-expanded', String(open));
 }
 
@@ -919,6 +924,28 @@ function renderDelegations(items) {
   }));
 }
 $('briefing-time').addEventListener('change', (e) => setPrefs({ briefing_time: e.target.value }));
+
+// Settings › Phone: the Auth Token goes one way, into the Keychain; the field empties at once.
+$('phone-save').addEventListener('click', () => {
+  const sid = $('phone-sid').value.trim(), token = $('phone-token').value.trim();
+  if (!sid || !token) { $('phone-note').textContent = tr('Add both the Account SID and the Auth Token.'); return; }
+  send({ type: 'phone_credentials', sid, token });
+  $('phone-token').value = '';
+  $('phone-note').textContent = tr('Saving…');
+});
+$('phone-forget').addEventListener('click', () => send({ type: 'phone_forget' }));
+$('phone-test').addEventListener('click', () => { $('phone-note').textContent = tr('Calling…'); send({ type: 'phone_test' }); });
+$('phone-from').addEventListener('change', (e) => setPrefs({ phone_from: e.target.value }));
+$('phone-me').addEventListener('change', (e) => setPrefs({ phone_me: e.target.value }));
+$('sw-wake-call').addEventListener('click', () => setPrefs({ wake_call: !prefs.wake_call }));
+$('wake-call-time').addEventListener('change', (e) => setPrefs({ wake_call_time: e.target.value }));
+function onPhoneStatus(ev) {
+  $('phone-signed').textContent = ev.signed_in ? tr('Signed in') + ` · ${ev.sid_hint}` : tr('Not set up yet');
+  $('phone-forget').hidden = !ev.signed_in;
+  if (ev.signed_in) $('phone-sid').value = '';
+  $('phone-sid').placeholder = ev.signed_in ? ev.sid_hint : 'AC…';
+  if (ev.note !== undefined) $('phone-note').textContent = ev.note;
+}
 $('brief-now').addEventListener('click', () => { toggleSettings(false); send({ type: 'briefing' }); });
 $('rebuild').addEventListener('click', () => send({ type: 'brain_rebuild' }));
 $('reset-btn').addEventListener('click', () => {
