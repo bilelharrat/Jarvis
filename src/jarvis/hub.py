@@ -341,8 +341,12 @@ def _asks(pattern: str) -> re.Pattern[str]:
 
 
 def user_asked(pattern: re.Pattern[str], text: str) -> bool:
-    """True when a clause of what the user said opens with the request itself."""
-    return any(pattern.match(clause.strip(" \t,:-—")) for clause in _CLAUSE_BREAK.split(text or ""))
+    """True when a clause of what the user said opens with the request itself. Its spaces
+    are made single first: a pattern tried a long run of them every way it could split."""
+    return any(
+        pattern.match(" ".join(clause.split()).strip(" \t,:-—"))
+        for clause in _CLAUSE_BREAK.split(text or "")
+    )
 
 
 def _folder_words(folder: str) -> list[str]:
@@ -2040,7 +2044,11 @@ class Hub:
         self._in_code, self._code_tail = False, ""
         await self.client.query(screenwatch.user_message(query, images) if images else query)
         async for message in self.client.receive_response():
-            await self._on_message(rid, message)
+            try:
+                await self._on_message(rid, message)
+            except Exception:  # the app's own handling failed, not Claude's process: said
+                # in the log and read on. ask() asks again only when the stream itself fails.
+                log.exception("couldn't handle a message from Claude")
 
     def _on_speaking(self, speaking: bool) -> None:
         if speaking:
@@ -2062,7 +2070,10 @@ class Hub:
         if not self._stopping and not self._silent:
             self._spoke_this_turn = True
             self._voice_link = (_current_task(), text)  # a question this task asks next
-            self.speech.push(text)
+            try:
+                self.speech.push(text)
+            except Exception:  # a sentence the voice can't take is skipped, never the turn
+                log.exception("couldn't voice a sentence")
 
     async def _prepare_player(self) -> None:
         from .speech import ensure_player

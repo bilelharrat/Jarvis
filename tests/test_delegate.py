@@ -2136,3 +2136,26 @@ def test_links_and_addresses_next_to_chinese_are_still_seen():
     assert Problem("contact", "link") in check_message("网址是evil.org", d)
     assert Problem("contact", "link") in check_message("看https://evil.org/x", d)
     assert check_message("请发邮件到rob@example.com", d) == []
+
+
+def test_their_words_are_cleaned_in_linear_time():
+    # Runs of spaces after "code", of letters, of dashes or of blank lines were tried again
+    # from each character: 0.3 to 1.2 s for these 8,000-character runs.
+    for fn, text in (
+        (delegate.redact, "password" + " " * 8000 + "!"),
+        (delegate.redact, "code" + " " * 8000 + "x"),
+        (delegate.unwoken, "x" + "Q" * 8000),
+        (delegate.unwoken, "x'" * 4000),
+        (delegate.strip_quoted, "hi " + "-" * 8000 + " bye"),
+        (delegate.strip_quoted, "hi" + "\n" * 8000 + "x"),
+    ):
+        started = time.perf_counter()
+        fn(text)
+        assert time.perf_counter() - started < 0.05, (fn.__name__, text[:10])  # ~2 ms
+    assert delegate.redact("my password is hunter22 and code: 4829") == (
+        "my password is [removed] and code: [removed]"
+    )
+    assert delegate.redact("the code is 482913") == "the code is [removed]"
+    assert delegate.unwoken("Say hi to 'Jar-vis' for me") == "Say hi to 'the assistant' for me"
+    assert delegate.strip_quoted("Sure!\n\n-----Original Message-----\nFrom: me") == "Sure!"
+    assert delegate.strip_quoted("Thanks\n\n\n  From: Sam\nold") == "Thanks"

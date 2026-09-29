@@ -494,9 +494,11 @@ _SECRET_WORDS = re.compile(
 _CARD = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
 _SSN = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 # A code: a word like "code" and then something with a digit in it ("code is 482913").
+# The spaces after "is" or ":" belong to it: two runs side by side split a long one every
+# way.
 _CODE_AFTER = re.compile(
     r"(?i)(\b(?:password|passcode|pin|code)\b|密码|密碼|验证码|驗證碼)"
-    r"(\s*(?:is|was|:|=|是|为|為|：)?\s*)(?=[A-Za-z0-9-]{3,})[A-Za-z0-9-]*\d[A-Za-z0-9-]*"
+    r"(\s*(?:(?:is|was|:|=|是|为|為|：)\s*)?)(?=[A-Za-z0-9-]{3,})[A-Za-z0-9-]*\d[A-Za-z0-9-]*"
 )
 # A password: whatever follows "password is" or "password:".
 _PASSWORD_AFTER = re.compile(
@@ -1718,7 +1720,9 @@ QUIET_NOTICE = {
 }
 _WORD = r"[A-Za-z]+(?:['’][A-Za-z]+)*"  # "Jarvis's" is one word; a quote mark around it isn't
 _LATIN = re.compile(_WORD)
-_JOINED = re.compile(rf"{_WORD}(?:[-.·_]{_WORD})+")
+# Tried only where a word begins (not after a letter, or a letter and an apostrophe): from
+# every letter of one long word it was quadratic.
+_JOINED = re.compile(rf"(?<![A-Za-z])(?<![A-Za-z]['’]){_WORD}(?:[-.·_]{_WORD})+")
 
 
 def _replace(text: str, spans: list[tuple[int, int]], other: str) -> str:
@@ -2908,10 +2912,12 @@ def make_send(
 
 # their replies: Messages' database and Mail's index, both read-only (Full Disk Access)
 
+# A dash rule is tried from its first dash, and a header line never reaches back over blank
+# lines: a long run of either was tried again from each dash or line.
 _QUOTE_START = re.compile(
     r"\bOn\s[^\n]{0,200}?\bwrote:|\bLe\s[^\n]{0,200}?a\s+écrit\s?:|\bAm\s[^\n]{0,200}?schrieb"
-    r"[^\n]{0,60}:|在[^\n]{0,200}?写道[:：]|-{2,}\s*Original Message\s*-{2,}"
-    r"|-{2,}\s*原始邮件\s*-{2,}|^\s*From:\s|^\s*发件人[:：]|\bSent from my \w+",
+    r"[^\n]{0,60}:|在[^\n]{0,200}?写道[:：]|(?<!-)-{2,}\s*Original Message\s*-{2,}"
+    r"|(?<!-)-{2,}\s*原始邮件\s*-{2,}|^[^\S\n]*From:\s|^[^\S\n]*发件人[:：]|\bSent from my \w+",
     re.IGNORECASE | re.MULTILINE,
 )
 
