@@ -633,6 +633,22 @@ ipcMain.handle('research:command', async (event, command) => {
   }
 });
 
+// Invoices and other documents: an offscreen, script-free page printed to PDF.
+ipcMain.handle('jarvis:pdf', async (event, page) => {
+  if (!win || event.sender !== win.webContents || typeof page !== 'string' || page.length > 2_000_000) return '';
+  const paper = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false, offscreen: true } });
+  try {
+    await paper.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`);
+    const pdf = await paper.webContents.printToPDF({ pageSize: 'Letter', printBackground: true, margins: { marginType: 'none' } });
+    return pdf.toString('base64');
+  } catch (err) {
+    console.warn('pdf failed', err);
+    return '';
+  } finally {
+    paper.destroy();
+  }
+});
+
 ipcMain.on('jarvis:attention', () => {
   if (win && !win.isFocused()) app.dock?.bounce('informational');
 });

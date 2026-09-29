@@ -82,6 +82,8 @@ class Prefs:
     proactive_voice: bool = True
     quiet_hours: str = "22:00-07:00"
     research_url: str = "http://127.0.0.1:8010"  # the BSH Research Center behind Markets
+    invoice_from: str = ""  # the business at the top of invoices (the user fills it in)
+    invoice_payment: str = ""  # how to pay, printed on invoices
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -124,6 +126,9 @@ def _clean(name: str, value: Any) -> Any:
         return str(value).strip()[:40]
     if name == "briefing_time":
         return value if isinstance(value, str) and _TIME.match(value) else None
+    if name in ("invoice_from", "invoice_payment"):
+        lines = [line.strip() for line in str(value or "").splitlines()]
+        return "\n".join(line for line in lines if line)[:600]
     if name == "research_url":
         from .research import clean_url
 

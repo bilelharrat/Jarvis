@@ -144,6 +144,7 @@ function onEvent(ev) {
     case 'research_cmd': runResearchCmd(ev); break;
     case 'ui': applyUi(ev); break;
     case 'ask_queue': renderAskQueue(ev.items || []); break;
+    case 'pdf_cmd': makePdf(ev); break;
     case 'saved': onSaved(ev); break;
     case 'location_request': sendLocation(); break;
     case 'location':
@@ -546,6 +547,8 @@ function renderPrefs(p) {
   setSwitch('sw-code-narrate', p.code_narrate);
   if (document.activeElement !== $('watchlist')) $('watchlist').value = (p.watchlist || []).join(' ');
   if (document.activeElement !== $('research-url')) $('research-url').value = p.research_url || '';
+  if (document.activeElement !== $('invoice-from')) $('invoice-from').value = p.invoice_from || '';
+  if (document.activeElement !== $('invoice-payment')) $('invoice-payment').value = p.invoice_payment || '';
   $('code-sentences').value = String(p.code_sentences || 3);
   setSwitch('sw-remote', p.remote_enabled);
   setSwitch('sw-proactive-voice', p.proactive_voice);
@@ -898,6 +901,12 @@ function renderAskQueue(items) {
   }));
 }
 
+async function makePdf(ev) {
+  let pdf = '';
+  try { if (app && app.pdf) pdf = await app.pdf(ev.html); } catch (_) { /* HTML copy instead */ }
+  send({ type: 'pdf_result', id: ev.id, pdf });
+}
+
 function onSaved(ev) {
   let reveal = null;
   if (ev.path) {
@@ -994,6 +1003,8 @@ function renderMarkets(m) {
 
 $('watchlist').addEventListener('change', (e) => setPrefs({ watchlist: e.target.value }));
 $('research-url').addEventListener('change', (e) => setPrefs({ research_url: e.target.value }));
+$('invoice-from').addEventListener('change', (e) => setPrefs({ invoice_from: e.target.value }));
+$('invoice-payment').addEventListener('change', (e) => setPrefs({ invoice_payment: e.target.value }));
 
 // ── Claude Code deck ──
 

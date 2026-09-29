@@ -297,7 +297,7 @@ body.galaxy-ambient .orb { opacity: 0.92; }
 }
 .switch[aria-checked="true"] { background: var(--action); }
 .switch[aria-checked="true"]::after { transform: translateX(20px); }
-select, input[type="time"], input[type="text"], .folder-form input {
+select, input[type="time"], input[type="text"], input[type="url"], .sheet textarea, .folder-form input {
   font: inherit; font-size: 14px; color: var(--ink); background: var(--bg);
   border: 1px solid var(--line); border-radius: 10px; min-height: 40px; padding: 0 10px;
 }
@@ -1302,3 +1302,4 @@ body.in-app.rc-open .cards { top: 118px; }
 .ask-queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 .ask-queued-x { width: 24px; height: 24px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); cursor: pointer; }
 .ask-queued-x:hover { background: var(--chip-hover); color: var(--ink); }
+.sheet textarea { padding: 8px 10px; resize: vertical; line-height: 1.4; width: 100%; }

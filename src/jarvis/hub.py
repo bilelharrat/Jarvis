@@ -7,6 +7,7 @@ every connected window and takes commands back through `handle()`.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import functools
 import itertools
@@ -36,7 +37,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import computer, mac_tools, research, ui
+from . import computer, invoices, mac_tools, research, ui
 from .brain import build_options
 from .config import Settings
 from .connectors import ConnectorManager
@@ -179,6 +180,7 @@ class Hub:
         summarize: Callable[[str], Any] | None = None,
         meetings_dir: Path | None = None,
         devices: Any = None,
+        invoice_store: Any = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -234,6 +236,7 @@ class Hub:
         self.memory = memory or MemoryStore()
         self.shortcuts = Shortcuts()
         self.routines = routines or RoutineStore()
+        self.invoices = invoice_store or invoices.InvoiceStore()
         self.meeting: Any = None  # meeting notes in progress
         self.notes_transcriber = notes_transcriber
         self._summarize = summarize
@@ -284,6 +287,7 @@ class Hub:
         self.research_available = False
         self.research: dict[str, Any] = {"open": False}  # what the Research Center shows
         self._research_calls: dict[str, asyncio.Future] = {}
+        self._pdf_calls: dict[str, asyncio.Future] = {}
         self._research_follow_until = 0.0
         self._fillers: list[tuple[Any, int]] = []
         self._filler_order = itertools.count()
@@ -361,6 +365,9 @@ class Hub:
         return {
             research.SERVER_NAME: research.build_server(self.research_call, self.confirm),
             ui.SERVER_NAME: ui.build_server(self.window_apply),
+            invoices.SERVER_NAME: invoices.build_server(
+                self.invoices, self.pdf_call, lambda: self.prefs, mac_tools.run_applescript
+            ),
             messaging.SERVER_NAME: messaging.build_server(self.send_gate),
             "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(
@@ -391,6 +398,7 @@ class Hub:
             "looks facts up; forget removes one."
             + research.PROMPT
             + ui.PROMPT
+            + invoices.PROMPT
             + self.memory.prompt_block()
         )
 
@@ -1859,6 +1867,25 @@ class Hub:
 
     # ── the window itself ──
 
+    async def pdf_call(self, page: str) -> bytes | None:
+        """Have the app window lay out an HTML page as a PDF (None without the app)."""
+        if not self.browser_available:
+            return None
+        call_id = uuid.uuid4().hex[:10]
+        future = asyncio.get_running_loop().create_future()
+        self._pdf_calls[call_id] = future
+        self.emit("pdf_cmd", id=call_id, html=page)
+        try:
+            data = await asyncio.wait_for(future, 30)
+        except TimeoutError:
+            return None
+        finally:
+            self._pdf_calls.pop(call_id, None)
+        try:
+            return base64.b64decode(data) if data else None
+        except (ValueError, TypeError):
+            return None
+
     def export_history(self) -> Path | None:
         """The conversation so far as Markdown in ~/Documents/Jarvis/Conversations."""
         if not self.history:
@@ -2596,6 +2623,10 @@ class Hub:
             }
             if not self.research["open"]:
                 self._research_follow_until = 0.0
+        elif kind == "pdf_result":
+            future = self._pdf_calls.get(str(msg.get("id")))
+            if future is not None and not future.done():
+                future.set_result(msg.get("pdf") or "")
         elif kind == "research_result":
             future = self._research_calls.get(str(msg.get("id")))
             if future is not None and not future.done():

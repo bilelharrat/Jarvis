@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('jarvisApp', {
   onWhatsThis: (callback) => ipcRenderer.on('jarvis:whats-this', () => callback()),
   attention: () => ipcRenderer.send('jarvis:attention'),
   pickFolder: () => ipcRenderer.invoke('jarvis:pick-folder'),
+  pdf: (page) => ipcRenderer.invoke('jarvis:pdf', page),
   browser: {
     show: (bounds) => ipcRenderer.invoke('browser:show', bounds),
     hide: () => ipcRenderer.invoke('browser:hide'),

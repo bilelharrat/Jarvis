@@ -103,6 +103,7 @@ def quiet_speaker():
 def isolated(tmp_path):
     """Prefs and second-brain index in a temp folder, never the user's real ones."""
     from jarvis.connectors import ConnectorManager, MemoryVault
+    from jarvis.invoices import InvoiceStore
     from jarvis.knowledge import KnowledgeBase
     from jarvis.memory import MemoryStore
     from jarvis.prefs import PrefsStore
@@ -120,6 +121,7 @@ def isolated(tmp_path):
         "memory": MemoryStore(tmp_path / "memory.json"),
         "routines": RoutineStore(tmp_path / "routines.json"),
         "devices": Devices(tmp_path / "devices.json"),
+        "invoice_store": InvoiceStore(tmp_path / "invoices.json", tmp_path / "Invoices"),
         "connectors": ConnectorManager(
             lambda *a, **k: None,
             never_asked,
