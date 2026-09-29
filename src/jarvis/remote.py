@@ -20,15 +20,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import hashlib
 import io
 import json
 import logging
+import re
 import secrets
 import socket
+import subprocess
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +55,7 @@ MAX_FAILURES = 5
 LOCKOUT_SECONDS = 300
 ASK_TIMEOUT = 120
 COMMANDS = {"stop", "briefing", "meeting_start", "meeting_stop", "routine_run"}
+SERVICE_TYPE = "_jarvis._tcp"  # what the iPhone and Watch apps browse for (Info.plist too)
 
 
 @dataclass
@@ -292,6 +297,90 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
     )
 
 
+def local_host_name() -> str:
+    """The Mac's Bonjour name ("Bilels-MacBook-Pro"), for a pairing address that survives
+    a new IP from the router."""
+    try:
+        out = subprocess.run(
+            ["scutil", "--get", "LocalHostName"], capture_output=True, text=True, timeout=3
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out if re.fullmatch(r"[A-Za-z0-9-]{1,63}", out) else ""
+
+
+def txt_record(pairs: dict[str, str]) -> bytes:
+    """A DNS TXT record: each key=value as a length-prefixed string."""
+    out = b""
+    for key, value in pairs.items():
+        item = f"{key}={value}".encode()[:255]
+        out += bytes([len(item)]) + item
+    return out
+
+
+class Advertiser:
+    """Bonjour for the companion apps: while the companion server listens, this Mac shows
+    up in their pairing list as _jarvis._tcp, with its .local name in the TXT record.
+    It goes through the system's DNS-SD API, so the advertisement ends with the
+    registration, or with this process however it ends (no helper left behind)."""
+
+    def __init__(self, register: Callable[..., Any] | None = None) -> None:
+        self._register = register  # tests: (name, type, port, txt) -> handle, and .stop(handle)
+        self._ref: Any = None
+        self._lib: Any = None
+
+    def start(self, port: int) -> bool:
+        if self._ref is not None:
+            return True
+        host = local_host_name()
+        name = f"J.A.R.V.I.S. on {host}" if host else "J.A.R.V.I.S."
+        txt = txt_record({"host": f"{host}.local"} if host else {})
+        try:
+            if self._register is not None:
+                self._ref = self._register(name, SERVICE_TYPE, port, txt)
+            else:
+                self._ref = self._dns_sd_register(name, port, txt)
+        except (OSError, AttributeError, ValueError) as exc:
+            log.warning("couldn't advertise the companion over Bonjour: %s", exc)
+            self._ref = None
+        return self._ref is not None
+
+    def _dns_sd_register(self, name: str, port: int, txt: bytes) -> Any:
+        lib = self._lib or ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        self._lib = lib
+        lib.DNSServiceRegister.restype = ctypes.c_int32
+        lib.DNSServiceRegister.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p), ctypes.c_uint32, ctypes.c_uint32,
+            ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
+            ctypes.c_uint16, ctypes.c_uint16, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+        ]  # fmt: skip
+        ref = ctypes.c_void_p()
+        err = lib.DNSServiceRegister(
+            ctypes.byref(ref), 0, 0, name.encode(), SERVICE_TYPE.encode(), None, None,
+            socket.htons(port), len(txt), txt or None, None, None,
+        )  # fmt: skip
+        if err != 0 or not ref.value:
+            raise OSError(f"DNSServiceRegister returned {err}")
+        return ref
+
+    def stop(self) -> None:
+        ref, self._ref = self._ref, None
+        if ref is None:
+            return
+        try:
+            if self._register is not None:
+                self._register.stop(ref)
+            elif self._lib is not None:
+                self._lib.DNSServiceRefDeallocate.argtypes = [ctypes.c_void_p]
+                self._lib.DNSServiceRefDeallocate(ref)
+        except (OSError, AttributeError) as exc:
+            log.warning("couldn't stop the Bonjour advertisement: %s", exc)
+
+    @property
+    def active(self) -> bool:
+        return self._ref is not None
+
+
 def wav_bytes(audio: Any, rate: int) -> bytes:
     import wave
 
@@ -316,12 +405,19 @@ class RemoteServer:
     any other failure to start) switches the companion back off and says why."""
 
     def __init__(
-        self, hub: Any, devices: Devices | None = None, port: int = PORT, host: str = HOST
+        self,
+        hub: Any,
+        devices: Devices | None = None,
+        port: int = PORT,
+        host: str = HOST,
+        advertiser: Advertiser | None = None,
     ) -> None:
         self.hub = hub
         self.devices = devices or Devices()
         self.port = port  # 0: any free port (the one taken is kept here)
         self.host = host
+        # Only a server the phone can reach is worth announcing (tests listen on loopback).
+        self.advertiser = advertiser or (Advertiser() if host == HOST else None)
         self._server: Any = None
         self._task: asyncio.Task | None = None
         self.error = ""
@@ -367,6 +463,8 @@ class RemoteServer:
             return False
         self.error = ""
         log.info("companion server listening on port %d", self.port)
+        if self.advertiser is not None:
+            self.advertiser.start(self.port)
         return True
 
     def _bind(self) -> socket.socket:
@@ -401,6 +499,8 @@ class RemoteServer:
         self.hub.emit("remote", **self.public())
 
     async def stop(self) -> None:
+        if self.advertiser is not None:
+            self.advertiser.stop()
         if self._server is not None:
             self._server.should_exit = True
         if self._task is not None:

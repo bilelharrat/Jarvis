@@ -1,0 +1,303 @@
+import SwiftUI
+import WatchKit
+
+/// The Watch app's state. It talks to the Mac directly (Wi‑Fi, cellular, or through the
+/// iPhone) with the pairing the iPhone handed over, and polls only while it's in front.
+@MainActor
+@Observable
+final class WatchModel {
+    /// The latest question and its reply, for the main screen.
+    struct Exchange: Equatable {
+        var question: String
+        var reply: String?
+        var live: Bool
+        var problem: String?
+    }
+
+    private(set) var pairing: Pairing?
+    private(set) var remote: RemoteState?
+    private(set) var pending: PendingRequest?
+    private(set) var answering: Set<String> = []
+    private(set) var offline = false
+    private(set) var notice: String?
+    /// The last thing asked from the wrist, so its reply can be brought into view.
+    private(set) var lastAsked: String?
+
+    @ObservationIgnored private let bridge = WatchSessionBridge()
+    @ObservationIgnored private var poller: Task<Void, Never>?
+    @ObservationIgnored private var active = false
+    @ObservationIgnored private var refreshes = 0
+    @ObservationIgnored private var applied = 0
+    @ObservationIgnored private var buzzed: Set<String> = []
+
+    init() {
+        pairing = PairingStore.load()
+        bridge.onUpdate = { [weak self] update in self?.receive(update) }
+        bridge.activate()
+    }
+
+    var approvals: [Approval] {
+        (remote?.approvals ?? []).filter { !answering.contains($0.id) }
+    }
+
+    var reactorMode: ReactorView.Mode {
+        if offline { return .offline }
+        if pending?.isOpen == true { return .thinking }
+        switch remote?.state {
+        case .thinking: return .thinking
+        case .speaking: return .speaking
+        case .listening: return .listening
+        default: return .idle
+        }
+    }
+
+    var status: String {
+        if offline { return "Offline" }
+        guard let remote else { return "Connecting" }
+        return remote.state.label
+    }
+
+    var exchange: Exchange? {
+        if let pending {
+            switch pending.phase {
+            case .answered(let reply):
+                return Exchange(question: pending.question, reply: reply.isEmpty ? "Done." : reply, live: false)
+            case .failed(let message):
+                return Exchange(question: pending.question, reply: nil, live: false, problem: message)
+            case .sending, .waiting:
+                let streaming = remote.flatMap { pending.streaming(in: $0) }
+                return Exchange(question: pending.question, reply: streaming?.isEmpty == false ? streaming : nil, live: true)
+            }
+        }
+        guard let remote, let last = remote.history.lastIndex(where: { $0.role == .user }) else { return nil }
+        let question = remote.history[last].text
+        if let reply = remote.history[(last + 1)...].first(where: { $0.role == .assistant })?.text {
+            return Exchange(question: question, reply: reply, live: false)
+        }
+        let live = remote.state.isBusy && remote.turn.user == question
+        return Exchange(question: question, reply: live && !remote.turn.reply.isEmpty ? remote.turn.reply : nil, live: live)
+    }
+
+    // MARK: - Lifecycle
+
+    func setActive(_ isActive: Bool) {
+        active = isActive
+        if isActive {
+            if pairing == nil { bridge.requestPairing() }
+            restartPolling()
+            #if DEBUG
+            Task { await debugPair() }
+            #endif
+        } else {
+            poller?.cancel()
+            poller = nil
+        }
+    }
+
+    func checkPhone() {
+        notice = "Asking your iPhone…"
+        bridge.requestPairing()
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            if pairing == nil { notice = "Open J.A.R.V.I.S. on your iPhone, then try again." }
+        }
+    }
+
+    private func receive(_ update: WatchLink.Update) {
+        #if DEBUG
+        if DebugLaunch.server != nil { return }  // paired straight to a test server
+        #endif
+        switch update {
+        case .paired(let new):
+            guard new.token != pairing?.token || new.baseURL != pairing?.baseURL else { return }
+            try? PairingStore.save(new)
+            pairing = new
+            remote = nil
+            pending = nil
+            offline = false
+            notice = nil
+            restartPolling()
+        case .unpaired:
+            if pairing != nil { forget() }
+        case .nothing:
+            break
+        }
+    }
+
+    private func forget() {
+        PairingStore.clear()
+        pairing = nil
+        remote = nil
+        pending = nil
+        answering = []
+        poller?.cancel()
+        poller = nil
+    }
+
+    // MARK: - Asking
+
+    func ask(_ raw: String) async {
+        let text = raw.trimmed
+        guard !text.isEmpty, let api = pairing?.api else { return }
+        let request = PendingRequest(question: text, history: remote?.history ?? [])
+        pending = request
+        lastAsked = text
+        WKInterfaceDevice.current().play(.start)
+        restartPolling()
+        do {
+            let result = try await api.ask(text)
+            guard pending?.id == request.id else { return }
+            if result.done {
+                pending?.phase = .answered(result.reply)
+                WKInterfaceDevice.current().play(.success)
+            } else {
+                pending?.phase = .waiting
+            }
+        } catch JarvisError.unpaired {
+            return forget()
+        } catch JarvisError.timedOut {
+            if pending?.id == request.id { pending?.phase = .waiting }
+        } catch is CancellationError {
+            return
+        } catch {
+            if pending?.id == request.id {
+                pending?.phase = .failed((error as? JarvisError)?.title ?? error.localizedDescription)
+            }
+            WKInterfaceDevice.current().play(.failure)
+        }
+        await refresh()
+    }
+
+    func answer(_ approval: Approval, with choice: ApprovalChoice) async {
+        guard let api = pairing?.api, !answering.contains(approval.id) else { return }
+        answering.insert(approval.id)
+        WKInterfaceDevice.current().play(choice.isNegative ? .directionDown : .success)
+        do {
+            _ = try await api.approve(id: approval.id, choice: choice.id)
+        } catch JarvisError.unpaired {
+            return forget()
+        } catch {
+            answering.remove(approval.id)
+            WKInterfaceDevice.current().play(.failure)
+        }
+        restartPolling()
+    }
+
+    func run(_ command: MacCommand) async {
+        guard let api = pairing?.api else { return }
+        WKInterfaceDevice.current().play(.click)
+        do {
+            try await api.command(command)
+        } catch JarvisError.unpaired {
+            return forget()
+        } catch {
+            WKInterfaceDevice.current().play(.failure)
+            if case .unreachable = error as? JarvisError { offline = true }
+        }
+        restartPolling()
+    }
+
+    // MARK: - Polling (only while the app is in front)
+
+    private var pollInterval: Double {
+        if let pending, pending.isOpen, Date().timeIntervalSince(pending.sentAt) < 300 { return 1.5 }
+        if remote?.state.isBusy == true || !answering.isEmpty { return 1.5 }
+        return 5
+    }
+
+    private func restartPolling() {
+        poller?.cancel()
+        poller = nil
+        guard active, pairing != nil else { return }
+        poller = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refresh()
+                try? await Task.sleep(for: .seconds(self.pollInterval))
+            }
+        }
+    }
+
+    func refresh() async {
+        guard let api = pairing?.api else { return }
+        refreshes += 1
+        let ticket = refreshes
+        do {
+            let state = try await api.state()
+            guard ticket > applied, pairing?.token == api.token else { return }
+            applied = ticket
+            if offline { offline = false }
+            apply(state)
+        } catch JarvisError.unpaired {
+            if pairing?.token == api.token { forget() }
+        } catch is CancellationError {
+        } catch {
+            guard ticket > applied else { return }
+            applied = ticket
+            if !offline { offline = true }
+        }
+    }
+
+    private func apply(_ state: RemoteState) {
+        if remote != state { remote = state }
+        let open = Set(state.approvals.map(\.id))
+        if !answering.isSubset(of: open) { answering.formIntersection(open) }
+        let fresh = open.subtracting(buzzed)
+        if !fresh.isEmpty {
+            buzzed.formUnion(fresh)
+            WKInterfaceDevice.current().play(.notification)
+        }
+        if var request = pending {
+            let finished = request.follow(state)
+            if request.isSettled(by: state.history) {
+                pending = nil  // the Mac's history shows it now
+            } else if request != pending {
+                pending = request
+            }
+            if finished != nil { WKInterfaceDevice.current().play(.success) }
+        }
+        #if DEBUG
+        runDebugHooks()
+        #endif
+    }
+
+    // MARK: - Debug-only (see DebugLaunch)
+
+    #if DEBUG
+    @ObservationIgnored private var debugAsked = false
+
+    /// Pairs straight to a test server, skipping the iPhone.
+    private func debugPair() async {
+        guard pairing == nil, let server = DebugLaunch.server, let code = DebugLaunch.code,
+              let url = MacAddress.normalize(server) else { return }
+        do {
+            let token = try await JarvisAPI(baseURL: url, token: nil).pair(code: code, name: "Apple Watch (test)")
+            let pairing = Pairing(baseURL: url, token: token, macName: "Test Mac", deviceName: "Apple Watch", pairedAt: Date())
+            try? PairingStore.save(pairing)
+            self.pairing = pairing
+            restartPolling()
+        } catch {
+            notice = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    @ObservationIgnored private var debugAnswered: Set<String> = []
+
+    private func runDebugHooks() {
+        if let text = DebugLaunch.ask, !debugAsked {
+            debugAsked = true
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                await ask(text)
+            }
+        }
+        if let choiceID = DebugLaunch.approve, let approval = approvals.first, !debugAnswered.contains(approval.id) {
+            debugAnswered.insert(approval.id)
+            Task {
+                try? await Task.sleep(for: .seconds(6))
+                await answer(approval, with: approval.choices.first { $0.id == choiceID } ?? approval.primary)
+            }
+        }
+    }
+    #endif
+}

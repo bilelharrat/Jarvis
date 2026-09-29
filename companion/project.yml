@@ -1,0 +1,136 @@
+# J.A.R.V.I.S. companion: native iPhone app + Apple Watch app for Jarvis on the Mac.
+# Generate the Xcode project with:  xcodegen generate   (from this folder)
+name: JarvisCompanion
+options:
+  bundleIdPrefix: com.bshventures.jarvis
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  SWIFT_VERSION: "5.10"
+  # BSH Ventures' paid Apple Developer Program team (same as the BSH Research apps).
+  DEVELOPMENT_TEAM: 9ZSY5R8A5C
+  CODE_SIGN_STYLE: Automatic
+  MARKETING_VERSION: "1.0"
+  CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  JarvisCompanion:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: iOS
+    dependencies:
+      - target: JarvisCompanionWatch
+        embed: true
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion
+      INFOPLIST_FILE: iOS/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      TARGETED_DEVICE_FAMILY: "1"
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleDisplayName: J.A.R.V.I.S.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: J.A.R.V.I.S. finds Jarvis on your Mac and talks to it over your network.
+        NSBonjourServices:
+          - _jarvis._tcp
+        NSSpeechRecognitionUsageDescription: Turns what you say into a request for Jarvis, on your iPhone when it can.
+        NSMicrophoneUsageDescription: Listens after you tap the reactor, so you can talk to Jarvis.
+        NSAppTransportSecurity:
+          # The Mac serves plain HTTP on the LAN; Tailscale 100.x addresses aren't "local".
+          NSAllowsLocalNetworking: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIUserInterfaceStyle: Dark
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+
+  JarvisCompanionWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Shared
+      - path: Watch
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.watchkitapp
+      INFOPLIST_FILE: Watch/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      WATCHOS_DEPLOYMENT_TARGET: "10.0"
+      TARGETED_DEVICE_FAMILY: "4"
+      SDKROOT: watchos
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: Watch/Info.plist
+      properties:
+        CFBundleDisplayName: JARVIS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.bshventures.jarvis.companion
+        WKRunsIndependentlyOfCompanionApp: true
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: JARVIS talks to Jarvis on your Mac over your network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+
+  JarvisCompanionTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: JarvisCompanion
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.tests
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      GENERATE_INFOPLIST_FILE: true
+
+  # Runs only against a test server (see README); skips itself otherwise.
+  JarvisCompanionUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: JarvisCompanion
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.uitests
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      GENERATE_INFOPLIST_FILE: true
+
+schemes:
+  JarvisCompanion:
+    build:
+      targets:
+        JarvisCompanion: all
+        JarvisCompanionTests: [test]
+        JarvisCompanionUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - JarvisCompanionTests
+        - JarvisCompanionUITests
+  JarvisCompanionWatch:
+    build:
+      targets:
+        JarvisCompanionWatch: all
+    run:
+      config: Debug

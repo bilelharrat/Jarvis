@@ -165,3 +165,44 @@ async def test_the_companion_serves_on_the_socket_it_bound(tmp_path):
     finally:
         await server.stop()
     assert not server.running
+
+
+def test_the_txt_record_is_length_prefixed():
+    assert remote.txt_record({"host": "Mac.local"}) == b"\x0ehost=Mac.local"
+    assert remote.txt_record({}) == b""
+
+
+async def test_the_companion_is_announced_while_it_listens(tmp_path, monkeypatch):
+    calls = []
+
+    class Register:
+        def __call__(self, name, kind, port, txt):
+            calls.append(("start", name, kind, port, txt))
+            return "handle"
+
+        def stop(self, handle):
+            calls.append(("stop", handle))
+
+    monkeypatch.setattr(remote, "local_host_name", lambda: "Test-Mac")
+    advertiser = remote.Advertiser(Register())
+    server = remote.RemoteServer(
+        FakeHub(), Devices(tmp_path / "devices.json"), 0, "127.0.0.1", advertiser=advertiser
+    )
+    assert await server.start()
+    assert calls == [
+        (
+            "start",
+            "J.A.R.V.I.S. on Test-Mac",
+            "_jarvis._tcp",
+            server.port,
+            b"\x13host=Test-Mac.local",
+        )
+    ]
+    assert advertiser.active
+    await server.stop()
+    assert calls[-1] == ("stop", "handle") and not advertiser.active
+
+
+def test_loopback_servers_are_never_announced(tmp_path):
+    server = remote.RemoteServer(FakeHub(), Devices(tmp_path / "devices.json"), 0, "127.0.0.1")
+    assert server.advertiser is None
