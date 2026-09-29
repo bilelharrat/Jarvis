@@ -40,3 +40,30 @@ def test_corrupt_file_falls_back(tmp_path):
     store = PrefsStore(path)
     assert store.prefs == Prefs(**CAUTIOUS) and store.notice
     assert [p.read_text() for p in tmp_path.glob("prefs.json.bad-*")] == ["{not json"]
+
+
+def test_the_old_local_research_address_moves_to_the_hosted_one(tmp_path):
+    import json
+
+    path = tmp_path / "prefs.json"
+    path.write_text(json.dumps({"research_url": "http://127.0.0.1:8010", "humor": 40}))
+    store = PrefsStore(path)
+    assert store.prefs.research_url == "https://app.bshventures.com/research"
+    assert store.prefs.humor == 40
+    store.save()
+    assert json.loads(path.read_text())["version"] == 2
+
+
+def test_choosing_the_local_address_again_is_kept(tmp_path):
+    store = PrefsStore(tmp_path / "prefs.json")
+    store.prefs.update({"research_url": "127.0.0.1:8010"})
+    store.save()
+    assert PrefsStore(tmp_path / "prefs.json").prefs.research_url == "http://127.0.0.1:8010"
+
+
+def test_a_chosen_research_address_is_never_moved(tmp_path):
+    import json
+
+    path = tmp_path / "prefs.json"
+    path.write_text(json.dumps({"research_url": "http://192.168.1.5:8010"}))
+    assert PrefsStore(path).prefs.research_url == "http://192.168.1.5:8010"

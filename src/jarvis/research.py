@@ -1,6 +1,6 @@
 """The BSH Research Center inside the J.A.R.V.I.S. window, driven only by JARVIS.
 
-Clicking the Markets panel opens the owner's research app (its market breakdown) in a
+Clicking the Markets panel opens the owner's research app (its home page) in a
 view that ignores the mouse and keyboard: JARVIS drives it by voice through these tools
 and by hand through the window's hand control. Short commands while it's open ("scroll
 down", "go back", "open reports", "click earnings") run instantly without asking Claude;
@@ -19,7 +19,8 @@ from urllib.parse import urlsplit
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 SERVER_NAME = "research"
-DEFAULT_URL = "http://127.0.0.1:8010"
+DEFAULT_URL = "https://app.bshventures.com/research"  # the hosted Research Center
+LEGACY_URL = "http://127.0.0.1:8010"  # the default before it was hosted: a dev server
 
 # Spoken page names -> paths in the research center's router.
 PAGES = {
@@ -61,14 +62,17 @@ PAGE_NAMES = ", ".join(sorted({k for k in PAGES if " " not in k or k.endswith("d
 
 
 def clean_url(value: Any) -> str | None:
-    """The research center's address: http(s), host and port only."""
+    """The research center's address: http(s), host, port and the path the app lives under
+    (the hosted one is at /research). A pasted page address keeps only the app's own path:
+    ".../research/markets" is the app at ".../research"."""
     text = str(value or "").strip()
     if not text:
         return DEFAULT_URL
     if re.match(r"^[a-z][a-z0-9+.\-]*:(?!\d)", text, re.IGNORECASE) and "://" not in text:
         return None  # javascript:, file:, mailto: …
-    if "://" not in text:
-        text = f"http://{text}"
+    if "://" not in text:  # a typed address: https, except for this Mac or the local network
+        local = re.match(r"(localhost|\[|\d+\.\d+\.\d+\.\d+)", text, re.IGNORECASE)
+        text = f"{'http' if local else 'https'}://{text}"
     try:  # both raise ValueError: a bracketed host that isn't IPv6 ("http://[zz"), a bad port
         parts = urlsplit(text)
         parts.port  # noqa: B018 - raises for a port that isn't a number
@@ -78,7 +82,14 @@ def clean_url(value: Any) -> str | None:
         return None
     if not re.fullmatch(r"[a-z0-9.\-]+|\[[0-9a-f:]+\]", parts.hostname, re.IGNORECASE):
         return None
-    return f"{parts.scheme}://{parts.netloc}"
+    path = parts.path.rstrip("/")
+    for page in sorted({p for p in PAGES.values() if p != "/"}, key=len, reverse=True):
+        if path.endswith(page):  # each page path starts with "/": a whole segment
+            path = path[: -len(page)].rstrip("/")
+            break
+    if not re.fullmatch(r"(/[A-Za-z0-9._~-]+)*", path):
+        return None
+    return f"{parts.scheme}://{parts.netloc}{path}"
 
 
 def page_path(name: str) -> str | None:
@@ -361,7 +372,7 @@ def build_server(call: Call, confirm: Confirm):
 
 PROMPT = (
     "\n- BSH Research Center: the owner's research app opens inside the J.A.R.V.I.S. window "
-    "(research_open; clicking the Markets panel opens its market breakdown). Only you drive "
+    "(research_open; clicking the Markets panel opens its home page). Only you drive "
     "it: the mouse and keyboard don't reach it, so when it's open, requests like scroll, go "
     "back, open a page, click something, look up a ticker, or 'what does this say' are about "
     "it. research_search looks up a ticker or company, research_read reads the page (its "

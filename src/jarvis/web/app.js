@@ -3320,7 +3320,7 @@ function onJarvisCodeEvent(ev) {
 // fist to close); on the Research Center's own pages only Jarvis can drive it.
 
 const BD_MIN = 380;
-const RC_DEFAULT = 'http://127.0.0.1:8010';
+const RC_DEFAULT = 'https://app.bshventures.com/research';
 // What the header calls each Research Center page (its own titles don't say).
 const RC_NAMES = {
   '/': 'Home', '/markets': 'Markets', '/market-radar': 'Markets · Market', '/weekly-summary': 'Markets · Pulse',
@@ -3339,12 +3339,16 @@ let lastResearchPath = '/markets';
 function browserOpen() { return browserOpenNow; }
 function researchBaseUrl() { return (prefs && prefs.research_url) || RC_DEFAULT; }
 
-function pageName(url, title) {
+function pageName(url, title, base = '') {
   const own = String(title || '').replace(/[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
   if (own && !/^BSH Research Center$/i.test(own)) return own;
   let path = '/';
   try {
     path = new URL(url).pathname;
+    // The hosted Research Center lives under /research: its pages are named without it.
+    let root = '';
+    try { root = new URL(base).pathname.replace(/\/+$/, ''); } catch (_) { /* no base given */ }
+    if (root && (path === root || path.startsWith(`${root}/`))) path = path.slice(root.length) || '/';
     let end = path.length;
     while (end > 0 && path[end - 1] === '/') end -= 1; // a loop: /\/+$/ is quadratic on long runs
     path = path.slice(0, end) || '/';
@@ -3473,9 +3477,9 @@ new MutationObserver(() => {
   if (Date.now() >= noteUntil) $('bd-status').textContent = $('hand-status').textContent;
 }).observe($('hand-status'), { childList: true, characterData: true, subtree: true });
 
-$('p-markets').addEventListener('click', () => openResearch('/markets'));
+$('p-markets').addEventListener('click', () => openResearch('/'));
 $('p-markets').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openResearch('/markets'); }
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openResearch('/'); }
 });
 
 if (app && app.browser) {
@@ -3512,7 +3516,7 @@ if (app && app.browser) {
     const was = researchShown;
     researchShown = !!st.research && browserOpenNow;
     if (researchShown || was) {
-      send({ type: 'research_state', open: researchShown, url: st.url || '', title: pageName(st.url, st.title), locked: !!st.locked });
+      send({ type: 'research_state', open: researchShown, url: st.url || '', title: pageName(st.url, st.title, researchBaseUrl()), locked: !!st.locked });
     }
   });
   app.browser.onOpen(() => { if (!browserOpenNow) toggleBrowser(true); });

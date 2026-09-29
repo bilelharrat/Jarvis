@@ -32,3 +32,11 @@ test('a malformed %-escape in the address is shown as it is, never an error', ()
   assert.equal(pageName('http://127.0.0.1:8010/%E0%A4%A', ''), '%E0%A4%A');
   assert.equal(pageName('http://127.0.0.1:8010/deal%20notes', ''), 'Deal notes');
 });
+
+test('the hosted Research Center names its pages without its /research base', () => {
+  const base = 'https://app.bshventures.com/research';
+  assert.equal(pageName('https://app.bshventures.com/research/markets', '', base), 'Markets');
+  assert.equal(pageName('https://app.bshventures.com/research/', '', base), 'Home');
+  assert.equal(pageName('https://app.bshventures.com/research', '', base), 'Home');
+  assert.equal(pageName('https://app.bshventures.com/researchers', '', base), 'Researchers');
+});

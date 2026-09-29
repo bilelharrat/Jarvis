@@ -52,7 +52,7 @@
     <h2>Weather</h2>
     <div id="weather-body" class="weather-body"><p class="muted">Set your city in Settings to see the weather.</p></div>
   </section>
-  <section class="panel not-hud" id="p-markets" role="button" tabindex="0" aria-label="Markets — open the market breakdown in the BSH Research Center" title="Open the market breakdown in the BSH Research Center">
+  <section class="panel not-hud" id="p-markets" role="button" tabindex="0" aria-label="Markets — open the BSH Research Center" title="Open the BSH Research Center">
     <h2>Markets <span id="mk-status" class="mk-status">…</span><span class="mk-open" aria-hidden="true">Research Center ↗</span></h2>
     <div id="mk-indices" class="mk-indices"><p class="muted">Loading today’s markets…</p></div>
   </section>
@@ -267,8 +267,8 @@
     <h3>Markets</h3>
     <label class="row stack" for="watchlist"><span><strong>Watchlist</strong><small>Tickers for the Markets panel and “how’s the market?”, separated by spaces or commas</small></span>
       <input type="text" id="watchlist" placeholder="AAPL NVDA MSFT"></label>
-    <label class="row stack" for="research-url"><span><strong>Research Center</strong><small>Where the BSH Research Center runs. Clicking Markets opens its market breakdown here, driven only by Jarvis.</small></span>
-      <input type="url" id="research-url" placeholder="http://127.0.0.1:8010" spellcheck="false"></label>
+    <label class="row stack" for="research-url"><span><strong>Research Center</strong><small>Where the BSH Research Center runs. Clicking Markets opens it here, driven only by Jarvis; you sign in once and stay signed in.</small></span>
+      <input type="url" id="research-url" placeholder="https://app.bshventures.com/research" spellcheck="false"></label>
     <label class="row stack" for="invoice-from"><span><strong>Invoices: your business</strong><small>Printed at the top of invoices Jarvis makes: name on the first line, then address and email</small></span>
       <textarea id="invoice-from" rows="3" placeholder="BSH Ventures&#10;2150 Shattuck Ave, Berkeley CA&#10;billing@example.com"></textarea></label>
     <label class="row stack" for="invoice-payment"><span><strong>Invoices: how to pay</strong><small>Printed under the total (bank or payment link); type it yourself, Jarvis never fills this in</small></span>

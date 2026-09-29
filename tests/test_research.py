@@ -27,6 +27,20 @@ def test_clean_url():
     assert clean_url("file:///etc/passwd") is None
 
 
+def test_the_hosted_research_center_keeps_its_path():
+    assert research.DEFAULT_URL == "https://app.bshventures.com/research"
+    assert clean_url("https://app.bshventures.com/research/") == research.DEFAULT_URL
+    assert clean_url("app.bshventures.com/research") == research.DEFAULT_URL  # typed: https
+    # a pasted page address keeps only the app's own path
+    assert clean_url("https://app.bshventures.com/research/markets") == research.DEFAULT_URL
+    assert clean_url("https://app.bshventures.com/research/innovation-lab/hormuz#x") == (
+        research.DEFAULT_URL
+    )
+    assert clean_url("localhost:8010") == "http://localhost:8010"  # this Mac stays http
+    assert clean_url("https://x.example/a b") is None
+    assert clean_url("https://x.example/%2e%2e") is None
+
+
 @pytest.mark.parametrize(
     ("said", "action", "args"),
     [

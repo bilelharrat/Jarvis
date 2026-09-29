@@ -244,6 +244,7 @@ let browserLocked = false;
 let browserSynthetic = false; // true only while Jarvis itself sends input
 let browserZoom = 1; // this session's zoom; Chromium would otherwise keep one per host forever
 let researchBase = '';
+let browserAsked = false; // a page was asked for: showing the view must not load the start page over it
 const pageCalls = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -253,6 +254,17 @@ function researchOrigin() {
 
 function onResearch(url) {
   try { return Boolean(researchBase) && new URL(url).origin === researchOrigin(); } catch { return false; }
+}
+
+// A page's path inside the Research Center: the hosted one lives under /research, so its
+// sign-in page is /research/login, which is /login to the app.
+function researchPath(url) {
+  let pathname = '/';
+  try { pathname = new URL(url).pathname; } catch { return pathname; }
+  let base = '';
+  try { base = new URL(researchBase).pathname.replace(/\/+$/, ''); } catch {}
+  if (base && (pathname === base || pathname.startsWith(`${base}/`))) return pathname.slice(base.length) || '/';
+  return pathname;
 }
 
 function sendBrowserState(extra = {}) {
@@ -274,9 +286,7 @@ function sendBrowserState(extra = {}) {
 
 function updateLock() {
   const wc = browserView.webContents;
-  let pathname = '/';
-  try { pathname = new URL(wc.getURL()).pathname; } catch {}
-  browserLocked = onResearch(wc.getURL()) && !RESEARCH_AUTH.test(pathname);
+  browserLocked = onResearch(wc.getURL()) && !RESEARCH_AUTH.test(researchPath(wc.getURL()));
   wc.send('jarvis:locked', browserLocked);
   sendBrowserState();
 }
@@ -383,6 +393,7 @@ function pageCall(action, args = {}, ms = 6000) {
 async function researchOpen(pathname) {
   const wc = ensureBrowser().webContents;
   const target = `${researchBase.replace(/\/+$/, '')}${typeof pathname === 'string' && pathname.startsWith('/') ? pathname : '/markets'}`;
+  browserAsked = true;
   if (onResearch(wc.getURL()) && !wc.isLoading()) {
     const moved = await pageCall('navigate', { path: new URL(target).pathname }, 3000);
     if (moved.ok) return;
@@ -422,6 +433,7 @@ async function runBrowserCommand({ action, args = {} }) {
   switch (action) {
     case 'open':
       win.webContents.send('browser:open');
+      browserAsked = true;
       await wc.loadURL(toUrl(args.url)).catch(() => {});
       await waitForLoad(wc);
       return { url: wc.getURL(), title: wc.getTitle() };
@@ -516,7 +528,9 @@ ipcMain.handle('browser:show', (event, bounds) => {
     browserShown = true;
   }
   view.setBounds(fitBounds(bounds));
-  if (!view.webContents.getURL()) view.webContents.loadURL('https://www.google.com');
+  // The start page only for an empty view: a page asked for a moment ago (the hosted Research
+  // Center takes a network round trip) has no address yet, and would be replaced by it.
+  if (!view.webContents.getURL() && !view.webContents.isLoading() && !browserAsked) view.webContents.loadURL('https://www.google.com');
   sendBrowserState();
 });
 ipcMain.handle('browser:hide', (event) => {
@@ -532,7 +546,7 @@ ipcMain.handle('browser:bounds', (event, bounds) => {
 ipcMain.handle('browser:nav', async (event, { action, url }) => {
   if (!fromWindow(event)) return;
   const wc = ensureBrowser().webContents;
-  if (action === 'go') wc.loadURL(toUrl(url)).catch(() => {});
+  if (action === 'go') { browserAsked = true; wc.loadURL(toUrl(url)).catch(() => {}); }
   if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
   if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   if (action === 'reload') wc.reload();

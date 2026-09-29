@@ -14,6 +14,11 @@ from .textclean import clean_text
 log = logging.getLogger("jarvis")
 
 APP_SUPPORT = Path.home() / "Library" / "Application Support" / "Jarvis"
+# The settings file's format. 2: the Research Center moved from a local dev server to its
+# hosted address, so a file still on the old default follows it (once: a later choice of
+# the old address is saved as version 2 and kept).
+VERSION = 2
+LEGACY_RESEARCH_URL = "http://127.0.0.1:8010"
 
 # What a damaged settings file must never switch on by itself: the always-on microphone,
 # indexing private mail, messages, photos and files, and what watches the screen or acts.
@@ -99,7 +104,7 @@ class Prefs:
     control_always: bool = False  # mouse, keyboard and browser clicks without asking
     proactive_voice: bool = True
     quiet_hours: str = "22:00-07:00"
-    research_url: str = "http://127.0.0.1:8010"  # the BSH Research Center behind Markets
+    research_url: str = "https://app.bshventures.com/research"  # the Research Center (Markets)
     invoice_from: str = ""  # the business at the top of invoices (the user fills it in)
     invoice_payment: str = ""  # how to pay, printed on invoices
     screen_aware: bool = False  # keep an eye on the screen (pictures stay in memory, 2 min)
@@ -313,6 +318,10 @@ class PrefsStore:
                 setattr(prefs, name, off)  # "yes", 1, null: never read as switched on
         last = data.get("last_briefing")
         prefs.last_briefing = last[:10] if isinstance(last, str) else ""
+        version = data.get("version")
+        if not isinstance(version, int) or version < 2:
+            if prefs.research_url == LEGACY_RESEARCH_URL:
+                prefs.research_url = Prefs.research_url
         if how == "restored":
             self.notice = (
                 "Your settings file was damaged, so I went back to its last good copy (the "
@@ -323,4 +332,4 @@ class PrefsStore:
     def save(self) -> None:
         if self.unreadable:
             raise jsonstore.refusal(self.path, self.unreadable)
-        jsonstore.save_json(self.path, asdict(self.prefs))
+        jsonstore.save_json(self.path, {**asdict(self.prefs), "version": VERSION})
