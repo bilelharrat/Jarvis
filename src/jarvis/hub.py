@@ -237,6 +237,8 @@ class Hub:
         self.remote = RemoteServer(self, devices)
         self._approval_at = 0.0
         self._last_said = ""
+        self._code_hotwords = ""
+        self._code_stt: Any = None
         self._turn_text = ""
         self._spoke_until = 0.0
         self._hands_free_before_meeting: bool | None = None
@@ -1123,7 +1125,15 @@ class Hub:
                 return
             self._heard_at = time.monotonic()
             try:
-                text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+                if self.voicecode.focus is not None and self._code_hotwords:
+                    stt = (
+                        self._code_stt
+                        if self._code_stt and self._code_stt.loaded()
+                        else self.transcriber
+                    )
+                    text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
+                else:
+                    text = await asyncio.to_thread(self.transcriber.transcribe, audio)
             except Exception as exc:  # model still loading, odd audio
                 log.warning("hands-free transcription failed: %s", exc)
                 continue
@@ -1248,29 +1258,69 @@ class Hub:
         """Room for a progress note: not mid-sentence, not mid-question."""
         return self.state not in ("speaking", "listening") and not self.approvals
 
-    def changes_speech(self, task) -> str:
+    async def changes_speech(self, task) -> str:
+        """The session's changes as a short spoken summary, from git when there is one."""
+        from . import diffspeak
+
+        changes = await asyncio.to_thread(diffspeak.collect, task.cwd, set(task.files_changed))
+        if changes is not None:
+            return diffspeak.summary(changes)
         files = sorted({Path(f).name for f in task.files_changed})
         if not files:
             return "No file changes yet in this session."
         named = ", ".join(files[:5]) + (f", and {len(files) - 5} more" if len(files) > 5 else "")
         return f"{len(files)} file{'s' if len(files) != 1 else ''} changed: {named}."
 
-    def explain_change_prompt(self, task, index: int) -> str:
-        which = "most recent" if index < 0 else f"number {index + 1}"
+    async def explain_change_prompt(self, task, index: int) -> str:
+        """Ask the session to explain one numbered change, quoting it so there's no doubt
+        which ("the second change" counts the hunks the way 'what changed' reads them)."""
+        from . import diffspeak
+
+        changes = await asyncio.to_thread(diffspeak.collect, task.cwd, set(task.files_changed))
+        pieces = diffspeak.hunks(changes or [])
+        brief = "In two or three short spoken sentences (no code, no lists), explain "
+        if not pieces:
+            which = "your most recent change" if index < 0 else f"change number {index + 1}"
+            return brief + f"{which} this session: what it does and why."
+        hunk = pieces[index if -len(pieces) <= index < len(pieces) else -1]
         return (
-            f"In two or three short spoken sentences (no code, no lists), explain your change "
-            f"{which} among the edits you've made this session: what it does and why."
+            brief
+            + "this change you made, what it does and why:\n\n"
+            + diffspeak.describe_hunk(hunk)
         )
 
-    def with_code_hints(self, task, text: str) -> str:
-        return text
+    async def with_code_hints(self, task, text: str) -> str:
+        return await self.with_code_hints_for(task.cwd, text)
+
+    async def with_code_hints_for(self, path: Path, text: str) -> str:
+        """Spoken code back to code, plus the files and names it probably means."""
+        from .code_vocab import normalize, vocab_for
+
+        vocab = await asyncio.to_thread(vocab_for, path)
+        return normalize(text) + vocab.hint(text)
+
+    async def _prepare_code_listening(self, task) -> None:
+        """Voice coding hears better with the project's names as hints and, once it's
+        downloaded, the larger speech model."""
+        from .code_vocab import vocab_for
+        from .listen import Transcriber
+        from .meeting import NOTES_MODEL
+
+        vocab = await asyncio.to_thread(vocab_for, task.cwd)
+        self._code_hotwords = vocab.hotwords()
+        if self._code_stt is None and hasattr(self.transcriber, "model_name"):  # not a test fake
+            self._code_stt = Transcriber(NOTES_MODEL)
+            self._code_stt.warm_up()  # downloads once (~480 MB), shared with meeting notes
 
     async def voice_code(self, directory: str = "", request: str = "", task_id: int = 0) -> str:
         """Put a Claude Code session in voice focus: a given one, the latest in a project,
         or a new one."""
         tasks = self.tasks
         if task_id:
-            return self.voicecode.enter(task_id)
+            reply = self.voicecode.enter(task_id)
+            if self.voicecode.task is not None:
+                self._spawn(self._prepare_code_listening(self.voicecode.task))
+            return reply
         try:
             path = tasks.resolve_dir(directory) if directory else None
         except ValueError as exc:
@@ -1283,12 +1333,16 @@ class Hub:
         if live:
             task = max(live, key=lambda t: t.id)
             reply = self.voicecode.enter(task.id)
+            self._spawn(self._prepare_code_listening(task))
             if request:
-                self.voicecode._send(task, request)
+                await self.voicecode._send(task, request)
             return reply
         if path is None:
             return "Which project? " + ", ".join(tasks.projects())
-        task = tasks.start(request, str(path))
+        task = tasks.start(
+            await self.with_code_hints_for(path, request) if request else "", str(path)
+        )
+        self._spawn(self._prepare_code_listening(task))
         return self.voicecode.enter(task.id)
 
     # ── second brain ──

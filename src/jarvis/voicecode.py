@@ -365,14 +365,16 @@ class VoiceCoder:
             tasks.set_mode(task.id, intent.arg)
             self._changed()
             if intent.text:
-                self._send(task, intent.text)
+                await self._send(task, intent.text)
                 say("Plan mode. Planning that now.", follow_up=False)
             else:
                 say(MODE_NAMES[intent.arg])
         elif intent.kind == "changes":
-            say(self.hub.changes_speech(task))
+            say(await self.hub.changes_speech(task))
         elif intent.kind == "explain_change":
-            self._send(task, self.hub.explain_change_prompt(task, intent.arg))
+            await self._send(
+                task, await self.hub.explain_change_prompt(task, intent.arg), hint=False
+            )
         elif intent.kind == "plan":
             say(plan_speech(task.plan, full=intent.arg) if task.plan else "There's no plan yet.")
         elif intent.kind == "status":
@@ -399,14 +401,16 @@ class VoiceCoder:
             self._changed()
             say(f"Fresh session in {task.cwd.name}. What should we do?")
         elif intent.kind == "git":
-            self._send(task, GIT_PROMPTS[intent.arg])
+            await self._send(task, GIT_PROMPTS[intent.arg])
             say({"commit": "Committing.", "push": "Pushing.", "pr": "Opening a pull request.",
                  "tests": "Running the tests."}[intent.arg], follow_up=False)  # fmt: skip
         else:
-            self._send(task, intent.text)
+            await self._send(task, intent.text)
 
-    def _send(self, task, text: str) -> None:
-        self.hub.tasks.send(task.id, self.hub.with_code_hints(task, text))
+    async def _send(self, task, text: str, hint: bool = True) -> None:
+        if hint:
+            text = await self.hub.with_code_hints(task, text)
+        self.hub.tasks.send(task.id, text)
         self._narrated = self._clock()  # nothing to narrate for a moment
         self.hub.set_state("thinking")
 

@@ -292,7 +292,10 @@ class Transcriber:
                 self._model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
             return self._model
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def loaded(self) -> bool:
+        return self._model is not None
+
+    def transcribe(self, audio: np.ndarray, hotwords: str = "Jarvis") -> str:
         # Hotwords bias Whisper toward spelling the wake word "Jarvis". (An initial_prompt
         # of "Jarvis," made Whisper treat the name as already said and drop it.)
         # Audio arrives already cut at speech boundaries, so Whisper's own VAD only trims
@@ -300,7 +303,7 @@ class Transcriber:
         # (Measured with scripts/stress_hands_free.py: 86% -> 88% wake detection.)
         padded = np.concatenate([np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32), audio])
         segments, _info = self._load().transcribe(
-            padded, language="en", beam_size=1, vad_filter=False, hotwords="Jarvis"
+            padded, language="en", beam_size=1, vad_filter=False, hotwords=hotwords or "Jarvis"
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         return "" if is_hallucination(text) else text
