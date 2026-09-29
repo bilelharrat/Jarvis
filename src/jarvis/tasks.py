@@ -593,6 +593,8 @@ class ClaudeTask:
     fork: bool = False
     seq: int = 0  # numbers transcript entries
     checkpoints: list[str] = field(default_factory=list)  # user-message ids, for undo
+    # The files each checkpoint's round changed: a rewind forgets only what it put back.
+    checkpoint_files: dict[str, set[str]] = field(default_factory=dict)
     model: str = ""
     inbox: Inbox = field(default_factory=Inbox)
     client: Any = None
@@ -1059,22 +1061,18 @@ class TaskManager:
         return True
 
     async def undo(self, task_id: int) -> str:
-        """Put the files back as they were before the last message's changes."""
+        """Put the files back as they were before the last message's changes. A session
+        that closed (an idle hour) is reopened for it, as for a rewind."""
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code":
             return "No Jarvis Code session with that number."
         if task.busy:
             return "It's still working; stop it first."
-        if not task.checkpoints or task.client is None:
+        if not task.checkpoints:
             return "There's nothing to undo in this session."
-        checkpoint = task.checkpoints[-1]
-        try:
-            await task.client.rewind_files(checkpoint)
-        except Exception as exc:  # the checkpoint stays, so undo can try it again
-            return f"Couldn't undo: {exc}"
-        with contextlib.suppress(ValueError):
-            task.checkpoints.remove(checkpoint)
-        task.files_changed.clear()
+        reply = await self._rewind(task, task.checkpoints[-1])
+        if not reply.startswith("Rewound"):
+            return reply.replace("rewind", "undo").replace("Rewind", "Undo")
         self._log(task, "system", "Undid the last round of file changes.")
         self._changed()
         return "Undone: the files are back as they were before that change."
@@ -1110,10 +1108,16 @@ class TaskManager:
                 return "Couldn't reopen the session to rewind it. Try again in a moment."
         try:
             await task.client.rewind_files(uuid)
-        except Exception as exc:
+        except Exception as exc:  # the checkpoint stays, so it can be tried again
             return f"Couldn't rewind: {exc}"
         if uuid in task.checkpoints:
-            del task.checkpoints[task.checkpoints.index(uuid) :]
+            at = task.checkpoints.index(uuid)
+            kept = set().union(
+                *(task.checkpoint_files.get(c, set()) for c in task.checkpoints[:at])
+            )
+            for gone in task.checkpoints[at:]:
+                task.files_changed -= task.checkpoint_files.pop(gone, set()) - kept
+            del task.checkpoints[at:]
         return "Rewound: the files are back as they were before that message."
 
     def fork(self, task_id: int, uuid: str = "") -> ClaudeTask | None:
@@ -1147,7 +1151,17 @@ class TaskManager:
             fork=not fresh,
             resume_at=resume_at,
             effort=task.effort,
+            # The same model (another provider's with its environment), folders, plugins,
+            # connectors and ultracode: a fork carries on as the original was set.
             model=task.model,
+            model_label=task.model_label,
+            model_ref=task.model_ref,
+            env=dict(task.env),
+            provider_settings=task.provider_settings,
+            add_dirs=list(task.add_dirs),
+            plugins=list(task.plugins),
+            disabled_mcp=set(task.disabled_mcp),
+            ultracode=task.ultracode,
         )
         self.tasks[fork.id] = fork
         fork.handle = asyncio.create_task(self._session(fork))
@@ -1288,7 +1302,12 @@ class TaskManager:
             re.sub(r"[^A-Za-z0-9 ]+", "", task.title or task.prompt or "Session").strip()[:60]
             or "Session"
         )
-        path = EXPORT_DIR / f"{datetime.now():%Y-%m-%d %H%M} {slug}.md"
+        stem = f"{datetime.now():%Y-%m-%d %H%M} {slug}"
+        path = EXPORT_DIR / f"{stem}.md"
+        for n in itertools.count(2):  # a second export in the same minute is its own file
+            if not path.exists():
+                break
+            path = EXPORT_DIR / f"{stem} {n}.md"
         lines = [f"# {task.title or task.prompt or 'Jarvis Code session'}", "", f"_{task.cwd}_", ""]
         for e in task.transcript:
             role, text = e.get("role"), e.get("text", "")
@@ -1454,6 +1473,8 @@ class TaskManager:
         if path and not block.is_error:
             task.files_changed.add(path)
             task.turn_files.add(path)
+            if task.checkpoints:
+                task.checkpoint_files.setdefault(task.checkpoints[-1], set()).add(path)
         content = block.content
         if isinstance(content, list):
             content = "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
@@ -1957,6 +1978,8 @@ class TaskManager:
             task.current = "user"
             self._new_turn(task)
         task.checkpoints.append(uid)
+        for old in task.checkpoints[:-50]:
+            task.checkpoint_files.pop(old, None)
         del task.checkpoints[:-50]
         task.fork_points[uid] = task.last_uuid
         for stale in list(task.fork_points)[:-200]:
