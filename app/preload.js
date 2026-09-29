@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('jarvisApp', {
     setBounds: (bounds) => ipcRenderer.invoke('browser:bounds', bounds),
     nav: (action, url) => ipcRenderer.invoke('browser:nav', { action, url }),
     command: (command) => ipcRenderer.invoke('browser:command', command),
+    tab: (action, id, url) => ipcRenderer.invoke('browser:tab', { action, id, url }),
     hand: (message) => ipcRenderer.send('browser:hand', message),
     onState: (callback) => ipcRenderer.on('browser:state', (_e, state) => callback(state)),
     onOpen: (callback) => ipcRenderer.on('browser:open', () => callback()),

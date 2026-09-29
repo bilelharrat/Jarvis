@@ -3451,6 +3451,55 @@ async function openResearch(path = '/markets') {
   return app.browser.command({ action: 'research', args: { base: researchBaseUrl(), path } });
 }
 
+// Tabs, as in Safari: the page's title (the Research Center's own page name), a close button
+// on hover or on the tab you're on, and + for a new one. ⌘T and ⌘W work in the page too.
+let tabsShown = '';
+let tabOnShow = null; // the pill lifts only when the tab on show changes
+function renderTabs(list) {
+  const key = JSON.stringify(list.map((t) => [t.id, t.title, t.url, t.active, t.loading]));
+  if (key === tabsShown) return;
+  tabsShown = key;
+  const strip = $('bd-tabs');
+  const now = (list.find((t) => t.active) || {}).id;
+  const lift = now !== tabOnShow && tabOnShow !== null;
+  tabOnShow = now;
+  strip.replaceChildren(...list.map((t) => {
+    const tab = el('div', `bd-tab${t.active ? ' active' : ''}${t.active && lift ? ' lift' : ''}${t.loading ? ' loading' : ''}`);
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(t.active));
+    tab.tabIndex = 0;
+    let host = '';
+    try { host = new URL(t.url).host; } catch (_) { /* an empty tab */ }
+    const title = t.research ? `Research · ${pageName(t.url, t.title, researchBaseUrl())}` : (t.title || host || 'New tab');
+    tab.title = title;
+    tab.append(mine(el('span', 'bd-tab-title', title)));
+    const pick = () => app.browser.tab('select', t.id);
+    tab.addEventListener('click', pick);
+    tab.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+    if (list.length > 1) {
+      const x = el('button', 'bd-tab-x', '✕');
+      x.type = 'button';
+      x.setAttribute('aria-label', 'Close tab');
+      x.addEventListener('click', (e) => { e.stopPropagation(); app.browser.tab('close', t.id); });
+      tab.append(x);
+    }
+    return tab;
+  }));
+  const plus = el('button', 'bd-tab-new', '+');
+  plus.type = 'button';
+  plus.setAttribute('aria-label', 'New tab');
+  plus.title = 'New tab (⌘T)';
+  plus.addEventListener('click', () => { app.browser.tab('new'); setTimeout(() => $('br-url').focus(), 120); });
+  strip.append(plus);
+  requestAnimationFrame(syncBrowserBounds); // the strip's height is the slot's
+}
+window.addEventListener('keydown', (e) => {
+  if (!browserOpenNow || !app || !app.browser || !e.metaKey || e.shiftKey || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (key === 't') { e.preventDefault(); app.browser.tab('new'); setTimeout(() => $('br-url').focus(), 120); }
+  if (key === 'w' && (browserState.tabs || []).length > 1) { e.preventDefault(); app.browser.tab('close'); }
+});
+
 function showBrowserError(text) {
   $('br-message-text').textContent = browserState.research || /Research Center/.test(text)
     ? `${text} Start it, or set its address in Settings › Research Center.` : text;
@@ -3542,6 +3591,7 @@ if (app && app.browser) {
   });
   app.browser.onState((st) => {
     browserState = st;
+    renderTabs(st.tabs || []);
     if (document.activeElement !== $('br-url')) $('br-url').value = st.url || '';
     $('br-back').disabled = !st.canBack;
     $('br-forward').disabled = !st.canForward;

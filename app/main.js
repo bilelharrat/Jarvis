@@ -238,7 +238,9 @@ ipcMain.handle('jarvis:pick-folder', async () => {
 // it, by voice and by hand (its sign-in pages excepted, so the user signs in themselves).
 
 const RESEARCH_AUTH = /^\/(login|reset|terms|account\/password)(\/|$)/;
-let browserView = null;
+let browserView = null; // the tab on show; the others keep loading behind it
+const tabs = [];
+let lastBounds = null;
 let browserShown = false;
 let browserLocked = false;
 let browserSynthetic = false; // true only while Jarvis itself sends input
@@ -267,11 +269,19 @@ function researchPath(url) {
   return pathname;
 }
 
+function tabList() {
+  return tabs.map((view) => {
+    const wc = view.webContents;
+    return { id: wc.id, title: wc.getTitle(), url: wc.getURL(), loading: wc.isLoading(), research: onResearch(wc.getURL()), active: view === browserView };
+  });
+}
+
 function sendBrowserState(extra = {}) {
   if (!browserView || !win) return;
   const wc = browserView.webContents;
   const url = wc.getURL();
   win.webContents.send('browser:state', {
+    tabs: tabList(),
     url,
     title: wc.getTitle(),
     loading: wc.isLoading(),
@@ -292,8 +302,50 @@ function updateLock() {
 }
 
 function ensureBrowser() {
-  if (browserView) return browserView;
-  browserView = new WebContentsView({
+  if (!browserView) {
+    browserView = createTab();
+    tabs.push(browserView);
+  }
+  return browserView;
+}
+
+// Show another tab in the dock's slot (the page's lock and state follow it).
+function selectTab(view) {
+  if (!view || view === browserView) return;
+  if (browserShown && browserView) win.contentView.removeChildView(browserView);
+  browserView = view;
+  if (browserShown) {
+    win.contentView.addChildView(view);
+    if (lastBounds) view.setBounds(lastBounds);
+  }
+  view.webContents.setZoomFactor(browserZoom);
+  updateLock();
+}
+
+function newTab(url) {
+  const view = createTab();
+  tabs.push(view);
+  selectTab(view);
+  browserAsked = true;
+  view.webContents.loadURL(url ? toUrl(url) : 'https://www.google.com').catch(() => {});
+  return view;
+}
+
+// The last tab never closes: the dock does (the window's close button).
+function closeTab(view) {
+  const at = tabs.indexOf(view);
+  if (at < 0 || tabs.length < 2) return false;
+  tabs.splice(at, 1);
+  if (view === browserView) selectTab(tabs[Math.min(at, tabs.length - 1)]);
+  view.webContents.close();
+  sendBrowserState();
+  return true;
+}
+
+function tabById(id) { return tabs.find((view) => view.webContents.id === Number(id)); }
+
+function createTab() {
+  const view = new WebContentsView({
     webPreferences: {
       partition: 'persist:jarvis-browser',
       preload: path.join(__dirname, 'page-preload.js'),
@@ -302,29 +354,35 @@ function ensureBrowser() {
       nodeIntegration: false,
     },
   });
-  const wc = browserView.webContents;
+  const wc = view.webContents;
+  const active = () => view === browserView;
   wc.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) wc.loadURL(url);
+    if (/^https?:\/\//.test(url)) newTab(url); // a link that wants a new window: a new tab
     return { action: 'deny' };
   });
   wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   // On the Research Center, direct input never reaches the page (Jarvis's own does).
   wc.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && win) win.webContents.send('browser:escape');
-    if (browserLocked && !browserSynthetic) event.preventDefault();
+    if (input.type === 'keyDown' && input.meta && !input.shift && !input.alt) {
+      const key = String(input.key).toLowerCase();
+      if (key === 't') { event.preventDefault(); newTab(); sendBrowserState(); return; }
+      if (key === 'w' && tabs.length > 1) { event.preventDefault(); closeTab(view); return; }
+    }
+    if (active() && browserLocked && !browserSynthetic) event.preventDefault();
   });
-  wc.on('before-mouse-event', (event) => { if (browserLocked && !browserSynthetic) event.preventDefault(); });
-  for (const event of ['did-navigate', 'did-navigate-in-page']) wc.on(event, updateLock);
+  wc.on('before-mouse-event', (event) => { if (active() && browserLocked && !browserSynthetic) event.preventDefault(); });
+  for (const event of ['did-navigate', 'did-navigate-in-page']) wc.on(event, () => (active() ? updateLock() : sendBrowserState()));
   wc.on('did-finish-load', () => wc.setZoomFactor(browserZoom));
   for (const event of ['page-title-updated', 'did-start-loading', 'did-stop-loading']) wc.on(event, () => sendBrowserState());
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-    if (isMainFrame && code !== -3) {
+    if (isMainFrame && code !== -3 && active()) {
       const where = onResearch(url) || (researchBase && url.startsWith(researchBase)) ? `The Research Center at ${researchOrigin()}` : url || 'The page';
       sendBrowserState({ error: `${where} isn't answering (${description}).` });
     }
   });
-  wc.on('render-process-gone', () => sendBrowserState({ error: 'The page stopped. Reload it.' }));
-  return browserView;
+  wc.on('render-process-gone', () => (active() ? sendBrowserState({ error: 'The page stopped. Reload it.' }) : sendBrowserState()));
+  return view;
 }
 
 function toUrl(input) {
@@ -391,7 +449,18 @@ function pageCall(action, args = {}, ms = 6000) {
 
 // The Research Center: the app's own router moves within it; a first visit loads it.
 async function researchOpen(pathname) {
-  const wc = ensureBrowser().webContents;
+  ensureBrowser();
+  // Its own tab: the one it's already on, else a new one (never over the page you're reading).
+  if (!onResearch(browserView.webContents.getURL())) {
+    const open = tabs.find((view) => onResearch(view.webContents.getURL()));
+    if (open) selectTab(open);
+    else if (browserView.webContents.getURL() || browserView.webContents.isLoading()) {
+      const view = createTab();
+      tabs.push(view);
+      selectTab(view);
+    }
+  }
+  const wc = browserView.webContents;
   const target = `${researchBase.replace(/\/+$/, '')}${typeof pathname === 'string' && pathname.startsWith('/') ? pathname : '/markets'}`;
   browserAsked = true;
   if (onResearch(wc.getURL()) && !wc.isLoading()) {
@@ -441,9 +510,9 @@ async function runBrowserCommand({ action, args = {} }) {
       win.webContents.send('browser:open');
       if (/^https?:\/\//.test(String(args.base || ''))) researchBase = args.base;
       if (!researchBase) return { error: 'No Research Center address is set.' };
-      await researchOpen(String(args.path || '/markets'));
-      await waitForLoad(wc, 15000);
-      return { ok: true, ...where() };
+      await researchOpen(String(args.path || '/markets')); // (may switch to the tab it's on)
+      await waitForLoad(browserView.webContents, 15000);
+      return { ok: true, url: browserView.webContents.getURL(), title: browserView.webContents.getTitle() };
     case 'back':
       if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
       await waitForLoad(wc);
@@ -484,13 +553,13 @@ async function runBrowserCommand({ action, args = {} }) {
       let done = await pageCall('search', { query });
       if (!done.ok && researchBase) {
         await researchOpen('/market-radar'); // the Research Center's market desk has the search box
-        await waitForLoad(wc, 15000);
+        await waitForLoad(browserView.webContents, 15000);
         await sleep(700);
         done = await pageCall('search', { query });
       }
       if (!done.ok) return done;
-      await waitForLoad(wc, 8000);
-      return { ok: true, message: `Searched for ${query}`, ...where() };
+      await waitForLoad(browserView.webContents, 8000);
+      return { ok: true, message: `Searched for ${query}`, url: browserView.webContents.getURL(), title: browserView.webContents.getTitle() };
     }
     case 'scroll': {
       const direction = args.direction || (Number(args.amount) < 0 ? 'up' : 'down');
@@ -527,7 +596,8 @@ ipcMain.handle('browser:show', (event, bounds) => {
     win.contentView.addChildView(view);
     browserShown = true;
   }
-  view.setBounds(fitBounds(bounds));
+  lastBounds = fitBounds(bounds);
+  view.setBounds(lastBounds);
   // The start page only for an empty view: a page asked for a moment ago (the hosted Research
   // Center takes a network round trip) has no address yet, and would be replaced by it.
   if (!view.webContents.getURL() && !view.webContents.isLoading() && !browserAsked) view.webContents.loadURL('https://www.google.com');
@@ -541,7 +611,9 @@ ipcMain.handle('browser:hide', (event) => {
   }
 });
 ipcMain.handle('browser:bounds', (event, bounds) => {
-  if (fromWindow(event) && browserView && browserShown) browserView.setBounds(fitBounds(bounds));
+  if (!fromWindow(event)) return;
+  lastBounds = fitBounds(bounds);
+  if (browserView && browserShown) browserView.setBounds(lastBounds);
 });
 ipcMain.handle('browser:nav', async (event, { action, url }) => {
   if (!fromWindow(event)) return;
@@ -551,6 +623,14 @@ ipcMain.handle('browser:nav', async (event, { action, url }) => {
   if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   if (action === 'reload') wc.reload();
   if (action === 'stop') wc.stop();
+});
+ipcMain.handle('browser:tab', (event, { action, id, url } = {}) => {
+  if (!fromWindow(event)) return;
+  ensureBrowser();
+  if (action === 'new') newTab(url);
+  if (action === 'select') selectTab(tabById(id));
+  if (action === 'close') closeTab(tabById(id) || browserView);
+  sendBrowserState();
 });
 ipcMain.handle('browser:command', async (event, command) => {
   if (!fromWindow(event)) return { error: 'not allowed' };
