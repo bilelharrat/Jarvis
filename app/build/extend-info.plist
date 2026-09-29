@@ -2,9 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundleDisplayName</key>
+  <string>J.A.R.V.I.S.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>J.A.R.V.I.S. shows your camera in the Command Center when you turn it on. Nothing is recorded or sent.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Jarvis listens when you tap the orb or press Option-Space.</string>
+  <string>J.A.R.V.I.S. listens for its name and when you tap the orb or press Option-Space.</string>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Jarvis controls Mail, Calendar, Notes, Music and your windows when you ask it to.</string>
+  <string>J.A.R.V.I.S. controls Mail, Calendar, Notes, Photos, Music and your windows when you ask it to.</string>
 </dict>
 </plist>

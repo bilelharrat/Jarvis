@@ -9,7 +9,7 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 
-app.setName('Jarvis');
+app.setName('J.A.R.V.I.S.');
 
 const TOKEN = crypto.randomBytes(24).toString('hex');
 const SHORTCUT = 'Alt+Space';
@@ -108,7 +108,7 @@ function createWindow() {
     minWidth: 760,
     minHeight: 620,
     show: false,
-    title: 'Jarvis',
+    title: 'J.A.R.V.I.S.',
     titleBarStyle: 'hiddenInset',
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#111317' : '#f4f0e8',
     webPreferences: {
