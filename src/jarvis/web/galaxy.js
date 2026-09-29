@@ -295,9 +295,10 @@ class Galaxy {
     let best = null;
     let bestD = radius * radius;
     for (let i = 0; i < pd.length && i < this.nodes.length; i++) {
-      if (!pd[i] || !this.drawn(i)) continue;
+      if (!pd[i]) continue;
       const d = (px[i] - mx) ** 2 + (py[i] - my) ** 2;
-      if (d < bestD) { bestD = d; best = this.nodes[i].id; }
+      // The distance first: it rules out almost every star, and drawn() costs more.
+      if (d < bestD && this.drawn(i)) { bestD = d; best = this.nodes[i].id; }
     }
     return best;
   }
