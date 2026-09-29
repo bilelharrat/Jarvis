@@ -4613,7 +4613,10 @@ class Hub:
         if kind == "ask":
             text = msg.get("text")
             if isinstance(text, str):  # null or a number is nothing to ask
-                self._spawn(self.ask(text[:4000]))
+                # Typed in the window: answered on screen, and read aloud only while
+                # voice coding. Spoken requests (the orb, the wake word) still get a voice.
+                silent = self.voicecode.focus is None
+                self._spawn(self.ask(text[:4000], silent=silent))
         elif kind == "listen":
             self._spawn(self.listen())
         elif kind == "dictate":

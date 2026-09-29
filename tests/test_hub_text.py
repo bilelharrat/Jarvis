@@ -2,6 +2,7 @@
 handling of what Claude streams, never asks Claude again; and the user's own words are
 read in linear time. Real Hub, FakeClient, temp stores."""
 
+import asyncio
 import time
 
 from conftest import FakeClient, result
@@ -94,6 +95,43 @@ async def test_a_chinese_reply_with_a_huge_number_is_asked_once(settings, quiet_
     await hub.ask("读一下编号")
     assert len(sent) == 1 and not any(e["type"] == "error" for e in drain(q))
     assert "七七七七" in "".join(said)
+
+
+# ── what's typed in the window ──
+
+
+async def test_a_typed_message_is_read_aloud_only_while_voice_coding(
+    settings, quiet_speaker, isolated
+):
+    sent = []
+    hub = hub_with(
+        settings, quiet_speaker, isolated, stream_events(["Here you go."]) + [result()], sent
+    )
+    await hub.start()
+    pushed = []
+    hub.speech.push = pushed.append
+    q = hub.subscribe()
+
+    async def typed(text):
+        await hub.handle({"type": "ask", "text": text})
+        for _ in range(200):
+            if any(e["type"] == "turn_done" for e in drain(q)):
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError("the turn never finished")
+
+    await typed("what's the weather?")
+    assert len(sent) == 1 and hub.turn["reply"]  # answered on screen
+    assert pushed == []  # but not out loud
+
+    hub.voicecode.focus = 1  # voice coding: typed messages are read aloud again
+    await typed("what's the weather?")
+    assert len(sent) == 2 and any("Here you go" in p for p in pushed)
+
+    hub.voicecode.focus = None
+    pushed.clear()
+    await hub.ask("what's the weather?")  # spoken to (orb, wake word): always a voice
+    assert any("Here you go" in p for p in pushed)
 
 
 # ── the user's own words ──
