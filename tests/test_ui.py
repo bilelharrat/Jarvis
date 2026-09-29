@@ -157,3 +157,24 @@ def test_open_project_file_stays_inside_the_project(hub, tmp_path, monkeypatch):
     hub.open_project_file({"directory": "proj", "path": "../../etc/hosts"})
     hub.open_project_file({"directory": "proj", "path": ".env"})
     assert opened == [["open", str((project / "report.html").resolve())]]
+
+
+async def test_with_queueing_off_a_new_request_interrupts(hub):
+    stopped = []
+
+    async def fake_stop():
+        stopped.append(True)
+        hub._lock.release()  # the running answer ends
+
+    asked = []
+
+    async def fake_run(rid, query, images=None):
+        asked.append(query)
+
+    hub.emit = lambda *_a, **_k: None
+    hub._run_query = fake_run
+    hub.stop = fake_stop
+    hub.prefs.queue_requests = False
+    await hub._lock.acquire()  # something is being answered
+    await asyncio.wait_for(hub.ask("actually, what's the weather"), 5)
+    assert stopped and asked == ["actually, what's the weather"] and not hub.waiting

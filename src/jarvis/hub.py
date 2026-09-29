@@ -888,6 +888,8 @@ class Hub:
         if not text:
             return ""
         ticket = 0
+        if self._lock.locked() and display is None and not self.prefs.queue_requests:
+            await self.stop()  # queueing is off: a new request takes over from the old one
         if self._lock.locked():
             # Something is still being answered: this one waits its turn, visibly, and
             # the user can take it back before it's sent.

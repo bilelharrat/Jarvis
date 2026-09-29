@@ -86,6 +86,8 @@ class Prefs:
     invoice_payment: str = ""  # how to pay, printed on invoices
     screen_aware: bool = False  # keep an eye on the screen (pictures stay in memory, 2 min)
     code_keep_awake: bool = True  # keep the Mac awake while Jarvis Code works
+    queue_requests: bool = True  # while Jarvis answers, new requests wait (off: they interrupt)
+    code_queue: bool = True  # Jarvis Code follow-ups wait for the step (off: steer it now)
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -180,6 +182,8 @@ def _clean(name: str, value: Any) -> Any:
         "code_narrate",
         "screen_aware",
         "code_keep_awake",
+        "queue_requests",
+        "code_queue",
     }:
         return bool(value)
     return None

@@ -548,6 +548,8 @@ function renderPrefs(p) {
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
   setSwitch('sw-screen', p.screen_aware);
+  setSwitch('sw-queue', p.queue_requests !== false);
+  setSwitch('sw-code-queue', p.code_queue !== false);
   awake = p.code_keep_awake !== false;
   $('screen-pill').hidden = !p.screen_aware;
   setSwitch('sw-control', p.control_always);
@@ -611,6 +613,7 @@ function renderBrain(b) {
   $('brain-status').textContent = text;
   $('fda-btn').hidden = !(b.errors && Object.values(b.errors).some(e => /Full Disk Access/.test(e || '')));
   $('brain-label').textContent = b.state === 'building' ? 'Second brain · updating' : b.notes ? `Second brain · ${b.notes}` : 'Second brain';
+  $('brain-badge').textContent = b.state === 'building' ? '…' : b.notes ? (b.notes >= 1000 ? `${(b.notes / 1000).toFixed(b.notes >= 10000 ? 0 : 1)}k` : String(b.notes)) : '';
 }
 
 function setPrefs(changes) {
@@ -635,6 +638,8 @@ $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
 $('sw-screen').addEventListener('click', () => setPrefs({ screen_aware: !prefs.screen_aware }));
+$('sw-queue').addEventListener('click', () => setPrefs({ queue_requests: prefs.queue_requests === false }));
+$('sw-code-queue').addEventListener('click', () => setPrefs({ code_queue: prefs.code_queue === false }));
 $('screen-pill').addEventListener('click', () => setPrefs({ screen_aware: false }));
 $('sw-control').addEventListener('click', () => setPrefs({ control_always: !prefs.control_always }));
 $('sw-code-narrate').addEventListener('click', () => setPrefs({ code_narrate: !prefs.code_narrate }));

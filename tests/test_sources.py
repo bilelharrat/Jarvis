@@ -56,7 +56,9 @@ def make_chat_db(path, now):
 
 
 def test_collect_messages_last_week_grouped_with_names(tmp_path):
-    now = datetime.now()
+    # Yesterday at noon: both texts land on one day whatever time the test runs (just after
+    # midnight, "3 hours ago" and "2 hours ago" were two different days).
+    now = (datetime.now() - timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
     make_chat_db(tmp_path / "chat.db", now)
     notes = sources.collect_messages(tmp_path / "chat.db", names={"4155550123": "Sam Rivera"})
     assert len(notes) == 1
