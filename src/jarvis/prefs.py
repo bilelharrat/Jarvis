@@ -58,6 +58,10 @@ class Prefs:
     last_briefing: str = ""
     brain_notes: bool = True
     brain_bsh: bool = True
+    brain_computer: bool = True
+    brain_photos: bool = True
+    brain_mail: bool = True
+    brain_messages: bool = True
     brain_folders: list[str] = field(default_factory=list)
 
     def model_id(self) -> str:
@@ -105,7 +109,17 @@ def _clean(name: str, value: Any) -> Any:
             if path.is_dir() and (path == home or home in path.parents) and str(path) not in kept:
                 kept.append(str(path))
         return kept
-    if name in {"voice_effect", "hands_free", "briefing_enabled", "brain_notes", "brain_bsh"}:
+    if name in {
+        "voice_effect",
+        "hands_free",
+        "briefing_enabled",
+        "brain_notes",
+        "brain_bsh",
+        "brain_computer",
+        "brain_photos",
+        "brain_mail",
+        "brain_messages",
+    }:
         return bool(value)
     return None
 

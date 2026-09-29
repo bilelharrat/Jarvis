@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import subprocess
 import time
@@ -17,6 +18,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -189,8 +191,10 @@ class Hub:
         if self.poll:
             self._spawn(self._poll_status())
             self._spawn(self._briefing_clock())
-            if self._brain_sources_on() and (not self.kb.notes or self.kb.age_hours() > 24):
+            stale = not self.kb.notes or not self.kb.clusters or self.kb.age_hours() > 24
+            if self._brain_sources_on() and stale:
                 self._spawn(self.rebuild_brain())
+            self._spawn(self._refresh_recent())
         if self.prefs.hands_free:
             self._apply_hands_free()
 
@@ -662,7 +666,33 @@ class Hub:
     # ── second brain ──
 
     def _brain_sources_on(self) -> bool:
-        return self.prefs.brain_notes or self.prefs.brain_bsh or bool(self.prefs.brain_folders)
+        p = self.prefs
+        return any(
+            [
+                p.brain_notes,
+                p.brain_bsh,
+                p.brain_folders,
+                p.brain_computer,
+                p.brain_photos,
+                p.brain_mail,
+                p.brain_messages,
+            ]
+        )
+
+    async def _refresh_recent(self) -> None:
+        """The last-week email and texts go stale fast: refresh them every few hours."""
+        while True:
+            await asyncio.sleep(4 * 3600)
+            recent = {
+                s
+                for s, on in (
+                    ("mail", self.prefs.brain_mail),
+                    ("messages", self.prefs.brain_messages),
+                )
+                if on
+            }
+            if recent:
+                await self.rebuild_brain(only=recent)
 
     async def rebuild_brain(self, only: set[str] | None = None) -> None:
         if self.brain_state["state"] == "building":
@@ -679,6 +709,10 @@ class Hub:
                 notes=self.prefs.brain_notes,
                 bsh=self.prefs.brain_bsh,
                 folders=list(self.prefs.brain_folders),
+                computer=self.prefs.brain_computer,
+                photos=self.prefs.brain_photos,
+                mail=self.prefs.brain_mail,
+                messages=self.prefs.brain_messages,
                 only=only,
                 progress=progress,
             )
@@ -752,7 +786,20 @@ class Hub:
         if note.source == "notes":
             script = 'on run argv\ntell application "Notes"\nshow note id (item 1 of argv)\nactivate\nend tell\nend run'
             self._spawn(self._quiet(mac_tools.run_applescript(script, note.ref)))
-        elif note.source in ("files", "research"):
+        elif note.source == "photos":
+            script = (
+                "const p = Application('Photos'); p.activate(); "
+                "p.spotlight(p.mediaItems.byId(" + json.dumps(note.ref) + "));"
+            )
+            self._spawn(
+                self._quiet(mac_tools.run_command("osascript", "-l", "JavaScript", "-e", script))
+            )
+        elif note.source == "mail":
+            url = "message://" + quote(f"<{note.ref.strip('<>')}>")
+            self._spawn(self._quiet(mac_tools.run_command("open", url)))
+        elif note.source == "messages":
+            self._spawn(self._quiet(mac_tools.run_command("open", "-a", "Messages")))
+        elif note.source in ("files", "computer", "research"):
             try:
                 path = computer.safe_path(note.ref)
             except ValueError:
@@ -839,7 +886,15 @@ class Hub:
             self.speaker.effect = self.prefs.voice_effect
         if "hands_free" in changed:
             self._apply_hands_free()
-        sources = {"brain_notes": "notes", "brain_bsh": "bsh", "brain_folders": "files"}
+        sources = {
+            "brain_notes": "notes",
+            "brain_bsh": "bsh",
+            "brain_folders": "files",
+            "brain_computer": "computer",
+            "brain_photos": "photos",
+            "brain_mail": "mail",
+            "brain_messages": "messages",
+        }
         touched = {sources[c] for c in changed if c in sources}
         if touched:
             self._spawn(self.rebuild_brain(only=touched))
@@ -924,6 +979,18 @@ class Hub:
             self.emit("connectors", **self.connectors.public())
         elif kind in ("connect", "add_custom", "disconnect", "reconnect", "connector_policy"):
             self._spawn(self._connector_command(kind, msg))
+        elif kind == "open_privacy":
+            panes = {
+                "full_disk": "Privacy_AllFiles",
+                "automation": "Privacy_Automation",
+                "accessibility": "Privacy_Accessibility",
+                "screen": "Privacy_ScreenCapture",
+                "microphone": "Privacy_Microphone",
+            }
+            pane = panes.get(str(msg.get("pane")))
+            if pane:
+                url = f"x-apple.systempreferences:com.apple.preference.security?{pane}"
+                self._spawn(self._quiet(mac_tools.run_command("open", url)))
         elif kind == "open_report":
             path = str(msg.get("path", ""))
             with contextlib.suppress(ValueError):

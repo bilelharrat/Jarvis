@@ -313,6 +313,10 @@ function renderPrefs(p) {
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-notes', p.brain_notes);
   setSwitch('sw-bsh', p.brain_bsh);
+  setSwitch('sw-computer', p.brain_computer);
+  setSwitch('sw-photos', p.brain_photos);
+  setSwitch('sw-mail', p.brain_mail);
+  setSwitch('sw-messages', p.brain_messages);
   $('model-select').replaceChildren(...(p.models || []).map((m) => {
     const o = el('option', '', m.name);
     o.value = m.id;
@@ -354,6 +358,7 @@ function renderBrain(b) {
   const errs = Object.entries(b.errors || {}).map(([k, v]) => `${k}: ${v}`);
   if (errs.length && b.state !== 'building') text += ` · Problems: ${errs.join('; ')}`;
   $('brain-status').textContent = text;
+  $('fda-btn').hidden = !(b.errors && b.errors.messages && /Full Disk Access/.test(b.errors.messages));
   $('brain-label').textContent = b.state === 'building' ? 'Second brain · updating' : b.notes ? `Second brain · ${b.notes}` : 'Second brain';
 }
 
@@ -375,6 +380,10 @@ $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-notes').addEventListener('click', () => setPrefs({ brain_notes: !prefs.brain_notes }));
 $('sw-bsh').addEventListener('click', () => setPrefs({ brain_bsh: !prefs.brain_bsh }));
+for (const [id, key] of [['sw-computer', 'brain_computer'], ['sw-photos', 'brain_photos'], ['sw-mail', 'brain_mail'], ['sw-messages', 'brain_messages']]) {
+  $(id).addEventListener('click', () => setPrefs({ [key]: !prefs[key] }));
+}
+$('fda-btn').addEventListener('click', () => send({ type: 'open_privacy', pane: 'full_disk' }));
 $('model-select').addEventListener('change', (e) => setPrefs({ model: e.target.value }));
 $('humor').addEventListener('input', (e) => { $('humor-out').textContent = `${e.target.value}%`; });
 $('humor').addEventListener('change', (e) => setPrefs({ humor: Number(e.target.value) }));

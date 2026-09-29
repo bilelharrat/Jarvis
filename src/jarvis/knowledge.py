@@ -40,6 +40,12 @@ _STOP = set(
     "your been being there here some more most other such only over very any all may one two "
     "out off per via use used using make made get got".split()
 )
+# Words too generic to name a cluster in the galaxy.
+_LABEL_STOP = _STOP | set(
+    "com https http www html org net new note notes had like time back people know want need "
+    "going good think really thing things well much many even still said says see way day days "
+    "year years week today yes okay thanks thank please let can't don't i'm it's that's".split()
+)
 
 
 def tokens(text: str) -> list[str]:
@@ -49,7 +55,7 @@ def tokens(text: str) -> list[str]:
 @dataclass
 class Note:
     id: str
-    source: str  # notes | files | bsh | research
+    source: str  # notes | files | computer | bsh | research | photos | mail | messages
     title: str
     text: str
     ref: str  # Apple Notes id, file path, or BSH reference
@@ -126,7 +132,7 @@ def collect_folder(folder: Path, source: str = "files") -> list[Note]:
             continue
         notes.append(
             Note(
-                id=f"{source}:{path}",
+                id=f"file:{path}",
                 source=source,
                 title=_title_for(path, text),
                 text=text[:MAX_TEXT],
@@ -256,6 +262,7 @@ class KnowledgeBase:
         self.notes: list[Note] = []
         self.positions: np.ndarray = np.zeros((0, 3), dtype=np.float32)
         self.edges: list[tuple[int, int]] = []
+        self.clusters: list[dict[str, Any]] = []
         self.built_at = ""
         self.errors: dict[str, str] = {}
         self._by_id: dict[str, int] = {}
@@ -274,11 +281,14 @@ class KnowledgeBase:
             if n.id not in seen:
                 seen.add(n.id)
                 unique.append(n)
-        positions, edges = layout([f"{n.title}\n{n.text}" for n in unique])
+        positions, edges, clusters = layout(
+            [f"{n.title}\n{n.text}" for n in unique], [n.source for n in unique]
+        )
         with self._lock:
             self.notes = unique
             self.positions = positions
             self.edges = edges
+            self.clusters = clusters
             self.errors = dict(errors or {})
             self.built_at = datetime.now().isoformat(timespec="seconds")
             self._reindex()
@@ -309,6 +319,7 @@ class KnowledgeBase:
                 "notes": [asdict(n) for n in self.notes],
                 "positions": self.positions.round(4).tolist(),
                 "edges": self.edges,
+                "clusters": self.clusters,
             }
         self.store.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.store.with_suffix(".tmp")
@@ -324,6 +335,7 @@ class KnowledgeBase:
             self.notes = [Note(**n) for n in data.get("notes", [])]
             self.positions = np.array(data.get("positions") or [], dtype=np.float32).reshape(-1, 3)
             self.edges = [tuple(e) for e in data.get("edges", [])]
+            self.clusters = data.get("clusters", [])
             self.built_at = data.get("built_at", "")
             self.errors = data.get("errors", {})
             self._reindex()
@@ -396,6 +408,7 @@ class KnowledgeBase:
                     for i, n in enumerate(self.notes)
                 ],
                 "edges": self.edges,
+                "clusters": self.clusters,
                 "built_at": self.built_at,
             }
 
@@ -418,23 +431,18 @@ def excerpt(text: str, words: list[str], width: int = 360) -> str:
     return ("…" if start else "") + snippet + ("…" if start + width < len(text) else "")
 
 
-def layout(texts: list[str], seed: int = 7) -> tuple[np.ndarray, list[tuple[int, int]]]:
-    """3D galaxy coordinates in roughly [-1, 1] and a few nearest-neighbour links per note."""
+def _vectors(texts: list[str], rng) -> tuple[np.ndarray, list[str], list[Counter]]:
+    """Unit TF-IDF vectors randomly projected to 64 dims (zero rows for word-less notes)."""
     n = len(texts)
-    if n == 0:
-        return np.zeros((0, 3), dtype=np.float32), []
-    rng = np.random.default_rng(seed)
-    if n < 4:
-        return rng.uniform(-0.6, 0.6, size=(n, 3)).astype(np.float32), []
     docs = [Counter(tokens(t)) for t in texts]
     df = Counter(w for d in docs for w in d)
-    vocab = [w for w, c in df.most_common(4000) if 1 < c <= max(2, int(0.6 * n))]
+    vocab = [w for w, c in df.most_common(6000) if 1 < c <= max(2, int(0.5 * n))]
+    reduced = np.zeros((n, 64), dtype=np.float32)
     if len(vocab) < 8:
-        return rng.uniform(-0.8, 0.8, size=(n, 3)).astype(np.float32), []
+        return reduced, vocab, docs
     index = {w: j for j, w in enumerate(vocab)}
     idf = np.array([math.log(n / df[w]) + 1 for w in vocab], dtype=np.float32)
     projection = rng.standard_normal((len(vocab), 64)).astype(np.float32) / 8
-    reduced = np.zeros((n, 64), dtype=np.float32)
     for i, d in enumerate(docs):
         cols = [(index[w], c) for w, c in d.items() if w in index]
         if not cols:
@@ -445,21 +453,135 @@ def layout(texts: list[str], seed: int = 7) -> tuple[np.ndarray, list[tuple[int,
         reduced[i] = v @ projection[j]
     norms = np.linalg.norm(reduced, axis=1, keepdims=True)
     reduced /= np.where(norms == 0, 1, norms)
-    centered = reduced - reduced.mean(axis=0)
-    _, _, vt = np.linalg.svd(centered, full_matrices=False)
-    coords = centered @ vt[:3].T
-    coords /= coords.std(axis=0) + 1e-6
-    # Soften outliers into a disc-ish galaxy and add a little jitter so twins don't overlap.
-    coords = np.tanh(coords / 2.2) + rng.normal(0, 0.015, coords.shape)
-    coords[:, 1] *= 0.55
-    sims = reduced @ reduced.T
-    np.fill_diagonal(sims, -1)
+    return reduced, vocab, docs
+
+
+def _kmeans(x: np.ndarray, k: int, rng, rounds: int = 15) -> np.ndarray:
+    """Spherical k-means (cosine) with k-means++ seeding; returns a label per row."""
+    n = x.shape[0]
+    centers = [x[rng.integers(n)]]
+    for _ in range(1, k):
+        d = 1 - np.max(x @ np.array(centers).T, axis=1)
+        d = np.clip(d, 0, None) ** 2
+        total = d.sum()
+        centers.append(x[rng.choice(n, p=d / total)] if total > 0 else x[rng.integers(n)])
+    c = np.array(centers)
+    labels = np.zeros(n, dtype=int)
+    for _ in range(rounds):
+        labels = np.argmax(x @ c.T, axis=1)
+        for j in range(k):
+            members = x[labels == j]
+            if len(members):
+                mean = members.mean(axis=0)
+                c[j] = mean / (np.linalg.norm(mean) or 1)
+    return labels
+
+
+def _ball(m: int, rng) -> np.ndarray:
+    """m points spread evenly through a unit ball (Fibonacci shells), so nothing overlaps."""
+    i = np.arange(m) + 0.5
+    radius = np.cbrt(i / m)
+    z = 1 - 2 * ((i * 0.618034) % 1)
+    theta = np.pi * (1 + 5**0.5) * i
+    ring = np.sqrt(np.clip(1 - z * z, 0, 1))
+    pts = np.stack([ring * np.cos(theta), z, ring * np.sin(theta)], axis=1) * radius[:, None]
+    return pts + rng.normal(0, 0.02, pts.shape)
+
+
+def layout(
+    texts: list[str], sources: list[str] | None = None, seed: int = 7
+) -> tuple[np.ndarray, list[tuple[int, int]], list[dict[str, Any]]]:
+    """Galaxy coordinates, a few links per note, and labelled clusters.
+
+    Notes are grouped into topic clusters ("star systems"). Clusters sit on a spiral
+    disc, biggest near the middle; inside each, stars are spaced evenly through a ball
+    and ordered by topic, so similar notes stay near each other without piling up.
+    """
+    n = len(texts)
+    rng = np.random.default_rng(seed)
+    if n == 0:
+        return np.zeros((0, 3), dtype=np.float32), [], []
+    reduced, vocab, docs = _vectors(texts, rng)
+    df_all = Counter(w for d in docs for w in d)
+    has_words = np.linalg.norm(reduced, axis=1) > 0
+    labels = np.full(n, -1)
+    k = int(np.clip(round(math.sqrt(n / 5)), 1, 30)) if has_words.sum() >= 6 else 1
+    if has_words.sum() >= 6 and k > 1:
+        labels[has_words] = _kmeans(reduced[has_words], k, rng)
+    else:
+        labels[has_words] = 0
+    # Word-less notes (photos, one-liners) cluster by source instead of piling in the middle.
+    extra = k
+    for source in sorted(set(sources or ["other"])):
+        mask = (labels == -1) & (np.array(sources) == source if sources else True)
+        if mask.any():
+            labels[mask] = extra
+            extra += 1
+    ids = [c for c in range(extra) if (labels == c).any()]
+    ids.sort(key=lambda c: -(labels == c).sum())
+    biggest = max((labels == c).sum() for c in ids)
+    positions = np.zeros((n, 3), dtype=np.float32)
+    clusters: list[dict[str, Any]] = []
+    golden = math.pi * (3 - math.sqrt(5))
+    for rank, c in enumerate(ids):
+        members = np.where(labels == c)[0]
+        m = len(members)
+        radius = 0.35 + 1.25 * math.sqrt((rank + 0.5) / len(ids)) if len(ids) > 1 else 0.0
+        angle = rank * golden
+        center = np.array([radius * math.cos(angle), rng.normal(0, 0.06), radius * math.sin(angle)])
+        size = 0.09 + 0.3 * math.sqrt(m / biggest)
+        pts = _ball(m, rng) * size
+        pts[:, 1] *= 0.7
+        # Keep topic order inside the cluster: pair stars sorted by their main direction
+        # with ball points sorted along x.
+        if m > 2 and has_words[members].all():
+            local = reduced[members] - reduced[members].mean(axis=0)
+            _, _, vt = np.linalg.svd(local, full_matrices=False)
+            order = np.argsort(local @ vt[0])
+            members = members[order]
+            pts = pts[np.argsort(pts[:, 0])]
+        positions[members] = center + pts
+        clusters.append(
+            {
+                "label": _cluster_label(docs, members, df_all, n, sources),
+                "p": center.round(4).tolist(),
+                "size": m,
+            }
+        )
     edges = set()
-    for i in range(n):
-        for j in np.argsort(-sims[i])[:2]:
-            if sims[i, j] > 0.25:
-                edges.add((min(i, int(j)), max(i, int(j))))
-    return coords.astype(np.float32), sorted(edges)
+    for c in ids:
+        members = np.where(labels == c)[0]
+        if len(members) < 2 or not has_words[members].all():
+            continue
+        sims = reduced[members] @ reduced[members].T
+        np.fill_diagonal(sims, -1)
+        best = np.argmax(sims, axis=1)
+        for a, b in enumerate(best):
+            if sims[a, b] > 0.35:
+                i, j = int(members[a]), int(members[b])
+                edges.add((min(i, j), max(i, j)))
+    return positions, sorted(edges), clusters
+
+
+def _cluster_label(docs, members, df_all, n, sources) -> str:
+    """The words that set this cluster apart: common inside it, rarer everywhere else."""
+    inside: Counter = Counter()
+    for i in members:
+        inside.update(w for w in docs[i] if w not in _LABEL_STOP and not w.isdigit() and len(w) > 3)
+    m = len(members)
+    scored = [
+        (count / m * math.log(n / df_all[w]), w)
+        for w, count in inside.items()
+        if count >= max(2, m * 0.08)
+    ]
+    top = [w for _, w in sorted(scored, reverse=True)[:3]]
+    if top:
+        return " · ".join(top)
+    if sources:
+        return {"photos": "Photos", "messages": "Texts", "mail": "Email"}.get(
+            sources[members[0]], "Notes"
+        )
+    return "Notes"
 
 
 class Collector:
@@ -475,12 +597,17 @@ class Collector:
         notes: bool,
         bsh: bool,
         folders: list[str],
+        computer: bool = False,
+        photos: bool = False,
+        mail: bool = False,
+        messages: bool = False,
         only: set[str] | None = None,
         progress: Callable[[str], None] = lambda _msg: None,
     ) -> dict[str, Any]:
         previous = self.kb.notes_by_source()
         collected: dict[str, list[Note]] = {}
-        errors: dict[str, str] = {}
+        # A partial rebuild keeps the other sources' problems on record.
+        errors: dict[str, str] = {k: v for k, v in self.kb.errors.items() if only and k not in only}
 
         def gather(source: str, fn: Callable[[], list[Note]]) -> None:
             if only is not None and source not in only:
@@ -503,6 +630,16 @@ class Collector:
             gather("bsh", lambda: collect_bsh(self.bsh_dir))
         if folders:
             gather("files", lambda: [n for f in folders for n in collect_folder(Path(f))])
+        from . import sources as more
+
+        if computer:
+            gather("computer", more.collect_computer)
+        if photos:
+            gather("photos", more.collect_photos)
+        if mail:
+            gather("mail", more.collect_mail)
+        if messages:
+            gather("messages", more.collect_messages)
         gather("research", lambda: collect_folder(RESEARCH_DIR, source="research"))
         progress("Arranging the galaxy…")
         self.kb.build(collected, errors)

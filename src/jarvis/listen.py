@@ -190,8 +190,8 @@ class ContinuousListener:
             blocks: queue.Queue[np.ndarray] = queue.Queue()
             segmenter = Segmenter(silence_seconds=self.silence_seconds)
             try:
-                sd._terminate()  # pick up the current default input device
-                sd._initialize()
+                # Never reset PortAudio here (sd._terminate): it would kill a reply that's
+                # playing and crash the process. A fresh stream is enough.
                 with sd.InputStream(
                     samplerate=SAMPLE_RATE,
                     channels=1,

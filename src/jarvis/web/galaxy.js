@@ -6,10 +6,17 @@
 const SOURCE_COLORS = {
   notes: '#ffcf70',
   files: '#6ee7b7',
+  computer: '#6ee7b7',
   bsh: '#5fc8ff',
   research: '#c9a2ff',
+  photos: '#ff8fc7',
+  mail: '#ff8a65',
+  messages: '#b8f26b',
 };
-const SOURCE_NAMES = { notes: 'Apple Notes', files: 'Folders', bsh: 'BSH desk', research: 'Research' };
+const SOURCE_NAMES = {
+  notes: 'Apple Notes', files: 'Folders', computer: 'Files', bsh: 'BSH desk',
+  research: 'Research', photos: 'Photos', mail: 'Email', messages: 'Texts',
+};
 
 class Galaxy {
   constructor(canvas) {
@@ -20,8 +27,9 @@ class Galaxy {
     this.byId = new Map();
     this.yaw = 0.6;
     this.pitch = 0.35;
-    this.dist = 2.2;
-    this.goalDist = 2.2;
+    this.dist = 3.6;
+    this.goalDist = 3.6;
+    this.clusters = [];
     this.target = [0, 0, 0];
     this.goal = [0, 0, 0];
     this.spin = 0.06;
@@ -42,6 +50,7 @@ class Galaxy {
   setData(data) {
     this.nodes = (data.nodes || []).map((n) => ({ ...n, color: SOURCE_COLORS[n.source] || '#9fb3c8' }));
     this.edges = data.edges || [];
+    this.clusters = data.clusters || [];
     this.byId = new Map(this.nodes.map((n, i) => [n.id, i]));
     if (this.focusId && !this.byId.has(this.focusId)) this.focusId = null;
   }
@@ -68,7 +77,7 @@ class Galaxy {
 
   reset() {
     this.goal = [0, 0, 0];
-    this.goalDist = 2.2;
+    this.goalDist = 3.6;
     this.focusId = null;
     this.highlights = new Set();
     this.spin = 0.06;
@@ -133,7 +142,7 @@ class Galaxy {
     this.projected = this.nodes.map((n) => this.project(n.p, w, h));
 
     ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(140, 190, 255, 0.07)';
+    ctx.strokeStyle = 'rgba(140, 190, 255, 0.05)';
     ctx.beginPath();
     for (const [a, b] of this.edges) {
       const pa = this.projected[a], pb = this.projected[b];
@@ -148,7 +157,7 @@ class Galaxy {
       const n = this.nodes[i];
       const [x, y, depth] = this.projected[i];
       const special = n.id === this.focusId || this.highlights.has(n.id) || n.id === this.hoverId;
-      const size = Math.max(3, Math.min(46, (special ? 34 : 15) / depth));
+      const size = Math.max(2.5, Math.min(40, (special ? 30 : 11) / depth));
       ctx.globalAlpha = Math.max(0.25, Math.min(1, 1.6 / depth));
       ctx.drawImage(this.sprites[n.source] || this.sprites.files, x - size / 2, y - size / 2, size, size);
       if (n.id === this.focusId) {
@@ -157,6 +166,20 @@ class Galaxy {
       }
     }
     ctx.globalAlpha = 1;
+
+    // Cluster names float faintly over their star systems.
+    ctx.font = '600 11px "Instrument Sans", -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    for (const c of this.clusters) {
+      if (!c.label || c.size < 4) continue;
+      const p = this.project(c.p, w, h);
+      if (!p || p[2] < 0.4) continue;
+      ctx.globalAlpha = Math.max(0.15, Math.min(0.6, 2.2 / p[2]));
+      ctx.fillStyle = '#b9c9dd';
+      ctx.fillText(c.label.toUpperCase(), p[0], p[1] - Math.min(60, 110 / p[2]));
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
 
     ctx.font = '500 13px "Instrument Sans", -apple-system, sans-serif';
     ctx.textBaseline = 'middle';
@@ -238,8 +261,9 @@ function sprite(color) {
   const g = c.getContext('2d');
   const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
   grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.18, color);
-  grad.addColorStop(0.45, hexA(color, 0.35));
+  grad.addColorStop(0.14, color);
+  grad.addColorStop(0.32, hexA(color, 0.28));
+  grad.addColorStop(0.7, hexA(color, 0.04));
   grad.addColorStop(1, hexA(color, 0));
   g.fillStyle = grad;
   g.fillRect(0, 0, 64, 64);

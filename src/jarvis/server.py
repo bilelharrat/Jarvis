@@ -86,6 +86,8 @@ def serve(port: int, token: str) -> None:
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
+    for noisy in ("pypdf", "fontTools", "httpx", "httpx2", "mcp"):
+        logging.getLogger(noisy).setLevel(logging.ERROR)
 
     from .config import load_settings
 

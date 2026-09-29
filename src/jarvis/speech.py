@@ -176,6 +176,7 @@ class Speaker:
         self.cloud_error = ""
         self._proc: asyncio.subprocess.Process | None = None
         self._playing = False
+        self._cut = False
 
     def stop(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
@@ -183,6 +184,7 @@ class Speaker:
         if self._playing:
             import sounddevice as sd
 
+            self._cut = True
             sd.stop()
 
     def _say_args(self) -> list[str]:
@@ -235,12 +237,19 @@ class Speaker:
             self._proc = None
 
     async def play(self, audio: np.ndarray, rate: int) -> None:
+        """Play a clip. Every PortAudio call stays on the event-loop thread: starting,
+        stopping and waiting on playback from different threads crashed the process
+        (SIGSEGV in PortAudio's stream callback)."""
         import sounddevice as sd
 
+        loop = asyncio.get_running_loop()
         self._playing = True
+        self._cut = False
         try:
             sd.play(audio, rate)
-            await asyncio.to_thread(sd.wait)
+            end = loop.time() + len(audio) / rate + 0.15
+            while loop.time() < end and not self._cut:
+                await asyncio.sleep(0.03)
         finally:
             self._playing = False
 
