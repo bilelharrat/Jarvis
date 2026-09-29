@@ -177,6 +177,7 @@ FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 DICTATION_SECONDS = 20.0  # the composer's mic waits this long for the user to start
 REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they hear "busy"
 WINDOW_QUEUE = 3000  # events waiting for one window; one that stops reading is cut off
+REPLY_EVERY = 0.05  # s: a streaming reply goes to the windows at most 20 times a second
 COALESCE_AT = 200  # past this many waiting, only the newest copy of LATEST_ONLY kinds stays
 # Events where a window needs only the newest copy (the whole state, not a change).
 LATEST_ONLY = frozenset(
@@ -481,6 +482,11 @@ class Hub:
         self.approvals: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, asyncio.Future] = {}
         self._subscribers: set[WindowQueue] = set()
+        # This run of the backend, in every hello: a window that reconnects to a new one
+        # (whose sessions are numbered from 1 again) drops what it showed of the old one.
+        self.instance_id = uuid.uuid4().hex[:12]
+        self._reply_sent = 0.0  # when the reply so far last went to the windows
+        self._reply_later: asyncio.TimerHandle | None = None
         self._command_failures: dict[str, tuple[float, int]] = {}  # kind -> (logged, since)
         self._lock = asyncio.Lock()
         self._tools: dict[str, dict[str, Any]] = {}
@@ -1438,6 +1444,7 @@ class Hub:
     def snapshot(self) -> dict[str, Any]:
         return {
             "type": "hello",
+            "hub_id": self.instance_id,
             "model": self.prefs.model_id(),
             "model_name": MODEL_NAMES[self.prefs.model],
             "state": self.state,
@@ -1846,6 +1853,7 @@ class Hub:
                     and self.meeting is None  # in a meeting, only the wake word is for me
                 )
                 self.set_state("idle")
+                self._send_reply(rid, now=True)  # the last words, before the turn ends
                 self.emit("turn_done", rid=rid)
                 self._silent = False
                 self._turn_text = ""
@@ -1962,7 +1970,7 @@ class Hub:
             chunk = event["delta"].get("text", "")
             self._streamed = True
             self.turn["reply"] = self.turn.get("reply", "") + chunk
-            self.emit("reply", rid=rid, text=self.turn["reply"].strip())
+            self._send_reply(rid)
             self._stream_buf += chunk
             if not self._spoke_this_turn:
                 # Voice the first clause on its own: the first sound comes sooner.
@@ -1985,7 +1993,27 @@ class Hub:
             for sentence in sentences:
                 self._speak(sentence)
         elif kind in ("content_block_stop", "message_stop"):
+            self._send_reply(rid, now=True)
             self._flush_speech()
+
+    def _send_reply(self, rid: str, now: bool = False) -> None:
+        """The reply so far to the windows, at most every REPLY_EVERY: each event carries the
+        whole text, so one per delta cost the windows L²/chunk bytes and a history redraw
+        each. `now` sends what's waiting at once (a block's end, the turn's end)."""
+        if self._reply_later is not None:
+            if not now:
+                return  # already due
+            self._reply_later.cancel()
+            self._reply_later = None
+        elif now:
+            return  # nothing waiting: the last one sent is the latest
+        wait = self._reply_sent + REPLY_EVERY - time.monotonic()
+        if now or wait <= 0:
+            self._reply_sent = time.monotonic()
+            if self.turn.get("rid") == rid:
+                self.emit("reply", rid=rid, text=self.turn.get("reply", "").strip())
+            return
+        self._reply_later = asyncio.get_running_loop().call_later(wait, self._send_reply, rid, True)
 
     def _tool_started(self, block: ToolUseBlock) -> None:
         self._filler()

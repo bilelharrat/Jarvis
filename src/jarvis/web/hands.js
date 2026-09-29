@@ -4,7 +4,7 @@
 // target, which draws its own cursor), the rest of the app otherwise.
 
 import { FilesetResolver, HandLandmarker } from '/vision/vision_bundle.mjs';
-import { createGestures, createPageGestures } from './gestures.js';
+import { createGestures, createPageGestures, wellFormed } from './gestures.js';
 
 let landmarker = null;
 let video = null;
@@ -44,7 +44,8 @@ function letGoOf(target) {
 }
 
 function onFrame(result) {
-  const hands = result.landmarks || [];
+  // Whole hands only: a malformed one would throw in drawOverlay and lose the good hand's frame.
+  const hands = (result.landmarks || []).filter(wellFormed);
   drawOverlay(hands);
   step(hands, performance.now());
 }

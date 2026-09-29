@@ -155,6 +155,16 @@ body[data-state="speaking"] .orb-core { animation: speak 0.9s ease-in-out infini
   animation: rise 220ms ease-out;
 }
 .card.needs-ok { border-color: var(--action); }
+.cards-clear { align-self: flex-end; font-size: 12px; padding: 4px 12px; }
+/* A sheet on the right (Settings, Tools & Accounts): the stack steps to its left instead of
+   covering its controls, as it does for the browser dock. */
+body { --sheet-w: 0px; }
+body:has(#settings:not([hidden])) { --sheet-w: min(400px, 100vw); }
+body:has(#accounts:not([hidden])) { --sheet-w: min(720px, 100vw); }
+.cards { right: calc(40px + var(--sheet-w)); }
+/* Over Jarvis Code, notices sit in the sidebar's lower corner, not over the transcript or
+   the Changes pane. */
+body:has(#cc:not([hidden])) .cards { top: auto; right: auto; left: 22px; bottom: 60px; width: 250px; max-height: 50vh; }
 .card-kicker { font-size: 12px; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
 .card.needs-ok .card-kicker { color: var(--action); }
 .card-title { font-family: var(--serif); font-size: 19px; line-height: 1.3; }
@@ -1497,7 +1507,7 @@ body.in-app .bd-panel { margin-top: 30px; }
 body.browser-open { padding-right: var(--bd-w); }
 body.browser-open .deck, body.browser-open .galaxy-ui, body.browser-open .galaxy-canvas { right: var(--bd-w); width: auto; }
 body.browser-open .sheet { right: var(--bd-w); }
-body.browser-open .cards { right: calc(var(--bd-w) + 24px); }
+body.browser-open .cards { right: calc(var(--bd-w) + 24px + var(--sheet-w)); }
 body.browser-open .hand-panel { right: calc(var(--bd-w) + 24px); }
 body.browser-open .hand-btn { right: calc(var(--bd-w) + 40px); }
 /* A narrow dashboard beside the dock: the orb stands alone. */

@@ -1224,8 +1224,11 @@ class TaskManager:
             ),
             key=lambda t: t.id,
         )
-        for task in ended[: max(0, len(ended) - keep)]:
+        doomed = ended[: max(0, len(ended) - keep)]
+        for task in doomed:
             del self.tasks[task.id]
+        if doomed:
+            self._changed()  # the windows let them go now, not at the next change
 
     def options_for(self, task: ClaudeTask) -> ClaudeAgentOptions:
         if task.kind == "research":

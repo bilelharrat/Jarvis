@@ -19,6 +19,12 @@ const SOURCE_NAMES = {
   research: 'Research', meetings: 'Meetings', photos: 'Photos', mail: 'Email', messages: 'Texts',
 };
 
+// Past this many stars a frame draws a fixed sample of the rest (the focused, highlighted and
+// hovered ones always): a frame costs about the same at 10,000 notes as at 100,000.
+const STAR_BUDGET = 8000;
+const EDGE_BUDGET = 8000;
+const SORT_EVERY_MS = 200; // the view turns slowly: the depth order is redone a few times a second
+
 class Galaxy {
   constructor(canvas) {
     this.canvas = canvas;
@@ -41,7 +47,6 @@ class Galaxy {
     this.running = false;
     this.onSelect = null;
     this.sprites = {};
-    this.projected = [];
     this.last = 0;
     for (const [source, color] of Object.entries(SOURCE_COLORS)) this.sprites[source] = sprite(color);
     this.sprites.focus = sprite('#ffffff');
@@ -88,9 +93,11 @@ class Galaxy {
     if (this.running) return;
     this.running = true;
     this.last = performance.now();
+    let tick = 0;
     const loop = (t) => {
       if (!this.running) return;
-      this.frame(t);
+      // Behind the dashboard (ambient), 30 frames a second is plenty.
+      if (this.interactive || (tick++ & 1) === 0) this.frame(t);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -140,30 +147,77 @@ class Galaxy {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, w, h);
 
-    this.projected = this.nodes.map((n) => this.project(n.p, w, h));
+    // Every star projected into kept typed arrays: no arrays made per star per frame.
+    const nodes = this.nodes;
+    const n = nodes.length;
+    if (!this.px || this.px.length !== n) {
+      this.px = new Float32Array(n);
+      this.py = new Float32Array(n);
+      this.pd = new Float32Array(n); // depth; 0 = behind the camera
+    }
+    const { px, py, pd } = this;
+    const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+    const [tx, ty, tz] = this.target;
+    const f = Math.min(w, h) * 0.95;
+    for (let i = 0; i < n; i++) {
+      const p = nodes[i].p;
+      const x = p[0] - tx, y = p[1] - ty, z = p[2] - tz;
+      const x1 = x * cy - z * sy;
+      const z1 = x * sy + z * cy;
+      const y1 = y * cp - z1 * sp;
+      const depth = y * sp + z1 * cp + this.dist;
+      if (depth < 0.06) { pd[i] = 0; continue; }
+      px[i] = w / 2 + (x1 * f) / depth;
+      py[i] = h / 2 + (y1 * f) / depth;
+      pd[i] = depth;
+    }
+    this.every = n > STAR_BUDGET ? Math.ceil(n / STAR_BUDGET) : 1;
 
     ctx.lineWidth = 1;
     ctx.strokeStyle = 'rgba(140, 190, 255, 0.05)';
     ctx.beginPath();
-    for (const [a, b] of this.edges) {
-      const pa = this.projected[a], pb = this.projected[b];
-      if (!pa || !pb) continue;
-      ctx.moveTo(pa[0], pa[1]);
-      ctx.lineTo(pb[0], pb[1]);
+    const edgeStep = Math.max(1, Math.ceil(this.edges.length / EDGE_BUDGET));
+    for (let k = 0; k < this.edges.length; k += edgeStep) {
+      const [a, b] = this.edges[k];
+      if (!pd[a] || !pd[b]) continue;
+      ctx.moveTo(px[a], py[a]);
+      ctx.lineTo(px[b], py[b]);
     }
     ctx.stroke();
 
-    const order = this.projected.map((p, i) => i).filter((i) => this.projected[i]).sort((a, b) => this.projected[b][2] - this.projected[a][2]);
-    for (const i of order) {
-      const n = this.nodes[i];
-      const [x, y, depth] = this.projected[i];
-      const special = n.id === this.focusId || this.highlights.has(n.id) || n.id === this.hoverId;
+    // Farthest first. Past the budget only the sample is drawn, so only it is sorted.
+    const every = this.every;
+    if (!this.order || this.orderEvery !== every || this.orderN !== n) {
+      this.order = new Uint32Array(Math.ceil(n / every));
+      for (let i = 0, k = 0; i < n; i += every, k++) this.order[k] = i;
+      this.orderEvery = every;
+      this.orderN = n;
+      this.sortedAt = -1e9;
+    }
+    const order = this.order;
+    if (t - this.sortedAt > SORT_EVERY_MS) {
+      order.sort((a, b) => pd[b] - pd[a]);
+      this.sortedAt = t;
+    }
+    const star = (i) => {
+      const depth = pd[i];
+      const node = nodes[i];
+      const special = node.id === this.focusId || this.highlights.has(node.id) || node.id === this.hoverId;
       const size = Math.max(2.5, Math.min(40, (special ? 30 : 11) / depth));
       ctx.globalAlpha = Math.max(0.25, Math.min(1, 1.6 / depth));
-      ctx.drawImage(this.sprites[n.source] || this.sprites.files, x - size / 2, y - size / 2, size, size);
-      if (n.id === this.focusId) {
+      ctx.drawImage(this.sprites[node.source] || this.sprites.files, px[i] - size / 2, py[i] - size / 2, size, size);
+      if (node.id === this.focusId) {
         ctx.globalAlpha = 0.9;
-        ctx.drawImage(this.sprites.focus, x - size / 3, y - size / 3, size / 1.5, size / 1.5);
+        ctx.drawImage(this.sprites.focus, px[i] - size / 3, py[i] - size / 3, size / 1.5, size / 1.5);
+      }
+    };
+    for (let k = 0; k < order.length; k++) if (pd[order[k]]) star(order[k]);
+    // The focused, highlighted and hovered stars that aren't in the sample: on top.
+    if (every > 1) {
+      for (const id of new Set([this.focusId, this.hoverId, ...this.highlights])) {
+        const i = this.byId.get(id);
+        if (i !== undefined && i % every && pd[i]) star(i);
       }
     }
     ctx.globalAlpha = 1;
@@ -192,18 +246,19 @@ class Galaxy {
 
     ctx.font = '500 13px "Instrument Sans", -apple-system, sans-serif';
     ctx.textBaseline = 'middle';
-    for (const i of order) {
-      const n = this.nodes[i];
-      const labelled = n.id === this.focusId || this.highlights.has(n.id) || n.id === this.hoverId;
-      if (!labelled) continue;
-      const [x, y] = this.projected[i];
-      const text = n.title.length > 48 ? `${n.title.slice(0, 47)}…` : n.title;
+    // Labels for the few stars that have one (not a pass over every star), farthest first.
+    const labelled = [...new Set([this.focusId, this.hoverId, ...this.highlights])]
+      .map((id) => this.byId.get(id)).filter((i) => i !== undefined && pd[i]).sort((a, b) => pd[b] - pd[a]);
+    for (const i of labelled) {
+      const node = nodes[i];
+      const x = px[i], y = py[i];
+      const text = node.title.length > 48 ? `${node.title.slice(0, 47)}…` : node.title;
       const pad = 6;
       const tw = ctx.measureText(text).width;
       ctx.fillStyle = 'rgba(6, 12, 24, 0.78)';
       roundRect(ctx, x + 12, y - 12, tw + pad * 2, 24, 7);
       ctx.fill();
-      ctx.fillStyle = n.id === this.focusId ? '#ffffff' : '#d7e6f5';
+      ctx.fillStyle = node.id === this.focusId ? '#ffffff' : '#d7e6f5';
       ctx.fillText(text, x + 12 + pad, y);
     }
   }
@@ -223,13 +278,27 @@ class Galaxy {
   // Screen point (client px) -> the star under it, within a hand-friendly radius.
   pickAtClient(x, y, radius = 36) {
     const r = this.canvas.getBoundingClientRect();
+    return this.nearest(x - r.left, y - r.top, radius);
+  }
+
+  // Past the budget only a sample of the stars is drawn; only drawn ones can be picked.
+  drawn(i) {
+    const every = this.every || 1;
+    if (every === 1 || i % every === 0) return true;
+    const id = this.nodes[i].id;
+    return id === this.focusId || id === this.hoverId || this.highlights.has(id);
+  }
+
+  nearest(mx, my, radius) {
+    const { px, py, pd } = this;
+    if (!pd) return null;
     let best = null;
     let bestD = radius * radius;
-    this.projected.forEach((p, i) => {
-      if (!p) return;
-      const d = (p[0] - (x - r.left)) ** 2 + (p[1] - (y - r.top)) ** 2;
+    for (let i = 0; i < pd.length && i < this.nodes.length; i++) {
+      if (!pd[i] || !this.drawn(i)) continue;
+      const d = (px[i] - mx) ** 2 + (py[i] - my) ** 2;
       if (d < bestD) { bestD = d; best = this.nodes[i].id; }
-    });
+    }
     return best;
   }
 
@@ -245,14 +314,7 @@ class Galaxy {
   }
 
   pick(mx, my) {
-    let best = null;
-    let bestD = 14 * 14;
-    this.projected.forEach((p, i) => {
-      if (!p) return;
-      const d = (p[0] - mx) ** 2 + (p[1] - my) ** 2;
-      if (d < bestD) { bestD = d; best = this.nodes[i].id; }
-    });
-    return best;
+    return this.nearest(mx, my, 14);
   }
 
   _bind() {

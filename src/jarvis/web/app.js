@@ -18,6 +18,7 @@ const STATE_LINES = {
 
 let ws = null;
 let retry = 0;
+let hubId = null;  // which backend this window last heard from (a restarted one numbers sessions from 1 again)
 let state = 'idle';
 let muted = false;
 let prefs = null;
@@ -52,6 +53,16 @@ function onEvent(ev) {
   if (onJarvisCodeEvent(ev)) return;
   switch (ev.type) {
     case 'hello':
+      if (hubId !== null && ev.hub_id !== hubId) {
+        // A different backend: its session 1 isn't ours. Nothing of the old one stays.
+        ccSelected = null;
+        $('deck-timeline').replaceChildren();
+        live.text = null;
+        live.thinking = null;
+        sources = new Map();
+        foundFiles.clear();
+      }
+      hubId = ev.hub_id || null;
       setState(ev.state);
       setMuted(ev.muted);
       renderStatus(ev.status || {});
@@ -62,8 +73,13 @@ function onEvent(ev) {
       renderCC(ev.tasks || []);
       renderPrefs(ev.prefs);
       renderBrain(ev.brain || {});
+      // What the hub says is waiting replaces what the window had: one answered while the
+      // window was away goes, one raised meanwhile gets its sheet and its number keys.
       $('cards').querySelectorAll('.needs-ok').forEach((n) => n.remove());
-      (ev.approvals || []).forEach(showApproval);
+      pendingApprovals.clear();
+      (ev.approvals || []).forEach((a) => { showApproval(a); pendingApprovals.set(a.id, a); });
+      renderInlineApprovals();
+      if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }  // what it missed
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });
       if (!$('cc').hidden) { send({ type: 'claude_projects' }); if (deckProject) send({ type: 'claude_sessions', directory: deckProject }); }
@@ -126,7 +142,15 @@ function onEvent(ev) {
     case 'reply': {
       $('reply').textContent = ev.text;
       const last = history[history.length - 1];
-      if (last && last.live) { last.text = ev.text; renderHistory(); }
+      if (last && last.live) {
+        last.text = ev.text;
+        // Only the answer's own line changes: the rest of the list stays as it is.
+        const li = $('history').lastElementChild;
+        if (li && li.firstChild && li.firstChild.nodeType === Node.TEXT_NODE) {
+          li.firstChild.nodeValue = ev.text || '…';
+          if (!historyScroll) historyScroll = requestAnimationFrame(() => { historyScroll = 0; $('history').scrollTop = $('history').scrollHeight; });
+        } else renderHistory();
+      }
       break;
     }
     case 'sources': onSources(ev); break;
@@ -150,7 +174,7 @@ function onEvent(ev) {
     case 'task_log': if (ev.id === ccSelected) appendEntry(ev.entry); break;
     case 'task_log_update': if (ev.id === ccSelected) updateEntry(ev); break;
     case 'project_git': if (ev.directory === deckProject) renderGit(ev); break;
-    case 'task_transcript': if (ev.id === ccSelected) { $('deck-timeline').replaceChildren(); ev.entries.forEach(appendEntry); renderInlineApprovals(); } break;
+    case 'task_transcript': if (ev.id === ccSelected) replayTranscript(ev.entries || []); break;
     case 'claude_projects': renderProjects(ev.items); break;
     case 'browser_cmd': runBrowserCommand(ev); break;
     case 'research_cmd': runResearchCmd(ev); break;
@@ -235,6 +259,17 @@ $('ask-form').addEventListener('submit', (e) => {
   $('ask-input').blur();
 });
 
+// Controls that answer Space themselves: buttons, links, disclosure rows (every tool row in
+// Jarvis Code is a <summary>), and focusable widgets such as the Markets panel and the
+// browser dock's handle. Space on them is theirs, never the microphone.
+const OWN_SPACE = 'button, a[href], summary, select, [role="button"], [role="separator"], [role="switch"], [role="radio"], [role="checkbox"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="slider"], [tabindex]:not([tabindex="-1"])';
+
+function spaceTalks(e) {
+  const t = e.target;
+  return e.code === 'Space' && !e.repeat && !e.defaultPrevented && !e.isComposing && !e.metaKey && !e.ctrlKey
+    && !(t instanceof Element && (t.closest(OWN_SPACE) || t.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') || (t instanceof HTMLElement && t.isContentEditable)));
+}
+
 document.addEventListener('keydown', (e) => {
   // Anywhere text goes in (fields, the composer and other text boxes, a title being
   // renamed), Space is a space: never the microphone.
@@ -249,7 +284,7 @@ document.addEventListener('keydown', (e) => {
     else if (galaxyMode === 'open') setGalaxyMode('off');
     else if (!$('activity').hidden) toggleDrawer(false);
     if (state !== 'idle') send({ type: 'stop' });
-  } else if (e.code === 'Space' && !typing && !(e.target instanceof HTMLButtonElement) && galaxyMode !== 'open') {
+  } else if (!typing && galaxyMode !== 'open' && spaceTalks(e)) {
     e.preventDefault();
     talkOrStop();
   }
@@ -424,6 +459,7 @@ const appTarget = {
     const notices = [...$('cards').querySelectorAll('.card:not(.needs-ok)')];
     if (notices.length) {
       notices[notices.length - 1].remove();
+      syncDismissAll();
       return;
     }
     const i = LOOK_ORDER.indexOf(prefs.look || 'orb');
@@ -1061,13 +1097,14 @@ function renderWeather(w) {
   $('weather-body').replaceChildren(now, grid);
 }
 
+let historyScroll = 0;
+
 function renderHistory() {
   const list = $('history');
   list.replaceChildren(...history.slice(-60).map((h) => {
     const li = el('li', h.role);
     li.append(document.createTextNode(h.text || '…'));
-    const t = el('time', '', new Date(h.at).toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit' }));
-    li.append(t);
+    li.append(el('time', '', clockText(h.at)));
     return li;
   }));
   list.scrollTop = list.scrollHeight;
@@ -1076,7 +1113,7 @@ function renderHistory() {
 function renderLog() {
   $('rt-log').replaceChildren(...activity.slice(0, 30).map((a) => {
     const li = el('li', a.status === 'failed' ? 'failed' : '');
-    li.append(el('time', '', `[${new Date(a.at).toLocaleTimeString(uiLocale(), { hour12: false })}]`),
+    li.append(el('time', '', `[${clockText(a.at, 'hms24')}]`),
       document.createTextNode(`${a.label.toUpperCase()}${a.status === 'running' ? ' …' : a.status === 'failed' ? ' — FAILED' : ''}`));
     return li;
   }));
@@ -1223,33 +1260,6 @@ let awaitingNewSession = false;
 const pendingApprovals = new Map();
 const MODE_NAMES = { plan: 'Plan', ask: 'Manual', edits: 'Accept edits', smart: 'Auto', auto: 'Bypass permissions' };
 
-const TOOL_ICONS = {
-  read: 'M2 8s2.5-4.5 6-4.5S14 8 14 8s-2.5 4.5-6 4.5S2 8 2 8z M8 6.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
-  edit: 'M10.5 2.5l3 3L6 13H3v-3z',
-  run: 'M2.5 3.5h11v9h-11z M4.5 7l2 1.5-2 1.5 M8 10.5h3',
-  search: 'M7 3a4 4 0 110 8 4 4 0 010-8z M10 10l3.5 3.5',
-  web: 'M8 1.8a6.2 6.2 0 110 12.4A6.2 6.2 0 018 1.8z M1.8 8h12.4 M8 1.8c1.8 2 2.6 4 2.6 6.2S9.8 12.2 8 14.2 M8 1.8C6.2 3.8 5.4 5.8 5.4 8s.8 4.2 2.6 6.2',
-  other: 'M3 8h10 M8 3v10',
-};
-function toolKind(name) {
-  if (['Read', 'NotebookRead'].includes(name)) return 'read';
-  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(name)) return 'edit';
-  if (name === 'Bash') return 'run';
-  if (['Grep', 'Glob', 'LS'].includes(name)) return 'search';
-  if (['WebSearch', 'WebFetch'].includes(name)) return 'web';
-  return 'other';
-}
-function icon(kind) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('width', '15'); svg.setAttribute('height', '15'); svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.4');
-  const path = document.createElementNS(ns, 'path');
-  path.setAttribute('d', TOOL_ICONS[kind] || TOOL_ICONS.other);
-  svg.append(path);
-  return svg;
-}
-
 function toggleCC(open) {
   $('cc').hidden = !open;
   $('cc-btn').setAttribute('aria-expanded', String(open));
@@ -1291,6 +1301,9 @@ function renderProjects(items) {
   deckProjects = items || [];
   if (!deckProject && deckProjects.length) { selectProject((deckProjects.find((p) => p.running) || deckProjects[0]).name); return; }
   const filter = $('deck-filter').value.trim().toLowerCase();
+  const shown = [filter, deckProject, ccSelected, voiceFocus && voiceFocus.id, [...openProjects], deckProjects.map((p) => [p.name, p.branch]),
+    ccTasks.map((t) => [t.id, t.folder, t.title || t.prompt, statusOf(t), statusText(t), t.mode])];
+  if (!changed('projects', shown)) { moveGlider(); return; }
   $('deck-project-list').replaceChildren(...deckProjects.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
     const li = el('li');
     const open = openProjects.has(p.name) || p.name === deckProject;
@@ -1422,8 +1435,10 @@ function renderCC(items) {
     $('cc-working').hidden = true;
     $('jc-todos').hidden = true;
     $('jc-bg').hidden = true;
+    drawnParts.delete('todos');  // hidden here: drawn again when a session shows
+    drawnParts.delete('background');
     setCtx(null);
-    renderQueue(null);
+    if (changed('queue', null)) renderQueue(null);
     return;
   }
   $('cc-mode').textContent = `${MODE_LINES[t.mode] || t.mode} · ⇧⇥ to switch${t.ultracode ? ' · ultracode on' : ''}`;
@@ -1437,10 +1452,10 @@ function renderCC(items) {
   if (!t.busy) workingSince = 0;
   $('cc-working').hidden = !t.busy;
   $('cc-working-text').textContent = `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`;
-  renderTodos(t.todos || []);
-  renderBackground(t.background || []);
-  renderQueue(t);
-  if (currentPane === 'background') renderPaneBody();
+  if (changed('todos', [t.id, t.todos])) renderTodos(t.todos || []);
+  if (changed('background', [t.id, t.background])) renderBackground(t.background || []);
+  if (changed('queue', [t.id, t.queue])) renderQueue(t);
+  if (currentPane === 'background' && changed('bgpane', [t.id, t.background])) renderPaneBody();
 }
 
 function setCtx(percent) {
@@ -1647,12 +1662,41 @@ function agentEntry(e) {
   return li;
 }
 
-const live = { text: null, thinking: null, frame: 0 };
+const live = { text: null, thinking: null, frame: 0, raw: '', drawnAt: 0 };
+const TIMELINE_MAX = 400;  // what the hub keeps of a session (tasks.py); the window keeps no more
 
-function appendEntry(e) {
-  const tl = $('deck-timeline');
+// The transcript follows the newest entry only while the reader is at the bottom. That is
+// read once per frame, before the frame's first change, and the scroll is written once
+// after it: reading it after every insert laid out the whole transcript each time.
+// how: 'follow' (only if at the bottom), 'show' (always, gliding) or 'jump' (always, at once:
+// a session opening lands on its newest entry instead of gliding through all of them).
+const follow = { frame: 0, bottom: true, jump: false };
+function followBottom(how = 'follow') {
   const box = $('cc-scroll');
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+  if (how !== 'follow') follow.bottom = true;
+  if (how === 'jump') follow.jump = true;
+  if (follow.frame) return;
+  if (how === 'follow') follow.bottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+  follow.frame = requestAnimationFrame(() => {
+    follow.frame = 0;
+    if (follow.bottom) box.scrollTo({ top: box.scrollHeight, behavior: follow.jump ? 'instant' : 'auto' });
+    follow.jump = false;
+  });
+}
+
+// A session's transcript as the hub sends it on opening: built without a layout per entry.
+function replayTranscript(entries) {
+  $('deck-timeline').replaceChildren();
+  live.text = null;
+  live.thinking = null;
+  for (const e of entries.slice(-TIMELINE_MAX)) appendEntry(e, true);
+  renderInlineApprovals();
+  followBottom('jump');
+}
+
+function appendEntry(e, replaying = false) {
+  const tl = $('deck-timeline');
+  if (!replaying) followBottom();
   let li;
   if (e.role === 'user') {
     li = el('li', 'jc-user');
@@ -1694,9 +1738,11 @@ function appendEntry(e) {
     li = el('li', 'jc-note');
     li.append(el('span', '', e.role === 'note' ? '⎿' : 'ⓘ'), el('span', '', e.text));
   }
-  tl.insertBefore(li, tl.querySelector('.jc-ask'));
+  tl.insertBefore(li, tl.querySelector(':scope > .jc-ask'));
   $('cc-welcome').hidden = true;
-  if (nearBottom) box.scrollTop = box.scrollHeight;
+  // Oldest out first; approval sheets and the live reply sit at the end and stay.
+  const keep = TIMELINE_MAX + tl.querySelectorAll(':scope > .jc-ask').length + (live.text ? 1 : 0) + (live.thinking ? 1 : 0);
+  while (tl.childElementCount > keep) tl.firstElementChild.remove();
 }
 
 function userActions(e) {
@@ -1738,8 +1784,7 @@ function updateEntry(ev) {
 function onStream(ev) {
   if (ev.id !== ccSelected) return;
   const tl = $('deck-timeline');
-  const box = $('cc-scroll');
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+  followBottom();
   if (ev.part === 'thinking') {
     if (!live.thinking) {
       live.thinking = el('li', 'jc-think');
@@ -1752,71 +1797,88 @@ function onStream(ev) {
     if (live.thinking) { live.thinking.remove(); live.thinking = null; }
     if (!live.text) {
       live.text = el('li', 'jc-say live');
-      live.text.dataset.raw = '';
-      tl.insertBefore(live.text, tl.querySelector('.jc-ask'));
+      live.raw = '';
+      tl.insertBefore(live.text, tl.querySelector(':scope > .jc-ask'));
     }
-    live.text.dataset.raw += ev.text;
+    live.raw += ev.text;
     if (!live.frame) {
-      // One redraw per frame, not per token: a long reply would otherwise re-render
-      // itself hundreds of times a second.
-      live.frame = requestAnimationFrame(() => {
+      // At most one redraw per frame, not per token; and a long reply redraws less often
+      // (1 ms more per 200 characters, at least every half second), since each redraw is
+      // of the whole reply so far. Nothing is drawn while the panel is closed.
+      const wait = Math.min(500, live.raw.length / 200) - (performance.now() - live.drawnAt);
+      const draw = () => {
         live.frame = 0;
-        if (!live.text) return;
-        live.text.replaceChildren(richText(live.text.dataset.raw));
-        if (nearBottom) box.scrollTop = box.scrollHeight;
-      });
+        if (!live.text || $('cc').hidden) return;
+        live.text.replaceChildren(richText(live.raw));
+        live.drawnAt = performance.now();
+        followBottom();
+      };
+      live.frame = wait > 16 ? setTimeout(() => requestAnimationFrame(draw), wait) : requestAnimationFrame(draw);
     }
   }
   $('cc-welcome').hidden = true;
-  if (nearBottom) box.scrollTop = box.scrollHeight;
 }
 
 // An approval, as a sheet in the conversation: capsule answers, number keys, and a
-// "tell Claude what to do instead" box for no.
+// "tell Claude what to do instead" box for no. Only a new approval gets a sheet and only an
+// answered one loses it: rebuilding every sheet on each approval event (from any session,
+// or JARVIS itself) wiped a reason being typed and dropped the focus to the page, where the
+// next digit typed answered the approval.
 function renderInlineApprovals() {
-  document.querySelectorAll('#deck-timeline .jc-ask').forEach((n) => n.remove());
-  for (const a of pendingApprovals.values()) {
-    if (a.task_id !== ccSelected) continue;
-    const li = el('li', 'jc-ask');
-    li.dataset.approval = a.id;
-    const title = a.ask_kind === 'plan' ? 'Ready to code?' : a.ask_kind === 'question' ? a.question : a.tool === 'Bash' ? 'Run this command?' : a.tool === 'Write' ? 'Create this file?' : ['Edit', 'MultiEdit'].includes(a.tool) ? 'Make this edit?' : a.question;
-    const head = el('p', 'jc-ask-head');
-    head.append(el('span', `jc-ticon ${toolKindClass(a.tool)}`, a.ask_kind === 'plan' ? '☰' : a.ask_kind === 'question' ? '?' : a.tool === 'Bash' ? '›_' : '✎'), el('span', '', title));
-    li.append(head);
-    if (a.detail) li.append(a.ask_kind === 'plan' ? richText(a.detail) : a.ask_kind === 'question' ? el('p', 'jc-dim', '') : diffBlock(a.detail));
-    const row = el('div', 'jc-choices');
-    const feedback = el('div', 'jc-feedback');
-    feedback.hidden = true;
-    const input = el('input', 'jc-field');
-    input.placeholder = 'Tell Claude what to do instead (optional)';
-    const sendNo = el('button', 'jc-btn small', 'Send');
-    sendNo.type = 'button';
-    feedback.append(input, sendNo);
-    let withReason = 'deny'; // "No" and "Keep planning" can both carry a reason
-    a.choices.forEach((c, i) => {
-      const b = el('button', `jc-btn small ${i === 0 ? 'filled' : ''}`);
-      b.type = 'button';
-      b.append(el('kbd', '', String(i + 1)), document.createTextNode(c.label));
-      b.addEventListener('click', () => {
-        if (c.id === 'deny' || c.id === 'plan_keep') {
-          withReason = c.id;
-          input.placeholder = c.id === 'plan_keep' ? 'What should the plan change? (optional)' : 'Tell Claude what to do instead (optional)';
-          feedback.hidden = false;
-          input.focus();
-          return;
-        }
-        answerApproval(a, c.id);
-      });
-      row.append(b);
-    });
-    sendNo.addEventListener('click', () => answerApproval(a, withReason, input.value));
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); answerApproval(a, withReason, input.value); } });
-    li.append(row, feedback, el('p', 'jc-ask-hint', 'Press a number, or just say “yes”, “no, …”, “always” or “allow all edits”.'));
-    $('deck-timeline').append(li);
-    if (document.activeElement === $('deck-input') && !$('deck-input').value) row.querySelector('button').focus();
-    $('cc-welcome').hidden = true;
-    $('cc-scroll').scrollTop = $('cc-scroll').scrollHeight;
+  const tl = $('deck-timeline');
+  const want = [...pendingApprovals.values()].filter((a) => a.task_id === ccSelected);
+  const ids = new Set(want.map((a) => a.id));
+  tl.querySelectorAll(':scope > .jc-ask').forEach((n) => { if (!ids.has(n.dataset.approval)) n.remove(); });
+  let added = false;
+  for (const a of want) {
+    if (tl.querySelector(`:scope > .jc-ask[data-approval="${CSS.escape(a.id)}"]`)) continue;
+    tl.append(approvalSheet(a));
+    added = true;
   }
+  if (!added) return;
+  $('cc-welcome').hidden = true;
+  const first = tl.querySelector(':scope > .jc-ask .jc-choices button');
+  if (first && document.activeElement === $('deck-input') && !$('deck-input').value) first.focus();
+  followBottom('show');
+}
+
+function approvalSheet(a) {
+  const li = el('li', 'jc-ask');
+  li.dataset.approval = a.id;
+  const title = a.ask_kind === 'plan' ? 'Ready to code?' : a.ask_kind === 'question' ? a.question : a.tool === 'Bash' ? 'Run this command?' : a.tool === 'Write' ? 'Create this file?' : ['Edit', 'MultiEdit'].includes(a.tool) ? 'Make this edit?' : a.question;
+  const head = el('p', 'jc-ask-head');
+  head.append(el('span', `jc-ticon ${toolKindClass(a.tool)}`, a.ask_kind === 'plan' ? '☰' : a.ask_kind === 'question' ? '?' : a.tool === 'Bash' ? '›_' : '✎'), el('span', '', title));
+  li.append(head);
+  if (a.detail) li.append(a.ask_kind === 'plan' ? richText(a.detail) : a.ask_kind === 'question' ? el('p', 'jc-dim', '') : diffBlock(a.detail));
+  const row = el('div', 'jc-choices');
+  const feedback = el('div', 'jc-feedback');
+  feedback.hidden = true;
+  const input = el('input', 'jc-field');
+  input.placeholder = 'Tell Claude what to do instead (optional)';
+  const sendNo = el('button', 'jc-btn small', 'Send');
+  sendNo.type = 'button';
+  feedback.append(input, sendNo);
+  let withReason = 'deny'; // "No" and "Keep planning" can both carry a reason
+  a.choices.forEach((c, i) => {
+    const b = el('button', `jc-btn small ${i === 0 ? 'filled' : ''}`);
+    b.type = 'button';
+    b.append(el('kbd', '', String(i + 1)), document.createTextNode(c.label));
+    b.addEventListener('click', () => {
+      if (c.id === 'deny' || c.id === 'plan_keep') {
+        withReason = c.id;
+        input.placeholder = c.id === 'plan_keep' ? 'What should the plan change? (optional)' : 'Tell Claude what to do instead (optional)';
+        feedback.hidden = false;
+        input.focus();
+        return;
+      }
+      answerApproval(a, c.id);
+    });
+    row.append(b);
+  });
+  sendNo.addEventListener('click', () => answerApproval(a, withReason, input.value));
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); answerApproval(a, withReason, input.value); } });
+  li.append(row, feedback, el('p', 'jc-ask-hint', 'Press a number, or just say “yes”, “no, …”, “always” or “allow all edits”.'));
+  return li;
 }
 
 // Follow-ups waiting for the current step, newest last; ✕ takes one back unsent.
@@ -2172,7 +2234,9 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;  // typing
   const a = [...pendingApprovals.values()].find((x) => x.task_id === ccSelected);
   const n = Number(e.key);
-  if (a && n >= 1 && n <= a.choices.length) {
+  const inDeck = !(e.target instanceof Element) || e.target === document.body || $('cc').contains(e.target);
+  const writingReason = !!document.querySelector('#deck-timeline .jc-feedback:not([hidden])');
+  if (a && n >= 1 && n <= a.choices.length && inDeck && !e.repeat && !writingReason) {
     e.preventDefault();
     const c = a.choices[n - 1];
     if (c.id === 'deny') { const box = document.querySelector(`[data-approval="${CSS.escape(a.id)}"] .jc-feedback`); if (box) { box.hidden = false; box.querySelector('input').focus(); } } else answerApproval(a, c.id);
@@ -2301,7 +2365,7 @@ function renderComposer() {
   if (!$('jc-mode-btn')) return;
   const s = composerState();
   const mode = JC_MODES.find((m) => m.id === s.mode) || JC_MODES[0];
-  $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
+  if ($('jc-mode-btn').dataset.mode !== mode.id) $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
   $('jc-mode-label').textContent = mode.label;
   $('jc-mode-btn').dataset.mode = mode.id;
   $('jc-mode-btn').title = `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`;
@@ -3601,6 +3665,31 @@ $('memory-form').addEventListener('submit', (e) => {
 // What the user, Claude or their data says stays as it is; the window's own words are
 // translated around it (i18n.js skips anything inside data-no-i18n).
 function tr(text) { return window.jarvisI18n ? window.jarvisI18n.t(text) : text; }
+
+// A time as the lists show it. Intl formatters are costly to make (toLocaleTimeString makes
+// one per call): one per language and style, kept.
+const TIME_STYLES = { hm: { hour: 'numeric', minute: '2-digit' }, hms24: { hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false } };
+const timeFormats = new Map();
+function clockText(at, style = 'hm') {
+  const when = new Date(at);
+  if (Number.isNaN(when.getTime())) return '';  // Intl throws where toLocaleTimeString said "Invalid Date"
+  const locale = uiLocale();
+  const key = `${locale || ''}|${style}`;
+  if (!timeFormats.has(key)) timeFormats.set(key, new Intl.DateTimeFormat(locale, TIME_STYLES[style]));
+  return timeFormats.get(key).format(when);
+}
+
+// Redraw a part of the window only when what it shows has changed. The hub resends whole
+// lists on every step of every session; rebuilding each time replaced the buttons under
+// the pointer (a click that straddled an update was lost), dropped the keyboard focus and
+// reopened what the user had folded.
+const drawnParts = new Map();
+function changed(part, data) {
+  const sig = JSON.stringify(data);
+  if (drawnParts.get(part) === sig) return false;
+  drawnParts.set(part, sig);
+  return true;
+}
 function uiLocale() { return window.jarvisI18n && window.jarvisI18n.lang() === 'zh' ? 'zh-CN' : undefined; }
 
 function mine(node) {
@@ -3616,7 +3705,7 @@ function el(tag, cls, text) {
 }
 
 function showApproval(a) {
-  if (document.querySelector(`[data-approval="${CSS.escape(a.id)}"]`)) return;
+  if ($('cards').querySelector(`[data-approval="${CSS.escape(a.id)}"]`)) return;  // its card (a sheet in Jarvis Code is not one)
   const card = el('div', 'card needs-ok');
   card.dataset.approval = a.id;
   card.append(el('div', 'card-kicker', 'Needs your OK'), el('div', 'card-title', a.question));
@@ -3634,7 +3723,7 @@ function showApproval(a) {
 }
 
 function notice(kicker, title, text, ms, extra) {
-  const card = el('div', 'card');
+  const card = el('div', 'card plain');
   card.append(el('div', 'card-kicker', kicker));
   if (title) card.append(el('div', 'card-title', title));
   if (text) card.append(el('div', 'card-text', text.length > 400 ? `${text.slice(0, 400)}…` : text));
@@ -3642,11 +3731,26 @@ function notice(kicker, title, text, ms, extra) {
   if (extra) actions.append(extra);
   const dismiss = el('button', 'btn', 'Dismiss');
   dismiss.type = 'button';
-  dismiss.addEventListener('click', () => card.remove());
+  dismiss.addEventListener('click', () => { card.remove(); syncDismissAll(); });
   actions.append(dismiss);
   card.append(actions);
   $('cards').append(card);
-  if (ms) setTimeout(() => card.remove(), ms);
+  syncDismissAll();
+  if (ms) setTimeout(() => { card.remove(); syncDismissAll(); }, ms);
+}
+
+// Two or more notices: one button clears them all (approvals stay).
+function syncDismissAll() {
+  const plain = $('cards').querySelectorAll('.card.plain').length;
+  let all = $('cards-clear');
+  if (plain < 2) { if (all) all.remove(); return; }
+  if (!all) {
+    all = el('button', 'btn cards-clear', 'Dismiss all');
+    all.id = 'cards-clear';
+    all.type = 'button';
+    all.addEventListener('click', () => { $('cards').querySelectorAll('.card.plain').forEach((n) => n.remove()); syncDismissAll(); });
+  }
+  if ($('cards').firstElementChild !== all) $('cards').prepend(all);
 }
 
 const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work' };
@@ -3707,6 +3811,8 @@ $('chip-meeting').addEventListener('click', () => send({ type: 'meeting_start', 
 
 function onTaskFinished(ev) {
   if (ev.id === ccSelected) send({ type: 'task_context', id: ev.id });
+  // The session on screen shows its own end of turn: a card would only cover its Changes pane.
+  if (ev.task_kind === 'code' && ev.id === ccSelected && !$('cc').hidden) return;
   const title = { done: ev.task_kind === 'research' ? 'Report ready' : 'Finished', stopped: 'Stopped', failed: 'Didn’t finish' }[ev.status] || ev.status;
   let extra = null;
   if (ev.report_path) {
@@ -3719,13 +3825,19 @@ function onTaskFinished(ev) {
 
 // ── activity drawer ──
 
+const ACTIVITY_MAX = 200;  // the hub keeps 60, the drawer shows 40, the HUD log 30
+let activityFrame = 0;
+
 function onTool(ev) {
   const i = activity.findIndex((a) => a.id === ev.id);
-  if (i >= 0) activity[i] = ev; else activity.unshift(ev);
+  if (i >= 0) activity[i] = ev;
+  else {
+    activity.unshift(ev);
+    if (activity.length > ACTIVITY_MAX) activity.length = ACTIVITY_MAX;
+  }
   runningTools = activity.filter((a) => a.status === 'running').length;
-  renderLog();
   if (state === 'thinking') setState('thinking');
-  renderActivity();
+  if (!activityFrame) activityFrame = requestAnimationFrame(() => { activityFrame = 0; renderLog(); renderActivity(); });
 }
 
 function renderActivity() {
@@ -3736,7 +3848,7 @@ function renderActivity() {
     : 'Activity';
   $('activity-list').replaceChildren(...activity.slice(0, 40).map((a) => {
     const li = el('li', a.status);
-    const t = el('time', '', new Date(a.at).toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit' }));
+    const t = el('time', '', clockText(a.at));
     t.dateTime = a.at;
     const st = a.status === 'running' ? 'working' : a.status === 'failed' ? 'failed' : a.ms ? `${(a.ms / 1000).toFixed(1)}s` : '';
     li.append(t, el('span', '', a.label), el('span', 'st', st));
@@ -3745,27 +3857,53 @@ function renderActivity() {
   $('activity-empty').hidden = activity.length > 0 || $('tasks-list').childElementCount > 0;
 }
 
+const TASKS_SHOWN = 20;  // besides everything still running
+
+// One box per task, kept and updated in place (see changed()): the Stop under the pointer
+// must survive the list the hub sends on every step.
 function renderTasks(items) {
-  $('tasks-list').replaceChildren(...items.map((t) => {
-    const box = el('div', `task ${t.status}`);
-    const top = el('div', 'task-top');
-    top.append(el('span', '', t.label || `Jarvis Code · ${t.folder}`), el('span', '', t.status));
-    box.append(top, el('div', 'task-prompt', t.prompt.length > 140 ? `${t.prompt.slice(0, 140)}…` : t.prompt));
-    box.append(el('div', 'task-state', t.last_action + (t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : '')));
-    if (t.status === 'running') {
-      const stop = el('button', 'btn', 'Stop');
-      stop.type = 'button';
-      stop.addEventListener('click', () => send({ type: 'task_cancel', id: t.id }));
-      box.append(stop);
-    } else if (t.report_path) {
-      const open = el('button', 'btn', 'Open report');
-      open.type = 'button';
-      open.addEventListener('click', () => send({ type: 'open_report', path: t.report_path }));
-      box.append(open);
+  const list = $('tasks-list');
+  let rest = TASKS_SHOWN;
+  const shown = items.filter((t) => t.status === 'running' || rest-- > 0);
+  const old = new Map([...list.children].map((box) => [box.dataset.task, box]));
+  shown.forEach((t, i) => {
+    let box = old.get(String(t.id));
+    old.delete(String(t.id));
+    if (!box) {
+      box = el('div');
+      box.dataset.task = String(t.id);
+      const top = el('div', 'task-top');
+      top.append(el('span'), el('span'));
+      box.append(top, el('div', 'task-prompt'), el('div', 'task-state'));
     }
-    return box;
-  }));
-  renderActivity();
+    box.className = `task ${t.status}`;
+    const [label, status] = box.firstElementChild.children;
+    setText(label, t.label || `Jarvis Code · ${t.folder}`);
+    setText(status, t.status);
+    setText(box.children[1], t.prompt.length > 140 ? `${t.prompt.slice(0, 140)}…` : t.prompt);
+    setText(box.children[2], t.last_action + (t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : ''));
+    taskButton(box, t);
+    if (list.children[i] !== box) list.insertBefore(box, list.children[i] || null);
+  });
+  old.forEach((box) => box.remove());
+  $('activity-empty').hidden = activity.length > 0 || list.childElementCount > 0;
+}
+
+function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
+
+function taskButton(box, t) {
+  const kind = t.status === 'running' ? 'stop' : t.report_path ? 'report' : '';
+  let b = box.querySelector(':scope > .btn');
+  if (b && b.dataset.kind === kind && b.dataset.path === (t.report_path || '')) return;
+  if (b) b.remove();
+  if (!kind) return;
+  b = el('button', 'btn', kind === 'stop' ? 'Stop' : 'Open report');
+  b.type = 'button';
+  b.dataset.kind = kind;
+  b.dataset.path = t.report_path || '';
+  const { id, report_path: path } = t;
+  b.addEventListener('click', () => send(kind === 'stop' ? { type: 'task_cancel', id } : { type: 'open_report', path }));
+  box.append(b);
 }
 
 function toggleDrawer(open) {

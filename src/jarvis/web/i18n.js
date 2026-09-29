@@ -177,6 +177,7 @@
   window.jarvisI18n = {
     setLang,
     lang: () => state.lang,
+    watching: () => state.observer !== null,  // for the tests: English watches nothing
     t: (text) => (state.lang === 'zh' ? lookup(String(text)) ?? String(text) : String(text)),
   };
 })();

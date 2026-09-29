@@ -125,3 +125,16 @@ async def test_a_message_left_when_claude_code_exits_opens_the_session_again(set
     assert "and the docs" in ExitingClient.made[1].queries[-1]
     assert task.inbox.empty() and task.status == "running"
     task.handle.cancel()
+
+
+async def test_sessions_let_go_leave_the_windows_list_at_once(settings, tmp_path, monkeypatch):
+    (tmp_path / "proj").mkdir()
+    monkeypatch.setattr(tasks_mod, "MAX_ENDED", 2)
+    tm, events = make(settings)
+    started = [tm.start("", "proj") for _ in range(4)]
+    for task in started:
+        assert await until(lambda t=task: t.status == "waiting")
+        tm.cancel(task.id)
+        await asyncio.gather(task.handle, return_exceptions=True)
+    listed = [e for e in events if e[0] == "tasks"][-1][1]["items"]
+    assert {t["id"] for t in listed} == {t.id for t in started[-2:]}

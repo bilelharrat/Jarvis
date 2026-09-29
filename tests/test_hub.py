@@ -838,3 +838,33 @@ async def test_its_code_mode_greeting_is_not_a_message_for_claude(settings, isol
     await hub.on_heard(greeting)  # heard back: neither a wake word nor a request
     await hub.on_heard("Everything you say now goes to Jarvis Code")
     assert handled == []
+
+
+async def test_hello_names_this_run_of_the_backend(settings, quiet_speaker, isolated):
+    # A window that reconnects to a restarted backend (sessions numbered from 1 again) must
+    # be able to tell it isn't the one it was showing.
+    first = make_hub(settings, quiet_speaker, isolated=isolated)
+    again = first.snapshot()["hub_id"]
+    assert again and first.snapshot()["hub_id"] == again
+    other = make_hub(settings, quiet_speaker, isolated=isolated)
+    assert other.snapshot()["hub_id"] != again
+
+
+async def test_a_streamed_reply_goes_to_the_windows_a_few_times_and_ends_whole(settings, isolated):
+    from claude_agent_sdk import AssistantMessage, TextBlock
+
+    chunks = [f"word{i} " for i in range(400)]  # a long answer, streamed all at once
+    full = "".join(chunks).strip()
+    hub = make_hub(
+        settings,
+        RecordingSpeaker(),
+        script=stream_events(chunks)
+        + [AssistantMessage(content=[TextBlock(text=full)], model="m"), result()],
+        isolated=isolated,
+    )
+    await hub.start()
+    q = hub.subscribe()
+    await hub.ask("say a lot")
+    replies = [e["text"] for e in drain(q) if e["type"] == "reply"]
+    assert len(replies) <= 4, len(replies)  # was 400: the whole text again on every delta
+    assert replies[0] == "word0" and replies[-1] == full
