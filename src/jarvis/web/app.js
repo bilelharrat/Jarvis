@@ -2567,6 +2567,7 @@ function renderComposer() {
   if ($('jc-mode-btn').dataset.mode !== mode.id) $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
   $('jc-mode-label').textContent = mode.label;
   $('jc-mode-btn').dataset.mode = mode.id;
+  $('jc-bypass').setAttribute('aria-pressed', String(mode.id === 'auto'));
   $('jc-mode-btn').title = `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`;
   $('jc-model-label').textContent = s.label;
   $('jc-model').title = `Model: ${s.label} (⌘⇧I)`;
@@ -3197,6 +3198,7 @@ $('jc-more').addEventListener('click', () => {
     { label: 'Background tasks', run: () => openPane('background') },
     { label: 'iOS Simulator', run: () => openPane('sim') },
     { label: 'MCP servers', run: () => openPane('mcp') },
+    { label: 'Activity', note: 'Every step and why it ran', run: () => openPane('audit') },
     { label: 'Permissions', run: () => openPane('rules') },
     '-',
     { label: 'Rename session…', run: () => $('jc-title').dispatchEvent(new MouseEvent('dblclick')) },
@@ -3208,12 +3210,67 @@ $('jc-more').addEventListener('click', () => {
     { label: 'Keep computer awake', note: 'While Jarvis Code works', switch: awake, run: () => send({ type: 'awake', on: !awake }) },
   ]);
 });
+// Activity: every step a session took and why it could (automatic, you allowed it, denied,
+// Bypass), filterable; the Permissions pane is where the rules behind "automatic" live.
+let auditItems = [];
+let auditFilter = 'all';
+let auditQuery = '';
+const AUDIT_FILTERS = [['all', 'All'], ['commands', 'Commands'], ['edits', 'Edits'], ['web', 'Web'], ['asked', 'You decided'], ['denied', 'Denied']];
+function auditKind(a) {
+  if (a.tool === 'Bash') return 'commands';
+  if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(a.tool)) return 'edits';
+  if (/^(WebFetch|WebSearch)$/.test(a.tool) || a.tool.includes('browser')) return 'web';
+  return 'other';
+}
+function renderAudit(body, t) {
+  if (!t) { body.replaceChildren(el('p', 'jc-empty', 'Pick a session to see what it did.')); return; }
+  const counts = { auto: 0, allowed: 0, denied: 0, bypass: 0 };
+  for (const a of auditItems) counts[a.decision] = (counts[a.decision] || 0) + 1;
+  const bar = el('div', 'jc-audit-bar');
+  for (const [id, label] of AUDIT_FILTERS) {
+    const b = el('button', `jc-audit-filter${auditFilter === id ? ' on' : ''}`, label);
+    b.type = 'button';
+    b.addEventListener('click', () => { auditFilter = id; renderPaneBody(); });
+    bar.append(b);
+  }
+  const search = el('input', 'jc-field');
+  search.placeholder = tr('Search steps…');
+  search.value = auditQuery;
+  search.addEventListener('input', () => { auditQuery = search.value; renderAuditList(list); });
+  const summary = el('p', 'jc-dim', `${auditItems.length} ${tr('steps')} · ${counts.auto} ${tr('automatic')} · ${counts.allowed} ${tr('you allowed')} · ${counts.denied} ${tr('denied')}${counts.bypass ? ` · ${counts.bypass} ${tr('in Bypass')}` : ''}`);
+  const list = el('ul', 'jc-audit-list');
+  renderAuditList(list);
+  body.replaceChildren(summary, bar, search, list);
+}
+function renderAuditList(list) {
+  const q = auditQuery.trim().toLowerCase();
+  const shown = auditItems.slice().reverse().filter((a) => (auditFilter === 'all'
+    || (auditFilter === 'asked' ? a.decision === 'allowed' || a.decision === 'denied' : auditFilter === 'denied' ? a.decision === 'denied' : auditKind(a) === auditFilter))
+    && (!q || `${a.tool} ${a.what} ${a.why}`.toLowerCase().includes(q)));
+  if (!shown.length) { list.replaceChildren(el('li', 'jc-empty', auditItems.length ? 'Nothing matches.' : 'Nothing yet: steps show up here as the session works.')); return; }
+  list.replaceChildren(...shown.slice(0, 500).map((a) => {
+    const li = el('li', `jc-audit-row ${a.decision}`);
+    const head = el('div', 'jc-audit-head');
+    const time = new Date(a.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    head.append(el('span', `jc-audit-chip ${a.decision}`, { auto: 'Automatic', allowed: 'You allowed', denied: 'Denied', bypass: 'Bypass' }[a.decision] || a.decision),
+      el('strong', '', a.tool.split('__').pop()), el('span', 'jc-audit-time', time));
+    li.append(head, mine(el('code', 'jc-audit-what', a.what)), el('small', 'jc-audit-why', a.why));
+    return li;
+  }));
+}
+let bypassBefore = 'ask';
+$('jc-bypass').addEventListener('click', () => {
+  const s = composerState();
+  if (s.mode === 'auto') setMode(bypassBefore === 'auto' ? 'ask' : bypassBefore);
+  else { bypassBefore = s.mode; setMode('auto'); } // setMode asks before Bypass goes on
+});
+
 function awakeNewSessionFork(t) { awaitingNewSession = true; send({ type: 'task_fork', id: t.id }); }
 
 // ── the workbench pane ──
 
 let currentPane = null;
-const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions' };
+const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions', audit: 'Activity' };
 const term = { id: null, xterm: null, fit: null, loading: null, observer: null };
 let diffFiles = [];
 let simPanel = null; // the iOS Simulator pane (simulator.js) while it's showing
@@ -3238,6 +3295,7 @@ function openPane(kind) {
   if (kind === 'diff' && t) send({ type: 'task_diff', id: t.id });
   if (kind === 'mcp' && t) send({ type: 'task_mcp', id: t.id });
   if (kind === 'rules' && t) send({ type: 'task_rules', id: t.id });
+  if (kind === 'audit' && t) send({ type: 'task_audit', id: t.id });
   if ((kind === 'files' || kind === 'artifacts') && deckProject && !projectFiles[deckProject]) send({ type: 'project_files', directory: deckProject });
   renderPaneBody();
 }
@@ -3287,9 +3345,19 @@ function renderPaneBody() {
     body.replaceChildren(ul);
     return;
   }
+  if (currentPane === 'audit') return renderAudit(body, t);
   if (currentPane === 'rules') {
+    const ro = el('div', 'jc-audit-switch');
+    const sw = el('button', `sw${prefs && prefs.code_read_only !== false ? ' on' : ''}`);
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', String(!!(prefs && prefs.code_read_only !== false)));
+    sw.setAttribute('aria-label', 'Read-only commands without asking');
+    sw.addEventListener('click', () => setPrefs({ code_read_only: !(prefs && prefs.code_read_only !== false) }));
+    ro.append(el('span', '', ''), sw);
+    ro.firstChild.append(el('strong', '', 'Read-only commands without asking'), el('small', '', 'ls, cat, grep, git status, git log, git diff… Anything that writes, deletes, installs or chains commands still asks.'));
     const intro = el('p', 'jc-dim', 'Commands Jarvis Code runs here without asking (from “Yes, and don’t ask again”).');
-    if (!rules.length) { body.replaceChildren(intro, el('p', 'jc-empty', 'None yet.')); return; }
+    if (!rules.length) { body.replaceChildren(ro, intro, el('p', 'jc-empty', 'None yet.')); return; }
     const ul = el('ul', 'jc-list');
     ul.append(...rules.map((r) => {
       const li = el('li');
@@ -3300,7 +3368,7 @@ function renderPaneBody() {
       li.firstChild.append(el('code', '', `${r} …`));
       return li;
     }));
-    body.replaceChildren(intro, ul);
+    body.replaceChildren(ro, intro, ul);
   }
 }
 
@@ -3512,6 +3580,7 @@ function onJarvisCodeEvent(ev) {
     case 'task_entry_meta': onEntryMeta(ev); return true;
     case 'task_diff': if (ev.id === ccSelected) { diffFiles = ev.files || []; if (currentPane === 'diff' || currentPane === 'artifacts') renderPaneBody(); } return true;
     case 'task_rules': if (ev.id === ccSelected) { rules = ev.rules || []; if (currentPane === 'rules') renderPaneBody(); } return true;
+    case 'task_audit': if (ev.id === ccSelected) { auditItems = ev.items || []; if (currentPane === 'audit') renderPaneBody(); } return true;
     case 'task_mcp': if (ev.id === ccSelected) { mcpServers = ev.servers || []; if (currentPane === 'mcp') renderPaneBody(); refreshConnectorsMenu(); } return true;
     case 'dictation': onDictation(ev); return true;
     case 'providers': onProviders(ev); return true;

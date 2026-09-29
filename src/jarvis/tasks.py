@@ -231,6 +231,122 @@ def command_key(command: str, cwd: Path | None = None) -> str | None:
     return key
 
 
+# Shell commands that only look: nothing written, sent, deleted or run beyond themselves.
+# With "Read-only commands without asking" on (the default), these run without a prompt.
+_LOOK_ONLY = {
+    "ls", "pwd", "cat", "head", "tail", "wc", "which", "whoami", "date", "echo", "tree", "du",
+    "df", "file", "stat", "grep", "egrep", "fgrep", "rg", "ag", "diff", "cmp", "basename",
+    "dirname", "realpath", "readlink", "ps", "uname", "sw_vers", "jq", "sort", "cut", "tr",
+    "nl", "column", "hostname", "id", "uptime", "type", "true",
+}  # fmt: skip
+# Flags that make a "look" command write a file or run another program.
+_WRITES = {
+    "sort": ("-o", "--output"), "tree": ("-o",), "rg": ("--pre", "--pre-glob"),
+    "grep": ("--pre",), "jq": ("--rawfile-out",),
+}  # fmt: skip
+_GIT_LOOK = {
+    "status", "log", "diff", "show", "rev-parse", "ls-files", "ls-tree", "blame",
+    "describe", "shortlog", "cat-file", "grep", "whatchanged", "name-rev",
+}  # fmt: skip
+_FIND_ACTS = {
+    "-exec",
+    "-execdir",
+    "-delete",
+    "-ok",
+    "-okdir",
+    "-fprint",
+    "-fprint0",
+    "-fprintf",
+    "-fls",
+}
+_VERSION_ONLY = {
+    "node",
+    "npm",
+    "python",
+    "python3",
+    "pip",
+    "pip3",
+    "ruby",
+    "go",
+    "cargo",
+    "rustc",
+    "swift",
+    "java",
+    "uv",
+    "bun",
+    "deno",
+}
+_NOT_READ_ONLY = re.compile(r"[`<>;&\n]|\$\(|\|\|")
+
+
+def is_read_only(command: str) -> bool:
+    """Whether every part of a shell command only reads (pipes between such parts are fine;
+    redirects, chains, substitutions and background jobs never are)."""
+    text = command.strip()
+    if not text or len(text) > 600 or _NOT_READ_ONLY.search(text):
+        return False
+    for segment in text.split("|"):
+        try:
+            words = shlex.split(segment)
+        except ValueError:
+            return False
+        if not words or "/" in words[0] or "=" in words[0]:
+            return False  # a path to some other program, or VAR=… in front
+        name, args = words[0], words[1:]
+        if name == "git":
+            if not args or args[0].startswith("-"):
+                return False  # git -c … can run anything
+            sub, rest = args[0], args[1:]
+            ok = sub in _GIT_LOOK or (
+                (
+                    sub == "branch"
+                    and all(
+                        a
+                        in (
+                            "-a",
+                            "-r",
+                            "-v",
+                            "-vv",
+                            "--list",
+                            "--all",
+                            "--remotes",
+                            "--verbose",
+                            "--show-current",
+                        )
+                        for a in rest
+                    )
+                )
+                or (sub == "remote" and all(a in ("-v", "--verbose", "show") for a in rest))
+                or (sub == "tag" and all(a in ("-l", "--list") for a in rest))
+                or (sub == "stash" and rest[:1] in (["list"], ["show"]))
+                or (
+                    sub == "config"
+                    and any(a in ("--get", "--get-all", "--list", "-l") for a in rest)
+                )
+            )
+            if not ok or any(
+                a.startswith(("--output", "--open-files-in-pager", "-O")) for a in rest
+            ):
+                return False
+        elif name == "find":
+            if any(a in _FIND_ACTS for a in args):
+                return False
+        elif name in _VERSION_ONLY:
+            if not (len(args) == 1 and args[0] in ("--version", "-v", "-V", "version")) and not (
+                name == "npm" and args[:1] == ["ls"]
+            ):
+                return False
+        elif name not in _LOOK_ONLY:
+            return False
+        elif any(
+            a == flag or a.startswith(flag + "=") for flag in _WRITES.get(name, ()) for a in args
+        ):
+            return False
+        elif name == "hostname" and args:
+            return False  # hostname NAME sets it
+    return True
+
+
 def command_rule(command: str, cwd: Path | None = None) -> str:
     """The rule 'don't ask again' offers for a command ("" when it can't offer one)."""
     return command_key(command, cwd) or ""
@@ -394,6 +510,9 @@ REOPEN_POLLS = 100  # 20 s for a closed session to reopen (for a rewind)
 CLAUDE_DOWN = frozenset({"rate_limit", "billing_error", "server_error", "authentication_failed"})
 
 
+AUDIT_KEPT = 2000  # permission decisions kept per session
+
+
 class Inbox:
     """Messages waiting for a session, in order. Each has a stable id, so one can be
     taken back before it's sent; once the session takes it, it's gone from here."""
@@ -486,6 +605,7 @@ class ClaudeTask:
     injected: bool = False  # Claude Code is on a turn it started itself
     current: str = ""  # whose turn Claude Code is on: "user", "claude" or ""
     falling_back: bool = False  # moving to the fallback model after Claude couldn't answer
+    audit: list[dict[str, Any]] = field(default_factory=list)  # every permission decision
     turn_started: float = 0.0
     turn_files: set[str] = field(default_factory=set)  # what this turn changed
     pending_edits: dict[str, str] = field(default_factory=dict)  # tool id -> path, till done
@@ -678,6 +798,8 @@ class TaskManager:
         # Claude couldn't answer a session (its limit, an outage): the hub's fallback, which
         # moves the session to the fallback model and sends the message again.
         self.on_claude_down: Callable[[ClaudeTask, str], Awaitable[None]] | None = None
+        # Settings: read-only shell commands (ls, git status, grep…) run without asking.
+        self.read_only_free: Callable[[], bool] = lambda: True
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
         # connection re-derives the session's settings, re-checking the key's Keychain seal.
         self.providers: Any = None
@@ -2107,17 +2229,27 @@ class TaskManager:
                 return await self._approve_plan(task, tool_input)
             if tool_name == "AskUserQuestion":
                 return await self._ask_user(task, tool_input)
-            if task.mode == "auto" or tool_name in FREE_TOOLS:
+
+            def allow(decision: str, why: str):
+                self._audit(task, tool_name, tool_input, decision, why)
                 return PermissionResultAllow()
+
+            if task.mode == "auto":
+                return allow("bypass", "Bypass permissions is on")
+            if tool_name in FREE_TOOLS:
+                return allow("auto", "never asks")
             if tool_name in READ_TOOLS and self._free_read(task, tool_name, tool_input):
-                return PermissionResultAllow()
+                return allow("auto", "reading inside the project")
             editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
             if editable and (task.allow_edits or task.mode == "edits"):
-                return PermissionResultAllow()
+                return allow("auto", "edits are allowed in this session")
             command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
             rules = self.rules.for_project(task.cwd)
-            if command and any(rule_allows(r, command, task.cwd) for r in rules):
-                return PermissionResultAllow()
+            matched = next((r for r in rules if command and rule_allows(r, command, task.cwd)), "")
+            if matched:
+                return allow("auto", f"your rule: {matched} commands")
+            if command and self.read_only_free() and is_read_only(command):
+                return allow("auto", "a read-only command")
             rule = command_rule(command, task.cwd) if command else ""
             choices = [(ALLOW, "Yes")]
             if editable:
@@ -2154,10 +2286,22 @@ class TaskManager:
                 self.rules.add(task.cwd, rule)
                 self._log(task, "system", f"Won't ask again for {rule} commands here.")
             if choice in (ALLOW, ALLOW_EDITS, ALWAYS):
-                return PermissionResultAllow()
+                why = {
+                    ALLOW_EDITS: "you allowed it (and all edits)",
+                    ALWAYS: f"you allowed it (and {rule} commands from now on)",
+                }
+                return allow("allowed", why.get(choice, "you allowed it"))
             feedback = choice.split(":", 1)[1].strip() if ":" in choice else ""
             if not feedback and time.monotonic() - asked_at >= UNANSWERED_SECONDS:
+                self._audit(task, tool_name, tool_input, "denied", "no answer")
                 return self._unanswered(task)
+            self._audit(
+                task,
+                tool_name,
+                tool_input,
+                "denied",
+                f"you said no: {feedback}" if feedback else "you said no",
+            )
             return PermissionResultDeny(
                 message=f"The user said no: {feedback}"
                 if feedback
@@ -2165,6 +2309,26 @@ class TaskManager:
             )
 
         return can_use_tool
+
+    def _audit(
+        self, task: ClaudeTask, tool: str, tool_input: dict[str, Any], decision: str, why: str
+    ) -> None:
+        """One permission decision in the session's audit: what, when, and why it went ahead
+        (or didn't). The last AUDIT_KEPT are kept."""
+        task.audit.append(
+            {
+                "at": datetime.now().isoformat(timespec="seconds"),
+                "tool": tool,
+                "what": approval_detail(tool, tool_input, task.cwd)[:600],
+                "decision": decision,  # auto | allowed | denied | bypass
+                "why": why[:200],
+            }
+        )
+        del task.audit[:-AUDIT_KEPT]
+
+    def audit_of(self, task_id: int) -> list[dict[str, Any]]:
+        task = self.tasks.get(task_id)
+        return list(task.audit) if task else []
 
     def _unanswered(self, task: ClaudeTask) -> PermissionResultDeny:
         """Nobody answered (the user is away): stop the turn instead of asking again."""

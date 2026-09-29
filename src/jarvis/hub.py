@@ -682,6 +682,7 @@ class Hub:
         # The fallback model (Settings › Brain): Claude down (its limit, an outage) means the
         # turn runs again on it, and JARVIS stays on it half an hour before trying Claude.
         self.tasks.on_claude_down = self._code_fallback
+        self.tasks.read_only_free = lambda: self.prefs.code_read_only
         self._fallback_until = 0.0
         self._connected_ref = ""  # the added model the conversation runs on ("": Claude)
         self._claude_down = ""  # why Claude couldn't answer this turn
@@ -4680,6 +4681,9 @@ class Hub:
                 plain=msg.get("plain") is True,  # the window's own wording (/init, /review)
                 steer=msg["steer"] if isinstance(msg.get("steer"), bool) else None,
             )
+        elif kind == "task_audit":  # the session's permission decisions, for Activity
+            task_id = int(msg.get("id", 0))
+            self.emit("task_audit", id=task_id, items=self.tasks.audit_of(task_id))
         elif kind == "task_steer":  # a waiting message, into the running step now
             self.tasks.steer_queued(int(msg.get("id", 0)), int(msg.get("item", 0)))
         elif kind == "slash_list":

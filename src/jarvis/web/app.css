@@ -2250,3 +2250,26 @@ body.in-app.browser-full .bd-panel { margin-top: 40px; }
 .bd-shield:hover { background: rgb(var(--c-ink) / 0.07); }
 .bd-shield[aria-pressed="true"] { color: rgb(var(--c-success)); }
 .bd-shield[aria-pressed="true"] svg path { fill: rgb(var(--c-success) / 0.25); }
+
+/* Jarvis Code › Activity: every step, and why it ran */
+.jc-audit-bar { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+.deck.jc .jc-audit-filter { height: 26px; padding: 0 10px; border: 0; border-radius: 13px; cursor: pointer; font-size: 12px; font-weight: 500; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.06); }
+.deck.jc .jc-audit-filter.on { color: rgb(var(--c-ink)); background: var(--glass-pill); box-shadow: var(--glass-rim), var(--pill-shadow); }
+.jc-audit-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jc-audit-row { padding: 8px 10px; border-radius: 10px; background: rgb(var(--c-ink) / 0.04); }
+.jc-audit-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.jc-audit-time { margin-left: auto; font-size: 11px; color: rgb(var(--c-muted)); font-variant-numeric: tabular-nums; }
+.jc-audit-chip { font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; padding: 2px 7px; border-radius: 999px; background: rgb(var(--c-ink) / 0.08); color: rgb(var(--c-ink-2)); }
+.jc-audit-chip.allowed { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.13); }
+.jc-audit-chip.denied { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger) / 0.13); }
+.jc-audit-chip.bypass { color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning) / 0.15); }
+.jc-audit-what { display: block; margin-top: 5px; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; color: rgb(var(--c-ink)); max-height: 7.3em; overflow: hidden; }
+.jc-audit-why { display: block; margin-top: 3px; font-size: 11.5px; color: rgb(var(--c-muted)); }
+.jc-audit-switch { display: flex; align-items: center; gap: 12px; padding: 8px 2px; }
+.jc-audit-switch > span { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.jc-audit-switch small { color: rgb(var(--c-muted)); font-size: 11.5px; line-height: 1.4; }
+.deck.jc .jc-bypass[aria-pressed="true"] { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger) / 0.14); }
+.deck.jc .jc-audit-switch .sw { width: 38px; height: 23px; border: 0; padding: 0; border-radius: 12px; background: rgb(var(--c-ink) / 0.16); position: relative; flex: none; cursor: pointer; }
+.jc-audit-switch .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 0.3); transition: left 200ms var(--ease-spring); }
+.deck.jc .jc-audit-switch .sw.on { background: rgb(var(--c-success)); }
+.jc-audit-switch .sw.on::after { left: 17px; }

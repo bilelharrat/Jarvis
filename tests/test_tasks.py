@@ -115,7 +115,10 @@ async def test_modes_change_what_asks(settings, tmp_path):
     ctx = ToolPermissionContext()
     tm.set_mode(1, "edits")
     assert isinstance(await policy("Edit", {"file_path": "a"}, ctx), PermissionResultAllow)
-    assert isinstance(await policy("Bash", {"command": "ls"}, ctx), PermissionResultDeny)
+    assert isinstance(await policy("Bash", {"command": "npm test"}, ctx), PermissionResultDeny)
+    assert len(asked) == 1
+    # A read-only command never asks (Permissions › Read-only commands without asking).
+    assert isinstance(await policy("Bash", {"command": "ls"}, ctx), PermissionResultAllow)
     assert len(asked) == 1
     tm.set_mode(1, "auto")
     assert isinstance(await policy("Bash", {"command": "make"}, ctx), PermissionResultAllow)

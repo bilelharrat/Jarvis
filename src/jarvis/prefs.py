@@ -92,6 +92,7 @@ class Prefs:
     fallback_model: str = ""  # a model ref ("custom:…") JARVIS turns to when Claude can't answer
     fallback_code: bool = True  # … Jarvis Code sessions too
     fallback_always: bool = False  # run JARVIS on it all the time, not only when Claude is down
+    code_read_only: bool = True  # Jarvis Code runs read-only shell commands without asking
     briefing_enabled: bool = True
     briefing_time: str = "08:00"
     last_briefing: str = ""
@@ -270,6 +271,7 @@ def _clean(name: str, value: Any) -> Any:
         "wake_call",
         "fallback_code",
         "fallback_always",
+        "code_read_only",
     }:
         return bool(value)
     return None
