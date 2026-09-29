@@ -313,6 +313,8 @@ input[type="range"] { width: 100%; accent-color: var(--action); }
 .folder-form { display: flex; gap: 8px; }
 .memory-list li span.fact { direction: ltr; white-space: normal; line-height: 1.4; }
 .memory-list { max-height: 260px; overflow-y: auto; }
+.shortcut-list { max-height: 280px; overflow-y: auto; }
+.shortcut-list li.row span { direction: ltr; font-size: 14px; }
 .folder-form[hidden] { display: none; }
 .folder-form input { flex: 1; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }

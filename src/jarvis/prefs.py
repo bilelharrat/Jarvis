@@ -70,6 +70,7 @@ class Prefs:
     brain_mail: bool = True
     brain_messages: bool = True
     brain_folders: list[str] = field(default_factory=list)
+    instant_shortcuts: list[str] = field(default_factory=list)
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -112,6 +113,10 @@ def _clean(name: str, value: Any) -> Any:
         return str(value).strip()[:40]
     if name == "briefing_time":
         return value if isinstance(value, str) and _TIME.match(value) else None
+    if name == "instant_shortcuts":
+        if not isinstance(value, list):
+            return None
+        return sorted({str(v).strip()[:120] for v in value[:100] if str(v).strip()})
     if name == "brain_folders":
         if not isinstance(value, list):
             return None

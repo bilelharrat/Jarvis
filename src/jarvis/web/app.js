@@ -76,6 +76,7 @@ function onEvent(ev) {
       renderMemory(ev.memory || []);
       break;
     case 'memory': renderMemory(ev.items || []); break;
+    case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
     case 'weather': renderWeather(ev.weather); break;
     case 'history': history = ev.items || []; renderHistory(); break;
@@ -482,6 +483,7 @@ function setPrefs(changes) {
 
 function toggleSettings(open) {
   $('settings').hidden = !open;
+  if (open) send({ type: 'shortcuts' });
   $('settings-btn').setAttribute('aria-expanded', String(open));
 }
 
@@ -1160,6 +1162,32 @@ function sendLocation() {
 }
 
 // ── cards ──
+
+function renderShortcuts(names, instant) {
+  const list = $('shortcut-list');
+  if (!names.length) {
+    list.replaceChildren(el('li', 'muted', 'No shortcuts on this Mac yet. Make some in the Shortcuts app (Home scenes work well).'));
+    return;
+  }
+  list.replaceChildren(...names.map((name) => {
+    const li = el('li', 'row');
+    const label = el('span', '', name);
+    const sw = el('button', 'switch');
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', String(instant.includes(name)));
+    sw.setAttribute('aria-label', `Run “${name}” instantly`);
+    sw.addEventListener('click', () => {
+      const on = sw.getAttribute('aria-checked') !== 'true';
+      sw.setAttribute('aria-checked', String(on));
+      const now = new Set(prefs.instant_shortcuts || []);
+      if (on) now.add(name); else now.delete(name);
+      setPrefs({ instant_shortcuts: [...now] });
+    });
+    li.append(label, sw);
+    return li;
+  }));
+}
 
 function renderMemory(items) {
   const list = $('memory-list');

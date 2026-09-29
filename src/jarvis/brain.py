@@ -38,6 +38,7 @@ BLOCKED_BUILTINS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Gr
 Confirm = Callable[[str], Awaitable[bool]]
 Gate = Callable[[], Awaitable[bool]]
 ToolGate = Callable[[str, dict[str, Any]], Awaitable[bool | None]]
+ShortcutGate = Callable[[str], Awaitable[bool]]
 
 
 def mac_tool(name: str) -> str:
@@ -154,7 +155,10 @@ def build_mcp_servers(settings: Settings) -> dict[str, Any]:
 
 
 def make_permission_policy(
-    confirm: Confirm, control_gate: Gate | None = None, tool_gate: ToolGate | None = None
+    confirm: Confirm,
+    control_gate: Gate | None = None,
+    tool_gate: ToolGate | None = None,
+    shortcut_gate: ShortcutGate | None = None,
 ):
     """Tools on the allow list never reach this callback; everything else does."""
     confirmable = {mac_tool(name) for name in mac_tools.NEEDS_CONFIRMATION}
@@ -165,6 +169,10 @@ def make_permission_policy(
     async def can_use_tool(
         tool_name: str, tool_input: dict[str, Any], _context: ToolPermissionContext
     ):
+        if tool_name == mac_tool("run_shortcut") and shortcut_gate is not None:
+            if await shortcut_gate(str(tool_input.get("name", ""))):
+                return PermissionResultAllow()
+            return PermissionResultDeny(message="The user said no. Don't do it.")
         if tool_name in confirmable:
             if await confirm(describe_action(tool_name, tool_input)):
                 return PermissionResultAllow()
@@ -230,6 +238,7 @@ def build_options(
     tool_gate: ToolGate | None = None,
     extra_servers: dict[str, Any] | None = None,
     extra_prompt: str = "",
+    shortcut_gate: ShortcutGate | None = None,
 ) -> ClaudeAgentOptions:
     servers = build_mcp_servers(settings)
     bsh_enabled = BSH_SERVER in servers
@@ -273,7 +282,7 @@ def build_options(
         strict_mcp_config=True,
         setting_sources=[],
         permission_mode="default",
-        can_use_tool=make_permission_policy(confirm, control_gate, tool_gate),
+        can_use_tool=make_permission_policy(confirm, control_gate, tool_gate, shortcut_gate),
         # Its own workspace, so its chats never show up as a project's Claude Code sessions.
         cwd=str(_workspace()),
         # Keep every MCP tool loaded up front rather than behind tool search.

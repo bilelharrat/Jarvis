@@ -40,6 +40,7 @@ from . import computer, mac_tools
 from .brain import build_options
 from .config import Settings
 from .connectors import ConnectorManager
+from .home import Shortcuts, match_shortcut
 from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
@@ -193,6 +194,7 @@ class Hub:
         self.connectors = connectors or ConnectorManager(self.emit, self.request_approval)
         self.connectors.on_tools_changed = self._tools_changed
         self.memory = memory or MemoryStore()
+        self.shortcuts = Shortcuts()
         self._session_id = ""
         self._reload_pending = False
         self.speech = SpeechQueue(self.speaker, self._on_speaking)
@@ -236,6 +238,7 @@ class Hub:
             self._spawn(self._prepare_player())
             self._spawn(self._prepare_fillers())
             self._spawn(self._location_loop())
+            self._spawn(self.shortcuts.refresh())
         if self.prefs.hands_free:
             self._apply_hands_free()
 
@@ -257,6 +260,7 @@ class Hub:
             tool_gate=self.connectors.gate,
             extra_servers=self._feature_servers(),
             extra_prompt=self._feature_prompt(),
+            shortcut_gate=self.shortcut_gate,
         )
         # Stream text as it's written, so the first sentence can be spoken right away.
         options.include_partial_messages = True
@@ -272,6 +276,10 @@ class Hub:
 
     def _feature_prompt(self) -> str:
         return (
+            "\n- Smart home: lights, locks, the thermostat, scenes and Focus modes run through "
+            "the user's Shortcuts (they reach HomeKit). For anything like that, list_shortcuts "
+            "to find the right one and run_shortcut it. Shortcuts the user made instant run "
+            "without asking."
             "\n- Memory: remember saves a lasting fact about the user when they tell you to "
             "remember something (or state something clearly stable about themselves); recall "
             "looks facts up; forget removes one." + self.memory.prompt_block()
@@ -411,6 +419,39 @@ class Hub:
 
     # ── conversation ──
 
+    async def shortcut_gate(self, name: str) -> bool:
+        """Instant shortcuts run unasked; others ask, with an 'always' option."""
+        if name in self.prefs.instant_shortcuts:
+            return True
+        question = f"Run the shortcut “{name}”?"
+        self._spawn(self.speaker.say(question))
+        choice = await self.request_approval(
+            question,
+            "“Always” makes it instant: saying its name runs it straight away.",
+            [("allow", "Run"), ("always", "Always"), ("deny", "Not now")],
+        )
+        if choice == "always":
+            self.set_prefs({"instant_shortcuts": [*self.prefs.instant_shortcuts, name]})
+        return choice in ("allow", "always")
+
+    async def _instant_shortcut(self, rid: str, text: str) -> bool:
+        """'Jarvis, movie mode': run an instant shortcut without asking Claude."""
+        name = match_shortcut(text, self.prefs.instant_shortcuts)
+        if name is None:
+            return False
+        log.info("instant shortcut")
+        self.emit("tool", id=f"sc-{rid}", label="Ran a Shortcut", status="running", at=_now())
+        try:
+            await self.shortcuts.run(name)
+            reply, status = "Done.", "done"
+        except mac_tools.ToolFailure as exc:
+            reply, status = f"The shortcut {name} didn't work: {exc}", "failed"
+        self.emit("tool", id=f"sc-{rid}", label="Ran a Shortcut", status=status, at=_now())
+        self.turn["reply"] = reply
+        self.emit("reply", rid=rid, text=reply)
+        self._speak(reply)
+        return True
+
     async def ask(self, text: str, display: str | None = None) -> None:
         text = text.strip()
         if not text:
@@ -430,12 +471,15 @@ class Hub:
             if self.speaker.cloud is not None:
                 self._spawn(self.speaker.cloud.warm())
             query = text
-            if self._style_note:
-                query = f"[Note from the app: {self._style_note}]\n\n{text}"
-                self._style_note = ""
             started = time.monotonic()
             try:
-                await self._run_query(rid, query)
+                if display is None and await self._instant_shortcut(rid, text):
+                    pass
+                else:
+                    if self._style_note:
+                        query = f"[Note from the app: {self._style_note}]\n\n{text}"
+                        self._style_note = ""
+                    await self._run_query(rid, query)
             except Exception as exc:  # the Claude Code process died: reconnect and retry once
                 log.warning("query failed (%s); reconnecting and retrying", exc)
                 try:
@@ -1487,6 +1531,9 @@ class Hub:
                             "accuracy": float(msg.get("accuracy", 0)),
                         }
                     )
+        elif kind == "shortcuts":
+            names = await self.shortcuts.refresh(force=bool(msg.get("refresh")))
+            self.emit("shortcuts", names=names, instant=self.prefs.instant_shortcuts)
         elif kind == "memory_forget":
             if self.memory.forget(str(msg.get("id", ""))):
                 self._memory_changed()

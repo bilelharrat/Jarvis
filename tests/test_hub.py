@@ -418,3 +418,38 @@ async def test_memory_from_settings_reaches_the_prompt(settings, quiet_speaker, 
     assert "mcp__memory" in hub.client.options.allowed_tools
     await hub.handle({"type": "memory_add", "text": "my password is hunter2"})
     assert len(hub.memory.facts) == 1
+
+
+async def test_instant_shortcut_runs_without_claude(settings, quiet_speaker, isolated, monkeypatch):
+    from jarvis import home
+
+    ran = []
+
+    async def fake_run(*args, **_kw):
+        ran.append(args)
+        return ""
+
+    monkeypatch.setattr(home.mac_tools, "run_command", fake_run)
+    isolated["prefs_store"].prefs.instant_shortcuts = ["Movie Mode", "Lights Off"]
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    await hub.ask("turn the lights off")
+    assert ran == [("shortcuts", "run", "Lights Off")]
+    assert hub.client.queries == []  # Claude never saw it
+    assert hub.history[-1] == {"role": "assistant", "text": "Done.", "at": hub.history[-1]["at"]}
+    await hub.ask("what's a good movie?")  # not a shortcut's name: Claude answers
+    assert hub.client.queries == ["what's a good movie?"]
+
+
+async def test_shortcut_always_makes_it_instant(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    q = hub.subscribe()
+    asking = asyncio.create_task(hub.shortcut_gate("Good Night"))
+    await asyncio.sleep(0)
+    approval = next(e for e in drain(q) if e["type"] == "approval")
+    assert [c["id"] for c in approval["choices"]] == ["allow", "always", "deny"]
+    hub.resolve(approval["id"], "always")
+    assert await asking is True
+    assert hub.prefs.instant_shortcuts == ["Good Night"]
+    assert await hub.shortcut_gate("Good Night") is True  # no second question
