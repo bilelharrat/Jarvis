@@ -123,6 +123,15 @@ function onEvent(ev) {
     case 'claude_projects': renderProjects(ev.items); break;
     case 'browser_cmd': runBrowserCommand(ev); break;
     case 'location_request': sendLocation(); break;
+    case 'location':
+      if (!ev.location && ev.error && /off for J\.A\.R\.V\.I\.S/.test(ev.error) && !locationWarned) {
+        locationWarned = true;
+        const openBtn = el('button', 'btn primary', 'Open Location settings');
+        openBtn.type = 'button';
+        openBtn.addEventListener('click', () => send({ type: 'open_privacy', pane: 'location' }));
+        notice('Location', 'Turn on location for J.A.R.V.I.S.', 'For local weather and live traffic: switch on J.A.R.V.I.S. under Location Services.', 0, openBtn);
+      }
+      break;
     case 'claude_sessions': if (ev.directory === deckProject) { pastSessions = ev.items; renderDeckList(); } break;
     case 'task_finished': onTaskFinished(ev); break;
     case 'muted': setMuted(ev.value); break;
@@ -1125,6 +1134,8 @@ async function runBrowserCommand(ev) {
 }
 
 // ── location (the app window holds macOS's location permission) ──
+
+let locationWarned = false;
 
 function sendLocation() {
   if (!navigator.geolocation) { send({ type: 'location_fix', error: 'No location services in this window.' }); return; }

@@ -1476,6 +1476,7 @@ class Hub:
                 "accessibility": "Privacy_Accessibility",
                 "screen": "Privacy_ScreenCapture",
                 "microphone": "Privacy_Microphone",
+                "location": "Privacy_LocationServices",
             }
             pane = panes.get(str(msg.get("pane")))
             if pane:
