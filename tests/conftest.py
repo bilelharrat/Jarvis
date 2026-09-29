@@ -137,6 +137,19 @@ def _quick_saves(monkeypatch):
     monkeypatch.setattr(jsonstore, "_sync", os.fsync)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_mac_commands(monkeypatch):
+    """A request that reads like "open Safari" or "press command T" never opens, clicks or
+    types on the real Mac in a test: the instant command says it isn't one (so it goes on to
+    the fake Claude). test_system_voice tests the real one with fakes of its own."""
+    from jarvis import system_voice
+
+    async def not_here(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(system_voice, "carry_out", not_here)
+
+
 @pytest.fixture
 def isolated(tmp_path):
     """Prefs and second-brain index in a temp folder, never the user's real ones."""

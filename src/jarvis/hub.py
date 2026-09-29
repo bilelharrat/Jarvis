@@ -55,6 +55,7 @@ from . import (
     mac_tools,
     research,
     screenwatch,
+    system_voice,
     transactions,
     ui,
 )
@@ -1863,6 +1864,30 @@ class Hub:
             self.set_prefs({"instant_shortcuts": [*self.prefs.instant_shortcuts, name]})
         return choice in ("allow", "always")
 
+    async def _instant_system(self, rid: str, text: str) -> bool:
+        """'Open Safari', 'press command T', 'click Save', 'scroll down': the whole Mac, at
+        once, without asking Claude. Anything it can't place goes to Claude as before."""
+        command = system_voice.parse(text)
+        if command is None:
+            return False
+        try:
+            reply = await system_voice.carry_out(command)
+        except (mac_tools.ToolFailure, ValueError, OSError) as exc:
+            reply = f"That didn't work: {exc}"
+        except Exception as exc:  # Quartz without the Accessibility permission, say
+            log.warning("instant mac command failed: %s", exc)
+            reply = "That didn't work. Is J.A.R.V.I.S. allowed under Accessibility?"
+        if reply is None:
+            return False
+        log.info("instant mac command: %s", command.kind)
+        self.emit("tool", id=f"mac-{rid}", label="Controlled the Mac", status="done", at=_now())
+        if lang.is_zh(self.language):
+            reply = lang.translate(reply, self.language)
+        self.turn["reply"] = reply
+        self.emit("reply", rid=rid, text=reply)
+        self._speak(reply)
+        return True
+
     async def _instant_shortcut(self, rid: str, text: str) -> bool:
         """'Jarvis, movie mode': run an instant shortcut without asking Claude."""
         name = lang.match_shortcut(text, self.prefs.instant_shortcuts, self.language)
@@ -1950,6 +1975,7 @@ class Hub:
                     await self._instant_research(rid, text)
                     or await self._instant_window(rid, text)
                     or await self._instant_shortcut(rid, text)
+                    or await self._instant_system(rid, text)
                 ):
                     pass
                 else:

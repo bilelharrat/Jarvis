@@ -2099,6 +2099,24 @@ ZH_TEXTS: dict[str, str] = {
     "Rain's likely around {time}, {rain} percent chance. Might want an umbrella.": "{time}左右可能下雨，降雨概率百分之{rain}。最好带把伞。",
     "Email from {sender}": "{sender}的邮件",
     "Email from {sender}: {subject}.": "{sender}发来邮件：{subject}。",
+    # Instant Mac commands (last: the specific phrases above win over these patterns)
+    "Opening {app}.": "正在打开{app}。",
+    "Quitting {app}.": "正在退出{app}。",
+    "Hid {app}.": "已隐藏{app}。",
+    "Switched to {app}.": "已切换到{app}。",
+    "Mission Control.": "调度中心。",
+    "Scrolled.": "已滚动。",
+    "Louder.": "调大了。",
+    "Quieter.": "调小了。",
+    "Muted.": "已静音。",
+    "Sound's back.": "声音恢复了。",
+    "Volume {level}%.": "音量{level}%。",
+    "Clicked.": "已点击。",
+    "Typed.": "已输入。",
+    "“{label}” is one I leave for you to press.": "“{label}”这个要你自己来按。",
+    "I don't see “{label}” in {app}.": "我在{app}里没看到“{label}”。",
+    "I couldn't look for “{label}” on the screen. Is Accessibility allowed?": "我没法在屏幕上查找“{label}”。辅助功能权限打开了吗？",
+    "Controlled the Mac": "操控了 Mac",
 }
 # Words that turn up inside the sentences above (panel and look names, reasons…).
 VALUES_ZH = {

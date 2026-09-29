@@ -891,3 +891,24 @@ async def test_two_claps_turn_hand_control_on(settings, quiet_speaker, isolated)
     hub._listener.on_double_clap()
     await asyncio.sleep(0.01)
     assert not [e for e in drain(q) if e["type"] == "ui"]
+
+
+async def test_a_mac_command_runs_at_once_without_claude(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from jarvis import system_voice
+
+    done = []
+
+    async def carry_out(command):
+        done.append((command.kind, command.arg))
+        return "Opening Safari."
+
+    monkeypatch.setattr(system_voice, "carry_out", carry_out)
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    q = hub.subscribe()
+    reply = await hub.ask("open Safari")
+    assert reply == "Opening Safari." and done == [("open", "safari")]
+    assert hub.client is None or not hub.client.said  # Claude was never asked
+    assert any(e["type"] == "tool" and e["label"] == "Controlled the Mac" for e in drain(q))

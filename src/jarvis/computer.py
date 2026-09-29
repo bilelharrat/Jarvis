@@ -222,6 +222,14 @@ def _post_mouse(kind: str, x: float, y: float, button: str = "left", clicks: int
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
+def mouse_position() -> tuple[float, float]:
+    """Where the pointer is, in global screen points."""
+    import Quartz
+
+    point = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+    return point.x, point.y
+
+
 def _post_text(text: str) -> None:
     import Quartz
 
