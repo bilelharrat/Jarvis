@@ -56,6 +56,7 @@ function onEvent(ev) {
       renderStatus(ev.status || {});
       activity = ev.activity || [];
       renderActivity();
+      renderLog();
       renderTasks(ev.tasks || []);
       renderPrefs(ev.prefs);
       renderBrain(ev.brain || {});
@@ -64,20 +65,38 @@ function onEvent(ev) {
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });
       send({ type: 'connectors' });
+      history = ev.history || [];
+      renderHistory();
+      if (ev.vitals) renderVitals(ev.vitals);
+      renderWeather(ev.weather);
+      $('v-accounts').textContent = (ev.accounts || []).length;
+      $('v-model').textContent = ev.model_name || '–';
       break;
+    case 'vitals': renderVitals(ev); break;
+    case 'weather': renderWeather(ev.weather); break;
+    case 'history': history = ev.items || []; renderHistory(); break;
     case 'state': setState(ev.value); break;
     case 'level': document.documentElement.style.setProperty('--level', ev.value); break;
     case 'turn':
       currentRid = ev.rid;
+      if (ev.user) { history.push({ role: 'user', text: ev.user, at: new Date().toISOString() }); history.push({ role: 'assistant', text: '', at: new Date().toISOString(), live: true }); renderHistory(); }
       showHeard(ev.user);
       $('reply').textContent = '';
       renderSources();
       break;
     case 'turn_done':
+      history = history.filter((h) => !(h.live && !h.text));
+      history.forEach((h) => { delete h.live; });
+      renderHistory();
       if (galaxyMode === 'ambient') scheduleAmbientEnd();
       break;
     case 'heard': if (!ev.text && state !== 'listening') $('state-line').textContent = 'I didn’t catch that. Tap to try again.'; break;
-    case 'reply': $('reply').textContent = ev.text; break;
+    case 'reply': {
+      $('reply').textContent = ev.text;
+      const last = history[history.length - 1];
+      if (last && last.live) { last.text = ev.text; renderHistory(); }
+      break;
+    }
     case 'sources': onSources(ev); break;
     case 'tool': onTool(ev); break;
     case 'approval': showApproval(ev); break;
@@ -108,8 +127,13 @@ function setState(next) {
   document.body.dataset.state = next;
   if (next !== 'listening') document.documentElement.style.setProperty('--level', 0);
   let line = STATE_LINES[next] || '';
+  const look = document.body.dataset.look;
+  if (look === 'hud') line = { idle: 'Awaiting command…', listening: 'Listening…', transcribing: 'Processing…', thinking: 'Computing…', speaking: 'Responding…' }[next] || line;
+  if (look === 'console') line = { idle: prefs && prefs.hands_free ? '● Listening for wake word…' : '● Ready', listening: '● Listening…', transcribing: '● Transcribing…', thinking: '● Thinking…', speaking: '● Speaking…' }[next] || line;
+  $('core-text').innerHTML = '';
+  $('core-text').append(...({ idle: ['Core', 'active'], listening: ['Voice', 'input'], transcribing: ['Parsing', 'input'], thinking: ['Core', 'computing'], speaking: ['Core', 'output'] }[next] || ['Core', 'active']).flatMap((w, i) => (i ? [el('br'), document.createTextNode(w)] : [document.createTextNode(w)])));
   if (next === 'thinking' && runningTools > 0) line = 'Working on it…';
-  if (next === 'idle' && prefs && prefs.hands_free) line = 'Say “Jarvis”, or tap the orb';
+  if (next === 'idle' && prefs && prefs.hands_free && (!look || look === 'orb')) line = 'Say “Jarvis”, or tap the orb';
   $('state-line').textContent = line;
   $('orb').setAttribute('aria-label', next === 'idle' ? 'Talk to Jarvis' : 'Stop');
 }
@@ -264,12 +288,14 @@ window.addEventListener('resize', () => galaxy.running && galaxy.resize());
 
 function tickClock() {
   const now = new Date();
+  $('hud-clock').textContent = now.toLocaleTimeString(undefined, { hour12: false });
+  $('console-clock').textContent = `${now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' })}  |  ${now.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}`;
   $('clock').textContent = now.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
   const h = now.getHours();
   $('greeting').textContent = h < 5 ? 'Good evening.' : h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.';
 }
 tickClock();
-setInterval(tickClock, 15000);
+setInterval(tickClock, 1000);
 
 function renderStatus(status) {
   const b = status.battery;
@@ -289,6 +315,8 @@ function renderStatus(status) {
 function setMuted(value) {
   muted = !!value;
   setSwitch('sw-voice', !muted);
+  $('t-voice').setAttribute('aria-pressed', String(!muted));
+  $('h-voice').textContent = muted ? 'Muted' : 'Online';
 }
 
 // ── settings ──
@@ -300,6 +328,12 @@ function setSwitch(id, on) {
 function renderPrefs(p) {
   if (!p) return;
   prefs = p;
+  document.body.dataset.look = p.look || 'orb';
+  document.querySelectorAll('#look-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.look === p.look)));
+  if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';
+  $('t-handsfree').setAttribute('aria-pressed', String(!!p.hands_free));
+  const modelName = (p.models || []).find((m) => m.id === p.model);
+  if (modelName) $('v-model').textContent = modelName.name;
   const persona = (p.personas || []).find((x) => x.id === p.persona);
   $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : 'Jarvis';
   const model = (p.models || []).find((m) => m.id === p.model);
@@ -558,6 +592,114 @@ $('custom-form').addEventListener('submit', (e) => {
   $('custom-form').reset();
 });
 
+// ── dashboards (Stark HUD, Command Center) ──
+
+let history = [];
+
+function bar(id, pct) { $(id).style.width = `${Math.max(0, Math.min(100, pct))}%`; }
+
+function renderVitals(v) {
+  $('v-cpu').textContent = `${v.cpu}%`; bar('bar-cpu', v.cpu);
+  $('v-mem').textContent = `${v.mem_used} / ${v.mem_total} GB`; bar('bar-mem', v.mem_pct);
+  $('v-disk').textContent = `${v.disk_pct}%`; bar('bar-disk', v.disk_pct);
+  if (v.battery) {
+    $('v-batt').textContent = `${v.battery.percent}%${v.battery.plugged ? ' ⚡' : ''}`; bar('bar-batt', v.battery.percent);
+    $('h-power').textContent = `${v.battery.percent}%`; bar('h-power-bar', v.battery.percent);
+  }
+  const h = Math.floor(v.uptime / 3600), m = Math.floor((v.uptime % 3600) / 60), sec = v.uptime % 60;
+  $('v-uptime').textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  $('v-commands').textContent = v.commands;
+  const busy = v.cpu > 85 || v.mem_pct > 92;
+  $('sys-status').textContent = busy ? 'Under load' : 'Optimal';
+}
+
+function renderWeather(w) {
+  const chip = $('weather-chip');
+  if (!w || w.error) {
+    chip.hidden = true;
+    $('weather-body').replaceChildren(el('p', 'muted', w && w.error ? w.error : 'Set your city in Settings to see the weather.'));
+    return;
+  }
+  chip.hidden = false;
+  chip.textContent = `${w.temp}${w.unit}  ${w.city}`;
+  const now = el('div', 'weather-now');
+  const place = el('span');
+  place.append(document.createTextNode(`${w.city}${w.region ? `, ${w.region}` : ''}`), el('br'), document.createTextNode(w.summary));
+  now.append(el('b', '', `${w.temp}${w.unit}`), place);
+  const grid = el('div', 'kv-grid');
+  for (const [k, val] of [['Humidity', `${w.humidity}%`], ['Wind', `${w.wind} ${w.wind_unit}`], ['Feels like', `${w.feels}${w.unit}`]]) {
+    const cell = el('div');
+    cell.append(el('small', '', k), el('b', '', val));
+    grid.append(cell);
+  }
+  $('weather-body').replaceChildren(now, grid);
+}
+
+function renderHistory() {
+  const list = $('history');
+  list.replaceChildren(...history.slice(-60).map((h) => {
+    const li = el('li', h.role);
+    li.append(document.createTextNode(h.text || '…'));
+    const t = el('time', '', new Date(h.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+    li.append(t);
+    return li;
+  }));
+  list.scrollTop = list.scrollHeight;
+}
+
+function renderLog() {
+  $('rt-log').replaceChildren(...activity.slice(0, 30).map((a) => {
+    const li = el('li', a.status === 'failed' ? 'failed' : '');
+    li.append(el('time', '', `[${new Date(a.at).toLocaleTimeString(undefined, { hour12: false })}]`),
+      document.createTextNode(`${a.label.toUpperCase()}${a.status === 'running' ? ' …' : a.status === 'failed' ? ' — FAILED' : ''}`));
+    return li;
+  }));
+}
+
+document.querySelectorAll('#look-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ look: b.dataset.look })));
+$('weather-city').addEventListener('change', (e) => setPrefs({ weather_city: e.target.value }));
+$('clear-history').addEventListener('click', () => send({ type: 'clear_history' }));
+$('chat-form').addEventListener('submit', (e) => { e.preventDefault(); ask($('chat-input').value); $('chat-input').value = ''; });
+$('term-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const cmd = $('term-input').value.trim().replace(/^jarvis\s+(--ask\s+)?/i, '');
+  if (!cmd) return;
+  $('term-out').textContent = `Running: ${cmd}`;
+  ask(cmd);
+  $('term-input').value = '';
+});
+$('t-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
+$('t-voice').addEventListener('click', () => send({ type: 'mute', value: !muted }));
+$('t-brain').addEventListener('click', () => setGalaxyMode('open'));
+$('t-stop').addEventListener('click', () => send({ type: 'stop' }));
+$('c-mic').addEventListener('click', talkOrStop);
+$('c-keys').addEventListener('click', () => $('chat-input').focus());
+
+let cameraStream = null;
+async function toggleCamera() {
+  const box = document.querySelector('.camera-box');
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((t) => t.stop());
+    cameraStream = null;
+    $('camera').srcObject = null;
+    box.classList.remove('on');
+    $('camera-btn').textContent = 'Turn on';
+    $('camera-btn').setAttribute('aria-pressed', 'false');
+    return;
+  }
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    $('camera').srcObject = cameraStream;
+    box.classList.add('on');
+    $('camera-btn').textContent = 'Turn off';
+    $('camera-btn').setAttribute('aria-pressed', 'true');
+  } catch (err) {
+    $('camera-off').textContent = `Camera unavailable: ${err.message}`;
+  }
+}
+$('camera-btn').addEventListener('click', toggleCamera);
+$('c-camera').addEventListener('click', toggleCamera);
+
 // ── cards ──
 
 function el(tag, cls, text) {
@@ -618,6 +760,7 @@ function onTool(ev) {
   const i = activity.findIndex((a) => a.id === ev.id);
   if (i >= 0) activity[i] = ev; else activity.unshift(ev);
   runningTools = activity.filter((a) => a.status === 'running').length;
+  renderLog();
   if (state === 'thinking') setState('thinking');
   renderActivity();
 }

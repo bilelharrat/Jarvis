@@ -26,11 +26,17 @@ async def main(rounds: int = 300) -> None:
     listener.start()
     speaker = Speaker.__new__(Speaker)
     speaker.voice, speaker.rate, speaker.muted, speaker.effect = "", 190, False, False
-    speaker.cloud, speaker.cloud_error, speaker._proc, speaker._playing, speaker._cut = None, "", None, False, False
+    speaker.cloud, speaker.cloud_error, speaker._proc, speaker._playing, speaker._cut = (
+        None,
+        "",
+        None,
+        False,
+        False,
+    )
     silence = np.zeros(int(22050 * 0.25), dtype=np.float32)
     rng = random.Random(1)
     t0 = time.monotonic()
-    for i in range(rounds):
+    for _ in range(rounds):
         play = asyncio.create_task(speaker.play(silence, 22050))
         await asyncio.sleep(rng.choice([0, 0.01, 0.05, 0.1, 0.3]))
         if rng.random() < 0.6:
@@ -38,7 +44,9 @@ async def main(rounds: int = 300) -> None:
         await play
     listener.stop()
     await asyncio.sleep(0.5)
-    print(f"{rounds} play/stop rounds with the mic open in {time.monotonic() - t0:.1f}s: no crash; mic thread alive until stop: {listener._thread is not None}")
+    print(
+        f"{rounds} play/stop rounds with the mic open in {time.monotonic() - t0:.1f}s: no crash; mic thread alive until stop: {listener._thread is not None}"
+    )
 
 
 if __name__ == "__main__":

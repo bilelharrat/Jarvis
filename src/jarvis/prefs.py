@@ -45,8 +45,13 @@ PERSONAS = {
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
+LOOKS = ("orb", "hud", "console")
+
+
 @dataclass
 class Prefs:
+    look: str = "orb"
+    weather_city: str = ""
     model: str = "opus"
     persona: str = "jarvis"
     humor: int = 60
@@ -86,6 +91,10 @@ class Prefs:
 
 
 def _clean(name: str, value: Any) -> Any:
+    if name == "look":
+        return value if value in LOOKS else None
+    if name == "weather_city":
+        return str(value).strip()[:80]
     if name == "model":
         return value if value in MODELS else None
     if name == "persona":

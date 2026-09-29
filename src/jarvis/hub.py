@@ -174,6 +174,10 @@ class Hub:
         self._session_id = ""
         self._reload_pending = False
         self.speech = SpeechQueue(self.speaker, self._on_speaking)
+        self.started_at = time.monotonic()
+        self.commands = 0
+        self.history: deque[dict[str, Any]] = deque(maxlen=80)
+        self.weather: dict[str, Any] | None = None
         self._stream_buf = ""
         self._streamed = False
         self.client: Any = None
@@ -195,6 +199,8 @@ class Hub:
             if self._brain_sources_on() and stale:
                 self._spawn(self.rebuild_brain())
             self._spawn(self._refresh_recent())
+            self._spawn(self._vitals_loop())
+            self._spawn(self._weather_loop())
         if self.prefs.hands_free:
             self._apply_hands_free()
 
@@ -275,6 +281,10 @@ class Hub:
             "tasks": self.tasks.public(),
             "prefs": self.prefs_payload(),
             "brain": {**self.kb.summary(), **self.brain_state},
+            "history": list(self.history),
+            "vitals": self.vitals(),
+            "weather": self.weather,
+            "accounts": self.connectors.connected_names(),
         }
 
     def set_state(self, state: str) -> None:
@@ -347,6 +357,8 @@ class Hub:
             self._stopping = False
             rid = uuid.uuid4().hex[:8]
             self._rid = rid
+            self.commands += 1
+            self.history.append({"role": "user", "text": display or text, "at": _now()})
             self.turn = {"rid": rid, "user": display or text, "reply": ""}
             self.emit("turn", rid=rid, user=display or text)
             self.set_state("thinking")
@@ -373,6 +385,10 @@ class Hub:
                     self.set_state("speaking" if self.speech._pending else self.state)
                     await self.speech.drain()
                 self._rid = ""
+                if self.turn.get("reply"):
+                    self.history.append(
+                        {"role": "assistant", "text": self.turn["reply"], "at": _now()}
+                    )
                 await self._apply_pending_model()
                 log.info("turn %s done in %.1fs", rid, time.monotonic() - started)
                 follow_up = (
@@ -882,6 +898,8 @@ class Hub:
                 f"Humor {self.prefs.humor} percent."
                 + (f' Address the user as "{self.prefs.address}".' if self.prefs.address else "")
             )
+        if "weather_city" in changed:
+            self._spawn(self._refresh_weather())
         if "voice_effect" in changed:
             self.speaker.effect = self.prefs.voice_effect
         if "hands_free" in changed:
@@ -979,6 +997,9 @@ class Hub:
             self.emit("connectors", **self.connectors.public())
         elif kind in ("connect", "add_custom", "disconnect", "reconnect", "connector_policy"):
             self._spawn(self._connector_command(kind, msg))
+        elif kind == "clear_history":
+            self.history.clear()
+            self.emit("history", items=[])
         elif kind == "open_privacy":
             panes = {
                 "full_disk": "Privacy_AllFiles",
@@ -1021,6 +1042,48 @@ class Hub:
         except ValueError as exc:
             self.emit("connector_error", id=cid, text=str(exc))
 
+    # ── dashboards: vitals and weather ──
+
+    def vitals(self) -> dict[str, Any]:
+        import psutil
+
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+        return {
+            "cpu": round(psutil.cpu_percent(interval=None)),
+            "mem_pct": round(mem.percent),
+            "mem_used": round((mem.total - mem.available) / 2**30, 1),
+            "mem_total": round(mem.total / 2**30),
+            "disk_pct": round(disk.percent),
+            "disk_used": round(disk.used / 2**30),
+            "disk_total": round(disk.total / 2**30),
+            "uptime": int(time.monotonic() - self.started_at),
+            "commands": self.commands,
+            "battery": battery(),
+        }
+
+    async def _vitals_loop(self) -> None:
+        while True:
+            if self._subscribers:
+                self.emit("vitals", **self.vitals())
+            await asyncio.sleep(3)
+
+    async def _refresh_weather(self) -> None:
+        from .weather import current_weather
+
+        try:
+            self.weather = await current_weather(self.prefs.weather_city)
+        except Exception as exc:  # offline, service down
+            log.warning("weather failed: %s", exc)
+            return
+        self.emit("weather", weather=self.weather)
+
+    async def _weather_loop(self) -> None:
+        while True:
+            if self.prefs.weather_city:
+                await self._refresh_weather()
+            await asyncio.sleep(20 * 60)
+
     # ── live status ──
 
     async def _poll_status(self) -> None:
@@ -1038,6 +1101,10 @@ class Hub:
         if status != self.status:
             self.status = status
             self.emit("status", **status)
+
+
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
 
 
 def battery() -> dict[str, Any] | None:
