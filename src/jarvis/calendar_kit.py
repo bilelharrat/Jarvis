@@ -197,6 +197,66 @@ def remove(start: str, event_id: str, calendar: str, future: bool) -> dict[str, 
     return {"removed": row, "span": "future" if span == EventKit.EKSpanFutureEvents else "this"}
 
 
+def edit(
+    start: str, event_id: str, calendar: str, future: bool, changes: dict[str, Any]
+) -> dict[str, Any]:
+    """Change the one event with this id, start and calendar. changes may hold any of title,
+    location, start (a new time) and duration_minutes; for a repeating one, this occurrence,
+    or it and every later one when future."""
+    import EventKit
+    from Foundation import NSDate
+
+    store = EventKit.EKEventStore.alloc().init()
+    if not _authorized(store):
+        return {"error": NO_ACCESS}
+    hits = [
+        (row, event)
+        for row, event in _starting(store, start)
+        if event_id in (row["id"], str(event.eventIdentifier() or ""))
+        and row["calendar"] == calendar
+    ]
+    if len(hits) != 1:
+        return {"error": "That event isn't on the calendar any more (or changed just now)."}
+    row, event = hits[0]
+    if not row["writable"]:
+        return {"error": f"The {row['calendar']} calendar can't be changed from here."}
+    before = dict(row)
+    if changes.get("title") is not None and str(changes["title"]).strip():
+        event.setTitle_(str(changes["title"]).strip())
+    if changes.get("location") is not None:
+        event.setLocation_(str(changes["location"]))
+    if changes.get("start") or changes.get("duration_minutes") is not None:
+        old_start = datetime.fromisoformat(row["begin"])
+        old_end = datetime.fromisoformat(row["end"])
+        new_start, day_only = when(changes["start"]) if changes.get("start") else (old_start, False)
+        if row["all_day"] or day_only:  # keep it all-day; move the day
+            midnight = new_start.replace(hour=0, minute=0)
+            event.setStartDate_(NSDate.dateWithTimeIntervalSince1970_(midnight.timestamp()))
+            event.setEndDate_(
+                NSDate.dateWithTimeIntervalSince1970_((midnight + timedelta(days=1)).timestamp())
+            )
+        else:
+            if changes.get("duration_minutes") is not None:
+                minutes = int(changes["duration_minutes"])
+                if not 1 <= minutes <= 24 * 60:
+                    return {"error": "Duration must be between 1 minute and 24 hours."}
+                new_end = new_start + timedelta(minutes=minutes)
+            else:
+                new_end = new_start + (old_end - old_start)  # keep its length when only moved
+            event.setStartDate_(NSDate.dateWithTimeIntervalSince1970_(new_start.timestamp()))
+            event.setEndDate_(NSDate.dateWithTimeIntervalSince1970_(new_end.timestamp()))
+    span = EventKit.EKSpanFutureEvents if future and row["repeats"] else EventKit.EKSpanThisEvent
+    ok, error = store.saveEvent_span_commit_error_(event, span, True, None)
+    if not ok:
+        why = error.localizedDescription() if error is not None else "it said no"
+        return {"error": f"Calendar didn't save it ({why})."}
+    return {
+        "edited": _row(event, details=True),
+        "was": before,
+        "span": "future" if span == EventKit.EKSpanFutureEvents else "this",
+    }
+
+
 def choose(rows: list[dict[str, Any]], title: str, calendar: str = "") -> list[dict[str, Any]]:
     """Of the events starting at the time asked for, the ones a request means: the title
     exactly (ignoring case and spacing), else those whose title holds the words asked for
@@ -237,6 +297,13 @@ async def events_at(start: str) -> dict:
 async def remove_at(start: str, event_id: str, calendar: str, future: bool) -> dict:
     """{"removed": {...}, "span": "this"|"future"} or {"error": ...} (see remove())."""
     return await _helper("remove", start, event_id, calendar, "1" if future else "0")
+
+
+async def edit_at(start: str, event_id: str, calendar: str, future: bool, changes: dict) -> dict:
+    """{"edited": {...}, "was": {...}, "span": "this"|"future"} or {"error": ...} (see edit())."""
+    return await _helper(
+        "edit", start, event_id, calendar, "1" if future else "0", json.dumps(changes)
+    )
 
 
 async def _helper(*argv: str, timeout: float = 70) -> dict:
@@ -301,9 +368,12 @@ def main() -> None:
             result = at(args[1])
         elif len(args) == 5 and args[0] == "remove":
             result = remove(args[1], args[2], args[3], args[4] == "1")
+        elif len(args) == 6 and args[0] == "edit":
+            result = edit(args[1], args[2], args[3], args[4] == "1", json.loads(args[5]))
         else:
             result = {
-                "error": "usage: events <back> <ahead> | at <start> | remove <start> <id> <calendar> <0|1>"
+                "error": "usage: events <back> <ahead> | at <start> | "
+                "remove <start> <id> <calendar> <0|1> | edit <start> <id> <calendar> <0|1> <changes-json>"
             }
     except ValueError as exc:  # a start that isn't one
         result = {"error": str(exc)}

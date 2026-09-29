@@ -661,6 +661,121 @@ async def remove_event(args):
     return f"Removed “{e['title']}” ({e['begin'].replace('T', ' ')}{later}) from the {e['calendar']} calendar."
 
 
+def _event_changes(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """What edit_event should change, from its new_* fields: {changes}, "" or {}, why."""
+    from . import calendar_kit
+
+    changes: dict[str, Any] = {}
+    if args.get("new_title") is not None and str(args["new_title"]).strip():
+        changes["title"] = str(args["new_title"]).strip()
+    if args.get("new_location") is not None:
+        changes["location"] = str(args["new_location"]).strip()
+    if args.get("new_start"):
+        try:
+            calendar_kit.when(str(args["new_start"]))
+        except ValueError:
+            return {}, f"“{args['new_start']}” isn't a time: give it like 2026-09-30T16:00."
+        changes["start"] = str(args["new_start"]).strip()
+    if args.get("new_duration_minutes") is not None:
+        try:
+            minutes = int(args["new_duration_minutes"])
+        except (TypeError, ValueError):
+            return {}, "The new length must be a number of minutes."
+        if not 1 <= minutes <= 24 * 60:
+            return {}, "Length must be between 1 minute and 24 hours."
+        changes["duration_minutes"] = minutes
+    if not changes:
+        return {}, "Say what to change: a new title, start, length or location."
+    return changes, ""
+
+
+async def edit_question(args: dict[str, Any], language: str = "en") -> tuple[str, str]:
+    """edit_event's card: the event as it is, then each change as old → new. ("", why) when
+    there's no one event to change or nothing valid to change, so no card is shown."""
+    from . import calendar_kit
+
+    found = await _one_event(args)
+    if "error" in found:
+        return "", found["error"]
+    changes, why = _event_changes(args)
+    if why:
+        return "", why
+    e = found["event"]
+    when = spoken_when(e["begin"], e["all_day"], language)
+    parts = [f"Change “{e['title']}”, {when}, on the {e['calendar']} calendar?"]
+    lines = []
+    if "title" in changes:
+        lines.append(f"Title → “{changes['title']}”")
+    if "start" in changes:
+        new_begin = calendar_kit.when(changes["start"])[0].isoformat()
+        lines.append(f"Time → {spoken_when(new_begin, e['all_day'], language)}")
+    if "duration_minutes" in changes:
+        lines.append(f"Length → {changes['duration_minutes']} minutes")
+    if "location" in changes:
+        lines.append(
+            f"Location → “{changes['location']}”" if changes["location"] else "Clear the location"
+        )
+    parts.append("\n".join(lines))
+    if e.get("repeats"):
+        parts.append(
+            "It repeats: this one and every later one change."
+            if args.get("future")
+            else "It repeats: only this one changes."
+        )
+    if e.get("attendees") and e.get("mine"):
+        parts.append(f"Others are in it ({_names(e['attendees'])}): they'll see the change.")
+    elif not e.get("mine"):
+        parts.append("It's an invitation; your change may apply only to your copy.")
+    return "\n\n".join(parts), ""
+
+
+@tool(
+    "edit_event",
+    "Change an event on Calendar. Find it with list_events first, then give its current title "
+    "and start (local time in ISO format, e.g. 2026-09-30T15:00; just the date for an all-day "
+    "event), its calendar if several share that time, and the changes: any of new_title, "
+    "new_start, new_duration_minutes, new_location. For a repeating event only that occurrence "
+    "changes, unless future is true (only when the user says so). Asks the user first, showing "
+    "the change.",
+    {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "start": {"type": "string"},
+            "calendar": {"type": "string"},
+            "new_title": {"type": "string"},
+            "new_start": {"type": "string"},
+            "new_duration_minutes": {"type": "integer"},
+            "new_location": {"type": "string"},
+            "future": {"type": "boolean"},
+        },
+        "required": ["title", "start"],
+    },
+)
+@_guarded
+async def edit_event(args):
+    from . import calendar_kit
+
+    found = await _one_event(args)
+    if "error" in found:
+        raise ToolFailure(found["error"])
+    changes, why = _event_changes(args)
+    if why:
+        raise ToolFailure(why)
+    e = found["event"]
+    done = await calendar_kit.edit_at(
+        str(args["start"]).strip(), e["id"], e["calendar"], bool(args.get("future")), changes
+    )
+    if "error" in done:
+        raise ToolFailure(done["error"])
+    after = done["edited"]
+    later = " and every later one" if done.get("span") == "future" else ""
+    return (
+        f"Changed “{after['title']}” — now {after['begin'].replace('T', ' ')} on the "
+        f"{after['calendar']} calendar{later}."
+    )
+
+
 # ── Server ───────────────────────────────────────────────────────────────────
 
 # Low-stakes tools run without asking. open_url isn't one: an address can carry what a
@@ -679,7 +794,7 @@ AUTO_ALLOWED = [
     "list_events",
     "snap_window",
 ]
-NEEDS_CONFIRMATION = ["run_shortcut", "create_event", "remove_event", "quit_app"]
+NEEDS_CONFIRMATION = ["run_shortcut", "create_event", "edit_event", "remove_event", "quit_app"]
 
 
 def build_server(default_calendar: str = ""):
@@ -699,6 +814,7 @@ def build_server(default_calendar: str = ""):
         draft_email,
         list_events,
         make_create_event(default_calendar),
+        edit_event,
         remove_event,
     ]
     return create_sdk_mcp_server(name=SERVER_NAME, version="0.1.0", tools=tools)
