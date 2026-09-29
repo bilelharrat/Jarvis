@@ -966,7 +966,7 @@ function renderConnectors(data) {
     const again = el('button', 'btn', c.status === 'connected' ? 'Reconnect' : 'Try again');
     again.type = 'button';
     again.addEventListener('click', () => send({ type: 'reconnect', id: c.id }));
-    const remove = el('button', 'btn', 'Disconnect');
+    const remove = el('button', 'btn danger', 'Disconnect');
     remove.type = 'button';
     remove.addEventListener('click', () => send({ type: 'disconnect', id: c.id }));
     actions.append(label, select, again, remove);
@@ -987,7 +987,7 @@ function renderConnectors(data) {
       const card = el('button', `svc${svc.connected ? ' done' : ''}`);
       card.type = 'button';
       const title = el('strong');
-      title.append(document.createTextNode(svc.name), el('span', 'badge', svc.connected ? 'Connected' : AUTH_BADGE[svc.auth]));
+      title.append(document.createTextNode(svc.name), el('span', `badge ${svc.connected ? 'on' : svc.auth}`, svc.connected ? 'Connected' : AUTH_BADGE[svc.auth]));
       card.append(title, el('small', '', svc.blurb));
       card.disabled = svc.connected;
       card.addEventListener('click', () => { openService = openService === svc.id ? null : svc.id; renderConnectors(data); });
