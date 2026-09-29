@@ -90,7 +90,7 @@ function onEvent(ev) {
     case 'remote_code': showRemoteCode(ev); break;
     case 'meeting': onMeeting(ev); break;
     case 'voicecode': onVoiceCode(ev.focus); break;
-    case 'show_session': toggleCC(true); selectTask(ev.id); break;
+    case 'show_session': awaitingNewSession = false; toggleCC(true); selectTask(ev.id); break;
     case 'caption': $('reply').textContent = ev.text; break;
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
@@ -1268,11 +1268,12 @@ function renderCC(items) {
     $('jc-model').textContent = 'Model';
     $('jc-effort').textContent = 'Effort';
     setCtx(null);
+    renderQueue(null);
     return;
   }
   $('cc-mode').textContent = MODE_LINES[t.mode] || t.mode;
   $('jc-model').textContent = MODEL_LABELS[t.model] || (t.model ? t.model.replace('claude-', '') : 'Model');
-  $('jc-effort').textContent = t.effort ? `Effort: ${t.effort}` : 'Effort';
+  $('jc-effort').textContent = t.effort ? `Effort: ${t.effort}${t.effort_pending ? ' · next step' : ''}` : 'Effort';
   $('cc-meta').textContent = [
     t.files_changed.length ? `${t.files_changed.length} file${t.files_changed.length === 1 ? '' : 's'}` : '',
     t.cost_usd ? `$${t.cost_usd.toFixed(2)}` : '',
@@ -1285,6 +1286,7 @@ function renderCC(items) {
   $('cc-working-text').textContent = `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`;
   renderTodos(t.todos || []);
   renderBackground(t.background || []);
+  renderQueue(t);
   $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === t.id));
   if (currentPane === 'background') renderPaneBody();
 }
@@ -1641,24 +1643,48 @@ function renderInlineApprovals() {
     const sendNo = el('button', 'jc-btn small', 'Send');
     sendNo.type = 'button';
     feedback.append(input, sendNo);
+    let withReason = 'deny'; // "No" and "Keep planning" can both carry a reason
     a.choices.forEach((c, i) => {
       const b = el('button', `jc-btn small ${i === 0 ? 'filled' : ''}`);
       b.type = 'button';
       b.append(el('kbd', '', String(i + 1)), document.createTextNode(c.label));
       b.addEventListener('click', () => {
-        if (c.id === 'deny') { feedback.hidden = false; input.focus(); return; }
+        if (c.id === 'deny' || c.id === 'plan_keep') {
+          withReason = c.id;
+          input.placeholder = c.id === 'plan_keep' ? 'What should the plan change? (optional)' : 'Tell Claude what to do instead (optional)';
+          feedback.hidden = false;
+          input.focus();
+          return;
+        }
         answerApproval(a, c.id);
       });
       row.append(b);
     });
-    sendNo.addEventListener('click', () => answerApproval(a, 'deny', input.value));
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); answerApproval(a, 'deny', input.value); } });
-    li.append(row, feedback, el('p', 'jc-ask-hint', 'Press a number, or just say “yes”, “no, …” or “option 2”.'));
+    sendNo.addEventListener('click', () => answerApproval(a, withReason, input.value));
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); answerApproval(a, withReason, input.value); } });
+    li.append(row, feedback, el('p', 'jc-ask-hint', 'Press a number, or just say “yes”, “no, …”, “always” or “allow all edits”.'));
     $('deck-timeline').append(li);
     if (document.activeElement === $('deck-input') && !$('deck-input').value) row.querySelector('button').focus();
     $('cc-welcome').hidden = true;
     $('cc-scroll').scrollTop = $('cc-scroll').scrollHeight;
   }
+}
+
+// Follow-ups waiting for the current step, newest last; ✕ takes one back unsent.
+function renderQueue(t) {
+  const items = (t && t.queue) || [];
+  const list = $('jc-queue');
+  list.hidden = !items.length;
+  list.replaceChildren(...items.map((q) => {
+    const li = el('li', 'jc-queued');
+    li.append(el('span', 'jc-queued-kicker', 'Queued'), el('span', 'jc-queued-text', q.text || (q.images ? `${q.images} image${q.images === 1 ? '' : 's'}` : '')));
+    const x = el('button', 'jc-queued-x', '✕');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Don’t send this');
+    x.addEventListener('click', () => send({ type: 'task_unqueue', id: t.id, item: q.id }));
+    li.append(x);
+    return li;
+  }));
 }
 
 function answerApproval(a, choice, feedback) {
@@ -2042,6 +2068,7 @@ function openPane(kind) {
 
 function closePane() {
   if (currentPane === 'sim') { send({ type: 'sim_watch', udid: '' }); simWatching = ''; }
+  if (currentPane === 'terminal' && term.id) { send({ type: 'term_close', term: term.id }); term.id = null; }
   currentPane = null;
   $('jc-pane').hidden = true;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
@@ -2343,7 +2370,18 @@ function onJarvisCodeEvent(ev) {
     case 'file_content': if (fileView && ev.path === fileView.path) { fileView = ev; drawViewer(); } return true;
     case 'term_open': onTermOpen(ev); return true;
     case 'term_data': onTermData(ev); return true;
-    case 'term_exit': if (ev.term === term.id && term.xterm) term.xterm.write('\r\n[shell exited — reopen the Terminal to start a new one]\r\n'); return true;
+    case 'term_exit':
+      if (ev.term === term.id) {
+        if (term.xterm) term.xterm.write('\r\n[shell exited — reopen the Terminal to start a new one]\r\n');
+        term.id = null;
+      }
+      return true;
+    case 'sim_watch_ended': {
+      simWatching = '';
+      const img = $('jc-sim-img');
+      if (img && currentPane === 'sim') img.after(el('p', 'jc-dim', 'The live view paused after 30 minutes. Watch again to resume.'));
+      return true;
+    }
     case 'sim_list': simDevices = ev.devices || []; if (currentPane === 'sim') renderPaneBody(); return true;
     case 'sim_frame': { const img = $('jc-sim-img'); if (img) img.src = `data:image/jpeg;base64,${ev.jpeg}`; return true; }
     case 'awake': awake = !!ev.on; return true;

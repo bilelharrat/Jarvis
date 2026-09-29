@@ -1492,3 +1492,11 @@ body.browser-narrow .hud-kv, body.browser-narrow .console-clock, body.browser-na
 body.browser-narrow .top, body.browser-narrow .bottom { padding-left: 24px; padding-right: 24px; }
 body.browser-narrow.in-app .top { padding-left: 92px; }
 body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: nowrap; }
+/* Jarvis Code: follow-ups waiting for the current step */
+.jc-queue { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.jc-queue[hidden] { display: none; }
+.jc-queued { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 12px; background: var(--glass-fill); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-rim), var(--glass-edge); font-size: 13px; }
+.jc-queued-kicker { font-size: 11px; font-weight: 600; color: rgb(var(--c-accent-ink)); }
+.jc-queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--c-ink-2)); }
+.jc-queued-x { width: 24px; height: 24px; border: 0; border-radius: 12px; background: transparent; color: rgb(var(--c-muted)); cursor: pointer; }
+.jc-queued-x:hover { background: rgb(var(--c-ink) / 0.07); color: rgb(var(--c-ink)); }
