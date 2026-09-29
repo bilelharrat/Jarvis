@@ -119,6 +119,7 @@ FILLERS = ["One moment.", "On it.", "Let me check."]
 _FIRST_CLAUSE = re.compile(r"^(.{24,}?[,;:—–])\s")
 CHIME = "/System/Library/Sounds/Tink.aiff"
 
+FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
 CODE_ANNOUNCE_SECONDS = 20  # Claude Code turns shorter than this finish unannounced
 FEATURE_ASKED = {
@@ -227,10 +228,15 @@ class Hub:
         self.meetings_dir = meetings_dir
         self._alert_notes: deque[tuple[float, str]] = deque(maxlen=3)
         self._silent = False
+        from .voicecode import VoiceCoder
+
+        self.voicecode = VoiceCoder(self)
+        self.models, self.model_names = MODELS, MODEL_NAMES
         from .remote import RemoteServer
 
         self.remote = RemoteServer(self, devices)
         self._approval_at = 0.0
+        self._last_said = ""
         self._turn_text = ""
         self._spoke_until = 0.0
         self._hands_free_before_meeting: bool | None = None
@@ -612,6 +618,7 @@ class Hub:
             "memory": self.memory.public(),
             "routines": self.routines.public(),
             "remote": self.remote.public(),
+            "voicecode": self.voicecode.public(),
             "meeting": {
                 "active": True,
                 "title": self.meeting.title,
@@ -687,11 +694,23 @@ class Hub:
             return False
         if self.state == "speaking" or time.monotonic() - self._spoke_until < 0.8:
             return False  # never let it hear its own "sure" as the user's yes
+        from .voicecode import pick_choice
+
+        approval = list(self.approvals.values())[-1]
+        choices = [c["id"] for c in approval["choices"]]
+        labels = [c["label"] for c in approval["choices"]]
+        # A question or a plan has named answers: "option two", "keep planning".
+        if approval.get("ask_kind") in ("question", "plan") or len(choices) > 2:
+            index = pick_choice(text, labels)
+            if index is not None:
+                log.info("approval answered by voice: choice %d", index + 1)
+                self.emit("heard", text=text)
+                return self.resolve(approval["id"], choices[index])
+            if approval.get("ask_kind") == "question":
+                return False  # "yes" doesn't answer "which one?"
         answer = yes_no(text)
         if answer is None:
             return False
-        approval = list(self.approvals.values())[-1]
-        choices = [c["id"] for c in approval["choices"]]
         log.info("approval answered by voice: %s", "yes" if answer else "no")
         self.emit("heard", text=text)
         return self.resolve(approval["id"], choices[0] if answer else choices[-1])
@@ -1138,6 +1157,9 @@ class Hub:
             return
         if self.answer_by_voice(text):
             return
+        if self.voicecode.focus is not None and not self._lock.locked():
+            await self._code_heard(text)
+            return
         woke, command = find_wake(text)
         busy = self._lock.locked()
         if busy or self.state == "speaking":
@@ -1173,6 +1195,101 @@ class Hub:
                 self._arm()
         else:
             log.debug("no wake word")
+
+    # ── Claude Code by voice ──
+
+    async def _code_heard(self, text: str) -> None:
+        """Voice-code mode: what the user says (after the wake word, or in the window
+        after JARVIS speaks) is for the Claude Code session in focus."""
+        woke, command = find_wake(text)
+        armed = self._armed_until and time.monotonic() < self._armed_until
+        if self.state == "speaking":
+            if not woke and is_echo(text, self._last_said):
+                return
+            if woke or is_stop(text):
+                await self.stop()  # quiet JARVIS first
+                if woke and command and not is_stop(command):
+                    self.emit("heard", text=command)
+                    await self.voicecode.handle(command)
+                elif woke:
+                    self._arm(seconds=FOCUS_FOLLOW_UP)
+            return
+        if woke and not command:
+            self._arm(seconds=FOCUS_FOLLOW_UP)
+            return
+        if not (woke or armed):
+            return
+        if not woke and is_echo(text, self._last_said):
+            return
+        self._armed_until = 0.0
+        request = command if woke else text
+        self.emit("heard", text=request)
+        await self.voicecode.handle(request)
+
+    def say(self, text: str, follow_up: bool = True) -> None:
+        """Say something outside a JARVIS turn (voice-code narration and replies), then
+        listen for an answer without the wake word."""
+        text = text.strip()
+        if not text:
+            return
+        self._last_said = text
+        self.emit("caption", text=text)
+        if self._silent or self.speaker.muted:
+            return
+        self._spawn(self._say_then_listen(text, follow_up))
+
+    async def _say_then_listen(self, text: str, follow_up: bool) -> None:
+        self.speech.push(text)
+        await self.speech.drain()
+        if follow_up and self._listener is not None and self._listener.running:
+            self._arm(seconds=FOCUS_FOLLOW_UP, chime=False)
+
+    def quiet_enough(self) -> bool:
+        """Room for a progress note: not mid-sentence, not mid-question."""
+        return self.state not in ("speaking", "listening") and not self.approvals
+
+    def changes_speech(self, task) -> str:
+        files = sorted({Path(f).name for f in task.files_changed})
+        if not files:
+            return "No file changes yet in this session."
+        named = ", ".join(files[:5]) + (f", and {len(files) - 5} more" if len(files) > 5 else "")
+        return f"{len(files)} file{'s' if len(files) != 1 else ''} changed: {named}."
+
+    def explain_change_prompt(self, task, index: int) -> str:
+        which = "most recent" if index < 0 else f"number {index + 1}"
+        return (
+            f"In two or three short spoken sentences (no code, no lists), explain your change "
+            f"{which} among the edits you've made this session: what it does and why."
+        )
+
+    def with_code_hints(self, task, text: str) -> str:
+        return text
+
+    async def voice_code(self, directory: str = "", request: str = "", task_id: int = 0) -> str:
+        """Put a Claude Code session in voice focus: a given one, the latest in a project,
+        or a new one."""
+        tasks = self.tasks
+        if task_id:
+            return self.voicecode.enter(task_id)
+        try:
+            path = tasks.resolve_dir(directory) if directory else None
+        except ValueError as exc:
+            return str(exc)
+        live = [
+            t
+            for t in tasks.tasks.values()
+            if t.kind == "code" and (path is None or t.cwd == path) and t.status != "closed"
+        ]
+        if live:
+            task = max(live, key=lambda t: t.id)
+            reply = self.voicecode.enter(task.id)
+            if request:
+                self.voicecode._send(task, request)
+            return reply
+        if path is None:
+            return "Which project? " + ", ".join(tasks.projects())
+        task = tasks.start(request, str(path))
+        return self.voicecode.enter(task.id)
 
     # ── second brain ──
 
@@ -1680,6 +1797,31 @@ class Hub:
                 return {"content": [{"type": "text", "text": result["error"]}], "is_error": True}
             return _text(json.dumps(result))
 
+        @tool(
+            "voice_code",
+            "Start voice coding: put a Claude Code session in voice focus so everything the "
+            "user says next goes straight to it (they can plan, approve, undo, commit and ask "
+            "about changes by voice). Use for 'let's code in X', 'work on X with Claude "
+            "Code', 'voice code'. directory: the project; request: what to do first, if they "
+            "said; task_id: a running session to focus instead.",
+            {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string"},
+                    "request": {"type": "string"},
+                    "task_id": {"type": "integer"},
+                },
+            },
+        )
+        async def voice_code(args):
+            return _text(
+                await hub.voice_code(
+                    str(args.get("directory") or ""),
+                    str(args.get("request") or ""),
+                    int(args.get("task_id") or 0),
+                )
+            )
+
         return create_sdk_mcp_server(
             name="jarvis",
             version="0.1.0",
@@ -1690,6 +1832,7 @@ class Hub:
                 where_am_i,
                 weather_report,
                 drive_time,
+                voice_code,
             ],
         )
 
@@ -1757,6 +1900,9 @@ class Hub:
 
     def _task_event(self, kind: str, **data: Any) -> None:
         self.emit(kind, **data)
+        if self.voicecode.focus is not None and data.get("id") == self.voicecode.focus:
+            self.voicecode.on_event(kind, data)
+            return  # the focused session speaks for itself
         if kind == "task_finished" and data.get("task_kind") == "code":
             done = data.get("status") == "done"
             if done and (data.get("elapsed") or 0) < CODE_ANNOUNCE_SECONDS:
@@ -1773,7 +1919,15 @@ class Hub:
 
     async def _task_approval(self, question, detail="", choices=None, context=None) -> str:
         """Claude Code waiting on a yes: say so, since the user may be elsewhere."""
-        if context and context.get("task_id"):
+        spoken = self.voicecode.speak_approval(
+            {
+                "question": question,
+                "detail": detail,
+                "choices": [{"id": c, "label": label} for c, label in (choices or [])],
+                **(context or {}),
+            }
+        )
+        if context and context.get("task_id") and not spoken:
             self.notify(
                 Alert(
                     f"code-ok:{context['task_id']}:{time.monotonic():.0f}",
@@ -1987,6 +2141,12 @@ class Hub:
                     self.emit("error", text=reply)
         elif kind == "meeting_stop":
             self._spawn(self._stop_meeting_from_window())
+        elif kind == "task_undo":
+            self.emit("caption", text=await self.tasks.undo(int(msg.get("id", 0))))
+        elif kind == "voicecode_enter":
+            self.emit("caption", text=await self.voice_code(task_id=int(msg.get("id", 0))))
+        elif kind == "voicecode_exit":
+            self.voicecode.exit()
         elif kind == "remote_pair":
             code = self.remote.devices.start_pairing()
             self.emit("remote_code", code=code, seconds=300, urls=self.remote.public()["urls"])

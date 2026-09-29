@@ -46,7 +46,11 @@ READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoW
 EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 
 ALLOW, ALLOW_EDITS, DENY = "allow", "allow_edits", "deny"
-MODES = ("ask", "edits", "auto")
+MODES = ("plan", "ask", "edits", "auto")
+# What each mode is in Claude Code itself. Only plan mode changes the CLI's own
+# behavior; the rest is enforced by policy_for below.
+SDK_MODES = {"plan": "plan", "ask": "default", "edits": "default", "auto": "default"}
+PLAN_APPROVE_EDITS, PLAN_APPROVE, PLAN_KEEP = "plan_edits", "plan_ask", "plan_keep"
 IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
 
 RESEARCH_TOOLS = ["WebSearch", "WebFetch"]
@@ -85,6 +89,9 @@ class ClaudeTask:
     session_id: str = ""
     title: str = ""
     transcript: list[dict[str, Any]] = field(default_factory=list)
+    plan: str = ""  # the last plan Claude Code proposed
+    checkpoints: list[str] = field(default_factory=list)  # user-message ids, for undo
+    model: str = ""
     inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
     client: Any = None
     busy: bool = False
@@ -100,6 +107,9 @@ class ClaudeTask:
             "label": "Research" if self.kind == "research" else f"Claude Code · {self.cwd.name}",
             "title": self.title or self.prompt[:80],
             "mode": self.mode,
+            "plan": self.plan,
+            "can_undo": bool(self.checkpoints),
+            "model": self.model,
             "session_id": self.session_id,
             "busy": self.busy,
             "entries": len(self.transcript),
@@ -237,11 +247,66 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if task is None or mode not in MODES:
             return False
-        task.mode = mode
+        previous, task.mode = task.mode, mode
         task.allow_edits = mode in ("edits", "auto")
+        if task.client is not None and SDK_MODES[previous] != SDK_MODES[mode]:
+            asyncio.create_task(self._apply_mode(task))
         self._log(task, "system", f"Permission mode: {mode}.")
         self._changed()
         return True
+
+    async def _apply_mode(self, task: ClaudeTask) -> None:
+        try:
+            await task.client.set_permission_mode(SDK_MODES[task.mode])
+        except Exception as exc:  # the session just closed
+            self._log(task, "system", f"Couldn't switch mode: {exc}")
+
+    async def set_model(self, task_id: int, model: str) -> bool:
+        task = self.tasks.get(task_id)
+        if task is None:
+            return False
+        task.model = model
+        if task.client is not None:
+            try:
+                await task.client.set_model(model)
+            except Exception:
+                return False
+        self._log(task, "system", f"Model: {model}.")
+        self._changed()
+        return True
+
+    async def undo(self, task_id: int) -> str:
+        """Put the files back as they were before the last message's changes."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return "No Claude Code session with that number."
+        if task.busy:
+            return "It's still working; stop it first."
+        if not task.checkpoints or task.client is None:
+            return "There's nothing to undo in this session."
+        checkpoint = task.checkpoints.pop()
+        try:
+            await task.client.rewind_files(checkpoint)
+        except Exception as exc:
+            return f"Couldn't undo: {exc}"
+        task.files_changed.clear()
+        self._log(task, "system", "Undid the last round of file changes.")
+        self._changed()
+        return "Undone: the files are back as they were before that change."
+
+    async def context_usage(self, task_id: int) -> dict[str, Any] | None:
+        task = self.tasks.get(task_id)
+        if task is None or task.client is None:
+            return None
+        try:
+            usage = await task.client.get_context_usage()
+        except Exception:
+            return None
+        return {
+            "percent": round(float(usage.get("percentage") or 0)),
+            "tokens": usage.get("totalTokens"),
+            "max": usage.get("maxTokens"),
+        }
 
     def transcript(self, task_id: int) -> list[dict[str, Any]]:
         task = self.tasks.get(task_id)
@@ -339,15 +404,19 @@ class TaskManager:
             )
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
-            model=self.model,
+            model=task.model or self.model,
             effort=self.settings.task_effort,
             cwd=str(task.cwd),
             tools={"type": "preset", "preset": "claude_code"},
             allowed_tools=list(READ_ONLY_TOOLS),
-            permission_mode="default",
+            permission_mode=SDK_MODES[task.mode],
             can_use_tool=self.policy_for(task),
             # The project's own CLAUDE.md and settings apply, as in a normal session there.
             setting_sources=["project"],
+            # Checkpoints make "undo that" possible: files can be rewound to how they
+            # were at any earlier message, which the replayed user messages identify.
+            enable_file_checkpointing=True,
+            extra_args={"replay-user-messages": None},
         )
         if task.session_id:
             options.resume = task.session_id
@@ -434,10 +503,15 @@ class TaskManager:
                 elif isinstance(block, TextBlock) and block.text.strip():
                     task.result = block.text.strip()
                     self._log(task, "assistant", block.text.strip())
-        elif isinstance(message, UserMessage) and isinstance(message.content, list):
-            for block in message.content:
-                if isinstance(block, ToolResultBlock):
-                    self._tool_result(task, block)
+        elif isinstance(message, UserMessage):
+            blocks = message.content if isinstance(message.content, list) else []
+            results = [b for b in blocks if isinstance(b, ToolResultBlock)]
+            for block in results:
+                self._tool_result(task, block)
+            uid = getattr(message, "uuid", None)
+            if uid and not results:  # the user's own message: a point to undo back to
+                task.checkpoints.append(uid)
+                del task.checkpoints[:-50]
         elif isinstance(message, ResultMessage):
             task.session_id = message.session_id or task.session_id
             task.cost_usd = (task.cost_usd or 0) + (message.total_cost_usd or 0)
@@ -492,6 +566,10 @@ class TaskManager:
         async def can_use_tool(
             tool_name: str, tool_input: dict[str, Any], _context: ToolPermissionContext
         ):
+            if tool_name == "ExitPlanMode":
+                return await self._approve_plan(task, tool_input)
+            if tool_name == "AskUserQuestion":
+                return await self._ask_user(task, tool_input)
             if tool_name in READ_ONLY_TOOLS or task.mode == "auto":
                 return PermissionResultAllow()
             if tool_name in EDIT_TOOLS and (task.allow_edits or task.mode == "edits"):
@@ -518,6 +596,62 @@ class TaskManager:
             return PermissionResultDeny(message="The user declined this step.")
 
         return can_use_tool
+
+    async def _approve_plan(self, task: ClaudeTask, tool_input: dict[str, Any]):
+        """Claude Code finished planning: the user approves (choosing how much it may do
+        next) or sends it back to keep planning."""
+        task.plan = str(tool_input.get("plan", "")).strip()
+        task.last_action = "Plan ready"
+        self._log(task, "plan", task.plan)
+        self.emit("task_plan", id=task.id, plan=task.plan)
+        self._changed()
+        choice = await self.approve(
+            f"Claude Code in {task.cwd.name} has a plan",
+            task.plan,
+            [
+                (PLAN_APPROVE_EDITS, "Go, auto-accept edits"),
+                (PLAN_APPROVE, "Go, ask before edits"),
+                (PLAN_KEEP, "Keep planning"),
+            ],
+            context={"task_id": task.id, "tool": "ExitPlanMode", "ask_kind": "plan"},
+        )
+        if choice == PLAN_KEEP:
+            return PermissionResultDeny(
+                message="The user wants to keep planning. Ask what to change, or refine the plan."
+            )
+        task.mode = "edits" if choice == PLAN_APPROVE_EDITS else "ask"
+        task.allow_edits = task.mode == "edits"
+        self._log(task, "system", f"Plan approved. Permission mode: {task.mode}.")
+        self._changed()
+        return PermissionResultAllow()
+
+    async def _ask_user(self, task: ClaudeTask, tool_input: dict[str, Any]):
+        """Claude Code asked the user a multiple-choice question: put each one to them
+        and hand back the answers."""
+        answers: dict[str, str] = {}
+        for q in tool_input.get("questions", [])[:4]:
+            question = str(q.get("question", "")).strip()
+            options = [str(o.get("label", "")).strip() for o in q.get("options", [])][:6]
+            if not question or not options:
+                continue
+            details = "\n".join(
+                f"{i + 1}. {o.get('label', '')}: {o.get('description', '')}".rstrip(": ")
+                for i, o in enumerate(q.get("options", [])[:6])
+            )
+            task.last_action = "Asking you"
+            self._changed()
+            choice = await self.approve(
+                question,
+                details,
+                # "Skip" last: an unanswered question times out to it, never to an option.
+                [(f"opt{i}", label) for i, label in enumerate(options)] + [("skip", "Skip")],
+                context={"task_id": task.id, "tool": "AskUserQuestion", "ask_kind": "question"},
+            )
+            if not choice.startswith("opt"):
+                return PermissionResultDeny(message="The user didn't answer.")
+            answers[question] = options[int(choice[3:])]
+            self._log(task, "user", f"{question} → {answers[question]}")
+        return PermissionResultAllow(updated_input={**tool_input, "answers": answers})
 
     # ── JARVIS's tools for driving tasks ──
 

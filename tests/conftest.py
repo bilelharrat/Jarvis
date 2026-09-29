@@ -41,6 +41,18 @@ class FakeClient:
     async def interrupt(self):
         self.interrupted = True
 
+    async def set_permission_mode(self, mode):
+        self.modes = [*getattr(self, "modes", []), mode]
+
+    async def set_model(self, model):
+        self.model = model
+
+    async def rewind_files(self, user_message_id):
+        self.rewound = [*getattr(self, "rewound", []), user_message_id]
+
+    async def get_context_usage(self):
+        return {"percentage": 41.6, "totalTokens": 83000, "maxTokens": 200000}
+
     async def __aenter__(self):
         await self.connect()
         return self

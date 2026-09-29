@@ -828,3 +828,10 @@ body[data-look="hud"] .sheet, body[data-look="console"] .sheet { box-shadow: -24
 .watch-help summary { cursor: pointer; font-size: 14px; }
 .watch-help p { font-size: 13px; color: var(--muted); line-height: 1.5; }
 .watch-help code { font-size: 12px; }
+
+/* ── voice coding ── */
+.code-pill { top: 118px; }
+.code-pill i { background: var(--action); animation: none; }
+#ds-voice[aria-pressed="true"] { color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
+.timeline .t-plan { align-self: stretch; border: 1px solid var(--action); border-radius: 12px; padding: 10px 14px; background: var(--card); font-size: 14px; }
+.timeline .t-plan strong { display: block; margin-bottom: 4px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--action); }

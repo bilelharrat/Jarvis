@@ -154,6 +154,7 @@
 </div>
 
 <aside id="cards" class="cards" aria-live="polite"></aside>
+<div id="code-pill" class="meeting-pill code-pill" role="status" hidden><i aria-hidden="true"></i><span id="code-text">Voice coding</span><button type="button" id="code-exit">Exit</button></div>
 <div id="meeting-pill" class="meeting-pill" role="status" hidden><i aria-hidden="true"></i><span id="meeting-text">Taking notes</span><button type="button" id="meeting-stop">Stop &amp; write up</button></div>
 
 <footer class="bottom">
@@ -414,6 +415,7 @@
         <textarea id="deck-new-task" rows="5" placeholder="e.g. Find why the spend test is flaky, fix it, and run the whole suite."></textarea>
         <span class="label">Permissions</span>
         <div class="segmented modes" id="deck-new-mode" role="radiogroup" aria-label="Permissions">
+          <button type="button" role="radio" data-mode="plan" aria-checked="false">Plan first<small>you approve the plan</small></button>
           <button type="button" role="radio" data-mode="ask" aria-checked="true">Ask first<small>edits &amp; commands</small></button>
           <button type="button" role="radio" data-mode="edits" aria-checked="false">Auto-edits<small>commands still ask</small></button>
           <button type="button" role="radio" data-mode="auto" aria-checked="false">Full auto<small>runs anything</small></button>
@@ -432,10 +434,13 @@
           </div>
           <div class="deck-session-actions">
             <div class="segmented modes compact" id="ds-mode" role="radiogroup" aria-label="Permissions for this session">
+              <button type="button" role="radio" data-mode="plan">Plan</button>
               <button type="button" role="radio" data-mode="ask">Ask</button>
               <button type="button" role="radio" data-mode="edits">Auto-edits</button>
               <button type="button" role="radio" data-mode="auto">Full auto</button>
             </div>
+            <button type="button" class="btn" id="ds-voice" aria-pressed="false">🎙 Voice</button>
+            <button type="button" class="btn" id="ds-undo">Undo</button>
             <button type="button" class="btn" id="ds-interrupt">Interrupt</button>
             <button type="button" class="btn" id="ds-close">End session</button>
           </div>

@@ -77,6 +77,7 @@ function onEvent(ev) {
       renderRoutines(ev.routines || []);
       if (ev.remote) renderRemote(ev.remote);
       onMeeting(ev.meeting || { active: false });
+      onVoiceCode(ev.voicecode);
       break;
     case 'memory': renderMemory(ev.items || []); break;
     case 'routines': renderRoutines(ev.items || []); break;
@@ -84,6 +85,8 @@ function onEvent(ev) {
     case 'devices': send({ type: 'remote' }); break;
     case 'remote_code': showRemoteCode(ev); break;
     case 'meeting': onMeeting(ev); break;
+    case 'voicecode': onVoiceCode(ev.focus); break;
+    case 'caption': $('reply').textContent = ev.text; break;
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
     case 'weather': renderWeather(ev.weather); break;
@@ -1046,6 +1049,8 @@ function renderCC(items) {
   $('ds-badge').textContent = statusText(t);
   document.querySelectorAll('#ds-mode button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === t.mode)));
   $('ds-interrupt').disabled = !t.busy;
+  $('ds-undo').disabled = t.busy || !t.can_undo;
+  $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === t.id));
   $('st-files').textContent = t.files_changed.length;
   $('st-files').title = t.files_changed.join('\n');
   $('st-commands').textContent = t.commands;
@@ -1123,6 +1128,9 @@ function appendEntry(e) {
     out.hidden = !e.output;
     det.append(out);
     li.append(det);
+  } else if (e.role === 'plan') {
+    li = el('li', 't-plan');
+    li.append(el('strong', '', 'Plan'), richText(e.text));
   } else li = el('li', 't-system', e.text);
   const firstApproval = tl.querySelector('.t-approval');
   tl.insertBefore(li, firstApproval);
@@ -1172,6 +1180,24 @@ $('deck-input').addEventListener('keydown', (e) => {
 $('deck-input').addEventListener('input', () => { $('deck-input').style.height = 'auto'; $('deck-input').style.height = `${Math.min(180, $('deck-input').scrollHeight)}px`; });
 document.querySelectorAll('#deck-quick button').forEach((b) => b.addEventListener('click', () => sendToSession(b.dataset.say)));
 $('ds-interrupt').addEventListener('click', () => ccSelected && send({ type: 'task_interrupt', id: ccSelected }));
+$('ds-undo').addEventListener('click', () => ccSelected && send({ type: 'task_undo', id: ccSelected }));
+$('ds-voice').addEventListener('click', () => {
+  if (!ccSelected) return;
+  if (voiceFocus && voiceFocus.id === ccSelected) send({ type: 'voicecode_exit' });
+  else send({ type: 'voicecode_enter', id: ccSelected });
+});
+$('code-exit').addEventListener('click', () => send({ type: 'voicecode_exit' }));
+
+// ── voice coding: which session your voice goes to ──
+let voiceFocus = null;
+const MODE_LABELS = { plan: 'Plan mode', ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
+
+function onVoiceCode(focus) {
+  voiceFocus = focus || null;
+  $('code-pill').hidden = !voiceFocus;
+  if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
+  if (ccSelected) $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === ccSelected));
+}
 $('ds-close').addEventListener('click', () => ccSelected && send({ type: 'task_cancel', id: ccSelected }));
 document.querySelectorAll('#ds-mode button').forEach((b) => b.addEventListener('click', () => {
   if (b.dataset.mode === 'auto' && !confirm('Full auto lets this session run any command without asking. Switch?')) return;
