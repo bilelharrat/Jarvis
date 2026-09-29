@@ -1,7 +1,7 @@
 // Hand gestures with synthetic MediaPipe hands: node --test tests/web/
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classify, createGestures, createPageGestures, oneEuro, pageBox, palmCenter, toPage } from '../../src/jarvis/web/gestures.js';
+import { classify, createGestures, createPageGestures, oneEuro, pageBox, palmCenter, toPage, wellFormed } from '../../src/jarvis/web/gestures.js';
 
 // A right hand around (cx, cy): wrist at the bottom, fingers pointing up. `up` lists the
 // extended fingers; `pinch` closes the thumb onto the index tip.
@@ -321,4 +321,33 @@ test('the page box stays inside the camera frame', () => {
   assert.ok(b.cx - b.width / 2 >= 0 && b.cy + b.height / 2 <= 1);
   assert.deepEqual(toPage({ x: b.cx, y: b.cy }, b), { x: 0.5, y: 0.5 });
   assert.deepEqual(palmCenter(hand({ cx: 0.5, cy: 0.5 })), { x: 0.5, y: 0.54 });
+});
+
+test('a bad frame (NaN, a short list, no hand at all) never freezes the page cursor', () => {
+  const moves = [];
+  const page = { move: (x, y, m) => moves.push([x, y, m]), hide() {}, press() {}, drag() {}, release() {}, swipe() {}, zoomBy() {}, hoverLabel() {} };
+  const step = createPageGestures({ page, status() {}, close() {} });
+  const hand = (x, y) => Array.from({ length: 21 }, (_, i) => ({ x: x + (i % 5) * 0.01, y: y + Math.floor(i / 5) * 0.01, z: 0 }));
+  step([hand(0.5, 0.5)], 0);
+  const nan = hand(0.5, 0.5); nan[0] = { x: NaN, y: 0.5, z: 0 };
+  for (const bad of [[nan], [hand(0.5, 0.5).slice(0, 1)], [undefined], [null], 'junk', undefined]) {
+    assert.doesNotThrow(() => step(bad, 16));
+  }
+  moves.length = 0;
+  for (let i = 1; i <= 30; i += 1) step([hand(0.5 + i * 0.002, 0.5)], 100 + i * 16);
+  assert.equal(moves.length, 30);
+  assert.ok(moves.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)));
+  assert.ok(!wellFormed(nan) && wellFormed(hand(0.1, 0.1)));
+  const f = oneEuro();
+  assert.equal(f(0.4, 0), 0.4);
+  assert.equal(f(NaN, 16), 0.4); // held, not kept
+  assert.ok(Number.isFinite(f(0.41, 32)));
+});
+
+test('the galaxy gestures take a bad frame as no hand', () => {
+  const galaxy = { hoverAtClient() {}, select() {}, spin() {}, zoom() {}, resetView() {}, starAtClient: () => null };
+  const step = createGestures({ galaxy, toScreen: (p) => p, hideCursor() {}, status() {}, close() {} });
+  for (const bad of [[[{ x: NaN, y: 0 }]], [undefined], 'junk', undefined, null]) {
+    assert.doesNotThrow(() => step(bad, 0));
+  }
 });

@@ -30,6 +30,18 @@ function handSize(lm) { return dist(lm[0], lm[9]) || 0.1; }
 
 function extended(lm, finger) { return dist(lm[TIP[finger]], lm[0]) > dist(lm[PIP[finger]], lm[0]) * 1.12; }
 
+// MediaPipe's 21 landmarks, each a finite point. A hand that isn't (a NaN from a bad
+// frame, a short list) counts as no hand: one such frame used to poison the smoothing
+// filters and freeze the page cursor until the hand was gone for a second.
+export function wellFormed(lm) {
+  return Array.isArray(lm) && lm.length >= 21
+    && lm.every((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y));
+}
+
+function usable(hands) {
+  return Array.isArray(hands) ? hands.filter(wellFormed) : [];
+}
+
 export function classify(lm, wasPinching = false) {
   const gap = dist(lm[TIP.thumb], lm[TIP.index]) / handSize(lm);
   if (gap < (wasPinching ? PINCH_OFF : PINCH_ON)) return 'pinch';
@@ -65,7 +77,8 @@ export function createGestures({ galaxy, toScreen, hideCursor, status, close }) 
     pinch = null;
   }
 
-  return function step(hands, now) {
+  return function step(seen, now) {
+    const hands = usable(seen);
     if (!hands.length) {
       hideCursor();
       pinch = null;
@@ -202,6 +215,7 @@ export function oneEuro({ minCutoff = 0.9, beta = 4, dCutoff = 1 } = {}) {
   let prev = null, dPrev = 0, tPrev = 0;
   const alpha = (cutoff, dt) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
   const filter = (value, t) => {
+    if (!Number.isFinite(value) || !Number.isFinite(t)) return prev === null ? value : prev; // never kept
     if (prev === null) { prev = value; tPrev = t; return value; }
     const dt = Math.max(0.001, (t - tPrev) / 1000);
     tPrev = t;
@@ -250,7 +264,8 @@ export function createPageGestures({ page, status, close, box = PAGE_BOX }) {
     pinch = null;
   }
 
-  return function step(hands, now) {
+  return function step(seen, now) {
+    const hands = usable(seen);
     if (!hands.length) {
       letGo(false); // losing the hand never clicks
       span = null;
