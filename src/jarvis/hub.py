@@ -432,6 +432,8 @@ class Hub:
         self.tasks.session_servers = lambda cwd: code_tools.build_servers(
             self.browser_call, self.workbench, lambda: cwd
         )
+        # Settings › Queue Jarvis Code follow-ups off: they steer the running step.
+        self.tasks.steer_now = lambda: not self.prefs.code_queue
         self.models, self.model_names = MODELS, MODEL_NAMES
         from .remote import RemoteServer
 
@@ -3198,18 +3200,47 @@ class Hub:
         elif kind == "task_new":
             known = set(self.tasks.tasks)
             try:
+                # A new session starts as the composer was set (Settings › Jarvis Code).
+                model = str(msg.get("model") or self.prefs.code_model or "")
+                model_id = self.models.get(model, model if model.startswith("claude-") else "")
                 task = self.tasks.start(
                     str(msg.get("prompt", "")),
                     str(msg.get("directory", "")),
-                    mode=str(msg.get("mode", "ask")),
+                    mode=str(msg.get("mode") or self.prefs.code_mode or "ask"),
                     resume=str(msg.get("session_id", "")),
                     title=str(msg.get("title", "")),
+                    model=model_id,
+                    model_label=self.model_names.get(model, ""),
+                    effort=str(msg.get("effort") or self.prefs.code_effort or ""),
+                    ultracode=bool(msg.get("ultracode", self.prefs.code_ultracode)),
                 )
             except ValueError as exc:
                 self.emit("error", text=str(exc))
             else:
                 if task.id in known:  # that session is already open: show it, never a copy
                     self.emit("show_session", id=task.id)
+        elif kind == "task_add_dir":
+            problem = self.tasks.add_dir(int(msg.get("id", 0)), str(msg.get("directory", "")))
+            if problem:
+                self.emit("error", text=problem)
+        elif kind == "task_add_plugin":
+            problem = self.tasks.add_plugin(int(msg.get("id", 0)), str(msg.get("directory", "")))
+            if problem:
+                self.emit("error", text=problem)
+        elif kind == "task_mcp_toggle":
+            self.tasks.set_mcp(
+                int(msg.get("id", 0)), str(msg.get("name", "")), bool(msg.get("enabled"))
+            )
+        elif kind == "task_ultracode":
+            self.tasks.set_ultracode(int(msg.get("id", 0)), bool(msg.get("on")))
+        elif kind == "code_defaults":
+            # The composer's choices with no session open: they're for the next one.
+            changes = {
+                k: msg[k]
+                for k in ("code_model", "code_effort", "code_mode", "code_ultracode")
+                if k in msg
+            }
+            self.set_prefs(changes)
         elif kind == "task_unqueue":
             self.tasks.unqueue(int(msg.get("id", 0)), int(msg.get("item", 0)))
         elif kind == "task_send":

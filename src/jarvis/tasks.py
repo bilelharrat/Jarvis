@@ -271,10 +271,25 @@ class RuleStore:
             self.path.write_text(json.dumps(self.rules, indent=2))
 
 
-MODES = ("plan", "ask", "edits", "auto")
-# What each mode is in Claude Code itself. Only plan mode changes the CLI's own
-# behavior; the rest is enforced by policy_for below.
-SDK_MODES = {"plan": "plan", "ask": "default", "edits": "default", "auto": "default"}
+MODES = ("plan", "ask", "edits", "smart", "auto")
+# What each mode is in Claude Code itself. Plan and Auto change the CLI's own behavior
+# (Auto is Claude Code's auto mode: its classifier lets safe actions through and asks
+# about the rest, which then come to policy_for); the rest is enforced by policy_for.
+SDK_MODES = {
+    "plan": "plan",
+    "ask": "default",
+    "edits": "default",
+    "smart": "auto",
+    "auto": "default",
+}
+# The names Claude Code's desktop app uses for them.
+MODE_LABELS = {
+    "ask": "Manual",
+    "edits": "Accept edits",
+    "plan": "Plan",
+    "smart": "Auto",
+    "auto": "Bypass permissions",
+}
 PLAN_APPROVE_EDITS, PLAN_APPROVE, PLAN_KEEP = "plan_edits", "plan_ask", "plan_keep"
 IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
 # A question on a card goes unanswered after five minutes (the hub's APPROVAL_TIMEOUT). The
@@ -390,6 +405,16 @@ class ClaudeTask:
     live_effort: str | None = None  # the effort the open connection was started with
     conn_cost: float | None = None  # the open connection's running total
     finished_background: set[str] = field(default_factory=set)
+    # As in Claude Code's composer: more folders, plugins, connectors switched off for
+    # this session, ultracode, and another provider's model (its environment).
+    add_dirs: list[str] = field(default_factory=list)
+    plugins: list[str] = field(default_factory=list)
+    disabled_mcp: set[str] = field(default_factory=set)
+    ultracode: bool = False
+    env: dict[str, str] = field(default_factory=dict)
+    model_label: str = ""
+    reopen: bool = False  # reopen the same conversation between turns (new folders…)
+    steered: int = 0  # messages sent into the running step, not yet taken up
 
     def public(self) -> dict[str, Any]:
         return {
@@ -400,6 +425,12 @@ class ClaudeTask:
             "label": "Research" if self.kind == "research" else f"Jarvis Code · {self.cwd.name}",
             "title": self.title or self.prompt[:80],
             "mode": self.mode,
+            "mode_label": MODE_LABELS.get(self.mode, self.mode),
+            "add_dirs": list(self.add_dirs),
+            "plugins": list(self.plugins),
+            "disabled_mcp": sorted(self.disabled_mcp),
+            "ultracode": self.ultracode,
+            "model_label": self.model_label,
             "plan": self.plan,
             "can_undo": bool(self.checkpoints),
             "effort": self.effort,
@@ -493,6 +524,11 @@ def _read_paths(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
     return paths or [""]
 
 
+def auto_capable(model: str) -> bool:
+    """Claude Code's auto mode runs on Opus, Sonnet and Fable, not Haiku."""
+    return "haiku" not in (model or "").lower()
+
+
 def _from_user(origin: Any) -> bool:
     """Whether a message or turn came from the user (the SDK's own prompts carry no
     origin), rather than one Claude Code started itself."""
@@ -520,6 +556,8 @@ class TaskManager:
         # Extra MCP servers for a session in a folder (the built-in browser, the iOS
         # Simulator: code_tools), set by the hub.
         self.session_servers: Callable[[Path], dict[str, Any]] | None = None
+        # True when follow-ups should steer the running step (the owner's setting).
+        self.steer_now: Callable[[], bool] | None = None
 
     # ── folders ──
 
@@ -551,7 +589,18 @@ class TaskManager:
     # ── lifecycle ──
 
     def start(
-        self, prompt: str, directory: str, mode: str = "ask", resume: str = "", title: str = ""
+        self,
+        prompt: str,
+        directory: str,
+        mode: str = "ask",
+        resume: str = "",
+        title: str = "",
+        *,
+        model: str = "",
+        model_label: str = "",
+        effort: str = "",
+        env: dict[str, str] | None = None,
+        ultracode: bool = False,
     ) -> ClaudeTask:
         cwd = self.resolve_dir(directory)
         same = self._by_session(resume) if resume else None
@@ -570,7 +619,14 @@ class TaskManager:
             mode=mode if mode in MODES else "ask",
             session_id=resume,
             title=title,
+            model=model,
+            model_label=model_label,
+            effort=effort if effort in EFFORTS else "",
+            env=dict(env or {}),
+            ultracode=bool(ultracode),
         )
+        if task.mode == "smart" and not auto_capable(task.model or self.model):
+            task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
         if task.prompt:
             task.inbox.put(task.prompt)
         self.tasks[task.id] = task
@@ -595,6 +651,16 @@ class TaskManager:
         text = text.strip()
         if task is None or task.kind != "code" or not (text or images):
             return False
+        if (
+            self.steer_now is not None
+            and self.steer_now()
+            and task.busy
+            and task.current == "user"
+            and task.client is not None
+        ):
+            # Into the running step: Claude Code takes it up after the tool it's on.
+            asyncio.create_task(self._steer(task, text, (images or [])[:6]))
+            return True
         task.inbox.put(text, (images or [])[:6])
         task.stirred.set()
         if task.handle is None or task.handle.done():
@@ -602,6 +668,17 @@ class TaskManager:
             task.handle = asyncio.create_task(self._session(task))
         self._changed()
         return True
+
+    async def _steer(self, task: ClaudeTask, text: str, images: list[dict[str, str]]) -> None:
+        task.steered += 1
+        self._log(task, "user", text, images=len(images))
+        self._changed()
+        try:
+            await task.client.query(_with_images(text, images) if images else text)
+        except Exception:  # the connection just went: send it as a normal follow-up
+            task.steered = max(0, task.steered - 1)
+            task.inbox.put(text, images)
+            task.stirred.set()
 
     def unqueue(self, task_id: int, item_id: int) -> bool:
         """Take back a message that's still waiting; one the session took is on its way."""
@@ -628,11 +705,17 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if task is None or mode not in MODES:
             return False
+        if mode == "smart" and not auto_capable(task.model or self.model):
+            self._log(
+                task, "system", "Auto needs Opus, Sonnet or Fable; this session stays as it is."
+            )
+            self._changed()
+            return False
         previous, task.mode = task.mode, mode
         task.allow_edits = mode in ("edits", "auto")
         if task.client is not None and SDK_MODES[previous] != SDK_MODES[mode]:
             asyncio.create_task(self._apply_mode(task))
-        self._log(task, "system", f"Permission mode: {mode}.")
+        self._log(task, "system", f"Permission mode: {MODE_LABELS[mode]}.")
         self._changed()
         return True
 
@@ -653,6 +736,9 @@ class TaskManager:
             except Exception:
                 return False
         self._log(task, "system", f"Model: {model}.")
+        if task.mode == "smart" and not auto_capable(model):
+            # Auto isn't there on this model: Manual, the safe side, until they pick again.
+            self.set_mode(task.id, "ask")
         self._changed()
         return True
 
@@ -747,6 +833,89 @@ class TaskManager:
         self._log(task, "system", f"Effort: {effort}." + (" From the next step." if later else ""))
         task.stirred.set()
         self._changed()
+        return True
+
+    # ── Claude Code's "+" menu: folders, plugins, connectors; and ultracode ──
+
+    def _reopen_soon(self, task: ClaudeTask, note: str) -> None:
+        """New options take a new connection to the same conversation, between steps."""
+        task.reopen = True
+        task.stirred.set()
+        self._log(task, "system", note)
+        self._changed()
+
+    def add_dir(self, task_id: int, directory: str) -> str:
+        """Another working folder for the session (Claude Code's Add folder)."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return "No such session."
+        path = Path(directory).expanduser().resolve()
+        home = Path.home().resolve()
+        broad = {home, Path("/"), *(home / n for n in _HOME_FOLDERS)}
+        if (
+            not path.is_dir()
+            or path in broad
+            or (home / "Library") in path.parents
+            or is_sensitive(path)
+        ):
+            return f"{directory} can't be added: pick a project folder."
+        if str(path) in task.add_dirs or path == task.cwd:
+            return f"{path.name} is already part of this session."
+        task.add_dirs.append(str(path))
+        self._reopen_soon(task, f"Added the folder {path}.")
+        return ""
+
+    def add_plugin(self, task_id: int, directory: str) -> str:
+        """A local Claude Code plugin for the session (a folder with .claude-plugin/)."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return "No such session."
+        path = Path(directory).expanduser().resolve()
+        if not (path / ".claude-plugin" / "plugin.json").is_file():
+            return "That folder isn't a Claude Code plugin (it has no .claude-plugin/plugin.json)."
+        if str(path) in task.plugins:
+            return f"{path.name} is already on."
+        task.plugins.append(str(path))
+        self._reopen_soon(task, f"Added the plugin {path.name}.")
+        return ""
+
+    def set_mcp(self, task_id: int, name: str, enabled: bool) -> bool:
+        """Switch one of the session's connectors (MCP servers) on or off."""
+        task = self.tasks.get(task_id)
+        if task is None or not re.fullmatch(r"[\w.\-]{1,64}", name):
+            return False
+        if enabled == (name not in task.disabled_mcp):
+            return True
+        if enabled:
+            task.disabled_mcp.discard(name)
+        else:
+            task.disabled_mcp.add(name)
+        self._reopen_soon(task, f"{name} {'on' if enabled else 'off'} for this session.")
+        return True
+
+    def set_ultracode(self, task_id: int, on: bool) -> bool:
+        """Ultracode: Claude Code writes and runs a workflow of many agents for each
+        request (the keyword goes with every message). Thorough, and costly."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return False
+        task.ultracode = bool(on)
+        self._log(
+            task,
+            "system",
+            "Ultracode on: big tasks run as multi-agent workflows." if on else "Ultracode off.",
+        )
+        self._changed()
+        return True
+
+    def set_env(self, task_id: int, model: str, env: dict[str, str], label: str = "") -> bool:
+        """Another provider's model (its key and address in the environment): the
+        connection has to be reopened for it."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return False
+        task.model, task.env, task.model_label = model, dict(env), label
+        self._reopen_soon(task, f"Model: {label or model}.")
         return True
 
     def _effort_pending(self, task: ClaudeTask) -> bool:
@@ -986,6 +1155,10 @@ class TaskManager:
             allowed_tools=["TodoWrite"],
             permission_mode=SDK_MODES[task.mode],
             can_use_tool=self.policy_for(task),
+            add_dirs=list(task.add_dirs),
+            plugins=[{"type": "local", "path": p} for p in task.plugins],
+            disallowed_tools=[f"mcp__{name}" for name in sorted(task.disabled_mcp)],
+            env=dict(task.env),
             # Claude's words and (summarized) thinking arrive as they're written.
             include_partial_messages=True,
             thinking={"type": "adaptive", "display": "summarized"},
@@ -1065,7 +1238,7 @@ class TaskManager:
                     if item in (_IDLE, _GONE):
                         break
                     if item == _REOPEN:
-                        self._log(task, "system", "Reopening with the new effort.")
+                        self._log(task, "system", "Reopening with the new settings.")
                         return _REOPEN
                     await self._send_turn(task, client, item)
             finally:
@@ -1095,7 +1268,8 @@ class TaskManager:
             if task.busy or task.background:
                 idle_since = time.monotonic()  # working, or a dev server running: stay
             if not task.busy:
-                if self._effort_pending(task) and not task.background:
+                if (self._effort_pending(task) or task.reopen) and not task.background:
+                    task.reopen = False
                     return _REOPEN
                 item = task.inbox.take()
                 if item is not None:
@@ -1118,6 +1292,9 @@ class TaskManager:
 
     async def _send_turn(self, task: ClaudeTask, client: Any, item: dict[str, Any]) -> None:
         text, images = item["text"], item["images"]
+        sent = text
+        if task.ultracode and "ultracode" not in text.lower() and not text.startswith("/"):
+            sent = f"{text}\n\nultracode"  # the keyword that turns on workflow orchestration
         task.turns_pending += 1
         task.busy = True
         task.status, task.last_action = "running", "Working"
@@ -1127,7 +1304,7 @@ class TaskManager:
         if not task.title and not task.prompt and text and not text.startswith("/"):
             task.title = _session_title(text)  # named after its first request, as Claude Code does
         self._changed()
-        await client.query(_with_images(text, images) if images else text)
+        await client.query(_with_images(sent, images) if images else sent)
 
     def _new_turn(self, task: ClaudeTask) -> None:
         """A turn starts: its reply and changed files are its own."""
@@ -1154,8 +1331,15 @@ class TaskManager:
     def _user_turn(self, task: ClaudeTask, uid: str) -> None:
         """The user's own message, as Claude Code takes it up: a point to undo, rewind or
         fork back to, and where the turn's reply and changes begin."""
-        task.current = "user"
-        self._new_turn(task)
+        if task.steered and task.current == "user":
+            task.steered -= 1  # sent into the running step: the turn goes on
+        else:
+            if task.steered and not task.current:
+                task.steered -= 1  # it came after the step after all: a turn of its own
+                task.turns_pending += 1
+                task.busy = True
+            task.current = "user"
+            self._new_turn(task)
         task.checkpoints.append(uid)
         del task.checkpoints[:-50]
         task.fork_points[uid] = task.last_uuid
@@ -1512,7 +1696,7 @@ class TaskManager:
             )
         task.mode = "edits" if choice == PLAN_APPROVE_EDITS else "ask"
         task.allow_edits = task.mode == "edits"
-        self._log(task, "system", f"Plan approved. Permission mode: {task.mode}.")
+        self._log(task, "system", f"Plan approved. Permission mode: {MODE_LABELS[task.mode]}.")
         self._changed()
         # Claude Code leaves plan mode itself when ExitPlanMode runs (back to the mode
         # before it, "default" here); setting it first would skip that step.

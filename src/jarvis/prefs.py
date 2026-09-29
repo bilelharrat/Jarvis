@@ -88,6 +88,10 @@ class Prefs:
     code_keep_awake: bool = True  # keep the Mac awake while Jarvis Code works
     queue_requests: bool = True  # while Jarvis answers, new requests wait (off: they interrupt)
     code_queue: bool = True  # Jarvis Code follow-ups wait for the step (off: steer it now)
+    code_model: str = ""  # Jarvis Code's model for new sessions ("" = the default)
+    code_effort: str = ""  # … its effort
+    code_mode: str = "ask"  # … its permission mode
+    code_ultracode: bool = False  # … and whether ultracode starts on
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -133,6 +137,12 @@ def _clean(name: str, value: Any) -> Any:
     if name in ("invoice_from", "invoice_payment"):
         lines = [line.strip() for line in str(value or "").splitlines()]
         return "\n".join(line for line in lines if line)[:600]
+    if name == "code_model":
+        return str(value or "").strip()[:120]
+    if name == "code_effort":
+        return value if value in ("", "low", "medium", "high", "xhigh", "max") else None
+    if name == "code_mode":
+        return value if value in ("plan", "ask", "edits", "smart", "auto") else None
     if name == "research_url":
         from .research import clean_url
 
@@ -184,6 +194,7 @@ def _clean(name: str, value: Any) -> Any:
         "code_keep_awake",
         "queue_requests",
         "code_queue",
+        "code_ultracode",
     }:
         return bool(value)
     return None

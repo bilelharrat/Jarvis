@@ -4,7 +4,7 @@
 what you say goes to that session, except the handful of things that are about the
 session rather than for it, which are handled here at once:
 
-    plan mode / accept edits / full auto / ask first      change the permission mode
+    plan mode / accept edits / auto mode / full auto      change the permission mode
     stop / hold on                                         interrupt the current step
     undo that                                              rewind the files
     compact                                                /compact
@@ -53,7 +53,9 @@ SLASH = {
     "plan": "plan mode",
     "ask": "ask first",
     "edits": "accept edits",
-    "auto": "full auto",
+    "manual": "ask first",
+    "auto": "auto mode",
+    "bypass": "full auto",
     "undo": "undo that",
     "diff": "what changed",
     "changes": "what changed",
@@ -170,12 +172,13 @@ def parse(text: str) -> Intent:
         # "full auto and fix the tests": the mode, then the ask without the mode's words
         body = re.sub(r"^\W*((please|okay|ok|so|now)\W+)*", "", raw, flags=re.IGNORECASE)
         lead = re.match(
-            r"(switch to |go |use )?(full auto|auto[- ]?edits?|accept( all)? edits)( mode)?\b"
+            r"(switch to |go |use )?(full auto|auto mode|autopilot|bypass( permissions)?"
+            r"|auto[- ]?edits?|accept( all)? edits)( mode)?\b"
             r"[\s,.:;-]*((and then|and|then)\b[\s,]*)?",
             body,
             re.IGNORECASE,
         )
-        if lead and mode in ("auto", "edits") and body[lead.end() :].strip():
+        if lead and mode in ("auto", "smart", "edits") and body[lead.end() :].strip():
             return Intent("mode", mode, body[lead.end() :].strip())
     m = whole(
         r"(read|explain|walk me through|tell me about|describe|what's|what is|what was)( me)?"
@@ -293,7 +296,7 @@ def _nth(word: str) -> int:
 
 _MODE_WORDS = (
     r"\b(plan mode|planning mode|switch to plan|plan first|accept( all)? edits|auto[- ]?edits?"
-    r"|edit mode|full auto|auto mode|autopilot|ask mode"
+    r"|edit mode|full auto|auto mode|autopilot|bypass( permissions)?|manual mode|ask mode"
     r"|ask( me)? first|ask before( edits)?|normal mode|default mode)\b"
 )
 _MODE_FILLER = {"switch", "to", "go", "into", "use", "turn", "on", "please", "mode", "the", "back"}
@@ -306,8 +309,10 @@ def _mode(said: str) -> str | None:
         return "plan"
     if re.search(r"\b(accept edits|auto[- ]?edits?|edit mode|accept all edits)\b", said):
         return "edits"
-    if re.search(r"\b(full auto|auto mode|autopilot)\b", said):
-        return "auto"
+    if re.search(r"\b(full auto|bypass( permissions)?)\b", said):
+        return "auto"  # Bypass permissions: runs anything
+    if re.search(r"\b(auto mode|autopilot)\b", said):
+        return "smart"  # Claude Code's Auto: its classifier decides what needs asking
     if re.search(r"\b(ask mode|ask (me )?first|ask before|normal mode|default mode)\b", said):
         return "ask"
     return None
@@ -317,6 +322,7 @@ MODE_NAMES = {
     "plan": "Plan mode: I'll plan and check with you before changing anything.",
     "ask": "Ask mode: I'll ask before each edit and command.",
     "edits": "Auto-edits: edits go ahead, commands still ask.",
+    "smart": "Auto mode: safe steps go ahead, I'll check with you on anything risky.",
     "auto": "Full auto: I'll run anything without asking.",
 }
 
