@@ -1430,12 +1430,22 @@ body[data-look="orb"] .side .panel .kv-grid > div, body[data-look="orb"] .side .
   background: var(--panel-inset); border-color: var(--panel-line);
 }
 body[data-look="orb"] .side .panel .meter i { background: var(--panel-line); }
-/* When the panels scroll under the stage, fade them out above the dock instead of cutting them off. */
+/* A narrow window stacks the dashboard into one scrolling column. What goes under its edges
+   fades out instead of being sliced through: at the bottom above the dock, and at the top
+   under the bar, where the greeting's letters were cut in half. At rest nothing is at the
+   top edge (the layout's own padding is), and a small swipe settles back on the greeting;
+   a real one lands on the panels. */
 @media (max-width: 1100px) {
   body[data-look="orb"] .layout {
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 36px, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 36px, #000 calc(100% - 28px), transparent);
+    scroll-snap-type: y proximity;
+    scroll-padding-top: 78px; /* the layout's top padding: the greeting's place is scrollTop 0 */
   }
+  body[data-look="orb"] .stage, body[data-look="orb"] .side { scroll-snap-align: start; }
+}
+@media (max-width: 700px) {
+  body[data-look="orb"] .layout { scroll-padding-top: 72px; }
 }
 
 /* ═════════════ The browser dock (where the BSH Research Center opens) ═════════════ */
