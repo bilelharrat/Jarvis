@@ -387,11 +387,15 @@ class Inbox:
         return self._items.popleft() if self._items else None
 
     def remove(self, item_id: int) -> bool:
+        return self.pop(item_id) is not None
+
+    def pop(self, item_id: int) -> dict[str, Any] | None:
+        """Take one waiting message out (to send it some other way), or None."""
         for item in self._items:
             if item["id"] == item_id:
                 self._items.remove(item)
-                return True
-        return False
+                return item
+        return None
 
     def empty(self) -> bool:
         return not self._items
@@ -482,6 +486,12 @@ class ClaudeTask:
     stream_buf: list[tuple[str, list[str]]] = field(default_factory=list)  # (part, pieces)
     stream_timer: Any = None  # the batch of live words is due
 
+    @property
+    def steerable(self) -> bool:
+        """Mid-step on the user's turn, with the session open: a message can go into the
+        step now (steering) instead of waiting for it to end."""
+        return self.busy and self.current == "user" and self.client is not None
+
     def public(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -504,6 +514,7 @@ class ClaudeTask:
             "todos": self.todos,
             "background": list(self.background.values()),
             "queued": self.inbox.qsize(),
+            "steerable": self.steerable,
             "queue": self.inbox.public(),
             "model": self.model,
             "session_id": self.session_id,
@@ -744,21 +755,20 @@ class TaskManager:
         images: list[dict[str, str]] | None = None,
         *,
         plain: bool = False,
+        steer: bool | None = None,
     ) -> bool:
         """A follow-up message; queued if the session is mid-step, and it reopens a
         finished session by resuming it. images: [{media_type, data (base64)}]; plain:
-        exactly this wording (a git command), never with the ultracode keyword."""
+        exactly this wording (a git command), never with the ultracode keyword. steer:
+        True sends it into the running step without stopping it (Claude Code takes it up
+        after the tool it's on), False queues it; None follows the owner's setting."""
         task = self.tasks.get(task_id)
         text = text.strip()
         if task is None or task.kind != "code" or not (text or images):
             return False
-        if (
-            self.steer_now is not None
-            and self.steer_now()
-            and task.busy
-            and task.current == "user"
-            and task.client is not None
-        ):
+        if steer is None:
+            steer = self.steer_now is not None and self.steer_now()
+        if steer and not plain and task.steerable:
             # Into the running step: Claude Code takes it up after the tool it's on.
             asyncio.create_task(self._steer(task, text, (images or [])[:6]))
             return True
@@ -788,6 +798,18 @@ class TaskManager:
                 task.steered = max(0, task.steered - 1)
                 task.inbox.put(text, images, front=True)
                 task.stirred.set()
+
+    def steer_queued(self, task_id: int, item_id: int) -> bool:
+        """Send a waiting message into the running step now instead of after it."""
+        task = self.tasks.get(task_id)
+        if task is None or not task.steerable:
+            return False
+        item = task.inbox.pop(item_id)
+        if item is None:
+            return False
+        asyncio.create_task(self._steer(task, item["text"], item["images"]))
+        self._changed()
+        return True
 
     def unqueue(self, task_id: int, item_id: int) -> bool:
         """Take back a message that's still waiting; one the session took is on its way."""

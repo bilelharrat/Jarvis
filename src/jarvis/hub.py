@@ -4420,7 +4420,10 @@ class Hub:
                 str(msg.get("text", ""))[:20000],
                 self._attachments(msg),
                 plain=msg.get("plain") is True,  # the window's own wording (/init, /review)
+                steer=msg["steer"] if isinstance(msg.get("steer"), bool) else None,
             )
+        elif kind == "task_steer":  # a waiting message, into the running step now
+            self.tasks.steer_queued(int(msg.get("id", 0)), int(msg.get("item", 0)))
         elif kind == "slash_list":
             # The project's and the user's custom commands and skills, for the / palette.
             from .code_commands import catalog

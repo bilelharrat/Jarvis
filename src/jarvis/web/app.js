@@ -1487,7 +1487,7 @@ function renderCC(items) {
   $('cc-working-text').textContent = `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`;
   if (changed('todos', [t.id, t.todos])) renderTodos(t.todos || []);
   if (changed('background', [t.id, t.background])) renderBackground(t.background || []);
-  if (changed('queue', [t.id, t.queue])) renderQueue(t);
+  if (changed('queue', [t.id, t.queue, t.steerable])) renderQueue(t);
   if (currentPane === 'background' && changed('bgpane', [t.id, t.background])) renderPaneBody();
 }
 
@@ -1919,6 +1919,7 @@ function renderQueue(t) {
   const items = (t && t.queue) || [];
   const list = $('jc-queue');
   list.hidden = !items.length;
+  $('jc-steer').hidden = !(t && t.steerable);
   const more = t && t.queued > items.length ? t.queued - items.length : 0;
   list.replaceChildren(...items.map((q) => {
     const li = el('li', 'jc-queued');
@@ -1927,6 +1928,13 @@ function renderQueue(t) {
     x.type = 'button';
     x.setAttribute('aria-label', 'Don’t send this');
     x.addEventListener('click', () => send({ type: 'task_unqueue', id: t.id, item: q.id }));
+    if (t.steerable) {
+      const now = el('button', 'jc-queued-steer', 'Steer now');
+      now.type = 'button';
+      now.title = 'Send it into the running step now, without stopping it';
+      now.addEventListener('click', () => send({ type: 'task_steer', id: t.id, item: q.id }));
+      li.append(now);
+    }
     li.append(x);
     return li;
   }));
@@ -2059,7 +2067,9 @@ function unsent() {
 }
 
 // True when the composer can be cleared: the message went, or there was nothing to send.
-function sendToSession(text) {
+// steer: true sends it into the running step without stopping it (Cursor's "steer"),
+// false queues it; undefined follows the setting.
+function sendToSession(text, steer) {
   text = text.trim();
   const images = attachments.map((a) => ({ media_type: a.type, data: a.data, name: a.name }));
   if (!text && !images.length) return true;
@@ -2087,7 +2097,7 @@ function sendToSession(text) {
     const blocks = ran.map((r) => `$ ${r.command}\n${r.output.trim() || '(no output)'}${r.code ? `\n(exit ${r.code})` : ''}`);
     text = `I ran this in the project first:\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\`\n\n${text}`;
   }
-  if (!send({ type: 'task_send', id: t.id, text, images })) return unsent();
+  if (!send({ type: 'task_send', id: t.id, text, images, ...(steer === undefined ? {} : { steer }) })) return unsent();
   bangContext.delete(t.id);  // only once it went with this message
   clearAttachments();
   return true;
@@ -2135,9 +2145,20 @@ function onMemory(ev) {
   $('deck-timeline').append(li);
 }
 
+let steerThis; // set for one submit by ⌘↩ or the Steer button
+function steerSubmit() {
+  const t = currentTask();
+  if (!t || !t.steerable) return false;
+  steerThis = true;
+  $('deck-composer').requestSubmit();
+  return true;
+}
+$('jc-steer').addEventListener('click', steerSubmit);
 $('deck-composer').addEventListener('submit', (e) => {
   e.preventDefault();
-  if (!sendToSession($('deck-input').value)) return;  // not sent: the draft stays
+  const steer = steerThis;
+  steerThis = undefined;
+  if (!sendToSession($('deck-input').value, steer)) return;  // not sent: the draft stays
   $('deck-input').value = '';
   $('deck-input').style.height = '';
   $('cc-slash').hidden = true;
@@ -2161,6 +2182,7 @@ $('deck-input').addEventListener('keydown', (e) => {
     setMode(nextMode());
     return;
   }
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && steerSubmit()) { e.preventDefault(); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
 });
 $('deck-input').addEventListener('input', () => {

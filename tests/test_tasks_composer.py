@@ -81,6 +81,61 @@ async def test_with_queueing_on_a_follow_up_waits(settings, tmp_path):
     task.handle.cancel()
 
 
+async def test_one_message_can_steer_while_queueing_is_on(settings, tmp_path):
+    """Cursor's "steer without interrupting": the setting queues, but this message goes
+    into the running step now; it doesn't stop the tool that's running."""
+    (tmp_path / "proj").mkdir()
+    tm, _ = make(settings)
+    tm.steer_now = lambda: False
+    task = tm.start("", "proj")
+    assert await until(lambda: task.status == "waiting")
+    assert not task.steerable
+    tm.send(task.id, "run the slow thing")
+    assert await until(lambda: task.steerable)
+    assert task.public()["steerable"] is True
+    assert tm.send(task.id, "and say SECOND at the end", steer=True)
+    assert await until(lambda: len(SteerClient.last.queries) == 2)
+    assert task.inbox.empty() and task.steered == 1 and task.busy  # nothing was interrupted
+    SteerClient.last.finish()
+    assert await until(lambda: not task.busy and task.status == "waiting")
+    assert task.result == "FIRST\n\nSECOND"
+    task.handle.cancel()
+
+
+async def test_one_message_can_wait_while_steering_is_on(settings, tmp_path):
+    (tmp_path / "proj").mkdir()
+    tm, _ = make(settings)
+    tm.steer_now = lambda: True
+    task = tm.start("", "proj")
+    assert await until(lambda: task.status == "waiting")
+    tm.send(task.id, "run the slow thing")
+    assert await until(lambda: task.steerable)
+    tm.send(task.id, "then the docs", steer=False)
+    assert [i["text"] for i in task.inbox.public()] == ["then the docs"]
+    assert len(SteerClient.last.queries) == 1
+    task.handle.cancel()
+
+
+async def test_a_waiting_message_can_be_sent_into_the_step_now(settings, tmp_path):
+    (tmp_path / "proj").mkdir()
+    tm, _ = make(settings)
+    tm.steer_now = lambda: False
+    task = tm.start("", "proj")
+    assert await until(lambda: task.status == "waiting")
+    assert not tm.steer_queued(task.id, 1)  # nothing running, nothing waiting
+    tm.send(task.id, "run the slow thing")
+    assert await until(lambda: task.steerable)
+    tm.send(task.id, "first waiting")
+    tm.send(task.id, "and say SECOND at the end")
+    second = task.inbox.public()[1]["id"]
+    assert tm.steer_queued(task.id, second)
+    assert await until(lambda: len(SteerClient.last.queries) == 2)
+    assert SteerClient.last.queries[-1] == "and say SECOND at the end"
+    assert [i["text"] for i in task.inbox.public()] == ["first waiting"]
+    assert not tm.steer_queued(task.id, second)  # already on its way
+    task.handle.cancel()
+
+
 async def test_auto_mode_needs_a_model_that_has_it(settings, tmp_path):
     (tmp_path / "proj").mkdir()
     tm, _ = make(settings, FakeClient)
