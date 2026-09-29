@@ -1,6 +1,9 @@
 """Jarvis Code's composer features, as in Claude Code: steering, Auto mode, ultracode, more
 folders, plugins, connectors per session, and another provider's model."""
 
+import asyncio
+import contextlib
+
 from claude_agent_sdk import AssistantMessage, TextBlock, ToolUseBlock, UserMessage
 from conftest import FakeClient
 from test_tasks import res, until
@@ -46,6 +49,15 @@ def make(settings, client=SteerClient):
     ), events
 
 
+async def close(task):
+    """End a session for good: a message still waiting would otherwise reopen it."""
+    while not task.inbox.empty():
+        task.inbox.take()
+    task.handle.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task.handle
+
+
 async def test_a_follow_up_steers_the_running_step_when_asked(settings, tmp_path):
     (tmp_path / "proj").mkdir()
     tm, _ = make(settings)
@@ -64,7 +76,7 @@ async def test_a_follow_up_steers_the_running_step_when_asked(settings, tmp_path
     users = [e["text"] for e in task.transcript if e["role"] == "user"]
     assert users == ["run the slow thing", "and say SECOND at the end"]
     assert task.result == "FIRST\n\nSECOND"
-    task.handle.cancel()
+    await close(task)
 
 
 async def test_with_queueing_on_a_follow_up_waits(settings, tmp_path):
@@ -78,7 +90,7 @@ async def test_with_queueing_on_a_follow_up_waits(settings, tmp_path):
     tm.send(task.id, "then the docs")
     assert [i["text"] for i in task.inbox.public()] == ["then the docs"]
     assert len(SteerClient.last.queries) == 1
-    task.handle.cancel()
+    await close(task)
 
 
 async def test_one_message_can_steer_while_queueing_is_on(settings, tmp_path):
@@ -99,7 +111,7 @@ async def test_one_message_can_steer_while_queueing_is_on(settings, tmp_path):
     SteerClient.last.finish()
     assert await until(lambda: not task.busy and task.status == "waiting")
     assert task.result == "FIRST\n\nSECOND"
-    task.handle.cancel()
+    await close(task)
 
 
 async def test_one_message_can_wait_while_steering_is_on(settings, tmp_path):
@@ -113,7 +125,7 @@ async def test_one_message_can_wait_while_steering_is_on(settings, tmp_path):
     tm.send(task.id, "then the docs", steer=False)
     assert [i["text"] for i in task.inbox.public()] == ["then the docs"]
     assert len(SteerClient.last.queries) == 1
-    task.handle.cancel()
+    await close(task)
 
 
 async def test_a_waiting_message_can_be_sent_into_the_step_now(settings, tmp_path):
@@ -133,7 +145,7 @@ async def test_a_waiting_message_can_be_sent_into_the_step_now(settings, tmp_pat
     assert SteerClient.last.queries[-1] == "and say SECOND at the end"
     assert [i["text"] for i in task.inbox.public()] == ["first waiting"]
     assert not tm.steer_queued(task.id, second)  # already on its way
-    task.handle.cancel()
+    await close(task)
 
 
 async def test_auto_mode_needs_a_model_that_has_it(settings, tmp_path):
@@ -149,7 +161,7 @@ async def test_auto_mode_needs_a_model_that_has_it(settings, tmp_path):
     )
     assert tm.options_for(sonnet).permission_mode == "auto"
     for t in (haiku, sonnet):
-        t.handle.cancel()
+        await close(t)
 
 
 async def test_ultracode_goes_with_every_message_but_not_the_transcript(settings, tmp_path):
@@ -168,7 +180,7 @@ async def test_ultracode_goes_with_every_message_but_not_the_transcript(settings
         "migrate the tests to pytest"
     ]
     assert tm.set_ultracode(task.id, False) and not task.ultracode
-    task.handle.cancel()
+    await close(task)
 
 
 async def test_folders_plugins_connectors_and_models_reach_the_options(settings, tmp_path):
@@ -199,7 +211,7 @@ async def test_folders_plugins_connectors_and_models_reach_the_options(settings,
     public = task.public()
     assert public["mode_label"] == "Manual" and public["model_label"] == "GPT-5"
     assert public["disabled_mcp"] == ["github"] and public["add_dirs"] and public["plugins"]
-    task.handle.cancel()
+    await close(task)
 
 
 def test_voice_says_auto_for_auto_and_full_auto_for_bypass():
@@ -223,7 +235,7 @@ async def test_switching_to_haiku_leaves_auto_for_manual(settings, tmp_path):
     assert await tm.set_model(task.id, "claude-haiku-4-5-20251001")
     assert task.mode == "ask"
     assert any("Permission mode: Manual." == e["text"] for e in task.transcript)
-    task.handle.cancel()
+    await close(task)
 
 
 async def test_pictures_pdfs_and_text_files_go_as_blocks_with_their_names():
