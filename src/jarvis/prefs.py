@@ -72,6 +72,9 @@ class Prefs:
     brain_folders: list[str] = field(default_factory=list)
     instant_shortcuts: list[str] = field(default_factory=list)
     proactive: bool = True
+    watchlist: list[str] = field(
+        default_factory=lambda: ["AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+    )
     remote_enabled: bool = False  # the iPhone and Watch companion (off until turned on)
     code_narrate: bool = True  # voice coding: short spoken progress notes
     code_sentences: int = 3  # voice coding: sentences of each reply read aloud
@@ -120,6 +123,10 @@ def _clean(name: str, value: Any) -> Any:
         return str(value).strip()[:40]
     if name == "briefing_time":
         return value if isinstance(value, str) and _TIME.match(value) else None
+    if name == "watchlist":
+        from .markets import clean_watchlist
+
+        return clean_watchlist(value)
     if name == "code_sentences":
         try:
             return max(1, min(8, int(value)))

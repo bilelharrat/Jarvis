@@ -141,6 +141,7 @@ WHATS_THIS_PROMPT = (
 
 BRIEFING_PROMPT = (
     "Give me my morning briefing. Check today's calendar, my unread email (unread only), "
+    "how the markets are doing (market_summary), "
     "and, if the BSH tools are available, portfolio alerts; mention any research or Claude "
     "Code tasks that finished. Open with a greeting that fits the time of day, then the "
     "essentials in under a minute of speech. Skip anything that's empty."
@@ -240,6 +241,9 @@ class Hub:
         from .voicecode import VoiceCoder
 
         self.voicecode = VoiceCoder(self)
+        from .markets import Markets
+
+        self.markets = Markets()
         self.models, self.model_names = MODELS, MODEL_NAMES
         from .remote import RemoteServer
 
@@ -308,6 +312,7 @@ class Hub:
             self._spawn(self.shortcuts.refresh())
             self._spawn(self.watcher.run())
             self._spawn(self._routine_clock())
+            self._spawn(self._markets_loop())
         if self.prefs.remote_enabled:
             await self.remote.start()
         if self.prefs.hands_free:
@@ -515,6 +520,21 @@ class Hub:
             "model": MODEL_NAMES[self.prefs.model],
         }
 
+    async def _markets_loop(self) -> None:
+        while True:
+            await self.refresh_markets()
+            status = (self.markets.summary or {}).get("status", "closed")
+            await asyncio.sleep(60 if status in ("open", "pre", "after") else 600)
+
+    async def refresh_markets(self) -> dict[str, Any] | None:
+        try:
+            summary = await self.markets.refresh(self.prefs.watchlist)
+        except Exception as exc:  # offline, the service changed
+            log.info("markets unavailable: %s", exc)
+            return self.markets.summary
+        self.emit("markets", **summary)
+        return summary
+
     def _routines_changed(self) -> None:
         self.emit("routines", items=self.routines.public())
 
@@ -630,6 +650,7 @@ class Hub:
             "routines": self.routines.public(),
             "remote": self.remote.public(),
             "voicecode": self.voicecode.public(),
+            "markets": self.markets.summary,
             "meeting": {
                 "active": True,
                 "title": self.meeting.title,
@@ -2010,6 +2031,36 @@ class Hub:
             return _text(json.dumps(result))
 
         @tool(
+            "market_summary",
+            "How the stock market is doing today: the S&P 500, Nasdaq, Dow and Russell, "
+            "the ten-year yield, VIX, oil, gold, Bitcoin, and the user's watchlist with its "
+            "leaders and laggards. Use for 'how's the market', 'how are stocks doing', "
+            "'what's NVIDIA at'.",
+            {},
+        )
+        async def market_summary(_args):
+            from .markets import spoken
+
+            summary = hub.markets.summary
+            stale = (
+                not summary
+                or (datetime.now() - datetime.fromisoformat(summary["as_of"])).total_seconds() > 60
+            )
+            if stale:
+                summary = await hub.refresh_markets()
+            if not summary:
+                return {
+                    "content": [{"type": "text", "text": "No market data right now."}],
+                    "is_error": True,
+                }
+            watch = "; ".join(
+                f"{q['symbol']} {q['last']:,.2f} ({q['pct']:+.2f}%)" for q in summary["watchlist"]
+            )
+            return _text(
+                f"{spoken(summary)}\nWatchlist: {watch}\nMarket status: {summary['status']}."
+            )
+
+        @tool(
             "voice_code",
             "Start voice coding: put a Claude Code session in voice focus so everything the "
             "user says next goes straight to it (they can plan, approve, undo, commit and ask "
@@ -2044,6 +2095,7 @@ class Hub:
                 where_am_i,
                 weather_report,
                 drive_time,
+                market_summary,
                 voice_code,
             ],
         )
@@ -2068,6 +2120,8 @@ class Hub:
             self._spawn(self._refresh_weather())
         if "remote_enabled" in changed:
             self._spawn(self._apply_remote())
+        if "watchlist" in changed:
+            self._spawn(self.refresh_markets())
         if "use_location" in changed:
             self._spawn(self._refresh_location())
         if "voice_effect" in changed:

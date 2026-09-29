@@ -52,9 +52,12 @@
     <h2>Weather</h2>
     <div id="weather-body" class="weather-body"><p class="muted">Set your city in Settings to see the weather.</p></div>
   </section>
-  <section class="panel not-hud" id="p-camera">
-    <h2>Camera <button type="button" class="panel-btn" id="camera-btn" aria-pressed="false">Turn on</button></h2>
-    <div class="camera-box"><video id="camera" autoplay muted playsinline></video><p id="camera-off">Camera off. It stays on this Mac; nothing is recorded or sent.</p></div>
+  <section class="panel not-hud" id="p-markets">
+    <h2>Markets <span id="mk-status" class="mk-status">…</span></h2>
+    <ul id="mk-indices" class="mk-indices"><li class="muted">Loading today’s markets…</li></ul>
+    <div id="mk-macro" class="mk-macro"></div>
+    <ul id="mk-watch" class="mk-watch" aria-label="Watchlist"></ul>
+    <p id="mk-headline" class="mk-headline"></p>
   </section>
   <section class="panel" id="p-uptime">
     <h2><span class="hud-only">System // </span>Session</h2>
@@ -109,7 +112,6 @@
     <input id="ask-input" placeholder="Or type a request…">
   </form>
   <div class="console-actions console-only">
-    <button type="button" class="round-btn" id="c-camera" aria-label="Camera"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5" width="16" height="11" rx="2"/><circle cx="10" cy="10.5" r="3"/><path d="M7 5l1.2-2h3.6L13 5"/></svg></button>
     <button type="button" class="round-btn" id="c-mic" aria-label="Talk"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7.5" y="2" width="5" height="10" rx="2.5"/><path d="M4.5 9.5a5.5 5.5 0 0011 0M10 15v3"/></svg></button>
     <button type="button" class="round-btn" id="c-keys" aria-label="Type"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5" width="16" height="10" rx="2"/><path d="M5 8h1M8 8h1M11 8h1M14 8h1M6 12h8"/></svg></button>
   </div>
@@ -238,6 +240,12 @@
       <input type="range" id="humor" min="0" max="100" step="5" value="60"></label>
     <label class="row stack" for="address"><span><strong>How I address you</strong><small>Optional, e.g. your name or “sir”</small></span>
       <input type="text" id="address" maxlength="40" placeholder="Nothing"></label>
+  </section>
+
+  <section class="group">
+    <h3>Markets</h3>
+    <label class="row stack" for="watchlist"><span><strong>Watchlist</strong><small>Tickers for the Markets panel and “how’s the market?”, separated by spaces or commas</small></span>
+      <input type="text" id="watchlist" placeholder="AAPL NVDA MSFT"></label>
   </section>
 
   <section class="group">

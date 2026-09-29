@@ -71,6 +71,7 @@ function onEvent(ev) {
       renderHistory();
       if (ev.vitals) renderVitals(ev.vitals);
       renderWeather(ev.weather);
+      renderMarkets(ev.markets);
       $('v-accounts').textContent = (ev.accounts || []).length;
       $('v-model').textContent = ev.model_name || '–';
       renderMemory(ev.memory || []);
@@ -91,6 +92,7 @@ function onEvent(ev) {
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
     case 'weather': renderWeather(ev.weather); break;
+    case 'markets': renderMarkets(ev); break;
     case 'history': history = ev.items || []; renderHistory(); break;
     case 'state': setState(ev.value); break;
     case 'level': document.documentElement.style.setProperty('--level', ev.value); break;
@@ -484,12 +486,12 @@ function setSwitch(id, on) {
   $(id).setAttribute('aria-checked', String(!!on));
 }
 
-// The orb flanks itself with two columns: stats and weather on the left, camera and
+// The orb flanks itself with two columns: stats and weather on the left, markets and
 // session on the right. The dashboards keep all four on the left.
 function placePanels(look) {
   const left = document.querySelector('.side.left');
   const right = document.querySelector('.side.right');
-  const moved = [$('p-camera'), $('p-uptime')];
+  const moved = [$('p-markets'), $('p-uptime')];
   if (look === 'orb') right.prepend(...moved);
   else left.append(...moved);
 }
@@ -521,6 +523,7 @@ function renderPrefs(p) {
   setSwitch('sw-proactive', p.proactive);
   setSwitch('sw-control', p.control_always);
   setSwitch('sw-code-narrate', p.code_narrate);
+  if (document.activeElement !== $('watchlist')) $('watchlist').value = (p.watchlist || []).join(' ');
   $('code-sentences').value = String(p.code_sentences || 3);
   setSwitch('sw-remote', p.remote_enabled);
   setSwitch('sw-proactive-voice', p.proactive_voice);
@@ -870,30 +873,61 @@ $('t-stop').addEventListener('click', () => send({ type: 'stop' }));
 $('c-mic').addEventListener('click', talkOrStop);
 $('c-keys').addEventListener('click', () => $('chat-input').focus());
 
-let cameraStream = null;
-async function toggleCamera() {
-  const box = document.querySelector('.camera-box');
-  if (cameraStream) {
-    cameraStream.getTracks().forEach((t) => t.stop());
-    cameraStream = null;
-    $('camera').srcObject = null;
-    box.classList.remove('on');
-    $('camera-btn').textContent = 'Turn on';
-    $('camera-btn').setAttribute('aria-pressed', 'false');
-    return;
-  }
-  try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    $('camera').srcObject = cameraStream;
-    box.classList.add('on');
-    $('camera-btn').textContent = 'Turn off';
-    $('camera-btn').setAttribute('aria-pressed', 'true');
-  } catch (err) {
-    $('camera-off').textContent = `Camera unavailable: ${err.message}`;
-  }
+// ── markets: the day at a glance ──
+
+const MK_STATUS = { open: 'Open', pre: 'Pre-market', after: 'After hours', closed: 'Closed' };
+
+function mkPct(p) { return `${p >= 0 ? '+' : '−'}${Math.abs(p).toFixed(2)}%`; }
+function mkPrice(q) {
+  if (q.yield) return `${q.last.toFixed(3)}%`;
+  return q.last >= 1000 ? q.last.toLocaleString(undefined, { maximumFractionDigits: 0 }) : q.last.toFixed(2);
 }
-$('camera-btn').addEventListener('click', toggleCamera);
-$('c-camera').addEventListener('click', toggleCamera);
+
+function sparkline(points, up) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 80 24');
+  svg.setAttribute('class', `mk-spark ${up ? 'up' : 'down'}`);
+  svg.setAttribute('aria-hidden', 'true');
+  if (points && points.length > 1) {
+    const lo = Math.min(...points), hi = Math.max(...points), span = hi - lo || 1;
+    const line = document.createElementNS(ns, 'polyline');
+    line.setAttribute('points', points.map((p, i) => `${(i / (points.length - 1)) * 80},${22 - ((p - lo) / span) * 20}`).join(' '));
+    svg.append(line);
+  }
+  return svg;
+}
+
+function closesIn() {
+  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const mins = 16 * 60 - (et.getHours() * 60 + et.getMinutes());
+  return mins > 0 ? ` · closes in ${Math.floor(mins / 60)}h ${mins % 60}m` : '';
+}
+
+function renderMarkets(m) {
+  if (!m || !m.indices) return;
+  $('mk-status').textContent = `${MK_STATUS[m.status] || m.status}${m.status === 'open' ? closesIn() : ''}`;
+  $('mk-status').dataset.state = m.status;
+  $('mk-indices').replaceChildren(...m.indices.map((q) => {
+    const li = el('li', q.pct >= 0 ? 'up' : 'down');
+    li.append(el('span', 'mk-name', q.name), sparkline(q.spark, q.pct >= 0), el('b', 'mk-last', mkPrice(q)), el('span', 'mk-pct', mkPct(q.pct)));
+    return li;
+  }));
+  $('mk-macro').replaceChildren(...m.macro.map((q) => {
+    const chip = el('span', `mk-chip ${q.pct >= 0 ? 'up' : 'down'}`);
+    chip.append(el('small', '', q.name), document.createTextNode(` ${mkPrice(q)} `), el('em', '', mkPct(q.pct)));
+    return chip;
+  }));
+  $('mk-watch').replaceChildren(...m.watchlist.map((q) => {
+    const li = el('li', q.pct >= 0 ? 'up' : 'down');
+    li.append(el('span', 'mk-sym', q.symbol), el('b', 'mk-last', mkPrice(q)), el('span', 'mk-pct', mkPct(q.pct)));
+    if (q.after && q.after.last && m.status !== 'open') li.title = `${q.after.kind === 'pre' ? 'Pre-market' : 'After hours'}: ${q.after.last} (${mkPct(q.after.pct || 0)})`;
+    return li;
+  }));
+  $('mk-headline').textContent = m.headline || '';
+}
+
+$('watchlist').addEventListener('change', (e) => setPrefs({ watchlist: e.target.value }));
 
 // ── Claude Code deck ──
 
