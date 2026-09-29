@@ -821,3 +821,10 @@ body[data-look="hud"] .sheet, body[data-look="console"] .sheet { box-shadow: -24
 .meeting-pill button[hidden] { display: none; }
 @keyframes rec-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .meeting-pill i { animation: none; } }
+
+/* ── iPhone & Watch ── */
+.remote-on { display: flex; flex-direction: column; gap: 10px; }
+.remote-code { margin: 0; font: 600 28px/1.2 ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 4px; color: var(--action); }
+.watch-help summary { cursor: pointer; font-size: 14px; }
+.watch-help p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+.watch-help code { font-size: 12px; }

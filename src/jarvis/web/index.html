@@ -252,6 +252,22 @@
   </section>
 
   <section class="group">
+    <h3>iPhone &amp; Watch</h3>
+    <div class="row"><span><strong>Let my phone connect</strong><small>Opens a companion page on your home network (port 8765). Only phones you pair can use it. On shared Wi-Fi or away from home, use Tailscale.</small></span><button type="button" class="switch" role="switch" id="sw-remote" aria-checked="false" aria-label="Let my phone connect"></button></div>
+    <div id="remote-on" class="remote-on" hidden>
+      <p class="small-status">On your iPhone, open <strong id="remote-url"></strong> in Safari, then Share › Add to Home Screen.</p>
+      <button type="button" class="btn" id="remote-pair">Pair a phone</button>
+      <p id="remote-code" class="remote-code" hidden></p>
+      <ul id="remote-devices" class="folders"></ul>
+      <details class="watch-help">
+        <summary>Apple Watch</summary>
+        <p>In the Shortcuts app on your iPhone, make a shortcut named “Ask Jarvis”: <em>Dictate Text</em> → <em>Get Contents of URL</em> (the address above + <code>/api/ask</code>, method POST, header <code>Authorization: Bearer</code> + your phone’s token, JSON body <code>text</code> = Dictated Text) → <em>Get Dictionary Value</em> “reply” → <em>Speak Text</em>. Turn on “Show on Apple Watch”, then say “Hey Siri, Ask Jarvis”.</p>
+      </details>
+    </div>
+    <p id="remote-error" class="small-status" hidden></p>
+  </section>
+
+  <section class="group">
     <h3>Memory</h3>
     <p class="small-status">What you've asked me to remember. Say “Jarvis, remember…” or add it here.</p>
     <ul id="memory-list" class="folders memory-list"></ul>

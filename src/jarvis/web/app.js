@@ -75,10 +75,14 @@ function onEvent(ev) {
       $('v-model').textContent = ev.model_name || '–';
       renderMemory(ev.memory || []);
       renderRoutines(ev.routines || []);
+      if (ev.remote) renderRemote(ev.remote);
       onMeeting(ev.meeting || { active: false });
       break;
     case 'memory': renderMemory(ev.items || []); break;
     case 'routines': renderRoutines(ev.items || []); break;
+    case 'remote': renderRemote(ev); break;
+    case 'devices': send({ type: 'remote' }); break;
+    case 'remote_code': showRemoteCode(ev); break;
     case 'meeting': onMeeting(ev); break;
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
@@ -511,6 +515,7 @@ function renderPrefs(p) {
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
   setSwitch('sw-control', p.control_always);
+  setSwitch('sw-remote', p.remote_enabled);
   setSwitch('sw-proactive-voice', p.proactive_voice);
   const [qs, qe] = (p.quiet_hours || '22:00-07:00').split('-');
   if (document.activeElement !== $('quiet-start')) $('quiet-start').value = qs;
@@ -587,6 +592,8 @@ $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
 $('sw-control').addEventListener('click', () => setPrefs({ control_always: !prefs.control_always }));
+$('sw-remote').addEventListener('click', () => setPrefs({ remote_enabled: !prefs.remote_enabled }));
+$('remote-pair').addEventListener('click', () => send({ type: 'remote_pair' }));
 $('sw-proactive-voice').addEventListener('click', () => setPrefs({ proactive_voice: !prefs.proactive_voice }));
 ['quiet-start', 'quiet-end'].forEach((id) => $(id).addEventListener('change', () => {
   if ($('quiet-start').value && $('quiet-end').value) setPrefs({ quiet_hours: `${$('quiet-start').value}-${$('quiet-end').value}` });
@@ -1285,6 +1292,44 @@ function renderShortcuts(names, instant) {
     li.append(label, sw);
     return li;
   }));
+}
+
+// ── the phone companion ──
+
+let remoteCodeTimer = null;
+
+function renderRemote(r) {
+  $('remote-on').hidden = !r.running;
+  $('remote-error').hidden = !r.error;
+  $('remote-error').textContent = r.error || '';
+  $('remote-url').textContent = (r.urls || [])[0] || '';
+  const devices = r.devices || [];
+  $('remote-devices').replaceChildren(...(devices.length ? devices.map((d) => {
+    const li = el('li');
+    const seen = d.last_seen ? `last used ${new Date(d.last_seen).toLocaleString()}` : 'not used yet';
+    const name = el('span', 'fact', `${d.name} · ${seen}`);
+    const rm = el('button', 'btn', 'Remove');
+    rm.type = 'button';
+    rm.setAttribute('aria-label', `Remove ${d.name}`);
+    rm.addEventListener('click', () => send({ type: 'remote_remove', id: d.id }));
+    li.append(name, rm);
+    return li;
+  }) : [el('li', 'muted', 'No phones paired yet.')]));
+  if (r.running === false) $('remote-code').hidden = true;
+}
+
+function showRemoteCode(ev) {
+  clearInterval(remoteCodeTimer);
+  const until = Date.now() + ev.seconds * 1000;
+  const box = $('remote-code');
+  box.hidden = false;
+  const tick = () => {
+    const left = Math.max(0, Math.round((until - Date.now()) / 1000));
+    box.textContent = left ? `${ev.code.slice(0, 3)} ${ev.code.slice(3)}  ·  ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'Code expired. Pair again for a new one.';
+    if (!left) clearInterval(remoteCodeTimer);
+  };
+  tick();
+  remoteCodeTimer = setInterval(tick, 1000);
 }
 
 function renderRoutines(items) {

@@ -173,6 +173,7 @@ class Hub:
         notes_transcriber: Any = "auto",
         summarize: Callable[[str], Any] | None = None,
         meetings_dir: Path | None = None,
+        devices: Any = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -226,6 +227,9 @@ class Hub:
         self.meetings_dir = meetings_dir
         self._alert_notes: deque[tuple[float, str]] = deque(maxlen=3)
         self._silent = False
+        from .remote import RemoteServer
+
+        self.remote = RemoteServer(self, devices)
         self._approval_at = 0.0
         self._turn_text = ""
         self._spoke_until = 0.0
@@ -287,6 +291,8 @@ class Hub:
             self._spawn(self.shortcuts.refresh())
             self._spawn(self.watcher.run())
             self._spawn(self._routine_clock())
+        if self.prefs.remote_enabled:
+            await self.remote.start()
         if self.prefs.hands_free:
             self._apply_hands_free()
 
@@ -451,6 +457,47 @@ class Hub:
 
         return await claude_summarize(prompt, self.prefs.model_id(), str(_workspace()))
 
+    # ── the phone companion ──
+
+    async def _apply_remote(self) -> None:
+        if self.prefs.remote_enabled:
+            await self.remote.start()
+        else:
+            await self.remote.stop()
+        self.emit("remote", **self.remote.public())
+
+    async def remote_ask(self, text: str, timeout: float = 120) -> dict[str, Any]:
+        """A request from the phone: run it without speaking on the Mac, and answer with
+        the reply, or early with the question when it needs a yes."""
+        known = set(self.approvals)
+        task = self._spawn(self.ask(text, silent=True))
+        deadline = time.monotonic() + timeout
+        while not task.done() and time.monotonic() < deadline:
+            if set(self.approvals) - known:
+                break
+            await asyncio.sleep(0.2)
+        pending = [a for a in self.approvals.values() if a["id"] not in known]
+        done = task.done() and not task.cancelled() and task.exception() is None
+        reply = task.result() if done else self.turn.get("reply", "")
+        return {"reply": reply, "done": task.done(), "approvals": pending}
+
+    def remote_state(self) -> dict[str, Any]:
+        return {
+            "state": self.state,
+            "turn": {"user": self.turn.get("user", ""), "reply": self.turn.get("reply", "")},
+            "approvals": list(self.approvals.values()),
+            "history": list(self.history)[-12:],
+            "weather": self.weather,
+            "next_event": self.status.get("next_event"),
+            "tasks": [
+                {k: t.get(k) for k in ("id", "label", "title", "status", "last_action")}
+                for t in self.tasks.public()
+            ],
+            "meeting": self.meeting.title if self.meeting is not None else None,
+            "routines": [{"id": r["id"], "name": r["name"]} for r in self.routines.public()],
+            "model": MODEL_NAMES[self.prefs.model],
+        }
+
     def _routines_changed(self) -> None:
         self.emit("routines", items=self.routines.public())
 
@@ -509,6 +556,7 @@ class Hub:
             task.cancel()
         await self.tasks.close()
         await self.connectors.close()
+        await self.remote.stop()
         self.speaker.stop()
         if self.client is not None:
             with contextlib.suppress(Exception):
@@ -563,6 +611,7 @@ class Hub:
             "accounts": self.connectors.connected_names(),
             "memory": self.memory.public(),
             "routines": self.routines.public(),
+            "remote": self.remote.public(),
             "meeting": {
                 "active": True,
                 "title": self.meeting.title,
@@ -1662,6 +1711,8 @@ class Hub:
             )
         if "weather_city" in changed:
             self._spawn(self._refresh_weather())
+        if "remote_enabled" in changed:
+            self._spawn(self._apply_remote())
         if "use_location" in changed:
             self._spawn(self._refresh_location())
         if "voice_effect" in changed:
@@ -1936,6 +1987,14 @@ class Hub:
                     self.emit("error", text=reply)
         elif kind == "meeting_stop":
             self._spawn(self._stop_meeting_from_window())
+        elif kind == "remote_pair":
+            code = self.remote.devices.start_pairing()
+            self.emit("remote_code", code=code, seconds=300, urls=self.remote.public()["urls"])
+        elif kind == "remote_remove":
+            self.remote.devices.remove(str(msg.get("id", "")))
+            self.emit("remote", **self.remote.public())
+        elif kind == "remote":
+            self.emit("remote", **self.remote.public())
         elif kind == "routine_delete":
             if self.routines.remove(str(msg.get("id", ""))):
                 self._routines_changed()
