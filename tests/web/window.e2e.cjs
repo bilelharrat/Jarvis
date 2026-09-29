@@ -298,6 +298,49 @@ test('A galaxy of 30,000 notes draws a bounded number of stars a frame, the focu
   assert(r.calls <= 8100, `${r.calls} stars drawn in one frame`);
 });
 
+// ── The window's drag area ──
+
+// What can be pressed but sits in the drag area, the way Electron works it out: every box
+// that says drag or no-drag, applied in document order (not by what's painted on top).
+const BLOCKED = `(() => {
+  const boxes = [];
+  for (const el of document.querySelectorAll('*')) {
+    const region = getComputedStyle(el).webkitAppRegion;
+    if (region !== 'drag' && region !== 'no-drag') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width && r.height) boxes.push([r, region === 'drag']);
+  }
+  const drag = (x, y) => { let d = false; for (const [r, v] of boxes) if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) d = v; return d; };
+  const blocked = [];
+  for (const el of document.querySelectorAll('button, a[href], input, select, textarea, summary, [role="button"], [contenteditable], .jc-title')) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height || getComputedStyle(el).visibility === 'hidden') continue;
+    const x = r.left + r.width / 2, y = r.top + r.height / 2, top = document.elementFromPoint(x, y);
+    if ((top === el || el.contains(top)) && drag(x, y)) blocked.push(el.id || el.getAttribute('aria-label') || el.className);
+  }
+  return { blocked, barDrags: drag(innerWidth / 2, 10) };
+})()`;
+
+test('Nothing that can be pressed sits in the window’s drag area, over any panel', async () => {
+  // A panel open over the top bar (Jarvis Code's header, the galaxy's search) was inside its
+  // drag area: a real click on its buttons only moved the window.
+  await js('document.body.classList.add("in-app"); true');  // the app's frameless window
+  const seen = {};
+  seen.dashboard = await js(BLOCKED);
+  await open(1);
+  seen.jarvisCode = await js(BLOCKED);
+  await js('toggleCC(false); setGalaxyMode("open"); true');
+  await sleep(80);
+  seen.galaxy = await js(BLOCKED);
+  await js('setGalaxyMode("off"); toggleSettings(true); true');
+  await sleep(80);
+  seen.settings = await js(BLOCKED);
+  for (const [where, r] of Object.entries(seen)) {
+    assert(!r.blocked.length, `${where}: ${r.blocked.join(', ')} can't be clicked (the window drags)`);
+    assert(r.barDrags, `${where}: the top bar no longer drags the window`);
+  }
+});
+
 test('Switching back to English stops translating the window as it changes', async () => {
   await js('window.jarvisI18n.setLang("zh")');
   await js('window.jarvisI18n.setLang("en")');

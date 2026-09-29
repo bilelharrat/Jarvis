@@ -63,6 +63,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 body.in-app .top { padding-left: 92px; }
 .top button, .top .popover { -webkit-app-region: no-drag; }
+/* Electron takes the window's drag area from element boxes, not from what's painted on
+   top: a panel open over the bar (Jarvis Code's header, the galaxy's search) sat inside it,
+   and a click on its buttons only moved the window. Every control is carved out of it,
+   wherever it is; empty space over the bar still drags, like a title bar. The title is too
+   (double-click renames it; on a drag area macOS zooms the window instead). */
+button, a[href], input, select, textarea, summary, label, [role="button"], [role="tab"],
+[role="switch"], [role="menuitem"], [role="option"], [contenteditable="true"], .jc-title {
+  -webkit-app-region: no-drag;
+}
 .wordmark { font-family: var(--serif); font-size: 22px; font-weight: 500; letter-spacing: 1px; }
 .meta { display: flex; align-items: center; gap: 18px; font-size: 14px; color: var(--ink-2); }
 .icon-btn {
