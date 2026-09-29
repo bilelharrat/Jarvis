@@ -171,6 +171,22 @@ HANDS_FREE_ENDPOINT = 0.6  # seconds of quiet that surely end an utterance
 EARLY_ENDPOINT = 0.2  # ...but a finished-sounding request is answered after this much
 FILLERS = ["One moment.", "On it.", "Let me check."]
 _FIRST_CLAUSE = re.compile(r"^(.{12,}?[,;:—–])\s")
+# A streaming reply's words wait for their sentence to end before they're voiced, but not
+# past this many characters (half that in Chinese): then they go at the last clause break or
+# space. However long the reply, each delta is only scanned this far.
+STREAM_HOLD = 240
+_HOLD_CLAUSE = re.compile(r"[,;:—–](?=\s)|[，、；：]|\n")
+_HOLD_SPACE = re.compile(r"\s+")
+# An empty code block: said as "I've put the details on screen" (详细内容我放在屏幕上了).
+CODE_ON_SCREEN = "```\n```"
+ANNOUNCE_IN_FULL = 2  # a burst of heads-ups says this many in full; the rest are on screen
+STALE_UTTERANCE = 10.0  # hands-free: speech that ended this long ago is never acted on
+ASK_QUEUE_MAX = 20  # requests waiting behind the current one; past that, new ones are refused
+STYLE_NOTES = 6  # notes for the next request kept word for word; older ones are summed up
+PART_WAY = (
+    "The connection to Claude dropped part-way through this request. Some of it may already "
+    "be done, so check before asking again."
+)
 CHIME = "/System/Library/Sounds/Tink.aiff"
 
 CONVERSATIONS_DIR = Path.home() / "Documents" / "Jarvis" / "Conversations"
@@ -192,6 +208,18 @@ LATEST_ONLY = frozenset(
         "weather", "remote", "status", "brain", "memory", "routines", "connectors",
     }
 )  # fmt: skip
+
+
+def _hold_cut(text: str, limit: int) -> int:
+    """Where words that have run on past `limit` characters are cut to be voiced: after
+    the last clause break or line break (not too near the start), else the last space,
+    else at the limit."""
+    head = text[:limit]
+    for pattern in (_HOLD_CLAUSE, _HOLD_SPACE):
+        ends = [m.end() for m in pattern.finditer(head)]
+        if ends and ends[-1] >= limit // 3:
+            return ends[-1]
+    return limit
 
 
 def _text_size(event: dict[str, Any]) -> int:
@@ -267,8 +295,8 @@ ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be hea
 ECHO_WINDOW = 12.0  # what it said this recently may come back through the microphone
 VOICE_ANSWER_SECONDS = 60  # a question it asked out loud can be answered without the wake word
 CODE_ANNOUNCE_SECONDS = 20  # Claude Code turns shorter than this finish unannounced
-# Said once for the heads-ups that came in while one was being said (N sessions finishing, or
-# asking, at the same moment): one or two things said, never N.
+# A burst of heads-ups (N sessions finishing, or asking, at the same moment): the first
+# ANNOUNCE_IN_FULL are said, then how many more there are, never all N.
 HEADS_UP_MORE = "{n} more heads-ups are on screen."
 SPOKEN_TEXT = 400  # longer than this, a message for Claude Code is on screen, not read out
 # Window commands that can take a while (Claude Code control calls, git, simctl, big reads):
@@ -522,12 +550,17 @@ class Hub:
         self._command_failures: dict[str, tuple[float, int]] = {}  # kind -> (logged, since)
         self._lock = asyncio.Lock()
         self._tools: dict[str, dict[str, Any]] = {}
+        self._turn_progress = False  # this request ran a tool, showed a card or said something
+        self._announce_texts: list[str] = []  # heads-ups waiting to be said, as one
+        self._announcer: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
         self._stopping = False
         self._rid = ""
         self._control_rid = ""
         self._pending_model: str | None = None
         self._style_note = ""
+        self._style_notes: list[str] = []  # what _style_note is made of
+        self._style_dropped = False  # older notes were summed up
         self._armed_until = 0.0
         self._dictating_until = 0.0  # hands-free: the next utterance is typed, not asked
         self._dictation = 0  # which press of the composer's mic is current
@@ -606,8 +639,6 @@ class Hub:
         self._summarize = summarize
         self.meetings_dir = meetings_dir
         self._alert_notes: deque[tuple[float, str]] = deque(maxlen=3)
-        self._announcing = False  # a heads-up is being said: later ones wait and join up
-        self._held_heads_ups: list[str] = []
         self._silent = False
         from .voicecode import VoiceCoder
 
@@ -709,6 +740,8 @@ class Hub:
         self._browser_calls: dict[str, asyncio.Future] = {}
         self._stream_buf = ""
         self._streamed = False
+        self._in_code = False  # inside a ``` block of the streaming reply: not voiced
+        self._code_tail = ""  # its last two characters: a ``` can be split across deltas
         self.client: Any = None
 
     # ── lifecycle ──
@@ -906,6 +939,8 @@ class Hub:
     def note_tool_result(self, tool_name: str) -> None:
         """Every tool call once it has returned, before Claude sees the result (a
         PostToolUse hook, brain.taint_hooks): remember what the turn has read."""
+        if self._rid:
+            self._turn_progress = True  # a tool ran: a retry mustn't run it again
         kind = result_kind(tool_name)
         if kind != "none":
             self._note_read(kind, tool_label(tool_name))
@@ -936,8 +971,12 @@ class Hub:
         if self._turn_reads.get("rid") != self._rid:
             self._turn_reads = {"rid": self._rid, "private": False, "web": False, "what": []}
             if self._rid and self._early_reads:
-                self._turn_reads.update(private=True, what=self._early_reads)
-                self._early_reads = []
+                early, self._early_reads = self._early_reads, []
+                # In this request's context, and in the conversation's after it: both count.
+                for record in (self._turn_reads, self._session_reads):
+                    record["private"] = True
+                    record["what"] += [w for w in early if w not in record["what"]]
+                    del record["what"][:-40]
         return self._turn_reads
 
     def _why_asking(self, reads: dict[str, Any]) -> str:
@@ -1246,19 +1285,31 @@ class Hub:
     async def remote_ask(self, text: str, timeout: float = 120) -> dict[str, Any]:
         """A request from the phone: run it without speaking on the Mac, and answer with
         the reply, or early with the question when it needs a yes."""
-        known = set(self.approvals)
-        task = self._remote_turn(self.ask(text, silent=True))
+        started: dict[str, str] = {}
+        task = self._remote_turn(self.ask(text, silent=True, started=started))
         if task is None:
             return {"reply": "", "done": False, "approvals": [], "busy": True}
+
+        def own() -> list[dict[str, Any]]:
+            """Cards this request put up (not a Jarvis Code session's, nor another turn's)."""
+            rid = started.get("rid")
+            return [
+                a
+                for a in self.approvals.values()
+                if rid and a.get("rid") == rid and not a.get("task_id")
+            ]
+
         deadline = time.monotonic() + timeout
-        while not task.done() and time.monotonic() < deadline:
-            if set(self.approvals) - known:
-                break
+        while not task.done() and time.monotonic() < deadline and not own():
             await asyncio.sleep(0.2)
-        pending = [a for a in self.approvals.values() if a["id"] not in known]
         done = task.done() and not task.cancelled() and task.exception() is None
-        reply = task.result() if done else self.turn.get("reply", "")
-        return {"reply": reply, "done": task.done(), "approvals": pending}
+        if done:
+            reply = task.result()
+        elif started.get("rid") and self.turn.get("rid") == started["rid"]:
+            reply = self.turn.get("reply", "")  # its own reply so far
+        else:
+            reply = ""  # still waiting behind another request: done is False
+        return {"reply": reply, "done": task.done(), "approvals": own()}
 
     def _remote_turn(self, coro) -> asyncio.Task | None:
         """Start a turn a phone asked for, unless REMOTE_TURNS of them are already waiting
@@ -1365,7 +1416,24 @@ class Hub:
         )
 
     def _add_style_note(self, note: str) -> None:
-        self._style_note = f"{self._style_note} {note}".strip()
+        """A note for the next request (something changed in Settings). Only the latest
+        STYLE_NOTES are kept word for word and older ones are summed up in a line, so the
+        note stays short however many changes come between two requests."""
+        if note in self._style_notes:
+            return
+        self._style_notes.append(note)
+        if len(self._style_notes) > STYLE_NOTES:
+            del self._style_notes[0]
+            self._style_dropped = True
+        earlier = (
+            [
+                "the user also made earlier changes in Settings (recall and list_goals have "
+                "what's current)."
+            ]
+            if self._style_dropped
+            else []
+        )
+        self._style_note = " ".join(earlier + self._style_notes)
 
     def _memory_changed(self) -> None:
         self.emit("memory", items=self.memory.public())
@@ -1480,13 +1548,31 @@ class Hub:
         self._subscribers.discard(queue)
         if not self._subscribers:  # the last window went: no one to stream pictures to
             self.workbench.watch_simulator(None)
+            self._window_gone()
+
+    def _window_gone(self) -> None:
+        """No window is left to answer: what was asked of one fails now, instead of
+        waiting out its 20-45s timeout while the turn holds the conversation. A window that
+        connects again says what it can do (its capabilities message)."""
+        self.browser_available = self.research_available = False
+        gone = "The J.A.R.V.I.S. window closed."
+        for calls in (self._browser_calls, self._research_calls):
+            for future in calls.values():
+                if not future.done():
+                    future.set_result({"error": gone})
+        for future in self._pdf_calls.values():
+            if not future.done():
+                future.set_result("")  # pdf_call: no PDF
+        future = self._location_future
+        if future is not None and not future.done():
+            future.set_result({"error": gone})
 
     def emit(self, kind: str, **data: Any) -> None:
         event = {"type": kind, **data}
         for queue in list(self._subscribers):
             queue.put_nowait(event)
             if queue.cut_off:  # stopped reading: no more events pile up for it
-                self._subscribers.discard(queue)
+                self.unsubscribe(queue)
 
     def prefs_payload(self) -> dict[str, Any]:
         return {
@@ -1561,8 +1647,11 @@ class Hub:
             "question": question,
             "detail": detail,
             "choices": [{"id": c, "label": label} for c, label in choices],
+            "rid": self._rid,  # the request it came up in ("" between requests)
             **(context or {}),
         }
+        if self._rid:
+            self._turn_progress = True  # a card went up: a retry mustn't put it up again
         linked_task, linked_words = self._voice_link
         if not spoken and linked_task is not None and linked_task is _current_task():
             spoken = linked_words
@@ -1641,9 +1730,10 @@ class Hub:
         began = self._utterance_began
         if began is not None and self.state != "speaking" and began + 0.1 >= self._spoke_until:
             return False
+        # Only what it has said aloud (the queue counts a sentence once it starts playing):
+        # the rest of the reply, still being written or waiting its turn, can't come back
+        # through the microphone, and counting it took barge-ins about it for echoes.
         heard = self.speech.said_recently(ECHO_WINDOW)
-        if self._lock.locked() or self.state == "speaking":
-            heard = f"{heard} {self.turn.get('reply', '')}"
         return lang.is_echo(text, heard, self.language)
 
     def _overlapped(self) -> bool:
@@ -1779,7 +1869,12 @@ class Hub:
         return True
 
     async def ask(
-        self, text: str, display: str | None = None, silent: bool = False, screen: bool = False
+        self,
+        text: str,
+        display: str | None = None,
+        silent: bool = False,
+        screen: bool = False,
+        started: dict[str, str] | None = None,
     ) -> str:
         """One request. display: what the window shows instead of text (routines, the
         briefing). silent: say nothing out loud (a routine in quiet hours). screen: send a
@@ -1788,14 +1883,25 @@ class Hub:
         if not text:
             return ""
         ticket = 0
-        if self._lock.locked() and display is None and not self.prefs.queue_requests:
-            await self.stop()  # queueing is off: a new request takes over from the old one
-        if self._lock.locked():
+        if self._lock.locked() or self.waiting:
             # Something is still being answered: this one waits its turn, visibly, and
-            # the user can take it back before it's sent.
+            # the user can take it back before it's sent. With queueing off it takes over
+            # instead: from the request being answered, and from the user's own requests
+            # still waiting (a routine or the briefing keeps its place). Decided before
+            # anything is awaited, so one that comes a moment later takes over from this one.
+            takeover = display is None and not self.prefs.queue_requests
+            if takeover:
+                self.waiting = [w for w in self.waiting if not w.get("own")]
+            elif display is None and len(self.waiting) >= ASK_QUEUE_MAX:
+                self.emit("error", text="Too many requests are waiting. Try again in a moment.")
+                return ""
             ticket = next(self._ask_ids)
-            self.waiting.append({"id": ticket, "text": (display or text)[:300]})
+            self.waiting.append(
+                {"id": ticket, "text": (display or text)[:300], "own": display is None}
+            )
             self.emit("ask_queue", items=list(self.waiting))
+            if takeover:
+                await self.stop()
         async with self._lock:
             if ticket:
                 still_wanted = any(w["id"] == ticket for w in self.waiting)
@@ -1810,6 +1916,9 @@ class Hub:
             rid = uuid.uuid4().hex[:8]
             self._rid = rid
             self._reads()  # the new turn's record, with anything marked before it began
+            self._turn_progress = False
+            if started is not None:
+                started["rid"] = rid
             self.commands += 1
             self.history.append({"role": "user", "text": display or text, "at": _now()})
             self.turn = {"rid": rid, "user": display or text, "reply": ""}
@@ -1876,20 +1985,28 @@ class Hub:
                             self.mark_turn_untrusted("your calendar")
                     if notes:
                         query = f"[Note from the app: {' '.join(notes)}]\n\n{text}"
-                        self._style_note = ""
+                        self._style_note, self._style_notes, self._style_dropped = "", [], False
                         self._alert_notes.clear()
                     await self._run_query(rid, query, images)
             except Exception as exc:  # the Claude Code process died: reconnect and retry once
-                log.warning("query failed (%s); reconnecting and retrying", exc)
+                # Once a tool ran, a card went up or words came out, the same request again
+                # would do it all twice: reconnect, and say it was cut off instead.
+                retry = not self._turn_progress
+                log.warning("query failed (%s); reconnecting%s", exc, " and retrying" * retry)
                 try:
                     with contextlib.suppress(Exception):
                         await self.client.disconnect()
                     await self._connect(resume=self._session_id)
-                    await self._run_query(rid, query, images)
+                    if retry:
+                        await self._run_query(rid, query, images)
+                    else:
+                        self.emit("error", text=PART_WAY)
                 except Exception as exc2:  # network or sign-in trouble
                     log.error("query failed again: %s", exc2)
                     self.emit("error", text=f"Something went wrong: {exc2}")
             finally:
+                for tool_id in list(self._tools):  # never reported back: stopped, or it died
+                    self._tool_finished(tool_id, ok=False)
                 self._flush_speech()
                 if not self._stopping:
                     self.set_state("speaking" if self.speech._pending else self.state)
@@ -1920,6 +2037,7 @@ class Hub:
         self, rid: str, query: str, images: list[dict[str, str]] | None = None
     ) -> None:
         self._stream_buf, self._streamed = "", False
+        self._in_code, self._code_tail = False, ""
         await self.client.query(screenwatch.user_message(query, images) if images else query)
         async for message in self.client.receive_response():
             await self._on_message(rid, message)
@@ -1984,6 +2102,9 @@ class Hub:
         )
         for sentence in sentences:
             self._speak(sentence)
+        if self._in_code:  # the text ended inside a code block: it's on screen
+            self._in_code, self._code_tail = False, ""
+            self._speak(CODE_ON_SCREEN)
 
     async def _on_message(self, rid: str, message: Any) -> None:
         if isinstance(message, StreamEvent):
@@ -2024,32 +2145,70 @@ class Hub:
         elif kind == "content_block_delta" and event.get("delta", {}).get("type") == "text_delta":
             chunk = event["delta"].get("text", "")
             self._streamed = True
+            self._turn_progress = True  # words went out: a retry would say them twice
             self.turn["reply"] = self.turn.get("reply", "") + chunk
             self._send_reply(rid)
-            self._stream_buf += chunk
-            if not self._spoke_this_turn:
-                # Voice the first clause on its own: the first sound comes sooner.
-                if lang.is_zh(self.language):
-                    clause = lang.first_clause_zh(self._stream_buf)
-                    if clause is not None:
-                        self._speak(clause[0])
-                        self._stream_buf = clause[1]
-                else:
-                    match = _FIRST_CLAUSE.match(self._stream_buf)
-                    if match and not re.search(r"[.!?]", match.group(1)):
-                        self._speak(match.group(1))
-                        self._stream_buf = self._stream_buf[match.end() :]
-            # The first sentence goes as soon as it's whole, however short ("Canberra.");
-            # later short ones wait to join the next, so each clip is worth a request.
-            first = not self._spoke_this_turn
-            sentences, self._stream_buf = lang.split_sentences(
-                self._stream_buf, min_chars=4 if first else 12, lang=self.language
-            )
-            for sentence in sentences:
-                self._speak(sentence)
+            self._voice_stream(chunk)
         elif kind in ("content_block_stop", "message_stop"):
             self._send_reply(rid, now=True)
             self._flush_speech()
+
+    def _voice_stream(self, chunk: str) -> None:
+        """Voice a streaming reply as it arrives: the first clause early, then whole
+        sentences; a ``` code block not read out but said to be on screen; and words that
+        run on past STREAM_HOLD characters without a sentence end voiced anyway. Each delta
+        looks only at its own text and what's held back, never the reply so far."""
+        while chunk:
+            if self._in_code:
+                seen = self._code_tail + chunk
+                end = seen.find("```")
+                if end < 0:
+                    self._code_tail = seen[-2:]
+                    return
+                self._in_code, self._code_tail, chunk = False, "", seen[end + 3 :]
+                self._speak(CODE_ON_SCREEN)
+                continue
+            held = len(self._stream_buf)
+            self._stream_buf += chunk
+            start = self._stream_buf.find("```", max(0, held - 2))
+            if start < 0:
+                self._voice_sentences()
+                return
+            chunk = self._stream_buf[start + 3 :]
+            self._stream_buf = self._stream_buf[:start]
+            self._flush_speech()  # the words before the code block, whole
+            self._in_code = True
+
+    def _voice_sentences(self) -> None:
+        if not self._spoke_this_turn:
+            # Voice the first clause on its own: the first sound comes sooner.
+            if lang.is_zh(self.language):
+                clause = lang.first_clause_zh(self._stream_buf)
+                if clause is not None:
+                    self._speak(clause[0])
+                    self._stream_buf = clause[1]
+            else:
+                match = _FIRST_CLAUSE.match(self._stream_buf)
+                if match and not re.search(r"[.!?]", match.group(1)):
+                    self._speak(match.group(1))
+                    self._stream_buf = self._stream_buf[match.end() :]
+        # The first sentence goes as soon as it's whole, however short ("Canberra.");
+        # later short ones wait to join the next, so each clip is worth a request.
+        first = not self._spoke_this_turn
+        sentences, self._stream_buf = lang.split_sentences(
+            self._stream_buf, min_chars=4 if first else 12, lang=self.language
+        )
+        for sentence in sentences:
+            self._speak(sentence)
+        # No sentence end for a long while (a list, Chinese without 。): voice it anyway,
+        # so speech starts and what's held (which every delta scans) stays short.
+        hold = STREAM_HOLD // 2 if lang.is_zh(self.language) else STREAM_HOLD
+        while len(self._stream_buf) > hold:
+            cut = _hold_cut(self._stream_buf, hold)
+            piece, self._stream_buf = self._stream_buf[:cut].strip(), self._stream_buf[cut:]
+            self._stream_buf = self._stream_buf.lstrip()
+            if piece:
+                self._speak(piece)
 
     def _send_reply(self, rid: str, now: bool = False) -> None:
         """The reply so far to the windows, at most every REPLY_EVERY: each event carries the
@@ -2071,6 +2230,7 @@ class Hub:
         self._reply_later = asyncio.get_running_loop().call_later(wait, self._send_reply, rid, True)
 
     def _tool_started(self, block: ToolUseBlock) -> None:
+        self._turn_progress = True
         self._filler()
         item = {
             "id": block.id,
@@ -2098,7 +2258,7 @@ class Hub:
         self._stopping = True
         self._stops += 1
         self._armed_until = 0.0
-        self._stream_buf = ""
+        self._stream_buf, self._in_code, self._code_tail = "", False, ""
         self.speech.clear()
         if self._lock.locked() and self.client is not None:
             with contextlib.suppress(Exception):
@@ -2108,6 +2268,9 @@ class Hub:
             self._listen_gen += 1
             if self._mic_cancel is not None:
                 self._mic_cancel.set()
+            if self._dictation_cancel is not None and not self._dictation_cancel.is_set():
+                self._dictation_cancel.set()  # the composer's mic: nothing is typed
+                self.emit("dictation", text="", done=True)
             self.set_state("idle")
 
     async def reset(self) -> None:
@@ -2317,6 +2480,8 @@ class Hub:
             if audio is None:
                 return
             if isinstance(audio, tuple) and audio[0] == "early":  # ("early", n, audio, at)
+                if not queue.empty():
+                    continue  # something newer is waiting: this early look is already stale
                 try:
                     await self._early_utterance(*audio[1:])
                 except Exception:
@@ -2325,6 +2490,12 @@ class Hub:
             ended = time.monotonic()
             if isinstance(audio, tuple):  # ("full", when it ended, audio)
                 _, ended, audio = audio
+            stale = time.monotonic() - ended > STALE_UTTERANCE
+            if stale and self.meeting is None:
+                # Behind (a TV, a busy room): what was said this long ago is not for now,
+                # and a "stop" from a minute ago mustn't stop what's happening now.
+                log.info("skipped an utterance from %.0fs ago", time.monotonic() - ended)
+                continue
             self._heard_at = time.monotonic()
             try:
                 if self.voicecode.focus is not None and self._code_hotwords:
@@ -2343,6 +2514,8 @@ class Hub:
             try:
                 if self.meeting is not None and self._meeting_capture(audio, text):
                     continue
+                if stale:  # in a meeting: kept for the notes, never acted on
+                    continue
                 await self.on_heard(text)
             except Exception:  # never let one bad utterance end hands-free listening
                 log.exception("hands-free handling failed")
@@ -2355,6 +2528,11 @@ class Hub:
         of that wait and the whole transcription). Otherwise the full utterance follows."""
         if self.meeting is not None or self.state == "speaking":
             return
+        if at is not None and time.monotonic() - at > STALE_UTTERANCE:
+            return
+        current = getattr(self._listener, "early_is_current", None)
+        if current is not None and not current(number):
+            return  # they kept talking, or the whole utterance is already here: not worth it
         heard_at = time.monotonic()
         stt = self.transcriber
         if self.voicecode.focus is not None and self._code_hotwords:
@@ -3595,7 +3773,8 @@ class Hub:
                 self._spawn(self._apply_pending_model())
         if {"persona", "humor", "address"} & set(changed) and not from_tool:
             name, persona = PERSONAS[self.prefs.persona]
-            self._style_note = (
+            self._style_notes, self._style_dropped = [], False  # a new persona: that's the news
+            self._add_style_note(
                 f"the user changed your settings. From now on you are {name}: {persona} "
                 f"Humor {self.prefs.humor} percent."
                 + (f' Address the user as "{self.prefs.address}".' if self.prefs.address else "")
@@ -3729,11 +3908,7 @@ class Hub:
             and (breakthrough or (not quiet and self.meeting is None))
             and (not busy or speak_if_busy)
         ):
-            if self._announcing:  # said together, after the one being said
-                self._held_heads_ups.append(alert.text)
-            else:
-                self._announcing = True  # (at once: a burst mustn't start a heads-up each)
-                self._spawn(self._announce_all(alert.text))
+            self._announce_later(alert.text)
         log.info("alert: %s", alert.kind)
 
     async def purchase_gate(self, question: str, detail: str) -> bool:
@@ -3900,18 +4075,31 @@ class Hub:
                 parts += [b.text for b in message.content if isinstance(b, TextBlock)]
         return "\n".join(parts)
 
-    async def _announce_all(self, text: str) -> None:
-        """A heads-up, then the ones that came in while it was said, in one sentence."""
-        try:
-            await self._announce(text)
-            while self._held_heads_ups:
-                held, self._held_heads_ups = self._held_heads_ups, []
-                await self._announce(
-                    held[0] if len(held) == 1 else HEADS_UP_MORE.format(n=len(held))
-                )
-        finally:
-            self._announcing = False
-            self._held_heads_ups = []
+    def _announce_later(self, text: str) -> None:
+        self._announce_texts.append(text)
+        if self._announcer is None or self._announcer.done():
+            self._announcer = self._spawn(self._announce_bursts())
+
+    async def _announce_bursts(self) -> None:
+        """Heads-ups said a burst at a time: whatever arrived together is one announcement
+        with one chime, the first ANNOUNCE_IN_FULL in full and how many more are on screen
+        (twenty at once were twenty chimes and a minute of speech); what arrives while
+        that plays follows it, without another chime. Every one still shows as a card."""
+        first = True
+        while self._announce_texts:
+            texts, self._announce_texts = self._announce_texts, []
+            if len(texts) > ANNOUNCE_IN_FULL:
+                more = len(texts) - ANNOUNCE_IN_FULL
+                texts = [*texts[:ANNOUNCE_IN_FULL], HEADS_UP_MORE.format(n=more)]
+            stops = self._stops
+            if first:
+                await self._announce("\n".join(texts))
+            else:
+                await self._say_heads_up("\n".join(texts))
+            first = False
+            if stops != self._stops:
+                self._announce_texts.clear()  # stopped: the rest stay on screen
+                return
 
     async def _announce(self, text: str) -> None:
         if not self.speaker.muted:
@@ -3920,6 +4108,9 @@ class Hub:
                     ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
             await asyncio.sleep(0.4)
+        await self._say_heads_up(text)
+
+    async def _say_heads_up(self, text: str) -> None:
         stops = self._stops
         self.speech.push(self._speakable(text) or text)
         await self.speech.drain()
@@ -4126,7 +4317,9 @@ class Hub:
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
         if kind == "ask":
-            self._spawn(self.ask(str(msg.get("text", ""))[:4000]))
+            text = msg.get("text")
+            if isinstance(text, str):  # null or a number is nothing to ask
+                self._spawn(self.ask(text[:4000]))
         elif kind == "listen":
             self._spawn(self.listen())
         elif kind == "dictate":
@@ -4302,7 +4495,7 @@ class Hub:
                     self._galaxy_sent[queue] = galaxy
                     queue.put_nowait(event)
                     if queue.cut_off:
-                        self._subscribers.discard(queue)
+                        self.unsubscribe(queue)  # as emit() does: the last one gone is said
         elif kind == "brain_rebuild":
             self._spawn(self.rebuild_brain())
         elif kind == "note":
@@ -4499,7 +4692,8 @@ class Hub:
             self._goal_command(kind, msg)
         elif kind == "memory_add":
             try:
-                fact = self.memory.add(str(msg.get("text", "")))
+                text = msg.get("text")
+                fact = self.memory.add(text if isinstance(text, str) else "")
             except ValueError as exc:
                 self.emit("error", text=str(exc))
             else:
@@ -4673,15 +4867,17 @@ class Hub:
 
         if not self.browser_available:  # i.e. no app window connected yet
             return {"error": "The J.A.R.V.I.S. window isn't open."}
-        future = asyncio.get_running_loop().create_future()
-        self._location_future = future
-        self.emit("location_request")
+        future = self._location_future
+        if future is None or future.done():  # one question to the window at a time
+            future = self._location_future = asyncio.get_running_loop().create_future()
+            self.emit("location_request")
         try:
-            fix = await asyncio.wait_for(future, 20)
+            # shield: one caller timing out or being stopped doesn't cancel the others' wait
+            fix = await asyncio.wait_for(asyncio.shield(future), 20)
         except TimeoutError:
+            if self._location_future is future:
+                self._location_future = None  # the next caller asks the window afresh
             return {"error": "No location fix yet."}
-        finally:
-            self._location_future = None
         if fix.get("error"):
             return fix
         place = await run_helper("reverse", str(fix["lat"]), str(fix["lon"]))

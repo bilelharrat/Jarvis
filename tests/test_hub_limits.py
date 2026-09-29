@@ -10,7 +10,7 @@ from jarvis import hub as hub_mod
 from jarvis.proactive import Alert
 
 
-async def test_a_burst_of_heads_ups_is_said_once_then_as_a_count(
+async def test_a_burst_of_heads_ups_is_said_once_with_a_count(
     settings, quiet_speaker, isolated, monkeypatch
 ):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
@@ -26,7 +26,11 @@ async def test_a_burst_of_heads_ups_is_said_once_then_as_a_count(
     for i in range(50):  # fifty long turns finishing together
         hub.notify(Alert(f"code:{i}", "task", "Jarvis Code", f"Jarvis Code finished in proj{i}."))
     await asyncio.sleep(0.3)
-    assert said == ["Jarvis Code finished in proj0.", "49 more heads-ups are on screen."]
+    # One announcement for the burst: the first two in full, then how many more.
+    assert said == [
+        "Jarvis Code finished in proj0.\nJarvis Code finished in proj1.\n"
+        "48 more heads-ups are on screen."
+    ]
     hub.notify(Alert("code:x", "task", "Jarvis Code", "Jarvis Code finished in later."))
     await asyncio.sleep(0.1)
     assert said[-1] == "Jarvis Code finished in later."  # a later one is said as usual

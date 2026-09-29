@@ -779,7 +779,10 @@ class SpeechQueue:
         self._idle.set()
         self._player: asyncio.Task | None = None
         self._sources: list[Source] = []
-        self._said: list[list[Any]] = []  # [what it said, when that finished playing]
+        # [what it said, when that finished playing (None: playing now)], from the moment
+        # each clip starts: a sentence still waiting its turn can't come back through the
+        # microphone, and counting those took the user's barge-ins for echoes.
+        self._said: list[list[Any]] = []
 
     def push(self, text: str) -> None:
         spoken = getattr(self.speaker, "clean", clean_for_speech)(text)
@@ -787,8 +790,7 @@ class SpeechQueue:
             return
         self._pending += 1
         self._idle.clear()
-        self._remember(spoken)
-        self._clips.put_nowait(asyncio.create_task(self._synth(spoken)))
+        self._clips.put_nowait((asyncio.create_task(self._synth(spoken)), spoken))
         if self._player is None or self._player.done():
             self._player = asyncio.create_task(self._play_loop())
 
@@ -797,13 +799,12 @@ class SpeechQueue:
         what it says."""
         if self.speaker.muted:
             return
-        if text:
-            self._remember(getattr(self.speaker, "clean", clean_for_speech)(text))
+        heard = getattr(self.speaker, "clean", clean_for_speech)(text) if text else ""
         self._pending += 1
         self._idle.clear()
         future = asyncio.get_running_loop().create_future()
         future.set_result(clip)
-        self._clips.put_nowait(future)
+        self._clips.put_nowait((future, heard))
         if self._player is None or self._player.done():
             self._player = asyncio.create_task(self._play_loop())
 
@@ -818,16 +819,19 @@ class SpeechQueue:
     async def _play_loop(self) -> None:
         gen = self._gen
         while gen == self._gen and not self._clips.empty():
-            task = await self._clips.get()
+            task, heard = await self._clips.get()
+            said = None
             try:
                 clip = await task
                 if self.speaker.muted:  # muted after it was queued: drop it unheard
                     if isinstance(clip, Source):
                         clip.cancel()
                 elif isinstance(clip, Source):
+                    said = self._remember(heard)
                     self.on_speaking(True)
                     await self.speaker.play_source(clip)
                 elif clip is not None:
+                    said = self._remember(heard)
                     self.on_speaking(True)
                     await self.speaker.play(*clip)
             except asyncio.CancelledError:
@@ -835,6 +839,8 @@ class SpeechQueue:
             except Exception:  # one bad clip shouldn't silence the rest, but say so
                 log.exception("couldn't play a reply clip")
             finally:
+                if said is not None and said[1] is None:
+                    said[1] = time.monotonic()  # it may come back until ECHO_WINDOW after
                 # After clear() the count restarted at zero without this clip: taking it
                 # off again would leave -1, which reads as "still speaking".
                 if gen == self._gen:
@@ -852,7 +858,7 @@ class SpeechQueue:
     def clear(self) -> None:
         self._gen += 1
         while not self._clips.empty():
-            self._clips.get_nowait().cancel()
+            self._clips.get_nowait()[0].cancel()
         if self._player is not None:
             self._player.cancel()
             self._player = None  # a push right after this gets a loop of its own
@@ -867,10 +873,15 @@ class SpeechQueue:
 
     # ── what it just said, for telling its own voice from the user's ──
 
-    def _remember(self, spoken: str) -> None:
+    def _remember(self, heard: str) -> list[Any] | None:
+        """A clip starts playing: from now its words may come back through the mic."""
+        if not heard:
+            return None
         now = time.monotonic()
         self._said = [s for s in self._said if s[1] is None or now - s[1] < 60]
-        self._said.append([spoken, None])
+        entry = [heard, None]
+        self._said.append(entry)
+        return entry
 
     def _finished(self) -> None:
         now = time.monotonic()
