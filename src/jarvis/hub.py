@@ -101,6 +101,7 @@ TOOL_LABELS = {
     "list_emails": "Read your inbox",
     "draft_email": "Drafted an email",
     "list_events": "Checked your calendar",
+    "find_free_slots": "Found open times",
     "create_event": "Added a calendar event",
     "edit_event": "Changed a calendar event",
     "remove_event": "Removed a calendar event",

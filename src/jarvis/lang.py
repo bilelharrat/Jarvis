@@ -1817,6 +1817,7 @@ ZH_TEXTS: dict[str, str] = {
     "Read your inbox": "读取了收件箱",
     "Drafted an email": "起草了一封邮件",
     "Checked your calendar": "查看了日历",
+    "Found open times": "找到了空闲时段",
     "Added a calendar event": "添加了日历事件",
     "Changed a calendar event": "修改了日历事件",
     "Removed a calendar event": "删除了日历事件",

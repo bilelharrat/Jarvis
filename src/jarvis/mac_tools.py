@@ -453,6 +453,90 @@ async def list_events(args):
     return format_events(events, midnight(offset)) or "Nothing on the calendar for that period."
 
 
+def free_windows(
+    events: list[dict[str, Any]],
+    duration_min: int,
+    start: datetime,
+    end: datetime,
+    hour_start: int,
+    hour_end: int,
+    now: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """Open windows of at least duration_min between start and end, within each day's
+    hour_start..hour_end, that no timed event overlaps and that aren't in the past. All-day
+    events don't count as busy (most are informational); the caller surfaces them."""
+    span = timedelta(minutes=duration_min)
+    busy = sorted(
+        (e["begin"], e["end"]) for e in events if not e.get("all_day") and e["end"] > e["begin"]
+    )
+    windows: list[tuple[datetime, datetime]] = []
+    day = start.date()
+    while day <= end.date():
+        base = datetime.combine(day, datetime.min.time())
+        win_s = max(base.replace(hour=hour_start), start, now)
+        win_e = min(
+            base + timedelta(days=1) if hour_end >= 24 else base.replace(hour=hour_end), end
+        )
+        cursor = win_s
+        for bs, be in busy:
+            if be <= cursor or bs >= win_e:
+                continue
+            if bs - cursor >= span:
+                windows.append((cursor, bs))
+            cursor = max(cursor, be)
+        if win_e - cursor >= span:
+            windows.append((cursor, win_e))
+        day += timedelta(days=1)
+    return windows
+
+
+@tool(
+    "find_free_slots",
+    "Find open times in the user's own calendars for a meeting of a given length over the next "
+    "few days. Read-only: it proposes times; book one with create_event. duration_minutes is the "
+    "meeting length; within_days how far ahead to look; earliest_hour/latest_hour bound the day "
+    "(24-hour clock, default 9 to 18). All-day events don't count as busy.",
+    {
+        "type": "object",
+        "properties": {
+            "duration_minutes": {"type": "integer"},
+            "within_days": {"type": "integer"},
+            "earliest_hour": {"type": "integer"},
+            "latest_hour": {"type": "integer"},
+            "limit": {"type": "integer"},
+        },
+    },
+)
+@_guarded
+async def find_free_slots(args):
+    duration = max(5, min(24 * 60, int(args.get("duration_minutes") or 30)))
+    within = max(1, min(30, int(args.get("within_days") or 7)))
+    hour0 = int(args["earliest_hour"]) if args.get("earliest_hour") is not None else 9
+    hour0 = max(0, min(22, hour0))
+    hour1 = int(args["latest_hour"]) if args.get("latest_hour") is not None else 18
+    hour1 = max(hour0 + 1, min(24, hour1))
+    limit = max(1, min(20, int(args.get("limit") or 8)))
+    now = datetime.now()
+    end = midnight(within) + timedelta(days=1)
+    events = await fetch_events(0, within + 1)
+    windows = free_windows(events, duration, now, end, hour0, hour1, now)[:limit]
+    if not windows:
+        return (
+            f"No open {duration}-minute windows in the next {within} day(s) "
+            f"between {hour0}:00 and {hour1}:00."
+        )
+    lines = [f"- {s:%a %-d %b}, {s:%-I:%M %p} – {e:%-I:%M %p}" for s, e in windows]
+    allday = sorted(
+        {
+            f"{ev['begin']:%-d %b} “{ev['title']}”"
+            for ev in events
+            if ev.get("all_day") and now.date() <= ev["begin"].date() <= end.date()
+        }
+    )
+    note = f"\n(all-day events not counted as busy: {', '.join(allday)})" if allday else ""
+    return f"Open windows for a {duration}-minute meeting:\n" + "\n".join(lines) + note
+
+
 CREATE_EVENT_SCRIPT = """on run argv
     set calName to item 1 of argv
     set d to current date
@@ -792,6 +876,7 @@ AUTO_ALLOWED = [
     "list_emails",
     "draft_email",
     "list_events",
+    "find_free_slots",
     "snap_window",
 ]
 NEEDS_CONFIRMATION = ["run_shortcut", "create_event", "edit_event", "remove_event", "quit_app"]
@@ -813,6 +898,7 @@ def build_server(default_calendar: str = ""):
         list_emails,
         draft_email,
         list_events,
+        find_free_slots,
         make_create_event(default_calendar),
         edit_event,
         remove_event,
