@@ -391,74 +391,49 @@
   </section>
 </aside>
 
-<section id="browser" class="browser-pane" hidden aria-label="Built-in browser">
-  <form id="browser-bar" class="browser-bar" autocomplete="off">
-    <button type="button" class="icon-btn" id="br-back" aria-label="Back"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 3L5 8l5 5"/></svg></button>
-    <button type="button" class="icon-btn" id="br-forward" aria-label="Forward"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l5 5-5 5"/></svg></button>
-    <button type="button" class="icon-btn" id="br-reload" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 11-1.5-3.6M13 2.5v3h-3"/></svg></button>
-    <label for="br-url" class="sr-only">Address</label>
-    <input id="br-url" placeholder="Search or enter an address" spellcheck="false">
-    <span id="br-jarvis" class="br-jarvis" hidden>Jarvis is browsing</span>
-    <button type="button" class="icon-btn" id="br-close" aria-label="Close browser"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
-  </form>
-  <div id="browser-slot" class="browser-slot"></div>
-</section>
-
-<section id="rc" class="rc" hidden aria-label="BSH Research Center">
-  <header class="rc-head">
-    <span class="jc-mark rc-mark" aria-hidden="true"></span>
-    <div class="rc-titles">
-      <h2>BSH Research Center</h2>
-      <p id="rc-page">Opening the market breakdown…</p>
-    </div>
-    <span id="rc-lock" class="rc-lock" title="Only J.A.R.V.I.S. can drive this page: your voice and your hands, not the mouse or keyboard.">
-      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="5.5" width="8" height="5.5" rx="1.4" fill="currentColor"/><path d="M4 5.5V4a2 2 0 014 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
-      <span id="rc-lock-text">J.A.R.V.I.S. only</span>
-    </span>
-    <span id="rc-zoom" class="rc-zoom" hidden></span>
-    <button type="button" id="rc-hands" class="rc-btn" aria-pressed="false" title="Steer it with your hands">✋ Hands</button>
-    <button type="button" id="rc-close" class="rc-btn rc-icon" aria-label="Close the Research Center" title="Close (Esc)">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-    </button>
-    <div id="rc-progress" class="rc-progress" hidden></div>
-  </header>
-  <div class="rc-body">
-    <div id="rc-slot" class="rc-slot">
-      <div id="rc-message" class="rc-message" hidden>
-        <p id="rc-message-text"></p>
-        <button type="button" id="rc-retry" class="rc-btn">Try again</button>
+<section id="browser" class="browser-dock" hidden aria-label="Browser">
+  <div class="bd-handle" id="bd-handle" role="separator" aria-orientation="vertical" aria-label="Drag to resize the browser" tabindex="0" title="Drag to resize"></div>
+  <div class="bd-panel">
+    <form id="browser-bar" class="browser-bar" autocomplete="off">
+      <button type="button" class="bd-icon" id="br-back" aria-label="Back"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg></button>
+      <button type="button" class="bd-icon" id="br-forward" aria-label="Forward"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></button>
+      <button type="button" class="bd-icon" id="br-reload" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 11-1.5-3.6M13 2.5v3h-3"/></svg></button>
+      <div class="bd-url">
+        <span id="br-lock" class="bd-lock" hidden title="Only J.A.R.V.I.S. can drive the Research Center: your voice and your hands, not the mouse or keyboard.">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="5.5" width="8" height="5.5" rx="1.4" fill="currentColor"/><path d="M4 5.5V4a2 2 0 014 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span id="br-lock-text">J.A.R.V.I.S. only</span>
+        </span>
+        <label for="br-url" class="sr-only">Address</label>
+        <input id="br-url" placeholder="Search or enter an address" spellcheck="false">
+      </div>
+      <span id="br-jarvis" class="br-jarvis" hidden>Jarvis is browsing</span>
+      <span id="br-zoom" class="bd-zoom" hidden></span>
+      <button type="button" class="bd-icon" id="br-research" aria-label="Open the BSH Research Center" title="BSH Research Center"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 15.5l4.2-6.4 2.4 3.3 3.3-6.9L18 15.5z"/></svg></button>
+      <button type="button" class="bd-icon" id="br-hands" aria-pressed="false" aria-label="Steer the page with your hands" title="Hands"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10V4a1.2 1.2 0 012.4 0v5M9.4 9V3a1.2 1.2 0 012.4 0v6M11.8 9V4.5a1.2 1.2 0 012.4 0V11c0 3.5-2 6-5.2 6-2.4 0-3.6-1.3-4.8-3.3L3 10.8a1.2 1.2 0 012-1.3L7 12"/></svg></button>
+      <button type="button" class="bd-icon" id="br-close" aria-label="Close the browser" title="Close (Esc)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      <div id="bd-progress" class="bd-progress" hidden></div>
+    </form>
+    <div id="browser-slot" class="browser-slot">
+      <div id="br-message" class="bd-message" hidden>
+        <p id="br-message-text"></p>
+        <button type="button" id="br-retry" class="bd-btn">Try again</button>
       </div>
     </div>
-    <aside class="rc-rail" aria-label="How to steer the Research Center">
-      <div id="rc-cam" class="rc-cam" hidden></div>
-      <p id="rc-status" class="rc-status">Say “Jarvis, …” or raise a hand</p>
-      <ol class="rc-gestures" aria-label="Hand gestures">
-        <li><i aria-hidden="true">✋</i><b>Aim</b><span>move your hand; things light up</span></li>
-        <li><i aria-hidden="true">🤏</i><b>Open</b><span>pinch and let go</span></li>
-        <li><i aria-hidden="true">🤏↕</i><b>Scroll</b><span>pinch, hold and move</span></li>
-        <li><i aria-hidden="true">👋</i><b>Back</b><span>swipe right · left for forward</span></li>
-        <li><i aria-hidden="true">🙌</i><b>Zoom</b><span>pinch with both hands, pull apart</span></li>
-        <li><i aria-hidden="true">✊</i><b>Close</b><span>hold a fist</span></li>
+    <div id="bd-guide" class="bd-guide" hidden>
+      <p id="bd-status" class="bd-status">Aim with your hand · pinch to open</p>
+      <ol class="bd-gestures" aria-label="Hand gestures">
+        <li><i aria-hidden="true">✋</i><b>Aim</b></li>
+        <li><i aria-hidden="true">🤏</i><b>Open</b></li>
+        <li><i aria-hidden="true">🤏↕</i><b>Scroll</b></li>
+        <li><i aria-hidden="true">👋</i><b>Back</b></li>
+        <li><i aria-hidden="true">🙌</i><b>Zoom</b></li>
+        <li><i aria-hidden="true">✊</i><b>Close</b></li>
       </ol>
-      <div class="rc-say">
-        <h3>Or just say</h3>
-        <ul>
-          <li>“Jarvis, open Nvidia”</li>
-          <li>“scroll down” · “go back” · “top”</li>
-          <li>“open reports” · “news desk”</li>
-          <li>“click Earnings” · “read this to me”</li>
-          <li>“close the research center”</li>
-        </ul>
-      </div>
-      <div class="rc-said" aria-live="polite">
-        <p id="rc-heard" class="rc-heard"></p>
-        <p id="rc-reply" class="rc-reply"></p>
-      </div>
-    </aside>
+    </div>
   </div>
 </section>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<svg width="0" height="0" class="svg-defs" aria-hidden="true" focusable="false">
   <defs>
     <radialGradient id="jc-reactor-core" cx="0.42" cy="0.38" r="0.72">
       <stop offset="0" stop-color="#f2fbff"/><stop offset="0.22" stop-color="#a4e4ff"/><stop offset="0.58" stop-color="#3fb8f2"/><stop offset="1" stop-color="#0a3d84"/>

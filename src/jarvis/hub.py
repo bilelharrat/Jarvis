@@ -2147,9 +2147,14 @@ class Hub:
             },
         )
         async def browser_click(args):
-            return done(
-                await hub.browser_call("click", {k: args.get(k, "") for k in ("text", "selector")})
-            )
+            target = {k: args.get(k, "") for k in ("text", "selector")}
+            result = await hub.browser_call("click", target)
+            if result.get("needsConfirm"):  # it starts a run, sends, pays, deletes…
+                label = result.get("label") or target["text"] or target["selector"]
+                if not await hub.confirm(f"Click “{label}” in the browser?"):
+                    return done({"ok": False, "message": "The user said no. Don't click it."})
+                result = await hub.browser_call("click", {**target, "force": True})
+            return done(result)
 
         @tool(
             "browser_type",

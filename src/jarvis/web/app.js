@@ -68,7 +68,7 @@ function onEvent(ev) {
       send({ type: 'galaxy' });
       if (!$('cc').hidden) { send({ type: 'claude_projects' }); if (deckProject) send({ type: 'claude_sessions', directory: deckProject }); }
       send({ type: 'connectors' });
-      if (app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.research });
+      if (app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
       history = ev.history || [];
       renderHistory();
       if (ev.vitals) renderVitals(ev.vitals);
@@ -228,8 +228,7 @@ document.addEventListener('keydown', (e) => {
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
   if (e.key === 'Escape') {
     if (typing) e.target.blur();
-    if (rcOpen && !typing) closeResearch();
-    else if (!$('browser').hidden && !typing) toggleBrowser(false);
+    if (!$('browser').hidden && !typing) toggleBrowser(false);
     else if (!$('cc').hidden) { if (!jcEscape(e)) toggleCC(false); }
     else if (!$('accounts').hidden) toggleAccounts(false);
     else if (!$('settings').hidden) toggleSettings(false);
@@ -344,7 +343,7 @@ let handHover = null;
 let handPoint = { x: 0, y: 0 };
 const LOOK_ORDER = ['orb', 'hud', 'console'];
 const HAND_HELP = {
-  research: '✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close',
+  page: '✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close',
   galaxy: '☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close',
   app: '☝ point · pinch to press · pinch and move to scroll · wave to dismiss a notice (or change the look) · hold an open palm to talk · hold a fist to stop me',
 };
@@ -398,7 +397,7 @@ const appTarget = {
 };
 
 function handTarget() {
-  if (rcOpen) return { target: researchTarget, close: closeResearch, help: HAND_HELP.research };
+  if (browserOpenNow) return { target: pageTarget, close: () => toggleBrowser(false), help: HAND_HELP.page };
   return galaxyMode === 'open'
     ? { target: galaxy, close: () => setGalaxyMode('off'), help: HAND_HELP.galaxy }
     : { target: appTarget, close: () => send({ type: 'stop' }), help: HAND_HELP.app };
@@ -412,8 +411,9 @@ function retargetHands() {
 }
 
 function setHandButtons(on) {
-  ['hand-btn', 'hands-pill', 'rc-hands'].forEach((id) => $(id).setAttribute('aria-pressed', String(on)));
-  placeHandPanel();
+  ['hand-btn', 'hands-pill', 'br-hands'].forEach((id) => $(id).setAttribute('aria-pressed', String(on)));
+  $('bd-guide').hidden = !(on && browserOpenNow);
+  if (browserOpenNow) requestAnimationFrame(syncBrowserBounds); // the guide strip changes the slot
 }
 
 async function startHandControl() {
@@ -447,7 +447,7 @@ function stopHandControl() {
   $('hand-panel').hidden = true;
 }
 
-['hand-btn', 'hands-pill', 'rc-hands'].forEach((id) => $(id).addEventListener('click', () => {
+['hand-btn', 'hands-pill', 'br-hands'].forEach((id) => $(id).addEventListener('click', () => {
   if (handsOn) stopHandControl();
   else startHandControl();
 }));
@@ -624,7 +624,6 @@ function toggleSettings(open) {
   $('settings').hidden = !open;
   if (open) send({ type: 'shortcuts' });
   $('settings-btn').setAttribute('aria-expanded', String(open));
-  sheetsChanged();
 }
 
 $('settings-btn').addEventListener('click', () => toggleSettings($('settings').hidden));
@@ -701,16 +700,6 @@ function toggleAccounts(open) {
   $('accounts').hidden = !open;
   $('accounts-btn').setAttribute('aria-expanded', String(open));
   if (open) { toggleSettings(false); send({ type: 'connectors' }); }
-  sheetsChanged();
-}
-
-// The Research Center's page sits above everything in the window, so it steps aside
-// while a sheet (Settings, Tools & Accounts) is open and comes back as it was.
-function sheetsChanged() {
-  if (typeof rcOpen === 'undefined' || !rcOpen || !app || !app.research) return;
-  const covered = !$('settings').hidden || !$('accounts').hidden;
-  if (covered) app.research.hide();
-  else if ($('rc-message').hidden) app.research.show(rcBounds(), rcBase(), null);
 }
 $('accounts-btn').addEventListener('click', () => toggleAccounts($('accounts').hidden));
 $('accounts-close').addEventListener('click', () => toggleAccounts(false));
@@ -977,12 +966,10 @@ function applyUi(ev) {
   }
   if (ev.action !== 'panel') return;
   const open = ev.open !== false;
-  // Another full panel asked for while the Research Center is up: it takes its place.
-  if (open && rcOpen && !['research', 'settings', 'accounts'].includes(ev.name)) closeResearch();
   switch (ev.name) {
     case 'code': toggleCC(open); break;
     case 'browser': if (app && app.browser) toggleBrowser(open); break;
-    case 'research': if (open) openResearch(rcOpen ? rcPath : '/markets'); else closeResearch(); break;
+    case 'research': if (open) openResearch(lastResearchPath); else toggleBrowser(false); break;
     case 'settings': toggleSettings(open); break;
     case 'accounts': toggleAccounts(open); break;
     case 'brain': setGalaxyMode(open ? 'open' : 'off'); break;
@@ -2366,49 +2353,129 @@ function onJarvisCodeEvent(ev) {
 
 // ── built-in browser (in the J.A.R.V.I.S. app only) ──
 
+// ── The browser: a dock at the side, resizable, where the BSH Research Center opens ──
+// The page is a native view over #browser-slot. Hands steer whatever it shows (a "page"
+// target: aim with the hand, pinch to open, pinch and move to scroll, swipe to go back,
+// fist to close); on the Research Center's own pages only Jarvis can drive it.
+
+const BD_MIN = 380;
+const RC_DEFAULT = 'http://127.0.0.1:8010';
+// What the header calls each Research Center page (its own titles don't say).
+const RC_NAMES = {
+  '/': 'Home', '/markets': 'Markets', '/market-radar': 'Markets · Market', '/weekly-summary': 'Markets · Pulse',
+  '/news-desk': 'Markets · News', '/research-desk': 'Research desk', '/reports': 'Reports', '/tracking': 'Tracking',
+  '/messages': 'Messages', '/trader-stats': 'Trader stats', '/stock-research': 'Stock research',
+  '/source-library': 'Source library', '/innovation-lab': 'Innovation lab', '/help': 'Help', '/settings': 'Settings',
+  '/login': 'Sign in',
+};
+let browserOpenNow = false;
+let browserState = {};
+let pageHover = null; // what a pinch would open, as the page reports it
+let noteUntil = 0;
+let researchShown = false;
+let lastResearchPath = '/markets';
+
+function browserOpen() { return browserOpenNow; }
+function researchBaseUrl() { return (prefs && prefs.research_url) || RC_DEFAULT; }
+
+function pageName(url, title) {
+  const own = String(title || '').replace(/\s*[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
+  if (own && !/^BSH Research Center$/i.test(own)) return own;
+  let path = '/';
+  try { path = new URL(url).pathname.replace(/\/+$/, '') || '/'; } catch (_) { return own; }
+  if (RC_NAMES[path]) return RC_NAMES[path];
+  const last = decodeURIComponent(path.split('/').filter(Boolean).pop() || '');
+  return last ? last.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Home';
+}
+
+function dockWidth() {
+  let saved = 0;
+  try { saved = Number(localStorage.getItem('jarvis.browserWidth')) || 0; } catch (_) { /* private mode */ }
+  const max = Math.max(BD_MIN, window.innerWidth - 420);
+  return Math.round(Math.min(max, Math.max(BD_MIN, saved || window.innerWidth * 0.46)));
+}
+
+function applyDockWidth(w) {
+  document.body.style.setProperty('--bd-w', `${w}px`);
+  // The dashboard shares the window with the dock: its side panels step back when narrow.
+  document.body.classList.toggle('browser-narrow', window.innerWidth - w < 1100);
+}
+
 function slotBounds() {
   const r = $('browser-slot').getBoundingClientRect();
   return { x: r.left, y: r.top, width: r.width, height: r.height };
 }
 
-function toggleBrowser(open) {
-  if (!app || !app.browser) return;
-  $('browser').hidden = !open;
-  $('browser-btn').setAttribute('aria-expanded', String(open));
-  if (open) requestAnimationFrame(() => app.browser.show(slotBounds()));
-  else app.browser.hide();
+function syncBrowserBounds() {
+  if (browserOpenNow && app && app.browser && $('br-message').hidden) app.browser.setBounds(slotBounds());
 }
 
-if (app && app.browser) {
-  $('browser-btn').hidden = false;
-  $('browser-btn').addEventListener('click', () => toggleBrowser($('browser').hidden));
-  $('br-close').addEventListener('click', () => toggleBrowser(false));
-  $('br-back').addEventListener('click', () => app.browser.nav('back'));
-  $('br-forward').addEventListener('click', () => app.browser.nav('forward'));
-  $('br-reload').addEventListener('click', () => app.browser.nav('reload'));
-  $('browser-bar').addEventListener('submit', (e) => {
-    e.preventDefault();
-    app.browser.nav('go', $('br-url').value);
-    $('br-url').blur();
-  });
-  app.browser.onState((st) => {
-    if (document.activeElement !== $('br-url')) $('br-url').value = st.url || '';
-    $('br-back').disabled = !st.canBack;
-    $('br-forward').disabled = !st.canForward;
-  });
-  app.browser.onOpen(() => { if ($('browser').hidden) toggleBrowser(true); });
-  new ResizeObserver(() => { if (!$('browser').hidden) app.browser.setBounds(slotBounds()); }).observe($('browser-slot'));
-  window.addEventListener('resize', () => { if (!$('browser').hidden) app.browser.setBounds(slotBounds()); });
-  // Approval cards must stay visible: the browser makes room for them.
-  new MutationObserver(() => {
-    document.body.classList.toggle('cards-open', $('cards').childElementCount > 0);
-  }).observe($('cards'), { childList: true });
+function toggleBrowser(open) {
+  if (!app || !app.browser) return;
+  browserOpenNow = open;
+  $('browser').hidden = !open;
+  document.body.classList.toggle('browser-open', open);
+  $('browser-btn').setAttribute('aria-expanded', String(open));
+  if (open) {
+    applyDockWidth(dockWidth());
+    requestAnimationFrame(() => app.browser.show(slotBounds()));
+  } else {
+    app.browser.hide();
+    document.body.style.removeProperty('--bd-w');
+    document.body.classList.remove('browser-narrow');
+    pageHover = null;
+    if (researchShown) { researchShown = false; send({ type: 'research_state', open: false }); }
+  }
+  $('bd-guide').hidden = !(open && handsOn);
+  retargetHands();
 }
+
+async function openResearch(path = '/markets') {
+  lastResearchPath = path;
+  if (!app || !app.browser) {
+    window.open(`${researchBaseUrl()}${path}`, '_blank', 'noopener');
+    return { ok: true };
+  }
+  if (!browserOpenNow) toggleBrowser(true);
+  $('br-message').hidden = true;
+  return app.browser.command({ action: 'research', args: { base: researchBaseUrl(), path } });
+}
+
+function showBrowserError(text) {
+  $('br-message-text').textContent = browserState.research || /Research Center/.test(text)
+    ? `${text} Start it, or set its address in Settings › Research Center.` : text;
+  $('br-message').hidden = false;
+  $('bd-progress').hidden = true;
+  if (app && app.browser) app.browser.hide();
+}
+
+function showBrowserNote(text) {
+  noteUntil = Date.now() + 2600;
+  $('bd-status').textContent = text;
+  $('bd-status').classList.add('note');
+  setTimeout(() => {
+    if (Date.now() < noteUntil) return;
+    $('bd-status').classList.remove('note');
+    $('bd-status').textContent = $('hand-status').textContent;
+  }, 2700);
+}
+
+const pageTarget = {
+  kind: 'page',
+  move: (x, y, mode) => app.browser.hand({ t: 'move', x, y, mode }),
+  hide: () => app.browser.hand({ t: 'hide', x: 0, y: 0 }),
+  press: (x, y) => app.browser.hand({ t: 'press', x, y }),
+  drag: (dx, dy) => app.browser.hand({ t: 'drag', dx, dy, x: 0, y: 0 }),
+  release: ({ tap, vx, vy }) => app.browser.hand({ t: 'release', tap, vx, vy, x: 0, y: 0 }),
+  swipe: (dir) => app.browser.command({ action: dir > 0 ? 'back' : 'forward' }),
+  zoomBy: (f) => app.browser.hand({ t: 'zoom', f }),
+  hoverLabel: () => (pageHover ? pageHover.label : ''),
+};
 
 async function runBrowserCommand(ev) {
   if (!app || !app.browser) return;
   $('br-jarvis').hidden = false;
-  if ($('browser').hidden && ev.action !== 'read') toggleBrowser(true);
+  if (!browserOpenNow && ev.action !== 'read') toggleBrowser(true);
   let result;
   try {
     result = await app.browser.command({ action: ev.action, args: ev.args || {} });
@@ -2419,181 +2486,115 @@ async function runBrowserCommand(ev) {
   send({ type: 'browser_result', id: ev.id, result });
 }
 
-// ── BSH Research Center ──
-// The market breakdown opens the owner's research app inside the window. Only J.A.R.V.I.S.
-// drives it: the page ignores the mouse and keyboard (main.js) and answers to voice (the
-// research tools) and hands (a "page" target: aim with the hand, pinch to open, pinch
-// and move to scroll, swipe to go back, fist to close).
-
-const RC_DEFAULT = 'http://127.0.0.1:8010';
-// What the header calls each page (the app's own titles don't say).
-const RC_NAMES = {
-  '/': 'Home', '/markets': 'Markets', '/market-radar': 'Markets · Market', '/weekly-summary': 'Markets · Pulse',
-  '/news-desk': 'Markets · News', '/research-desk': 'Research desk', '/reports': 'Reports', '/tracking': 'Tracking',
-  '/messages': 'Messages', '/trader-stats': 'Trader stats', '/stock-research': 'Stock research',
-  '/source-library': 'Source library', '/innovation-lab': 'Innovation lab', '/help': 'Help', '/settings': 'Settings',
-  '/login': 'Sign in',
-};
-
-function rcPageName(url, title) {
-  const own = String(title || '').replace(/\s*[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
-  if (own && !/^BSH Research Center$/i.test(own)) return own;
-  let path = '/';
-  try { path = new URL(url).pathname.replace(/\/+$/, '') || '/'; } catch (_) { return own; }
-  if (RC_NAMES[path]) return RC_NAMES[path];
-  const last = decodeURIComponent(path.split('/').filter(Boolean).pop() || '');
-  return last ? last.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Home';
-}
-let rcOpen = false;
-let rcPath = '/markets';
-let rcHover = null; // what a pinch would open, as the page reports it
-let rcState = {};
-let rcNoteUntil = 0;
-
-function rcBounds() {
-  const r = $('rc-slot').getBoundingClientRect();
-  return { x: r.left, y: r.top, width: r.width, height: r.height };
-}
-
-function rcBase() {
-  return (prefs && prefs.research_url) || RC_DEFAULT;
-}
-
-async function openResearch(path = '/markets') {
-  rcPath = path;
-  if (!app || !app.research) {
-    window.open(`${rcBase()}${path}`, '_blank', 'noopener');
-    return { ok: true };
-  }
-  if (!rcOpen) {
-    rcOpen = true;
-    rcState = {};
-    $('rc').hidden = false;
-    document.body.classList.add('rc-open');
-    $('rc-page').textContent = 'Opening the market breakdown…';
-    $('rc-progress').hidden = false;
-    retargetHands();
-  }
-  $('rc-message').hidden = true;
-  await new Promise((r) => requestAnimationFrame(r));
-  placeHandPanel();
-  const result = await app.research.show(rcBounds(), rcBase(), path);
-  if (result && result.error) showResearchError(result.error);
-  return result || { ok: true };
-}
-
-function closeResearch() {
-  if (!rcOpen) return;
-  rcOpen = false;
-  $('rc').hidden = true;
-  document.body.classList.remove('rc-open');
-  if (app && app.research) app.research.hide();
-  rcHover = null;
-  placeHandPanel();
-  retargetHands();
-  send({ type: 'research_state', open: false });
-}
-
-function showResearchError(text) {
-  $('rc-message-text').textContent = `${text} Start it, or set its address in Settings → Research Center.`;
-  $('rc-message').hidden = false;
-  $('rc-progress').hidden = true;
-  if (app && app.research) app.research.hide();
-}
-
-function showRcNote(text) {
-  rcNoteUntil = Date.now() + 2600;
-  $('rc-status').textContent = text;
-  $('rc-status').classList.add('note');
-  setTimeout(() => {
-    if (Date.now() < rcNoteUntil) return;
-    $('rc-status').classList.remove('note');
-    $('rc-status').textContent = handsOn ? $('hand-status').textContent : 'Say “Jarvis, …” or raise a hand';
-  }, 2700);
-}
-
-// The hand camera lives in the rail while the research center is open.
-function placeHandPanel() {
-  const panel = $('hand-panel');
-  const cam = $('rc-cam');
-  const inRail = rcOpen && handsOn;
-  cam.hidden = !inRail;
-  if (inRail) {
-    const r = cam.getBoundingClientRect();
-    Object.assign(panel.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, right: 'auto', bottom: 'auto' });
-  } else {
-    ['left', 'top', 'width', 'right', 'bottom'].forEach((k) => { panel.style[k] = ''; });
-  }
-}
-
-const researchTarget = {
-  kind: 'page',
-  move: (x, y, mode) => app.research.hand({ t: 'move', x, y, mode }),
-  hide: () => app.research.hand({ t: 'hide', x: 0, y: 0 }),
-  press: (x, y) => app.research.hand({ t: 'press', x, y }),
-  drag: (dx, dy) => app.research.hand({ t: 'drag', dx, dy, x: 0, y: 0 }),
-  release: ({ tap, vx, vy }) => app.research.hand({ t: 'release', tap, vx, vy, x: 0, y: 0 }),
-  swipe: (dir) => app.research.command({ action: dir > 0 ? 'back' : 'forward' }),
-  zoomBy: (f) => app.research.hand({ t: 'zoom', f }),
-  hoverLabel: () => (rcHover ? rcHover.label : ''),
-};
-
 async function runResearchCmd(ev) {
   const args = ev.args || {};
   let result;
   try {
-    if (!app || !app.research) result = { error: 'The Research Center only opens in the J.A.R.V.I.S. app window.' };
-    else if (ev.action === 'open') {
-      result = rcOpen ? await app.research.command({ action: 'open', args }) : await openResearch(args.path || '/markets');
-      if (result && !result.error && !result.url) result = { ...result, url: rcState.url || '', title: rcState.title || '' };
-    } else if (ev.action === 'close') {
-      closeResearch();
-      result = { ok: true };
-    } else if (!rcOpen) result = { error: 'The Research Center is closed. Open it first.' };
-    else result = await app.research.command({ action: ev.action, args });
+    if (!app || !app.browser) result = { error: 'The Research Center only opens in the J.A.R.V.I.S. app window.' };
+    else if (ev.action === 'open') result = await openResearch(args.path || '/markets');
+    else if (ev.action === 'close') { toggleBrowser(false); result = { ok: true }; }
+    else if (!browserOpenNow || !browserState.research) result = { error: 'The Research Center is closed. Open it first.' };
+    else result = await app.browser.command({ action: ev.action, args });
   } catch (err) {
     result = { error: String(err) };
   }
   send({ type: 'research_result', id: ev.id, result });
 }
 
+// The hand camera's status line doubles as the dock's guide line.
+new MutationObserver(() => {
+  if (Date.now() >= noteUntil) $('bd-status').textContent = $('hand-status').textContent;
+}).observe($('hand-status'), { childList: true, characterData: true, subtree: true });
+
 $('p-markets').addEventListener('click', () => openResearch('/markets'));
 $('p-markets').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openResearch('/markets'); }
 });
-$('rc-close').addEventListener('click', closeResearch);
-$('rc-retry').addEventListener('click', () => openResearch(rcPath));
-// What JARVIS hears and says shows in the rail too (the dashboard is behind the page).
-new MutationObserver(() => { $('rc-heard').textContent = $('heard').textContent; }).observe($('heard'), { childList: true, characterData: true, subtree: true });
-new MutationObserver(() => { $('rc-reply').textContent = $('reply').textContent; }).observe($('reply'), { childList: true, characterData: true, subtree: true });
-new MutationObserver(() => {
-  if (rcOpen && Date.now() >= rcNoteUntil) $('rc-status').textContent = $('hand-status').textContent;
-}).observe($('hand-status'), { childList: true, characterData: true, subtree: true });
 
-if (app && app.research) {
-  app.research.onState((st) => {
-    if (!rcOpen) return;
-    rcState = st;
-    const title = rcPageName(st.url, st.title);
-    $('rc-page').textContent = title;
-    $('rc-progress').hidden = !st.loading;
-    $('rc-lock').classList.toggle('open', !st.locked);
-    $('rc-lock-text').textContent = st.locked ? 'J.A.R.V.I.S. only' : 'Sign in yourself, then I take over';
-    $('rc-zoom').hidden = !st.zoom || st.zoom === 100;
-    $('rc-zoom').textContent = `${st.zoom}%`;
-    if (st.error) { showResearchError(st.error); return; }
-    send({ type: 'research_state', open: true, url: st.url || '', title, locked: !!st.locked });
+if (app && app.browser) {
+  $('browser-btn').hidden = false;
+  $('browser-btn').addEventListener('click', () => toggleBrowser(!browserOpenNow));
+  $('br-close').addEventListener('click', () => toggleBrowser(false));
+  $('br-back').addEventListener('click', () => app.browser.nav('back'));
+  $('br-forward').addEventListener('click', () => app.browser.nav('forward'));
+  $('br-reload').addEventListener('click', () => app.browser.nav('reload'));
+  $('br-research').addEventListener('click', () => openResearch(lastResearchPath));
+  $('br-retry').addEventListener('click', () => {
+    $('br-message').hidden = true;
+    app.browser.show(slotBounds());
+    if (browserState.research || /Research Center/.test($('br-message-text').textContent)) openResearch(lastResearchPath);
+    else app.browser.nav('reload');
   });
-  app.research.onHover((hover) => { rcHover = hover; });
-  app.research.onNote((note) => { if (note && note.text) showRcNote(note.text); });
-  if (app.research.onEscape) app.research.onEscape(closeResearch);
+  $('browser-bar').addEventListener('submit', (e) => {
+    e.preventDefault();
+    app.browser.nav('go', $('br-url').value);
+    $('br-url').blur();
+  });
+  app.browser.onState((st) => {
+    browserState = st;
+    if (document.activeElement !== $('br-url')) $('br-url').value = st.url || '';
+    $('br-back').disabled = !st.canBack;
+    $('br-forward').disabled = !st.canForward;
+    $('bd-progress').hidden = !st.loading;
+    $('br-lock').hidden = !st.research;
+    $('br-lock').classList.toggle('open', !!st.research && !st.locked);
+    $('br-lock-text').textContent = st.locked ? 'J.A.R.V.I.S. only' : 'Sign in yourself, then I take over';
+    $('br-zoom').hidden = !st.zoom || st.zoom === 100;
+    $('br-zoom').textContent = `${st.zoom}%`;
+    if (st.error) showBrowserError(st.error);
+    const was = researchShown;
+    researchShown = !!st.research && browserOpenNow;
+    if (researchShown || was) {
+      send({ type: 'research_state', open: researchShown, url: st.url || '', title: pageName(st.url, st.title), locked: !!st.locked });
+    }
+  });
+  app.browser.onOpen(() => { if (!browserOpenNow) toggleBrowser(true); });
+  app.browser.onHover((hover) => { pageHover = hover; });
+  app.browser.onNote((note) => { if (note && note.text) showBrowserNote(note.text); });
+  app.browser.onEscape(() => { if (browserState.locked) toggleBrowser(false); });
   const follow = () => {
-    if (!rcOpen) return;
-    placeHandPanel();
-    if ($('rc-message').hidden) app.research.setBounds(rcBounds());
+    if (!browserOpenNow) return;
+    applyDockWidth(dockWidth());
+    syncBrowserBounds();
   };
-  new ResizeObserver(follow).observe($('rc-slot'));
+  new ResizeObserver(() => syncBrowserBounds()).observe($('browser-slot'));
   window.addEventListener('resize', follow);
+
+  // Drag the dock's edge to resize it. The page steps out of the way meanwhile: a native
+  // view would swallow the pointer as soon as the drag crossed it.
+  const handle = $('bd-handle');
+  let dragging = false;
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.classList.remove('bd-resizing');
+    const w = parseInt(getComputedStyle(document.body).getPropertyValue('--bd-w'), 10);
+    try { if (w) localStorage.setItem('jarvis.browserWidth', String(w)); } catch (_) { /* private mode */ }
+    if ($('br-message').hidden) app.browser.show(slotBounds());
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    document.body.classList.add('bd-resizing');
+    app.browser.hide();
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    applyDockWidth(Math.round(Math.min(window.innerWidth - 420, Math.max(BD_MIN, window.innerWidth - e.clientX))));
+  });
+  handle.addEventListener('pointerup', endDrag);
+  handle.addEventListener('pointercancel', endDrag);
+  handle.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const w = parseInt(getComputedStyle(document.body).getPropertyValue('--bd-w'), 10) || dockWidth();
+    const next = Math.round(Math.min(window.innerWidth - 420, Math.max(BD_MIN, w + (e.key === 'ArrowLeft' ? 40 : -40))));
+    applyDockWidth(next);
+    try { localStorage.setItem('jarvis.browserWidth', String(next)); } catch (_) { /* private mode */ }
+    syncBrowserBounds();
+  });
 }
 
 // ── location (the app window holds macOS's location permission) ──

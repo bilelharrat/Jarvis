@@ -1,12 +1,13 @@
-// Runs inside the BSH Research Center page that J.A.R.V.I.S. shows, in an isolated world:
-// the page's own scripts can't see it or reach the app through it. It is J.A.R.V.I.S.'s
-// hand in the page:
+// Runs inside every page of J.A.R.V.I.S.'s built-in browser, in an isolated world: the
+// page's own scripts can't see it or reach the app through it. It is J.A.R.V.I.S.'s hand
+// in the page:
 // - draws the hand cursor, lights up what it's aiming at (snapping to the nearest thing
 //   you can open, so you needn't be precise) and says what a pinch will do;
 // - turns a pinch into a real click (the main process sends it; direct mouse and
 //   keyboard input is blocked there), a pinch-and-move into scrolling that coasts;
 // - asks for a second pinch before anything that starts a run, sends, posts or deletes;
-// - blocks the trackpad and wheel while J.A.R.V.I.S. is in control;
+// - on the BSH Research Center (only J.A.R.V.I.S. drives it) blocks the trackpad, wheel
+//   and keys, which the main process can't all stop;
 // - answers J.A.R.V.I.S.'s voice commands: find and press, read, scroll, the search box.
 
 const { ipcRenderer, webFrame } = require('electron');
@@ -25,7 +26,7 @@ const STICK = 14; // px outside the lit element before another can take over
 const CONFIRM_MS = 4000;
 const SCROLL_GAIN = 1.6; // the page moves a little further than the hand
 
-let locked = true;
+let locked = false; // the main process says when (the Research Center's own pages)
 let typing = false; // true only while J.A.R.V.I.S. itself fills in the search box
 let ui = null;
 let hover = null; // the element lit under the cursor
@@ -165,7 +166,7 @@ function place(el, extra = '') {
 }
 
 function report(el) {
-  ipcRenderer.send('research:hover', el ? { label: labelOf(el), risky: risky(el) } : null);
+  ipcRenderer.send('page:hover', el ? { label: labelOf(el), risky: risky(el) } : null);
 }
 
 function pointTo(x, y) {
@@ -173,7 +174,7 @@ function pointTo(x, y) {
   if (Math.abs(x - lastPointer.x) < 3 && Math.abs(y - lastPointer.y) < 3) return;
   lastPointer = { x, y };
   const z = webFrame.getZoomFactor();
-  ipcRenderer.send('research:pointer', { x: Math.round(x * z), y: Math.round(y * z) });
+  ipcRenderer.send('page:pointer', { x: Math.round(x * z), y: Math.round(y * z) });
 }
 
 function centerOf(el) {
@@ -185,7 +186,7 @@ function clickEl(el) {
   const c = centerOf(el);
   const z = webFrame.getZoomFactor();
   place(el, ' flash');
-  ipcRenderer.send('research:click', { x: Math.round(c.x * z), y: Math.round(c.y * z) });
+  ipcRenderer.send('page:click', { x: Math.round(c.x * z), y: Math.round(c.y * z) });
 }
 
 // ── scrolling ──
@@ -265,11 +266,11 @@ function onHand(msg) {
         if (!risky(latch) || (pending && pending.el === latch && Date.now() - pending.at < CONFIRM_MS)) {
           pending = null;
           clickEl(latch);
-          ipcRenderer.send('research:note', { text: `Opened “${labelOf(latch)}”` });
+          ipcRenderer.send('page:note', { text: `Opened “${labelOf(latch)}”` });
         } else {
           pending = { el: latch, at: Date.now() };
           place(latch);
-          ipcRenderer.send('research:note', { text: `Pinch again to confirm “${labelOf(latch)}”` });
+          ipcRenderer.send('page:note', { text: `Pinch again to confirm “${labelOf(latch)}”` });
         }
       } else if (scroller && Math.hypot(msg.vx, msg.vy) > 0.3) {
         glide(scroller, -msg.vx * window.innerWidth * SCROLL_GAIN, -msg.vy * window.innerHeight * SCROLL_GAIN);
@@ -323,6 +324,10 @@ function find(text) {
 
 function readPage() {
   const main = document.querySelector('main') || mainScroller() || document.body;
+  const links = [...document.querySelectorAll('a[href]')].filter(visible).slice(0, 40)
+    .map((a) => ({ text: labelOf(a), href: a.href })).filter((l) => l.text);
+  const fields = [...document.querySelectorAll('input, textarea, select')].filter(visible).slice(0, 30)
+    .map((f) => ({ tag: f.tagName.toLowerCase(), type: f.type || '', name: f.name || '', label: labelOf(f) }));
   const headings = [...document.querySelectorAll('h1, h2, h3')].filter(visible)
     .map((h) => h.innerText.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 30);
   const seen = new Set();
@@ -342,6 +347,8 @@ function readPage() {
     headings,
     text: (main.innerText || '').slice(0, 14000),
     actions,
+    links,
+    fields,
     hovered: hover ? labelOf(hover) : '',
   };
 }
@@ -395,8 +402,10 @@ async function navigate({ path }) {
 async function command({ action, args = {} }) {
   switch (action) {
     case 'locate': {
-      const el = find(args.text);
-      if (!el) return { ok: false, message: `Nothing on the page matches “${args.text}”.` };
+      let el = null;
+      if (args.selector) { try { el = document.querySelector(args.selector); } catch (_) { el = null; } }
+      el = el || find(args.text);
+      if (!el) return { ok: false, message: `Nothing on the page matches “${args.text || args.selector}”.` };
       el.scrollIntoView({ block: 'center', inline: 'nearest' });
       await new Promise((r) => setTimeout(r, 60));
       const c = centerOf(el);
@@ -435,7 +444,7 @@ ipcRenderer.on('jarvis:command', async (_event, { id, action, args }) => {
   } catch (err) {
     result = { ok: false, message: String(err && err.message ? err.message : err) };
   }
-  ipcRenderer.send('research:result', { id, result });
+  ipcRenderer.send('page:result', { id, result });
 });
 
 window.addEventListener('DOMContentLoaded', () => overlay());
