@@ -36,7 +36,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import computer, mac_tools, research
+from . import computer, mac_tools, research, ui
 from .brain import build_options
 from .config import Settings
 from .connectors import ConnectorManager
@@ -66,13 +66,13 @@ TOOL_LABELS = {
     "draft_email": "Drafted an email",
     "list_events": "Checked your calendar",
     "create_event": "Added a calendar event",
-    "run_claude_code": "Started Claude Code",
+    "run_claude_code": "Started Jarvis Code",
     "start_research": "Started research",
     "claude_task_status": "Checked background tasks",
-    "message_claude_task": "Messaged Claude Code",
-    "stop_claude_task": "Stopped Claude Code",
-    "list_claude_sessions": "Listed Claude Code sessions",
-    "resume_claude_session": "Resumed a Claude Code session",
+    "message_claude_task": "Messaged Jarvis Code",
+    "stop_claude_task": "Stopped Jarvis Code",
+    "list_claude_sessions": "Listed Jarvis Code sessions",
+    "resume_claude_session": "Resumed a Jarvis Code session",
     "browser_open": "Opened a page in the browser",
     "browser_read": "Read the browser page",
     "browser_click": "Clicked in the browser",
@@ -120,6 +120,7 @@ FILLERS = ["One moment.", "On it.", "Let me check."]
 _FIRST_CLAUSE = re.compile(r"^(.{12,}?[,;:—–])\s")
 CHIME = "/System/Library/Sounds/Tink.aiff"
 
+CONVERSATIONS_DIR = Path.home() / "Documents" / "Jarvis" / "Conversations"
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 RESEARCH_FOLLOW_UP = 15.0  # after a Research Center command, the next needs no wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
@@ -357,6 +358,7 @@ class Hub:
 
         return {
             research.SERVER_NAME: research.build_server(self.research_call, self.confirm),
+            ui.SERVER_NAME: ui.build_server(self.window_apply),
             messaging.SERVER_NAME: messaging.build_server(self.send_gate),
             "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(
@@ -384,7 +386,10 @@ class Hub:
             "routine runs, its request arrives marked 'Routine'; carry it out, briefly."
             "\n- Memory: remember saves a lasting fact about the user when they tell you to "
             "remember something (or state something clearly stable about themselves); recall "
-            "looks facts up; forget removes one." + research.PROMPT + self.memory.prompt_block()
+            "looks facts up; forget removes one."
+            + research.PROMPT
+            + ui.PROMPT
+            + self.memory.prompt_block()
         )
 
     async def feature_gate(self, action: str, question: str) -> bool:
@@ -863,6 +868,7 @@ class Hub:
             try:
                 if display is None and (
                     await self._instant_research(rid, text)
+                    or await self._instant_window(rid, text)
                     or await self._instant_shortcut(rid, text)
                 ):
                     pass
@@ -1836,6 +1842,52 @@ class Hub:
             self._speak(reply)
         return True
 
+    # ── the window itself ──
+
+    def export_history(self) -> Path | None:
+        """The conversation so far as Markdown in ~/Documents/Jarvis/Conversations."""
+        if not self.history:
+            return None
+        stamp = datetime.now()
+        CONVERSATIONS_DIR.mkdir(parents=True, exist_ok=True)
+        path = CONVERSATIONS_DIR / f"Conversation {stamp:%Y-%m-%d %H.%M}.md"
+        n = 2
+        while path.exists():
+            path = CONVERSATIONS_DIR / f"Conversation {stamp:%Y-%m-%d %H.%M} ({n}).md"
+            n += 1
+        lines = [f"# Conversation with J.A.R.V.I.S., {stamp:%A %-d %B %Y}", ""]
+        for item in self.history:
+            who = "You" if item.get("role") == "user" else "J.A.R.V.I.S."
+            when = str(item.get("at", ""))[11:16]
+            lines += [
+                f"**{who}**{f' · {when}' if when else ''}",
+                "",
+                str(item.get("text", "")).strip(),
+                "",
+            ]
+        path.write_text("\n".join(lines))
+        return path
+
+    async def window_apply(self, command: ui.Command) -> None:
+        """Open or close a panel, change the look, turn hand control on or off."""
+        if command.action == "look":
+            self.set_prefs({"look": command.name})
+        elif command.action == "panel":
+            self.emit("ui", action="panel", name=command.name, open=command.on)
+        elif command.action == "hands":
+            self.emit("ui", action="hands", on=command.on)
+
+    async def _instant_window(self, rid: str, text: str) -> bool:
+        """'Open Jarvis Code', 'close the browser', 'switch to the HUD': done at once."""
+        command = ui.parse(text)
+        if command is None:
+            return False
+        log.info("instant window command: %s %s", command.action, command.name)
+        await self.window_apply(command)
+        self.turn["reply"] = command.reply
+        self.emit("reply", rid=rid, text=command.reply)
+        return True
+
     def research_heard(self, text: str) -> bool:
         """Right after a Research Center command, the next one needs no wake word."""
         return (
@@ -2657,6 +2709,21 @@ class Hub:
         elif kind == "clear_history":
             self.history.clear()
             self.emit("history", items=[])
+        elif kind == "export_history":
+            path = self.export_history()
+            if path is None:
+                self.emit("saved", title="Nothing to save yet", text="", path="")
+            else:
+                self.emit(
+                    "saved",
+                    title="Conversation saved",
+                    text=f"{path.name} in Documents › Jarvis › Conversations",
+                    path=str(path),
+                )
+        elif kind == "reveal":
+            target = Path(str(msg.get("path", ""))).expanduser()
+            if CONVERSATIONS_DIR in target.parents and target.exists():
+                subprocess.Popen(["open", "-R", str(target)])  # noqa: S603, S607
         elif kind == "open_privacy":
             panes = {
                 "full_disk": "Privacy_AllFiles",

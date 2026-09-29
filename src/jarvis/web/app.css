@@ -145,7 +145,7 @@ body[data-state="speaking"] .orb-core { animation: speak 0.9s ease-in-out infini
 
 /* ── cards (approvals, notices) ── */
 .cards {
-  position: fixed; right: 40px; top: 96px; width: 340px; z-index: 10;
+  position: fixed; right: 40px; top: 96px; width: 340px; z-index: 60; /* above every panel: answers can't hide */
   display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 180px); overflow-y: auto;
 }
 .card {
@@ -768,7 +768,7 @@ body.in-app .deck-head { padding-left: 92px; }
 
 /* ── built-in browser ── */
 .browser-pane {
-  position: fixed; top: 72px; left: 24px; right: 24px; bottom: 84px; z-index: 8;
+  position: fixed; top: 72px; left: 24px; right: 24px; bottom: 84px; z-index: 30; /* over Jarvis Code, which opens it */
   display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px;
   background: var(--card); overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
 }
@@ -1294,3 +1294,4 @@ body.rc-open .hand-panel .hand-status, body.rc-open .hand-panel .hand-help { dis
 body.rc-open .cards { z-index: 60; top: 96px; right: 32px; }
 body.in-app.rc-open .cards { top: 118px; }
 @media (max-width: 900px) { .rc-rail { width: 236px; } .rc-gestures li { grid-template-columns: 28px 1fr; } .rc-gestures span { grid-column: 2; } }
+.panel-btns { display: inline-flex; gap: 6px; }

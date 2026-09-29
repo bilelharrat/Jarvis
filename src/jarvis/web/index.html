@@ -116,7 +116,7 @@
 
 <aside class="side right" aria-label="Conversation and log">
   <section class="panel console-only grow" id="p-conversation">
-    <h2>Conversation <button type="button" class="panel-btn" id="clear-history">Clear</button></h2>
+    <h2>Conversation <span class="panel-btns"><button type="button" class="panel-btn" id="export-history" title="Save the conversation as a note in Documents › Jarvis › Conversations">Extract</button><button type="button" class="panel-btn" id="clear-history">Clear</button></span></h2>
     <ol id="history" class="history"></ol>
     <form id="chat-form" class="chat-form" autocomplete="off">
       <label for="chat-input" class="sr-only">Message Jarvis</label>
@@ -249,7 +249,7 @@
 
   <section class="group">
     <h3>Voice coding</h3>
-    <p class="small-status">Say “Jarvis, let’s code in jarvis” and talk to Claude Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
+    <p class="small-status">Say “Jarvis, let’s code in jarvis” and talk to Jarvis Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
     <div class="row"><span><strong>Narrate progress</strong><small>Short notes like “Editing hub dot py” while it works</small></span><button type="button" class="switch" role="switch" id="sw-code-narrate" aria-checked="true" aria-label="Narrate progress"></button></div>
     <label class="row" for="code-sentences"><span><strong>Reply length</strong><small>Sentences read aloud; the rest stays on screen</small></span>
       <select id="code-sentences"><option value="2">Short (2)</option><option value="3">Normal (3)</option><option value="5">Long (5)</option><option value="8">Everything (8)</option></select></label>
@@ -296,7 +296,7 @@
 
   <section class="group">
     <h3>Speaking up</h3>
-    <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Claude Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
+    <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Jarvis Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
     <div class="row"><span><strong>Say them out loud</strong><small>Otherwise they only appear as cards</small></span><button type="button" class="switch" role="switch" id="sw-proactive-voice" aria-checked="true" aria-label="Say heads-ups out loud"></button></div>
     <div class="row"><span><strong>Quiet hours</strong><small>Cards only, no voice</small></span><span class="time-range"><input type="time" id="quiet-start" aria-label="Quiet hours start" value="22:00"><input type="time" id="quiet-end" aria-label="Quiet hours end" value="07:00"></span></div>
   </section>

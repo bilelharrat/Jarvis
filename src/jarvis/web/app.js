@@ -142,6 +142,8 @@ function onEvent(ev) {
     case 'claude_projects': renderProjects(ev.items); break;
     case 'browser_cmd': runBrowserCommand(ev); break;
     case 'research_cmd': runResearchCmd(ev); break;
+    case 'ui': applyUi(ev); break;
+    case 'saved': onSaved(ev); break;
     case 'location_request': sendLocation(); break;
     case 'location':
       if (!ev.location && ev.error && /off for J\.A\.R\.V\.I\.S/.test(ev.error) && !locationWarned) {
@@ -338,7 +340,7 @@ const LOOK_ORDER = ['orb', 'hud', 'console'];
 const HAND_HELP = {
   research: '✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close',
   galaxy: '☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close',
-  app: '☝ point · pinch to press · pinch and move to scroll · swipe an open hand to change the look · hold an open palm to talk · hold a fist to stop me',
+  app: '☝ point · pinch to press · pinch and move to scroll · wave to dismiss a notice (or change the look) · hold an open palm to talk · hold a fist to stop me',
 };
 
 function clickableAt(x, y) {
@@ -379,6 +381,11 @@ const appTarget = {
     if (box) box.scrollBy(0, -dy * 1.6); // like a touchscreen: pull up to read on
   },
   swipe(dir) {
+    const notices = [...$('cards').querySelectorAll('.card:not(.needs-ok)')];
+    if (notices.length) {
+      notices[notices.length - 1].remove();
+      return;
+    }
     const i = LOOK_ORDER.indexOf(prefs.look || 'orb');
     setPrefs({ look: LOOK_ORDER[(i + dir + LOOK_ORDER.length) % LOOK_ORDER.length] });
   },
@@ -871,6 +878,38 @@ function renderLog() {
 document.querySelectorAll('#look-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ look: b.dataset.look })));
 $('weather-city').addEventListener('change', (e) => setPrefs({ weather_city: e.target.value }));
 $('clear-history').addEventListener('click', () => send({ type: 'clear_history' }));
+$('export-history').addEventListener('click', () => send({ type: 'export_history' }));
+
+function onSaved(ev) {
+  let reveal = null;
+  if (ev.path) {
+    reveal = el('button', 'btn', 'Show in Finder');
+    reveal.type = 'button';
+    reveal.addEventListener('click', () => send({ type: 'reveal', path: ev.path }));
+  }
+  notice('Saved', ev.title, ev.text, 12000, reveal);
+}
+
+// "Jarvis, open Jarvis Code / close the browser / turn on hand control."
+function applyUi(ev) {
+  if (ev.action === 'hands') {
+    if (ev.on && !handsOn) startHandControl();
+    else if (!ev.on && handsOn) stopHandControl();
+    return;
+  }
+  if (ev.action !== 'panel') return;
+  const open = ev.open !== false;
+  switch (ev.name) {
+    case 'code': toggleCC(open); break;
+    case 'browser': if (app && app.browser) toggleBrowser(open); break;
+    case 'research': if (open) openResearch(rcOpen ? rcPath : '/markets'); else closeResearch(); break;
+    case 'settings': toggleSettings(open); break;
+    case 'accounts': toggleAccounts(open); break;
+    case 'brain': setGalaxyMode(open ? 'open' : 'off'); break;
+    case 'activity': toggleDrawer(open); break;
+    default:
+  }
+}
 $('chat-form').addEventListener('submit', (e) => { e.preventDefault(); ask($('chat-input').value); $('chat-input').value = ''; });
 $('term-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -2636,7 +2675,7 @@ function renderTasks(items) {
   $('tasks-list').replaceChildren(...items.map((t) => {
     const box = el('div', `task ${t.status}`);
     const top = el('div', 'task-top');
-    top.append(el('span', '', t.label || `Claude Code · ${t.folder}`), el('span', '', t.status));
+    top.append(el('span', '', t.label || `Jarvis Code · ${t.folder}`), el('span', '', t.status));
     box.append(top, el('div', 'task-prompt', t.prompt.length > 140 ? `${t.prompt.slice(0, 140)}…` : t.prompt));
     box.append(el('div', 'task-state', t.last_action + (t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : '')));
     if (t.status === 'running') {
