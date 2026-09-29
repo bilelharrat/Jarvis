@@ -1659,6 +1659,8 @@ function selectTask(id) {
   $('deck-timeline').replaceChildren();
   live.text = null;
   live.thinking = null;
+  recall.index = -1;
+  closeJcFind();
   send({ type: 'task_transcript', id });
   send({ type: 'task_context', id });
   renderCC(ccTasks);
@@ -1829,6 +1831,7 @@ function appendEntry(e, replaying = false) {
   } else if (e.role === 'assistant') {
     if (live.text) { live.text.remove(); live.text = null; }
     li = el('li', 'jc-say');
+    li.dataset.raw = e.text;
     li.append(richText(e.text), copyButton(() => e.text));
   } else if (e.role === 'thinking') {
     if (live.thinking) { live.thinking.remove(); live.thinking = null; }
@@ -2086,6 +2089,18 @@ const SLASH_COMMANDS = [
   ['terminal', 'Open a terminal here'], ['mcp', 'MCP servers'], ['permissions', 'Commands it won’t ask about again'],
   ['init', 'Write a CLAUDE.md for this project'], ['review', 'Review the changes'], ['new', 'New session in this project'],
   ['voice', 'Voice coding on or off'], ['stop', 'Interrupt the current step'],
+  ['resume', 'Resume a past session'], ['rewind', 'Put the files back to before a message'],
+  ['copy', 'Copy the last reply'], ['memory', 'Open this project’s CLAUDE.md'], ['todos', 'The to-do list'],
+  ['status', 'What it’s doing now'], ['agents', 'Subagents set up here'], ['hooks', 'Hooks set up here'],
+  ['help', 'Commands and shortcuts'],
+];
+// What typing ? in an empty composer lists, as in Claude Code.
+const JC_KEYS = [
+  ['⏎', 'Send'], ['⇧⏎', 'New line'], ['⌘⏎', 'Steer: into the running step'], ['↑ ↓', 'Your earlier messages'],
+  ['⇧⇥', 'Switch permission mode'], ['⌘⇧I', 'Model'], ['⌘⇧E', 'Effort'], ['⌘U', 'Attach files'],
+  ['⌘F', 'Search the transcript'], ['⌘⇧F', 'Project files'], ['⌘,', 'Settings'],
+  ['Esc', 'Interrupt, or close a menu or pane'], ['1–9', 'Answer an approval'], ['/', 'Commands'],
+  ['@', 'Mention a file'], ['!', 'Run a shell command'], ['#', 'Save a note to CLAUDE.md'],
 ];
 const projectFiles = {};
 const customSlash = {};  // project -> its and the user's custom commands and skills
@@ -2095,6 +2110,7 @@ let attachments = [];
 function suggestions() {
   const input = $('deck-input');
   const v = input.value.slice(0, input.selectionStart);
+  if (input.value === '?') return { kind: 'keys', items: JC_KEYS.map(([key, help]) => ({ label: key, help, value: '' })) };
   if (/^\/[\w.:-]*$/.test(v)) {
     const q = v.slice(1).toLowerCase();
     if (deckProject && !customSlash[deckProject]) { customSlash[deckProject] = []; send({ type: 'slash_list', directory: deckProject }); }
@@ -2135,6 +2151,12 @@ function renderSuggestions() {
 
 function pick(s, item) {
   const input = $('deck-input');
+  if (s.kind === 'keys') {  // a list to read, not to pick from
+    input.value = '';
+    $('cc-slash').hidden = true;
+    input.focus();
+    return;
+  }
   if (s.kind === 'slash') {
     const needsArg = item.custom || ['model', 'effort', 'rename'].includes(item.value);
     input.value = `/${item.value}${needsArg ? ' ' : ''}`;
@@ -2150,12 +2172,75 @@ function pick(s, item) {
   input.focus();
 }
 
+// /copy: the last reply, as Claude wrote it (Markdown and all).
+async function copyLastReply() {
+  const last = [...$('deck-timeline').querySelectorAll(':scope > .jc-say[data-raw]')].pop();
+  if (!last) { jcNote('There’s no reply to copy yet.'); return; }
+  try { await navigator.clipboard.writeText(last.dataset.raw); jcNote('Copied the last reply.'); } catch (_) { jcNote('Couldn’t copy the reply.'); }
+}
+
+// /resume: this project's past sessions, as the welcome lists them.
+function resumeMenu() {
+  if (!deckProject) return;
+  if (!pastSessions.length) {
+    send({ type: 'claude_sessions', directory: deckProject });
+    jcNote('Looking for past sessions in this project…');
+    return;
+  }
+  openMenu($('jc-plus'), [
+    { heading: 'Resume a session' },
+    ...pastSessions.slice(0, 12).map((p) => ({
+      label: p.title || 'Untitled session',
+      note: new Date(p.last_modified).toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }),
+      run: () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, prompt: '' }); },
+    })),
+  ]);
+}
+
+// /rewind: the messages it can put the files back to before, newest first.
+function rewindMenu() {
+  const t = currentTask();
+  const points = [...$('deck-timeline').querySelectorAll(':scope > .jc-user[data-uuid]')].reverse().slice(0, 12);
+  if (!t || !points.length) { jcNote('Nothing to rewind to yet: send a message first.'); return; }
+  openMenu($('jc-plus'), [
+    { heading: 'Put the files back to before…' },
+    ...points.map((li) => ({
+      label: (li.querySelector('.jc-user-text') || li).textContent.slice(0, 70),
+      run: () => send({ type: 'task_rewind', id: t.id, uuid: li.dataset.uuid }),
+    })),
+  ]);
+}
+
+// ↑ and ↓ in the composer step through your earlier messages in this session.
+const recall = { index: -1, draft: '' };
+function recallMessage(step) {
+  const input = $('deck-input');
+  const said = [...$('deck-timeline').querySelectorAll(':scope > .jc-user .jc-user-text')].map((n) => n.textContent);
+  if (!said.length) return false;
+  if (recall.index < 0) { if (step > 0) return false; recall.draft = input.value; }
+  const next = recall.index < 0 ? said.length - 1 : recall.index + step;
+  if (next < 0) return true;  // at the oldest: stay there
+  if (next >= said.length) { recall.index = -1; input.value = recall.draft; } else { recall.index = next; input.value = said[next]; }
+  input.selectionStart = input.selectionEnd = input.value.length;
+  return true;
+}
+
 function localSlash(text) {
   const [name, ...rest] = text.slice(1).split(' ');
   const arg = rest.join(' ').trim();
   const t = currentTask();
   switch (name) {
     case 'files': openPane('files'); return true;
+    case 'help': showSlash(); return true;
+    case 'copy': copyLastReply(); return true;
+    case 'resume': resumeMenu(); return true;
+    case 'rewind': if (t) rewindMenu(); return true;
+    case 'memory':
+      openPane('files');
+      fileView = { path: 'CLAUDE.md' };
+      send({ type: 'file_read', directory: deckProject, path: 'CLAUDE.md' });
+      drawViewer();
+      return true;
     case 'terminal': openPane('terminal'); return true;
     case 'mcp': openPane('mcp'); return true;
     case 'permissions': openPane('rules'); return true;
@@ -2285,6 +2370,7 @@ $('deck-composer').addEventListener('submit', (e) => {
   const steer = steerThis;
   steerThis = undefined;
   if (!sendToSession($('deck-input').value, steer)) return;  // not sent: the draft stays
+  recall.index = -1;
   $('deck-input').value = '';
   $('deck-input').style.height = '';
   $('cc-slash').hidden = true;
@@ -2308,10 +2394,17 @@ $('deck-input').addEventListener('keydown', (e) => {
     setMode(nextMode());
     return;
   }
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.shiftKey || e.metaKey || e.ctrlKey || e.altKey)) {
+    const input = e.target;
+    const up = e.key === 'ArrowUp';
+    const onEdge = up ? !input.value.slice(0, input.selectionStart).includes('\n') : !input.value.slice(input.selectionEnd).includes('\n');
+    if ((recall.index >= 0 || (up && !input.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); return; }
+  }
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && steerSubmit()) { e.preventDefault(); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
 });
 $('deck-input').addEventListener('input', () => {
+  recall.index = -1;
   pickIndex = 0;
   renderSuggestions();
   $('deck-input').style.height = 'auto';
@@ -2416,9 +2509,57 @@ $('deck-composer').addEventListener('drop', (e) => {
 });
 $('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; });
 
-// Number keys answer the approval on screen; ⇧⌘F opens the files.
+// ⌘F in Jarvis Code: find in the transcript. Matching entries are marked; ⏎ and ⇧⏎ step
+// through them (newest first), Esc closes. What the hub keeps (400 entries) is searched.
+const jcFind = { hits: [], at: -1 };
+function openJcFind() {
+  $('jc-find').hidden = false;
+  $('jc-find-input').focus();
+  $('jc-find-input').select();
+  runJcFind(0);
+}
+function closeJcFind(refocus) {
+  if ($('jc-find').hidden) return;
+  $('jc-find').hidden = true;
+  $('deck-timeline').querySelectorAll('.jc-hit').forEach((n) => n.classList.remove('jc-hit', 'jc-hit-now'));
+  jcFind.hits = [];
+  jcFind.at = -1;
+  if (refocus) $('deck-input').focus();
+}
+function runJcFind(step) {
+  const q = $('jc-find-input').value.trim().toLowerCase();
+  $('deck-timeline').querySelectorAll('.jc-hit').forEach((n) => n.classList.remove('jc-hit', 'jc-hit-now'));
+  jcFind.hits = q ? [...$('deck-timeline').children].filter((li) => !li.classList.contains('jc-ask') && li.textContent.toLowerCase().includes(q)) : [];
+  const n = jcFind.hits.length;
+  $('jc-find-count').textContent = !q ? '' : n ? '' : tr('No matches');
+  if (!n) { jcFind.at = -1; return; }
+  jcFind.at = step === 0 || jcFind.at < 0 ? n - 1 : (jcFind.at + step + n) % n;
+  jcFind.hits.forEach((li) => li.classList.add('jc-hit'));
+  const now = jcFind.hits[jcFind.at];
+  now.classList.add('jc-hit-now');
+  now.querySelectorAll('details').forEach((d) => { if (d.textContent.toLowerCase().includes(q)) d.open = true; });
+  now.scrollIntoView({ block: 'center', behavior: 'instant' });
+  $('jc-find-count').textContent = `${jcFind.at + 1}/${n}`;
+}
+$('jc-find-input').addEventListener('input', () => runJcFind(0));
+$('jc-find-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); runJcFind(e.shiftKey ? 1 : -1); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeJcFind(true); }
+});
+$('jc-find-prev').addEventListener('click', () => runJcFind(-1));
+$('jc-find-next').addEventListener('click', () => runJcFind(1));
+$('jc-find-close').addEventListener('click', () => closeJcFind(true));
+
+// Number keys answer the approval on screen; ⇧⌘F opens the files; ⌘F finds in the transcript.
 document.addEventListener('keydown', (e) => {
   if ($('cc').hidden) return;
+  if (e.key.toLowerCase() === 'f' && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey
+    && (!browserOpenNow || $('cc').contains(document.activeElement))) {
+    e.preventDefault();
+    e.stopPropagation();  // the browser's own ⌘F is for its page
+    openJcFind();
+    return;
+  }
   if (e.key.toLowerCase() === 'f' && e.metaKey && e.shiftKey) { e.preventDefault(); openPane('files'); return; }
   if (e.metaKey && !e.altKey && !e.ctrlKey) {
     const key = e.key.toLowerCase();
@@ -2451,6 +2592,7 @@ function jcEscape(e) {
   if (!$('jc-effort-pop').hidden) { closeEffort(true); return true; }
   if (!$('jc-menu').hidden) { closeMenu(true); return true; }
   if (!$('cc-slash').hidden) { $('cc-slash').hidden = true; return true; }
+  if (!$('jc-find').hidden) { closeJcFind(true); return true; }
   if ($('jc-title').isContentEditable) return true;
   const t = currentTask();
   if (t && t.busy) { send({ type: 'task_interrupt', id: t.id }); return true; }

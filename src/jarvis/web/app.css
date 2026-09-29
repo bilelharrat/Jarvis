@@ -1002,6 +1002,13 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 
 .jc-body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 0 12px 0 0; }
 .jc-scroll { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 18px 12px; scroll-behavior: smooth; }
+.jc-body { position: relative; }
+.jc-find { position: absolute; top: 6px; right: 24px; z-index: 6; display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 11px; background: var(--glass-fill-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); box-shadow: var(--glass-rim), var(--glass-edge), var(--shadow-sheet); }
+.jc-find[hidden] { display: none; }
+.jc-find input { width: 200px; border: 0; background: transparent; font: inherit; font-size: 13px; color: rgb(var(--c-ink)); outline: none; }
+.jc-find-count { font-size: 11.5px; color: rgb(var(--c-muted)); min-width: 3ch; font-variant-numeric: tabular-nums; }
+#deck-timeline > .jc-hit { box-shadow: -3px 0 0 rgb(var(--c-accent) / 0.35); }
+#deck-timeline > .jc-hit-now { box-shadow: -3px 0 0 rgb(var(--c-accent)); background: rgb(var(--c-accent) / 0.07); border-radius: 6px; }
 .jc-column { max-width: 860px; margin: 0 auto; }
 
 /* welcome */
@@ -1091,6 +1098,7 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-inline-todos { background: rgb(var(--c-surface)); border-radius: 14px; box-shadow: var(--shadow-card); padding: 10px 14px; }
 .jc-note, .jc-turn { font-size: 12px; color: rgb(var(--c-muted)); }
 .jc-note { display: flex; gap: 6px; }
+.jc-note > span:last-child { white-space: pre-line; }  /* /agents, /hooks: a line each */
 .jc-turn { align-self: center; font-variant-numeric: tabular-nums; }
 /* an approval, as a sheet in the flow */
 .jc-ask { background: rgb(var(--c-raised)); border-radius: 16px; box-shadow: var(--shadow-sheet), inset 0 0 0 1px rgb(var(--c-accent) / 0.35); padding: 14px 16px; }

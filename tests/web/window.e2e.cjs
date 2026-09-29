@@ -347,6 +347,103 @@ test('Switching back to English stops translating the window as it changes', asy
   assert(await js('typeof window.jarvisI18n.watching === "function" && window.jarvisI18n.watching() === false'), 'still watching every change in English');
 });
 
+// ── the composer's Claude Code features: ?, ↑ history, ⌘F, /copy, /rewind, /resume, /memory ──
+
+const MODS = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
+async function press(name, mods = []) {
+  const [code, vk] = { Enter: ['Enter', 13], ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], Escape: ['Escape', 27], f: ['KeyF', 70] }[name];
+  const modifiers = mods.reduce((m, k) => m | MODS[k], 0);
+  const text = name === 'Enter' && !modifiers ? '\r' : name === 'f' && !modifiers ? 'f' : undefined;
+  await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: name, code, windowsVirtualKeyCode: vk, modifiers });
+  if (text) await cdp('Input.dispatchKeyEvent', { type: 'char', key: name, code, text, modifiers });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code, windowsVirtualKeyCode: vk, modifiers });
+}
+const typeText = (text) => cdp('Input.insertText', { text });
+const said = (id, uuid, text) => `onEvent({ type: "task_log", id: ${id}, entry: { n: ${JSON.stringify(uuid)}, role: "user", text: ${JSON.stringify(text)}, uuid: ${JSON.stringify(uuid)} } })`;
+
+test('? in an empty composer lists the shortcuts, and Enter sends nothing', async () => {
+  await open(1, '$("deck-input").focus()');
+  await typeText('?');
+  const r = await js('({ shown: !$("cc-slash").hidden, rows: [...$("cc-slash").querySelectorAll("strong")].map((n) => n.textContent) })');
+  assert(r.shown && r.rows.includes('⌘F') && r.rows.includes('⇧⇥'), JSON.stringify(r));
+  await press('Enter');
+  assert(await js('$("deck-input").value') === '' && await js('$("cc-slash").hidden'), 'the list stayed up');
+  assert(!(await sent()).some((t) => /task_send|code_command|task_new/.test(t)), `sent ${await sent()}`);
+});
+
+test('↑ and ↓ step through your earlier messages and back to the draft', async () => {
+  await open(1, `${said(1, 'u1', 'first ask')}; ${said(1, 'u2', 'second ask')}; $("deck-input").focus()`);
+  await press('ArrowUp');
+  assert(await js('$("deck-input").value') === 'second ask', await js('$("deck-input").value'));
+  await press('ArrowUp');
+  await press('ArrowUp');  // at the oldest: stays
+  assert(await js('$("deck-input").value') === 'first ask', await js('$("deck-input").value'));
+  await press('ArrowDown');
+  await press('ArrowDown');
+  assert(await js('$("deck-input").value') === '', 'did not come back to the empty draft');
+  await typeText('a draft');
+  await press('ArrowUp');  // a draft with text: ↑ moves the caret, never replaces it
+  assert(await js('$("deck-input").value') === 'a draft', 'a draft was replaced');
+});
+
+test('⌘F finds in the transcript, Enter steps to older matches, Esc closes', async () => {
+  await open(1, `${said(1, 'u1', 'fix the login bug')}; onEvent({ type: "task_log", id: 1, entry: { n: 5, role: "assistant", text: "The login form now retries." } }); onEvent({ type: "task_log", id: 1, entry: { n: 6, role: "assistant", text: "Unrelated." } }); $("deck-input").focus()`);
+  await press('f', ['meta']);
+  assert(!(await js('$("jc-find").hidden')) && await js('document.activeElement.id') === 'jc-find-input', 'find did not open');
+  await typeText('LOGIN');
+  let r = await js('({ hits: document.querySelectorAll("#deck-timeline .jc-hit").length, now: document.querySelector("#deck-timeline .jc-hit-now").textContent, count: $("jc-find-count").textContent })');
+  assert(r.hits === 2 && r.now.includes('retries') && r.count === '2/2', JSON.stringify(r));
+  await press('Enter');
+  r = await js('({ now: document.querySelector("#deck-timeline .jc-hit-now").textContent, count: $("jc-find-count").textContent })');
+  assert(r.now.includes('fix the login bug') && r.count === '1/2', JSON.stringify(r));
+  await press('Escape');
+  r = await js('({ hidden: $("jc-find").hidden, marks: document.querySelectorAll("#deck-timeline .jc-hit").length, focus: document.activeElement.id })');
+  assert(r.hidden && r.marks === 0 && r.focus === 'deck-input', JSON.stringify(r));
+  assert(!(await sent()).includes('task_interrupt'), 'Esc in find interrupted the session');
+});
+
+test('/copy copies the last reply as written, /memory opens CLAUDE.md', async () => {
+  await open(1, 'onEvent({ type: "task_log", id: 1, entry: { n: 2, role: "assistant", text: "Use **pnpm**:\\n```\\npnpm i\\n```" } }); window.__copied = []; navigator.clipboard.writeText = (t) => { __copied.push(t); return Promise.resolve(); }; $("deck-input").focus()');
+  await typeText('/copy');
+  await press('Enter');
+  await sleep(30);
+  assert(await js('__copied[0]') === 'Use **pnpm**:\n```\npnpm i\n```', `copied ${await js('JSON.stringify(__copied)')}`);
+  await typeText('/memory');
+  await press('Enter');
+  const r = await js('({ pane: currentPane, read: __sent.filter((m) => m.type === "file_read").map((m) => m.path) })');
+  assert(r.pane === 'files' && r.read.join() === 'CLAUDE.md', JSON.stringify(r));
+  assert(!(await sent()).some((t) => /task_send|code_command/.test(t)), `sent ${await sent()}`);
+});
+
+test('/rewind lists your messages, newest first, and rewinds to the one picked', async () => {
+  await open(1, `${said(1, 'u1', 'add a cache')}; ${said(1, 'u2', 'now test it')}; $("deck-input").focus()`);
+  await frames(2);  // the entries take their uuids a frame later
+  await typeText('/rewind');
+  await press('Enter');
+  const items = await js('[...$("jc-menu").querySelectorAll(".mi-label")].map((n) => n.textContent)');
+  assert(items.join('|') === 'now test it|add a cache', `menu: ${items}`);
+  await js('[...$("jc-menu").querySelectorAll("button")][1].click()');
+  const r = await js('__sent.filter((m) => m.type === "task_rewind").map((m) => m.uuid)');
+  assert(r.join() === 'u1', `rewound to ${r}`);
+});
+
+test('/resume lists the project’s past sessions and resumes the one picked', async () => {
+  await open(1, 'pastSessions = [{ session_id: "s-old", title: "Retry refactor", last_modified: "2026-09-01T10:00" }]; $("deck-input").focus()');
+  await typeText('/resume');
+  await press('Enter');
+  assert((await js('[...$("jc-menu").querySelectorAll(".mi-label")].map((n) => n.textContent)')).join() === 'Retry refactor', 'no past session listed');
+  await js('$("jc-menu").querySelector("button").click()');
+  const r = await js('__sent.filter((m) => m.type === "task_new").map((m) => m.session_id + " " + m.directory)');
+  assert(r.join() === 's-old alpha', `sent ${r}`);
+});
+
+test('/agents, /hooks and /todos go to the hub, not to Claude as text', async () => {
+  await open(1, '$("deck-input").focus()');
+  for (const c of ['/agents', '/hooks', '/todos']) { await typeText(c); await press('Enter'); }
+  const r = await js('__sent.filter((m) => m.type === "code_command" || m.type === "task_send").map((m) => m.type + " " + m.text)');
+  assert(r.join('|') === 'code_command /agents|code_command /hooks|code_command /todos', r.join('|'));
+});
+
 // ──
 
 let base;

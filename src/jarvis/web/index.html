@@ -603,6 +603,13 @@
     </header>
 
     <div class="jc-body" id="jc-body">
+      <div class="jc-find" id="jc-find" role="search" hidden>
+        <input id="jc-find-input" type="search" placeholder="Find in this session" aria-label="Find in this session" autocomplete="off">
+        <span id="jc-find-count" class="jc-find-count" aria-live="polite"></span>
+        <button type="button" class="jc-icon" id="jc-find-prev" aria-label="Previous match" title="Previous match (⏎)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3.5 10l4.5-4.5 4.5 4.5"/></svg></button>
+        <button type="button" class="jc-icon" id="jc-find-next" aria-label="Next match" title="Next match (⇧⏎)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3.5 6l4.5 4.5 4.5-4.5"/></svg></button>
+        <button type="button" class="jc-icon" id="jc-find-close" aria-label="Close find" title="Close (Esc)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
       <div class="jc-scroll" id="cc-scroll">
         <div class="jc-column">
           <div class="jc-welcome" id="cc-welcome">
