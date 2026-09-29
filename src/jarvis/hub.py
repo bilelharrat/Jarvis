@@ -3419,14 +3419,18 @@ class Hub:
         if not command or folder is None:
             self.emit("task_bash", ref=ref, command=command, output="No project folder.", code=-1)
             return
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            cwd=str(folder),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                cwd=str(folder),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                stdin=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as exc:  # the folder went away: the window's "Running…" still ends
+            self.emit("task_bash", ref=ref, command=command, output=str(exc), code=-1)
+            return
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), BASH_SECONDS)
             output = out.decode(errors="replace")
@@ -3448,10 +3452,20 @@ class Hub:
             self.emit("task_memory", ok=False, text=note, path="")
             return
         path = folder / "CLAUDE.md"
-        existing = path.read_text() if path.exists() else ""
-        lead = "" if not existing or existing.endswith("\n") else "\n"
-        with path.open("a") as f:
-            f.write(f"{lead}- {note}\n")
+        try:
+            if path.is_symlink():  # never written through a link to somewhere else
+                raise PermissionError("CLAUDE.md is a link")
+            # Bytes, not text: a CLAUDE.md that isn't UTF-8 is added to all the same.
+            with path.open("ab+") as f:
+                f.seek(0, os.SEEK_END)
+                lead = b""
+                if f.tell():
+                    f.seek(-1, os.SEEK_END)
+                    lead = b"" if f.read(1) == b"\n" else b"\n"
+                f.write(lead + f"- {note}\n".encode())
+        except OSError:  # read-only, or not a file: the window says it wasn't saved
+            self.emit("task_memory", ok=False, text=note, path="")
+            return
         self.emit("task_memory", ok=True, text=note, path=str(path))
 
     def _sync_awake(self, force: bool = False) -> None:
