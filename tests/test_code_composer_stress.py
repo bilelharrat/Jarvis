@@ -105,3 +105,20 @@ async def test_slash_commands_parse_case_spacing_and_new_lines(hub, tmp_path):
     await hub._code_command(task, "/review-pr 12")
     assert sent[-1] == "/review-pr 12"
     task.handle.cancel()
+
+
+async def test_agents_hooks_and_todos_answer_in_the_transcript(hub, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # never the owner's ~/.claude
+    project = tmp_path / "proj"
+    (project / ".claude/agents").mkdir(parents=True)
+    (project / ".claude/agents/tester.md").write_text("---\ndescription: Runs tests\n---\n")
+    task = hub.tasks.start("", "proj")
+    sent = []
+    hub.tasks.send = lambda task_id, t, **_k: sent.append(t) or True
+    for command in ("/agents", "/hooks", "/todos"):
+        await hub._code_command(task, command)
+    notes = [e["text"] for e in task.transcript if e["role"] == "note"]
+    assert notes[0] == "Subagents:\n- tester (project): Runs tests"
+    assert notes[1].startswith("No hooks")
+    assert len(notes) == 3 and sent == []  # none of them went to Claude
+    task.handle.cancel()

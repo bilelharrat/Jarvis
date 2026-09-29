@@ -79,6 +79,7 @@ SLASH = {
     "stop": "stop",
     "branch": "what branch am I on",
     "readplan": "read the whole plan",
+    "todos": "what's left",
 }
 
 GIT_PROMPTS = {

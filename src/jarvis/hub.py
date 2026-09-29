@@ -2887,6 +2887,12 @@ class Hub:
         name = name.lower()
         if not name:  # a slash and nothing more: no command, and nothing for Claude
             return
+        if name in ("agents", "hooks"):  # what's set up, read from the settings files
+            from .code_commands import describe
+
+            note = await asyncio.to_thread(describe, name, task.cwd)
+            self.tasks._log(task, "note", note)
+            return
         if name == "voice":
             if self.voicecode.focus == task.id:
                 self.voicecode.exit()
