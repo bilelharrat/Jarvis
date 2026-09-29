@@ -653,7 +653,10 @@ class Hub:
         return await self.request_approval(question) == "allow"
 
     async def control_gate(self) -> bool:
-        """Mouse and keyboard control: one OK covers the rest of the current request."""
+        """Mouse and keyboard control: one OK covers the rest of the current request, or
+        none is needed when the user turned that on in Settings."""
+        if self.prefs.control_always:
+            return True
         if self._rid and self._control_rid == self._rid:
             return True
         question = "Let me use your mouse and keyboard for this request?"

@@ -510,6 +510,7 @@ function renderPrefs(p) {
   setSwitch('sw-handsfree', p.hands_free);
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
+  setSwitch('sw-control', p.control_always);
   setSwitch('sw-proactive-voice', p.proactive_voice);
   const [qs, qe] = (p.quiet_hours || '22:00-07:00').split('-');
   if (document.activeElement !== $('quiet-start')) $('quiet-start').value = qs;
@@ -585,6 +586,7 @@ $('sw-location').addEventListener('click', () => setPrefs({ use_location: prefs.
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
+$('sw-control').addEventListener('click', () => setPrefs({ control_always: !prefs.control_always }));
 $('sw-proactive-voice').addEventListener('click', () => setPrefs({ proactive_voice: !prefs.proactive_voice }));
 ['quiet-start', 'quiet-end'].forEach((id) => $(id).addEventListener('change', () => {
   if ($('quiet-start').value && $('quiet-end').value) setPrefs({ quiet_hours: `${$('quiet-start').value}-${$('quiet-end').value}` });

@@ -72,6 +72,7 @@ class Prefs:
     brain_folders: list[str] = field(default_factory=list)
     instant_shortcuts: list[str] = field(default_factory=list)
     proactive: bool = True
+    control_always: bool = False  # mouse, keyboard and browser clicks without asking
     proactive_voice: bool = True
     quiet_hours: str = "22:00-07:00"
 
@@ -147,6 +148,7 @@ def _clean(name: str, value: Any) -> Any:
         "use_location",
         "proactive",
         "proactive_voice",
+        "control_always",
     }:
         return bool(value)
     return None

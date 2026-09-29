@@ -551,3 +551,15 @@ async def test_spoken_yes_or_no_answers_the_open_question(settings, quiet_speake
     await asyncio.sleep(0)
     await hub.on_heard("no")
     assert await no is False
+
+
+async def test_mouse_and_keyboard_can_be_always_allowed(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    assert "taking over the mouse and keyboard" in hub.client.options.system_prompt
+    hub.set_prefs({"control_always": True})
+    assert await hub.control_gate() is True  # no question asked
+    assert not hub.approvals
+    await hub.reset()
+    assert "taking over the mouse and keyboard" not in hub.client.options.system_prompt
+    assert "never click to buy" in hub.client.options.system_prompt
