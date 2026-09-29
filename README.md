@@ -22,6 +22,30 @@ Under the hood, Electron starts `uv run jarvis serve` on a random local port wit
 fresh token. The window's WebSocket must present that token from the server's own
 origin, so other pages in your browser can't drive your Mac through it.
 
+## What's new in the app
+
+- **Hands-free (on by default):** say "Jarvis" anywhere in a sentence ("Jarvis, what's
+  next?", "What's the weather, Jarvis?"). Talk over it, or say "stop", to interrupt. The
+  mic stays on locally; nothing leaves the Mac until you've said the wake word.
+- **Voice:** Daniel through a subtle "AI in the house" effect, or any ElevenLabs / Fish
+  Audio voice (set `JARVIS_TTS` and the key and voice ID in `.env`). Test it with
+  `uv run jarvis say "Good evening."`
+- **Personality:** JARVIS, TARS or FRIDAY, a humor dial, and an optional form of address.
+- **Second brain:** Apple Notes, folders you add, the BSH desk and research reports, indexed
+  locally. Answers cite them (chips under the reply), and a 3D knowledge galaxy flies to
+  the note being used. Open it any time from "Second brain".
+- **Files and screen:** Spotlight search, reading documents and PDFs, screenshots, and
+  mouse and keyboard control. One OK per request covers the mouse and keyboard.
+- **Research:** "Jarvis, research…" runs in the background and files a Markdown report
+  in ~/Documents/Jarvis/Research, which also joins the second brain.
+- **Model switching:** "use Sonnet" or the model chip. Opus, Sonnet, Haiku and Fable.
+- **Morning briefing:** at a set time or with "Brief me": calendar, unread mail, BSH alerts
+  and finished tasks.
+
+macOS will ask once each for Microphone, Automation (Mail, Calendar, Notes, Music),
+Screen Recording (screenshots) and Accessibility (mouse and keyboard). Grant them to
+Jarvis, or to Electron when running from `npm start`.
+
 ## Terminal mode
 
 ```sh

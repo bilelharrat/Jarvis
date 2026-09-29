@@ -81,4 +81,19 @@ def settings(tmp_path):
 def quiet_speaker():
     speaker = Speaker.__new__(Speaker)
     speaker.voice, speaker.rate, speaker.muted, speaker._proc = "", 190, True, None
+    speaker.effect, speaker.cloud, speaker.cloud_error, speaker._playing = False, None, "", False
     return speaker
+
+
+@pytest.fixture
+def isolated(tmp_path):
+    """Prefs and second-brain index in a temp folder, never the user's real ones."""
+    from jarvis.knowledge import KnowledgeBase
+    from jarvis.prefs import PrefsStore
+
+    store = PrefsStore(tmp_path / "prefs.json")
+    store.prefs.hands_free = False  # never open the real microphone in tests
+    return {
+        "prefs_store": store,
+        "kb": KnowledgeBase(tmp_path / "brain" / "index.json"),
+    }

@@ -1,10 +1,17 @@
-"""Text-to-speech with the macOS `say` command."""
+"""Text-to-speech: macOS `say`, optionally through a light "AI in the house" effect."""
 
 from __future__ import annotations
 
 import asyncio
+import io
 import re
 import subprocess
+import tempfile
+import wave
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
 
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
 _LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
@@ -12,6 +19,9 @@ _URL = re.compile(r"https?://\S+")
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+", re.MULTILINE)
 _HEADING = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
 _EMPHASIS = re.compile(r"[*_`~]+")
+_CITATION = re.compile(r"\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
+
+EFFECT_RATE = 22050
 
 
 def clean_for_speech(text: str) -> str:
@@ -19,6 +29,7 @@ def clean_for_speech(text: str) -> str:
     text = _CODE_BLOCK.sub(" I've put the details on screen. ", text)
     text = _LINK.sub(r"\1", text)
     text = _URL.sub("the link on screen", text)
+    text = _CITATION.sub("", text)
     text = _HEADING.sub("", text)
     text = _BULLET.sub("", text)
     text = _EMPHASIS.sub("", text)
@@ -32,27 +43,174 @@ def available_voices() -> set[str]:
         out = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.TimeoutExpired):
         return set()
-    return {line.split("  ")[0].strip() for line in out.splitlines() if line.strip()}
+    names = set()
+    for line in out.splitlines():
+        name = re.split(r"\s{2,}|\s+[a-z]{2}_[A-Z]{2}\s", line.strip())[0].strip()
+        if name:
+            names.add(name)
+            names.add(name.split(" (")[0])  # "Daniel (English (UK))" also answers to "Daniel"
+    return names
+
+
+def ai_voice_effect(x: np.ndarray, rate: int = EFFECT_RATE) -> np.ndarray:
+    """A subtle synthetic sheen: a tight doubled voice, a small room, trimmed lows and highs.
+
+    Pure numpy so it adds nothing to install. Keeps the words clear: the dry voice
+    stays dominant.
+    """
+    x = x.astype(np.float32)
+    if x.size == 0:
+        return x
+    n = x.size
+    # Tight double, very slowly swept, for the faintly synthetic "two voices at once" sheen.
+    t = np.arange(n) / rate
+    delay = (0.011 + 0.0015 * np.sin(2 * np.pi * 0.35 * t)) * rate
+    idx = np.clip(np.arange(n) - delay, 0, n - 1)
+    lo = np.floor(idx).astype(np.int64)
+    frac = (idx - lo).astype(np.float32)
+    hi = np.minimum(lo + 1, n - 1)
+    double = x[lo] * (1 - frac) + x[hi] * frac
+    y = x + 0.32 * double
+    # Small room: a few early reflections that decay fast.
+    tail = int(0.12 * rate)
+    wet = np.zeros(n + tail, dtype=np.float32)
+    wet[:n] += y
+    for ms, gain in ((23, 0.20), (37, 0.14), (53, 0.10), (79, 0.06), (107, 0.035)):
+        d = int(ms / 1000 * rate)
+        wet[d : d + n] += gain * y
+    # One-pole high-pass (~140 Hz) and low-pass (~7.5 kHz) to thin it slightly.
+    a_hp = np.exp(-2 * np.pi * 140 / rate)
+    a_lp = np.exp(-2 * np.pi * 7500 / rate)
+    out = _highpass(wet, a_hp)
+    out = _lowpass(out, a_lp)
+    peak = float(np.max(np.abs(out))) or 1.0
+    return (out / peak * 0.89).astype(np.float32)
+
+
+def _lowpass(x: np.ndarray, a: float) -> np.ndarray:
+    """One-pole low-pass y[n] = (1-a)x[n] + a*y[n-1], as a truncated impulse response."""
+    length = max(1, int(np.ceil(np.log(1e-4) / np.log(a)))) if 0 < a < 1 else 1
+    h = (1 - a) * a ** np.arange(length)
+    return np.convolve(x, h.astype(np.float32))[: x.size]
+
+
+def _highpass(x: np.ndarray, a: float) -> np.ndarray:
+    return x - _lowpass(x, a)
+
+
+def read_wav(source: Path | bytes) -> tuple[np.ndarray, int]:
+    handle = io.BytesIO(source) if isinstance(source, bytes) else str(source)
+    with wave.open(handle, "rb") as w:
+        rate, channels, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
+        frames = w.readframes(w.getnframes())
+    if width != 2:
+        raise ValueError(f"expected 16-bit audio, got {8 * width}-bit")
+    audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+    return audio, rate
+
+
+@dataclass
+class CloudVoice:
+    """ElevenLabs or Fish Audio, with the voice the user picked. Both return WAV."""
+
+    provider: str
+    api_key: str
+    voice_id: str
+    model: str = ""
+
+    async def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=45) as client:
+            if self.provider == "elevenlabs":
+                response = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}",
+                    params={"output_format": "wav_22050"},
+                    headers={"xi-api-key": self.api_key},
+                    json={"text": text, "model_id": self.model or "eleven_flash_v2_5"},
+                )
+            else:
+                response = await client.post(
+                    "https://api.fish.audio/v1/tts",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "model": self.model or "s2.1-pro",
+                    },
+                    json={
+                        "text": text,
+                        "reference_id": self.voice_id,
+                        "format": "wav",
+                        "sample_rate": 24000,
+                        "latency": "balanced",
+                    },
+                )
+            response.raise_for_status()
+        return read_wav(response.content)
+
+
+def cloud_voice_from(settings) -> CloudVoice | None:
+    if settings.tts in ("elevenlabs", "fish") and settings.tts_api_key and settings.tts_voice_id:
+        return CloudVoice(
+            settings.tts, settings.tts_api_key, settings.tts_voice_id, settings.tts_model
+        )
+    return None
 
 
 class Speaker:
-    def __init__(self, voice: str, rate: int, muted: bool = False) -> None:
+    def __init__(
+        self,
+        voice: str,
+        rate: int,
+        muted: bool = False,
+        effect: bool = False,
+        cloud: CloudVoice | None = None,
+    ) -> None:
         self.voice = voice if voice in available_voices() else ""
         self.rate = rate
         self.muted = muted
+        self.effect = effect
+        self.cloud = cloud
+        self.cloud_error = ""
         self._proc: asyncio.subprocess.Process | None = None
+        self._playing = False
 
     def stop(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
             self._proc.kill()
+        if self._playing:
+            import sounddevice as sd
+
+            sd.stop()
+
+    def _say_args(self) -> list[str]:
+        args = ["say", "-r", str(self.rate)]
+        if self.voice:
+            args += ["-v", self.voice]
+        return args
 
     async def say(self, text: str) -> None:
         spoken = clean_for_speech(text)
         if self.muted or not spoken:
             return
-        args = ["say", "-r", str(self.rate)]
-        if self.voice:
-            args += ["-v", self.voice]
+        if self.cloud is not None:
+            try:
+                audio, rate = await self.cloud.synthesize(spoken)
+                self.cloud_error = ""
+                await self._play(ai_voice_effect(audio, rate) if self.effect else audio, rate)
+                return
+            except Exception as exc:  # bad key, no credit, offline: fall back to the Mac voice
+                self.cloud_error = str(exc)[:200]
+        if self.effect:
+            try:
+                await self._say_with_effect(spoken)
+                return
+            except Exception:  # no output device, odd voice: fall back to plain speech
+                pass
+        await self._run(self._say_args(), spoken)
+
+    async def _run(self, args: list[str], spoken: str) -> None:
         # Text goes over stdin so a reply starting with "-" is never read as a flag.
         proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE)
         self._proc = proc
@@ -63,3 +221,24 @@ class Speaker:
             raise
         finally:
             self._proc = None
+
+    async def _say_with_effect(self, spoken: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reply.wav"
+            args = self._say_args() + [f"--data-format=LEI16@{EFFECT_RATE}", "-o", str(path)]
+            await self._run(args, spoken)
+            if not path.exists():
+                return
+            audio, rate = read_wav(path)
+        processed = await asyncio.to_thread(ai_voice_effect, audio, rate)
+        await self._play(processed, rate)
+
+    async def _play(self, audio: np.ndarray, rate: int) -> None:
+        import sounddevice as sd
+
+        self._playing = True
+        try:
+            sd.play(audio, rate)
+            await asyncio.to_thread(sd.wait)
+        finally:
+            self._playing = False

@@ -94,15 +94,45 @@ async def next_utterance(text_mode: bool, transcriber, silence_seconds: float) -
     return heard
 
 
+async def say_line(text: str) -> None:
+    from .prefs import PrefsStore
+    from .speech import cloud_voice_from
+
+    settings = load_settings()
+    prefs = PrefsStore().prefs
+    speaker = Speaker(
+        settings.voice,
+        settings.speech_rate,
+        effect=prefs.voice_effect,
+        cloud=cloud_voice_from(settings),
+    )
+    source = (
+        f"{settings.tts} voice {settings.tts_voice_id}"
+        if speaker.cloud
+        else f"Mac voice {speaker.voice or 'default'}"
+    )
+    print(f"Speaking with the {source}{' + AI effect' if prefs.voice_effect else ''}…")
+    await speaker.say(text)
+    if speaker.cloud_error:
+        print(f"The cloud voice failed, so the Mac voice spoke instead: {speaker.cloud_error}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="A voice assistant for your Mac.")
     parser.add_argument("--text", action="store_true", help="type instead of speaking")
     parser.add_argument("--mute", action="store_true", help="don't speak replies aloud")
     parser.add_argument(
-        "command", nargs="?", choices=["serve"], help="serve: run the backend for the JARVIS app"
+        "command",
+        nargs="?",
+        choices=["serve", "say"],
+        help="serve: run the backend for the app. say: speak a line in JARVIS's voice",
     )
+    parser.add_argument("words", nargs="*", help="what to say (with the say command)")
     parser.add_argument("--port", type=int, default=8765, help="port for serve")
     args = parser.parse_args()
+    if args.command == "say":
+        asyncio.run(say_line(" ".join(args.words) or "Good evening. All systems are online."))
+        return
     if args.command == "serve":
         import os
         import secrets

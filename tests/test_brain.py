@@ -64,7 +64,7 @@ async def test_unknown_tools_are_denied_without_asking():
 
 
 def test_address_is_optional():
-    assert "Address the user" not in brain.system_prompt(Settings(), False)
+    assert 'Address the user as "' not in brain.system_prompt(Settings(), False)
     assert '"sir"' in brain.system_prompt(replace(Settings(), address="sir"), False)
 
 

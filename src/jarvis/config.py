@@ -26,6 +26,10 @@ class Settings:
     bsh_dir: Path | None = DEFAULT_BSH_DIR
     projects_dir: Path = DEFAULT_PROJECTS_DIR
     task_effort: str = "high"
+    tts: str = "say"  # say | elevenlabs | fish
+    tts_api_key: str = ""
+    tts_voice_id: str = ""
+    tts_model: str = ""
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -45,4 +49,24 @@ def load_settings(env_file: Path | None = None) -> Settings:
         bsh_dir=Path(bsh).expanduser() if bsh else None,
         projects_dir=Path(env.get("JARVIS_PROJECTS_DIR", str(DEFAULT_PROJECTS_DIR))).expanduser(),
         task_effort=env.get("JARVIS_TASK_EFFORT", Settings.task_effort),
+        **_tts_settings(env),
     )
+
+
+def _tts_settings(env) -> dict[str, str]:
+    provider = env.get("JARVIS_TTS", "say").strip().lower()
+    if provider == "elevenlabs":
+        return {
+            "tts": provider,
+            "tts_api_key": env.get("ELEVENLABS_API_KEY", ""),
+            "tts_voice_id": env.get("ELEVENLABS_VOICE_ID", ""),
+            "tts_model": env.get("ELEVENLABS_MODEL", "eleven_flash_v2_5"),
+        }
+    if provider == "fish":
+        return {
+            "tts": provider,
+            "tts_api_key": env.get("FISH_AUDIO_API_KEY", ""),
+            "tts_voice_id": env.get("FISH_AUDIO_VOICE_ID", ""),
+            "tts_model": env.get("FISH_AUDIO_MODEL", "s2.1-pro"),
+        }
+    return {"tts": "say"}

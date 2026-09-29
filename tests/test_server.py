@@ -8,7 +8,7 @@ from jarvis.server import create_app
 
 
 @pytest.fixture
-def client(settings, quiet_speaker):
+def client(settings, quiet_speaker, isolated):
     class Client(FakeClient):
         script = CALENDAR_TURN
 

@@ -1,6 +1,6 @@
 // Jarvis desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
 
-const { app, BrowserWindow, globalShortcut, ipcMain, nativeTheme, shell } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, shell } = require('electron');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -152,6 +152,15 @@ function summon() {
   app.focus({ steal: true });
   win.webContents.send('jarvis:summon');
 }
+
+ipcMain.handle('jarvis:pick-folder', async () => {
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Add a folder to the second brain',
+    defaultPath: path.join(os.homedir(), 'Documents'),
+    properties: ['openDirectory'],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
 
 ipcMain.on('jarvis:attention', () => {
   if (win && !win.isFocused()) app.dock?.bounce('informational');
