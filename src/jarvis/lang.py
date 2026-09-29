@@ -2105,6 +2105,8 @@ ZH_TEXTS: dict[str, str] = {
     "Quitting {app}.": "正在退出{app}。",
     "Hid {app}.": "已隐藏{app}。",
     "Switched to {app}.": "已切换到{app}。",
+    "Welcome home.": "欢迎回家。",
+    "Welcome home, {name}.": "欢迎回家，{name}。",
     "Mission Control.": "调度中心。",
     "Scrolled.": "已滚动。",
     "Louder.": "调大了。",

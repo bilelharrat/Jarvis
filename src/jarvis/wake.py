@@ -59,6 +59,11 @@ def _is_wake_token(token: str) -> bool:
     return difflib.SequenceMatcher(None, token, "jarvis").ratio() >= 0.76
 
 
+def is_homecoming(text: str) -> bool:
+    """Whether it was "wake up, daddy's home" that woke it: that one gets a welcome."""
+    return bool(_WAKE_PHRASE.search(text or ""))
+
+
 def find_wake(text: str) -> tuple[bool, str]:
     """(woke, command). "Jarvis" can be anywhere: "Jarvis, what's next?" and "What's the
     weather, Jarvis?" both wake it; the command is the rest of the sentence. Whisper

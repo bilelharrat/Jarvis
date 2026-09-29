@@ -912,3 +912,28 @@ async def test_a_mac_command_runs_at_once_without_claude(
     assert reply == "Opening Safari." and done == [("open", "safari")]
     assert hub.client is None or not hub.client.said  # Claude was never asked
     assert any(e["type"] == "tool" and e["label"] == "Controlled the Mac" for e in drain(q))
+
+
+async def test_wake_up_daddys_home_says_welcome_home(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.listener_factory = Listener
+    await hub.start()
+    q = hub.subscribe()
+    said = []
+    hub._say_then_listen = lambda text, follow_up: (
+        said.append((text, follow_up)) or asyncio.sleep(0)
+    )
+    await hub.on_heard("Wake up, daddy's home!")
+    await asyncio.sleep(0.01)
+    assert said == [("Welcome home.", True)]
+    assert any(e["type"] == "reply" and e["text"] == "Welcome home." for e in drain(q))
+    hub.prefs.address = "Robert"
+    said.clear()
+    await hub.on_heard("wake up daddy's home")
+    await asyncio.sleep(0.01)
+    assert said == [("Welcome home, Robert.", True)]
+    # With something to do after it, that's a request, not a welcome.
+    said.clear()
+    await hub.on_heard("Wake up, daddy's home, what's on tomorrow?")
+    await asyncio.sleep(0.05)
+    assert said == [] and hub.client.said[-1].rstrip("?") == "what's on tomorrow"

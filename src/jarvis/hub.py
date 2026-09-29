@@ -87,7 +87,7 @@ from .providers import build_server as models_server
 from .routines import RoutineStore
 from .speech import Speaker, SpeechQueue, cloud_voice_from
 from .tasks import CLAUDE_DOWN, ClaudeTask, TaskManager
-from .wake import find_wake
+from .wake import find_wake, is_homecoming
 
 FALLBACK_SECONDS = 30 * 60  # on the fallback model this long after Claude couldn't answer
 CLAUDE_WHY = {
@@ -2745,6 +2745,16 @@ class Hub:
             if len(lang.words(command, language)) >= 2:
                 self.emit("heard", text=command)
                 self._spawn(self.ask(command))
+            elif is_homecoming(text):  # "wake up, daddy's home": a welcome, then listening
+                welcome = (
+                    f"Welcome home, {self.prefs.address}."
+                    if self.prefs.address
+                    else "Welcome home."
+                )
+                if lang.is_zh(language):
+                    welcome = lang.translate(welcome, language)
+                self.emit("reply", rid="", text=welcome)
+                self._spawn(self._say_then_listen(welcome, True))
             else:
                 self._arm()
         else:
