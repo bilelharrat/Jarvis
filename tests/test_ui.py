@@ -88,7 +88,7 @@ async def test_requests_wait_their_turn_and_can_be_taken_back(hub):
     hub.emit = lambda kind, **data: sent.append((kind, data))
     asked = []
 
-    async def fake_run(rid, query):
+    async def fake_run(rid, query, images=None):
         asked.append(query)
 
     hub._run_query = fake_run

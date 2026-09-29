@@ -84,6 +84,7 @@ class Prefs:
     research_url: str = "http://127.0.0.1:8010"  # the BSH Research Center behind Markets
     invoice_from: str = ""  # the business at the top of invoices (the user fills it in)
     invoice_payment: str = ""  # how to pay, printed on invoices
+    screen_aware: bool = False  # keep an eye on the screen (pictures stay in memory, 2 min)
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -176,6 +177,7 @@ def _clean(name: str, value: Any) -> Any:
         "control_always",
         "remote_enabled",
         "code_narrate",
+        "screen_aware",
     }:
         return bool(value)
     return None

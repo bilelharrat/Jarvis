@@ -109,9 +109,13 @@ def isolated(tmp_path):
     from jarvis.prefs import PrefsStore
     from jarvis.remote import Devices
     from jarvis.routines import RoutineStore
+    from jarvis.screenwatch import ScreenWatcher
 
     async def never_asked(*_args):
         return "deny"
+
+    async def no_picture():
+        return ""
 
     store = PrefsStore(tmp_path / "prefs.json")
     store.prefs.hands_free = False  # never open the real microphone in tests
@@ -122,6 +126,7 @@ def isolated(tmp_path):
         "routines": RoutineStore(tmp_path / "routines.json"),
         "devices": Devices(tmp_path / "devices.json"),
         "invoice_store": InvoiceStore(tmp_path / "invoices.json", tmp_path / "Invoices"),
+        "screen_watch": ScreenWatcher(capture=no_picture),  # never the real screen
         "connectors": ConnectorManager(
             lambda *a, **k: None,
             never_asked,

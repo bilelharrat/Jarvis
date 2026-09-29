@@ -13,7 +13,12 @@ def client(settings, quiet_speaker, isolated):
         script = CALENDAR_TURN
 
     hub = Hub(
-        settings, client_factory=Client, speaker=quiet_speaker, transcriber=object(), poll=False
+        settings,
+        client_factory=Client,
+        speaker=quiet_speaker,
+        transcriber=object(),
+        poll=False,
+        **isolated,  # never the user's real prefs, memory or routines
     )
     with TestClient(create_app(hub, "s3cret")) as c:
         yield c

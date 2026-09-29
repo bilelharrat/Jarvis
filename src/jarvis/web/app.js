@@ -543,6 +543,8 @@ function renderPrefs(p) {
   setSwitch('sw-handsfree', p.hands_free);
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
+  setSwitch('sw-screen', p.screen_aware);
+  $('screen-pill').hidden = !p.screen_aware;
   setSwitch('sw-control', p.control_always);
   setSwitch('sw-code-narrate', p.code_narrate);
   if (document.activeElement !== $('watchlist')) $('watchlist').value = (p.watchlist || []).join(' ');
@@ -626,6 +628,8 @@ $('sw-location').addEventListener('click', () => setPrefs({ use_location: prefs.
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
+$('sw-screen').addEventListener('click', () => setPrefs({ screen_aware: !prefs.screen_aware }));
+$('screen-pill').addEventListener('click', () => setPrefs({ screen_aware: false }));
 $('sw-control').addEventListener('click', () => setPrefs({ control_always: !prefs.control_always }));
 $('sw-code-narrate').addEventListener('click', () => setPrefs({ code_narrate: !prefs.code_narrate }));
 $('code-sentences').addEventListener('change', (e) => setPrefs({ code_sentences: Number(e.target.value) }));

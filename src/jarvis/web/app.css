@@ -1303,3 +1303,8 @@ body.in-app.rc-open .cards { top: 118px; }
 .ask-queued-x { width: 24px; height: 24px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); cursor: pointer; }
 .ask-queued-x:hover { background: var(--chip-hover); color: var(--ink); }
 .sheet textarea { padding: 8px 10px; resize: vertical; line-height: 1.4; width: 100%; }
+.screen-pill { color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
+.screen-pill[hidden] { display: none; }
+.screen-pill svg { animation: screen-blink 4s ease-in-out infinite; }
+@keyframes screen-blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.15); } }
+@media (prefers-reduced-motion: reduce) { .screen-pill svg { animation: none; } }

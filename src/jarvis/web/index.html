@@ -167,6 +167,10 @@
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="1.6"/><ellipse cx="8" cy="8" rx="6.5" ry="2.6" transform="rotate(-20 8 8)"/><circle cx="3.2" cy="5.6" r=".8"/><circle cx="12.6" cy="10.6" r=".8"/></svg>
       <span id="brain-label">Second brain</span>
     </button>
+    <button id="screen-pill" class="pill screen-pill" type="button" hidden title="Jarvis can see your screen (pictures stay in memory for two minutes). Click to stop." aria-label="Screen awareness is on: stop">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 10S4.8 4 10 4s8.5 6 8.5 6-3.3 6-8.5 6-8.5-6-8.5-6z"/><circle cx="10" cy="10" r="2.6"/></svg>
+      <span>Seeing screen</span>
+    </button>
     <button id="hands-pill" class="pill" type="button" aria-pressed="false" aria-label="Hand control">
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 10V4a1.2 1.2 0 012.4 0v5M9.4 9V3a1.2 1.2 0 012.4 0v6M11.8 9V4.5a1.2 1.2 0 012.4 0V11c0 3.5-2 6-5.2 6-2.4 0-3.6-1.3-4.8-3.3L3 10.8a1.2 1.2 0 012-1.3L7 12"/></svg>
       <span>Hands</span>
@@ -301,6 +305,7 @@
 
   <section class="group">
     <h3>Speaking up</h3>
+    <div class="row"><span><strong>Screen awareness</strong><small>Jarvis keeps an eye on your screen so “what’s this error?” just works: a picture every 15 seconds, kept in memory for two minutes, never saved, only sent with your own questions. Needs Screen Recording.</small></span><button type="button" class="switch" role="switch" id="sw-screen" aria-checked="false" aria-label="Screen awareness"></button></div>
     <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Jarvis Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
     <div class="row"><span><strong>Say them out loud</strong><small>Otherwise they only appear as cards</small></span><button type="button" class="switch" role="switch" id="sw-proactive-voice" aria-checked="true" aria-label="Say heads-ups out loud"></button></div>
     <div class="row"><span><strong>Quiet hours</strong><small>Cards only, no voice</small></span><span class="time-range"><input type="time" id="quiet-start" aria-label="Quiet hours start" value="22:00"><input type="time" id="quiet-end" aria-label="Quiet hours end" value="07:00"></span></div>
