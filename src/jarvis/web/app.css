@@ -311,6 +311,8 @@ input[type="range"] { width: 100%; accent-color: var(--action); }
 .folders li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .folders li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .folder-form { display: flex; gap: 8px; }
+.memory-list li span.fact { direction: ltr; white-space: normal; line-height: 1.4; }
+.memory-list { max-height: 260px; overflow-y: auto; }
 .folder-form[hidden] { display: none; }
 .folder-form input { flex: 1; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }

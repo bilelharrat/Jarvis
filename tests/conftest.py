@@ -91,6 +91,7 @@ def isolated(tmp_path):
     """Prefs and second-brain index in a temp folder, never the user's real ones."""
     from jarvis.connectors import ConnectorManager, MemoryVault
     from jarvis.knowledge import KnowledgeBase
+    from jarvis.memory import MemoryStore
     from jarvis.prefs import PrefsStore
 
     async def never_asked(*_args):
@@ -101,6 +102,7 @@ def isolated(tmp_path):
     return {
         "prefs_store": store,
         "kb": KnowledgeBase(tmp_path / "brain" / "index.json"),
+        "memory": MemoryStore(tmp_path / "memory.json"),
         "connectors": ConnectorManager(
             lambda *a, **k: None,
             never_asked,

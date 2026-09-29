@@ -401,3 +401,20 @@ async def test_browser_clicks_need_the_control_ok(settings, quiet_speaker, isola
     opts = build_options(settings, lambda _q: None, browser_server=hub._browser_server())
     assert "mcp__browser__browser_read" in opts.allowed_tools
     assert "mcp__browser__browser_click" not in opts.allowed_tools
+
+
+async def test_memory_from_settings_reaches_the_prompt(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    q = hub.subscribe()
+    await hub.handle({"type": "memory_add", "text": "Ann Lee is my co-founder"})
+    assert [e["items"][0]["text"] for e in drain(q) if e["type"] == "memory"] == [
+        "Ann Lee is my co-founder"
+    ]
+    await hub.ask("who's Ann?")
+    assert "Ann Lee is my co-founder" in hub.client.queries[-1]  # told mid-conversation
+    await hub.reset()
+    assert "Ann Lee is my co-founder" in hub.client.options.system_prompt  # and from now on
+    assert "mcp__memory" in hub.client.options.allowed_tools
+    await hub.handle({"type": "memory_add", "text": "my password is hunter2"})
+    assert len(hub.memory.facts) == 1

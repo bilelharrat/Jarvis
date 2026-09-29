@@ -233,6 +233,17 @@
   </section>
 
   <section class="group">
+    <h3>Memory</h3>
+    <p class="small-status">What you've asked me to remember. Say “Jarvis, remember…” or add it here.</p>
+    <ul id="memory-list" class="folders memory-list"></ul>
+    <form id="memory-form" class="folder-form">
+      <label for="memory-input" class="sr-only">Something to remember</label>
+      <input id="memory-input" maxlength="300" placeholder="e.g. Ann Lee is my co-founder">
+      <button class="btn" type="submit">Remember</button>
+    </form>
+  </section>
+
+  <section class="group">
     <h3>Morning briefing</h3>
     <div class="row"><span><strong>Brief me each morning</strong><small>When Jarvis is running at that time</small></span><button type="button" class="switch" role="switch" id="sw-briefing" aria-checked="true" aria-label="Morning briefing"></button></div>
     <label class="row" for="briefing-time"><span><strong>Time</strong></span><input type="time" id="briefing-time" value="08:00"></label>

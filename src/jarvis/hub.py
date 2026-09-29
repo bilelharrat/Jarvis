@@ -41,6 +41,7 @@ from .brain import build_options
 from .config import Settings
 from .connectors import ConnectorManager
 from .knowledge import Collector, KnowledgeBase
+from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
 from .speech import Speaker, SpeechQueue, cloud_voice_from, split_sentences
 from .tasks import ClaudeTask, TaskManager
@@ -146,6 +147,7 @@ class Hub:
         kb: KnowledgeBase | None = None,
         listener_factory: Callable[..., Any] | None = None,
         connectors: ConnectorManager | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -190,6 +192,7 @@ class Hub:
         self.tasks.on_finished = self._task_finished
         self.connectors = connectors or ConnectorManager(self.emit, self.request_approval)
         self.connectors.on_tools_changed = self._tools_changed
+        self.memory = memory or MemoryStore()
         self._session_id = ""
         self._reload_pending = False
         self.speech = SpeechQueue(self.speaker, self._on_speaking)
@@ -252,6 +255,8 @@ class Hub:
             account_allowed=account_allowed,
             accounts=self.connectors.connected_names(),
             tool_gate=self.connectors.gate,
+            extra_servers=self._feature_servers(),
+            extra_prompt=self._feature_prompt(),
         )
         # Stream text as it's written, so the first sentence can be spoken right away.
         options.include_partial_messages = True
@@ -259,6 +264,21 @@ class Hub:
             options.resume = resume
         self.client = self.client_factory(options=options)
         await self.client.connect()
+
+    def _feature_servers(self) -> dict[str, Any]:
+        from . import memory
+
+        return {memory.SERVER_NAME: memory.build_server(self.memory, self._memory_changed)}
+
+    def _feature_prompt(self) -> str:
+        return (
+            "\n- Memory: remember saves a lasting fact about the user when they tell you to "
+            "remember something (or state something clearly stable about themselves); recall "
+            "looks facts up; forget removes one." + self.memory.prompt_block()
+        )
+
+    def _memory_changed(self) -> None:
+        self.emit("memory", items=self.memory.public())
 
     async def close(self) -> None:
         if self._listener is not None:
@@ -321,6 +341,7 @@ class Hub:
             "weather": self.weather,
             "location": self.location,
             "accounts": self.connectors.connected_names(),
+            "memory": self.memory.public(),
         }
 
     def set_state(self, state: str) -> None:
@@ -1466,6 +1487,22 @@ class Hub:
                             "accuracy": float(msg.get("accuracy", 0)),
                         }
                     )
+        elif kind == "memory_forget":
+            if self.memory.forget(str(msg.get("id", ""))):
+                self._memory_changed()
+                self._style_note = (
+                    "the user deleted some remembered facts in Settings; stop using them."
+                )
+        elif kind == "memory_add":
+            try:
+                fact = self.memory.add(str(msg.get("text", "")))
+            except ValueError as exc:
+                self.emit("error", text=str(exc))
+            else:
+                self._memory_changed()
+                self._style_note = (
+                    f"the user added this to what you remember about them: {fact.text}"
+                )
         elif kind == "clear_history":
             self.history.clear()
             self.emit("history", items=[])

@@ -73,7 +73,9 @@ function onEvent(ev) {
       renderWeather(ev.weather);
       $('v-accounts').textContent = (ev.accounts || []).length;
       $('v-model').textContent = ev.model_name || '–';
+      renderMemory(ev.memory || []);
       break;
+    case 'memory': renderMemory(ev.items || []); break;
     case 'vitals': renderVitals(ev); break;
     case 'weather': renderWeather(ev.weather); break;
     case 'history': history = ev.items || []; renderHistory(); break;
@@ -1158,6 +1160,31 @@ function sendLocation() {
 }
 
 // ── cards ──
+
+function renderMemory(items) {
+  const list = $('memory-list');
+  if (!items.length) {
+    list.replaceChildren(el('li', 'muted', 'Nothing yet.'));
+    return;
+  }
+  list.replaceChildren(...items.map((f) => {
+    const li = el('li');
+    const text = el('span', 'fact', f.text);
+    const rm = el('button', 'btn', 'Forget');
+    rm.type = 'button';
+    rm.setAttribute('aria-label', `Forget: ${f.text}`);
+    rm.addEventListener('click', () => send({ type: 'memory_forget', id: f.id }));
+    li.append(text, rm);
+    return li;
+  }));
+}
+
+$('memory-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('memory-input').value.trim();
+  if (text) send({ type: 'memory_add', text });
+  $('memory-input').value = '';
+});
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
