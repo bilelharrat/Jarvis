@@ -653,7 +653,7 @@ class Collector:
         if photos:
             gather("photos", more.collect_photos)
         if mail:
-            gather("mail", more.collect_mail)
+            gather("mail", more.collect_mail_fast)
         if messages:
             gather("messages", more.collect_messages)
         gather("research", lambda: collect_folder(RESEARCH_DIR, source="research"))

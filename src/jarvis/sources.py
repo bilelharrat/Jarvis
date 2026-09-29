@@ -28,7 +28,7 @@ MAX_PHOTOS = 2500
 
 FULL_DISK_ACCESS = (
     "Texts need Full Disk Access: System Settings > Privacy & Security > Full Disk Access, "
-    "then turn on Jarvis (or Electron when running from npm start) and restart Jarvis."
+    "then turn on J.A.R.V.I.S. and restart it."
 )
 
 
@@ -78,6 +78,11 @@ JSON.stringify(out);
 
 def collect_photos(run=_jxa, limit: int = MAX_PHOTOS) -> list[Note]:
     items = json.loads(run(PHOTOS_JXA) or "[]")
+    if not items:
+        raise RuntimeError(
+            "The Photos app on this Mac has no photos. To include your phone's photos, turn on "
+            "iCloud Photos in Photos > Settings > iCloud."
+        )
     items.sort(key=lambda p: p.get("date") or "", reverse=True)
     notes = []
     for p in items[:limit]:
@@ -134,6 +139,93 @@ for (const i of picks.slice(0, %d)) {
 JSON.stringify(out);
 """
 MAX_MAIL = 150
+
+
+MAIL_DIR = HOME / "Library" / "Mail"
+
+
+def mail_index() -> Path | None:
+    """Mail's own SQLite index of every message (newest Mail data version first)."""
+    try:
+        versions = sorted(MAIL_DIR.glob("V*/MailData/Envelope Index"), reverse=True)
+    except PermissionError:
+        return None
+    return versions[0] if versions else None
+
+
+def collect_mail_index(
+    db: Path | None = None, days: int = RECENT_DAYS, limit: int = 400
+) -> list[Note]:
+    """The last week of inbox mail from Mail's index: seconds instead of minutes of
+    scripting, across every account. Needs Full Disk Access, like texts."""
+    db = db or mail_index()
+    if db is None or not os.access(db, os.R_OK):
+        raise PermissionError(FULL_DISK_ACCESS.replace("Texts need", "Email needs"))
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
+        summary_join = (
+            "LEFT JOIN summaries su ON m.summary = su.ROWID"
+            if "summaries" in tables and "summary" in cols
+            else ""
+        )
+        summary_col = "su.summary" if summary_join else "''"
+        header_join, header_col = "", "''"
+        if "message_global_data" in tables and "global_message_id" in cols:
+            gcols = {r[1] for r in conn.execute("PRAGMA table_info(message_global_data)")}
+            if "message_id_header" in gcols:
+                header_join = "LEFT JOIN message_global_data g ON m.global_message_id = g.ROWID"
+                header_col = "g.message_id_header"
+        deleted = "AND m.deleted = 0" if "deleted" in cols else ""
+        cutoff = int((datetime.now() - timedelta(days=days)).timestamp())
+        rows = conn.execute(
+            f"""
+            SELECT m.ROWID, a.address, a.comment, s.subject, {summary_col}, m.date_received,
+                   mb.url, {header_col}
+            FROM messages m
+            LEFT JOIN addresses a ON m.sender = a.ROWID
+            LEFT JOIN subjects s ON m.subject = s.ROWID
+            LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
+            {summary_join} {header_join}
+            WHERE m.date_received > ? {deleted}
+              AND lower(mb.url) LIKE '%inbox%'
+            ORDER BY m.date_received DESC
+            LIMIT ?
+            """,
+            (cutoff, limit),
+        ).fetchall()
+    except sqlite3.DatabaseError as exc:
+        raise RuntimeError(f"Couldn't read Mail's index: {exc}") from exc
+    finally:
+        conn.close()
+    notes = []
+    for rowid, address, name, subject, summary, received, _url, header in rows:
+        when = datetime.fromtimestamp(received) if received else None
+        who = (name or address or "Unknown sender").strip()
+        subject = subject or "(no subject)"
+        body = re.sub(r"\s+", " ", summary or "").strip()
+        notes.append(
+            Note(
+                id=f"mail:{header or rowid}",
+                source="mail",
+                title=f"{subject} — {who}"[:140],
+                text=(
+                    f"Email from {who} <{address or ''}>"
+                    + (f", {when:%A %d %B %Y %H:%M}" if when else "")
+                    + f". Subject: {subject}.\n\n{body}"
+                ),
+                ref=(header or "").strip("<>"),
+                group=who[:40],
+                modified=when.isoformat(timespec="seconds") if when else "",
+            )
+        )
+    return notes
+
+
+def collect_mail_fast() -> list[Note]:
+    """Mail's index when Full Disk Access allows it; otherwise ask for it."""
+    return collect_mail_index()
 
 
 def collect_mail(run=_jxa, days: int = RECENT_DAYS) -> list[Note]:

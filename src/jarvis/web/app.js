@@ -459,7 +459,7 @@ function renderBrain(b) {
   const errs = Object.entries(b.errors || {}).map(([k, v]) => `${k}: ${v}`);
   if (errs.length && b.state !== 'building') text += ` · Problems: ${errs.join('; ')}`;
   $('brain-status').textContent = text;
-  $('fda-btn').hidden = !(b.errors && b.errors.messages && /Full Disk Access/.test(b.errors.messages));
+  $('fda-btn').hidden = !(b.errors && Object.values(b.errors).some(e => /Full Disk Access/.test(e || '')));
   $('brain-label').textContent = b.state === 'building' ? 'Second brain · updating' : b.notes ? `Second brain · ${b.notes}` : 'Second brain';
 }
 

@@ -132,3 +132,54 @@ def test_layout_spreads_wordless_notes_and_labels_clusters():
     labels = " ".join(c["label"] for c in clusters)
     assert "sourdough" in labels or "bread" in labels or "flour" in labels
     assert "Photos" in labels
+
+
+def make_mail_index(path, now):
+    db = sqlite3.connect(path)
+    db.executescript(
+        """
+        CREATE TABLE messages (ROWID INTEGER PRIMARY KEY, sender INTEGER, subject INTEGER, summary INTEGER,
+                               date_received INTEGER, mailbox INTEGER, deleted INTEGER, global_message_id INTEGER);
+        CREATE TABLE addresses (ROWID INTEGER PRIMARY KEY, address TEXT, comment TEXT);
+        CREATE TABLE subjects (ROWID INTEGER PRIMARY KEY, subject TEXT);
+        CREATE TABLE summaries (ROWID INTEGER PRIMARY KEY, summary TEXT);
+        CREATE TABLE mailboxes (ROWID INTEGER PRIMARY KEY, url TEXT);
+        CREATE TABLE message_global_data (ROWID INTEGER PRIMARY KEY, message_id_header TEXT);
+        INSERT INTO addresses VALUES (1, 'ann@zainar.com', 'Ann Lee');
+        INSERT INTO subjects VALUES (1, 'Board deck for Thursday'), (2, 'Old news'), (3, 'Weekly digest');
+        INSERT INTO summaries VALUES (1, 'Draft attached, please review before Thursday.');
+        INSERT INTO mailboxes VALUES (1, 'imap://bilel@askeden.com/INBOX'), (2, 'imap://bilel@askeden.com/Sent%20Messages');
+        INSERT INTO message_global_data VALUES (1, '<abc123@zainar.com>');
+        """
+    )
+    recent = int((now - timedelta(hours=5)).timestamp())
+    old = int((now - timedelta(days=20)).timestamp())
+    db.executemany(
+        "INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
+        [
+            (1, 1, 1, 1, recent, 1, 0, 1),
+            (2, 1, 2, None, old, 1, 0, None),
+            (3, 1, 3, None, recent, 2, 0, None),
+        ],
+    )
+    db.commit()
+    db.close()
+
+
+def test_mail_index_reads_last_week_of_inbox(tmp_path):
+    make_mail_index(tmp_path / "Envelope Index", datetime.now())
+    notes = sources.collect_mail_index(tmp_path / "Envelope Index")
+    assert [n.title for n in notes] == [
+        "Board deck for Thursday — Ann Lee"
+    ]  # not sent mail, not old mail
+    assert notes[0].ref == "abc123@zainar.com" and "please review" in notes[0].text
+
+
+def test_mail_index_without_access_asks_for_it(tmp_path):
+    with pytest.raises(PermissionError, match="Email needs Full Disk Access"):
+        sources.collect_mail_index(tmp_path / "missing")
+
+
+def test_empty_photos_library_explains():
+    with pytest.raises(RuntimeError, match="iCloud Photos"):
+        sources.collect_photos(run=lambda *_a: "[]")
