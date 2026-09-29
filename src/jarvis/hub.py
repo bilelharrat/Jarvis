@@ -1724,16 +1724,27 @@ def battery() -> dict[str, Any] | None:
 
 
 async def next_event(now: datetime | None = None) -> dict[str, Any] | None:
-    """The next timed event today or tomorrow, read only while Calendar is open."""
-    if not mac_tools.app_running("Calendar"):
-        return None
+    """The next timed event today or tomorrow: EventKit when allowed, otherwise
+    AppleScript, and that only while Calendar is open (it would launch it)."""
+    from . import calendar_kit
+
     now = now or datetime.now()
-    try:
-        events = await mac_tools.fetch_events(0, 2)
-    except mac_tools.ToolFailure:
+    found = await calendar_kit.fetch(0, 36)
+    if "events" in found:
+        events = calendar_kit.parse(found["events"])
+    elif not mac_tools.app_running("Calendar"):
         return None
+    else:
+        try:
+            events = await mac_tools.fetch_events(0, 2)
+        except mac_tools.ToolFailure:
+            return None
     upcoming = [e for e in events if not e["all_day"] and e["begin"] >= now]
     if not upcoming:
         return None
     e = upcoming[0]
-    return {"title": e["title"], "begin": e["begin"].isoformat(timespec="minutes")}
+    return {
+        "title": e["title"],
+        "begin": e["begin"].isoformat(timespec="minutes"),
+        "location": e.get("location", ""),
+    }

@@ -407,26 +407,36 @@ def parse_events(raw: str, start: datetime) -> list[dict[str, Any]]:
     return events
 
 
-def format_events(raw: str, start: datetime) -> str:
+def format_events(raw: str | list[dict[str, Any]], start: datetime) -> str:
     rows = []
-    for e in parse_events(raw, start):
+    for e in parse_events(raw, start) if isinstance(raw, str) else raw:
         begin, end = e["begin"], e["end"]
         when = begin.strftime("%a %d %b") + (
             " (all day)" if e["all_day"] else f" {begin:%H:%M}–{end:%H:%M}"
         )
-        rows.append(f"- {when}: {e['title']} [{e['calendar']}]")
+        where = f" at {e['location']}" if e.get("location") else ""
+        rows.append(f"- {when}: {e['title']}{where} [{e['calendar']}]")
     return "\n".join(rows)
 
 
 async def fetch_events(offset_days: int = 0, days: int = 1) -> list[dict[str, Any]]:
+    """EventKit first (every account, repeats, no Calendar window); AppleScript if the
+    app hasn't been given calendar access."""
+    from . import calendar_kit
+
+    start = midnight(offset_days)
+    hours_back = (datetime.now() - start).total_seconds() / 3600
+    found = await calendar_kit.fetch(hours_back, days * 24 - hours_back)
+    if "events" in found:
+        return calendar_kit.parse(found["events"])
     raw = await run_applescript(LIST_EVENTS_SCRIPT, str(offset_days), str(days), timeout=90)
-    return parse_events(raw, midnight(offset_days))
+    return parse_events(raw, start)
 
 
 @tool(
     "list_events",
-    "List Calendar events. start_offset_days: 0 = today, 1 = tomorrow. days: how many days to cover. "
-    "Note: repeating events only show on the day of their first occurrence.",
+    "List Calendar events, with their locations. start_offset_days: 0 = today, "
+    "1 = tomorrow. days: how many days to cover.",
     {
         "type": "object",
         "properties": {
@@ -439,8 +449,8 @@ async def fetch_events(offset_days: int = 0, days: int = 1) -> list[dict[str, An
 async def list_events(args):
     offset = int(args.get("start_offset_days") or 0)
     days = max(1, min(31, int(args.get("days") or 1)))
-    raw = await run_applescript(LIST_EVENTS_SCRIPT, str(offset), str(days), timeout=90)
-    return format_events(raw, midnight(offset)) or "Nothing on the calendar for that period."
+    events = await fetch_events(offset, days)
+    return format_events(events, midnight(offset)) or "Nothing on the calendar for that period."
 
 
 CREATE_EVENT_SCRIPT = """on run argv

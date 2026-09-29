@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=2.5.3",
     "psutil>=7.2.2",
     "pyobjc-framework-corelocation>=12.2.2",
+    "pyobjc-framework-eventkit>=12.2.2",
     "pyobjc-framework-mapkit>=12.2.2",
     "pyobjc-framework-quartz>=12.2.2",
     "pypdf>=6.19.0",

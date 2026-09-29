@@ -498,6 +498,7 @@ dependencies = [
     { name = "numpy" },
     { name = "psutil" },
     { name = "pyobjc-framework-corelocation" },
+    { name = "pyobjc-framework-eventkit" },
     { name = "pyobjc-framework-mapkit" },
     { name = "pyobjc-framework-quartz" },
     { name = "pypdf" },
@@ -523,6 +524,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pyobjc-framework-corelocation", specifier = ">=12.2.2" },
+    { name = "pyobjc-framework-eventkit", specifier = ">=12.2.2" },
     { name = "pyobjc-framework-mapkit", specifier = ">=12.2.2" },
     { name = "pyobjc-framework-quartz", specifier = ">=12.2.2" },
     { name = "pypdf", specifier = ">=6.19.0" },
@@ -990,6 +992,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/66/01/7ced40a5dccb333d8cba400a7e27133eadc206252e67b6b4658e362183ba/pyobjc_framework_corelocation-12.2.2-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:75cb22ae0a8661d34d615d36a04475eb1ae282218fd6c4d86f38a871071f86a6", size = 13002, upload-time = "2026-08-11T19:33:45.733Z" },
     { url = "https://files.pythonhosted.org/packages/d7/5f/c1b40a6a75b358a7a0901bb499acd45739a87f55b72b633faed403d71402/pyobjc_framework_corelocation-12.2.2-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:bef7efd8f072663293fdf8bc249e43ce7d74e8ba8402646e38bc2e595a85f623", size = 12836, upload-time = "2026-08-11T19:33:46.545Z" },
     { url = "https://files.pythonhosted.org/packages/81/2c/09a0d4b9876be2734af2b0fcc93887d4871906f184098d7a154598a70885/pyobjc_framework_corelocation-12.2.2-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:e62270352fb3b63e969ba57db2f0e8087032e326541d00eb02832962f237a142", size = 12991, upload-time = "2026-08-11T19:33:47.288Z" },
+]
+
+[[package]]
+name = "pyobjc-framework-eventkit"
+version = "12.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/52/61/5d3974325bd80ba7ebfd5998fac085a1e014bff2119738003c3c7db537bd/pyobjc_framework_eventkit-12.2.2.tar.gz", hash = "sha256:f20a2f8cf55693f9d36f2c33a19325b56cb97fb544186658271c2d554e2a8f42", size = 33996, upload-time = "2026-08-11T19:44:24.631Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/db/1e9cbbce52e0629dd0582599e55c1fc1c846d5dc0f9ec5c9bed2c4f6a0c9/pyobjc_framework_eventkit-12.2.2-py2.py3-none-any.whl", hash = "sha256:f9f604ca02f4b7e4e89abe019eeb4ad31c872f2e94cfe2f5dd237af838997f54", size = 6952, upload-time = "2026-08-11T19:35:17.956Z" },
 ]
 
 [[package]]
