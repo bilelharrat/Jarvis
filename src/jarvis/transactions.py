@@ -80,9 +80,9 @@ CHOICES = (("allow", "Confirm purchase"), ("deny", "Cancel"))
 # Hangul fillers, the combining grapheme joiner, Mongolian selectors and the blank Braille
 # cell. A page can hide any of them inside the words of a button.
 _INVISIBLE = re.compile(
-    "[­͏؀-؅؜۝܏࢐࢑࣢ᅟᅠ឴឵"
-    "᠋-᠏​-‏‪-‮⁠-⁯⠀ㅤ︀-️﻿"
-    "ﾠ￰-￻\U000110bd\U000110cd\U00013430-\U0001343f\U0001bca0-\U0001bca3"
+    "[\xad\u034f\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u115f\u1160\u17b4\u17b5"
+    "\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff"
+    "\uffa0\ufff0-\ufffb\U000110bd\U000110cd\U00013430-\U0001343f\U0001bca0-\U0001bca3"
     "\U0001d173-\U0001d17a\U000e0000-\U000e0fff]"
 )
 
@@ -163,7 +163,11 @@ def _line(value: Any, limit: int, *, normalize: bool = True) -> str:
 # ── words as the window's click script sees them (app/page-preload.js) ──
 
 # What JavaScript's \s and trim() treat as space.
-_JS_SPACE = "\t\n\v\f\r   " + "".join(map(chr, range(0x2000, 0x200B))) + "    　﻿"
+_JS_SPACE = (
+    "\t\n\v\f\r \xa0\u1680"
+    + "".join(map(chr, range(0x2000, 0x200B)))
+    + "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
 _JS_SPACES = re.compile(f"[{re.escape(_JS_SPACE)}]+")
 
 
@@ -847,7 +851,7 @@ def is_commit_button(label: Any) -> str | None:
     that only open a form ("Book a demo", "Reserve a spot in line")."""
     text = unicodedata.normalize("NFKC", str(label if label is not None else ""))
     kinds = [_classify(text)]
-    if _INVISIBLE.search(text):  # "Pay​now" shows as "Paynow" but may mean "Pay now"
+    if _INVISIBLE.search(text):  # "Pay\u200bnow" shows as "Paynow" but may mean "Pay now"
         kinds.append(_classify(_INVISIBLE.sub(" ", text)))
     return _first(kinds)
 
