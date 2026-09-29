@@ -1,6 +1,6 @@
 // Jarvis desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
 
-const { app, BrowserWindow, WebContentsView, dialog, globalShortcut, ipcMain, nativeTheme, shell } = require('electron');
+const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, session, shell } = require('electron');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -19,7 +19,12 @@ const LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', 'Jarvis');
 // instead of starting one, with a profile of its own and without the global shortcuts,
 // so it can run beside the installed app.
 const DEV_URL = process.env.JARVIS_BACKEND_URL || '';
-if (DEV_URL) app.setPath('userData', path.join(os.tmpdir(), 'jarvis-dev-profile'));
+if (DEV_URL) {
+  app.setPath('userData', path.join(os.tmpdir(), 'jarvis-dev-profile'));
+  // …and downloads of its own: testing never writes into the real Downloads folder
+  app.setPath('downloads', path.join(os.tmpdir(), 'jarvis-dev-downloads'));
+  fs.mkdirSync(app.getPath('downloads'), { recursive: true });
+}
 
 let win = null;
 let backend = null;
@@ -240,6 +245,7 @@ ipcMain.handle('jarvis:pick-folder', async () => {
 const RESEARCH_AUTH = /^\/(login|reset|terms|account\/password)(\/|$)/;
 let browserView = null; // the tab on show; the others keep loading behind it
 const tabs = [];
+const closedTabs = []; // ⌘⇧T reopens these
 let lastBounds = null;
 let browserShown = false;
 let browserLocked = false;
@@ -272,7 +278,7 @@ function researchPath(url) {
 function tabList() {
   return tabs.map((view) => {
     const wc = view.webContents;
-    return { id: wc.id, title: wc.getTitle(), url: wc.getURL(), loading: wc.isLoading(), research: onResearch(wc.getURL()), active: view === browserView };
+    return { id: wc.id, title: wc.getTitle(), url: wc.getURL(), loading: wc.isLoading(), research: onResearch(wc.getURL()), active: view === browserView, favicon: view.favicon || '' };
   });
 }
 
@@ -302,6 +308,7 @@ function updateLock() {
 }
 
 function ensureBrowser() {
+  readyDownloads();
   if (!browserView) {
     browserView = createTab();
     tabs.push(browserView);
@@ -336,10 +343,219 @@ function closeTab(view) {
   const at = tabs.indexOf(view);
   if (at < 0 || tabs.length < 2) return false;
   tabs.splice(at, 1);
+  const url = view.webContents.getURL();
+  if (/^https?:/.test(url)) closedTabs.push(url);
+  if (closedTabs.length > 25) closedTabs.shift();
   if (view === browserView) selectTab(tabs[Math.min(at, tabs.length - 1)]);
   view.webContents.close();
   sendBrowserState();
   return true;
+}
+
+// ── Chrome's everyday features: shortcuts, history, bookmarks, find, the page's menu,
+// downloads (always asked first: Jarvis can click in this browser too) ──
+
+async function faviconData(ses, url) {
+  try {
+    const res = await ses.fetch(url, { signal: AbortSignal.timeout(5000) });
+    const type = res.headers.get('content-type') || 'image/x-icon';
+    if (!res.ok || !/^image\//.test(type)) return '';
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return bytes.length > 64000 ? '' : `data:${type.split(';')[0]};base64,${bytes.toString('base64')}`;
+  } catch {
+    return '';
+  }
+}
+
+function browserShortcut(input) {
+  const key = String(input.key || '').toLowerCase();
+  const cmd = input.meta, shift = input.shift, alt = input.alt, ctrl = input.control;
+  const wc = browserView && browserView.webContents;
+  const ui = (action) => { if (win) win.webContents.send('browser:shortcut', action); return true; };
+  if (ctrl && key === 'tab') return stepTab(shift ? -1 : 1);
+  if (!cmd) return false;
+  if (alt && key === 'i') { wc && wc.openDevTools({ mode: 'detach' }); return true; }
+  if (alt) return false;
+  if (shift) {
+    if (key === 't') { reopenTab(); return true; }
+    if (key === '[' || key === '{') return stepTab(-1);
+    if (key === ']' || key === '}') return stepTab(1);
+    return false;
+  }
+  if (key === 't') { newTab(); sendBrowserState(); return ui('address'); }
+  if (key === 'w') { if (tabs.length > 1) closeTab(browserView); else ui('close'); return true; }
+  if (key === 'l') return ui('address');
+  if (ctrl && key === 'f') return ui('full');
+  if (key === 'f') return ui('find');
+  if (key === 'd') return ui('bookmark');
+  if (key === 'y') return ui('history');
+  if (key === 'r' && wc) { wc.reload(); return true; }
+  if (key === '[' && wc && wc.navigationHistory.canGoBack()) { wc.navigationHistory.goBack(); return true; }
+  if (key === ']' && wc && wc.navigationHistory.canGoForward()) { wc.navigationHistory.goForward(); return true; }
+  if (key === 'p' && wc) { wc.print(); return true; }
+  if ((key === '=' || key === '+') && wc) return zoomBy(1.1);
+  if (key === '-' && wc) return zoomBy(1 / 1.1);
+  if (key === '0' && wc) return zoomBy(0);
+  if (/^[1-9]$/.test(key)) { selectTab(key === '9' ? tabs[tabs.length - 1] : tabs[Number(key) - 1]); sendBrowserState(); return true; }
+  return false;
+}
+
+function stepTab(by) {
+  const at = tabs.indexOf(browserView);
+  if (at >= 0 && tabs.length > 1) { selectTab(tabs[(at + by + tabs.length) % tabs.length]); sendBrowserState(); }
+  return true;
+}
+
+function reopenTab() {
+  const url = closedTabs.pop();
+  if (url) { newTab(url); sendBrowserState(); }
+}
+
+function zoomBy(factor) {
+  const wc = browserView.webContents;
+  browserZoom = factor ? Math.min(3, Math.max(0.33, wc.getZoomFactor() * factor)) : 1;
+  wc.setZoomFactor(browserZoom);
+  sendBrowserState();
+  return true;
+}
+
+// History and bookmarks, kept beside the app's other data (never the Research Center's
+// sign-in pages: their addresses can carry a reset token).
+let browserData = null;
+let browserSave = null;
+const browserFile = () => path.join(app.getPath('userData'), 'browser.json');
+function browserStore() {
+  if (browserData) return browserData;
+  let raw = {};
+  try { raw = JSON.parse(fs.readFileSync(browserFile(), 'utf8')) || {}; } catch {}
+  browserData = {
+    history: Array.isArray(raw.history) ? raw.history.filter((h) => h && typeof h.url === 'string').slice(-2000) : [],
+    bookmarks: Array.isArray(raw.bookmarks) ? raw.bookmarks.filter((b) => b && typeof b.url === 'string') : [],
+  };
+  return browserData;
+}
+function saveBrowserStore() {
+  clearTimeout(browserSave);
+  browserSave = setTimeout(() => {
+    try {
+      const tmp = `${browserFile()}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(browserData));
+      fs.renameSync(tmp, browserFile());
+    } catch {}
+  }, 400);
+}
+function rememberVisit(url, wc) {
+  if (!/^https?:/.test(url) || (onResearch(url) && RESEARCH_AUTH.test(researchPath(url)))) return;
+  const store = browserStore();
+  const last = store.history[store.history.length - 1];
+  if (last && last.url === url) return;
+  store.history.push({ url, title: wc.getTitle() || '', at: Date.now() });
+  if (store.history.length > 2000) store.history.splice(0, store.history.length - 2000);
+  saveBrowserStore();
+}
+function retitleVisit(url, title) {
+  const store = browserStore();
+  const last = store.history[store.history.length - 1];
+  if (last && last.url === url && title) { last.title = title; saveBrowserStore(); }
+}
+
+// The page's own menu, as in Chrome.
+function pageMenu(view, p) {
+  const wc = view.webContents;
+  const items = [];
+  const sep = () => { if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' }); };
+  if (p.linkURL && /^https?:/.test(p.linkURL)) {
+    items.push({ label: 'Open Link in New Tab', click: () => { newTab(p.linkURL); sendBrowserState(); } });
+    items.push({ label: 'Copy Link Address', click: () => clipboard.writeText(p.linkURL) });
+    sep();
+  }
+  if (p.mediaType === 'image' && p.srcURL) {
+    if (/^https?:/.test(p.srcURL)) items.push({ label: 'Open Image in New Tab', click: () => { newTab(p.srcURL); sendBrowserState(); } });
+    items.push({ label: 'Save Image As…', click: () => wc.downloadURL(p.srcURL) });
+    items.push({ label: 'Copy Image', click: () => wc.copyImageAt(p.x, p.y) });
+    sep();
+  }
+  if (p.isEditable) {
+    items.push({ role: 'undo', label: 'Undo' }, { role: 'redo', label: 'Redo' }, { type: 'separator' },
+      { role: 'cut', label: 'Cut' }, { role: 'copy', label: 'Copy' }, { role: 'paste', label: 'Paste' }, { role: 'selectAll', label: 'Select All' });
+    sep();
+  } else if (p.selectionText) {
+    const text = p.selectionText.trim().slice(0, 60);
+    items.push({ role: 'copy', label: 'Copy' });
+    items.push({ label: `Search Google for “${text}${p.selectionText.trim().length > 60 ? '…' : ''}”`, click: () => { newTab(`https://www.google.com/search?q=${encodeURIComponent(p.selectionText.trim())}`); sendBrowserState(); } });
+    sep();
+  }
+  if (!p.linkURL && !p.isEditable && !p.selectionText && p.mediaType === 'none') {
+    items.push({ label: 'Back', enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() });
+    items.push({ label: 'Forward', enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() });
+    items.push({ label: 'Reload', click: () => wc.reload() });
+    sep();
+    items.push({ label: 'Print…', click: () => wc.print() });
+    sep();
+  }
+  items.push({ label: 'Inspect', click: () => { wc.inspectElement(p.x, p.y); } });
+  Menu.buildFromTemplate(items).popup({ window: win });
+}
+
+// Downloads: each one lands in a private staging folder first, and only the user's Save in
+// the window moves it into Downloads (a small file finishes before anyone could pause it,
+// so pausing alone isn't enough). Cancel deletes the staged copy.
+const downloads = new Map();
+let downloadIds = 0;
+let downloadsReady = false;
+const stagingDir = () => path.join(app.getPath('userData'), 'download-staging');
+
+function downloadTarget(name) {
+  const dir = app.getPath('downloads');
+  const ext = path.extname(name);
+  let target = path.join(dir, name);
+  for (let n = 1; fs.existsSync(target) && n < 1000; n++) target = path.join(dir, `${path.basename(name, ext)} (${n})${ext}`);
+  return target;
+}
+
+function sendDownload(id) {
+  const d = downloads.get(id);
+  if (!d || !win) return;
+  const item = d.item;
+  const state = d.saved ? (d.finished ? 'completed' : d.failed ? d.failed : 'progressing') : d.failed ? d.failed : 'asking';
+  win.webContents.send('browser:download', {
+    id, name: d.name, state, received: item.getReceivedBytes(), total: item.getTotalBytes() || item.getReceivedBytes(), from: d.from,
+  });
+}
+
+function placeDownload(d) {
+  try {
+    d.path = downloadTarget(d.name);
+    fs.renameSync(d.staged, d.path);
+    d.finished = true;
+  } catch {
+    d.failed = 'interrupted';
+  }
+}
+
+function readyDownloads() {
+  if (downloadsReady) return;
+  downloadsReady = true;
+  fs.rmSync(stagingDir(), { recursive: true, force: true }); // left by a quit mid-download
+  session.fromPartition('persist:jarvis-browser').on('will-download', (_event, item) => {
+    const id = ++downloadIds;
+    const name = path.basename(item.getFilename() || 'download').replace(/^\.+/, '') || 'download';
+    fs.mkdirSync(stagingDir(), { recursive: true });
+    const staged = path.join(stagingDir(), `${id}-${Date.now()}`);
+    item.setSavePath(staged);
+    let from = '';
+    try { from = new URL(item.getURL()).host; } catch {}
+    const d = { item, name, staged, from, saved: false, done: false, finished: false, failed: '', path: '' };
+    downloads.set(id, d);
+    item.on('updated', () => sendDownload(id));
+    item.once('done', (_e, state) => {
+      d.done = true;
+      if (state !== 'completed') { d.failed = state === 'cancelled' ? 'cancelled' : 'interrupted'; fs.rm(staged, { force: true }, () => {}); }
+      else if (d.saved) placeDownload(d);
+      sendDownload(id);
+    });
+    sendDownload(id);
+  });
 }
 
 function tabById(id) { return tabs.find((view) => view.webContents.id === Number(id)); }
@@ -364,13 +580,22 @@ function createTab() {
   // On the Research Center, direct input never reaches the page (Jarvis's own does).
   wc.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && win) win.webContents.send('browser:escape');
-    if (input.type === 'keyDown' && input.meta && !input.shift && !input.alt) {
-      const key = String(input.key).toLowerCase();
-      if (key === 't') { event.preventDefault(); newTab(); sendBrowserState(); return; }
-      if (key === 'w' && tabs.length > 1) { event.preventDefault(); closeTab(view); return; }
-    }
+    // Chrome's shortcuts work with the page focused too (they're the browser's, not the page's).
+    if (input.type === 'keyDown' && !browserSynthetic && browserShortcut(input)) { event.preventDefault(); return; }
     if (active() && browserLocked && !browserSynthetic) event.preventDefault();
   });
+  // The window only shows local and data: images, so the icon comes over as data.
+  wc.on('page-favicon-updated', async (_event, icons) => {
+    const url = (icons || []).find((u) => /^(https?:|data:image\/)/.test(u));
+    if (!url) return;
+    view.favicon = url.startsWith('data:') ? url.slice(0, 90000) : await faviconData(wc.session, url);
+    sendBrowserState();
+  });
+  wc.on('did-navigate', (_event, url) => rememberVisit(url, wc));
+  wc.on('page-title-updated', () => retitleVisit(wc.getURL(), wc.getTitle()));
+  wc.on('enter-html-full-screen', () => { if (active() && win) win.webContents.send('browser:page-fullscreen', true); });
+  wc.on('leave-html-full-screen', () => { if (win) win.webContents.send('browser:page-fullscreen', false); });
+  wc.on('context-menu', (_event, params) => { if (!(active() && browserLocked)) pageMenu(view, params); });
   wc.on('before-mouse-event', (event) => { if (active() && browserLocked && !browserSynthetic) event.preventDefault(); });
   for (const event of ['did-navigate', 'did-navigate-in-page']) wc.on(event, () => (active() ? updateLock() : sendBrowserState()));
   wc.on('did-finish-load', () => wc.setZoomFactor(browserZoom));
@@ -623,6 +848,55 @@ ipcMain.handle('browser:nav', async (event, { action, url }) => {
   if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   if (action === 'reload') wc.reload();
   if (action === 'stop') wc.stop();
+});
+ipcMain.handle('browser:find', async (event, { text, forward = true, stop = false } = {}) => {
+  if (!fromWindow(event) || !browserView) return;
+  // In the page (page-preload.js): it answers whether or not the window has the focus.
+  const r = await pageCall('find', { text: String(text || ''), forward, stop: stop || !text }, 3000);
+  if (win && !stop && text) win.webContents.send('browser:found', { matches: r.matches || 0, active: r.active || 0 });
+  return r;
+});
+ipcMain.handle('browser:data', (event, { action, url, title } = {}) => {
+  if (!fromWindow(event)) return null;
+  const store = browserStore();
+  if (action === 'bookmark' && /^https?:/.test(String(url || ''))) {
+    const at = store.bookmarks.findIndex((b) => b.url === url);
+    if (at >= 0) store.bookmarks.splice(at, 1);
+    else store.bookmarks.push({ url, title: String(title || url).slice(0, 200) });
+    saveBrowserStore();
+  }
+  if (action === 'clear-history') { store.history = []; saveBrowserStore(); }
+  return { bookmarks: store.bookmarks.slice(), history: store.history.slice(-400).reverse() };
+});
+ipcMain.handle('browser:download', (event, { id, action } = {}) => {
+  if (!fromWindow(event)) return;
+  const d = downloads.get(Number(id));
+  if (!d) return;
+  if (action === 'save' && !d.saved && !d.failed) {
+    d.saved = true;
+    if (d.done) placeDownload(d); // it had already finished into staging
+    sendDownload(Number(id));
+  }
+  if (action === 'cancel') {
+    if (!d.done) d.item.cancel();
+    fs.rm(d.staged, { force: true }, () => {});
+    downloads.delete(Number(id));
+  }
+  if (action === 'show' && d.finished) shell.showItemInFolder(d.path);
+});
+ipcMain.handle('browser:shortcut', (event, action) => {
+  if (!fromWindow(event)) return false;
+  ensureBrowser();
+  if (action === 'reopen') { reopenTab(); return true; }
+  if (action === 'next') return stepTab(1);
+  if (action === 'previous') return stepTab(-1);
+  if (action === 'zoom-in') return zoomBy(1.1);
+  if (action === 'zoom-out') return zoomBy(1 / 1.1);
+  if (action === 'zoom-reset') return zoomBy(0);
+  if (action === 'print') { browserView.webContents.print(); return true; }
+  if (action === 'devtools') { browserView.webContents.openDevTools({ mode: 'detach' }); return true; }
+  if (/^tab[1-9]$/.test(String(action))) { const n = Number(action.slice(3)); selectTab(n === 9 ? tabs[tabs.length - 1] : tabs[n - 1]); sendBrowserState(); return true; }
+  return false;
 });
 ipcMain.handle('browser:tab', (event, { action, id, url } = {}) => {
   if (!fromWindow(event)) return;

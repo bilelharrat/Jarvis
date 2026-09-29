@@ -473,21 +473,45 @@
           <span id="br-lock-text">J.A.R.V.I.S. only</span>
         </span>
         <label for="br-url" class="sr-only">Address</label>
-        <input id="br-url" placeholder="Search or enter an address" spellcheck="false">
+        <input id="br-url" placeholder="Search or enter an address" spellcheck="false" list="br-suggest" autocomplete="off">
+        <datalist id="br-suggest"></datalist>
+        <button type="button" class="bd-star" id="br-star" aria-pressed="false" aria-label="Bookmark this page" title="Bookmark this page (⌘D)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
       </div>
       <span id="br-jarvis" class="br-jarvis" hidden>Jarvis is browsing</span>
       <span id="br-zoom" class="bd-zoom" hidden></span>
+      <button type="button" class="bd-icon" id="br-library" aria-pressed="false" aria-label="Bookmarks and history" title="Bookmarks and history (⌘Y)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2.5h7.5a2 2 0 012 2v9H5a2 2 0 01-2-2z"/><path d="M3 11.5a2 2 0 012-2h7.5"/></svg></button>
       <button type="button" class="bd-icon" id="br-research" aria-label="Open the BSH Research Center" title="BSH Research Center"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 15.5l4.2-6.4 2.4 3.3 3.3-6.9L18 15.5z"/></svg></button>
       <button type="button" class="bd-icon" id="br-hands" aria-pressed="false" aria-label="Steer the page with your hands" title="Hands"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10V4a1.2 1.2 0 012.4 0v5M9.4 9V3a1.2 1.2 0 012.4 0v6M11.8 9V4.5a1.2 1.2 0 012.4 0V11c0 3.5-2 6-5.2 6-2.4 0-3.6-1.3-4.8-3.3L3 10.8a1.2 1.2 0 012-1.3L7 12"/></svg></button>
+      <button type="button" class="bd-icon" id="br-full" aria-pressed="false" aria-label="Full screen" title="Full screen (⌃⌘F)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
       <button type="button" class="bd-icon" id="br-close" aria-label="Close the browser" title="Close (Esc)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
       <div id="bd-progress" class="bd-progress" hidden></div>
     </form>
+    <div id="bd-find" class="bd-find" hidden role="search">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+      <label for="bd-find-input" class="sr-only">Find in page</label>
+      <input id="bd-find-input" placeholder="Find in page" spellcheck="false" autocomplete="off">
+      <span id="bd-find-count" class="bd-find-count" data-no-i18n></span>
+      <button type="button" class="bd-icon" id="bd-find-prev" aria-label="Previous match"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 10l4-4 4 4"/></svg></button>
+      <button type="button" class="bd-icon" id="bd-find-next" aria-label="Next match"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
+      <button type="button" class="bd-find-done" id="bd-find-done">Done</button>
+    </div>
     <div id="browser-slot" class="browser-slot">
+      <div id="bd-lib" class="bd-lib" hidden>
+        <div class="bd-lib-head">
+          <div class="bd-lib-tabs" role="tablist"><button type="button" role="tab" id="bd-lib-bookmarks" aria-selected="true">Bookmarks</button><button type="button" role="tab" id="bd-lib-history" aria-selected="false">History</button></div>
+          <label for="bd-lib-search" class="sr-only">Search</label>
+          <input id="bd-lib-search" placeholder="Search" spellcheck="false" autocomplete="off">
+          <button type="button" class="bd-find-done" id="bd-lib-done">Done</button>
+        </div>
+        <ul id="bd-lib-list" class="bd-lib-list"></ul>
+        <div class="bd-lib-foot"><button type="button" class="bd-lib-clear" id="bd-lib-clear" hidden>Clear history</button></div>
+      </div>
       <div id="br-message" class="bd-message" hidden>
         <p id="br-message-text"></p>
         <button type="button" id="br-retry" class="bd-btn">Try again</button>
       </div>
     </div>
+    <ul id="bd-downloads" class="bd-downloads" aria-live="polite"></ul>
     <div id="bd-guide" class="bd-guide" hidden>
       <p id="bd-status" class="bd-status">Aim with your hand · pinch to open</p>
       <ol class="bd-gestures" aria-label="Hand gestures">

@@ -2156,3 +2156,63 @@ button.jc-ctx:hover, button.jc-ctx[aria-expanded="true"] { background: var(--pil
 .deck.jc .cx-btn.danger { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger) / 0.12); }
 .deck.jc .cx-btn.danger.armed { color: #fff; background: rgb(var(--c-danger)); }
 .deck.jc .jc-act.armed, .deck.jc .jc-act.armed:hover { color: #fff; }
+
+/* ── the browser's everyday features ── */
+.bd-star { flex: none; width: 24px; height: 24px; border: 0; border-radius: 7px; background: transparent; color: rgb(var(--c-muted)); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.bd-star svg path { fill: none; }
+.bd-star:hover { background: rgb(var(--c-ink) / 0.07); color: rgb(var(--c-ink)); }
+.bd-star[aria-pressed="true"] { color: rgb(var(--c-warning)); }
+.bd-star[aria-pressed="true"] svg path { fill: currentColor; }
+
+.bd-find { flex: none; display: flex; align-items: center; gap: 6px; margin: 0 8px 6px; padding: 4px 4px 4px 12px; border-radius: 11px; background: rgb(var(--c-ink) / 0.06); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.07); color: rgb(var(--c-muted)); }
+.bd-find[hidden] { display: none; }
+.bd-find input { flex: 1; min-width: 0; height: 28px; border: 0; background: transparent; color: rgb(var(--c-ink)); font: 13px var(--sans); outline: none; }
+.bd-find-count { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bd-find-done { flex: none; height: 26px; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer; font-size: 12.5px; font-weight: 600; color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.13); }
+.bd-find-done:hover { background: rgb(var(--c-accent) / 0.2); }
+
+/* bookmarks and history, in place of the page */
+.bd-lib { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: rgb(var(--c-surface) / 0.72); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); }
+.bd-lib[hidden] { display: none; }
+.bd-lib-head { display: flex; align-items: center; gap: 10px; padding: 12px 12px 8px; }
+.bd-lib-tabs { display: inline-flex; padding: 2px; border-radius: 9px; background: rgb(var(--c-ink) / 0.07); }
+.bd-lib-tabs button { height: 26px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; font-size: 12.5px; font-weight: 500; color: rgb(var(--c-ink-2)); }
+.bd-lib-tabs button[aria-selected="true"] { background: var(--glass-pill); color: rgb(var(--c-ink)); box-shadow: var(--glass-rim), var(--pill-shadow); }
+.bd-lib-head input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 0; border-radius: 9px; background: rgb(var(--c-ink) / 0.06); color: rgb(var(--c-ink)); font: 13px var(--sans); outline: none; }
+.bd-lib-head input:focus { box-shadow: 0 0 0 2px rgb(var(--c-accent) / 0.5); }
+.bd-lib-list { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0 8px 8px; }
+.bd-lib-day { margin: 12px 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: rgb(var(--c-muted)); }
+.bd-lib-row { display: flex; align-items: center; gap: 4px; border-radius: 9px; }
+.bd-lib-row:hover { background: rgb(var(--c-ink) / 0.05); }
+.bd-lib-row:hover .bd-tab-x { opacity: 1; }
+.bd-lib-go { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; padding: 7px 10px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.bd-lib-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--c-ink)); }
+.bd-lib-url { grid-column: 1; font-size: 11.5px; color: rgb(var(--c-muted)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-lib-time { grid-column: 2; grid-row: 1 / span 2; font-size: 11.5px; color: rgb(var(--c-muted)); font-variant-numeric: tabular-nums; }
+.bd-lib-empty { padding: 30px 16px; text-align: center; font-size: 13px; color: rgb(var(--c-muted)); }
+.bd-lib-foot { padding: 6px 12px 10px; display: flex; justify-content: flex-end; }
+.bd-lib-clear { height: 26px; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger) / 0.12); }
+.bd-lib-clear[hidden] { display: none; }
+
+/* downloads: a strip under the page, each asking before it saves */
+.bd-downloads { flex: none; list-style: none; margin: 0; padding: 0 6px; display: flex; flex-direction: column; gap: 6px; }
+.bd-downloads:not(:empty) { padding: 0 6px 6px; }
+.bd-dl { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border-radius: 11px; overflow: hidden; background: rgb(var(--c-ink) / 0.06); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.07); }
+.bd-dl.asking { box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.45); }
+.bd-dl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.bd-dl-text b { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-dl-text small { font-size: 11.5px; color: rgb(var(--c-muted)); }
+.bd-dl-acts { display: flex; gap: 6px; flex: none; }
+.bd-dl-btn { height: 26px; padding: 0 11px; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.08); }
+.bd-dl-btn:hover { background: rgb(var(--c-ink) / 0.13); }
+.bd-dl-btn.primary { color: #fff; background: rgb(var(--c-accent)); }
+.bd-dl-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: rgb(var(--c-accent)); transition: width 200ms ease; }
+
+/* full screen: the browser fills the window; a page's own (a video) hides the chrome too */
+body.browser-full .bd-handle { display: none; }
+body.browser-full .bd-panel { margin-left: 12px; }
+body.in-app.browser-full .bd-panel { margin-top: 40px; }
+body.browser-page-full .bd-panel { margin: 0; border-radius: 0; }
+body.browser-page-full .bd-tabs, body.browser-page-full .browser-bar, body.browser-page-full .bd-find,
+body.browser-page-full .bd-downloads, body.browser-page-full .bd-guide { display: none; }
+body.browser-page-full .browser-slot { margin: 0; border-radius: 0; }

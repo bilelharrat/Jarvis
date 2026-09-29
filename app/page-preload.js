@@ -399,6 +399,87 @@ async function navigate({ path }) {
   return { ok: location.pathname + location.search === path };
 }
 
+// ── find in page (⌘F): every match highlighted, the current one brighter and in view ──
+let findRanges = [];
+let findAt = -1;
+let findFor = '';
+function findStyle() {
+  if (document.getElementById('jarvis-find-style')) return;
+  const style = document.createElement('style');
+  style.id = 'jarvis-find-style';
+  style.textContent = '::highlight(jarvis-find){background-color:rgba(255,213,0,.55);color:inherit}'
+    + '::highlight(jarvis-find-now){background-color:#ff9632;color:#000}';
+  (document.head || document.documentElement).append(style);
+}
+// Across text fragments, as Chrome's find does: a word split over styled runs (or, on some
+// pages, a span per letter) is still one match.
+function findMatches(text) {
+  const needle = text.toLowerCase();
+  const nodes = [];
+  const starts = [];
+  let flat = '';
+  const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement;
+      if (!parent || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(parent.tagName) || !parent.getClientRects().length) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  for (let node = walker.nextNode(); node && flat.length < 5e6; node = walker.nextNode()) {
+    starts.push(flat.length);
+    nodes.push(node);
+    flat += node.data;
+  }
+  const at = (pos) => { // the fragment holding character pos
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= pos) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  };
+  const hay = flat.toLowerCase();
+  const ranges = [];
+  for (let i = hay.indexOf(needle); i >= 0 && ranges.length < 2000; i = hay.indexOf(needle, i + needle.length)) {
+    const a = at(i), b = at(i + needle.length - 1);
+    const range = new Range();
+    range.setStart(nodes[a], i - starts[a]);
+    range.setEnd(nodes[b], i + needle.length - starts[b]);
+    ranges.push(range);
+  }
+  return ranges;
+}
+// Highlights are drawing only: if the API isn't there, matches still count and scroll.
+function paint(name, ranges) {
+  try {
+    if (!ranges) CSS.highlights.delete(name);
+    else { findStyle(); CSS.highlights.set(name, new Highlight(...ranges)); }
+  } catch { /* no highlight API in this world */ }
+}
+function clearFind() {
+  paint('jarvis-find', null);
+  paint('jarvis-find-now', null);
+  findRanges = []; findAt = -1; findFor = '';
+}
+function findInPage({ text = '', forward = true, stop = false }) {
+  text = String(text).slice(0, 200);
+  if (stop || !text) { clearFind(); return { ok: true, matches: 0, active: 0 }; }
+  if (text !== findFor) {
+    clearFind();
+    findFor = text;
+    findRanges = findMatches(text);
+    findAt = forward ? -1 : findRanges.length;
+    if (findRanges.length) paint('jarvis-find', findRanges);
+  }
+  if (!findRanges.length) return { ok: true, matches: 0, active: 0 };
+  findAt = (findAt + (forward ? 1 : -1) + findRanges.length) % findRanges.length;
+  const range = findRanges[findAt];
+  paint('jarvis-find-now', [range]);
+  const rect = range.getBoundingClientRect();
+  if (rect.top < 60 || rect.bottom > innerHeight - 60) window.scrollBy({ top: rect.top - innerHeight / 2, behavior: 'instant' });
+  return { ok: true, matches: findRanges.length, active: findAt + 1 };
+}
+
 async function command({ action, args = {} }) {
   switch (action) {
     case 'locate': {
@@ -418,6 +499,7 @@ async function command({ action, args = {} }) {
     case 'scroll': return scrollPage(args);
     case 'search': return search(args);
     case 'navigate': return navigate(args);
+    case 'find': return findInPage(args);
     default: return { ok: false, message: `Unknown command ${action}` };
   }
 }

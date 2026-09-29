@@ -134,6 +134,29 @@
   "Hands": "手势",
   "Hands-free": "免提唤醒",
   "Steer": "引导",
+  "Bookmark this page": "收藏此页",
+  "Bookmark this page (⌘D)": "收藏此页（⌘D）",
+  "Bookmarks and history": "书签和历史记录",
+  "Bookmarks and history (⌘Y)": "书签和历史记录（⌘Y）",
+  "Full screen": "全屏",
+  "Full screen (⌃⌘F)": "全屏（⌃⌘F）",
+  "Leave full screen (Esc)": "退出全屏（Esc）",
+  "Find in page": "在页面中查找",
+  "Previous match": "上一个匹配",
+  "Next match": "下一个匹配",
+  "Bookmarks": "书签",
+  "History": "历史记录",
+  "Search": "搜索",
+  "Clear history": "清除历史记录",
+  "Remove bookmark": "移除书签",
+  "Nothing matches.": "没有匹配项。",
+  "No bookmarks yet. Press ★ in the address bar (⌘D) to add this page.": "还没有书签。按地址栏里的 ★（⌘D）收藏此页。",
+  "No history yet.": "还没有历史记录。",
+  "Save": "保存",
+  "Cancel": "取消",
+  "Cancelled": "已取消",
+  "No matches": "无匹配",
+  "Download": "下载",
   "Context window": "上下文窗口",
   "Compact": "压缩",
   "Clear": "清空",
@@ -1791,6 +1814,26 @@
   [
    "^“(.+)” needs a second pinch$",
    "“$1”需要再捏合一次"
+  ],
+  [
+   "^Saved to Downloads · (.+)$",
+   "已保存到“下载” · $1"
+  ],
+  [
+   "^Saved to Downloads$",
+   "已保存到“下载”"
+  ],
+  [
+   "^From (\\S+) · (.+)$",
+   "来自 $1 · $2"
+  ],
+  [
+   "^From (\\S+)$",
+   "来自 $1"
+  ],
+  [
+   "^(\\d+) of (\\d+)$",
+   "第 $1 个，共 $2 个"
   ],
   [
    "^Compacts on its own at (\\d+)% \\(the mark\\)\\.$",

@@ -3524,6 +3524,7 @@ function pageName(url, title, base = '') {
 }
 
 function dockWidth() {
+  if (document.body.classList.contains('browser-full') || document.body.classList.contains('browser-page-full')) return window.innerWidth;
   let saved = 0;
   try { saved = Number(localStorage.getItem('jarvis.browserWidth')) || 0; } catch (_) { /* private mode */ }
   const max = Math.max(BD_MIN, window.innerWidth - 420);
@@ -3542,7 +3543,7 @@ function slotBounds() {
 }
 
 function syncBrowserBounds() {
-  if (browserOpenNow && app && app.browser && $('br-message').hidden) app.browser.setBounds(slotBounds());
+  if (browserOpenNow && app && app.browser && $('br-message').hidden && $('bd-lib').hidden) app.browser.setBounds(slotBounds());
 }
 
 function toggleBrowser(open) {
@@ -3556,6 +3557,7 @@ function toggleBrowser(open) {
     requestAnimationFrame(() => app.browser.show(slotBounds()));
   } else {
     app.browser.hide();
+    if (app.browser.find) { closeFind(); closeLibrary(); document.body.classList.remove('browser-full', 'browser-page-full'); $('br-full').setAttribute('aria-pressed', 'false'); }
     document.body.style.removeProperty('--bd-w');
     document.body.classList.remove('browser-narrow');
     pageHover = null;
@@ -3618,12 +3620,249 @@ function renderTabs(list) {
   strip.append(plus);
   requestAnimationFrame(syncBrowserBounds); // the strip's height is the slot's
 }
+// ── Chrome's everyday features: shortcuts, find, bookmarks and history, suggestions,
+// downloads (each asks first) and full screen ──
+
+// The same shortcuts as Chrome, whether the page or Jarvis's window has the keyboard (the
+// page's come from the main process as 'browser:shortcut').
+function browserKey(action) {
+  switch (action) {
+    case 'address': $('br-url').focus(); $('br-url').select(); break;
+    case 'find': openFind(); break;
+    case 'bookmark': toggleBookmark(); break;
+    case 'history': openLibrary('history'); break;
+    case 'full': setBrowserFull(!document.body.classList.contains('browser-full')); break;
+    case 'close': toggleBrowser(false); break;
+    default: break;
+  }
+}
 window.addEventListener('keydown', (e) => {
-  if (!browserOpenNow || !app || !app.browser || !e.metaKey || e.shiftKey || e.altKey) return;
+  if (!browserOpenNow || !app || !app.browser) return;
   const key = e.key.toLowerCase();
-  if (key === 't') { e.preventDefault(); app.browser.tab('new'); setTimeout(() => $('br-url').focus(), 120); }
-  if (key === 'w' && (browserState.tabs || []).length > 1) { e.preventDefault(); app.browser.tab('close'); }
+  const act = (fn) => { e.preventDefault(); fn(); };
+  if (e.ctrlKey && key === 'tab') return act(() => app.browser.shortcut(e.shiftKey ? 'previous' : 'next'));
+  if (!e.metaKey) return;
+  if (e.ctrlKey && key === 'f') return act(() => browserKey('full'));
+  if (e.altKey) { if (key === 'i' || e.code === 'KeyI') act(() => app.browser.shortcut('devtools')); return; }
+  if (e.shiftKey) {
+    if (key === 't') act(() => app.browser.shortcut('reopen'));
+    if (key === '[' || key === '{') act(() => app.browser.shortcut('previous'));
+    if (key === ']' || key === '}') act(() => app.browser.shortcut('next'));
+    return;
+  }
+  const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement !== $('br-url');
+  if (typing && !['t', 'w'].includes(key)) return; // Jarvis's own fields keep their keys
+  if (key === 't') return act(() => { app.browser.tab('new'); setTimeout(() => $('br-url').focus(), 120); });
+  if (key === 'w') return act(() => ((browserState.tabs || []).length > 1 ? app.browser.tab('close') : toggleBrowser(false)));
+  if (key === 'l') return act(() => browserKey('address'));
+  if (key === 'f') return act(() => browserKey('find'));
+  if (key === 'd') return act(() => browserKey('bookmark'));
+  if (key === 'y') return act(() => browserKey('history'));
+  if (key === 'r') return act(() => app.browser.nav('reload'));
+  if (key === '[') return act(() => app.browser.nav('back'));
+  if (key === ']') return act(() => app.browser.nav('forward'));
+  if (key === 'p') return act(() => app.browser.shortcut('print'));
+  if (key === '=' || key === '+') return act(() => app.browser.shortcut('zoom-in'));
+  if (key === '-') return act(() => app.browser.shortcut('zoom-out'));
+  if (key === '0') return act(() => app.browser.shortcut('zoom-reset'));
+  if (/^[1-9]$/.test(key)) return act(() => app.browser.shortcut(`tab${key}`));
 });
+
+// Esc leaves full screen first (before anything else takes Esc to close the browser).
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !browserOpenNow || !document.body.classList.contains('browser-full')) return;
+  if (!$('bd-find').hidden || !$('bd-lib').hidden) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  setBrowserFull(false);
+}, true);
+
+// Find in page (⌘F): matches as you type, ↩ / ⇧↩ for next and previous.
+let findText = '';
+function openFind() {
+  $('bd-find').hidden = false;
+  $('bd-find-input').focus();
+  $('bd-find-input').select();
+  requestAnimationFrame(syncBrowserBounds);
+}
+function closeFind() {
+  if ($('bd-find').hidden) return;
+  $('bd-find').hidden = true;
+  findText = '';
+  $('bd-find-count').textContent = '';
+  app.browser.find({ stop: true });
+  requestAnimationFrame(syncBrowserBounds);
+}
+function findStep(forward) {
+  const text = $('bd-find-input').value;
+  if (!text) { closeFindResults(); return; }
+  app.browser.find({ text, forward, next: text === findText });
+  findText = text;
+}
+function closeFindResults() { findText = ''; $('bd-find-count').textContent = ''; app.browser.find({ stop: true }); }
+
+// Bookmarks (★ in the address bar, ⌘D) and history (⌘Y), shown in place of the page.
+let libKind = 'bookmarks';
+let libData = { bookmarks: [], history: [] };
+async function refreshLibrary(action, url, title) {
+  libData = (await app.browser.data(action, url, title)) || libData;
+  const here = browserState.url || '';
+  $('br-star').setAttribute('aria-pressed', String(libData.bookmarks.some((b) => b.url === here)));
+  const seen = new Set();
+  $('br-suggest').replaceChildren(...[...libData.bookmarks, ...libData.history].filter((x) => !seen.has(x.url) && seen.add(x.url)).slice(0, 200).map((x) => {
+    const o = el('option');
+    o.value = x.url;
+    o.label = x.title || x.url;
+    return o;
+  }));
+  if (!$('bd-lib').hidden) renderLibrary();
+}
+function toggleBookmark() {
+  const url = browserState.url || '';
+  if (!/^https?:/.test(url)) return;
+  refreshLibrary('bookmark', url, browserState.title || url);
+}
+function openLibrary(kind) {
+  libKind = kind;
+  $('bd-lib').hidden = false;
+  $('br-library').setAttribute('aria-pressed', 'true');
+  app.browser.hide(); // the page is a native view over the slot: it steps aside
+  refreshLibrary();
+  renderLibrary();
+  $('bd-lib-search').value = '';
+  $('bd-lib-search').focus();
+}
+function closeLibrary() {
+  if ($('bd-lib').hidden) return;
+  $('bd-lib').hidden = true;
+  $('br-library').setAttribute('aria-pressed', 'false');
+  if (browserOpenNow && $('br-message').hidden) app.browser.show(slotBounds());
+}
+function renderLibrary() {
+  $('bd-lib-bookmarks').setAttribute('aria-selected', String(libKind === 'bookmarks'));
+  $('bd-lib-history').setAttribute('aria-selected', String(libKind === 'history'));
+  $('bd-lib-clear').hidden = libKind !== 'history' || !libData.history.length;
+  const q = $('bd-lib-search').value.trim().toLowerCase();
+  const items = (libKind === 'bookmarks' ? libData.bookmarks.slice().reverse() : libData.history)
+    .filter((x) => !q || `${x.title} ${x.url}`.toLowerCase().includes(q)).slice(0, 300);
+  let day = '';
+  const rows = [];
+  for (const x of items) {
+    if (libKind === 'history') {
+      const d = new Date(x.at).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      if (d !== day) { day = d; rows.push(el('li', 'bd-lib-day', d)); }
+    }
+    const li = el('li', 'bd-lib-row');
+    const go = el('button', 'bd-lib-go');
+    go.type = 'button';
+    let host = x.url;
+    try { host = new URL(x.url).host; } catch (_) { /* shown as it is */ }
+    go.append(mine(el('span', 'bd-lib-title', x.title || host)), mine(el('span', 'bd-lib-url', host)));
+    if (libKind === 'history') go.append(el('span', 'bd-lib-time', new Date(x.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })));
+    go.addEventListener('click', (e) => {
+      if (e.metaKey) app.browser.tab('new', null, x.url);
+      else app.browser.nav('go', x.url);
+      closeLibrary();
+    });
+    li.append(go);
+    if (libKind === 'bookmarks') {
+      const x2 = el('button', 'bd-tab-x', '✕');
+      x2.type = 'button';
+      x2.setAttribute('aria-label', 'Remove bookmark');
+      x2.addEventListener('click', () => refreshLibrary('bookmark', x.url));
+      li.append(x2);
+    }
+    rows.push(li);
+  }
+  if (!rows.length) rows.push(el('li', 'bd-lib-empty', q ? 'Nothing matches.' : libKind === 'bookmarks' ? 'No bookmarks yet. Press ★ in the address bar (⌘D) to add this page.' : 'No history yet.'));
+  $('bd-lib-list').replaceChildren(...rows);
+}
+
+// Downloads: each waits for Save (Jarvis can click in this browser; a file never lands on
+// the Mac without you), then shows its progress and Show in Finder.
+function fileSize(n) {
+  if (!n) return '';
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(n / 1e3))} KB`;
+}
+function onDownload(d) {
+  let li = document.querySelector(`#bd-downloads [data-id="${d.id}"]`);
+  if (!li) {
+    li = el('li', 'bd-dl');
+    li.dataset.id = d.id;
+    $('bd-downloads').prepend(li);
+  }
+  const size = fileSize(d.total);
+  const text = el('div', 'bd-dl-text');
+  const note = d.state === 'asking' ? `${d.from ? `From ${d.from}` : 'Download'}${size ? ` · ${size}` : ''}`
+    : d.state === 'progressing' ? `${fileSize(d.received) || '0 KB'}${size ? ` of ${size}` : ''}`
+      : d.state === 'completed' ? `Saved to Downloads${size ? ` · ${size}` : ''}` : d.state === 'cancelled' ? 'Cancelled' : 'Didn’t finish';
+  text.append(mine(el('b', '', d.name)), el('small', '', note));
+  const acts = el('div', 'bd-dl-acts');
+  const button = (label, action, cls = '') => {
+    const b = el('button', `bd-dl-btn ${cls}`, label);
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      app.browser.download(d.id, action);
+      if (action === 'cancel' || action === 'show') setTimeout(() => li.remove(), action === 'show' ? 1500 : 0);
+    });
+    return b;
+  };
+  if (d.state === 'asking') acts.append(button('Save', 'save', 'primary'), button('Cancel', 'cancel'));
+  else if (d.state === 'progressing') acts.append(button('Cancel', 'cancel'));
+  else if (d.state === 'completed') acts.append(button('Show in Finder', 'show'));
+  else setTimeout(() => li.remove(), 4000);
+  const bar = el('i', 'bd-dl-bar');
+  if (d.state === 'progressing' && d.total) bar.style.width = `${Math.round((100 * d.received) / d.total)}%`;
+  li.replaceChildren(text, acts, bar);
+  li.classList.toggle('asking', d.state === 'asking');
+  requestAnimationFrame(syncBrowserBounds);
+}
+
+// Full screen: the browser takes the whole window (⌃⌘F, Esc to leave); a page's own full
+// screen (a video) also hides the tabs and address bar.
+let fullBefore = false;
+function setBrowserFull(on) {
+  document.body.classList.toggle('browser-full', on);
+  $('br-full').setAttribute('aria-pressed', String(on));
+  $('br-full').title = on ? 'Leave full screen (Esc)' : 'Full screen (⌃⌘F)';
+  if (browserOpenNow) { applyDockWidth(dockWidth()); requestAnimationFrame(syncBrowserBounds); }
+}
+function setPageFull(on) {
+  if (on) fullBefore = document.body.classList.contains('browser-full');
+  document.body.classList.toggle('browser-page-full', on);
+  setBrowserFull(on || fullBefore);
+}
+
+if (app && app.browser && app.browser.find) {
+  app.browser.onFound((r) => { $('bd-find-count').textContent = r.matches ? `${r.active} of ${r.matches}` : tr('No matches'); });
+  app.browser.onShortcut(browserKey);
+  app.browser.onDownload(onDownload);
+  app.browser.onPageFullscreen(setPageFull);
+  $('bd-find-input').addEventListener('input', () => { findText = ''; findStep(true); });
+  $('bd-find-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); findStep(!e.shiftKey); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
+  });
+  $('bd-find-next').addEventListener('click', () => findStep(true));
+  $('bd-find-prev').addEventListener('click', () => findStep(false));
+  $('bd-find-done').addEventListener('click', closeFind);
+  $('br-star').addEventListener('click', toggleBookmark);
+  $('br-library').addEventListener('click', () => ($('bd-lib').hidden ? openLibrary('bookmarks') : closeLibrary()));
+  $('bd-lib-bookmarks').addEventListener('click', () => { libKind = 'bookmarks'; renderLibrary(); });
+  $('bd-lib-history').addEventListener('click', () => { libKind = 'history'; renderLibrary(); });
+  $('bd-lib-search').addEventListener('input', renderLibrary);
+  $('bd-lib-search').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeLibrary(); } });
+  $('bd-lib-done').addEventListener('click', closeLibrary);
+  $('bd-lib-clear').addEventListener('click', () => refreshLibrary('clear-history'));
+  $('br-full').addEventListener('click', () => setBrowserFull(!document.body.classList.contains('browser-full')));
+  let starFor = '';
+  app.browser.onState((st) => {
+    if (st.url !== starFor) { starFor = st.url; refreshLibrary(); }
+    if (!$('bd-lib').hidden && st.url && st.loading) closeLibrary(); // a page went on its way
+  });
+}
 
 function showBrowserError(text) {
   $('br-message-text').textContent = browserState.research || /Research Center/.test(text)
@@ -3737,7 +3976,10 @@ if (app && app.browser) {
   app.browser.onOpen(() => { if (!browserOpenNow) toggleBrowser(true); });
   app.browser.onHover((hover) => { pageHover = hover; });
   app.browser.onNote((note) => { if (note && note.text) showBrowserNote(note.text); });
-  app.browser.onEscape(() => { if (browserState.locked) toggleBrowser(false); });
+  app.browser.onEscape(() => {
+    if (document.body.classList.contains('browser-full')) setBrowserFull(false);
+    else if (browserState.locked) toggleBrowser(false);
+  });
   const follow = () => {
     if (!browserOpenNow) return;
     applyDockWidth(dockWidth());
