@@ -1960,3 +1960,99 @@ body[data-look="orb"] .sheet {
   box-shadow: var(--s-rim), 0 0 0 1px color-mix(in srgb, var(--action) 55%, transparent);
 }
 .sheet code { background: var(--s-input); }
+
+/* ═════════════ Clear glass, Jarvis Code layout, the BSH selection lift ═════════════ */
+/* Jarvis Code is a pane of glass over the dashboard (it blurs what's behind it), so the
+   sidebar, composer and menus on it read as glass rather than grey on a flat canvas. */
+/* (on a background layer, not the panel: a blur on an ancestor stops the menus' own blur from
+   seeing what's behind them) */
+.deck.jc { background: transparent; }
+.deck.jc::before {
+  background: var(--wash), rgb(var(--c-canvas) / 0.58);
+  -webkit-backdrop-filter: blur(44px) saturate(170%); backdrop-filter: blur(44px) saturate(170%);
+}
+.deck.jc, .browser-dock {
+  --glass-fill: rgba(255, 255, 255, 0.34);
+  --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.16));
+  --menu-fill: rgb(250 250 252 / 0.5);
+  --pill-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.07), 0 0.5px 1px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  .deck.jc, .browser-dock {
+    --glass-fill: rgba(255, 255, 255, 0.045);
+    --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.075), rgb(255 255 255 / 0.02));
+    --clear-rim: inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 0 0 0.5px rgb(255 255 255 / 0.1);
+    --menu-fill: rgb(44 44 50 / 0.42);
+    --pill-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 0.5px 1px rgba(0, 0, 0, 0.4), 0 4px 12px -2px rgba(0, 0, 0, 0.55);
+  }
+}
+.jc-menu, .jc-effort-pop {
+  -webkit-backdrop-filter: blur(40px) saturate(200%); backdrop-filter: blur(40px) saturate(200%);
+}
+
+/* the sidebar runs the window's full height; its title shares a line with the window buttons */
+.jc-side { top: 8px; left: 8px; bottom: 8px; }
+body.in-app .jc-side { top: 8px; padding-top: 7px; }
+body.in-app .jc-side-head { padding-left: 70px; min-height: 32px; }
+.jc-main { left: 284px; }
+body.in-app .jc-toolbar { padding-top: 6px; min-height: 52px; }
+body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }
+@media (max-width: 900px) { body.in-app .jc-toolbar { padding-left: 84px; } }
+
+/* rows: a whisper of ink on hover, a press, and the glass pill lifting onto the selection */
+.jc-project, .jc-session { transition: background-color 150ms ease, transform 220ms var(--ease-spring); }
+.jc-project:hover, .jc-session:hover { background: rgb(var(--c-ink) / 0.055); }
+.jc-project:active, .jc-session:active { transform: scale(0.98); }
+.jc-project[aria-current="true"] { position: relative; z-index: 1; }
+.jc-project[aria-current="true"]:hover { background: transparent; }
+.jc-project[aria-current="true"] .jc-chev { color: rgb(var(--c-accent)); }
+.jc-glider { box-shadow: var(--glass-rim), var(--pill-shadow); }
+.jc-glider.lift { animation: jc-levitate 420ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes jc-levitate { from { opacity: 0.55; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+
+/* menus: Apple's inset rounded highlight */
+.jc-menu { border-radius: 16px; padding: 6px; }
+.jc-menu .jc-mi { border-radius: 9px; transition: background-color 90ms ease; }
+
+/* effort: Claude's slider, a rounded track with a dot per stop and a tall white thumb */
+.jc-slider { position: relative; --thumb: 28px; --p: 0.4; border-radius: 10px; height: 32px;
+  background: linear-gradient(90deg, rgb(var(--c-ink) / 0.16) 0 calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--p)), rgb(var(--c-ink) / 0.07) 0);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08); }
+.jc-effort-pop.ultra .jc-slider { background: linear-gradient(90deg, rgb(var(--c-accent) / 0.55), rgb(var(--c-purple) / 0.6)); }
+.jc-dots { position: absolute; inset: 0 calc(var(--thumb) / 2); pointer-events: none; }
+.jc-dots i { position: absolute; top: 50%; width: 4px; height: 4px; border-radius: 2px; background: rgb(var(--c-ink) / 0.32); transform: translate(-50%, -50%); }
+.jc-dots i:nth-child(1) { left: 0; } .jc-dots i:nth-child(2) { left: 20%; } .jc-dots i:nth-child(3) { left: 40%; }
+.jc-dots i:nth-child(4) { left: 60%; } .jc-dots i:nth-child(5) { left: 80%; } .jc-dots i:nth-child(6) { left: 100%; }
+.jc-slider #ep-range, .jc-slider #jcs-effort { position: relative; height: 32px; display: block; }
+.jc-slider #ep-range::-webkit-slider-runnable-track, .jc-slider #jcs-effort::-webkit-slider-runnable-track,
+.jc-effort-pop.ultra .jc-slider #ep-range::-webkit-slider-runnable-track { height: 32px; background: transparent; box-shadow: none; }
+.jc-slider #ep-range::-webkit-slider-thumb, .jc-slider #jcs-effort::-webkit-slider-thumb {
+  width: var(--thumb); height: 38px; margin-top: -3px; border-radius: 10px; background: #fff;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 2px 8px rgb(0 0 0 / 0.28);
+  transition: transform 160ms var(--ease-spring);
+}
+.jc-slider #ep-range:active::-webkit-slider-thumb, .jc-slider #jcs-effort:active::-webkit-slider-thumb { transform: scale(0.94); }
+.jc-slider + .ep-ticks { margin: 8px 14px 0; }
+.jcs-effort .jc-slider { flex: 1; min-width: 180px; }
+
+/* dashboard cards: clear glass (the room behind shows through; the rim catches light) */
+body[data-look="orb"] {
+  --panel-glass: linear-gradient(160deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12));
+  --panel-inset: rgba(255, 255, 255, 0.26);
+}
+@media (prefers-color-scheme: dark) {
+  body[data-look="orb"] {
+    --panel-glass: linear-gradient(160deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.012));
+    --panel-edge: rgba(255, 255, 255, 0.17);
+    --panel-line: rgba(255, 255, 255, 0.09);
+    --panel-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.45);
+    --panel-inset: rgba(255, 255, 255, 0.035);
+  }
+}
+body[data-look="orb"] .side .panel {
+  -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
+}
+
+/* Settings and the other sheets: clearer frosted glass */
+.sheet { --s-fill: rgba(250, 250, 252, 0.6); }
+@media (prefers-color-scheme: dark) { .sheet { --s-fill: rgba(26, 26, 30, 0.52); } }

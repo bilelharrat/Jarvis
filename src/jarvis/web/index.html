@@ -614,7 +614,7 @@
   <div id="jc-submenu" class="jc-menu" hidden role="menu"></div>
   <div id="jc-effort-pop" class="jc-effort-pop" hidden role="dialog" aria-label="Effort">
     <div class="ep-head"><strong>Effort</strong><span id="ep-value">High</span></div>
-    <input type="range" id="ep-range" min="0" max="5" step="1" value="2" aria-label="Effort" aria-valuetext="High">
+    <div class="jc-slider"><span class="jc-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span><input type="range" id="ep-range" min="0" max="5" step="1" value="2" aria-label="Effort" aria-valuetext="High"></div>
     <div class="ep-ticks" aria-hidden="true"><span>Low</span><span>Medium</span><span>High</span><span>Extra</span><span>Max</span><span class="uc">Ultracode</span></div>
     <p class="ep-note" id="ep-note"></p>
   </div>
@@ -633,7 +633,7 @@
         <div class="jcs-group">
           <label class="jcs-row"><span>Model</span><select id="jcs-model" class="jcs-select"></select></label>
           <label class="jcs-row"><span>Permission mode</span><select id="jcs-mode" class="jcs-select"></select></label>
-          <div class="jcs-row"><span>Effort</span><span class="jcs-effort"><input type="range" id="jcs-effort" min="0" max="5" step="1" value="2" aria-label="Default effort"><output id="jcs-effort-out">High</output></span></div>
+          <div class="jcs-row"><span>Effort</span><span class="jcs-effort"><span class="jc-slider"><span class="jc-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span><input type="range" id="jcs-effort" min="0" max="5" step="1" value="2" aria-label="Default effort"></span><output id="jcs-effort-out">High</output></span></div>
         </div>
         <p class="jcs-label">While it works</p>
         <div class="jcs-group">

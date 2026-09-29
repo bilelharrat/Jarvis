@@ -1331,6 +1331,8 @@ function renderProjects(items) {
     const b = el('button', 'jc-project');
     b.type = 'button';
     b.setAttribute('aria-expanded', String(open));
+    b.dataset.key = `p:${p.name}`;
+    if (p.name === deckProject) b.setAttribute('aria-current', 'true');
     b.append(el('span', 'jc-chev', '▶'), mine(el('span', 'jc-pname', p.name)));
     if (p.branch) b.append(mine(el('span', 'jc-branch', p.branch)));
     b.addEventListener('click', () => {
@@ -1344,6 +1346,7 @@ function renderProjects(items) {
         const row = el('button', 'jc-session');
         row.type = 'button';
         row.dataset.task = t.id;
+        row.dataset.key = `t:${t.id}`;
         row.setAttribute('aria-current', String(t.id === ccSelected));
         const title = t.title || t.prompt ? mine(el('span', 'jc-stitle', t.title || t.prompt)) : el('span', 'jc-stitle', 'New session');
         if (voiceFocus && voiceFocus.id === t.id) { const r = el('span', 'jc-mini-reactor'); r.title = 'Voice coding'; title.append(r); }
@@ -1367,11 +1370,20 @@ function renderProjects(items) {
 }
 $('deck-filter').addEventListener('input', () => renderProjects(deckProjects));
 
-// The selection pill glides to the selected session.
+// The selection pill glides to the selected session, or to the project when none is open,
+// and lifts into place as it lands (the BSH sidebar's levitate).
+let gliderOn = null;
 function moveGlider() {
   const glider = $('jc-glider');
-  const row = document.querySelector(`#deck-project-list .jc-session[aria-current="true"]`);
-  if (!row || $('cc').hidden) { glider.style.opacity = '0'; return; }
+  const row = document.querySelector(`#deck-project-list .jc-session[aria-current="true"]`)
+    || document.querySelector(`#deck-project-list .jc-project[aria-current="true"]`);
+  if (!row || $('cc').hidden) { glider.style.opacity = '0'; gliderOn = null; return; }
+  if (gliderOn !== row.dataset.key) {
+    gliderOn = row.dataset.key;
+    glider.classList.remove('lift');
+    void glider.offsetWidth; // restart the animation
+    glider.classList.add('lift');
+  }
   const wrap = glider.parentElement.getBoundingClientRect();
   const r = row.getBoundingClientRect();
   glider.style.top = `${r.top - wrap.top + glider.parentElement.scrollTop}px`;
@@ -2602,6 +2614,7 @@ function showEffortValue(stop) {
   $('ep-note').textContent = EFFORT_NOTES[stop];
   $('ep-range').setAttribute('aria-valuetext', effortName(stop));
   $('ep-range').style.setProperty('--fill', `${(stop / 5) * 100}%`);
+  $('ep-range').parentElement.style.setProperty('--p', String(stop / 5));
   $('jc-effort-pop').classList.toggle('ultra', stop === 5);
 }
 function openEffort() {
@@ -2791,6 +2804,7 @@ function renderJcGeneral() {
   const stop = codeDefaults.ultracode ? 5 : Math.max(0, EFFORTS.indexOf(codeDefaults.effort || 'high'));
   $('jcs-effort').value = String(stop);
   $('jcs-effort').style.setProperty('--fill', `${(stop / 5) * 100}%`);
+  $('jcs-effort').parentElement.style.setProperty('--p', String(stop / 5));
   $('jcs-effort-out').textContent = effortName(stop);
   $('jcs-effort-out').classList.toggle('ultra', stop === 5);
   $('jcs-queue').setAttribute('aria-checked', String(!prefs || prefs.code_queue !== false));
@@ -2807,6 +2821,7 @@ $('jcs-mode').addEventListener('change', () => {
 $('jcs-effort').addEventListener('input', () => {
   const stop = Number($('jcs-effort').value);
   $('jcs-effort').style.setProperty('--fill', `${(stop / 5) * 100}%`);
+  $('jcs-effort').parentElement.style.setProperty('--p', String(stop / 5));
   $('jcs-effort-out').textContent = effortName(stop);
   $('jcs-effort-out').classList.toggle('ultra', stop === 5);
 });
