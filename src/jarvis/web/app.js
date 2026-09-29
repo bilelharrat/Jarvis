@@ -220,7 +220,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (typing) e.target.blur();
     if (!$('browser').hidden && !typing) toggleBrowser(false);
-    else if (!$('cc').hidden) toggleCC(false);
+    else if (!$('cc').hidden) { if (!jcEscape(e)) toggleCC(false); }
     else if (!$('accounts').hidden) toggleAccounts(false);
     else if (!$('settings').hidden) toggleSettings(false);
     else if (galaxyMode === 'open') setGalaxyMode('off');
@@ -494,8 +494,13 @@ function placePanels(look) {
   const left = document.querySelector('.side.left');
   const right = document.querySelector('.side.right');
   const moved = [$('p-markets'), $('p-uptime')];
-  if (look === 'orb') right.prepend(...moved);
-  else left.append(...moved);
+  if (look === 'orb') {
+    left.prepend($('p-weather'), $('p-system'));  // weather on top, system stats under it
+    right.prepend(...moved);
+  } else {
+    left.prepend($('p-system'), $('p-weather'));
+    left.append(...moved);
+  }
 }
 placePanels(document.body.dataset.look);
 
@@ -972,10 +977,11 @@ function toggleCC(open) {
     send({ type: 'claude_projects' });
     if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }
     requestAnimationFrame(() => { setThumb(); moveGlider(); });
+    if (currentPane) renderPaneBody();
     setTimeout(() => $('deck-input').focus(), 40);
   } else {
     closeMenu();
-    if (currentPane === 'sim') send({ type: 'sim_watch', udid: '' });
+    if (currentPane === 'sim') { send({ type: 'sim_watch', udid: '' }); simWatching = ''; }
   }
 }
 $('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
@@ -1377,7 +1383,7 @@ function agentEntry(e) {
   return li;
 }
 
-const live = { text: null, thinking: null };
+const live = { text: null, thinking: null, frame: 0 };
 
 function appendEntry(e) {
   const tl = $('deck-timeline');
@@ -1483,7 +1489,16 @@ function onStream(ev) {
       tl.insertBefore(live.text, tl.querySelector('.jc-ask'));
     }
     live.text.dataset.raw += ev.text;
-    live.text.replaceChildren(richText(live.text.dataset.raw));
+    if (!live.frame) {
+      // One redraw per frame, not per token: a long reply would otherwise re-render
+      // itself hundreds of times a second.
+      live.frame = requestAnimationFrame(() => {
+        live.frame = 0;
+        if (!live.text) return;
+        live.text.replaceChildren(richText(live.text.dataset.raw));
+        if (nearBottom) box.scrollTop = box.scrollHeight;
+      });
+    }
   }
   $('cc-welcome').hidden = true;
   if (nearBottom) box.scrollTop = box.scrollHeight;
@@ -1524,6 +1539,7 @@ function renderInlineApprovals() {
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); answerApproval(a, 'deny', input.value); } });
     li.append(row, feedback, el('p', 'jc-ask-hint', 'Press a number, or just say “yes”, “no, …” or “option 2”.'));
     $('deck-timeline').append(li);
+    if (document.activeElement === $('deck-input') && !$('deck-input').value) row.querySelector('button').focus();
     $('cc-welcome').hidden = true;
     $('cc-scroll').scrollTop = $('cc-scroll').scrollHeight;
   }
@@ -1655,17 +1671,12 @@ $('deck-input').addEventListener('keydown', (e) => {
   if (s.items.length && !$('cc-slash').hidden) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length; renderSuggestions(); return; }
     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(s, s.items[pickIndex]); return; }
-    if (e.key === 'Escape') { e.preventDefault(); $('cc-slash').hidden = true; return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; return; }
   }
   if (e.key === 'Tab' && e.shiftKey) {  // shift+tab cycles the mode, as in Claude Code
     e.preventDefault();
     const t = currentTask();
     if (t) send({ type: 'task_mode', id: t.id, mode: MODE_CYCLE[(MODE_CYCLE.indexOf(t.mode) + 1) % MODE_CYCLE.length] });
-    return;
-  }
-  if (e.key === 'Escape') {
-    const t = currentTask();
-    if (t && t.busy) { e.preventDefault(); send({ type: 'task_interrupt', id: t.id }); }
     return;
   }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
@@ -1723,10 +1734,9 @@ $('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(add
 document.addEventListener('keydown', (e) => {
   if ($('cc').hidden) return;
   if (e.key.toLowerCase() === 'f' && e.metaKey && e.shiftKey) { e.preventDefault(); openPane('files'); return; }
-  if (e.key === 'Escape' && !$('jc-menu').hidden) { closeMenu(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const tag = document.activeElement && document.activeElement.tagName;
-  if ((tag === 'INPUT' || tag === 'TEXTAREA') && document.activeElement.value) return;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;  // typing
   const a = [...pendingApprovals.values()].find((x) => x.task_id === ccSelected);
   const n = Number(e.key);
   if (a && n >= 1 && n <= a.choices.length) {
@@ -1735,6 +1745,20 @@ document.addEventListener('keydown', (e) => {
     if (c.id === 'deny') { const box = document.querySelector(`[data-approval="${CSS.escape(a.id)}"] .jc-feedback`); if (box) { box.hidden = false; box.querySelector('input').focus(); } } else answerApproval(a, c.id);
   }
 });
+
+// Esc in Jarvis Code undoes the most specific thing first, as in Claude Code: a menu or
+// suggestion list, an edit, the running step, the open pane, and only then the panel
+// (never with unsent text in the composer). True when it handled the key.
+function jcEscape(e) {
+  if (!$('jc-menu').hidden) { closeMenu(); return true; }
+  if (!$('cc-slash').hidden) { $('cc-slash').hidden = true; return true; }
+  if ($('jc-title').isContentEditable) return true;
+  const t = currentTask();
+  if (t && t.busy) { send({ type: 'task_interrupt', id: t.id }); return true; }
+  if (currentPane) { closePane(); return true; }
+  const field = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement;
+  return field && !!e.target.value;
+}
 
 // ── menus: model, effort, More ──
 
@@ -1835,7 +1859,7 @@ $('jc-browser').addEventListener('click', () => { if (typeof toggleBrowser === '
 $('jc-pane-close').addEventListener('click', closePane);
 
 function openPane(kind) {
-  if (currentPane === 'sim' && kind !== 'sim') send({ type: 'sim_watch', udid: '' });
+  if (currentPane === 'sim' && kind !== 'sim') { send({ type: 'sim_watch', udid: '' }); simWatching = ''; }
   currentPane = kind;
   $('jc-pane').hidden = false;
   $('jc-pane-title').textContent = PANE_TITLES[kind] || kind;
@@ -1850,7 +1874,7 @@ function openPane(kind) {
 }
 
 function closePane() {
-  if (currentPane === 'sim') send({ type: 'sim_watch', udid: '' });
+  if (currentPane === 'sim') { send({ type: 'sim_watch', udid: '' }); simWatching = ''; }
   currentPane = null;
   $('jc-pane').hidden = true;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', 'false'));

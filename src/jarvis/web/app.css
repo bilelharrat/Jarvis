@@ -631,7 +631,20 @@ body[data-look="orb"] .panel {
 }
 body[data-look="orb"] .panel h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.1px; }
 body[data-look="orb"] .meter { font-size: 14px; }
-body[data-look="orb"] .weather-now b { font-family: var(--sans); font-size: 40px; font-weight: 500; letter-spacing: -1px; }
+body[data-look="orb"] .weather-now b { font-family: var(--sans); font-size: 34px; font-weight: 500; letter-spacing: -1px; line-height: 1; }
+/* four panels, one size: weather, system stats, markets, session */
+body[data-look="orb"] .side .panel { height: 244px; overflow: hidden; }
+body[data-look="orb"] .weather-now { align-items: center; gap: 10px; }
+body[data-look="orb"] .weather-now span { font-size: 12.5px; line-height: 1.35; }
+body[data-look="orb"] #p-weather .weather-body { flex: 1; justify-content: space-evenly; gap: 12px; }
+body[data-look="orb"] #p-weather .weather-now b { font-size: 42px; }
+body[data-look="orb"] #p-uptime .kv-grid, body[data-look="orb"] #p-markets .mk-indices { flex: 1; align-content: space-evenly; }
+body[data-look="orb"] #p-markets .mk-indices { justify-content: space-evenly; }
+body[data-look="orb"] .weather-body .kv-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+body[data-look="orb"] .weather-body .kv-grid > div { padding: 9px 10px; }
+body[data-look="orb"] .weather-body .kv-grid b { font-size: 14px; }
+body[data-look="orb"] #p-uptime .kv-grid > div { padding: 12px; }
+body[data-look="orb"] .mk-indices { gap: 11px; }
 @media (max-width: 1100px) {
   body[data-look="orb"] .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: max-content; align-content: start; overflow-y: auto; padding-bottom: 24px; }
   body[data-look="orb"] .stage { grid-column: 1 / -1; order: -1; }
