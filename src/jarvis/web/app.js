@@ -39,14 +39,25 @@ function connect() {
   ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}`);
   ws.onopen = () => { retry = 0; $('offline').hidden = true; };
   ws.onmessage = (e) => onEvent(JSON.parse(e.data));
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     $('offline').hidden = false;
+    if (e.code === 1009) notice('Jarvis', '', 'A message was too big for the connection and didn’t go.', 8000);
     setTimeout(connect, Math.min(5000, 500 * 2 ** retry++));
   };
 }
 
+// The window socket takes frames up to 64 MiB (server.serve): a message is kept well under.
+const MAX_FRAME = 60 * 1024 * 1024;
+
+// True once the message is on its way. False when there's no connection yet (a restart,
+// the half second of a reconnect) or it's too big to send: the caller keeps the draft.
 function send(msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  const text = JSON.stringify(msg);
+  // Length counts UTF-16 units; UTF-8 needs up to three bytes for one, so measure only then.
+  if (text.length * 3 > MAX_FRAME && new Blob([text]).size > MAX_FRAME) return false;
+  ws.send(text);
+  return true;
 }
 
 function onEvent(ev) {
@@ -244,7 +255,7 @@ function talkOrStop() {
 
 function ask(text) {
   text = text.trim();
-  if (text) send({ type: 'ask', text });
+  return !text || send({ type: 'ask', text });
 }
 
 $('orb').addEventListener('click', talkOrStop);
@@ -254,7 +265,7 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
 }));
 $('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  ask($('ask-input').value);
+  if (!ask($('ask-input').value)) { notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000); return; }
   $('ask-input').value = '';
   $('ask-input').blur();
 });
@@ -2015,35 +2026,47 @@ function localSlash(text) {
   }
 }
 
+// A message that didn't go keeps its text and files in the composer, and says why.
+function unsent() {
+  jcNote(ws && ws.readyState === WebSocket.OPEN
+    ? 'That message is too big to send. Take a file or two out and send again.'
+    : 'Not connected yet. Your message and files are still here: send again in a moment.');
+  return false;
+}
+
+// True when the composer can be cleared: the message went, or there was nothing to send.
 function sendToSession(text) {
   text = text.trim();
   const images = attachments.map((a) => ({ media_type: a.type, data: a.data, name: a.name }));
-  if (!text && !images.length) return;
+  if (!text && !images.length) return true;
   const t = currentTask();
   if (!t) {
-    if (!deckProject) return;
+    if (!deckProject) return false;
+    const extra = { add_dirs: [...pending.dirs], plugins: [...pending.plugins] };
+    if (!send({ type: 'task_new', directory: deckProject, prompt: text, images, ...extra })) return unsent();
+    takePending();  // the folders and plugins went with it
     clearAttachments();
     awaitingNewSession = true;
-    send({ type: 'task_new', directory: deckProject, prompt: text, images, ...takePending() });
-    return;
+    return true;
   }
-  clearAttachments();
   if (text.startsWith('/') && !images.length) {
-    if (localSlash(text)) return;
+    if (localSlash(text)) return true;
+    if (!send({ type: 'code_command', id: t.id, text })) return unsent();
     if (text === '/new' || text === '/clear') awaitingNewSession = true;
-    send({ type: 'code_command', id: t.id, text });
-    return;
+    return true;
   }
-  if (text.startsWith('!') && !images.length) { runBang(t, text.slice(1).trim()); return; }
-  if (text.startsWith('#') && !images.length) { saveMemory(t, text.slice(1).trim()); return; }
+  if (text.startsWith('!') && !images.length) { runBang(t, text.slice(1).trim()); return true; }
+  if (text.startsWith('#') && !images.length) { saveMemory(t, text.slice(1).trim()); return true; }
   const ran = bangContext.get(t.id);
   if (ran && ran.length) {
     // What the user ran with ! goes to Claude with their next message, as in Claude Code.
     const blocks = ran.map((r) => `$ ${r.command}\n${r.output.trim() || '(no output)'}${r.code ? `\n(exit ${r.code})` : ''}`);
     text = `I ran this in the project first:\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\`\n\n${text}`;
-    bangContext.delete(t.id);
   }
-  send({ type: 'task_send', id: t.id, text, images });
+  if (!send({ type: 'task_send', id: t.id, text, images })) return unsent();
+  bangContext.delete(t.id);  // only once it went with this message
+  clearAttachments();
+  return true;
 }
 
 // ! runs a command in the project (its output rides along with the next message); #
@@ -2090,7 +2113,7 @@ function onMemory(ev) {
 
 $('deck-composer').addEventListener('submit', (e) => {
   e.preventDefault();
-  sendToSession($('deck-input').value);
+  if (!sendToSession($('deck-input').value)) return;  // not sent: the draft stays
   $('deck-input').value = '';
   $('deck-input').style.height = '';
   $('cc-slash').hidden = true;
@@ -2127,8 +2150,6 @@ $('deck-input').addEventListener('input', () => {
 // files (sent as documents with their names). Paste, drop, ⌘U or the + menu.
 const TEXT_FILE = /\.(md|markdown|txt|log|json|jsonl|csv|tsv|ya?ml|toml|ini|cfg|conf|xml|html?|css|scss|less|m?js|cjs|tsx?|jsx|vue|svelte|py|pyi|rb|go|rs|java|kt|kts|swift|m|mm|c|h|cc|cpp|hpp|cs|php|pl|lua|r|dart|scala|sh|bash|zsh|fish|sql|graphql|proto|env\.example|gitignore|dockerfile|makefile|gradle|plist|strings|diff|patch)$/i;
 const TEXT_TYPES = ['application/json', 'application/xml', 'application/javascript', 'application/x-yaml', 'application/yaml', 'application/toml', 'application/x-sh', 'application/sql'];
-const MAX_TEXT_FILE = 400_000;
-const MAX_BINARY_FILE = 6_000_000;
 
 function fileKind(file) {
   if (file.type.startsWith('image/')) return 'image';
@@ -2139,20 +2160,26 @@ function fileKind(file) {
 function jcNote(text) { notice('Jarvis Code', '', text, 6000); }
 function sizeText(n) { return n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`; }
 
-// What one message may carry in all (base64 or text): well under the window socket's frame.
-const MAX_ATTACH_TOTAL = 24_000_000;
+// Files picked and still being read: they count against the limits like attached ones
+// (attach.js), so a drop or paste of many files at once can't slip past them.
+const reading = new Set();
 
 function addFile(file) {
   if (!file) return;
-  if (attachments.length >= 6) { jcNote('Up to six attachments per message.'); return; }
-  const used = attachments.reduce((n, a) => n + (a.data ? a.data.length : 0), 0);
-  if (used + file.size * (fileKind(file) === 'text' ? 1 : 1.37) > MAX_ATTACH_TOTAL) { jcNote(`${file.name} would make this message too big to send. Send it in a message of its own.`); return; }
   const kind = fileKind(file);
   if (!kind) { jcNote(`${file.name} can’t be attached: pictures, PDFs and text or code files only.`); return; }
-  if (kind === 'text' && file.size > MAX_TEXT_FILE) { jcNote(`${file.name} is over 400 KB. Put it in the project and mention it with @ instead.`); return; }
-  if (kind !== 'text' && file.size > MAX_BINARY_FILE) { jcNote(`${file.name} is over 6 MB.`); return; }
+  const held = [...attachments, ...reading].map((a) => ({ kind: a.kind, size: a.size || 0 }));
+  const why = window.JarvisAttach.check(held, kind, file.size);
+  if (why === 'files') { jcNote('Up to six attachments per message.'); return; }
+  if (why === 'size' && kind === 'text') { jcNote(`${file.name} is over 400 KB. Put it in the project and mention it with @ instead.`); return; }
+  if (why === 'size') { jcNote(`${file.name} is over 6 MB.`); return; }
+  if (why === 'total') { jcNote(`${file.name} would make this message too big to send. Send it in a message of its own.`); return; }
+  const slot = { kind, size: file.size };
+  reading.add(slot);
   const reader = new FileReader();
+  reader.onerror = () => { reading.delete(slot); jcNote(`${file.name} couldn’t be read.`); };
   reader.onload = () => {
+    reading.delete(slot);
     const result = String(reader.result);
     if (kind === 'text') {
       if (result.includes('\u0000')) { jcNote(`${file.name} isn’t a text file.`); return; }

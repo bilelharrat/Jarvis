@@ -1214,7 +1214,10 @@ class TaskManager:
         """Sessions that ended stay listed (and resumable) up to MAX_ENDED of them, newest
         first; older ones go (Claude Code keeps their conversations, to resume)."""
         keep = MAX_ENDED if keep is None else keep
-        current = asyncio.current_task()  # a session pruning as it ends counts as ended
+        try:
+            current = asyncio.current_task()  # a session pruning as it ends counts as ended
+        except RuntimeError:  # finalized after its loop closed (at exit): nothing is current
+            current = None
         ended = sorted(
             (
                 t

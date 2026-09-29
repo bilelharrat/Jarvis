@@ -177,6 +177,8 @@ FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 DICTATION_SECONDS = 20.0  # the composer's mic waits this long for the user to start
 REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they hear "busy"
 WINDOW_QUEUE = 3000  # events waiting for one window; one that stops reading is cut off
+WINDOW_BYTES = 32 * 1024 * 1024  # and at most this much of their text (terminal output,
+# simulator pictures, file views): 3000 terminal chunks alone would be 260 MB
 REPLY_EVERY = 0.05  # s: a streaming reply goes to the windows at most 20 times a second
 COALESCE_AT = 200  # past this many waiting, only the newest copy of LATEST_ONLY kinds stays
 # Events where a window needs only the newest copy (the whole state, not a change).
@@ -189,6 +191,12 @@ LATEST_ONLY = frozenset(
 )  # fmt: skip
 
 
+def _text_size(event: dict[str, Any]) -> int:
+    """How big an event is, near enough: its top-level text. The big ones carry their bulk
+    there (a terminal's output, a simulator picture, a file's text)."""
+    return sum(len(v) for v in event.values() if isinstance(v, str))
+
+
 class WindowQueue:
     """One window's events. A window that falls behind gets only the newest copy of the
     kinds where that's all it needs; one that stops reading altogether is cut off (the
@@ -199,6 +207,8 @@ class WindowQueue:
         self._items: deque[dict[str, Any]] = deque()
         self._ready = asyncio.Event()
         self.maxsize = maxsize or WINDOW_QUEUE
+        self.max_bytes = WINDOW_BYTES
+        self.bytes = 0  # the top-level text of the events waiting: what makes them big
         self.cut_off = False
 
     def put_nowait(self, event: dict[str, Any]) -> None:
@@ -211,20 +221,26 @@ class WindowQueue:
                 queued = self._items[i]
                 if (queued.get("type"), queued.get("rid")) == key:
                     del self._items[i]  # the newer copy goes at the end, in order
+                    self.bytes -= _text_size(queued)
                     break
-        if len(self._items) >= self.maxsize:
+        size = _text_size(event)
+        if len(self._items) >= self.maxsize or self.bytes + size > self.max_bytes:
             self.cut_off = True
             self._items.clear()
+            self.bytes = 0
         else:
             self._items.append(event)
+            self.bytes += size
         self._ready.set()
 
     def get_nowait(self) -> dict[str, Any]:
         if not self._items:
             raise asyncio.QueueEmpty
         event = self._items.popleft()
+        self.bytes -= _text_size(event)
         if not self._items:
             self._ready.clear()
+            self.bytes = 0
         return event
 
     async def get(self) -> dict[str, Any] | None:
@@ -3883,7 +3899,7 @@ class Hub:
                 "name": str(i.get("name", ""))[:200],
             }
             for i in (msg.get("images") or [])[:6]
-            if isinstance(i, dict) and 0 < len(str(i.get("data", ""))) < 8_000_000
+            if isinstance(i, dict) and 0 < len(str(i.get("data", ""))) <= 8_000_000
         ]
         return items or None
 

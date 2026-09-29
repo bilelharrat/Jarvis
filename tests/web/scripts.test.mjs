@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 // fileURLToPath, not .pathname: the repo's path has a space in it (%20 in a URL).
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
-const SCRIPTS = ['i18n.js', 'galaxy.js', 'app.js']; // in index.html's order
+const SCRIPTS = ['i18n.js', 'galaxy.js', 'attach.js', 'app.js']; // in index.html's order
 
 test('no name is declared twice across the window scripts', () => {
   const source = SCRIPTS.map((f) => readFileSync(`${WEB}/${f}`, 'utf8')).join('\n;\n');

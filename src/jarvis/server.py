@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import math
 import re
 import secrets
@@ -23,6 +24,11 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 
 from .hub import Hub
+
+log = logging.getLogger("jarvis")
+# Frames one window's burst may carry before the others get a turn: a single read can hold
+# thousands of small commands, and handling them all in one step starves every pump.
+YIELD_EVERY = 32
 
 
 class FreshStaticFiles(StaticFiles):
@@ -99,16 +105,32 @@ def create_app(hub: Hub, token: str) -> Starlette:
         sender: asyncio.Task | None = None
 
         async def pump() -> None:
-            while (event := await queue.get()) is not None:
-                await send_event(ws, event)
-            # Fell too far behind: close, and the window reconnects to a fresh snapshot.
+            unsendable: set[str] = set()
+            try:
+                while (event := await queue.get()) is not None:
+                    try:
+                        text = event_text(event)
+                    except Exception:  # no JSON can carry it (a tuple key, absurd nesting)
+                        kind = str(event.get("type"))
+                        if kind not in unsendable:  # said once per kind, not per event
+                            unsendable.add(kind)
+                            log.exception("window event %r can't be sent; skipped", kind)
+                        continue
+                    await ws.send_text(text)
+                code = 4408  # fell too far behind: it reconnects to a fresh snapshot
+            except Exception:  # the socket failed under it: never a window left deaf
+                code = 1011
             with contextlib.suppress(Exception):
-                await ws.close(code=4408)
+                await ws.close(code=code)
 
         try:
             await send_event(ws, hub.snapshot())
             sender = asyncio.create_task(pump())
+            frames = 0
             while True:
+                frames += 1
+                if frames % YIELD_EVERY == 0:
+                    await asyncio.sleep(0)  # a burst from one read: let the pumps run too
                 try:
                     msg = await ws.receive_json()
                 except (ValueError, KeyError, TypeError, RecursionError):
@@ -169,8 +191,8 @@ def event_text(event: dict[str, Any]) -> str:
         text = json.dumps(_finite(event), ensure_ascii=False, separators=(",", ":"), default=str)
     try:
         text.encode("utf-8")
-    except UnicodeEncodeError:  # half of a surrogate pair: becomes U+FFFD
-        text = text.encode("utf-8", "replace").decode("utf-8", "replace")
+    except UnicodeEncodeError:  # half of a surrogate pair: becomes U+FFFD (as fileindex does)
+        text = text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
     return text
 
 
