@@ -99,14 +99,23 @@ def notes_for(
 ) -> tuple[list[str], bool]:
     """The notes for this request, and whether any holds the user's own private data
     (their calendar): a turn that carries it counts as having read private data."""
+    from .lang import LIVE_TOPICS_ZH  # the same topics asked in Chinese
+
+    text = text or ""
     notes = [clock(now)]
     private = False
-    if WEATHER.search(text or "") and (line := weather_line(weather)):
+    if (WEATHER.search(text) or LIVE_TOPICS_ZH["weather"].search(text)) and (
+        line := weather_line(weather)
+    ):
         notes.append(line)
-    if CALENDAR.search(text or "") and (line := event_line(event, now)):
+    if (CALENDAR.search(text) or LIVE_TOPICS_ZH["calendar"].search(text)) and (
+        line := event_line(event, now)
+    ):
         notes.append(line)
         private = True
-    if MARKETS.search(text or "") and (line := markets_line(markets)):
+    if (MARKETS.search(text) or LIVE_TOPICS_ZH["markets"].search(text)) and (
+        line := markets_line(markets)
+    ):
         notes.append(line)
     return notes, private
 

@@ -71,8 +71,10 @@ def browser_tools(call: BrowserCall) -> list[Any]:
             f"- {f['tag']} {f.get('type', '')} {f.get('label', '')}".strip()
             for f in r.get("fields", [])[:30]
         )
+        actions = ", ".join(str(a) for a in (r.get("actions") or [])[:60])
         return _text(
-            f"{r.get('title')}\n{r.get('url')}\n\n{r.get('text', '')}\n\nLinks:\n{links}\n\nFields:\n{fields}"
+            f"{r.get('title')}\n{r.get('url')}\n\n{r.get('text', '')}\n\nLinks:\n{links}"
+            f"\n\nFields:\n{fields}\n\nThings you can press: {actions or '(none in view)'}"
         )
 
     @tool(

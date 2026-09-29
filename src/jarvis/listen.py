@@ -452,8 +452,9 @@ class ContinuousListener:
 class Transcriber:
     """Offline speech-to-text. The model downloads once (~150 MB for base.en) on first use."""
 
-    def __init__(self, model_name: str) -> None:
+    def __init__(self, model_name: str, language: str = "en") -> None:
         self.model_name = model_name
+        self.language = language  # "zh": Mandarin, with a multilingual model
         self._model = None
         self._lock = threading.Lock()
 
@@ -479,21 +480,23 @@ class Transcriber:
         # Audio arrives already cut at speech boundaries, so Whisper's own VAD only trims
         # first words; a short lead-in of silence stops it swallowing the first word.
         # (Measured with scripts/stress_hands_free.py: 86% -> 88% wake detection.)
+        from . import lang
+
         padded = np.concatenate([np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32), audio])
         segments, _info = self._load().transcribe(
             padded,
-            language="en",
             beam_size=1,
             vad_filter=False,
-            # Just the name: a longer hint ("Hey Jarvis, Jarvis") made Whisper treat the
-            # phrase as already said and drop it (11/32 woke vs 30/32, measured).
-            hotwords=hotwords or "Jarvis",
+            # English: language "en" and just the name as a hotword (a longer hint, "Hey
+            # Jarvis, Jarvis", made Whisper treat the phrase as said and drop it: 11/32
+            # woke vs 30/32, measured). Chinese: "zh", 贾维斯 and a Simplified prompt.
+            **lang.transcribe_options(self.language, "" if hotwords == "Jarvis" else hotwords),
             # Faster, and nothing here needs timestamps or the previous utterance.
             without_timestamps=True,
             condition_on_previous_text=False,
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
-        return "" if is_hallucination(text) else text
+        return lang.clean_transcript(text, self.language)
 
 
 # What Whisper tends to invent from silence or room noise.

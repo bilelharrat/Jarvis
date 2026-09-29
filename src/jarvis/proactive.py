@@ -236,6 +236,7 @@ class Watcher:
         battery: Callable[[], dict[str, Any] | None],
         weather: Callable[[], dict[str, Any] | None],
         mail: Callable[[], Awaitable[list[Any]]] | None = None,
+        files: Callable[[list[dict[str, Any]], datetime], Awaitable[list[Alert]]] | None = None,
         vip_text: Callable[[], str] = lambda: "",
         enabled: Callable[[], bool] = lambda: True,
     ) -> None:
@@ -243,6 +244,7 @@ class Watcher:
         self._events_fn, self._eta_fn = events, eta
         self._battery_fn, self._weather_fn = battery, weather
         self._mail_fn, self._vip_fn, self._enabled = mail, vip_text, enabled
+        self._files_fn = files  # the file index: a meeting's files, before it starts
         self.announced: set[str] = set()
         self._events: list[dict[str, Any]] = []
         self._events_at: datetime | None = None
@@ -271,6 +273,11 @@ class Watcher:
         alerts += battery_alerts(self._battery_fn())
         alerts += rain_alerts(self._weather_fn(), now)
         alerts += await self._mail(now)
+        if self._files_fn is not None:
+            try:
+                alerts += await self._files_fn(self._events, now)
+            except Exception as exc:  # an index being rebuilt: next time
+                log.info("proactive: no meeting files (%s)", exc)
         power = self._battery_fn() or {}
         if power.get("plugged") or power.get("percent", 100) > 10:
             self.announced -= {"battery:10", "battery:5"}  # charging: warn again next time

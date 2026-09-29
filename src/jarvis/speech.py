@@ -448,10 +448,13 @@ class Speaker:
         self.voice = voice if voice in available_voices() else ""
         self.rate = rate
         self.muted = muted
+        # What a text becomes before it's voiced; the hub sets the chosen language's
+        # (Chinese: numbers, times and money said in Chinese).
+        self.clean: Callable[[str], str] = clean_for_speech
         self.effect = effect
         self.cloud = cloud
         self.cloud_error = ""
-        self._proc: asyncio.subprocess.Process | None = None
+        self._procs: set[asyncio.subprocess.Process] = set()  # every `say` running
         self._player: asyncio.subprocess.Process | None = None
         self._playing = False
         self.player_path: Path | None = None  # set once the native player is built
@@ -499,7 +502,7 @@ class Speaker:
                 pass
 
     def stop(self) -> None:
-        for proc in (self._proc, self._player):
+        for proc in (*self._procs, self._player):
             if proc is not None and proc.returncode is None:
                 proc.kill()
         if self._live is not None:
@@ -513,7 +516,7 @@ class Speaker:
 
     async def say(self, text: str) -> None:
         """Speak one piece of text start to finish (confirmations, one-offs)."""
-        spoken = clean_for_speech(text)
+        spoken = self.clean(text)
         if self.muted or not spoken:
             return
         if self.player_path is not None:
@@ -660,14 +663,14 @@ class Speaker:
     async def _run(self, args: list[str], spoken: str) -> None:
         # Text goes over stdin so a reply starting with "-" is never read as a flag.
         proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE)
-        self._proc = proc
+        self._procs.add(proc)  # a phone's clip being made never hides the Mac's own voice
         try:
             await proc.communicate(spoken.encode())
         except asyncio.CancelledError:
             proc.kill()
             raise
         finally:
-            self._proc = None
+            self._procs.discard(proc)
 
     async def play(self, audio: np.ndarray, rate: int) -> None:
         """Play a finished clip: through the live player when it's running (instant), else
@@ -774,7 +777,7 @@ class SpeechQueue:
         self._said: list[list[Any]] = []  # [what it said, when that finished playing]
 
     def push(self, text: str) -> None:
-        spoken = clean_for_speech(text)
+        spoken = getattr(self.speaker, "clean", clean_for_speech)(text)
         if self.speaker.muted or not spoken:
             return
         self._pending += 1
@@ -790,7 +793,7 @@ class SpeechQueue:
         if self.speaker.muted:
             return
         if text:
-            self._remember(clean_for_speech(text))
+            self._remember(getattr(self.speaker, "clean", clean_for_speech)(text))
         self._pending += 1
         self._idle.clear()
         future = asyncio.get_running_loop().create_future()

@@ -65,8 +65,22 @@ def events(hours_back: float, hours_ahead: float) -> dict[str, Any]:
         status = event.status() if hasattr(event, "status") else 0
         if status == 3:  # cancelled
             continue
+        # Who else is in it (names, or their addresses): the file index finds what the
+        # owner has for a meeting by its title and by these people.
+        attendees = []
+        for person in (event.attendees() if hasattr(event, "attendees") else None) or []:
+            try:
+                if person.isCurrentUser():
+                    continue  # the owner is in every meeting: their name would match everything
+                url = person.URL()
+                attendees.append(
+                    str(person.name() or "") or (str(url.absoluteString()) if url else "")
+                )
+            except Exception:  # an odd participant record: skip it
+                continue
         out.append(
             {
+                "attendees": [a for a in attendees if a][:10],
                 "title": str(event.title() or "Untitled"),
                 "begin": begin.isoformat(timespec="minutes"),
                 "end": finish.isoformat(timespec="minutes"),

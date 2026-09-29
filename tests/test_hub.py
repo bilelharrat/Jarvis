@@ -565,7 +565,9 @@ async def test_mouse_and_keyboard_can_be_always_allowed(settings, quiet_speaker,
     assert not hub.approvals
     await hub.reset()
     assert "taking over the mouse and keyboard" not in hub.client.options.system_prompt
-    assert "never click to buy" in hub.client.options.system_prompt
+    prompt = hub.client.options.system_prompt
+    assert "never click to delete" in prompt  # the rule stays with control always allowed
+    assert "through confirm_transaction, never with the mouse and keyboard" in prompt
 
 
 async def test_a_finished_request_is_answered_before_the_full_silence(

@@ -78,12 +78,21 @@ function onEvent(ev) {
       $('v-accounts').textContent = (ev.accounts || []).length;
       $('v-model').textContent = ev.model_name || '–';
       renderMemory(ev.memory || []);
+      if (ev.providers) onProviders(ev.providers);
+      if (ev.goals) renderGoals(ev.goals);
+      if (ev.delegations) renderDelegations(ev.delegations);
+      if (ev.purchases) renderPurchases(ev.purchases);
+      if (ev.file_index) renderFileIndex(ev.file_index);
       renderRoutines(ev.routines || []);
       if (ev.remote) renderRemote(ev.remote);
       onMeeting(ev.meeting || { active: false });
       onVoiceCode(ev.voicecode);
       break;
     case 'memory': renderMemory(ev.items || []); break;
+    case 'goals': renderGoals(ev); break;
+    case 'delegations': renderDelegations(ev.items || []); break;
+    case 'purchases': renderPurchases(ev); break;
+    case 'files_status': renderFileIndex(ev); break;
     case 'routines': renderRoutines(ev.items || []); break;
     case 'remote': renderRemote(ev); break;
     case 'devices': send({ type: 'remote' }); break;
@@ -105,6 +114,7 @@ function onEvent(ev) {
       showHeard(ev.user);
       $('reply').textContent = '';
       renderSources();
+      renderFiles();
       break;
     case 'turn_done':
       history = history.filter((h) => !(h.live && !h.text));
@@ -120,6 +130,7 @@ function onEvent(ev) {
       break;
     }
     case 'sources': onSources(ev); break;
+    case 'files': onFiles(ev); break;
     case 'tool': onTool(ev); break;
     case 'approval': showApproval(ev); pendingApprovals.set(ev.id, ev); renderInlineApprovals(); break;
     case 'approval_resolved': {
@@ -258,6 +269,27 @@ function onSources(ev) {
     galaxy.highlight(list.map((s) => s.id));
     galaxy.flyTo(ev.items[0].id, galaxyMode === 'open' ? 0.9 : 1.2);
   }
+}
+
+// Files the index found for a request: open one, or ⌥-click to show it in Finder.
+const foundFiles = new Map();
+function onFiles(ev) {
+  if (!ev.items || !ev.items.length) return;
+  foundFiles.set(ev.rid, ev.items);
+  if (ev.rid === currentRid) renderFiles();
+}
+function renderFiles() {
+  const list = foundFiles.get(currentRid) || [];
+  const box = $('found-files');
+  box.hidden = list.length === 0;
+  box.replaceChildren(el('span', 'label', 'From your files:'), ...list.slice(0, 6).map((f) => {
+    const b = el('button', 'source file');
+    b.type = 'button';
+    b.title = `${f.where || f.path} (⌥-click: show in Finder)`;
+    b.append(icon(f.kind === 'pdf' ? 'pdf' : 'doc', 14), mine(el('span', '', f.name.length > 40 ? `${f.name.slice(0, 39)}…` : f.name)));
+    b.addEventListener('click', (e) => send({ type: 'found_file_open', path: f.path, reveal: e.altKey }));
+    return b;
+  }));
 }
 
 function renderSources() {
@@ -469,9 +501,9 @@ window.addEventListener('resize', () => galaxy.running && galaxy.resize());
 
 function tickClock() {
   const now = new Date();
-  $('hud-clock').textContent = now.toLocaleTimeString(undefined, { hour12: false });
-  $('console-clock').textContent = `${now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' })}  |  ${now.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}`;
-  $('clock').textContent = now.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  $('hud-clock').textContent = now.toLocaleTimeString(uiLocale(), { hour12: false });
+  $('console-clock').textContent = `${now.toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit', second: '2-digit' })}  |  ${now.toLocaleDateString(uiLocale(), { month: 'long', day: 'numeric', year: 'numeric' })}`;
+  $('clock').textContent = now.toLocaleString(uiLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
   const h = now.getHours();
   $('greeting').textContent = h < 5 ? 'Good evening.' : h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.';
 }
@@ -485,7 +517,7 @@ function renderStatus(status) {
   if (next) {
     const when = new Date(next.begin);
     const today = new Date().toDateString() === when.toDateString();
-    const time = when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const time = when.toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit' });
     $('next-event').textContent = `Next: ${next.title}, ${today ? '' : 'tomorrow '}at ${time}`;
     $('next-event').hidden = false;
   } else {
@@ -528,6 +560,8 @@ function renderPrefs(p) {
   document.body.dataset.look = p.look || 'orb';
   placePanels(document.body.dataset.look);
   document.querySelectorAll('#look-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.look === p.look)));
+  document.querySelectorAll('#lang-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.lang === (p.language || 'en'))));
+  if (window.jarvisI18n) window.jarvisI18n.setLang(p.language || 'en');
   if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';
   $('t-handsfree').setAttribute('aria-pressed', String(!!p.hands_free));
   const modelName = (p.models || []).find((m) => m.id === p.model);
@@ -551,6 +585,9 @@ function renderPrefs(p) {
   setSwitch('sw-queue', p.queue_requests !== false);
   setSwitch('sw-code-queue', p.code_queue !== false);
   awake = p.code_keep_awake !== false;
+  codeDefaults = { model: p.code_model || '', effort: p.code_effort || '', mode: p.code_mode || 'ask', ultracode: !!p.code_ultracode };
+  renderComposer();
+  if (!$('jc-settings').hidden) renderJcGeneral();
   $('screen-pill').hidden = !p.screen_aware;
   setSwitch('sw-control', p.control_always);
   setSwitch('sw-code-narrate', p.code_narrate);
@@ -587,6 +624,16 @@ function renderPrefs(p) {
   $('humor').value = p.humor;
   $('humor-out').textContent = `${p.humor}%`;
   if (document.activeElement !== $('address')) $('address').value = p.address || '';
+  if (document.activeElement !== $('owner-name')) $('owner-name').value = p.owner_name || '';
+  document.querySelectorAll('#interrupt-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === (p.interruptions || 'urgent'))));
+  if (document.activeElement !== $('vips')) $('vips').value = (p.vips || []).join(', ');
+  setSwitch('sw-pay', p.pay_enabled !== false);
+  $('pay-limits').classList.toggle('off', p.pay_enabled === false);
+  for (const [id, key] of [['pay-purchase', 'pay_limit_purchase'], ['pay-transfer', 'pay_limit_transfer'], ['pay-day', 'pay_limit_day']]) {
+    if (document.activeElement !== $(id) && p[key] !== undefined) $(id).value = String(p[key]);
+  }
+  if (p.pay_currency) $('pay-currency').value = p.pay_currency;
+  setSwitch('sw-file-index', p.file_index !== false);
   $('briefing-time').value = p.briefing_time;
   $('folders').replaceChildren(...(p.brain_folders || []).map((f) => {
     const li = el('li');
@@ -659,6 +706,119 @@ $('model-select').addEventListener('change', (e) => setPrefs({ model: e.target.v
 $('humor').addEventListener('input', (e) => { $('humor-out').textContent = `${e.target.value}%`; });
 $('humor').addEventListener('change', (e) => setPrefs({ humor: Number(e.target.value) }));
 $('address').addEventListener('change', (e) => setPrefs({ address: e.target.value }));
+$('owner-name').addEventListener('change', (e) => setPrefs({ owner_name: e.target.value }));
+
+// ── interruptions, purchases, the file index (Settings) ──
+document.querySelectorAll('#interrupt-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ interruptions: b.dataset.mode })));
+$('vips').addEventListener('change', (e) => setPrefs({ vips: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) }));
+$('sw-pay').addEventListener('click', () => setPrefs({ pay_enabled: prefs.pay_enabled === false }));
+for (const [id, key] of [['pay-purchase', 'pay_limit_purchase'], ['pay-transfer', 'pay_limit_transfer'], ['pay-day', 'pay_limit_day']]) {
+  $(id).addEventListener('change', (e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) setPrefs({ [key]: n }); });
+}
+$('pay-currency').addEventListener('change', (e) => setPrefs({ pay_currency: e.target.value }));
+$('sw-file-index').addEventListener('click', () => setPrefs({ file_index: prefs.file_index === false }));
+$('file-index-clear').addEventListener('click', () => { if (confirm(tr('Forget everything in the file index? It builds again the next time it runs.'))) send({ type: 'files_clear' }); });
+
+function renderPurchases(t) {
+  if (!t) return;
+  const money = (n) => (n == null ? '–' : `${n.toLocaleString(uiLocale(), { maximumFractionDigits: 2 })} ${t.currency}`);
+  const parts = [el('span', '', `Spent today: ${money(t.spent_today)} of ${money(t.limit_day)}`)];
+  if (t.log_damaged) parts.push(el('span', 'warn', 'The purchase log can’t be read, so buying is paused until it’s fixed.'));
+  $('pay-status').replaceChildren(...parts);
+}
+
+function renderFileIndex(st) {
+  if (!st) return;
+  const when = st.refreshed_at ? new Date(st.refreshed_at).toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const count = (st.files || 0).toLocaleString(uiLocale());
+  const line = st.state === 'running' ? `Indexing… ${count} files so far`
+    : st.files ? (when ? `${count} files · updated ${when}` : `${count} files`) : 'Not indexed yet';
+  const parts = [el('span', '', line)];
+  if (st.pending) parts.push(el('span', '', `${st.pending.toLocaleString(uiLocale())} waiting for Spotlight`));
+  const blocked = st.last && st.last.blocked;
+  if (blocked && blocked.length) parts.push(el('span', 'warn', `Can’t read ${blocked.join(', ')}: allow folder access in System Settings › Privacy & Security.`));
+  $('file-index-status').replaceChildren(...parts);
+}
+
+// ── goals and rules (goals.py), and conversations held for the user (delegate.py) ──
+const HORIZON_NAMES = { week: 'This week', month: 'This month', quarter: 'This quarter', year: 'This year', someday: 'Someday' };
+const RULE_KINDS = { time: 'Time', money: 'Money', health: 'Health', people: 'People', other: 'Other' };
+let goalsState = { goals: [], constraints: [], review: false };
+
+function renderGoals(g) {
+  if (!g) return;
+  goalsState = g;
+  $('goals-unreadable').hidden = !g.unreadable;
+  const active = (g.goals || []).filter((x) => x.status === 'active');
+  $('goal-list').replaceChildren(...(active.length ? active.map((x) => {
+    const li = el('li');
+    const text = el('span', 'fact');
+    text.append(mine(el('strong', '', x.text)), el('small', '', HORIZON_NAMES[x.horizon] || x.horizon));
+    const done = el('button', 'btn', 'Done');
+    done.type = 'button';
+    done.addEventListener('click', () => send({ type: 'goal_update', id: x.id, status: 'done' }));
+    const rm = el('button', 'btn', 'Remove');
+    rm.type = 'button';
+    rm.addEventListener('click', () => send({ type: 'goal_delete', id: x.id }));
+    li.append(text, done, rm);
+    return li;
+  }) : [el('li', 'muted', 'No goals yet.')]));
+  $('constraint-list').replaceChildren(...(g.constraints || []).map((c) => {
+    const li = el('li');
+    const text = el('span', 'fact');
+    text.append(mine(el('strong', '', c.text)), el('small', '', RULE_KINDS[c.kind] || c.kind));
+    const rm = el('button', 'btn', 'Remove');
+    rm.type = 'button';
+    rm.addEventListener('click', () => send({ type: 'constraint_delete', id: c.id }));
+    li.append(text, rm);
+    return li;
+  }));
+  setSwitch('sw-goal-review', !!g.review);
+}
+$('goal-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('goal-input').value.trim();
+  if (text) send({ type: 'goal_add', text, horizon: $('goal-horizon').value });
+  $('goal-input').value = '';
+});
+$('constraint-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('constraint-input').value.trim();
+  if (text) send({ type: 'constraint_add', text, kind: $('constraint-kind').value });
+  $('constraint-input').value = '';
+});
+$('sw-goal-review').addEventListener('click', () => send({ type: 'goal_review', on: !goalsState.review }));
+
+const DELEGATION_STATUS = { active: 'In progress', waiting_owner: 'Needs you', done: 'Done', stopped: 'Stopped', expired: 'Timed out' };
+function renderDelegations(items) {
+  const list = $('delegation-list');
+  if (!items || !items.length) { list.replaceChildren(el('li', 'muted', 'None yet.')); return; }
+  list.replaceChildren(...items.slice(0, 20).map((d) => {
+    const li = el('li', 'delegation');
+    const text = el('span', 'fact');
+    text.append(mine(el('strong', '', d.contact)), mine(el('span', 'goal', d.goal)),
+      el('small', '', `${DELEGATION_STATUS[d.status] || d.status} · ${d.messages_sent} sent`));
+    if (d.need_owner) text.append(mine(el('small', 'need', d.need_owner)));
+    else if (d.summary) text.append(mine(el('small', '', d.summary)));
+    li.append(text);
+    if (['active', 'waiting_owner'].includes(d.status)) {
+      if (d.status === 'waiting_owner') {
+        const go = el('button', 'btn', 'Continue…');
+        go.type = 'button';
+        go.addEventListener('click', () => {
+          const guidance = prompt(tr('What should Jarvis tell them, or do next?'));
+          if (guidance !== null) send({ type: 'delegation_continue', id: d.id, guidance });
+        });
+        li.append(go);
+      }
+      const stop = el('button', 'btn', 'Stop');
+      stop.type = 'button';
+      stop.addEventListener('click', () => send({ type: 'delegation_stop', id: d.id }));
+      li.append(stop);
+    }
+    return li;
+  }));
+}
 $('briefing-time').addEventListener('change', (e) => setPrefs({ briefing_time: e.target.value }));
 $('brief-now').addEventListener('click', () => { toggleSettings(false); send({ type: 'briefing' }); });
 $('rebuild').addEventListener('click', () => send({ type: 'brain_rebuild' }));
@@ -903,7 +1063,7 @@ function renderHistory() {
   list.replaceChildren(...history.slice(-60).map((h) => {
     const li = el('li', h.role);
     li.append(document.createTextNode(h.text || '…'));
-    const t = el('time', '', new Date(h.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+    const t = el('time', '', new Date(h.at).toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit' }));
     li.append(t);
     return li;
   }));
@@ -913,13 +1073,14 @@ function renderHistory() {
 function renderLog() {
   $('rt-log').replaceChildren(...activity.slice(0, 30).map((a) => {
     const li = el('li', a.status === 'failed' ? 'failed' : '');
-    li.append(el('time', '', `[${new Date(a.at).toLocaleTimeString(undefined, { hour12: false })}]`),
+    li.append(el('time', '', `[${new Date(a.at).toLocaleTimeString(uiLocale(), { hour12: false })}]`),
       document.createTextNode(`${a.label.toUpperCase()}${a.status === 'running' ? ' …' : a.status === 'failed' ? ' — FAILED' : ''}`));
     return li;
   }));
 }
 
 document.querySelectorAll('#look-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ look: b.dataset.look })));
+document.querySelectorAll('#lang-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ language: b.dataset.lang })));
 $('weather-city').addEventListener('change', (e) => setPrefs({ weather_city: e.target.value }));
 $('clear-history').addEventListener('click', () => send({ type: 'clear_history' }));
 $('export-history').addEventListener('click', () => send({ type: 'export_history' }));
@@ -931,7 +1092,7 @@ function renderAskQueue(items) {
   list.hidden = !items.length;
   list.replaceChildren(...items.map((item) => {
     const li = el('li', 'ask-queued');
-    li.append(el('span', 'ask-queued-kicker', 'Next'), el('span', 'ask-queued-text', item.text));
+    li.append(el('span', 'ask-queued-kicker', 'Next'), mine(el('span', 'ask-queued-text', item.text)));
     const x = el('button', 'ask-queued-x', '✕');
     x.type = 'button';
     x.setAttribute('aria-label', 'Don’t send this');
@@ -1000,7 +1161,7 @@ const MK_STATUS = { open: 'Open', pre: 'Pre-market', after: 'After hours', close
 function mkPct(p) { return `${p >= 0 ? '+' : '−'}${Math.abs(p).toFixed(2)}%`; }
 function mkPrice(q) {
   if (q.yield) return `${q.last.toFixed(3)}%`;
-  return q.last >= 1000 ? q.last.toLocaleString(undefined, { maximumFractionDigits: 0 }) : q.last.toFixed(2);
+  return q.last >= 1000 ? q.last.toLocaleString(uiLocale(), { maximumFractionDigits: 0 }) : q.last.toFixed(2);
 }
 
 function sparkline(points, up) {
@@ -1031,7 +1192,7 @@ function renderMarkets(m) {
   if (!m || !m.indices) return;
   $('mk-status').textContent = `${MK_STATUS[m.status] || m.status}${m.status === 'open' ? closesIn() : ''}`;
   $('mk-status').dataset.state = m.status;
-  $('mk-status').title = m.headline || '';
+  $('mk-status').title = (uiLocale() && m.headline_zh) || m.headline || '';
   $('mk-indices').replaceChildren(...m.indices.map((q) => {
     const row = el('div', `meter mk-row ${q.pct >= 0 ? 'up' : 'down'}`);
     const value = el('b');
@@ -1057,7 +1218,7 @@ let pastSessions = [];
 let newMode = 'ask';
 let awaitingNewSession = false;
 const pendingApprovals = new Map();
-const MODE_NAMES = { plan: 'Plan mode', ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
+const MODE_NAMES = { plan: 'Plan', ask: 'Manual', edits: 'Accept edits', smart: 'Auto', auto: 'Bypass permissions' };
 
 const TOOL_ICONS = {
   read: 'M2 8s2.5-4.5 6-4.5S14 8 14 8s-2.5 4.5-6 4.5S2 8 2 8z M8 6.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
@@ -1092,7 +1253,7 @@ function toggleCC(open) {
   if (open) {
     send({ type: 'claude_projects' });
     if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }
-    requestAnimationFrame(() => { setThumb(); moveGlider(); });
+    requestAnimationFrame(() => { moveGlider(); });
     if (currentPane) renderPaneBody();
     setTimeout(() => $('deck-input').focus(), 40);
   } else {
@@ -1110,7 +1271,7 @@ function setSide(open) {
   b.setAttribute('aria-label', open ? 'Hide sidebar' : 'Show sidebar');
   b.title = open ? 'Hide sidebar (⌘\\)' : 'Show sidebar (⌘\\)';
   try { localStorage.setItem('jc.side', open ? 'open' : 'closed'); } catch (_) { /* private mode */ }
-  setTimeout(() => { setThumb(); moveGlider(); }, 380);
+  setTimeout(() => { moveGlider(); }, 380);
 }
 $('jc-side-toggle').addEventListener('click', () => setSide($('cc').classList.contains('side-hidden')));
 try { if (localStorage.getItem('jc.side') === 'closed') setSide(false); } catch (_) { /* private mode */ }
@@ -1133,8 +1294,8 @@ function renderProjects(items) {
     const b = el('button', 'jc-project');
     b.type = 'button';
     b.setAttribute('aria-expanded', String(open));
-    b.append(el('span', 'jc-chev', '▶'), el('span', 'jc-pname', p.name));
-    if (p.branch) b.append(el('span', 'jc-branch', p.branch));
+    b.append(el('span', 'jc-chev', '▶'), mine(el('span', 'jc-pname', p.name)));
+    if (p.branch) b.append(mine(el('span', 'jc-branch', p.branch)));
     b.addEventListener('click', () => {
       if (p.name === deckProject && open) openProjects.delete(p.name); else openProjects.add(p.name);
       selectProject(p.name);
@@ -1147,7 +1308,7 @@ function renderProjects(items) {
         row.type = 'button';
         row.dataset.task = t.id;
         row.setAttribute('aria-current', String(t.id === ccSelected));
-        const title = el('span', 'jc-stitle', t.title || t.prompt || 'New session');
+        const title = t.title || t.prompt ? mine(el('span', 'jc-stitle', t.title || t.prompt)) : el('span', 'jc-stitle', 'New session');
         if (voiceFocus && voiceFocus.id === t.id) { const r = el('span', 'jc-mini-reactor'); r.title = 'Voice coding'; title.append(r); }
         row.append(el('span', `jc-dot ${statusOf(t)}`), title, el('small', '', `${statusText(t)} · ${MODE_NAMES[t.mode] || t.mode}`));
         row.addEventListener('click', () => selectTask(t.id));
@@ -1199,8 +1360,8 @@ function renderPast() {
     const li = el('li');
     const b = el('button', 'jc-past-item');
     b.type = 'button';
-    b.append(el('span', '', p.title || 'Untitled session'), el('small', '', new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })));
-    b.addEventListener('click', () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, mode: 'ask', prompt: '' }); });
+    b.append(el('span', '', p.title || 'Untitled session'), el('small', '', new Date(p.last_modified).toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' })));
+    b.addEventListener('click', () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, prompt: '' }); });
     li.append(b);
     return li;
   }));
@@ -1216,10 +1377,11 @@ function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', fai
 // ── header, mode, status ──
 
 const MODE_LINES = {
-  plan: '⏸ Plan mode: Jarvis Code plans, you approve (⇧⇥ to switch)',
-  ask: 'Asks before each edit and command (⇧⇥ to switch)',
-  edits: '⏵⏵ Auto-edits: edits go ahead, commands ask (⇧⇥ to switch)',
-  auto: '⏵⏵⏵ Full auto: runs anything (⇧⇥ to switch)',
+  plan: '⏸ Plan: explores and plans, changes nothing until you approve',
+  ask: 'Manual: asks before each edit and command',
+  edits: '⏵⏵ Accept edits: edits go ahead, commands ask',
+  smart: '✦ Auto: safe steps go ahead, a safety check asks about risky ones',
+  auto: '⚡ Bypass permissions: runs anything without asking',
 };
 const MODEL_LABELS = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-4-5': 'Haiku 4.5', 'claude-fable-5-1': 'Fable 5.1' };
 let ccContext = {};
@@ -1234,16 +1396,10 @@ function renderHeader(t) {
   if (t || deckProject) sub.push(t ? t.folder : deckProject);
   if (p && p.branch) sub.push(`⎇ ${p.branch}`);
   if (t && t.session_id) sub.push(t.session_id.slice(0, 8));
+  const base = (path) => path.split('/').filter(Boolean).pop();
+  if (t && t.add_dirs && t.add_dirs.length) sub.push(`+ ${t.add_dirs.map(base).join(', ')}`);
+  if (t && t.plugins && t.plugins.length) sub.push(`plugins: ${t.plugins.map(base).join(', ')}`);
   $('jc-sub').textContent = sub.join('  ·  ');
-}
-
-function setThumb() {
-  const group = $('jc-mode');
-  const on = group.querySelector('button[aria-checked="true"]');
-  const thumb = group.querySelector('.jc-thumb');
-  if (!on) { thumb.style.width = '0'; return; }
-  thumb.style.left = `${on.offsetLeft}px`;
-  thumb.style.width = `${on.offsetWidth}px`;
 }
 
 function renderCC(items) {
@@ -1256,24 +1412,18 @@ function renderCC(items) {
   const t = currentTask();
   renderHeader(t);
   $('cc-welcome').hidden = !!t && $('deck-timeline').children.length > 0;
-  const mode = t ? t.mode : 'ask';
-  document.querySelectorAll('#jc-mode button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === mode)));
-  setThumb();
+  renderComposer();
   if (!t) {
     $('cc-mode').textContent = 'Pick a session, or start one. ? for shortcuts';
     $('cc-meta').textContent = '';
     $('cc-working').hidden = true;
     $('jc-todos').hidden = true;
     $('jc-bg').hidden = true;
-    $('jc-model').textContent = 'Model';
-    $('jc-effort').textContent = 'Effort';
     setCtx(null);
     renderQueue(null);
     return;
   }
-  $('cc-mode').textContent = MODE_LINES[t.mode] || t.mode;
-  $('jc-model').textContent = MODEL_LABELS[t.model] || (t.model ? t.model.replace('claude-', '') : 'Model');
-  $('jc-effort').textContent = t.effort ? `Effort: ${t.effort}${t.effort_pending ? ' · next step' : ''}` : 'Effort';
+  $('cc-mode').textContent = `${MODE_LINES[t.mode] || t.mode} · ⇧⇥ to switch${t.ultracode ? ' · ultracode on' : ''}`;
   $('cc-meta').textContent = [
     t.files_changed.length ? `${t.files_changed.length} file${t.files_changed.length === 1 ? '' : 's'}` : '',
     t.cost_usd ? `$${t.cost_usd.toFixed(2)}` : '',
@@ -1287,7 +1437,6 @@ function renderCC(items) {
   renderTodos(t.todos || []);
   renderBackground(t.background || []);
   renderQueue(t);
-  $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === t.id));
   if (currentPane === 'background') renderPaneBody();
 }
 
@@ -1340,13 +1489,7 @@ setInterval(() => {
   $('cc-working-time').textContent = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }, 1000);
 
-document.querySelectorAll('#jc-mode button').forEach((b) => b.addEventListener('click', () => {
-  const t = currentTask();
-  if (!t) return;
-  if (b.dataset.mode === 'auto' && !confirm('Full auto lets this session run any command without asking. Switch?')) return;
-  send({ type: 'task_mode', id: t.id, mode: b.dataset.mode });
-}));
-window.addEventListener('resize', () => { setThumb(); moveGlider(); });
+window.addEventListener('resize', () => { moveGlider(); });
 
 // Double-click the title to rename the session.
 $('jc-title').addEventListener('dblclick', () => {
@@ -1388,7 +1531,7 @@ function newSession(voice) {
   if (!deckProject) return;
   awaitingNewSession = true;
   if (voice) send({ type: 'voicecode_start', directory: deckProject });
-  else send({ type: 'task_new', directory: deckProject, prompt: '', mode: 'ask' });
+  else send({ type: 'task_new', directory: deckProject, prompt: '', ...takePending() });
 }
 $('cc-start-voice').addEventListener('click', () => newSession(true));
 $('cc-start-typed').addEventListener('click', () => newSession(false));
@@ -1412,7 +1555,7 @@ function copyButton(getText) {
 
 // Markdown-lite: code fences become <pre> (with Copy), `code` and **bold** inline. DOM only.
 function richText(text) {
-  const box = el('div', 'jc-md');
+  const box = mine(el('div', 'jc-md'));
   String(text || '').split('```').forEach((part, i) => {
     if (i % 2) {
       const code = part.replace(/^[\w+-]*\n/, '');
@@ -1492,9 +1635,9 @@ function agentEntry(e) {
   const li = el('li', 'jc-agent');
   li.dataset.toolId = e.tool_id || '';
   const head = el('div', 'jc-agent-head');
-  head.append(el('span', 'jc-badge', `Agent · ${e.agent || 'general'}`), el('span', 'jc-tlabel', e.text.replace(/^Agent:\s*/, '')), el('span', 'jc-tstate'));
+  head.append(el('span', 'jc-badge', `Agent · ${e.agent || 'general'}`), mine(el('span', 'jc-tlabel', e.text.replace(/^Agent:\s*/, ''))), el('span', 'jc-tstate'));
   li.append(head, el('ul', 'jc-agent-steps'));
-  const out = el('div', 'jc-md jc-out');
+  const out = mine(el('div', 'jc-md jc-out'));
   out.hidden = true;
   li.append(out);
   toolState(li, e.status || 'done');
@@ -1509,9 +1652,11 @@ function appendEntry(e) {
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
   let li;
   if (e.role === 'user') {
-    li = el('li', 'jc-user', e.text);
+    li = el('li', 'jc-user');
+    li.append(mine(el('span', 'jc-user-text', e.text)));
     li.dataset.n = e.n || '';
     if (e.images) li.append(el('span', 'jc-pics', `🖼 ${e.images} image${e.images === 1 ? '' : 's'}`));
+    if (e.files && e.files.length) li.append(el('span', 'jc-pics', `📄 ${e.files.join(', ')}`));
     li.append(userActions(e));
   } else if (e.role === 'assistant') {
     if (live.text) { live.text.remove(); live.text = null; }
@@ -1521,7 +1666,7 @@ function appendEntry(e) {
     if (live.thinking) { live.thinking.remove(); live.thinking = null; }
     li = el('li');
     const det = el('details', 'jc-think');
-    det.append(el('summary', '', 'Thinking'), el('div', '', e.text));
+    det.append(el('summary', '', 'Thinking'), mine(el('div', '', e.text)));
     li.append(det);
   } else if (e.role === 'tool' && e.tool === 'Agent') {
     li = agentEntry(e);
@@ -1529,8 +1674,9 @@ function appendEntry(e) {
     li = toolEntry(e);
   } else if (e.role === 'subtool') {
     const agent = [...tl.querySelectorAll('.jc-agent')].find((n) => n.dataset.toolId === e.parent);
-    if (agent) { agent.querySelector('.jc-agent-steps').append(el('li', '', e.text)); return; }
-    li = el('li', 'jc-note', `↳ ${e.text}`);
+    if (agent) { agent.querySelector('.jc-agent-steps').append(mine(el('li', '', e.text))); return; }
+    li = el('li', 'jc-note');
+    li.append(document.createTextNode('↳ '), mine(el('span', '', e.text)));
   } else if (e.role === 'todos') {
     li = el('li', 'jc-inline-todos');
     li.append(checklist(e.todos || []));
@@ -1559,7 +1705,7 @@ function userActions(e) {
   const ready = () => !!wrap.closest('li').dataset.uuid;
   rewind.addEventListener('click', () => {
     if (!ready()) return;
-    if (confirm('Put the files back as they were before this message?')) send({ type: 'task_rewind', id: ccSelected, uuid: wrap.closest('li').dataset.uuid });
+    if (confirm(tr('Put the files back as they were before this message?'))) send({ type: 'task_rewind', id: ccSelected, uuid: wrap.closest('li').dataset.uuid });
   });
   fork.addEventListener('click', () => { if (ready()) { awaitingNewSession = true; send({ type: 'task_fork', id: ccSelected, uuid: wrap.closest('li').dataset.uuid }); } });
   wrap.append(rewind, fork);
@@ -1677,7 +1823,7 @@ function renderQueue(t) {
   list.hidden = !items.length;
   list.replaceChildren(...items.map((q) => {
     const li = el('li', 'jc-queued');
-    li.append(el('span', 'jc-queued-kicker', 'Queued'), el('span', 'jc-queued-text', q.text || (q.images ? `${q.images} image${q.images === 1 ? '' : 's'}` : '')));
+    li.append(el('span', 'jc-queued-kicker', 'Queued'), q.text ? mine(el('span', 'jc-queued-text', q.text)) : el('span', 'jc-queued-text', q.images ? `${q.images} image${q.images === 1 ? '' : 's'}` : ''));
     const x = el('button', 'jc-queued-x', '✕');
     x.type = 'button';
     x.setAttribute('aria-label', 'Don’t send this');
@@ -1695,8 +1841,10 @@ function answerApproval(a, choice, feedback) {
 // ── the composer: messages, / commands, @ files, pictures ──
 
 const SLASH_COMMANDS = [
-  ['plan', 'Plan first, you approve'], ['ask', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'],
-  ['auto', 'Full auto: run anything'], ['undo', 'Undo the last round of file changes'], ['diff', 'Show what changed'],
+  ['plan', 'Plan first, you approve'], ['manual', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'],
+  ['auto', 'Auto: a safety check decides what to ask'], ['bypass', 'Bypass permissions: run anything'],
+  ['ultracode', 'Multi-agent workflows for big tasks, on or off'], ['add-dir', 'Add a folder to this session'],
+  ['settings', 'Jarvis Code settings'], ['undo', 'Undo the last round of file changes'], ['diff', 'Show what changed'],
   ['commit', 'Commit the changes'], ['pr', 'Push and open a pull request'], ['test', 'Run the tests'],
   ['compact', 'Compact the conversation'], ['context', 'Context window used'], ['cost', 'What this session has cost'],
   ['model', 'Switch model: /model sonnet'], ['effort', 'How hard it thinks: /effort high'], ['fork', 'Fork this session'],
@@ -1706,15 +1854,25 @@ const SLASH_COMMANDS = [
   ['voice', 'Voice coding on or off'], ['stop', 'Interrupt the current step'],
 ];
 const projectFiles = {};
+const customSlash = {};  // project -> its and the user's custom commands and skills
 let pickIndex = 0;
 let attachments = [];
 
 function suggestions() {
   const input = $('deck-input');
   const v = input.value.slice(0, input.selectionStart);
-  if (/^\/[\w-]*$/.test(v)) {
+  if (/^\/[\w.:-]*$/.test(v)) {
     const q = v.slice(1).toLowerCase();
-    return { kind: 'slash', items: SLASH_COMMANDS.filter(([name]) => name.startsWith(q)).map(([name, help]) => ({ label: `/${name}`, help, value: name })) };
+    if (deckProject && !customSlash[deckProject]) { customSlash[deckProject] = []; send({ type: 'slash_list', directory: deckProject }); }
+    const ours = new Set(SLASH_COMMANDS.map(([name]) => name));
+    const custom = (customSlash[deckProject] || []).filter((c) => !ours.has(c.name.toLowerCase()));
+    return {
+      kind: 'slash',
+      items: [
+        ...SLASH_COMMANDS.filter(([name]) => name.startsWith(q)).map(([name, help]) => ({ label: `/${name}`, help, value: name })),
+        ...custom.filter((c) => c.name.toLowerCase().startsWith(q)).map((c) => ({ label: `/${c.name}`, help: `${c.help || ''}${c.help ? ' · ' : ''}${c.scope}`, value: c.name, custom: true })),
+      ].slice(0, 60),
+    };
   }
   const m = v.match(/(?:^|\s)@([\w./-]*)$/);
   if (m) {
@@ -1744,7 +1902,7 @@ function renderSuggestions() {
 function pick(s, item) {
   const input = $('deck-input');
   if (s.kind === 'slash') {
-    const needsArg = ['model', 'effort', 'rename'].includes(item.value);
+    const needsArg = item.custom || ['model', 'effort', 'rename'].includes(item.value);
     input.value = `/${item.value}${needsArg ? ' ' : ''}`;
     $('cc-slash').hidden = true;
     if (!needsArg) $('deck-composer').requestSubmit();
@@ -1771,7 +1929,21 @@ function localSlash(text) {
     case 'fork': if (t) { awaitingNewSession = true; send({ type: 'task_fork', id: t.id }); } return true;
     case 'rename': if (t && arg) send({ type: 'task_rename', id: t.id, title: arg }); return true;
     case 'export': if (t) send({ type: 'task_export', id: t.id }); return true;
-    case 'effort': if (t && arg) send({ type: 'task_effort', id: t.id, effort: arg }); return true;
+    case 'effort':
+      if (arg === 'ultracode') applyEffort(5);
+      else if (arg && EFFORTS.includes(arg)) applyEffort(EFFORTS.indexOf(arg));
+      else openEffort();
+      return true;
+    case 'ultracode': applyEffort(composerState().ultracode ? EFFORTS.indexOf('high') : 5); return true;
+    case 'settings': case 'config': openJcSettings('general'); return true;
+    case 'manual': case 'ask': case 'edits': case 'auto': case 'bypass': case 'plan': {
+      const mode = { manual: 'ask', ask: 'ask', edits: 'edits', auto: 'smart', bypass: 'auto', plan: 'plan' }[name];
+      if (name === 'plan' && arg) return false;  // "/plan the migration": plan mode, then that ask
+      setMode(mode);
+      return true;
+    }
+    case 'add-dir': addFolder(); return true;
+    case 'model': if (!arg) { modelMenu(); return true; } return false;
     case 'init': if (t) send({ type: 'task_send', id: t.id, text: 'Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.' }); return true;
     case 'review': if (t) send({ type: 'task_send', id: t.id, text: 'Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.' }); return true;
     default: return false;
@@ -1780,16 +1952,17 @@ function localSlash(text) {
 
 function sendToSession(text) {
   text = text.trim();
-  const images = attachments.map((a) => ({ media_type: a.type, data: a.data }));
+  const images = attachments.map((a) => ({ media_type: a.type, data: a.data, name: a.name }));
   if (!text && !images.length) return;
-  clearAttachments();
   const t = currentTask();
   if (!t) {
     if (!deckProject) return;
+    clearAttachments();
     awaitingNewSession = true;
-    send({ type: 'task_new', directory: deckProject, prompt: text, mode: 'ask' });
+    send({ type: 'task_new', directory: deckProject, prompt: text, images, ...takePending() });
     return;
   }
+  clearAttachments();
   if (text.startsWith('/') && !images.length) {
     if (localSlash(text)) return;
     if (text === '/new' || text === '/clear') awaitingNewSession = true;
@@ -1858,7 +2031,12 @@ $('deck-composer').addEventListener('submit', (e) => {
   $('cc-slash').hidden = true;
 });
 
-const MODE_CYCLE = ['ask', 'edits', 'plan'];
+const MODE_CYCLE = ['ask', 'edits', 'plan', 'smart'];
+function nextMode() {
+  const s = composerState();
+  const cycle = MODE_CYCLE.filter((m) => m !== 'smart' || autoCapable(s.modelId));
+  return cycle[(cycle.indexOf(s.mode) + 1) % cycle.length];  // from Bypass: back to Manual
+}
 $('deck-input').addEventListener('keydown', (e) => {
   const s = suggestions();
   if (s.items.length && !$('cc-slash').hidden) {
@@ -1868,8 +2046,7 @@ $('deck-input').addEventListener('keydown', (e) => {
   }
   if (e.key === 'Tab' && e.shiftKey) {  // shift+tab cycles the mode, as in Claude Code
     e.preventDefault();
-    const t = currentTask();
-    if (t) send({ type: 'task_mode', id: t.id, mode: MODE_CYCLE[(MODE_CYCLE.indexOf(t.mode) + 1) % MODE_CYCLE.length] });
+    setMode(nextMode());
     return;
   }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
@@ -1881,52 +2058,107 @@ $('deck-input').addEventListener('input', () => {
   $('deck-input').style.height = `${Math.min(220, $('deck-input').scrollHeight)}px`;
 });
 
-// Pictures: paste, drop, or the paperclip.
-function addImageFile(file) {
-  if (!file || !file.type.startsWith('image/') || attachments.length >= 6 || file.size > 6_000_000) return;
+// Attachments, as Claude Code's "Add files or photos": pictures, PDFs, and text or code
+// files (sent as documents with their names). Paste, drop, ⌘U or the + menu.
+const TEXT_FILE = /\.(md|markdown|txt|log|json|jsonl|csv|tsv|ya?ml|toml|ini|cfg|conf|xml|html?|css|scss|less|m?js|cjs|tsx?|jsx|vue|svelte|py|pyi|rb|go|rs|java|kt|kts|swift|m|mm|c|h|cc|cpp|hpp|cs|php|pl|lua|r|dart|scala|sh|bash|zsh|fish|sql|graphql|proto|env\.example|gitignore|dockerfile|makefile|gradle|plist|strings|diff|patch)$/i;
+const TEXT_TYPES = ['application/json', 'application/xml', 'application/javascript', 'application/x-yaml', 'application/yaml', 'application/toml', 'application/x-sh', 'application/sql'];
+const MAX_TEXT_FILE = 400_000;
+const MAX_BINARY_FILE = 6_000_000;
+
+function fileKind(file) {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf';
+  if (file.type.startsWith('text/') || TEXT_TYPES.includes(file.type) || TEXT_FILE.test(file.name) || /^(Makefile|Dockerfile|Gemfile|Procfile|LICENSE|README)$/i.test(file.name)) return 'text';
+  return '';
+}
+function jcNote(text) { notice('Jarvis Code', '', text, 6000); }
+function sizeText(n) { return n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`; }
+
+function addFile(file) {
+  if (!file) return;
+  if (attachments.length >= 6) { jcNote('Up to six attachments per message.'); return; }
+  const kind = fileKind(file);
+  if (!kind) { jcNote(`${file.name} can’t be attached: pictures, PDFs and text or code files only.`); return; }
+  if (kind === 'text' && file.size > MAX_TEXT_FILE) { jcNote(`${file.name} is over 400 KB. Put it in the project and mention it with @ instead.`); return; }
+  if (kind !== 'text' && file.size > MAX_BINARY_FILE) { jcNote(`${file.name} is over 6 MB.`); return; }
   const reader = new FileReader();
   reader.onload = () => {
-    const url = String(reader.result);
-    attachments.push({ type: file.type, data: url.split(',', 2)[1], url });
+    const result = String(reader.result);
+    if (kind === 'text') {
+      if (result.includes('\u0000')) { jcNote(`${file.name} isn’t a text file.`); return; }
+      attachments.push({ kind, type: 'text/plain', data: result, name: file.name, size: file.size });
+    } else {
+      attachments.push({ kind, type: kind === 'pdf' ? 'application/pdf' : file.type, data: result.split(',', 2)[1], url: kind === 'image' ? result : '', name: file.name, size: file.size });
+    }
     renderAttachments();
   };
-  reader.readAsDataURL(file);
+  if (kind === 'text') reader.readAsText(file); else reader.readAsDataURL(file);
 }
+const addImageFile = addFile;
+
+function removeChip(label, onRemove) {
+  const x = el('button', 'jc-chip-x', '×');
+  x.type = 'button';
+  x.setAttribute('aria-label', `Remove ${label}`);
+  x.addEventListener('click', onRemove);
+  return x;
+}
+
 function renderAttachments() {
   const box = $('jc-attach');
-  box.hidden = !attachments.length;
-  box.replaceChildren(...attachments.map((a, i) => {
-    const t = el('span', 'jc-thumb-img');
-    const img = el('img');
-    img.src = a.url;
-    img.alt = 'Attached image';
-    const x = el('button', '', '×');
-    x.type = 'button';
-    x.setAttribute('aria-label', 'Remove image');
-    x.addEventListener('click', () => { attachments.splice(i, 1); renderAttachments(); });
-    t.append(img, x);
-    return t;
-  }));
+  const chips = attachments.map((a, i) => {
+    const drop = () => { attachments.splice(i, 1); renderAttachments(); };
+    if (a.kind === 'image' || (!a.kind && a.url)) {
+      const t = el('span', 'jc-thumb-img');
+      const img = el('img');
+      img.src = a.url;
+      img.alt = a.name || 'Attached image';
+      t.append(img, removeChip(a.name || 'image', drop));
+      return t;
+    }
+    const chip = el('span', 'jc-file-chip');
+    chip.title = a.name;
+    chip.append(icon(a.kind === 'pdf' ? 'pdf' : 'doc', 15), el('span', 'nm', a.name), el('small', '', sizeText(a.size || 0)), removeChip(a.name, drop));
+    return chip;
+  });
+  // Folders and plugins picked before there's a session: they join the next one.
+  for (const [list, kind] of [[pending.dirs, 'folder'], [pending.plugins, 'puzzle']]) {
+    list.forEach((path, i) => {
+      const chip = el('span', 'jc-file-chip pending');
+      chip.title = `${path} (joins the next session)`;
+      chip.append(icon(kind, 15), el('span', 'nm', path.split('/').filter(Boolean).pop()), removeChip(path, () => { list.splice(i, 1); renderAttachments(); }));
+      chips.push(chip);
+    });
+  }
+  box.hidden = !chips.length;
+  box.replaceChildren(...chips);
 }
 function clearAttachments() { attachments = []; renderAttachments(); }
 $('deck-input').addEventListener('paste', (e) => {
-  const files = [...(e.clipboardData ? e.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
-  if (files.length) { e.preventDefault(); files.forEach(addImageFile); }
+  const files = [...(e.clipboardData ? e.clipboardData.files : [])];
+  if (files.length) { e.preventDefault(); files.forEach(addFile); }
 });
 $('deck-composer').addEventListener('dragover', (e) => { e.preventDefault(); $('deck-composer').classList.add('drag'); });
 $('deck-composer').addEventListener('dragleave', () => $('deck-composer').classList.remove('drag'));
 $('deck-composer').addEventListener('drop', (e) => {
   e.preventDefault();
   $('deck-composer').classList.remove('drag');
-  [...e.dataTransfer.files].forEach(addImageFile);
+  [...e.dataTransfer.files].forEach(addFile);
 });
-$('jc-attach-btn').addEventListener('click', () => $('jc-file').click());
-$('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addImageFile); e.target.value = ''; });
+$('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; });
 
 // Number keys answer the approval on screen; ⇧⌘F opens the files.
 document.addEventListener('keydown', (e) => {
   if ($('cc').hidden) return;
   if (e.key.toLowerCase() === 'f' && e.metaKey && e.shiftKey) { e.preventDefault(); openPane('files'); return; }
+  if (e.metaKey && !e.altKey && !e.ctrlKey) {
+    const key = e.key.toLowerCase();
+    if (key === 'u' && !e.shiftKey) { e.preventDefault(); $('jc-file').click(); return; }
+    if (key === ',' && !e.shiftKey) { e.preventDefault(); openJcSettings('general'); return; }
+    if (e.shiftKey && key === 'm') { e.preventDefault(); setMode(nextMode()); return; }
+    if (e.shiftKey && key === 'i') { e.preventDefault(); modelMenu(); return; }
+    if (e.shiftKey && key === 'e') { e.preventDefault(); openEffort(); return; }
+  }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;  // typing
@@ -1943,7 +2175,10 @@ document.addEventListener('keydown', (e) => {
 // suggestion list, an edit, the running step, the open pane, and only then the panel
 // (never with unsent text in the composer). True when it handled the key.
 function jcEscape(e) {
-  if (!$('jc-menu').hidden) { closeMenu(); return true; }
+  if (!$('jc-settings').hidden) { closeJcSettings(); return true; }
+  if (!$('jc-submenu').hidden) { closeSubmenu(true); return true; }
+  if (!$('jc-effort-pop').hidden) { closeEffort(true); return true; }
+  if (!$('jc-menu').hidden) { closeMenu(true); return true; }
   if (!$('cc-slash').hidden) { $('cc-slash').hidden = true; return true; }
   if ($('jc-title').isContentEditable) return true;
   const t = currentTask();
@@ -1953,64 +2188,644 @@ function jcEscape(e) {
   return field && !!e.target.value;
 }
 
-// ── menus: model, effort, More ──
+// ── the composer's controls, as in Claude Code: + menu, mode, model, effort, mic ──
 
-function openMenu(anchor, items) {
-  const menu = $('jc-menu');
-  menu.replaceChildren(...items.map((item) => {
-    if (item === '-') return el('hr');
-    const b = el('button', item.switch !== undefined ? 'jc-menu-switch' : '');
-    b.type = 'button';
-    b.setAttribute('role', item.checked !== undefined ? 'menuitemradio' : 'menuitem');
-    if (item.checked !== undefined) b.setAttribute('aria-checked', String(item.checked));
-    if (item.switch !== undefined) {
-      const text = el('span', '', item.label);
-      if (item.note) text.append(el('small', '', item.note));
-      b.append(text, el('span', `sw ${item.switch ? 'on' : ''}`));
-    } else {
-      b.append(el('span', '', item.label));
-      if (item.key) b.append(el('span', 'k', item.key));
-    }
-    b.addEventListener('click', () => { closeMenu(); item.run(); });
-    return b;
-  }));
-  menu.hidden = false;
-  const r = anchor.getBoundingClientRect();
-  const w = menu.offsetWidth, h = menu.offsetHeight;
-  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
-  menu.style.top = `${r.bottom + 6 + h > window.innerHeight ? r.top - h - 6 : r.bottom + 6}px`;
-  anchor.setAttribute('aria-expanded', 'true');
-  menu.dataset.anchor = anchor.id;
-  const first = menu.querySelector('button');
-  if (first) first.focus();
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const ICON_PATHS = {
+  ask: ['M5.4 8.4V4.2a1 1 0 0 1 2 0v3.4', 'M7.4 7.4V3.1a1 1 0 0 1 2 0v4.3', 'M9.4 7.5V4.1a1 1 0 0 1 2 0v4.8c0 2.8-1.8 4.6-4.3 4.6-1.6 0-2.6-.7-3.4-2L2.3 9a1 1 0 0 1 1.7-1l1.4 1.6'],
+  edits: ['M3 13l.9-3.2 6.8-6.8a1.5 1.5 0 0 1 2.2 2.1L6.1 11.9z', 'M9.7 4.1l2.1 2.1'],
+  plan: ['M6 4h7.5', 'M6 8h7.5', 'M6 12h7.5', 'M2.6 4h.5', 'M2.6 8h.5', 'M2.6 12h.5'],
+  smart: ['M7.2 2l1.3 3.3 3.3 1.3-3.3 1.3-1.3 3.3-1.3-3.3-3.3-1.3 3.3-1.3z', 'M12.4 9.8l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z'],
+  auto: ['M9.2 1.6L3.4 9.1h4.2l-1.1 5.3 5.8-7.6H8.1z'],
+  clip: ['M13.2 7.3l-5.3 5.3a3.2 3.2 0 0 1-4.5-4.5L8.8 2.7a2.1 2.1 0 0 1 3 3L6.6 11a1 1 0 0 1-1.5-1.5l4.9-4.9'],
+  folder: ['M2 4.6A1.6 1.6 0 0 1 3.6 3h2.7l1.6 1.7h4.5A1.6 1.6 0 0 1 14 6.3v5.1a1.6 1.6 0 0 1-1.6 1.6H3.6A1.6 1.6 0 0 1 2 11.4z'],
+  slash: ['M10.6 2.4L5.4 13.6'],
+  plug: ['M6 1.8v3', 'M10 1.8v3', 'M4.3 4.8h7.4v2.5a3.7 3.7 0 0 1-7.4 0z', 'M8 11v3.2'],
+  puzzle: ['M3 3.2h3.4v.9a1.6 1.6 0 1 0 3.2 0v-.9H13v3.4h-.9a1.6 1.6 0 1 0 0 3.2h.9V13H9.6v-.9a1.6 1.6 0 1 0-3.2 0v.9H3z'],
+  gear: ['M8 5.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6z', 'M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M3.5 12.5l1.2-1.2M11.3 4.7l1.2-1.2'],
+  key: ['M10.3 2.2a3.5 3.5 0 1 1-2.9 5.4L2.6 12.4V14h2.2v-1.3h1.4v-1.4h1.3l1.4-1.4', 'M10.9 4.5h.01'],
+  chev: ['M6 3.5l4.5 4.5L6 12.5'],
+  doc: ['M4 1.8h5.2L12.4 5v8.6a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.4a.6.6 0 0 1 .6-.6z', 'M9 1.8V5.2h3.4', 'M5.6 8.2h4.8M5.6 10.6h4.8'],
+  pdf: ['M4 1.8h5.2L12.4 5v8.6a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.4a.6.6 0 0 1 .6-.6z', 'M9 1.8V5.2h3.4', 'M5.4 11.6c1.8-.8 3.4-2.9 3.9-4.9M6.3 9.8c1.7.1 3.4.6 4.2 1.4'],
+  check: ['M3.4 8.6l3 3 6.2-7.2'],
+};
+
+function icon(name, size = 16) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  for (const [k, v] of Object.entries({ width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', class: `ic ic-${name}` })) svg.setAttribute(k, String(v));
+  for (const d of ICON_PATHS[name] || []) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
 }
-function closeMenu() {
+
+const JC_MODES = [
+  { id: 'ask', label: 'Manual', note: 'Asks before each edit and command' },
+  { id: 'edits', label: 'Accept edits', note: 'Edits files without asking; commands still ask' },
+  { id: 'plan', label: 'Plan', note: 'Explores and plans; changes nothing until you approve' },
+  { id: 'smart', label: 'Auto', note: 'Safe steps go ahead; a safety check asks about risky ones' },
+  { id: 'auto', label: 'Bypass permissions', note: 'Runs anything without asking', danger: true },
+];
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const EFFORT_NAMES = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+const EFFORT_NOTES = [
+  'Fastest: quick answers, light thinking.',
+  'A balance of speed and thought.',
+  'The default: thinks things through.',
+  'Deeper reasoning for harder problems.',
+  'Thinks as hard as it can. Slower, and costs more.',
+  'Big tasks become multi-agent workflows that plan, build and check in parallel (at Extra high effort). The most thorough, and the most costly.',
+];
+const GAUGE = [18, 36, 56, 76, 100, 100];
+
+let codeDefaults = { model: '', effort: '', mode: 'ask', ultracode: false };  // Settings › Jarvis Code
+let modelList = [];  // Claude's models, then the ones added with an API key
+let providerInfo = { kinds: [], providers: [], models: [], limits: {} };
+const pending = { dirs: [], plugins: [] };  // + menu choices made before there's a session
+let dictating = false;
+
+function takePending() {
+  const out = { add_dirs: [...pending.dirs], plugins: [...pending.plugins] };
+  pending.dirs.length = 0;
+  pending.plugins.length = 0;
+  renderAttachments();
+  return out;
+}
+
+function autoCapable(modelId) {
+  const name = String(modelId || '').toLowerCase();
+  return name.includes('claude') && !name.includes('haiku');
+}
+
+function modelEntry(ref) { return modelList.find((m) => m.ref === ref) || null; }
+function refForModel(id) { const m = modelList.find((x) => x.builtin && x.model === id); return m ? m.ref : ''; }
+
+// What the composer shows: the open session's settings, or with none open, what the next
+// session starts with (Settings › Jarvis Code).
+function composerState() {
+  const t = currentTask();
+  const fallback = (prefs && prefs.model) || 'opus';
+  if (t) {
+    const ref = t.model_ref || refForModel(t.model) || (t.model ? '' : fallback);
+    const entry = modelEntry(ref);
+    const id = t.model || (entry && entry.model) || '';
+    return {
+      t, mode: t.mode, ref, modelId: id,
+      label: (entry && entry.label) || t.model_label || MODEL_LABELS[id] || String(id).replace(/^claude-/, '') || 'Default',
+      effort: t.effort || 'high', ultracode: !!t.ultracode, pending: !!t.effort_pending,
+    };
+  }
+  const ref = codeDefaults.model || fallback;
+  const entry = modelEntry(ref);
+  return {
+    t: null, mode: codeDefaults.mode || 'ask', ref, modelId: entry ? entry.model : '',
+    label: entry ? entry.label : (MODEL_LABELS[ref] || 'Default'),
+    effort: codeDefaults.effort || 'high', ultracode: !!codeDefaults.ultracode, pending: false,
+  };
+}
+
+function effortStop(s) { return s.ultracode ? 5 : Math.max(0, EFFORTS.indexOf(s.effort || 'high')); }
+function effortName(stop) { return stop === 5 ? 'Ultracode' : EFFORT_NAMES[EFFORTS[stop]]; }
+
+function renderComposer() {
+  if (!$('jc-mode-btn')) return;
+  const s = composerState();
+  const mode = JC_MODES.find((m) => m.id === s.mode) || JC_MODES[0];
+  $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
+  $('jc-mode-label').textContent = mode.label;
+  $('jc-mode-btn').dataset.mode = mode.id;
+  $('jc-mode-btn').title = `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`;
+  $('jc-model-label').textContent = s.label;
+  $('jc-model').title = `Model: ${s.label} (⌘⇧I)`;
+  const stop = effortStop(s);
+  $('jc-effort-label').textContent = `${effortName(stop)}${s.pending ? ' · next step' : ''}`;
+  $('jc-effort').classList.toggle('ultra', stop === 5);
+  $('jc-effort').title = `Effort: ${effortName(stop)} (⌘⇧E)`;
+  $('jc-gauge-fill').style.strokeDashoffset = String(100 - GAUGE[stop]);
+  $('jc-dictate').setAttribute('aria-pressed', String(dictating));
+  $('jc-dictate').classList.toggle('live', dictating);
+}
+
+// ── menus: glass, with icons, notes, submenus and the keyboard ──
+
+function menuItem(item) {
+  if (item === '-') return el('hr');
+  if (item.heading) { const h = el('p', 'jc-menu-head', item.heading); h.setAttribute('role', 'presentation'); return h; }
+  if (item.foot) { const f = el('p', 'jc-menu-foot', item.foot); f.setAttribute('role', 'presentation'); return f; }
+  const isSwitch = item.switch !== undefined;
+  const b = el('button', ['jc-mi', isSwitch ? 'jc-menu-switch' : '', item.danger ? 'danger' : '', item.sub ? 'has-sub' : ''].filter(Boolean).join(' '));
+  b.type = 'button';
+  b.setAttribute('role', isSwitch ? 'menuitemcheckbox' : item.checked !== undefined ? 'menuitemradio' : 'menuitem');
+  if (isSwitch) b.setAttribute('aria-checked', String(!!item.switch));
+  else if (item.checked !== undefined) b.setAttribute('aria-checked', String(!!item.checked));
+  if (item.disabled) { b.disabled = true; b.setAttribute('aria-disabled', 'true'); }
+  if (item.icon) b.append(icon(item.icon, 16));
+  const text = el('span', 'mi-text');
+  text.append(el('span', 'mi-label', item.label));
+  if (item.note) text.append(el('small', '', item.note));
+  b.append(text);
+  if (isSwitch) b.append(el('span', `sw ${item.switch ? 'on' : ''}`));
+  else if (item.checked) b.append(icon('check', 14));
+  else if (item.key) b.append(el('span', 'k', item.key));
+  if (item.sub) {
+    b.setAttribute('aria-haspopup', 'menu');
+    b.setAttribute('aria-expanded', 'false');
+    b.append(icon('chev', 12));
+    let hover = 0;
+    b.addEventListener('mouseenter', () => { clearTimeout(hover); hover = setTimeout(() => openMenu(b, item.sub(), { sub: true, noFocus: true, kind: item.subKind }), 140); });
+    b.addEventListener('mouseleave', () => clearTimeout(hover));
+  } else {
+    // Moving onto another row of the main menu closes an open submenu.
+    b.addEventListener('mouseenter', () => { if (b.parentElement && b.parentElement.id === 'jc-menu') closeSubmenu(); });
+  }
+  b.addEventListener('click', () => {
+    if (item.sub) { openMenu(b, item.sub(), { sub: true, kind: item.subKind }); return; }
+    if (isSwitch && item.keepOpen) {  // flips in place; the menu stays for the next one
+      const on = b.getAttribute('aria-checked') !== 'true';
+      b.setAttribute('aria-checked', String(on));
+      b.querySelector('.sw').classList.toggle('on', on);
+      item.run(on);
+      return;
+    }
+    closeMenu();
+    item.run();
+  });
+  return b;
+}
+
+function placePopup(pop, anchor, side) {
+  const r = anchor.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left, top;
+  if (side === 'right') {
+    left = r.right + 4 + w > window.innerWidth - 8 ? r.left - w - 4 : r.right + 4;
+    top = Math.min(window.innerHeight - h - 8, r.top - 6);
+  } else {
+    left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left + r.width / 2 > window.innerWidth / 2 ? r.right - w : r.left));
+    top = r.top - h - 8 >= 8 && (r.bottom + 8 + h > window.innerHeight - 8 || r.top > window.innerHeight / 2) ? r.top - h - 8 : r.bottom + 8;
+  }
+  pop.style.left = `${Math.max(8, left)}px`;
+  pop.style.top = `${Math.max(8, top)}px`;
+}
+
+function openMenu(anchor, items, opts = {}) {
+  const menu = opts.sub ? $('jc-submenu') : $('jc-menu');
+  if (opts.sub) {
+    const parent = $('jc-submenu').dataset.parent && document.querySelector(`[data-sub-open="1"]`);
+    if (parent) { parent.removeAttribute('data-sub-open'); parent.setAttribute('aria-expanded', 'false'); }
+  } else {
+    closeSubmenu();
+    closeEffort();
+    closeMenu();
+  }
+  menu.replaceChildren(...items.map(menuItem));
+  menu.classList.toggle('rich', items.some((i) => i && typeof i === 'object' && (i.note || i.icon)));
+  menu.hidden = false;
+  placePopup(menu, anchor, opts.sub ? 'right' : 'auto');
+  anchor.setAttribute('aria-expanded', 'true');
+  if (opts.sub) { anchor.setAttribute('data-sub-open', '1'); menu.dataset.parent = '1'; menu.dataset.kind = opts.kind || ''; } else menu.dataset.anchor = anchor.id || '';
+  if (!opts.noFocus) {
+    const first = menu.querySelector('button:not([disabled])[aria-checked="true"]') || menu.querySelector('button:not([disabled])');
+    if (first) first.focus();
+  }
+}
+function closeSubmenu(refocus) {
+  const sub = $('jc-submenu');
+  if (sub.hidden) return;
+  sub.hidden = true;
+  const parent = document.querySelector('[data-sub-open="1"]');
+  if (parent) { parent.removeAttribute('data-sub-open'); parent.setAttribute('aria-expanded', 'false'); if (refocus) parent.focus(); }
+}
+function closeMenu(refocus) {
+  closeSubmenu();
   const menu = $('jc-menu');
   if (menu.hidden) return;
   menu.hidden = true;
   const anchor = menu.dataset.anchor && $(menu.dataset.anchor);
-  if (anchor) anchor.setAttribute('aria-expanded', 'false');
+  if (anchor) { anchor.setAttribute('aria-expanded', 'false'); if (refocus) anchor.focus(); }
 }
 document.addEventListener('mousedown', (e) => {
-  if (!$('jc-menu').hidden && !$('jc-menu').contains(e.target) && !e.target.closest('[aria-haspopup]')) closeMenu();
+  const inside = (id) => $(id).contains(e.target);
+  if (!$('jc-menu').hidden && !inside('jc-menu') && !inside('jc-submenu') && !e.target.closest('[aria-haspopup]')) closeMenu();
+  if (!$('jc-effort-pop').hidden && !inside('jc-effort-pop') && !e.target.closest('#jc-effort')) closeEffort();
 });
+for (const id of ['jc-menu', 'jc-submenu']) {
+  $(id).addEventListener('keydown', (e) => {
+    const menu = $(id);
+    const items = [...menu.querySelectorAll('button:not([disabled])')];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      items[e.key === 'Home' ? 0 : items.length - 1].focus();
+    } else if (e.key === 'ArrowRight' && document.activeElement.classList.contains('has-sub')) {
+      e.preventDefault();
+      document.activeElement.click();
+    } else if (e.key === 'ArrowLeft' && id === 'jc-submenu') {
+      e.preventDefault();
+      closeSubmenu(true);
+    } else if (e.key === 'Tab') {
+      closeMenu();
+    }
+  });
+}
 
-$('jc-model').addEventListener('click', () => {
+// ── permission mode ──
+
+function setMode(id) {
+  if (!JC_MODES.some((m) => m.id === id)) return;
+  const s = composerState();
+  if (id === 'smart' && !autoCapable(s.modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return; }
+  if (id === 'auto' && s.mode !== 'auto' && !confirm(tr('Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?'))) return;
+  if (s.t) send({ type: 'task_mode', id: s.t.id, mode: id });
+  else { codeDefaults.mode = id; send({ type: 'code_defaults', code_mode: id }); renderComposer(); }
+}
+
+function modeMenu() {
+  const s = composerState();
+  const capable = autoCapable(s.modelId);
+  openMenu($('jc-mode-btn'), [
+    ...JC_MODES.map((m) => ({
+      icon: m.id, label: m.label, danger: m.danger, checked: s.mode === m.id,
+      note: m.id === 'smart' && !capable ? 'Needs Opus, Sonnet or Fable' : m.note,
+      disabled: m.id === 'smart' && !capable,
+      run: () => setMode(m.id),
+    })),
+    { foot: s.t ? '⌘⇧M or ⇧⇥ to switch' : 'For the next session · ⌘⇧M or ⇧⇥ to switch' },
+  ]);
+}
+$('jc-mode-btn').addEventListener('click', () => { if ($('jc-menu').hidden || $('jc-menu').dataset.anchor !== 'jc-mode-btn') modeMenu(); else closeMenu(); });
+
+// ── model: Claude's, and any added with an API key ──
+
+function pickModel(ref) {
+  const s = composerState();
+  if (s.t) send({ type: 'task_model', id: s.t.id, ref });
+  else { codeDefaults.model = ref; send({ type: 'code_defaults', code_model: ref }); renderComposer(); }
+}
+
+function modelMenu() {
+  const s = composerState();
+  const builtins = modelList.filter((m) => m.builtin);
+  const mine = modelList.filter((m) => !m.builtin);
+  const claude = builtins.length ? builtins : [['opus', 'claude-opus-5-5'], ['sonnet', 'claude-sonnet-5-5'], ['haiku', 'claude-haiku-4-5'], ['fable', 'claude-fable-5-1']].map(([ref, model]) => ({ ref, model, label: MODEL_LABELS[model] }));
+  openMenu($('jc-model'), [
+    { heading: 'Claude' },
+    ...claude.map((m) => ({ label: m.label, checked: s.ref === m.ref || s.modelId === m.model, run: () => pickModel(m.ref) })),
+    ...(mine.length ? [{ heading: 'Your models' }, ...mine.map((m) => ({ label: m.label, note: m.provider_name, checked: s.ref === m.ref, run: () => pickModel(m.ref) }))] : []),
+    '-',
+    { icon: 'key', label: mine.length ? 'Models & API keys…' : 'Add a model with an API key…', run: () => openJcSettings('models') },
+  ]);
+}
+$('jc-model').addEventListener('click', () => { if ($('jc-menu').hidden || $('jc-menu').dataset.anchor !== 'jc-model') modelMenu(); else closeMenu(); });
+
+// ── effort: a slider, with Ultracode past Max ──
+
+function showEffortValue(stop) {
+  $('ep-value').textContent = effortName(stop);
+  $('ep-value').classList.toggle('ultra', stop === 5);
+  $('ep-note').textContent = EFFORT_NOTES[stop];
+  $('ep-range').setAttribute('aria-valuetext', effortName(stop));
+  $('ep-range').style.setProperty('--fill', `${(stop / 5) * 100}%`);
+  $('jc-effort-pop').classList.toggle('ultra', stop === 5);
+}
+function openEffort() {
+  const pop = $('jc-effort-pop');
+  if (!pop.hidden) { closeEffort(true); return; }
+  closeMenu();
+  const stop = effortStop(composerState());
+  $('ep-range').value = String(stop);
+  showEffortValue(stop);
+  pop.hidden = false;
+  placePopup(pop, $('jc-effort'), 'auto');
+  $('jc-effort').setAttribute('aria-expanded', 'true');
+  $('ep-range').focus();
+}
+function closeEffort(refocus) {
+  const pop = $('jc-effort-pop');
+  if (pop.hidden) return;
+  pop.hidden = true;
+  $('jc-effort').setAttribute('aria-expanded', 'false');
+  if (refocus) $('jc-effort').focus();
+}
+function applyEffort(stop) {
+  stop = Math.max(0, Math.min(5, Number(stop) || 0));
+  const ultracode = stop === 5;
+  const effort = ultracode ? 'xhigh' : EFFORTS[stop];
+  const s = composerState();
+  if (s.t) {
+    if (effort !== s.effort) send({ type: 'task_effort', id: s.t.id, effort });
+    if (ultracode !== s.ultracode) send({ type: 'task_ultracode', id: s.t.id, on: ultracode });
+  } else {
+    Object.assign(codeDefaults, { effort, ultracode });
+    send({ type: 'code_defaults', code_effort: effort, code_ultracode: ultracode });
+    renderComposer();
+  }
+}
+$('jc-effort').addEventListener('click', openEffort);
+$('ep-range').addEventListener('input', () => showEffortValue(Number($('ep-range').value)));
+$('ep-range').addEventListener('change', () => applyEffort($('ep-range').value));
+$('ep-range').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyEffort($('ep-range').value); closeEffort(true); } });
+
+// ── + : files, folders, slash commands, connectors, plugins ──
+
+async function pickFolderPath(question) {
+  if (app && app.pickFolder) return app.pickFolder();
+  const typed = prompt(tr(question));
+  return typed ? typed.trim() : null;
+}
+async function addFolder() {
+  const path = await pickFolderPath('The full path of the folder:');
+  if (!path) return;
   const t = currentTask();
-  if (!t) return;
-  openMenu($('jc-model'), Object.entries({ opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 4.5', fable: 'Fable 5.1' }).map(([key, label]) => ({
-    label, checked: MODEL_LABELS[t.model] === label, run: () => send({ type: 'code_command', id: t.id, text: `/model ${key}` }),
-  })));
-});
-$('jc-effort').addEventListener('click', () => {
+  if (t) send({ type: 'task_add_dir', id: t.id, directory: path });
+  else if (!pending.dirs.includes(path)) { pending.dirs.push(path); renderAttachments(); }
+}
+async function addPlugin() {
+  const path = await pickFolderPath('The full path of the plugin folder (the one with .claude-plugin/plugin.json):');
+  if (!path) return;
   const t = currentTask();
-  if (!t) return;
-  const notes = { low: 'Fastest', medium: '', high: 'The default', xhigh: '', max: 'Thinks as hard as it can' };
-  openMenu($('jc-effort'), ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => ({
-    label: `${e[0].toUpperCase()}${e.slice(1)}${notes[e] ? ` · ${notes[e]}` : ''}`, checked: (t.effort || 'high') === e,
-    run: () => send({ type: 'task_effort', id: t.id, effort: e }),
-  })));
+  if (t) send({ type: 'task_add_plugin', id: t.id, directory: path });
+  else if (!pending.plugins.includes(path)) { pending.plugins.push(path); renderAttachments(); }
+}
+function showSlash() {
+  const input = $('deck-input');
+  if (!input.value.startsWith('/')) input.value = `/${input.value.trimStart()}`;
+  input.focus();
+  input.selectionStart = input.selectionEnd = 1;
+  pickIndex = 0;
+  renderSuggestions();
+}
+
+function connectorItems(ask = true) {
+  const t = currentTask();
+  if (!t) return [{ label: 'Open a session to choose its connectors', disabled: true }];
+  if (ask) send({ type: 'task_mcp', id: t.id });  // fresh status; the list redraws when it comes
+  const off = new Set(t.disabled_mcp || []);
+  const servers = new Map(mcpServers.map((x) => [x.name, x]));
+  off.forEach((name) => { if (!servers.has(name)) servers.set(name, { name, status: 'off' }); });
+  const items = [...servers.values()].filter((x) => x.name).map((x) => ({
+    label: x.name, note: off.has(x.name) ? 'Off for this session' : (x.status && x.status !== 'connected' ? x.status : ''),
+    switch: !off.has(x.name), keepOpen: true,
+    run: (on) => send({ type: 'task_mcp_toggle', id: t.id, name: x.name, enabled: on }),
+  }));
+  return [
+    ...(items.length ? items : [{ label: t.busy || t.status === 'waiting' ? 'No connectors in this session' : 'Connectors show once the session is running', disabled: true }]),
+    '-',
+    { label: 'Manage MCP servers…', run: () => openPane('mcp') },
+  ];
+}
+function refreshConnectorsMenu() {
+  const sub = $('jc-submenu');
+  if (sub.hidden || sub.dataset.kind !== 'connectors') return;
+  const had = [...sub.querySelectorAll('button')].indexOf(document.activeElement);  // keep the keyboard's place
+  sub.replaceChildren(...connectorItems(false).map(menuItem));
+  const buttons = [...sub.querySelectorAll('button:not([disabled])')];
+  if (had >= 0 && buttons.length) buttons[Math.min(had, buttons.length - 1)].focus();
+}
+
+function plusMenu() {
+  const t = currentTask();
+  openMenu($('jc-plus'), [
+    { icon: 'clip', label: 'Add files or photos', key: '⌘U', run: () => $('jc-file').click() },
+    { icon: 'folder', label: 'Add folder', note: t ? '' : 'Joins the next session', run: addFolder },
+    { icon: 'slash', label: 'Slash commands', key: '/', run: showSlash },
+    { icon: 'plug', label: 'Connectors', sub: connectorItems, subKind: 'connectors' },
+    { icon: 'puzzle', label: 'Add plugins', note: t ? '' : 'Joins the next session', run: addPlugin },
+    '-',
+    { icon: 'gear', label: 'Jarvis Code settings', key: '⌘,', run: () => openJcSettings('general') },
+  ]);
+}
+$('jc-plus').addEventListener('click', () => { if ($('jc-menu').hidden || $('jc-menu').dataset.anchor !== 'jc-plus') plusMenu(); else closeMenu(); });
+
+// ── the mic: dictation into the text box (voice coding is the header's Voice) ──
+
+$('jc-dictate').addEventListener('click', () => {
+  dictating = !dictating;
+  renderComposer();
+  send({ type: 'dictate', on: dictating });
+  $('deck-input').focus();
 });
+function onDictation(ev) {
+  dictating = false;
+  renderComposer();
+  const text = String(ev.text || '').trim();
+  if (!text) return;
+  const input = $('deck-input');
+  const at = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? at;
+  const before = input.value.slice(0, at);
+  const after = input.value.slice(end);
+  const lead = before && !/\s$/.test(before) ? ' ' : '';
+  const tail = after && !/^\s/.test(after) ? ' ' : '';
+  input.value = `${before}${lead}${text}${tail}${after}`;
+  input.selectionStart = input.selectionEnd = (before + lead + text).length;
+  input.dispatchEvent(new Event('input'));
+  input.focus();
+}
+
+// ── Jarvis Code settings: new-session defaults, behavior, Models & API keys ──
+
+let jcsKind = 'openrouter';
+const providerChecks = {};  // provider id -> its last check (models it offers)
+
+function selectJcsTab(tab) {
+  document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  $('jcs-general').hidden = tab !== 'general';
+  $('jcs-models').hidden = tab !== 'models';
+}
+function openJcSettings(tab = 'general') {
+  closeMenu();
+  closeEffort();
+  $('jc-settings').hidden = false;
+  selectJcsTab(tab);
+  renderJcGeneral();
+  renderProviders();
+  send({ type: 'providers_list' });
+  (tab === 'models' ? $('jcs-key') : $('jcs-close')).focus();
+}
+function closeJcSettings() {
+  $('jc-settings').hidden = true;
+  $('jcs-key').value = '';  // a key never lingers in the window
+  $('deck-input').focus();
+}
+$('jcs-close').addEventListener('click', closeJcSettings);
+$('jc-settings').addEventListener('mousedown', (e) => { if (e.target === $('jc-settings')) closeJcSettings(); });
+document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => b.addEventListener('click', () => selectJcsTab(b.dataset.tab)));
+
+function option(value, label, selected) {
+  const o = el('option', '', label);
+  o.value = value;
+  o.selected = !!selected;
+  return o;
+}
+function renderJcGeneral() {
+  const fallback = (prefs && prefs.model) || 'opus';
+  const jarvisModel = modelEntry(fallback);
+  const sel = $('jcs-model');
+  const mine = modelList.filter((m) => !m.builtin);
+  const claude = el('optgroup');
+  claude.label = 'Claude';
+  claude.append(option('', `Same as J.A.R.V.I.S. (${jarvisModel ? jarvisModel.label : 'default'})`, !codeDefaults.model),
+    ...modelList.filter((m) => m.builtin).map((m) => option(m.ref, m.label, codeDefaults.model === m.ref)));
+  const yours = el('optgroup');
+  yours.label = 'Your models';
+  yours.append(...mine.map((m) => option(m.ref, `${m.label} · ${m.provider_name}`, codeDefaults.model === m.ref)));
+  sel.replaceChildren(claude, ...(mine.length ? [yours] : []));
+  $('jcs-mode').replaceChildren(...JC_MODES.map((m) => option(m.id, m.label, (codeDefaults.mode || 'ask') === m.id)));
+  const stop = codeDefaults.ultracode ? 5 : Math.max(0, EFFORTS.indexOf(codeDefaults.effort || 'high'));
+  $('jcs-effort').value = String(stop);
+  $('jcs-effort').style.setProperty('--fill', `${(stop / 5) * 100}%`);
+  $('jcs-effort-out').textContent = effortName(stop);
+  $('jcs-effort-out').classList.toggle('ultra', stop === 5);
+  $('jcs-queue').setAttribute('aria-checked', String(!prefs || prefs.code_queue !== false));
+  $('jcs-awake').setAttribute('aria-checked', String(awake));
+}
+$('jcs-model').addEventListener('change', () => { codeDefaults.model = $('jcs-model').value; send({ type: 'code_defaults', code_model: codeDefaults.model }); renderComposer(); });
+$('jcs-mode').addEventListener('change', () => {
+  const id = $('jcs-mode').value;
+  if (id === 'auto' && !confirm(tr('New sessions would run any command and change any file without asking. Start them in Bypass permissions?'))) { renderJcGeneral(); return; }
+  codeDefaults.mode = id;
+  send({ type: 'code_defaults', code_mode: id });
+  renderComposer();
+});
+$('jcs-effort').addEventListener('input', () => {
+  const stop = Number($('jcs-effort').value);
+  $('jcs-effort').style.setProperty('--fill', `${(stop / 5) * 100}%`);
+  $('jcs-effort-out').textContent = effortName(stop);
+  $('jcs-effort-out').classList.toggle('ultra', stop === 5);
+});
+$('jcs-effort').addEventListener('change', () => {
+  const stop = Number($('jcs-effort').value);
+  Object.assign(codeDefaults, { effort: stop === 5 ? 'xhigh' : EFFORTS[stop], ultracode: stop === 5 });
+  send({ type: 'code_defaults', code_effort: codeDefaults.effort, code_ultracode: codeDefaults.ultracode });
+  renderComposer();
+});
+$('jcs-queue').addEventListener('click', () => setPrefs({ code_queue: !(prefs && prefs.code_queue !== false) }));
+$('jcs-awake').addEventListener('click', () => send({ type: 'awake', on: !awake }));
+
+function onProviders(ev) {
+  providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '' };
+  $('jcs-advice').textContent = providerInfo.advice;
+  $('jcs-advice').hidden = !providerInfo.advice;
+  modelList = providerInfo.models;
+  renderComposer();
+  if (!$('jc-settings').hidden) { renderProviders(); renderJcGeneral(); }
+}
+function onProviderCheck(ev) {
+  providerChecks[ev.id] = ev;
+  if (!$('jc-settings').hidden) renderProviders();
+}
+function onProvidersError(ev) {
+  $('jcs-help').textContent = ev.text || 'That didn’t work.';
+  $('jcs-help').classList.add('bad');
+}
+
+function statusLine(p) {
+  const check = providerChecks[p.id];
+  if (check && check.busy) return ['Checking the key…', ''];
+  const st = (check && !check.busy && check) || p.status;
+  if (!st) return ['Not checked yet', ''];
+  if (st.ok) {
+    const count = st.count ?? (st.models || []).length;
+    const note = check && check.note ? ` · ${check.note}` : '';
+    return [`Key works · ${count} model${count === 1 ? '' : 's'}${note}`, 'good'];
+  }
+  return [st.error || 'That key didn’t work.', 'bad'];
+}
+
+function renderProviders() {
+  const list = $('jcs-providers');
+  list.replaceChildren(...providerInfo.providers.map((p) => {
+    const li = el('li', 'jcs-provider');
+    const head = el('div', 'jcs-p-head');
+    const title = el('div', 'jcs-p-title');
+    title.append(el('strong', '', p.name), el('small', '', `${p.kind_name}${p.base_url && p.kind === 'custom' ? ` · ${p.base_url}` : ''} · key ${p.key_hint}`));
+    const [line, cls] = statusLine(p);
+    const status = el('p', `jcs-p-status ${cls}`, line);
+    const check = el('button', 'jc-btn', 'Check key');
+    check.type = 'button';
+    check.addEventListener('click', () => { providerChecks[p.id] = { busy: true }; renderProviders(); send({ type: 'providers_check', id: p.id }); });
+    const remove = el('button', 'jc-btn danger', 'Remove');
+    remove.type = 'button';
+    remove.addEventListener('click', () => { if (confirm(tr(`Remove ${p.name} and its key from this Mac? Its models go too.`))) send({ type: 'providers_remove', id: p.id }); });
+    head.append(title, check, remove);
+    const models = el('div', 'jcs-p-models');
+    models.append(...p.models.map((m) => {
+      const chip = el('span', 'jcs-model-chip');
+      chip.append(el('span', '', m.label), removeChip(m.label, () => send({ type: 'providers_remove_model', ref: m.ref })));
+      return chip;
+    }));
+    const add = el('form', 'jcs-p-add');
+    const input = el('input', 'jcs-input');
+    input.placeholder = p.kind === 'openrouter' ? 'Model id, e.g. openai/gpt-5' : 'Model id';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', `Add a model from ${p.name}`);
+    const listId = `jcs-dl-${p.id}`;
+    const dl = el('datalist');
+    dl.id = listId;
+    const offered = (providerChecks[p.id] && providerChecks[p.id].models) || [];
+    const kind = providerInfo.kinds.find((k) => k.id === p.kind);
+    const names = offered.length ? offered.filter((m) => m.tools !== false).map((m) => m.id) : ((kind && kind.suggested) || []);
+    dl.append(...names.slice(0, 400).map((id) => option(id, id)));
+    input.setAttribute('list', listId);
+    const go = el('button', 'jc-btn', 'Add model');
+    go.type = 'submit';
+    add.append(input, dl, go);
+    add.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const model = input.value.trim();
+      if (model) send({ type: 'providers_add_model', id: p.id, model });
+    });
+    li.append(head, status, models, add);
+    return li;
+  }));
+  // The add form: one chip per kind of provider.
+  const kinds = providerInfo.kinds.length ? providerInfo.kinds : [{ id: 'openrouter', name: 'OpenRouter' }];
+  if (!kinds.some((k) => k.id === jcsKind)) jcsKind = kinds[0].id;
+  $('jcs-kinds').replaceChildren(...kinds.map((k) => {
+    const b = el('button', 'jcs-kind', k.name);
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(k.id === jcsKind));
+    b.addEventListener('click', () => { jcsKind = k.id; renderProviders(); });
+    return b;
+  }));
+  const kind = kinds.find((k) => k.id === jcsKind) || {};
+  $('jcs-blurb').textContent = kind.blurb || '';
+  $('jcs-url-row').hidden = !kind.needs_base_url;
+  $('jcs-auth-row').hidden = !(kind.auth_choices && kind.auth_choices.length > 1);
+  $('jcs-key').placeholder = kind.key_prefix ? `Paste your key (${kind.key_prefix}…)` : 'Paste your key';
+  const help = $('jcs-help');
+  if (!help.classList.contains('bad')) {
+    help.replaceChildren();
+    if (kind.help_url) {
+      const a = el('a', '', kind.help_url.replace(/^https:\/\//, ''));
+      a.href = kind.help_url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      help.append(document.createTextNode('Get a key at '), a);
+    }
+  }
+  const full = providerInfo.limits.providers && providerInfo.providers.length >= providerInfo.limits.providers;
+  $('jcs-add-btn').disabled = !!full;
+}
+$('jcs-add').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const key = $('jcs-key').value.trim();
+  $('jcs-help').classList.remove('bad');
+  if (!key) { onProvidersError({ text: 'Paste the provider’s API key first.' }); return; }
+  send({ type: 'providers_add', kind: jcsKind, name: $('jcs-name').value.trim(), key, base_url: $('jcs-url').value.trim(), auth: $('jcs-auth').value });
+  $('jcs-key').value = '';  // sent once, to the Keychain; never kept here
+  $('jcs-name').value = '';
+  $('jcs-help').textContent = 'Adding…';
+});
+['jcs-key', 'jcs-name', 'jcs-url'].forEach((id) => $(id).addEventListener('input', () => { $('jcs-help').classList.remove('bad'); }));
+
 let awake = false;
 $('jc-more').addEventListener('click', () => {
   const t = currentTask();
@@ -2333,7 +3148,7 @@ function onTermData(ev) {
 
 // ── voice coding: which session your voice goes to ──
 let voiceFocus = null;
-const MODE_LABELS = { plan: 'Plan mode', ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
+const MODE_LABELS = MODE_NAMES;
 
 function onVoiceCode(focus) {
   voiceFocus = focus || null;
@@ -2341,16 +3156,10 @@ function onVoiceCode(focus) {
   if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
   $('cc-voice-head').setAttribute('aria-pressed', String(!!voiceFocus));
   $('cc-voice-label').textContent = voiceFocus ? `Voice · ${voiceFocus.folder}` : 'Voice off';
-  $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === ccSelected));
   $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type…' : 'Ask Jarvis Code to plan, build or fix something…';
   renderProjects(deckProjects);
 }
 
-$('ds-voice').addEventListener('click', () => {
-  if (!ccSelected) { newSession(true); return; }
-  if (voiceFocus && voiceFocus.id === ccSelected) send({ type: 'voicecode_exit' });
-  else send({ type: 'voicecode_enter', id: ccSelected });
-});
 $('cc-voice-head').addEventListener('click', () => {
   if (voiceFocus) send({ type: 'voicecode_exit' });
   else if (ccSelected) send({ type: 'voicecode_enter', id: ccSelected });
@@ -2365,7 +3174,12 @@ function onJarvisCodeEvent(ev) {
     case 'task_entry_meta': onEntryMeta(ev); return true;
     case 'task_diff': if (ev.id === ccSelected) { diffFiles = ev.files || []; if (currentPane === 'diff' || currentPane === 'artifacts') renderPaneBody(); } return true;
     case 'task_rules': if (ev.id === ccSelected) { rules = ev.rules || []; if (currentPane === 'rules') renderPaneBody(); } return true;
-    case 'task_mcp': if (ev.id === ccSelected) { mcpServers = ev.servers || []; if (currentPane === 'mcp') renderPaneBody(); } return true;
+    case 'task_mcp': if (ev.id === ccSelected) { mcpServers = ev.servers || []; if (currentPane === 'mcp') renderPaneBody(); refreshConnectorsMenu(); } return true;
+    case 'dictation': onDictation(ev); return true;
+    case 'providers': onProviders(ev); return true;
+    case 'providers_check': onProviderCheck(ev); return true;
+    case 'providers_error': onProvidersError(ev); return true;
+    case 'slash_list': customSlash[ev.directory] = ev.items || []; if (!$('cc-slash').hidden) renderSuggestions(); return true;
     case 'project_files': projectFiles[ev.directory] = ev.files || []; if (currentPane === 'files' && ev.directory === deckProject) renderPaneBody(); return true;
     case 'file_content': if (fileView && ev.path === fileView.path) { fileView = ev; drawViewer(); } return true;
     case 'term_open': onTermOpen(ev); return true;
@@ -2691,7 +3505,7 @@ function renderRemote(r) {
   const devices = r.devices || [];
   $('remote-devices').replaceChildren(...(devices.length ? devices.map((d) => {
     const li = el('li');
-    const seen = d.last_seen ? `last used ${new Date(d.last_seen).toLocaleString()}` : 'not used yet';
+    const seen = d.last_seen ? `last used ${new Date(d.last_seen).toLocaleString(uiLocale())}` : 'not used yet';
     const name = el('span', 'fact', `${d.name} · ${seen}`);
     const rm = el('button', 'btn', 'Remove');
     rm.type = 'button';
@@ -2726,7 +3540,7 @@ function renderRoutines(items) {
   list.replaceChildren(...items.map((r) => {
     const li = el('li', 'routine');
     const text = el('span', 'fact');
-    text.append(el('strong', '', r.name), el('small', '', `${r.when}${r.enabled ? '' : ' · paused'}`));
+    text.append(mine(el('strong', '', r.name)), el('small', '', `${r.when}${r.enabled ? '' : ' · paused'}`));
     text.title = r.prompt;
     const sw = el('button', 'switch');
     sw.type = 'button';
@@ -2754,7 +3568,7 @@ function renderMemory(items) {
   }
   list.replaceChildren(...items.map((f) => {
     const li = el('li');
-    const text = el('span', 'fact', f.text);
+    const text = mine(el('span', 'fact', f.text));
     const rm = el('button', 'btn', 'Forget');
     rm.type = 'button';
     rm.setAttribute('aria-label', `Forget: ${f.text}`);
@@ -2770,6 +3584,16 @@ $('memory-form').addEventListener('submit', (e) => {
   if (text) send({ type: 'memory_add', text });
   $('memory-input').value = '';
 });
+
+// What the user, Claude or their data says stays as it is; the window's own words are
+// translated around it (i18n.js skips anything inside data-no-i18n).
+function tr(text) { return window.jarvisI18n ? window.jarvisI18n.t(text) : text; }
+function uiLocale() { return window.jarvisI18n && window.jarvisI18n.lang() === 'zh' ? 'zh-CN' : undefined; }
+
+function mine(node) {
+  node.setAttribute('data-no-i18n', '');
+  return node;
+}
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -2812,7 +3636,7 @@ function notice(kicker, title, text, ms, extra) {
   if (ms) setTimeout(() => card.remove(), ms);
 }
 
-const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', task: 'Background work' };
+const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work' };
 
 // A heads-up JARVIS raised on its own. Claude Code already has its own cards; everything
 // else gets one, plus a macOS notification when the window isn't in front.
@@ -2899,7 +3723,7 @@ function renderActivity() {
     : 'Activity';
   $('activity-list').replaceChildren(...activity.slice(0, 40).map((a) => {
     const li = el('li', a.status);
-    const t = el('time', '', new Date(a.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+    const t = el('time', '', new Date(a.at).toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit' }));
     t.dateTime = a.at;
     const st = a.status === 'running' ? 'working' : a.status === 'failed' ? 'failed' : a.ms ? `${(a.ms / 1000).toFixed(1)}s` : '';
     li.append(t, el('span', '', a.label), el('span', 'st', st));

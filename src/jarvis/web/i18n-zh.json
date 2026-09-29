@@ -1,0 +1,2585 @@
+{
+ "strings": {
+  "(optional; for servers that take one)": "（可选，适用于需要令牌的服务器）",
+  "(the address above +": "（上方地址 +",
+  "+ New session": "+ 新会话",
+  "+ your phone’s token, JSON body": "+ 手机的令牌，请求体选 JSON，添加字段",
+  ", method POST, header": "，方法选 POST，头部添加",
+  "= Dictated Text) →": "= 听写的文本）→",
+  "A faint doubled, in-the-room sheen": "淡淡的叠声，仿佛就在房间里",
+  "AAPL NVDA MSFT": "AAPL NVDA MSFT",
+  "AI voice effect": "AI 语音效果",
+  "Accounts": "账户",
+  "Actions across thousands of apps you've set up in Zapier.": "在 Zapier 中已设置好的数千款 App 里执行操作。",
+  "Activity": "动态",
+  "Add": "添加",
+  "Add an account": "添加账户",
+  "Add any tool": "添加任意工具",
+  "Add folder…": "添加文件夹…",
+  "Add tool": "添加工具",
+  "Address": "地址",
+  "Aim": "瞄准",
+  "Aim with your hand · pinch to open": "用手瞄准 · 捏合打开",
+  "Ambient Orb": "环境光球",
+  "Any MCP server: paste its URL, or the command that starts it (for example": "任意 MCP 服务器：粘贴它的 URL，或启动它的命令（例如",
+  "Apple Notes": "Apple 备忘录",
+  "Apple Watch": "Apple Watch",
+  "Artifacts": "产出文件",
+  "Asana": "Asana",
+  "Ask": "询问",
+  "Ask Jarvis Code to plan, build or fix something…": "让 Jarvis Code 规划、构建或修复点什么…",
+  "Atlassian's Rovo server: Jira issues and Confluence pages.": "Atlassian 的 Rovo 服务器：Jira 问题和 Confluence 页面。",
+  "Attach an image": "附加图片",
+  "Authorization: Bearer": "Authorization: Bearer",
+  "Auto-edits": "自动编辑",
+  "Awaiting command…": "等待指令…",
+  "BSH Research Center": "BSH 研究中心",
+  "BSH Ventures\n2150 Shattuck Ave, Berkeley CA\nbilling@example.com": "BSH Ventures\n2150 Shattuck Ave, Berkeley CA\nbilling@example.com",
+  "BSH research desk": "BSH 研究工作台",
+  "Back": "后退",
+  "Background tasks": "后台任务",
+  "Battery": "电池",
+  "Boards, items and updates.": "看板、条目和更新。",
+  "Boot": "启动",
+  "Booting…": "正在启动…",
+  "Brain": "大脑",
+  "Brief me": "给我简报",
+  "Brief me each morning": "每天早上给我简报",
+  "Brief me now": "立即简报",
+  "Browser": "浏览器",
+  "Business": "商务",
+  "CRM contacts, companies and deals. Needs an MCP auth app from HubSpot.": "CRM 联系人、公司和交易。需要 HubSpot 的 MCP 授权应用。",
+  "Canva": "Canva",
+  "Cards only, no voice": "只显示卡片，不播报",
+  "Changes": "改动",
+  "Clear": "清空",
+  "Close": "关闭",
+  "Close (Esc)": "关闭（Esc）",
+  "Close Jarvis Code": "关闭 Jarvis Code",
+  "Close activity": "关闭动态",
+  "Close pane": "关闭面板",
+  "Close second brain": "关闭第二大脑",
+  "Close settings": "关闭设置",
+  "Close the browser": "关闭浏览器",
+  "Close tools and accounts": "关闭工具与账户",
+  "Command": "命令",
+  "Command Center": "指挥中心",
+  "Commands Jarvis Code runs here without asking (from “Yes, and don’t ask again”).": "Jarvis Code 在这里无需询问即可运行的命令（来自“是，且不再询问”）。",
+  "Computer files": "电脑文件",
+  "Connect your accounts through each service’s official connector. Jarvis reads freely and asks before it changes anything, unless you tell it otherwise. Sign-ins and tokens stay in your Mac’s Keychain.": "通过各服务的官方连接器连接你的账户。Jarvis 可以自由读取，但在做任何更改前都会先询问，除非你另有指示。登录信息和令牌都保存在 Mac 的钥匙串中。",
+  "Connected": "已连接",
+  "Context used": "已用上下文",
+  "Conversation": "对话",
+  "Conversation and log": "对话与日志",
+  "Copied": "已拷贝",
+  "Copy": "拷贝",
+  "Core": "核心",
+  "Couldn’t copy": "无法拷贝",
+  "Customers, payments and invoices.": "客户、付款和发票。",
+  "Databases, tables and edge functions.": "数据库、数据表和边缘函数。",
+  "Delete": "删除",
+  "Design": "设计",
+  "Designs and brand assets.": "设计和品牌素材。",
+  "Developer": "开发者",
+  "Dictate Text": "听写文本",
+  "Disconnect": "断开连接",
+  "Dismiss": "关闭",
+  "Dockerfile": "Dockerfile",
+  "Documents, Desktop and Downloads": "文稿、桌面和下载",
+  "Double-click to rename": "连按两下以重新命名",
+  "Drag to resize": "拖移以调整大小",
+  "Drag to resize the browser": "拖移以调整浏览器大小",
+  "Drag to turn · scroll to zoom · click a star to read it": "拖移可旋转 · 滚动可缩放 · 点按星星即可阅读",
+  "Effort": "思考强度",
+  "Email from the last 7 days": "最近 7 天的邮件",
+  "Email, last 7 days": "邮件（最近 7 天）",
+  "Empty so far.": "目前为空。",
+  "End session": "结束会话",
+  "Errors, issues and releases.": "错误、问题和版本发布。",
+  "Esc": "Esc",
+  "Every inbox in Mail. Needs Full Disk Access.": "“邮件”中的所有收件箱。需要“完全磁盘访问权限”。",
+  "Everything (8)": "全部（8 句）",
+  "Exit": "退出",
+  "Experimental-Reports-Update": "Experimental-Reports-Update",
+  "Experimental-Reports-Update · ⎇ main": "Experimental-Reports-Update · ⎇ main",
+  "Explain this project": "讲解这个项目",
+  "Export transcript": "导出对话记录",
+  "Extract": "导出",
+  "Fable 5.1": "Fable 5.1",
+  "Files": "文件",
+  "Files this session made or changed": "本会话新建或改动的文件",
+  "Filter files…": "筛选文件…",
+  "Find a note": "查找笔记",
+  "Find a note…": "查找笔记…",
+  "Find and read files; create new ones.": "查找和读取文件，也能新建文件。",
+  "Folder path": "文件夹路径",
+  "For local weather and live traffic times. Stays on this Mac until you ask about it.": "用于本地天气和实时路况。在你问起之前，位置信息不会离开这台 Mac。",
+  "Forget": "忘记",
+  "Fork session": "分叉会话",
+  "Forward": "前进",
+  "From your second brain:": "来自你的第二大脑：",
+  "Full auto": "完全自动",
+  "Get Contents of URL": "获取 URL 内容",
+  "Get Dictionary Value": "获取词典值",
+  "GitHub": "GitHub",
+  "Gmail": "Gmail",
+  "Good evening.": "晚上好。",
+  "Google": "Google",
+  "Google Calendar": "Google Calendar",
+  "Google Drive": "Google Drive",
+  "Haiku 4.5": "Haiku 4.5",
+  "Hand control": "手势控制",
+  "Hand gestures": "手势动作",
+  "Hands": "手势",
+  "Hands-free": "免提唤醒",
+  "Heads up": "注意",
+  "Heads-ups": "提醒",
+  "Hide sidebar": "隐藏边栏",
+  "Hide sidebar (⌘\\\\)": "隐藏边栏（⌘\\\\）",
+  "Home & Shortcuts": "家庭与快捷指令",
+  "How I address you": "我如何称呼你",
+  "How’s the portfolio?": "投资组合表现如何？",
+  "HubSpot": "HubSpot",
+  "Hugging Face": "Hugging Face",
+  "Humor": "幽默感",
+  "I didn’t catch that. Tap to try again.": "我没听清。轻点再试一次。",
+  "In the Shortcuts app on your iPhone, make a shortcut named “Ask Jarvis”:": "在 iPhone 的“快捷指令”App 中，新建一个名为“Ask Jarvis”的快捷指令：",
+  "Interrupt": "中断",
+  "Invoices: how to pay": "发票：付款方式",
+  "Invoices: your business": "发票：你的公司",
+  "Issues, projects and cycles.": "问题、项目和周期。",
+  "J.A.R.V.I.S. only": "仅限 J.A.R.V.I.S.",
+  "Jarvis": "Jarvis",
+  "Jarvis Code": "Jarvis Code",
+  "Jarvis apps": "Jarvis 应用",
+  "Jarvis can see your screen (pictures stay in memory for two minutes). Click to stop.": "Jarvis 能看到你的屏幕（画面只在内存中保留两分钟）。点按即可停止。",
+  "Jarvis is browsing": "Jarvis 正在浏览",
+  "Jarvis keeps an eye on your screen so “what’s this error?” just works: a picture every 15 seconds, kept in memory for two minutes, never saved, only sent with your own questions. Needs Screen Recording.": "Jarvis 会留意你的屏幕，所以问“这个错误是什么？”就能直接得到答案：每 15 秒截取一张画面，只在内存中保留两分钟，从不存储，只随你自己的提问一起发送。需要“屏幕录制”权限。",
+  "Jira & Confluence": "Jira & Confluence",
+  "Just a rather very intelligent system": "只是一个相当聪明的智能系统",
+  "Keep computer awake": "让电脑保持唤醒",
+  "Leave empty to sign in with the browser": "留空则通过浏览器登录",
+  "Let me click and type on screen and in the browser without asking first each time. I still never type passwords or buy, send or delete for you.": "让我在屏幕上和浏览器里点按、输入时，不必每次都先问你。我依然绝不会替你输入密码，也不会替你购买、发送或删除。",
+  "Let my phone connect": "允许手机连接",
+  "Linear": "Linear",
+  "Link": "链路",
+  "Loading hand tracking…": "正在载入手势追踪…",
+  "Loading today’s markets…": "正在载入今日行情…",
+  "Loading your shortcuts…": "正在载入你的快捷指令…",
+  "Local time": "本地时间",
+  "Location": "位置",
+  "LockLauncher": "LockLauncher",
+  "Long (5)": "详细（5 句）",
+  "Look": "外观",
+  "Look at my screen": "看看我的屏幕",
+  "Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.": "Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.",
+  "Looking for simulators… (Xcode needs to be installed)": "正在查找模拟器…（需要安装 Xcode）",
+  "MCP servers": "MCP 服务器",
+  "Mac’s built-in": "Mac 内建麦克风",
+  "Markets": "市场",
+  "Markets — open the market breakdown in the BSH Research Center": "市场——在 BSH 研究中心打开市场详情",
+  "Meeting notes": "会议记录",
+  "Memory": "记忆",
+  "Message Jarvis": "给 Jarvis 发消息",
+  "Message Jarvis Code": "给 Jarvis Code 发消息",
+  "Messages to a working session wait until its current step ends. Off: they steer it right away, as Claude Code does.": "发给正在工作的会话的消息，会等当前步骤结束后再送达。关闭时，消息会立即送达并引导当前步骤，和 Claude Code 一样。",
+  "Microphone": "麦克风",
+  "Model": "模型",
+  "Models, datasets and Spaces.": "模型、数据集和 Spaces。",
+  "More": "更多",
+  "Morning briefing": "晨间简报",
+  "Mouse & keyboard without asking": "无需询问即可操作鼠标和键盘",
+  "Mouse and keyboard without asking": "无需询问即可操作鼠标和键盘",
+  "Muted": "已静音",
+  "Name": "名称",
+  "Narrate progress": "播报进度",
+  "Needs your OK": "需要你确认",
+  "New conversation": "新对话",
+  "New session": "新会话",
+  "Next": "下一条",
+  "No changes against the last commit.": "与上次提交相比没有改动。",
+  "No phones paired yet.": "尚未配对任何手机。",
+  "No routines yet.": "还没有例行任务。",
+  "No shortcuts on this Mac yet. Make some in the Shortcuts app (Home scenes work well).": "这台 Mac 上还没有快捷指令。去“快捷指令”App 里建几个吧（家庭场景就很合适）。",
+  "No simulator is running. Boot one:": "没有正在运行的模拟器。启动一个：",
+  "None yet.": "暂无。",
+  "Normal (3)": "适中（3 句）",
+  "Nothing": "不称呼",
+  "Nothing connected yet.": "尚未连接任何服务。",
+  "Nothing here yet.": "这里还没有内容。",
+  "Nothing indexed yet. Add sources in Settings.": "还没有编入索引的内容。请在设置中添加来源。",
+  "Nothing running in the background.": "后台没有正在运行的任务。",
+  "Nothing yet today.": "今天还没有动态。",
+  "Nothing yet.": "还没有内容。",
+  "Notion": "Notion",
+  "On your iPhone, open": "在 iPhone 上用 Safari 打开",
+  "Online": "在线",
+  "Only J.A.R.V.I.S. can drive the Research Center: your voice and your hands, not the mouse or keyboard.": "只有 J.A.R.V.I.S. 能操控研究中心：用你的声音和手势，而不是鼠标或键盘。",
+  "Open": "打开",
+  "Open App": "Open App",
+  "Open Full Disk Access settings": "打开“完全磁盘访问权限”设置",
+  "Open Location settings": "打开“定位服务”设置",
+  "Open Simulator": "打开模拟器",
+  "Open a session to see its MCP servers.": "打开一个会话以查看它的 MCP 服务器。",
+  "Open a session to see its changes.": "打开一个会话以查看它的改动。",
+  "Open in its own app": "用对应的 App 打开",
+  "Open notes": "打开记录",
+  "Open report": "打开报告",
+  "Open the BSH Research Center": "打开 BSH 研究中心",
+  "Open the market breakdown in the BSH Research Center": "在 BSH 研究中心打开市场详情",
+  "Opens a companion page on your home network (port 8765). Only phones you pair can use it. On shared Wi-Fi or away from home, use Tailscale.": "在家庭网络上开启一个配套网页（端口 8765）。只有配对过的手机才能使用。在共享 Wi-Fi 上或不在家时，请使用 Tailscale。",
+  "Optimal": "最佳",
+  "Optional, e.g. your name or “sir”": "可选，例如你的名字或“先生”",
+  "Opus 5.5": "Opus 5.5",
+  "Or type a request…": "或者输入请求…",
+  "Otherwise they only appear as cards": "否则只以卡片显示",
+  "Pair a phone": "配对手机",
+  "Pane": "面板",
+  "Pay by bank transfer or at pay.example.com": "银行转账，或在 pay.example.com 付款",
+  "Permission mode": "权限模式",
+  "Permissions": "权限",
+  "Persona": "人设",
+  "Personality": "个性",
+  "Photos": "照片",
+  "Pick a project first.": "请先选择一个项目。",
+  "Pick a session, or start one. ? for shortcuts": "选择一个会话，或新建一个。按 ? 查看快捷键",
+  "Plan": "计划",
+  "Plan a feature first": "先规划一个功能",
+  "Play focus music": "播放专注音乐",
+  "Power": "电量",
+  "Press a number, or just say “yes”, “no, …” or “option 2”.": "按数字键，或直接说“好”、“不，……”或“选项 2”。",
+  "Printed at the top of invoices Jarvis makes: name on the first line, then address and email": "印在 Jarvis 所开发票的顶部：第一行是名称，然后是地址和邮箱",
+  "Printed under the total (bank or payment link); type it yourself, Jarvis never fills this in": "印在合计金额下方（银行信息或付款链接）；请自行填写，Jarvis 从不代填",
+  "Projects and sessions": "项目与会话",
+  "Projects, deployments and logs.": "项目、部署和日志。",
+  "Queue Jarvis Code follow-ups": "Jarvis Code 后续消息排队",
+  "Queue messages": "消息排队",
+  "Quiet hours": "勿扰时段",
+  "Quiet hours end": "勿扰时段结束",
+  "Quiet hours start": "勿扰时段开始",
+  "Read mail and write drafts (Google's official connector).": "读取邮件并撰写草稿（Google 官方连接器）。",
+  "Rebuild now": "立即重建",
+  "Reconnecting to Jarvis…": "正在重新连接 Jarvis…",
+  "Reload": "重新载入",
+  "Remember": "记住",
+  "Remove": "移除",
+  "Rename session…": "重新命名会话…",
+  "Reply length": "回复长度",
+  "Repos, issues, pull requests and Actions.": "仓库、议题、拉取请求和 Actions。",
+  "Requests": "请求数",
+  "Research Center": "研究中心",
+  "Research Center ↗": "研究中心 ↗",
+  "Resume a session": "继续之前的会话",
+  "Review my changes": "审查我的改动",
+  "Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.": "Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.",
+  "Routines": "例行任务",
+  "Run now": "立即运行",
+  "Run the tests and fix failures": "运行测试并修复失败项",
+  "Run “LockLauncher” instantly": "直接运行“LockLauncher”",
+  "Run “Open App” instantly": "直接运行“Open App”",
+  "Run “Shazam shortcut” instantly": "直接运行“Shazam shortcut”",
+  "Run “Split Screen 2 Apps” instantly": "直接运行“Split Screen 2 Apps”",
+  "Run “Split Screen Safari and Reminders 1” instantly": "直接运行“Split Screen Safari and Reminders 1”",
+  "Run “Split Screen Safari and Reminders” instantly": "直接运行“Split Screen Safari and Reminders”",
+  "Run “Take Photo” instantly": "直接运行“Take Photo”",
+  "Run “Take a Break” instantly": "直接运行“Take a Break”",
+  "Run “Text Last Image” instantly": "直接运行“Text Last Image”",
+  "Run “What’s a shortcut?” instantly": "直接运行“What’s a shortcut?”",
+  "Running for": "运行时长",
+  "Running…": "正在运行…",
+  "Save the conversation as a note in Documents › Jarvis › Conversations": "把对话存为笔记，放在“文稿 › Jarvis › Conversations”中",
+  "Saved": "已存储",
+  "Say": "说",
+  "Say heads-ups out loud": "语音播报提醒",
+  "Say them out loud": "语音播报",
+  "Say “Jarvis, let’s code in jarvis” and talk to Jarvis Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.": "说“贾维斯，一起写代码：jarvis”，然后直接和 Jarvis Code 对话：计划模式、撤销刚才的改动、改了什么、讲讲第二处改动、提交；说“exit code mode”即可退出。",
+  "Say “Jarvis” to talk; talk over me to interrupt. Keeps the mic on.": "说“贾维斯”即可对话；我说话时你直接开口就能打断我。麦克风会保持开启。",
+  "Screen awareness": "屏幕感知",
+  "Screen awareness is on: stop": "屏幕感知已开启：点按停止",
+  "Scroll": "滚动",
+  "Search or enter an address": "搜索或输入网址",
+  "Search projects": "搜索项目",
+  "Search, read and write pages and databases.": "搜索、读取和编写页面与数据库。",
+  "Second brain": "第二大脑",
+  "Seeing screen": "正在看屏幕",
+  "Send": "发送",
+  "Sentences read aloud; the rest stays on screen": "朗读的句数，其余内容留在屏幕上",
+  "Sentry": "Sentry",
+  "Server URL or command": "服务器 URL 或命令",
+  "Session": "会话",
+  "Set your city in Settings to see the weather.": "在设置中填写城市即可查看天气。",
+  "Settings": "设置",
+  "Shazam shortcut": "Shazam shortcut",
+  "Shields": "防护",
+  "Short (2)": "简短（2 句）",
+  "Short notes like “Editing hub dot py” while it works": "工作时简短播报进展，比如“正在编辑 hub 点 py”",
+  "Show in Finder": "在访达中显示",
+  "Sign in": "登录",
+  "Something to remember": "要记住的事",
+  "Sonnet 5.5": "Sonnet 5.5",
+  "Speak Text": "朗读文本",
+  "Speaking up": "对话与提醒",
+  "Split Screen 2 Apps": "Split Screen 2 Apps",
+  "Split Screen Safari and Reminders": "Split Screen Safari and Reminders",
+  "Split Screen Safari and Reminders 1": "Split Screen Safari and Reminders 1",
+  "Spoken replies": "语音回复",
+  "Stark HUD": "斯塔克 HUD",
+  "Start voice coding": "开始语音编程",
+  "Starting…": "正在启动…",
+  "Steer the page with your hands": "用手势操控页面",
+  "Stop": "停止",
+  "Stop & write up": "停止并整理记录",
+  "Storage": "存储空间",
+  "Stripe": "Stripe",
+  "Suggestions": "建议",
+  "Supabase": "Supabase",
+  "Switch any time, or just say “use Sonnet”": "随时切换，或者直接说“用 Sonnet”",
+  "System //": "系统 //",
+  "System // Defense": "系统 // 防御",
+  "System // Log": "系统 // 日志",
+  "System // Status": "系统 // 状态",
+  "System // Terminal": "系统 // 终端",
+  "System default": "系统默认",
+  "System panels": "系统面板",
+  "System stats": "系统指标",
+  "System status": "系统状态",
+  "Tab": "Tab",
+  "Take Photo": "Take Photo",
+  "Take a Break": "Take a Break",
+  "Take meeting notes": "记录会议",
+  "Taking notes": "正在记录",
+  "Talk": "说话",
+  "Talk or type. Jarvis Code plans, edits, runs and explains, in": "说话或打字都行。Jarvis Code 为你规划、编辑、运行和讲解，当前项目：",
+  "Talk to Jarvis": "和 Jarvis 对话",
+  "Tap the orb or press ⌥ Space": "轻点光球，或按下 ⌥ Space",
+  "Tasks and projects.": "任务和项目。",
+  "Tasks and projects. Needs an MCP app from Asana's developer console.": "任务和项目。需要在 Asana 开发者控制台中创建的 MCP 应用。",
+  "Tell Claude what to do instead (optional)": "告诉 Claude 应该怎么做（可选）",
+  "Terminal": "终端",
+  "Terminal input": "终端输入",
+  "Text Last Image": "Text Last Image",
+  "Texts from the last 7 days": "最近 7 天的短信",
+  "Texts, last 7 days": "短信（最近 7 天）",
+  "The Mac’s own mic keeps AirPods in full-quality audio": "用 Mac 自带的麦克风，AirPods 就能保持高音质",
+  "The terminal component didn’t load.": "终端组件未能载入。",
+  "Things I do on my own schedule. Say “Jarvis, every weekday at 7, brief me” or “tonight at 1, research…”.": "我会按时自动去做的事。说“贾维斯，每个工作日 7 点给我简报”或“今晚 1 点研究一下……”。",
+  "Thinking": "思考过程",
+  "Thinking… ": "思考中…",
+  "Tickers for the Markets panel and “how’s the market?”, separated by spaces or commas": "用于“市场”面板和“市场怎么样？”的股票代码，以空格或逗号分隔",
+  "Time": "时间",
+  "Time to leave, meetings starting, low battery, rain on the way, urgent email, Jarvis Code done or waiting": "该出发了、会议即将开始、电量不足、快要下雨、紧急邮件、Jarvis Code 已完成或在等你",
+  "Todoist": "Todoist",
+  "Token": "令牌",
+  "Tools & Accounts": "工具与账户",
+  "Tools & Accounts…": "工具与账户…",
+  "Tools and accounts": "工具与账户",
+  "Try again": "重试",
+  "Type": "打字",
+  "Type a message…": "输入消息…",
+  "Type a request": "输入请求",
+  "Use my location": "使用我的位置",
+  "Used when location is off, e.g. Berkeley": "定位关闭时使用，例如 Berkeley",
+  "Vercel": "Vercel",
+  "Voice": "语音",
+  "Voice coding": "语音编程",
+  "Voice coding for this session": "本会话的语音编程",
+  "Voice off": "语音关闭",
+  "Waiting to be sent": "等待发送",
+  "Watchlist": "自选股",
+  "Weather": "天气",
+  "Weather city": "天气城市",
+  "What are we building?": "我们要做点什么？",
+  "What you've asked me to remember. Say “Jarvis, remember…” or add it here.": "你让我记住的事。说“贾维斯，记住……”，或在这里添加。",
+  "What’s a shortcut?": "What’s a shortcut?",
+  "What’s next today?": "今天还有什么安排？",
+  "When Jarvis is running at that time": "前提是 Jarvis 那时正在运行",
+  "Where the BSH Research Center runs. Clicking Markets opens its market breakdown here, driven only by Jarvis.": "BSH 研究中心的运行地址。点按“市场”会在这里打开它的市场详情，只由 Jarvis 操控。",
+  "While Jarvis Code works": "Jarvis Code 工作期间",
+  "While Jarvis is answering, what you say or type waits its turn (you can take it back). Off: a new request interrupts the answer.": "Jarvis 回答时，你说的话或输入的内容会排队等候（可以撤回）。关闭时，新请求会打断当前回答。",
+  "Work": "工作",
+  "Workbench": "工作台",
+  "Workbench pane": "工作台面板",
+  "Working…": "工作中…",
+  "Your 2,500 most recent: dates, titles, captions, keywords": "最近的 2500 张：日期、标题、说明和关键词",
+  "Your Shortcuts reach HomeKit: lights, locks, scenes. Instant ones run the moment you say their name (“Jarvis, movie mode”), without asking.": "你的快捷指令可以控制 HomeKit：灯、门锁、场景。设为直接运行的快捷指令，你一说出名字（“贾维斯，电影模式”）就会立即执行，无需询问。",
+  "Your calendars and events.": "你的日历和日程。",
+  "Your city": "你所在的城市",
+  "Your own app": "自建应用",
+  "Zapier": "Zapier",
+  "Zoom": "缩放",
+  "active": "已激活",
+  "bilelharrrat@MacBook-Air-2 Experimental-Reports-Update": "bilelharrrat@MacBook-Air-2 Experimental-Reports-Update",
+  "bsh-messenger": "bsh-messenger",
+  "bsh-messenger-standalone": "bsh-messenger-standalone",
+  "bsh-research-center": "bsh-research-center",
+  "commands ·": "命令 ·",
+  "e.g. Ann Lee is my co-founder": "例如：Ann Lee 是我的联合创始人",
+  "e.g. Home Assistant": "例如 Home Assistant",
+  "files ·": "文件 ·",
+  "iMessage and SMS. Needs Full Disk Access.": "iMessage 信息和短信。需要“完全磁盘访问权限”。",
+  "iOS Simulator": "iOS 模拟器",
+  "iPhone & Watch": "iPhone 与 Watch",
+  "in Safari, then Share › Add to Home Screen.": "，然后轻点“共享”›“添加到主屏幕”。",
+  "interrupt": "中断",
+  "jarvis": "jarvis",
+  "jarvis --ask …": "jarvis --ask …",
+  "main": "main",
+  "modes ·": "模式 ·",
+  "monday.com": "monday.com",
+  "no route": "无路由",
+  "npx -y @modelcontextprotocol/server-filesystem ~/Documents": "npx -y @modelcontextprotocol/server-filesystem ~/Documents",
+  "root@jarvis": "root@jarvis",
+  "talk ·": "说话 ·",
+  "text": "text",
+  "this project": "此项目",
+  "what’s this?": "这是什么？",
+  "your project": "你的项目",
+  "· esc to interrupt": "· 按 esc 中断",
+  "“Jarvis, let’s code in": "“贾维斯，一起写代码：",
+  "“reply” →": "（键为“reply”）→",
+  "⌥ Space": "⌥ Space",
+  "⌥⇧ Space": "⌥⇧ Space",
+  "⑂ Fork from here": "⑂ 从这里分叉",
+  "● Ready": "● 就绪",
+  "⟲ Rewind code to here": "⟲ 代码回退到这里",
+  ". Turn on “Show on Apple Watch”, then say “Hey Siri, Ask Jarvis”.": "。打开“在 Apple Watch 上显示”，然后说“嘿 Siri，Ask Jarvis”。",
+  "? for shortcuts": "按 ? 查看快捷键",
+  "Hello.": "你好。",
+  "https://… or a command": "https://… 或命令",
+  "talk": "说话",
+  ".": "。",
+  ").": "）。",
+  "Thinking…": "思考中…",
+  "Hide sidebar (⌘\\)": "隐藏边栏（⌘\\）",
+  "Show sidebar (⌘\\)": "显示边栏（⌘\\）",
+  "Show sidebar": "显示边栏",
+  "RAM": "内存",
+  "Good morning.": "早上好。",
+  "Good afternoon.": "下午好。",
+  "Listening…": "正在聆听…",
+  "One moment…": "请稍候…",
+  "Speaking · tap the orb to stop": "正在说话 · 轻点光球即可停止",
+  "Working on it…": "正在处理…",
+  "Say “Jarvis”, or tap the orb": "说“贾维斯”，或轻点光球",
+  "Say “Hey Jarvis” ·": "说“嘿，贾维斯” ·",
+  "Processing…": "处理中…",
+  "Computing…": "运算中…",
+  "Responding…": "应答中…",
+  "● Listening for wake word…": "● 等待唤醒词…",
+  "● Listening…": "● 正在聆听…",
+  "● Transcribing…": "● 正在转写…",
+  "● Thinking…": "● 思考中…",
+  "● Speaking…": "● 正在说话…",
+  "input": "输入",
+  "Parsing": "解析",
+  "computing": "运算中",
+  "output": "输出",
+  "Under load": "高负载",
+  "✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close": "✋ 瞄准 · 捏合打开 · 捏住并移动以滚动 · 向右挥手后退 · 双手捏合缩放 · 握拳保持即可关闭",
+  "☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close": "☝ 指向 · 捏合星星即可打开 · 捏住并移动以旋转 · 双手捏合缩放 · 张开手掌重置 · 握拳关闭",
+  "☝ point · pinch to press · pinch and move to scroll · wave to dismiss a notice (or change the look) · hold an open palm to talk · hold a fist to stop me": "☝ 指向 · 捏合按下 · 捏住并移动以滚动 · 挥手关闭通知（或切换外观）· 张开手掌保持即可说话 · 握拳保持让我停下",
+  "Hold open palm to talk…": "保持张开手掌即可说话…",
+  "Listening": "正在聆听",
+  "Hold fist to stop me…": "保持握拳让我停下…",
+  "Scrolling": "滚动中",
+  "Pinch to press": "捏合按下",
+  "Pressed": "已按下",
+  "Starting hand tracking…": "正在启动手势追踪…",
+  "Show me your hand": "把手举到镜头前",
+  "Hold open palm to reset…": "保持张开手掌即可重置…",
+  "View reset": "视图已重置",
+  "Hold fist to close…": "保持握拳即可关闭…",
+  "Spinning": "旋转中",
+  "Pinch": "捏合",
+  "Pinch to open": "捏合打开",
+  "Pointing": "指向中",
+  "Opened": "已打开",
+  "Raise a hand to steer": "举起一只手来操控",
+  "Let go to open · move to scroll": "松开即打开 · 移动即滚动",
+  "Scrolling · let go to stop": "滚动中 · 松开即停止",
+  "← Back": "← 后退",
+  "Forward →": "前进 →",
+  "Zooming": "缩放中",
+  "Keep the fist to close…": "保持握拳即可关闭…",
+  "Folders": "文件夹",
+  "BSH desk": "BSH 工作台",
+  "Research": "研究",
+  "Meetings": "会议",
+  "Email": "邮件",
+  "Texts": "短信",
+  "Building…": "正在构建…",
+  "Second brain · updating": "第二大脑 · 更新中",
+  "Ask before changes": "更改前询问",
+  "Allow everything": "全部允许",
+  "Read-only": "只读",
+  "Connecting…": "正在连接…",
+  "Finish signing in in your browser": "请在浏览器中完成登录",
+  "Problem": "出现问题",
+  "Disconnected": "已断开连接",
+  "Off": "关",
+  "On": "开",
+  "Reconnect": "重新连接",
+  "Open the sign-in page again": "再次打开登录页面",
+  "Setup guide": "设置指南",
+  "OAuth client ID": "OAuth 客户端 ID",
+  "OAuth client secret": "OAuth 客户端密钥",
+  "Create a fine-grained personal access token with the repos and permissions you want Jarvis to have, then paste it here.": "创建一个细粒度的个人访问令牌，只授予你希望 Jarvis 拥有的仓库和权限，然后粘贴到这里。",
+  "Tools updated": "工具已更新",
+  "Something went wrong": "出了点问题",
+  "Allow": "允许",
+  "Always allow this": "始终允许此操作",
+  "Deny": "拒绝",
+  "Firewall": "防火墙",
+  "Backup": "备份",
+  "Blocking unwanted connections": "正在阻止不需要的连接",
+  "Disk encrypted": "磁盘已加密",
+  "Disk not encrypted": "磁盘未加密",
+  "Only trusted apps": "仅限可信 App",
+  "Any app can run": "任何 App 都能运行",
+  "System files protected": "系统文件受保护",
+  "Protection off": "保护已关闭",
+  "Time Machine set up": "已设置时间机器",
+  "No Time Machine disk": "没有时间机器磁盘",
+  "Unknown": "未知",
+  "Offline": "离线",
+  "Network": "网络",
+  "Ethernet": "以太网",
+  "Humidity": "湿度",
+  "Wind": "风速",
+  "Feels like": "体感温度",
+  "clear sky": "晴",
+  "mainly clear": "大部晴朗",
+  "partly cloudy": "局部多云",
+  "overcast": "阴天",
+  "fog": "雾",
+  "light drizzle": "小毛毛雨",
+  "drizzle": "毛毛雨",
+  "heavy drizzle": "大毛毛雨",
+  "light rain": "小雨",
+  "rain": "中雨",
+  "heavy rain": "大雨",
+  "freezing rain": "冻雨",
+  "light snow": "小雪",
+  "snow": "中雪",
+  "heavy snow": "大雪",
+  "snow grains": "米雪",
+  "rain showers": "阵雨",
+  "violent rain showers": "强阵雨",
+  "snow showers": "阵雪",
+  "thunderstorm": "雷暴",
+  "thunderstorm with hail": "雷暴伴有冰雹",
+  "weather": "天气",
+  "Pre-market": "盘前",
+  "After hours": "盘后",
+  "Closed": "已收盘",
+  "Plan mode": "计划模式",
+  "Ask first": "先询问",
+  "⏸ Plan mode: Jarvis Code plans, you approve (⇧⇥ to switch)": "⏸ 计划模式：Jarvis Code 做计划，经你允许再执行（⇧⇥ 切换）",
+  "Asks before each edit and command (⇧⇥ to switch)": "每次编辑和运行命令前都会询问（⇧⇥ 切换）",
+  "⏵⏵ Auto-edits: edits go ahead, commands ask (⇧⇥ to switch)": "⏵⏵ 自动编辑：编辑直接进行，命令先询问（⇧⇥ 切换）",
+  "⏵⏵⏵ Full auto: runs anything (⇧⇥ to switch)": "⏵⏵⏵ 完全自动：任何操作都直接运行（⇧⇥ 切换）",
+  "Listening: just talk (say “exit code mode” to stop), or type…": "正在聆听：直接说话即可（说“exit code mode”退出），或输入…",
+  "Untitled session": "未命名会话",
+  "Background task": "后台任务",
+  "No MCP servers in this project.": "此项目中没有 MCP 服务器。",
+  "No matches.": "没有匹配项。",
+  "Preview": "预览",
+  "Source": "源代码",
+  "Failed": "失败",
+  "Remove image": "移除图片",
+  "Done · goes with your next message": "完成 · 会随下一条消息一起发送",
+  "Couldn’t save that to CLAUDE.md.": "无法保存到 CLAUDE.md。",
+  "Ready to code?": "可以开始写代码了吗？",
+  "Run this command?": "运行这条命令？",
+  "Create this file?": "创建这个文件？",
+  "Make this edit?": "进行这处编辑？",
+  "Yes": "是",
+  "Yes, allow all edits this session": "是，本会话允许所有编辑",
+  "No, and tell Claude what to do differently": "否，并告诉 Claude 换个做法",
+  "Go, auto-accept edits": "开始，自动接受编辑",
+  "Go, ask before edits": "开始，编辑前询问",
+  "Keep planning": "继续规划",
+  "Skip": "跳过",
+  "Not now": "暂不",
+  "Don't send": "不发送",
+  "Run": "运行",
+  "Always": "始终允许",
+  "Full auto lets this session run any command without asking. Switch?": "“完全自动”会让此会话无需询问即可运行任何命令。要切换吗？",
+  "Put the files back as they were before this message?": "把文件恢复到这条消息之前的状态？",
+  "Low · Fastest": "低 · 最快",
+  "Medium": "中",
+  "High · The default": "高 · 默认",
+  "Xhigh": "超高",
+  "Max · Thinks as hard as it can": "最高 · 尽全力思考",
+  "Effort: low": "思考强度：低",
+  "Effort: medium": "思考强度：中",
+  "Effort: high": "思考强度：高",
+  "Effort: xhigh": "思考强度：超高",
+  "Effort: max": "思考强度：最高",
+  "Plan first, you approve": "先做计划，经你允许再执行",
+  "Ask before each edit and command": "每次编辑和运行命令前先询问",
+  "Accept edits automatically": "自动接受编辑",
+  "Full auto: run anything": "完全自动：什么都直接运行",
+  "Undo the last round of file changes": "撤销上一轮文件改动",
+  "Show what changed": "显示改动",
+  "Commit the changes": "提交改动",
+  "Push and open a pull request": "推送并创建拉取请求",
+  "Run the tests": "运行测试",
+  "Compact the conversation": "压缩对话",
+  "Context window used": "上下文窗口用量",
+  "What this session has cost": "本会话的花费",
+  "Switch model: /model sonnet": "切换模型：/model sonnet",
+  "How hard it thinks: /effort high": "思考强度：/effort high",
+  "Fork this session": "分叉此会话",
+  "Rename: /rename New name": "重新命名：/rename 新名称",
+  "Save the transcript as Markdown": "将对话记录存为 Markdown",
+  "Browse the project": "浏览项目",
+  "Open a terminal here": "在这里打开终端",
+  "Commands it won’t ask about again": "不再询问的命令",
+  "Write a CLAUDE.md for this project": "为此项目编写 CLAUDE.md",
+  "Review the changes": "审查改动",
+  "New session in this project": "在此项目中新建会话",
+  "Voice coding on or off": "开启或关闭语音编程",
+  "Interrupt the current step": "中断当前步骤",
+  "Edited": "已编辑",
+  "Wrote": "已写入",
+  "Read": "已读取",
+  "Ran": "已运行",
+  "Searched": "已搜索",
+  "Found files": "找到文件",
+  "Fetched": "已获取",
+  "Edited notebook": "已编辑笔记本",
+  "Agent": "智能体",
+  "Working": "工作中",
+  "Waiting for you": "等你回复",
+  "Finished": "已完成",
+  "Stopped": "已停止",
+  "Plan ready": "计划已就绪",
+  "Asking you": "正在询问你",
+  "Next message": "下一条消息",
+  "Waiting for you…": "等你回复…",
+  "Plan ready…": "计划已就绪…",
+  "Asking you…": "正在询问你…",
+  "Next message…": "下一条消息…",
+  "running": "运行中",
+  "waiting": "等待中",
+  "done": "已完成",
+  "failed": "失败",
+  "stopped": "已停止",
+  "closed": "已关闭",
+  "working": "进行中",
+  "Heads-up": "提醒",
+  "Time to go": "该出发了",
+  "Coming up": "即将开始",
+  "Background work": "后台工作",
+  "Report ready": "报告已就绪",
+  "Didn’t finish": "未完成",
+  "Meeting": "会议",
+  "Don’t send this": "不发送这条",
+  "Code expired. Pair again for a new one.": "配对码已过期。请重新配对以获取新码。",
+  "Turn on location for J.A.R.V.I.S.": "为 J.A.R.V.I.S. 打开定位服务",
+  "For local weather and live traffic: switch on J.A.R.V.I.S. under Location Services.": "请在“定位服务”中为 J.A.R.V.I.S. 打开定位，以获取本地天气和实时路况。",
+  "Location access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Location Services).": "J.A.R.V.I.S. 的定位权限已关闭（系统设置 > 隐私与安全性 > 定位服务）。",
+  "No location services in this window.": "此窗口中没有定位服务。",
+  "The Research Center only opens in the J.A.R.V.I.S. app window.": "研究中心只能在 J.A.R.V.I.S. App 窗口中打开。",
+  "The Research Center is closed. Open it first.": "研究中心未打开。请先打开它。",
+  "Sign in yourself, then I take over": "你先自己登录，然后交给我",
+  "working · Plan mode": "进行中 · 计划模式",
+  "working · Ask first": "进行中 · 先询问",
+  "working · Auto-edits": "进行中 · 自动编辑",
+  "working · Full auto": "进行中 · 完全自动",
+  "your turn · Plan mode": "等你回复 · 计划模式",
+  "your turn · Ask first": "等你回复 · 先询问",
+  "your turn · Auto-edits": "等你回复 · 自动编辑",
+  "your turn · Full auto": "等你回复 · 完全自动",
+  "failed · Plan mode": "失败 · 计划模式",
+  "failed · Ask first": "失败 · 先询问",
+  "failed · Auto-edits": "失败 · 自动编辑",
+  "failed · Full auto": "失败 · 完全自动",
+  "ended · Plan mode": "已结束 · 计划模式",
+  "ended · Ask first": "已结束 · 先询问",
+  "ended · Auto-edits": "已结束 · 自动编辑",
+  "ended · Full auto": "已结束 · 完全自动",
+  "starting · Plan mode": "启动中 · 计划模式",
+  "starting · Ask first": "启动中 · 先询问",
+  "starting · Auto-edits": "启动中 · 自动编辑",
+  "starting · Full auto": "启动中 · 完全自动",
+  "done · Plan mode": "已完成 · 计划模式",
+  "done · Ask first": "已完成 · 先询问",
+  "done · Auto-edits": "已完成 · 自动编辑",
+  "done · Full auto": "已完成 · 完全自动",
+  "Opened an app": "打开了 App",
+  "OPENED AN APP": "打开了 App",
+  "OPENED AN APP …": "打开了 App …",
+  "OPENED AN APP — FAILED": "打开了 App — 失败",
+  "Opened a web page": "打开了网页",
+  "OPENED A WEB PAGE": "打开了网页",
+  "OPENED A WEB PAGE …": "打开了网页 …",
+  "OPENED A WEB PAGE — FAILED": "打开了网页 — 失败",
+  "Arranged a window": "排列了窗口",
+  "ARRANGED A WINDOW": "排列了窗口",
+  "ARRANGED A WINDOW …": "排列了窗口 …",
+  "ARRANGED A WINDOW — FAILED": "排列了窗口 — 失败",
+  "Quit an app": "退出了 App",
+  "QUIT AN APP": "退出了 App",
+  "QUIT AN APP …": "退出了 App …",
+  "QUIT AN APP — FAILED": "退出了 App — 失败",
+  "Checked the time and battery": "查看了时间和电量",
+  "CHECKED THE TIME AND BATTERY": "查看了时间和电量",
+  "CHECKED THE TIME AND BATTERY …": "查看了时间和电量 …",
+  "CHECKED THE TIME AND BATTERY — FAILED": "查看了时间和电量 — 失败",
+  "Controlled music": "控制了音乐",
+  "CONTROLLED MUSIC": "控制了音乐",
+  "CONTROLLED MUSIC …": "控制了音乐 …",
+  "CONTROLLED MUSIC — FAILED": "控制了音乐 — 失败",
+  "Checked what's playing": "查看了正在播放的内容",
+  "CHECKED WHAT'S PLAYING": "查看了正在播放的内容",
+  "CHECKED WHAT'S PLAYING …": "查看了正在播放的内容 …",
+  "CHECKED WHAT'S PLAYING — FAILED": "查看了正在播放的内容 — 失败",
+  "Changed the volume": "调整了音量",
+  "CHANGED THE VOLUME": "调整了音量",
+  "CHANGED THE VOLUME …": "调整了音量 …",
+  "CHANGED THE VOLUME — FAILED": "调整了音量 — 失败",
+  "Saved a note": "保存了笔记",
+  "SAVED A NOTE": "保存了笔记",
+  "SAVED A NOTE …": "保存了笔记 …",
+  "SAVED A NOTE — FAILED": "保存了笔记 — 失败",
+  "Listed Shortcuts": "列出了快捷指令",
+  "LISTED SHORTCUTS": "列出了快捷指令",
+  "LISTED SHORTCUTS …": "列出了快捷指令 …",
+  "LISTED SHORTCUTS — FAILED": "列出了快捷指令 — 失败",
+  "Ran a Shortcut": "运行了快捷指令",
+  "RAN A SHORTCUT": "运行了快捷指令",
+  "RAN A SHORTCUT …": "运行了快捷指令 …",
+  "RAN A SHORTCUT — FAILED": "运行了快捷指令 — 失败",
+  "Read your inbox": "查看了收件箱",
+  "READ YOUR INBOX": "查看了收件箱",
+  "READ YOUR INBOX …": "查看了收件箱 …",
+  "READ YOUR INBOX — FAILED": "查看了收件箱 — 失败",
+  "Drafted an email": "起草了邮件",
+  "DRAFTED AN EMAIL": "起草了邮件",
+  "DRAFTED AN EMAIL …": "起草了邮件 …",
+  "DRAFTED AN EMAIL — FAILED": "起草了邮件 — 失败",
+  "Checked your calendar": "查看了日历",
+  "CHECKED YOUR CALENDAR": "查看了日历",
+  "CHECKED YOUR CALENDAR …": "查看了日历 …",
+  "CHECKED YOUR CALENDAR — FAILED": "查看了日历 — 失败",
+  "Added a calendar event": "添加了日程",
+  "ADDED A CALENDAR EVENT": "添加了日程",
+  "ADDED A CALENDAR EVENT …": "添加了日程 …",
+  "ADDED A CALENDAR EVENT — FAILED": "添加了日程 — 失败",
+  "Started Jarvis Code": "启动了 Jarvis Code",
+  "STARTED JARVIS CODE": "启动了 Jarvis Code",
+  "STARTED JARVIS CODE …": "启动了 Jarvis Code …",
+  "STARTED JARVIS CODE — FAILED": "启动了 Jarvis Code — 失败",
+  "Started research": "开始了研究",
+  "STARTED RESEARCH": "开始了研究",
+  "STARTED RESEARCH …": "开始了研究 …",
+  "STARTED RESEARCH — FAILED": "开始了研究 — 失败",
+  "Checked background tasks": "查看了后台任务",
+  "CHECKED BACKGROUND TASKS": "查看了后台任务",
+  "CHECKED BACKGROUND TASKS …": "查看了后台任务 …",
+  "CHECKED BACKGROUND TASKS — FAILED": "查看了后台任务 — 失败",
+  "Messaged Jarvis Code": "给 Jarvis Code 发了消息",
+  "MESSAGED JARVIS CODE": "给 Jarvis Code 发了消息",
+  "MESSAGED JARVIS CODE …": "给 Jarvis Code 发了消息 …",
+  "MESSAGED JARVIS CODE — FAILED": "给 Jarvis Code 发了消息 — 失败",
+  "Stopped Jarvis Code": "停止了 Jarvis Code",
+  "STOPPED JARVIS CODE": "停止了 Jarvis Code",
+  "STOPPED JARVIS CODE …": "停止了 Jarvis Code …",
+  "STOPPED JARVIS CODE — FAILED": "停止了 Jarvis Code — 失败",
+  "Listed Jarvis Code sessions": "列出了 Jarvis Code 会话",
+  "LISTED JARVIS CODE SESSIONS": "列出了 Jarvis Code 会话",
+  "LISTED JARVIS CODE SESSIONS …": "列出了 Jarvis Code 会话 …",
+  "LISTED JARVIS CODE SESSIONS — FAILED": "列出了 Jarvis Code 会话 — 失败",
+  "Resumed a Jarvis Code session": "恢复了 Jarvis Code 会话",
+  "RESUMED A JARVIS CODE SESSION": "恢复了 Jarvis Code 会话",
+  "RESUMED A JARVIS CODE SESSION …": "恢复了 Jarvis Code 会话 …",
+  "RESUMED A JARVIS CODE SESSION — FAILED": "恢复了 Jarvis Code 会话 — 失败",
+  "Opened a page in the browser": "在浏览器中打开了页面",
+  "OPENED A PAGE IN THE BROWSER": "在浏览器中打开了页面",
+  "OPENED A PAGE IN THE BROWSER …": "在浏览器中打开了页面 …",
+  "OPENED A PAGE IN THE BROWSER — FAILED": "在浏览器中打开了页面 — 失败",
+  "Read the browser page": "读取了浏览器页面",
+  "READ THE BROWSER PAGE": "读取了浏览器页面",
+  "READ THE BROWSER PAGE …": "读取了浏览器页面 …",
+  "READ THE BROWSER PAGE — FAILED": "读取了浏览器页面 — 失败",
+  "Clicked in the browser": "在浏览器中点按了一下",
+  "CLICKED IN THE BROWSER": "在浏览器中点按了一下",
+  "CLICKED IN THE BROWSER …": "在浏览器中点按了一下 …",
+  "CLICKED IN THE BROWSER — FAILED": "在浏览器中点按了一下 — 失败",
+  "Typed in the browser": "在浏览器中输入了内容",
+  "TYPED IN THE BROWSER": "在浏览器中输入了内容",
+  "TYPED IN THE BROWSER …": "在浏览器中输入了内容 …",
+  "TYPED IN THE BROWSER — FAILED": "在浏览器中输入了内容 — 失败",
+  "Scrolled the browser": "在浏览器中滚动了页面",
+  "SCROLLED THE BROWSER": "在浏览器中滚动了页面",
+  "SCROLLED THE BROWSER …": "在浏览器中滚动了页面 …",
+  "SCROLLED THE BROWSER — FAILED": "在浏览器中滚动了页面 — 失败",
+  "Went back in the browser": "浏览器后退了一页",
+  "WENT BACK IN THE BROWSER": "浏览器后退了一页",
+  "WENT BACK IN THE BROWSER …": "浏览器后退了一页 …",
+  "WENT BACK IN THE BROWSER — FAILED": "浏览器后退了一页 — 失败",
+  "Looked at the browser page": "查看了浏览器页面",
+  "LOOKED AT THE BROWSER PAGE": "查看了浏览器页面",
+  "LOOKED AT THE BROWSER PAGE …": "查看了浏览器页面 …",
+  "LOOKED AT THE BROWSER PAGE — FAILED": "查看了浏览器页面 — 失败",
+  "Searched your second brain": "搜索了第二大脑",
+  "SEARCHED YOUR SECOND BRAIN": "搜索了第二大脑",
+  "SEARCHED YOUR SECOND BRAIN …": "搜索了第二大脑 …",
+  "SEARCHED YOUR SECOND BRAIN — FAILED": "搜索了第二大脑 — 失败",
+  "Read a note": "读取了一条笔记",
+  "READ A NOTE": "读取了一条笔记",
+  "READ A NOTE …": "读取了一条笔记 …",
+  "READ A NOTE — FAILED": "读取了一条笔记 — 失败",
+  "Checked the second brain": "查看了第二大脑",
+  "CHECKED THE SECOND BRAIN": "查看了第二大脑",
+  "CHECKED THE SECOND BRAIN …": "查看了第二大脑 …",
+  "CHECKED THE SECOND BRAIN — FAILED": "查看了第二大脑 — 失败",
+  "Switched models": "切换了模型",
+  "SWITCHED MODELS": "切换了模型",
+  "SWITCHED MODELS …": "切换了模型 …",
+  "SWITCHED MODELS — FAILED": "切换了模型 — 失败",
+  "Adjusted personality": "调整了个性",
+  "ADJUSTED PERSONALITY": "调整了个性",
+  "ADJUSTED PERSONALITY …": "调整了个性 …",
+  "ADJUSTED PERSONALITY — FAILED": "调整了个性 — 失败",
+  "Changed hands-free mode": "更改了免提唤醒设置",
+  "CHANGED HANDS-FREE MODE": "更改了免提唤醒设置",
+  "CHANGED HANDS-FREE MODE …": "更改了免提唤醒设置 …",
+  "CHANGED HANDS-FREE MODE — FAILED": "更改了免提唤醒设置 — 失败",
+  "Checked your location": "查看了你的位置",
+  "CHECKED YOUR LOCATION": "查看了你的位置",
+  "CHECKED YOUR LOCATION …": "查看了你的位置 …",
+  "CHECKED YOUR LOCATION — FAILED": "查看了你的位置 — 失败",
+  "Checked the weather": "查看了天气",
+  "CHECKED THE WEATHER": "查看了天气",
+  "CHECKED THE WEATHER …": "查看了天气 …",
+  "CHECKED THE WEATHER — FAILED": "查看了天气 — 失败",
+  "Checked traffic": "查看了路况",
+  "CHECKED TRAFFIC": "查看了路况",
+  "CHECKED TRAFFIC …": "查看了路况 …",
+  "CHECKED TRAFFIC — FAILED": "查看了路况 — 失败",
+  "Looked at your screen": "查看了你的屏幕",
+  "LOOKED AT YOUR SCREEN": "查看了你的屏幕",
+  "LOOKED AT YOUR SCREEN …": "查看了你的屏幕 …",
+  "LOOKED AT YOUR SCREEN — FAILED": "查看了你的屏幕 — 失败",
+  "Clicked": "点按了一下",
+  "CLICKED": "点按了一下",
+  "CLICKED …": "点按了一下 …",
+  "CLICKED — FAILED": "点按了一下 — 失败",
+  "Typed": "输入了文字",
+  "TYPED": "输入了文字",
+  "TYPED …": "输入了文字 …",
+  "TYPED — FAILED": "输入了文字 — 失败",
+  "Pressed keys": "按了按键",
+  "PRESSED KEYS": "按了按键",
+  "PRESSED KEYS …": "按了按键 …",
+  "PRESSED KEYS — FAILED": "按了按键 — 失败",
+  "Scrolled": "滚动了页面",
+  "SCROLLED": "滚动了页面",
+  "SCROLLED …": "滚动了页面 …",
+  "SCROLLED — FAILED": "滚动了页面 — 失败",
+  "Searched your files": "搜索了你的文件",
+  "SEARCHED YOUR FILES": "搜索了你的文件",
+  "SEARCHED YOUR FILES …": "搜索了你的文件 …",
+  "SEARCHED YOUR FILES — FAILED": "搜索了你的文件 — 失败",
+  "Read a file": "读取了文件",
+  "READ A FILE": "读取了文件",
+  "READ A FILE …": "读取了文件 …",
+  "READ A FILE — FAILED": "读取了文件 — 失败",
+  "Checked the browser": "查看了浏览器",
+  "CHECKED THE BROWSER": "查看了浏览器",
+  "CHECKED THE BROWSER …": "查看了浏览器 …",
+  "CHECKED THE BROWSER — FAILED": "查看了浏览器 — 失败",
+  "Searched the web": "搜索了网页",
+  "SEARCHED THE WEB": "搜索了网页",
+  "SEARCHED THE WEB …": "搜索了网页 …",
+  "SEARCHED THE WEB — FAILED": "搜索了网页 — 失败",
+  "Read a web page": "读取了网页",
+  "READ A WEB PAGE": "读取了网页",
+  "READ A WEB PAGE …": "读取了网页 …",
+  "READ A WEB PAGE — FAILED": "读取了网页 — 失败",
+  "Searched the research desk": "搜索了研究工作台",
+  "SEARCHED THE RESEARCH DESK": "搜索了研究工作台",
+  "SEARCHED THE RESEARCH DESK …": "搜索了研究工作台 …",
+  "SEARCHED THE RESEARCH DESK — FAILED": "搜索了研究工作台 — 失败",
+  "Listed BSH companies": "列出了 BSH 公司",
+  "LISTED BSH COMPANIES": "列出了 BSH 公司",
+  "LISTED BSH COMPANIES …": "列出了 BSH 公司 …",
+  "LISTED BSH COMPANIES — FAILED": "列出了 BSH 公司 — 失败",
+  "Opened a company profile": "打开了公司档案",
+  "OPENED A COMPANY PROFILE": "打开了公司档案",
+  "OPENED A COMPANY PROFILE …": "打开了公司档案 …",
+  "OPENED A COMPANY PROFILE — FAILED": "打开了公司档案 — 失败",
+  "Checked the decision ledger": "查看了决策台账",
+  "CHECKED THE DECISION LEDGER": "查看了决策台账",
+  "CHECKED THE DECISION LEDGER …": "查看了决策台账 …",
+  "CHECKED THE DECISION LEDGER — FAILED": "查看了决策台账 — 失败",
+  "Checked the portfolio": "查看了投资组合",
+  "CHECKED THE PORTFOLIO": "查看了投资组合",
+  "CHECKED THE PORTFOLIO …": "查看了投资组合 …",
+  "CHECKED THE PORTFOLIO — FAILED": "查看了投资组合 — 失败",
+  "Checked a signal score": "查看了信号评分",
+  "CHECKED A SIGNAL SCORE": "查看了信号评分",
+  "CHECKED A SIGNAL SCORE …": "查看了信号评分 …",
+  "CHECKED A SIGNAL SCORE — FAILED": "查看了信号评分 — 失败",
+  "Read a transcript": "读取了一份文字记录",
+  "READ A TRANSCRIPT": "读取了一份文字记录",
+  "READ A TRANSCRIPT …": "读取了一份文字记录 …",
+  "READ A TRANSCRIPT — FAILED": "读取了一份文字记录 — 失败",
+  "Read reference calls": "查看了背调通话记录",
+  "READ REFERENCE CALLS": "查看了背调通话记录",
+  "READ REFERENCE CALLS …": "查看了背调通话记录 …",
+  "READ REFERENCE CALLS — FAILED": "查看了背调通话记录 — 失败",
+  "Language": "语言",
+  "Jarvis shows, speaks and listens in the language you pick.": "Jarvis 会用你选择的语言显示、说话和聆听。",
+  "Model: Default (⌘⇧I)": "模型：默认（⌘⇧I）",
+  "What should the plan change? (optional)": "计划需要改些什么？（可选）",
+  "Press a number, or just say “yes”, “no, …”, “always” or “allow all edits”.": "按数字键，或直接说“好”、“不，……”、“始终允许”或“允许所有编辑”。",
+  "Queued": "排队中",
+  "The live view paused after 30 minutes. Watch again to resume.": "实时画面已在 30 分钟后暂停。再次查看即可恢复。",
+  "Add (⌘U files)": "添加（⌘U 添加文件）",
+  "Add files, folders, commands, connectors or plugins": "添加文件、文件夹、命令、连接器或插件",
+  "Permission mode (⌘⇧M or ⇧Tab to switch)": "权限模式（⌘⇧M 或 ⇧Tab 切换）",
+  "Model (⌘⇧I)": "模型（⌘⇧I）",
+  "Effort (⌘⇧E)": "思考强度（⌘⇧E）",
+  "Dictate": "听写",
+  "Dictate: say it, then read it and send": "听写：先说出来，看一遍再发送",
+  "Manual": "手动",
+  "Accept edits": "自动接受编辑",
+  "Auto": "自动",
+  "Bypass permissions": "跳过权限确认",
+  "Low": "低",
+  "High": "高",
+  "Extra": "超高",
+  "Extra high": "超高",
+  "Max": "最高",
+  "Ultracode": "Ultracode",
+  "Default": "默认",
+  "Jarvis Code settings": "Jarvis Code 设置",
+  "Settings sections": "设置分区",
+  "General": "通用",
+  "Models & API keys": "模型与 API 密钥",
+  "New sessions start with": "新会话默认使用",
+  "Default effort": "默认思考强度",
+  "While it works": "工作期间",
+  "Queue follow-ups": "后续消息排队",
+  "Off: a message sent mid-step steers that step right away, as in Claude Code.": "关闭时，步骤进行中发出的消息会立即引导该步骤，和 Claude Code 一样。",
+  "Messages to a working session wait for its step to end. Off: they steer it right away, as in Claude Code.": "发给正在工作的会话的消息，会等当前步骤结束后再送达。关闭时，消息会立即送达并引导当前步骤，和 Claude Code 一样。",
+  "Keep the Mac awake": "让 Mac 保持唤醒",
+  "While a session is working.": "会话工作期间。",
+  "Shortcuts:": "快捷键：",
+  "mode ·": "模式 ·",
+  "model ·": "模型 ·",
+  "effort ·": "思考强度 ·",
+  "add files": "添加文件",
+  "Use models from other providers with your own API keys. Keys are kept in your Mac's Keychain and never shown again, only their last four characters.": "用你自己的 API 密钥使用其他服务商的模型。密钥保存在 Mac 的钥匙串中，之后只显示最后四个字符，不会再完整显示。",
+  "Add a provider": "添加服务商",
+  "Provider": "服务商",
+  "Optional": "可选",
+  "https://my-proxy.example.com or http://localhost:4000": "https://my-proxy.example.com 或 http://localhost:4000",
+  "Sends the key as": "密钥发送方式",
+  "x-api-key": "x-api-key",
+  "API key": "API 密钥",
+  "Paste your key": "粘贴你的密钥",
+  "Add provider": "添加服务商",
+  "Asks before each edit and command": "每次编辑和运行命令前都会询问",
+  "Edits files without asking; commands still ask": "编辑文件无需询问，命令仍会询问",
+  "Explores and plans; changes nothing until you approve": "先探索和规划，经你允许前不做任何改动",
+  "Safe steps go ahead; a safety check asks about risky ones": "安全的步骤直接进行，有风险的由安全检查先询问",
+  "Runs anything without asking": "任何操作都直接运行，不再询问",
+  "Needs Opus, Sonnet or Fable": "需要 Opus、Sonnet 或 Fable",
+  "⌘⇧M or ⇧⇥ to switch": "⌘⇧M 或 ⇧⇥ 切换",
+  "For the next session · ⌘⇧M or ⇧⇥ to switch": "用于下一个会话 · ⌘⇧M 或 ⇧⇥ 切换",
+  "Your models": "你的模型",
+  "Models & API keys…": "模型与 API 密钥…",
+  "Add a model with an API key…": "用 API 密钥添加模型…",
+  "Open a session to choose its connectors": "打开一个会话以选择它的连接器",
+  "Off for this session": "在本会话中已关闭",
+  "No connectors in this session": "本会话没有连接器",
+  "Connectors show once the session is running": "会话运行后才会显示连接器",
+  "Manage MCP servers…": "管理 MCP 服务器…",
+  "Add files or photos": "添加文件或照片",
+  "Add folder": "添加文件夹",
+  "Joins the next session": "将加入下一个会话",
+  "Slash commands": "斜杠命令",
+  "Connectors": "连接器",
+  "Add plugins": "添加插件",
+  "Up to six attachments per message.": "每条消息最多附加 6 个文件。",
+  "Auto needs Opus, Sonnet or Fable. Pick one of them first.": "“自动”模式需要 Opus、Sonnet 或 Fable。请先选择其中一个。",
+  "Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?": "“跳过权限确认”会让 Jarvis Code 不经询问就运行任何命令、修改任何文件。只在丢了也无妨的项目中使用。要切换吗？",
+  "New sessions would run any command and change any file without asking. Start them in Bypass permissions?": "新会话将不经询问就运行任何命令、修改任何文件。要让新会话以“跳过权限确认”启动吗？",
+  "The full path of the folder:": "文件夹的完整路径：",
+  "The full path of the plugin folder (it has .claude-plugin/plugin.json):": "插件文件夹的完整路径（其中包含 .claude-plugin/plugin.json）：",
+  "Fastest: quick answers, light thinking.": "最快：回答迅速，思考较浅。",
+  "A balance of speed and thought.": "兼顾速度与思考。",
+  "The default: thinks things through.": "默认：把事情想清楚。",
+  "Deeper reasoning for harder problems.": "更深入的推理，适合更难的问题。",
+  "Thinks as hard as it can. Slower, and costs more.": "尽全力思考。更慢，花费也更多。",
+  "Big tasks become multi-agent workflows that plan, build and check in parallel (at Extra high effort). The most thorough, and the most costly.": "大任务会变成多智能体工作流，并行规划、构建和检查（以“超高”思考强度运行）。最周全，也最昂贵。",
+  "Same as J.A.R.V.I.S. (default)": "与 J.A.R.V.I.S. 相同（默认）",
+  "Checking the key…": "正在检查密钥…",
+  "Not checked yet": "尚未检查",
+  "That key didn’t work.": "这个密钥无效。",
+  "Check key": "检查密钥",
+  "Add model": "添加模型",
+  "Model id, e.g. openai/gpt-5": "模型 ID，例如 openai/gpt-5",
+  "Model id": "模型 ID",
+  "Get a key at": "获取密钥：",
+  "Paste the provider’s API key first.": "请先粘贴服务商的 API 密钥。",
+  "Adding…": "正在添加…",
+  "That didn’t work.": "没有成功。",
+  "Anthropic API": "Anthropic API",
+  "OpenRouter": "OpenRouter",
+  "Custom endpoint": "自定义端点",
+  "Your own Anthropic API key: Claude, billed to your API account instead of your Claude plan.": "你自己的 Anthropic API 密钥：使用 Claude，费用计入你的 API 账户，而不是 Claude 套餐。",
+  "One key for hundreds of models, GPT, Gemini, Grok and DeepSeek among them, billed by OpenRouter.": "一个密钥即可使用数百个模型（包括 GPT、Gemini、Grok 和 DeepSeek），由 OpenRouter 计费。",
+  "Any server that speaks Anthropic's Messages API, like a LiteLLM proxy or a model running on this Mac.": "任何支持 Anthropic Messages API 的服务器，例如 LiteLLM 代理，或在这台 Mac 上运行的模型。",
+  "Auto: a safety check decides what to ask": "自动：由安全检查决定询问什么",
+  "Bypass permissions: run anything": "跳过权限确认：什么都直接运行",
+  "Multi-agent workflows for big tasks, on or off": "开启或关闭大任务的多智能体工作流",
+  "Add a folder to this session": "为本会话添加文件夹",
+  "⏸ Plan: explores and plans, changes nothing until you approve": "⏸ 计划：先探索和规划，经你允许前不做任何改动",
+  "Manual: asks before each edit and command": "手动：每次编辑和运行命令前都会询问",
+  "⏵⏵ Accept edits: edits go ahead, commands ask": "⏵⏵ 自动接受编辑：编辑直接进行，命令先询问",
+  "✦ Auto: safe steps go ahead, a safety check asks about risky ones": "✦ 自动：安全的步骤直接进行，有风险的由安全检查先询问",
+  "⚡ Bypass permissions: runs anything without asking": "⚡ 跳过权限确认：任何操作都直接运行，不再询问",
+  "⏸ Plan: explores and plans, changes nothing until you approve · ⇧⇥ to switch": "⏸ 计划：先探索和规划，经你允许前不做任何改动 · ⇧⇥ 切换",
+  "⏸ Plan: explores and plans, changes nothing until you approve · ⇧⇥ to switch · ultracode on": "⏸ 计划：先探索和规划，经你允许前不做任何改动 · ⇧⇥ 切换 · Ultracode 已开启",
+  "Manual: asks before each edit and command · ⇧⇥ to switch": "手动：每次编辑和运行命令前都会询问 · ⇧⇥ 切换",
+  "Manual: asks before each edit and command · ⇧⇥ to switch · ultracode on": "手动：每次编辑和运行命令前都会询问 · ⇧⇥ 切换 · Ultracode 已开启",
+  "⏵⏵ Accept edits: edits go ahead, commands ask · ⇧⇥ to switch": "⏵⏵ 自动接受编辑：编辑直接进行，命令先询问 · ⇧⇥ 切换",
+  "⏵⏵ Accept edits: edits go ahead, commands ask · ⇧⇥ to switch · ultracode on": "⏵⏵ 自动接受编辑：编辑直接进行，命令先询问 · ⇧⇥ 切换 · Ultracode 已开启",
+  "✦ Auto: safe steps go ahead, a safety check asks about risky ones · ⇧⇥ to switch": "✦ 自动：安全的步骤直接进行，有风险的由安全检查先询问 · ⇧⇥ 切换",
+  "✦ Auto: safe steps go ahead, a safety check asks about risky ones · ⇧⇥ to switch · ultracode on": "✦ 自动：安全的步骤直接进行，有风险的由安全检查先询问 · ⇧⇥ 切换 · Ultracode 已开启",
+  "⚡ Bypass permissions: runs anything without asking · ⇧⇥ to switch": "⚡ 跳过权限确认：任何操作都直接运行，不再询问 · ⇧⇥ 切换",
+  "⚡ Bypass permissions: runs anything without asking · ⇧⇥ to switch · ultracode on": "⚡ 跳过权限确认：任何操作都直接运行，不再询问 · ⇧⇥ 切换 · Ultracode 已开启",
+  "Manual: Asks before each edit and command (⌘⇧M or ⇧⇥ to switch)": "手动：每次编辑和运行命令前都会询问（⌘⇧M 或 ⇧⇥ 切换）",
+  "Accept edits: Edits files without asking; commands still ask (⌘⇧M or ⇧⇥ to switch)": "自动接受编辑：编辑文件无需询问，命令仍会询问（⌘⇧M 或 ⇧⇥ 切换）",
+  "Plan: Explores and plans; changes nothing until you approve (⌘⇧M or ⇧⇥ to switch)": "计划：先探索和规划，经你允许前不做任何改动（⌘⇧M 或 ⇧⇥ 切换）",
+  "Auto: Safe steps go ahead; a safety check asks about risky ones (⌘⇧M or ⇧⇥ to switch)": "自动：安全的步骤直接进行，有风险的由安全检查先询问（⌘⇧M 或 ⇧⇥ 切换）",
+  "Bypass permissions: Runs anything without asking (⌘⇧M or ⇧⇥ to switch)": "跳过权限确认：任何操作都直接运行，不再询问（⌘⇧M 或 ⇧⇥ 切换）",
+  "Low · next step": "低 · 下一步生效",
+  "Effort: Low (⌘⇧E)": "思考强度：低（⌘⇧E）",
+  "Medium · next step": "中 · 下一步生效",
+  "Effort: Medium (⌘⇧E)": "思考强度：中（⌘⇧E）",
+  "High · next step": "高 · 下一步生效",
+  "Effort: High (⌘⇧E)": "思考强度：高（⌘⇧E）",
+  "Extra high · next step": "超高 · 下一步生效",
+  "Effort: Extra high (⌘⇧E)": "思考强度：超高（⌘⇧E）",
+  "Max · next step": "最高 · 下一步生效",
+  "Effort: Max (⌘⇧E)": "思考强度：最高（⌘⇧E）",
+  "Ultracode · next step": "Ultracode · 下一步生效",
+  "Effort: Ultracode (⌘⇧E)": "思考强度：Ultracode（⌘⇧E）",
+  "Effort: low · next step": "思考强度：低 · 下一步生效",
+  "Effort: medium · next step": "思考强度：中 · 下一步生效",
+  "Effort: high · next step": "思考强度：高 · 下一步生效",
+  "Effort: xhigh · next step": "思考强度：超高 · 下一步生效",
+  "Effort: max · next step": "思考强度：最高 · 下一步生效",
+  "working · Plan": "进行中 · 计划",
+  "working · Manual": "进行中 · 手动",
+  "working · Accept edits": "进行中 · 自动接受编辑",
+  "working · Auto": "进行中 · 自动",
+  "working · Bypass permissions": "进行中 · 跳过权限确认",
+  "your turn · Plan": "等你回复 · 计划",
+  "your turn · Manual": "等你回复 · 手动",
+  "your turn · Accept edits": "等你回复 · 自动接受编辑",
+  "your turn · Auto": "等你回复 · 自动",
+  "your turn · Bypass permissions": "等你回复 · 跳过权限确认",
+  "failed · Plan": "失败 · 计划",
+  "failed · Manual": "失败 · 手动",
+  "failed · Accept edits": "失败 · 自动接受编辑",
+  "failed · Auto": "失败 · 自动",
+  "failed · Bypass permissions": "失败 · 跳过权限确认",
+  "ended · Plan": "已结束 · 计划",
+  "ended · Manual": "已结束 · 手动",
+  "ended · Accept edits": "已结束 · 自动接受编辑",
+  "ended · Auto": "已结束 · 自动",
+  "ended · Bypass permissions": "已结束 · 跳过权限确认",
+  "starting · Plan": "启动中 · 计划",
+  "starting · Manual": "启动中 · 手动",
+  "starting · Accept edits": "启动中 · 自动接受编辑",
+  "starting · Auto": "启动中 · 自动",
+  "starting · Bypass permissions": "启动中 · 跳过权限确认",
+  "done · Plan": "已完成 · 计划",
+  "done · Manual": "已完成 · 手动",
+  "done · Accept edits": "已完成 · 自动接受编辑",
+  "done · Auto": "已完成 · 自动",
+  "done · Bypass permissions": "已完成 · 跳过权限确认",
+  "Let me use your mouse and keyboard for this request?": "这个请求可以让我使用你的鼠标和键盘吗？",
+  "Start background research on this topic?": "要在后台研究这个主题吗？",
+  "Open an unusual web address in your browser?": "要在你的浏览器中打开一个不常见的网址吗？",
+  "Open an unusual web address in the built-in browser?": "要在内置浏览器中打开一个不常见的网址吗？",
+  "Fetch a page from an unusual web address?": "要从一个不常见的网址获取网页吗？",
+  "Start taking notes for Meeting?": "要开始记录会议吗？",
+  "The microphone is taking meeting notes right now.": "麦克风正在记录会议。",
+  "From the BSH desk": "来自 BSH 工作台",
+  "Open the research center to see this record in full.": "打开研究中心即可查看这条记录的全文。",
+  "Nothing to save yet": "还没有可存储的内容",
+  "Conversation saved": "对话已存储",
+  "Battery low": "电量不足",
+  "Battery at 5%": "电量仅剩 5%",
+  "Rain on the way": "快下雨了",
+  "I couldn't find that place.": "我找不到这个地方。",
+  "The phone companion couldn't start, so it's off. Try turning it on again.": "手机配套网页无法启动，已关闭。请尝试重新打开。",
+  "The page stopped. Reload it.": "页面已停止运行。请重新载入。",
+  "Arranging the galaxy…": "正在排列星系…",
+  "Reading notes…": "正在读取 Apple 备忘录…",
+  "Reading bsh…": "正在读取 BSH 工作台…",
+  "Reading files…": "正在读取文件夹…",
+  "Reading computer…": "正在读取电脑文件…",
+  "Reading photos…": "正在读取照片…",
+  "Reading mail…": "正在读取邮件…",
+  "Reading messages…": "正在读取短信…",
+  "Reading research…": "正在读取研究报告…",
+  "Reading meetings…": "正在读取会议记录…",
+  "WebSearch": "正在搜索网页",
+  "WebSearch…": "正在搜索网页…",
+  "connected": "已连接",
+  "pending": "等待中",
+  "needs-auth": "需要授权",
+  "disabled": "已停用",
+  "FileVault": "文件保险箱",
+  "Thunderbolt Bridge": "雷雳网桥",
+  "S&P 500": "标普500",
+  "Nasdaq": "纳斯达克",
+  "Dow": "道琼斯",
+  "Russell 2000": "罗素2000",
+  "Your name": "你的名字",
+  "For conversations I hold for you: “I’m Robert’s assistant, Jarvis.”": "我替你与他人沟通时会用到：“我是 Robert 的助理 Jarvis。”",
+  "Your first name": "你的名字",
+  "Goals": "目标",
+  "What you’re working toward, and the rules you keep. Jarvis plans around them and points out conflicts. Say “Jarvis, my goal this quarter is…” or add them here.": "你正在努力实现的目标，以及你坚持的原则。Jarvis 会据此安排，并指出冲突。说“贾维斯，我这个季度的目标是…”，或在这里添加。",
+  "A goal": "一个目标",
+  "e.g. Close the seed round": "例如：完成种子轮融资",
+  "By when": "期限",
+  "This week": "本周",
+  "This month": "本月",
+  "This quarter": "本季度",
+  "This year": "今年",
+  "Someday": "以后",
+  "Add goal": "添加目标",
+  "A rule": "一条原则",
+  "e.g. No meetings before 10": "例如：10 点前不开会",
+  "Kind of rule": "原则类型",
+  "Money": "金钱",
+  "Health": "健康",
+  "People": "人际",
+  "Other": "其他",
+  "Add rule": "添加原则",
+  "Weekly check-in": "每周回顾",
+  "Sundays at 6 PM, a short look at how the goals are going": "每周日下午 6 点，简短回顾目标的进展",
+  "Weekly goals check-in": "每周目标回顾",
+  "No goals yet.": "还没有目标。",
+  "Done": "完成",
+  "Conversations for you": "代你沟通",
+  "Jarvis can text or email someone for you to settle something, like a time to meet, within limits you give it. Every message asks you first unless you said it could go ahead. Say “Jarvis, work out a time with Ann for next week.”": "Jarvis 可以在你给定的范围内替你发短信或邮件，和别人敲定事情，比如见面时间。除非你说过可以直接发送，否则每条消息都会先问你。说“贾维斯，和 Ann 约一个下周的时间。”",
+  "In progress": "进行中",
+  "Needs you": "需要你处理",
+  "Timed out": "已超时",
+  "Continue…": "继续…",
+  "What should Jarvis tell them, or do next?": "Jarvis 应该告诉对方什么，或接下来做什么？",
+  "Interrupt me for texts and email": "有短信和邮件时打断我",
+  "Urgent only: a VIP, or someone saying it’s urgent. Needs Full Disk Access. “Jarvis, what did I miss?” lists the rest.": "仅限紧急：来自 VIP，或对方说很紧急。需要完全磁盘访问权限。说“贾维斯，我错过了什么？”可查看其余消息。",
+  "Urgent only": "仅限紧急",
+  "Everything": "全部",
+  "VIPs": "VIP",
+  "Names, numbers or emails, separated by commas. Their urgent messages get through quiet hours and meetings.": "姓名、号码或邮箱，用逗号分隔。即使在勿扰时段或会议中，他们的紧急消息也会通知你。",
+  "e.g. Ann Lee, +1 510 555 0100": "例如：Ann Lee, +1 510 555 0100",
+  "Purchases": "购买",
+  "Buy, book and pay for me": "替我购买、预订和付款",
+  "In the built-in browser, with one confirmation: say “confirm purchase” or tap Confirm. Saved payment methods only; I never type card numbers, codes or passwords.": "在内置浏览器中完成，只需确认一次：说“确认购买”或轻点“确认”。只使用已保存的付款方式；我从不输入卡号、验证码或密码。",
+  "Per purchase": "单笔购买",
+  "Per transfer": "单笔转账",
+  "Per day": "每日",
+  "Currency": "货币",
+  "The purchase log can’t be read, so buying is paused until it’s fixed.": "无法读取购买记录，修复前将暂停购买。",
+  "Index my files": "为我的文件建立索引",
+  "Documents, Desktop, Downloads, iCloud Drive and your projects, kept on this Mac: “find the Q3 deck” is instant, and a meeting’s files show up before it starts": "文稿、桌面、下载、iCloud 云盘和你的项目，索引只保存在这台 Mac 上：“找到第三季度的演示文稿”即刻可得，会议开始前相关文件就会出现",
+  "Forget file index": "清除文件索引",
+  "Forget everything in the file index? It builds again the next time it runs.": "要清除文件索引中的全部内容吗？下次运行时会重新建立。",
+  "Not indexed yet": "尚未建立索引",
+  "The full path of the plugin folder (the one with .claude-plugin/plugin.json):": "插件文件夹的完整路径（其中包含 .claude-plugin/plugin.json）：",
+  "English": "English",
+  "中文": "中文",
+  "Message": "消息",
+  "For your meeting": "会议资料",
+  "From your files:": "来自你的文件：",
+  "Getting the speech model for this language ready. The first time it downloads (about 500 MB); I listen in English until then.": "正在准备这种语言的语音模型。第一次需要下载（约 500 MB），在此之前我仍用英语聆听。",
+  "Ready: I'm listening in it now.": "准备好了：现在我用这种语言聆听。",
+  "Set a spending limit on each key at its provider. Jarvis keeps keys in the Keychain and out of sessions' environment, but a program running as you on this Mac could still use one.": "请在各提供方为每个密钥设置消费上限。Jarvis 把密钥存放在钥匙串中，不放进会话的环境变量，但以你的身份在这台 Mac 上运行的程序仍可能用到它。",
+  "Your goals file can’t be read right now; nothing will be saved over it.": "目前无法读取你的目标文件；不会有任何内容覆盖它。",
+  "Your goals file can't be read right now, so nothing changed.": "目前无法读取你的目标文件，所以没有做任何更改。"
+ },
+ "patterns": [
+  [
+   "^([\\d,]+) waiting for Spotlight$",
+   "$1 个文件等待聚焦搜索读取"
+  ],
+  [
+   "^I couldn't load that speech model: (.+)$",
+   "无法载入这个语音模型：$1"
+  ],
+  [
+   "^(.+) \\(⌥-click: show in Finder\\)$",
+   "$1（按住 ⌥ 点按：在访达中显示）"
+  ],
+  [
+   "^Spent today: (.+) of (.+)$",
+   "今日已花费 $1，上限 $2"
+  ],
+  [
+   "^Indexing… ([\\d,]+) files so far$",
+   "正在建立索引… 已有 $1 个文件"
+  ],
+  [
+   "^([\\d,]+) files · updated (.+)$",
+   "$1 个文件 · 更新于 $2"
+  ],
+  [
+   "^Can’t read (.+): allow folder access in System Settings › Privacy & Security\\.$",
+   "无法读取 $1：请在“系统设置”›“隐私与安全性”中允许访问文件夹。"
+  ],
+  [
+   "^In progress · (\\d+) sent$",
+   "进行中 · 已发送 $1 条"
+  ],
+  [
+   "^Needs you · (\\d+) sent$",
+   "需要你处理 · 已发送 $1 条"
+  ],
+  [
+   "^Done · (\\d+) sent$",
+   "已完成 · 已发送 $1 条"
+  ],
+  [
+   "^Stopped · (\\d+) sent$",
+   "已停止 · 已发送 $1 条"
+  ],
+  [
+   "^Timed out · (\\d+) sent$",
+   "已超时 · 已发送 $1 条"
+  ],
+  [
+   "^(\\d+) notes · (.+?) · Problems: (.+)$",
+   "$1 条笔记 · $2 · 问题：$3"
+  ],
+  [
+   "^(\\d+) notes · (.+)$",
+   "$1 条笔记 · $2"
+  ],
+  [
+   "^(\\d+) notes ·$",
+   "$1 条笔记"
+  ],
+  [
+   "^(\\d+) notes$",
+   "$1 条笔记"
+  ],
+  [
+   "^Empty so far\\. · Problems: (.+)$",
+   "目前为空 · 问题：$1"
+  ],
+  [
+   "^Couldn't finish: (.+?) · Problems: (.+)$",
+   "未能完成：$1 · 问题：$2"
+  ],
+  [
+   "^Couldn't finish: (.+)$",
+   "未能完成：$1"
+  ],
+  [
+   "^Second brain · (\\d+)$",
+   "第二大脑 · $1"
+  ],
+  [
+   "^Apple Notes · (.+)$",
+   "Apple 备忘录 · $1"
+  ],
+  [
+   "^Folders · (.+)$",
+   "文件夹 · $1"
+  ],
+  [
+   "^Files · (.+)$",
+   "文件 · $1"
+  ],
+  [
+   "^BSH desk · (.+)$",
+   "BSH 工作台 · $1"
+  ],
+  [
+   "^Research · (.+)$",
+   "研究 · $1"
+  ],
+  [
+   "^Meetings · (.+)$",
+   "会议 · $1"
+  ],
+  [
+   "^Photos · (.+)$",
+   "照片 · $1"
+  ],
+  [
+   "^Email · (.+)$",
+   "邮件 · $1"
+  ],
+  [
+   "^Texts · (.+)$",
+   "短信 · $1"
+  ],
+  [
+   "^Open · closes in 0h (\\d+)m$",
+   "开盘中 · $1 分钟后收盘"
+  ],
+  [
+   "^Open · closes in (\\d+)h (\\d+)m$",
+   "开盘中 · $1 小时 $2 分钟后收盘"
+  ],
+  [
+   "^(\\d+)% · charging$",
+   "$1% · 充电中"
+  ],
+  [
+   "^Next: (.+), tomorrow at (\\d{1,2}:\\d{2})\\s?AM$",
+   "下一项：$1，明天上午$2"
+  ],
+  [
+   "^Next: (.+), tomorrow at (\\d{1,2}:\\d{2})\\s?PM$",
+   "下一项：$1，明天下午$2"
+  ],
+  [
+   "^Next: (.+), at (\\d{1,2}:\\d{2})\\s?AM$",
+   "下一项：$1，上午$2"
+  ],
+  [
+   "^Next: (.+), at (\\d{1,2}:\\d{2})\\s?PM$",
+   "下一项：$1，下午$2"
+  ],
+  [
+   "^Next: (.+), tomorrow at (.+)$",
+   "下一项：$1，明天 $2"
+  ],
+  [
+   "^Next: (.+), at (.+)$",
+   "下一项：$1，$2"
+  ],
+  [
+   "^(\\d+)/(\\d+) up$",
+   "$1/$2 已开启"
+  ],
+  [
+   "^Activity · (\\d+) actions? today$",
+   "动态 · 今天 $1 项操作"
+  ],
+  [
+   "^Jarvis Code · (\\d+) working$",
+   "Jarvis Code · $1 个进行中"
+  ],
+  [
+   "^(\\d+) working · (\\d+) waiting for you$",
+   "$1 个进行中 · $2 个等你处理"
+  ],
+  [
+   "^(\\d+) working$",
+   "$1 个进行中"
+  ],
+  [
+   "^(\\d+) waiting for you$",
+   "$1 个等你处理"
+  ],
+  [
+   "^(\\d+) files? · (\\$[\\d,]+(?:\\.\\d+)?) · (\\d+) queued$",
+   "$1 个文件 · $2 · $3 条排队中"
+  ],
+  [
+   "^(\\d+) files? · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "$1 个文件 · $2"
+  ],
+  [
+   "^(\\d+) files? · (\\d+) queued$",
+   "$1 个文件 · $2 条排队中"
+  ],
+  [
+   "^(\\$[\\d,]+(?:\\.\\d+)?) · (\\d+) queued$",
+   "$1 · $2 条排队中"
+  ],
+  [
+   "^(\\d+) files?$",
+   "$1 个文件"
+  ],
+  [
+   "^(\\d+) queued$",
+   "$1 条排队中"
+  ],
+  [
+   "^(\\d+)s · ([\\d.]+k tokens) · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "$1 秒 · $2 · $3"
+  ],
+  [
+   "^(\\d+)s · ([\\d.]+k tokens)$",
+   "$1 秒 · $2"
+  ],
+  [
+   "^(\\d+)s · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "$1 秒 · $2"
+  ],
+  [
+   "^(\\d+)m (\\d+)s$",
+   "$1 分 $2 秒"
+  ],
+  [
+   "^(\\d+(?:\\.\\d+)?)s$",
+   "$1 秒"
+  ],
+  [
+   "^To-dos · (\\d+) of (\\d+) done$",
+   "待办 · 已完成 $1/$2"
+  ],
+  [
+   "^Model: (.+) \\(⌘⇧I\\)$",
+   "模型：$1（⌘⇧I）"
+  ],
+  [
+   "^Effort: (.+)$",
+   "思考强度：$1"
+  ],
+  [
+   "^Voice coding · (.+) · Plan mode$",
+   "语音编程 · $1 · 计划模式"
+  ],
+  [
+   "^Voice coding · (.+) · Ask first$",
+   "语音编程 · $1 · 先询问"
+  ],
+  [
+   "^Voice coding · (.+) · Auto-edits$",
+   "语音编程 · $1 · 自动编辑"
+  ],
+  [
+   "^Voice coding · (.+) · Full auto$",
+   "语音编程 · $1 · 完全自动"
+  ],
+  [
+   "^Voice coding · (.+) · Plan$",
+   "语音编程 · $1 · 计划"
+  ],
+  [
+   "^Voice coding · (.+) · Manual$",
+   "语音编程 · $1 · 手动"
+  ],
+  [
+   "^Voice coding · (.+) · Accept\\ edits$",
+   "语音编程 · $1 · 自动接受编辑"
+  ],
+  [
+   "^Voice coding · (.+) · Auto$",
+   "语音编程 · $1 · 自动"
+  ],
+  [
+   "^Voice coding · (.+) · Bypass\\ permissions$",
+   "语音编程 · $1 · 跳过权限确认"
+  ],
+  [
+   "^Voice coding · (.+) · (.+)$",
+   "语音编程 · $1 · $2"
+  ],
+  [
+   "^Voice · (.+)$",
+   "语音 · $1"
+  ],
+  [
+   "^(\\d+) images?$",
+   "$1 张图片"
+  ],
+  [
+   "^🖼 (\\d+) images?$",
+   "🖼 $1 张图片"
+  ],
+  [
+   "^exit (\\d+)$",
+   "退出码 $1"
+  ],
+  [
+   "^Agent · general$",
+   "智能体 · 通用"
+  ],
+  [
+   "^Agent · (.+)$",
+   "智能体 · $1"
+  ],
+  [
+   "^Opening (.+)…$",
+   "正在打开 $1…"
+  ],
+  [
+   "^(.+) \\(first 300 KB\\)$",
+   "$1（前 300 KB）"
+  ],
+  [
+   "^Remembered in (.+?): (.+)$",
+   "已记入 $1：$2"
+  ],
+  [
+   "^Editing (\\S+)…$",
+   "正在编辑 $1…"
+  ],
+  [
+   "^Writing (\\S+)…$",
+   "正在写入 $1…"
+  ],
+  [
+   "^Reading (\\S+)…$",
+   "正在读取 $1…"
+  ],
+  [
+   "^Running (.+)…$",
+   "正在运行 $1…"
+  ],
+  [
+   "^Searching for (.+)…$",
+   "正在搜索 $1…"
+  ],
+  [
+   "^Agent: (.+)…$",
+   "智能体：$1…"
+  ],
+  [
+   "^Editing (\\S+)( · \\$[\\d,]+(?:\\.\\d+)?)?$",
+   "正在编辑 $1$2"
+  ],
+  [
+   "^Writing (\\S+)( · \\$[\\d,]+(?:\\.\\d+)?)?$",
+   "正在写入 $1$2"
+  ],
+  [
+   "^Reading (\\S+)( · \\$[\\d,]+(?:\\.\\d+)?)?$",
+   "正在读取 $1$2"
+  ],
+  [
+   "^Running (.+) · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "正在运行 $1 · $2"
+  ],
+  [
+   "^Searching for (.+) · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "正在搜索 $1 · $2"
+  ],
+  [
+   "^Agent: (.+?)( · \\$[\\d,]+(?:\\.\\d+)?)?$",
+   "智能体：$1$2"
+  ],
+  [
+   "^WebSearch · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "正在搜索网页 · $1"
+  ],
+  [
+   "^Working · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "工作中 · $1"
+  ],
+  [
+   "^Waiting for you · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "等你回复 · $1"
+  ],
+  [
+   "^Finished · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "已完成 · $1"
+  ],
+  [
+   "^Stopped · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "已停止 · $1"
+  ],
+  [
+   "^Failed · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "失败 · $1"
+  ],
+  [
+   "^Closed · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "已关闭 · $1"
+  ],
+  [
+   "^Plan ready · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "计划已就绪 · $1"
+  ],
+  [
+   "^Asking you · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "正在询问你 · $1"
+  ],
+  [
+   "^Next message · (\\$[\\d,]+(?:\\.\\d+)?)$",
+   "下一条消息 · $1"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to run a command$",
+   "$1 中的 Jarvis Code 想运行一条命令"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to read a page on (.+)$",
+   "$1 中的 Jarvis Code 想读取 $2 上的页面"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to use the browser$",
+   "$1 中的 Jarvis Code 想使用浏览器"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to use the iOS Simulator$",
+   "$1 中的 Jarvis Code 想使用 iOS 模拟器"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to edit a file outside the project$",
+   "$1 中的 Jarvis Code 想编辑项目以外的文件"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to edit a file$",
+   "$1 中的 Jarvis Code 想编辑一个文件"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to read outside the project$",
+   "$1 中的 Jarvis Code 想读取项目以外的内容"
+  ],
+  [
+   "^Jarvis Code in (.+?) wants to use (.+)$",
+   "$1 中的 Jarvis Code 想使用 $2"
+  ],
+  [
+   "^Jarvis Code in (.+?) has a plan$",
+   "$1 中的 Jarvis Code 已拟好计划"
+  ],
+  [
+   "^Yes, and don't ask again for (.+?) commands in (.+)$",
+   "是，且在 $2 中不再询问 $1 命令"
+  ],
+  [
+   "^Run the shortcut “(.+)”\\?$",
+   "运行快捷指令“$1”？"
+  ],
+  [
+   "^(.+?) wants to: (.+)$",
+   "$1 想要：$2"
+  ],
+  [
+   "^Taking notes · Meeting · (\\d+:\\d{2})$",
+   "正在记录 · 会议 · $1"
+  ],
+  [
+   "^Taking notes · (.+) · (\\d+:\\d{2})$",
+   "正在记录 · $1 · $2"
+  ],
+  [
+   "^Writing up Meeting…$",
+   "正在整理会议记录…"
+  ],
+  [
+   "^Writing up (.+)…$",
+   "正在整理“$1”…"
+  ],
+  [
+   "^(\\d+) min · (\\d+) decisions? · (\\d+) action items?$",
+   "$1 分钟 · $2 项决定 · $3 项待办"
+  ],
+  [
+   "^(\\d+) tools · (\\d+) read-only · always allowed: (.+)$",
+   "$1 个工具 · $2 个只读 · 始终允许：$3"
+  ],
+  [
+   "^(\\d+) tools · (\\d+) read-only$",
+   "$1 个工具 · $2 个只读"
+  ],
+  [
+   "^Jarvis opens (.+?)’s sign-in page in your browser\\. Approve access there and you’re done\\.$",
+   "Jarvis 会在浏览器中打开 $1 的登录页面。在那里授权访问即可。"
+  ],
+  [
+   "^Easier route: add your Google account in System Settings > Internet Accounts \\(Jarvis already reads Mail and Calendar\\) and install Google Drive for desktop, then add its folder to the second brain\\. This connector is only needed for more than that\\. Google's connectors are a developer preview\\. Join the Workspace Developer Preview, create a Google Cloud project, enable the API and its MCP API, set up the OAuth consent screen, and create a Web OAuth client with redirect URI (\\S+?)\\. Then paste its client ID and secret here\\.$",
+   "更简单的办法：在“系统设置 > 互联网账户”中添加你的 Google 账户（Jarvis 已经能读取“邮件”和“日历”），并安装 Google Drive 桌面版，然后把它的文件夹添加到第二大脑。只有需要更多功能时才用得上这个连接器。Google 的连接器目前是开发者预览版：请加入 Workspace Developer Preview，创建一个 Google Cloud 项目，启用该 API 及其 MCP API，设置 OAuth 同意屏幕，并创建一个重定向 URI 为 $1 的 Web OAuth 客户端。然后把它的客户端 ID 和密钥粘贴到这里。"
+  ],
+  [
+   "^Create an MCP app in Asana's developer console with redirect URI (\\S+?), then paste its client ID and secret\\.$",
+   "在 Asana 开发者控制台中创建一个 MCP 应用，重定向 URI 设为 $1，然后粘贴它的客户端 ID 和密钥。"
+  ],
+  [
+   "^In HubSpot, create an MCP auth app \\(Development > MCP Auth Apps\\) with redirect URI (\\S+?), then paste its client ID and secret\\.$",
+   "在 HubSpot 中创建一个 MCP 授权应用（Development > MCP Auth Apps），重定向 URI 设为 $1，然后粘贴它的客户端 ID 和密钥。"
+  ],
+  [
+   "^Create a (Notion|Linear|Jira & Confluence|Asana|monday\\.com|Todoist|Gmail|Google Calendar|Google Drive|GitHub|Sentry|Vercel|Supabase|Hugging Face|Stripe|HubSpot|Zapier|Canva) token$",
+   "创建 $1 令牌"
+  ],
+  [
+   "^Sign in to (Notion|Linear|Jira & Confluence|Asana|monday\\.com|Todoist|Gmail|Google Calendar|Google Drive|GitHub|Sentry|Vercel|Supabase|Hugging Face|Stripe|HubSpot|Zapier|Canva)$",
+   "登录 $1"
+  ],
+  [
+   "^Connect (Notion|Linear|Jira & Confluence|Asana|monday\\.com|Todoist|Gmail|Google Calendar|Google Drive|GitHub|Sentry|Vercel|Supabase|Hugging Face|Stripe|HubSpot|Zapier|Canva)$",
+   "连接 $1"
+  ],
+  [
+   "^(Notion|Linear|Jira & Confluence|Asana|monday\\.com|Todoist|Gmail|Google Calendar|Google Drive|GitHub|Sentry|Vercel|Supabase|Hugging Face|Stripe|HubSpot|Zapier|Canva) token$",
+   "$1 令牌"
+  ],
+  [
+   "^Connected: (.+)$",
+   "已连接：$1"
+  ],
+  [
+   "^Permissions for (.+)$",
+   "$1 的权限"
+  ],
+  [
+   "^Run “(.+)” instantly$",
+   "直接运行“$1”"
+  ],
+  [
+   "^Forget what I know about (.+)\\?$",
+   "要忘掉关于“$1”的记忆吗？"
+  ],
+  [
+   "^Remember that (.+)\\?$",
+   "要记住“$1”吗？"
+  ],
+  [
+   "^Forget: (.+)$",
+   "忘记：$1"
+  ],
+  [
+   "^Remove ((?:/|~).+)$",
+   "移除“$1”"
+  ],
+  [
+   "^(.+) · last used (.+)$",
+   "$1 · 上次使用：$2"
+  ],
+  [
+   "^(.+) · not used yet$",
+   "$1 · 尚未使用"
+  ],
+  [
+   "^Hand control couldn't start: (.+)$",
+   "手势控制无法启动：$1"
+  ],
+  [
+   "^Pinch to open “(.+)”$",
+   "捏合打开“$1”"
+  ],
+  [
+   "^The Research Center at (\\S+) isn't answering \\((.+)\\)\\. Start it, or set its address in Settings › Research Center\\.$",
+   "位于 $1 的研究中心没有响应（$2）。请先启动它，或在“设置 › 研究中心”中设置它的地址。"
+  ],
+  [
+   "^No Research Center address is set\\. Start it, or set its address in Settings › Research Center\\.$",
+   "还没有设置研究中心的地址。请先启动它，或在“设置 › 研究中心”中设置它的地址。"
+  ],
+  [
+   "^(.+?) Start it, or set its address in Settings › Research Center\\.$",
+   "$1 请先启动它，或在“设置 › 研究中心”中设置它的地址。"
+  ],
+  [
+   "^Running: (.+)$",
+   "正在运行：$1"
+  ],
+  [
+   "^No location fix: (.+)$",
+   "无法获取位置：$1"
+  ],
+  [
+   "^(.+) \\(joins the next session\\)$",
+   "$1（将加入下一个会话）"
+  ],
+  [
+   "^Same as J\\.A\\.R\\.V\\.I\\.S\\. \\((.+)\\)$",
+   "与 J.A.R.V.I.S. 相同（$1）"
+  ],
+  [
+   "^Key works · (\\d+) models? · (.+)$",
+   "密钥可用 · $1 个模型 · $2"
+  ],
+  [
+   "^Key works · (\\d+) models?$",
+   "密钥可用 · $1 个模型"
+  ],
+  [
+   "^Custom endpoint · (.+) · key (.+)$",
+   "自定义端点 · $1 · 密钥 $2"
+  ],
+  [
+   "^(Anthropic API|OpenRouter|Custom endpoint) · key (.+)$",
+   "$1 · 密钥 $2"
+  ],
+  [
+   "^Add a model from (.+)$",
+   "从 $1 添加模型"
+  ],
+  [
+   "^Paste your key \\((.+)\\)$",
+   "粘贴你的密钥（$1）"
+  ],
+  [
+   "^Remove (.+) and its key from this Mac\\? Its models go too\\.$",
+   "要从这台 Mac 上移除 $1 及其密钥吗？它的模型也会一并移除。"
+  ],
+  [
+   "^(.+) · plugins: (.+)$",
+   "$1 · 插件：$2"
+  ],
+  [
+   "^(.+) can’t be attached: pictures, PDFs and text or code files only\\.$",
+   "无法附加 $1：只支持图片、PDF 以及文本或代码文件。"
+  ],
+  [
+   "^(.+) is over 400 KB\\. Put it in the project and mention it with @ instead\\.$",
+   "$1 超过 400 KB。请把它放进项目，再用 @ 提及。"
+  ],
+  [
+   "^(.+) is over 6 MB\\.$",
+   "$1 超过 6 MB。"
+  ],
+  [
+   "^(.+) isn’t a text file\\.$",
+   "$1 不是文本文件。"
+  ],
+  [
+   "^Open (.+) in your browser\\?$",
+   "要在你的浏览器中打开 $1 吗？"
+  ],
+  [
+   "^Open (.+) in the built-in browser\\?$",
+   "要在内置浏览器中打开 $1 吗？"
+  ],
+  [
+   "^Fetch a page from (.+)\\?$",
+   "要从 $1 获取网页吗？"
+  ],
+  [
+   "^Start Jarvis Code in (.+)\\?$",
+   "要在 $1 中启动 Jarvis Code 吗？"
+  ],
+  [
+   "^Pass this request to Jarvis Code in (.+)\\?$",
+   "要把这个请求转给 $1 中的 Jarvis Code 吗？"
+  ],
+  [
+   "^Voice-code with Jarvis Code in (.+)\\?$",
+   "要在 $1 中用 Jarvis Code 语音编程吗？"
+  ],
+  [
+   "^Send this to Jarvis Code in (.+)\\?$",
+   "要把这条消息发给 $1 中的 Jarvis Code 吗？"
+  ],
+  [
+   "^Click “(.+)” in the browser\\?$",
+   "要在浏览器中点按“$1”吗？"
+  ],
+  [
+   "^Press “(.+)” in the Research Center\\?$",
+   "要在研究中心中按下“$1”吗？"
+  ],
+  [
+   "^Put the files back to before “(.+)”\\?$",
+   "要把文件恢复到“$1”之前的状态吗？"
+  ],
+  [
+   "^Start taking notes for (.+)\\?$",
+   "要开始为“$1”做会议记录吗？"
+  ],
+  [
+   "^Delete the routine “(.+)”\\?$",
+   "要删除例行任务“$1”吗？"
+  ],
+  [
+   "^Pause the routine “(.+)”\\?$",
+   "要暂停例行任务“$1”吗？"
+  ],
+  [
+   "^Resume the routine “(.+)”\\?$",
+   "要恢复例行任务“$1”吗？"
+  ],
+  [
+   "^Take (.+) off Jarvis Code's models\\?$",
+   "要从 Jarvis Code 的模型中移除 $1 吗？"
+  ],
+  [
+   "^Email (.+?) about (.+)\\?$",
+   "要给 $1 发一封关于“$2”的邮件吗？"
+  ],
+  [
+   "^Send this to (.+)\\?$",
+   "要把这条消息发给 $1 吗？"
+  ],
+  [
+   "^Add a routine, every day at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每天上午$1：$2"
+  ],
+  [
+   "^Add a routine, weekdays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？工作日上午$1：$2"
+  ],
+  [
+   "^Add a routine, weekly at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周上午$1：$2"
+  ],
+  [
+   "^Add a routine, Mondays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周一上午$1：$2"
+  ],
+  [
+   "^Add a routine, Tuesdays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周二上午$1：$2"
+  ],
+  [
+   "^Add a routine, Wednesdays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周三上午$1：$2"
+  ],
+  [
+   "^Add a routine, Thursdays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周四上午$1：$2"
+  ],
+  [
+   "^Add a routine, Fridays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周五上午$1：$2"
+  ],
+  [
+   "^Add a routine, Saturdays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周六上午$1：$2"
+  ],
+  [
+   "^Add a routine, Sundays at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周日上午$1：$2"
+  ],
+  [
+   "^Add a routine, once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}:\\d{2}) AM: (.+)\\?$",
+   "要添加例行任务吗？仅一次，$1 上午$2：$3"
+  ],
+  [
+   "^Add a routine, every day at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每天上午$1点：$2"
+  ],
+  [
+   "^Add a routine, weekdays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？工作日上午$1点：$2"
+  ],
+  [
+   "^Add a routine, weekly at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周上午$1点：$2"
+  ],
+  [
+   "^Add a routine, Mondays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周一上午$1点：$2"
+  ],
+  [
+   "^Add a routine, Tuesdays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周二上午$1点：$2"
+  ],
+  [
+   "^Add a routine, Wednesdays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周三上午$1点：$2"
+  ],
+  [
+   "^Add a routine, Thursdays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周四上午$1点：$2"
+  ],
+  [
+   "^Add a routine, Fridays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周五上午$1点：$2"
+  ],
+  [
+   "^Add a routine, Saturdays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周六上午$1点：$2"
+  ],
+  [
+   "^Add a routine, Sundays at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？每周日上午$1点：$2"
+  ],
+  [
+   "^Add a routine, once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}) AM: (.+)\\?$",
+   "要添加例行任务吗？仅一次，$1 上午$2点：$3"
+  ],
+  [
+   "^Add a routine, every day at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每天下午$1：$2"
+  ],
+  [
+   "^Add a routine, weekdays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？工作日下午$1：$2"
+  ],
+  [
+   "^Add a routine, weekly at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周下午$1：$2"
+  ],
+  [
+   "^Add a routine, Mondays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周一下午$1：$2"
+  ],
+  [
+   "^Add a routine, Tuesdays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周二下午$1：$2"
+  ],
+  [
+   "^Add a routine, Wednesdays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周三下午$1：$2"
+  ],
+  [
+   "^Add a routine, Thursdays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周四下午$1：$2"
+  ],
+  [
+   "^Add a routine, Fridays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周五下午$1：$2"
+  ],
+  [
+   "^Add a routine, Saturdays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周六下午$1：$2"
+  ],
+  [
+   "^Add a routine, Sundays at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周日下午$1：$2"
+  ],
+  [
+   "^Add a routine, once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}:\\d{2}) PM: (.+)\\?$",
+   "要添加例行任务吗？仅一次，$1 下午$2：$3"
+  ],
+  [
+   "^Add a routine, every day at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每天下午$1点：$2"
+  ],
+  [
+   "^Add a routine, weekdays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？工作日下午$1点：$2"
+  ],
+  [
+   "^Add a routine, weekly at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周下午$1点：$2"
+  ],
+  [
+   "^Add a routine, Mondays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周一下午$1点：$2"
+  ],
+  [
+   "^Add a routine, Tuesdays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周二下午$1点：$2"
+  ],
+  [
+   "^Add a routine, Wednesdays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周三下午$1点：$2"
+  ],
+  [
+   "^Add a routine, Thursdays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周四下午$1点：$2"
+  ],
+  [
+   "^Add a routine, Fridays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周五下午$1点：$2"
+  ],
+  [
+   "^Add a routine, Saturdays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周六下午$1点：$2"
+  ],
+  [
+   "^Add a routine, Sundays at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？每周日下午$1点：$2"
+  ],
+  [
+   "^Add a routine, once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}) PM: (.+)\\?$",
+   "要添加例行任务吗？仅一次，$1 下午$2点：$3"
+  ],
+  [
+   "^Add a routine, (.+?): (.+)\\?$",
+   "要添加例行任务吗？$1：$2"
+  ],
+  [
+   "^Something went wrong: (.+)$",
+   "出了点问题：$1"
+  ],
+  [
+   "^Claude stopped: (.+)$",
+   "Claude 停止了：$1"
+  ],
+  [
+   "^I couldn't use the microphone: (.+)$",
+   "我无法使用麦克风：$1"
+  ],
+  [
+   "^Hands-free couldn't open the microphone: (.+)$",
+   "免提唤醒无法打开麦克风：$1"
+  ],
+  [
+   "^The terminal didn't start: (.+)$",
+   "终端未能启动：$1"
+  ],
+  [
+   "^Port (\\d+) is in use by another app, so the phone companion is off\\. Quit that app, then turn the companion on again\\.$",
+   "端口 $1 已被其他 App 占用，因此手机配套网页已关闭。请退出那个 App，然后重新打开配套网页。"
+  ],
+  [
+   "^(.+) in Documents › Jarvis › Conversations$",
+   "$1，位于“文稿 › Jarvis › Conversations”"
+  ],
+  [
+   "^The page isn't answering \\((.+)\\)\\.$",
+   "页面没有响应（$1）。"
+  ],
+  [
+   "^(\\S+) isn't answering \\((.+)\\)\\.$",
+   "$1 没有响应（$2）。"
+  ],
+  [
+   "^Opened “(.+)”$",
+   "已打开“$1”"
+  ],
+  [
+   "^Pinch again to confirm “(.+)”$",
+   "再次捏合以确认“$1”"
+  ],
+  [
+   "^(.+) starts in (\\d+) minutes?\\.$",
+   "$1 还有 $2 分钟开始。"
+  ],
+  [
+   "^Battery's at (\\d+) percent\\. Plug in soon or I'll be taking an unscheduled nap\\.$",
+   "电量只剩 $1%。快接上电源，不然我就要意外打个盹了。"
+  ],
+  [
+   "^Battery's down to (\\d+) percent\\.$",
+   "电量已降至 $1%。"
+  ],
+  [
+   "^Rain's likely around (.+), (\\d+) percent chance\\. Might want an umbrella\\.$",
+   "$1 左右可能下雨，降雨概率 $2%。最好带把伞。"
+  ],
+  [
+   "^Email from (.+?): (.+)\\.$",
+   "$1 发来邮件：$2。"
+  ],
+  [
+   "^Email from (.+)$",
+   "来自 $1 的邮件"
+  ],
+  [
+   "^Leave for (.+)$",
+   "该出发去 $1 了"
+  ],
+  [
+   "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}:\\d{2}) AM\\.$",
+   "该出发去 $1 了。按当前路况，到 $3 需要 $2 分钟，上午$4开始。"
+  ],
+  [
+   "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}:\\d{2}) AM\\.$",
+   "去 $1 可能会晚一点：按当前路况，到 $3 需要 $2 分钟，而它上午$4就开始了。"
+  ],
+  [
+   "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}) AM\\.$",
+   "该出发去 $1 了。按当前路况，到 $3 需要 $2 分钟，上午$4点开始。"
+  ],
+  [
+   "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}) AM\\.$",
+   "去 $1 可能会晚一点：按当前路况，到 $3 需要 $2 分钟，而它上午$4点就开始了。"
+  ],
+  [
+   "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}:\\d{2}) PM\\.$",
+   "该出发去 $1 了。按当前路况，到 $3 需要 $2 分钟，下午$4开始。"
+  ],
+  [
+   "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}:\\d{2}) PM\\.$",
+   "去 $1 可能会晚一点：按当前路况，到 $3 需要 $2 分钟，而它下午$4就开始了。"
+  ],
+  [
+   "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}) PM\\.$",
+   "该出发去 $1 了。按当前路况，到 $3 需要 $2 分钟，下午$4点开始。"
+  ],
+  [
+   "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) with current traffic, and it starts at (\\d{1,2}) PM\\.$",
+   "去 $1 可能会晚一点：按当前路况，到 $3 需要 $2 分钟，而它下午$4点就开始了。"
+  ],
+  [
+   "^Read (\\d+) from notes \\((\\d+)s\\)$",
+   "已从 Apple 备忘录读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from bsh \\((\\d+)s\\)$",
+   "已从 BSH 工作台读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from files \\((\\d+)s\\)$",
+   "已从文件夹读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from computer \\((\\d+)s\\)$",
+   "已从电脑文件读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from photos \\((\\d+)s\\)$",
+   "已从照片读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from mail \\((\\d+)s\\)$",
+   "已从邮件读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from messages \\((\\d+)s\\)$",
+   "已从短信读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from research \\((\\d+)s\\)$",
+   "已从研究报告读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from meetings \\((\\d+)s\\)$",
+   "已从会议记录读取 $1 条（$2 秒）"
+  ],
+  [
+   "^every day at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每天上午$1 · 已暂停"
+  ],
+  [
+   "^every day at (\\d{1,2}) AM · paused$",
+   "每天上午$1点 · 已暂停"
+  ],
+  [
+   "^weekdays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "工作日上午$1 · 已暂停"
+  ],
+  [
+   "^weekdays at (\\d{1,2}) AM · paused$",
+   "工作日上午$1点 · 已暂停"
+  ],
+  [
+   "^weekly at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周上午$1 · 已暂停"
+  ],
+  [
+   "^weekly at (\\d{1,2}) AM · paused$",
+   "每周上午$1点 · 已暂停"
+  ],
+  [
+   "^Mondays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周一上午$1 · 已暂停"
+  ],
+  [
+   "^Mondays at (\\d{1,2}) AM · paused$",
+   "每周一上午$1点 · 已暂停"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周二上午$1 · 已暂停"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}) AM · paused$",
+   "每周二上午$1点 · 已暂停"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周三上午$1 · 已暂停"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}) AM · paused$",
+   "每周三上午$1点 · 已暂停"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周四上午$1 · 已暂停"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}) AM · paused$",
+   "每周四上午$1点 · 已暂停"
+  ],
+  [
+   "^Fridays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周五上午$1 · 已暂停"
+  ],
+  [
+   "^Fridays at (\\d{1,2}) AM · paused$",
+   "每周五上午$1点 · 已暂停"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周六上午$1 · 已暂停"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}) AM · paused$",
+   "每周六上午$1点 · 已暂停"
+  ],
+  [
+   "^Sundays at (\\d{1,2}:\\d{2}) AM · paused$",
+   "每周日上午$1 · 已暂停"
+  ],
+  [
+   "^Sundays at (\\d{1,2}) AM · paused$",
+   "每周日上午$1点 · 已暂停"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}:\\d{2}) AM · paused$",
+   "仅一次，$1 上午$2 · 已暂停"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}) AM · paused$",
+   "仅一次，$1 上午$2点 · 已暂停"
+  ],
+  [
+   "^every day at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每天下午$1 · 已暂停"
+  ],
+  [
+   "^every day at (\\d{1,2}) PM · paused$",
+   "每天下午$1点 · 已暂停"
+  ],
+  [
+   "^weekdays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "工作日下午$1 · 已暂停"
+  ],
+  [
+   "^weekdays at (\\d{1,2}) PM · paused$",
+   "工作日下午$1点 · 已暂停"
+  ],
+  [
+   "^weekly at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周下午$1 · 已暂停"
+  ],
+  [
+   "^weekly at (\\d{1,2}) PM · paused$",
+   "每周下午$1点 · 已暂停"
+  ],
+  [
+   "^Mondays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周一下午$1 · 已暂停"
+  ],
+  [
+   "^Mondays at (\\d{1,2}) PM · paused$",
+   "每周一下午$1点 · 已暂停"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周二下午$1 · 已暂停"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}) PM · paused$",
+   "每周二下午$1点 · 已暂停"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周三下午$1 · 已暂停"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}) PM · paused$",
+   "每周三下午$1点 · 已暂停"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周四下午$1 · 已暂停"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}) PM · paused$",
+   "每周四下午$1点 · 已暂停"
+  ],
+  [
+   "^Fridays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周五下午$1 · 已暂停"
+  ],
+  [
+   "^Fridays at (\\d{1,2}) PM · paused$",
+   "每周五下午$1点 · 已暂停"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周六下午$1 · 已暂停"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}) PM · paused$",
+   "每周六下午$1点 · 已暂停"
+  ],
+  [
+   "^Sundays at (\\d{1,2}:\\d{2}) PM · paused$",
+   "每周日下午$1 · 已暂停"
+  ],
+  [
+   "^Sundays at (\\d{1,2}) PM · paused$",
+   "每周日下午$1点 · 已暂停"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}:\\d{2}) PM · paused$",
+   "仅一次，$1 下午$2 · 已暂停"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}) PM · paused$",
+   "仅一次，$1 下午$2点 · 已暂停"
+  ],
+  [
+   "^every day at (\\d{1,2}:\\d{2}) AM$",
+   "每天上午$1"
+  ],
+  [
+   "^every day at (\\d{1,2}) AM$",
+   "每天上午$1点"
+  ],
+  [
+   "^weekdays at (\\d{1,2}:\\d{2}) AM$",
+   "工作日上午$1"
+  ],
+  [
+   "^weekdays at (\\d{1,2}) AM$",
+   "工作日上午$1点"
+  ],
+  [
+   "^weekly at (\\d{1,2}:\\d{2}) AM$",
+   "每周上午$1"
+  ],
+  [
+   "^weekly at (\\d{1,2}) AM$",
+   "每周上午$1点"
+  ],
+  [
+   "^Mondays at (\\d{1,2}:\\d{2}) AM$",
+   "每周一上午$1"
+  ],
+  [
+   "^Mondays at (\\d{1,2}) AM$",
+   "每周一上午$1点"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}:\\d{2}) AM$",
+   "每周二上午$1"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}) AM$",
+   "每周二上午$1点"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}:\\d{2}) AM$",
+   "每周三上午$1"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}) AM$",
+   "每周三上午$1点"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}:\\d{2}) AM$",
+   "每周四上午$1"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}) AM$",
+   "每周四上午$1点"
+  ],
+  [
+   "^Fridays at (\\d{1,2}:\\d{2}) AM$",
+   "每周五上午$1"
+  ],
+  [
+   "^Fridays at (\\d{1,2}) AM$",
+   "每周五上午$1点"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}:\\d{2}) AM$",
+   "每周六上午$1"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}) AM$",
+   "每周六上午$1点"
+  ],
+  [
+   "^Sundays at (\\d{1,2}:\\d{2}) AM$",
+   "每周日上午$1"
+  ],
+  [
+   "^Sundays at (\\d{1,2}) AM$",
+   "每周日上午$1点"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}:\\d{2}) AM$",
+   "仅一次，$1 上午$2"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}) AM$",
+   "仅一次，$1 上午$2点"
+  ],
+  [
+   "^every day at (\\d{1,2}:\\d{2}) PM$",
+   "每天下午$1"
+  ],
+  [
+   "^every day at (\\d{1,2}) PM$",
+   "每天下午$1点"
+  ],
+  [
+   "^weekdays at (\\d{1,2}:\\d{2}) PM$",
+   "工作日下午$1"
+  ],
+  [
+   "^weekdays at (\\d{1,2}) PM$",
+   "工作日下午$1点"
+  ],
+  [
+   "^weekly at (\\d{1,2}:\\d{2}) PM$",
+   "每周下午$1"
+  ],
+  [
+   "^weekly at (\\d{1,2}) PM$",
+   "每周下午$1点"
+  ],
+  [
+   "^Mondays at (\\d{1,2}:\\d{2}) PM$",
+   "每周一下午$1"
+  ],
+  [
+   "^Mondays at (\\d{1,2}) PM$",
+   "每周一下午$1点"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}:\\d{2}) PM$",
+   "每周二下午$1"
+  ],
+  [
+   "^Tuesdays at (\\d{1,2}) PM$",
+   "每周二下午$1点"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}:\\d{2}) PM$",
+   "每周三下午$1"
+  ],
+  [
+   "^Wednesdays at (\\d{1,2}) PM$",
+   "每周三下午$1点"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}:\\d{2}) PM$",
+   "每周四下午$1"
+  ],
+  [
+   "^Thursdays at (\\d{1,2}) PM$",
+   "每周四下午$1点"
+  ],
+  [
+   "^Fridays at (\\d{1,2}:\\d{2}) PM$",
+   "每周五下午$1"
+  ],
+  [
+   "^Fridays at (\\d{1,2}) PM$",
+   "每周五下午$1点"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}:\\d{2}) PM$",
+   "每周六下午$1"
+  ],
+  [
+   "^Saturdays at (\\d{1,2}) PM$",
+   "每周六下午$1点"
+  ],
+  [
+   "^Sundays at (\\d{1,2}:\\d{2}) PM$",
+   "每周日下午$1"
+  ],
+  [
+   "^Sundays at (\\d{1,2}) PM$",
+   "每周日下午$1点"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}:\\d{2}) PM$",
+   "仅一次，$1 下午$2"
+  ],
+  [
+   "^once, (\\d{4}-\\d{2}-\\d{2}) at (\\d{1,2}) PM$",
+   "仅一次，$1 下午$2点"
+  ],
+  [
+   "^(.+) · paused$",
+   "$1 · 已暂停"
+  ]
+ ]
+}

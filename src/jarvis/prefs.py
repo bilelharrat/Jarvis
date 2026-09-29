@@ -92,6 +92,17 @@ class Prefs:
     code_effort: str = ""  # … its effort
     code_mode: str = "ask"  # … its permission mode
     code_ultracode: bool = False  # … and whether ultracode starts on
+    language: str = "en"  # "en" or "zh": the window, the voice and the replies
+    owner_name: str = ""  # for conversations JARVIS holds for them ("I'm Robert's assistant")
+    interruptions: str = "urgent"  # texts and email that interrupt: urgent | all | off
+    vips: list[str] = field(default_factory=list)  # names, numbers or emails that always count
+    file_index: bool = True  # JARVIS's own index of their files, kept on this Mac
+    # Purchases in the built-in browser, one confirmation each; Settings only, never a tool.
+    pay_enabled: bool = True
+    pay_currency: str = "USD"
+    pay_limit_purchase: float = 250.0
+    pay_limit_transfer: float = 100.0
+    pay_limit_day: float = 500.0
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -137,6 +148,25 @@ def _clean(name: str, value: Any) -> Any:
     if name in ("invoice_from", "invoice_payment"):
         lines = [line.strip() for line in str(value or "").splitlines()]
         return "\n".join(line for line in lines if line)[:600]
+    if name == "language":
+        return value if value in ("en", "zh") else None
+    if name == "owner_name":
+        return re.sub(r"\s+", " ", str(value or "")).strip()[:40]
+    if name == "interruptions":
+        return value if value in ("urgent", "all", "off") else None
+    if name == "vips":
+        if not isinstance(value, list):
+            return None
+        cleaned = [re.sub(r"\s+", " ", str(v)).strip()[:120] for v in value]
+        return list(dict.fromkeys(v for v in cleaned if v))[:100]
+    if name.startswith("pay_limit_"):
+        from .transactions import clean_limit
+
+        return clean_limit(value)
+    if name == "pay_currency":
+        from .transactions import clean_currency
+
+        return clean_currency(value)
     if name == "code_model":
         return str(value or "").strip()[:120]
     if name == "code_effort":
@@ -195,6 +225,8 @@ def _clean(name: str, value: Any) -> Any:
         "queue_requests",
         "code_queue",
         "code_ultracode",
+        "file_index",
+        "pay_enabled",
     }:
         return bool(value)
     return None

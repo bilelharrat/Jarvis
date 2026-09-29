@@ -169,3 +169,51 @@ async def test_switching_to_haiku_leaves_auto_for_manual(settings, tmp_path):
     assert task.mode == "ask"
     assert any("Permission mode: Manual." == e["text"] for e in task.transcript)
     task.handle.cancel()
+
+
+async def test_pictures_pdfs_and_text_files_go_as_blocks_with_their_names():
+    from jarvis.tasks import _with_images, attachment_counts
+
+    items = [
+        {"media_type": "image/png", "data": "iVBOR", "name": "shot.png"},
+        {"media_type": "application/pdf", "data": "JVBERi0", "name": "spec.pdf"},
+        {"media_type": "text/x-python", "data": "print('hi')\n", "name": "hi.py"},
+        {"media_type": "application/json", "data": "{}", "name": "data.json"},
+        {"media_type": "application/zip", "data": "UEsDB", "name": "stuff.zip"},
+    ]
+    message = [m async for m in _with_images("look", items)][0]["message"]["content"]
+    assert [b["type"] for b in message] == ["image", "document", "document", "document", "text"]
+    assert message[1]["source"] == {
+        "type": "base64",
+        "media_type": "application/pdf",
+        "data": "JVBERi0",
+    }
+    assert message[1]["title"] == "spec.pdf"
+    assert message[2]["source"] == {
+        "type": "text",
+        "media_type": "text/plain",
+        "data": "print('hi')\n",
+    }
+    assert message[2]["title"] == "hi.py" and message[3]["title"] == "data.json"
+    assert attachment_counts(items) == {
+        "images": 1,
+        "files": ["spec.pdf", "hi.py", "data.json", "stuff.zip"],
+    }
+    assert attachment_counts([{"media_type": "image/jpeg", "data": "x"}]) == {"images": 1}
+
+
+def test_typed_mode_commands_use_the_menu_names():
+    from jarvis.voicecode import slash_intent
+
+    modes = {
+        n: slash_intent(n, "").arg for n in ("plan", "manual", "ask", "edits", "auto", "bypass")
+    }
+    assert modes == {
+        "plan": "plan",
+        "manual": "ask",
+        "ask": "ask",
+        "edits": "edits",
+        "auto": "smart",  # Claude Code's Auto, never Bypass
+        "bypass": "auto",
+    }
+    assert slash_intent("deploy", "staging") is None  # a custom command: to the session as typed

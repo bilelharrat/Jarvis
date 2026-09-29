@@ -38,10 +38,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import h11
 from starlette.applications import Starlette
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
+from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from .prefs import APP_SUPPORT
 
@@ -55,6 +57,14 @@ MAX_FAILURES = 5
 LOCKOUT_SECONDS = 300
 ASK_TIMEOUT = 120
 COMMANDS = {"stop", "briefing", "meeting_start", "meeting_stop", "routine_run"}
+MAX_BODY = 20_000  # bytes: every request body is small JSON
+BODY_SECONDS = 10.0  # a body that trickles in slower than this is dropped
+MAX_GLOBAL_FAILURES = 30  # wrong guesses at one code from every address: then it's spent
+MAX_DEVICES = 20  # the oldest unused one goes when a new phone pairs past this
+SAY_AT_ONCE = 2  # voice clips made for phones at the same time
+MAX_CONNECTIONS = 64  # open at once, every address together
+PER_ADDRESS = 16  # open at once from one address (Safari and URLSession use about 6)
+REQUEST_SECONDS = 10.0  # to send one whole request, headers and body
 SERVICE_TYPE = "_jarvis._tcp"  # what the iPhone and Watch apps browse for (Info.plist too)
 
 
@@ -85,11 +95,17 @@ class Devices:
         self.items: list[Device] = []
         self.code: str | None = None
         self.code_expires = 0.0
-        self.failures: deque[float] = deque()
+        # Wrong codes per address: someone else on the network can't lock the owner out.
+        self.failures: dict[str, deque[float]] = {}
+        self.all_failures: deque[float] = deque()  # and a cap for many addresses at once
         try:
             self.items = [Device(**d) for d in json.loads(self.path.read_text())]
         except (OSError, ValueError, TypeError):
             self.items = []
+        self._index()
+
+    def _index(self) -> None:
+        self._by_hash = {d.token_hash: d for d in self.items}
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,20 +117,31 @@ class Devices:
     def start_pairing(self) -> str:
         self.code = f"{secrets.randbelow(10**6):06d}"
         self.code_expires = time.monotonic() + CODE_SECONDS
+        self.all_failures.clear()  # a new code, a new budget of guesses
         return self.code
 
-    def locked(self) -> bool:
+    def locked(self, host: str = "") -> bool:
+        """Too many wrong codes from this address lately: someone else on the network
+        guessing never locks the owner's phone out."""
         now = time.monotonic()
-        while self.failures and now - self.failures[0] > LOCKOUT_SECONDS:
-            self.failures.popleft()
-        return len(self.failures) >= MAX_FAILURES
+        for times in self.failures.values():
+            while times and now - times[0] > LOCKOUT_SECONDS:
+                times.popleft()
+        self.failures = {h: t for h, t in self.failures.items() if t}
+        return len(self.failures.get(host, ())) >= MAX_FAILURES
 
-    def pair(self, code: str, name: str) -> str:
-        if self.locked():
+    def pair(self, code: str, name: str, host: str = "") -> str:
+        if self.locked(host):
             raise PermissionError("Too many wrong codes. Wait five minutes.")
         live = self.code is not None and time.monotonic() < self.code_expires
         if not live or not secrets.compare_digest(str(code).strip(), self.code or ""):
-            self.failures.append(time.monotonic())
+            if live:  # with no code on screen there's nothing to guess, so nothing to count
+                now = time.monotonic()
+                if len(self.failures) < 1000 or host in self.failures:
+                    self.failures.setdefault(host, deque()).append(now)
+                self.all_failures.append(now)
+                if len(self.all_failures) >= MAX_GLOBAL_FAILURES:
+                    self.code = None  # guessed at from many addresses: this code is spent
             raise PermissionError(
                 "That code isn't right, or it expired. Make a new one on the Mac."
             )
@@ -127,17 +154,18 @@ class Devices:
             datetime.now().isoformat(timespec="seconds"),
         )
         self.items.append(device)
+        while len(self.items) > MAX_DEVICES:  # the phone used longest ago makes room
+            self.items.remove(min(self.items, key=lambda d: d.last_seen or d.paired))
+        self._index()
         self.save()
         return token
 
     def check(self, token: str) -> Device | None:
-        if not token:
+        """The paired device with this token (looked up by its hash, never compared as
+        plain text)."""
+        if not token or len(token) > 200:
             return None
-        wanted = _hash(token)
-        for device in self.items:
-            if secrets.compare_digest(device.token_hash, wanted):
-                return device
-        return None
+        return self._by_hash.get(_hash(token))
 
     def seen(self, device: Device) -> None:
         now = datetime.now().isoformat(timespec="minutes")
@@ -149,6 +177,7 @@ class Devices:
         before = len(self.items)
         self.items = [d for d in self.items if d.id != device_id]
         if len(self.items) != before:
+            self._index()
             self.save()
             return True
         return False
@@ -184,15 +213,46 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
     def denied() -> JSONResponse:
         return JSONResponse({"error": "Pair this device first."}, status_code=401)
 
-    async def body(request: Request) -> dict[str, Any]:
-        raw = await request.body()
-        if len(raw) > 20_000:
-            return {}
+    async def read_capped(request: Request) -> bytes | None:
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > MAX_BODY:
+                return None
+        return bytes(raw)
+
+    async def body(request: Request) -> dict[str, Any] | None:
+        """The request's JSON object, read at most MAX_BODY bytes and BODY_SECONDS long
+        (before any token check, so no one on the network can make it hold more).
+        None: too big or too slow; {} for anything that isn't a JSON object."""
+        try:
+            if int(request.headers.get("content-length") or 0) > MAX_BODY:
+                return None
+            raw = await asyncio.wait_for(read_capped(request), BODY_SECONDS)
+        except (ValueError, TimeoutError, ClientDisconnect):
+            return None
+        if raw is None:
+            return None
         try:
             data = json.loads(raw or b"{}")
-        except ValueError:
+        except (ValueError, RecursionError):
             return {}
         return data if isinstance(data, dict) else {}
+
+    def too_big() -> JSONResponse:
+        # Connection: close, or uvicorn keeps reading (and dropping) the rest of a body
+        # we refused, for as long as the sender keeps it coming.
+        return JSONResponse(
+            {"error": "That request is too big or too slow."},
+            status_code=413,
+            headers={"Connection": "close"},
+        )
+
+    def busy() -> JSONResponse:
+        return JSONResponse({"error": "Jarvis is busy. Try again in a moment."}, status_code=429)
+
+    asking: dict[str, int] = {}  # device id -> its request still being answered
+    saying = asyncio.Semaphore(SAY_AT_ONCE)
 
     def asset(name: str, media_type: str):
         """Only the companion's own files are served here, nothing else from the app."""
@@ -230,8 +290,11 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
 
     async def pair(request: Request):
         data = await body(request)
+        if data is None:
+            return too_big()
+        host = request.client.host if request.client else ""
         try:
-            token = devices.pair(str(data.get("code", "")), str(data.get("name", "")))
+            token = devices.pair(str(data.get("code", "")), str(data.get("name", "")), host)
         except PermissionError as exc:
             return JSONResponse({"error": str(exc)}, status_code=403)
         hub.emit("devices", items=devices.public(), paired=True)
@@ -243,18 +306,32 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
         return JSONResponse(hub.remote_state())
 
     async def ask(request: Request):
-        if device_for(request) is None:
+        device = device_for(request)
+        if device is None:
             return denied()
-        text = str((await body(request)).get("text", "")).strip()[:4000]
+        data = await body(request)
+        if data is None:
+            return too_big()
+        text = str(data.get("text", "")).strip()[:4000]
         if not text:
             return JSONResponse({"error": "Say something."}, status_code=400)
-        reply = await hub.remote_ask(text, ASK_TIMEOUT)
+        if asking.get(device.id):
+            return JSONResponse({"error": "Still on your last request."}, status_code=429)
+        asking[device.id] = 1
+        try:
+            reply = await hub.remote_ask(text, ASK_TIMEOUT)
+        finally:
+            asking.pop(device.id, None)
+        if reply.pop("busy", False):  # the phones already have REMOTE_TURNS going
+            return busy()
         return JSONResponse(reply)
 
     async def approve(request: Request):
         if device_for(request) is None:
             return denied()
         data = await body(request)
+        if data is None:
+            return too_big()
         ok = hub.resolve(str(data.get("id", "")), str(data.get("choice", "")))
         return JSONResponse({"ok": ok})
 
@@ -262,20 +339,31 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
         if device_for(request) is None:
             return denied()
         data = await body(request)
+        if data is None:
+            return too_big()
         kind = str(data.get("type", ""))
         if kind not in COMMANDS:
             return JSONResponse({"error": "Not available from the phone."}, status_code=400)
-        await hub.handle({k: v for k, v in data.items() if isinstance(v, (str, int, bool))})
+        if not await hub.remote_command(
+            {k: v for k, v in data.items() if isinstance(v, (str, int, bool))}
+        ):
+            return busy()
         return JSONResponse({"ok": True})
 
     async def say(request: Request):
         """The reply in JARVIS's own voice, for the phone to play."""
         if device_for(request) is None:
             return denied()
-        text = str((await body(request)).get("text", "")).strip()[:1500]
+        data = await body(request)
+        if data is None:
+            return too_big()
+        text = str(data.get("text", "")).strip()[:1500]
         if not text:
             return Response(status_code=400)
-        clip = await hub.speaker.synthesize(text)
+        if saying.locked():  # a voice clip costs a process or a paid call: a few at a time
+            return Response(status_code=429)
+        async with saying:
+            clip = await hub.speaker.synthesize(text)
         if clip is None:
             return Response(status_code=503)
         return Response(wav_bytes(*clip), media_type="audio/wav")
@@ -295,6 +383,49 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
             Route("/remote.css", asset("remote.css", "text/css")),
         ]
     )
+
+
+class GuardedH11(H11Protocol):
+    """uvicorn's HTTP/1.1 with limits for a port the whole network can reach: a few
+    connections per address, and a deadline for sending each whole request (uvicorn
+    itself only times out the quiet gap between requests). A connection over the limit
+    is closed at once, so it holds no request slot the owner's phone would need."""
+
+    _deadline: asyncio.TimerHandle | None = None
+
+    def connection_made(self, transport: Any) -> None:
+        super().connection_made(transport)
+        host = self.client[0] if self.client else ""
+        same = sum(
+            1 for c in self.connections if getattr(c, "client", None) and c.client[0] == host
+        )
+        if len(self.connections) > MAX_CONNECTIONS or same > PER_ADDRESS:
+            transport.close()
+            return
+        self._arm()
+
+    def _arm(self) -> None:
+        if self._deadline is not None:
+            self._deadline.cancel()
+        self._deadline = self.loop.call_later(REQUEST_SECONDS, self._too_slow)
+
+    def _too_slow(self) -> None:
+        self._deadline = None
+        if self.conn.their_state in (h11.DONE, h11.MUST_CLOSE, h11.CLOSED):
+            return  # the request is all in; its answer may take a while (/api/ask)
+        if not self.transport.is_closing():
+            self.transport.close()
+
+    def on_response_complete(self) -> None:
+        super().on_response_complete()
+        if not self.transport.is_closing():
+            self._arm()  # the next request on this connection gets the same time
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        if self._deadline is not None:
+            self._deadline.cancel()
+            self._deadline = None
+        super().connection_lost(exc)
 
 
 def local_host_name() -> str:
@@ -448,7 +579,12 @@ class RemoteServer:
             )
             return False
         config = uvicorn.Config(
-            create_remote_app(self.hub, self.devices), log_level="warning", lifespan="off"
+            create_remote_app(self.hub, self.devices),
+            log_level="warning",
+            lifespan="off",
+            http=GuardedH11,
+            timeout_keep_alive=5,
+            h11_max_incomplete_event_size=16 * 1024,
         )
         self._server = Quiet(config)
         self._task = asyncio.create_task(self._serve(self._server, sock))

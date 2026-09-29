@@ -355,7 +355,7 @@ class Inbox:
 
     def public(self) -> list[dict[str, Any]]:
         return [
-            {"id": i["id"], "text": i["text"][:2000], "images": len(i["images"])}
+            {"id": i["id"], "text": i["text"][:2000], **attachment_counts(i["images"])}
             for i in self._items
         ]
 
@@ -412,7 +412,12 @@ class ClaudeTask:
     disabled_mcp: set[str] = field(default_factory=set)
     ultracode: bool = False
     env: dict[str, str] = field(default_factory=dict)
+    # Another provider's model: env blanks inherited credentials; provider_settings (a JSON
+    # string for Claude Code's --settings) carries the Keychain apiKeyHelper and the
+    # routing pins. Neither holds the key.
+    provider_settings: str = ""
     model_label: str = ""
+    model_ref: str = ""  # the model as the picker knows it ("sonnet", "custom:…")
     reopen: bool = False  # reopen the same conversation between turns (new folders…)
     steered: int = 0  # messages sent into the running step, not yet taken up
 
@@ -431,6 +436,7 @@ class ClaudeTask:
             "disabled_mcp": sorted(self.disabled_mcp),
             "ultracode": self.ultracode,
             "model_label": self.model_label,
+            "model_ref": self.model_ref,
             "plan": self.plan,
             "can_undo": bool(self.checkpoints),
             "effort": self.effort,
@@ -525,8 +531,10 @@ def _read_paths(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
 
 
 def auto_capable(model: str) -> bool:
-    """Claude Code's auto mode runs on Opus, Sonnet and Fable, not Haiku."""
-    return "haiku" not in (model or "").lower()
+    """Claude Code's auto mode runs on Claude's Opus, Sonnet and Fable: not on Haiku, and
+    not on another provider's model (its safety check is Claude's)."""
+    name = (model or "").lower()
+    return "claude" in name and "haiku" not in name
 
 
 def _from_user(origin: Any) -> bool:
@@ -558,6 +566,9 @@ class TaskManager:
         self.session_servers: Callable[[Path], dict[str, Any]] | None = None
         # True when follow-ups should steer the running step (the owner's setting).
         self.steer_now: Callable[[], bool] | None = None
+        # Models added with an API key (providers.ProviderStore; the hub sets it): each
+        # connection re-derives the session's settings, re-checking the key's Keychain seal.
+        self.providers: Any = None
 
     # ── folders ──
 
@@ -598,15 +609,22 @@ class TaskManager:
         *,
         model: str = "",
         model_label: str = "",
+        model_ref: str = "",
         effort: str = "",
         env: dict[str, str] | None = None,
+        provider_settings: str = "",
         ultracode: bool = False,
+        images: list[dict[str, str]] | None = None,
+        add_dirs: list[str] | None = None,
+        plugins: list[str] | None = None,
     ) -> ClaudeTask:
+        """A new session (or the open one that is this resume). images go with the first
+        message; add_dirs and plugins are the composer's + menu choices made before it."""
         cwd = self.resolve_dir(directory)
         same = self._by_session(resume) if resume else None
         if same is not None:  # already open here: the same session, never a second copy
-            if prompt.strip():
-                self.send(same.id, prompt)
+            if prompt.strip() or images:
+                self.send(same.id, prompt, images)
             elif same.handle is None or same.handle.done():
                 same.status = "running"
                 same.handle = asyncio.create_task(self._session(same))
@@ -621,15 +639,23 @@ class TaskManager:
             title=title,
             model=model,
             model_label=model_label,
+            model_ref=model_ref,
             effort=effort if effort in EFFORTS else "",
             env=dict(env or {}),
+            provider_settings=provider_settings or "",
             ultracode=bool(ultracode),
         )
         if task.mode == "smart" and not auto_capable(task.model or self.model):
             task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
-        if task.prompt:
-            task.inbox.put(task.prompt)
+        if task.prompt or images:
+            task.inbox.put(task.prompt, (images or [])[:6])
         self.tasks[task.id] = task
+        for folder in (add_dirs or [])[:10]:
+            if problem := self.add_dir(task.id, folder):
+                self._log(task, "system", problem)
+        for plugin in (plugins or [])[:10]:
+            if problem := self.add_plugin(task.id, plugin):
+                self._log(task, "system", problem)
         task.handle = asyncio.create_task(self._session(task))
         self._changed()
         return task
@@ -671,7 +697,7 @@ class TaskManager:
 
     async def _steer(self, task: ClaudeTask, text: str, images: list[dict[str, str]]) -> None:
         task.steered += 1
-        self._log(task, "user", text, images=len(images))
+        self._log(task, "user", text, **attachment_counts(images))
         self._changed()
         try:
             await task.client.query(_with_images(text, images) if images else text)
@@ -725,17 +751,19 @@ class TaskManager:
         except Exception as exc:  # the session just closed
             self._log(task, "system", f"Couldn't switch mode: {exc}")
 
-    async def set_model(self, task_id: int, model: str) -> bool:
+    async def set_model(self, task_id: int, model: str, label: str = "", ref: str = "") -> bool:
         task = self.tasks.get(task_id)
         if task is None:
             return False
-        task.model = model
+        if task.env or task.provider_settings:  # leaving another provider's model
+            return self.set_env(task_id, model, {}, label, ref)
+        task.model, task.model_label, task.model_ref = model, label, ref
         if task.client is not None:
             try:
                 await task.client.set_model(model)
             except Exception:
                 return False
-        self._log(task, "system", f"Model: {model}.")
+        self._log(task, "system", f"Model: {label or model}.")
         if task.mode == "smart" and not auto_capable(model):
             # Auto isn't there on this model: Manual, the safe side, until they pick again.
             self.set_mode(task.id, "ask")
@@ -908,14 +936,27 @@ class TaskManager:
         self._changed()
         return True
 
-    def set_env(self, task_id: int, model: str, env: dict[str, str], label: str = "") -> bool:
-        """Another provider's model (its key and address in the environment): the
-        connection has to be reopened for it."""
+    def set_env(
+        self,
+        task_id: int,
+        model: str,
+        env: dict[str, str],
+        label: str = "",
+        ref: str = "",
+        provider_settings: str = "",
+    ) -> bool:
+        """Another provider's model, or back to Claude from one: the connection has to be
+        reopened for it, between steps. env blanks inherited credentials and
+        provider_settings carries the Keychain key helper and the routing pins; neither
+        holds the key (still, neither goes to a window)."""
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code":
             return False
-        task.model, task.env, task.model_label = model, dict(env), label
+        task.model, task.env, task.model_label, task.model_ref = model, dict(env), label, ref
+        task.provider_settings = provider_settings or ""
         self._reopen_soon(task, f"Model: {label or model}.")
+        if task.mode == "smart" and not auto_capable(model):
+            self.set_mode(task.id, "ask")  # Auto is Claude's: Manual until they pick again
         return True
 
     def _effort_pending(self, task: ClaudeTask) -> bool:
@@ -1159,6 +1200,7 @@ class TaskManager:
             plugins=[{"type": "local", "path": p} for p in task.plugins],
             disallowed_tools=[f"mcp__{name}" for name in sorted(task.disabled_mcp)],
             env=dict(task.env),
+            settings=task.provider_settings or None,
             # Claude's words and (summarized) thinking arrive as they're written.
             include_partial_messages=True,
             thinking={"type": "adaptive", "display": "summarized"},
@@ -1176,6 +1218,13 @@ class TaskManager:
             base = options.mcp_servers if isinstance(options.mcp_servers, dict) else {}
             options.mcp_servers = {**base, **extra}
             options.allowed_tools = [*options.allowed_tools, *code_tools.READ_ONLY]
+        if self.providers is not None and task.model_ref.startswith("custom:"):
+            # Fresh from the store at every (re)connect: a removed model, a key that no
+            # longer matches its provider, or none saved, fails with that plain reason.
+            cfg = self.providers.session_config(task.model_ref)
+            options.model = cfg["model"] or options.model
+            options.env = {**options.env, **cfg["env"]}
+            options.settings = cfg["settings"]
         if task.session_id:
             options.resume = task.session_id
             if task.fork:
@@ -1226,6 +1275,7 @@ class TaskManager:
         """One connection to Claude Code: a reader that takes in everything it says for as
         long as it runs, and the user's messages sent a turn at a time. Says how it ended:
         _REOPEN (a new effort), _IDLE or _GONE."""
+        task.reopen = False  # these options have every change made so far
         options = self.options_for(task)
         async with self.client_factory(options=options) as client:
             task.client, task.live_effort, task.conn_cost = client, options.effort, None
@@ -1300,7 +1350,7 @@ class TaskManager:
         task.status, task.last_action = "running", "Working"
         task.turn_started = time.monotonic()
         self._new_turn(task)
-        self._log(task, "user", text, images=len(images))
+        self._log(task, "user", text, **attachment_counts(images))
         if not task.title and not task.prompt and text and not text.startswith("/"):
             task.title = _session_title(text)  # named after its first request, as Claude Code does
         self._changed()
@@ -1873,6 +1923,12 @@ class TaskManager:
         )
 
 
+# Text files that don't say text/ (code, data), sent as text documents.
+TEXT_TYPES = (
+    "application/json", "application/xml", "application/javascript", "application/x-yaml",
+    "application/yaml", "application/toml", "application/x-sh", "application/sql",
+)  # fmt: skip
+
 # Folders in the home folder that hold far more than a project.
 _HOME_FOLDERS = (
     "Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures", "Public",
@@ -1880,16 +1936,52 @@ _HOME_FOLDERS = (
 )  # fmt: skip
 
 
-async def _with_images(text: str, images: list[dict[str, str]]):
-    """A user message with pictures, in the streaming shape Claude Code takes."""
-    content: list[dict[str, Any]] = [
-        {
-            "type": "image",
-            "source": {"type": "base64", "media_type": img["media_type"], "data": img["data"]},
-        }
-        for img in images
-        if img.get("media_type", "").startswith("image/") and img.get("data")
+def _is_text(media_type: str) -> bool:
+    return media_type.startswith("text/") or media_type in TEXT_TYPES
+
+
+def attachment_counts(items: list[dict[str, str]]) -> dict[str, Any]:
+    """What a transcript line says was attached: how many pictures, which files."""
+    pictures = sum(1 for i in items if str(i.get("media_type", "")).startswith("image/"))
+    files = [
+        str(i.get("name") or "file")[:120]
+        for i in items
+        if not str(i.get("media_type", "")).startswith("image/")
     ]
+    return {"images": pictures, **({"files": files} if files else {})}
+
+
+def _attachment_block(item: dict[str, str]) -> dict[str, Any] | None:
+    """One attachment as Claude sees it: a picture, a PDF, or a text file with its name
+    (all three checked against the real CLI)."""
+    media_type, data = str(item.get("media_type", "")), str(item.get("data", ""))
+    if not data:
+        return None
+    if media_type.startswith("image/"):
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": data},
+        }
+    if media_type == "application/pdf":
+        block: dict[str, Any] = {
+            "type": "document",
+            "source": {"type": "base64", "media_type": media_type, "data": data},
+        }
+    elif _is_text(media_type):
+        block = {
+            "type": "document",
+            "source": {"type": "text", "media_type": "text/plain", "data": data},
+        }
+    else:
+        return None
+    if item.get("name"):
+        block["title"] = str(item["name"])[:200]
+    return block
+
+
+async def _with_images(text: str, images: list[dict[str, str]]):
+    """A user message with pictures and files, in the streaming shape Claude Code takes."""
+    content = [b for b in map(_attachment_block, images) if b is not None]
     content.append({"type": "text", "text": text or "Take a look at this."})
     yield {
         "type": "user",

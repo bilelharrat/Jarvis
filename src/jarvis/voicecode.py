@@ -48,6 +48,12 @@ ORDINALS = {
     "sixth": 5, "six": 5, "6": 5, "6th": 5,
 }  # fmt: skip
 
+# The mode commands typed in the panel, named as the composer's menu names the modes:
+# /auto is Claude Code's Auto (its safety check decides), /bypass runs anything.
+SLASH_MODES = {
+    "plan": "plan", "ask": "ask", "manual": "ask", "edits": "edits", "auto": "smart", "bypass": "auto",
+}  # fmt: skip
+
 # Slash commands typed in the panel, as the words that mean them by voice.
 SLASH = {
     "plan": "plan mode",
@@ -277,8 +283,8 @@ def slash_intent(name: str, arg: str) -> Intent | None:
         if key in MODEL_KEYS:
             return Intent("model", key)
         return Intent("model_id", arg) if arg else None
-    if name in ("plan", "ask", "edits", "auto"):
-        return Intent("mode", name, arg)
+    if name in SLASH_MODES:
+        return Intent("mode", SLASH_MODES[name], arg)
     if name == "commit" and arg:
         return Intent("git", "commit", arg)
     if name in ("test", "tests") and arg:
@@ -544,6 +550,11 @@ def voice_answer(text: str, approval: dict[str, Any]) -> tuple[str, str] | None:
     taken as its answer, since it may be JARVIS's own voice heard back."""
     ids = [c["id"] for c in approval.get("choices") or []]
     labels = [c["label"] for c in approval.get("choices") or []]
+    if approval.get("ask_kind") == "purchase" and ids:
+        from .transactions import is_confirm_phrase
+
+        if is_confirm_phrase(text):  # "confirm purchase", or 确认购买 said in Chinese
+            return (ids[0], "")
     w = _answer_words(text)
     if not w or not ids:
         return None
@@ -553,6 +564,8 @@ def voice_answer(text: str, approval: dict[str, Any]) -> tuple[str, str] | None:
     opener = question[0] if question else ""
     if kind == "question":
         return _question_answer(said, w, ids, labels)
+    if kind == "purchase":  # money: only the deliberate phrase (above) is a yes
+        return (ids[-1], "") if _negated(w) else (REASK, "")
     if _negated(w):
         return (PLAN_KEEP if kind == "plan" else ids[-1], _feedback(text, w))
     if _HESITATION.fullmatch(said) or _WAITS.search(said):

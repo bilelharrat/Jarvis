@@ -74,8 +74,32 @@ function startBackend() {
   backend.on('error', (err) => showProblem(`Couldn't start the backend: ${err.message}`));
   backend.on('exit', (code) => {
     backend = null;
-    if (!quitting) showProblem(`The backend stopped (exit ${code}). Details are in ~/Library/Logs/Jarvis/backend.log.`);
+    if (!quitting) restartBackend(code);
   });
+}
+
+// A backend that stops on its own is started again (a few times, a little later each
+// time), so a crash never leaves Jarvis dead; the log keeps what happened.
+let restarts = [];
+function restartBackend(code) {
+  const now = Date.now();
+  restarts = restarts.filter((t) => now - t < 5 * 60_000);
+  if (restarts.length >= 3) {
+    showProblem(`The backend stopped (exit ${code}) three times in five minutes. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+    return;
+  }
+  restarts.push(now);
+  showProblem(`The backend stopped (exit ${code}). Starting it again…`);
+  setTimeout(async () => {
+    if (quitting || backend) return;
+    startBackend();
+    try {
+      await waitForBackend();
+      if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}`);
+    } catch (err) {
+      showProblem(`Jarvis couldn't start again: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+    }
+  }, 1500 * restarts.length);
 }
 
 function waitForBackend(timeoutMs = 90000) {

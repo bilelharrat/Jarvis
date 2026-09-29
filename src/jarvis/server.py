@@ -136,7 +136,18 @@ def serve(port: int, token: str) -> None:
     with contextlib.suppress(Exception):  # no PortAudio: the microphone says so later
         import sounddevice  # noqa: F401
 
+    import resource
+
     import uvicorn
+
+    # Room for sockets and files: the window server, the phone companion, voice, the
+    # file index and the Claude sessions share one process, and launchd's default soft
+    # limit (256 open files) is easy to reach under load.
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 4096 if hard == resource.RLIM_INFINITY else min(4096, hard)
+    if soft < want:
+        with contextlib.suppress(ValueError, OSError):
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
 
     logging.basicConfig(
         level=logging.INFO,

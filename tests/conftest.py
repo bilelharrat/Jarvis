@@ -118,7 +118,7 @@ def settings(tmp_path):
 @pytest.fixture
 def quiet_speaker():
     speaker = Speaker.__new__(Speaker)
-    speaker.voice, speaker.rate, speaker.muted, speaker._proc = "", 190, True, None
+    speaker.voice, speaker.rate, speaker.muted, speaker._procs = "", 190, True, set()
     speaker.effect, speaker.cloud, speaker.cloud_error, speaker._playing = False, None, "", False
     speaker._player = None
     speaker.player_path, speaker._live, speaker._live_lock = None, None, None
@@ -136,12 +136,22 @@ def isolated(tmp_path):
     from jarvis.remote import Devices
     from jarvis.routines import RoutineStore
     from jarvis.screenwatch import ScreenWatcher
+    from jarvis.transactions import Transactions
 
     async def never_asked(*_args):
         return "deny"
 
     async def no_picture():
         return ""
+
+    async def no_page():
+        return {"error": "no browser in tests"}
+
+    from jarvis.delegate import DelegationStore
+    from jarvis.fileindex import FileIndex
+    from jarvis.goals import GoalStore
+    from jarvis.interrupts import Interrupter
+    from jarvis.providers import ProviderStore
 
     store = PrefsStore(tmp_path / "prefs.json")
     store.prefs.hands_free = False  # never open the real microphone in tests
@@ -158,5 +168,16 @@ def isolated(tmp_path):
             never_asked,
             vault=MemoryVault(),
             store=tmp_path / "connections.json",
+        ),
+        "providers": ProviderStore(tmp_path / "providers.json", MemoryVault()),
+        "goal_store": GoalStore(tmp_path / "goals.json"),
+        # No real Messages or Mail databases, and its state in the temp folder.
+        "delegation_store": DelegationStore(tmp_path / "delegations.json"),
+        "file_index": FileIndex(tmp_path / "files.db", [], home=tmp_path),  # never the real home
+        "transaction_desk": Transactions(
+            no_page, never_asked, lambda: store.prefs, log_path=tmp_path / "transactions.json"
+        ),
+        "interrupter": Interrupter(
+            lambda _alert: None, state_path=tmp_path / "interrupts.json", enabled=lambda: False
         ),
     }

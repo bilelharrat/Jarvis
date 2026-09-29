@@ -43,11 +43,17 @@ from . import (
     code_tools,
     computer,
     defense,
+    delegate,
+    fileindex,
+    goals,
+    interrupts,
     invoices,
+    lang,
     livecontext,
     mac_tools,
     research,
     screenwatch,
+    transactions,
     ui,
 )
 from .brain import (
@@ -64,15 +70,19 @@ from .brain import (
 )
 from .config import Settings
 from .connectors import ConnectorManager
-from .home import Shortcuts, match_shortcut
+from .home import Shortcuts
 from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
 from .proactive import Alert, Watcher, in_quiet_hours
+from .providers import PROMPT as MODELS_PROMPT
+from .providers import SERVER_NAME as MODELS_SERVER
+from .providers import ProviderStore
+from .providers import build_server as models_server
 from .routines import RoutineStore
-from .speech import Speaker, SpeechQueue, cloud_voice_from, split_sentences
+from .speech import Speaker, SpeechQueue, cloud_voice_from
 from .tasks import ClaudeTask, TaskManager
-from .wake import find_wake, is_echo, is_stop, words, yes_no
+from .wake import find_wake
 
 TOOL_LABELS = {
     "open_app": "Opened an app",
@@ -132,6 +142,21 @@ TOOL_LABELS = {
     "transcript": "Read a transcript",
     "reference_calls": "Read reference calls",
 }
+TOOL_LABELS.update(goals.TOOL_LABELS)
+TOOL_LABELS.update(
+    {
+        "confirm_transaction": "Checked a purchase with you",
+        "recent_transactions": "Checked recent purchases",
+        "delegate_conversation": "Started a conversation for you",
+        "list_delegations": "Checked your conversations",
+        "delegation_transcript": "Read a conversation",
+        "stop_delegation": "Stopped a conversation",
+        "continue_delegation": "Carried on a conversation",
+        "what_did_i_miss": "Checked what you missed",
+        "set_interruptions": "Changed interruptions",
+        "interruptions_status": "Checked interruptions",
+    }
+)
 
 log = logging.getLogger("jarvis")
 
@@ -148,6 +173,8 @@ CONVERSATIONS_DIR = Path.home() / "Documents" / "Jarvis" / "Conversations"
 BASH_SECONDS = 120  # "!command" in Jarvis Code: how long it may run
 BASH_OUTPUT = 20_000  # characters of its output kept
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
+DICTATION_SECONDS = 20.0  # the composer's mic waits this long for the user to start
+REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they hear "busy"
 RESEARCH_FOLLOW_UP = 15.0  # after a Research Center command, the next needs no wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
 ECHO_WINDOW = 12.0  # what it said this recently may come back through the microphone
@@ -162,6 +189,7 @@ SLOW_COMMANDS = frozenset(
         "task_interrupt", "claude_projects", "project_git", "claude_sessions", "whats_this",
         "shortcuts", "meeting_start", "sim_list", "sim_boot", "file_read", "code_command",
         "task_context", "task_undo", "voicecode_start", "voicecode_enter",
+        "providers_check", "task_model", "slash_list", "delegation_continue", "files_clear",
     }
 )  # fmt: skip
 
@@ -279,6 +307,11 @@ FEATURE_ASKED = {
         + r"\s+(?:back\s+)?(?:on|off)\b"
     ),
 }
+FEATURE_ASKED.update({action: _asks(pattern) for action, pattern in goals.ASKED.items()})
+FEATURE_ASKED["set_interruptions"] = _asks(interrupts.ASKED_PATTERN)
+# Goals and rules ride into every future request: a turn that read someone else's words
+# (an email, a web page) never changes them unasked, whatever the user's own words were.
+STANDING_ACTIONS = frozenset(goals.ASKED)
 # "Let's code in jarvis", "voice code the BSH repo", "work on X with me".
 CODE_ASKED = _asks(
     _WANT_TO + r"(?:do\s+some\s+)?(?:voice[\s-]?)?cod(?:e|ing)\b"
@@ -352,6 +385,12 @@ class Hub:
         devices: Any = None,
         invoice_store: Any = None,
         screen_watch: Any = None,
+        providers: Any = None,
+        goal_store: Any = None,
+        interrupter: Any = None,
+        delegation_store: Any = None,
+        transaction_desk: Any = None,
+        file_index: Any = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -363,6 +402,7 @@ class Hub:
             effect=self.prefs.voice_effect,
             cloud=cloud_voice_from(settings),
         )
+        self._speak_language()
         self.transcriber = transcriber
         self.recorder = recorder
         self.poll = poll
@@ -383,6 +423,9 @@ class Hub:
         self._pending_model: str | None = None
         self._style_note = ""
         self._armed_until = 0.0
+        self._dictating_until = 0.0  # hands-free: the next utterance is typed, not asked
+        self._dictation = 0  # which press of the composer's mic is current
+        self._remote_turns: set[asyncio.Task] = set()
         self._listener: Any = None
         self._heard: asyncio.Queue | None = None
         self.kb = kb or KnowledgeBase()
@@ -405,10 +448,45 @@ class Hub:
         self.tasks.on_finished = self._task_finished
         self.connectors = connectors or ConnectorManager(self.emit, self.request_approval)
         self.connectors.on_tools_changed = self._tools_changed
+        # Other providers' models for Jarvis Code, their keys in the Keychain.
+        self.providers = providers or ProviderStore(vault=self.connectors.vault)
+        self.tasks.providers = self.providers
         self.memory = memory or MemoryStore()
+        self.goal_store = goal_store or goals.GoalStore()  # long-term goals and standing rules
         self.shortcuts = Shortcuts()
         self.routines = routines or RoutineStore()
         self.invoices = invoice_store or invoices.InvoiceStore()
+        from .brain import _workspace
+
+        # Buying, booking and paying in the built-in browser: one confirmation, and every
+        # click or keystroke there (JARVIS's own and Jarvis Code's) goes through its guard.
+        self.transactions = transaction_desk or transactions.Transactions(
+            lambda: self._browser_raw("read", {}),
+            self.purchase_gate,
+            lambda: self.prefs,
+            user_words=lambda: self._turn_text,
+            on_change=self._purchases_changed,  # Settings shows the day's spending at once
+        )
+        self._guarded_browser = transactions.guard_browser(self.transactions, self._browser_raw)
+        # Conversations JARVIS holds for the user by text or email, within their limits.
+        self.delegations = delegation_store or delegate.DelegationStore()
+        self.delegate = delegate.DelegateEngine(
+            self.delegations,
+            draft=delegate.claude_draft(lambda: self.prefs.model_id(), _workspace()),
+            send=delegate.make_send(
+                self.send_gate, self.delegations, language=lambda: self.prefs.language
+            ),
+            fetch_replies=delegate.fetch_replies,
+            notify=lambda text: self.notify(
+                Alert(f"delegate:{uuid.uuid4().hex[:8]}", "delegate", "Conversation", text)
+            ),
+            owner=lambda: self.prefs.owner_name,
+            name=lambda: PERSONAS[self.prefs.persona][0].title(),
+            user_granted_autonomy=self._delegate_autonomy,
+            gate=self.feature_gate,
+            language=lambda: self.prefs.language,
+            on_change=lambda: self.emit("delegations", items=self.delegations.public()),
+        )
         self.screen_watch = screen_watch or screenwatch.ScreenWatcher(app_name=frontmost_app)
         self._whats_this_app = "their Mac"
         self.net = defense.NetMeter()
@@ -458,9 +536,32 @@ class Hub:
             eta=self._eta_minutes,
             battery=battery,
             weather=lambda: self.weather,
-            mail=self._recent_mail,
             vip_text=lambda: " ".join(f.text for f in self.memory.facts),
             enabled=lambda: self.prefs.proactive,
+            files=self._meeting_files,
+        )  # urgent email is the interrupter's now: announced once, with texts
+        # JARVIS's own index of the user's files (Settings › Second brain › Index my files).
+        self.files = file_index or fileindex.FileIndex(
+            roots=fileindex.default_roots(self.settings.projects_dir)
+        )
+        self._shown_files: set[str] = set()  # what the index showed: the only files opened
+        self._loop: asyncio.AbstractEventLoop | None = None  # for threads that report back
+        self._files_told = 0.0
+        from .sources import CHAT_DB, contact_names, mail_index
+
+        # Texts and email that matter, the moment they arrive (Settings › Speaking up).
+        self.interrupts = interrupter or interrupts.Interrupter(
+            lambda alert: self.notify(alert, speak_if_busy=bool(getattr(alert, "urgent", False))),
+            chat_db=CHAT_DB,
+            mail_db=mail_index,
+            vips=lambda: self.prefs.vips,
+            contacts=contact_names,
+            mode=lambda: self.prefs.interruptions if self.prefs.proactive else "off",
+            set_mode=lambda m: self.set_prefs({"interruptions": m}),
+            quiet_hours=lambda: self.prefs.quiet_hours,
+            busy=self._in_meeting,
+            classify=self._triage_message,
+            lang=lambda: self.prefs.language,
         )
         self._session_id = ""
         self._reload_pending = False
@@ -494,10 +595,13 @@ class Hub:
     # ── lifecycle ──
 
     async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
         if self.transcriber is None:
             from .listen import Transcriber
 
-            self.transcriber = Transcriber(self.settings.whisper_model)
+            self.transcriber = Transcriber(
+                lang.whisper_model(self.language, self.settings.whisper_model), self.language
+            )
             self.transcriber.warm_up()
         await self._connect()
         await self.connectors.start_all()
@@ -514,6 +618,15 @@ class Hub:
             self._spawn(self._location_loop())
             self._spawn(self.shortcuts.refresh())
             self._spawn(self.watcher.run())
+            self._spawn(self.interrupts.run())
+            self._spawn(self.delegate.run())
+            self._spawn(
+                fileindex.keep_fresh(
+                    self.files,
+                    enabled=lambda: self.prefs.file_index,
+                    progress=self._files_progress,
+                )
+            )
             self._spawn(self._routine_clock())
             self._spawn(self._markets_loop())
             self._spawn(self._defense_loop())
@@ -558,6 +671,18 @@ class Hub:
         from . import meeting, memory, messaging, routines
 
         return {
+            MODELS_SERVER: models_server(
+                self.providers, self.feature_gate, self._providers_changed
+            ),
+            goals.SERVER_NAME: goals.build_server(
+                self.goal_store, self.feature_gate, self._goals_changed
+            ),
+            interrupts.SERVER_NAME: interrupts.build_server(self.interrupts, self.feature_gate),
+            delegate.SERVER_NAME: delegate.build_server(self.delegate),
+            transactions.SERVER_NAME: transactions.build_server(self.transactions),
+            fileindex.SERVER_NAME: fileindex.build_server(
+                self.files, self._files_shown, lambda: self.prefs.file_index
+            ),
             research.SERVER_NAME: research.build_server(self.research_call, self.confirm),
             ui.SERVER_NAME: ui.build_server(self.window_apply),
             screenwatch.SERVER_NAME: screenwatch.build_server(
@@ -595,10 +720,19 @@ class Hub:
             "remember something (or state something clearly stable about themselves); recall "
             "looks facts up; forget removes one."
             + research.PROMPT
+            + MODELS_PROMPT
             + ui.PROMPT
             + invoices.PROMPT
+            + goals.PROMPT
+            + interrupts.PROMPT
+            + delegate.PROMPT
+            + transactions.PROMPT
+            + fileindex.PROMPT
             + screenwatch.PROMPT
             + self.memory.prompt_block()
+            + self.goal_store.prompt_block()
+            + goals.UNCERTAINTY_PROMPT
+            + lang.reply_instruction(self.language)
         )
 
     async def feature_gate(self, action: str, question: str) -> bool:
@@ -608,7 +742,13 @@ class Hub:
         trigger word somewhere in it. Otherwise (a routine, an email or page suggesting it)
         the user is asked first."""
         pattern = FEATURE_ASKED.get(action)
-        if pattern is not None and user_asked(pattern, self._turn_text):
+        pattern_zh = lang.FEATURE_ASKED_ZH.get(action) if lang.is_zh(self.language) else None
+        reads = self._reads()
+        tainted = action in STANDING_ACTIONS and (reads["private"] or reads["web"])
+        asked = (pattern is not None and user_asked(pattern, self._turn_text)) or (
+            pattern_zh is not None and lang.user_asked_zh(pattern_zh, self._turn_text)
+        )
+        if asked and not tainted:
             return True
         return await self._ask_user(question)
 
@@ -757,7 +897,9 @@ class Hub:
             else:
                 target, starts = path, True
         words_said = self._turn_text
-        asked = user_asked(CODE_ASKED, words_said)
+        asked = user_asked(CODE_ASKED, words_said) or (
+            lang.is_zh(self.language) and lang.user_asked_zh(lang.CODE_ASKED_ZH, words_said)
+        )
         if asked and not (starts or request):
             return True  # only voice focus on a session, as they asked
         reads = self._reads()
@@ -814,14 +956,19 @@ class Hub:
         said_number = re.search(
             rf"\b(?:session|task)\s+(?:number\s+)?{task.id}\b", words_said, re.IGNORECASE
         )
-        asked = user_asked(MESSAGE_ASKED, words_said) or (
-            said_folder and user_asked(_asks(_TELL + _folder_pattern(task.cwd.name)), words_said)
+        asked = (
+            user_asked(MESSAGE_ASKED, words_said)
+            or (lang.is_zh(self.language) and lang.user_asked_zh(lang.MESSAGE_ASKED_ZH, words_said))
+            or (
+                said_folder
+                and user_asked(_asks(_TELL + _folder_pattern(task.cwd.name)), words_said)
+            )
         )
         which = said_folder or said_number or not others
         if asked and which and not (reads["private"] or reads["web"]):
             return True
         folder = _say_folder(task.cwd.name)
-        text = speakable_safely(message) if len(message) <= SPOKEN_TEXT else None
+        text = self._speakable(message, translate=False) if len(message) <= SPOKEN_TEXT else None
         spoken = (
             f"Here's what I'd tell the coding session in {folder}: {_sentence(text)} "
             "Do you want this passed on?"
@@ -843,9 +990,11 @@ class Hub:
 
     def _meeting_capture(self, audio: Any, text: str) -> bool:
         """In a meeting, anything not addressed to JARVIS goes into the notes."""
-        if find_wake(text)[0] or (self._armed_until and time.monotonic() < self._armed_until):
+        if lang.find_wake(text, self.language)[0] or (
+            self._armed_until and time.monotonic() < self._armed_until
+        ):
             return False  # for JARVIS: a command, or the question after a bare "Jarvis"
-        if self._voice_question() is not None and yes_no(text) is not None:
+        if self._voice_question() is not None and lang.yes_no(text, self.language) is not None:
             return False  # the answer to a question JARVIS just asked
         if self.state == "speaking":
             return True  # its own voice isn't part of the meeting
@@ -868,7 +1017,9 @@ class Hub:
             return "I can't hear the room: the microphone isn't available."
         self.meeting = Meeting(title, self.meetings_dir)
         if self.notes_transcriber == "auto":
-            self.notes_transcriber = Transcriber(NOTES_MODEL)
+            self.notes_transcriber = Transcriber(
+                lang.whisper_model(self.language, NOTES_MODEL), self.language
+            )
             self.notes_transcriber.warm_up()  # downloads once (~480 MB)
         if self.notes_transcriber is not None:
             self.meeting.start_worker(self.notes_transcriber)
@@ -942,7 +1093,9 @@ class Hub:
         """A request from the phone: run it without speaking on the Mac, and answer with
         the reply, or early with the question when it needs a yes."""
         known = set(self.approvals)
-        task = self._spawn(self.ask(text, silent=True))
+        task = self._remote_turn(self.ask(text, silent=True))
+        if task is None:
+            return {"reply": "", "done": False, "approvals": [], "busy": True}
         deadline = time.monotonic() + timeout
         while not task.done() and time.monotonic() < deadline:
             if set(self.approvals) - known:
@@ -952,6 +1105,30 @@ class Hub:
         done = task.done() and not task.cancelled() and task.exception() is None
         reply = task.result() if done else self.turn.get("reply", "")
         return {"reply": reply, "done": task.done(), "approvals": pending}
+
+    def _remote_turn(self, coro) -> asyncio.Task | None:
+        """Start a turn a phone asked for, unless REMOTE_TURNS of them are already waiting
+        or running: a stuck or runaway client can't queue paid turns nobody waits for.
+        (It isn't cancelled when the phone hangs up: an approval may still come of it.)"""
+        self._remote_turns = {t for t in self._remote_turns if not t.done()}
+        if len(self._remote_turns) >= REMOTE_TURNS:
+            coro.close()
+            return None
+        task = self._spawn(coro)
+        self._remote_turns.add(task)
+        return task
+
+    async def remote_command(self, msg: dict[str, Any]) -> bool:
+        """A phone's command; False when it would start a turn and the phones already have
+        REMOTE_TURNS waiting or running."""
+        kind = msg.get("type")
+        if kind == "briefing":
+            return self._remote_turn(self.briefing()) is not None
+        if kind == "routine_run":
+            routine = self.routines.find(str(msg.get("id", "")))
+            return routine is None or self._remote_turn(self.run_routine(routine)) is not None
+        await self.handle(msg)
+        return True
 
     def remote_state(self) -> dict[str, Any]:
         return {
@@ -982,6 +1159,14 @@ class Hub:
         except Exception as exc:  # offline, the service changed
             log.info("markets unavailable: %s", exc)
             return self.markets.summary
+        try:  # the panel's line in Chinese too, from the same numbers
+            summary["headline_zh"] = lang.headline_zh(
+                summary.get("indices") or [],
+                summary.get("watchlist") or [],
+                summary.get("status", ""),
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
         self.emit("markets", **summary)
         return summary
 
@@ -1031,6 +1216,66 @@ class Hub:
     def _memory_changed(self) -> None:
         self.emit("memory", items=self.memory.public())
 
+    def _goals_payload(self) -> dict[str, Any]:
+        return {
+            **self.goal_store.public(),
+            "review": self.routines.find(goals.REVIEW_NAME) is not None,
+        }
+
+    def _goals_changed(self) -> None:
+        self.emit("goals", **self._goals_payload())
+
+    def _goal_command(self, kind: str, msg: dict[str, Any]) -> None:
+        """Settings › Goals: the user's own clicks, so no card; Claude hears of it."""
+        store = self.goal_store
+        try:
+            if kind == "goal_add":
+                store.set_goal(
+                    str(msg.get("text", "")),
+                    str(msg.get("horizon", "")) or None,
+                    str(msg.get("why", "")) or None,
+                )
+            elif kind == "goal_update":
+                store.update_goal(
+                    str(msg.get("id", "")),
+                    **{
+                        k: str(msg[k])
+                        for k in ("note", "status", "horizon", "text", "why")
+                        if msg.get(k) not in (None, "")
+                    },
+                )
+            elif kind == "goal_delete":
+                store.remove_goal(str(msg.get("id", "")))
+            elif kind == "goal_priorities":
+                store.set_priorities([str(i) for i in (msg.get("ids") or [])][:50])
+            elif kind == "constraint_add":
+                store.add_constraint(str(msg.get("text", "")), str(msg.get("kind", "")) or None)
+            elif kind == "constraint_delete":
+                store.remove_constraint(str(msg.get("id", "")))
+            elif kind == "goal_review":
+                if msg.get("on"):
+                    if self.routines.find(goals.REVIEW_NAME) is None:
+                        self.routines.add(**goals.weekly_review_routine())
+                else:
+                    self.routines.remove(goals.REVIEW_NAME)
+                self._routines_changed()
+            else:
+                return
+        except ValueError as exc:
+            self.emit("error", text=str(exc))
+            return
+        except goals.UnreadableFile:
+            self.emit("error", text="Your goals file can't be read right now, so nothing changed.")
+            return
+        except OSError:
+            self.emit("error", text="Couldn't save your goals.")
+            return
+        self._goals_changed()
+        if kind != "goal_review":
+            self._add_style_note(
+                "the user changed their goals or rules in Settings; list_goals has the current ones."
+            )
+
     async def close(self) -> None:
         if self._listener is not None:
             self._listener.stop()
@@ -1043,6 +1288,8 @@ class Hub:
             self._build_proc.kill()  # never leave a rebuild running behind
         for task in list(self._background):
             task.cancel()
+        with contextlib.suppress(Exception):
+            self.interrupts.close()
         await self.tasks.close()
         await self.connectors.close()
         await self.remote.stop()
@@ -1088,7 +1335,8 @@ class Hub:
         return {
             **self.prefs.public(),
             "models": [{"id": k, "name": MODEL_NAMES[k]} for k in MODELS],
-            "personas": [{"id": k, "name": v[0]} for k, v in PERSONAS.items()],
+            "personas": lang.personas_payload(self.language),
+            "languages": lang.languages_payload(),
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -1112,6 +1360,11 @@ class Hub:
             "location": self.location,
             "accounts": self.connectors.connected_names(),
             "memory": self.memory.public(),
+            "goals": self._goals_payload(),
+            "delegations": self.delegations.public(),
+            "purchases": self.transactions.public(),
+            "file_index": self.files.status(),
+            "providers": self.providers.public(),
             "routines": self.routines.public(),
             "remote": self.remote.public(),
             "voicecode": self.voicecode.public(),
@@ -1189,7 +1442,7 @@ class Hub:
         stop and mute apply, it never talks over a reply, and the microphone's copy of it
         is known for JARVIS's own voice."""
         if not self._silent:
-            spoken = speakable_safely(text) or "I need your OK on screen."
+            spoken = self._speakable(text) or self._speakable("I need your OK on screen.")
             self._voice_link = (_current_task(), spoken)
             self.speech.push(spoken)
 
@@ -1199,7 +1452,7 @@ class Hub:
         can count. It goes through the speech queue, not the one-off voice: while it plays
         and just after, the microphone's copy of it ("…OK, see you then.", or the question
         "Send this…?" itself) isn't taken for the user's yes."""
-        said = speakable_safely(spoken) if spoken else None
+        said = self._speakable(spoken) if spoken else None
         self._say(said or "It's on your screen. Do you want it sent as it is?")
         choice = await self.request_approval(
             question, detail, [("allow", "Send"), ("deny", "Don't send")]
@@ -1233,7 +1486,7 @@ class Hub:
         heard = self.speech.said_recently(ECHO_WINDOW)
         if self._lock.locked() or self.state == "speaking":
             heard = f"{heard} {self.turn.get('reply', '')}"
-        return is_echo(text, heard)
+        return lang.is_echo(text, heard, self.language)
 
     def _overlapped(self) -> bool:
         """Whether the utterance may have begun while JARVIS was still talking."""
@@ -1261,9 +1514,9 @@ class Hub:
 
     def _answer(self, approval: dict[str, Any], text: str, heard: bool = True) -> bool:
         """Put a spoken answer to an open question (voicecode.voice_answer reads it)."""
-        from .voicecode import HOLD, REASK, voice_answer
+        from .voicecode import HOLD, REASK
 
-        answer = voice_answer(text, approval)
+        answer = self._voice_answer(text, approval)
         if answer is None:
             return False
         choice, feedback = answer
@@ -1284,7 +1537,7 @@ class Hub:
         spoken = self.voicecode.speak_approval(approval) if approval.get("task_id") else ""
         if not spoken:
             question = str(approval.get("question", ""))
-            spoken = speakable_safely(question) or "I need your OK on screen."
+            spoken = self._speakable(question) or self._speakable("I need your OK on screen.")
             self.say(spoken)
         self._voice_asked[approval["id"]] = {"text": spoken, "at": time.monotonic()}
 
@@ -1296,10 +1549,9 @@ class Hub:
         pending = [a for a in self.approvals.values() if a.get("task_id") == focus]
         if focus is None or not pending:
             return False
-        from .voicecode import voice_answer
 
         approval = pending[-1]
-        if voice_answer(text, approval) is None:
+        if self._voice_answer(text, approval) is None:
             return False  # a request for Claude: it waits in the session's queue
         if not woke and self._overlapped():
             return True  # most likely its own voice: neither an answer nor a message
@@ -1352,7 +1604,7 @@ class Hub:
 
     async def _instant_shortcut(self, rid: str, text: str) -> bool:
         """'Jarvis, movie mode': run an instant shortcut without asking Claude."""
-        name = match_shortcut(text, self.prefs.instant_shortcuts)
+        name = lang.match_shortcut(text, self.prefs.instant_shortcuts, self.language)
         if name is None:
             return False
         log.info("instant shortcut")
@@ -1396,6 +1648,7 @@ class Hub:
             self._stopping = False
             self._silent = silent
             self._turn_text = text if display is None else ""
+            self.transactions.reset_turn()
             rid = uuid.uuid4().hex[:8]
             self._rid = rid
             self.commands += 1
@@ -1549,7 +1802,7 @@ class Hub:
 
     async def _prepare_fillers(self) -> None:
         """Voice the short fillers once, so they play instantly while tools run."""
-        for phrase in FILLERS:
+        for phrase in self._filler_phrases():
             try:
                 clip = await self.speaker.synthesize(phrase)
             except Exception:  # voice service down: no fillers, no harm
@@ -1563,10 +1816,12 @@ class Hub:
             return
         self._spoke_this_turn = True
         index = next(self._filler_order) % len(self._fillers)
-        self.speech.push_clip(self._fillers[index], FILLERS[index])
+        self.speech.push_clip(self._fillers[index], self._filler_phrases()[index])
 
     def _flush_speech(self) -> None:
-        sentences, self._stream_buf = split_sentences(self._stream_buf, final=True)
+        sentences, self._stream_buf = lang.split_sentences(
+            self._stream_buf, final=True, lang=self.language
+        )
         for sentence in sentences:
             self._speak(sentence)
 
@@ -1582,7 +1837,9 @@ class Hub:
                     reply = f"{self.turn['reply']} {block.text.strip()}".strip()
                     self.turn["reply"] = reply
                     self.emit("reply", rid=rid, text=reply)
-                    for sentence in split_sentences(block.text, final=True)[0]:
+                    for sentence in lang.split_sentences(
+                        block.text, final=True, lang=self.language
+                    )[0]:
                         self._speak(sentence)
                 elif isinstance(block, ToolUseBlock):
                     self._tool_started(block)
@@ -1612,15 +1869,21 @@ class Hub:
             self._stream_buf += chunk
             if not self._spoke_this_turn:
                 # Voice the first clause on its own: the first sound comes sooner.
-                match = _FIRST_CLAUSE.match(self._stream_buf)
-                if match and not re.search(r"[.!?]", match.group(1)):
-                    self._speak(match.group(1))
-                    self._stream_buf = self._stream_buf[match.end() :]
+                if lang.is_zh(self.language):
+                    clause = lang.first_clause_zh(self._stream_buf)
+                    if clause is not None:
+                        self._speak(clause[0])
+                        self._stream_buf = clause[1]
+                else:
+                    match = _FIRST_CLAUSE.match(self._stream_buf)
+                    if match and not re.search(r"[.!?]", match.group(1)):
+                        self._speak(match.group(1))
+                        self._stream_buf = self._stream_buf[match.end() :]
             # The first sentence goes as soon as it's whole, however short ("Canberra.");
             # later short ones wait to join the next, so each clip is worth a request.
             first = not self._spoke_this_turn
-            sentences, self._stream_buf = split_sentences(
-                self._stream_buf, min_chars=4 if first else 12
+            sentences, self._stream_buf = lang.split_sentences(
+                self._stream_buf, min_chars=4 if first else 12, lang=self.language
             )
             for sentence in sentences:
                 self._speak(sentence)
@@ -1745,6 +2008,59 @@ class Hub:
         if text:
             await self.ask(text)
 
+    async def dictate(self, on: bool = True) -> None:
+        """The composer's mic, as in Claude Code: what the user says next is typed into
+        the text box for them to read and send; nothing is asked. Pressed again, it stops."""
+        self._dictation += 1
+        press = self._dictation
+        if not on:
+            self._dictating_until = 0.0
+            if self.state == "listening":
+                self.set_state("idle")
+            self.emit("dictation", text="", done=True)
+            return
+        if self.meeting is not None:
+            self.emit("error", text="The microphone is taking meeting notes right now.")
+            self.emit("dictation", text="", done=True)
+            return
+        if self._listener is not None and self._listener.running:
+            # Hands-free has the microphone: its next utterance is the dictation.
+            until = self._dictating_until = time.monotonic() + DICTATION_SECONDS
+            self.set_state("listening")
+            await asyncio.sleep(DICTATION_SECONDS + 0.2)
+            if self._dictating_until == until:
+                self._dictating_until = 0.0
+                if self.state == "listening":
+                    self.set_state("idle")
+                self.emit("dictation", text="", done=True)
+            return
+        if self.state in ("listening", "transcribing"):
+            self.emit("dictation", text="", done=True)  # the microphone is busy
+            return
+        self.set_state("listening")
+        text = ""
+        try:
+            recorder = self.recorder
+            if recorder is None:
+                from .listen import pick_input_device, record_utterance
+
+                recorder = functools.partial(
+                    record_utterance, device=pick_input_device(self.prefs.mic)
+                )
+            audio = await asyncio.to_thread(
+                recorder, self.settings.silence_seconds, self._level_callback()
+            )
+            if audio is not None and press == self._dictation:
+                self.set_state("transcribing")
+                text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+        except Exception as exc:  # no microphone, permission denied
+            self.emit("error", text=f"I couldn't use the microphone: {exc}")
+        finally:
+            if self.state in ("listening", "transcribing"):
+                self.set_state("idle")
+        if press == self._dictation:  # not stopped, nor pressed again, meanwhile
+            self.emit("dictation", text=(text or "").strip(), done=True)
+
     # ── hands-free ──
 
     def _apply_hands_free(self) -> None:
@@ -1839,11 +2155,12 @@ class Hub:
             text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
         else:
             text = await asyncio.to_thread(stt.transcribe, audio)
-        from .listen import sounds_finished
 
         armed = self._armed_until and time.monotonic() < self._armed_until
-        for_me = find_wake(text)[0] or armed or self._voice_question() is not None
-        if not (for_me and sounds_finished(text)):
+        for_me = (
+            lang.find_wake(text, self.language)[0] or armed or self._voice_question() is not None
+        )
+        if not (for_me and lang.sounds_finished(text, self.language)):
             return
         if self._listener is None or not self._listener.commit(number):
             return  # they kept talking: the full utterance will come instead
@@ -1879,10 +2196,18 @@ class Hub:
         text = text.strip()
         if not text:
             return
-        woke, command = find_wake(text)
-        stop = is_stop(text) or (woke and is_stop(command))
-        if not (stop and len(words(text)) <= 3) and self._echo(text):
+        language = self.language
+        woke, command = lang.find_wake(text, language)
+        stop = lang.is_stop(text, language) or (woke and lang.is_stop(command, language))
+        short = 6 if lang.is_zh(language) else 3  # Chinese counts characters, not words
+        if not (stop and len(lang.words(text, language)) <= short) and self._echo(text):
             log.info("ignored: its own voice")
+            return
+        if self._dictating_until and time.monotonic() < self._dictating_until:
+            self._dictating_until = 0.0  # the composer's mic: typed for them, never asked
+            if self.state == "listening":
+                self.set_state("idle")
+            self.emit("dictation", text=text, done=True)
             return
         question = self._voice_question()
         if self.answer_by_voice(text, woke=woke):
@@ -1900,19 +2225,19 @@ class Hub:
             not woke
             and not busy
             and self.research_heard(text)
-            and not is_echo(text, self.turn.get("reply", ""))
+            and not lang.is_echo(text, self.turn.get("reply", ""), language)
         ):
-            log.info("research follow-up (%d words)", len(words(text)))
+            log.info("research follow-up (%d words)", len(lang.words(text, language)))
             self.emit("heard", text=text)
             self._spawn(self.ask(text))
             return
         if busy or self.state == "speaking":
-            if woke or is_stop(text):
+            if woke or lang.is_stop(text, language):
                 await self.stop()
                 about_notes = self.meeting is not None and re.search(
-                    r"\b(notes?|meeting|recording)\b", command or ""
+                    r"\b(notes?|meeting|recording)\b|记录|会议|笔记|录音", command or ""
                 )
-                if woke and command and (not is_stop(command) or about_notes):
+                if woke and command and (not lang.is_stop(command, language) or about_notes):
                     self.emit("heard", text=command)
                     self._spawn(self.ask(command))
                 elif woke and not stop:  # "Jarvis, stop" isn't an invitation to talk
@@ -1921,12 +2246,12 @@ class Hub:
         if self._armed_until and time.monotonic() < self._armed_until:
             self._armed_until = 0.0
             request = command if woke and command else text
-            log.info("follow-up/armed request (%d words)", len(words(request)))
+            log.info("follow-up/armed request (%d words)", len(lang.words(request, language)))
             self.emit("heard", text=request)
             self._spawn(self.ask(request))
         elif woke:
-            log.info("wake word heard (%d-word command)", len(words(command)))
-            if len(words(command)) >= 2:
+            log.info("wake word heard (%d-word command)", len(lang.words(command, language)))
+            if len(lang.words(command, language)) >= 2:
                 self.emit("heard", text=command)
                 self._spawn(self.ask(command))
             else:
@@ -1941,19 +2266,23 @@ class Hub:
         after JARVIS speaks) is for the Claude Code session in focus. (on_heard has
         already dropped JARVIS's own voice.) An answer to the session's open question is
         taken as one, even said over the question as it's read."""
-        woke, command = find_wake(text)
+        woke, command = lang.find_wake(text, self.language)
         armed = self._armed_until and time.monotonic() < self._armed_until
         if self.state == "speaking":
-            if woke or is_stop(text):
+            if woke or lang.is_stop(text, self.language):
                 await self.stop()  # quiet JARVIS first
                 task = self.voicecode.task
-                if is_stop(command if woke else text) and task is not None and task.busy:
+                if (
+                    lang.is_stop(command if woke else text, self.language)
+                    and task is not None
+                    and task.busy
+                ):
                     await self.tasks.interrupt(task.id)  # "stop" means stop everything
-                if woke and command and not is_stop(command):
+                if woke and command and not lang.is_stop(command, self.language):
                     self.emit("heard", text=command)
                     if not self._answer_code_approval(command, woke=True):
                         await self.voicecode.handle(command)
-                elif woke and not is_stop(command):
+                elif woke and not lang.is_stop(command, self.language):
                     self._arm(seconds=FOCUS_FOLLOW_UP)
             return
         if woke and not command:
@@ -1974,6 +2303,7 @@ class Hub:
         text = text.strip()
         if not text:
             return
+        text = lang.translate(text, self.language) if lang.is_zh(self.language) else text
         self._last_said = text
         self.emit("caption", text=text)
         if self._silent or self.speaker.muted:
@@ -2010,7 +2340,7 @@ class Hub:
         """A short pre-voiced 'On it.' so a request never meets silence."""
         if self._fillers and not self._silent and not self.speaker.muted:
             index = next(self._filler_order) % len(self._fillers)
-            self.speech.push_clip(self._fillers[index], FILLERS[index])
+            self.speech.push_clip(self._fillers[index], self._filler_phrases()[index])
 
     async def _diff_files(self, task) -> list[dict[str, Any]]:
         """Every changed file with its lines, for the Changes view."""
@@ -2124,7 +2454,9 @@ class Hub:
         # hotwords() looks at every file's age: off the event loop too.
         self._code_hotwords = await asyncio.to_thread(lambda: vocab_for(task.cwd).hotwords())
         if self._code_stt is None and hasattr(self.transcriber, "model_name"):  # not a test fake
-            self._code_stt = Transcriber(NOTES_MODEL)
+            self._code_stt = Transcriber(
+                lang.whisper_model(self.language, NOTES_MODEL), self.language
+            )
             self._code_stt.warm_up()  # downloads once (~480 MB), shared with meeting notes
 
     async def voice_code(self, directory: str = "", request: str = "", task_id: int = 0) -> str:
@@ -2422,7 +2754,7 @@ class Hub:
         Center open, short commands run at once, without asking Claude."""
         if not self.research.get("open"):
             return False
-        command = research.parse(text)
+        command = lang.parse_research(text, self.language)
         if command is None:
             return False
         log.info("instant research command: %s", command.action)
@@ -2585,7 +2917,7 @@ class Hub:
 
     async def _instant_window(self, rid: str, text: str) -> bool:
         """'Open Jarvis Code', 'close the browser', 'switch to the HUD': done at once."""
-        command = ui.parse(text)
+        command = lang.parse_ui(text, self.language)
         if command is None:
             return False
         log.info("instant window command: %s %s", command.action, command.name)
@@ -2599,12 +2931,17 @@ class Hub:
         return (
             bool(self.research.get("open"))
             and time.monotonic() < self._research_follow_until
-            and research.parse(text) is not None
+            and lang.parse_research(text, self.language) is not None
         )
 
     # ── the built-in browser ──
 
     async def browser_call(self, action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        """A browser action for JARVIS or Jarvis Code, through the purchase guard: a final
+        Pay / Book / Transfer button needs its confirmation for exactly that page."""
+        return await self._guarded_browser(action, args)
+
+    async def _browser_raw(self, action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         """Ask the J.A.R.V.I.S. window to run a browser action; its answer comes back over
         the socket."""
         if not self.browser_available:
@@ -2664,8 +3001,12 @@ class Hub:
                 f"- {f['tag']} {f.get('type', '')} {f.get('label', '')}".strip()
                 for f in r.get("fields", [])[:30]
             )
+            # What's in view to press, word for word: on a page with prices, a button is
+            # pressed only by its exact words.
+            actions = ", ".join(str(a) for a in (r.get("actions") or [])[:60])
             return _text(
-                f"{r.get('title')}\n{r.get('url')}\n\n{r.get('text', '')}\n\nLinks:\n{links}\n\nFields:\n{fields}"
+                f"{r.get('title')}\n{r.get('url')}\n\n{r.get('text', '')}\n\nLinks:\n{links}"
+                f"\n\nFields:\n{fields}\n\nThings you can press: {actions or '(none in view)'}"
             )
 
         @tool(
@@ -2956,15 +3297,31 @@ class Hub:
         )
 
     def set_prefs(self, changes: dict[str, Any], from_tool: bool = False) -> list[str]:
+        """Apply settings now, then keep them. What they switch takes effect even when the
+        file can't be written (a full disk): turning the microphone, the screen watching or
+        the phone companion off must never depend on saving."""
         changed = self.prefs.update(changes)
         if not changed:
             return changed
-        self.prefs_store.save()
+        # Switching things off first: nothing below can keep them on.
         if "screen_aware" in changed:
             if self.prefs.screen_aware:
                 self.screen_watch.start()
             else:
                 self.screen_watch.stop()  # and forget every picture
+        if "hands_free" in changed:
+            self._apply_hands_free()
+            if not self.prefs.hands_free and self.meeting is not None:
+                self._hands_free_before_meeting = None  # the user chose this
+                self._spawn(self._stop_meeting_from_window())
+        if "remote_enabled" in changed:
+            self._spawn(self._apply_remote())
+        if "mic" in changed and self._listener is not None:
+            self._listener.stop()
+            self._listener = None
+            if self._heard is not None:  # end the old loop: the new listener brings its own
+                self._heard.put_nowait(None)
+            self._apply_hands_free()
         if "model" in changed:
             self._pending_model = self.prefs.model_id()
             if not self._lock.locked():
@@ -2978,25 +3335,16 @@ class Hub:
             )
         if "weather_city" in changed:
             self._spawn(self._refresh_weather())
-        if "remote_enabled" in changed:
-            self._spawn(self._apply_remote())
         if "watchlist" in changed:
             self._spawn(self.refresh_markets())
         if "use_location" in changed:
             self._spawn(self._refresh_location())
         if "voice_effect" in changed:
             self.speaker.effect = self.prefs.voice_effect
-        if "hands_free" in changed:
-            self._apply_hands_free()
-            if not self.prefs.hands_free and self.meeting is not None:
-                self._hands_free_before_meeting = None  # the user chose this
-                self._spawn(self._stop_meeting_from_window())
-        if "mic" in changed and self._listener is not None:
-            self._listener.stop()
-            self._listener = None
-            if self._heard is not None:  # end the old loop: the new listener brings its own
-                self._heard.put_nowait(None)
-            self._apply_hands_free()
+        if "language" in changed:
+            self._spawn(self._switch_language())
+        if any(name.startswith("pay_") for name in changed):
+            self._purchases_changed()
         sources = {
             "brain_notes": "notes",
             "brain_bsh": "bsh",
@@ -3009,6 +3357,15 @@ class Hub:
         touched = {sources[c] for c in changed if c in sources}
         if touched:
             self._spawn(self.rebuild_brain(only=touched))
+        try:
+            self.prefs_store.save()
+        except OSError as exc:  # a full disk, a folder it can't write: said, not swallowed
+            log.warning("couldn't save settings: %s", exc)
+            self.emit(
+                "error",
+                text="Your settings apply now, but I couldn't save them, so they won't last "
+                f"past a restart ({exc.strerror or exc}).",
+            )
         self.emit("prefs", **self.prefs_payload())
         return changed
 
@@ -3075,29 +3432,196 @@ class Hub:
     def notify(self, alert: Alert, speak_if_busy: bool = False) -> None:
         """Show an alert, and say it when that's welcome. Heads-ups off means none at all
         (Claude Code and research still get their own cards)."""
-        if not self.prefs.proactive and alert.kind != "meeting":
+        # A conversation held for them that needs them shows even with heads-ups off.
+        if not self.prefs.proactive and alert.kind not in ("meeting", "delegate"):
             return
         self.emit("alert", key=alert.key, alert_kind=alert.kind, title=alert.title, text=alert.text)
         self.history.append({"role": "assistant", "text": alert.text, "at": _now()})
         self.emit("history", items=list(self.history))
         # What rides along with the next request: email subjects and senders are anyone's
         # to write, so only the fact of an email heads-up goes, never its words.
-        note = (
-            f"{alert.kind}: an email heads-up (look in the inbox for it if asked)"
-            if alert.kind == "mail"
-            else f"{alert.kind}: {alert.text!r}"
-        )
+        if alert.kind == "mail":
+            note = f"{alert.kind}: an email heads-up (look in the inbox for it if asked)"
+        elif alert.kind == "message":
+            note = f"{alert.kind}: a text heads-up (what_did_i_miss has it if asked)"
+        elif alert.kind == "files":  # file names are anyone's to choose (a download's)
+            note = f"{alert.kind}: files ready for an upcoming meeting (files_for has them)"
+        elif alert.kind == "delegate":  # written after reading the other person's messages
+            note = f"{alert.kind}: a conversation update (list_delegations for details)"
+        else:
+            note = f"{alert.kind}: {alert.text!r}"
         self._alert_notes.append((time.monotonic(), note))
         busy = self._lock.locked() or self.state in ("listening", "speaking")
         quiet = in_quiet_hours(datetime.now(), self.prefs.quiet_hours)
+        breakthrough = bool(getattr(alert, "breakthrough", False))  # a VIP's urgent message
         if (
             self.prefs.proactive_voice
-            and not quiet
-            and self.meeting is None
+            and (breakthrough or (not quiet and self.meeting is None))
             and (not busy or speak_if_busy)
         ):
             self._spawn(self._announce(alert.text))
         log.info("alert: %s", alert.kind)
+
+    async def purchase_gate(self, question: str, detail: str) -> bool:
+        """The one confirmation for a purchase: a card with Confirm purchase / Cancel, and
+        by voice only the words "confirm purchase" (确认购买) count as yes."""
+        self._say(transactions.spoken_prompt(question, self.prefs.language))
+        choice = await self.request_approval(
+            question,
+            detail,
+            list(transactions.CHOICES),
+            context={"ask_kind": transactions.ASK_KIND},
+        )
+        return choice == "allow"
+
+    def _purchases_changed(self) -> None:
+        self.emit("purchases", **self.transactions.public())
+
+    async def _meeting_files(self, events: list[dict[str, Any]], now: datetime) -> list[Alert]:
+        if not self.prefs.file_index:
+            return []
+        return await asyncio.to_thread(fileindex.meeting_alerts, events, self.files, now)
+
+    def _files_shown(self, hits: list[Any]) -> None:
+        """Files the index found for a request: cards under the reply, and the only ones
+        the window may then open or reveal."""
+        items = [h.public() for h in hits][:12]
+        if len(self._shown_files) > 2000:  # a long session: only recent ones stay openable
+            self._shown_files.clear()
+        self._shown_files |= {i["path"] for i in items}
+        self.emit("files", rid=self._rid, items=items)
+
+    def _files_progress(self, update: dict[str, Any]) -> None:
+        """From the indexing thread: tell the windows now and then, on the loop's thread."""
+        now = time.monotonic()
+        if self._loop is None or (now - self._files_told < 2.0 and not update.get("done")):
+            return
+        self._files_told = now
+        with contextlib.suppress(RuntimeError):  # the app is shutting down
+            self._loop.call_soon_threadsafe(
+                lambda: self.emit("files_status", **self.files.status())
+            )
+
+    @property
+    def language(self) -> str:
+        """The language setting: "en" or "zh"."""
+        return self.prefs.language
+
+    def _speak_language(self) -> None:
+        """The voice for the chosen language: the Mac's Mandarin voice for Chinese (the
+        cloud voices speak both), and speech cleaned the way that language reads."""
+        self.speaker.clean = lambda text: lang.clean_for_speech(text, self.language)
+        if isinstance(self.speaker, Speaker):
+            self.speaker.voice = lang.mac_voice(self.language, self.settings.voice)
+
+    async def _switch_language(self) -> None:
+        """Settings › Language changed: the voice, the fillers, the ears and Claude's
+        instructions follow. A multilingual speech model downloads once, the first time."""
+        from .listen import Transcriber
+
+        self._speak_language()
+        self._fillers = []
+        self._spawn(self._prepare_fillers())
+        self._code_stt = None
+        if isinstance(self.notes_transcriber, Transcriber):
+            self.notes_transcriber = "auto"
+        if isinstance(self.transcriber, Transcriber):
+            model = lang.whisper_model(self.language, self.settings.whisper_model)
+            if model != self.transcriber.model_name:
+                ears = Transcriber(model, self.language)
+                self.emit(
+                    "toast",
+                    title="Language",
+                    text="Getting the speech model for this language ready. The first time "
+                    "it downloads (about 500 MB); I listen in English until then.",
+                )
+                try:
+                    await asyncio.to_thread(ears._load)
+                except Exception as exc:  # offline: keep listening as before
+                    self.emit("error", text=f"I couldn't load that speech model: {exc}")
+                else:
+                    self.transcriber = ears
+                    self.emit("toast", title="Language", text="Ready: I'm listening in it now.")
+            else:
+                self.transcriber.language = self.language
+        elif self.transcriber is not None and hasattr(self.transcriber, "language"):
+            self.transcriber.language = self.language
+        self._tools_changed()  # a new system prompt: replies in the chosen language
+
+    def _speakable(self, text: str, translate: bool = True) -> str | None:
+        """Words JARVIS can say aloud: its own fixed sentences in the chosen language
+        (translate), never its own name (it would wake itself)."""
+        if not lang.is_zh(self.language):
+            return speakable_safely(text)
+        return lang.speakable_safely_zh(lang.translate(text, "zh") if translate else text)
+
+    def _voice_answer(self, text: str, approval: dict[str, Any]) -> tuple[str, str] | None:
+        """A spoken answer to a card, in either language. A purchase takes only the
+        deliberate "confirm purchase" (确认购买): no plain yes, whatever the language."""
+        from .voicecode import REASK, voice_answer
+
+        if approval.get("ask_kind") == transactions.ASK_KIND:
+            answer = voice_answer(text, approval)  # the phrase, or a no, or ask again
+            if answer is None and lang.yes_no(text, self.language) is False:
+                ids = [c["id"] for c in approval.get("choices") or []]
+                return (ids[-1], "") if ids else None
+            if answer is None and lang.has_cjk(text):
+                return (REASK, "")
+            return answer
+        return lang.voice_answer(text, approval, self.language)
+
+    def _filler_phrases(self) -> list[str]:
+        return lang.FILLERS_ZH if lang.is_zh(self.language) else FILLERS
+
+    def _delegate_autonomy(self) -> bool:
+        """A conversation may go ahead without a card per message only when the user's own
+        words this turn said so, the turn read no web page, and the only private thing it
+        read was the contact lookup (a mail or page can't widen what's shared unseen)."""
+        reads = self._reads()
+        return (
+            delegate.granted_autonomy(self._turn_text)
+            and not reads["web"]
+            and set(reads["what"]) <= {tool_label("mcp__messages__find_contact")}
+        )
+
+    def _in_meeting(self) -> bool:
+        """Taking meeting notes, or in a calendar event right now (not all-day ones)."""
+        if self.meeting is not None:
+            return True
+        now = datetime.now().astimezone()
+        for event in getattr(self.watcher, "_events", None) or []:
+            try:
+                begin = datetime.fromisoformat(str(event.get("begin")))
+                end = datetime.fromisoformat(str(event.get("end")))
+            except (TypeError, ValueError):
+                continue
+            if begin.tzinfo is None:
+                begin, end = begin.astimezone(), end.astimezone()
+            if not event.get("all_day") and begin <= now < end:
+                return True
+        return False
+
+    async def _triage_message(self, text: str) -> str:
+        """Is this message urgent? One tool-less Haiku answer; the interrupter caps how
+        often it asks (20 an hour), times it out and reads the verdict itself."""
+        from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock
+        from claude_agent_sdk import query as sdk_query
+
+        options = ClaudeAgentOptions(
+            model=MODELS["haiku"],
+            system_prompt=interrupts.TRIAGE_PROMPT,
+            tools=[],
+            allowed_tools=[],
+            setting_sources=[],
+            strict_mcp_config=True,
+            max_turns=1,
+            env={"ENABLE_TOOL_SEARCH": "false"},
+        )
+        parts: list[str] = []
+        async for message in sdk_query(prompt=text, options=options):
+            if isinstance(message, AssistantMessage):
+                parts += [b.text for b in message.content if isinstance(b, TextBlock)]
+        return "\n".join(parts)
 
     async def _announce(self, text: str) -> None:
         if not self.speaker.muted:
@@ -3107,7 +3631,7 @@ class Hub:
                 )
             await asyncio.sleep(0.4)
         stops = self._stops
-        self.speech.push(text)
+        self.speech.push(self._speakable(text) or text)
         await self.speech.drain()
         if stops != self._stops:
             return  # stopped mid-heads-up: don't open a window for more
@@ -3131,13 +3655,6 @@ class Hub:
             "eta", str(self.location["lat"]), str(self.location["lon"]), destination
         )
         return result.get("minutes")
-
-    async def _recent_mail(self) -> list[Any]:
-        from .sources import collect_mail_index
-
-        if not self.prefs.brain_mail:
-            return []
-        return await asyncio.to_thread(collect_mail_index, None, 1, 100)
 
     # ── morning briefing ──
 
@@ -3178,12 +3695,106 @@ class Hub:
         except Exception:  # a bad id, a failed control call: that command only
             log.exception("window command %r failed", msg.get("type"))
 
+    @staticmethod
+    def _attachments(msg: dict[str, Any]) -> list[dict[str, str]] | None:
+        """The composer's attachments: pictures and PDFs as base64, text files as their
+        text, each with its name."""
+        items = [
+            {
+                "media_type": str(i.get("media_type", ""))[:100],
+                "data": str(i.get("data", "")),
+                "name": str(i.get("name", ""))[:200],
+            }
+            for i in (msg.get("images") or [])[:6]
+            if isinstance(i, dict) and 0 < len(str(i.get("data", ""))) < 8_000_000
+        ]
+        return items or None
+
+    def _model_config(self, ref: str) -> dict[str, Any]:
+        """A model picked in Jarvis Code (a prefs key, "custom:…" or a Claude id) as a
+        session needs it. One that's gone falls back to the default, with a note."""
+        try:
+            cfg = self.providers.session_config(ref)
+        except ValueError as exc:
+            self.emit("error", text=str(exc))
+            cfg = self.providers.session_config("")
+            ref = ""
+        return {**cfg, "ref": ref if cfg["model"] else ""}
+
+    async def _task_model(self, task_id: int, ref: str) -> None:
+        """The composer's model picker for an open session: Claude to Claude switches on
+        the live connection; to or from another provider reopens it between steps."""
+        task = self.tasks.tasks.get(task_id)
+        if task is None or not self.providers.known(ref):
+            return
+        cfg = self._model_config(ref)
+        model = cfg["model"] or self.tasks.model
+        if cfg["env"] or cfg.get("settings"):
+            self.tasks.set_env(
+                task_id, model, cfg["env"], cfg["label"], cfg["ref"], cfg.get("settings") or ""
+            )
+        else:
+            await self.tasks.set_model(task_id, model, cfg["label"], cfg["ref"])
+
+    def _providers_changed(self) -> None:
+        self.emit("providers", **self.providers.public())
+
+    async def _providers_command(self, kind: str, msg: dict[str, Any]) -> None:
+        """Settings › Models & API keys. The key comes from the window once, straight to
+        the Keychain; it's never logged, echoed back or sent anywhere but its provider."""
+        store = self.providers
+        try:
+            if kind == "providers_add":
+                store.add_provider(
+                    str(msg.get("kind", "")),
+                    str(msg.get("name", "")),
+                    str(msg.get("key", "")),
+                    str(msg.get("base_url", "")) or None,
+                    auth=str(msg.get("auth", "")) or None,
+                )
+            elif kind == "providers_set_key":
+                store.replace_key(str(msg.get("id", "")), str(msg.get("key", "")))
+            elif kind == "providers_remove":
+                provider_id = str(msg.get("id", ""))
+                refs = {"custom:" + e.id for e in store.models_of(provider_id)}
+                store.remove_provider(provider_id)
+                if self.prefs.code_model and not store.known(self.prefs.code_model):
+                    self.set_prefs({"code_model": ""})
+                # Open sessions on its models go back to Claude now: Claude Code would
+                # keep a cached key for a while otherwise.
+                for task in list(self.tasks.tasks.values()):
+                    if task.model_ref in refs:
+                        await self.tasks.set_model(task.id, self.tasks.model, "", "")
+            elif kind == "providers_add_model":
+                store.add_model(
+                    str(msg.get("id", "")),
+                    str(msg.get("model", "")),
+                    str(msg.get("label", "")) or None,
+                )
+            elif kind == "providers_remove_model":
+                store.remove_model(str(msg.get("ref", "")))
+                if self.prefs.code_model and not store.known(self.prefs.code_model):
+                    self.set_prefs({"code_model": ""})
+            elif kind == "providers_check":
+                provider_id = str(msg.get("id", ""))
+                result = await store.check(provider_id)
+                self.emit("providers_check", id=provider_id, **result)
+            elif kind != "providers_list":
+                return
+        except ValueError as exc:
+            self.emit("providers_error", text=str(exc))
+        except OSError:
+            self.emit("providers_error", text="Couldn't save that; try again.")
+        self._providers_changed()
+
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
         if kind == "ask":
             self._spawn(self.ask(str(msg.get("text", ""))[:4000]))
         elif kind == "listen":
             self._spawn(self.listen())
+        elif kind == "dictate":
+            self._spawn(self.dictate(bool(msg.get("on", True))))
         elif kind == "stop":
             await self.stop()
         elif kind == "approve":
@@ -3201,18 +3812,24 @@ class Hub:
             known = set(self.tasks.tasks)
             try:
                 # A new session starts as the composer was set (Settings › Jarvis Code).
-                model = str(msg.get("model") or self.prefs.code_model or "")
-                model_id = self.models.get(model, model if model.startswith("claude-") else "")
+                ref = str(msg.get("model") or self.prefs.code_model or "")
+                cfg = self._model_config(ref)
                 task = self.tasks.start(
                     str(msg.get("prompt", "")),
                     str(msg.get("directory", "")),
                     mode=str(msg.get("mode") or self.prefs.code_mode or "ask"),
                     resume=str(msg.get("session_id", "")),
                     title=str(msg.get("title", "")),
-                    model=model_id,
-                    model_label=self.model_names.get(model, ""),
+                    model=cfg["model"] or "",
+                    model_label=cfg["label"] if cfg["model"] else "",
+                    model_ref=cfg["ref"],
                     effort=str(msg.get("effort") or self.prefs.code_effort or ""),
+                    env=cfg["env"],
+                    provider_settings=cfg.get("settings") or "",
                     ultracode=bool(msg.get("ultracode", self.prefs.code_ultracode)),
+                    images=self._attachments(msg),
+                    add_dirs=[str(d) for d in (msg.get("add_dirs") or [])[:10]],
+                    plugins=[str(d) for d in (msg.get("plugins") or [])[:10]],
                 )
             except ValueError as exc:
                 self.emit("error", text=str(exc))
@@ -3240,16 +3857,29 @@ class Hub:
                 for k in ("code_model", "code_effort", "code_mode", "code_ultracode")
                 if k in msg
             }
+            if changes.get("code_model") and not self.providers.known(changes["code_model"]):
+                changes.pop("code_model")  # not a model on the list (any more)
             self.set_prefs(changes)
         elif kind == "task_unqueue":
             self.tasks.unqueue(int(msg.get("id", 0)), int(msg.get("item", 0)))
         elif kind == "task_send":
-            images = [
-                {"media_type": str(i.get("media_type", "")), "data": str(i.get("data", ""))}
-                for i in (msg.get("images") or [])[:6]
-                if isinstance(i, dict) and len(str(i.get("data", ""))) < 8_000_000
-            ]
-            self.tasks.send(int(msg.get("id", 0)), str(msg.get("text", ""))[:20000], images or None)
+            self.tasks.send(
+                int(msg.get("id", 0)), str(msg.get("text", ""))[:20000], self._attachments(msg)
+            )
+        elif kind == "slash_list":
+            # The project's and the user's custom commands and skills, for the / palette.
+            from .code_commands import catalog
+
+            try:
+                project = self.tasks.resolve_dir(str(msg.get("directory", "")))
+            except ValueError:
+                return
+            items = await asyncio.to_thread(catalog, project)
+            self.emit("slash_list", directory=str(msg.get("directory", "")), items=items)
+        elif kind == "task_model":
+            await self._task_model(int(msg.get("id", 0)), str(msg.get("ref", "")))
+        elif kind.startswith("providers_"):
+            await self._providers_command(kind, msg)
         elif kind == "task_rename":
             self.tasks.rename(int(msg.get("id", 0)), str(msg.get("title", "")))
         elif kind == "task_fork":
@@ -3487,6 +4117,34 @@ class Hub:
                 self._add_style_note(
                     "the user deleted some remembered facts in Settings; stop using them."
                 )
+        elif kind == "files_clear":
+            await asyncio.to_thread(self.files.clear)
+            self._shown_files.clear()
+            self.emit("files_status", **self.files.status())
+        elif kind == "found_file_open":
+            path = str(msg.get("path", ""))
+            if path in self._shown_files and Path(path).exists():  # only what the index showed
+                args = ["open", "-R", path] if msg.get("reveal") else ["open", path]
+                subprocess.Popen(args)  # noqa: S603
+        elif kind == "delegation_stop":
+            try:
+                self.delegate.stop(str(msg.get("id", "")))
+            except (ValueError, KeyError) as exc:
+                self.emit("error", text=str(exc) or "That conversation isn't open.")
+            self.emit("delegations", items=self.delegations.public())
+        elif kind == "delegation_continue":
+            try:
+                conversation, outcome = await self.delegate.resume(
+                    str(msg.get("id", "")), str(msg.get("guidance", ""))[:2000]
+                )
+            except (ValueError, KeyError) as exc:
+                self.emit("error", text=str(exc) or "That conversation isn't open.")
+            else:
+                if outcome in ("expired", "refused", "stopped"):
+                    self.emit("caption", text=delegate.report(conversation, outcome))
+            self.emit("delegations", items=self.delegations.public())
+        elif kind.startswith(("goal_", "constraint_")):
+            self._goal_command(kind, msg)
         elif kind == "memory_add":
             try:
                 fact = self.memory.add(str(msg.get("text", "")))

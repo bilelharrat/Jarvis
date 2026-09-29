@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* blob: data:; worker-src 'self' blob:; media-src 'self' blob: mediastream:; img-src 'self' data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'none'; font-src https://fonts.gstatic.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* blob: data:; worker-src 'self' blob:; media-src 'self' blob: mediastream:; img-src 'self' data:">
 <title>Jarvis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap">
@@ -44,7 +44,7 @@
   <section class="panel" id="p-system">
     <h2><span class="hud-only">System // </span>System stats</h2>
     <div class="meter"><span>CPU</span><b id="v-cpu">–</b><i><em id="bar-cpu"></em></i></div>
-    <div class="meter"><span>Memory</span><b id="v-mem">–</b><i><em id="bar-mem"></em></i></div>
+    <div class="meter"><span>RAM</span><b id="v-mem">–</b><i><em id="bar-mem"></em></i></div>
     <div class="meter"><span>Storage</span><b id="v-disk">–</b><i><em id="bar-disk"></em></i></div>
     <div class="meter"><span>Battery</span><b id="v-batt">–</b><i><em id="bar-batt"></em></i></div>
   </section>
@@ -96,9 +96,10 @@
   <p id="state-line" class="state-line">Tap the orb or press ⌥ Space</p>
 
   <section class="caption" aria-live="polite">
-    <p id="heard" class="heard"></p>
-    <p id="reply" class="reply"></p>
+    <p id="heard" data-no-i18n class="heard"></p>
+    <p id="reply" data-no-i18n class="reply"></p>
     <div id="sources" class="sources" hidden></div>
+    <div id="found-files" class="sources found-files" hidden></div>
   </section>
 
   <div class="chips">
@@ -124,7 +125,7 @@
 <aside class="side right" aria-label="Conversation and log">
   <section class="panel console-only grow" id="p-conversation">
     <h2>Conversation <span class="panel-btns"><button type="button" class="panel-btn" id="export-history" title="Save the conversation as a note in Documents › Jarvis › Conversations">Extract</button><button type="button" class="panel-btn" id="clear-history">Clear</button></span></h2>
-    <ol id="history" class="history"></ol>
+    <ol id="history" data-no-i18n class="history"></ol>
     <form id="chat-form" class="chat-form" autocomplete="off">
       <label for="chat-input" class="sr-only">Message Jarvis</label>
       <input id="chat-input" placeholder="Type a message…">
@@ -154,7 +155,7 @@
       <label for="term-input" class="sr-only">Command</label>
       <span aria-hidden="true">&gt;_</span><input id="term-input" placeholder="jarvis --ask …" spellcheck="false">
     </form>
-    <p id="term-out" class="term-out"></p>
+    <p id="term-out" data-no-i18n class="term-out"></p>
   </section>
 </aside>
 </div>
@@ -215,6 +216,15 @@
   </div>
 
   <section class="group">
+    <h3>Language</h3>
+    <div class="segmented" id="lang-group" role="radiogroup" aria-label="Language">
+      <button type="button" role="radio" data-lang="en" aria-checked="true" data-no-i18n>English</button>
+      <button type="button" role="radio" data-lang="zh" aria-checked="false" data-no-i18n>中文</button>
+    </div>
+    <p class="group-note">Jarvis shows, speaks and listens in the language you pick.</p>
+  </section>
+
+  <section class="group">
     <h3>Look</h3>
     <div class="segmented" id="look-group" role="radiogroup" aria-label="Look">
       <button type="button" role="radio" data-look="orb" aria-checked="true">Ambient Orb</button>
@@ -249,6 +259,8 @@
       <input type="range" id="humor" min="0" max="100" step="5" value="60"></label>
     <label class="row stack" for="address"><span><strong>How I address you</strong><small>Optional, e.g. your name or “sir”</small></span>
       <input type="text" id="address" maxlength="40" placeholder="Nothing"></label>
+    <label class="row stack" for="owner-name"><span><strong>Your name</strong><small>For conversations I hold for you: “I’m Robert’s assistant, Jarvis.”</small></span>
+      <input type="text" id="owner-name" maxlength="40" placeholder="Your first name"></label>
   </section>
 
   <section class="group">
@@ -311,13 +323,66 @@
   </section>
 
   <section class="group">
+    <h3>Goals</h3>
+    <p class="small-status">What you’re working toward, and the rules you keep. Jarvis plans around them and points out conflicts. Say “Jarvis, my goal this quarter is…” or add them here.</p>
+    <p id="goals-unreadable" class="small-status warn-line" hidden>Your goals file can’t be read right now; nothing will be saved over it.</p>
+    <ul id="goal-list" class="itemlist"></ul>
+    <form id="goal-form" class="folder-form">
+      <label for="goal-input" class="sr-only">A goal</label>
+      <input id="goal-input" maxlength="200" placeholder="e.g. Close the seed round">
+      <select id="goal-horizon" aria-label="By when">
+        <option value="week">This week</option><option value="month">This month</option><option value="quarter" selected>This quarter</option><option value="year">This year</option><option value="someday">Someday</option>
+      </select>
+      <button class="btn" type="submit">Add goal</button>
+    </form>
+    <ul id="constraint-list" class="itemlist"></ul>
+    <form id="constraint-form" class="folder-form">
+      <label for="constraint-input" class="sr-only">A rule</label>
+      <input id="constraint-input" maxlength="200" placeholder="e.g. No meetings before 10">
+      <select id="constraint-kind" aria-label="Kind of rule">
+        <option value="time">Time</option><option value="money">Money</option><option value="health">Health</option><option value="people">People</option><option value="other" selected>Other</option>
+      </select>
+      <button class="btn" type="submit">Add rule</button>
+    </form>
+    <div class="row"><span><strong>Weekly check-in</strong><small>Sundays at 6 PM, a short look at how the goals are going</small></span><button type="button" class="switch" role="switch" id="sw-goal-review" aria-checked="false" aria-label="Weekly goals check-in"></button></div>
+  </section>
+
+  <section class="group">
+    <h3>Conversations for you</h3>
+    <p class="small-status">Jarvis can text or email someone for you to settle something, like a time to meet, within limits you give it. Every message asks you first unless you said it could go ahead. Say “Jarvis, work out a time with Ann for next week.”</p>
+    <ul id="delegation-list" class="itemlist"></ul>
+  </section>
+
+  <section class="group">
     <h3>Speaking up</h3>
     <div class="row"><span><strong>Queue messages</strong><small>While Jarvis is answering, what you say or type waits its turn (you can take it back). Off: a new request interrupts the answer.</small></span><button type="button" class="switch" role="switch" id="sw-queue" aria-checked="true" aria-label="Queue messages"></button></div>
     <div class="row"><span><strong>Queue Jarvis Code follow-ups</strong><small>Messages to a working session wait until its current step ends. Off: they steer it right away, as Claude Code does.</small></span><button type="button" class="switch" role="switch" id="sw-code-queue" aria-checked="true" aria-label="Queue Jarvis Code follow-ups"></button></div>
     <div class="row"><span><strong>Screen awareness</strong><small>Jarvis keeps an eye on your screen so “what’s this error?” just works: a picture every 15 seconds, kept in memory for two minutes, never saved, only sent with your own questions. Needs Screen Recording.</small></span><button type="button" class="switch" role="switch" id="sw-screen" aria-checked="false" aria-label="Screen awareness"></button></div>
     <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Jarvis Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
+    <div class="row"><span><strong>Interrupt me for texts and email</strong><small>Urgent only: a VIP, or someone saying it’s urgent. Needs Full Disk Access. “Jarvis, what did I miss?” lists the rest.</small></span></div>
+    <div class="segmented" id="interrupt-group" role="radiogroup" aria-label="Interrupt me for texts and email">
+      <button type="button" role="radio" data-mode="urgent" aria-checked="true">Urgent only</button>
+      <button type="button" role="radio" data-mode="all" aria-checked="false">Everything</button>
+      <button type="button" role="radio" data-mode="off" aria-checked="false">Off</button>
+    </div>
+    <label class="row stack" for="vips"><span><strong>VIPs</strong><small>Names, numbers or emails, separated by commas. Their urgent messages get through quiet hours and meetings.</small></span>
+      <input type="text" id="vips" maxlength="4000" placeholder="e.g. Ann Lee, +1 510 555 0100"></label>
     <div class="row"><span><strong>Say them out loud</strong><small>Otherwise they only appear as cards</small></span><button type="button" class="switch" role="switch" id="sw-proactive-voice" aria-checked="true" aria-label="Say heads-ups out loud"></button></div>
     <div class="row"><span><strong>Quiet hours</strong><small>Cards only, no voice</small></span><span class="time-range"><input type="time" id="quiet-start" aria-label="Quiet hours start" value="22:00"><input type="time" id="quiet-end" aria-label="Quiet hours end" value="07:00"></span></div>
+  </section>
+
+  <section class="group">
+    <h3>Purchases</h3>
+    <div class="row"><span><strong>Buy, book and pay for me</strong><small>In the built-in browser, with one confirmation: say “confirm purchase” or tap Confirm. Saved payment methods only; I never type card numbers, codes or passwords.</small></span><button type="button" class="switch" role="switch" id="sw-pay" aria-checked="true" aria-label="Buy, book and pay for me"></button></div>
+    <div class="limits" id="pay-limits">
+      <label>Per purchase<input type="number" id="pay-purchase" min="0" max="100000" step="1" inputmode="decimal"></label>
+      <label>Per transfer<input type="number" id="pay-transfer" min="0" max="100000" step="1" inputmode="decimal"></label>
+      <label>Per day<input type="number" id="pay-day" min="0" max="100000" step="1" inputmode="decimal"></label>
+      <label>Currency<select id="pay-currency">
+        <option>USD</option><option>EUR</option><option>GBP</option><option>CNY</option><option>JPY</option><option>CAD</option><option>AUD</option><option>CHF</option><option>HKD</option><option>SGD</option>
+      </select></label>
+    </div>
+    <p id="pay-status" class="small-status"></p>
   </section>
 
   <section class="group">
@@ -332,6 +397,8 @@
     <div class="row"><span><strong>Apple Notes</strong></span><button type="button" class="switch" role="switch" id="sw-notes" aria-checked="true" aria-label="Apple Notes"></button></div>
     <div class="row"><span><strong>BSH research desk</strong></span><button type="button" class="switch" role="switch" id="sw-bsh" aria-checked="true" aria-label="BSH research desk"></button></div>
     <div class="row"><span><strong>Computer files</strong><small>Documents, Desktop and Downloads</small></span><button type="button" class="switch" role="switch" id="sw-computer" aria-checked="true" aria-label="Computer files"></button></div>
+    <div class="row"><span><strong>Index my files</strong><small>Documents, Desktop, Downloads, iCloud Drive and your projects, kept on this Mac: “find the Q3 deck” is instant, and a meeting’s files show up before it starts</small></span><button type="button" class="switch" role="switch" id="sw-file-index" aria-checked="true" aria-label="Index my files"></button></div>
+    <div class="row"><span id="file-index-status" class="small-status"></span><button type="button" class="btn" id="file-index-clear">Forget file index</button></div>
     <div class="row"><span><strong>Photos</strong><small>Your 2,500 most recent: dates, titles, captions, keywords</small></span><button type="button" class="switch" role="switch" id="sw-photos" aria-checked="true" aria-label="Photos"></button></div>
     <div class="row"><span><strong>Email, last 7 days</strong><small>Every inbox in Mail. Needs Full Disk Access.</small></span><button type="button" class="switch" role="switch" id="sw-mail" aria-checked="true" aria-label="Email from the last 7 days"></button></div>
     <div class="row"><span><strong>Texts, last 7 days</strong><small>iMessage and SMS. Needs Full Disk Access.</small></span><button type="button" class="switch" role="switch" id="sw-messages" aria-checked="true" aria-label="Texts from the last 7 days"></button></div>
@@ -466,15 +533,8 @@
         <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="3"/><path d="M8 3.5v13"/></svg>
       </button>
       <div class="jc-titles">
-        <h1 id="jc-title" class="jc-title" title="Double-click to rename">Jarvis Code</h1>
-        <p id="jc-sub" class="jc-sub"></p>
-      </div>
-      <div class="jc-segmented" id="jc-mode" role="radiogroup" aria-label="Permission mode">
-        <span class="jc-thumb" aria-hidden="true"></span>
-        <button type="button" role="radio" data-mode="plan" aria-checked="false">Plan</button>
-        <button type="button" role="radio" data-mode="ask" aria-checked="true">Ask</button>
-        <button type="button" role="radio" data-mode="edits" aria-checked="false">Auto-edits</button>
-        <button type="button" role="radio" data-mode="auto" aria-checked="false">Full auto</button>
+        <h1 id="jc-title" data-no-i18n class="jc-title" title="Double-click to rename">Jarvis Code</h1>
+        <p id="jc-sub" data-no-i18n class="jc-sub"></p>
       </div>
       <div class="jc-capsule" role="toolbar" aria-label="Workbench">
         <button type="button" class="jc-tool" data-pane="terminal" title="Terminal" aria-label="Terminal"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6l4 4-4 4M10 15h6"/></svg></button>
@@ -508,7 +568,7 @@
             </div>
             <div class="jc-card jc-past" id="cc-past-wrap" hidden>
               <p class="jc-label">Resume a session</p>
-              <ul id="cc-past" class="jc-past-list"></ul>
+              <ul id="cc-past" data-no-i18n class="jc-past-list"></ul>
             </div>
             <p class="jc-hint">Say <em>“Jarvis, let’s code in <span class="cc-project-name">this project</span>”</em> · <kbd>/</kbd> commands · <kbd>@</kbd> files · <kbd>⇧</kbd><kbd>Tab</kbd> modes · <kbd>Esc</kbd> interrupt</p>
           </div>
@@ -533,22 +593,72 @@
           <label for="deck-input" class="sr-only">Message Jarvis Code</label>
           <textarea id="deck-input" rows="1" placeholder="Ask Jarvis Code to plan, build or fix something…"></textarea>
           <div class="jc-composer-row">
-            <button type="button" class="jc-chip-btn" id="jc-attach-btn" title="Attach an image" aria-label="Attach an image">📎</button>
-            <button type="button" class="jc-chip-btn" id="jc-model" aria-haspopup="menu">Model</button>
-            <button type="button" class="jc-chip-btn" id="jc-effort" aria-haspopup="menu">Effort</button>
+            <button type="button" class="jc-round" id="jc-plus" aria-haspopup="menu" aria-expanded="false" aria-label="Add files, folders, commands, connectors or plugins" title="Add (⌘U files)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
+            <button type="button" class="jc-pill" id="jc-mode-btn" aria-haspopup="menu" aria-expanded="false" title="Permission mode (⌘⇧M or ⇧Tab to switch)"><span class="jc-mode-ic" id="jc-mode-ic" aria-hidden="true"></span><span id="jc-mode-label">Manual</span><svg class="jc-chev-d" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3.8L5 6.3l2.5-2.5"/></svg></button>
             <span class="jc-spacer"></span>
             <span id="cc-meta" class="jc-meta"></span>
             <span class="jc-ctx" id="jc-ctx" title="Context used"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" class="track"/><circle cx="10" cy="10" r="8" class="fill" id="jc-ctx-ring"/></svg><span id="jc-ctx-text"></span></span>
-            <button type="button" class="jc-mic" id="ds-voice" aria-pressed="false" aria-label="Voice coding for this session" title="Voice coding"><svg class="jc-reactor " width="24" height="24" viewBox="0 0 40 40" aria-hidden="true"><circle class="halo" cx="20" cy="20" r="18.2"/><circle class="ring" cx="20" cy="20" r="14.6"/><circle class="inner" cx="20" cy="20" r="11.4"/><circle class="core" cx="20" cy="20" r="8.6"/><circle class="shine" cx="17.2" cy="16.8" r="3"/></svg></button>
+            <button type="button" class="jc-pill ghost" id="jc-model" aria-haspopup="menu" aria-expanded="false" title="Model (⌘⇧I)"><span id="jc-model-label">Opus 5.5</span><svg class="jc-chev-d" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3.8L5 6.3l2.5-2.5"/></svg></button>
+            <button type="button" class="jc-pill ghost" id="jc-effort" aria-haspopup="dialog" aria-expanded="false" title="Effort (⌘⇧E)"><svg class="jc-gauge" width="15" height="15" viewBox="0 0 20 20" aria-hidden="true"><path class="g-track" pathLength="100" d="M4 14a6.5 6.5 0 1 1 12 0"/><path class="g-fill" id="jc-gauge-fill" pathLength="100" d="M4 14a6.5 6.5 0 1 1 12 0"/></svg><span id="jc-effort-label">High</span></button>
+            <button type="button" class="jc-round" id="jc-dictate" aria-pressed="false" aria-label="Dictate" title="Dictate: say it, then read it and send"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="5.6" y="1.8" width="4.8" height="8" rx="2.4"/><path d="M3.3 7.6a4.7 4.7 0 0 0 9.4 0M8 12.4v2"/></svg></button>
             <button type="submit" class="jc-send" aria-label="Send"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5l5 5-1.1 1.1L8.8 5.5V13.5H7.2V5.5L4.1 8.6 3 7.5z"/></svg></button>
           </div>
         </form>
         <p class="jc-statusline"><span id="cc-mode">? for shortcuts</span></p>
-        <input type="file" id="jc-file" accept="image/*" multiple hidden>
+        <input type="file" id="jc-file" accept="image/*,application/pdf,text/*,.md,.markdown,.json,.jsonl,.csv,.tsv,.yml,.yaml,.toml,.ini,.xml,.html,.css,.scss,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.go,.rs,.java,.kt,.swift,.m,.c,.h,.cc,.cpp,.hpp,.cs,.php,.sh,.zsh,.sql,.log,.txt,.env.example,.gitignore,.dockerfile" multiple hidden>
       </div>
     </div>
   </div>
   <div id="jc-menu" class="jc-menu" hidden role="menu"></div>
+  <div id="jc-submenu" class="jc-menu" hidden role="menu"></div>
+  <div id="jc-effort-pop" class="jc-effort-pop" hidden role="dialog" aria-label="Effort">
+    <div class="ep-head"><strong>Effort</strong><span id="ep-value">High</span></div>
+    <input type="range" id="ep-range" min="0" max="5" step="1" value="2" aria-label="Effort" aria-valuetext="High">
+    <div class="ep-ticks" aria-hidden="true"><span>Low</span><span>Medium</span><span>High</span><span>Extra</span><span>Max</span><span class="uc">Ultracode</span></div>
+    <p class="ep-note" id="ep-note"></p>
+  </div>
+  <div id="jc-settings" class="jc-settings" hidden role="dialog" aria-modal="true" aria-labelledby="jcs-title">
+    <div class="jcs-card glass-panel">
+      <header class="jcs-head">
+        <h2 id="jcs-title">Jarvis Code settings</h2>
+        <button type="button" class="jc-icon" id="jcs-close" aria-label="Close settings"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </header>
+      <nav class="jcs-tabs" role="tablist" aria-label="Settings sections">
+        <button type="button" role="tab" aria-selected="true" data-tab="general">General</button>
+        <button type="button" role="tab" aria-selected="false" data-tab="models">Models &amp; API keys</button>
+      </nav>
+      <div class="jcs-body" id="jcs-general" role="tabpanel">
+        <p class="jcs-label">New sessions start with</p>
+        <div class="jcs-group">
+          <label class="jcs-row"><span>Model</span><select id="jcs-model" class="jcs-select"></select></label>
+          <label class="jcs-row"><span>Permission mode</span><select id="jcs-mode" class="jcs-select"></select></label>
+          <div class="jcs-row"><span>Effort</span><span class="jcs-effort"><input type="range" id="jcs-effort" min="0" max="5" step="1" value="2" aria-label="Default effort"><output id="jcs-effort-out">High</output></span></div>
+        </div>
+        <p class="jcs-label">While it works</p>
+        <div class="jcs-group">
+          <div class="jcs-row"><span>Queue follow-ups<small>Messages to a working session wait for its step to end. Off: they steer it right away, as in Claude Code.</small></span><button type="button" class="jcs-switch" role="switch" id="jcs-queue" aria-checked="true" aria-label="Queue follow-ups"></button></div>
+          <div class="jcs-row"><span>Keep the Mac awake<small>While a session is working.</small></span><button type="button" class="jcs-switch" role="switch" id="jcs-awake" aria-checked="true" aria-label="Keep the Mac awake"></button></div>
+        </div>
+        <p class="jcs-foot">Shortcuts: <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd> mode · <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> model · <kbd>⌘</kbd><kbd>⇧</kbd><kbd>E</kbd> effort · <kbd>⌘</kbd><kbd>U</kbd> add files</p>
+      </div>
+      <div class="jcs-body" id="jcs-models" role="tabpanel" hidden>
+        <p class="jcs-intro">Use models from other providers with your own API keys. Keys are kept in your Mac's Keychain and never shown again, only their last four characters.</p>
+        <p class="jcs-advice" id="jcs-advice" hidden></p>
+        <ul class="jcs-providers" id="jcs-providers"></ul>
+        <form class="jcs-group jcs-add" id="jcs-add" autocomplete="off">
+          <p class="jcs-label in">Add a provider</p>
+          <div class="jcs-kinds" id="jcs-kinds" role="radiogroup" aria-label="Provider"></div>
+          <p class="jcs-blurb" id="jcs-blurb"></p>
+          <label class="jcs-row"><span>Name</span><input id="jcs-name" class="jcs-input" maxlength="40" placeholder="Optional"></label>
+          <label class="jcs-row" id="jcs-url-row" hidden><span>Address</span><input id="jcs-url" class="jcs-input" placeholder="https://my-proxy.example.com or http://localhost:4000" spellcheck="false"></label>
+          <label class="jcs-row" id="jcs-auth-row" hidden><span>Sends the key as</span><select id="jcs-auth" class="jcs-select"><option value="bearer">Authorization: Bearer</option><option value="x-api-key">x-api-key</option></select></label>
+          <label class="jcs-row"><span>API key</span><input id="jcs-key" class="jcs-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key"></label>
+          <p class="jcs-help" id="jcs-help"></p>
+          <div class="jcs-actions"><button type="submit" class="jc-btn filled" id="jcs-add-btn">Add provider</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section id="galaxy" class="galaxy-ui" hidden aria-label="Second brain">
@@ -568,8 +678,8 @@
   <ul id="galaxy-legend" class="legend"></ul>
   <article id="note-panel" class="note-panel" hidden>
     <p id="note-meta" class="note-meta"></p>
-    <h3 id="note-title"></h3>
-    <p id="note-text" class="note-text"></p>
+    <h3 id="note-title" data-no-i18n></h3>
+    <p id="note-text" data-no-i18n class="note-text"></p>
     <button type="button" class="btn" id="note-open">Open</button>
   </article>
   <p class="galaxy-hint">Drag to turn · scroll to zoom · click a star to read it</p>
@@ -587,6 +697,7 @@
   </div>
 <div id="hand-cursor" class="hand-cursor" hidden></div>
 <div id="offline" class="offline" hidden>Reconnecting to Jarvis…</div>
+<script src="/static/i18n.js"></script>
 <script src="/static/galaxy.js"></script>
 <script src="/static/app.js"></script>
 </body>

@@ -494,6 +494,7 @@ source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
     { name = "faster-whisper" },
+    { name = "httpx" },
     { name = "keyring" },
     { name = "numpy" },
     { name = "psutil" },
@@ -520,6 +521,7 @@ dev = [
 requires-dist = [
     { name = "claude-agent-sdk", specifier = ">=0.2.161" },
     { name = "faster-whisper", specifier = ">=1.2.1" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "psutil", specifier = ">=7.2.2" },
