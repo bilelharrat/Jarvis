@@ -512,6 +512,7 @@
   "Forward →": "前进 →",
   "Zooming": "缩放中",
   "Keep the fist to close…": "保持握拳即可关闭…",
+  "Hard to see your hand · more light helps": "看不清你的手 · 光线亮一些会更好",
   "Folders": "文件夹",
   "BSH desk": "BSH 工作台",
   "Research": "研究",
@@ -1771,6 +1772,10 @@
   [
    "^Pinch to open “(.+)”$",
    "捏合打开“$1”"
+  ],
+  [
+   "^“(.+)” needs a second pinch$",
+   "“$1”需要再捏合一次"
   ],
   [
    "^The Research Center at (\\S+) isn't answering \\((.+)\\)\\. Start it, or set its address in Settings › Research Center\\.$",

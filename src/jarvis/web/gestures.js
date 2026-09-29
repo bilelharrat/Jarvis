@@ -1,34 +1,78 @@
 // The gesture state machine behind hand control, kept free of the camera and the DOM so
 // it can be tested with synthetic hands (tests/web/gestures.test.mjs).
 //
-// Landmarks are MediaPipe's 21 points per hand, normalized to the camera frame.
+// Landmarks are MediaPipe's 21 points per hand, normalized to the camera frame: x to its
+// width, y to its height. Distances are measured with x scaled back by the frame's aspect
+// (on a 4:3 camera a sideways gap otherwise reads 25% short of an upright one) and in hand
+// sizes, so every threshold means the same near the camera and far from it.
+//
+// Timing is in ms of real frame timestamps, never frame counts: a slow camera or a busy
+// GPU doesn't change how long a hold takes or how fast a swipe has to be.
 
 export const TIP = { thumb: 4, index: 8, middle: 12, ring: 16, pinky: 20 };
 const PIP = { index: 6, middle: 10, ring: 14, pinky: 18 };
 
-// A pinch starts below PINCH_ON and holds until PINCH_OFF, so a pinch that wobbles at
-// the threshold doesn't release and re-grab (which would open whatever is underneath).
+// A pinch closes below PINCH_ON and holds until PINCH_OFF (thumb tip to index tip, in hand
+// sizes), so a pinch that wobbles at the threshold doesn't release and re-grab.
 const PINCH_ON = 0.35;
 const PINCH_OFF = 0.5;
-const TAP_MOVE = 25; // px a pinch may drift and still count as a tap
-const TAP_MS = 600;
+const PINCH_SHOWN = 0.8; // the cursor starts showing a pinch closing from this gap
+// A fist's thumb rests near the curled index tip too; in a pinch the index still reaches
+// out at least this far from the wrist (of its knuckle's distance).
+const PINCH_REACH = 0.75;
+const SETTLE_MS = 25; // a pinch must stay closed (or open) this long: one bad frame is not a click
+const DROP_MS = 250; // tracking may blink this long without the hand counting as gone
+const LOOKBACK_MS = 100; // a pinch aims from just before the fingers began to close
+const DRAG_START = 0.2; // hand sizes a pinch must travel before it grabs
+const TAP_SPEED = 3; // hand sizes/s: a pinch closed while moving this fast grabs, never clicks
+const TAP_MS = 1000;
+const HOLD_GRACE_MS = 180; // a held palm or fist survives a misread frame or two
+const HOLD_STILL = 0.75; // hand sizes a held palm or fist may wander and still count
 const PALM_MS = 1000;
 const FIST_MS = 1100;
-const SWIPE_SPAN = 0.22; // of the camera frame
-const SWIPE_MS = 450;
+const SWIPE_SPAN = 2.5; // hand sizes the open hand must sweep...
+const SWIPE_MS = 350; // ...within this long: faster and longer than aiming across the screen
+const SWIPE_GAP_MS = 900;
+// Two hands' distance is smoothed, then must change this much before a zoom moves: hands
+// held still never creep the view.
+const ZOOM_STEP = 0.01;
+const ZOOM_FILTER = { minCutoff: 1, beta: 5 };
+const UNSTEADY_BLINKS = 3; // tracking blinks within UNSTEADY_MS that mean it can barely see
+const UNSTEADY_MS = 3000;
+
+// The app and the galaxy aim with the index fingertip over this box of the camera, not the
+// whole frame: reaching for the screen's edges shouldn't take the hand out of view.
+export const APP_BOX = { cx: 0.5, cy: 0.42, width: 0.7, height: 0.6 };
 
 // What the status line says for each gesture; a target can override any of them.
 const GALAXY_LABELS = {
   idle: 'Show me your hand', resetHold: 'Hold open palm to reset…', reset: 'View reset',
   closeHold: 'Hold fist to close…', drag: 'Spinning', pinch: 'Pinch', hover: 'Pinch to open',
-  point: 'Pointing', opened: 'Opened', zoom: 'Zoom',
+  point: 'Pointing', opened: 'Opened', zoom: 'Zoom', unsteady: 'Hard to see your hand · more light helps',
 };
 
-function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function dist(a, b, aspect = 1) { return Math.hypot((a.x - b.x) * aspect, a.y - b.y); }
 
-function handSize(lm) { return dist(lm[0], lm[9]) || 0.1; }
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
-function extended(lm, finger) { return dist(lm[TIP[finger]], lm[0]) > dist(lm[PIP[finger]], lm[0]) * 1.12; }
+// Wrist to middle knuckle, unless the hand tips toward the camera and foreshortens that:
+// then the palm's width or index side stands in. A size that collapses would make every
+// gap look wide (missed pinches) and every move look big.
+export function handSize(lm, aspect = 1) {
+  return Math.max(dist(lm[0], lm[9], aspect), dist(lm[0], lm[5], aspect), dist(lm[5], lm[17], aspect) * 1.4) || 0.1;
+}
+
+function extended(lm, finger, aspect) {
+  return dist(lm[TIP[finger]], lm[0], aspect) > dist(lm[PIP[finger]], lm[0], aspect) * 1.12;
+}
+
+// Thumb tip to index tip in hand sizes. Depth counts at half weight (MediaPipe's z is
+// noisier than x and y): a hand turned side-on lines the tips up without touching them.
+export function pinchGap(lm, aspect = 1) {
+  const a = lm[TIP.thumb], b = lm[TIP.index];
+  const dz = Number.isFinite(a.z) && Number.isFinite(b.z) ? (a.z - b.z) * aspect * 0.5 : 0;
+  return Math.hypot((a.x - b.x) * aspect, a.y - b.y, dz) / handSize(lm, aspect);
+}
 
 // MediaPipe's 21 landmarks, each a finite point. A hand that isn't (a NaN from a bad
 // frame, a short list) counts as no hand: one such frame used to poison the smoothing
@@ -42,165 +86,19 @@ function usable(hands) {
   return Array.isArray(hands) ? hands.filter(wellFormed) : [];
 }
 
-export function classify(lm, wasPinching = false) {
-  const gap = dist(lm[TIP.thumb], lm[TIP.index]) / handSize(lm);
-  if (gap < (wasPinching ? PINCH_OFF : PINCH_ON)) return 'pinch';
-  const up = ['index', 'middle', 'ring', 'pinky'].map((f) => extended(lm, f));
+export function classify(lm, wasPinching = false, aspect = 1) {
+  const reach = dist(lm[TIP.index], lm[0], aspect) >= dist(lm[5], lm[0], aspect) * PINCH_REACH;
+  if (reach && pinchGap(lm, aspect) < (wasPinching ? PINCH_OFF : PINCH_ON)) return 'pinch';
+  const up = ['index', 'middle', 'ring', 'pinky'].map((f) => extended(lm, f, aspect));
   if (up.every(Boolean)) return 'palm';
   if (up[0] && !up[1] && !up[2] && !up[3]) return 'point';
   if (!up.some(Boolean)) return 'fist';
   return 'other';
 }
 
-// galaxy (any target): { pickAtClient, hoverAtClient, select, reset } plus optional
-// rotateBy / drag (pinch and move), zoomBy (two-hand pinch), swipe(dir) (open palm swept
-// sideways, dir 1 = right) and labels (status text overrides).
-// toScreen(p, kind) maps a normalized point to a (smoothed) screen point and shows the
-// cursor there; hideCursor(), status(text) and close() drive the rest of the UI.
-export function createGestures({ galaxy, toScreen, hideCursor, status, close }) {
-  let pinch = null; // { t, target, moved, last }
-  let span = null; // two-hand pinch distance
-  let palmSince = 0;
-  let palmDone = false;
-  let fistSince = 0;
-  let fistDone = false; // one fist, one action: open the hand to do it again
-  let pinching = [false, false];
-  let trail = []; // open-palm positions for swipes
-  let swipedAt = -1e9;
-  const say = { ...GALAXY_LABELS, ...(galaxy.labels || {}) };
-
-  function release(now) {
-    if (pinch && pinch.moved < TAP_MOVE && now - pinch.t < TAP_MS && pinch.target) {
-      galaxy.select(pinch.target);
-      status(say.opened);
-    }
-    pinch = null;
-  }
-
-  return function step(seen, now) {
-    const hands = usable(seen);
-    if (!hands.length) {
-      hideCursor();
-      pinch = null;
-      span = null;
-      palmSince = fistSince = 0;
-      fistDone = false;
-      palmDone = false;
-      pinching = [false, false];
-      trail = [];
-      galaxy.hoverAtClient(null, null);
-      status(say.idle);
-      return;
-    }
-    const kinds = hands.map((lm, i) => classify(lm, pinching[i]));
-    pinching = kinds.map((k) => k === 'pinch');
-
-    // Two hands pinching: zoom by the change in distance between them.
-    if (hands.length >= 2 && kinds[0] === 'pinch' && kinds[1] === 'pinch') {
-      const now2 = dist(hands[0][TIP.index], hands[1][TIP.index]);
-      if (span && galaxy.zoomBy) galaxy.zoomBy(Math.pow(span / now2, 1.6));
-      span = now2;
-      pinch = null; // a zoom never ends in a tap
-      status(say.zoom);
-      return;
-    }
-    span = null;
-
-    const lm = hands[0];
-    const kind = kinds[0];
-    const tip = kind === 'pinch'
-      ? { x: (lm[TIP.thumb].x + lm[TIP.index].x) / 2, y: (lm[TIP.thumb].y + lm[TIP.index].y) / 2 }
-      : lm[TIP.index];
-    const pt = toScreen(tip, kind);
-
-    if (kind === 'palm' && galaxy.swipe) {
-      // A quick sideways sweep of the open hand. Camera x is mirrored: x falling means
-      // the hand moved to the user's right.
-      trail = trail.filter((p) => now - p.t <= SWIPE_MS);
-      trail.push({ x: lm[0].x, t: now });
-      const dx = trail[0].x - lm[0].x;
-      if (Math.abs(dx) >= SWIPE_SPAN && now - swipedAt > 900) {
-        swipedAt = now;
-        trail = [];
-        palmDone = true; // a swipe is not a held palm
-        galaxy.swipe(dx > 0 ? 1 : -1);
-      }
-    } else trail = [];
-
-    if (kind === 'palm') {
-      palmSince = palmSince || now;
-      if (!palmDone && now - palmSince >= PALM_MS && now - swipedAt > PALM_MS) {
-        galaxy.reset();
-        palmDone = true;
-      }
-      if (now - swipedAt > 400) status(palmDone ? say.reset : say.resetHold);
-    } else {
-      palmSince = 0;
-      palmDone = false;
-    }
-
-    if (kind === 'fist') {
-      fistSince = fistSince || now;
-      if (!fistDone && now - fistSince >= FIST_MS) {
-        fistDone = true;
-        close();
-        return;
-      }
-      if (!fistDone) status(say.closeHold);
-    } else if (kind !== 'other') {
-      // A relaxed, half-curled hand reads as "other" and flickers; only a clearly open
-      // or pointing hand re-arms the fist.
-      fistSince = 0;
-      fistDone = false;
-    } else fistSince = 0;
-
-    if (kind === 'pinch') {
-      if (!pinch) {
-        pinch = { t: now, target: galaxy.pickAtClient(pt.x, pt.y), moved: 0, last: pt, start: pt };
-      } else {
-        const dx = pt.x - pinch.last.x, dy = pt.y - pinch.last.y;
-        // How far from where the pinch began (not the path length: the smoothed cursor
-        // keeps settling for a moment after a pinch starts).
-        pinch.moved = Math.max(pinch.moved, Math.hypot(pt.x - pinch.start.x, pt.y - pinch.start.y));
-        if (galaxy.drag) galaxy.drag(dx, dy);
-        else if (galaxy.rotateBy) galaxy.rotateBy(dx * 0.006, dy * 0.006);
-        pinch.last = pt;
-      }
-      status(pinch.moved > TAP_MOVE ? say.drag : say.pinch);
-    } else release(now);
-
-    if (kind === 'point') status(galaxy.hoverAtClient(pt.x, pt.y) ? say.hover : say.point);
-  };
-}
-
-// ── Page control: the Research Center ──
-//
-// Built to be easy rather than clever:
-// - The cursor follows the middle of your hand, not a fingertip, so closing a pinch
-//   doesn't knock it off what you're aiming at, and any hand shape can aim.
-// - Wherever you first raise your hand becomes the middle of the page, and a small
-//   box around it covers the whole page: no reaching for the edges of the camera.
-// - A One Euro filter holds the cursor still while your hand is still (small links are
-//   easy to hold) and keeps up when it moves fast.
-// - Pinch and let go: click what was lit just before your fingers closed. Pinch and
-//   move: grab the page and scroll it; let go mid-move and it coasts.
-// - Swipe an open hand right: back; left: forward. Two hands pinching: zoom. Hold a
-//   fist: close.
-
-export const PAGE_BOX = { width: 0.42, height: 0.36 }; // of the camera frame
-const PAGE_TAP_MOVE = 0.035; // of the page: how far a pinch may drift and still click
-const PAGE_TAP_MS = 800;
-const PAGE_LOOKBACK_MS = 120; // aim from just before the fingers closed
-const PAGE_REANCHOR_MS = 1200; // a hand gone this long starts again in the middle
-const PAGE_SWIPE_SPAN = 0.2; // of the camera frame
-const PAGE_SWIPE_MS = 420;
-
-const PAGE_LABELS = {
-  idle: 'Raise a hand to steer', aim: 'Aim with your hand · pinch to open',
-  hover: (label) => `Pinch to open “${label}”`, press: 'Let go to open · move to scroll',
-  drag: 'Scrolling · let go to stop', opened: 'Opened', back: '← Back', forward: 'Forward →',
-  zoom: 'Zooming', closeHold: 'Keep the fist to close…',
-};
+// A fingers-toward-the-camera hand reads as curled too; a real fist still shows the full
+// length of the palm.
+function upright(lm, size, aspect) { return dist(lm[0], lm[9], aspect) >= size * 0.65; }
 
 export function palmCenter(lm) {
   const ids = [0, 5, 9, 13, 17];
@@ -227,6 +125,359 @@ export function oneEuro({ minCutoff = 0.9, beta = 4, dCutoff = 1 } = {}) {
   return filter;
 }
 
+// A boolean that only flips once the new value has held for `ms`; `at` is when the
+// change began (the first frame of it), `pending` when an unconfirmed one did.
+function settle(ms) {
+  const s = { value: false, at: -1e9, pending: null };
+  s.feed = (raw, now) => {
+    if (raw === s.value) s.pending = null;
+    else if (s.pending === null) s.pending = now;
+    if (s.pending !== null && now - s.pending >= ms) {
+      s.value = raw;
+      s.at = s.pending;
+      s.pending = null;
+    }
+    return s.value;
+  };
+  return s;
+}
+
+// Follows each hand from frame to frame by where it is, not by MediaPipe's list order
+// (which swaps when two hands are in view), and keeps one of them steering: the one that
+// was, else the biggest (nearest the camera). The steering hand may blink out for DROP_MS
+// without another taking over.
+function createTracker(aspectOf) {
+  let tracks = [];
+  let primaryId = 0;
+  let nextId = 1;
+  return function track(hands, now) {
+    const aspect = aspectOf() || 1;
+    const live = tracks.filter((t) => now - t.t <= DROP_MS);
+    const seen = hands.map((lm) => ({ lm, palm: palmCenter(lm), size: handSize(lm, aspect) }));
+    const pairs = [];
+    seen.forEach((h, i) => live.forEach((t) => {
+      const d = dist(h.palm, t.palm, aspect) / Math.max(h.size, t.size);
+      if (d <= 2 + (30 * (now - t.t)) / 1000) pairs.push({ i, t, d }); // no hand moves 30 sizes a second
+    }));
+    pairs.sort((a, b) => a.d - b.d);
+    const matched = new Map();
+    const used = new Set();
+    for (const { i, t } of pairs) {
+      if (!matched.has(i) && !used.has(t)) { matched.set(i, t); used.add(t); }
+    }
+    const current = seen.map((h, i) => {
+      const t = matched.get(i) || { id: nextId++, pinch: settle(SETTLE_MS) };
+      Object.assign(t, h, { t: now, index: i });
+      const raw = classify(h.lm, t.pinch.value, aspect);
+      t.pinch.feed(raw === 'pinch', now);
+      t.gap = pinchGap(h.lm, aspect);
+      t.kind = t.pinch.value ? 'pinch' : raw === 'pinch' ? 'other' : raw;
+      t.closing = !t.pinch.value && raw === 'pinch'; // not a pinch yet, but aim is already frozen
+      t.opening = t.pinch.value && raw !== 'pinch'; // letting go, not confirmed yet
+      t.pinchSince = t.pinch.value ? t.pinch.at : t.pinch.pending;
+      t.upright = upright(h.lm, h.size, aspect);
+      return t;
+    });
+    tracks = [...current, ...live.filter((t) => !used.has(t))];
+    let primary = current.find((t) => t.id === primaryId) || null;
+    const waiting = !primary && live.some((t) => t.id === primaryId);
+    let fresh = false;
+    if (!primary && !waiting && current.length) {
+      primary = current.reduce((a, b) => (b.size > a.size ? b : a));
+      primaryId = primary.id;
+      fresh = true;
+    }
+    return { primary, others: current.filter((t) => t !== primary), waiting, fresh, aspect };
+  };
+}
+
+// An open hand swept sideways: at least SWIPE_SPAN hand sizes within SWIPE_MS, mostly
+// sideways, one way (not a wobble), by a mostly open hand. Returns 1 when the hand went to
+// the user's right (camera x is mirrored: x falls), -1 left, else 0.
+function createSwipe() {
+  let trail = [];
+  let lastAt = -1e9;
+  return {
+    reset() { trail = []; },
+    feed(p, now, aspect) {
+      if (p.kind === 'pinch' || p.kind === 'fist' || p.kind === 'point' || p.closing) { trail = []; return 0; }
+      trail = trail.filter((s) => now - s.t <= SWIPE_MS);
+      trail.push({ x: p.palm.x * aspect, y: p.palm.y, t: now, size: p.size, open: p.kind === 'palm' });
+      if (now - lastAt < SWIPE_GAP_MS || trail.length < 3) return 0;
+      const first = trail[0], last = trail[trail.length - 1];
+      const dx = first.x - last.x, dy = first.y - last.y;
+      let path = 0, size = 0, open = 0;
+      trail.forEach((s, i) => {
+        if (i) path += Math.abs(s.x - trail[i - 1].x);
+        size += s.size / trail.length;
+        open += s.open ? 1 / trail.length : 0;
+      });
+      if (Math.abs(dx) < SWIPE_SPAN * size || Math.abs(dy) > Math.abs(dx) * 0.6) return 0;
+      if (Math.abs(dx) < path * 0.8 || open < 0.5) return 0;
+      lastAt = now;
+      trail = [];
+      return dx > 0 ? 1 : -1;
+    },
+  };
+}
+
+// A pose held still for `ms`: a misread frame or two doesn't restart it, wandering off
+// does. feed() is true once, on the frame it completes; `done` stays up until the hand
+// shows something else (rearm) for longer than a misread.
+function createHold(ms) {
+  let since = 0, lastYes = -1e9, origin = null, rearming = false;
+  const h = { done: false };
+  h.feed = (yes, p, now, aspect) => {
+    if (!yes) return false;
+    const gap = now - lastYes > HOLD_GRACE_MS;
+    if (gap && rearming) h.done = false;
+    rearming = false; // back within a misread: the same hold, still done
+    if (!since || gap || dist(p.palm, origin, aspect) > HOLD_STILL * p.size) {
+      since = now;
+      origin = p.palm;
+    }
+    lastYes = now;
+    if (!h.done && now - since >= ms) { h.done = true; return true; }
+    return false;
+  };
+  h.rearm = (now) => {
+    if (now - lastYes > HOLD_GRACE_MS) h.done = false;
+    else rearming = true;
+  };
+  // A clearly different pose (not a misread): the hold is over, and armed again.
+  h.clear = () => { since = 0; lastYes = -1e9; rearming = false; h.done = false; };
+  return h;
+}
+
+// Where the cursor was at time t (the first trail point at or after it).
+function lookback(trail, t) {
+  return trail.find((s) => s.t >= t) || trail[trail.length - 1];
+}
+
+// How fast the hand was moving (hand sizes/s) in the moment before t.
+function speedBefore(trail, t) {
+  const win = trail.filter((s) => s.t <= t && s.t >= t - 120);
+  if (win.length < 2) return 0;
+  const a = win[0], b = win[win.length - 1];
+  return Math.hypot(b.rx - a.rx, b.ry - a.ry) / b.size / Math.max(0.001, (b.t - a.t) / 1000);
+}
+
+// How closed the pinch looks, 0 (open) .. 1 (pinched), for the cursor and the camera view.
+function pinchProgress(p) {
+  if (p.kind === 'pinch') return 1;
+  return clamp01((PINCH_SHOWN - p.gap) / (PINCH_SHOWN - PINCH_ON));
+}
+
+// Counts tracking blinks (the hand lost and found again within DROP_MS): several in a few
+// seconds means bad light or a hand at the frame's edge.
+function createBlinks() {
+  let at = [];
+  return {
+    blink(now) { at = [...at.filter((t) => now - t <= UNSTEADY_MS), now]; },
+    unsteady(now) { return at.filter((t) => now - t <= UNSTEADY_MS).length >= UNSTEADY_BLINKS; },
+    clear() { at = []; },
+  };
+}
+
+// galaxy (any target): { pickAtClient, hoverAtClient, select, reset } plus optional
+// rotateBy / drag (pinch and move), zoomBy (two-hand pinch), swipe(dir) (open palm swept
+// sideways, dir 1 = right) and labels (status text overrides).
+// toScreen(p, kind, pinch) maps a normalized point to a screen point and shows the cursor
+// there (pinch: how closed the fingers are, 0..1); hideCursor(), status(text) and close()
+// drive the rest of the UI. aspect() is the camera's width / height.
+// step(hands, now) returns { hand, pinch }: which of `hands` is steering (-1: none) and
+// how closed its pinch is.
+export function createGestures({ galaxy, toScreen, hideCursor, status, close, aspect = () => 1 }) {
+  const track = createTracker(aspect);
+  const box = APP_BOX;
+  // The palm drives the cursor (it barely moves as fingers close) and the fingertip's
+  // offset from it aims; the offset is held still through a pinch.
+  const fpx = oneEuro(), fpy = oneEuro();
+  const fox = oneEuro({ minCutoff: 1.2, beta: 1 }), foy = oneEuro({ minCutoff: 1.2, beta: 1 });
+  let offset = { x: 0, y: 0 };
+  let trail = []; // { t, x, y (cursor), px, py (filtered palm), rx, ry (raw palm), size }
+  let aim = null; // the cursor, frozen from just before a pinch began to close
+  let pinch = null; // { t, target, start, last, dragging, blinked }
+  let span = null; // two-hand distance at the last zoom step
+  const fz = oneEuro(ZOOM_FILTER);
+  let zoomed = false; // a zoom's leftover pinch is not a tap or a spin
+  let seenLast = false;
+  let swiped = false;
+  const palmHold = createHold(PALM_MS);
+  const fistHold = createHold(FIST_MS);
+  const swipe = createSwipe();
+  const blinks = createBlinks();
+  const say = { ...GALAXY_LABELS, ...(galaxy.labels || {}) };
+
+  function release(now, observed) {
+    if (pinch && observed && !pinch.dragging && !pinch.blinked && now - pinch.t < TAP_MS && pinch.target) {
+      galaxy.select(pinch.target);
+      status(say.opened);
+    }
+    pinch = null;
+  }
+
+  function goneAll() {
+    hideCursor();
+    pinch = null;
+    aim = null;
+    span = null;
+    zoomed = false;
+    trail = [];
+    palmHold.clear();
+    fistHold.clear();
+    swipe.reset();
+    swiped = false;
+    [fpx, fpy, fox, foy].forEach((f) => f.reset());
+    galaxy.hoverAtClient(null, null);
+    status(say.idle);
+  }
+
+  return function step(seen, now) {
+    const view = track(usable(seen), now);
+    const p = view.primary;
+    if (!p) {
+      if (view.waiting) { // a blink: hold everything where it is
+        if (pinch) pinch.blinked = true;
+        seenLast = false;
+        return { hand: -1, pinch: 0 };
+      }
+      seenLast = false;
+      goneAll();
+      return { hand: -1, pinch: 0 };
+    }
+    if (!seenLast && !view.fresh) blinks.blink(now);
+    seenLast = true;
+    const a = view.aspect;
+    const kind = p.kind;
+    const progress = pinchProgress(p);
+    const out = { hand: p.index, pinch: progress };
+
+    // Two hands pinching: zoom by the change in distance between them.
+    const partner = view.others.find((t) => t.kind === 'pinch');
+    if (kind === 'pinch' && partner) {
+      const d = fz(dist(p.palm, partner.palm, a), now);
+      if (span === null) span = d;
+      else if (Math.abs(d / span - 1) > ZOOM_STEP) {
+        if (galaxy.zoomBy) galaxy.zoomBy(Math.pow(span / d, 1.6));
+        span = d;
+      }
+      pinch = null; // a zoom never ends in a tap
+      aim = null;
+      zoomed = true;
+      status(say.zoom);
+      return out;
+    }
+    if (span !== null) fz.reset();
+    span = null;
+    if (zoomed && kind !== 'pinch' && !p.closing) zoomed = false;
+
+    const px = fpx(0.5 + (p.palm.x - box.cx) / box.width, now);
+    const py = fpy(0.5 + (p.palm.y - box.cy) / box.height, now);
+    const pinchy = kind === 'pinch' || p.closing;
+    if (!pinchy) {
+      const tip = p.lm[TIP.index];
+      offset = { x: fox((tip.x - p.palm.x) / box.width, now), y: foy((tip.y - p.palm.y) / box.height, now) };
+    }
+    trail = trail.filter((s) => now - s.t <= 500);
+    trail.push({ t: now, x: px + offset.x, y: py + offset.y, px, py, rx: p.palm.x * a, ry: p.palm.y, size: p.size });
+
+    if (pinchy && !aim && !zoomed) {
+      const since = p.pinchSince ?? now;
+      const at = lookback(trail, since - LOOKBACK_MS);
+      aim = { x: at.x, y: at.y, px: at.px, py: at.py, start: lookback(trail, since), speed: speedBefore(trail, since) };
+    }
+    if (!pinchy && !pinch) aim = null;
+
+    if (pinch && pinch.blinked && !p.opening && kind === 'pinch') pinch.blinked = false; // came back still pinching
+    let grabbed = false;
+    if (pinch && aim && kind === 'pinch' && !p.opening && !pinch.dragging
+        && Math.hypot(p.palm.x * a - aim.start.rx, p.palm.y - aim.start.ry) / p.size > DRAG_START) {
+      pinch.dragging = true;
+      grabbed = true;
+    }
+    const shown = aim && !(pinch && pinch.dragging) ? aim
+      : aim ? { x: aim.x + px - aim.px, y: aim.y + py - aim.py } : { x: px + offset.x, y: py + offset.y };
+    const pt = toScreen({ x: clamp01(shown.x), y: clamp01(shown.y) }, kind, progress);
+
+    const dir = galaxy.swipe ? swipe.feed(p, now, a) : 0;
+    if (dir) {
+      palmHold.done = true; // a swipe is not a held palm
+      swiped = true; // (and the status shouldn't say it reset anything)
+      galaxy.swipe(dir);
+    }
+
+    if (palmHold.feed(kind === 'palm', p, now, a)) galaxy.reset();
+    if (kind !== 'palm') palmHold.rearm(now);
+    if (!palmHold.done) swiped = false;
+    if (kind === 'palm' && !swiped) status(palmHold.done ? say.reset : say.resetHold);
+
+    const fisted = kind === 'fist' && p.upright;
+    if (fistHold.feed(fisted, p, now, a)) {
+      close();
+      return out;
+    }
+    if (fisted && !fistHold.done) status(say.closeHold);
+    // A relaxed, half-curled hand reads as "other" and flickers; only a clearly open or
+    // pointing hand ends a fist (and re-arms it).
+    if (kind === 'palm' || kind === 'point') fistHold.clear();
+
+    if (kind === 'pinch' && !zoomed) {
+      if (!pinch) {
+        pinch = { t: p.pinchSince ?? now, target: galaxy.pickAtClient(pt.x, pt.y), last: pt, dragging: false, blinked: false };
+        // A pinch closed on the move is a grab, never a click.
+        if (aim && aim.speed > TAP_SPEED) pinch.dragging = true;
+      } else if (!p.opening) {
+        if (pinch.dragging && !grabbed) {
+          const dx = pt.x - pinch.last.x, dy = pt.y - pinch.last.y;
+          if (galaxy.drag) galaxy.drag(dx, dy);
+          else if (galaxy.rotateBy) galaxy.rotateBy(dx * 0.006, dy * 0.006);
+        }
+        pinch.last = pt;
+      }
+      status(pinch.dragging ? say.drag : say.pinch);
+    } else if (kind === 'pinch') status(say.zoom);
+    else if (pinch) {
+      release(now, kind !== 'fist'); // closing the hand the rest of the way is not a click
+      aim = null;
+    }
+
+    if (kind === 'point') {
+      const hovering = galaxy.hoverAtClient(pt.x, pt.y);
+      status(hovering ? say.hover : blinks.unsteady(now) ? say.unsteady : say.point);
+    }
+    return out;
+  };
+}
+
+// ── Page control: the Research Center ──
+//
+// Built to be easy rather than clever:
+// - The cursor follows the middle of your hand, not a fingertip, so closing a pinch
+//   doesn't knock it off what you're aiming at, and any hand shape can aim.
+// - Wherever you first raise your hand becomes the middle of the page, and a small
+//   box around it covers the whole page: no reaching for the edges of the camera.
+// - A One Euro filter holds the cursor still while your hand is still (small links are
+//   easy to hold) and keeps up when it moves fast.
+// - Pinch and let go: click what was lit just before your fingers closed (the cursor
+//   holds there while you pinch). Pinch and move: grab the page and scroll it; let go
+//   mid-move and it coasts.
+// - Swipe an open hand right: back; left: forward. Two hands pinching: zoom. Hold a
+//   fist: close.
+
+export const PAGE_BOX = { width: 0.42, height: 0.36 }; // of the camera frame
+const PAGE_TAP_MS = 1200;
+const PAGE_REANCHOR_MS = 1200; // a hand gone this long starts again in the middle
+const PAGE_COAST_MAX = 3; // pages/s: a flick coasts, it doesn't fling the page away
+
+const PAGE_LABELS = {
+  idle: 'Raise a hand to steer', aim: 'Aim with your hand · pinch to open',
+  hover: (label) => `Pinch to open “${label}”`, hoverRisky: (label) => `“${label}” needs a second pinch`,
+  press: 'Let go to open · move to scroll', drag: 'Scrolling · let go to stop', opened: 'Opened',
+  back: '← Back', forward: 'Forward →', zoom: 'Zooming', closeHold: 'Keep the fist to close…',
+  unsteady: 'Hard to see your hand · more light helps',
+};
+
 // The box of camera space that covers the page, centered where the hand came up and
 // kept inside the frame. Camera x is mirrored, so the page's left is the camera's right.
 export function pageBox(center, box = PAGE_BOX) {
@@ -241,129 +492,173 @@ export function toPage(p, b) {
 }
 
 // page: { move(x, y, mode), hide(), press(x, y), drag(dx, dy), release({ tap, vx, vy }),
-// swipe(dir) (1 = the hand went right = back), zoomBy(f), hoverLabel() } with x, y in
-// 0..1 of the page. status(text) and close() drive the rest of the UI.
-export function createPageGestures({ page, status, close, box = PAGE_BOX }) {
+// swipe(dir) (1 = the hand went right = back), zoomBy(f), hoverLabel() } and optionally
+// hoverRisky() (the lit thing needs a second pinch), with x, y in 0..1 of the page.
+// status(text) and close() drive the rest of the UI; aspect() is the camera's width /
+// height. step(hands, now) returns { hand, pinch } like createGestures'.
+export function createPageGestures({ page, status, close, box = PAGE_BOX, aspect = () => 1 }) {
+  const track = createTracker(aspect);
   const fx = oneEuro(), fy = oneEuro();
   let frame = null;
   let lastSeen = -1e9;
-  let trail = []; // filtered cursor points, for aiming from just before a pinch
-  let pinch = null; // { t, start, last, lastT, moved, dragging, v }
-  let pinching = [false, false];
+  let seenLast = false;
+  let gone = true;
+  let trail = []; // { t, x, y (cursor), rx, ry (raw palm), size }
+  let aim = null; // the cursor, frozen from just before a pinch began to close
+  let pinch = null; // { t, last, lastT, dragging, axis, v, blinked }
   let span = null;
-  let fistSince = 0;
-  let fistDone = false;
-  let sweep = [];
+  const fz = oneEuro(ZOOM_FILTER);
+  let zoomed = false;
+  const fistHold = createHold(FIST_MS);
+  const swipe = createSwipe();
+  const blinks = createBlinks();
   let swipedAt = -1e9;
   const say = PAGE_LABELS;
 
   function letGo(tap) {
     if (!pinch) return;
     const v = pinch.dragging ? pinch.v : { x: 0, y: 0 };
-    page.release({ tap, vx: v.x, vy: v.y });
+    const speed = Math.hypot(v.x, v.y);
+    const k = speed > PAGE_COAST_MAX ? PAGE_COAST_MAX / speed : 1;
+    page.release({ tap, vx: v.x * k, vy: v.y * k });
     pinch = null;
   }
 
   return function step(seen, now) {
-    const hands = usable(seen);
-    if (!hands.length) {
+    const view = track(usable(seen), now);
+    const p = view.primary;
+    if (!p) {
+      if (view.waiting) { // a blink: the cursor holds, a pinch stays held
+        if (pinch) pinch.blinked = true;
+        seenLast = false;
+        return { hand: -1, pinch: 0 };
+      }
+      seenLast = false;
       letGo(false); // losing the hand never clicks
+      aim = null;
       span = null;
-      fistSince = 0;
-      fistDone = false;
-      pinching = [false, false];
-      sweep = [];
+      zoomed = false;
+      fistHold.clear();
+      swipe.reset();
       trail = [];
-      page.hide();
+      if (!gone) page.hide();
+      gone = true;
       status(say.idle);
-      return;
+      return { hand: -1, pinch: 0 };
     }
-    if (now - lastSeen > PAGE_REANCHOR_MS) {
-      frame = pageBox(palmCenter(hands[0]), box);
+    if (!seenLast && !view.fresh) blinks.blink(now);
+    seenLast = true;
+    gone = false;
+    if (now - lastSeen > PAGE_REANCHOR_MS || !frame) {
+      frame = pageBox(p.palm, box);
       fx.reset();
       fy.reset();
     }
     lastSeen = now;
-    const kinds = hands.map((lm, i) => classify(lm, pinching[i]));
-    pinching = kinds.map((k) => k === 'pinch');
+    const a = view.aspect;
+    const kind = p.kind;
+    const out = { hand: p.index, pinch: pinchProgress(p) };
 
     // Two hands pinching: zoom by the change in distance between them.
-    if (hands.length >= 2 && kinds[0] === 'pinch' && kinds[1] === 'pinch') {
-      const d = dist(palmCenter(hands[0]), palmCenter(hands[1]));
-      if (span && page.zoomBy) page.zoomBy(d / span);
-      span = d;
+    const partner = view.others.find((t) => t.kind === 'pinch');
+    if (kind === 'pinch' && partner) {
+      const d = fz(dist(p.palm, partner.palm, a), now);
+      if (span === null) span = d;
+      else if (Math.abs(d / span - 1) > ZOOM_STEP) {
+        if (page.zoomBy) page.zoomBy(d / span);
+        span = d;
+      }
       letGo(false);
+      aim = null;
+      zoomed = true;
       status(say.zoom);
-      return;
+      return out;
     }
+    if (span !== null) fz.reset();
     span = null;
+    if (zoomed && kind !== 'pinch' && !p.closing) zoomed = false;
 
-    const lm = hands[0];
-    const kind = kinds[0];
-    const raw = toPage(palmCenter(lm), frame);
+    const raw = toPage(p.palm, frame);
     const x = fx(raw.x, now), y = fy(raw.y, now);
-    trail = trail.filter((p) => now - p.t <= 400);
-    trail.push({ x, y, t: now });
-    const mode = kind === 'pinch' ? (pinch && pinch.dragging ? 'drag' : 'pinch') : kind === 'fist' ? 'fist' : 'aim';
-    page.move(x, y, mode);
+    trail = trail.filter((s) => now - s.t <= 500);
+    trail.push({ t: now, x, y, rx: p.palm.x * a, ry: p.palm.y, size: p.size });
+    const pinchy = (kind === 'pinch' || p.closing) && !zoomed;
+    if (pinchy && !aim) {
+      const since = p.pinchSince ?? now;
+      const at = lookback(trail, since - LOOKBACK_MS);
+      aim = { x: at.x, y: at.y, start: lookback(trail, since), speed: speedBefore(trail, since) };
+    }
+    if (!pinchy && !pinch) aim = null;
+
+    if (pinch && pinch.blinked && !p.opening && kind === 'pinch') pinch.blinked = false;
+    if (pinch && aim && kind === 'pinch' && !p.opening && !pinch.dragging) {
+      const mx = p.palm.x * a - aim.start.rx, my = p.palm.y - aim.start.ry;
+      if (Math.hypot(mx, my) / p.size > DRAG_START) {
+        pinch.dragging = true;
+        // A mostly-vertical grab scrolls only vertically (and the other way round), so a
+        // slightly slanted pull doesn't slide a wide table sideways.
+        pinch.axis = Math.abs(my) > Math.abs(mx) * 1.5 ? 'y' : Math.abs(mx) > Math.abs(my) * 1.5 ? 'x' : '';
+        pinch.last = { x, y };
+        pinch.lastT = now;
+      }
+    }
+    const shown = aim && !(pinch && pinch.dragging) ? aim : { x, y };
+    const mode = pinchy ? (pinch && pinch.dragging ? 'drag' : 'pinch') : kind === 'fist' ? 'fist' : 'aim';
+    page.move(shown.x, shown.y, mode);
 
     // A quick sideways sweep of the open hand: back or forward.
-    if (kind === 'palm' && page.swipe) {
-      sweep = sweep.filter((p) => now - p.t <= PAGE_SWIPE_MS);
-      sweep.push({ x: lm[0].x, y: lm[0].y, t: now });
-      const dx = sweep[0].x - lm[0].x, dy = sweep[0].y - lm[0].y;
-      if (Math.abs(dx) >= PAGE_SWIPE_SPAN && Math.abs(dy) < Math.abs(dx) * 0.6 && now - swipedAt > 900) {
-        swipedAt = now;
-        sweep = [];
-        page.swipe(dx > 0 ? 1 : -1);
-        status(dx > 0 ? say.back : say.forward);
-        return;
-      }
-    } else sweep = [];
+    const dir = page.swipe ? swipe.feed(p, now, a) : 0;
+    if (dir) {
+      swipedAt = now;
+      page.swipe(dir);
+      status(dir > 0 ? say.back : say.forward);
+      return out;
+    }
 
     if (kind === 'fist') {
       letGo(false);
-      fistSince = fistSince || now;
-      if (!fistDone && now - fistSince >= FIST_MS) {
-        fistDone = true;
+      if (fistHold.feed(p.upright, p, now, a)) {
         close();
-        return;
+        return out;
       }
-      if (!fistDone) status(say.closeHold);
-      return;
+      if (p.upright && !fistHold.done) status(say.closeHold);
+      return out;
     }
-    if (kind !== 'other') {
-      fistSince = 0;
-      fistDone = false;
-    } else fistSince = 0;
+    if (kind === 'palm' || kind === 'point') fistHold.clear();
+    else if (kind !== 'other') fistHold.rearm(now);
 
-    if (kind === 'pinch') {
+    if (kind === 'pinch' && !zoomed) {
       if (!pinch) {
-        const before = trail.find((p) => p.t >= now - PAGE_LOOKBACK_MS) || { x, y };
-        pinch = { t: now, start: { x, y }, last: { x, y }, lastT: now, moved: 0, dragging: false, v: { x: 0, y: 0 } };
-        page.press(before.x, before.y);
-      } else {
-        const dx = x - pinch.last.x, dy = y - pinch.last.y;
-        pinch.moved = Math.max(pinch.moved, Math.hypot(x - pinch.start.x, y - pinch.start.y));
-        if (!pinch.dragging && pinch.moved > PAGE_TAP_MOVE) pinch.dragging = true;
+        pinch = { t: p.pinchSince ?? now, last: { x, y }, lastT: now, dragging: false, axis: '', v: { x: 0, y: 0 }, blinked: false };
+        page.press(aim.x, aim.y);
+        if (aim.speed > TAP_SPEED) pinch.dragging = true; // closed on the move: a grab, never a click
+      } else if (!p.opening) {
         if (pinch.dragging) {
+          const dx = pinch.axis === 'y' ? 0 : x - pinch.last.x;
+          const dy = pinch.axis === 'x' ? 0 : y - pinch.last.y;
           page.drag(dx, dy);
-          const dt = Math.max(1, now - pinch.lastT) / 1000;
-          pinch.v = { x: 0.6 * pinch.v.x + 0.4 * (dx / dt), y: 0.6 * pinch.v.y + 0.4 * (dy / dt) };
+          const dt = Math.max(1, now - pinch.lastT);
+          const k = 1 - Math.exp(-dt / 80); // velocity smoothed over ~80 ms, whatever the frame rate
+          pinch.v = { x: pinch.v.x + k * ((dx * 1000) / dt - pinch.v.x), y: pinch.v.y + k * ((dy * 1000) / dt - pinch.v.y) };
         }
         pinch.last = { x, y };
         pinch.lastT = now;
       }
       status(pinch.dragging ? say.drag : say.press);
-      return;
+      return out;
     }
+    if (kind === 'pinch') { status(say.zoom); return out; } // a zoom's leftover pinch
     if (pinch) {
-      const tap = !pinch.dragging && now - pinch.t < PAGE_TAP_MS;
+      // A release the camera didn't see (the hand came back open) is not a click.
+      const tap = !pinch.dragging && !pinch.blinked && now - pinch.t < PAGE_TAP_MS;
       letGo(tap);
-      if (tap) { status(say.opened); return; }
+      aim = null;
+      if (tap) { status(say.opened); return out; }
     }
-    if (now - swipedAt < 700) return; // leave "← Back" up for a moment
+    if (now - swipedAt < 700) return out; // leave "← Back" up for a moment
     const label = page.hoverLabel && page.hoverLabel();
-    status(label ? say.hover(label) : say.aim);
+    if (label) status(page.hoverRisky && page.hoverRisky() ? say.hoverRisky(label) : say.hover(label));
+    else status(blinks.unsteady(now) ? say.unsteady : say.aim);
+    return out;
   };
 }

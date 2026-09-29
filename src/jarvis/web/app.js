@@ -3529,6 +3529,7 @@ const pageTarget = {
   swipe: (dir) => app.browser.command({ action: dir > 0 ? 'back' : 'forward' }),
   zoomBy: (f) => app.browser.hand({ t: 'zoom', f }),
   hoverLabel: () => (pageHover ? pageHover.label : ''),
+  hoverRisky: () => !!(pageHover && pageHover.risky),
 };
 
 async function runBrowserCommand(ev) {
