@@ -73,6 +73,8 @@ class Prefs:
     instant_shortcuts: list[str] = field(default_factory=list)
     proactive: bool = True
     remote_enabled: bool = False  # the iPhone and Watch companion (off until turned on)
+    code_narrate: bool = True  # voice coding: short spoken progress notes
+    code_sentences: int = 3  # voice coding: sentences of each reply read aloud
     control_always: bool = False  # mouse, keyboard and browser clicks without asking
     proactive_voice: bool = True
     quiet_hours: str = "22:00-07:00"
@@ -118,6 +120,11 @@ def _clean(name: str, value: Any) -> Any:
         return str(value).strip()[:40]
     if name == "briefing_time":
         return value if isinstance(value, str) and _TIME.match(value) else None
+    if name == "code_sentences":
+        try:
+            return max(1, min(8, int(value)))
+        except (TypeError, ValueError):
+            return None
     if name == "quiet_hours":
         parts = str(value).split("-")
         ok = len(parts) == 2 and all(_TIME.match(p) for p in parts)
@@ -151,6 +158,7 @@ def _clean(name: str, value: Any) -> Any:
         "proactive_voice",
         "control_always",
         "remote_enabled",
+        "code_narrate",
     }:
         return bool(value)
     return None

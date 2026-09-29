@@ -144,6 +144,39 @@ def parse(text: str) -> Intent:
         r"(new|fresh) (session|conversation|chat)|start (over|fresh|a new session)", said
     ):
         return Intent("new_session")
+    if short(5) and re.fullmatch(
+        r"(repeat|repeat that|say that again|what did you say|come again|pardon)", said
+    ):
+        return Intent("repeat")
+    if short(5) and re.fullmatch(
+        r"(read|say)( me)? the rest|the rest( please)?|go on reading", said
+    ):
+        return Intent("rest")
+    m = re.fullmatch(
+        r"(switch to|let's work on|work on|go to|move to|open)( the)? (?P<p>[\w .-]+?) (project|repo|repository|folder)",
+        said,
+    )
+    if m:
+        return Intent("project", m.group("p").strip())
+    m = re.fullmatch(
+        r"(resume|reopen|go back to|pick up)( the| my| our)?( session| conversation)?"
+        r"( (from )?(yesterday|last time|earlier))?( about| on| for)? (?P<t>.+?)( session| conversation)?",
+        said,
+    )
+    # Only when it's clearly about a session: "pick up the pace on the tests" isn't.
+    if (
+        m
+        and n <= 10
+        and (said.startswith(("resume", "reopen")) or said.endswith(("session", "conversation")))
+    ):
+        return Intent("resume", m.group("t").strip())
+    if short(6) and re.fullmatch(r"(what|which) branch( am i| are we| is this)?( on)?", said):
+        return Intent("branch")
+    if short(5) and re.fullmatch(
+        r"show( me)?( it| that| the session| the panel| the changes on screen)?|open the (panel|deck|session)",
+        said,
+    ):
+        return Intent("show")
     if short(6) and re.fullmatch(
         r"commit( that| this| it| (the |your |these |those )?changes)?( please)?", said
     ):
@@ -309,6 +342,9 @@ class VoiceCoder:
         self.hub = hub
         self.focus: int | None = None
         self._narrated = 0.0
+        self._last_reply = ""
+        self._last_reply_spoken = ""
+        self._reply_said = 0
         self._clock = __import__("time").monotonic
 
     @property
@@ -400,6 +436,21 @@ class VoiceCoder:
             self.focus = fresh.id
             self._changed()
             say(f"Fresh session in {task.cwd.name}. What should we do?")
+        elif intent.kind == "repeat":
+            say(self._last_reply_spoken or "I haven't said anything about this session yet.")
+        elif intent.kind == "rest":
+            rest = self._rest_of_reply()
+            say(rest or "That was everything.")
+        elif intent.kind == "project":
+            say(await self.hub.voice_code(intent.arg))
+        elif intent.kind == "resume":
+            say(await self.hub.resume_by_voice(task, intent.arg))
+        elif intent.kind == "branch":
+            branch = await self.hub.current_branch(task)
+            say(f"You're on {branch}." if branch else "This folder isn't a git repository.")
+        elif intent.kind == "show":
+            self.hub.emit("show_session", id=task.id)
+            say("It's on screen.", follow_up=False)
         elif intent.kind == "git":
             await self._send(task, GIT_PROMPTS[intent.arg])
             say({"commit": "Committing.", "push": "Pushing.", "pr": "Opening a pull request.",
@@ -407,10 +458,23 @@ class VoiceCoder:
         else:
             await self._send(task, intent.text)
 
+    def _rest_of_reply(self) -> str:
+        """The next few sentences of the last reply ('read the rest')."""
+        full = speakable(self._last_reply, sentences=200).removesuffix(" The rest is on screen.")
+        parts, tail = split_sentences(full, final=True)
+        parts = [p for p in parts + ([tail] if tail.strip() else []) if p.strip()]
+        start, self._reply_said = self._reply_said, self._reply_said + 4
+        chunk = parts[start : start + 4]
+        if not chunk:
+            return ""
+        more = " There's more; say read the rest." if len(parts) > start + 4 else ""
+        return " ".join(chunk) + more
+
     async def _send(self, task, text: str, hint: bool = True) -> None:
         if hint:
             text = await self.hub.with_code_hints(task, text)
         self.hub.tasks.send(task.id, text)
+        self.hub.acknowledge()  # "On it." right away; the work takes a moment
         self._narrated = self._clock()  # nothing to narrate for a moment
         self.hub.set_state("thinking")
 
@@ -424,16 +488,28 @@ class VoiceCoder:
             entry = data.get("entry") or {}
             if entry.get("role") == "system":
                 self._changed()  # a mode change (e.g. a plan approved) shows in the pill
-            if entry.get("role") == "tool" and self._clock() - self._narrated >= NARRATE_EVERY:
+            narrate = self.hub.prefs.code_narrate
+            if (
+                narrate
+                and entry.get("role") == "tool"
+                and self._clock() - self._narrated >= NARRATE_EVERY
+            ):
                 if self.hub.quiet_enough():
                     self._narrated = self._clock()
                     self.hub.say(_narration(entry.get("text", "")), follow_up=False)
+        elif kind == "task_log_update" and data.get("status") == "failed":
+            if self.hub.quiet_enough() and self._clock() - self._narrated >= 4:
+                self._narrated = self._clock()
+                self.hub.say("That step failed; it's looking into it.", follow_up=False)
         elif kind == "task_finished":
             self.hub.set_state("idle")
-            reply = speakable(task.result or "Done.")
+            self._last_reply = task.result or ""
+            self._reply_said = self.hub.prefs.code_sentences
+            reply = speakable(task.result or "Done.", sentences=self.hub.prefs.code_sentences)
             changed = len(task.files_changed)
             if changed and "file" not in reply.lower():
                 reply += f" {changed} file{'s' if changed != 1 else ''} changed."
+            self._last_reply_spoken = reply
             self.hub.say(reply)
 
     def speak_approval(self, approval: dict[str, Any]) -> bool:

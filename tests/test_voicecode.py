@@ -228,3 +228,130 @@ async def test_focused_approvals_are_spoken_and_answered_by_choice(
     await hub.on_heard("go, ask before edits")
     assert await pending == "plan_ask"
     task.handle.cancel()
+
+
+def test_stage_three_commands():
+    assert kinds("repeat that", "say that again", "read the rest") == ["repeat", "repeat", "rest"]
+    assert vc.parse("switch to the bsh research center project").arg == "bsh research center"
+    assert vc.parse("resume the retry refactor session").arg == "retry refactor"
+    assert vc.parse("reopen yesterday's billing work").kind == "resume"
+    assert kinds("what branch am I on", "show me") == ["branch", "show"]
+    # Everyday requests aren't mistaken for these.
+    for request in (
+        "pick up the pace on the tests",
+        "open the config and bump the timeout",
+        "show me how the parser handles tabs",
+    ):
+        assert vc.parse(request).kind == "send", request
+
+
+async def test_replies_can_be_repeated_and_read_on(settings, quiet_speaker, isolated, tmp_path):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    said = []
+    hub.say = lambda text, follow_up=True: said.append(text)
+    hub.prefs.code_sentences = 2
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    s = [
+        "I added the retry around the query.",
+        "It backs off twice before giving up.",
+        "The tests pass again now.",
+        "I also updated the README section.",
+        "The config gained a new timeout value.",
+        "There is one new test for the backoff.",
+        "Nothing else changed in the project.",
+    ]
+    task.result = " ".join(s)
+    hub._task_event("task_finished", id=task.id, task_kind="code", status="done")
+    assert said[-1] == f"{s[0]} {s[1]} The rest is on screen."
+    await hub.voicecode.handle("repeat that")
+    assert said[-1] == f"{s[0]} {s[1]} The rest is on screen."
+    await hub.voicecode.handle("read the rest")
+    assert said[-1] == " ".join(s[2:6]) + " There's more; say read the rest."
+    await hub.voicecode.handle("read the rest")
+    assert said[-1] == s[6]
+    task.handle.cancel()
+
+
+async def test_stop_while_narrating_also_stops_claude(settings, quiet_speaker, isolated, tmp_path):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    hub.say = lambda text, follow_up=True: None
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    task.busy = True
+    interrupted = []
+
+    async def interrupt(task_id):
+        interrupted.append(task_id)
+        return True
+
+    hub.tasks.interrupt = interrupt
+    hub.state = "speaking"
+    await hub.on_heard("stop")
+    assert interrupted == [task.id]
+    task.handle.cancel()
+
+
+async def test_failures_are_mentioned_and_narration_can_be_off(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    said = []
+    hub.say = lambda text, follow_up=True: said.append(text)
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    hub.voicecode._narrated = 0
+    hub._task_event("task_log", id=task.id, entry={"role": "tool", "text": "Editing hub.py"})
+    assert said[-1] == "Editing hub dot py."
+    hub.voicecode._narrated = 0
+    hub._task_event("task_log_update", id=task.id, tool_id="t", status="failed", output="boom")
+    assert said[-1] == "That step failed; it's looking into it."
+    hub.prefs.code_narrate = False
+    hub.voicecode._narrated = 0
+    hub._task_event("task_log", id=task.id, entry={"role": "tool", "text": "Editing app.js"})
+    assert said[-1] == "That step failed; it's looking into it."
+    task.handle.cancel()
+
+
+async def test_resume_a_past_session_by_name(settings, quiet_speaker, isolated, tmp_path):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    hub.say = lambda text, follow_up=True: None
+    await hub.voice_code("proj")
+    first = hub.voicecode.task
+    hub.tasks.past_sessions = lambda directory, limit=20: [
+        {
+            "session_id": "s-billing",
+            "title": "Billing export fix",
+            "first_prompt": "fix the csv export",
+            "last_modified": "",
+            "branch": "",
+        },
+        {
+            "session_id": "s-retry",
+            "title": "Retry refactor for the query",
+            "first_prompt": "add retries",
+            "last_modified": "",
+            "branch": "",
+        },
+    ]
+    reply = await hub.resume_by_voice(first, "retry refactor")
+    assert reply.startswith("Back in Retry refactor") and hub.voicecode.task.session_id == "s-retry"
+    assert "couldn't tell" in await hub.resume_by_voice(first, "quantum widgets")
+    for t in hub.tasks.tasks.values():
+        t.handle.cancel()

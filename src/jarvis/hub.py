@@ -1218,6 +1218,9 @@ class Hub:
                 return
             if woke or is_stop(text):
                 await self.stop()  # quiet JARVIS first
+                task = self.voicecode.task
+                if is_stop(command if woke else text) and task is not None and task.busy:
+                    await self.tasks.interrupt(task.id)  # "stop" means stop everything
                 if woke and command and not is_stop(command):
                     self.emit("heard", text=command)
                     await self.voicecode.handle(command)
@@ -1253,6 +1256,43 @@ class Hub:
         await self.speech.drain()
         if follow_up and self._listener is not None and self._listener.running:
             self._arm(seconds=FOCUS_FOLLOW_UP, chime=False)
+
+    def acknowledge(self) -> None:
+        """A short pre-voiced 'On it.' so a request never meets silence."""
+        if self._fillers and not self._silent and not self.speaker.muted:
+            self.speech.push_clip(self._fillers[next(self._filler_order) % len(self._fillers)])
+
+    async def current_branch(self, task) -> str:
+        return await self._git(task.cwd, "rev-parse", "--abbrev-ref", "HEAD")
+
+    async def resume_by_voice(self, task, words_said: str) -> str:
+        """'Resume the retry refactor session': the past session in this project whose
+        title best matches, reopened and put in focus."""
+        import difflib
+
+        try:
+            past = await asyncio.to_thread(self.tasks.past_sessions, str(task.cwd), 20)
+        except ValueError as exc:
+            return str(exc)
+        if not past:
+            return f"There are no past sessions in {task.cwd.name}."
+        said = words_said.lower()
+
+        def score(item: dict[str, Any]) -> float:
+            title = f"{item['title']} {item['first_prompt']}".lower()
+            overlap = len(set(said.split()) & set(title.split())) / max(1, len(said.split()))
+            return max(overlap, difflib.SequenceMatcher(None, said, item["title"].lower()).ratio())
+
+        best = max(past, key=score)
+        if score(best) < 0.34:
+            titles = "; ".join(p["title"][:60] for p in past[:3])
+            return f"I couldn't tell which. The latest are: {titles}."
+        fresh = self.tasks.start(
+            "", str(task.cwd), mode=task.mode, resume=best["session_id"], title=best["title"]
+        )
+        self.voicecode.focus = fresh.id
+        self.voicecode._changed()
+        return f"Back in {best['title'][:80]}. What next?"
 
     def quiet_enough(self) -> bool:
         """Room for a progress note: not mid-sentence, not mid-question."""

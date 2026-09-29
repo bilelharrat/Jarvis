@@ -86,6 +86,7 @@ function onEvent(ev) {
     case 'remote_code': showRemoteCode(ev); break;
     case 'meeting': onMeeting(ev); break;
     case 'voicecode': onVoiceCode(ev.focus); break;
+    case 'show_session': toggleCC(true); selectTask(ev.id); break;
     case 'caption': $('reply').textContent = ev.text; break;
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
@@ -518,6 +519,8 @@ function renderPrefs(p) {
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
   setSwitch('sw-control', p.control_always);
+  setSwitch('sw-code-narrate', p.code_narrate);
+  $('code-sentences').value = String(p.code_sentences || 3);
   setSwitch('sw-remote', p.remote_enabled);
   setSwitch('sw-proactive-voice', p.proactive_voice);
   const [qs, qe] = (p.quiet_hours || '22:00-07:00').split('-');
@@ -595,6 +598,8 @@ $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
 $('sw-control').addEventListener('click', () => setPrefs({ control_always: !prefs.control_always }));
+$('sw-code-narrate').addEventListener('click', () => setPrefs({ code_narrate: !prefs.code_narrate }));
+$('code-sentences').addEventListener('change', (e) => setPrefs({ code_sentences: Number(e.target.value) }));
 $('sw-remote').addEventListener('click', () => setPrefs({ remote_enabled: !prefs.remote_enabled }));
 $('remote-pair').addEventListener('click', () => send({ type: 'remote_pair' }));
 $('sw-proactive-voice').addEventListener('click', () => setPrefs({ proactive_voice: !prefs.proactive_voice }));

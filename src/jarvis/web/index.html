@@ -241,6 +241,14 @@
   </section>
 
   <section class="group">
+    <h3>Voice coding</h3>
+    <p class="small-status">Say “Jarvis, let’s code in jarvis” and talk to Claude Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
+    <div class="row"><span><strong>Narrate progress</strong><small>Short notes like “Editing hub dot py” while it works</small></span><button type="button" class="switch" role="switch" id="sw-code-narrate" aria-checked="true" aria-label="Narrate progress"></button></div>
+    <label class="row" for="code-sentences"><span><strong>Reply length</strong><small>Sentences read aloud; the rest stays on screen</small></span>
+      <select id="code-sentences"><option value="2">Short (2)</option><option value="3">Normal (3)</option><option value="5">Long (5)</option><option value="8">Everything (8)</option></select></label>
+  </section>
+
+  <section class="group">
     <h3>Routines</h3>
     <p class="small-status">Things I do on my own schedule. Say “Jarvis, every weekday at 7, brief me” or “tonight at 1, research…”.</p>
     <ul id="routine-list" class="folders routine-list"></ul>

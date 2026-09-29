@@ -16,6 +16,7 @@ import asyncio
 import itertools
 import re
 import time
+import warnings
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -24,6 +25,7 @@ from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
+    CanUseToolShadowedWarning,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     PermissionResultAllow,
@@ -402,6 +404,8 @@ class TaskManager:
                 setting_sources=[],
                 strict_mcp_config=True,
             )
+        # Read-only tools skipping can_use_tool is the design, as in brain.py.
+        warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
             model=task.model or self.model,
