@@ -77,6 +77,6 @@ def test_tasks_server_and_its_gate(tmp_path):
     assert "claude" in opts.mcp_servers
     assert "mcp__claude__claude_task_status" in opts.allowed_tools
     assert "mcp__claude__run_claude_code" not in opts.allowed_tools
-    assert "Start Claude Code in jarvis" in brain.describe_action(
+    assert "Start Jarvis Code in jarvis" in brain.describe_action(
         "mcp__claude__run_claude_code", {"directory": "jarvis", "task": "add tests"}
     )

@@ -54,10 +54,7 @@
   </section>
   <section class="panel not-hud" id="p-markets">
     <h2>Markets <span id="mk-status" class="mk-status">…</span></h2>
-    <ul id="mk-indices" class="mk-indices"><li class="muted">Loading today’s markets…</li></ul>
-    <div id="mk-macro" class="mk-macro"></div>
-    <ul id="mk-watch" class="mk-watch" aria-label="Watchlist"></ul>
-    <p id="mk-headline" class="mk-headline"></p>
+    <div id="mk-indices" class="mk-indices"><p class="muted">Loading today’s markets…</p></div>
   </section>
   <section class="panel" id="p-uptime">
     <h2><span class="hud-only">System // </span>Session</h2>
@@ -175,7 +172,7 @@
     </button>
     <button id="cc-btn" class="pill" type="button" aria-expanded="false" aria-controls="cc">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6.5l2 1.5-2 1.5M8.5 10h3"/></svg>
-      <span id="cc-label">Claude Code</span>
+      <span id="cc-label">Jarvis Code</span>
     </button>
     <button id="browser-btn" class="pill" type="button" aria-expanded="false" aria-controls="browser" hidden>
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M1.5 8h13M8 1.5c2 2 2.8 4.2 2.8 6.5S10 12.5 8 14.5M8 1.5C6 3.5 5.2 5.7 5.2 8S6 12.5 8 14.5"/></svg>
@@ -386,66 +383,111 @@
   <div id="browser-slot" class="browser-slot"></div>
 </section>
 
-<section id="cc" class="deck cc" hidden aria-label="Claude Code">
-  <header class="deck-head">
-    <div class="deck-title">
-      <span class="cc-mark" aria-hidden="true">✻</span>
-      <h2>Claude Code</h2>
-      <span id="deck-summary" class="deck-summary"></span>
-    </div>
-    <div class="cc-head-actions">
-      <button id="cc-voice-head" class="cc-voice-chip" type="button" aria-pressed="false">🎙 <span id="cc-voice-label">Voice coding off</span></button>
-      <button id="cc-close" class="icon-btn" type="button" aria-label="Close Claude Code">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+<section id="cc" class="deck jc" hidden aria-label="Jarvis Code">
+  <aside class="jc-side glass-panel" aria-label="Projects and sessions">
+    <div class="jc-side-head">
+      <span class="jc-mark" aria-hidden="true"></span>
+      <h2>Jarvis Code</h2>
+      <button type="button" class="jc-icon" id="jc-new" aria-label="New session" title="New session">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
       </button>
     </div>
-  </header>
-  <div class="cc-grid">
-    <nav class="cc-side" aria-label="Projects and sessions">
-      <label for="deck-filter" class="sr-only">Filter projects</label>
-      <input id="deck-filter" placeholder="Filter projects" autocomplete="off">
-      <ul id="deck-project-list" class="cc-projects"></ul>
-    </nav>
+    <label for="deck-filter" class="sr-only">Search projects</label>
+    <input id="deck-filter" class="jc-field" placeholder="Search projects" autocomplete="off">
+    <div class="jc-projects-wrap">
+      <div class="jc-glider" id="jc-glider" aria-hidden="true"></div>
+      <ul id="deck-project-list" class="jc-projects"></ul>
+    </div>
+    <div class="jc-side-foot">
+      <span id="deck-summary" class="jc-summary"></span>
+    </div>
+  </aside>
 
-    <div class="cc-main">
-      <div class="cc-scroll" id="cc-scroll">
-        <div class="cc-welcome" id="cc-welcome">
-          <div class="cc-box">
-            <p><span class="cc-accent">✻</span> Welcome to <strong>Claude Code</strong>, by voice</p>
-            <p class="dim">/help for commands · <span id="cc-cwd">pick a project</span></p>
-          </div>
-          <p class="dim cc-tips-head">Tips for getting started:</p>
-          <ol class="cc-tips">
-            <li>Say <em>“Jarvis, let’s code in <span class="cc-project-name">jarvis</span>”</em>, then just talk: <em>“plan a retry for the query”</em>, <em>“undo that”</em>, <em>“what changed?”</em></li>
-            <li>Or type below. <kbd>/</kbd> for commands, <kbd>⇧ Tab</kbd> to switch modes, <kbd>Esc</kbd> to interrupt.</li>
-            <li>Approvals answer by voice (“yes”, “option two”), by number key, or by click.</li>
-          </ol>
-          <div class="cc-start">
-            <button type="button" class="cc-btn accent" id="cc-start-voice">🎙 Start voice coding</button>
-            <button type="button" class="cc-btn" id="cc-start-typed">New session</button>
-          </div>
-          <div class="cc-past" id="cc-past-wrap" hidden>
-            <p class="dim">Resume a past session:</p>
-            <ul id="cc-past" class="cc-past-list"></ul>
-          </div>
-        </div>
-        <ol id="deck-timeline" class="cc-log" aria-live="polite"></ol>
-        <div id="cc-working" class="cc-working" hidden><span class="cc-spin" aria-hidden="true">✻</span> <span id="cc-working-text">Working…</span> <span class="dim">(<span id="cc-working-time">0s</span> · esc to interrupt)</span></div>
+  <div class="jc-main">
+    <header class="jc-toolbar">
+      <div class="jc-titles">
+        <h1 id="jc-title" class="jc-title" title="Double-click to rename">Jarvis Code</h1>
+        <p id="jc-sub" class="jc-sub"></p>
       </div>
+      <div class="jc-segmented" id="jc-mode" role="radiogroup" aria-label="Permission mode">
+        <span class="jc-thumb" aria-hidden="true"></span>
+        <button type="button" role="radio" data-mode="plan" aria-checked="false">Plan</button>
+        <button type="button" role="radio" data-mode="ask" aria-checked="true">Ask</button>
+        <button type="button" role="radio" data-mode="edits" aria-checked="false">Auto-edits</button>
+        <button type="button" role="radio" data-mode="auto" aria-checked="false">Full auto</button>
+      </div>
+      <div class="jc-capsule" role="toolbar" aria-label="Workbench">
+        <button type="button" class="jc-tool" data-pane="terminal" title="Terminal" aria-label="Terminal"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6l4 4-4 4M10 15h6"/></svg></button>
+        <button type="button" class="jc-tool" data-pane="diff" title="Changes" aria-label="Changes"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3"/><path d="M10 6.5v5M7.5 9h5M7.5 14h5"/></svg></button>
+        <button type="button" class="jc-tool" id="jc-browser" title="Browser" aria-label="Browser"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2 2 2.8 4.4 2.8 7S12 15 10 17c-2-2-2.8-4.4-2.8-7S8 5 10 3z"/></svg></button>
+        <button type="button" class="jc-tool" data-pane="sim" title="iOS Simulator" aria-label="iOS Simulator"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="2.5" width="9" height="15" rx="2.2"/><path d="M8.8 15h2.4"/></svg></button>
+        <button type="button" class="jc-tool" id="jc-more" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="4.5" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="15.5" r="1.5"/></svg></button>
+      </div>
+      <button id="cc-voice-head" class="jc-voice" type="button" aria-pressed="false">🎙 <span id="cc-voice-label">Voice off</span></button>
+      <button id="cc-close" class="jc-icon" type="button" aria-label="Close Jarvis Code">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </header>
 
-      <div class="cc-slash" id="cc-slash" hidden role="listbox" aria-label="Commands"></div>
-      <form id="deck-composer" class="cc-prompt" autocomplete="off">
-        <span class="cc-caret" aria-hidden="true">&gt;</span>
-        <label for="deck-input" class="sr-only">Message Claude Code</label>
-        <textarea id="deck-input" rows="1" placeholder="Try “plan a retry for the query”, or just talk"></textarea>
-        <button type="button" class="cc-mic" id="ds-voice" aria-pressed="false" aria-label="Voice coding for this session">🎙</button>
-      </form>
-      <div class="cc-status">
-        <span id="cc-mode" class="cc-mode">? for shortcuts</span>
-        <span id="cc-meta" class="cc-meta"></span>
+    <div class="jc-body" id="jc-body">
+      <div class="jc-scroll" id="cc-scroll">
+        <div class="jc-column">
+          <div class="jc-welcome" id="cc-welcome">
+            <span class="jc-hero-mark" aria-hidden="true"></span>
+            <h1 class="jc-hero-title">What are we building?</h1>
+            <p class="jc-hero-sub">Talk or type. Jarvis Code plans, edits, runs and explains, in <strong class="cc-project-name">your project</strong>.</p>
+            <div class="jc-hero-actions">
+              <button type="button" class="jc-btn filled" id="cc-start-voice">🎙 Start voice coding</button>
+              <button type="button" class="jc-btn" id="cc-start-typed">New session</button>
+            </div>
+            <div class="jc-starters" id="jc-starters">
+              <button type="button" class="jc-starter" data-say="Explain how this project is laid out and where the main entry points are.">Explain this project</button>
+              <button type="button" class="jc-starter" data-say="Run the tests and fix whatever fails.">Run the tests and fix failures</button>
+              <button type="button" class="jc-starter" data-say="Review the uncommitted changes for bugs.">Review my changes</button>
+              <button type="button" class="jc-starter" data-say="/plan">Plan a feature first</button>
+            </div>
+            <div class="jc-card jc-past" id="cc-past-wrap" hidden>
+              <p class="jc-label">Resume a session</p>
+              <ul id="cc-past" class="jc-past-list"></ul>
+            </div>
+            <p class="jc-hint">Say <em>“Jarvis, let’s code in <span class="cc-project-name">this project</span>”</em> · <kbd>/</kbd> commands · <kbd>@</kbd> files · <kbd>⇧</kbd><kbd>Tab</kbd> modes · <kbd>Esc</kbd> interrupt</p>
+          </div>
+          <ol id="deck-timeline" class="jc-log" aria-live="polite"></ol>
+          <div id="cc-working" class="jc-working" hidden><span class="jc-spark" aria-hidden="true"></span><span id="cc-working-text" class="jc-sheen">Working…</span><span class="jc-dim"><span id="cc-working-time">0s</span> · esc to interrupt</span></div>
+        </div>
+      </div>
+      <aside class="jc-pane glass-panel" id="jc-pane" hidden aria-label="Workbench pane">
+        <header class="jc-pane-head"><strong id="jc-pane-title">Pane</strong><span id="jc-pane-extra"></span><button type="button" class="jc-icon" id="jc-pane-close" aria-label="Close pane"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></header>
+        <div class="jc-pane-body" id="jc-pane-body"></div>
+      </aside>
+    </div>
+
+    <div class="jc-dock">
+      <div class="jc-column">
+        <div id="jc-bg" class="jc-bg" hidden></div>
+        <div id="jc-todos" class="jc-todos" hidden></div>
+        <div id="cc-slash" class="jc-popover" hidden role="listbox" aria-label="Suggestions"></div>
+        <div id="jc-attach" class="jc-attach" hidden></div>
+        <form id="deck-composer" class="jc-composer" autocomplete="off">
+          <label for="deck-input" class="sr-only">Message Jarvis Code</label>
+          <textarea id="deck-input" rows="1" placeholder="Ask Jarvis Code to plan, build or fix something…"></textarea>
+          <div class="jc-composer-row">
+            <button type="button" class="jc-chip-btn" id="jc-attach-btn" title="Attach an image" aria-label="Attach an image">📎</button>
+            <button type="button" class="jc-chip-btn" id="jc-model" aria-haspopup="menu">Model</button>
+            <button type="button" class="jc-chip-btn" id="jc-effort" aria-haspopup="menu">Effort</button>
+            <span class="jc-spacer"></span>
+            <span id="cc-meta" class="jc-meta"></span>
+            <span class="jc-ctx" id="jc-ctx" title="Context used"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" class="track"/><circle cx="10" cy="10" r="8" class="fill" id="jc-ctx-ring"/></svg><span id="jc-ctx-text"></span></span>
+            <button type="button" class="jc-mic" id="ds-voice" aria-pressed="false" aria-label="Voice coding for this session">🎙</button>
+            <button type="submit" class="jc-send" aria-label="Send"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5l5 5-1.1 1.1L8.8 5.5V13.5H7.2V5.5L4.1 8.6 3 7.5z"/></svg></button>
+          </div>
+        </form>
+        <p class="jc-statusline"><span id="cc-mode">? for shortcuts</span></p>
+        <input type="file" id="jc-file" accept="image/*" multiple hidden>
       </div>
     </div>
   </div>
+  <div id="jc-menu" class="jc-menu" hidden role="menu"></div>
 </section>
 
 <section id="galaxy" class="galaxy-ui" hidden aria-label="Second brain">

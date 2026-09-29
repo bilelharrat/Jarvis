@@ -36,6 +36,7 @@ WEB_DIR = Path(__file__).parent / "web"
 VISION_DIR = (
     Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@mediapipe" / "tasks-vision"
 )
+XTERM_DIR = Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@xterm"
 HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/"
     "float16/latest/hand_landmarker.task"
@@ -114,6 +115,7 @@ def create_app(hub: Hub, token: str) -> Starlette:
             WebSocketRoute("/ws", socket),
             Mount("/static", FreshStaticFiles(directory=WEB_DIR)),
             Mount("/vision", StaticFiles(directory=VISION_DIR, check_dir=False)),
+            Mount("/xterm", StaticFiles(directory=XTERM_DIR, check_dir=False)),
         ],
         lifespan=lifespan,
     )

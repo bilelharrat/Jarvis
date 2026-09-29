@@ -242,8 +242,10 @@ class Hub:
 
         self.voicecode = VoiceCoder(self)
         from .markets import Markets
+        from .workbench import Workbench
 
         self.markets = Markets()
+        self.workbench = Workbench(self.emit)
         self.models, self.model_names = MODELS, MODEL_NAMES
         from .remote import RemoteServer
 
@@ -584,6 +586,7 @@ class Hub:
     async def close(self) -> None:
         if self._listener is not None:
             self._listener.stop()
+        self.workbench.close()
         if self.meeting is not None:  # keep every line that was said
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self.meeting.finish_transcript(), 10)
@@ -2177,8 +2180,8 @@ class Hub:
                 Alert(
                     f"code:{data.get('id')}:{time.monotonic():.0f}",
                     "task",
-                    str(data.get("label", "Claude Code")),
-                    f"Claude Code {'finished' if done else 'stopped'} in {data.get('folder')}."
+                    str(data.get("label", "Jarvis Code")),
+                    f"Jarvis Code {'finished' if done else 'stopped'} in {data.get('folder')}."
                     + (f" {data['result']}" if done and data.get("result") else ""),
                 )
             )
@@ -2198,7 +2201,7 @@ class Hub:
                 Alert(
                     f"code-ok:{context['task_id']}:{time.monotonic():.0f}",
                     "task",
-                    "Claude Code needs you",
+                    "Jarvis Code needs you",
                     question.replace("wants to", "needs your OK to") + ".",
                 ),
                 speak_if_busy=False,
@@ -2455,6 +2458,42 @@ class Hub:
                     self.emit("error", text=reply)
         elif kind == "meeting_stop":
             self._spawn(self._stop_meeting_from_window())
+        elif kind == "term_open":
+            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            try:
+                cwd = task.cwd if task else self.tasks.resolve_dir(str(msg.get("directory", "")))
+            except ValueError:
+                return
+            term = self.workbench.open_terminal(cwd)
+            self.emit("term_open", term=term, folder=cwd.name)
+        elif kind == "term_input":
+            term = self.workbench.terminal(str(msg.get("term", "")))
+            if term is not None:
+                term.write(str(msg.get("data", ""))[:100_000])
+        elif kind == "term_resize":
+            term = self.workbench.terminal(str(msg.get("term", "")))
+            if term is not None:
+                term.resize(int(msg.get("cols", 0)), int(msg.get("rows", 0)))
+        elif kind == "awake":
+            self.emit("awake", on=self.workbench.set_awake(bool(msg.get("on"))))
+        elif kind == "sim_list":
+            self.emit("sim_list", devices=await self.workbench.simulators())
+        elif kind == "sim_boot":
+            await self.workbench.boot(str(msg.get("udid", "")))
+            self.emit("sim_list", devices=await self.workbench.simulators())
+        elif kind == "sim_watch":
+            self.workbench.watch_simulator(str(msg.get("udid") or "") or None)
+        elif kind == "sim_open":
+            self._spawn(self._quiet(mac_tools.run_command("open", "-a", "Simulator")))
+        elif kind == "file_read":
+            try:
+                root = self.tasks.resolve_dir(str(msg.get("directory", "")))
+            except ValueError:
+                return
+            result = await asyncio.to_thread(
+                self.workbench.read_file, root, str(msg.get("path", ""))
+            )
+            self.emit("file_content", directory=str(msg.get("directory", "")), **result)
         elif kind == "code_command":
             # A slash command typed in the Claude Code panel: /plan, /undo, /diff…
             task = self.tasks.tasks.get(int(msg.get("id", 0)))

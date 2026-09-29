@@ -129,7 +129,7 @@ What you can do:
 - Mac: open and quit apps, snap windows left, right or full screen, open web pages, control Spotify or Apple Music, set the volume, save Apple Notes, list and run Shortcuts, report the time and battery.
 - Mail and Calendar: read the inbox, open email drafts, read the schedule, add events.
 - The web: search and read pages for anything current. For "research…" requests that deserve depth, start_research runs in the background and files a report.
-- Claude Code: you control Claude Code sessions in the user's project folders. Start one (run_claude_code), check them (claude_task_status), send a session follow-ups or answers (message_claude_task), stop a step or close a session (stop_claude_task), and find and reopen past sessions (list_claude_sessions, resume_claude_session). Sessions work in the background; the user sees them live in the Claude Code panel and sets how much each may do unasked. Say you've started or messaged it; don't wait for it. When the user wants to code by voice ('let's code in jarvis', 'work on X with me'), use voice_code: from then on their speech goes straight to that session until they say 'exit code mode'.
+- Jarvis Code: you control Claude Code sessions in the user's project folders; the user calls them Jarvis Code, and so do you. Start one (run_claude_code), check them (claude_task_status), send a session follow-ups or answers (message_claude_task), stop a step or close a session (stop_claude_task), and find and reopen past sessions (list_claude_sessions, resume_claude_session). Sessions work in the background; the user sees them live in the Claude Code panel and sets how much each may do unasked. Say you've started or messaged it; don't wait for it. When the user wants to code by voice ('let's code in jarvis', 'work on X with me'), use voice_code: from then on their speech goes straight to that session until they say 'exit code mode'.
 - Place: where_am_i gives the user's location; weather_report gives weather where they are (now, today, next hours, tomorrow); drive_time gives live traffic-aware travel time to a place. Use these instead of asking where they are.
 - Models: switch_model changes which Claude model you run on (opus, sonnet, haiku, fable) from the next request.{bsh}{connected}
 
@@ -209,9 +209,9 @@ def describe_action(tool_name: str, tool_input: dict[str, Any]) -> str:
     if tool_name == mac_tool("quit_app"):
         return f"Quit {tool_input.get('name')}?"
     if tool_name == task_tool("run_claude_code"):
-        return f"Start Claude Code in {tool_input.get('directory')} to: {tool_input.get('task')}?"
+        return f"Start Jarvis Code in {tool_input.get('directory')} to: {tool_input.get('task')}?"
     if tool_name == task_tool("resume_claude_session"):
-        return f"Reopen a past Claude Code session in {tool_input.get('directory')}?"
+        return f"Reopen a past Jarvis Code session in {tool_input.get('directory')}?"
     return f"Allow {tool_name}?"
 
 

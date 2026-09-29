@@ -49,6 +49,7 @@ function send(msg) {
 }
 
 function onEvent(ev) {
+  if (onJarvisCodeEvent(ev)) return;
   switch (ev.type) {
     case 'hello':
       setState(ev.state);
@@ -65,6 +66,7 @@ function onEvent(ev) {
       (ev.approvals || []).forEach(showApproval);
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });
+      if (!$('cc').hidden) { send({ type: 'claude_projects' }); if (deckProject) send({ type: 'claude_sessions', directory: deckProject }); }
       send({ type: 'connectors' });
       if (app && app.browser) send({ type: 'capabilities', browser: true });
       history = ev.history || [];
@@ -887,6 +889,7 @@ function sparkline(points, up) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 80 24');
+  svg.setAttribute('preserveAspectRatio', 'none');
   svg.setAttribute('class', `mk-spark ${up ? 'up' : 'down'}`);
   svg.setAttribute('aria-hidden', 'true');
   if (points && points.length > 1) {
@@ -904,27 +907,20 @@ function closesIn() {
   return mins > 0 ? ` · closes in ${Math.floor(mins / 60)}h ${mins % 60}m` : '';
 }
 
+// Four rows, the size of System stats: index, level and the day's move, with the day's
+// line where a stat has its bar. The watchlist and summary are for "how's the market?".
 function renderMarkets(m) {
   if (!m || !m.indices) return;
   $('mk-status').textContent = `${MK_STATUS[m.status] || m.status}${m.status === 'open' ? closesIn() : ''}`;
   $('mk-status').dataset.state = m.status;
+  $('mk-status').title = m.headline || '';
   $('mk-indices').replaceChildren(...m.indices.map((q) => {
-    const li = el('li', q.pct >= 0 ? 'up' : 'down');
-    li.append(el('span', 'mk-name', q.name), sparkline(q.spark, q.pct >= 0), el('b', 'mk-last', mkPrice(q)), el('span', 'mk-pct', mkPct(q.pct)));
-    return li;
+    const row = el('div', `meter mk-row ${q.pct >= 0 ? 'up' : 'down'}`);
+    const value = el('b');
+    value.append(document.createTextNode(`${mkPrice(q)} `), el('span', 'mk-pct', mkPct(q.pct)));
+    row.append(el('span', '', q.name), value, sparkline(q.spark, q.pct >= 0));
+    return row;
   }));
-  $('mk-macro').replaceChildren(...m.macro.map((q) => {
-    const chip = el('span', `mk-chip ${q.pct >= 0 ? 'up' : 'down'}`);
-    chip.append(el('small', '', q.name), document.createTextNode(` ${mkPrice(q)} `), el('em', '', mkPct(q.pct)));
-    return chip;
-  }));
-  $('mk-watch').replaceChildren(...m.watchlist.map((q) => {
-    const li = el('li', q.pct >= 0 ? 'up' : 'down');
-    li.append(el('span', 'mk-sym', q.symbol), el('b', 'mk-last', mkPrice(q)), el('span', 'mk-pct', mkPct(q.pct)));
-    if (q.after && q.after.last && m.status !== 'open') li.title = `${q.after.kind === 'pre' ? 'Pre-market' : 'After hours'}: ${q.after.last} (${mkPct(q.after.pct || 0)})`;
-    return li;
-  }));
-  $('mk-headline').textContent = m.headline || '';
 }
 
 $('watchlist').addEventListener('change', (e) => setPrefs({ watchlist: e.target.value }));
@@ -975,7 +971,11 @@ function toggleCC(open) {
   if (open) {
     send({ type: 'claude_projects' });
     if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }
-    setTimeout(() => $('deck-input').focus(), 30);
+    requestAnimationFrame(() => { setThumb(); moveGlider(); });
+    setTimeout(() => $('deck-input').focus(), 40);
+  } else {
+    closeMenu();
+    if (currentPane === 'sim') send({ type: 'sim_watch', udid: '' });
   }
 }
 $('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
@@ -983,36 +983,42 @@ $('cc-close').addEventListener('click', () => toggleCC(false));
 
 // ── sidebar: projects, each with its sessions ──
 
+const openProjects = new Set();
+
 function renderProjects(items) {
-  deckProjects = items;
-  if (!deckProject && items.length) { selectProject((items.find((p) => p.running) || items[0]).name); return; }
+  deckProjects = items || [];
+  if (!deckProject && deckProjects.length) { selectProject((deckProjects.find((p) => p.running) || deckProjects[0]).name); return; }
   const filter = $('deck-filter').value.trim().toLowerCase();
-  $('deck-project-list').replaceChildren(...items.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
-    const li = el('li', p.name === deckProject ? 'open' : '');
-    const b = el('button', 'cc-project');
+  $('deck-project-list').replaceChildren(...deckProjects.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
+    const li = el('li');
+    const open = openProjects.has(p.name) || p.name === deckProject;
+    const b = el('button', 'jc-project');
     b.type = 'button';
-    b.setAttribute('aria-current', String(p.name === deckProject));
-    b.append(el('span', 'cc-folder', p.name === deckProject ? '▾' : '▸'), el('span', 'cc-pname', p.name));
-    if (p.branch) b.append(el('small', '', `⎇ ${p.branch}`));
-    b.addEventListener('click', () => selectProject(p.name));
+    b.setAttribute('aria-expanded', String(open));
+    b.append(el('span', 'jc-chev', '▶'), el('span', 'jc-pname', p.name));
+    if (p.branch) b.append(el('span', 'jc-branch', p.branch));
+    b.addEventListener('click', () => {
+      if (p.name === deckProject && open) openProjects.delete(p.name); else openProjects.add(p.name);
+      selectProject(p.name);
+    });
     li.append(b);
-    if (p.name === deckProject) {
-      const sessions = el('ul', 'cc-sessions');
-      const mine = ccTasks.filter((t) => t.folder === p.name);
-      for (const t of mine) {
-        const row = el('button', 'cc-session');
+    if (open) {
+      const sessions = el('ul', 'jc-sessions');
+      for (const t of ccTasks.filter((x) => x.folder === p.name)) {
+        const row = el('button', 'jc-session');
         row.type = 'button';
+        row.dataset.task = t.id;
         row.setAttribute('aria-current', String(t.id === ccSelected));
         const voiced = voiceFocus && voiceFocus.id === t.id ? ' 🎙' : '';
-        row.append(el('span', `dot ${statusOf(t)}`), el('span', 'cc-stitle', (t.title || t.prompt || 'New session') + voiced), el('small', '', statusText(t)));
+        row.append(el('span', `jc-dot ${statusOf(t)}`), el('span', 'jc-stitle', (t.title || t.prompt || 'New session') + voiced), el('small', '', `${statusText(t)} · ${MODE_NAMES[t.mode] || t.mode}`));
         row.addEventListener('click', () => selectTask(t.id));
         const item = el('li');
         item.append(row);
         sessions.append(item);
       }
-      const add = el('button', 'cc-session add', '+ New session');
+      const add = el('button', 'jc-session add', '+ New session');
       add.type = 'button';
-      add.addEventListener('click', () => newSession(false));
+      add.addEventListener('click', () => { deckProject = p.name; newSession(false); });
       const addLi = el('li');
       addLi.append(add);
       sessions.append(addLi);
@@ -1020,26 +1026,41 @@ function renderProjects(items) {
     }
     return li;
   }));
+  moveGlider();
 }
 $('deck-filter').addEventListener('input', () => renderProjects(deckProjects));
 
+// The selection pill glides to the selected session.
+function moveGlider() {
+  const glider = $('jc-glider');
+  const row = document.querySelector(`#deck-project-list .jc-session[aria-current="true"]`);
+  if (!row || $('cc').hidden) { glider.style.opacity = '0'; return; }
+  const wrap = glider.parentElement.getBoundingClientRect();
+  const r = row.getBoundingClientRect();
+  glider.style.top = `${r.top - wrap.top + glider.parentElement.scrollTop}px`;
+  glider.style.height = `${r.height}px`;
+  glider.style.left = `${r.left - wrap.left}px`;
+  glider.style.opacity = '1';
+}
+
 function selectProject(name) {
+  if (deckProject !== name) pastSessions = [];
   deckProject = name;
-  pastSessions = [];
   send({ type: 'claude_sessions', directory: name });
+  if (!projectFiles[name]) send({ type: 'project_files', directory: name });
   document.querySelectorAll('.cc-project-name').forEach((n) => { n.textContent = name; });
-  $('cc-cwd').textContent = `cwd: ~/…/${name}`;
   renderProjects(deckProjects);
   renderPast();
+  if (!ccSelected) renderHeader(null);
 }
 
 function renderPast() {
   $('cc-past-wrap').hidden = !pastSessions.length;
   $('cc-past').replaceChildren(...pastSessions.slice(0, 6).map((p) => {
     const li = el('li');
-    const b = el('button', 'cc-past-item');
+    const b = el('button', 'jc-past-item');
     b.type = 'button';
-    b.append(el('span', '', p.title || 'Untitled session'), el('small', 'dim', new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })));
+    b.append(el('span', '', p.title || 'Untitled session'), el('small', '', new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })));
     b.addEventListener('click', () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, mode: 'ask', prompt: '' }); });
     li.append(b);
     return li;
@@ -1047,45 +1068,129 @@ function renderPast() {
 }
 
 function renderDeckList() { renderProjects(deckProjects); renderPast(); }
-function renderGit() { /* folded into /diff */ }
+function renderGit() { /* the Changes pane shows the diff */ }
+function showPane() { /* one column now: the transcript, with the welcome above it */ }
 
 function statusOf(t) { return t.busy ? 'busy' : t.status === 'failed' ? 'failed' : t.status === 'waiting' ? 'waiting' : 'idle'; }
 function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended', running: 'starting' }[t.status] || t.status; }
 
-// ── the session: status line, spinner ──
+// ── header, mode, status ──
 
 const MODE_LINES = {
-  plan: '⏸ plan mode on',
-  ask: '? ask before edits',
-  edits: '⏵⏵ accept edits on',
-  auto: '⏵⏵⏵ full auto on',
+  plan: '⏸ Plan mode: Jarvis Code plans, you approve (⇧⇥ to switch)',
+  ask: 'Asks before each edit and command (⇧⇥ to switch)',
+  edits: '⏵⏵ Auto-edits: edits go ahead, commands ask (⇧⇥ to switch)',
+  auto: '⏵⏵⏵ Full auto: runs anything (⇧⇥ to switch)',
 };
+const MODEL_LABELS = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-4-5': 'Haiku 4.5', 'claude-fable-5-1': 'Fable 5.1' };
 let ccContext = {};
 let workingSince = 0;
 
+function currentTask() { return ccTasks.find((x) => x.id === ccSelected) || null; }
+
+function renderHeader(t) {
+  const p = deckProjects.find((x) => x.name === (t ? t.folder : deckProject));
+  $('jc-title').textContent = t ? (t.title || t.prompt || 'New session') : (deckProject || 'Jarvis Code');
+  const sub = [];
+  if (t || deckProject) sub.push(t ? t.folder : deckProject);
+  if (p && p.branch) sub.push(`⎇ ${p.branch}`);
+  if (t && t.session_id) sub.push(t.session_id.slice(0, 8));
+  $('jc-sub').textContent = sub.join('  ·  ');
+}
+
+function setThumb() {
+  const group = $('jc-mode');
+  const on = group.querySelector('button[aria-checked="true"]');
+  const thumb = group.querySelector('.jc-thumb');
+  if (!on) { thumb.style.width = '0'; return; }
+  thumb.style.left = `${on.offsetLeft}px`;
+  thumb.style.width = `${on.offsetWidth}px`;
+}
+
 function renderCC(items) {
-  ccTasks = items.filter((t) => t.kind === 'code');
+  ccTasks = (items || []).filter((t) => t.kind === 'code');
   const running = ccTasks.filter((t) => t.busy).length;
   const waiting = ccTasks.filter((t) => !t.busy && t.status === 'waiting').length;
-  $('cc-label').textContent = running ? `Claude Code · ${running} working` : ccTasks.length ? `Claude Code · ${ccTasks.length}` : 'Claude Code';
+  $('cc-label').textContent = running ? `Jarvis Code · ${running} working` : ccTasks.length ? `Jarvis Code · ${ccTasks.length}` : 'Jarvis Code';
   $('deck-summary').textContent = [running && `${running} working`, waiting && `${waiting} waiting for you`].filter(Boolean).join(' · ');
   renderProjects(deckProjects);
-  const t = ccTasks.find((x) => x.id === ccSelected);
+  const t = currentTask();
+  renderHeader(t);
   $('cc-welcome').hidden = !!t && $('deck-timeline').children.length > 0;
-  if (!t) { $('cc-mode').textContent = '? for shortcuts'; $('cc-meta').textContent = ''; $('cc-working').hidden = true; return; }
-  $('cc-mode').textContent = `${MODE_LINES[t.mode] || t.mode} (⇧tab to cycle)`;
-  const ctx = ccContext[t.id];
+  const mode = t ? t.mode : 'ask';
+  document.querySelectorAll('#jc-mode button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === mode)));
+  setThumb();
+  if (!t) {
+    $('cc-mode').textContent = 'Pick a session, or start one. ? for shortcuts';
+    $('cc-meta').textContent = '';
+    $('cc-working').hidden = true;
+    $('jc-todos').hidden = true;
+    $('jc-bg').hidden = true;
+    $('jc-model').textContent = 'Model';
+    $('jc-effort').textContent = 'Effort';
+    setCtx(null);
+    return;
+  }
+  $('cc-mode').textContent = MODE_LINES[t.mode] || t.mode;
+  $('jc-model').textContent = MODEL_LABELS[t.model] || (t.model ? t.model.replace('claude-', '') : 'Model');
+  $('jc-effort').textContent = t.effort ? `Effort: ${t.effort}` : 'Effort';
   $('cc-meta').textContent = [
-    t.model ? t.model.replace('claude-', '').replace(/-(\d)-(\d)$/, ' $1.$2') : '',
-    ctx ? `${ctx}% context` : '',
-    t.files_changed.length ? `${t.files_changed.length} file${t.files_changed.length === 1 ? '' : 's'} changed` : '',
+    t.files_changed.length ? `${t.files_changed.length} file${t.files_changed.length === 1 ? '' : 's'}` : '',
     t.cost_usd ? `$${t.cost_usd.toFixed(2)}` : '',
+    t.queued ? `${t.queued} queued` : '',
   ].filter(Boolean).join(' · ');
+  setCtx(ccContext[t.id]);
   if (t.busy && !workingSince) workingSince = Date.now();
   if (!t.busy) workingSince = 0;
   $('cc-working').hidden = !t.busy;
   $('cc-working-text').textContent = `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`;
+  renderTodos(t.todos || []);
+  renderBackground(t.background || []);
   $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === t.id));
+  if (currentPane === 'background') renderPaneBody();
+}
+
+function setCtx(percent) {
+  const ring = $('jc-ctx-ring');
+  $('jc-ctx').hidden = percent == null;
+  if (percent == null) return;
+  ring.style.strokeDashoffset = String(50.3 * (1 - Math.min(100, percent) / 100));
+  ring.style.stroke = percent > 80 ? 'rgb(var(--c-warning))' : '';
+  $('jc-ctx-text').textContent = `${percent}%`;
+}
+
+function renderTodos(todos) {
+  const box = $('jc-todos');
+  box.hidden = !todos.length || todos.every((x) => x.status === 'completed');
+  if (box.hidden) return;
+  const done = todos.filter((x) => x.status === 'completed').length;
+  const det = el('details');
+  det.open = true;
+  det.append(el('summary', '', `To-dos · ${done} of ${todos.length} done`), checklist(todos));
+  box.replaceChildren(det);
+}
+
+function checklist(todos) {
+  const ul = el('ul', 'jc-checklist');
+  ul.append(...todos.map((x) => {
+    const li = el('li', x.status);
+    li.append(el('span', 'box'), el('span', '', x.status === 'in_progress' && x.active ? x.active : x.content));
+    return li;
+  }));
+  return ul;
+}
+
+function renderBackground(items) {
+  const box = $('jc-bg');
+  box.hidden = !items.length;
+  box.replaceChildren(...items.map((b) => {
+    const chip = el('span', 'jc-bgchip');
+    const stop = el('button', 'jc-mini', 'Stop');
+    stop.type = 'button';
+    stop.addEventListener('click', () => send({ type: 'task_bg_stop', id: ccSelected, bg: b.id }));
+    chip.append(el('span', 'jc-dot busy'), el('span', '', b.description || b.kind || 'Background task'), stop);
+    return chip;
+  }));
 }
 
 setInterval(() => {
@@ -1094,16 +1199,47 @@ setInterval(() => {
   $('cc-working-time').textContent = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }, 1000);
 
-function showPane() { /* one pane now: the transcript, with the welcome above it */ }
+document.querySelectorAll('#jc-mode button').forEach((b) => b.addEventListener('click', () => {
+  const t = currentTask();
+  if (!t) return;
+  if (b.dataset.mode === 'auto' && !confirm('Full auto lets this session run any command without asking. Switch?')) return;
+  send({ type: 'task_mode', id: t.id, mode: b.dataset.mode });
+}));
+window.addEventListener('resize', () => { setThumb(); moveGlider(); });
+
+// Double-click the title to rename the session.
+$('jc-title').addEventListener('dblclick', () => {
+  const t = currentTask();
+  if (!t) return;
+  const h = $('jc-title');
+  h.contentEditable = 'true';
+  h.focus();
+  document.getSelection().selectAllChildren(h);
+});
+$('jc-title').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); $('jc-title').blur(); }
+  if (e.key === 'Escape') { $('jc-title').contentEditable = 'false'; renderHeader(currentTask()); }
+});
+$('jc-title').addEventListener('blur', () => {
+  const h = $('jc-title');
+  if (h.contentEditable !== 'true') return;
+  h.contentEditable = 'false';
+  const t = currentTask();
+  const title = h.textContent.trim();
+  if (t && title && title !== (t.title || t.prompt)) send({ type: 'task_rename', id: t.id, title });
+});
 
 function selectTask(id) {
   ccSelected = id;
-  const t = ccTasks.find((x) => x.id === id);
-  if (t && t.folder !== deckProject) selectProject(t.folder);
+  const t = currentTask();
+  if (t && t.folder !== deckProject) { openProjects.add(t.folder); selectProject(t.folder); }
   $('deck-timeline').replaceChildren();
+  live.text = null;
+  live.thinking = null;
   send({ type: 'task_transcript', id });
   send({ type: 'task_context', id });
   renderCC(ccTasks);
+  if (currentPane) renderPaneBody();
   $('deck-input').focus();
 }
 
@@ -1115,15 +1251,33 @@ function newSession(voice) {
 }
 $('cc-start-voice').addEventListener('click', () => newSession(true));
 $('cc-start-typed').addEventListener('click', () => newSession(false));
+$('jc-new').addEventListener('click', () => newSession(false));
+document.querySelectorAll('.jc-starter').forEach((b) => b.addEventListener('click', () => {
+  $('deck-input').value = b.dataset.say;
+  $('deck-composer').requestSubmit();
+}));
 
-// ── the transcript, Claude Code style ──
+// ── the transcript ──
 
-// Markdown-lite: code fences become <pre>, `code` and **bold** inline. Built with DOM nodes.
+function copyButton(getText) {
+  const b = el('button', 'jc-mini jc-copy', 'Copy');
+  b.type = 'button';
+  b.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(getText()); b.textContent = 'Copied'; } catch (_) { b.textContent = 'Couldn’t copy'; }
+    setTimeout(() => { b.textContent = 'Copy'; }, 1400);
+  });
+  return b;
+}
+
+// Markdown-lite: code fences become <pre> (with Copy), `code` and **bold** inline. DOM only.
 function richText(text) {
-  const box = el('div', 'cc-md');
-  text.split('```').forEach((part, i) => {
+  const box = el('div', 'jc-md');
+  String(text || '').split('```').forEach((part, i) => {
     if (i % 2) {
-      box.append(el('pre', '', part.replace(/^[\w+-]*\n/, '')));
+      const code = part.replace(/^[\w+-]*\n/, '');
+      const pre = el('pre', '', code);
+      pre.append(copyButton(() => code));
+      box.append(pre);
       return;
     }
     for (const para of part.split(/\n{2,}/)) {
@@ -1141,186 +1295,333 @@ function richText(text) {
 }
 
 function diffBlock(text) {
-  const pre = el('pre', 'cc-diff');
-  for (const line of text.split('\n')) {
-    const cls = /^\+ ?/.test(line) && !line.startsWith('+++') ? 'diff-add' : /^- ?/.test(line) && !line.startsWith('---') ? 'diff-del' : '';
+  const pre = el('pre', 'jc-code');
+  for (const line of String(text || '').split('\n')) {
+    const cls = /^\+(?!\+\+)/.test(line) ? 'add' : /^-(?!--)/.test(line) ? 'del' : /^@@/.test(line) ? 'hunk' : '';
     pre.append(cls ? el('span', cls, `${line}\n`) : document.createTextNode(`${line}\n`));
   }
   return pre;
 }
 
-// Claude Code's own names for its tools, as its terminal shows them.
-const TOOL_TITLES = { Edit: 'Update', MultiEdit: 'Update', Write: 'Write', Read: 'Read', Bash: 'Bash', Grep: 'Search', Glob: 'Search', WebFetch: 'Fetch', WebSearch: 'Web Search', TodoWrite: 'Update Todos', Task: 'Task', NotebookEdit: 'Update' };
+const TOOL_VERBS = { Edit: 'Edited', MultiEdit: 'Edited', Write: 'Wrote', Read: 'Read', Bash: 'Ran', Grep: 'Searched', Glob: 'Found files', WebFetch: 'Fetched', WebSearch: 'Searched the web', NotebookEdit: 'Edited notebook', Agent: 'Agent' };
 
-function toolCall(e) {
+function toolKindClass(tool) {
+  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(tool)) return 'edit';
+  if (tool === 'Bash') return 'run';
+  if (tool === 'Agent') return 'agent';
+  return '';
+}
+
+function toolArg(e) {
   const detail = e.detail || '';
-  let arg = '';
-  if (e.tool === 'Bash') arg = detail.replace(/^\$ /, '').split('\n')[0];
-  else if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(e.tool)) arg = detail.split('\n')[0].replace(' (new contents)', '');
-  else arg = e.text.replace(/^(Reading|Searching for|Editing|Writing|Running)\s*/, '');
-  return [TOOL_TITLES[e.tool] || e.tool, arg.slice(0, 120)];
+  if (e.tool === 'Bash') return detail.replace(/^\$ /, '').split('\n')[0];
+  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(e.tool)) return detail.split('\n')[0].replace(' (new contents)', '');
+  return e.text.replace(/^(Reading|Searching for|Editing|Writing|Running)\s*/, '');
 }
 
-function resultLine(e) {
-  if (e.status === 'running') return '';
-  if (e.status === 'failed') return `Error: ${(e.output || 'failed').split('\n')[0].slice(0, 200)}`;
-  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(e.tool)) {
-    const lines = (e.detail || '').split('\n');
-    const add = lines.filter((l) => l.startsWith('+ ')).length;
-    const del = lines.filter((l) => l.startsWith('- ')).length;
-    return e.tool === 'Write' ? `Wrote ${add} line${add === 1 ? '' : 's'}` : `Updated with ${add} addition${add === 1 ? '' : 's'} and ${del} removal${del === 1 ? '' : 's'}`;
-  }
-  const out = (e.output || '').trim();
-  if (!out) return 'Done';
-  const lines = out.split('\n');
-  return lines.length > 3 ? `${lines.slice(0, 3).join('\n')}\n… +${lines.length - 3} lines` : out;
+function toolState(li, status) {
+  const st = li.querySelector('.jc-tstate');
+  if (!st) return;
+  st.className = `jc-tstate ${status}`;
+  st.textContent = status === 'running' ? '' : status === 'failed' ? 'Failed' : '✓';
 }
+
+function toolEntry(e) {
+  const li = el('li', 'jc-toolwrap');
+  li.dataset.toolId = e.tool_id || '';
+  const det = el('details', 'jc-tool-row');
+  const sum = el('summary');
+  const icon = el('span', `jc-ticon ${toolKindClass(e.tool)}`, { Bash: '›_', Read: '≡', Grep: '⌕', Glob: '⌕', WebFetch: '↗', WebSearch: '⌕', Edit: '✎', MultiEdit: '✎', Write: '+', NotebookEdit: '✎' }[e.tool] || '•');
+  const label = el('span', 'jc-tlabel');
+  label.append(document.createTextNode(`${TOOL_VERBS[e.tool] || e.tool} `), el('code', '', toolArg(e).slice(0, 140)));
+  sum.append(icon, label, el('span', 'jc-tstate'));
+  det.append(sum);
+  const body = el('div', 'jc-tbody');
+  if (['Edit', 'MultiEdit', 'Write'].includes(e.tool) && e.detail) body.append(diffBlock(e.detail.split('\n').slice(1).join('\n')));
+  const out = el('pre', 'jc-code jc-out', e.output || '');
+  out.hidden = !e.output;
+  body.append(out);
+  det.append(body);
+  li.append(det);
+  toolState(li, e.status || 'done');
+  return li;
+}
+
+function agentEntry(e) {
+  const li = el('li', 'jc-agent');
+  li.dataset.toolId = e.tool_id || '';
+  const head = el('div', 'jc-agent-head');
+  head.append(el('span', 'jc-badge', `Agent · ${e.agent || 'general'}`), el('span', 'jc-tlabel', e.text.replace(/^Agent:\s*/, '')), el('span', 'jc-tstate'));
+  li.append(head, el('ul', 'jc-agent-steps'));
+  const out = el('div', 'jc-md jc-out');
+  out.hidden = true;
+  li.append(out);
+  toolState(li, e.status || 'done');
+  return li;
+}
+
+const live = { text: null, thinking: null };
 
 function appendEntry(e) {
   const tl = $('deck-timeline');
   const box = $('cc-scroll');
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
   let li;
   if (e.role === 'user') {
-    li = el('li', 'cc-user');
-    li.append(el('span', 'cc-gutter', '>'), el('span', '', e.text));
+    li = el('li', 'jc-user', e.text);
+    li.dataset.n = e.n || '';
+    if (e.images) li.append(el('span', 'jc-pics', `🖼 ${e.images} image${e.images === 1 ? '' : 's'}`));
+    li.append(userActions(e));
   } else if (e.role === 'assistant') {
-    li = el('li', 'cc-say');
-    li.append(el('span', 'cc-dot', '⏺'), richText(e.text));
+    if (live.text) { live.text.remove(); live.text = null; }
+    li = el('li', 'jc-say');
+    li.append(richText(e.text), copyButton(() => e.text));
+  } else if (e.role === 'thinking') {
+    if (live.thinking) { live.thinking.remove(); live.thinking = null; }
+    li = el('li');
+    const det = el('details', 'jc-think');
+    det.append(el('summary', '', 'Thinking'), el('div', '', e.text));
+    li.append(det);
+  } else if (e.role === 'tool' && e.tool === 'Agent') {
+    li = agentEntry(e);
   } else if (e.role === 'tool' && e.tool) {
-    li = el('li', `cc-tool ${e.status || ''}`);
-    li.dataset.toolId = e.tool_id || '';
-    const [name, arg] = toolCall(e);
-    const head = el('div', 'cc-call');
-    head.append(el('span', 'cc-dot', '⏺'), el('strong', '', name), el('span', 'cc-arg', arg ? `(${arg})` : ''));
-    const res = el('div', 'cc-result');
-    res.append(el('span', 'cc-elbow', '⎿'), el('span', 'cc-result-text', resultLine(e)));
-    li.append(head, res);
-    if (['Edit', 'MultiEdit', 'Write'].includes(e.tool) && e.detail) li.append(diffBlock(e.detail.split('\n').slice(1).join('\n')));
-    res.hidden = e.status === 'running';
+    li = toolEntry(e);
+  } else if (e.role === 'subtool') {
+    const agent = [...tl.querySelectorAll('.jc-agent')].find((n) => n.dataset.toolId === e.parent);
+    if (agent) { agent.querySelector('.jc-agent-steps').append(el('li', '', e.text)); return; }
+    li = el('li', 'jc-note', `↳ ${e.text}`);
+  } else if (e.role === 'todos') {
+    li = el('li', 'jc-inline-todos');
+    li.append(checklist(e.todos || []));
   } else if (e.role === 'plan') {
-    li = el('li', 'cc-plan');
-    li.append(el('p', 'cc-plan-head', 'Here is Claude’s plan:'), richText(e.text));
-  } else if (e.role === 'note') {
-    li = el('li', 'cc-note');
-    li.append(el('span', 'cc-elbow', '⎿'), el('span', '', e.text));
+    li = el('li', 'jc-plan');
+    li.append(el('p', 'jc-plan-head', 'Plan'), richText(e.text));
+  } else if (e.role === 'turn') {
+    const parts = [e.seconds ? `${e.seconds}s` : '', e.tokens ? `${(e.tokens / 1000).toFixed(1)}k tokens` : '', e.cost ? `$${e.cost.toFixed(2)}` : ''].filter(Boolean);
+    if (!parts.length) return;
+    li = el('li', 'jc-turn', parts.join(' · '));
   } else {
-    li = el('li', 'cc-sys', e.text);
+    li = el('li', 'jc-note');
+    li.append(el('span', '', e.role === 'note' ? '⎿' : 'ⓘ'), el('span', '', e.text));
   }
-  tl.insertBefore(li, tl.querySelector('.cc-ask'));
+  tl.insertBefore(li, tl.querySelector('.jc-ask'));
   $('cc-welcome').hidden = true;
   if (nearBottom) box.scrollTop = box.scrollHeight;
 }
 
-function updateEntry(ev) {
-  const li = [...$('deck-timeline').children].find((n) => n.dataset.toolId === ev.tool_id);
-  if (!li) return;
-  li.className = `cc-tool ${ev.status}`;
-  const res = li.querySelector('.cc-result');
-  const tool = li.querySelector('.cc-call strong').textContent;
-  const entry = { status: ev.status, output: ev.output, tool: Object.keys(TOOL_TITLES).find((k) => TOOL_TITLES[k] === tool) || tool, detail: '' };
-  if (!['Update', 'Write'].includes(tool) || ev.status === 'failed') li.querySelector('.cc-result-text').textContent = resultLine(entry);
-  res.hidden = false;
+function userActions(e) {
+  const wrap = el('span', 'jc-user-actions');
+  const rewind = el('button', 'jc-mini', '⟲ Rewind code to here');
+  rewind.type = 'button';
+  const fork = el('button', 'jc-mini', '⑂ Fork from here');
+  fork.type = 'button';
+  const ready = () => !!wrap.closest('li').dataset.uuid;
+  rewind.addEventListener('click', () => {
+    if (!ready()) return;
+    if (confirm('Put the files back as they were before this message?')) send({ type: 'task_rewind', id: ccSelected, uuid: wrap.closest('li').dataset.uuid });
+  });
+  fork.addEventListener('click', () => { if (ready()) { awaitingNewSession = true; send({ type: 'task_fork', id: ccSelected, uuid: wrap.closest('li').dataset.uuid }); } });
+  wrap.append(rewind, fork);
+  if (e.uuid) requestAnimationFrame(() => { const li = wrap.closest('li'); if (li) li.dataset.uuid = e.uuid; });
+  return wrap;
 }
 
-// An approval as Claude Code asks it: a bordered box with numbered choices.
+function onEntryMeta(ev) {
+  if (ev.id !== ccSelected) return;
+  const li = [...$('deck-timeline').querySelectorAll('.jc-user')].find((n) => String(n.dataset.n) === String(ev.n));
+  if (li) li.dataset.uuid = ev.uuid;
+}
+
+function updateEntry(ev) {
+  const li = [...$('deck-timeline').querySelectorAll('[data-tool-id]')].find((n) => n.dataset.toolId === ev.tool_id);
+  if (!li) return;
+  toolState(li, ev.status);
+  const out = li.querySelector('.jc-out');
+  if (out && ev.output && !li.querySelector('.jc-code:not(.jc-out)')) {
+    if (li.classList.contains('jc-agent')) out.replaceChildren(richText(ev.output));
+    else out.textContent = ev.output;
+    out.hidden = false;
+  }
+}
+
+// Claude's words (and thinking) as they're written.
+function onStream(ev) {
+  if (ev.id !== ccSelected) return;
+  const tl = $('deck-timeline');
+  const box = $('cc-scroll');
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+  if (ev.part === 'thinking') {
+    if (!live.thinking) {
+      live.thinking = el('li', 'jc-think');
+      live.thinking.append(el('span', 'jc-sheen', 'Thinking… '), el('span', 'jc-dim'));
+      tl.insertBefore(live.thinking, tl.querySelector('.jc-ask'));
+    }
+    const tail = live.thinking.lastChild;
+    tail.textContent = (tail.textContent + ev.text).slice(-220);
+  } else {
+    if (live.thinking) { live.thinking.remove(); live.thinking = null; }
+    if (!live.text) {
+      live.text = el('li', 'jc-say live');
+      live.text.dataset.raw = '';
+      tl.insertBefore(live.text, tl.querySelector('.jc-ask'));
+    }
+    live.text.dataset.raw += ev.text;
+    live.text.replaceChildren(richText(live.text.dataset.raw));
+  }
+  $('cc-welcome').hidden = true;
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+}
+
+// An approval, as a sheet in the conversation: capsule answers, number keys, and a
+// "tell Claude what to do instead" box for no.
 function renderInlineApprovals() {
-  document.querySelectorAll('#deck-timeline .cc-ask').forEach((n) => n.remove());
+  document.querySelectorAll('#deck-timeline .jc-ask').forEach((n) => n.remove());
   for (const a of pendingApprovals.values()) {
     if (a.task_id !== ccSelected) continue;
-    const li = el('li', 'cc-ask');
+    const li = el('li', 'jc-ask');
     li.dataset.approval = a.id;
-    const kind = a.ask_kind === 'plan' ? 'Ready to code?' : a.ask_kind === 'question' ? a.question : a.tool === 'Bash' ? 'Bash command' : ['Edit', 'MultiEdit', 'Write'].includes(a.tool) ? (a.tool === 'Write' ? 'Create file' : 'Edit file') : a.question;
-    li.append(el('p', 'cc-ask-head', kind));
-    if (a.detail) li.append(a.ask_kind === 'plan' ? richText(a.detail) : diffBlock(a.detail));
-    if (a.ask_kind !== 'question') li.append(el('p', '', a.ask_kind === 'plan' ? 'Would you like to proceed?' : 'Do you want to proceed?'));
-    const list = el('ol', 'cc-choices');
+    const title = a.ask_kind === 'plan' ? 'Ready to code?' : a.ask_kind === 'question' ? a.question : a.tool === 'Bash' ? 'Run this command?' : a.tool === 'Write' ? 'Create this file?' : ['Edit', 'MultiEdit'].includes(a.tool) ? 'Make this edit?' : a.question;
+    const head = el('p', 'jc-ask-head');
+    head.append(el('span', `jc-ticon ${toolKindClass(a.tool)}`, a.ask_kind === 'plan' ? '☰' : a.ask_kind === 'question' ? '?' : a.tool === 'Bash' ? '›_' : '✎'), el('span', '', title));
+    li.append(head);
+    if (a.detail) li.append(a.ask_kind === 'plan' ? richText(a.detail) : a.ask_kind === 'question' ? el('p', 'jc-dim', '') : diffBlock(a.detail));
+    const row = el('div', 'jc-choices');
+    const feedback = el('div', 'jc-feedback');
+    feedback.hidden = true;
+    const input = el('input', 'jc-field');
+    input.placeholder = 'Tell Claude what to do instead (optional)';
+    const sendNo = el('button', 'jc-btn small', 'Send');
+    sendNo.type = 'button';
+    feedback.append(input, sendNo);
     a.choices.forEach((c, i) => {
-      const item = el('li');
-      const b = el('button', i === 0 ? 'cc-choice active' : 'cc-choice');
+      const b = el('button', `jc-btn small ${i === 0 ? 'filled' : ''}`);
       b.type = 'button';
-      b.append(el('span', 'cc-pointer', i === 0 ? '❯' : ' '), document.createTextNode(`${i + 1}. ${c.label}`));
-      b.addEventListener('click', () => answerApproval(a, c.id));
-      item.append(b);
-      list.append(item);
+      b.append(el('kbd', '', String(i + 1)), document.createTextNode(c.label));
+      b.addEventListener('click', () => {
+        if (c.id === 'deny') { feedback.hidden = false; input.focus(); return; }
+        answerApproval(a, c.id);
+      });
+      row.append(b);
     });
-    li.append(list, el('p', 'dim cc-ask-hint', 'Press a number, or say “yes”, “no” or “option 2”.'));
+    sendNo.addEventListener('click', () => answerApproval(a, 'deny', input.value));
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); answerApproval(a, 'deny', input.value); } });
+    li.append(row, feedback, el('p', 'jc-ask-hint', 'Press a number, or just say “yes”, “no, …” or “option 2”.'));
     $('deck-timeline').append(li);
     $('cc-welcome').hidden = true;
     $('cc-scroll').scrollTop = $('cc-scroll').scrollHeight;
   }
 }
 
-function answerApproval(a, choice) {
-  send({ type: 'approve', id: a.id, choice });
+function answerApproval(a, choice, feedback) {
+  send({ type: 'approve', id: a.id, choice, feedback: feedback || '' });
   document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove());
 }
 
-// ── the prompt: messages, slash commands, shortcuts ──
+// ── the composer: messages, / commands, @ files, pictures ──
 
 const SLASH_COMMANDS = [
-  ['plan', 'Plan mode: plan first, you approve'],
-  ['ask', 'Ask before each edit and command'],
-  ['edits', 'Accept edits automatically'],
-  ['auto', 'Full auto: run anything'],
-  ['undo', 'Undo the last round of file changes'],
-  ['diff', 'What changed, summarised'],
-  ['commit', 'Commit the changes'],
-  ['pr', 'Push and open a pull request'],
-  ['test', 'Run the tests'],
-  ['compact', 'Compact the conversation'],
-  ['context', 'Context window used'],
-  ['cost', 'What this session has cost'],
-  ['model', 'Switch model: /model sonnet'],
-  ['new', 'New session in this project'],
-  ['voice', 'Voice coding on or off for this session'],
-  ['stop', 'Interrupt the current step'],
+  ['plan', 'Plan first, you approve'], ['ask', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'],
+  ['auto', 'Full auto: run anything'], ['undo', 'Undo the last round of file changes'], ['diff', 'Show what changed'],
+  ['commit', 'Commit the changes'], ['pr', 'Push and open a pull request'], ['test', 'Run the tests'],
+  ['compact', 'Compact the conversation'], ['context', 'Context window used'], ['cost', 'What this session has cost'],
+  ['model', 'Switch model: /model sonnet'], ['effort', 'How hard it thinks: /effort high'], ['fork', 'Fork this session'],
+  ['rename', 'Rename: /rename New name'], ['export', 'Save the transcript as Markdown'], ['files', 'Browse the project'],
+  ['terminal', 'Open a terminal here'], ['mcp', 'MCP servers'], ['permissions', 'Commands it won’t ask about again'],
+  ['init', 'Write a CLAUDE.md for this project'], ['review', 'Review the changes'], ['new', 'New session in this project'],
+  ['voice', 'Voice coding on or off'], ['stop', 'Interrupt the current step'],
 ];
-let slashIndex = 0;
+const projectFiles = {};
+let pickIndex = 0;
+let attachments = [];
 
-function slashMatches() {
-  const v = $('deck-input').value;
-  if (!v.startsWith('/') || v.includes(' ')) return [];
-  const q = v.slice(1).toLowerCase();
-  return SLASH_COMMANDS.filter(([name]) => name.startsWith(q));
+function suggestions() {
+  const input = $('deck-input');
+  const v = input.value.slice(0, input.selectionStart);
+  if (/^\/[\w-]*$/.test(v)) {
+    const q = v.slice(1).toLowerCase();
+    return { kind: 'slash', items: SLASH_COMMANDS.filter(([name]) => name.startsWith(q)).map(([name, help]) => ({ label: `/${name}`, help, value: name })) };
+  }
+  const m = v.match(/(?:^|\s)@([\w./-]*)$/);
+  if (m) {
+    const q = m[1].toLowerCase();
+    const files = (projectFiles[deckProject] || []).filter((f) => f.toLowerCase().includes(q)).sort((x, y) => x.length - y.length).slice(0, 12);
+    return { kind: 'at', query: m[1], items: files.map((f) => ({ label: f, help: '', value: f })) };
+  }
+  return { kind: '', items: [] };
 }
 
-function renderSlash() {
-  const items = slashMatches();
-  $('cc-slash').hidden = !items.length;
-  slashIndex = Math.min(slashIndex, Math.max(0, items.length - 1));
-  $('cc-slash').replaceChildren(...items.map(([name, help], i) => {
-    const b = el('button', i === slashIndex ? 'active' : '');
+function renderSuggestions() {
+  const s = suggestions();
+  const box = $('cc-slash');
+  box.hidden = !s.items.length;
+  pickIndex = Math.min(pickIndex, Math.max(0, s.items.length - 1));
+  box.replaceChildren(...s.items.map((item, i) => {
+    const b = el('button', i === pickIndex ? 'active' : '');
     b.type = 'button';
     b.setAttribute('role', 'option');
-    b.append(el('strong', '', `/${name}`), el('span', 'dim', help));
-    b.addEventListener('mousedown', (e) => { e.preventDefault(); pickSlash(name); });
+    if (s.kind === 'at') b.append(el('code', '', item.label));
+    else b.append(el('strong', '', item.label), el('span', '', item.help));
+    b.addEventListener('mousedown', (e) => { e.preventDefault(); pick(s, item); });
     return b;
   }));
 }
 
-function pickSlash(name) {
-  $('deck-input').value = name === 'model' ? '/model ' : `/${name}`;
+function pick(s, item) {
+  const input = $('deck-input');
+  if (s.kind === 'slash') {
+    const needsArg = ['model', 'effort', 'rename'].includes(item.value);
+    input.value = `/${item.value}${needsArg ? ' ' : ''}`;
+    $('cc-slash').hidden = true;
+    if (!needsArg) $('deck-composer').requestSubmit();
+    else input.focus();
+    return;
+  }
+  const before = input.value.slice(0, input.selectionStart).replace(/@[\w./-]*$/, `@${item.value} `);
+  input.value = before + input.value.slice(input.selectionStart);
+  input.selectionStart = input.selectionEnd = before.length;
   $('cc-slash').hidden = true;
-  if (name !== 'model') $('deck-composer').requestSubmit();
-  else $('deck-input').focus();
+  input.focus();
+}
+
+function localSlash(text) {
+  const [name, ...rest] = text.slice(1).split(' ');
+  const arg = rest.join(' ').trim();
+  const t = currentTask();
+  switch (name) {
+    case 'files': openPane('files'); return true;
+    case 'terminal': openPane('terminal'); return true;
+    case 'mcp': openPane('mcp'); return true;
+    case 'permissions': openPane('rules'); return true;
+    case 'diff': openPane('diff'); return false;  // also says it out loud / in the log
+    case 'fork': if (t) { awaitingNewSession = true; send({ type: 'task_fork', id: t.id }); } return true;
+    case 'rename': if (t && arg) send({ type: 'task_rename', id: t.id, title: arg }); return true;
+    case 'export': if (t) send({ type: 'task_export', id: t.id }); return true;
+    case 'effort': if (t && arg) send({ type: 'task_effort', id: t.id, effort: arg }); return true;
+    case 'init': if (t) send({ type: 'task_send', id: t.id, text: 'Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.' }); return true;
+    case 'review': if (t) send({ type: 'task_send', id: t.id, text: 'Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.' }); return true;
+    default: return false;
+  }
 }
 
 function sendToSession(text) {
   text = text.trim();
-  if (!text) return;
-  if (!ccSelected) {  // nothing open yet: the message starts a session here
+  const images = attachments.map((a) => ({ media_type: a.type, data: a.data }));
+  if (!text && !images.length) return;
+  clearAttachments();
+  const t = currentTask();
+  if (!t) {
     if (!deckProject) return;
     awaitingNewSession = true;
     send({ type: 'task_new', directory: deckProject, prompt: text, mode: 'ask' });
     return;
   }
-  if (text.startsWith('/')) {
+  if (text.startsWith('/') && !images.length) {
+    if (localSlash(text)) return;
     if (text === '/new' || text === '/clear') awaitingNewSession = true;
-    send({ type: 'code_command', id: ccSelected, text });
+    send({ type: 'code_command', id: t.id, text });
     return;
   }
-  send({ type: 'task_send', id: ccSelected, text });
+  send({ type: 'task_send', id: t.id, text, images });
 }
 
 $('deck-composer').addEventListener('submit', (e) => {
@@ -1333,39 +1634,417 @@ $('deck-composer').addEventListener('submit', (e) => {
 
 const MODE_CYCLE = ['ask', 'edits', 'plan'];
 $('deck-input').addEventListener('keydown', (e) => {
-  const items = slashMatches();
-  if (items.length && !$('cc-slash').hidden) {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); slashIndex = (slashIndex + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; renderSlash(); return; }
-    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pickSlash(items[slashIndex][0]); return; }
+  const s = suggestions();
+  if (s.items.length && !$('cc-slash').hidden) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length; renderSuggestions(); return; }
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(s, s.items[pickIndex]); return; }
+    if (e.key === 'Escape') { e.preventDefault(); $('cc-slash').hidden = true; return; }
   }
-  if (e.key === 'Tab' && e.shiftKey) {  // like Claude Code: shift+tab cycles the mode
+  if (e.key === 'Tab' && e.shiftKey) {  // shift+tab cycles the mode, as in Claude Code
     e.preventDefault();
-    const t = ccTasks.find((x) => x.id === ccSelected);
+    const t = currentTask();
     if (t) send({ type: 'task_mode', id: t.id, mode: MODE_CYCLE[(MODE_CYCLE.indexOf(t.mode) + 1) % MODE_CYCLE.length] });
     return;
   }
   if (e.key === 'Escape') {
-    const t = ccTasks.find((x) => x.id === ccSelected);
+    const t = currentTask();
     if (t && t.busy) { e.preventDefault(); send({ type: 'task_interrupt', id: t.id }); }
     return;
   }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
 });
 $('deck-input').addEventListener('input', () => {
-  slashIndex = 0;
-  renderSlash();
+  pickIndex = 0;
+  renderSuggestions();
   $('deck-input').style.height = 'auto';
-  $('deck-input').style.height = `${Math.min(180, $('deck-input').scrollHeight)}px`;
+  $('deck-input').style.height = `${Math.min(220, $('deck-input').scrollHeight)}px`;
 });
 
-// Number keys answer the approval on screen, as in Claude Code.
+// Pictures: paste, drop, or the paperclip.
+function addImageFile(file) {
+  if (!file || !file.type.startsWith('image/') || attachments.length >= 6 || file.size > 6_000_000) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const url = String(reader.result);
+    attachments.push({ type: file.type, data: url.split(',', 2)[1], url });
+    renderAttachments();
+  };
+  reader.readAsDataURL(file);
+}
+function renderAttachments() {
+  const box = $('jc-attach');
+  box.hidden = !attachments.length;
+  box.replaceChildren(...attachments.map((a, i) => {
+    const t = el('span', 'jc-thumb-img');
+    const img = el('img');
+    img.src = a.url;
+    img.alt = 'Attached image';
+    const x = el('button', '', '×');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Remove image');
+    x.addEventListener('click', () => { attachments.splice(i, 1); renderAttachments(); });
+    t.append(img, x);
+    return t;
+  }));
+}
+function clearAttachments() { attachments = []; renderAttachments(); }
+$('deck-input').addEventListener('paste', (e) => {
+  const files = [...(e.clipboardData ? e.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
+  if (files.length) { e.preventDefault(); files.forEach(addImageFile); }
+});
+$('deck-composer').addEventListener('dragover', (e) => { e.preventDefault(); $('deck-composer').classList.add('drag'); });
+$('deck-composer').addEventListener('dragleave', () => $('deck-composer').classList.remove('drag'));
+$('deck-composer').addEventListener('drop', (e) => {
+  e.preventDefault();
+  $('deck-composer').classList.remove('drag');
+  [...e.dataTransfer.files].forEach(addImageFile);
+});
+$('jc-attach-btn').addEventListener('click', () => $('jc-file').click());
+$('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addImageFile); e.target.value = ''; });
+
+// Number keys answer the approval on screen; ⇧⌘F opens the files.
 document.addEventListener('keydown', (e) => {
-  if ($('cc').hidden || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (document.activeElement === $('deck-input') && $('deck-input').value) return;
+  if ($('cc').hidden) return;
+  if (e.key.toLowerCase() === 'f' && e.metaKey && e.shiftKey) { e.preventDefault(); openPane('files'); return; }
+  if (e.key === 'Escape' && !$('jc-menu').hidden) { closeMenu(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if ((tag === 'INPUT' || tag === 'TEXTAREA') && document.activeElement.value) return;
   const a = [...pendingApprovals.values()].find((x) => x.task_id === ccSelected);
   const n = Number(e.key);
-  if (a && n >= 1 && n <= a.choices.length) { e.preventDefault(); answerApproval(a, a.choices[n - 1].id); }
+  if (a && n >= 1 && n <= a.choices.length) {
+    e.preventDefault();
+    const c = a.choices[n - 1];
+    if (c.id === 'deny') { const box = document.querySelector(`[data-approval="${CSS.escape(a.id)}"] .jc-feedback`); if (box) { box.hidden = false; box.querySelector('input').focus(); } } else answerApproval(a, c.id);
+  }
 });
+
+// ── menus: model, effort, More ──
+
+function openMenu(anchor, items) {
+  const menu = $('jc-menu');
+  menu.replaceChildren(...items.map((item) => {
+    if (item === '-') return el('hr');
+    const b = el('button', item.switch !== undefined ? 'jc-menu-switch' : '');
+    b.type = 'button';
+    b.setAttribute('role', item.checked !== undefined ? 'menuitemradio' : 'menuitem');
+    if (item.checked !== undefined) b.setAttribute('aria-checked', String(item.checked));
+    if (item.switch !== undefined) {
+      const text = el('span', '', item.label);
+      if (item.note) text.append(el('small', '', item.note));
+      b.append(text, el('span', `sw ${item.switch ? 'on' : ''}`));
+    } else {
+      b.append(el('span', '', item.label));
+      if (item.key) b.append(el('span', 'k', item.key));
+    }
+    b.addEventListener('click', () => { closeMenu(); item.run(); });
+    return b;
+  }));
+  menu.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
+  menu.style.top = `${r.bottom + 6 + h > window.innerHeight ? r.top - h - 6 : r.bottom + 6}px`;
+  anchor.setAttribute('aria-expanded', 'true');
+  menu.dataset.anchor = anchor.id;
+  const first = menu.querySelector('button');
+  if (first) first.focus();
+}
+function closeMenu() {
+  const menu = $('jc-menu');
+  if (menu.hidden) return;
+  menu.hidden = true;
+  const anchor = menu.dataset.anchor && $(menu.dataset.anchor);
+  if (anchor) anchor.setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('mousedown', (e) => {
+  if (!$('jc-menu').hidden && !$('jc-menu').contains(e.target) && !e.target.closest('[aria-haspopup]')) closeMenu();
+});
+
+$('jc-model').addEventListener('click', () => {
+  const t = currentTask();
+  if (!t) return;
+  openMenu($('jc-model'), Object.entries({ opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 4.5', fable: 'Fable 5.1' }).map(([key, label]) => ({
+    label, checked: MODEL_LABELS[t.model] === label, run: () => send({ type: 'code_command', id: t.id, text: `/model ${key}` }),
+  })));
+});
+$('jc-effort').addEventListener('click', () => {
+  const t = currentTask();
+  if (!t) return;
+  const notes = { low: 'Fastest', medium: '', high: 'The default', xhigh: '', max: 'Thinks as hard as it can' };
+  openMenu($('jc-effort'), ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => ({
+    label: `${e[0].toUpperCase()}${e.slice(1)}${notes[e] ? ` · ${notes[e]}` : ''}`, checked: (t.effort || 'high') === e,
+    run: () => send({ type: 'task_effort', id: t.id, effort: e }),
+  })));
+});
+let awake = false;
+$('jc-more').addEventListener('click', () => {
+  const t = currentTask();
+  openMenu($('jc-more'), [
+    { label: 'Artifacts', run: () => openPane('artifacts') },
+    { label: 'Files', key: '⇧⌘F', run: () => openPane('files') },
+    { label: 'Background tasks', run: () => openPane('background') },
+    { label: 'iOS Simulator', run: () => openPane('sim') },
+    { label: 'MCP servers', run: () => openPane('mcp') },
+    { label: 'Permissions', run: () => openPane('rules') },
+    '-',
+    { label: 'Rename session…', run: () => $('jc-title').dispatchEvent(new MouseEvent('dblclick')) },
+    { label: 'Fork session', run: () => { if (t) { awakeNewSessionFork(t); } } },
+    { label: 'Export transcript', run: () => t && send({ type: 'task_export', id: t.id }) },
+    { label: 'Interrupt', key: 'Esc', run: () => t && send({ type: 'task_interrupt', id: t.id }) },
+    { label: 'End session', run: () => t && send({ type: 'task_cancel', id: t.id }) },
+    '-',
+    { label: 'Keep computer awake', note: 'Only while Jarvis is running', switch: awake, run: () => send({ type: 'awake', on: !awake }) },
+  ]);
+});
+function awakeNewSessionFork(t) { awaitingNewSession = true; send({ type: 'task_fork', id: t.id }); }
+
+// ── the workbench pane ──
+
+let currentPane = null;
+const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions' };
+const term = { id: null, xterm: null, fit: null, loading: null, observer: null };
+let diffFiles = [];
+let simDevices = [];
+let simWatching = '';
+let fileView = null;
+let mcpServers = [];
+let rules = [];
+
+document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.addEventListener('click', () => {
+  if (currentPane === b.dataset.pane) closePane(); else openPane(b.dataset.pane);
+}));
+$('jc-browser').addEventListener('click', () => { if (typeof toggleBrowser === 'function') toggleBrowser(true); });
+$('jc-pane-close').addEventListener('click', closePane);
+
+function openPane(kind) {
+  if (currentPane === 'sim' && kind !== 'sim') send({ type: 'sim_watch', udid: '' });
+  currentPane = kind;
+  $('jc-pane').hidden = false;
+  $('jc-pane-title').textContent = PANE_TITLES[kind] || kind;
+  document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pane === kind)));
+  const t = currentTask();
+  if (kind === 'diff' && t) send({ type: 'task_diff', id: t.id });
+  if (kind === 'sim') send({ type: 'sim_list' });
+  if (kind === 'mcp' && t) send({ type: 'task_mcp', id: t.id });
+  if (kind === 'rules' && t) send({ type: 'task_rules', id: t.id });
+  if ((kind === 'files' || kind === 'artifacts') && deckProject && !projectFiles[deckProject]) send({ type: 'project_files', directory: deckProject });
+  renderPaneBody();
+}
+
+function closePane() {
+  if (currentPane === 'sim') send({ type: 'sim_watch', udid: '' });
+  currentPane = null;
+  $('jc-pane').hidden = true;
+  document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+}
+
+function renderPaneBody() {
+  const body = $('jc-pane-body');
+  body.classList.toggle('flush', currentPane === 'terminal');
+  $('jc-pane-extra').replaceChildren();
+  const t = currentTask();
+  if (currentPane === 'terminal') return renderTerminal(body);
+  if (currentPane === 'diff') return renderDiffPane(body);
+  if (currentPane === 'sim') return renderSimPane(body);
+  if (currentPane === 'files') return renderFilesPane(body, (projectFiles[deckProject] || []), 'Filter files…');
+  if (currentPane === 'artifacts') {
+    const root = t ? t.path : '';
+    const changed = (t ? t.files_changed : []).map((f) => (root && f.startsWith(`${root}/`) ? f.slice(root.length + 1) : f));
+    const created = diffFiles.filter((f) => f.new).map((f) => f.path);
+    return renderFilesPane(body, [...new Set([...changed, ...created])], 'Files this session made or changed');
+  }
+  if (currentPane === 'background') {
+    const items = t ? t.background : [];
+    if (!items.length) { body.replaceChildren(el('p', 'jc-empty', 'Nothing running in the background.')); return; }
+    const ul = el('ul', 'jc-list');
+    ul.append(...items.map((b) => {
+      const li = el('li');
+      const stop = el('button', 'jc-btn small danger', 'Stop');
+      stop.type = 'button';
+      stop.addEventListener('click', () => send({ type: 'task_bg_stop', id: t.id, bg: b.id }));
+      li.append(el('span', 'jc-dot busy'), el('span', '', b.description || b.kind || b.id), stop);
+      return li;
+    }));
+    body.replaceChildren(ul);
+    return;
+  }
+  if (currentPane === 'mcp') {
+    if (!mcpServers.length) { body.replaceChildren(el('p', 'jc-empty', t && t.client !== null ? 'No MCP servers in this project.' : 'Open a session to see its MCP servers.')); return; }
+    const ul = el('ul', 'jc-list');
+    ul.append(...mcpServers.map((s) => { const li = el('li'); li.append(el('span', '', s.name), el('small', '', s.status)); return li; }));
+    body.replaceChildren(ul);
+    return;
+  }
+  if (currentPane === 'rules') {
+    const intro = el('p', 'jc-dim', 'Commands Jarvis Code runs here without asking (from “Yes, and don’t ask again”).');
+    if (!rules.length) { body.replaceChildren(intro, el('p', 'jc-empty', 'None yet.')); return; }
+    const ul = el('ul', 'jc-list');
+    ul.append(...rules.map((r) => {
+      const li = el('li');
+      const rm = el('button', 'jc-btn small', 'Remove');
+      rm.type = 'button';
+      rm.addEventListener('click', () => send({ type: 'task_rules', id: t.id, remove: r }));
+      li.append(el('span', '', ''), rm);
+      li.firstChild.append(el('code', '', `${r} …`));
+      return li;
+    }));
+    body.replaceChildren(intro, ul);
+  }
+}
+
+function renderDiffPane(body) {
+  const t = currentTask();
+  if (!t) { body.replaceChildren(el('p', 'jc-empty', 'Open a session to see its changes.')); return; }
+  if (!diffFiles.length) { body.replaceChildren(el('p', 'jc-empty', 'No changes against the last commit.')); return; }
+  const added = diffFiles.reduce((n, f) => n + f.added, 0), removed = diffFiles.reduce((n, f) => n + f.removed, 0);
+  const extra = el('span', 'jc-dim');
+  extra.append(el('span', 'jc-plus', `+${added}`), document.createTextNode(' '), el('span', 'jc-minus', `−${removed}`));
+  $('jc-pane-extra').replaceChildren(extra);
+  body.replaceChildren(...diffFiles.map((f, i) => {
+    const det = el('details', 'jc-card jc-diff-file');
+    det.open = i < 4;
+    const sum = el('summary');
+    sum.append(el('span', '', f.path), el('span', 'jc-spacer'), el('span', 'jc-plus', `+${f.added}`), el('span', 'jc-minus', `−${f.removed}`));
+    det.append(sum);
+    const text = f.hunks.map((h) => [`@@ line ${h.line}${h.where ? ` · ${h.where}` : ''}`, ...h.removed.map((l) => `-${l}`), ...h.added.map((l) => `+${l}`)].join('\n')).join('\n');
+    det.append(diffBlock(text));
+    return det;
+  }));
+}
+
+function renderSimPane(body) {
+  const box = el('div', 'jc-sim');
+  const booted = simDevices.filter((d) => d.state === 'Booted');
+  if (!simDevices.length) { body.replaceChildren(el('p', 'jc-empty', 'Looking for simulators… (Xcode needs to be installed)')); return; }
+  if (booted.length) {
+    const device = booted[0];
+    if (simWatching !== device.udid) { simWatching = device.udid; send({ type: 'sim_watch', udid: device.udid }); }
+    const img = el('img');
+    img.id = 'jc-sim-img';
+    img.alt = `${device.name} screen`;
+    const open = el('button', 'jc-btn small', 'Open Simulator');
+    open.type = 'button';
+    open.addEventListener('click', () => send({ type: 'sim_open' }));
+    box.append(el('p', 'jc-dim', `${device.name} · ${device.os}`), img, open);
+  } else {
+    box.append(el('p', 'jc-dim', 'No simulator is running. Boot one:'));
+    const ul = el('ul', 'jc-list');
+    ul.append(...simDevices.slice(0, 8).map((d) => {
+      const li = el('li');
+      const boot = el('button', 'jc-btn small', 'Boot');
+      boot.type = 'button';
+      boot.addEventListener('click', () => { boot.textContent = 'Booting…'; send({ type: 'sim_boot', udid: d.udid }); });
+      li.append(el('span', '', `${d.name}`), el('small', '', d.os), boot);
+      return li;
+    }));
+    box.append(ul);
+  }
+  body.replaceChildren(box);
+}
+
+function renderFilesPane(body, files, placeholder) {
+  const filter = el('input', 'jc-field');
+  filter.placeholder = placeholder;
+  filter.style.width = '100%';
+  const list = el('ul', 'jc-files-list');
+  const viewer = el('div', 'jc-viewer');
+  const draw = () => {
+    const q = filter.value.trim().toLowerCase();
+    const shown = files.filter((f) => !q || f.toLowerCase().includes(q)).slice(0, 300);
+    list.replaceChildren(...(shown.length ? shown.map((f) => {
+      const li = el('li');
+      const b = el('button', '', f);
+      b.type = 'button';
+      b.addEventListener('click', () => { fileView = { path: f }; send({ type: 'file_read', directory: deckProject, path: f }); drawViewer(viewer); });
+      li.append(b);
+      return li;
+    }) : [el('li', 'jc-empty', files.length ? 'No matches.' : 'Nothing here yet.')]));
+  };
+  filter.addEventListener('input', draw);
+  draw();
+  drawViewer(viewer);
+  body.replaceChildren(filter, list, viewer);
+  filter.focus();
+}
+
+function drawViewer(viewer) {
+  viewer = viewer || document.querySelector('#jc-pane-body .jc-viewer');
+  if (!viewer || !fileView) return;
+  if (!fileView.text && !fileView.error) { viewer.replaceChildren(el('p', 'jc-dim', `Opening ${fileView.path}…`)); return; }
+  if (fileView.error) { viewer.replaceChildren(el('p', 'jc-dim', fileView.error)); return; }
+  const pre = el('pre', 'jc-code');
+  for (const line of fileView.text.split('\n').slice(0, 4000)) pre.append(el('span', 'ln', `${line}\n`));
+  viewer.replaceChildren(el('p', 'jc-label', fileView.path + (fileView.truncated ? ' (first 300 KB)' : '')), pre);
+  viewer.scrollIntoView({ block: 'nearest' });
+}
+
+// The terminal: xterm.js drawing a real shell in the project folder.
+function loadScript(src) {
+  return new Promise((resolve, reject) => { const s = document.createElement('script'); s.src = src; s.onload = resolve; s.onerror = reject; document.head.append(s); });
+}
+async function ensureXterm() {
+  if (window.Terminal && window.FitAddon) return;
+  if (!term.loading) {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = '/xterm/xterm/css/xterm.css';
+    document.head.append(css);
+    term.loading = loadScript('/xterm/xterm/lib/xterm.js').then(() => loadScript('/xterm/addon-fit/lib/addon-fit.js'));
+  }
+  await term.loading;
+}
+
+async function renderTerminal(body) {
+  const t = currentTask();
+  if (!t && !deckProject) { body.replaceChildren(el('p', 'jc-empty', 'Pick a project first.')); return; }
+  const host = el('div', 'jc-term');
+  body.replaceChildren(host);
+  try { await ensureXterm(); } catch (_) { host.replaceChildren(el('p', 'jc-empty', 'The terminal component didn’t load.')); return; }
+  if (!term.xterm) {
+    term.xterm = new window.Terminal({
+      fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: 12.5, cursorBlink: true, allowProposedApi: false,
+      theme: { background: '#0d0d10', foreground: '#e6e6ea', cursor: '#40b0f0', selectionBackground: 'rgba(64,176,240,0.35)' },
+    });
+    term.fit = new window.FitAddon.FitAddon();
+    term.xterm.loadAddon(term.fit);
+    term.xterm.onData((data) => term.id && send({ type: 'term_input', term: term.id, data }));
+  }
+  term.xterm.open(host);
+  requestAnimationFrame(() => { try { term.fit.fit(); } catch (_) { /* hidden */ } sendTermSize(); term.xterm.focus(); });
+  if (term.observer) term.observer.disconnect();
+  term.observer = new ResizeObserver(() => { try { term.fit.fit(); } catch (_) { /* hidden */ } sendTermSize(); });
+  term.observer.observe(host);
+  send(t ? { type: 'term_open', id: t.id } : { type: 'term_open', directory: deckProject });
+}
+function sendTermSize() {
+  if (term.id && term.xterm) send({ type: 'term_resize', term: term.id, cols: term.xterm.cols, rows: term.xterm.rows });
+}
+function onTermOpen(ev) {
+  term.id = ev.term;
+  $('jc-pane-extra').replaceChildren(el('span', 'jc-dim', ev.folder));
+  sendTermSize();
+}
+function onTermData(ev) {
+  if (!term.xterm || ev.term !== term.id) return;
+  const bytes = Uint8Array.from(atob(ev.data), (c) => c.charCodeAt(0));
+  term.xterm.write(bytes);
+}
+
+// ── voice coding: which session your voice goes to ──
+let voiceFocus = null;
+const MODE_LABELS = { plan: 'Plan mode', ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
+
+function onVoiceCode(focus) {
+  voiceFocus = focus || null;
+  $('code-pill').hidden = !voiceFocus;
+  if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
+  $('cc-voice-head').setAttribute('aria-pressed', String(!!voiceFocus));
+  $('cc-voice-label').textContent = voiceFocus ? `Voice · ${voiceFocus.folder}` : 'Voice off';
+  $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === ccSelected));
+  $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type…' : 'Ask Jarvis Code to plan, build or fix something…';
+  renderProjects(deckProjects);
+}
 
 $('ds-voice').addEventListener('click', () => {
   if (!ccSelected) { newSession(true); return; }
@@ -1379,19 +2058,24 @@ $('cc-voice-head').addEventListener('click', () => {
 });
 $('code-exit').addEventListener('click', () => send({ type: 'voicecode_exit' }));
 
-// ── voice coding: which session your voice goes to ──
-let voiceFocus = null;
-const MODE_LABELS = { plan: 'Plan mode', ask: 'Ask first', edits: 'Auto-edits', auto: 'Full auto' };
-
-function onVoiceCode(focus) {
-  voiceFocus = focus || null;
-  $('code-pill').hidden = !voiceFocus;
-  if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
-  $('cc-voice-head').setAttribute('aria-pressed', String(!!voiceFocus));
-  $('cc-voice-label').textContent = voiceFocus ? `Voice coding · ${voiceFocus.folder}` : 'Voice coding off';
-  $('ds-voice').setAttribute('aria-pressed', String(!!voiceFocus && voiceFocus.id === ccSelected));
-  $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type' : 'Try “plan a retry for the query”, or just talk';
-  renderProjects(deckProjects);
+// Events for Jarvis Code beyond the core ones.
+function onJarvisCodeEvent(ev) {
+  switch (ev.type) {
+    case 'task_stream': onStream(ev); return true;
+    case 'task_entry_meta': onEntryMeta(ev); return true;
+    case 'task_diff': if (ev.id === ccSelected) { diffFiles = ev.files || []; if (currentPane === 'diff' || currentPane === 'artifacts') renderPaneBody(); } return true;
+    case 'task_rules': if (ev.id === ccSelected) { rules = ev.rules || []; if (currentPane === 'rules') renderPaneBody(); } return true;
+    case 'task_mcp': if (ev.id === ccSelected) { mcpServers = ev.servers || []; if (currentPane === 'mcp') renderPaneBody(); } return true;
+    case 'project_files': projectFiles[ev.directory] = ev.files || []; if (currentPane === 'files' && ev.directory === deckProject) renderPaneBody(); return true;
+    case 'file_content': if (fileView && ev.path === fileView.path) { fileView = ev; drawViewer(); } return true;
+    case 'term_open': onTermOpen(ev); return true;
+    case 'term_data': onTermData(ev); return true;
+    case 'term_exit': if (ev.term === term.id && term.xterm) term.xterm.write('\r\n[shell exited — reopen the Terminal to start a new one]\r\n'); return true;
+    case 'sim_list': simDevices = ev.devices || []; if (currentPane === 'sim') renderPaneBody(); return true;
+    case 'sim_frame': { const img = $('jc-sim-img'); if (img) img.src = `data:image/jpeg;base64,${ev.jpeg}`; return true; }
+    case 'awake': awake = !!ev.on; return true;
+    default: return false;
+  }
 }
 
 // ── built-in browser (in the J.A.R.V.I.S. app only) ──

@@ -58,7 +58,7 @@ EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 ALLOW, ALLOW_EDITS, DENY, ALWAYS = "allow", "allow_edits", "deny", "always"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 AGENT_TOOLS = {"Task", "Agent"}
-EXPORT_DIR = Path.home() / "Documents" / "Jarvis" / "Claude Code"
+EXPORT_DIR = Path.home() / "Documents" / "Jarvis" / "Jarvis Code"
 # Commands whose second word says what they do: "git commit", "npm test", "uv run".
 _TWO_WORD = {
     "git", "npm", "pnpm", "yarn", "uv", "cargo", "go", "make", "docker", "gh", "bun",
@@ -179,7 +179,7 @@ class ClaudeTask:
             "prompt": self.prompt,
             "folder": self.cwd.name,
             "kind": self.kind,
-            "label": "Research" if self.kind == "research" else f"Claude Code · {self.cwd.name}",
+            "label": "Research" if self.kind == "research" else f"Jarvis Code · {self.cwd.name}",
             "title": self.title or self.prompt[:80],
             "mode": self.mode,
             "plan": self.plan,
@@ -360,7 +360,7 @@ class TaskManager:
         """Put the files back as they were before the last message's changes."""
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code":
-            return "No Claude Code session with that number."
+            return "No Jarvis Code session with that number."
         if task.busy:
             return "It's still working; stop it first."
         if not task.checkpoints or task.client is None:
@@ -633,7 +633,14 @@ class TaskManager:
                 task.handle.cancel()
 
     def public(self) -> list[dict[str, Any]]:
-        return [t.public() for t in sorted(self.tasks.values(), key=lambda t: -t.id)]
+        """Every session for the windows, with the model and effort it actually uses."""
+        out = []
+        for t in sorted(self.tasks.values(), key=lambda t: -t.id):
+            item = t.public()
+            item["model"] = t.model or self.model
+            item["effort"] = t.effort or self.settings.task_effort
+            out.append(item)
+        return out
 
     def _changed(self) -> None:
         self.emit("tasks", items=self.public())
@@ -693,6 +700,9 @@ class TaskManager:
             async with self.client_factory(options=self.options_for(task)) as client:
                 task.client = client
                 while True:
+                    if task.inbox.empty() and task.status == "running":
+                        task.status, task.last_action = "waiting", "Waiting for you"
+                        self._changed()  # open and idle: it's the user's turn
                     try:
                         text = await asyncio.wait_for(task.inbox.get(), IDLE_CLOSE_SECONDS)
                     except TimeoutError:
@@ -704,6 +714,9 @@ class TaskManager:
                     if isinstance(text, dict):
                         text, images = text.get("text", ""), text.get("images") or []
                     self._log(task, "user", text, images=len(images))
+                    if not task.title and not task.prompt and text and not text.startswith("/"):
+                        # Named after its first request, as Claude Code does.
+                        task.title = _session_title(text)
                     self._changed()
                     turn_started = time.monotonic()
                     await client.query(_with_images(text, images) if images else text)
@@ -928,7 +941,7 @@ class TaskManager:
             task.last_action = "Waiting for you"
             self._changed()
             choice = await self.approve(
-                f"Claude Code in {task.cwd.name} wants to {verb}",
+                f"Jarvis Code in {task.cwd.name} wants to {verb}",
                 approval_detail(tool_name, tool_input, task.cwd),
                 choices,
                 context={"task_id": task.id, "tool": tool_name},
@@ -958,7 +971,7 @@ class TaskManager:
         self.emit("task_plan", id=task.id, plan=task.plan)
         self._changed()
         choice = await self.approve(
-            f"Claude Code in {task.cwd.name} has a plan",
+            f"Jarvis Code in {task.cwd.name} has a plan",
             task.plan,
             [
                 (PLAN_APPROVE_EDITS, "Go, auto-accept edits"),
@@ -1024,7 +1037,7 @@ class TaskManager:
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Started Claude Code task {task.id} in {task.cwd.name}. "
+                        "text": f"Started Jarvis Code session {task.id} in {task.cwd.name}. "
                         "Its progress shows in the app.",
                     }
                 ]
@@ -1038,7 +1051,7 @@ class TaskManager:
         )
         async def message_claude_task(args):
             ok = self.send(int(args["task_id"]), str(args["message"]))
-            text = "Sent." if ok else "No Claude Code session with that number."
+            text = "Sent." if ok else "No Jarvis Code session with that number."
             return {"content": [{"type": "text", "text": text}], "is_error": not ok}
 
         @tool(
@@ -1166,6 +1179,13 @@ async def _with_images(text: str, images: list[dict[str, str]]):
 
 async def _deny_everything(tool_name: str, _input: dict[str, Any], _ctx: ToolPermissionContext):
     return PermissionResultDeny(message=f"{tool_name} isn't available to the research desk.")
+
+
+def _session_title(text: str) -> str:
+    first = re.split(r"(?<=[.!?])\s|\n", text.strip(), maxsplit=1)[0]
+    words = first.split()
+    title = " ".join(words[:9]) + ("…" if len(words) > 9 else "")
+    return title[:1].upper() + title[1:80]
 
 
 def _brief(task: ClaudeTask) -> str:

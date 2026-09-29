@@ -298,3 +298,13 @@ async def test_pictures_go_to_claude_with_the_message():
     content = msgs[0]["message"]["content"]
     assert content[0]["type"] == "image" and content[0]["source"]["data"] == "AAAA"
     assert content[1] == {"type": "text", "text": "what's wrong here?"}
+
+
+def test_sessions_are_named_after_their_first_request():
+    from jarvis.tasks import _session_title
+
+    assert (
+        _session_title("add a retry around the query in hub.py and test it")
+        == "Add a retry around the query in hub.py and…"
+    )
+    assert _session_title("Fix the build. Then deploy it.") == "Fix the build."
