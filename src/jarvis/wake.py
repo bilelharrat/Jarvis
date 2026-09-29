@@ -27,13 +27,19 @@ STOP_PHRASES = {
 }
 
 _WORD = re.compile(r"[a-z']+")
-# "Hey Jarvis" and friends. After one of these, looser sound-alikes count too: Whisper
-# often writes "Hey Travis" or "Hey Harvis" for "Hey Jarvis".
-GREETINGS = {"hey", "hi", "okay", "ok", "yo", "hello", "a", "hay", "heh"}
+# "Hey Jarvis" and friends. When one of these opens the utterance, a few names Whisper
+# writes for "Jarvis" count too ("Hey Travis", "Okay Marvis"); on their own, or later in
+# a sentence ("…a Paris trip", "Hi Harris"), they're just words.
+GREETINGS = {"hey", "hi", "okay", "ok", "yo", "hello", "hay"}
+GREETED_MISHEARINGS = {
+    "travis", "harvis", "marvis", "garvis", "carvis", "darvis", "charvis", "jarbis", "jarviss",
+}  # fmt: skip
+# "Jarvis Code", the coding panel, is a name JARVIS says itself: never a wake word.
+_PANEL = {"code", "codes"}
 
 
 def words(text: str) -> list[str]:
-    return _WORD.findall(text.lower())
+    return _WORD.findall(text.lower().replace("’", "'"))
 
 
 def _is_wake_token(token: str) -> bool:
@@ -43,11 +49,6 @@ def _is_wake_token(token: str) -> bool:
     if not (5 <= len(token) <= 10) or token[0] not in "jgc":
         return False
     return difflib.SequenceMatcher(None, token, "jarvis").ratio() >= 0.76
-
-
-def _is_greeted_wake(token: str) -> bool:
-    """A near-miss of "jarvis" that only counts right after a greeting."""
-    return 4 <= len(token) <= 9 and difflib.SequenceMatcher(None, token, "jarvis").ratio() >= 0.6
 
 
 def find_wake(text: str) -> tuple[bool, str]:
@@ -60,13 +61,16 @@ def find_wake(text: str) -> tuple[bool, str]:
     tokens = [(i, t) for i, t in tokens if t]
     for n, (i, token) in enumerate(tokens):
         span = None
-        greeted = n > 0 and tokens[n - 1][1] in GREETINGS
-        if _is_wake_token(token) or (greeted and _is_greeted_wake(token)):
+        greeted = n == 1 and tokens[0][1] in GREETINGS
+        if _is_wake_token(token) or (greeted and token in GREETED_MISHEARINGS):
             span = (i, i)
         elif n + 1 < len(tokens) and _is_wake_token(token + tokens[n + 1][1]):
             span = (i, tokens[n + 1][0])
         if span is None:
             continue
+        following = [t for j, t in tokens if j > span[1]][:1]
+        if following and following[0] in _PANEL and not re.search(r"\W$", pieces[span[1]]):
+            continue  # "Jarvis Code finished in…": the panel's name, likely its own voice
         before = "".join(pieces[: span[0]]).strip(" ,.!?;:-")
         after = "".join(pieces[span[1] + 1 :]).strip(" ,.!?;:-")
         before = re.sub(r"^(?:hey|hi|okay|ok|yo|hello)\b[\s,]*", "", before, flags=re.I).strip()
@@ -133,16 +137,34 @@ NO = {
 }
 
 
+# Sounds that open an answer without being one: "Okay, no, don't send it" is a no.
+FILLERS = {"okay", "ok", "so", "um", "umm", "uh", "uhh", "er", "erm", "well", "hmm", "oh", "ah"}
+# A wait isn't a no, and "yes, but wait" isn't a yes: the question stays open.
+HESITATIONS = {"wait", "hold on", "hang on"}
+
+
 def yes_no(text: str) -> bool | None:
-    """A short spoken answer to a question JARVIS just asked: True, False, or None."""
-    w = [t.replace("’", "'") for t in words(text) if not _is_wake_token(t)]
+    """A short spoken answer to a question JARVIS just asked: True, False, or None when
+    it's neither or unclear. A no anywhere wins ("Sure, actually no", "OK, cancel")."""
+    w = [t for t in words(text) if not _is_wake_token(t)]
+    while len(w) > 1 and w[0] in FILLERS:
+        w = w[1:]
     if not w or len(w) > 5:
         return None
-    for size in (3, 2, 1):  # "no, don't send it" is a no, though it contains "send it"
-        lead = " ".join(w[:size])
-        if lead in NO:
-            return False
-        if lead in YES:
+    waiting = False
+    for k in range(len(w)):
+        for size in (3, 2, 1):
+            phrase = " ".join(w[k : k + size]) if k + size <= len(w) else ""
+            if phrase in HESITATIONS:
+                waiting = True
+            elif phrase in NO and not (
+                phrase == "no" and w[k + 1 : k + 2] in (["problem"], ["worries"], ["doubt"])
+            ):
+                return False
+    if waiting:
+        return None
+    for size in (3, 2, 1):
+        if " ".join(w[:size]) in YES:
             return True
     return None
 

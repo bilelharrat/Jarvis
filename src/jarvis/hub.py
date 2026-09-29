@@ -39,8 +39,19 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import computer, defense, invoices, mac_tools, research, screenwatch, ui
-from .brain import build_options
+from . import code_tools, computer, defense, invoices, mac_tools, research, screenwatch, ui
+from .brain import (
+    EGRESS_TOOLS,
+    app_tool,
+    browser_address,
+    browser_tool,
+    build_options,
+    host_said,
+    mac_tool,
+    result_kind,
+    task_tool,
+    url_host,
+)
 from .config import Settings
 from .connectors import ConnectorManager
 from .home import Shortcuts, match_shortcut
@@ -129,14 +140,152 @@ BASH_OUTPUT = 20_000  # characters of its output kept
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 RESEARCH_FOLLOW_UP = 15.0  # after a Research Center command, the next needs no wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
+ECHO_WINDOW = 12.0  # what it said this recently may come back through the microphone
+VOICE_ANSWER_SECONDS = 60  # a question it asked out loud can be answered without the wake word
 CODE_ANNOUNCE_SECONDS = 20  # Claude Code turns shorter than this finish unannounced
+SPOKEN_TEXT = 400  # longer than this, a message for Claude Code is on screen, not read out
+# Window commands that can take a while (Claude Code control calls, git, simctl, big reads):
+# they run in the background, so a slow one never holds up the next (an Allow click, a stop).
+SLOW_COMMANDS = frozenset(
+    {
+        "stop", "task_rewind", "task_mcp", "task_bg_stop", "task_diff", "project_files",
+        "task_interrupt", "claude_projects", "project_git", "claude_sessions", "whats_this",
+        "shortcuts", "meeting_start", "sim_list", "sim_boot", "file_read", "code_command",
+        "task_context", "task_undo", "voicecode_start", "voicecode_enter",
+    }
+)  # fmt: skip
+
+# "Did the user ask for this?" is read from their own words this turn, and only a clause
+# that opens with the request counts ("remember that…", "take notes", "pause the morning
+# briefing"). A trigger word just somewhere in it ("search my notes") doesn't.
+_LEAD_IN = (
+    r"(?:(?:ok(?:ay)?|hey|hi|alright|all\s+right|right|so|now|well|oh|um|uh|and|also|then"
+    r"|just|please|jarvis|from\s+now\s+on)\b[\s,]*)*"
+    r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?"
+    r"|(?:i\s+(?:want|need)|i'?d\s+like|i\s+would\s+like)\s+you\s+to\s+|please\s+)?"
+)
+_CLAUSE_BREAK = re.compile(r"[.!?;\n]+|\b(?:and|then|also|but|plus)\b", re.IGNORECASE)
+_ROUTINE = (
+    r"(?:the\s+|my\s+|that\s+|this\s+|all\s+(?:of\s+)?(?:my\s+|the\s+)?)?"
+    r"(?:[\w'-]+\s+){0,5}?(?:routines?|briefings?|reminders?|schedules?)\b"
+)
+_WANT_TO = (
+    r"(?:let'?s|let\s+us|can\s+we|could\s+we|shall\s+we|i\s+want\s+to|i\s+wanna"
+    r"|i'?d\s+like\s+to|i\s+would\s+like\s+to|we\s+need\s+to|time\s+to)\s+"
+)
+_TELL = (
+    r"(?:tell|ask|message|ping|remind|instruct|answer|reply\s+to|respond\s+to|say\s+to|send"
+    r"|forward|pass(?:\s+(?:on|along))?|have|get|let)\s+"
+    r"(?:(?:a\s+)?(?:message|note|this|that|it)\s+(?:on\s+|over\s+|along\s+)?to\s+)?(?:the\s+)?"
+)
+
+
+def _asks(pattern: str) -> re.Pattern[str]:
+    return re.compile(_LEAD_IN + "(?:" + pattern + ")", re.IGNORECASE)
+
+
+def user_asked(pattern: re.Pattern[str], text: str) -> bool:
+    """True when a clause of what the user said opens with the request itself."""
+    return any(pattern.match(clause.strip(" \t,:-—")) for clause in _CLAUSE_BREAK.split(text or ""))
+
+
+def _folder_words(folder: str) -> list[str]:
+    """A folder's name as spoken: bsh-research-center, BSHResearch -> bsh, research…"""
+    split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", folder)
+    return re.findall(r"[a-z0-9]+", split.lower())
+
+
+def _folder_pattern(folder: str) -> str:
+    return r"[\W_]*".join(re.escape(w) for w in _folder_words(folder))
+
+
+def names_folder(text: str, folder: str) -> bool:
+    """The user said this project's name ("the BSH research center", "jarvis")."""
+    if len("".join(_folder_words(folder))) < 2:
+        return False
+    pattern = r"(?<![a-z0-9])" + _folder_pattern(folder) + r"(?![a-z0-9])"
+    return re.search(pattern, (text or "").lower()) is not None
+
+
+def speakable_safely(text: str) -> str | None:
+    """Words for JARVIS to say aloud without its own name: hearing "Jarvis" from its own
+    speaker wakes it mid-sentence (a project called jarvis, a message that mentions it).
+    None when that can't be helped."""
+    # A voice reads "J.A.R.V.I.S." as the name, which find_wake can't see in the letters.
+    spoken = re.sub(r"\bJ\.\s?A\.\s?R\.\s?V\.\s?I\.\s?S\b\.?", "the assistant", text or "")
+    if not find_wake(spoken)[0]:
+        return spoken
+    spoken = re.sub(
+        r"[A-Za-z'’]+",
+        lambda m: "the assistant" if find_wake(m.group())[0] else m.group(),
+        spoken,
+    )
+    return None if find_wake(spoken)[0] else spoken
+
+
+def _say_folder(folder: str) -> str:
+    return "this assistant's own project" if find_wake(folder)[0] else folder
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text[-1:] in (".", "!", "?", "…") else f"{text}."
+
+
 FEATURE_ASKED = {
-    "remember": r"\b(remember|don'?t forget|keep in mind|make a note|note that)\b",
-    "forget": r"\b(forget|delete|remove|erase)\b",
-    "start_meeting": r"\b(notes?|meeting|record(ing)?|transcrib\w*)\b",
-    "delete_routine": r"\b(delete|remove|cancel|get rid of)\b",
-    "pause_routine": r"\b(pause|stop|resume|restart|turn (on|off)|disable|enable|skip)\b",
+    "remember": _asks(
+        r"(?:remember|memorize|keep\s+in\s+mind|don'?t\s+forget|do\s+not\s+forget|note"
+        r"|make\s+a\s+(?:mental\s+)?note(?:\s+of)?)\s*[,:]?\s+"
+        r"(?!(?:when|how|what|where|why|who|whom|whose|which|if|whether|me)\b)\S"
+    ),
+    "forget": _asks(
+        r"(?:forget|unlearn)\s*[,:]?\s+(?:(?:that|this|what)\s+\S|(?:everything|all|my|the)\b"
+        r"|[\w-]+'s\b)"
+        r"|forget\s+about\s+(?!(?:it|that|this)\b)\S"
+        r"|(?:delete|remove|erase|wipe|clear|drop)\s+(?:[\w'-]+\s+){0,5}?"
+        r"(?:facts?|memor(?:y|ies)|from\s+(?:your\s+)?memory|you\s+(?:remember(?:ed)?"
+        r"|know\s+about))\b"
+        r"|(?:stop|quit)\s+remembering\b"
+    ),
+    "start_meeting": _asks(
+        r"(?:take|taking|start\s+taking|keep|make)\s+(?:some\s+|the\s+|meeting\s+)?notes\b"
+        r"|(?:start|begin|turn\s+on|switch\s+on|enter|go\s+into|kick\s+off|fire\s+up)\s+"
+        r"(?:the\s+|a\s+)?(?:meeting\s+(?:notes|mode|recording|minutes)|note[-\s]?taking"
+        r"|recording|transcri\w+)"
+        r"|(?:record|transcribe|capture|minute)\s+(?:this|the|our|my|a)\s+(?:[\w'-]+\s+){0,2}?"
+        r"(?:meeting|call|conversation|discussion|session|interview|lecture|stand-?up|sync"
+        r"|chat|talk|class)\b"
+        r"|meeting\s+mode\b"
+    ),
+    "delete_routine": _asks(
+        r"(?:delete|remove|cancel|scrap|drop|get\s+rid\s+of|kill)\s+" + _ROUTINE
+    ),
+    "pause_routine": _asks(
+        r"(?:pause|stop|resume|restart|unpause|disable|enable|re-?enable|suspend|skip|mute"
+        r"|silence|turn\s+(?:on|off)|switch\s+(?:on|off)|put\s+on\s+hold)\s+"
+        + _ROUTINE
+        + r"|(?:turn|switch)\s+"
+        + _ROUTINE
+        + r"\s+(?:back\s+)?(?:on|off)\b"
+    ),
 }
+# "Let's code in jarvis", "voice code the BSH repo", "work on X with me".
+CODE_ASKED = _asks(
+    _WANT_TO + r"(?:do\s+some\s+)?(?:voice[\s-]?)?cod(?:e|ing)\b"
+    r"|(?:start|begin|resume|continue|enter|turn\s+on|switch\s+to|go\s+into|get\s+into"
+    r"|back\s+to)\s+(?:voice[\s-]?)?cod(?:e|ing)\b"
+    r"|voice[\s-]?cod(?:e|ing)\b"
+    r"|cod(?:e|ing)\s+(?:mode|with\s+me|together)\b"
+    r"|(?:open|start|launch|fire\s+up|spin\s+up|bring\s+up)\s+(?:up\s+)?(?:a\s+|the\s+)?"
+    r"(?:jarvis|claude)\s+code\b"
+    r"|(?:" + _WANT_TO + r")?work(?:ing)?\s+on\s+.{1,80}?\s+with\s+"
+    r"(?:me|you|us|jarvis(?:\s+code)?|claude(?:\s+code)?)\b"
+)
+# "Tell Jarvis Code to…", "ask the session to…", "message session 2…".
+MESSAGE_ASKED = _asks(
+    _TELL + r"(?:jarvis\s+code|claude(?:\s+code)?|(?:coding\s+)?session(?:\s+(?:number\s+)?\d+)?"
+    r"|task\s+(?:number\s+)?\d+|(?:coding\s+)?agent|coder|[\w'.-]+\s+session)\b"
+)
 
 WHATS_THIS_PROMPT = (
     "The user pressed the What's-this key while using {app}; their screen is attached. Tell "
@@ -239,6 +388,7 @@ class Hub:
             settings,
             self._task_approval,
             self._task_event,
+            client_factory=client_factory,  # the same Claude Code (a fake one in tests)
             rules=RuleStore(APP_SUPPORT / "permissions.json") if poll else RuleStore(),
         )
         self.tasks.model = self.prefs.model_id()
@@ -268,15 +418,25 @@ class Hub:
 
         self.markets = Markets()
         self.workbench = Workbench(self.emit)
+        # A Jarvis Code session gets the built-in browser and the iOS Simulator too.
+        self.tasks.session_servers = lambda cwd: code_tools.build_servers(
+            self.browser_call, self.workbench, lambda: cwd
+        )
         self.models, self.model_names = MODELS, MODEL_NAMES
         from .remote import RemoteServer
 
         self.remote = RemoteServer(self, devices)
         self._approval_at = 0.0
         self._last_said = ""
+        self._voice_link: tuple[Any, str] = (None, "")  # (task, words) it just said aloud
+        self._voice_asked: dict[str, dict[str, Any]] = {}  # questions put by voice: what, when
+        self._utterance_began: float | None = None  # when the utterance being handled began
+        self._stops = 0  # counts stop(): speech it cut short isn't followed by listening
         self._code_hotwords = ""
         self._code_stt: Any = None
         self._turn_text = ""
+        self._turn_reads: dict[str, Any] = {}  # what this turn has read (the turn gate)
+        self._early_reads: list[str] = []  # marked before a turn began: for the next one
         self._spoke_until = 0.0
         self._hands_free_before_meeting: bool | None = None
         self._rebuild_again: set[str] | None = None
@@ -372,6 +532,8 @@ class Hub:
             extra_servers=self._feature_servers(),
             extra_prompt=self._feature_prompt(),
             shortcut_gate=self.shortcut_gate,
+            turn_gate=self.turn_gate,
+            on_tool_result=self.note_tool_result,
         )
         # Stream text as it's written, so the first sentence can be spoken right away.
         options.include_partial_messages = True
@@ -429,12 +591,241 @@ class Hub:
 
     async def feature_gate(self, action: str, question: str) -> bool:
         """Memory, meeting notes and routine changes go ahead unasked only when the user's
-        own words this turn asked for that kind of thing. Otherwise (a routine, an email
-        or page suggesting it) the user is asked first."""
+        own words this turn plainly asked for that kind of thing: a clause that opens with
+        the request ("remember that…", "take notes", "pause the morning briefing"), not a
+        trigger word somewhere in it. Otherwise (a routine, an email or page suggesting it)
+        the user is asked first."""
         pattern = FEATURE_ASKED.get(action)
-        if pattern and self._turn_text and re.search(pattern, self._turn_text, re.IGNORECASE):
+        if pattern is not None and user_asked(pattern, self._turn_text):
             return True
-        return await self.confirm(question)
+        return await self._ask_user(question)
+
+    # ── what a turn has read, and what may leave the Mac ──
+
+    def mark_turn_untrusted(self, reason: str = "") -> None:
+        """For code that puts private or outside content into a turn itself (a screenshot
+        attached to the request): the turn gate then treats the turn as one that ran a
+        private reader. reason names it on approval cards ("a screenshot of your screen").
+        Called before a turn has begun, it applies to the next one."""
+        what = reason or "private content"
+        if not self._rid:
+            self._early_reads.append(what)
+        else:
+            self._note_read("private", what)
+
+    def note_tool_result(self, tool_name: str) -> None:
+        """Every tool call once it has returned, before Claude sees the result (a
+        PostToolUse hook, brain.taint_hooks): remember what the turn has read."""
+        kind = result_kind(tool_name)
+        if kind != "none":
+            self._note_read(kind, tool_label(tool_name))
+
+    def _note_read(self, kind: str, what: str) -> None:
+        reads = self._reads()
+        reads[kind] = True
+        if what not in reads["what"]:
+            reads["what"].append(what)
+
+    def _reads(self) -> dict[str, Any]:
+        """What this turn has read so far: private data, web pages. Each turn starts clean."""
+        if self._turn_reads.get("rid") != self._rid:
+            self._turn_reads = {"rid": self._rid, "private": False, "web": False, "what": []}
+            if self._rid and self._early_reads:
+                self._turn_reads.update(private=True, what=self._early_reads)
+                self._early_reads = []
+        return self._turn_reads
+
+    def _why_asking(self, reads: dict[str, Any]) -> str:
+        if not self._turn_text:
+            return (
+                "This request came from a routine or a shortcut, not from your own words, "
+                "so I check before anything leaves the Mac."
+            )
+        seen = "; ".join(reads["what"][:6]) or "outside content"
+        if reads["private"]:
+            return (
+                f"Earlier in this request: {seen}. An address or request like this can carry "
+                "some of that out, so check it before you allow it."
+            )
+        return (
+            f"Earlier in this request: {seen}. Pages can hide instructions, and you didn't "
+            "name this site yourself, so check it before you allow it."
+        )
+
+    async def _ask_user(self, question: str, detail: str = "", spoken: str = "") -> bool:
+        """A yes or no on a card and out loud (_say: through the speech queue, so the
+        microphone's copy of it isn't taken for the answer, and never the wake word).
+        spoken, when given, is what's said instead of the card's question."""
+        self._say(spoken or question)
+        return await self.request_approval(question, detail) == "allow"
+
+    async def turn_gate(self, tool_name: str, tool_input: dict[str, Any]) -> bool | None:
+        """The permission policy's call for brain.TURN_GATED tools: web addresses and
+        research topics that could carry what this turn has read off the Mac, and Claude
+        Code sessions started or steered on the model's say-so."""
+        if tool_name in EGRESS_TOOLS:
+            return await self._egress_ok(tool_name, tool_input)
+        if tool_name == app_tool("voice_code"):
+            return await self._voice_code_ok(tool_input)
+        if tool_name == task_tool("message_claude_task"):
+            return await self._message_task_ok(tool_input)
+        return None
+
+    async def _egress_ok(self, tool_name: str, tool_input: dict[str, Any]) -> bool:
+        """Until a turn has read something, the web is open. Once it has read private data
+        or outside content (and from the start when no one typed or said the request: a
+        routine, the briefing), an address goes out only with the user's OK, unless it's a
+        site they named in their own words this turn and nothing private was read."""
+        reads = self._reads()
+        if tool_name == task_tool("start_research"):
+            # The research desk fetches whatever the topic leads to. A routine's own
+            # "research X overnight" was the user's (they approved the routine).
+            if not (reads["private"] or reads["web"]):
+                return True
+            topic = str(tool_input.get("topic", "")).strip()
+            return await self._ask_user(
+                "Start background research on this topic?",
+                f"Research topic:\n“{topic}”\n\n{self._why_asking(reads)}",
+                "Can I start background research on the topic on your screen?",
+            )
+        if not (reads["private"] or reads["web"] or not self._turn_text):
+            return True
+        if tool_name == browser_tool("browser_open"):
+            address = browser_address(str(tool_input.get("url", "")))
+            if address is None:
+                return True  # words the browser hands to a Google search, like WebSearch
+        else:
+            address = str(tool_input.get("url", "")).strip()
+        host = url_host(address)
+        if host and not reads["private"] and host_said(host, self._turn_text):
+            return True
+        site = host or "an unusual web address"
+        if tool_name == mac_tool("open_url"):
+            question, spoken = (
+                f"Open {site} in your browser?",
+                f"Can I open {site} in your browser?",
+            )
+        elif tool_name == browser_tool("browser_open"):
+            question = f"Open {site} in the built-in browser?"
+            spoken = f"Can I open {site} in the built-in browser?"
+        else:
+            question, spoken = f"Fetch a page from {site}?", f"Can I fetch a page from {site}?"
+        return await self._ask_user(question, f"{address}\n\n{self._why_asking(reads)}", spoken)
+
+    async def _voice_code_ok(self, args: dict[str, Any]) -> bool:
+        """voice_code goes ahead unasked when the user's own words this turn asked to code,
+        and, if it starts a session or sends one a request, named that project in a turn
+        that has read nothing that could have put the words in Claude's mouth."""
+        try:
+            task_id = int(args.get("task_id") or 0)
+        except (TypeError, ValueError):
+            task_id = -1
+        directory = str(args.get("directory") or "").strip()
+        request = str(args.get("request") or "").strip()
+        tasks, starts = self.tasks, False
+        if task_id:
+            task = tasks.tasks.get(task_id)
+            if task is None or task.kind != "code":
+                return task_id > 0  # nothing happens: voice_code says there's no such one
+            target, request = task.cwd, ""  # a given session is only put in voice focus
+        else:
+            try:
+                path = tasks.resolve_dir(directory) if directory else None
+            except ValueError:
+                return True  # nothing happens: voice_code names the projects instead
+            live = [
+                t
+                for t in tasks.tasks.values()
+                if t.kind == "code" and (path is None or t.cwd == path) and t.status != "closed"
+            ]
+            if live:
+                target = max(live, key=lambda t: t.id).cwd
+            elif path is None:
+                return True  # nothing happens: voice_code asks which project
+            else:
+                target, starts = path, True
+        words_said = self._turn_text
+        asked = user_asked(CODE_ASKED, words_said)
+        if asked and not (starts or request):
+            return True  # only voice focus on a session, as they asked
+        reads = self._reads()
+        in_projects = target.parent == self.settings.projects_dir.resolve()
+        if (
+            asked
+            and in_projects
+            and names_folder(words_said, target.name)
+            and not (reads["private"] or reads["web"])
+        ):
+            return True
+        folder = _say_folder(target.name)
+        if reads["private"] or reads["web"] or not words_said:
+            why = self._why_asking(reads)
+        else:
+            why = "You didn't ask for this in your own words (or name the project) just now."
+        if starts:
+            question = f"Start Jarvis Code in {target.name}?"
+            spoken = f"Can I start a coding session in {folder} for this?"
+            detail = f"Folder: {target}\nFirst request: {request or '(none yet)'}"
+        elif request:
+            question = f"Pass this request to Jarvis Code in {target.name}?"
+            spoken = f"Can I pass a request to the coding session in {folder}?"
+            detail = f"To the session in {target}:\n“{request}”"
+        else:
+            question = f"Voice-code with Jarvis Code in {target.name}?"
+            spoken = f"Can I switch you to voice coding in {folder} now?"
+            detail = (
+                f"Everything you say next goes to the session in {target}, until you say "
+                "“exit code mode”."
+            )
+        return await self._ask_user(question, f"{detail}\n\n{why}", spoken)
+
+    async def _message_task_ok(self, args: dict[str, Any]) -> bool:
+        """A follow-up for a Claude Code session goes unasked only when the user's own
+        words this turn asked to tell that session something, in a turn that has read
+        nothing that could have written the message instead. Otherwise the card shows the
+        message, and short ones are read out."""
+        try:
+            task = self.tasks.tasks.get(int(args.get("task_id") or 0))
+        except (TypeError, ValueError):
+            task = None
+        message = str(args.get("message") or "").strip()
+        if task is None or task.kind != "code" or not message:
+            return True  # nothing is sent: the tool says there's no such session
+        words_said = self._turn_text
+        reads = self._reads()
+        others = [
+            t
+            for t in self.tasks.tasks.values()
+            if t.kind == "code" and t.id != task.id and t.status != "closed"
+        ]
+        said_folder = names_folder(words_said, task.cwd.name)
+        said_number = re.search(
+            rf"\b(?:session|task)\s+(?:number\s+)?{task.id}\b", words_said, re.IGNORECASE
+        )
+        asked = user_asked(MESSAGE_ASKED, words_said) or (
+            said_folder and user_asked(_asks(_TELL + _folder_pattern(task.cwd.name)), words_said)
+        )
+        which = said_folder or said_number or not others
+        if asked and which and not (reads["private"] or reads["web"]):
+            return True
+        folder = _say_folder(task.cwd.name)
+        text = speakable_safely(message) if len(message) <= SPOKEN_TEXT else None
+        spoken = (
+            f"Here's what I'd tell the coding session in {folder}: {_sentence(text)} "
+            "Do you want this passed on?"
+            if text
+            else f"I'd like to give the coding session in {folder} a message. It's on your "
+            "screen: do you want this passed on?"
+        )
+        if reads["private"] or reads["web"] or not words_said:
+            why = self._why_asking(reads)
+        else:
+            why = "You didn't ask to message this session in your own words just now."
+        return await self._ask_user(
+            f"Send this to Jarvis Code in {task.cwd.name}?",
+            f"To session {task.id} in {task.cwd}:\n“{message}”\n\n{why}",
+            spoken,
+        )
 
     # ── meeting notes ──
 
@@ -442,12 +833,11 @@ class Hub:
         """In a meeting, anything not addressed to JARVIS goes into the notes."""
         if find_wake(text)[0] or (self._armed_until and time.monotonic() < self._armed_until):
             return False  # for JARVIS: a command, or the question after a bare "Jarvis"
-        if self.approvals and yes_no(text) is not None:
+        if self._voice_question() is not None and yes_no(text) is not None:
             return False  # the answer to a question JARVIS just asked
         if self.state == "speaking":
             return True  # its own voice isn't part of the meeting
-        just_spoke = time.monotonic() - self._spoke_until < ECHO_SECONDS
-        if just_spoke and is_echo(text, self.turn.get("reply", "")):
+        if self._echo(text):
             return True  # the tail of its own voice
         self.meeting.add(audio, text)
         return True
@@ -653,7 +1043,17 @@ class Hub:
         task = asyncio.create_task(coro)
         self._background.add(task)
         task.add_done_callback(self._background.discard)
+        task.add_done_callback(self._log_failure)
         return task
+
+    @staticmethod
+    def _log_failure(task: asyncio.Task) -> None:
+        """Nobody awaits a background task, so say in the log when one dies of an error
+        (asyncio would only mention it when the task is garbage-collected, if ever)."""
+        if task.cancelled() or task.exception() is None:
+            return
+        name = getattr(task.get_coro(), "__qualname__", task.get_name())
+        log.error("background task %s failed", name, exc_info=task.exception())
 
     # ── events ──
 
@@ -664,6 +1064,8 @@ class Hub:
 
     def unsubscribe(self, queue: asyncio.Queue) -> None:
         self._subscribers.discard(queue)
+        if not self._subscribers:  # the last window went: no one to stream pictures to
+            self.workbench.watch_simulator(None)
 
     def emit(self, kind: str, **data: Any) -> None:
         event = {"type": kind, **data}
@@ -724,7 +1126,11 @@ class Hub:
         detail: str = "",
         choices: list[tuple[str, str]] | None = None,
         context: dict[str, Any] | None = None,
+        spoken: str = "",
     ) -> str:
+        """A question on a card. Only one JARVIS has put out loud can be answered by voice:
+        spoken is what it said (or what the same task just said, as the gates do: _say,
+        _ask_user, send_gate)."""
         choices = choices or [("allow", "Allow"), ("deny", "Not now")]
         approval_id = uuid.uuid4().hex[:12]
         approval = {
@@ -734,10 +1140,16 @@ class Hub:
             "choices": [{"id": c, "label": label} for c, label in choices],
             **(context or {}),
         }
+        linked_task, linked_words = self._voice_link
+        if not spoken and linked_task is not None and linked_task is _current_task():
+            spoken = linked_words
+        self._voice_link = (None, "")
         future = asyncio.get_running_loop().create_future()
         self._approval_at = time.monotonic()
         self.approvals[approval_id] = approval
         self._futures[approval_id] = future
+        if spoken:
+            self._voice_asked[approval_id] = {"text": spoken, "at": time.monotonic()}
         self.emit("approval", **approval)
         try:
             return await asyncio.wait_for(future, APPROVAL_TIMEOUT)
@@ -746,6 +1158,7 @@ class Hub:
         finally:
             self.approvals.pop(approval_id, None)
             self._futures.pop(approval_id, None)
+            self._voice_asked.pop(approval_id, None)
             self.emit("approval_resolved", id=approval_id)
 
     def resolve(self, approval_id: str, choice: str, feedback: str = "") -> bool:
@@ -755,68 +1168,133 @@ class Hub:
         if future is None or future.done() or choice not in valid:
             return False
         feedback = " ".join(str(feedback).split())[:2000]
-        future.set_result(f"{choice}:{feedback}" if feedback and choice == "deny" else choice)
+        carries = choice in ("deny", "plan_keep")  # "keep planning: split step two"
+        future.set_result(f"{choice}:{feedback}" if feedback and carries else choice)
         return True
 
     def _say(self, text: str) -> None:
-        """Say a question outside the reply stream, unless this turn is a silent one."""
+        """Say a question, unless this turn is a silent one. Through the speech queue, so
+        stop and mute apply, it never talks over a reply, and the microphone's copy of it
+        is known for JARVIS's own voice."""
         if not self._silent:
-            self._spawn(self.speaker.say(text))
+            spoken = speakable_safely(text) or "I need your OK on screen."
+            self._voice_link = (_current_task(), spoken)
+            self.speech.push(spoken)
 
-    async def send_gate(self, question: str, detail: str) -> bool:
-        """A message or email about to go out: show exactly what and to whom, and wait
-        for the user's yes."""
-        self._say(question)
+    async def send_gate(self, question: str, detail: str, spoken: str = "") -> bool:
+        """A message or email about to go out: the card shows exactly what and to whom,
+        and spoken (the text itself, ending on a question) is read out before a spoken yes
+        can count. It goes through the speech queue, not the one-off voice: while it plays
+        and just after, the microphone's copy of it ("…OK, see you then.", or the question
+        "Send this…?" itself) isn't taken for the user's yes."""
+        said = speakable_safely(spoken) if spoken else None
+        self._say(said or "It's on your screen. Do you want it sent as it is?")
         choice = await self.request_approval(
             question, detail, [("allow", "Send"), ("deny", "Don't send")]
         )
         return choice == "allow"
 
-    def answer_by_voice(self, text: str) -> bool:
-        """'Yes' or 'no' to the question JARVIS just asked, without the wake word: the
-        newest open approval, within a minute of asking."""
-        if not self.approvals or time.monotonic() - self._approval_at > 60:
-            return False
-        if self.state == "speaking" or time.monotonic() - self._spoke_until < 0.8:
-            return False  # never let it hear its own "sure" as the user's yes
-        from .voicecode import pick_choice
+    def _voice_question(self) -> dict[str, Any] | None:
+        """The open question JARVIS most recently put out loud, while it can still be
+        answered without the wake word (a minute from asking). Never a card it didn't
+        say: another session's approval, a connector's, one asked in a silent turn."""
+        asked = [
+            (info["at"], aid) for aid, info in self._voice_asked.items() if aid in self.approvals
+        ]
+        if not asked:
+            return None
+        at, approval_id = max(asked)
+        since = max(at, self._spoke_until)  # the minute starts once it has finished asking
+        return (
+            self.approvals[approval_id]
+            if time.monotonic() - since <= VOICE_ANSWER_SECONDS
+            else None
+        )
 
-        approval = list(self.approvals.values())[-1]
-        choices = [c["id"] for c in approval["choices"]]
-        labels = [c["label"] for c in approval["choices"]]
-        if "always" in choices and re.search(
-            r"\b(always|don'?t ask( me)? again|every time)\b", text, re.I
-        ):
-            self.emit("heard", text=text)
-            return self.resolve(approval["id"], "always")
-        # A question or a plan has named answers: "option two", "keep planning".
-        if approval.get("ask_kind") in ("question", "plan") or len(choices) > 2:
-            index = pick_choice(text, labels)
-            if index is not None:
-                log.info("approval answered by voice: choice %d", index + 1)
-                self.emit("heard", text=text)
-                return self.resolve(approval["id"], choices[index])
-            if approval.get("ask_kind") == "question":
-                return False  # "yes" doesn't answer "which one?"
-        answer = yes_no(text)
-        if answer is None and re.match(
-            r"\W*(?:jarvis\W+)?(no|nope|nah|don'?t)\b[\s,.!-]+\w", text, re.I
-        ):
-            answer = False  # "no, use the Makefile target instead": a no with a reason
+    def _echo(self, text: str) -> bool:
+        """JARVIS's own voice coming back through the microphone: mostly words it said in
+        the last few seconds, heard in an utterance that began before it went quiet. One
+        that began after it stopped talking is someone else's, whatever its words."""
+        began = self._utterance_began
+        if began is not None and self.state != "speaking" and began + 0.1 >= self._spoke_until:
+            return False
+        heard = self.speech.said_recently(ECHO_WINDOW)
+        if self._lock.locked() or self.state == "speaking":
+            heard = f"{heard} {self.turn.get('reply', '')}"
+        return is_echo(text, heard)
+
+    def _overlapped(self) -> bool:
+        """Whether the utterance may have begun while JARVIS was still talking."""
+        if self.state == "speaking":
+            return True
+        if self._utterance_began is None:  # timing unknown: the moment right after it
+            return time.monotonic() - self._spoke_until < 0.8
+        return self._utterance_began + 0.1 < self._spoke_until
+
+    def answer_by_voice(self, text: str, woke: bool = False) -> bool:
+        """An answer to the question JARVIS just put out loud, without the wake word: only
+        one it said, within a minute, and never its own voice heard back ("Send this to
+        Ben?" isn't a yes, nor "…or keep planning" a choice). woke: said after "Jarvis",
+        so it may talk over the question being read (which then stops)."""
+        approval = self._voice_question()
+        if approval is None:
+            return False
+        if not woke and (self._overlapped() or self._echo(text)):
+            return False
+        speaking = self.state == "speaking"
+        answered = self._answer(approval, text)
+        if answered and speaking:
+            self.speech.clear()  # answered over the question: no need to hear the rest
+        return answered
+
+    def _answer(self, approval: dict[str, Any], text: str, heard: bool = True) -> bool:
+        """Put a spoken answer to an open question (voicecode.voice_answer reads it)."""
+        from .voicecode import HOLD, REASK, voice_answer
+
+        answer = voice_answer(text, approval)
         if answer is None:
             return False
-        log.info("approval answered by voice: %s", "yes" if answer else "no")
-        self.emit("heard", text=text)
-        feedback = ""
-        if not answer:  # "no, use the Makefile instead": the rest is what to do
-            m = re.match(
-                r"\W*(?:jarvis\W+)?(?:no|nope|nah|don'?t|do not|stop|cancel)\b[\s,.!-]*(.*)",
-                text,
-                re.I,
-            )
-            rest = (m.group(1) if m else "").strip()
-            feedback = rest if len(rest.split()) >= 2 else ""
-        return self.resolve(approval["id"], choices[0] if answer else choices[-1], feedback)
+        choice, feedback = answer
+        if heard:
+            self.emit("heard", text=text)
+        if choice == HOLD:  # "give me a second": it stays open, and the minute starts over
+            if approval["id"] in self._voice_asked:
+                self._voice_asked[approval["id"]]["at"] = time.monotonic()
+            return True
+        if choice == REASK:  # "yes" to "which one?"
+            self._reask(approval)
+            return True
+        log.info("approval answered by voice: %s", choice)
+        return self.resolve(approval["id"], choice, feedback)
+
+    def _reask(self, approval: dict[str, Any]) -> None:
+        """Put an open question (again): its answer didn't fit, or it was never said."""
+        spoken = self.voicecode.speak_approval(approval) if approval.get("task_id") else ""
+        if not spoken:
+            question = str(approval.get("question", ""))
+            spoken = speakable_safely(question) or "I need your OK on screen."
+            self.say(spoken)
+        self._voice_asked[approval["id"]] = {"text": spoken, "at": time.monotonic()}
+
+    def _answer_code_approval(self, text: str, woke: bool = False) -> bool:
+        """Voice-code mode: an answer to the focused session's open question, however late
+        and even over JARVIS's voice, after the wake word. A bare "yes", "no" or "option
+        two" never goes to Claude as a message while that question is open."""
+        focus = self.voicecode.focus
+        pending = [a for a in self.approvals.values() if a.get("task_id") == focus]
+        if focus is None or not pending:
+            return False
+        from .voicecode import voice_answer
+
+        approval = pending[-1]
+        if voice_answer(text, approval) is None:
+            return False  # a request for Claude: it waits in the session's queue
+        if not woke and self._overlapped():
+            return True  # most likely its own voice: neither an answer nor a message
+        if approval["id"] not in self._voice_asked:
+            self._reask(approval)  # never answer a question it hasn't put: put it now
+            return True
+        return self._answer(approval, text, heard=False)
 
     async def confirm(self, question: str) -> bool:
         """The chat's permission gate: speak the question, wait for a tap."""
@@ -1026,6 +1504,7 @@ class Hub:
     def _speak(self, text: str) -> None:
         if not self._stopping and not self._silent:
             self._spoke_this_turn = True
+            self._voice_link = (_current_task(), text)  # a question this task asks next
             self.speech.push(text)
 
     async def _prepare_player(self) -> None:
@@ -1057,7 +1536,8 @@ class Hub:
         if self._spoke_this_turn or self._stopping or self._silent or not self._fillers:
             return
         self._spoke_this_turn = True
-        self.speech.push_clip(self._fillers[next(self._filler_order) % len(self._fillers)])
+        index = next(self._filler_order) % len(self._fillers)
+        self.speech.push_clip(self._fillers[index], FILLERS[index])
 
     def _flush_speech(self) -> None:
         sentences, self._stream_buf = split_sentences(self._stream_buf, final=True)
@@ -1147,6 +1627,7 @@ class Hub:
 
     async def stop(self) -> None:
         self._stopping = True
+        self._stops += 1
         self._armed_until = 0.0
         self._stream_buf = ""
         self.speech.clear()
@@ -1249,7 +1730,7 @@ class Hub:
             queue = self._heard
 
             def on_utterance(audio) -> None:
-                loop.call_soon_threadsafe(queue.put_nowait, audio)
+                loop.call_soon_threadsafe(queue.put_nowait, ("full", time.monotonic(), audio))
 
             factory = self.listener_factory
             if factory is None:
@@ -1264,7 +1745,7 @@ class Hub:
             self._listener = factory(*args)
             self._listener.early_seconds = EARLY_ENDPOINT
             self._listener.on_early = lambda number, audio: loop.call_soon_threadsafe(
-                queue.put_nowait, ("early", number, audio)
+                queue.put_nowait, ("early", number, audio, time.monotonic())
             )
             try:
                 self._listener.start()
@@ -1285,12 +1766,15 @@ class Hub:
             audio = await queue.get()
             if audio is None:
                 return
-            if isinstance(audio, tuple):  # ("early", number, audio): smart endpointing
+            if isinstance(audio, tuple) and audio[0] == "early":  # ("early", n, audio, at)
                 try:
                     await self._early_utterance(*audio[1:])
                 except Exception:
                     log.exception("early transcription failed")
                 continue
+            ended = time.monotonic()
+            if isinstance(audio, tuple):  # ("full", when it ended, audio)
+                _, ended, audio = audio
             self._heard_at = time.monotonic()
             try:
                 if self.voicecode.focus is not None and self._code_hotwords:
@@ -1305,14 +1789,17 @@ class Hub:
             except Exception as exc:  # model still loading, odd audio
                 log.warning("hands-free transcription failed: %s", exc)
                 continue
-            if self.meeting is not None and self._meeting_capture(audio, text):
-                continue
+            self._utterance_began = ended - _audio_seconds(audio)
             try:
+                if self.meeting is not None and self._meeting_capture(audio, text):
+                    continue
                 await self.on_heard(text)
             except Exception:  # never let one bad utterance end hands-free listening
                 log.exception("hands-free handling failed")
+            finally:
+                self._utterance_began = None
 
-    async def _early_utterance(self, number: int, audio: Any) -> None:
+    async def _early_utterance(self, number: int, audio: Any, at: float | None = None) -> None:
         """An utterance 0.2s into the silence after it. If it reads as a finished request
         for JARVIS, answer now instead of waiting out the full silence (it saves the rest
         of that wait and the whole transcription). Otherwise the full utterance follows."""
@@ -1329,14 +1816,18 @@ class Hub:
         from .listen import sounds_finished
 
         armed = self._armed_until and time.monotonic() < self._armed_until
-        for_me = find_wake(text)[0] or armed or bool(self.approvals)
+        for_me = find_wake(text)[0] or armed or self._voice_question() is not None
         if not (for_me and sounds_finished(text)):
             return
         if self._listener is None or not self._listener.commit(number):
             return  # they kept talking: the full utterance will come instead
         log.info("answered early (smart endpoint)")
         self._heard_at = heard_at
-        await self.on_heard(text)
+        self._utterance_began = (at or heard_at) - _audio_seconds(audio)
+        try:
+            await self.on_heard(text)
+        finally:
+            self._utterance_began = None
 
     def _arm(self, seconds: float = ARMED_SECONDS, chime: bool = True) -> None:
         self._armed_until = time.monotonic() + seconds
@@ -1355,16 +1846,29 @@ class Hub:
             self.set_state("idle")
 
     async def on_heard(self, text: str) -> None:
-        """One hands-free utterance: wake word, barge-in, or ignore."""
+        """One hands-free utterance: wake word, barge-in, or ignore. Its own voice coming
+        back through the microphone is dropped first, wake word or not ("Jarvis Code
+        finished in…" is its own heads-up); only a short "stop" gets through regardless,
+        even when its reply had the word in it."""
         text = text.strip()
         if not text:
             return
-        if self.answer_by_voice(text):
+        woke, command = find_wake(text)
+        stop = is_stop(text) or (woke and is_stop(command))
+        if not (stop and len(words(text)) <= 3) and self._echo(text):
+            log.info("ignored: its own voice")
+            return
+        question = self._voice_question()
+        if self.answer_by_voice(text, woke=woke):
+            if stop and question is not None:  # "stop" says no, and stops what was asking
+                if question.get("task_id"):
+                    await self.tasks.interrupt(int(question["task_id"]))
+                elif self._lock.locked():
+                    await self.stop()
             return
         if self.voicecode.focus is not None and not self._lock.locked():
             await self._code_heard(text)
             return
-        woke, command = find_wake(text)
         busy = self._lock.locked()
         if (
             not woke
@@ -1377,9 +1881,6 @@ class Hub:
             self._spawn(self.ask(text))
             return
         if busy or self.state == "speaking":
-            if not woke and is_echo(text, self.turn.get("reply", "")):
-                log.info("ignored: its own voice")
-                return
             if woke or is_stop(text):
                 await self.stop()
                 about_notes = self.meeting is not None and re.search(
@@ -1388,13 +1889,10 @@ class Hub:
                 if woke and command and (not is_stop(command) or about_notes):
                     self.emit("heard", text=command)
                     self._spawn(self.ask(command))
-                elif woke:
+                elif woke and not stop:  # "Jarvis, stop" isn't an invitation to talk
                     self._arm()
             return
         if self._armed_until and time.monotonic() < self._armed_until:
-            if not woke and is_echo(text, self.turn.get("reply", "")):
-                log.info("ignored: tail of its own voice")
-                return
             self._armed_until = 0.0
             request = command if woke and command else text
             log.info("follow-up/armed request (%d words)", len(words(request)))
@@ -1414,12 +1912,12 @@ class Hub:
 
     async def _code_heard(self, text: str) -> None:
         """Voice-code mode: what the user says (after the wake word, or in the window
-        after JARVIS speaks) is for the Claude Code session in focus."""
+        after JARVIS speaks) is for the Claude Code session in focus. (on_heard has
+        already dropped JARVIS's own voice.) An answer to the session's open question is
+        taken as one, even said over the question as it's read."""
         woke, command = find_wake(text)
         armed = self._armed_until and time.monotonic() < self._armed_until
         if self.state == "speaking":
-            if not woke and is_echo(text, self._last_said):
-                return
             if woke or is_stop(text):
                 await self.stop()  # quiet JARVIS first
                 task = self.voicecode.task
@@ -1427,8 +1925,9 @@ class Hub:
                     await self.tasks.interrupt(task.id)  # "stop" means stop everything
                 if woke and command and not is_stop(command):
                     self.emit("heard", text=command)
-                    await self.voicecode.handle(command)
-                elif woke:
+                    if not self._answer_code_approval(command, woke=True):
+                        await self.voicecode.handle(command)
+                elif woke and not is_stop(command):
                     self._arm(seconds=FOCUS_FOLLOW_UP)
             return
         if woke and not command:
@@ -1436,11 +1935,11 @@ class Hub:
             return
         if not (woke or armed):
             return
-        if not woke and is_echo(text, self._last_said):
-            return
         self._armed_until = 0.0
         request = command if woke else text
         self.emit("heard", text=request)
+        if self._answer_code_approval(request, woke=woke):
+            return
         await self.voicecode.handle(request)
 
     def say(self, text: str, follow_up: bool = True) -> None:
@@ -1456,13 +1955,16 @@ class Hub:
         self._spawn(self._say_then_listen(text, follow_up))
 
     async def _say_then_listen(self, text: str, follow_up: bool) -> None:
+        stops = self._stops
         self.speech.push(text)
         await self.speech.drain()
+        if stops != self._stops:
+            return  # "stop" cut it short: that's not an invitation to talk
         if follow_up and self._listener is not None and self._listener.running:
             self._arm(seconds=FOCUS_FOLLOW_UP, chime=False)
 
     async def _code_command(self, task, text: str) -> None:
-        from .voicecode import SLASH
+        from .voicecode import slash_intent
 
         name, _, rest = text[1:].partition(" ")
         name = name.lower()
@@ -1472,20 +1974,17 @@ class Hub:
             else:
                 self.emit("caption", text=await self.voice_code(task_id=task.id))
             return
-        utterance = SLASH.get(name)
-        if utterance is None:  # Claude Code's own or the project's custom command
+        intent = slash_intent(name, rest)  # with what was typed after it: "/plan fix login"
+        if intent is None:  # Claude Code's own or the project's custom command
             self.tasks.send(task.id, text)
             return
-        await self.voicecode.handle(
-            utterance.format(arg=rest.strip()) if "{arg}" in utterance else utterance,
-            task=task,
-            typed=True,
-        )
+        await self.voicecode.handle(text, task=task, typed=True, intent=intent)
 
     def acknowledge(self) -> None:
         """A short pre-voiced 'On it.' so a request never meets silence."""
         if self._fillers and not self._silent and not self.speaker.muted:
-            self.speech.push_clip(self._fillers[next(self._filler_order) % len(self._fillers)])
+            index = next(self._filler_order) % len(self._fillers)
+            self.speech.push_clip(self._fillers[index], FILLERS[index])
 
     async def _diff_files(self, task) -> list[dict[str, Any]]:
         """Every changed file with its lines, for the Changes view."""
@@ -1586,8 +2085,8 @@ class Hub:
         """Spoken code back to code, plus the files and names it probably means."""
         from .code_vocab import normalize, vocab_for
 
-        vocab = await asyncio.to_thread(vocab_for, path)
-        return normalize(text) + vocab.hint(text)
+        # All of it off the event loop: matching against a big repo's names takes a while.
+        return await asyncio.to_thread(lambda: normalize(text) + vocab_for(path).hint(text))
 
     async def _prepare_code_listening(self, task) -> None:
         """Voice coding hears better with the project's names as hints and, once it's
@@ -1596,8 +2095,8 @@ class Hub:
         from .listen import Transcriber
         from .meeting import NOTES_MODEL
 
-        vocab = await asyncio.to_thread(vocab_for, task.cwd)
-        self._code_hotwords = vocab.hotwords()
+        # hotwords() looks at every file's age: off the event loop too.
+        self._code_hotwords = await asyncio.to_thread(lambda: vocab_for(task.cwd).hotwords())
         if self._code_stt is None and hasattr(self.transcriber, "model_name"):  # not a test fake
             self._code_stt = Transcriber(NOTES_MODEL)
             self._code_stt.warm_up()  # downloads once (~480 MB), shared with meeting notes
@@ -1814,7 +2313,7 @@ class Hub:
 
     # ── Claude Code deck: projects and git ──
 
-    async def _git(self, path: Path, *args: str) -> str:
+    async def _git(self, path: Path, *args: str, timeout: float = 15) -> str:
         proc = await asyncio.create_subprocess_exec(
             "git",
             "-C",
@@ -1823,7 +2322,13 @@ class Hub:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        out, _ = await proc.communicate()
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+        except TimeoutError:  # a hung credential prompt, a huge repo: give up on it
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+            return ""
         return out.decode(errors="replace").strip() if proc.returncode == 0 else ""
 
     async def _projects_overview(self) -> list[dict[str, Any]]:
@@ -2463,6 +2968,8 @@ class Hub:
         if "mic" in changed and self._listener is not None:
             self._listener.stop()
             self._listener = None
+            if self._heard is not None:  # end the old loop: the new listener brings its own
+                self._heard.put_nowait(None)
             self._apply_hands_free()
         sources = {
             "brain_notes": "notes",
@@ -2499,6 +3006,8 @@ class Hub:
             self.voicecode.on_event(kind, data)
             return  # the focused session speaks for itself
         if kind == "task_finished" and data.get("task_kind") == "code":
+            if data.get("status") == "stopped":
+                return  # stopped or closed by the user: nothing to tell them
             done = data.get("status") == "done"
             if done and (data.get("elapsed") or 0) < CODE_ANNOUNCE_SECONDS:
                 return  # a quick back-and-forth in the deck needs no announcement
@@ -2532,7 +3041,8 @@ class Hub:
                 ),
                 speak_if_busy=False,
             )
-        return await self.request_approval(question, detail, choices, context)
+        # Only a question it put out loud can be answered by voice: this one, if it did.
+        return await self.request_approval(question, detail, choices, context, spoken=spoken)
 
     # ── speaking up unasked ──
 
@@ -2570,8 +3080,11 @@ class Hub:
                     ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
             await asyncio.sleep(0.4)
+        stops = self._stops
         self.speech.push(text)
         await self.speech.drain()
+        if stops != self._stops:
+            return  # stopped mid-heads-up: don't open a window for more
         if self._listener is not None and self._listener.running and not self._lock.locked():
             self._arm(seconds=FOLLOW_UP_SECONDS, chime=False)  # "how long will it take?"
 
@@ -2625,6 +3138,21 @@ class Hub:
     # ── commands from windows ──
 
     async def handle(self, msg: dict[str, Any]) -> None:
+        """One command from a window. One that can take a while runs in the background, so
+        it never holds up the next; one that fails is logged, and never closes the
+        window's connection."""
+        if msg.get("type") in SLOW_COMMANDS:
+            self._spawn(self._handle_logged(msg))
+        else:
+            await self._handle_logged(msg)
+
+    async def _handle_logged(self, msg: dict[str, Any]) -> None:
+        try:
+            await self._handle(msg)
+        except Exception:  # a bad id, a failed control call: that command only
+            log.exception("window command %r failed", msg.get("type"))
+
+    async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
         if kind == "ask":
             self._spawn(self.ask(str(msg.get("text", ""))[:4000]))
@@ -2636,16 +3164,17 @@ class Hub:
             self.resolve(str(msg.get("id")), str(msg.get("choice")), str(msg.get("feedback", "")))
         elif kind == "mute":
             self.speaker.muted = bool(msg.get("value"))
-            if self.speaker.muted:
-                self.speaker.stop()
+            if self.speaker.muted:  # silence the reply in progress too, and what's queued
+                self.speech.clear()
             self.emit("muted", value=self.speaker.muted)
         elif kind == "reset":
             self._spawn(self.reset())
         elif kind == "task_cancel":
             self.tasks.cancel(int(msg.get("id", 0)))
         elif kind == "task_new":
+            known = set(self.tasks.tasks)
             try:
-                self.tasks.start(
+                task = self.tasks.start(
                     str(msg.get("prompt", "")),
                     str(msg.get("directory", "")),
                     mode=str(msg.get("mode", "ask")),
@@ -2654,6 +3183,11 @@ class Hub:
                 )
             except ValueError as exc:
                 self.emit("error", text=str(exc))
+            else:
+                if task.id in known:  # that session is already open: show it, never a copy
+                    self.emit("show_session", id=task.id)
+        elif kind == "task_unqueue":
+            self.tasks.unqueue(int(msg.get("id", 0)), int(msg.get("item", 0)))
         elif kind == "task_send":
             images = [
                 {"media_type": str(i.get("media_type", "")), "data": str(i.get("data", ""))}
@@ -2812,8 +3346,14 @@ class Hub:
                 cwd = task.cwd if task else self.tasks.resolve_dir(str(msg.get("directory", "")))
             except ValueError:
                 return
-            term = self.workbench.open_terminal(cwd)
+            try:
+                term = self.workbench.open_terminal(cwd)
+            except OSError as exc:  # no pty left, the shell wouldn't start
+                self.emit("error", text=f"The terminal didn't start: {exc}")
+                return
             self.emit("term_open", term=term, folder=cwd.name)
+        elif kind == "term_close":
+            self.workbench.close_terminal(str(msg.get("term", "")))
         elif kind == "term_input":
             term = self.workbench.terminal(str(msg.get("term", "")))
             if term is not None:
@@ -3126,6 +3666,20 @@ def frontmost_app() -> str:
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _audio_seconds(audio: Any) -> float:
+    """How long an utterance's audio is (16 kHz from the microphone)."""
+    from .listen import SAMPLE_RATE
+
+    return float(getattr(audio, "size", 0) or 0) / SAMPLE_RATE
+
+
+def _current_task() -> asyncio.Task | None:
+    try:
+        return asyncio.current_task()
+    except RuntimeError:  # no event loop running
+        return None
 
 
 def battery() -> dict[str, Any] | None:

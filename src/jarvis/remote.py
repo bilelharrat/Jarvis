@@ -44,6 +44,7 @@ from .prefs import APP_SUPPORT
 log = logging.getLogger("jarvis")
 
 PORT = 8765
+HOST = "0.0.0.0"  # noqa: S104 - the point: reachable from the user's phone
 WEB_DIR = Path(__file__).parent / "web"
 CODE_SECONDS = 300
 MAX_FAILURES = 5
@@ -307,12 +308,20 @@ def wav_bytes(audio: Any, rate: int) -> bytes:
 
 
 class RemoteServer:
-    """Starts and stops the companion server inside the app's event loop."""
+    """Starts and stops the companion server inside the app's event loop.
 
-    def __init__(self, hub: Any, devices: Devices | None = None, port: int = PORT) -> None:
+    It binds its own socket and hands it to uvicorn: left to itself, uvicorn meets a busy
+    port with sys.exit(), and that SystemExit, escaping the event loop, took the whole app
+    down, at every launch once the companion had been switched on. Now a busy port (or
+    any other failure to start) switches the companion back off and says why."""
+
+    def __init__(
+        self, hub: Any, devices: Devices | None = None, port: int = PORT, host: str = HOST
+    ) -> None:
         self.hub = hub
         self.devices = devices or Devices()
-        self.port = port
+        self.port = port  # 0: any free port (the one taken is kept here)
+        self.host = host
         self._server: Any = None
         self._task: asyncio.Task | None = None
         self.error = ""
@@ -321,9 +330,11 @@ class RemoteServer:
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
 
-    async def start(self) -> None:
+    async def start(self) -> bool:
+        """True once it's listening. On failure it's off: error says why, the setting is
+        switched back off and the window hears of it."""
         if self.running:
-            return
+            return True
         import uvicorn
 
         class Quiet(uvicorn.Server):
@@ -331,22 +342,63 @@ class RemoteServer:
             def capture_signals(self):  # the main server owns Ctrl-C and SIGTERM
                 yield
 
+        try:
+            sock = self._bind()
+        except OSError as exc:
+            log.warning("companion server can't bind port %d: %s", self.port, exc)
+            self._failed(
+                f"Port {self.port} is in use by another app, so the phone companion is off. "
+                "Quit that app, then turn the companion on again."
+            )
+            return False
         config = uvicorn.Config(
-            create_remote_app(self.hub, self.devices),
-            host="0.0.0.0",  # noqa: S104 - the point: reachable from the user's phone
-            port=self.port,
-            log_level="warning",
-            lifespan="off",
+            create_remote_app(self.hub, self.devices), log_level="warning", lifespan="off"
         )
         self._server = Quiet(config)
-        self._task = asyncio.create_task(self._server.serve())
+        self._task = asyncio.create_task(self._serve(self._server, sock))
         await asyncio.sleep(0.3)
         if self._task.done():
-            self.error = f"Port {self.port} is in use by another app."
-            log.warning("companion server didn't start: %s", self.error)
-        else:
-            self.error = ""
-            log.info("companion server listening on port %d", self.port)
+            task, self._server, self._task = self._task, None, None
+            if not task.cancelled() and task.exception() is not None:
+                log.warning("companion server failed: %r", task.exception())
+            self._failed(
+                "The phone companion couldn't start, so it's off. Try turning it on again."
+            )
+            return False
+        self.error = ""
+        log.info("companion server listening on port %d", self.port)
+        return True
+
+    def _bind(self) -> socket.socket:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.host, self.port))
+            sock.listen(128)
+            sock.setblocking(False)
+        except OSError:
+            sock.close()
+            raise
+        self.port = sock.getsockname()[1]
+        return sock
+
+    @staticmethod
+    async def _serve(server: Any, sock: socket.socket) -> None:
+        try:
+            await server.serve(sockets=[sock])
+        except SystemExit as exc:  # uvicorn's way of saying it can't start; the app lives on
+            log.warning("companion server stopped (exit %s)", exc.code)
+        finally:
+            sock.close()
+
+    def _failed(self, message: str) -> None:
+        self.error = message
+        log.warning("companion server didn't start: %s", message)
+        prefs = getattr(self.hub, "prefs", None)
+        if getattr(prefs, "remote_enabled", False):
+            self.hub.set_prefs({"remote_enabled": False})  # no retrying it at every launch
+        self.hub.emit("error", text=message)
+        self.hub.emit("remote", **self.public())
 
     async def stop(self) -> None:
         if self._server is not None:

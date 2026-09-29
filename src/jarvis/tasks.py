@@ -5,8 +5,8 @@ you can watch its transcript live, send it follow-ups (queued while it works),
 interrupt the current step without ending it, resume any past Claude Code session in
 a project, and choose per session how much it may do unasked:
 
-  ask    reading and searching run freely; every edit and command waits for you
-  edits  file edits run freely; commands still ask
+  ask    reading and searching in the project run freely; every edit and command waits
+  edits  file edits inside the project run freely; commands still ask
   auto   everything runs without asking (you chose this; it can run any command)
 """
 
@@ -16,7 +16,9 @@ import asyncio
 import contextlib
 import itertools
 import json
+import logging
 import re
+import shlex
 import time
 import warnings
 from collections.abc import Awaitable, Callable
@@ -49,37 +51,191 @@ from claude_agent_sdk import (
     tool,
 )
 
+from . import code_tools
+from .computer import is_sensitive
 from .config import MAX_BUFFER, Settings
 from .knowledge import RESEARCH_DIR
 
-READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite"]
+# Always fine to use without asking. Reading goes through the policy instead, which lets
+# reads inside the project through and asks about anything outside it.
+FREE_TOOLS = {"TodoWrite", "WebSearch"}
+READ_TOOLS = {"Read", "Glob", "Grep", "LS", "NotebookRead"}
 EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
+# Inside the project, but "edits" mode still asks: git's internals and hooks, Claude
+# Code's own settings, and files other tools run on their own.
+_PROTECTED_DIRS = {".git", ".claude", ".husky", ".githooks"}
+_PROTECTED_FILES = {".envrc", ".vscode/tasks.json"}
 
 ALLOW, ALLOW_EDITS, DENY, ALWAYS = "allow", "allow_edits", "deny", "always"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 AGENT_TOOLS = {"Task", "Agent"}
 EXPORT_DIR = Path.home() / "Documents" / "Jarvis" / "Jarvis Code"
-# Commands whose second word says what they do: "git commit", "npm test", "uv run".
+log = logging.getLogger("jarvis")
+
+
+# ── "don't ask again" for shell commands ──
+
+# Commands whose second word says what they do: "git commit", "npm test", "cargo build".
 _TWO_WORD = {
-    "git", "npm", "pnpm", "yarn", "uv", "cargo", "go", "make", "docker", "gh", "bun",
-    "python", "python3", "pip", "poetry", "swift", "xcodebuild", "kubectl", "terraform", "brew",
+    "git", "npm", "pnpm", "yarn", "bun", "uv", "cargo", "go", "make", "docker", "gh", "pip",
+    "pip3", "poetry", "swift", "xcodebuild", "kubectl", "terraform", "brew", "bundle", "mix",
+    "dotnet", "flutter", "dart", "composer", "gradle", "mvn", "rake", "pipenv", "pdm", "hatch",
 }  # fmt: skip
+# Programs that run whatever they're handed (shells, interpreters, runners, sudo): the
+# rest of the command is the real one, so no rule ever covers them.
+_RUNNERS = {
+    "bash", "sh", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "python", "python2", "python3",
+    "node", "deno", "ruby", "perl", "php", "lua", "osascript", "npx", "pnpx", "bunx", "uvx",
+    "sudo", "doas", "su", "env", "xargs", "exec", "eval", "source", ".", "nohup", "time",
+    "timeout", "nice", "watch", "command", "builtin", "parallel", "script", "expect", "open",
+    "ssh", "launchctl", "crontab", "at", "cd",
+}  # fmt: skip
+# Subcommands that run arbitrary commands or packages, or rewrite the tool's own config.
+_NEVER = {
+    "npm exec", "npm x", "npm explore", "npm create", "npm init", "pnpm exec", "pnpm dlx",
+    "pnpm create", "yarn exec", "yarn dlx", "yarn create", "bun x", "bun create", "uv run",
+    "uv tool", "poetry run", "pipenv run", "pdm run", "hatch run", "bundle exec", "git config",
+    "docker run", "docker exec", "kubectl exec", "gh extension",
+}  # fmt: skip
+# Where the next word names a script, the rule names it too: "npm run build".
+_SCRIPTS = {"npm run", "npm run-script", "pnpm run", "yarn run", "bun run"}
+# Options a tool takes before its subcommand: (flags, options with a value, options
+# naming a directory or file, which must be inside the project). Anything else there
+# (git -c core.fsmonitor=…, docker -H …) means no rule applies.
+_GLOBAL_OPTS: dict[str, tuple[set[str], set[str], set[str]]] = {
+    "git": ({"--no-pager", "-P", "-p", "--paginate", "--no-optional-locks", "--literal-pathspecs"},
+            set(), {"-C"}),
+    "npm": ({"-s", "--silent", "-q", "--quiet", "-d", "--offline", "--no-color"},
+            {"--loglevel", "-w", "--workspace"}, {"--prefix", "-C"}),
+    "pnpm": ({"-s", "--silent", "-r", "--recursive", "--offline"}, {"--filter", "-F", "--loglevel"},
+             {"-C", "--dir"}),
+    "yarn": ({"-s", "--silent", "--offline"}, set(), {"--cwd"}),
+    "bun": ({"--silent"}, set(), {"--cwd"}),
+    "cargo": ({"-q", "--quiet", "-v", "--verbose", "--offline", "--frozen", "--locked"}, set(),
+              {"--manifest-path"}),
+    "make": ({"-s", "--silent", "-k", "-B", "-n", "-w", "--no-print-directory"}, {"-j", "--jobs"},
+             {"-C", "--directory", "-f", "--file", "--makefile"}),
+    "go": (set(), set(), {"-C"}),
+    "uv": ({"-q", "--quiet", "-v", "--offline", "--frozen", "--locked"}, {"--python"},
+           {"--directory", "--project"}),
+    "gh": (set(), {"-R", "--repo"}, set()),
+}  # fmt: skip
+# Options that run other programs or read other config, wherever they appear.
+_UNSAFE_OPTS = {
+    "--upload-pack", "--receive-pack", "--exec", "--extcmd", "--open-files-in-pager",
+    "--script-shell", "--node-options", "--userconfig", "--globalconfig", "--config-env",
+    "--kubeconfig", "--git-dir", "--work-tree", "--exec-path", "--config", "--output",
+}  # fmt: skip
+_UNSAFE_BY_COMMAND = {
+    "git rebase": {"-x"}, "git grep": {"-O"}, "git clone": {"-u"}, "git difftool": {"-x", "-t"},
+    "git mergetool": {"-t"}, "git submodule": {"foreach"}, "git bisect": {"run"},
+}  # fmt: skip
+_FIND_ACTIONS = {
+    "-exec",
+    "-execdir",
+    "-ok",
+    "-okdir",
+    "-delete",
+    "-fprint",
+    "-fprint0",
+    "-fprintf",
+    "-fls",
+}
+_SHELL_SYNTAX = re.compile(r"[;&|<>`\r\n]|\$\(")  # chaining, pipes, redirects, substitution
+_CD_FIRST = re.compile(r"^\s*cd\s+(\"[^\"]*\"|'[^']*'|[^\s;&|<>`$'\"]+)\s*&&\s*")
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_HARMLESS_ENV = re.compile(
+    r"(CI|DEBUG|NODE_ENV|RAILS_ENV|RACK_ENV|FORCE_COLOR|NO_COLOR|TERM|LANG|LC_\w+|TZ"
+    r"|PYTHONUNBUFFERED|PYTHONDONTWRITEBYTECODE|RUST_BACKTRACE|RUST_LOG|CARGO_TERM_COLOR)"
+)
 
 
-def command_rule(command: str) -> str:
-    """The prefix 'don't ask again' remembers for a shell command: its program, plus
-    the subcommand for tools like git or npm."""
-    words = command.strip().split()
-    if not words:
-        return ""
-    if words[0] in _TWO_WORD and len(words) > 1 and not words[1].startswith(("-", "/", ".")):
-        return " ".join(words[:2])
-    return words[0]
+def _within(cwd: Path | None, raw: str) -> bool:
+    """Whether a path in a command stays inside the project folder."""
+    if cwd is None:
+        return not raw.startswith(("/", "~")) and ".." not in Path(raw).parts
+    path = Path(raw).expanduser()
+    try:
+        path = (path if path.is_absolute() else cwd / path).resolve()
+        root = cwd.resolve()
+    except (OSError, RuntimeError):
+        return False
+    return path == root or root in path.parents
 
 
-def rule_allows(rule: str, command: str) -> bool:
+def _option(word: str) -> tuple[str, str | None]:
+    """'--prefix=app' -> ('--prefix', 'app'); '-j4' -> ('-j', '4'); '-s' -> ('-s', None)."""
+    if word.startswith("--") and "=" in word:
+        name, _, value = word.partition("=")
+        return name, value
+    if not word.startswith("--") and len(word) > 2:
+        return word[:2], word[2:]
+    return word, None
+
+
+def command_key(command: str, cwd: Path | None = None) -> str | None:
+    """What "don't ask again" knows a shell command by: its program, plus the subcommand
+    for tools like git or npm ("git commit", "npm run build"). None when no rule may cover
+    it: chained, piped or redirected commands; shells, interpreters and runners; and
+    options that point the tool outside the project or at other code to run."""
     command = command.strip()
-    return command == rule or command.startswith(rule + " ")
+    first = _CD_FIRST.match(command)
+    if first:  # "cd sub && npm test": fine while it stays in the project
+        target = first.group(1).strip("'\"")
+        if not _within(cwd, target):
+            return None
+        command = command[first.end() :]
+    if not command or _SHELL_SYNTAX.search(command):
+        return None
+    try:
+        words = shlex.split(command)
+    except ValueError:  # unbalanced quotes
+        return None
+    while words and _ASSIGNMENT.match(words[0]):  # FORCE_COLOR=1 npm test
+        if not _HARMLESS_ENV.fullmatch(words[0].split("=", 1)[0]):
+            return None  # PATH=…, NODE_OPTIONS=…, GIT_SSH_COMMAND=… change what runs
+        words = words[1:]
+    if not words or "/" in words[0] or words[0] in _RUNNERS:
+        return None
+    program, args = words[0], words[1:]
+    if any(_option(a)[0] in _UNSAFE_OPTS for a in args):
+        return None
+    if program == "find":
+        return None if _FIND_ACTIONS & set(args) else "find"
+    if program not in _TWO_WORD:
+        return program
+    flags, valued, dirs = _GLOBAL_OPTS.get(program, (set(), set(), set()))
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        name, value = _option(args[i])
+        if name in dirs or name in valued:
+            if value is None:
+                i += 1
+                value = args[i] if i < len(args) else None
+            if value is None or (name in dirs and not _within(cwd, value)):
+                return None
+        elif args[i] not in flags:
+            return None  # an option we can't read: a value mistaken for the subcommand
+        i += 1
+    if i >= len(args):
+        return program
+    key = f"{program} {args[i]}"
+    rest = set(args[i + 1 :])
+    if key in _NEVER or _UNSAFE_BY_COMMAND.get(key, set()) & rest:
+        return None
+    if key in _SCRIPTS:
+        script = args[i + 1] if i + 1 < len(args) else ""
+        return f"{key} {script}" if script and not script.startswith("-") else None
+    return key
+
+
+def command_rule(command: str, cwd: Path | None = None) -> str:
+    """The rule 'don't ask again' offers for a command ("" when it can't offer one)."""
+    return command_key(command, cwd) or ""
+
+
+def rule_allows(rule: str, command: str, cwd: Path | None = None) -> bool:
+    return bool(rule) and command_key(command, cwd) == rule
 
 
 class RuleStore:
@@ -121,6 +277,19 @@ MODES = ("plan", "ask", "edits", "auto")
 SDK_MODES = {"plan": "plan", "ask": "default", "edits": "default", "auto": "default"}
 PLAN_APPROVE_EDITS, PLAN_APPROVE, PLAN_KEEP = "plan_edits", "plan_ask", "plan_keep"
 IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
+# A question on a card goes unanswered after five minutes (the hub's APPROVAL_TIMEOUT). The
+# turn then stops, rather than Claude asking again (and again) while the user is away.
+UNANSWERED_SECONDS = 295
+# How a connection ends: a new effort (reopen the same conversation), an hour with
+# nothing to do, or Claude Code itself went away.
+_REOPEN, _IDLE, _GONE = "reopen", "idle", "gone"
+# What Claude Code picked up on its own, for the transcript.
+_ON_ITS_OWN = {
+    "task-notification": "A background task reported back.",
+    "auto-continuation": "It carried on by itself.",
+    "channel": "A message came in from a connected service.",
+    "peer": "A message came in from another session.",
+}
 
 RESEARCH_TOOLS = ["WebSearch", "WebFetch"]
 RESEARCH_PROMPT = """You are JARVIS's research desk. Research the user's topic thoroughly on the
@@ -140,6 +309,42 @@ Approve = Callable[[str, str, list[tuple[str, str]]], Awaitable[str]]
 Emit = Callable[..., None]
 
 
+class Inbox:
+    """Messages waiting for a session, in order. Each has a stable id, so one can be
+    taken back before it's sent; once the session takes it, it's gone from here."""
+
+    def __init__(self) -> None:
+        self._items: list[dict[str, Any]] = []
+        self._ids = itertools.count(1)
+
+    def put(self, text: str, images: list[dict[str, str]] | None = None) -> int:
+        item = {"id": next(self._ids), "text": text, "images": list(images or [])}
+        self._items.append(item)
+        return item["id"]
+
+    def take(self) -> dict[str, Any] | None:
+        return self._items.pop(0) if self._items else None
+
+    def remove(self, item_id: int) -> bool:
+        for item in self._items:
+            if item["id"] == item_id:
+                self._items.remove(item)
+                return True
+        return False
+
+    def empty(self) -> bool:
+        return not self._items
+
+    def qsize(self) -> int:
+        return len(self._items)
+
+    def public(self) -> list[dict[str, Any]]:
+        return [
+            {"id": i["id"], "text": i["text"][:2000], "images": len(i["images"])}
+            for i in self._items
+        ]
+
+
 @dataclass
 class ClaudeTask:
     id: int
@@ -147,7 +352,7 @@ class ClaudeTask:
     cwd: Path
     status: str = "running"
     last_action: str = "Starting"
-    result: str = ""
+    result: str = ""  # the latest turn's reply
     cost_usd: float | None = None
     allow_edits: bool = False
     files_changed: set[str] = field(default_factory=set)
@@ -167,11 +372,24 @@ class ClaudeTask:
     seq: int = 0  # numbers transcript entries
     checkpoints: list[str] = field(default_factory=list)  # user-message ids, for undo
     model: str = ""
-    inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
+    inbox: Inbox = field(default_factory=Inbox)
     client: Any = None
     busy: bool = False
     started: datetime = field(default_factory=datetime.now)
     handle: asyncio.Task | None = None
+    # How the open connection is doing (see TaskManager._connect).
+    stirred: asyncio.Event = field(default_factory=asyncio.Event)  # a message, a turn's end
+    turns_pending: int = 0  # the user's messages sent whose turns haven't ended
+    injected: bool = False  # Claude Code is on a turn it started itself
+    current: str = ""  # whose turn Claude Code is on: "user", "claude" or ""
+    turn_started: float = 0.0
+    turn_files: set[str] = field(default_factory=set)  # what this turn changed
+    pending_edits: dict[str, str] = field(default_factory=dict)  # tool id -> path, till done
+    fork_points: dict[str, str] = field(default_factory=dict)  # prompt uuid -> entry before
+    last_uuid: str = ""  # the latest entry in Claude Code's own transcript
+    live_effort: str | None = None  # the effort the open connection was started with
+    conn_cost: float | None = None  # the open connection's running total
+    finished_background: set[str] = field(default_factory=set)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -188,6 +406,7 @@ class ClaudeTask:
             "todos": self.todos,
             "background": list(self.background.values()),
             "queued": self.inbox.qsize(),
+            "queue": self.inbox.public(),
             "model": self.model,
             "session_id": self.session_id,
             "busy": self.busy,
@@ -215,13 +434,18 @@ def describe_tool(name: str, tool_input: dict[str, Any]) -> str:
         return f"Reading {short}"
     if name in ("Grep", "Glob"):
         return f"Searching for {tool_input.get('pattern', '')[:60]}"
+    if name == "WebFetch":
+        return f"Reading {_domain(str(tool_input.get('url', '')))}"
     return name
 
 
 def approval_detail(name: str, tool_input: dict[str, Any], cwd: Path) -> str:
     if name == "Bash":
         return f"$ {tool_input.get('command', '')}"
+    if name == "WebFetch":
+        return f"{tool_input.get('url', '')}\n{str(tool_input.get('prompt', ''))[:300]}".strip()
     path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    path = path or tool_input.get("path") or ""
     try:
         path = str(Path(path).relative_to(cwd))
     except ValueError:
@@ -236,7 +460,43 @@ def approval_detail(name: str, tool_input: dict[str, Any], cwd: Path) -> str:
     if name == "Write":
         body = str(tool_input.get("content", "")).splitlines()[:10]
         return "\n".join([f"{path} (new contents)"] + [f"+ {line}" for line in body])
+    if name in ("Glob", "Grep"):
+        return f"{name} {tool_input.get('pattern', '')} in {path or '.'}"
+    if name.startswith("mcp__"):  # another server's tool: what it's handed
+        return f"{name.split('__')[-1]} {json.dumps(tool_input, ensure_ascii=False)[:1500]}"
     return f"{name} {path}".strip()
+
+
+def _domain(url: str) -> str:
+    match = re.match(r"^\w+://([^/:?#]+)", url.strip())
+    return match.group(1) if match else "a web page"
+
+
+def _inside(root: Path, raw: str) -> Path | None:
+    """Where a path a tool names (absolute, ~, or relative to the project) really leads,
+    symlinks followed, if that's inside the project; None if it's outside."""
+    path = Path(raw).expanduser() if raw else root
+    try:
+        path = (path if path.is_absolute() else root / path).resolve()
+        root = root.resolve()
+    except (OSError, RuntimeError):
+        return None
+    return path if path == root or root in path.parents else None
+
+
+def _read_paths(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
+    keys = ("file_path", "path", "notebook_path")
+    paths = [str(tool_input[k]) for k in keys if tool_input.get(k)]
+    pattern = str(tool_input.get("pattern") or "") if tool_name == "Glob" else ""
+    if pattern.startswith(("/", "~")) or ".." in pattern.split("/"):
+        paths.append(re.split(r"[*?\[{]", pattern, maxsplit=1)[0] or "/")  # its fixed start
+    return paths or [""]
+
+
+def _from_user(origin: Any) -> bool:
+    """Whether a message or turn came from the user (the SDK's own prompts carry no
+    origin), rather than one Claude Code started itself."""
+    return not isinstance(origin, dict) or origin.get("kind") in (None, "human")
 
 
 class TaskManager:
@@ -257,15 +517,25 @@ class TaskManager:
         self.model = settings.model
         self.on_finished: Callable[[ClaudeTask], None] | None = None
         self.rules = rules or RuleStore()
+        # Extra MCP servers for a session in a folder (the built-in browser, the iOS
+        # Simulator: code_tools), set by the hub.
+        self.session_servers: Callable[[Path], dict[str, Any]] | None = None
 
     # ── folders ──
 
     def resolve_dir(self, directory: str) -> Path:
         raw = Path(directory.strip()).expanduser()
         candidates = [raw] if raw.is_absolute() else [self.settings.projects_dir / raw]
-        roots = {Path.home().resolve(), self.settings.projects_dir.resolve()}
+        home = Path.home().resolve()
+        roots = {home, self.settings.projects_dir.resolve()}
+        # Folders too broad to be a project: a session there could read and edit anything.
+        broad = roots | {Path("/")} | {home / n for n in _HOME_FOLDERS}
         for candidate in candidates:
             path = candidate.resolve()
+            if path in broad or (home / "Library") in path.parents or is_sensitive(path):
+                raise ValueError(
+                    f"{directory!r} is too broad for a project; pick a project folder."
+                )
             if path.is_dir() and any(path == r or r in path.parents for r in roots):
                 return path
         raise ValueError(
@@ -283,20 +553,40 @@ class TaskManager:
     def start(
         self, prompt: str, directory: str, mode: str = "ask", resume: str = "", title: str = ""
     ) -> ClaudeTask:
+        cwd = self.resolve_dir(directory)
+        same = self._by_session(resume) if resume else None
+        if same is not None:  # already open here: the same session, never a second copy
+            if prompt.strip():
+                self.send(same.id, prompt)
+            elif same.handle is None or same.handle.done():
+                same.status = "running"
+                same.handle = asyncio.create_task(self._session(same))
+                self._changed()
+            return same
         task = ClaudeTask(
             id=next(self._ids),
             prompt=prompt.strip(),
-            cwd=self.resolve_dir(directory),
+            cwd=cwd,
             mode=mode if mode in MODES else "ask",
             session_id=resume,
             title=title,
         )
         if task.prompt:
-            task.inbox.put_nowait(task.prompt)
+            task.inbox.put(task.prompt)
         self.tasks[task.id] = task
         task.handle = asyncio.create_task(self._session(task))
         self._changed()
         return task
+
+    def _by_session(self, session_id: str) -> ClaudeTask | None:
+        """The task that is this Claude Code session (an open one first)."""
+        same = [
+            t
+            for t in self.tasks.values()
+            if t.kind == "code" and t.session_id == session_id and not t.fork
+        ]
+        same.sort(key=lambda t: (t.handle is not None and not t.handle.done(), t.id))
+        return same[-1] if same else None
 
     def send(self, task_id: int, text: str, images: list[dict[str, str]] | None = None) -> bool:
         """A follow-up message; queued if the session is mid-step, and it reopens a
@@ -305,12 +595,22 @@ class TaskManager:
         text = text.strip()
         if task is None or task.kind != "code" or not (text or images):
             return False
-        task.inbox.put_nowait({"text": text, "images": images[:6]} if images else text)
+        task.inbox.put(text, (images or [])[:6])
+        task.stirred.set()
         if task.handle is None or task.handle.done():
             task.status = "running"
             task.handle = asyncio.create_task(self._session(task))
         self._changed()
         return True
+
+    def unqueue(self, task_id: int, item_id: int) -> bool:
+        """Take back a message that's still waiting; one the session took is on its way."""
+        task = self.tasks.get(task_id)
+        if task is None:
+            return False
+        removed = task.inbox.remove(item_id)
+        self._changed()  # either way, the windows show what's really waiting
+        return removed
 
     async def interrupt(self, task_id: int) -> bool:
         """Stop the current step but keep the session open for the next message."""
@@ -365,11 +665,13 @@ class TaskManager:
             return "It's still working; stop it first."
         if not task.checkpoints or task.client is None:
             return "There's nothing to undo in this session."
-        checkpoint = task.checkpoints.pop()
+        checkpoint = task.checkpoints[-1]
         try:
             await task.client.rewind_files(checkpoint)
-        except Exception as exc:
+        except Exception as exc:  # the checkpoint stays, so undo can try it again
             return f"Couldn't undo: {exc}"
+        with contextlib.suppress(ValueError):
+            task.checkpoints.remove(checkpoint)
         task.files_changed.clear()
         self._log(task, "system", "Undid the last round of file changes.")
         self._changed()
@@ -388,26 +690,34 @@ class TaskManager:
             await task.client.rewind_files(uuid)
         except Exception as exc:
             return f"Couldn't rewind: {exc}"
-        del task.checkpoints[task.checkpoints.index(uuid) :]
+        if uuid in task.checkpoints:
+            del task.checkpoints[task.checkpoints.index(uuid) :]
         self._log(task, "system", "Rewound the code to before that message.")
         self._changed()
         return "Rewound: the files are back as they were before that message."
 
     def fork(self, task_id: int, uuid: str = "") -> ClaudeTask | None:
-        """A new session that starts from this one's conversation (up to a message, if
-        given) and goes its own way; the original is untouched."""
+        """A new session that starts from this one's conversation and goes its own way; the
+        original is untouched. With a message's uuid, it starts from just before that
+        message (the message itself and everything after are left out)."""
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code" or not task.session_id:
             return None
+        resume_at = ""
+        if uuid:
+            if uuid not in task.fork_points:
+                return None
+            resume_at = task.fork_points[uuid]  # Claude Code resumes up to and including it
+        fresh = bool(uuid) and not resume_at  # before the very first message: a clean slate
         fork = ClaudeTask(
             id=next(self._ids),
             prompt="",
             cwd=task.cwd,
             mode=task.mode,
-            session_id=task.session_id,
+            session_id="" if fresh else task.session_id,
             title=f"{task.title or task.prompt[:60] or 'Session'} (fork)",
-            fork=True,
-            resume_at=uuid,
+            fork=not fresh,
+            resume_at=resume_at,
             effort=task.effort,
             model=task.model,
         )
@@ -426,29 +736,25 @@ class TaskManager:
         return True
 
     def set_effort(self, task_id: int, effort: str) -> bool:
-        """How hard Claude thinks. Takes effect by reopening the session (same
-        conversation) once it's between steps."""
+        """How hard Claude thinks. It takes effect by reopening the session (same
+        conversation) between turns, so a step under way finishes first, and a background
+        task (a dev server, say) keeps the session as it is until it ends."""
         task = self.tasks.get(task_id)
         if task is None or effort not in EFFORTS:
             return False
         task.effort = effort
-        self._log(task, "system", f"Effort: {effort}.")
-        if task.handle is not None and not task.handle.done() and not task.busy and task.session_id:
-            asyncio.create_task(self._reopen(task))
+        later = task.client is not None and (task.busy or task.background)
+        self._log(task, "system", f"Effort: {effort}." + (" From the next step." if later else ""))
+        task.stirred.set()
         self._changed()
         return True
 
-    async def _reopen(self, task: ClaudeTask) -> None:
-        handle = task.handle
-        if handle is not None and not handle.done():
-            handle.cancel()
-            with contextlib.suppress(BaseException):
-                await handle
-        task.status = "waiting"
-        task.handle = asyncio.create_task(self._session(task))
+    def _effort_pending(self, task: ClaudeTask) -> bool:
+        wanted = task.effort or self.settings.task_effort
+        return task.live_effort is not None and task.live_effort != wanted
 
     def export(self, task_id: int) -> Path | None:
-        """The transcript as Markdown in ~/Documents/Jarvis/Claude Code."""
+        """The transcript as Markdown in ~/Documents/Jarvis/Jarvis Code."""
         task = self.tasks.get(task_id)
         if task is None:
             return None
@@ -458,7 +764,7 @@ class TaskManager:
             or "Session"
         )
         path = EXPORT_DIR / f"{datetime.now():%Y-%m-%d %H%M} {slug}.md"
-        lines = [f"# {task.title or task.prompt or 'Claude Code session'}", "", f"_{task.cwd}_", ""]
+        lines = [f"# {task.title or task.prompt or 'Jarvis Code session'}", "", f"_{task.cwd}_", ""]
         for e in task.transcript:
             role, text = e.get("role"), e.get("text", "")
             if role == "user":
@@ -552,8 +858,8 @@ class TaskManager:
     def _on_background(self, task: ClaudeTask, message: Any) -> None:
         """Background shells and agents Claude Code started: shown until they end."""
         bg_id = str(getattr(message, "task_id", "") or "")
-        if not bg_id:
-            return
+        if not bg_id or bg_id in task.finished_background:
+            return  # a late progress note for one that ended: no ghost chip
         item = task.background.setdefault(
             bg_id, {"id": bg_id, "description": "", "status": "running", "kind": ""}
         )
@@ -570,12 +876,14 @@ class TaskManager:
             item["summary"] = str(message.summary)[:400]
         if item["status"] in ("completed", "failed", "killed", "stopped", "done"):
             task.background.pop(bg_id, None)
+            task.finished_background.add(bg_id)
             if item.get("summary") or item["description"]:
                 self._log(
                     task,
                     "system",
                     f"Background task {item['status']}: {item.get('summary') or item['description']}",
                 )
+        task.stirred.set()
         self._changed()
 
     def _log(self, task: ClaudeTask, role: str, text: str, **extra: Any) -> None:
@@ -592,7 +900,12 @@ class TaskManager:
         self.emit("task_log", id=task.id, entry=entry)
 
     def _tool_result(self, task: ClaudeTask, block: Any) -> None:
-        """Attach a step's outcome and a bit of its output to its timeline entry."""
+        """Attach a step's outcome and a bit of its output to its timeline entry, and
+        count an edit as a change once it's done (a refused edit changed nothing)."""
+        path = task.pending_edits.pop(block.tool_use_id, None)
+        if path and not block.is_error:
+            task.files_changed.add(path)
+            task.turn_files.add(path)
         content = block.content
         if isinstance(content, list):
             content = "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
@@ -639,6 +952,7 @@ class TaskManager:
             item = t.public()
             item["model"] = t.model or self.model
             item["effort"] = t.effort or self.settings.task_effort
+            item["effort_pending"] = t.kind == "code" and self._effort_pending(t)
             out.append(item)
         return out
 
@@ -660,7 +974,7 @@ class TaskManager:
                 setting_sources=[],
                 strict_mcp_config=True,
             )
-        # Read-only tools skipping can_use_tool is the design, as in brain.py.
+        # TodoWrite needing no check is the design, as in brain.py.
         warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
@@ -668,19 +982,27 @@ class TaskManager:
             effort=task.effort or self.settings.task_effort,
             cwd=str(task.cwd),
             tools={"type": "preset", "preset": "claude_code"},
-            allowed_tools=list(READ_ONLY_TOOLS),
+            # Everything else, reading and fetching included, goes past policy_for.
+            allowed_tools=["TodoWrite"],
             permission_mode=SDK_MODES[task.mode],
             can_use_tool=self.policy_for(task),
             # Claude's words and (summarized) thinking arrive as they're written.
             include_partial_messages=True,
             thinking={"type": "adaptive", "display": "summarized"},
-            # The project's own CLAUDE.md and settings apply, as in a normal session there.
-            setting_sources=["project"],
+            # As in Claude Code itself: the user's own CLAUDE.md, skills, commands, MCP
+            # servers, hooks and settings, then the project's, then its local ones.
+            setting_sources=["user", "project", "local"],
             # Checkpoints make "undo that" possible: files can be rewound to how they
             # were at any earlier message, which the replayed user messages identify.
             enable_file_checkpointing=True,
             extra_args={"replay-user-messages": None},
         )
+        if self.session_servers is not None:
+            # Added to the user's own MCP servers from their settings, never instead.
+            extra = self.session_servers(task.cwd)
+            base = options.mcp_servers if isinstance(options.mcp_servers, dict) else {}
+            options.mcp_servers = {**base, **extra}
+            options.allowed_tools = [*options.allowed_tools, *code_tools.READ_ONLY]
         if task.session_id:
             options.resume = task.session_id
             if task.fork:
@@ -689,55 +1011,20 @@ class TaskManager:
                 options.resume_session_at = task.resume_at
         return options
 
+    # ── a session's life ──
+
     async def _session(self, task: ClaudeTask) -> None:
         """A code session: one Claude Code conversation that takes messages until it's
-        closed or sits idle for an hour."""
+        closed or sits idle for an hour. A new effort reopens it (same conversation)
+        between turns."""
         if task.kind == "research":
             await self._run(task)
             return
         task.status = "running"
+        ended = _GONE
         try:
-            async with self.client_factory(options=self.options_for(task)) as client:
-                task.client = client
-                while True:
-                    if task.inbox.empty() and task.status == "running":
-                        task.status, task.last_action = "waiting", "Waiting for you"
-                        self._changed()  # open and idle: it's the user's turn
-                    try:
-                        text = await asyncio.wait_for(task.inbox.get(), IDLE_CLOSE_SECONDS)
-                    except TimeoutError:
-                        break
-                    task.busy = True
-                    task.status = "running"
-                    task.last_action = "Working"
-                    images = []
-                    if isinstance(text, dict):
-                        text, images = text.get("text", ""), text.get("images") or []
-                    self._log(task, "user", text, images=len(images))
-                    if not task.title and not task.prompt and text and not text.startswith("/"):
-                        # Named after its first request, as Claude Code does.
-                        task.title = _session_title(text)
-                    self._changed()
-                    turn_started = time.monotonic()
-                    await client.query(_with_images(text, images) if images else text)
-                    async for message in client.receive_response():
-                        self._on_task_message(task, message)
-                    task.busy = False
-                    task.last_action = "Waiting for you" if task.inbox.empty() else "Next message"
-                    task.status = "waiting" if task.inbox.empty() else "running"
-                    self._changed()
-                    if task.inbox.empty():
-                        self.emit(
-                            "task_finished",
-                            id=task.id,
-                            task_kind=task.kind,
-                            label=task.public()["label"],
-                            folder=task.cwd.name,
-                            status="done",
-                            result=_brief(task),
-                            report_path="",
-                            elapsed=round(time.monotonic() - turn_started),
-                        )
+            while (ended := await self._connect(task)) == _REOPEN:
+                pass
             task.status = "closed"
         except asyncio.CancelledError:
             task.status = "stopped"
@@ -747,17 +1034,228 @@ class TaskManager:
             task.result = str(exc)
             self._log(task, "system", f"Stopped with an error: {exc}")
         finally:
-            task.client = None
-            task.busy = False
-            task.last_action = {"closed": "Closed", "stopped": "Stopped"}.get(
+            mid_turn = task.busy
+            task.client, task.live_effort = None, None
+            task.busy, task.turns_pending, task.injected, task.current = False, 0, False, ""
+            task.last_action = {"closed": "Closed", "stopped": "Stopped", "failed": "Failed"}.get(
                 task.status, task.last_action
             )
-            if task.status == "failed":
-                task.last_action = "Failed"
             self._changed()
+            if mid_turn or task.status == "failed":  # nothing else will say it's over
+                status = "failed" if task.status == "failed" else "stopped"
+                self._turn_finished(task, status, always=True)
+            if task.status == "closed" and ended == _IDLE and not task.inbox.empty():
+                # A message came in just as it closed for being idle: open it for that.
+                task.status = "running"
+                task.handle = asyncio.create_task(self._session(task))
+
+    async def _connect(self, task: ClaudeTask) -> str:
+        """One connection to Claude Code: a reader that takes in everything it says for as
+        long as it runs, and the user's messages sent a turn at a time. Says how it ended:
+        _REOPEN (a new effort), _IDLE or _GONE."""
+        options = self.options_for(task)
+        async with self.client_factory(options=options) as client:
+            task.client, task.live_effort, task.conn_cost = client, options.effort, None
+            self._changed()
+            reader = asyncio.create_task(self._read(task, client))
+            item: Any = _GONE
+            try:
+                while True:
+                    item = await self._next_message(task, reader)
+                    if item in (_IDLE, _GONE):
+                        break
+                    if item == _REOPEN:
+                        self._log(task, "system", "Reopening with the new effort.")
+                        return _REOPEN
+                    await self._send_turn(task, client, item)
+            finally:
+                reader.cancel()
+                await asyncio.gather(reader, return_exceptions=True)
+            if not reader.cancelled() and reader.exception() is not None:
+                raise reader.exception()
+        return item
+
+    async def _read(self, task: ClaudeTask, client: Any) -> None:
+        """Everything Claude Code says, as it says it: replies to the user's turns and
+        turns it starts itself (a background task reporting back). Reading all the time
+        keeps the SDK's buffer from filling up, which would stall permission requests
+        and every interrupt, rewind and context call."""
+        async for message in client.receive_messages():
+            try:
+                self._on_task_message(task, message)
+            except Exception:  # one odd message mustn't end the session; the CLI dying does
+                log.exception("Jarvis Code: couldn't take in a %s", type(message).__name__)
+
+    async def _next_message(self, task: ClaudeTask, reader: asyncio.Task) -> Any:
+        """The next message to send, once Claude Code is between turns; or how the
+        connection should end: _REOPEN for a new effort, _IDLE after an hour with nothing
+        to do, _GONE when Claude Code itself has gone."""
+        idle_since = time.monotonic()
+        while not reader.done():
+            if task.busy or task.background:
+                idle_since = time.monotonic()  # working, or a dev server running: stay
+            if not task.busy:
+                if self._effort_pending(task) and not task.background:
+                    return _REOPEN
+                item = task.inbox.take()
+                if item is not None:
+                    return item
+                if task.status == "running":
+                    task.status, task.last_action = "waiting", "Waiting for you"
+                    self._changed()  # open and idle: it's the user's turn
+            remaining = IDLE_CLOSE_SECONDS - (time.monotonic() - idle_since)
+            if remaining <= 0:
+                return _IDLE
+            task.stirred.clear()
+            waiter = asyncio.ensure_future(task.stirred.wait())
+            try:
+                await asyncio.wait(
+                    {waiter, reader}, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                waiter.cancel()
+        return _GONE
+
+    async def _send_turn(self, task: ClaudeTask, client: Any, item: dict[str, Any]) -> None:
+        text, images = item["text"], item["images"]
+        task.turns_pending += 1
+        task.busy = True
+        task.status, task.last_action = "running", "Working"
+        task.turn_started = time.monotonic()
+        self._new_turn(task)
+        self._log(task, "user", text, images=len(images))
+        if not task.title and not task.prompt and text and not text.startswith("/"):
+            task.title = _session_title(text)  # named after its first request, as Claude Code does
+        self._changed()
+        await client.query(_with_images(text, images) if images else text)
+
+    def _new_turn(self, task: ClaudeTask) -> None:
+        """A turn starts: its reply and changed files are its own."""
+        task.result = ""
+        task.turn_files = set()
+
+    def _claude_turn(self, task: ClaudeTask, origin: Any = None, announce: bool = False) -> None:
+        """Claude Code is starting a turn: the user's (if one is owed a reply) or one it
+        began itself, e.g. when a background task it started reports back."""
+        if task.current:
+            return
+        if task.turns_pending and not announce:
+            task.current = "user"  # the user's turn, its replayed prompt not seen
+            return
+        task.current, task.injected, task.busy = "claude", True, True
+        task.turn_started = time.monotonic()
+        self._new_turn(task)
+        task.status, task.last_action = "running", "Working"
+        if announce:
+            kind = origin.get("kind", "") if isinstance(origin, dict) else ""
+            self._log(task, "system", _ON_ITS_OWN.get(kind, "It picked something up on its own."))
+        self._changed()
+
+    def _user_turn(self, task: ClaudeTask, uid: str) -> None:
+        """The user's own message, as Claude Code takes it up: a point to undo, rewind or
+        fork back to, and where the turn's reply and changes begin."""
+        task.current = "user"
+        self._new_turn(task)
+        task.checkpoints.append(uid)
+        del task.checkpoints[:-50]
+        task.fork_points[uid] = task.last_uuid
+        for stale in list(task.fork_points)[:-200]:
+            del task.fork_points[stale]
+        for entry in reversed(task.transcript):
+            if entry.get("role") == "user":
+                if not entry.get("uuid"):
+                    entry["uuid"] = uid
+                    self.emit("task_entry_meta", id=task.id, n=entry.get("n"), uuid=uid)
+                break
+
+    def _turn_over(self, task: ClaudeTask, message: ResultMessage) -> None:
+        """A turn ended: whose it was, what it cost, and it's the user's turn again."""
+        if task.fork and message.session_id and message.session_id != task.session_id:
+            task.fork, task.resume_at = False, ""  # the fork has its own session now
+        task.session_id = message.session_id or task.session_id
+        turn_cost = self._count_cost(task, message.total_cost_usd)
+        if message.is_error:
+            self._log(task, "system", f"Ended with an error: {message.subtype}")
+        usage = message.usage or {}
+        tokens = sum(
+            int(usage.get(k) or 0)
+            for k in (
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+            )
+        )
+        self._log(
+            task,
+            "turn",
+            "",
+            seconds=round((message.duration_ms or 0) / 1000),
+            tokens=tokens,
+            cost=round(turn_cost, 4),
+        )
+        claudes = task.current == "claude" or not _from_user(getattr(message, "origin", None))
+        if claudes:
+            task.injected = False
+        else:
+            task.turns_pending = max(0, task.turns_pending - 1)
+        task.current = ""
+        task.busy = task.turns_pending > 0 or task.injected
+        stopped = str(getattr(message, "terminal_reason", "") or "").startswith("aborted")
+        status = "stopped" if stopped else "failed" if message.is_error else "done"
+        origin = getattr(message, "origin", None)
+        self._turn_finished(
+            task, status, (origin or {}).get("kind", "claude") if claudes else "user"
+        )
+        task.stirred.set()
+
+    def _count_cost(self, task: ClaudeTask, total: float | None) -> float:
+        """This turn's cost. Claude Code reports a running total per connection (after a
+        resume, one that starts from the session's earlier total)."""
+        if total is None:
+            return 0.0
+        before = task.cost_usd or 0.0
+        if task.conn_cost is None:  # this connection's first report
+            turn = total - before if total >= before else total
+        else:
+            turn = max(0.0, total - task.conn_cost)
+        task.conn_cost = total
+        task.cost_usd = round(before + turn, 6)
+        return turn
+
+    def _turn_finished(
+        self, task: ClaudeTask, status: str, origin: str = "user", always: bool = False
+    ) -> None:
+        idle = not task.busy and task.inbox.empty()
+        if not task.busy and task.client is not None:
+            task.status = "waiting" if task.inbox.empty() else "running"
+            task.last_action = "Waiting for you" if task.inbox.empty() else "Next message"
+            self._changed()
+        if not (idle or always or origin != "user"):
+            return  # more of the user's messages to go: the last one says it's done
+        self.emit(
+            "task_finished",
+            id=task.id,
+            task_kind=task.kind,
+            label=task.public()["label"],
+            folder=task.cwd.name,
+            status=status,
+            result=_brief(task),
+            report_path="",
+            elapsed=round(time.monotonic() - task.turn_started) if task.turn_started else 0,
+            files=sorted(task.turn_files),
+            origin=origin,
+        )
+
+    def _note_edit(self, task: ClaudeTask, block: Any) -> None:
+        path = block.input.get("file_path") or block.input.get("notebook_path")
+        if block.name in EDIT_TOOLS and path:
+            task.pending_edits[block.id] = str(path)
 
     def _on_task_message(self, task: ClaudeTask, message: Any) -> None:
         if isinstance(message, StreamEvent):
+            if not getattr(message, "parent_tool_use_id", None):
+                self._claude_turn(task)
             self._on_stream(task, message)
             return
         if isinstance(
@@ -768,10 +1266,27 @@ class TaskManager:
             return
         if isinstance(message, AssistantMessage):
             parent = getattr(message, "parent_tool_use_id", None) or None
+            if not parent:
+                self._claude_turn(task)
+                task.last_uuid = getattr(message, "uuid", None) or task.last_uuid
             for block in message.content:
                 if isinstance(block, ThinkingBlock) and block.thinking.strip() and not parent:
                     self._log(task, "thinking", block.thinking.strip())
                     continue
+                if isinstance(block, ToolUseBlock) and parent:
+                    # A subagent's step, shown inside its agent's card. Its to-do list is
+                    # its own; its edits are the session's changes all the same.
+                    self._note_edit(task, block)
+                    self._log(
+                        task,
+                        "subtool",
+                        describe_tool(block.name, block.input),
+                        tool=block.name,
+                        parent=parent,
+                    )
+                    continue
+                if isinstance(block, TextBlock) and parent:
+                    continue  # the agent's own words come back as its result
                 if isinstance(block, ToolUseBlock) and block.name == "TodoWrite":
                     task.todos = [
                         {"content": str(t.get("content", "")), "status": str(t.get("status", "pending")),
@@ -795,23 +1310,9 @@ class TaskManager:
                     )
                     self._changed()
                     continue
-                if isinstance(block, ToolUseBlock) and parent:
-                    # A subagent's step: shown inside its agent's card.
-                    self._log(
-                        task,
-                        "subtool",
-                        describe_tool(block.name, block.input),
-                        tool=block.name,
-                        parent=parent,
-                    )
-                    continue
-                if isinstance(block, TextBlock) and parent:
-                    continue  # the agent's own words come back as its result
                 if isinstance(block, ToolUseBlock):
                     task.last_action = describe_tool(block.name, block.input)
-                    path = block.input.get("file_path") or block.input.get("notebook_path")
-                    if block.name in EDIT_TOOLS and path:
-                        task.files_changed.add(str(path))
+                    self._note_edit(task, block)
                     if block.name == "Bash":
                         task.commands += 1
                     self._log(
@@ -833,39 +1334,15 @@ class TaskManager:
             for block in results:
                 self._tool_result(task, block)
             uid = getattr(message, "uuid", None)
-            if uid and not results and not getattr(message, "parent_tool_use_id", None):
-                # The user's own message: a point to undo, rewind or fork back to.
-                task.checkpoints.append(uid)
-                del task.checkpoints[:-50]
-                for entry in reversed(task.transcript):
-                    if entry.get("role") == "user":
-                        if not entry.get("uuid"):
-                            entry["uuid"] = uid
-                            self.emit("task_entry_meta", id=task.id, n=entry.get("n"), uuid=uid)
-                        break
+            if uid and not getattr(message, "parent_tool_use_id", None):
+                origin = getattr(message, "origin", None)
+                if not results and _from_user(origin):
+                    self._user_turn(task, uid)
+                elif not results:  # a turn Claude Code starts itself: never a checkpoint
+                    self._claude_turn(task, origin, announce=True)
+                task.last_uuid = uid
         elif isinstance(message, ResultMessage):
-            task.session_id = message.session_id or task.session_id
-            task.cost_usd = (task.cost_usd or 0) + (message.total_cost_usd or 0)
-            if message.is_error:
-                self._log(task, "system", f"Ended with an error: {message.subtype}")
-            usage = message.usage or {}
-            tokens = sum(
-                int(usage.get(k) or 0)
-                for k in (
-                    "input_tokens",
-                    "output_tokens",
-                    "cache_creation_input_tokens",
-                    "cache_read_input_tokens",
-                )
-            )
-            self._log(
-                task,
-                "turn",
-                "",
-                seconds=round((message.duration_ms or 0) / 1000),
-                tokens=tokens,
-                cost=round(message.total_cost_usd or 0, 4),
-            )
+            self._turn_over(task, message)
 
     async def _run(self, task: ClaudeTask) -> None:
         try:
@@ -911,6 +1388,24 @@ class TaskManager:
 
     # ── permissions ──
 
+    def _free_read(self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]) -> bool:
+        """Reading inside the project, credentials aside, needs no OK."""
+        for raw in _read_paths(tool_name, tool_input):
+            path = _inside(task.cwd, raw)
+            if path is None or is_sensitive(path):
+                return False
+        return True
+
+    def _free_edit(self, task: ClaudeTask, tool_input: dict[str, Any]) -> bool:
+        """Where "edits" mode may write unasked: inside the project, but not git's
+        internals or hooks, Claude Code's own settings, or files tools run by themselves."""
+        raw = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+        path = _inside(task.cwd, raw) if raw else None
+        if path is None:
+            return False
+        rel = path.relative_to(task.cwd.resolve())
+        return not (_PROTECTED_DIRS & set(rel.parts)) and rel.as_posix() not in _PROTECTED_FILES
+
     def policy_for(self, task: ClaudeTask):
         async def can_use_tool(
             tool_name: str, tool_input: dict[str, Any], _context: ToolPermissionContext
@@ -919,27 +1414,41 @@ class TaskManager:
                 return await self._approve_plan(task, tool_input)
             if tool_name == "AskUserQuestion":
                 return await self._ask_user(task, tool_input)
-            if tool_name in READ_ONLY_TOOLS or task.mode == "auto":
+            if task.mode == "auto" or tool_name in FREE_TOOLS:
                 return PermissionResultAllow()
-            if tool_name in EDIT_TOOLS and (task.allow_edits or task.mode == "edits"):
+            if tool_name in READ_TOOLS and self._free_read(task, tool_name, tool_input):
+                return PermissionResultAllow()
+            editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
+            if editable and (task.allow_edits or task.mode == "edits"):
                 return PermissionResultAllow()
             command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
-            rule = command_rule(command) if command else ""
-            if command and any(rule_allows(r, command) for r in self.rules.for_project(task.cwd)):
+            rules = self.rules.for_project(task.cwd)
+            if command and any(rule_allows(r, command, task.cwd) for r in rules):
                 return PermissionResultAllow()
+            rule = command_rule(command, task.cwd) if command else ""
             choices = [(ALLOW, "Yes")]
-            if tool_name in EDIT_TOOLS:
+            if editable:
                 choices.append((ALLOW_EDITS, "Yes, allow all edits this session"))
             if rule:
                 choices.append(
                     (ALWAYS, f"Yes, and don't ask again for {rule} commands in {task.cwd.name}")
                 )
             choices.append((DENY, "No, and tell Claude what to do differently"))
-            verb = "run a command" if tool_name == "Bash" else f"use {tool_name}"
+            verb = {
+                "Bash": "run a command",
+                "WebFetch": f"read a page on {_domain(str(tool_input.get('url', '')))}",
+            }.get(tool_name, f"use {tool_name.split('__')[-1].replace('_', ' ')}")
+            if tool_name.startswith(f"mcp__{code_tools.BROWSER}__"):
+                verb = "use the browser"
+            elif tool_name.startswith(f"mcp__{code_tools.SIMULATOR}__"):
+                verb = "use the iOS Simulator"
             if tool_name in EDIT_TOOLS:
-                verb = "edit a file"
+                verb = "edit a file" if editable else "edit a file outside the project"
+            elif tool_name in READ_TOOLS:
+                verb = "read outside the project"
             task.last_action = "Waiting for you"
             self._changed()
+            asked_at = time.monotonic()
             choice = await self.approve(
                 f"Jarvis Code in {task.cwd.name} wants to {verb}",
                 approval_detail(tool_name, tool_input, task.cwd),
@@ -954,6 +1463,8 @@ class TaskManager:
             if choice in (ALLOW, ALLOW_EDITS, ALWAYS):
                 return PermissionResultAllow()
             feedback = choice.split(":", 1)[1].strip() if ":" in choice else ""
+            if not feedback and time.monotonic() - asked_at >= UNANSWERED_SECONDS:
+                return self._unanswered(task)
             return PermissionResultDeny(
                 message=f"The user said no: {feedback}"
                 if feedback
@@ -962,15 +1473,24 @@ class TaskManager:
 
         return can_use_tool
 
+    def _unanswered(self, task: ClaudeTask) -> PermissionResultDeny:
+        """Nobody answered (the user is away): stop the turn instead of asking again."""
+        self._log(task, "system", "No answer, so it stopped here. Send a message to carry on.")
+        return PermissionResultDeny(
+            message="The user didn't answer; they may be away. Stop and wait for them.",
+            interrupt=True,
+        )
+
     async def _approve_plan(self, task: ClaudeTask, tool_input: dict[str, Any]):
         """Claude Code finished planning: the user approves (choosing how much it may do
-        next) or sends it back to keep planning."""
+        next) or sends it back to keep planning, perhaps saying what to change."""
         task.plan = str(tool_input.get("plan", "")).strip()
         task.last_action = "Plan ready"
         self._log(task, "plan", task.plan)
         self.emit("task_plan", id=task.id, plan=task.plan)
         self._changed()
-        choice = await self.approve(
+        asked_at = time.monotonic()
+        answer = await self.approve(
             f"Jarvis Code in {task.cwd.name} has a plan",
             task.plan,
             [
@@ -980,14 +1500,22 @@ class TaskManager:
             ],
             context={"task_id": task.id, "tool": "ExitPlanMode", "ask_kind": "plan"},
         )
-        if choice == PLAN_KEEP:
+        choice, _, feedback = answer.partition(":")
+        if choice not in (PLAN_APPROVE_EDITS, PLAN_APPROVE):
+            if not feedback and time.monotonic() - asked_at >= UNANSWERED_SECONDS:
+                return self._unanswered(task)
             return PermissionResultDeny(
-                message="The user wants to keep planning. Ask what to change, or refine the plan."
+                message=f"The user wants to keep planning: {feedback.strip()}. Revise the plan "
+                "with that in mind."
+                if feedback.strip()
+                else "The user wants to keep planning. Ask what to change, or refine the plan."
             )
         task.mode = "edits" if choice == PLAN_APPROVE_EDITS else "ask"
         task.allow_edits = task.mode == "edits"
         self._log(task, "system", f"Plan approved. Permission mode: {task.mode}.")
         self._changed()
+        # Claude Code leaves plan mode itself when ExitPlanMode runs (back to the mode
+        # before it, "default" here); setting it first would skip that step.
         return PermissionResultAllow()
 
     async def _ask_user(self, task: ClaudeTask, tool_input: dict[str, Any]):
@@ -1005,6 +1533,7 @@ class TaskManager:
             )
             task.last_action = "Asking you"
             self._changed()
+            asked_at = time.monotonic()
             choice = await self.approve(
                 question,
                 details,
@@ -1013,6 +1542,8 @@ class TaskManager:
                 context={"task_id": task.id, "tool": "AskUserQuestion", "ask_kind": "question"},
             )
             if not choice.startswith("opt"):
+                if time.monotonic() - asked_at >= UNANSWERED_SECONDS:
+                    return self._unanswered(task)
                 return PermissionResultDeny(message="The user didn't answer.")
             answers[question] = options[int(choice[3:])]
             self._log(task, "user", f"{question} → {answers[question]}")
@@ -1023,9 +1554,9 @@ class TaskManager:
     def build_server(self):
         @tool(
             "run_claude_code",
-            "Start a Claude Code agent in one of the user's project folders to do a coding "
-            "task in the background. directory: a folder name under the projects folder "
-            "(e.g. bsh-research-center) or an absolute path. Asks the user first.",
+            "Start a Jarvis Code session (Claude Code) in one of the user's project folders to "
+            "do a coding task in the background. directory: a folder name under the projects "
+            "folder (e.g. bsh-research-center) or an absolute path. Asks the user first.",
             {"task": str, "directory": str},
         )
         async def run_claude_code(args):
@@ -1045,7 +1576,7 @@ class TaskManager:
 
         @tool(
             "message_claude_task",
-            "Send a follow-up message to a Claude Code session by its task number (from "
+            "Send a follow-up message to a Jarvis Code session by its task number (from "
             "claude_task_status). It's queued if the session is busy, and reopens a finished one.",
             {"task_id": int, "message": str},
         )
@@ -1056,7 +1587,7 @@ class TaskManager:
 
         @tool(
             "stop_claude_task",
-            "Stop a Claude Code session's current step (interrupt), or close the session "
+            "Stop a Jarvis Code session's current step (interrupt), or close the session "
             "entirely with close=true.",
             {
                 "type": "object",
@@ -1071,8 +1602,8 @@ class TaskManager:
 
         @tool(
             "list_claude_sessions",
-            "List recent past Claude Code sessions in a project folder (including ones the "
-            "user ran in Claude Code themselves), with ids to resume.",
+            "List recent past Jarvis Code (Claude Code) sessions in a project folder, including "
+            "ones the user ran in Claude Code themselves, with ids to resume.",
             {"directory": str},
         )
         async def list_claude_sessions(args):
@@ -1085,7 +1616,7 @@ class TaskManager:
 
         @tool(
             "resume_claude_session",
-            "Reopen a past Claude Code session (by session id from list_claude_sessions) and "
+            "Reopen a past Jarvis Code session (by session id from list_claude_sessions) and "
             "optionally send it a message. Asks the user first.",
             {
                 "type": "object",
@@ -1130,7 +1661,7 @@ class TaskManager:
 
         @tool(
             "claude_task_status",
-            "List the Claude Code and research tasks started this session with their status "
+            "List the Jarvis Code and research tasks started this session with their status "
             "and results, plus the known project folders.",
             {},
         )
@@ -1156,6 +1687,13 @@ class TaskManager:
                 claude_task_status,
             ],
         )
+
+
+# Folders in the home folder that hold far more than a project.
+_HOME_FOLDERS = (
+    "Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures", "Public",
+    "Applications", "iCloud Drive", ".Trash",
+)  # fmt: skip
 
 
 async def _with_images(text: str, images: list[dict[str, str]]):

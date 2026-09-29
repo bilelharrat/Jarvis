@@ -90,10 +90,14 @@ def create_app(hub: Hub, token: str) -> Starlette:
         sender = asyncio.create_task(pump())
         try:
             while True:
-                msg = await ws.receive_json()
+                try:
+                    msg = await ws.receive_json()
+                except (ValueError, KeyError, TypeError):  # a frame that isn't JSON: skip it
+                    continue
                 if isinstance(msg, dict):
+                    # Never raises; slow commands run in the background (Hub.handle).
                     await hub.handle(msg)
-        except (WebSocketDisconnect, RuntimeError, ValueError):
+        except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             sender.cancel()
@@ -123,6 +127,14 @@ def create_app(hub: Hub, token: str) -> Starlette:
 
 def serve(port: int, token: str) -> None:
     import logging
+    import logging.handlers
+
+    # PortAudio first, while nothing else runs: importing sounddevice starts it with the
+    # whole process's stderr pointed at /dev/null for a moment. Done later, on the
+    # microphone's thread, that swallowed log lines from every other thread and gave
+    # /dev/null for stderr to any process started meanwhile.
+    with contextlib.suppress(Exception):  # no PortAudio: the microphone says so later
+        import sounddevice  # noqa: F401
 
     import uvicorn
 
@@ -131,6 +143,15 @@ def serve(port: int, token: str) -> None:
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
+    # And a file of its own, so no line depends on where stderr happens to point.
+    log_file = Path.home() / "Library" / "Logs" / "Jarvis" / "jarvis.log"
+    with contextlib.suppress(OSError):
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        to_file = logging.handlers.RotatingFileHandler(
+            log_file, maxBytes=2_000_000, backupCount=2, encoding="utf-8"
+        )
+        to_file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logging.getLogger().addHandler(to_file)
     for noisy in ("pypdf", "fontTools", "httpx", "httpx2", "mcp"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
 

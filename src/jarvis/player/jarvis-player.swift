@@ -126,6 +126,10 @@ if live {
                 if let buffer = pcmBuffer(audio) { player.scheduleBuffer(buffer, completionHandler: nil) }
             } else if kind == UInt8(ascii: "M") {
                 pending.removeSubrange(pending.startIndex..<(pending.startIndex + 5))
+                // A sentence ends on a whole sample. A byte still waiting here is half of
+                // one from a stream cut off mid-sentence: kept, it would shift every later
+                // sentence by a byte, into full-scale static.
+                leftover = Data()
                 let id = n
                 player.scheduleBuffer(silence, completionCallbackType: .dataPlayedBack) { _ in emit("M \(id)") }
             } else if kind == UInt8(ascii: "S") {

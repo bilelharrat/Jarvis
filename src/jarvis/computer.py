@@ -33,8 +33,22 @@ SENSITIVE_PARTS = (
     "/Library/Safari/",
     "/Library/Messages/",
     "/Library/Mail/",
+    "/.config/gh/",
+    "/.docker/",
+    "/.kube/",
+    "/.azure/",
+    "/.password-store/",
+    "/.local/share/keyrings/",
 )
-SENSITIVE_NAMES = {".env", ".netrc", "id_rsa", "id_ed25519", ".pgpass", "credentials", "Login Data"}
+SENSITIVE_NAMES = {
+    ".env", ".envrc", ".netrc", "_netrc", ".pgpass", ".npmrc", ".pypirc", ".git-credentials",
+    ".htpasswd", ".my.cnf", "credentials", "credentials.json", "login data",
+}  # fmt: skip
+# Keys and certificates by their kind, and ssh keys by name (their .pub halves are fine).
+SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".ppk", ".kdbx"}
+_SSH_KEYS = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519")
+# .env.example and friends are the shareable templates of the real thing.
+_ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template", ".env.dist", ".env.defaults"}
 
 KEYCODES = {
     "return": 36,
@@ -117,8 +131,16 @@ MODIFIERS = {
 
 
 def is_sensitive(path: Path) -> bool:
+    """Credentials and private data: never read or shown, however it's asked for."""
     text = str(path)
-    return any(part in text for part in SENSITIVE_PARTS) or path.name in SENSITIVE_NAMES
+    name = path.name.lower()
+    if any(part in text for part in SENSITIVE_PARTS) or name in SENSITIVE_NAMES:
+        return True
+    if name.startswith(".env.") and name not in _ENV_TEMPLATES:  # .env.local, .env.production
+        return True
+    if name.startswith(_SSH_KEYS) and not name.endswith(".pub"):
+        return True
+    return path.suffix.lower() in SENSITIVE_SUFFIXES or name.startswith("client_secret")
 
 
 def safe_path(raw: str) -> Path:

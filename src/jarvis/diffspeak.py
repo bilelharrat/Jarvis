@@ -13,6 +13,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .computer import is_sensitive
+
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$")
 _CONTEXT_NAME = re.compile(r"(?:def|class|function|func|fn|const|let|var|struct|interface)\s+(\w+)")
 
@@ -101,8 +103,12 @@ def parse(diff: str) -> list[FileChange]:
 
 
 def collect(cwd: Path, only: set[str] | None = None) -> list[FileChange] | None:
-    """Working changes against HEAD, plus untracked files. None if not a git repo.
-    only: absolute paths to keep (the files a session touched)."""
+    """Working changes against HEAD, plus untracked files, in this folder (paths relative
+    to it, even when it's a subfolder of the repo). None if not a git repo. only:
+    absolute paths to keep (the files a session touched).
+
+    A credential file (.env, a key) shows as changed, never with its lines; an untracked
+    link shows as new, never with what it points to (maybe something outside the repo)."""
     cwd = Path(cwd)
     if not _git(cwd, "rev-parse", "--is-inside-work-tree").strip():
         return None
@@ -117,13 +123,22 @@ def collect(cwd: Path, only: set[str] | None = None) -> list[FileChange] | None:
             f"diff.spoken.xfuncname={XFUNCNAME}",
             "diff",
             "HEAD",
+            "--relative",
             "--no-color",
             "--no-ext-diff",
             "-U0",
         )
     )
+    for change in changes:
+        if is_sensitive(cwd / change.path):
+            change.hunks = []
     for rel in _git(cwd, "ls-files", "--others", "--exclude-standard").splitlines()[:200]:
         path = cwd / rel
+        if path.is_symlink() or is_sensitive(path):
+            changes.append(FileChange(rel, new=True))  # listed, never read
+            continue
+        if not path.is_file():  # a pipe or a socket: nothing to read
+            continue
         try:
             lines = (
                 path.read_text(errors="ignore").splitlines()
@@ -157,7 +172,7 @@ def summary(changes: list[FileChange], max_files: int = 4) -> str:
         f"{added} line{'s' if added != 1 else ''} added and {removed} removed."
     )
     parts = []
-    for c in sorted(changes, key=lambda c: -(c.added + c.removed))[:max_files]:
+    for c in _spoken_order(changes)[:max_files]:
         if c.new:
             parts.append(f"New file {_spoken_name(c.path)}, {c.added} lines.")
             continue
@@ -177,8 +192,15 @@ def summary(changes: list[FileChange], max_files: int = 4) -> str:
     return " ".join([head, *parts]) + tail
 
 
+def _spoken_order(changes: list[FileChange]) -> list[FileChange]:
+    """The biggest changes first: the order the summary names files in."""
+    return sorted(changes, key=lambda c: -(c.added + c.removed))
+
+
 def hunks(changes: list[FileChange]) -> list[Hunk]:
-    return [h for c in changes for h in c.hunks]
+    """Every change, numbered in the order the summary reads the files: "the first
+    change" is in the first file it named."""
+    return [h for c in _spoken_order(changes) for h in c.hunks]
 
 
 def describe_hunk(h: Hunk, max_lines: int = 30) -> str:

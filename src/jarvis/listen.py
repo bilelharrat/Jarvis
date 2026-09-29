@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import queue
 import re
 import threading
+from collections import deque
 from collections.abc import Callable
 
 import numpy as np
@@ -14,6 +16,7 @@ log = logging.getLogger("jarvis")
 
 SAMPLE_RATE = 16_000
 BLOCK_SECONDS = 0.05
+STALL_SECONDS = 2.0  # no audio at all for this long: the microphone has stalled
 
 
 def pick_input_device(preference: str = "builtin") -> int | None:
@@ -71,7 +74,7 @@ class EndpointDetector:
         if len(self._noise) < self.calibration_blocks:
             self._noise.append(rms)
             if len(self._noise) == self.calibration_blocks:
-                self._threshold = max(float(np.median(self._noise)) * 3.0, 0.01)
+                self._calibrate()
             return False
         if rms >= self._threshold:
             self.heard_speech = True
@@ -84,6 +87,20 @@ class EndpointDetector:
             return self._blocks >= self.wait_blocks
         return self._quiet_run >= self.silence_blocks
 
+    def _calibrate(self) -> None:
+        """The room's level is taken from the quietest of the first blocks. Someone who
+        talks the moment they press the key is in them too, and a median would set the bar
+        at their voice: the rest of what they said would count as silence and be cut off.
+        (The second quietest, so one oddly quiet block doesn't set it; all-zero blocks are
+        a device warming up, not the room.)"""
+        levels = sorted(rms for rms in self._noise if rms > 0) or [0.0]
+        self._threshold = max(levels[min(1, len(levels) - 1)] * 3.0, 0.01)
+        for rms in self._noise:  # what they said meanwhile counts as speech
+            if rms >= self._threshold:
+                self.heard_speech, self._quiet_run = True, 0
+            elif self.heard_speech:
+                self._quiet_run += 1
+
 
 # PortAudio is only used for input now (playback goes through the native player), so the
 # listener may reset it to re-list devices. The lock keeps a reset from pulling the rug out
@@ -94,12 +111,19 @@ RESET_AFTER_FAILURES = 3
 
 def reset_portaudio() -> None:
     """Forget PortAudio's device list and build it again. After sleep or a device change,
-    opening a stream can fail with -9986 forever until this happens."""
+    opening a stream can fail with -9986 forever until this happens.
+
+    Straight to PortAudio rather than sounddevice's _terminate()/_initialize(): those point
+    the whole process's stderr at /dev/null while PortAudio starts, which swallowed log
+    lines from every other thread and handed /dev/null to any process started meanwhile."""
     import sounddevice as sd
 
     with PORTAUDIO_LOCK:
-        sd._terminate()
-        sd._initialize()
+        if sd._initialized > 0:
+            sd._lib.Pa_Terminate()
+            sd._initialized -= 1
+        sd._check(sd._lib.Pa_Initialize(), "Error initializing PortAudio")
+        sd._initialized += 1
 
 
 def record_utterance(
@@ -117,6 +141,7 @@ def record_utterance(
 
     detector = EndpointDetector(silence_seconds=silence_seconds)
     captured: list[np.ndarray] = []
+    stalled = False
     with (
         PORTAUDIO_LOCK,
         sd.InputStream(
@@ -129,16 +154,33 @@ def record_utterance(
         ),
     ):
         while True:
-            block = blocks.get()
+            try:
+                block = blocks.get(timeout=STALL_SECONDS)
+            except queue.Empty:  # a stalled device would otherwise hold the lock forever
+                stalled = True
+                break
             captured.append(block)
             rms = float(np.sqrt(np.mean(block**2)))
             if on_level is not None:
                 on_level(rms)
             if detector.feed(rms):
                 break
+    if stalled:
+        # The stream is closed and the lock free again; a fresh device list gives the
+        # next press its best chance (a stall usually follows sleep or a device change).
+        try:
+            reset_portaudio()
+        except Exception as exc:
+            log.warning("couldn't reset the audio system (%s)", exc)
+        raise RuntimeError(f"no audio arrived for {STALL_SECONDS:g} seconds")
     if not detector.heard_speech:
         return None
     return np.concatenate(captured)
+
+
+# Numbers every early copy, across Segmenters: a copy from before the microphone reopened
+# can't be mistaken for one of the new stream's.
+_EARLY_COPIES = itertools.count(1)
 
 
 class Segmenter:
@@ -159,41 +201,71 @@ class Segmenter:
         on_early: Callable[[int, np.ndarray], None] | None = None,
     ) -> None:
         """early_seconds/on_early: after that much quiet, hand over the utterance so far
-        (with its number) so it can be transcribed while we wait to be sure you've
-        finished; commit(number) then ends it there, as if the full silence had passed."""
+        (with a number of its own) so it can be transcribed while we wait to be sure
+        you've finished; commit(number) then ends it there, as if the full silence had
+        passed. Speaking again makes that copy stale: only the newest copy of an
+        utterance, with nothing said since, can end it."""
         self.silence_blocks = round(silence_seconds / block_seconds)
         self.early_blocks = round(early_seconds / block_seconds) if early_seconds else 0
         self.on_early = on_early
         self.number = 0  # counts utterances
-        self._committed = -1
+        self._early = 0  # the number of this utterance's newest early copy; 0 once stale
         self.max_blocks = round(max_seconds / block_seconds)
         self.min_blocks = round(min_seconds / block_seconds)
         self.calibration_blocks = calibration_blocks
         self._noise: list[float] = []
+        self._recent: deque[float] = deque(maxlen=max(1, calibration_blocks))
         self.threshold = 0.012
         self._preroll: list[np.ndarray] = []
         self._current: list[np.ndarray] = []
         self._loud_run = 0
         self._quiet_run = 0
         self.in_speech = False
+        # feed() runs on the microphone's thread, commit() on the event loop's.
+        self._lock = threading.Lock()
 
     def commit(self, number: int) -> bool:
-        """End utterance `number` now (its early copy was enough). False if speech
-        already started again, in which case the early copy is stale."""
-        if number != self.number or not self.in_speech or self._quiet_run < self.early_blocks:
-            return False
-        self._committed = number
-        return True
+        """End the utterance at early copy `number` (its transcript was enough). False if
+        the copy is stale: speech started again after it, or the utterance already ended
+        and went out whole."""
+        with self._lock:
+            if not self._fresh(number):
+                return False
+            self._end()
+            return True
+
+    def early_is_current(self, number: int) -> bool:
+        """Whether early copy `number` could still be committed (worth transcribing)."""
+        with self._lock:
+            return self._fresh(number)
+
+    def _fresh(self, number: int) -> bool:
+        return bool(number) and number == self._early and self.in_speech
+
+    def _end(self) -> None:
+        self.in_speech = False
+        self._early = 0
+        self._current, self._preroll, self._loud_run = [], [], 0
 
     def feed(self, block: np.ndarray, rms: float) -> np.ndarray | None:
         """Returns a finished utterance, or None."""
+        with self._lock:
+            utterance, early = self._feed(block, rms)
+        if early is not None and self.on_early is not None:
+            self.on_early(*early)
+        return utterance
+
+    def _feed(
+        self, block: np.ndarray, rms: float
+    ) -> tuple[np.ndarray | None, tuple[int, np.ndarray] | None]:
         if len(self._noise) < self.calibration_blocks:
             self._noise.append(rms)
             if len(self._noise) == self.calibration_blocks:
                 self.threshold = max(float(np.median(self._noise)) * 3.5, 0.012)
-            return None
+            return None, None
         loud = rms >= self.threshold
         if not self.in_speech:
+            self._recalibrate(rms)
             self._preroll = (self._preroll + [block])[-6:]
             self._loud_run = self._loud_run + 1 if loud else 0
             if self._loud_run >= 2:
@@ -201,27 +273,39 @@ class Segmenter:
                 self.number += 1
                 self._current = list(self._preroll)
                 self._quiet_run = 0
-            return None
+            return None, None
         self._current.append(block)
-        self._quiet_run = 0 if loud else self._quiet_run + 1
-        if self._committed == self.number:  # already taken early: this one's done
-            self.in_speech = False
-            self._current, self._preroll, self._loud_run = [], [], 0
-            return None
+        if loud:
+            self._quiet_run = 0
+            self._early = 0  # talking again: a copy taken in the pause is missing this
+        else:
+            self._quiet_run += 1
+        early = None
         if (
             self.early_blocks
             and self.on_early is not None
             and self._quiet_run == self.early_blocks
             and len(self._current) - self._quiet_run >= self.min_blocks
         ):
-            self.on_early(self.number, np.concatenate(self._current))
+            self._early = next(_EARLY_COPIES)
+            early = (self._early, np.concatenate(self._current))
         if self._quiet_run >= self.silence_blocks or len(self._current) >= self.max_blocks:
             voiced = len(self._current) - self._quiet_run
             audio = np.concatenate(self._current)
-            self.in_speech = False
-            self._current, self._preroll, self._loud_run = [], [], 0
-            return audio if voiced >= self.min_blocks else None
-        return None
+            self._end()
+            return (audio if voiced >= self.min_blocks else None), early
+        return None, early
+
+    def _recalibrate(self, rms: float) -> None:
+        """Between utterances, keep measuring the room. A level measured while JARVIS was
+        talking (the stream reopened mid-reply) is far too high and would leave it deaf
+        to a normal voice until the microphone next reopens. Only ever lowered, and only
+        when it's off by more than half: a slightly quieter room changes nothing."""
+        self._recent.append(rms)
+        if len(self._recent) == self._recent.maxlen:
+            level = max(float(np.median(self._recent)) * 3.5, 0.012)
+            if level < self.threshold / 2:
+                self.threshold = level
 
 
 # Words an unfinished sentence tends to stop on ("what's the weather in…").
@@ -242,7 +326,17 @@ def sounds_finished(text: str) -> bool:
     if not text.endswith((".", "?", "!")):
         return False
     words = re.findall(r"[a-z']+", text.lower())
-    return len(words) >= 2 and words[-1] not in _TRAILING
+    if len(words) < 2:
+        return False
+    # "What's the weather like?": asked as a question, "like" is where it ends. (Not "to"
+    # or "about": "what's the fastest way to…" pauses there just as often.)
+    return words[-1] not in _TRAILING or (words[-1] == "like" and text.endswith("?"))
+
+
+# One hands-free microphone at a time. A listener being replaced (another mic picked,
+# hands-free toggled) can take up to STALL_SECONDS to notice it was stopped; the new one
+# waits for it rather than driving PortAudio from two threads at once.
+_HANDS_FREE = threading.Lock()
 
 
 class ContinuousListener:
@@ -281,10 +375,25 @@ class ContinuousListener:
         self._stop.set()
 
     def commit(self, number: int) -> bool:
-        """End utterance `number` now: its early copy was enough."""
+        """End the utterance at early copy `number`: its transcript was enough."""
         return self.segmenter.commit(number) if self.segmenter is not None else False
 
+    def early_is_current(self, number: int) -> bool:
+        """Whether early copy `number` can still be committed: if not, it isn't worth
+        transcribing (you kept talking; a newer copy or the whole utterance follows)."""
+        return self.segmenter.early_is_current(number) if self.segmenter is not None else False
+
     def _run(self) -> None:
+        owned = _HANDS_FREE.acquire(timeout=STALL_SECONDS + 3)
+        if not owned:
+            log.warning("the previous microphone is still closing; opening this one anyway")
+        try:
+            self._listen()
+        finally:
+            if owned:
+                _HANDS_FREE.release()
+
+    def _listen(self) -> None:
         """Keep a stream open for as long as hands-free is on.
 
         Reopens the microphone when the stream errors or stalls (AirPods connecting,
@@ -318,13 +427,16 @@ class ContinuousListener:
                         "name"
                     ]
                     log.info("hands-free microphone open: %s", name)
-                    failures = 0
                     while not self._stop.is_set():
                         try:
-                            block = blocks.get(timeout=2.0)
+                            block = blocks.get(timeout=STALL_SECONDS)
                         except queue.Empty:
+                            # Open but sending nothing counts as a failure too, so reopening
+                            # again and again comes to a PortAudio reset.
+                            failures += 1
                             log.warning("microphone went quiet; reopening it")
                             break
+                        failures = 0  # sound is arriving: this microphone works
                         rms = float(np.sqrt(np.mean(block**2)))
                         if self.on_level is not None:
                             self.on_level(rms)

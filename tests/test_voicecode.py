@@ -85,9 +85,10 @@ def test_replies_plans_and_approvals_become_speech():
         "The plan has 3 steps. One: Add a retry to ask. Two: Log failures. Three: Test the reconnect path."
     )
     bash = {"tool": "Bash", "detail": "$ uv run pytest -q", "choices": [], "question": "q"}
-    assert vc.approval_speech(bash) == "It wants to run uv run pytest -q. OK?"
+    # Never ending on a word that answers it ("…OK?"), which it could hear back as a yes.
+    assert vc.approval_speech(bash) == "It wants to run uv run pytest -q. Should it?"
     edit = {"tool": "Edit", "detail": "src/jarvis/hub.py\n- a\n+ b", "choices": []}
-    assert vc.approval_speech(edit) == "It wants to edit hub dot py. OK?"
+    assert vc.approval_speech(edit) == "It wants to edit hub dot py. Should it?"
     q = {
         "ask_kind": "question",
         "question": "Which database?",
@@ -189,8 +190,8 @@ async def test_voice_focus_routes_speech_to_the_session(
     await hub.on_heard("random chatter with no wake word")  # not armed: ignored
     assert len(sent) == 1
     task.result = "Added the retry and a test for it."
-    task.files_changed = {"/p/hub.py", "/p/test_hub.py"}
-    hub._task_event("task_finished", id=task.id, task_kind="code", status="done")
+    files = ["/p/hub.py", "/p/test_hub.py"]  # what this turn changed
+    hub._task_event("task_finished", id=task.id, task_kind="code", status="done", files=files)
     assert said[-1] == "Added the retry and a test for it. 2 files changed."
     await hub.on_heard("Jarvis exit code mode")
     assert hub.voicecode.focus is None
@@ -370,8 +371,10 @@ async def test_typed_slash_commands_answer_in_the_transcript(
     task = hub.tasks.start("", "proj")
     q = hub.subscribe()
     await hub.handle({"type": "code_command", "id": task.id, "text": "/plan"})
+    await asyncio.sleep(0.01)  # typed commands run in the background: they may be slow
     assert task.mode == "plan"
     await hub.handle({"type": "code_command", "id": task.id, "text": "/diff"})
+    await asyncio.sleep(0.2)
     from test_hub import drain
 
     notes = [
@@ -384,8 +387,10 @@ async def test_typed_slash_commands_answer_in_the_transcript(
     sent = []
     hub.tasks.send = lambda task_id, text: sent.append(text) or True
     await hub.handle({"type": "code_command", "id": task.id, "text": "/review-pr 12"})
+    await asyncio.sleep(0.01)
     assert sent == ["/review-pr 12"]  # the project's own commands pass through to Claude Code
     await hub.handle({"type": "voicecode_start", "directory": "proj"})
+    await asyncio.sleep(0.05)
     assert hub.voicecode.focus == task.id
     task.handle.cancel()
 
@@ -427,18 +432,251 @@ async def test_always_and_no_with_feedback_by_voice(settings, quiet_speaker, iso
         ("always", "Yes, and don't ask again for git commit commands"),
         ("deny", "No, and tell Claude what to do differently"),
     ]
-    first = asyncio.create_task(
-        hub.request_approval(
-            "Run git commit?", "$ git commit", choices, {"task_id": 1, "tool": "Bash"}
-        )
-    )
+
+    async def asked(question, detail):  # put out loud, so a spoken answer counts
+        hub._say(question)
+        return await hub.request_approval(question, detail, choices, {"task_id": 1, "tool": "Bash"})
+
+    first = asyncio.create_task(asked("Commit it with git?", "$ git commit"))
     await asyncio.sleep(0)
     hub._spoke_until = 0
     await hub.on_heard("yes, always allow that")
     assert await first == "always"
-    second = asyncio.create_task(
-        hub.request_approval("Run make?", "$ make", choices, {"task_id": 1, "tool": "Bash"})
-    )
+    second = asyncio.create_task(asked("Build it with make?", "$ make"))
     await asyncio.sleep(0)
     await hub.on_heard("no, use the Makefile target instead")
     assert await second == "deny:use the Makefile target instead"
+
+
+BASH = {
+    "question": "Jarvis Code in proj wants to run a command",
+    "tool": "Bash",
+    "task_id": 1,
+    "choices": [
+        {"id": "allow", "label": "Yes"},
+        {"id": "always", "label": "Yes, and don't ask again for npm test commands in proj"},
+        {"id": "deny", "label": "No, and tell Claude what to do differently"},
+    ],
+}
+EDIT = {
+    **BASH,
+    "tool": "Edit",
+    "choices": [
+        {"id": "allow", "label": "Yes"},
+        {"id": "allow_edits", "label": "Yes, allow all edits this session"},
+        {"id": "deny", "label": "No, and tell Claude what to do differently"},
+    ],
+}
+PLAN = {
+    "question": "Jarvis Code in proj has a plan",
+    "ask_kind": "plan",
+    "task_id": 1,
+    "choices": [
+        {"id": "plan_edits", "label": "Go, auto-accept edits"},
+        {"id": "plan_ask", "label": "Go, ask before edits"},
+        {"id": "plan_keep", "label": "Keep planning"},
+    ],
+}
+
+
+def test_hesitations_and_refusals_never_approve():
+    answer = vc.voice_answer
+    for waiting in ("hold on a second", "wait a second", "give me a second", "one sec",
+                    "hmm, give me a second", "one moment", "yes, but wait"):  # fmt: skip
+        assert answer(waiting, BASH) == (vc.HOLD, ""), waiting
+    assert answer("no, wait one second", BASH) == ("deny", "")
+    assert answer("no, make it two spaces", EDIT) == ("deny", "make it two spaces")
+    assert answer("No, you always do that, use make clean", BASH) == (
+        "deny",
+        "you always do that, use make clean",
+    )
+    assert answer("no, one more thing", EDIT)[0] == "deny"
+    assert answer("yes, but ask me every time", BASH) == ("allow", "")
+    assert answer("yes, but use make instead", BASH) == ("deny", "use make instead")
+    assert answer("don't forget to add tests", BASH) is None  # a request, not an answer
+    # "always" and "all edits" only when said plainly; never by a number or with a no.
+    assert answer("option two", BASH) == (vc.REASK, "")
+    assert answer("the second one", EDIT) == (vc.REASK, "")
+    assert answer("yes, always", BASH) == ("always", "")
+    assert answer("Don't ask me again", BASH) == ("always", "")
+    assert answer("yes, allow all edits", EDIT) == ("allow_edits", "")
+    assert answer("option one", BASH) == ("allow", "")
+    assert answer("sure", EDIT) == ("allow", "")
+
+
+def test_a_question_is_not_answered_by_its_own_opening_word():
+    send = {
+        "question": "Send this to Ben?",
+        "choices": [{"id": "allow", "label": "Send"}, {"id": "deny", "label": "Don't send"}],
+    }
+    assert vc.voice_answer("Send this to Ben?", send) is None  # its own voice, heard back
+    assert vc.voice_answer("send", send) is None
+    assert vc.voice_answer("yes, send it", send) == ("allow", "")
+    assert vc.voice_answer("don't send it", send) == ("deny", "")
+    shortcut = {
+        "question": "Run the shortcut “Unlock Front Door”?",
+        "choices": [
+            {"id": "allow", "label": "Run"},
+            {"id": "always", "label": "Always"},
+            {"id": "deny", "label": "Not now"},
+        ],
+    }
+    assert vc.voice_answer("Run the shortcut Unlock Front Door?", shortcut) is None
+    assert vc.voice_answer("always", shortcut) == ("always", "")
+
+
+def test_plans_by_voice():
+    answer = vc.voice_answer
+    for go in ("go", "yes", "sure", "go ahead", "go, ask before edits"):
+        assert answer(go, PLAN) == ("plan_ask", ""), go  # a plain go still asks before edits
+    assert answer("go with auto-edits", PLAN) == ("plan_edits", "")
+    assert answer("keep planning", PLAN) == ("plan_keep", "")
+    assert answer("no, split step two into two steps", PLAN) == (
+        "plan_keep",
+        "split step two into two steps",
+    )
+    assert answer("option one", PLAN) == (vc.REASK, "")  # never auto-edits by number
+    assert answer("the last one", PLAN) == ("plan_keep", "")
+    assert "Say go, go with auto-edits, or keep planning." in vc.approval_speech(
+        {**PLAN, "detail": "1. Add a cache"}
+    )
+
+
+def test_the_last_option_is_the_last_one_said_not_skip():
+    q = {
+        "ask_kind": "question",
+        "question": "Which database?",
+        "choices": [
+            {"id": "opt0", "label": "SQLite"},
+            {"id": "opt1", "label": "Postgres"},
+            {"id": "skip", "label": "Skip"},
+        ],
+    }
+    assert vc.voice_answer("the last one", q) == ("opt1", "")
+    assert vc.voice_answer("option 2", q) == ("opt1", "")
+    assert vc.voice_answer("option three", q) == (vc.REASK, "")
+    assert vc.voice_answer("skip it", q) == ("skip", "")
+    assert vc.voice_answer("yes", q) == (vc.REASK, "")  # "yes" doesn't answer "which one?"
+    assert vc.voice_answer("not postgres", q) == (vc.REASK, "")
+
+
+def test_everyday_coding_requests_are_never_session_commands():
+    for request in (
+        "rename the parse function to parse input",
+        "compact the json output",
+        "use haiku for the summaries",
+        "make the pr template shorter",
+        "what is the plan for caching",
+        "increase the context window size",
+        "what does the cost function return",
+        "open the src folder",
+        "resume the upload after a failure",
+        "what is the first change we should make to the parser",
+        "don't ask me to confirm the delete, just refactor it",
+        "go back to when the user clicks save",
+    ):
+        intent = vc.parse(request)
+        assert intent.kind == "send" and intent.text == request, request
+    assert vc.parse("rename this session to retry work").arg == "retry work"
+    assert vc.parse("compact the conversation").kind == "compact"
+    assert vc.parse("what is the plan").kind == "plan"
+    assert vc.parse("explain the 2nd change").arg == 1
+
+
+async def test_a_mode_with_a_request_says_the_mode_it_set(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    said, sent = [], []
+    hub.say = lambda text, follow_up=True: said.append(text)
+    hub.acknowledge = lambda: None
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    await hub.voicecode.handle("full auto and fix the tests")
+    assert task.mode == "auto" and said[-1] == "Full auto. On it." and sent == ["fix the tests"]
+    await hub.voicecode.handle("accept edits, then add a retry")
+    assert task.mode == "edits" and said[-1] == "Auto-edits. On it." and sent[-1] == "add a retry"
+    task.handle.cancel()
+
+
+async def test_typed_slash_commands_keep_what_follows_them(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    task = hub.tasks.start("", "proj")
+    sent, models = [], []
+    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+
+    async def set_model(task_id, model):
+        models.append(model)
+        return True
+
+    hub.tasks.set_model = set_model
+    await hub._code_command(task, "/plan fix the login flow")
+    assert task.mode == "plan" and sent[-1] == "fix the login flow"
+    await hub._code_command(task, "/commit Fix the retry")
+    assert "Fix the retry" in sent[-1]
+    await hub._code_command(task, "/test tests/test_hub.py")
+    assert "tests/test_hub.py" in sent[-1]
+    await hub._code_command(task, "/model claude-sonnet-5-5")
+    assert models == ["claude-sonnet-5-5"] and not sent[-1].startswith("use ")
+    task.handle.cancel()
+
+
+async def test_rewinding_by_voice_asks_first(settings, quiet_speaker, isolated, tmp_path):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    hub.say = lambda text, follow_up=True: None
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    for n, text in enumerate(["add the tests", "fix the tests", "rename things"], 1):
+        hub.tasks._log(task, "user", text)
+        task.transcript[-1]["uuid"] = f"u-{n}"
+    rewound = []
+
+    async def rewind_to(task_id, uuid):
+        rewound.append(uuid)
+        return "Rewound."
+
+    hub.tasks.rewind_to = rewind_to
+    await hub.voicecode.handle("rewind to before the tests")
+    await asyncio.sleep(0)
+    assert rewound == [] and hub.approvals  # nothing happens until the user says yes
+    approval = next(iter(hub.approvals.values()))
+    assert "fix the tests" in approval["question"]  # the latest match, not the earliest
+    hub.resolve(approval["id"], "allow")
+    await asyncio.sleep(0.01)
+    assert rewound == ["u-2"]
+    task.handle.cancel()
+
+
+async def test_a_turn_without_words_doesnt_repeat_the_last_reply(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    said = []
+    hub.say = lambda text, follow_up=True: said.append(text)
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    task.result = "Added the retry."
+    hub._task_event("task_finished", id=task.id, task_kind="code", status="done", files=[])
+    task.result = ""  # the next turn only ran commands
+    hub._task_event("task_finished", id=task.id, task_kind="code", status="done", files=[])
+    assert said[-2:] == ["Added the retry.", "Done."]
+    task.handle.cancel()

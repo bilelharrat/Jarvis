@@ -62,3 +62,17 @@ def test_socket_hello_and_ask(client):
         while not seen or seen[-1]["type"] != "turn_done":
             seen.append(ws.receive_json())
         assert any(e["type"] == "reply" and e["text"] == "Two meetings tomorrow." for e in seen)
+
+
+def test_a_bad_frame_or_a_failing_command_keeps_the_socket_open(client):
+    with client.websocket_connect(
+        "/ws?token=s3cret", headers={"origin": "http://testserver"}
+    ) as ws:
+        assert ws.receive_json()["type"] == "hello"
+        ws.send_text("this isn't JSON")
+        ws.send_json({"type": "task_cancel", "id": "not a number"})  # its handler raises
+        ws.send_json({"type": "ask", "text": "what's on tomorrow?"})
+        seen = []
+        while not seen or seen[-1]["type"] != "turn_done":
+            seen.append(ws.receive_json())
+        assert any(e["type"] == "reply" and e["text"] == "Two meetings tomorrow." for e in seen)

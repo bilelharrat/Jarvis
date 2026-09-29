@@ -94,3 +94,34 @@ async def test_requests_carry_hints_and_explanations_quote_the_change(
     await hub.voicecode.handle("what changed")
     assert said[-1].startswith("1 file changed")
     task.handle.cancel()
+
+
+def test_the_diff_never_shows_secrets_or_follows_links(repo, tmp_path):
+    (repo / ".env").write_text("API_KEY=sk-live-123\n")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private words\n")
+    (repo / "link.txt").symlink_to(outside)
+    changes = diffspeak.collect(repo)
+    said = " ".join(line for c in changes for h in c.hunks for line in h.added)
+    assert "sk-live" not in said and "private" not in said
+    assert {".env", "link.txt"} <= {c.path for c in changes}  # listed, never read
+
+
+def test_a_project_in_a_subfolder_of_its_repo(repo):
+    (repo / "src" / "hub.py").write_text("MAX_RETRIES = 9\n")
+    (repo / "web" / "app.js").write_text("const x = 1\n")
+    changes = diffspeak.collect(repo / "src")
+    assert [c.path for c in changes] == ["hub.py"]  # relative to it, and only its own
+    only = diffspeak.collect(repo / "src", only={str(repo / "src" / "hub.py")})
+    assert [c.path for c in only] == ["hub.py"]
+
+
+def test_changes_are_numbered_in_the_order_they_are_read_out(repo):
+    (repo / "src" / "voicecode.py").write_text("def speakable(text):\n    return text.strip()\n")
+    (repo / "src" / "hub.py").write_text(
+        "MAX_RETRIES = 5\n\nclass Hub:\n    def ask(self):\n        return 2\n\n"
+        "    def notify(self):\n        return 3\n"
+    )
+    changes = diffspeak.collect(repo)
+    assert diffspeak.summary(changes).split(". ")[1].startswith("hub dot py")
+    assert diffspeak.hunks(changes)[0].path == "src/hub.py"  # the first file it names

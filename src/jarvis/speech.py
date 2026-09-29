@@ -7,6 +7,7 @@ import logging
 import re
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -264,6 +265,7 @@ def ensure_player() -> Path | None:
     """Build the native streaming player once (a few seconds with swiftc), cached by the
     source's hash. None if it can't be built; playback then falls back to afplay."""
     import hashlib
+    import os
     import subprocess
 
     from .prefs import APP_SUPPORT
@@ -275,17 +277,26 @@ def ensure_player() -> Path | None:
     if binary.exists():
         return binary
     binary.parent.mkdir(parents=True, exist_ok=True)
+    # Built under a temporary name and renamed into place in one step, so a build cut
+    # short (the app quit mid-swiftc) never leaves a half-written player that looks done.
+    partial = binary.with_name(f"{binary.name}.{os.getpid()}.part")
     try:
         subprocess.run(
-            ["swiftc", "-O", "-o", str(binary), str(PLAYER_SOURCE)],
+            ["swiftc", "-O", "-o", str(partial), str(PLAYER_SOURCE)],
             check=True,
             capture_output=True,
             timeout=300,
         )
+        partial.replace(binary)
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("couldn't build the streaming player (%s); using afplay", exc)
         return None
+    finally:
+        partial.unlink(missing_ok=True)
     return binary
+
+
+MARK_SLACK = 10.0  # seconds a sentence's end marker may lag its audio before we give up
 
 
 class LivePlayer:
@@ -303,10 +314,12 @@ class LivePlayer:
         self._markers: dict[int, asyncio.Future] = {}
         self._next = 0
         self._reader: asyncio.Task | None = None
+        self._ends_at = 0.0  # when everything written so far should have played
+        self._closed = False
 
     @property
     def alive(self) -> bool:
-        return self.proc is not None and self.proc.returncode is None
+        return not self._closed and self.proc is not None and self.proc.returncode is None
 
     async def start(self) -> None:
         args = [str(self.path), str(self.rate), "--live"] + (["--effect"] if self.effect else [])
@@ -326,6 +339,7 @@ class LivePlayer:
                 if parts[:1] == ["M"] and len(parts) == 2 and parts[1].isdigit():
                     self._settle(int(parts[1]))
                 elif parts[:1] == ["R"]:  # output device changed: queued audio is gone
+                    self._ends_at = 0.0
                     self._settle_all()
         finally:
             self._settle_all()  # it exited: nobody waits forever
@@ -345,11 +359,16 @@ class LivePlayer:
     async def write(self, pcm: bytes) -> None:
         if not pcm or not self.alive:
             return
+        self._ends_at = max(self._ends_at, time.monotonic()) + len(pcm) / (2 * self.rate)
         self.proc.stdin.write(self._frame("A", len(pcm), pcm))
         await self.proc.stdin.drain()
 
     async def mark(self) -> None:
-        """Wait until everything written so far has been heard."""
+        """Wait until everything written so far has been heard.
+
+        Never longer than that audio's length plus MARK_SLACK: a player whose marker
+        doesn't come back is stuck, and waiting on it would hold up every reply after
+        this one. It's closed, and the next sentence starts a fresh one."""
         if not self.alive:
             return
         self._next += 1
@@ -357,7 +376,12 @@ class LivePlayer:
         self._markers[self._next] = future
         self.proc.stdin.write(self._frame("M", self._next))
         await self.proc.stdin.drain()
-        await future
+        wait = max(0.0, self._ends_at - time.monotonic()) + MARK_SLACK
+        try:
+            await asyncio.wait_for(future, wait)
+        except TimeoutError:
+            log.warning("the voice player stopped answering; starting a new one")
+            self.close()
 
     def stop_now(self) -> None:
         """Barge-in: silence at once, and nothing waits on what was dropped."""
@@ -366,11 +390,15 @@ class LivePlayer:
                 self.proc.stdin.write(self._frame("S", 0))
             except (BrokenPipeError, ConnectionResetError, RuntimeError):
                 pass
+        self._ends_at = 0.0
         self._settle_all()
 
     def close(self) -> None:
         if self.alive:
             self.proc.kill()
+        self._closed = True
+        if self._reader is not None:
+            self._reader.cancel()
         self._settle_all()
 
 
@@ -458,11 +486,17 @@ class Speaker:
             return fresh
 
     def shutdown(self) -> None:
-        """Quitting: the live player goes too."""
+        """Quitting: the live player goes too, and the voice service's connection."""
         self.stop()
         if self._live is not None:
             self._live.close()
             self._live = None
+        client = getattr(self.cloud, "_client", None)
+        if client is not None and not client.is_closed:
+            try:
+                self._closing = asyncio.get_running_loop().create_task(client.aclose())
+            except RuntimeError:  # no event loop left: the process is ending anyway
+                pass
 
     def stop(self) -> None:
         for proc in (self._proc, self._player):
@@ -527,17 +561,31 @@ class Speaker:
             return read_wav(path) if path.exists() else (np.zeros(0, np.float32), EFFECT_RATE)
 
     async def play_source(self, src: Source) -> None:
-        """Play audio as it arrives through the native player (effect applied there)."""
+        """Play audio as it arrives through the native player (effect applied there).
+        Muting stops it mid-sentence, and stops fetching the rest."""
         first = await src.chunks.get()
         if first is None:
+            return
+        if self.muted:
+            src.cancel()
             return
         live = await self.live()
         if live is not None:
             self._playing = True
             try:
-                chunk = first
+                chunk, half = first, b""
                 while chunk is not None:
-                    await live.write(resample(chunk, src.rate, live.rate))
+                    if self.muted:  # silence what's queued too, and stop fetching
+                        live.stop_now()
+                        src.cancel()
+                        return
+                    # Whole samples only. A chunk can end mid-sample, and a stream that dies
+                    # mid-sentence leaves half of one: a stray byte in the player would
+                    # shift every later sentence by a byte, into full-scale static.
+                    data = half + chunk
+                    whole = len(data) - len(data) % 2
+                    half = data[whole:]
+                    await live.write(resample(data[:whole], src.rate, live.rate))
                     chunk = await src.chunks.get()
                 await live.mark()
             except (BrokenPipeError, ConnectionResetError):
@@ -549,7 +597,9 @@ class Speaker:
             parts = [first]
             while (chunk := await src.chunks.get()) is not None:
                 parts.append(chunk)
-            audio = np.frombuffer(b"".join(parts), dtype="<i2").astype(np.float32) / 32768.0
+            data = b"".join(parts)
+            data = data[: len(data) - len(data) % 2]  # a dropped stream can end mid-sample
+            audio = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
             if self.effect:
                 audio = await asyncio.to_thread(ai_voice_effect, audio, src.rate)
             await self.play(audio, src.rate)
@@ -563,6 +613,10 @@ class Speaker:
         try:
             chunk = first
             while chunk is not None:
+                if self.muted:
+                    proc.kill()
+                    src.cancel()
+                    break
                 proc.stdin.write(chunk)
                 await proc.stdin.drain()
                 chunk = await src.chunks.get()
@@ -617,7 +671,9 @@ class Speaker:
 
     async def play(self, audio: np.ndarray, rate: int) -> None:
         """Play a finished clip: through the live player when it's running (instant), else
-        macOS's own player (afplay)."""
+        macOS's own player (afplay). Nothing while muted."""
+        if self.muted:
+            return
         live = await self.live()
         if live is not None:
             self._playing = True
@@ -663,6 +719,9 @@ class Speaker:
 
 
 _SENTENCE = re.compile(r"(.+?[.!?…:;])(\s+|$)", re.DOTALL)
+# Mid-stream, a sentence only ends where whitespace follows: "It is 23." or "at 3:" at the
+# end of the buffer may be "23.5 degrees" or "3:30" once the next words arrive.
+_SENTENCE_SO_FAR = re.compile(r"(.+?[.!?…:;])(\s+)", re.DOTALL)
 
 
 def split_sentences(buffer: str, final: bool = False, min_chars: int = 12) -> tuple[list[str], str]:
@@ -671,11 +730,12 @@ def split_sentences(buffer: str, final: bool = False, min_chars: int = 12) -> tu
     Very short fragments ("Sure.") wait to join the next sentence so every clip is worth a
     round trip to the voice service. With final=True the rest is flushed.
     """
+    pattern = _SENTENCE if final else _SENTENCE_SO_FAR
     out: list[str] = []
     rest = buffer
     pending = ""
     while True:
-        match = _SENTENCE.match(rest)
+        match = pattern.match(rest)
         if not match:
             break
         sentence = (pending + " " + match.group(1)).strip()
@@ -705,12 +765,13 @@ class SpeechQueue:
         self.on_speaking = on_speaking or (lambda _on: None)
         self._clips: asyncio.Queue = asyncio.Queue()
         self._limit = asyncio.Semaphore(3)
-        self._pending = 0
+        self._pending = 0  # clips queued and not yet played (or dropped)
+        self._gen = 0  # bumped by clear(): a play loop from before it no longer counts
         self._idle = asyncio.Event()
         self._idle.set()
         self._player: asyncio.Task | None = None
         self._sources: list[Source] = []
-        self.spoken_text = ""
+        self._said: list[list[Any]] = []  # [what it said, when that finished playing]
 
     def push(self, text: str) -> None:
         spoken = clean_for_speech(text)
@@ -718,15 +779,18 @@ class SpeechQueue:
             return
         self._pending += 1
         self._idle.clear()
-        self.spoken_text = f"{self.spoken_text} {spoken}".strip()
+        self._remember(spoken)
         self._clips.put_nowait(asyncio.create_task(self._synth(spoken)))
         if self._player is None or self._player.done():
             self._player = asyncio.create_task(self._play_loop())
 
-    def push_clip(self, clip: tuple[np.ndarray, int]) -> None:
-        """Queue audio that's already made (the instant 'One moment.' fillers)."""
+    def push_clip(self, clip: tuple[np.ndarray, int], text: str = "") -> None:
+        """Queue audio that's already made (the instant 'One moment.' fillers); text is
+        what it says."""
         if self.speaker.muted:
             return
+        if text:
+            self._remember(clean_for_speech(text))
         self._pending += 1
         self._idle.clear()
         future = asyncio.get_running_loop().create_future()
@@ -744,11 +808,15 @@ class SpeechQueue:
             return await self.speaker.synthesize(spoken)
 
     async def _play_loop(self) -> None:
-        while not self._clips.empty():
+        gen = self._gen
+        while gen == self._gen and not self._clips.empty():
             task = await self._clips.get()
             try:
                 clip = await task
-                if isinstance(clip, Source):
+                if self.speaker.muted:  # muted after it was queued: drop it unheard
+                    if isinstance(clip, Source):
+                        clip.cancel()
+                elif isinstance(clip, Source):
                     self.on_speaking(True)
                     await self.speaker.play_source(clip)
                 elif clip is not None:
@@ -759,8 +827,14 @@ class SpeechQueue:
             except Exception:  # one bad clip shouldn't silence the rest, but say so
                 log.exception("couldn't play a reply clip")
             finally:
-                self._pending -= 1
+                # After clear() the count restarted at zero without this clip: taking it
+                # off again would leave -1, which reads as "still speaking".
+                if gen == self._gen:
+                    self._pending = max(0, self._pending - 1)
+        if gen != self._gen:
+            return
         self._sources = [s for s in self._sources if s.task is not None and not s.task.done()]
+        self._finished()
         self.on_speaking(False)
         self._idle.set()
 
@@ -768,15 +842,41 @@ class SpeechQueue:
         await self._idle.wait()
 
     def clear(self) -> None:
+        self._gen += 1
         while not self._clips.empty():
             self._clips.get_nowait().cancel()
         if self._player is not None:
             self._player.cancel()
+            self._player = None  # a push right after this gets a loop of its own
         for src in self._sources:
             src.cancel()
         self._sources.clear()
         self.speaker.stop()
         self._pending = 0
-        self.spoken_text = ""
+        self._finished()
         self._idle.set()
         self.on_speaking(False)
+
+    # ── what it just said, for telling its own voice from the user's ──
+
+    def _remember(self, spoken: str) -> None:
+        now = time.monotonic()
+        self._said = [s for s in self._said if s[1] is None or now - s[1] < 60]
+        self._said.append([spoken, None])
+
+    def _finished(self) -> None:
+        now = time.monotonic()
+        for said in self._said:
+            if said[1] is None:
+                said[1] = now
+
+    def said_recently(self, seconds: float = 12.0) -> str:
+        """What it said in the last `seconds`, counting each piece until that long after
+        it finished playing (a long reply doesn't age out the sentence playing now): what
+        the microphone may hear back."""
+        now = time.monotonic()
+        return " ".join(text for text, done in self._said if done is None or now - done < seconds)
+
+    @property
+    def spoken_text(self) -> str:
+        return self.said_recently()

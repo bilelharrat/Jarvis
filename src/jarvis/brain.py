@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from claude_agent_sdk import (
     CanUseToolShadowedWarning,
     ClaudeAgentOptions,
+    HookMatcher,
     PermissionResultAllow,
     PermissionResultDeny,
     ToolPermissionContext,
@@ -22,8 +25,8 @@ BSH_SERVER = "bsh"
 TASKS_SERVER = "claude"
 BRAIN_SERVER = "brain"
 BROWSER_SERVER = "browser"
+# browser_open isn't here: it can carry data out in its address (see EGRESS_TOOLS).
 BROWSER_READ = [
-    "browser_open",
     "browser_read",
     "browser_scroll",
     "browser_back",
@@ -31,6 +34,17 @@ BROWSER_READ = [
 ]
 BROWSER_CONTROL = ["browser_click", "browser_type"]
 APP_SERVER = "jarvis"
+# JARVIS's own app tools, each by name. A new one is refused until it's listed here or
+# gated below: a wildcard once let voice_code start Claude Code sessions unasked.
+APP_AUTO_ALLOWED = [
+    "switch_model",
+    "set_personality",
+    "set_hands_free",
+    "where_am_i",
+    "weather_report",
+    "drive_time",
+    "market_summary",
+]
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 # Claude Code's own coding tools stay off: JARVIS talks, it doesn't edit files or run shells.
 BLOCKED_BUILTINS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep", "Task"]
@@ -53,14 +67,182 @@ def computer_tool(name: str) -> str:
     return f"mcp__{computer.SERVER_NAME}__{name}"
 
 
-TASK_AUTO_ALLOWED = [
-    "claude_task_status",
-    "start_research",
-    "message_claude_task",
-    "stop_claude_task",
-    "list_claude_sessions",
-]
+def app_tool(name: str) -> str:
+    return f"mcp__{APP_SERVER}__{name}"
+
+
+def browser_tool(name: str) -> str:
+    return f"mcp__{BROWSER_SERVER}__{name}"
+
+
+TASK_AUTO_ALLOWED = ["claude_task_status", "stop_claude_task", "list_claude_sessions"]
 TASK_NEEDS_CONFIRMATION = ["run_claude_code", "resume_claude_session"]
+
+# What can carry something a turn has read off the Mac: a web address (its path and query
+# are as good as a form post), or a topic the research desk will go and fetch pages for.
+EGRESS_TOOLS = frozenset(
+    {"WebFetch", mac_tool("open_url"), browser_tool("browser_open"), task_tool("start_research")}
+)
+# What starts or steers a Claude Code session, which reads the user's files and the web.
+CODE_TOOLS = frozenset({app_tool("voice_code"), task_tool("message_claude_task")})
+# Decided call by call by the turn gate (the hub), which knows what this turn has read and
+# what the user said in their own words. None of these is on the allow list: allow-listed
+# tools never reach can_use_tool.
+TURN_GATED = EGRESS_TOOLS | CODE_TOOLS
+
+# Tool results that are JARVIS's own words or public facts. Everything else a turn runs
+# (mail, calendars, notes, files, the screen, contacts, location, connected accounts, the
+# BSH desk, Claude Code's output, any tool added later) counts as the user's private data.
+QUIET_RESULTS = frozenset(
+    {
+        "WebSearch",
+        *(
+            mac_tool(n)
+            for n in (
+                "open_app",
+                "open_url",
+                "snap_window",
+                "quit_app",
+                "system_status",
+                "media_control",
+                "now_playing",
+                "set_volume",
+                "create_note",
+                "list_shortcuts",
+                "draft_email",
+                "create_event",
+            )
+        ),
+        *(
+            app_tool(n)
+            for n in (
+                "switch_model",
+                "set_personality",
+                "set_hands_free",
+                "weather_report",
+                "market_summary",
+                "voice_code",
+            )
+        ),
+        *(
+            task_tool(n)
+            for n in (
+                "run_claude_code",
+                "message_claude_task",
+                "stop_claude_task",
+                "resume_claude_session",
+                "start_research",
+            )
+        ),
+        *(computer_tool(n) for n in computer.CONTROL_TOOLS),
+        f"mcp__{BRAIN_SERVER}__second_brain_status",
+        "mcp__messages__send_message",
+        "mcp__messages__send_email",
+        "mcp__memory__remember",
+        "mcp__routines__create_routine",
+        "mcp__routines__delete_routine",
+        "mcp__routines__pause_routine",
+        "mcp__meeting__start_meeting_notes",
+        "mcp__meeting__stop_meeting_notes",
+        "mcp__window__show_panel",
+        "mcp__window__set_look",
+        "mcp__window__hand_control",
+    }
+)
+# Web pages: anyone's words (so possibly instructions), but not the user's secrets.
+WEB_RESULTS = frozenset(
+    {"WebFetch", *(browser_tool(n) for n in (*BROWSER_READ, *BROWSER_CONTROL, "browser_open"))}
+)
+
+
+def result_kind(tool_name: str) -> str:
+    """What a tool's result brings into the conversation: "none", "web" (pages anyone can
+    write) or "private" (the user's own data, much of it written by other people)."""
+    if tool_name in QUIET_RESULTS:
+        return "none"
+    if tool_name in WEB_RESULTS:
+        return "web"
+    return "private"
+
+
+# ── web addresses, read the way browsers read them ──
+
+# JavaScript's whitespace (String.trim, \s): the window's browser (app/main.js toUrl) uses it.
+_JS_SPACES = "".join(
+    chr(c)
+    for c in (9, 10, 11, 12, 13, 32, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x2028, 0x2029)
+    + (0x202F, 0x205F, 0x3000, 0xFEFF)
+)
+_JS_HOSTLIKE = re.compile(
+    r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+(?:/[^" + re.escape(_JS_SPACES) + r"]*)?"
+)
+_HOSTNAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*")
+# A host the user said: "nytimes.com", "the verge dot com", a pasted link. Not an email's.
+_SAID_HOST = re.compile(
+    r"(?<![\w.@-])(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?![\w-])"
+)
+_NOT_A_SITE = {"co", "com", "org", "net", "gov", "edu", "ac", "or", "ne", "go"}
+
+
+def url_host(url: str) -> str | None:
+    """The host a web address goes to, or None when that isn't certain: not http(s), a
+    user name in it, a backslash, spaces, percent-escapes or anything non-ASCII, which
+    browsers and Python read differently."""
+    url = str(url or "").strip()
+    if not re.match(r"https?://", url, re.IGNORECASE | re.ASCII):
+        return None
+    if re.search(r"[^\x21-\x7e]|\\", url):
+        return None
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").rstrip(".")
+    except ValueError:
+        return None
+    if "@" in parts.netloc or not _HOSTNAME.fullmatch(host):
+        return None
+    return host
+
+
+def browser_address(text: str) -> str | None:
+    """Where browser_open goes, read exactly as the window reads it (app/main.js toUrl):
+    a web address, or None for words it hands to a Google search."""
+    text = str(text or "").strip(_JS_SPACES)
+    if re.match(r"https?://", text, re.IGNORECASE | re.ASCII):
+        return text
+    if _JS_HOSTLIKE.fullmatch(text):
+        return f"https://{text}"
+    return None
+
+
+def hosts_said(text: str) -> set[str]:
+    """Web hosts in what the user said, without a leading www."""
+    spoken = re.sub(r"\s+dot\s+(?=[a-z0-9])", ".", str(text or "").lower())
+    found = set()
+    for match in _SAID_HOST.finditer(spoken):
+        host = match.group(1).removeprefix("www.")
+        labels = host.split(".")
+        if len(labels) == 2 and labels[0] in _NOT_A_SITE:
+            continue  # "co.uk" on its own names no site
+        found.add(host)
+    return found
+
+
+def host_said(host: str, text: str) -> bool:
+    """The user named this host (or the site it belongs to) in their own words."""
+    host = host.lower().rstrip(".").removeprefix("www.")
+    return any(host == said or host.endswith("." + said) for said in hosts_said(text))
+
+
+def taint_hooks(on_result: Callable[[str], None]) -> dict[str, list[HookMatcher]]:
+    """Hooks that report every tool call once it has returned, allowed or asked-for alike,
+    before its result reaches Claude: the turn gate's record of what a turn has read."""
+
+    async def returned(input_data: Any, _tool_use_id: Any, _context: Any) -> dict[str, Any]:
+        on_result(str((input_data or {}).get("tool_name", "")))
+        return {}
+
+    matcher = HookMatcher(matcher=None, hooks=[returned])
+    return {"PostToolUse": [matcher], "PostToolUseFailure": [matcher]}
 
 
 def humor_line(humor: int) -> str:
@@ -161,8 +343,12 @@ def make_permission_policy(
     control_gate: Gate | None = None,
     tool_gate: ToolGate | None = None,
     shortcut_gate: ShortcutGate | None = None,
+    turn_gate: ToolGate | None = None,
 ):
-    """Tools on the allow list never reach this callback; everything else does."""
+    """Tools on the allow list never reach this callback; everything else does.
+
+    TURN_GATED tools go to turn_gate, which knows what the current turn has read and what
+    the user said; without one (or when it has no view), the user is asked every time."""
     confirmable = {mac_tool(name) for name in mac_tools.NEEDS_CONFIRMATION}
     confirmable |= {task_tool(name) for name in TASK_NEEDS_CONFIRMATION}
     control = {computer_tool(name) for name in computer.CONTROL_TOOLS}
@@ -179,6 +365,16 @@ def make_permission_policy(
             if await confirm(describe_action(tool_name, tool_input)):
                 return PermissionResultAllow()
             return PermissionResultDeny(message="The user said no. Don't do it.")
+        if tool_name in TURN_GATED:
+            decision = None if turn_gate is None else await turn_gate(tool_name, tool_input)
+            if decision is None:
+                decision = await confirm(describe_action(tool_name, tool_input))
+            if decision:
+                return PermissionResultAllow()
+            return PermissionResultDeny(
+                message="The user didn't OK that. Don't retry it or find another way to do "
+                "it; tell them briefly what you wanted to do."
+            )
         if tool_gate is not None:
             decision = await tool_gate(tool_name, tool_input)
             if decision is not None:
@@ -212,6 +408,25 @@ def describe_action(tool_name: str, tool_input: dict[str, Any]) -> str:
         return f"Start Jarvis Code in {tool_input.get('directory')} to: {tool_input.get('task')}?"
     if tool_name == task_tool("resume_claude_session"):
         return f"Reopen a past Jarvis Code session in {tool_input.get('directory')}?"
+    if tool_name == "WebFetch":
+        return f"Fetch {tool_input.get('url')}?"
+    if tool_name == mac_tool("open_url"):
+        return f"Open {tool_input.get('url')} in your browser?"
+    if tool_name == browser_tool("browser_open"):
+        return f"Open {tool_input.get('url')} in the built-in browser?"
+    if tool_name == task_tool("start_research"):
+        return f"Start background research on: {tool_input.get('topic')}?"
+    if tool_name == app_tool("voice_code"):
+        where = tool_input.get("directory") or (
+            f"session {tool_input['task_id']}" if tool_input.get("task_id") else "the latest"
+        )
+        then = f" and send it: {tool_input['request']}" if tool_input.get("request") else ""
+        return f"Voice-code with Jarvis Code in {where}{then}?"
+    if tool_name == task_tool("message_claude_task"):
+        return (
+            f"Send Jarvis Code session {tool_input.get('task_id')} this: "
+            f"“{tool_input.get('message')}”?"
+        )
     return f"Allow {tool_name}?"
 
 
@@ -241,10 +456,16 @@ def build_options(
     extra_servers: dict[str, Any] | None = None,
     extra_prompt: str = "",
     shortcut_gate: ShortcutGate | None = None,
+    turn_gate: ToolGate | None = None,
+    on_tool_result: Callable[[str], None] | None = None,
 ) -> ClaudeAgentOptions:
+    """turn_gate decides TURN_GATED tools; on_tool_result hears of every tool call once it
+    has returned (what the turn gate knows a turn has read comes from it)."""
     servers = build_mcp_servers(settings)
     bsh_enabled = BSH_SERVER in servers
-    allowed = WEB_TOOLS + [mac_tool(name) for name in mac_tools.AUTO_ALLOWED]
+    # WebFetch isn't allowed outright: once a turn has read private data, fetching a page
+    # can carry it out (EGRESS_TOOLS).
+    allowed = ["WebSearch"] + [mac_tool(name) for name in mac_tools.AUTO_ALLOWED]
     if tasks_server is not None:
         servers[TASKS_SERVER] = tasks_server
         allowed += [task_tool(name) for name in TASK_AUTO_ALLOWED]
@@ -253,7 +474,7 @@ def build_options(
         allowed.append(f"mcp__{BRAIN_SERVER}")
     if app_server is not None:
         servers[APP_SERVER] = app_server
-        allowed.append(f"mcp__{APP_SERVER}")
+        allowed += [app_tool(name) for name in APP_AUTO_ALLOWED]
     if browser_server is not None:
         servers[BROWSER_SERVER] = browser_server
         allowed += [f"mcp__{BROWSER_SERVER}__{name}" for name in BROWSER_READ]
@@ -270,6 +491,7 @@ def build_options(
     if account_servers:
         servers.update(account_servers)
         allowed += list(account_allowed or [])
+    allowed = [name for name in allowed if name not in TURN_GATED]
     # Auto-allowed tools skipping can_use_tool is the design, not an accident.
     warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
     return ClaudeAgentOptions(
@@ -289,7 +511,10 @@ def build_options(
         strict_mcp_config=True,
         setting_sources=[],
         permission_mode="default",
-        can_use_tool=make_permission_policy(confirm, control_gate, tool_gate, shortcut_gate),
+        can_use_tool=make_permission_policy(
+            confirm, control_gate, tool_gate, shortcut_gate, turn_gate
+        ),
+        hooks=taint_hooks(on_tool_result) if on_tool_result is not None else None,
         # Its own workspace, so its chats never show up as a project's Claude Code sessions.
         cwd=str(_workspace()),
         # Keep every MCP tool loaded up front rather than behind tool search.

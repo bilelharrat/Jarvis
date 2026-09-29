@@ -530,10 +530,11 @@ def make_create_event(default_calendar: str):
 
 # ── Server ───────────────────────────────────────────────────────────────────
 
-# Low-stakes tools run without asking. Anything else from this server needs a yes.
+# Low-stakes tools run without asking. open_url isn't one: an address can carry what a
+# turn has read out of the Mac, so the permission policy decides it (brain.EGRESS_TOOLS).
+# Anything else from this server needs a yes.
 AUTO_ALLOWED = [
     "open_app",
-    "open_url",
     "system_status",
     "media_control",
     "now_playing",

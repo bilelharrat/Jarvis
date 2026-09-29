@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import replace
 
 import pytest
@@ -15,7 +16,8 @@ from jarvis.speech import Speaker
 
 
 class FakeClient:
-    """Stands in for ClaudeSDKClient: records queries, replays a scripted response."""
+    """Stands in for ClaudeSDKClient: records queries, replays a scripted response (as one
+    turn from receive_response, and on the connection's stream from receive_messages)."""
 
     script: list = []
 
@@ -24,6 +26,12 @@ class FakeClient:
         self.queries = []
         self.interrupted = False
         self.connected = False
+        self.stream = None
+
+    def _stream(self):
+        if self.stream is None:
+            self.stream = asyncio.Queue()
+        return self.stream
 
     async def connect(self):
         self.connected = True
@@ -33,10 +41,16 @@ class FakeClient:
 
     async def query(self, text):
         self.queries.append(text)
+        for message in self.script:
+            self._stream().put_nowait(message)
 
     async def receive_response(self):
         for message in self.script:
             yield message
+
+    async def receive_messages(self):
+        while True:
+            yield await self._stream().get()
 
     async def interrupt(self):
         self.interrupted = True

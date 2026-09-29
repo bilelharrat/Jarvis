@@ -24,7 +24,10 @@ async def test_pictures_are_kept_only_while_it_is_on_and_forgotten_when_off(monk
     once = await w.latest(0)  # the What's-this key, awareness off: used, not kept
     assert once.data == "AAA" and once.app == "Safari" and not w.frames
     w.start()
-    await asyncio.sleep(0.05)
+    for _ in range(200):  # a loaded machine can be slow to schedule the loop
+        if len(w.frames) >= 2:
+            break
+        await asyncio.sleep(0.01)
     assert w.running and len(w.frames) >= 2
     w.stop()
     assert not w.frames and not w.running

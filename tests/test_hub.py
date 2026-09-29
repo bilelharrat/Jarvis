@@ -598,3 +598,241 @@ async def test_a_finished_request_is_answered_before_the_full_silence(
     hub._armed_until = 0.0  # the follow-up window after its answer has passed
     await hub._early_utterance(5, "so anyway the meeting went fine.")  # not for JARVIS
     assert hub._listener.committed == [3]
+
+
+async def _hands_free_hub(settings, speaker, isolated):
+    hub = make_hub(settings, speaker, isolated=isolated)
+    await hub.start()
+    hub._listener = Listener()
+    hub._listener.start()
+    return hub
+
+
+async def test_its_own_questions_are_never_its_answers(settings, quiet_speaker, isolated):
+    hub = await _hands_free_hub(settings, quiet_speaker, isolated)
+    send = asyncio.create_task(hub.send_gate("Send this to Ben?", "hi"))
+    await asyncio.sleep(0)
+    await hub.on_heard("Send this to Ben?")  # the microphone hearing the question
+    shortcut = asyncio.create_task(hub.shortcut_gate("Unlock Front Door"))
+    await asyncio.sleep(0)
+    await hub.on_heard("Run the shortcut Unlock Front Door?")
+    await asyncio.sleep(0)
+    assert not send.done() and not shortcut.done()
+    send.cancel()
+    shortcut.cancel()
+    # Said out loud (through the speech queue), then heard back mid-turn: not an answer,
+    # and not a barge-in that stops the turn either.
+    speaker = RecordingSpeaker()
+    hub = await _hands_free_hub(settings, speaker, isolated)
+    await hub._lock.acquire()
+    pending = asyncio.create_task(hub.confirm("Start a coding session in proj to fix the test?"))
+    await asyncio.sleep(0.1)
+    heard_back = speaker.synthesized[-1]
+    await hub.on_heard(heard_back)
+    assert not pending.done() and not hub._stopping and not hub.client.interrupted
+    hub._lock.release()
+    pending.cancel()
+
+
+async def test_a_spoken_yes_answers_the_question_it_asked(settings, quiet_speaker, isolated):
+    hub = await _hands_free_hub(settings, quiet_speaker, isolated)
+    send = asyncio.create_task(hub.send_gate("Send this to Ben?", "hi"))
+    await asyncio.sleep(0)
+    # A card nobody read out (another session, a connector) a moment later.
+    other = asyncio.create_task(
+        hub.request_approval("Jarvis Code in proj wants to run a command", "$ rm -rf build")
+    )
+    await asyncio.sleep(0)
+    await hub.on_heard("Yes, send it.")
+    await asyncio.sleep(0)
+    assert send.done() and send.result() is True
+    assert not other.done()
+    await hub.on_heard("yes")  # it was never asked out loud: no voice answers it
+    await asyncio.sleep(0)
+    assert not other.done()
+    other.cancel()
+
+
+async def test_its_heads_ups_come_back_as_echoes_not_requests(settings, isolated):
+    speaker = RecordingSpeaker()
+    hub = await _hands_free_hub(settings, speaker, isolated)
+    for heads_up in (
+        "Rain starts around three, bring an umbrella.",
+        "Jarvis Code finished in proj. All tests pass.",
+    ):
+        await hub._announce(heads_up)
+        assert hub.state == "listening"  # the window for "how long will it take?"
+        await hub.on_heard(heads_up)  # its own voice, in that window
+        await asyncio.sleep(0.05)
+    assert hub.client.queries == []
+
+
+async def test_stop_gets_through_even_when_the_reply_says_stop(settings, isolated):
+    speaker = RecordingSpeaker()
+    hub = await _hands_free_hub(settings, speaker, isolated)
+    hub.speech.push("The next stop is Union Square, then Powell.")
+    hub.state = "speaking"
+    await hub.on_heard("Stop.")
+    assert hub._stopping
+
+
+async def test_stop_is_not_an_invitation_to_talk(settings, quiet_speaker, isolated):
+    import time
+
+    from jarvis.speech import SpeechQueue
+
+    class Talking:
+        muted, player_path = False, None
+
+        async def synthesize(self, spoken):
+            return (np.zeros(10, np.float32), 16000)
+
+        async def play(self, audio, rate):
+            await asyncio.sleep(10)
+
+        def stop(self):
+            pass
+
+    hub = await _hands_free_hub(settings, quiet_speaker, isolated)
+    hub.speech = SpeechQueue(Talking(), hub._on_speaking)
+    hub.speaker.muted = False
+    hub.say("It's running the tests now.")
+    await asyncio.sleep(0.05)
+    assert hub.state == "speaking"
+    await hub.on_heard("stop")
+    await asyncio.sleep(0.05)
+    assert hub._armed_until < time.monotonic() and hub.state != "listening"
+    hub.say("And another thing.")
+    await asyncio.sleep(0.05)
+    await hub.on_heard("Jarvis, stop")
+    await asyncio.sleep(0.05)
+    assert hub._armed_until < time.monotonic()
+
+
+async def test_answering_over_the_question_in_code_mode(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    (tmp_path / "proj").mkdir()
+    hub = await _hands_free_hub(settings, quiet_speaker, isolated)
+    hub.say = lambda text, follow_up=True: None
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    sent = []
+    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    choices = [
+        ("allow", "Yes"),
+        ("always", "Yes, and don't ask again for npm test"),
+        ("deny", "No"),
+    ]
+    context = {"task_id": task.id, "tool": "Bash"}
+    first = asyncio.create_task(hub._task_approval("q", "$ npm test", choices, context))
+    await asyncio.sleep(0)
+    hub.state = "speaking"  # still reading the question out
+    await hub.on_heard("Jarvis, yes")
+    assert await first == "allow" and sent == []
+    # Long after the question (outside the minute), "Jarvis, no" still answers it.
+    second = asyncio.create_task(hub._task_approval("q", "$ npm test", choices, context))
+    await asyncio.sleep(0)
+    hub.state = "idle"
+    for info in hub._voice_asked.values():
+        info["at"] -= 600
+    await hub.on_heard("Jarvis, no")
+    assert await second == "deny" and sent == []
+    task.handle.cancel()
+
+
+async def test_slow_window_commands_dont_hold_up_the_rest(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    task = hub.tasks.start("", "proj")
+    for _ in range(50):
+        if task.client is not None:
+            break
+        await asyncio.sleep(0.01)
+    gate = asyncio.Event()
+
+    async def slow_usage():
+        await gate.wait()
+        return {"percentage": 10}
+
+    task.client.get_context_usage = slow_usage
+    q = hub.subscribe()
+    await asyncio.wait_for(hub.handle({"type": "task_context", "id": task.id}), 1)
+    pending = asyncio.create_task(hub.confirm("Quit Safari?"))
+    await asyncio.sleep(0)
+    approval = next(e for e in drain(q) if e["type"] == "approval")
+    await hub.handle({"type": "approve", "id": approval["id"], "choice": "allow"})
+    assert await pending is True  # answered while the slow one still waits
+    gate.set()
+    await asyncio.sleep(0.01)
+    assert any(e["type"] == "task_context" for e in drain(q))
+    await hub.handle({"type": "task_cancel", "id": "not a number"})  # logged, not raised
+    task.handle.cancel()
+
+
+async def test_an_open_session_is_shown_not_opened_twice(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    hub.say = lambda text, follow_up=True: None
+    first = hub.tasks.start("", "proj", resume="s-retry", title="Retry work")
+    q = hub.subscribe()
+    await hub.handle({"type": "task_new", "directory": "proj", "session_id": "s-retry"})
+    assert len(hub.tasks.tasks) == 1
+    assert {"type": "show_session", "id": first.id} in drain(q)
+    await hub.voice_code("proj")
+    hub.tasks.past_sessions = lambda directory, limit=20: [
+        {"session_id": "s-retry", "title": "Retry work", "first_prompt": "", "last_modified": "",
+         "branch": ""}
+    ]  # fmt: skip
+    await hub.resume_by_voice(first, "retry work")
+    assert len(hub.tasks.tasks) == 1 and hub.voicecode.focus == first.id
+    first.handle.cancel()
+
+
+async def test_waiting_messages_can_be_taken_back(settings, quiet_speaker, isolated, tmp_path):
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    task = hub.tasks.start("", "proj")
+    task.busy = True  # mid-step: follow-ups wait
+    hub.tasks.send(task.id, "and the docs")
+    hub.tasks.send(task.id, "and the changelog")
+    queue = hub.tasks.public()[0]["queue"]
+    assert [i["text"] for i in queue] == ["and the docs", "and the changelog"]
+    q = hub.subscribe()
+    await hub.handle({"type": "task_unqueue", "id": task.id, "item": queue[0]["id"]})
+    items = [e for e in drain(q) if e["type"] == "tasks"][-1]["items"]
+    assert [i["text"] for i in items[0]["queue"]] == ["and the changelog"]
+    assert items[0]["queued"] == 1
+    task.handle.cancel()
+
+
+async def test_its_code_mode_greeting_is_not_a_message_for_claude(settings, isolated):
+    speaker = RecordingSpeaker()
+    hub = await _hands_free_hub(settings, speaker, isolated)
+    handled = []
+
+    async def handle(text, task=None, typed=False, intent=None):
+        handled.append(text)
+
+    hub.voicecode.focus = 1
+    hub.voicecode.handle = handle
+    greeting = (
+        "Voice coding in proj, ask first. Everything you say now goes to Jarvis Code; say "
+        "exit code mode to stop."
+    )
+    hub.say(greeting)
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        if hub.state == "listening":  # it listens for an answer after speaking
+            break
+    assert hub.state == "listening"
+    await hub.on_heard(greeting)  # heard back: neither a wake word nor a request
+    await hub.on_heard("Everything you say now goes to Jarvis Code")
+    assert handled == []

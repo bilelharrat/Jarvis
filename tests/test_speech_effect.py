@@ -58,8 +58,20 @@ async def test_cloud_voice_sends_the_voice_id(monkeypatch):
     assert rate == 24000 and audio.size == 100
 
 
-def test_daniel_resolves_whatever_the_listing_format():
-    assert "Daniel" in available_voices()
+def test_daniel_resolves_whatever_the_listing_format(monkeypatch):
+    # Both listings macOS has used; canned, so a busy machine can't time the real `say` out.
+    listing = (
+        "Daniel              en_GB    # Hello! My name is Daniel.\n"
+        "Daniel (English (UK)) en_GB    # Hello! My name is Daniel.\n"
+        "Samantha            en_US    # Hello! My name is Samantha.\n"
+    )
+
+    class Done:
+        stdout = listing
+
+    monkeypatch.setattr("jarvis.speech.subprocess.run", lambda *a, **k: Done())
+    voices = available_voices()
+    assert "Daniel" in voices and "Samantha" in voices
 
 
 def test_read_wav_tolerates_streaming_placeholder_sizes():
