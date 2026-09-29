@@ -785,27 +785,43 @@ class Hub:
                 await self.rebuild_brain(only=recent)
 
     async def rebuild_brain(self, only: set[str] | None = None) -> None:
+        """Rebuild in a separate low-priority process (jarvis.brain_build), then reload.
+        Doing it in here held Python's lock for minutes and stalled the voice loop."""
         if self.brain_state["state"] == "building":
             return
-        loop = asyncio.get_running_loop()
-
-        def progress(msg: str) -> None:
-            loop.call_soon_threadsafe(lambda: self._brain_status("building", msg))
+        import sys
 
         self._brain_status("building", "Starting…")
+        args = {
+            "store": str(self.kb.store),
+            "bsh": str(self.settings.bsh_dir) if self.settings.bsh_dir else "",
+            "bsh_on": self.prefs.brain_bsh,
+            "notes": self.prefs.brain_notes,
+            "folders": list(self.prefs.brain_folders),
+            "computer": self.prefs.brain_computer,
+            "photos": self.prefs.brain_photos,
+            "mail": self.prefs.brain_mail,
+            "messages": self.prefs.brain_messages,
+            "only": sorted(only) if only is not None else None,
+        }
         try:
-            await asyncio.to_thread(
-                self.collector.run,
-                notes=self.prefs.brain_notes,
-                bsh=self.prefs.brain_bsh,
-                folders=list(self.prefs.brain_folders),
-                computer=self.prefs.brain_computer,
-                photos=self.prefs.brain_photos,
-                mail=self.prefs.brain_mail,
-                messages=self.prefs.brain_messages,
-                only=only,
-                progress=progress,
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "jarvis.brain_build",
+                json.dumps(args),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
             )
+            async for line in proc.stdout:
+                with contextlib.suppress(ValueError):
+                    event = json.loads(line)
+                    if "progress" in event:
+                        self._brain_status("building", event["progress"])
+            await proc.wait()
+            if proc.returncode != 0:
+                raise RuntimeError(f"the rebuild stopped (exit {proc.returncode})")
+            await asyncio.to_thread(self.kb.load)
         except Exception as exc:
             self._brain_status("error", str(exc)[:300])
             return
