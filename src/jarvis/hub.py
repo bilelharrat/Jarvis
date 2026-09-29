@@ -317,9 +317,10 @@ class Hub:
         await self.client.connect()
 
     def _feature_servers(self) -> dict[str, Any]:
-        from . import meeting, memory, routines
+        from . import meeting, memory, messaging, routines
 
         return {
+            messaging.SERVER_NAME: messaging.build_server(self.send_gate),
             "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(
                 self.memory, self._memory_changed, self.feature_gate
@@ -616,6 +617,15 @@ class Hub:
         """Say a question outside the reply stream, unless this turn is a silent one."""
         if not self._silent:
             self._spawn(self.speaker.say(text))
+
+    async def send_gate(self, question: str, detail: str) -> bool:
+        """A message or email about to go out: show exactly what and to whom, and wait
+        for the user's yes."""
+        self._say(question)
+        choice = await self.request_approval(
+            question, detail, [("allow", "Send"), ("deny", "Don't send")]
+        )
+        return choice == "allow"
 
     async def confirm(self, question: str) -> bool:
         """The chat's permission gate: speak the question, wait for a tap."""
