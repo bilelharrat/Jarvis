@@ -82,6 +82,7 @@ def quiet_speaker():
     speaker = Speaker.__new__(Speaker)
     speaker.voice, speaker.rate, speaker.muted, speaker._proc = "", 190, True, None
     speaker.effect, speaker.cloud, speaker.cloud_error, speaker._playing = False, None, "", False
+    speaker._player = None
     return speaker
 
 

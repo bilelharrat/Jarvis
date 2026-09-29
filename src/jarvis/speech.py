@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import subprocess
 import tempfile
@@ -19,6 +20,8 @@ _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+", re.MULTILINE)
 _HEADING = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
 _EMPHASIS = re.compile(r"[*_`~]+")
 _CITATION = re.compile(r"\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
+
+log = logging.getLogger("jarvis")
 
 EFFECT_RATE = 22050
 
@@ -127,6 +130,25 @@ def read_wav(source: Path | bytes) -> tuple[np.ndarray, int]:
     return audio, rate
 
 
+def write_wav(path: Path, audio: np.ndarray, rate: int) -> None:
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+    header = (
+        b"RIFF"
+        + (36 + len(pcm)).to_bytes(4, "little")
+        + b"WAVEfmt "
+        + (16).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")  # PCM
+        + (1).to_bytes(2, "little")  # mono
+        + int(rate).to_bytes(4, "little")
+        + int(rate * 2).to_bytes(4, "little")
+        + (2).to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+        + b"data"
+        + len(pcm).to_bytes(4, "little")
+    )
+    path.write_bytes(header + pcm)
+
+
 @dataclass
 class CloudVoice:
     """ElevenLabs or Fish Audio, with the voice the user picked. Both return WAV."""
@@ -190,17 +212,13 @@ class Speaker:
         self.cloud = cloud
         self.cloud_error = ""
         self._proc: asyncio.subprocess.Process | None = None
+        self._player: asyncio.subprocess.Process | None = None
         self._playing = False
-        self._cut = False
 
     def stop(self) -> None:
-        if self._proc is not None and self._proc.returncode is None:
-            self._proc.kill()
-        if self._playing:
-            import sounddevice as sd
-
-            self._cut = True
-            sd.stop()
+        for proc in (self._proc, self._player):
+            if proc is not None and proc.returncode is None:
+                proc.kill()
 
     def _say_args(self) -> list[str]:
         args = ["say", "-r", str(self.rate)]
@@ -252,21 +270,34 @@ class Speaker:
             self._proc = None
 
     async def play(self, audio: np.ndarray, rate: int) -> None:
-        """Play a clip. Every PortAudio call stays on the event-loop thread: starting,
-        stopping and waiting on playback from different threads crashed the process
-        (SIGSEGV in PortAudio's stream callback)."""
-        import sounddevice as sd
+        """Play a clip through macOS's own player (afplay).
 
-        loop = asyncio.get_running_loop()
-        self._playing = True
-        self._cut = False
-        try:
-            sd.play(audio, rate)
-            end = loop.time() + len(audio) / rate + 0.15
-            while loop.time() < end and not self._cut:
-                await asyncio.sleep(0.03)
-        finally:
-            self._playing = False
+        Not PortAudio: it reads the audio devices once at startup, so when AirPods switch
+        modes or another output is picked, its saved device goes stale and every reply
+        fails to open (-10851 Invalid Property Value). Playing from PortAudio across
+        threads also crashed the process. afplay follows the current output device.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clip.wav"
+            write_wav(path, audio, rate)
+            proc = await asyncio.create_subprocess_exec(
+                "afplay",
+                str(path),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            self._player = proc
+            self._playing = True
+            try:
+                _, err = await proc.communicate()
+            except asyncio.CancelledError:
+                proc.kill()
+                raise
+            finally:
+                self._playing = False
+                self._player = None
+            if proc.returncode not in (0, -9) and err:
+                raise RuntimeError(f"afplay failed: {err.decode(errors='replace').strip()[:200]}")
 
 
 _SENTENCE = re.compile(r"(.+?[.!?…:;])(\s+|$)", re.DOTALL)
@@ -343,8 +374,8 @@ class SpeechQueue:
                     await self.speaker.play(*clip)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # one bad clip shouldn't silence the rest
-                pass
+            except Exception:  # one bad clip shouldn't silence the rest, but say so
+                log.exception("couldn't play a reply clip")
             finally:
                 self._pending -= 1
         self.on_speaking(False)
