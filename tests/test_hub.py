@@ -46,12 +46,7 @@ async def test_ask_streams_turn_tools_reply_and_state(settings, quiet_speaker, i
     assert [t["status"] for t in tools] == ["running", "done"]
     assert tools[0]["label"] == "Checked your calendar"
     assert [e["text"] for e in events if e["type"] == "reply"] == ["Two meetings tomorrow."]
-    assert [e["value"] for e in events if e["type"] == "state"] == [
-        "thinking",
-        "speaking",
-        "thinking",
-        "idle",
-    ]
+    assert [e["value"] for e in events if e["type"] == "state"] == ["thinking", "idle"]
     assert hub.activity[0]["status"] == "done"
     assert hub.client.queries == ["what's on tomorrow?"]
 
@@ -152,9 +147,18 @@ async def test_hands_free_wake_word_asks(settings, quiet_speaker, isolated):
     await hub.on_heard("Jarvis, what's on tomorrow?")
     await asyncio.sleep(0.01)
     assert hub.client.queries == ["what's on tomorrow"]
+    await asyncio.sleep(0.05)
+    # Right after a reply, the next sentence is a follow-up: no wake word needed.
+    assert hub.state == "listening"
+    await hub.on_heard("and the day after?")
+    await asyncio.sleep(0.05)
+    assert hub.client.queries[-1] == "and the day after?"
+    # Once the follow-up window has passed, ordinary talk is ignored again.
+    hub._armed_until = 0.0
+    hub.state = "idle"
     await hub.on_heard("just chatting with a friend about lunch")
     await asyncio.sleep(0.01)
-    assert hub.client.queries == ["what's on tomorrow"]
+    assert "just chatting with a friend about lunch" not in hub.client.queries
 
 
 async def test_bare_wake_word_arms_then_next_utterance_asks(settings, quiet_speaker, isolated):
@@ -231,3 +235,122 @@ async def test_search_notes_emits_sources(settings, quiet_speaker, isolated):
     assert text.startswith("[files:1] Lisbon trip")
     event = q.get_nowait()
     assert event["type"] == "sources" and event["items"][0]["title"] == "Lisbon trip"
+
+
+class RecordingSpeaker:
+    """Unmuted speaker that records what it synthesizes and plays, without sound."""
+
+    def __init__(self):
+        self.muted, self.effect, self.cloud, self.cloud_error = False, False, None, ""
+        self.synthesized, self.played = [], []
+
+    async def synthesize(self, text):
+        await asyncio.sleep(0.01 if len(self.synthesized) else 0.03)  # first clip slowest
+        self.synthesized.append(text)
+        return (text, 16000)
+
+    async def play(self, clip, rate):
+        self.played.append(clip)
+        await asyncio.sleep(0.005)
+
+    async def say(self, text):
+        self.played.append(text)
+
+    def stop(self):
+        pass
+
+
+def stream_events(text_chunks):
+    from claude_agent_sdk import StreamEvent
+
+    events = [
+        StreamEvent(
+            uuid="u",
+            session_id="s",
+            event={"type": "content_block_start", "content_block": {"type": "text"}},
+        )
+    ]
+    for chunk in text_chunks:
+        events.append(
+            StreamEvent(
+                uuid="u",
+                session_id="s",
+                event={
+                    "type": "content_block_delta",
+                    "delta": {"type": "text_delta", "text": chunk},
+                },
+            )
+        )
+    events.append(StreamEvent(uuid="u", session_id="s", event={"type": "content_block_stop"}))
+    return events
+
+
+async def test_streamed_reply_is_spoken_sentence_by_sentence_in_order(settings, isolated):
+    from claude_agent_sdk import AssistantMessage, TextBlock
+
+    full = "The capital of Australia is Canberra. It was purpose-built. Sydney and Melbourne both wanted it."
+    chunks = [
+        "The capital of Aus",
+        "tralia is Canberra. It was purpose",
+        "-built. Sydney and Melb",
+        "ourne both wanted it.",
+    ]
+    speaker = RecordingSpeaker()
+    hub = make_hub(
+        settings,
+        speaker,
+        script=stream_events(chunks)
+        + [AssistantMessage(content=[TextBlock(text=full)], model="m"), result()],
+        isolated=isolated,
+    )
+    await hub.start()
+    q = hub.subscribe()
+    await hub.ask("capital of Australia?")
+    assert speaker.played == [
+        "The capital of Australia is Canberra.",
+        "It was purpose-built.",
+        "Sydney and Melbourne both wanted it.",
+    ]
+    assert hub.turn["reply"] == full  # the final message doesn't double it
+    replies = [e["text"] for e in drain(q) if e["type"] == "reply"]
+    assert replies[0] == "The capital of Aus" and replies[-1] == full
+
+
+async def test_stop_clears_queued_speech(settings, isolated):
+    speaker = RecordingSpeaker()
+    hub = make_hub(settings, speaker, isolated=isolated)
+    for sentence in ["One sentence here.", "Another one here.", "And a third one."]:
+        hub.speech.push(sentence)
+    await hub.stop()
+    await asyncio.sleep(0.05)
+    assert len(speaker.played) <= 1
+    await hub.speech.drain()
+
+
+async def test_dead_session_reconnects_and_retries(settings, quiet_speaker, isolated):
+    attempts = {"n": 0}
+
+    class Flaky(FakeClient):
+        script = CALENDAR_TURN
+
+        async def query(self, text):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("CLI process exited")
+            await super().query(text)
+
+    hub = Hub(
+        settings,
+        client_factory=Flaky,
+        speaker=quiet_speaker,
+        transcriber=Transcriber(),
+        poll=False,
+        **isolated,
+    )
+    await hub.start()
+    q = hub.subscribe()
+    await hub.ask("what's on tomorrow?")
+    events = drain(q)
+    assert attempts["n"] == 2
+    assert not any(e["type"] == "error" for e in events)
+    assert any(e["type"] == "reply" for e in events)

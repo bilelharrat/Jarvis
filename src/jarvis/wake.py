@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 
 # What Whisper tends to write when someone says "Jarvis".
@@ -32,17 +33,33 @@ def words(text: str) -> list[str]:
     return _WORD.findall(text.lower())
 
 
+def _is_wake_token(token: str) -> bool:
+    if token in WAKE_WORDS:
+        return True
+    # Near-misses Whisper produces for accents and distance: "jervis", "jarimvis", "jarenvist".
+    if not (5 <= len(token) <= 10) or token[0] not in "jgc":
+        return False
+    return difflib.SequenceMatcher(None, token, "jarvis").ratio() >= 0.76
+
+
 def find_wake(text: str) -> tuple[bool, str]:
     """(woke, command). "Jarvis" can be anywhere: "Jarvis, what's next?" and "What's the
-    weather, Jarvis?" both wake it; the command is the rest of the sentence."""
+    weather, Jarvis?" both wake it; the command is the rest of the sentence. Whisper
+    sometimes splits the name ("Jari ves"), so adjacent word pairs are checked too."""
     raw = text.strip()
-    pieces = re.split(r"(\s+)", raw)
-    for i, piece in enumerate(pieces):
-        token = "".join(_WORD.findall(piece.lower()))
-        if token not in WAKE_WORDS:
+    pieces = [p for p in re.split(r"(\s+)", raw)]
+    tokens = [(i, "".join(_WORD.findall(p.lower())).replace("'", "")) for i, p in enumerate(pieces)]
+    tokens = [(i, t) for i, t in tokens if t]
+    for n, (i, token) in enumerate(tokens):
+        span = None
+        if _is_wake_token(token):
+            span = (i, i)
+        elif n + 1 < len(tokens) and _is_wake_token(token + tokens[n + 1][1]):
+            span = (i, tokens[n + 1][0])
+        if span is None:
             continue
-        before = "".join(pieces[:i]).strip(" ,.!?;:-")
-        after = "".join(pieces[i + 1 :]).strip(" ,.!?;:-")
+        before = "".join(pieces[: span[0]]).strip(" ,.!?;:-")
+        after = "".join(pieces[span[1] + 1 :]).strip(" ,.!?;:-")
         before = re.sub(r"^(?:hey|hi|okay|ok|yo|hello)\b[\s,]*", "", before, flags=re.I).strip()
         if len(words(after)) >= 2 or not before:
             return True, after

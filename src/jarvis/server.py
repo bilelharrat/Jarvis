@@ -77,7 +77,15 @@ def create_app(hub: Hub, token: str) -> Starlette:
 
 
 def serve(port: int, token: str) -> None:
+    import logging
+
     import uvicorn
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     from .config import load_settings
 

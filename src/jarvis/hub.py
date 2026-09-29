@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import subprocess
 import time
 import uuid
@@ -21,6 +22,7 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeSDKClient,
     ResultMessage,
+    StreamEvent,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -35,7 +37,7 @@ from .config import Settings
 from .connectors import ConnectorManager
 from .knowledge import Collector, KnowledgeBase
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
-from .speech import Speaker, cloud_voice_from
+from .speech import Speaker, SpeechQueue, cloud_voice_from, split_sentences
 from .tasks import ClaudeTask, TaskManager
 from .wake import find_wake, is_echo, is_stop, words
 
@@ -84,8 +86,12 @@ TOOL_LABELS = {
     "reference_calls": "Read reference calls",
 }
 
+log = logging.getLogger("jarvis")
+
 APPROVAL_TIMEOUT = 300
 ARMED_SECONDS = 8.0
+FOLLOW_UP_SECONDS = 7.0  # after a reply, answer back without saying "Jarvis"
+HANDS_FREE_ENDPOINT = 0.7  # seconds of quiet that end an utterance
 CHIME = "/System/Library/Sounds/Tink.aiff"
 
 BRIEFING_PROMPT = (
@@ -165,6 +171,9 @@ class Hub:
         self.connectors.on_tools_changed = self._tools_changed
         self._session_id = ""
         self._reload_pending = False
+        self.speech = SpeechQueue(self.speaker, self._on_speaking)
+        self._stream_buf = ""
+        self._streamed = False
         self.client: Any = None
 
     # ── lifecycle ──
@@ -201,6 +210,8 @@ class Hub:
             accounts=self.connectors.connected_names(),
             tool_gate=self.connectors.gate,
         )
+        # Stream text as it's written, so the first sentence can be spoken right away.
+        options.include_partial_messages = True
         if resume:
             options.resume = resume
         self.client = self.client_factory(options=options)
@@ -339,29 +350,70 @@ class Hub:
             if self._style_note:
                 query = f"[Note from the app: {self._style_note}]\n\n{text}"
                 self._style_note = ""
+            started = time.monotonic()
             try:
-                await self.client.query(query)
-                async for message in self.client.receive_response():
-                    await self._on_message(rid, message)
-            except Exception as exc:  # CLI died, network, auth
-                self.emit("error", text=f"Something went wrong: {exc}")
+                await self._run_query(rid, query)
+            except Exception as exc:  # the Claude Code process died: reconnect and retry once
+                log.warning("query failed (%s); reconnecting and retrying", exc)
+                try:
+                    with contextlib.suppress(Exception):
+                        await self.client.disconnect()
+                    await self._connect(resume=self._session_id)
+                    await self._run_query(rid, query)
+                except Exception as exc2:  # network or sign-in trouble
+                    log.error("query failed again: %s", exc2)
+                    self.emit("error", text=f"Something went wrong: {exc2}")
             finally:
+                self._flush_speech()
+                if not self._stopping:
+                    self.set_state("speaking" if self.speech._pending else self.state)
+                    await self.speech.drain()
                 self._rid = ""
                 await self._apply_pending_model()
+                log.info("turn %s done in %.1fs", rid, time.monotonic() - started)
+                follow_up = (
+                    not self._stopping and self._listener is not None and self._listener.running
+                )
                 self.set_state("idle")
                 self.emit("turn_done", rid=rid)
+                if follow_up:
+                    self._arm(seconds=FOLLOW_UP_SECONDS, chime=False)
+
+    async def _run_query(self, rid: str, query: str) -> None:
+        self._stream_buf, self._streamed = "", False
+        await self.client.query(query)
+        async for message in self.client.receive_response():
+            await self._on_message(rid, message)
+
+    def _on_speaking(self, speaking: bool) -> None:
+        if speaking:
+            self.set_state("speaking")
+        elif self.state == "speaking":
+            self.set_state("thinking" if self._lock.locked() else "idle")
+
+    def _speak(self, text: str) -> None:
+        if not self._stopping:
+            self.speech.push(text)
+
+    def _flush_speech(self) -> None:
+        sentences, self._stream_buf = split_sentences(self._stream_buf, final=True)
+        for sentence in sentences:
+            self._speak(sentence)
 
     async def _on_message(self, rid: str, message: Any) -> None:
+        if isinstance(message, StreamEvent):
+            self._on_stream(rid, message.event)
+            return
         if isinstance(message, AssistantMessage):
+            streamed, self._streamed = self._streamed, False
             for block in message.content:
-                if isinstance(block, TextBlock) and block.text.strip():
+                if isinstance(block, TextBlock) and block.text.strip() and not streamed:
+                    # No partial stream for this message (older CLI, tests): speak it whole.
                     reply = f"{self.turn['reply']} {block.text.strip()}".strip()
                     self.turn["reply"] = reply
                     self.emit("reply", rid=rid, text=reply)
-                    if not self._stopping:
-                        self.set_state("speaking")
-                        await self.speaker.say(block.text)
-                        self.set_state("thinking")
+                    for sentence in split_sentences(block.text, final=True)[0]:
+                        self._speak(sentence)
                 elif isinstance(block, ToolUseBlock):
                     self._tool_started(block)
         elif isinstance(message, UserMessage) and isinstance(message.content, list):
@@ -376,6 +428,23 @@ class Hub:
         elif isinstance(message, ResultMessage) and message.is_error and not self._stopping:
             detail = "; ".join(message.errors or []) or message.subtype
             self.emit("error", text=f"Claude stopped: {detail}")
+
+    def _on_stream(self, rid: str, event: dict[str, Any]) -> None:
+        kind = event.get("type")
+        if kind == "content_block_start" and event.get("content_block", {}).get("type") == "text":
+            if self.turn.get("reply"):
+                self.turn["reply"] += " "
+        elif kind == "content_block_delta" and event.get("delta", {}).get("type") == "text_delta":
+            chunk = event["delta"].get("text", "")
+            self._streamed = True
+            self.turn["reply"] = self.turn.get("reply", "") + chunk
+            self.emit("reply", rid=rid, text=self.turn["reply"].strip())
+            self._stream_buf += chunk
+            sentences, self._stream_buf = split_sentences(self._stream_buf)
+            for sentence in sentences:
+                self._speak(sentence)
+        elif kind in ("content_block_stop", "message_stop"):
+            self._flush_speech()
 
     def _tool_started(self, block: ToolUseBlock) -> None:
         item = {
@@ -403,7 +472,8 @@ class Hub:
     async def stop(self) -> None:
         self._stopping = True
         self._armed_until = 0.0
-        self.speaker.stop()
+        self._stream_buf = ""
+        self.speech.clear()
         if self._lock.locked() and self.client is not None:
             with contextlib.suppress(Exception):
                 await self.client.interrupt()
@@ -504,7 +574,7 @@ class Hub:
             if factory is None:
                 from .listen import ContinuousListener as factory
             self._listener = factory(
-                on_utterance, self._level_callback(only_when_listening=True), 0.9
+                on_utterance, self._level_callback(only_when_listening=True), HANDS_FREE_ENDPOINT
             )
             try:
                 self._listener.start()
@@ -527,21 +597,26 @@ class Hub:
                 return
             try:
                 text = await asyncio.to_thread(self.transcriber.transcribe, audio)
-            except Exception:  # model still loading, odd audio
+            except Exception as exc:  # model still loading, odd audio
+                log.warning("hands-free transcription failed: %s", exc)
                 continue
-            await self.on_heard(text)
+            try:
+                await self.on_heard(text)
+            except Exception:  # never let one bad utterance end hands-free listening
+                log.exception("hands-free handling failed")
 
-    def _arm(self) -> None:
-        self._armed_until = time.monotonic() + ARMED_SECONDS
+    def _arm(self, seconds: float = ARMED_SECONDS, chime: bool = True) -> None:
+        self._armed_until = time.monotonic() + seconds
         self.set_state("listening")
-        with contextlib.suppress(OSError):
-            subprocess.Popen(
-                ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-        self._spawn(self._disarm_later(self._armed_until))
+        if chime:
+            with contextlib.suppress(OSError):
+                subprocess.Popen(
+                    ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+        self._spawn(self._disarm_later(self._armed_until, seconds))
 
-    async def _disarm_later(self, until: float) -> None:
-        await asyncio.sleep(ARMED_SECONDS + 0.2)
+    async def _disarm_later(self, until: float, seconds: float) -> None:
+        await asyncio.sleep(seconds + 0.2)
         if self._armed_until == until and self.state == "listening":
             self._armed_until = 0.0
             self.set_state("idle")
@@ -555,6 +630,7 @@ class Hub:
         busy = self._lock.locked()
         if busy or self.state == "speaking":
             if not woke and is_echo(text, self.turn.get("reply", "")):
+                log.info("ignored: its own voice")
                 return
             if woke or is_stop(text):
                 await self.stop()
@@ -565,16 +641,23 @@ class Hub:
                     self._arm()
             return
         if self._armed_until and time.monotonic() < self._armed_until:
+            if not woke and is_echo(text, self.turn.get("reply", "")):
+                log.info("ignored: tail of its own voice")
+                return
             self._armed_until = 0.0
             request = command if woke and command else text
+            log.info("follow-up/armed request (%d words)", len(words(request)))
             self.emit("heard", text=request)
             self._spawn(self.ask(request))
         elif woke:
+            log.info("wake word heard (%d-word command)", len(words(command)))
             if len(words(command)) >= 2:
                 self.emit("heard", text=command)
                 self._spawn(self.ask(command))
             else:
                 self._arm()
+        else:
+            log.debug("no wake word")
 
     # ── second brain ──
 

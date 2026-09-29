@@ -20,7 +20,7 @@ class Settings:
     voice: str = "Daniel"
     speech_rate: int = 190
     whisper_model: str = "base.en"
-    silence_seconds: float = 1.2
+    silence_seconds: float = 0.8
     address: str = ""
     calendar: str = ""
     bsh_dir: Path | None = DEFAULT_BSH_DIR

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from collections.abc import Callable
 
 import numpy as np
+
+log = logging.getLogger("jarvis")
 
 SAMPLE_RATE = 16_000
 BLOCK_SECONDS = 0.05
@@ -100,7 +103,7 @@ class Segmenter:
 
     def __init__(
         self,
-        silence_seconds: float = 0.9,
+        silence_seconds: float = 0.7,
         calibration_blocks: int = 20,
         max_seconds: float = 20.0,
         min_seconds: float = 0.35,
@@ -175,28 +178,45 @@ class ContinuousListener:
         self._stop.set()
 
     def _run(self) -> None:
+        """Keep a stream open for as long as hands-free is on.
+
+        Reopens the microphone when the stream errors or stalls (AirPods connecting,
+        the default input changing, the Mac waking from sleep) instead of going deaf.
+        """
         import sounddevice as sd
 
-        blocks: queue.Queue[np.ndarray] = queue.Queue()
-        segmenter = Segmenter(silence_seconds=self.silence_seconds)
-        with sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32",
-            blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
-            callback=lambda data, *_: blocks.put(data[:, 0].copy()),
-        ):
-            while not self._stop.is_set():
-                try:
-                    block = blocks.get(timeout=0.2)
-                except queue.Empty:
-                    continue
-                rms = float(np.sqrt(np.mean(block**2)))
-                if self.on_level is not None:
-                    self.on_level(rms)
-                utterance = segmenter.feed(block, rms)
-                if utterance is not None:
-                    self.on_utterance(utterance)
+        failures = 0
+        while not self._stop.is_set():
+            blocks: queue.Queue[np.ndarray] = queue.Queue()
+            segmenter = Segmenter(silence_seconds=self.silence_seconds)
+            try:
+                sd._terminate()  # pick up the current default input device
+                sd._initialize()
+                with sd.InputStream(
+                    samplerate=SAMPLE_RATE,
+                    channels=1,
+                    dtype="float32",
+                    blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+                    callback=lambda data, *_, q=blocks: q.put(data[:, 0].copy()),
+                ):
+                    log.info("hands-free microphone open")
+                    failures = 0
+                    while not self._stop.is_set():
+                        try:
+                            block = blocks.get(timeout=2.0)
+                        except queue.Empty:
+                            log.warning("microphone went quiet; reopening it")
+                            break
+                        rms = float(np.sqrt(np.mean(block**2)))
+                        if self.on_level is not None:
+                            self.on_level(rms)
+                        utterance = segmenter.feed(block, rms)
+                        if utterance is not None:
+                            self.on_utterance(utterance)
+            except Exception as exc:  # device vanished, permission revoked
+                failures += 1
+                log.warning("microphone error (%s); retrying", exc)
+                self._stop.wait(min(10.0, 0.5 * 2**failures))
 
 
 class Transcriber:
@@ -219,8 +239,33 @@ class Transcriber:
             return self._model
 
     def transcribe(self, audio: np.ndarray) -> str:
-        # The prompt nudges Whisper to spell the wake word "Jarvis", not "Travis" or "service".
+        # Hotwords bias Whisper toward spelling the wake word "Jarvis". (An initial_prompt
+        # of "Jarvis," made Whisper treat the name as already said and drop it.)
+        # Audio arrives already cut at speech boundaries, so Whisper's own VAD only trims
+        # first words; a short lead-in of silence stops it swallowing the first word.
+        # (Measured with scripts/stress_hands_free.py: 86% -> 88% wake detection.)
+        padded = np.concatenate([np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32), audio])
         segments, _info = self._load().transcribe(
-            audio, language="en", beam_size=1, vad_filter=True, initial_prompt="Jarvis,"
+            padded, language="en", beam_size=1, vad_filter=False, hotwords="Jarvis"
         )
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        return "" if is_hallucination(text) else text
+
+
+# What Whisper tends to invent from silence or room noise.
+_HALLUCINATIONS = {
+    "you",
+    "thank you",
+    "thanks for watching",
+    "thank you for watching",
+    "bye",
+    "okay",
+    "so",
+    "the end",
+    "subtitles by the amara org community",
+}
+
+
+def is_hallucination(text: str) -> bool:
+    cleaned = "".join(c for c in text.lower() if c.isalnum() or c == " ").strip()
+    return cleaned in _HALLUCINATIONS

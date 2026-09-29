@@ -8,6 +8,7 @@ import re
 import subprocess
 import tempfile
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -143,7 +144,7 @@ class CloudVoice:
                         "reference_id": self.voice_id,
                         "format": "wav",
                         "sample_rate": 24000,
-                        "latency": "balanced",
+                        "latency": "low",
                     },
                 )
             response.raise_for_status()
@@ -191,24 +192,35 @@ class Speaker:
         return args
 
     async def say(self, text: str) -> None:
+        """Speak one piece of text start to finish (confirmations, one-offs)."""
         spoken = clean_for_speech(text)
         if self.muted or not spoken:
             return
+        clip = await self.synthesize(spoken)
+        if clip is not None:
+            await self.play(*clip)
+
+    async def synthesize(self, spoken: str) -> tuple[np.ndarray, int] | None:
+        """Text -> audio, using the cloud voice when set, falling back to the Mac voice."""
         if self.cloud is not None:
             try:
                 audio, rate = await self.cloud.synthesize(spoken)
                 self.cloud_error = ""
-                await self._play(ai_voice_effect(audio, rate) if self.effect else audio, rate)
-                return
+                return (
+                    await asyncio.to_thread(ai_voice_effect, audio, rate) if self.effect else audio
+                ), rate
             except Exception as exc:  # bad key, no credit, offline: fall back to the Mac voice
                 self.cloud_error = str(exc)[:200]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reply.wav"
+            args = self._say_args() + [f"--data-format=LEI16@{EFFECT_RATE}", "-o", str(path)]
+            await self._run(args, spoken)
+            if not path.exists():
+                return None
+            audio, rate = read_wav(path)
         if self.effect:
-            try:
-                await self._say_with_effect(spoken)
-                return
-            except Exception:  # no output device, odd voice: fall back to plain speech
-                pass
-        await self._run(self._say_args(), spoken)
+            audio = await asyncio.to_thread(ai_voice_effect, audio, rate)
+        return audio, rate
 
     async def _run(self, args: list[str], spoken: str) -> None:
         # Text goes over stdin so a reply starting with "-" is never read as a flag.
@@ -222,18 +234,7 @@ class Speaker:
         finally:
             self._proc = None
 
-    async def _say_with_effect(self, spoken: str) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "reply.wav"
-            args = self._say_args() + [f"--data-format=LEI16@{EFFECT_RATE}", "-o", str(path)]
-            await self._run(args, spoken)
-            if not path.exists():
-                return
-            audio, rate = read_wav(path)
-        processed = await asyncio.to_thread(ai_voice_effect, audio, rate)
-        await self._play(processed, rate)
-
-    async def _play(self, audio: np.ndarray, rate: int) -> None:
+    async def play(self, audio: np.ndarray, rate: int) -> None:
         import sounddevice as sd
 
         self._playing = True
@@ -242,3 +243,99 @@ class Speaker:
             await asyncio.to_thread(sd.wait)
         finally:
             self._playing = False
+
+
+_SENTENCE = re.compile(r"(.+?[.!?…:;])(\s+|$)", re.DOTALL)
+
+
+def split_sentences(buffer: str, final: bool = False, min_chars: int = 12) -> tuple[list[str], str]:
+    """Pull complete sentences off the front of a streaming buffer.
+
+    Very short fragments ("Sure.") wait to join the next sentence so every clip is worth a
+    round trip to the voice service. With final=True the rest is flushed.
+    """
+    out: list[str] = []
+    rest = buffer
+    pending = ""
+    while True:
+        match = _SENTENCE.match(rest)
+        if not match:
+            break
+        sentence = (pending + " " + match.group(1)).strip()
+        rest = rest[match.end() :]
+        if len(sentence) < min_chars and rest.strip():
+            pending = sentence
+            continue
+        out.append(sentence)
+        pending = ""
+    rest = (pending + " " + rest).strip() if pending else rest
+    if final and rest.strip():
+        out.append(rest.strip())
+        rest = ""
+    return out, rest
+
+
+class SpeechQueue:
+    """Speaks sentences in order while synthesizing the next ones ahead of time.
+
+    push() starts synthesis immediately (at most three in flight); a single player plays
+    finished clips in order. That's what makes the first words come out quickly: the
+    first sentence plays while the rest of the reply is still being written and voiced.
+    """
+
+    def __init__(self, speaker: Speaker, on_speaking: Callable[[bool], None] | None = None) -> None:
+        self.speaker = speaker
+        self.on_speaking = on_speaking or (lambda _on: None)
+        self._clips: asyncio.Queue = asyncio.Queue()
+        self._limit = asyncio.Semaphore(3)
+        self._pending = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
+        self._player: asyncio.Task | None = None
+        self.spoken_text = ""
+
+    def push(self, text: str) -> None:
+        spoken = clean_for_speech(text)
+        if self.speaker.muted or not spoken:
+            return
+        self._pending += 1
+        self._idle.clear()
+        self.spoken_text = f"{self.spoken_text} {spoken}".strip()
+        self._clips.put_nowait(asyncio.create_task(self._synth(spoken)))
+        if self._player is None or self._player.done():
+            self._player = asyncio.create_task(self._play_loop())
+
+    async def _synth(self, spoken: str):
+        async with self._limit:
+            return await self.speaker.synthesize(spoken)
+
+    async def _play_loop(self) -> None:
+        while not self._clips.empty():
+            task = await self._clips.get()
+            try:
+                clip = await task
+                if clip is not None:
+                    self.on_speaking(True)
+                    await self.speaker.play(*clip)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # one bad clip shouldn't silence the rest
+                pass
+            finally:
+                self._pending -= 1
+        self.on_speaking(False)
+        self._idle.set()
+
+    async def drain(self) -> None:
+        await self._idle.wait()
+
+    def clear(self) -> None:
+        while not self._clips.empty():
+            self._clips.get_nowait().cancel()
+        if self._player is not None:
+            self._player.cancel()
+        self.speaker.stop()
+        self._pending = 0
+        self.spoken_text = ""
+        self._idle.set()
+        self.on_speaking(False)
