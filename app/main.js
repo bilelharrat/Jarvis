@@ -56,9 +56,21 @@ function freePort() {
   });
 }
 
+// backend.log keeps the last few starts: past 5 MB it becomes backend.1.log (replacing
+// the one before), so a crash loop or a noisy backend can't fill the disk.
+const BACKEND_LOG_MAX = 5 * 1024 * 1024;
+
+function openBackendLog() {
+  const file = path.join(LOG_DIR, 'backend.log');
+  try {
+    if (fs.statSync(file).size > BACKEND_LOG_MAX) fs.renameSync(file, path.join(LOG_DIR, 'backend.1.log'));
+  } catch (_) { /* no log yet */ }
+  return fs.createWriteStream(file, { flags: 'a' });
+}
+
 function startBackend() {
   fs.mkdirSync(LOG_DIR, { recursive: true });
-  const log = fs.createWriteStream(path.join(LOG_DIR, 'backend.log'), { flags: 'a' });
+  const log = openBackendLog();
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}\n`);
   backend = spawn(findUv(), ['run', '--directory', jarvisHome(), 'jarvis', 'serve', '--port', String(port)], {
     env: {

@@ -481,6 +481,7 @@ class Hub:
         self.approvals: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, asyncio.Future] = {}
         self._subscribers: set[WindowQueue] = set()
+        self._command_failures: dict[str, tuple[float, int]] = {}  # kind -> (logged, since)
         self._lock = asyncio.Lock()
         self._tools: dict[str, dict[str, Any]] = {}
         self._background: set[asyncio.Task] = set()
@@ -3815,7 +3816,9 @@ class Hub:
         """One command from a window. One that can take a while runs in the background, so
         it never holds up the next; one that fails is logged, and never closes the
         window's connection."""
-        if msg.get("type") in SLOW_COMMANDS:
+        if not isinstance(msg, dict) or not isinstance(msg.get("type"), str):
+            return  # not a command: no name to act on
+        if msg["type"] in SLOW_COMMANDS:
             self._spawn(self._handle_logged(msg))
         else:
             await self._handle_logged(msg)
@@ -3824,7 +3827,22 @@ class Hub:
         try:
             await self._handle(msg)
         except Exception:  # a bad id, a failed control call: that command only
-            log.exception("window command %r failed", msg.get("type"))
+            self._log_command_failure(msg["type"])
+
+    def _log_command_failure(self, kind: str) -> None:
+        """A failing window command's traceback, at most once a minute per command: a
+        window sending the same bad command in a loop can't flood the log."""
+        now = time.monotonic()
+        failures = self._command_failures
+        last, skipped = failures.get(kind, (float("-inf"), 0))
+        if now - last < 60:
+            failures[kind] = (last, skipped + 1)
+            return
+        if len(failures) > 200:
+            failures.clear()
+        failures[kind] = (now, 0)
+        more = f" ({skipped} more times since the last report)" if skipped else ""
+        log.exception("window command %r failed%s", kind, more)
 
     @staticmethod
     def _attachments(msg: dict[str, Any]) -> list[dict[str, str]] | None:

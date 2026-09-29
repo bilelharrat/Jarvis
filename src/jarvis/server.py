@@ -82,7 +82,16 @@ def create_app(hub: Hub, token: str) -> Starlette:
         offered = ws.query_params.get("token", "")
         origin = ws.headers.get("origin", "")
         host = ws.headers.get("host", "")
-        if not secrets.compare_digest(offered, token) or origin != f"http://{host}":
+        # This machine's own address only: a page that points its own name at 127.0.0.1
+        # sends that name as the Host (and the Origin to match it).
+        port = (ws.scope.get("server") or ("", 0))[1]
+        loopback = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+        # Compared as bytes: a token with other characters in it is just a wrong token.
+        if (
+            not secrets.compare_digest(offered.encode(errors="replace"), token.encode())
+            or host not in loopback
+            or origin != f"http://{host}"
+        ):
             await ws.close(code=4403)
             return
         await ws.accept()
@@ -102,9 +111,9 @@ def create_app(hub: Hub, token: str) -> Starlette:
             while True:
                 try:
                     msg = await ws.receive_json()
-                except (ValueError, KeyError, TypeError):  # a frame that isn't JSON: skip it
-                    continue
-                if isinstance(msg, dict):
+                except (ValueError, KeyError, TypeError, RecursionError):
+                    continue  # a frame that isn't JSON, or is nested absurdly deep: skip it
+                if isinstance(msg, dict) and isinstance(msg.get("type"), str):
                     # Never raises; slow commands run in the background (Hub.handle).
                     await hub.handle(msg)
         except Exception:  # disconnected, or the socket failed: the window is gone either way
