@@ -390,10 +390,21 @@ function setSwitch(id, on) {
   $(id).setAttribute('aria-checked', String(!!on));
 }
 
+// The orb flanks itself with two columns: stats and weather on the left, camera and
+// session on the right. The dashboards keep all four on the left.
+function placePanels(look) {
+  const left = document.querySelector('.side.left');
+  const right = document.querySelector('.side.right');
+  const moved = [$('p-camera'), $('p-uptime')];
+  if (look === 'orb') right.prepend(...moved);
+  else left.append(...moved);
+}
+
 function renderPrefs(p) {
   if (!p) return;
   prefs = p;
   document.body.dataset.look = p.look || 'orb';
+  placePanels(document.body.dataset.look);
   document.querySelectorAll('#look-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.look === p.look)));
   if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';
   $('t-handsfree').setAttribute('aria-pressed', String(!!p.hands_free));
