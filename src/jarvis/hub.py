@@ -4398,6 +4398,14 @@ class Hub:
                 self._add_style_note(
                     f"the user added this to what you remember about them: {fact.text}"
                 )
+                for old in self.memory.forgotten:  # full: the oldest made room, and it's said
+                    self.emit(
+                        "toast",
+                        title="记忆" if lang.is_zh(self.language) else "Memory",
+                        text=f"记忆已满，最早的一条让出了位置：“{old.text}”"
+                        if lang.is_zh(self.language)
+                        else f"Memory was full, so the oldest fact made room: “{old.text}”",
+                    )
         elif kind == "clear_history":
             self.history.clear()
             self.emit("history", items=[])
