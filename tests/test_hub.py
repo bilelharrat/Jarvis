@@ -354,3 +354,50 @@ async def test_dead_session_reconnects_and_retries(settings, quiet_speaker, isol
     assert attempts["n"] == 2
     assert not any(e["type"] == "error" for e in events)
     assert any(e["type"] == "reply" for e in events)
+
+
+async def test_browser_calls_go_through_the_window(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    assert "only in the J.A.R.V.I.S. app" in (await hub.browser_call("read"))["error"]
+    await hub.handle({"type": "capabilities", "browser": True})
+    q = hub.subscribe()
+    pending = asyncio.create_task(hub.browser_call("open", {"url": "example.com"}))
+    await asyncio.sleep(0)
+    cmd = next(e for e in drain(q) if e["type"] == "browser_cmd")
+    assert cmd["action"] == "open" and cmd["args"] == {"url": "example.com"}
+    await hub.handle(
+        {
+            "type": "browser_result",
+            "id": cmd["id"],
+            "result": {"url": "https://example.com/", "title": "Example"},
+        }
+    )
+    assert (await pending)["title"] == "Example"
+
+
+async def test_browser_clicks_need_the_control_ok(settings, quiet_speaker, isolated):
+    from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
+
+    from jarvis.brain import make_permission_policy
+
+    asked = []
+
+    async def gate():
+        asked.append(1)
+        return len(asked) == 1
+
+    policy = make_permission_policy(lambda _q: None, gate)
+    ctx = ToolPermissionContext()
+    assert isinstance(
+        await policy("mcp__browser__browser_click", {"text": "Buy"}, ctx), PermissionResultAllow
+    )
+    assert isinstance(
+        await policy("mcp__browser__browser_type", {"text": "x"}, ctx), PermissionResultDeny
+    )
+    opts = hub_opts = None  # noqa: F841
+    from jarvis.brain import build_options
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    opts = build_options(settings, lambda _q: None, browser_server=hub._browser_server())
+    assert "mcp__browser__browser_read" in opts.allowed_tools
+    assert "mcp__browser__browser_click" not in opts.allowed_tools

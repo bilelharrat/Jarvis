@@ -10,6 +10,7 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -158,34 +159,94 @@ class CloudVoice:
     voice_id: str
     model: str = ""
 
-    async def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+    _client: Any = None
+
+    def _http(self):
+        """One long-lived connection: a fresh TLS handshake per sentence cost ~0.3s each."""
         import httpx
 
-        async with httpx.AsyncClient(timeout=45) as client:
-            if self.provider == "elevenlabs":
-                response = await client.post(
-                    f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}",
-                    params={"output_format": "wav_22050"},
-                    headers={"xi-api-key": self.api_key},
-                    json={"text": text, "model_id": self.model or "eleven_flash_v2_5"},
-                )
-            else:
-                response = await client.post(
-                    "https://api.fish.audio/v1/tts",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "model": self.model or "s2.1-pro",
-                    },
-                    json={
-                        "text": text,
-                        "reference_id": self.voice_id,
-                        "format": "wav",
-                        "sample_rate": 24000,
-                        "latency": "low",
-                    },
-                )
-            response.raise_for_status()
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=45, limits=httpx.Limits(keepalive_expiry=300, max_keepalive_connections=4)
+            )
+        return self._client
+
+    async def warm(self) -> None:
+        """Open the connection ahead of the first sentence (called when you start talking)."""
+        host = (
+            "https://api.elevenlabs.io"
+            if self.provider == "elevenlabs"
+            else "https://api.fish.audio"
+        )
+        try:
+            await self._http().head(host, timeout=5)
+        except Exception:  # offline: the real request will say so
+            pass
+
+    async def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        client = self._http()
+        if self.provider == "elevenlabs":
+            response = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}",
+                params={"output_format": "wav_22050"},
+                headers={"xi-api-key": self.api_key},
+                json={"text": text, "model_id": self.model or "eleven_flash_v2_5"},
+            )
+        else:
+            response = await client.post(
+                "https://api.fish.audio/v1/tts",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "model": self.model or "s2.1-pro",
+                },
+                json={
+                    "text": text,
+                    "reference_id": self.voice_id,
+                    "format": "wav",
+                    "sample_rate": 24000,
+                    "latency": "low",
+                },
+            )
+        response.raise_for_status()
         return read_wav(response.content)
+
+    @property
+    def stream_rate(self) -> int:
+        return 22050 if self.provider == "elevenlabs" else 24000
+
+    async def stream(self, text: str):
+        """Raw 16-bit mono PCM chunks as the service generates them (first bytes ~0.6s,
+        long before the whole sentence is ready)."""
+        client = self._http()
+        if self.provider == "elevenlabs":
+            request = client.stream(
+                "POST",
+                f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream",
+                params={"output_format": "pcm_22050"},
+                headers={"xi-api-key": self.api_key},
+                json={"text": text, "model_id": self.model or "eleven_flash_v2_5"},
+            )
+        else:
+            request = client.stream(
+                "POST",
+                "https://api.fish.audio/v1/tts",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "model": self.model or "s2.1-pro",
+                },
+                json={
+                    "text": text,
+                    "reference_id": self.voice_id,
+                    "format": "pcm",
+                    "sample_rate": 24000,
+                    "latency": "low",
+                },
+            )
+        async with request as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes():
+                if chunk:
+                    yield chunk
 
 
 def cloud_voice_from(settings) -> CloudVoice | None:
@@ -194,6 +255,61 @@ def cloud_voice_from(settings) -> CloudVoice | None:
             settings.tts, settings.tts_api_key, settings.tts_voice_id, settings.tts_model
         )
     return None
+
+
+PLAYER_SOURCE = Path(__file__).parent / "player" / "jarvis-player.swift"
+
+
+def ensure_player() -> Path | None:
+    """Build the native streaming player once (a few seconds with swiftc), cached by the
+    source's hash. None if it can't be built; playback then falls back to afplay."""
+    import hashlib
+    import subprocess
+
+    from .prefs import APP_SUPPORT
+
+    if not PLAYER_SOURCE.exists():
+        return None
+    digest = hashlib.sha256(PLAYER_SOURCE.read_bytes()).hexdigest()[:10]
+    binary = APP_SUPPORT / "bin" / f"jarvis-player-{digest}"
+    if binary.exists():
+        return binary
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            ["swiftc", "-O", "-o", str(binary), str(PLAYER_SOURCE)],
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("couldn't build the streaming player (%s); using afplay", exc)
+        return None
+    return binary
+
+
+class Source:
+    """One sentence's audio, arriving as raw PCM chunks (None marks the end)."""
+
+    def __init__(self, rate: int) -> None:
+        self.rate = rate
+        self.chunks: asyncio.Queue = asyncio.Queue()
+        self.task: asyncio.Task | None = None
+
+    @classmethod
+    def ready(cls, pcm: bytes, rate: int) -> Source:
+        src = cls(rate)
+        src.chunks.put_nowait(pcm)
+        src.chunks.put_nowait(None)
+        return src
+
+    def cancel(self) -> None:
+        if self.task is not None and not self.task.done():
+            self.task.cancel()
+
+
+def to_pcm(audio: np.ndarray) -> bytes:
+    return (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
 class Speaker:
@@ -214,6 +330,8 @@ class Speaker:
         self._proc: asyncio.subprocess.Process | None = None
         self._player: asyncio.subprocess.Process | None = None
         self._playing = False
+        self.player_path: Path | None = None  # set once the native player is built
+        self._streams = asyncio.Semaphore(3)
 
     def stop(self) -> None:
         for proc in (self._proc, self._player):
@@ -231,9 +349,88 @@ class Speaker:
         spoken = clean_for_speech(text)
         if self.muted or not spoken:
             return
+        if self.player_path is not None:
+            await self.play_source(self.open(spoken))
+            return
         clip = await self.synthesize(spoken)
         if clip is not None:
             await self.play(*clip)
+
+    # ── streaming (native player) ──
+
+    def open(self, spoken: str) -> Source:
+        """Start fetching a sentence's audio now; play it with play_source."""
+        src = Source(self.cloud.stream_rate if self.cloud is not None else EFFECT_RATE)
+        src.task = asyncio.create_task(self._fill(src, spoken))
+        return src
+
+    async def _fill(self, src: Source, spoken: str) -> None:
+        try:
+            async with self._streams:
+                if self.cloud is not None:
+                    sent = False
+                    try:
+                        async for chunk in self.cloud.stream(spoken):
+                            sent = True
+                            src.chunks.put_nowait(chunk)
+                        self.cloud_error = ""
+                        return
+                    except Exception as exc:  # no credit, offline: fall back to the Mac voice
+                        self.cloud_error = str(exc)[:200]
+                        log.warning("cloud voice failed (%s)", self.cloud_error)
+                        if sent:
+                            return
+                audio, rate = await self._mac_voice(spoken)
+                src.rate = rate
+                src.chunks.put_nowait(to_pcm(audio))
+        finally:
+            src.chunks.put_nowait(None)
+
+    async def _mac_voice(self, spoken: str) -> tuple[np.ndarray, int]:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reply.wav"
+            args = self._say_args() + [f"--data-format=LEI16@{EFFECT_RATE}", "-o", str(path)]
+            await self._run(args, spoken)
+            return read_wav(path) if path.exists() else (np.zeros(0, np.float32), EFFECT_RATE)
+
+    async def play_source(self, src: Source) -> None:
+        """Play audio as it arrives through the native player (effect applied there)."""
+        first = await src.chunks.get()
+        if first is None:
+            return
+        if self.player_path is None:  # no native player: gather it all and use afplay
+            parts = [first]
+            while (chunk := await src.chunks.get()) is not None:
+                parts.append(chunk)
+            audio = np.frombuffer(b"".join(parts), dtype="<i2").astype(np.float32) / 32768.0
+            if self.effect:
+                audio = await asyncio.to_thread(ai_voice_effect, audio, src.rate)
+            await self.play(audio, src.rate)
+            return
+        args = [str(self.player_path), str(src.rate)] + (["--effect"] if self.effect else [])
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdin=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        self._player = proc
+        self._playing = True
+        try:
+            chunk = first
+            while chunk is not None:
+                proc.stdin.write(chunk)
+                await proc.stdin.drain()
+                chunk = await src.chunks.get()
+            proc.stdin.close()
+            _, err = await proc.communicate()
+            if proc.returncode not in (0, -9) and err:
+                log.warning("player: %s", err.decode(errors="replace")[:300])
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # stopped mid-sentence
+        except asyncio.CancelledError:
+            proc.kill()
+            raise
+        finally:
+            self._playing = False
+            self._player = None
 
     async def synthesize(self, spoken: str) -> tuple[np.ndarray, int] | None:
         """Text -> audio, using the cloud voice when set, falling back to the Mac voice."""
@@ -347,6 +544,7 @@ class SpeechQueue:
         self._idle = asyncio.Event()
         self._idle.set()
         self._player: asyncio.Task | None = None
+        self._sources: list[Source] = []
         self.spoken_text = ""
 
     def push(self, text: str) -> None:
@@ -360,7 +558,23 @@ class SpeechQueue:
         if self._player is None or self._player.done():
             self._player = asyncio.create_task(self._play_loop())
 
+    def push_clip(self, clip: tuple[np.ndarray, int]) -> None:
+        """Queue audio that's already made (the instant 'One moment.' fillers)."""
+        if self.speaker.muted:
+            return
+        self._pending += 1
+        self._idle.clear()
+        future = asyncio.get_running_loop().create_future()
+        future.set_result(clip)
+        self._clips.put_nowait(future)
+        if self._player is None or self._player.done():
+            self._player = asyncio.create_task(self._play_loop())
+
     async def _synth(self, spoken: str):
+        if getattr(self.speaker, "player_path", None) is not None:
+            src = self.speaker.open(spoken)
+            self._sources.append(src)
+            return src
         async with self._limit:
             return await self.speaker.synthesize(spoken)
 
@@ -369,7 +583,10 @@ class SpeechQueue:
             task = await self._clips.get()
             try:
                 clip = await task
-                if clip is not None:
+                if isinstance(clip, Source):
+                    self.on_speaking(True)
+                    await self.speaker.play_source(clip)
+                elif clip is not None:
                     self.on_speaking(True)
                     await self.speaker.play(*clip)
             except asyncio.CancelledError:
@@ -378,6 +595,7 @@ class SpeechQueue:
                 log.exception("couldn't play a reply clip")
             finally:
                 self._pending -= 1
+        self._sources = [s for s in self._sources if s.task is not None and not s.task.done()]
         self.on_speaking(False)
         self._idle.set()
 
@@ -389,6 +607,9 @@ class SpeechQueue:
             self._clips.get_nowait().cancel()
         if self._player is not None:
             self._player.cancel()
+        for src in self._sources:
+            src.cancel()
+        self._sources.clear()
         self.speaker.stop()
         self._pending = 0
         self.spoken_text = ""
