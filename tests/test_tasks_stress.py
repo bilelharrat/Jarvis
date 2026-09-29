@@ -393,3 +393,52 @@ async def test_clear_starts_a_fresh_conversation_set_up_as_the_session_was(
     assert hub.tasks.start_like(9999) is None
     for t in (task, fresh):
         t.handle.cancel()
+
+
+async def test_waiting_questions_go_ahead_once_the_policy_covers_them(settings, tmp_path):
+    from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
+
+    from jarvis.tasks import ALLOW_EDITS, ALWAYS, TaskManager
+
+    asked, cancelled = [], []
+
+    async def approve(question, detail, choices, context=None):
+        answer = asyncio.get_running_loop().create_future()
+        asked.append((detail, answer))
+        try:
+            return await answer
+        except asyncio.CancelledError:
+            cancelled.append(detail)
+            raise
+
+    tm = TaskManager(settings, approve, lambda *a, **k: None)
+    one = ClaudeTask(id=1, prompt="", cwd=tmp_path)
+    two = ClaudeTask(id=2, prompt="", cwd=tmp_path)
+    tm.tasks.update({1: one, 2: two})
+    ctx = ToolPermissionContext()
+    edit = lambda name: {"file_path": str(tmp_path / name), "old_string": "a", "new_string": "b"}  # noqa: E731
+    first = asyncio.create_task(tm.policy_for(one)("Edit", edit("a.py"), ctx))
+    second = asyncio.create_task(tm.policy_for(one)("Edit", edit("b.py"), ctx))
+    command = asyncio.create_task(tm.policy_for(one)("Bash", {"command": "make build"}, ctx))
+    elsewhere = asyncio.create_task(tm.policy_for(two)("Bash", {"command": "make build"}, ctx))
+    await asyncio.sleep(0.01)
+    assert len(asked) == 4
+    asked[0][1].set_result(ALLOW_EDITS)  # "Yes, allow all edits this session" on the first
+    assert isinstance(await first, PermissionResultAllow)
+    assert isinstance(await asyncio.wait_for(second, 1), PermissionResultAllow)  # unasked
+    assert cancelled == [asked[1][0]] and not command.done()  # commands still wait
+    asked[2][1].set_result(ALWAYS)  # make commands, from now on, in this project
+    assert isinstance(await command, PermissionResultAllow)
+    assert isinstance(await asyncio.wait_for(elsewhere, 1), PermissionResultAllow)
+    assert one.audit[1]["why"] == "edits are allowed in this session"
+    # Stricter never answers for the user: a switch to Manual leaves the question waiting.
+    denied = asyncio.create_task(tm.policy_for(two)("Bash", {"command": "rm -rf x"}, ctx))
+    await asyncio.sleep(0.01)
+    tm.set_mode(2, "ask")
+    await asyncio.sleep(0.01)
+    assert not denied.done()
+    tm.set_mode(2, "auto")  # Bypass permissions: it goes ahead
+    assert isinstance(await asyncio.wait_for(denied, 1), PermissionResultAllow)
+    assert not isinstance(
+        await tm.policy_for(one)("Read", {"file_path": "x"}, ctx), PermissionResultDeny
+    )

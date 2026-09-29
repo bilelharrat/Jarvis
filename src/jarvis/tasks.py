@@ -603,6 +603,7 @@ class ClaudeTask:
     handle: asyncio.Task | None = None
     # How the open connection is doing (see TaskManager._connect).
     stirred: asyncio.Event = field(default_factory=asyncio.Event)  # a message, a turn's end
+    loosened: asyncio.Event = field(default_factory=asyncio.Event)  # its policy lets more by
     turns_pending: int = 0  # the user's messages sent whose turns haven't ended
     injected: bool = False  # Claude Code is on a turn it started itself
     current: str = ""  # whose turn Claude Code is on: "user", "claude" or ""
@@ -1032,6 +1033,7 @@ class TaskManager:
             return False
         previous, task.mode = task.mode, mode
         task.allow_edits = mode in ("edits", "auto")
+        self._loosen(task)
         if (
             task.client is not None
             and SDK_MODES[previous] != SDK_MODES[mode]
@@ -2281,22 +2283,10 @@ class TaskManager:
                 self._audit(task, tool_name, tool_input, decision, why)
                 return PermissionResultAllow()
 
-            if task.mode == "auto":
-                return allow("bypass", "Bypass permissions is on")
-            if tool_name in FREE_TOOLS:
-                return allow("auto", "never asks")
-            if tool_name in READ_TOOLS and self._free_read(task, tool_name, tool_input):
-                return allow("auto", "reading inside the project")
+            if free := self._goes_ahead(task, tool_name, tool_input):
+                return allow(*free)
             editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
-            if editable and (task.allow_edits or task.mode == "edits"):
-                return allow("auto", "edits are allowed in this session")
             command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
-            rules = self.rules.for_project(task.cwd)
-            matched = next((r for r in rules if command and rule_allows(r, command, task.cwd)), "")
-            if matched:
-                return allow("auto", f"your rule: {matched} commands")
-            if command and self.read_only_free() and is_read_only(command):
-                return allow("auto", "a read-only command")
             rule = command_rule(command, task.cwd) if command else ""
             choices = [(ALLOW, "Yes")]
             if editable:
@@ -2321,17 +2311,39 @@ class TaskManager:
             task.last_action = "Waiting for you"
             self._changed_soon()
             asked_at = time.monotonic()
-            choice = await self.approve(
-                f"Jarvis Code in {task.cwd.name} wants to {verb}",
-                approval_detail(tool_name, tool_input, task.cwd),
-                choices,
-                context={"task_id": task.id, "tool": tool_name},
+            ask = asyncio.ensure_future(
+                self.approve(
+                    f"Jarvis Code in {task.cwd.name} wants to {verb}",
+                    approval_detail(tool_name, tool_input, task.cwd),
+                    choices,
+                    context={"task_id": task.id, "tool": tool_name},
+                )
             )
+            try:
+                while True:
+                    # Waiting, the policy may loosen (Allow all edits on another card, a
+                    # new rule, a mode switch): a step it now covers goes ahead, as the
+                    # prompts queued behind one in Claude Code do, and its card goes.
+                    loosened = asyncio.ensure_future(task.loosened.wait())
+                    await asyncio.wait({ask, loosened}, return_when=asyncio.FIRST_COMPLETED)
+                    loosened.cancel()
+                    if ask.done():
+                        choice = ask.result()
+                        break
+                    if free := self._goes_ahead(task, tool_name, tool_input):
+                        ask.cancel()
+                        return allow(*free)
+            finally:
+                ask.cancel()
             if choice == ALLOW_EDITS:
                 task.allow_edits = True
+                self._loosen(task)
             if choice == ALWAYS and rule:
                 self.rules.add(task.cwd, rule)
                 self._log(task, "system", f"Won't ask again for {rule} commands here.")
+                for other in self.tasks.values():  # the rule is the project's
+                    if other.cwd == task.cwd:
+                        self._loosen(other)
             if choice in (ALLOW, ALLOW_EDITS, ALWAYS):
                 why = {
                     ALLOW_EDITS: "you allowed it (and all edits)",
@@ -2356,6 +2368,35 @@ class TaskManager:
             )
 
         return can_use_tool
+
+    def _goes_ahead(
+        self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
+    ) -> tuple[str, str] | None:
+        """(decision, why) when a step runs without asking, as the session is set now."""
+        if task.mode == "auto":
+            return "bypass", "Bypass permissions is on"
+        if tool_name in FREE_TOOLS:
+            return "auto", "never asks"
+        if tool_name in READ_TOOLS and self._free_read(task, tool_name, tool_input):
+            return "auto", "reading inside the project"
+        editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
+        if editable and (task.allow_edits or task.mode == "edits"):
+            return "auto", "edits are allowed in this session"
+        command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
+        if not command:
+            return None
+        rules = self.rules.for_project(task.cwd)
+        matched = next((r for r in rules if rule_allows(r, command, task.cwd)), "")
+        if matched:
+            return "auto", f"your rule: {matched} commands"
+        if self.read_only_free() and is_read_only(command):
+            return "auto", "a read-only command"
+        return None
+
+    def _loosen(self, task: ClaudeTask) -> None:
+        """The session's policy lets more through now: its waiting questions look again."""
+        task.loosened.set()
+        task.loosened = asyncio.Event()
 
     def _audit(
         self, task: ClaudeTask, tool: str, tool_input: dict[str, Any], decision: str, why: str
@@ -2416,6 +2457,7 @@ class TaskManager:
             )
         task.mode = "edits" if choice == PLAN_APPROVE_EDITS else "ask"
         task.allow_edits = task.mode == "edits"
+        self._loosen(task)
         self._log(task, "system", f"Plan approved. Permission mode: {MODE_LABELS[task.mode]}.")
         self._changed()
         # Claude Code leaves plan mode itself when ExitPlanMode runs (back to the mode
