@@ -58,6 +58,7 @@ function onEvent(ev) {
       renderActivity();
       renderLog();
       renderTasks(ev.tasks || []);
+      renderCC(ev.tasks || []);
       renderPrefs(ev.prefs);
       renderBrain(ev.brain || {});
       $('cards').querySelectorAll('.needs-ok').forEach((n) => n.remove());
@@ -65,6 +66,7 @@ function onEvent(ev) {
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });
       send({ type: 'connectors' });
+      if (app && app.browser) send({ type: 'capabilities', browser: true });
       history = ev.history || [];
       renderHistory();
       if (ev.vitals) renderVitals(ev.vitals);
@@ -102,7 +104,12 @@ function onEvent(ev) {
     case 'approval': showApproval(ev); break;
     case 'approval_resolved': { const n = document.querySelector(`[data-approval="${CSS.escape(ev.id)}"]`); if (n) n.remove(); break; }
     case 'status': renderStatus(ev); break;
-    case 'tasks': renderTasks(ev.items); break;
+    case 'tasks': renderTasks(ev.items); renderCC(ev.items); break;
+    case 'task_log': if (ev.id === ccSelected) appendTranscript(ev.entry); break;
+    case 'task_transcript': if (ev.id === ccSelected) { $('cc-transcript').replaceChildren(); ev.entries.forEach(appendTranscript); } break;
+    case 'claude_projects': renderProjects(ev.items); break;
+    case 'browser_cmd': runBrowserCommand(ev); break;
+    case 'claude_sessions': renderPast(ev.items, ev.directory); break;
     case 'task_finished': onTaskFinished(ev); break;
     case 'muted': setMuted(ev.value); break;
     case 'prefs': renderPrefs(ev); break;
@@ -168,7 +175,9 @@ document.addEventListener('keydown', (e) => {
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
   if (e.key === 'Escape') {
     if (typing) e.target.blur();
-    if (!$('accounts').hidden) toggleAccounts(false);
+    if (!$('browser').hidden && !typing) toggleBrowser(false);
+    else if (!$('cc').hidden) toggleCC(false);
+    else if (!$('accounts').hidden) toggleAccounts(false);
     else if (!$('settings').hidden) toggleSettings(false);
     else if (galaxyMode === 'open') setGalaxyMode('off');
     else if (!$('activity').hidden) toggleDrawer(false);
@@ -225,6 +234,7 @@ function setGalaxyMode(mode) {
   document.body.classList.toggle('galaxy-open', mode === 'open');
   $('galaxy').hidden = mode !== 'open';
   galaxy.interactive = mode === 'open';
+  if (mode !== 'open') stopHandControl();
   if (mode === 'off') {
     galaxy.stop();
     galaxy.reset();
@@ -270,6 +280,38 @@ function showNote(n) {
 $('note-open').addEventListener('click', () => { if (selectedNote) send({ type: 'open_note', id: selectedNote }); });
 $('brain-btn').addEventListener('click', () => setGalaxyMode(galaxyMode === 'open' ? 'off' : 'open'));
 $('galaxy-close').addEventListener('click', () => setGalaxyMode('off'));
+
+// ── hand control (hands.js loads MediaPipe only when you turn it on) ──
+let handsModule = null;
+
+async function startHandControl() {
+  $('hand-btn').setAttribute('aria-pressed', 'true');
+  $('hand-panel').hidden = false;
+  $('hand-status').textContent = 'Loading hand tracking…';
+  try {
+    handsModule = handsModule || (await import('/static/hands.js'));
+    await handsModule.startHands(galaxy, {
+      overlayCanvas: $('hand-overlay'),
+      statusEl: $('hand-status'),
+      cursorEl: $('hand-cursor'),
+      close: () => setGalaxyMode('off'),
+    });
+  } catch (err) {
+    $('hand-status').textContent = `Hand control couldn't start: ${err.message || err}`;
+    $('hand-btn').setAttribute('aria-pressed', 'false');
+  }
+}
+
+function stopHandControl() {
+  if (handsModule) handsModule.stopHands();
+  $('hand-btn').setAttribute('aria-pressed', 'false');
+  $('hand-panel').hidden = true;
+}
+
+$('hand-btn').addEventListener('click', () => {
+  if ($('hand-btn').getAttribute('aria-pressed') === 'true') stopHandControl();
+  else startHandControl();
+});
 $('galaxy-search').addEventListener('submit', (e) => {
   e.preventDefault();
   const q = $('galaxy-q').value.trim().toLowerCase();
@@ -701,6 +743,166 @@ async function toggleCamera() {
 }
 $('camera-btn').addEventListener('click', toggleCamera);
 $('c-camera').addEventListener('click', toggleCamera);
+
+// ── Claude Code control room ──
+
+let ccSelected = null;
+let ccTasks = [];
+const MODE_NAMES = { ask: 'Ask', edits: 'Auto-edits', auto: 'Full auto' };
+
+function toggleCC(open) {
+  $('cc').hidden = !open;
+  $('cc-btn').setAttribute('aria-expanded', String(open));
+  if (open) { send({ type: 'claude_projects' }); if (ccSelected) send({ type: 'task_transcript', id: ccSelected }); }
+}
+$('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
+$('cc-close').addEventListener('click', () => toggleCC(false));
+
+function renderProjects(items) {
+  for (const id of ['cc-project', 'cc-past-project']) {
+    const sel = $(id);
+    const keep = sel.value;
+    sel.replaceChildren(...items.map((p) => { const o = el('option', '', p); o.value = p; return o; }));
+    if (items.includes(keep)) sel.value = keep;
+  }
+}
+
+function renderCC(items) {
+  ccTasks = items.filter((t) => t.kind === 'code');
+  const running = ccTasks.filter((t) => t.busy).length;
+  $('cc-label').textContent = running ? `Claude Code · ${running} working` : ccTasks.length ? `Claude Code · ${ccTasks.length}` : 'Claude Code';
+  $('cc-empty').hidden = ccTasks.length > 0;
+  $('cc-list').replaceChildren(...ccTasks.map((t) => {
+    const li = el('li');
+    const b = el('button', 'cc-item');
+    b.type = 'button';
+    b.setAttribute('aria-current', String(t.id === ccSelected));
+    const st = el('small');
+    const status = t.busy ? 'working' : t.status;
+    const dot = el('span', t.busy ? 'st-running' : '', `● ${status}`);
+    st.append(dot, document.createTextNode(` · ${t.folder} · ${MODE_NAMES[t.mode] || t.mode}${t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : ''}`));
+    b.append(el('strong', '', t.title || t.prompt || 'Session'), st, el('small', '', t.last_action));
+    b.addEventListener('click', () => selectTask(t.id));
+    li.append(b);
+    return li;
+  }));
+  const t = ccTasks.find((x) => x.id === ccSelected);
+  if (t) {
+    $('cc-title').textContent = t.title || t.prompt || 'Session';
+    $('cc-meta').textContent = `${t.folder} · ${t.busy ? 'working' : t.status}${t.session_id ? ` · ${t.session_id.slice(0, 8)}` : ''}`;
+    $('cc-view-mode').value = t.mode;
+    $('cc-interrupt').disabled = !t.busy;
+  }
+}
+
+function selectTask(id) {
+  ccSelected = id;
+  $('cc-none').hidden = true;
+  $('cc-view').hidden = false;
+  $('cc-transcript').replaceChildren();
+  send({ type: 'task_transcript', id });
+  renderCC(ccTasks);
+}
+
+function appendTranscript(entry) {
+  const li = el('li', entry.role, entry.text);
+  $('cc-transcript').append(li);
+  $('cc-transcript').scrollTop = $('cc-transcript').scrollHeight;
+}
+
+function renderPast(items, directory) {
+  $('cc-past').replaceChildren(...(items.length ? items : []).map((p) => {
+    const li = el('li');
+    const b = el('button', 'cc-item');
+    b.type = 'button';
+    b.append(el('strong', '', p.title || 'Untitled session'), el('small', '', `${new Date(p.last_modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${p.branch ? ` · ${p.branch}` : ''} · Resume`));
+    b.addEventListener('click', () => send({ type: 'task_new', directory, session_id: p.session_id, title: p.title, mode: $('cc-mode').value, prompt: '' }));
+    li.append(b);
+    return li;
+  }));
+  if (!items.length) $('cc-past').replaceChildren(el('li', 'empty', 'No past sessions in this project.'));
+}
+
+$('cc-new').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const prompt = $('cc-prompt').value.trim();
+  if (!prompt) return;
+  if ($('cc-mode').value === 'auto' && !confirm('Full auto lets Claude Code run any command in this project without asking. Start anyway?')) return;
+  send({ type: 'task_new', directory: $('cc-project').value, prompt, mode: $('cc-mode').value });
+  $('cc-prompt').value = '';
+});
+$('cc-past-load').addEventListener('click', () => send({ type: 'claude_sessions', directory: $('cc-past-project').value }));
+$('cc-send').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('cc-input').value.trim();
+  if (!text || !ccSelected) return;
+  send({ type: 'task_send', id: ccSelected, text });
+  $('cc-input').value = '';
+});
+$('cc-interrupt').addEventListener('click', () => ccSelected && send({ type: 'task_interrupt', id: ccSelected }));
+$('cc-end').addEventListener('click', () => ccSelected && send({ type: 'task_cancel', id: ccSelected }));
+$('cc-view-mode').addEventListener('change', (e) => {
+  if (e.target.value === 'auto' && !confirm('Full auto lets this session run any command without asking. Switch?')) {
+    renderCC(ccTasks);
+    return;
+  }
+  send({ type: 'task_mode', id: ccSelected, mode: e.target.value });
+});
+
+// ── built-in browser (in the J.A.R.V.I.S. app only) ──
+
+function slotBounds() {
+  const r = $('browser-slot').getBoundingClientRect();
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
+}
+
+function toggleBrowser(open) {
+  if (!app || !app.browser) return;
+  $('browser').hidden = !open;
+  $('browser-btn').setAttribute('aria-expanded', String(open));
+  if (open) requestAnimationFrame(() => app.browser.show(slotBounds()));
+  else app.browser.hide();
+}
+
+if (app && app.browser) {
+  $('browser-btn').hidden = false;
+  $('browser-btn').addEventListener('click', () => toggleBrowser($('browser').hidden));
+  $('br-close').addEventListener('click', () => toggleBrowser(false));
+  $('br-back').addEventListener('click', () => app.browser.nav('back'));
+  $('br-forward').addEventListener('click', () => app.browser.nav('forward'));
+  $('br-reload').addEventListener('click', () => app.browser.nav('reload'));
+  $('browser-bar').addEventListener('submit', (e) => {
+    e.preventDefault();
+    app.browser.nav('go', $('br-url').value);
+    $('br-url').blur();
+  });
+  app.browser.onState((st) => {
+    if (document.activeElement !== $('br-url')) $('br-url').value = st.url || '';
+    $('br-back').disabled = !st.canBack;
+    $('br-forward').disabled = !st.canForward;
+  });
+  app.browser.onOpen(() => { if ($('browser').hidden) toggleBrowser(true); });
+  new ResizeObserver(() => { if (!$('browser').hidden) app.browser.setBounds(slotBounds()); }).observe($('browser-slot'));
+  window.addEventListener('resize', () => { if (!$('browser').hidden) app.browser.setBounds(slotBounds()); });
+  // Approval cards must stay visible: the browser makes room for them.
+  new MutationObserver(() => {
+    document.body.classList.toggle('cards-open', $('cards').childElementCount > 0);
+  }).observe($('cards'), { childList: true });
+}
+
+async function runBrowserCommand(ev) {
+  if (!app || !app.browser) return;
+  $('br-jarvis').hidden = false;
+  if ($('browser').hidden && ev.action !== 'read') toggleBrowser(true);
+  let result;
+  try {
+    result = await app.browser.command({ action: ev.action, args: ev.args || {} });
+  } catch (err) {
+    result = { error: String(err) };
+  }
+  $('br-jarvis').hidden = true;
+  send({ type: 'browser_result', id: ev.id, result });
+}
 
 // ── cards ──
 

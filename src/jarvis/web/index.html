@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* blob: data:; worker-src 'self' blob:; media-src 'self' blob: mediastream:; img-src 'self' data:">
 <title>Jarvis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap">
@@ -164,6 +164,14 @@
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="1.6"/><ellipse cx="8" cy="8" rx="6.5" ry="2.6" transform="rotate(-20 8 8)"/><circle cx="3.2" cy="5.6" r=".8"/><circle cx="12.6" cy="10.6" r=".8"/></svg>
       <span id="brain-label">Second brain</span>
     </button>
+    <button id="cc-btn" class="pill" type="button" aria-expanded="false" aria-controls="cc">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6.5l2 1.5-2 1.5M8.5 10h3"/></svg>
+      <span id="cc-label">Claude Code</span>
+    </button>
+    <button id="browser-btn" class="pill" type="button" aria-expanded="false" aria-controls="browser" hidden>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M1.5 8h13M8 1.5c2 2 2.8 4.2 2.8 6.5S10 12.5 8 14.5M8 1.5C6 3.5 5.2 5.7 5.2 8S6 12.5 8 14.5"/></svg>
+      <span>Browser</span>
+    </button>
   </div>
   <div class="hint" id="hint">Tap the orb, or press <kbd>⌥ Space</kbd> anywhere</div>
 </footer>
@@ -294,6 +302,80 @@
   </section>
 </aside>
 
+<section id="browser" class="browser-pane" hidden aria-label="Built-in browser">
+  <form id="browser-bar" class="browser-bar" autocomplete="off">
+    <button type="button" class="icon-btn" id="br-back" aria-label="Back"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 3L5 8l5 5"/></svg></button>
+    <button type="button" class="icon-btn" id="br-forward" aria-label="Forward"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l5 5-5 5"/></svg></button>
+    <button type="button" class="icon-btn" id="br-reload" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 11-1.5-3.6M13 2.5v3h-3"/></svg></button>
+    <label for="br-url" class="sr-only">Address</label>
+    <input id="br-url" placeholder="Search or enter an address" spellcheck="false">
+    <span id="br-jarvis" class="br-jarvis" hidden>Jarvis is browsing</span>
+    <button type="button" class="icon-btn" id="br-close" aria-label="Close browser"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  </form>
+  <div id="browser-slot" class="browser-slot"></div>
+</section>
+
+<aside id="cc" class="sheet wide cc" hidden aria-label="Claude Code">
+  <div class="drawer-head">
+    <h2>Claude Code</h2>
+    <button id="cc-close" class="icon-btn" type="button" aria-label="Close Claude Code">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+    </button>
+  </div>
+  <div class="cc-grid">
+    <div class="cc-left">
+      <form id="cc-new" class="cc-new" autocomplete="off">
+        <h3>New session</h3>
+        <label for="cc-project">Project</label>
+        <select id="cc-project"></select>
+        <label for="cc-prompt">Task</label>
+        <textarea id="cc-prompt" rows="3" placeholder="e.g. Fix the flaky test in tests/test_spend.py"></textarea>
+        <label for="cc-mode">Permissions</label>
+        <select id="cc-mode">
+          <option value="ask">Ask before edits and commands</option>
+          <option value="edits">Auto-approve edits, ask for commands</option>
+          <option value="auto">Full auto (runs any command)</option>
+        </select>
+        <button class="btn primary" type="submit">Start session</button>
+      </form>
+      <h3>Sessions</h3>
+      <ul id="cc-list" class="cc-list"></ul>
+      <p id="cc-empty" class="empty">No sessions yet. Start one here, or ask Jarvis.</p>
+      <h3>Past sessions</h3>
+      <div class="cc-past-head">
+        <label for="cc-past-project" class="sr-only">Project for past sessions</label>
+        <select id="cc-past-project"></select>
+        <button type="button" class="btn" id="cc-past-load">Show</button>
+      </div>
+      <ul id="cc-past" class="cc-list"></ul>
+    </div>
+    <div class="cc-right">
+      <div id="cc-none" class="cc-none">Pick a session to watch it and talk to it.</div>
+      <div id="cc-view" class="cc-view" hidden>
+        <div class="cc-view-head">
+          <div><strong id="cc-title"></strong><small id="cc-meta"></small></div>
+          <div class="cc-controls">
+            <label for="cc-view-mode" class="sr-only">Permissions for this session</label>
+            <select id="cc-view-mode">
+              <option value="ask">Ask</option>
+              <option value="edits">Auto-edits</option>
+              <option value="auto">Full auto</option>
+            </select>
+            <button type="button" class="btn" id="cc-interrupt">Interrupt</button>
+            <button type="button" class="btn" id="cc-end">Close session</button>
+          </div>
+        </div>
+        <ol id="cc-transcript" class="cc-transcript"></ol>
+        <form id="cc-send" class="chat-form" autocomplete="off">
+          <label for="cc-input" class="sr-only">Message this session</label>
+          <input id="cc-input" placeholder="Reply to Claude Code…">
+          <button type="submit" class="send-btn" aria-label="Send"><svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><path d="M2 9l14-6-5 14-2-6z"/></svg></button>
+        </form>
+      </div>
+    </div>
+  </div>
+</aside>
+
 <section id="galaxy" class="galaxy-ui" hidden aria-label="Second brain">
   <div class="galaxy-top">
     <div>
@@ -316,8 +398,18 @@
     <button type="button" class="btn" id="note-open">Open</button>
   </article>
   <p class="galaxy-hint">Drag to turn · scroll to zoom · click a star to read it</p>
+  <button id="hand-btn" class="hand-btn" type="button" aria-pressed="false">
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 10V4a1.2 1.2 0 012.4 0v5M9.4 9V3a1.2 1.2 0 012.4 0v6M11.8 9V4.5a1.2 1.2 0 012.4 0V11c0 3.5-2 6-5.2 6-2.4 0-3.6-1.3-4.8-3.3L3 10.8a1.2 1.2 0 012-1.3L7 12"/></svg>
+    Hand control
+  </button>
+  <div id="hand-panel" class="hand-panel" hidden>
+    <canvas id="hand-overlay" width="320" height="240"></canvas>
+    <p id="hand-status" class="hand-status">Starting…</p>
+    <p class="hand-help">☝ point · pinch to open a star · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close</p>
+  </div>
 </section>
 
+<div id="hand-cursor" class="hand-cursor" hidden></div>
 <div id="offline" class="offline" hidden>Reconnecting to Jarvis…</div>
 <script src="/static/galaxy.js"></script>
 <script src="/static/app.js"></script>

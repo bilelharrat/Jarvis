@@ -21,6 +21,11 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from .hub import Hub
 
 WEB_DIR = Path(__file__).parent / "web"
+VISION_DIR = Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@mediapipe" / "tasks-vision"
+HAND_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/"
+    "float16/latest/hand_landmarker.task"
+)
 
 
 def create_app(hub: Hub, token: str) -> Starlette:
@@ -29,6 +34,23 @@ def create_app(hub: Hub, token: str) -> Starlette:
 
     async def health(_request):
         return JSONResponse({"ok": True})
+
+    async def hand_model(_request):
+        """MediaPipe's hand model, fetched once from Google's model store and cached."""
+        from .prefs import APP_SUPPORT
+
+        path = APP_SUPPORT / "models" / "hand_landmarker.task"
+        if not path.exists():
+            import httpx
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+                response = await client.get(HAND_MODEL_URL)
+                response.raise_for_status()
+            tmp = path.with_suffix(".part")
+            tmp.write_bytes(response.content)
+            tmp.replace(path)
+        return FileResponse(path, media_type="application/octet-stream")
 
     async def socket(ws: WebSocket) -> None:
         offered = ws.query_params.get("token", "")
@@ -69,8 +91,10 @@ def create_app(hub: Hub, token: str) -> Starlette:
         routes=[
             Route("/", index),
             Route("/health", health),
+            Route("/models/hand_landmarker.task", hand_model),
             WebSocketRoute("/ws", socket),
             Mount("/static", StaticFiles(directory=WEB_DIR)),
+            Mount("/vision", StaticFiles(directory=VISION_DIR, check_dir=False)),
         ],
         lifespan=lifespan,
     )

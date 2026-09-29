@@ -13,5 +13,8 @@
   "devDependencies": {
     "@electron/packager": "^20.3.0",
     "electron": "^44.4.5"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1"
   }
 }

@@ -199,6 +199,42 @@ class Galaxy {
     }
   }
 
+  // ── hand-control API (hands.js) ──
+
+  rotateBy(dx, dy) {
+    this.yaw += dx;
+    this.pitch = Math.max(-1.3, Math.min(1.3, this.pitch + dy));
+    this.spin = 0;
+  }
+
+  zoomBy(factor) {
+    this.goalDist = Math.max(0.35, Math.min(6, this.goalDist * factor));
+  }
+
+  // Screen point (client px) -> the star under it, within a hand-friendly radius.
+  pickAtClient(x, y, radius = 36) {
+    const r = this.canvas.getBoundingClientRect();
+    let best = null;
+    let bestD = radius * radius;
+    this.projected.forEach((p, i) => {
+      if (!p) return;
+      const d = (p[0] - (x - r.left)) ** 2 + (p[1] - (y - r.top)) ** 2;
+      if (d < bestD) { bestD = d; best = this.nodes[i].id; }
+    });
+    return best;
+  }
+
+  hoverAtClient(x, y) {
+    this.hoverId = x === null ? null : this.pickAtClient(x, y);
+    return this.hoverId;
+  }
+
+  select(id) {
+    if (!id) return;
+    this.flyTo(id);
+    if (this.onSelect) this.onSelect(id);
+  }
+
   pick(mx, my) {
     let best = null;
     let bestD = 14 * 14;
