@@ -183,3 +183,18 @@ def test_mail_index_without_access_asks_for_it(tmp_path):
 def test_empty_photos_library_explains():
     with pytest.raises(RuntimeError, match="iCloud Photos"):
         sources.collect_photos(run=lambda *_a: "[]")
+
+
+def test_mail_index_looks_only_at_the_newest_rows(tmp_path, monkeypatch):
+    make_mail_index(tmp_path / "Envelope Index", datetime.now())
+    db = sqlite3.connect(tmp_path / "Envelope Index")
+    recent = int((datetime.now() - timedelta(hours=1)).timestamp())
+    db.executemany(
+        "INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
+        [(i, 1, 2, None, recent, 1, 0, None) for i in range(10, 510)],
+    )
+    db.commit()
+    db.close()
+    monkeypatch.setattr(sources, "RECENT_ROWS", 100)
+    notes = sources.collect_mail_index(tmp_path / "Envelope Index", limit=1000)
+    assert len(notes) == 100  # rows 410-509: the old board-deck row 1 is out of range

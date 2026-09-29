@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -142,6 +143,8 @@ MAX_MAIL = 150
 
 
 MAIL_DIR = HOME / "Library" / "Mail"
+RECENT_ROWS = 200_000  # a week of mail is always among the newest rows of the index
+MAIL_SECONDS = 60  # longer than this, reading the index is given up with a clear reason
 
 
 def mail_index() -> Path | None:
@@ -179,6 +182,18 @@ def collect_mail_index(
                 header_col = "g.message_id_header"
         deleted = "AND m.deleted = 0" if "deleted" in cols else ""
         cutoff = int((datetime.now() - timedelta(days=days)).timestamp())
+        # A big mailbox's index holds millions of rows: find the inboxes once, and only
+        # look at the newest rows (the primary key keeps that a range, not a scan).
+        inboxes = [
+            r[0]
+            for r in conn.execute("SELECT ROWID FROM mailboxes WHERE lower(url) LIKE '%inbox%'")
+        ]
+        if not inboxes:
+            return []
+        newest = conn.execute("SELECT max(ROWID) FROM messages").fetchone()[0] or 0
+        deadline = time.monotonic() + MAIL_SECONDS
+        conn.set_progress_handler(lambda: int(time.monotonic() > deadline), 10_000)
+        marks = ",".join("?" * len(inboxes))
         rows = conn.execute(
             f"""
             SELECT m.ROWID, a.address, a.comment, s.subject, {summary_col}, m.date_received,
@@ -188,13 +203,18 @@ def collect_mail_index(
             LEFT JOIN subjects s ON m.subject = s.ROWID
             LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
             {summary_join} {header_join}
-            WHERE m.date_received > ? {deleted}
-              AND lower(mb.url) LIKE '%inbox%'
+            WHERE m.ROWID > ? AND m.mailbox IN ({marks}) AND m.date_received > ? {deleted}
             ORDER BY m.date_received DESC
             LIMIT ?
             """,
-            (cutoff, limit),
+            (max(0, newest - RECENT_ROWS), *inboxes, cutoff, limit),
         ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "interrupt" in str(exc).lower():
+            raise RuntimeError(
+                f"Mail's index took over {MAIL_SECONDS} seconds to read; kept the last copy."
+            ) from exc
+        raise RuntimeError(f"Couldn't read Mail's index: {exc}") from exc
     except sqlite3.DatabaseError as exc:
         raise RuntimeError(f"Couldn't read Mail's index: {exc}") from exc
     finally:
