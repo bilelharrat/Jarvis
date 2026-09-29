@@ -497,10 +497,20 @@ _CHOICE_LOOSE_ZH = re.compile(
     rf"(?:我)?(?:选|要|用|挑|就|选择)?(?P<n>{_NUMBER_ZH})(?:个|项|条|种|号|个选项)?(?:吧|的)?"
 )
 _CHOICE_NUMBERS = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5}
-# What may sit around an option's name and leave it that option ("选 Postgres 吧").
-_LABEL_GLUE = _longest_first(
-    ("我选", "就选", "选择", "选", "我用", "就用", "用", "那就", "那个", "这个", "就行", "就好",
-     "就可以", "就", "吧", "了", "啊", "呀", "的", "呢", "嘛", "哈", "谢谢", "请", "please"),
+# What may come before and after an option's name and leave it that option ("选 Postgres
+# 吧", "SQLite 就行"). On a yes-or-no card, only a particle or a please ("允许吧").
+_GLUE_BEFORE = _longest_first(
+    ("我选", "就选", "选择", "选", "我用", "就用", "用", "那就", "那个", "这个", "就", "请"),
+)  # fmt: skip
+_GLUE_AFTER = _longest_first(
+    ("就行", "就好", "就可以", "吧", "了", "啊", "呀", "的", "呢", "嘛", "哈", "谢谢", "please"),
+)  # fmt: skip
+_CARD_GLUE_BEFORE = _longest_first(("那就", "就", "请"))
+_CARD_GLUE_AFTER = _longest_first(("吧", "啊", "呀", "嘛", "哈", "谢谢", "please"))
+# A no and nothing more ("不要不要", "不，不"): no feedback to pass on.
+_REFUSALS_ONLY = _longest_first(
+    ("不要", "不用", "不行", "不对", "不是", "不了", "不", "别", "没有", "算了", "取消", "否", "no",
+     "nope", "了", "吧", "啊", "呀"),
 )  # fmt: skip
 _BUT_ZH = ("但是", "不过", "可是", "只是", "而是")
 _FEEDBACK_NO = re.compile(
@@ -509,7 +519,9 @@ _FEEDBACK_NO = re.compile(
 )
 _FEEDBACK_ORDER = re.compile(r"^(?:别|不要|先别|不用|不准|不许)\S")
 _FEEDBACK_BUT = re.compile(r"(?:但是|不过|可是|只是|而是|其实)[，,\s]*(.+)$", re.DOTALL)
-_BY_THE_WAY = "对了"  # "对了，还有…": by the way, not a yes
+# Openers that sound like a yes but start something else when more follows: "对了，还有
+# 一件事" (by the way), "是这样的，我想…" (the thing is).
+_OPENERS_ZH = ("对了", "是这样")
 
 
 def _choice_zh(core: str, loose: bool = False) -> int | None:
@@ -539,7 +551,9 @@ def _label_score(core: str, lab: str, strict: bool) -> float:
         return 0.0  # a one-character label (是, 否) or answer counts only said exactly
     if lab in core:
         before, _, after = core.partition(lab)
-        if _consumes(before, _LABEL_GLUE) and _consumes(after, _LABEL_GLUE):
+        glue_before = _CARD_GLUE_BEFORE if strict else _GLUE_BEFORE
+        glue_after = _CARD_GLUE_AFTER if strict else _GLUE_AFTER
+        if _consumes(before, glue_before) and _consumes(after, glue_after):
             return 0.9
     if strict:
         return 0.0
@@ -575,36 +589,38 @@ def _feedback_zh(text: str) -> str:
     t = re.sub(r"^(?:嗯|呃|额|那个|哦|啊|好的|好)[\s，,。.、]*", "", t)
     if m := _FEEDBACK_NO.match(t):
         rest = m.group(1)
-    elif _FEEDBACK_ORDER.match(t):
-        rest = t if _size(t) >= 4 else ""
+    elif _FEEDBACK_ORDER.match(t) and not _asking_back(_squash(t), t):
+        rest = t if _size(t) >= 4 else ""  # an order, not a question ("不用再问了吗？")
     elif m := _FEEDBACK_BUT.search(t):
         rest = m.group(1)
     else:
         rest = ""
     rest = rest.strip(_EDGE)
-    if _size(rest) < 2 or _HESITATE_ZH.fullmatch(_squash(rest)):
+    said = _squash(rest)
+    if _size(rest) < 2 or _HESITATE_ZH.fullmatch(said) or _consumes(said, _REFUSALS_ONLY):
         return ""
     return rest
 
 
-def _asked(approval: dict[str, Any]) -> list[str]:
+def _asked(approval: dict[str, Any], keys: tuple[str, ...] = ("question", "spoken")) -> list[str]:
     """What JARVIS asked, as the user may have heard it: the card's question and, when
     the hub passes it, what was said aloud ("spoken"), each as written (English or
     Chinese) and in Chinese; squashed."""
-    said = [str(approval.get(key) or "") for key in ("question", "spoken")]
+    said = [str(approval.get(key) or "") for key in keys]
     return [t for t in dict.fromkeys(_squash(x) for s in said if s for x in (s, translate(s))) if t]
 
 
 def _echoes_question(core: str, asked: list[str]) -> bool:
-    """A long stretch of the question's own words: JARVIS's voice heard back, never a
-    yes ("要把这条发给Ben吗" heard as "把这条发给Ben")."""
+    """A long stretch of what it asked: JARVIS's voice heard back, never a yes ("要把这条
+    发给Ben吗" heard as "把这条发给Ben")."""
     return len(core) >= 4 and any(core in q for q in asked)
 
 
-def _heard_back(core: str, asked: list[str]) -> bool:
+def _heard_back(core: str, approval: dict[str, Any]) -> bool:
     """Words from inside the question itself, maybe its own voice: never an option's
-    name ("要发送这条消息吗" heard as "发送这条消息")."""
-    return len(core) >= 2 and any(core in q for q in asked)
+    name ("要发送这条消息吗" heard as "发送这条消息"). Only the question: what was said
+    aloud may list the options, and saying one of those is an answer."""
+    return len(core) >= 2 and any(core in q for q in _asked(approval, ("question",)))
 
 
 def voice_answer_zh(text: str, approval: dict[str, Any]) -> tuple[str, str] | None:
@@ -678,7 +694,7 @@ def _card_answer_zh(
             return (ids[0], "")
         if tail.startswith(_BUT_ZH):  # "可以，但是用 make": a no with what to do instead
             return (ids[-1], _feedback_zh(raw))
-        return None if core.startswith(_BY_THE_WAY) else (REASK, "")
+        return None if core.startswith(_OPENERS_ZH) else (REASK, "")
     index = _choice_zh(core)
     if index is not None:
         index = len(ids) - 1 if index == -1 else index
@@ -687,7 +703,7 @@ def _card_answer_zh(
         return (REASK, "")  # never "always" or "all edits" by number
     match = _label_zh(core, labels, strict=True)
     if match is not None and ids[match] not in (ALWAYS, ALLOW_EDITS):
-        return None if _heard_back(core, asked) else (ids[match], "")
+        return None if _heard_back(core, approval) else (ids[match], "")
     return None
 
 
@@ -719,8 +735,8 @@ def _plan_answer_zh(
         return (chosen, "") if chosen in (PLAN_APPROVE, PLAN_KEEP) else (REASK, "")
     match = _label_zh(core, labels)
     if match is not None and ids[match] != PLAN_APPROVE_EDITS:
-        return None if _heard_back(core, _asked(approval)) else (ids[match], "")
-    if lead and core.startswith(_BY_THE_WAY):
+        return None if _heard_back(core, approval) else (ids[match], "")
+    if lead and core.startswith(_OPENERS_ZH):
         return None
     return (REASK, "") if lead else None
 
@@ -752,7 +768,7 @@ def _question_answer_zh(
     if match is not None:
         return (ids[match], "")
     lead = _yes_lead(core, raw)
-    if lead and core.startswith(_BY_THE_WAY):
+    if lead and core.startswith(_OPENERS_ZH):
         return None
     return (REASK, "") if lead else None  # "好" doesn't answer "which one?"
 
@@ -1169,19 +1185,31 @@ _HALLUCINATIONS_ZH = {
     "谢谢观看", "谢谢大家观看", "谢谢收看", "感谢观看", "感谢收看", "谢谢大家", "谢谢", "字幕", "中文字幕",
     "请订阅", "点赞订阅", "订阅", "下期再见", "我们下期再见", "嗯", "呃", "啊", "嗯嗯", "哦",
 }  # fmt: skip
+# Pieces of the credit lines it makes up. A transcript that is mostly these is one; a
+# request that merely mentions a name in them isn't ("给 Amara 发消息", "心如明镜").
 _HALLUCINATION_MARKS = (
-    "amara", "明镜", "点点栏目", "字幕由", "字幕提供", "请不吝点赞", "订阅转发", "打赏支持",
-    "yoyotelevision", "独播剧场", "以下是普通话",
+    "字幕由", "字幕提供", "字幕制作", "字幕by", "索兰娅", "amaraorg", "社区提供", "明镜与点点",
+    "点点栏目", "明镜需要您的支持", "欢迎订阅明镜", "请不吝点赞", "订阅转发", "打赏支持",
+    "yoyotelevisionseriesexclusive", "yoyotelevision", "优优独播剧场", "独播剧场",
+    "以下是普通话的句子", "使用简体中文",
 )  # fmt: skip
+_HALLUCINATION_RE = re.compile(
+    "|".join(map(re.escape, sorted(_HALLUCINATION_MARKS, key=len, reverse=True)))
+)
 
 
 def is_hallucination_zh(text: str) -> bool:
+    """What Whisper made up, not what was said: a known filler line, or a transcript
+    that is more than half subtitle credits (or the prompt read back)."""
     if not has_cjk(text):
         from .listen import is_hallucination
 
         return is_hallucination(text or "")
     s = _squash(text)
-    return s in _HALLUCINATIONS_ZH or any(mark in s for mark in _HALLUCINATION_MARKS)
+    if s in _HALLUCINATIONS_ZH:
+        return True
+    credits = sum(len(m.group()) for m in _HALLUCINATION_RE.finditer(s))
+    return credits * 2 > len(s)
 
 
 def clean_transcript_zh(text: str) -> str:
@@ -1267,7 +1295,9 @@ def split_sentences_zh(
             out.append(sentence)
         pending = ""
     if pending:
-        rest = _join(pending, rest.strip())
+        # The tail keeps its trailing space: the next chunk may go on with another word
+        # ("NVDA is " + "up today。"), and only the final flush trims.
+        rest = _join(pending, rest.lstrip())
     if final and rest.strip():
         out.append(rest.strip())
         rest = ""
@@ -1290,15 +1320,21 @@ def first_clause_zh(buffer: str, min_chars: int = 12) -> tuple[str, str] | None:
     return None
 
 
+# Each of these scans a run of spaces, brackets or lines once, from its start (never
+# again from inside it): a reply with a long run of either stays linear.
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
-_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_LINK = re.compile(r"\[([^\[\]]+)\]\([^()]+\)")
 _URL = re.compile(r"https?://[^\s，。！？、；：“”（）《》]+")
-_BULLET = re.compile(r"^\s*(?:[-*•]\s+|\d+[.)]\s+|\d+、)", re.MULTILINE)
-_HEADING = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
+_BULLET = re.compile(r"^[ \t]*(?:[-*•][ \t]+|\d+[.)][ \t]+|\d+、)", re.MULTILINE)
+_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]*", re.MULTILINE)
+_LINE_BREAKS = re.compile(r"(?<![ \t\r\f\v])[ \t\r\f\v]*\n\s*")
+_SPACE_BY_CJK = re.compile(
+    f"(?<=[{_CJK_CHARS}，。！？])\\s+|(?<!\\s)\\s+(?=[{_CJK_CHARS}，。！？])"
+)
 # Markdown emphasis. A tilde before a number stays: it's a range ("3~5天") or "about"
 # ("~5%"), which spoken_numbers_zh reads.
 _EMPHASIS = re.compile(r"[*_`]+|[~～]+(?!\s*[+\-−]?\d)")
-_CITATION = re.compile(r"\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
+_CITATION = re.compile(r"(?<!\s)\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
 
 
 def clean_for_speech_zh(text: str) -> str:
@@ -1311,10 +1347,10 @@ def clean_for_speech_zh(text: str) -> str:
     text = _HEADING.sub("", text)
     text = _BULLET.sub("", text)
     text = _EMPHASIS.sub("", text)
-    text = re.sub(r"\s*\n+\s*", "。", text.strip())
+    text = _LINE_BREAKS.sub("。", text.strip())
     text = re.sub(r"([。！？!?.…；;：:，,、])。", r"\1", text)
     text = spoken_numbers_zh(to_simplified(text))
-    text = re.sub(f"(?<=[{_CJK_CHARS}，。！？])\\s+|\\s+(?=[{_CJK_CHARS}，。！？])", "", text)
+    text = _SPACE_BY_CJK.sub("", text)
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
@@ -1468,14 +1504,14 @@ _NUMBER_START = r"(?<![A-Za-z0-9_.:\-−])"
 # $10-20. A hyphen is one only between two numbers ("3-5", "3 - 5"): in "500 -0.77%" it
 # is a minus sign.
 _RANGE = re.compile(
-    _NUMBER_START + r"(?P<a>[$¥€£]?[-−]?\d+(?:[.,:]\d+)*)"
+    rf"{_NUMBER_START}(?P<a>[$¥€£]?[-−]?\d+(?:[.,:]\d+)*)"
     r"(?P<unit>\s*(?:%|°\s*[CF]?|[AaPp]\.?[Mm]\.?(?![A-Za-z])))?"
     r"(?P<sep>\s*[~～–—]\s*|-|\s+-\s+)"
     r"(?P<b>[$¥€£]?[-−]?\d+(?:[.,:]\d+)*)(?P<pct>\s*%)?"
 )
 _DASHED = re.compile(_NUMBER_START + r"\d+(?:[-–]\d+)+(?![A-Za-z0-9_.])")  # 555-0100
 # ~5%: about 5% ("约~5%" says 约 once).
-_ABOUT = re.compile(r"(?<![A-Za-z0-9_.%°])(约|大约)?\s*[~～]\s*(?=[+\-−]?\d)")
+_ABOUT = re.compile(r"(?<![A-Za-z0-9_.%°])(?:(约|大约)\s*)?[~～]\s*(?=[+\-−]?\d)")
 _AMPM = re.compile(r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?(?![A-Za-z])")
 _CLOCK = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?![\d:])")
 _YEAR = re.compile(r"(?<![\d.])(\d{4})(?=\s*(?:年|到\s*\d{4}\s*年))")
@@ -1850,12 +1886,12 @@ ZH_TEXTS: dict[str, str] = {
     "It's on your screen. Do you want it sent as it is?": "内容在你的屏幕上。要按原样发送吗？",
     "Let me use your mouse and keyboard for this request?": "这个请求可以让我用你的鼠标和键盘吗？",
     "I'll look at the screen, click and type until this request is done. Tap the orb or press Esc to stop me.": "我会看着屏幕点击和输入，直到完成这个请求。点一下光球或按 Esc 就能让我停下。",
-    "Run the shortcut “{name}”?": "要运行快捷指令“{name}”吗？",
+    "Run the shortcut “{shortcut}”?": "要运行快捷指令“{shortcut}”吗？",
     "“Always” makes it instant: saying its name runs it straight away.": "选“始终”会让它变成即时指令：说出它的名字就直接运行。",
     "Click “{label}” in the browser?": "要在浏览器里点击“{label}”吗？",
     "The user said no. Don't click it.": "好的，没有点。",
     "Done.": "好了。",
-    "The shortcut {name} didn't work: {error}": "快捷指令{name}没有成功：{error}",
+    "The shortcut {shortcut} didn't work: {error}": "快捷指令{shortcut}没有成功：{error}",
     # hub: meeting notes
     "Already taking notes for {title}.": "已经在为{title}做记录了。",
     "I can't hear the room: the microphone isn't available.": "我听不到房间里的声音：麦克风用不了。",
@@ -1866,7 +1902,7 @@ ZH_TEXTS: dict[str, str] = {
     "Notes for {title} saved to the second brain: {decisions} decisions and {actions} action items, {minutes} minutes.": "{title}的记录已存入第二大脑：{decisions}项决定、{actions}项待办，时长{minutes}分钟。",
     "Notes for {title} saved to the second brain: {decisions} decisions and {actions} action items, {minutes} minutes. Offer to read the action items.": "{title}的记录已存入第二大脑：{decisions}项决定、{actions}项待办，时长{minutes}分钟。可以主动提出读一下待办事项。",
     "Meeting notes": "会议记录",
-    "Routine · {name}": "例行任务 · {name}",
+    "Routine · {routine}": "例行任务 · {routine}",
     "Morning briefing": "晨间简报",
     "What's this?": "这是什么？",
     # hub: errors and notices
@@ -1957,26 +1993,26 @@ ZH_TEXTS: dict[str, str] = {
     "Hand control on.": "手势控制已开启。",
     "Hand control off.": "手势控制已关闭。",
     # messaging.py
-    "Send this to {name}?": "要把这条发给{name}吗？",
+    "Send this to {person}?": "要把这条发给{person}吗？",
     "To {shown}:\n“{text}”": "发给 {shown}：\n“{text}”",
-    "Here's your message to {name}. {text} Do you want this message sent?": "这是你发给{name}的消息：{text} 要发送这条消息吗？",
-    "Email {name} about {subject}?": "要给{name}发一封关于“{subject}”的邮件吗？",
+    "Here's your message to {person}. {text} Do you want this message sent?": "这是你发给{person}的消息：{text} 要发送这条消息吗？",
+    "Email {person} about {subject}?": "要给{person}发一封关于“{subject}”的邮件吗？",
     "To {shown}\nSubject: {subject}\n\n{body}": "收件人：{shown}\n主题：{subject}\n\n{body}",
-    "Here's your email to {name}, subject: {subject} {body} Do you want this email sent?": "这是你发给{name}的邮件，主题：{subject} {body} 要发送这封邮件吗？",
+    "Here's your email to {person}, subject: {subject} {body} Do you want this email sent?": "这是你发给{person}的邮件，主题：{subject} {body} 要发送这封邮件吗？",
     "(no subject)": "（无主题）",
     "There's nothing to send.": "没有要发送的内容。",
     "The user said no. It wasn't sent.": "用户说了不，没有发送。",
     "Messages couldn't send it: {error}": "信息应用没能发送：{error}",
-    "Sent to {name}.": "已发送给{name}。",
+    "Sent to {person}.": "已发送给{person}。",
     "The email has no body.": "这封邮件没有正文。",
     "Mail couldn't send it: {error}": "邮件应用没能发送：{error}",
-    "Emailed {name}.": "已给{name}发了邮件。",
+    "Emailed {person}.": "已给{person}发了邮件。",
     "No one by that name in Contacts.": "通讯录里没有叫这个名字的人。",
     "I couldn't search Contacts: {error}": "我没法搜索通讯录：{error}",
-    "There's no one called {name} in Contacts. Ask for their number or address.": "通讯录里没有叫{name}的人。请问一下对方的号码或地址。",
-    "Several people match {name}: {names}. Ask the user which one.": "有好几个人和{name}匹配：{names}。请问用户是哪一位。",
-    "{name} has no email address in Contacts.": "通讯录里{name}没有邮箱地址。",
-    "{name} has no phone number in Contacts.": "通讯录里{name}没有电话号码。",
+    "There's no one called {person} in Contacts. Ask for their number or address.": "通讯录里没有叫{person}的人。请问一下对方的号码或地址。",
+    "Several people match {person}: {names}. Ask the user which one.": "有好几个人和{person}匹配：{names}。请问用户是哪一位。",
+    "{person} has no email address in Contacts.": "通讯录里{person}没有邮箱地址。",
+    "{person} has no phone number in Contacts.": "通讯录里{person}没有电话号码。",
     # invoices.py: the PDF, the Mail draft and the tools' answers
     "Invoice": "发票",
     "Issued": "开票日期",
@@ -1993,7 +2029,7 @@ ZH_TEXTS: dict[str, str] = {
     "Payment": "付款方式",
     "Thank you for your business.": "感谢惠顾。",
     "Invoice {number}": "发票 {number}",
-    "Invoice {number} from {name}": "来自{name}的发票 {number}",
+    "Invoice {number} from {business}": "来自{business}的发票 {number}",
     "Hello,": "你好，",
     "Please find attached invoice {number} for {amount}, due {due}.": "附件是发票 {number}，金额 {amount}，到期日 {due}。",
     "Thank you.": "谢谢。",
@@ -2052,20 +2088,36 @@ VALUES_ZH = {
     "recent heads-ups": "最近的提醒",
     "your calendar": "你的日历",
 }
-# Slots copied as they are: the user's own words, names, paths, what a service said.
-_VERBATIM_SLOTS = {
-    "text", "body", "subject", "message", "request", "topic", "line", "result", "error",
-    "detail", "file", "path", "site", "shown", "domain", "rule", "tool", "projects",
-    "titles", "names", "label", "client", "number", "folder", "total", "due", "amount",
-    "sender", "place", "model", "task", "app", "start",
-}  # fmt: skip
+# The only slots whose English filler may be one of JARVIS's own words, and which words:
+# a panel's or look's name, the default meeting title, an invoice's status, a card's
+# stand-ins. Everything else in a slot (a person, a shortcut, a routine, a title, a file,
+# what someone said or a service answered) is copied exactly, so a card never renames
+# who or what it is about: "Send this to Meeting?" is 要把这条发给Meeting吗？.
+_SLOT_WORDS: dict[str, frozenset[str]] = {
+    "name": frozenset({*ui.PANEL_NAMES.values(), *ui.LOOK_NAMES.values()}),
+    "title": frozenset({"Meeting"}),
+    "status": frozenset({"paid", "open"}),
+    "folder": frozenset({"this assistant's own project"}),
+    "site": frozenset({"an unusual web address"}),
+    "request": frozenset({"(none yet)"}),
+}
 _NESTED_SLOTS = {"why", "seen", "verb"}  # themselves one of the sentences above
 _NUMERIC_SLOTS = {"n", "seconds", "minutes", "decisions", "actions", "pct", "rain", "id", "rate"}
 _WORD_SLOTS = {"number", "due", "domain"}  # one token: INV-2026-004, 2026-10-29, example.com
+# Slots that may run over several lines (a message, an email's body, what Claude or a
+# service answered). The rest stay on their line: "Folder: {path}" never swallows the
+# "First request: …" line under it.
+_MULTILINE_SLOTS = {"text", "body", "message", "result", "detail", "error", "request", "task",
+                    "topic", "why"}  # fmt: skip
 _SLOT = re.compile(r"\{(\w+)\}")
-# Past this length only the paragraphs are matched: sentences with several open slots can
-# take a regex long to rule out, and nothing JARVIS writes is this long.
+# Past this length a text is only matched paragraph by paragraph: sentences with several
+# open slots can take a regex long to rule out, and nothing JARVIS writes is this long.
 _TEMPLATE_MAX = 1200
+# And past this many characters of one text (a long email's body), what's left passes
+# through as it is: it is someone's own words anyway. Each try costs a little more than
+# its length, so twenty thousand empty lines can't make a long one either.
+_TEMPLATE_BUDGET = 2000
+_TRY_COST = 20
 _TIME_VALUE = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])")
 
 
@@ -2082,32 +2134,47 @@ def _template_pattern(template: str) -> re.Pattern[str]:
         elif part in _WORD_SLOTS:
             body = r"\S+" if last else r"\S+?"
         else:
-            body = ".+" if last else ".+?"
+            body = "." if part in _MULTILINE_SLOTS else r"[^\n]"
+            body += "+" if last else "+?"
         pattern += f"(?P<{part}>{body})"
     return re.compile(pattern, re.DOTALL)
 
 
+def _ends(template: str) -> tuple[str, str]:
+    """The words before a template's first slot and after its last: a text that doesn't
+    start and end with them can't be that sentence, whatever is in between."""
+    parts = _SLOT.split(template)
+    return parts[0], parts[-1]
+
+
 _TEMPLATES = sorted(
-    ((key, _template_pattern(key)) for key in ZH_TEXTS if _SLOT.search(key)),
+    ((key, _template_pattern(key), *_ends(key)) for key in ZH_TEXTS if _SLOT.search(key)),
     key=lambda item: len(_SLOT.sub("", item[0])),
     reverse=True,
 )
+# The templates as the modules write them ("Send this to {name}?"), for tr(): here their
+# person, shortcut, routine or business is a slot of its own, copied as it is.
+_OWN_NAMES = re.compile(r"\{(person|shortcut|routine|business)\}")
+_TEMPLATE_ALIASES = {
+    _OWN_NAMES.sub("{name}", key): (key, m.group(1))
+    for key in ZH_TEXTS
+    if (m := _OWN_NAMES.search(key))
+}
 
 
-def _slot_value(name: str, value: str, depth: int) -> str:
-    if name in _VERBATIM_SLOTS or depth >= 2:
-        return value
+def _slot_value(name: str, value: str, depth: int, budget: list[int]) -> str:
     if name in _NESTED_SLOTS:
-        return "；".join(_translate(part, depth + 1) for part in value.split("; "))
-    hit = VALUES_ZH.get(value) or ZH_TEXTS.get(value)
-    if hit is not None:
-        return hit
+        if depth >= 2:
+            return value
+        return "；".join(_translate(part, depth + 1, budget) for part in value.split("; "))
     if name == "time" and (m := _TIME_VALUE.fullmatch(value.strip())):
         return clock_zh(int(m.group(1)), int(m.group(2) or 0), m.group(3), spoken=False)
+    if value in _SLOT_WORDS.get(name, ()):
+        return VALUES_ZH.get(value, value)
     return value
 
 
-def _translate(text: str, depth: int) -> str:
+def _translate(text: str, depth: int, budget: list[int]) -> str:
     # Lone words ("open", "the browser") and lowercase fragments ("use {tool}") are only
     # ever translated inside a sentence that's known to hold them.
     hit = ZH_TEXTS.get(text) or (VALUES_ZH.get(text) if depth else None)
@@ -2115,35 +2182,46 @@ def _translate(text: str, depth: int) -> str:
         return hit
     core = text.strip()
     if core != text:
-        return text.replace(core, _translate(core, depth), 1) if core else text
-    for key, pattern in _TEMPLATES if len(text) <= _TEMPLATE_MAX else ():
-        if depth == 0 and key[:1].islower():
-            continue
-        if m := pattern.fullmatch(text):
-            values = {k: _slot_value(k, v, depth) for k, v in m.groupdict().items()}
-            return ZH_TEXTS[key].format(**values)
+        return text.replace(core, _translate(core, depth, budget), 1) if core else text
+    if len(text) + _TRY_COST <= min(_TEMPLATE_MAX, budget[0]):
+        budget[0] -= len(text) + _TRY_COST
+        for key, pattern, head, tail in _TEMPLATES:
+            if depth == 0 and key[:1].islower():
+                continue
+            if not (text.startswith(head) and text.endswith(tail)):
+                continue
+            if m := pattern.fullmatch(text):
+                values = {k: _slot_value(k, v, depth, budget) for k, v in m.groupdict().items()}
+                return ZH_TEXTS[key].format(**values)
     for sep in ("\n\n", "\n"):
         if sep in text:
-            return sep.join(_translate(part, depth) for part in text.split(sep))
+            return sep.join(_translate(part, depth, budget) for part in text.split(sep))
     return text
 
 
 def translate(text: str, lang: str = "zh") -> str:
     """A string the backend made, in the user's language: the Chinese of a known English
-    sentence (its {slots} filled from the English: panel names translated, the user's
-    words and names kept exactly), a card's detail paragraph by paragraph, and anything
-    unknown unchanged. English, or lang "en", passes straight through."""
+    sentence (its {slots} filled from the English: panel names translated, people's and
+    things' names and the user's words kept exactly), a card's detail paragraph by
+    paragraph, and anything unknown unchanged. English, or lang "en", passes straight
+    through. Only the first _TEMPLATE_BUDGET characters are matched against the
+    sentences, so a long text costs no more than a short one."""
     if not text or not is_zh(lang):
         return text
-    return _translate(text, 0)
+    return _translate(text, 0, [_TEMPLATE_BUDGET])
 
 
 def tr(template: str, lang: str = "zh", **values: Any) -> str:
-    """Format an English template (a ZH_TEXTS key) in the user's language:
+    """Format an English template (a ZH_TEXTS key, or the module's own spelling of one:
+    "Send this to {name}?") in the user's language:
     tr("Opening {name}.", "zh", name="the browser") -> 正在打开浏览器。"""
-    if is_zh(lang) and template in ZH_TEXTS:
-        filled = {k: _slot_value(k, str(v), 0) for k, v in values.items()}
-        return ZH_TEXTS[template].format(**filled)
+    key, own = (template, "") if template in ZH_TEXTS else _TEMPLATE_ALIASES.get(template, ("", ""))
+    if is_zh(lang) and key:
+        if own:  # the module's {name} is this template's {person}, {shortcut}, …
+            values = {own if k == "name" else k: v for k, v in values.items()}
+        budget = [_TEMPLATE_BUDGET]
+        filled = {k: _slot_value(k, str(v), 0, budget) for k, v in values.items()}
+        return ZH_TEXTS[key].format(**filled)
     return template.format(**values) if values else template
 
 
@@ -2250,27 +2328,24 @@ def _asks_zh(pattern: str) -> re.Pattern[str]:
 
 FEATURE_ASKED_ZH = {
     "remember": _asks_zh(
-        _NOT_DONE_ZH
-        + r"(?:记住|记着|记下来?|记一下|记好|牢记|(?<=帮我)记|(?<=帮忙)记|别忘了|不要忘了"
-        r"|别忘记|不要忘记)(?!了|吗|没|么)[：:，,\s]*\S"
+        rf"{_NOT_DONE_ZH}(?:记住|记着|记下来?|记一下|记好|牢记|(?<=帮我)记|(?<=帮忙)记|别忘了"
+        r"|不要忘了|别忘记|不要忘记)(?!了|吗|没|么)[：:，,\s]*\S"
     ),
     # 忘掉这件事, 忘记我的生日, 把那条忘掉, 删除所有记忆; never 忘记我的密码了 (I forgot).
     "forget": _asks_zh(
-        _NOT_ASKING_ZH + r"(?:"
-        r"(?:忘掉|忘记)" + _NOT_PAST_ZH + r"[：:，,\s]*"
+        rf"{_NOT_ASKING_ZH}(?:"
+        rf"(?:忘掉|忘记){_NOT_PAST_ZH}[：:，,\s]*"
         r"(?:这个|那个|这件事|这条|那条|关于|我的|所有|全部|一切|刚才|我说的|你知道的|你记得的)"
-        r"|把[^，,。]{1,12}?(?:忘掉|忘记)"
-        + _NOT_PAST_ZH
-        + r"|(?:删掉|删除|清除|抹掉|移除|清空)"
-        + _NOT_PAST_ZH
-        + r"[^，,。]{0,8}?(?:记忆|事实|你记住的|你记得的|你知道的)"
+        rf"|把[^，,。]{{1,12}}?(?:忘掉|忘记){_NOT_PAST_ZH}"
+        rf"|(?:删掉|删除|清除|抹掉|移除|清空){_NOT_PAST_ZH}"
+        r"[^，,。]{0,8}?(?:记忆|事实|你记住的|你记得的|你知道的)"
         r"|(?:别再|不要再|不用再)记(?:住|着)?(?!吗|么)"
         r")"
     ),
     # 做会议记录, 开始录音, 录下这次会议, 会议模式; never 打开笔记 (open my notes) or
     # 会议记录在哪里.
     "start_meeting": _asks_zh(
-        _NOT_DONE_ZH + _NOT_ASKING_ZH + r"(?:"
+        rf"{_NOT_DONE_ZH}{_NOT_ASKING_ZH}(?:"
         r"(?:开始|帮我|给我)?(?:做|记|写)(?:个|一下|些|一份)?(?:会议)?(?:笔记|记录|纪要)"
         r"|(?:开始|开启|进入)(?:会议)?(?:记录|录音|转写|笔记|纪要|模式)"
         r"|(?:打开|切换到)会议模式"
@@ -2280,13 +2355,13 @@ FEATURE_ASKED_ZH = {
         r")"
     ),
     "delete_routine": _asks_zh(
-        _NOT_DONE_ZH + r"(?:"
+        rf"{_NOT_DONE_ZH}(?:"
         r"(?:删除|删掉|取消|去掉|移除|撤销)掉?[^，,。]{0,8}?(?:例行任务|例行|定时任务|计划任务|自动任务|提醒|简报)"
         r"|把[^，,。]{0,8}?(?:例行任务|例行|定时任务|计划任务|自动任务|提醒|简报)(?:删掉|删除|去掉|取消)"
         r")"
     ),
     "pause_routine": _asks_zh(
-        _NOT_DONE_ZH + r"(?:"
+        rf"{_NOT_DONE_ZH}(?:"
         r"(?:暂停|停止|停掉|恢复|重新开启|重新启用|开启|启用|停用|关闭|关掉|打开|跳过)[^，,。]{0,8}?"
         r"(?:例行任务|例行|定时任务|计划任务|自动任务|提醒|简报)"
         r"|把?[^，,。]{0,8}?(?:例行任务|定时任务|提醒|简报)先?(?:暂停|停一下|关掉|关闭|打开|开启|恢复)"
@@ -2297,10 +2372,9 @@ FEATURE_ASKED_ZH = {
 _CODING_ZH = r"(?:写代码|编程|写程序|敲代码|改代码)(?!语言|课|题|书|的|是|能力|水平|经验|工作|比赛|很|太|真|比|吗|么)"
 # "我们来写代码", "进入编程模式", "打开 Jarvis Code", "和我一起改这个项目".
 CODE_ASKED_ZH = _asks_zh(
-    r"(?:我们|咱们|我想|我要|我想要|让我们|来|一起|开始|现在)(?:一起)?来?(?:用语音)?"
-    + _CODING_ZH
-    + r"|(?:用语音|语音)(?:编程|写代码)(?!语言|课|题|书|的|是)"
-    r"|(?:进入|开始|启动|切换到|回到|继续)(?:语音)?" + _CODING_ZH + r"(?:模式)?"
+    rf"(?:我们|咱们|我想|我要|我想要|让我们|来|一起|开始|现在)(?:一起)?来?(?:用语音)?{_CODING_ZH}"
+    r"|(?:用语音|语音)(?:编程|写代码)(?!语言|课|题|书|的|是)"
+    rf"|(?:进入|开始|启动|切换到|回到|继续)(?:语音)?{_CODING_ZH}(?:模式)?"
     r"|(?:进入|打开|开启|启动|切换到|回到)(?:语音)?(?:编程|代码)模式"
     r"|(?:代码|编程)模式(?:吧)?$"
     r"|(?:打开|启动|开启|开)\s*(?:一个)?\s*(?:jarvis\s*code|claude\s*code|贾维斯代码)"
@@ -2314,8 +2388,8 @@ _SESSION_ZH = (
 # "告诉 Jarvis Code…", "跟会话2说…", "给 Claude Code 发…"; never "对 Claude Code 你怎么看"
 # or "跟 Claude Code 比" (跟, 对 and 给 need a verb of saying after the name).
 MESSAGE_ASKED_ZH = _asks_zh(
-    r"(?:告诉|让|叫|通知|转告|提醒|回复|回答|问问?)(?:一下)?\s*" + _SESSION_ZH + r"(?!\s*(?:的|是))"
-    r"|(?:跟|对|给|和)\s*" + _SESSION_ZH + r"\s*(?:说|讲|发|转告|留言|回复|交代)"
+    rf"(?:告诉|让|叫|通知|转告|提醒|回复|回答|问问?)(?:一下)?\s*{_SESSION_ZH}(?!\s*(?:的|是))"
+    rf"|(?:跟|对|给|和)\s*{_SESSION_ZH}\s*(?:说|讲|发|转告|留言|回复|交代)"
 )
 
 

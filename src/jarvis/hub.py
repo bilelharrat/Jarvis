@@ -3696,7 +3696,10 @@ class Hub:
             if answer is None and lang.has_cjk(text):
                 return (REASK, "")
             return answer
-        return lang.voice_answer(text, approval, self.language)
+        # What JARVIS said aloud for it: an answer that just repeats the question is its
+        # own voice heard back, not the user's.
+        spoken = self._voice_asked.get(approval.get("id"), {}).get("text", "")
+        return lang.voice_answer(text, {**approval, "spoken": spoken}, self.language)
 
     def _filler_phrases(self) -> list[str]:
         return lang.FILLERS_ZH if lang.is_zh(self.language) else FILLERS

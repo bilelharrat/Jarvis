@@ -128,6 +128,10 @@ def test_words_and_cjk():
         ("把音乐关了贾维斯", "把音乐关了"),
         ("我说贾维斯，关灯", "我说，关灯"),
         ("贾维斯你好", "你好"),
+        # The panel's name after the wake word stays whole, as wake.find_wake keeps it.
+        ("贾维斯，Jarvis Code 做完了吗？", "Jarvis Code 做完了吗"),
+        ("嘿贾维斯，贾维斯代码好了没有", "贾维斯代码好了没有"),
+        ("Jarvis，Jarvis Code 在跑吗", "Jarvis Code 在跑吗"),
     ],
 )
 def test_wakes_in_mandarin(said, command):
@@ -225,7 +229,8 @@ def test_not_mandarin_stops(said):
     "said",
     ["好", "好的", "好啊", "好吧", "行", "可以", "可以的", "是", "是的", "对", "对的", "没错", "确认",
      "确定", "发送", "发", "发吧", "发出去", "没问题", "当然可以", "没意见", "好的，谢谢", "那就发吧",
-     "嗯，好的", "不错，发吧", "OK，发吧", "贾维斯，好的", "好的，发吧，谢谢", "我不介意"],
+     "嗯，好的", "不错，发吧", "OK，发吧", "贾维斯，好的", "好的，发吧，谢谢", "我不介意",
+     "没有问题", "没什么问题", "没啥问题", "没毛病", "yes，发吧", "Jarvis，OK"],
 )  # fmt: skip
 def test_mandarin_yes(said):
     assert lang.yes_no_zh(said) is True, said
@@ -235,7 +240,12 @@ def test_mandarin_yes(said):
     "said",
     ["不", "不要", "不行", "不用", "不用了", "别", "别发", "先别", "先别发", "取消", "算了", "没有",
      "好，先别发", "发送，不对，先别发", "可以，不要发", "不，等一下", "no，别发", "暂时不要",
-     "还是不要了", "好久不见"],  # a stray 不 is a no: a no only keeps a thing from happening
+     "还是不要了", "好久不见",  # a stray 不 is a no: a no only keeps a thing from happening
+     # Said twice or three times: a no, not an A-not-A question ("要不要" in "不要不要").
+     "不不不", "不，不，不", "不不", "不要不要", "不用不用", "不行不行", "不对不对", "不是不是",
+     "没有没有",
+     # A no first, then a question tag: still a no (the no is checked before the question).
+     "不要发，好吗？", "别发，行吗", "不用了，好不好", "不发了，可以吗"],
 )  # fmt: skip
 def test_mandarin_no_and_a_no_anywhere_wins(said):
     assert lang.yes_no_zh(said) is False, said
@@ -245,7 +255,13 @@ def test_mandarin_no_and_a_no_anywhere_wins(said):
     "said",
     ["嗯", "嗯嗯", "我想想", "让我想想", "等一下", "好，等一下", "我不确定", "不知道", "可以吗？", "要不要发",
      "好不好", "是不是", "不错", "没事", "发现了一个问题", "行李在哪", "对面那家店", "是谁",
-     "请帮我把这封邮件改得更正式一点然后再发", ""],
+     "请帮我把这封邮件改得更正式一点然后再发", "",
+     # Not a no, and not a clear yes either.
+     "不成问题", "不要紧",
+     # Questions back: A-not-A with 没, or a question word.
+     "有没有问题", "发没发", "为什么要发", "发给谁", "几点发",
+     # A Latin yes only as a whole word: OKR and yesterday aren't OK and yes.
+     "OKR 在哪", "yesterday 的"],
 )  # fmt: skip
 def test_mandarin_unclear_answers_nothing(said):
     assert lang.yes_no_zh(said) is None, said
@@ -334,6 +350,42 @@ QUESTION = {
         (CODE, "别跑迁移，只生成它", ("deny", "别跑迁移，只生成它")),
         (CODE, "好，但是别跑测试", ("deny", "别跑测试")),
         (CODE, "不，始终允许", ("deny", "始终允许")),  # a no first: never "always"
+        # "Always" and "all edits" asked back as a question grant nothing.
+        (CODE, "始终允许？", None),
+        (CODE, "以后都允许？", None),
+        (CODE, "始终？", None),
+        (CODE, "始终允许吗", None),
+        (CODE, "允许所有编辑？", None),
+        (CODE, "自动接受编辑？", None),
+        (CODE, "不用再问了吗？", ("deny", "")),  # a question with a no in it: still a no
+        (PLAN, "自动接受编辑？", None),
+        # A refusal said over and over is a no, on a card and on a plan.
+        (SEND, "不不不", ("deny", "")),
+        (SEND, "不要不要", ("deny", "")),
+        (PLAN, "不不不", ("plan_keep", "")),
+        (PLAN, "不行不行", ("plan_keep", "")),
+        # "No problem" in full is a yes, not a no.
+        (SEND, "没有问题", ("allow", "")),
+        (SEND, "没毛病", ("allow", "")),
+        (PLAN, "没有问题", ("plan_ask", "")),
+        (SEND, "不要紧", None),
+        # A number only as an option: "我要一个" or "一号" is not option one.
+        (SEND, "我要一个", None),
+        (SEND, "要一个", None),
+        (SEND, "用一个", None),
+        (SEND, "就一个", None),
+        (SEND, "一号", None),
+        (CODE, "我要一个", None),
+        (SEND, "选第一个", ("allow", "")),
+        (SEND, "选项二", ("deny", "")),
+        (PLAN, "我要一个", None),
+        (QUESTION, "我选二", ("opt1", "")),  # a question's options: a bare number will do
+        (QUESTION, "三", ("opt2", "")),
+        # "By the way…" and "the thing is…" open something else.
+        (CODE, "对了，还有一件事", None),
+        (CODE, "是这样的，我想让你先写测试", None),
+        (PLAN, "对了，我想问个问题", None),
+        (CODE, "对了", ("allow", "")),  # said alone, it's "right"
         (PLAN, "开始吧", ("plan_ask", "")),
         (PLAN, "好", ("plan_ask", "")),
         (PLAN, "自动接受编辑", ("plan_edits", "")),
@@ -353,6 +405,9 @@ QUESTION = {
         (QUESTION, "好", ("reask", "")),  # a yes doesn't answer "which one?"
         (QUESTION, "不", ("reask", "")),
         (QUESTION, "第五个", ("reask", "")),
+        (QUESTION, "用 SQLite 吧", ("opt2", "")),
+        (QUESTION, "Postgres 数据库", ("opt0", "")),
+        (QUESTION, "为什么不用 Postgres", None),  # a question for Claude, not an answer
     ],
 )
 def test_voice_answers_in_mandarin(approval, said, answer):
@@ -377,6 +432,178 @@ def test_voice_answers_without_chinese_are_voicecode_s():
 def test_no_choices_or_nothing_said():
     assert lang.voice_answer_zh("好的", {"question": "?", "choices": []}) is None
     assert lang.voice_answer_zh("，。", SEND) is None
+
+
+# The cards as a Chinese user sees them: labels through lang.translate, as the hub shows
+# them, and the options of a Claude Code question asked in Chinese.
+def _choices(*pairs):
+    return [{"id": i, "label": label} for i, label in pairs]
+
+
+T = lang.translate
+CODE_ZH = {
+    **CODE,
+    "choices": _choices(
+        ("allow", T("Yes")),
+        ("allow_edits", T("Yes, allow all edits this session")),
+        ("always", T("Yes, and don't ask again for npm commands in jarvis")),
+        ("deny", T("No, and tell Claude what to do differently")),
+    ),
+}
+SEND_ZH = {**SEND, "choices": _choices(("allow", T("Send")), ("deny", T("Don't send")))}
+GATE_ZH = {
+    "id": "a5",
+    "question": "Open example.com in your browser?",
+    "choices": _choices(("allow", T("Allow")), ("deny", T("Not now"))),
+}
+SHORTCUT_ZH = {
+    "id": "a6",
+    "question": "Run the shortcut “Movie mode”?",
+    "choices": _choices(("allow", T("Run")), ("always", T("Always")), ("deny", T("Not now"))),
+}
+QUESTION_ZH = {
+    "id": "a7",
+    "question": "要用生产数据库吗？",
+    "ask_kind": "question",
+    "task_id": 1,
+    "choices": _choices(("opt0", "是"), ("opt1", "否"), ("skip", "Skip")),
+}
+SEND_EN = {**SEND}
+CODE_EN = {**CODE, "choices": _choices(("allow", "Yes"), ("deny", "No, and tell Claude"))}
+
+
+def test_the_chinese_cards_are_what_the_hub_shows():
+    assert [c["label"] for c in CODE_ZH["choices"]][0] == "是"
+    assert [c["label"] for c in SEND_ZH["choices"]] == ["发送", "不发送"]
+    assert [c["label"] for c in GATE_ZH["choices"]] == ["允许", "暂不"]
+    assert [c["label"] for c in SHORTCUT_ZH["choices"]] == ["运行", "始终", "暂不"]
+
+
+@pytest.mark.parametrize(
+    ("approval", "said"),
+    [
+        # A sentence holding a label's word isn't that label: none of these approve.
+        (CODE_ZH, "这个是生产环境"),
+        (CODE_ZH, "还是先备份一下"),
+        (CODE_ZH, "要是出错了怎么办"),
+        (CODE_ZH, "我觉得这是个坏主意"),
+        (CODE_ZH, "可是这样会删掉数据"),
+        (CODE_ZH, "先解释一下这是干嘛的"),
+        (CODE_ZH, "这是什么命令"),
+        (GATE_ZH, "谁允许你这么做的"),
+        (GATE_ZH, "谁允许"),
+        (SEND_ZH, "把发送的内容改一下"),
+        (SEND_ZH, "谁发送"),
+        (SEND_ZH, "为什么要发送"),
+        (SHORTCUT_ZH, "这个命令会运行多久"),
+        (SHORTCUT_ZH, "运行多久"),
+        # English labels inside longer Latin words.
+        (CODE_EN, "把 yesterday 的日志删掉"),
+        (CODE_EN, "yesterday 的日志"),
+        (SEND_EN, "把 sender 改成我"),
+        (SEND_EN, "sender 是谁"),
+        (SHORTCUT_ZH, "rerun 一下"),
+        # Claude Code's own yes/no options, asked in Chinese.
+        (QUESTION_ZH, "这样做是对的吗"),
+        (QUESTION_ZH, "这样做是对的"),
+        (QUESTION_ZH, "是不是生产环境"),
+        (QUESTION_ZH, "我觉得是否可以换个方法"),
+    ],
+)
+def test_a_sentence_holding_a_label_is_not_that_answer(approval, said):
+    answer = lang.voice_answer_zh(said, approval)
+    assert answer is None or answer[0] == "reask", (said, answer)
+    assert lang.voice_answer(said, approval, "zh") == answer
+
+
+@pytest.mark.parametrize(
+    ("approval", "said", "answer"),
+    [
+        (CODE_ZH, "是", ("allow", "")),
+        (CODE_ZH, "是的", ("allow", "")),
+        (CODE_ZH, "否", ("deny", "")),
+        (CODE_ZH, "始终允许", ("always", "")),
+        (GATE_ZH, "允许", ("allow", "")),
+        (GATE_ZH, "允许吧", ("allow", "")),
+        (GATE_ZH, "暂不", ("deny", "")),
+        (SEND_ZH, "发送", ("allow", "")),
+        (SEND_ZH, "不发送", ("deny", "")),
+        (SHORTCUT_ZH, "运行", ("allow", "")),
+        (SHORTCUT_ZH, "始终", ("always", "")),
+        (SHORTCUT_ZH, "暂不", ("deny", "")),
+        (SEND_EN, "send 吧", ("allow", "")),  # the English label, said in Chinese
+        (CODE_EN, "yes 吧", ("allow", "")),
+        (QUESTION_ZH, "是", ("opt0", "")),
+        (QUESTION_ZH, "否", ("opt1", "")),
+        (QUESTION_ZH, "是的", ("reask", "")),  # one character counts only said exactly
+        (QUESTION_ZH, "第二个", ("opt1", "")),
+    ],
+)
+def test_the_chinese_cards_still_answer_by_voice(approval, said, answer):
+    assert lang.voice_answer_zh(said, approval) == answer
+
+
+def test_no_sentence_around_a_label_approves():
+    # Any label on a card, with real words (not glue) on either side, never approves.
+    import random
+
+    rng = random.Random(3)
+    fronts = ["这个", "我觉得", "还", "要", "谁", "把", "可", "先", "他说", "为了"]
+    backs = ["生产环境", "的内容改一下", "多久", "了没有", "错了", "有风险", "的人", "之前"]
+    for approval in (CODE_ZH, SEND_ZH, GATE_ZH, SHORTCUT_ZH, SEND_EN, CODE_EN):
+        allow = approval["choices"][0]["label"]
+        for _ in range(40):
+            said = rng.choice(fronts) + allow + rng.choice([*backs, ""])
+            answer = lang.voice_answer_zh(said, approval)
+            assert answer is None or answer[0] not in ("allow", "always", "allow_edits"), said
+
+
+def test_its_own_question_heard_back_is_not_an_answer():
+    spoken = T("Here's your message to Ben. See you at 3 Do you want this message sent?")
+    assert spoken.endswith("要发送这条消息吗？")
+    heard_back = {**SEND_ZH, "spoken": spoken}
+    for said in ("要发送这条消息", "发送这条消息", "这是你发给Ben的消息"):
+        assert lang.voice_answer_zh(said, heard_back) is None, said
+    # The card's question in Chinese, even when the card holds it in English.
+    assert lang.voice_answer_zh("把这条发给Ben", SEND_ZH) is None
+    # A plain answer still counts.
+    assert lang.voice_answer_zh("发送", heard_back) == ("allow", "")
+    assert lang.voice_answer_zh("好的", heard_back) == ("allow", "")
+    # A label that opens the question itself is maybe its own voice (as "open" is for
+    # "Open example.com?" in English): a yes word still answers.
+    open_zh = {
+        "question": "要打开 example.com 吗？",
+        "choices": _choices(("allow", "打开"), ("deny", "暂不")),
+    }
+    assert lang.voice_answer_zh("打开", open_zh) is None
+    assert lang.voice_answer_zh("好", open_zh) == ("allow", "")
+    # What was said aloud may list the options: naming one is still an answer.
+    plan = {
+        **PLAN,
+        "choices": [{"id": c["id"], "label": T(c["label"])} for c in PLAN["choices"]],
+        "spoken": "计划好了。可以说：开始，编辑前先问我；开始，自动接受编辑；或者继续规划。",
+    }
+    assert lang.voice_answer_zh("编辑前先问我", plan) == ("plan_ask", "")
+    assert lang.voice_answer_zh("继续规划", plan) == ("plan_keep", "")
+
+
+PURCHASE = {
+    "ask_kind": "purchase",
+    "question": "Buy 2 tickets from Example Shop for $42.00?",
+    "choices": _choices(("allow", "Confirm purchase"), ("deny", "Cancel")),
+}
+
+
+def test_a_purchase_takes_only_its_phrase():
+    purchase = PURCHASE
+    assert lang.voice_answer_zh("确认购买", purchase) == ("allow", "")
+    assert lang.voice_answer_zh("好的，确认购买", purchase) == ("allow", "")
+    for said in ("好", "好的", "是", "买吧", "发送", "第一个", "允许", "确认"):
+        assert lang.voice_answer_zh(said, purchase) == ("reask", ""), said
+    for said in ("不要", "取消", "不不不", "别买了"):
+        assert lang.voice_answer_zh(said, purchase) == ("deny", ""), said
+    assert lang.voice_answer_zh("confirm purchase", purchase) == ("allow", "")
+    assert lang.voice_answer("好的", purchase, "zh") == ("reask", "")
 
 
 # ── its own voice, and a finished request ──
@@ -679,6 +906,25 @@ def test_what_whisper_makes_up(heard):
     assert lang.clean_transcript(heard, "zh") == ""
 
 
+@pytest.mark.parametrize(
+    "heard",
+    ["优优独播剧场——YoYo Television Series Exclusive", "明镜需要您的支持 欢迎订阅明镜", "字幕by索兰娅",
+     "中文字幕", "谢谢大家观看"],
+)  # fmt: skip
+def test_more_credit_lines_whisper_makes_up(heard):
+    assert lang.is_hallucination_zh(heard), heard
+
+
+@pytest.mark.parametrize(
+    "said",
+    ["贾维斯，给 Amara 发消息说我晚点到", "贾维斯，打电话给Amara", "心如明镜的人", "这个字幕由谁做的",
+     "字幕由谁提供", "打开 YoYo 的网站", "帮我订阅这个频道"],
+)  # fmt: skip
+def test_a_request_naming_a_credit_word_is_kept(said):
+    assert not lang.is_hallucination_zh(said), said
+    assert lang.clean_transcript_zh(said) == said
+
+
 def test_clean_transcripts():
     assert lang.clean_transcript_zh(" 贾 维 斯 ，打 开 瀏覽器 ") == "贾维斯，打开浏览器"
     assert lang.clean_transcript_zh("开 Jarvis Code") == "开 Jarvis Code"
@@ -745,6 +991,30 @@ def test_streaming_a_chinese_reply():
         "明天上午十点有一个设计评审，下午两点去看牙医。",
         "要我提醒你吗？",
     ]
+
+
+def _stream(chunks, min_chars=12):
+    spoken, buffer = [], ""
+    for chunk in chunks:
+        buffer += chunk
+        done, buffer = lang.split_sentences_zh(buffer, min_chars=min_chars)
+        spoken += done
+    return spoken + lang.split_sentences_zh(buffer, final=True, min_chars=min_chars)[0]
+
+
+@pytest.mark.parametrize(
+    ("chunks", "sentences"),
+    [
+        # A short sentence waits for the next; the English word split across chunks
+        # keeps its space.
+        (["好的。", "NVDA is ", "up today。"], ["好的。NVDA is up today。"]),
+        (["明白。Apple ", "Watch 已经发货了。"], ["明白。Apple Watch 已经发货了。"]),
+        (["好的。", "NVDA ", "is up. ", "英伟达上涨了。"], ["好的。NVDA is up.", "英伟达上涨了。"]),
+        (["我查了一下。", "The ", "Fed ", "meets today。"], ["我查了一下。The Fed meets today。"]),
+    ],
+)
+def test_streaming_keeps_the_spaces_between_words(chunks, sentences):
+    assert _stream(chunks) == sentences
 
 
 @pytest.mark.parametrize(
@@ -872,10 +1142,59 @@ def test_numbers_of_every_kind():
         ("GPT-4", "GPT-4"),
         ("版本1.2.3", "版本1.2.3"),
         ("没有数字", "没有数字"),
+        # Ranges: the dash or tilde is 到, never a minus sign.
+        ("预计涨幅3-5%", "预计涨幅百分之三到百分之五"),
+        ("涨幅在3%-5%之间", "涨幅在百分之三到百分之五之间"),
+        ("3%~5%", "百分之三到百分之五"),
+        ("气温18-22°C", "气温十八到二十二度"),
+        ("18°C~22°C", "十八度到二十二度"),
+        ("-5~3°C", "零下五到三度"),
+        ("大约需要3～5天", "大约需要三到五天"),
+        ("3 - 5天", "三到五天"),
+        ("2-3天", "两到三天"),
+        ("1-2个", "一到两个"),
+        ("第3-5章", "第三到五章"),
+        ("3-5万", "三到五万"),
+        ("$10-20", "十美元到二十美元"),
+        ("会议10:00-11:00", "会议十点到十一点"),
+        ("3:30 PM–4:30 PM", "下午三点半到下午四点半"),
+        ("2020-2025年", "二零二零到二零二五年"),
+        ("7,684-7,700点", "七千六百八十四到七千七百点"),
+        ("2026-09", "二零二六年九月"),
+        # A minus sign where nothing comes before it.
+        ("标普500 -0.77%", "标普五百 负百分之零点七七"),
+        ("涨跌-3%", "涨跌负百分之三"),
+        ("气温-5度", "气温零下五度"),
+        ("温度 -5", "温度 负五"),
+        ("~5%", "约百分之五"),
+        ("约~5%", "约百分之五"),
+        # A phone number's groups aren't a range: digit by digit.
+        ("电话555-0100", "电话五五五-零一零零"),
+        ("138-0013-8000", "一三八-零零一三-八零零零"),
+        ("555-1234", "五五五-一二三四"),
+        ("COVID-19", "COVID-19"),
+        ("INV-2026-004", "INV-2026-004"),
     ],
 )
 def test_spoken_numbers(text, said):
     assert lang.spoken_numbers_zh(text) == said
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        # The tilde of a range survives the markdown clean-up.
+        ("预计涨幅3~5%", "预计涨幅百分之三到百分之五"),
+        ("明天气温18~22°C", "明天气温十八到二十二度"),
+        ("大约需要3~5天", "大约需要三到五天"),
+        ("会议10:00~11:00", "会议十点到十一点"),
+        ("大概~5%的增长", "大概约百分之五的增长"),
+        ("好的~", "好的"),
+        ("~~删掉~~", "删掉"),
+    ],
+)
+def test_ranges_survive_clean_for_speech(text, said):
+    assert lang.clean_for_speech_zh(text) == said
 
 
 # ── the markets and the weather ──
@@ -1129,11 +1448,59 @@ def test_translate_leaves_the_unknown_alone():
 def test_tr_formats_templates():
     assert lang.tr("Opening {name}.", "zh", name="the browser") == "正在打开浏览器。"
     assert lang.tr("Opening {name}.", "en", name="the browser") == "Opening the browser."
-    assert lang.tr("Send this to {name}?", "zh", name="Settings") == "要把这条发给设置吗？"
-    assert lang.tr("Here's your message to {name}. {text} Do you want this message sent?", "zh",
-                   name="Ben", text="Done.") == "这是你发给Ben的消息：Done. 要发送这条消息吗？"  # fmt: skip
+    # A person is never renamed, even one called like a panel.
+    assert lang.tr("Send this to {person}?", "zh", person="Settings") == "要把这条发给Settings吗？"
+    assert lang.tr("Here's your message to {person}. {text} Do you want this message sent?", "zh",
+                   person="Ben", text="Done.") == "这是你发给Ben的消息：Done. 要发送这条消息吗？"  # fmt: skip
+    # The template as messaging.py spells it works too, its {name} kept as it is.
+    assert lang.tr("Send this to {name}?", "zh", name="Settings") == "要把这条发给Settings吗？"
+    assert lang.tr("Send this to {name}?", "en", name="Settings") == "Send this to Settings?"
+    assert (
+        lang.tr("Run the shortcut “{name}”?", "zh", name="Meeting") == "要运行快捷指令“Meeting”吗？"
+    )
+    assert lang.tr("Routine · {name}", "zh", name="Here") == "例行任务 · Here"
+    assert lang.tr("Invoice {number} from {name}", "zh", number="INV-7", name="Settings") == (
+        "来自Settings的发票 INV-7"
+    )
     assert lang.tr("Done.", "zh") == "好了。" and lang.tr("Done.", "en") == "Done."
     assert lang.tr("Not a known template {x}", "zh", x=1) == "Not a known template 1"
+
+
+@pytest.mark.parametrize(
+    ("english", "chinese"),
+    [
+        # People, shortcuts, routines and calendar titles are never translated, whatever
+        # English word they happen to be.
+        ("Send this to Meeting?", "要把这条发给Meeting吗？"),
+        ("Sent to Here.", "已发送给Here。"),
+        ("Emailed Settings.", "已给Settings发了邮件。"),
+        ("Email Invoice about Q3?", "要给Invoice发一封关于“Q3”的邮件吗？"),
+        ("There's no one called Paid in Contacts. Ask for their number or address.",
+         "通讯录里没有叫Paid的人。请问一下对方的号码或地址。"),
+        ("Run the shortcut “Settings”?", "要运行快捷指令“Settings”吗？"),
+        ("The shortcut Here didn't work: timeout", "快捷指令Here没有成功：timeout"),
+        ("Settings starts in 5 minutes.", "Settings还有5分钟开始。"),
+        ("Back in Done.. What next?", "回到了Done.。接下来做什么？"),
+        # JARVIS's own stand-ins in a slot are translated.
+        ("Already taking notes for Meeting.", "已经在为会议做记录了。"),
+        ("Start Jarvis Code in this assistant's own project?",
+         "要在 这个助手自己的项目 中启动 Jarvis Code 吗？"),
+        ("Open an unusual web address in your browser?", "要在你的浏览器中打开 一个不常见的网址 吗？"),
+        ("INV-7 is marked open.", "INV-7 已标记为未付款。"),
+        # A one-line slot stays on its line: the next line is its own sentence.
+        ("Folder: /Users/me/jarvis\nFirst request: (none yet)",
+         "文件夹：/Users/me/jarvis\n第一个请求：（暂无）"),
+        ("Folder: /x\nFirst request: add a test", "文件夹：/x\n第一个请求：add a test"),
+    ],
+)  # fmt: skip
+def test_names_stay_as_they_are(english, chinese):
+    assert lang.translate(english) == chinese
+
+
+def test_slot_words_are_translated():
+    for words in lang._SLOT_WORDS.values():
+        assert all(w in lang.VALUES_ZH for w in words), words
+    assert set(lang._SLOT_WORDS["name"]) == {*ui.PANEL_NAMES.values(), *ui.LOOK_NAMES.values()}
 
 
 # ── the system prompt ──
@@ -1192,6 +1559,30 @@ def test_reply_instruction():
         ("pause_routine", "把晨间简报暂停", True),
         ("pause_routine", "今天的简报很好", False),
         ("remember", "今天天气不错。然后记住我明天出差", True),
+        ("remember", "帮我记明天交报告", True),  # 帮我 is a lead-in, and 帮我记 the verb
+        ("remember", "麻烦你帮我记住车停在B2", True),
+        ("remember", "记住这个好吗", True),  # a polite tag still asks
+        ("remember", "记住我明天出差了吗", False),
+        # Forgetting: a report ("I forgot…") or a question isn't a request.
+        ("forget", "把那条忘掉", True),
+        ("forget", "别再记着我的地址", True),
+        ("forget", "忘记我的密码了怎么办", False),
+        ("forget", "忘记关于那个会的事了", False),
+        ("forget", "忘记我的邮箱密码了", False),
+        ("forget", "忘掉过去", False),
+        ("forget", "删掉记忆了吗", False),
+        # Meeting notes: never "open my notes" or a question about the notes.
+        ("start_meeting", "会议模式", True),
+        ("start_meeting", "进入会议模式", True),
+        ("start_meeting", "打开笔记", False),
+        ("start_meeting", "打开记录", False),
+        ("start_meeting", "打开录音", False),
+        ("start_meeting", "会议记录在哪里", False),
+        ("start_meeting", "会议纪要写好了吗", False),
+        ("start_meeting", "做会议记录了吗", False),
+        ("start_meeting", "会议记录", False),
+        ("delete_routine", "删除提醒了吗", False),
+        ("pause_routine", "暂停简报了没有", False),
     ],
 )
 def test_feature_asked(feature, said, asked):
@@ -1211,15 +1602,62 @@ def test_feature_names_match_the_hub():
         ("code", "和我一起改这个项目", True),
         ("code", "贾维斯，我们来编程吧", True),
         ("code", "代码写得怎么样", False),
+        ("code", "开始编程", True),
+        ("code", "编程模式", True),
+        ("code", "我要改代码", True),
+        # Coding as a noun, or learning it, isn't a request to voice-code.
+        ("code", "编程语言哪个最好学", False),
+        ("code", "编程课几点开始", False),
+        ("code", "我想学编程", False),
+        ("code", "我们编程比赛输了", False),
         ("message", "告诉 Jarvis Code 用 pnpm", True),
         ("message", "跟会话2说先跑测试", True),
         ("message", "让编程会话停下", True),
         ("message", "告诉我天气", False),
+        ("message", "给 Claude Code 发条消息", True),
+        ("message", "问问 Claude Code 进度怎么样", True),
+        # 对, 跟 and 给 are "about" and "compared with" unless a verb of saying follows.
+        ("message", "对 Claude Code 你怎么看", False),
+        ("message", "跟 Claude Code 比哪个好", False),
+        ("message", "给 Claude Code 的评价", False),
+        ("message", "请问 Claude Code 是什么", False),
+        ("message", "叫 Claude Code 的那个工具", False),
     ],
 )
 def test_code_and_message_asked(pattern, said, asked):
     compiled = lang.CODE_ASKED_ZH if pattern == "code" else lang.MESSAGE_ASKED_ZH
     assert lang.user_asked_zh(compiled, said) is asked
+
+
+def test_ask_patterns_stay_fast_on_repetition():
+    # The lead-ins used to be splittable two ways (麻烦你 = 麻烦 + 你): repeated, a clause
+    # took 2^n tries to rule out, on the hub's event loop.
+    import random
+    import time
+
+    patterns = [*lang.FEATURE_ASKED_ZH.values(), lang.CODE_ASKED_ZH, lang.MESSAGE_ASKED_ZH]
+    leads = [
+        "你能不能",
+        "麻烦你",
+        "好的",
+        "那么",
+        "可不可以",
+        "帮我",
+        "你",
+        "贾维斯，",
+        "jarvis ",
+        "请",
+    ]
+    texts = [unit * 40 + "吃饭" for unit in leads]
+    rng = random.Random(5)
+    texts += ["".join(rng.choice(leads) for _ in range(60)) + "吃饭" for _ in range(20)]
+    started = time.perf_counter()
+    for text in texts:
+        for pattern in patterns:
+            assert not lang.user_asked_zh(pattern, text)
+    assert time.perf_counter() - started < 0.5
+    # Leads in front of a real request still work.
+    assert lang.user_asked_zh(lang.FEATURE_ASKED_ZH["remember"], "你能不能" * 5 + "记住我喜欢茶")
 
 
 # ── robustness ──
@@ -1253,8 +1691,15 @@ def test_nothing_raises_on_noise():
         lang.clean_transcript_zh(text)
         lang.match_shortcut_zh(text, ["电影模式", "Movie Mode"])
         lang.number_zh(text)
-        for approval in (SEND, CODE, PLAN, QUESTION):
-            lang.voice_answer_zh(text, approval)
+        lang.spoken_numbers_zh(text)
+        lang.is_hallucination_zh(text)
+        for pattern in (*lang.FEATURE_ASKED_ZH.values(), lang.CODE_ASKED_ZH, lang.MESSAGE_ASKED_ZH):
+            lang.user_asked_zh(pattern, text)
+        for approval in (SEND, CODE, PLAN, QUESTION, CODE_ZH, SEND_ZH, GATE_ZH, SHORTCUT_ZH,
+                         QUESTION_ZH, PURCHASE):  # fmt: skip
+            answer = lang.voice_answer_zh(text, approval)
+            if approval is PURCHASE and answer is not None and answer[0] == "allow":
+                assert "确认购买" in text.replace(" ", ""), text  # only the phrase buys
 
 
 def test_properties_hold_on_noise():
@@ -1267,9 +1712,11 @@ def test_properties_hold_on_noise():
         assert lang.to_simplified(once) == once
         spoken = lang.speakable_safely_zh(text)
         assert spoken is None or not lang.find_wake_zh(spoken)[0], text
-        # Splitting loses and reorders nothing, streamed in pieces or all at once.
+        # Splitting loses and reorders nothing, streamed in pieces or all at once, and
+        # never glues two words into one (or cuts one in two).
         whole, rest = lang.split_sentences_zh(text, final=True)
         assert rest.strip() == "" and "".join("".join(whole).split()) == "".join(text.split())
+        assert _latin_words(" ".join(whole)) == _latin_words(text), text
         buffer, streamed = "", []
         for k in range(0, len(text), 3):
             buffer += text[k : k + 3]
@@ -1277,24 +1724,60 @@ def test_properties_hold_on_noise():
             streamed += done
         streamed += lang.split_sentences_zh(buffer, final=True)[0]
         assert "".join("".join(streamed).split()) == "".join(text.split()), text
+        assert _latin_words(" ".join(streamed)) == _latin_words(text), text
+
+
+def _latin_words(text: str) -> list[str]:
+    """Latin words and numbers in order, as the voice would say them."""
+    return re.findall(r"[A-Za-z0-9]+", text)
 
 
 def test_long_and_hostile_input_stays_fast():
     import time
 
+    crafted = "Here's your email to " + ", subject:  " * 98
     cases = [
         (lang.find_wake_zh, "你好 " + "word " * 3000),  # was quadratic in the Latin words
         (lang.translate, "Here's your email to " + "a, subject: b " * 40 + "x " * 250),
         (lang.translate, "INV-" + "1 for a: " * 130),
         (lang.translate, "x" * 50_000),  # past the template limit: paragraphs only
+        # A long card detail of crafted paragraphs: only the first few characters are
+        # matched against the sentences, the rest passes through.
+        (lang.translate, "To Ann <a@x.com>\nSubject: hi\n\n" + "\n\n".join([crafted] * 100)),
+        (lang.translate, "\n\n".join([crafted + " Do you want this email sent?"] * 100)),
+        (lang.translate, "\n".join(["Here's your message to " + "a. " * 380] * 100)),
         (lang.spoken_numbers_zh, "价格是1,234.56美元，" * 2000),
         (lang.split_sentences_zh, "没有标点" * 5000),
         (lang.yes_no_zh, "好" * 5000),
+        (lang.spoken_numbers_zh, "涨幅3-5%，气温18~22°C，电话555-0100，" * 1000),
+        (lang.spoken_numbers_zh, "1" + " " * 20_000 + "-"),
+        (lang.spoken_numbers_zh, "-".join(["12"] * 5000)),
+        (lang.clean_for_speech_zh, "3~" * 10_000),
+        (lambda t: lang.voice_answer_zh(t, CODE_ZH), "嗯 " + " ".join(["jarvis", "okr"] * 800)),
+        (lambda t: lang.voice_answer_zh(t, SEND_ZH), "发送" * 5000),
+        (lang.is_hallucination_zh, "字幕由" * 5000),
+        # Long runs of spaces, lines or brackets are scanned once, not from every position.
+        (lang.spoken_numbers_zh, "好" + " " * 20_000 + "x"),
+        (lang.spoken_numbers_zh, "约" + " " * 20_000),
+        (lang.clean_for_speech_zh, "好" + " " * 20_000 + "x"),
+        (lang.clean_for_speech_zh, "好" + "\n" * 20_000 + "x"),
+        (lang.clean_for_speech_zh, " \n" * 10_000),
+        (lang.clean_for_speech_zh, " " * 20_000 + "[x"),
+        (lang.clean_for_speech_zh, "[" * 20_000),
+        (lang.clean_for_speech_zh, "[a](" * 5000),
+        (lang.translate, "好" + "\n" * 20_000 + "x"),
     ]
     for fn, text in cases:
         started = time.perf_counter()
         fn(text)
-        assert time.perf_counter() - started < 0.5, fn.__name__
+        assert time.perf_counter() - started < 0.5, (fn.__name__, text[:30])
+
+
+def test_speech_clean_up_reads_the_same():
+    # The linear rewrites of the clean-up keep what it says.
+    text = "结果 [1] 很好 [2,3]。\r\n第二行  \n\n  第三行 abc  def\n见[文档](https://x.y/z)"
+    assert lang.clean_for_speech_zh(text) == "结果很好。第二行。第三行abc def。见文档"
+    assert lang.clean_for_speech_zh("  # 标题\n  - 第一项\n  1. 第二项") == "标题。第一项。第二项"
 
 
 # ── helpers ──
