@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import re
 import subprocess
 import tempfile
-import wave
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,13 +98,30 @@ def _highpass(x: np.ndarray, a: float) -> np.ndarray:
 
 
 def read_wav(source: Path | bytes) -> tuple[np.ndarray, int]:
-    handle = io.BytesIO(source) if isinstance(source, bytes) else str(source)
-    with wave.open(handle, "rb") as w:
-        rate, channels, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
-        frames = w.readframes(w.getnframes())
-    if width != 2:
-        raise ValueError(f"expected 16-bit audio, got {8 * width}-bit")
-    audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+    """16-bit PCM WAV -> float32 mono. Streamed WAVs (Fish Audio) put placeholder sizes in
+    the header, so the samples are taken as everything after the data chunk header."""
+    raw = source if isinstance(source, bytes) else Path(source).read_bytes()
+    if raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        raise ValueError("not a WAV file")
+    pos, fmt, data = 12, None, None
+    while pos + 8 <= len(raw):
+        chunk, size = raw[pos : pos + 4], int.from_bytes(raw[pos + 4 : pos + 8], "little")
+        body = pos + 8
+        if chunk == b"fmt ":
+            fmt = raw[body : body + 16]
+        elif chunk == b"data":
+            data = raw[body : body + size] if body + size <= len(raw) else raw[body:]
+            break
+        pos = body + size + (size & 1)
+    if fmt is None or data is None:
+        raise ValueError("WAV without fmt/data")
+    channels = int.from_bytes(fmt[2:4], "little")
+    rate = int.from_bytes(fmt[4:8], "little")
+    bits = int.from_bytes(fmt[14:16], "little")
+    if bits != 16:
+        raise ValueError(f"expected 16-bit audio, got {bits}-bit")
+    data = data[: len(data) - len(data) % (2 * channels)]
+    audio = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
     if channels > 1:
         audio = audio.reshape(-1, channels).mean(axis=1)
     return audio, rate

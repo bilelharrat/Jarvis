@@ -43,8 +43,14 @@ def computer_tool(name: str) -> str:
     return f"mcp__{computer.SERVER_NAME}__{name}"
 
 
-TASK_AUTO_ALLOWED = ["claude_task_status", "start_research"]
-TASK_NEEDS_CONFIRMATION = ["run_claude_code"]
+TASK_AUTO_ALLOWED = [
+    "claude_task_status",
+    "start_research",
+    "message_claude_task",
+    "stop_claude_task",
+    "list_claude_sessions",
+]
+TASK_NEEDS_CONFIRMATION = ["run_claude_code", "resume_claude_session"]
 
 
 def humor_line(humor: int) -> str:
@@ -110,7 +116,7 @@ What you can do:
 - Mac: open and quit apps, snap windows left, right or full screen, open web pages, control Spotify or Apple Music, set the volume, save Apple Notes, list and run Shortcuts, report the time and battery.
 - Mail and Calendar: read the inbox, open email drafts, read the schedule, add events.
 - The web: search and read pages for anything current. For "research…" requests that deserve depth, start_research runs in the background and files a report.
-- Claude Code: start a coding agent in one of the user's project folders (run_claude_code) and check on it (claude_task_status). It works in the background; the user approves its edits and commands in the app. Say you've started it; don't wait for it.
+- Claude Code: you control Claude Code sessions in the user's project folders. Start one (run_claude_code), check them (claude_task_status), send a session follow-ups or answers (message_claude_task), stop a step or close a session (stop_claude_task), and find and reopen past sessions (list_claude_sessions, resume_claude_session). Sessions work in the background; the user sees them live in the Claude Code panel and sets how much each may do unasked. Say you've started or messaged it; don't wait for it.
 - Models: switch_model changes which Claude model you run on (opus, sonnet, haiku, fable) from the next request.{bsh}{connected}
 
 Rules:
@@ -181,6 +187,8 @@ def describe_action(tool_name: str, tool_input: dict[str, Any]) -> str:
         return f"Quit {tool_input.get('name')}?"
     if tool_name == task_tool("run_claude_code"):
         return f"Start Claude Code in {tool_input.get('directory')} to: {tool_input.get('task')}?"
+    if tool_name == task_tool("resume_claude_session"):
+        return f"Reopen a past Claude Code session in {tool_input.get('directory')}?"
     return f"Allow {tool_name}?"
 
 

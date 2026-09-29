@@ -60,3 +60,28 @@ async def test_cloud_voice_sends_the_voice_id(monkeypatch):
 
 def test_daniel_resolves_whatever_the_listing_format():
     assert "Daniel" in available_voices()
+
+
+def test_read_wav_tolerates_streaming_placeholder_sizes():
+    import struct
+
+    samples = (np.arange(-50, 50, dtype="<i2") * 100).tobytes()
+    fmt = struct.pack("<HHIIHH", 1, 1, 24000, 48000, 2, 16)
+    wav = b"RIFF" + struct.pack("<I", 0xFFFFFF24) + b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt
+    wav += b"data" + struct.pack("<I", 0xFFFFFF00) + samples + b"\x01"  # odd trailing byte
+    audio, rate = read_wav(wav)
+    assert rate == 24000 and audio.size == 100
+
+
+def test_builtin_mic_is_preferred(monkeypatch):
+    import sounddevice as sd
+
+    from jarvis.listen import pick_input_device
+
+    devices = [
+        {"name": "Bilel's AirPods Pro", "max_input_channels": 1},
+        {"name": "MacBook Air Microphone", "max_input_channels": 1},
+    ]
+    monkeypatch.setattr(sd, "query_devices", lambda *a: devices)
+    assert pick_input_device("builtin") == 1
+    assert pick_input_device("default") is None

@@ -57,6 +57,7 @@ class Prefs:
     humor: int = 60
     address: str = ""
     voice_effect: bool = True
+    mic: str = "builtin"  # builtin | default
     hands_free: bool = True
     briefing_enabled: bool = True
     briefing_time: str = "08:00"
@@ -91,6 +92,8 @@ class Prefs:
 
 
 def _clean(name: str, value: Any) -> Any:
+    if name == "mic":
+        return value if value in ("builtin", "default") else None
     if name == "look":
         return value if value in LOOKS else None
     if name == "weather_city":

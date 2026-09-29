@@ -15,6 +15,29 @@ SAMPLE_RATE = 16_000
 BLOCK_SECONDS = 0.05
 
 
+def pick_input_device(preference: str = "builtin") -> int | None:
+    """The microphone to listen with.
+
+    "builtin" (the default) picks the Mac's own microphone when there is one. Opening a
+    Bluetooth headset's mic (AirPods) switches it into phone-call mode, which makes all
+    audio, Jarvis's voice included, sound scratchy and thin. None means the system default.
+    """
+    if preference != "builtin":
+        return None
+    try:
+        import sounddevice as sd
+
+        for index, device in enumerate(sd.query_devices()):
+            name = device["name"].lower()
+            if device["max_input_channels"] > 0 and (
+                ("macbook" in name or "imac" in name or "built-in" in name) and "microphone" in name
+            ):
+                return index
+    except Exception:  # no PortAudio devices at all
+        return None
+    return None
+
+
 class EndpointDetector:
     """Decides when an utterance is over from a stream of per-block loudness (RMS) values.
 
@@ -62,7 +85,9 @@ class EndpointDetector:
 
 
 def record_utterance(
-    silence_seconds: float, on_level: Callable[[float], None] | None = None
+    silence_seconds: float,
+    on_level: Callable[[float], None] | None = None,
+    device: int | None = None,
 ) -> np.ndarray | None:
     """Blocks until the speaker finishes. Returns 16 kHz mono float32 audio, or None."""
     import sounddevice as sd
@@ -80,6 +105,7 @@ def record_utterance(
         dtype="float32",
         blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
         callback=on_audio,
+        device=device,
     ):
         while True:
             block = blocks.get()
@@ -156,7 +182,9 @@ class ContinuousListener:
         on_utterance: Callable[[np.ndarray], None],
         on_level: Callable[[float], None] | None = None,
         silence_seconds: float = 0.9,
+        device_preference: str = "builtin",
     ) -> None:
+        self.device_preference = device_preference
         self.on_utterance = on_utterance
         self.on_level = on_level
         self.silence_seconds = silence_seconds
@@ -192,14 +220,19 @@ class ContinuousListener:
             try:
                 # Never reset PortAudio here (sd._terminate): it would kill a reply that's
                 # playing and crash the process. A fresh stream is enough.
+                device = pick_input_device(self.device_preference)
                 with sd.InputStream(
                     samplerate=SAMPLE_RATE,
                     channels=1,
                     dtype="float32",
                     blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
                     callback=lambda data, *_, q=blocks: q.put(data[:, 0].copy()),
+                    device=device,
                 ):
-                    log.info("hands-free microphone open")
+                    name = sd.query_devices(device if device is not None else sd.default.device[0])[
+                        "name"
+                    ]
+                    log.info("hands-free microphone open: %s", name)
                     failures = 0
                     while not self._stop.is_set():
                         try:

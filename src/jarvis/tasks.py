@@ -1,9 +1,13 @@
-"""Claude Code tasks: coding agents JARVIS starts in your project folders.
+"""Claude Code sessions JARVIS runs in your project folders, under your full control.
 
-Each task is its own Claude Code session with the full tool set, working in the
-background. Reading and searching run freely; every edit and every shell command waits
-for the user's answer in the app ("Allow all edits" covers the rest of that task's
-edits, never its commands).
+Each session is a real, long-lived Claude Code conversation with the full tool set:
+you can watch its transcript live, send it follow-ups (queued while it works),
+interrupt the current step without ending it, resume any past Claude Code session in
+a project, and choose per session how much it may do unasked:
+
+  ask    reading and searching run freely; every edit and command waits for you
+  edits  file edits run freely; commands still ask
+  auto   everything runs without asking (you chose this; it can run any command)
 """
 
 from __future__ import annotations
@@ -26,8 +30,11 @@ from claude_agent_sdk import (
     ResultMessage,
     TextBlock,
     ToolPermissionContext,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
     create_sdk_mcp_server,
+    list_sessions,
     tool,
 )
 
@@ -38,6 +45,8 @@ READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoW
 EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 
 ALLOW, ALLOW_EDITS, DENY = "allow", "allow_edits", "deny"
+MODES = ("ask", "edits", "auto")
+IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
 
 RESEARCH_TOOLS = ["WebSearch", "WebFetch"]
 RESEARCH_PROMPT = """You are JARVIS's research desk. Research the user's topic thoroughly on the
@@ -69,6 +78,13 @@ class ClaudeTask:
     allow_edits: bool = False
     kind: str = "code"  # code | research
     report_path: str = ""
+    mode: str = "ask"
+    session_id: str = ""
+    title: str = ""
+    transcript: list[dict[str, Any]] = field(default_factory=list)
+    inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
+    client: Any = None
+    busy: bool = False
     started: datetime = field(default_factory=datetime.now)
     handle: asyncio.Task | None = None
 
@@ -79,6 +95,11 @@ class ClaudeTask:
             "folder": self.cwd.name,
             "kind": self.kind,
             "label": "Research" if self.kind == "research" else f"Claude Code · {self.cwd.name}",
+            "title": self.title or self.prompt[:80],
+            "mode": self.mode,
+            "session_id": self.session_id,
+            "busy": self.busy,
+            "entries": len(self.transcript),
             "report_path": self.report_path,
             "status": self.status,
             "last_action": self.last_action,
@@ -162,19 +183,95 @@ class TaskManager:
 
     # ── lifecycle ──
 
-    def start(self, prompt: str, directory: str) -> ClaudeTask:
+    def start(
+        self, prompt: str, directory: str, mode: str = "ask", resume: str = "", title: str = ""
+    ) -> ClaudeTask:
         task = ClaudeTask(
-            id=next(self._ids), prompt=prompt.strip(), cwd=self.resolve_dir(directory)
+            id=next(self._ids),
+            prompt=prompt.strip(),
+            cwd=self.resolve_dir(directory),
+            mode=mode if mode in MODES else "ask",
+            session_id=resume,
+            title=title,
         )
+        if task.prompt:
+            task.inbox.put_nowait(task.prompt)
         self.tasks[task.id] = task
-        task.handle = asyncio.create_task(self._run(task))
+        task.handle = asyncio.create_task(self._session(task))
         self._changed()
         return task
+
+    def send(self, task_id: int, text: str) -> bool:
+        """A follow-up message; queued if the session is mid-step, and it reopens a
+        finished session by resuming it."""
+        task = self.tasks.get(task_id)
+        text = text.strip()
+        if task is None or task.kind != "code" or not text:
+            return False
+        task.inbox.put_nowait(text)
+        if task.handle is None or task.handle.done():
+            task.status = "running"
+            task.handle = asyncio.create_task(self._session(task))
+        self._changed()
+        return True
+
+    async def interrupt(self, task_id: int) -> bool:
+        """Stop the current step but keep the session open for the next message."""
+        task = self.tasks.get(task_id)
+        if task is None or task.client is None or not task.busy:
+            return False
+        try:
+            await task.client.interrupt()
+        except Exception:  # the step had just finished
+            return False
+        self._log(task, "system", "Interrupted.")
+        return True
+
+    def set_mode(self, task_id: int, mode: str) -> bool:
+        task = self.tasks.get(task_id)
+        if task is None or mode not in MODES:
+            return False
+        task.mode = mode
+        task.allow_edits = mode in ("edits", "auto")
+        self._log(task, "system", f"Permission mode: {mode}.")
+        self._changed()
+        return True
+
+    def transcript(self, task_id: int) -> list[dict[str, Any]]:
+        task = self.tasks.get(task_id)
+        return list(task.transcript) if task else []
+
+    def past_sessions(self, directory: str, limit: int = 15) -> list[dict[str, Any]]:
+        path = self.resolve_dir(directory)
+        out = []
+        for info in list_sessions(directory=str(path), limit=limit, include_worktrees=False):
+            out.append(
+                {
+                    "session_id": info.session_id,
+                    "title": info.custom_title or info.summary or (info.first_prompt or "")[:80],
+                    "first_prompt": (info.first_prompt or "")[:200],
+                    "last_modified": datetime.fromtimestamp(info.last_modified / 1000).isoformat(
+                        timespec="minutes"
+                    ),
+                    "branch": info.git_branch or "",
+                }
+            )
+        return out
+
+    def _log(self, task: ClaudeTask, role: str, text: str) -> None:
+        entry = {
+            "role": role,
+            "text": text[:8000],
+            "at": datetime.now().isoformat(timespec="seconds"),
+        }
+        task.transcript.append(entry)
+        del task.transcript[:-400]
+        self.emit("task_log", id=task.id, entry=entry)
 
     def start_research(self, topic: str) -> ClaudeTask:
         RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
         task = ClaudeTask(
-            id=next(self._ids), prompt=topic.strip(), cwd=RESEARCH_DIR, kind="research"
+            id=next(self._ids), prompt=topic.strip(), cwd=RESEARCH_DIR, kind="research", mode="auto"
         )
         self.tasks[task.id] = task
         task.handle = asyncio.create_task(self._run(task))
@@ -213,7 +310,7 @@ class TaskManager:
                 setting_sources=[],
                 strict_mcp_config=True,
             )
-        return ClaudeAgentOptions(
+        options = ClaudeAgentOptions(
             model=self.model,
             effort=self.settings.task_effort,
             cwd=str(task.cwd),
@@ -224,6 +321,85 @@ class TaskManager:
             # The project's own CLAUDE.md and settings apply, as in a normal session there.
             setting_sources=["project"],
         )
+        if task.session_id:
+            options.resume = task.session_id
+        return options
+
+    async def _session(self, task: ClaudeTask) -> None:
+        """A code session: one Claude Code conversation that takes messages until it's
+        closed or sits idle for an hour."""
+        if task.kind == "research":
+            await self._run(task)
+            return
+        task.status = "running"
+        try:
+            async with self.client_factory(options=self.options_for(task)) as client:
+                task.client = client
+                while True:
+                    try:
+                        text = await asyncio.wait_for(task.inbox.get(), IDLE_CLOSE_SECONDS)
+                    except TimeoutError:
+                        break
+                    task.busy = True
+                    task.status = "running"
+                    task.last_action = "Working"
+                    self._log(task, "user", text)
+                    self._changed()
+                    await client.query(text)
+                    async for message in client.receive_response():
+                        self._on_task_message(task, message)
+                    task.busy = False
+                    task.last_action = "Waiting for you" if task.inbox.empty() else "Next message"
+                    task.status = "waiting" if task.inbox.empty() else "running"
+                    self._changed()
+                    if task.inbox.empty():
+                        self.emit(
+                            "task_finished",
+                            id=task.id,
+                            task_kind=task.kind,
+                            label=task.public()["label"],
+                            folder=task.cwd.name,
+                            status="done",
+                            result=_brief(task),
+                            report_path="",
+                        )
+            task.status = "closed"
+        except asyncio.CancelledError:
+            task.status = "stopped"
+            raise
+        except Exception as exc:  # the CLI crashed or refused to start
+            task.status = "failed"
+            task.result = str(exc)
+            self._log(task, "system", f"Stopped with an error: {exc}")
+        finally:
+            task.client = None
+            task.busy = False
+            task.last_action = {"closed": "Closed", "stopped": "Stopped"}.get(
+                task.status, task.last_action
+            )
+            if task.status == "failed":
+                task.last_action = "Failed"
+            self._changed()
+
+    def _on_task_message(self, task: ClaudeTask, message: Any) -> None:
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, ToolUseBlock):
+                    task.last_action = describe_tool(block.name, block.input)
+                    self._log(task, "tool", task.last_action)
+                    self._changed()
+                elif isinstance(block, TextBlock) and block.text.strip():
+                    task.result = block.text.strip()
+                    self._log(task, "assistant", block.text.strip())
+        elif isinstance(message, UserMessage) and isinstance(message.content, list):
+            for block in message.content:
+                if isinstance(block, ToolResultBlock) and block.is_error:
+                    self._log(task, "tool", "↳ that step failed or was declined")
+        elif isinstance(message, ResultMessage):
+            task.session_id = message.session_id or task.session_id
+            task.cost_usd = (task.cost_usd or 0) + (message.total_cost_usd or 0)
+            if message.is_error:
+                self._log(task, "system", f"Ended with an error: {message.subtype}")
 
     async def _run(self, task: ClaudeTask) -> None:
         try:
@@ -273,9 +449,9 @@ class TaskManager:
         async def can_use_tool(
             tool_name: str, tool_input: dict[str, Any], _context: ToolPermissionContext
         ):
-            if tool_name in READ_ONLY_TOOLS:
+            if tool_name in READ_ONLY_TOOLS or task.mode == "auto":
                 return PermissionResultAllow()
-            if tool_name in EDIT_TOOLS and task.allow_edits:
+            if tool_name in EDIT_TOOLS and (task.allow_edits or task.mode == "edits"):
                 return PermissionResultAllow()
             choices = [(ALLOW, "Allow")]
             if tool_name in EDIT_TOOLS:
@@ -325,6 +501,71 @@ class TaskManager:
             }
 
         @tool(
+            "message_claude_task",
+            "Send a follow-up message to a Claude Code session by its task number (from "
+            "claude_task_status). It's queued if the session is busy, and reopens a finished one.",
+            {"task_id": int, "message": str},
+        )
+        async def message_claude_task(args):
+            ok = self.send(int(args["task_id"]), str(args["message"]))
+            text = "Sent." if ok else "No Claude Code session with that number."
+            return {"content": [{"type": "text", "text": text}], "is_error": not ok}
+
+        @tool(
+            "stop_claude_task",
+            "Stop a Claude Code session's current step (interrupt), or close the session "
+            "entirely with close=true.",
+            {
+                "type": "object",
+                "properties": {"task_id": {"type": "integer"}, "close": {"type": "boolean"}},
+                "required": ["task_id"],
+            },
+        )
+        async def stop_claude_task(args):
+            task_id = int(args["task_id"])
+            ok = self.cancel(task_id) if args.get("close") else await self.interrupt(task_id)
+            return {"content": [{"type": "text", "text": "Done." if ok else "Nothing to stop."}]}
+
+        @tool(
+            "list_claude_sessions",
+            "List recent past Claude Code sessions in a project folder (including ones the "
+            "user ran in Claude Code themselves), with ids to resume.",
+            {"directory": str},
+        )
+        async def list_claude_sessions(args):
+            try:
+                items = self.past_sessions(str(args["directory"]), limit=10)
+            except ValueError as exc:
+                return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+            lines = [f"{i['session_id']} · {i['last_modified']} · {i['title']}" for i in items]
+            return {"content": [{"type": "text", "text": "\n".join(lines) or "No past sessions."}]}
+
+        @tool(
+            "resume_claude_session",
+            "Reopen a past Claude Code session (by session id from list_claude_sessions) and "
+            "optionally send it a message. Asks the user first.",
+            {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string"},
+                    "session_id": {"type": "string"},
+                    "message": {"type": "string"},
+                },
+                "required": ["directory", "session_id"],
+            },
+        )
+        async def resume_claude_session(args):
+            try:
+                task = self.start(
+                    str(args.get("message") or ""),
+                    str(args["directory"]),
+                    resume=str(args["session_id"]),
+                )
+            except ValueError as exc:
+                return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+            return {"content": [{"type": "text", "text": f"Resumed as task {task.id}."}]}
+
+        @tool(
             "start_research",
             "Start deep web research on a topic in the background. JARVIS's research desk "
             "reads many sources and saves a report to ~/Documents/Jarvis/Research, which also "
@@ -362,7 +603,15 @@ class TaskManager:
         return create_sdk_mcp_server(
             name="claude",
             version="0.1.0",
-            tools=[run_claude_code, start_research, claude_task_status],
+            tools=[
+                run_claude_code,
+                message_claude_task,
+                stop_claude_task,
+                list_claude_sessions,
+                resume_claude_session,
+                start_research,
+                claude_task_status,
+            ],
         )
 
 

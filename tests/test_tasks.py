@@ -5,6 +5,7 @@ from claude_agent_sdk import (
     AssistantMessage,
     PermissionResultAllow,
     PermissionResultDeny,
+    TextBlock,
     ToolPermissionContext,
     ToolUseBlock,
 )
@@ -64,26 +65,59 @@ async def test_reads_run_freely_edits_and_commands_ask(settings, tmp_path):
     assert asked[1][2] == ["allow", "deny"]
 
 
-async def test_task_runs_to_completion(settings, tmp_path):
+async def test_session_answers_then_waits_for_more(settings, tmp_path):
     (tmp_path / "proj").mkdir()
     script = [
         AssistantMessage(
             content=[ToolUseBlock(id="1", name="Read", input={"file_path": "/x/spend.py"})],
             model="m",
         ),
+        AssistantMessage(content=[TextBlock(text="Fixed the flaky test.")], model="m"),
         result(text="Fixed the flaky test.", cost=0.42),
     ]
     tm, _, events = manager(settings, script=script)
     task = tm.start("fix the flaky test", "proj")
-    await task.handle
-    assert task.status == "done"
-    assert task.result == "Fixed the flaky test."
-    assert task.cost_usd == 0.42
-    finished = [d for k, d in events if k == "task_finished"]
-    assert finished[0]["status"] == "done" and finished[0]["folder"] == "proj"
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        if task.status == "waiting":
+            break
+    assert task.status == "waiting" and task.session_id == "s"
+    assert task.result == "Fixed the flaky test." and task.cost_usd == 0.42
+    roles = [e["role"] for e in tm.transcript(task.id)]
+    assert roles == ["user", "tool", "assistant"]
+    assert any(k == "task_finished" for k, _ in events)
+    # A follow-up goes to the same open session.
+    assert tm.send(task.id, "now run the whole suite")
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        if len(tm.transcript(task.id)) >= 6:
+            break
+    assert [e["text"] for e in tm.transcript(task.id) if e["role"] == "user"] == [
+        "fix the flaky test",
+        "now run the whole suite",
+    ]
     opts = tm.options_for(task)
     assert opts.cwd == str((tmp_path / "proj").resolve())
-    assert opts.setting_sources == ["project"]
+    assert opts.setting_sources == ["project"] and opts.resume == "s"
+    tm.cancel(task.id)
+    with pytest.raises(asyncio.CancelledError):
+        await task.handle
+
+
+async def test_modes_change_what_asks(settings, tmp_path):
+    tm, asked, _ = manager(settings, answers=[DENY])
+    task = ClaudeTask(id=1, prompt="x", cwd=tmp_path)
+    tm.tasks[1] = task
+    policy = tm.policy_for(task)
+    ctx = ToolPermissionContext()
+    tm.set_mode(1, "edits")
+    assert isinstance(await policy("Edit", {"file_path": "a"}, ctx), PermissionResultAllow)
+    assert isinstance(await policy("Bash", {"command": "ls"}, ctx), PermissionResultDeny)
+    assert len(asked) == 1
+    tm.set_mode(1, "auto")
+    assert isinstance(await policy("Bash", {"command": "make"}, ctx), PermissionResultAllow)
+    assert len(asked) == 1
+    assert not tm.set_mode(1, "yolo")
 
 
 async def test_cancel_stops_a_task(settings, tmp_path):

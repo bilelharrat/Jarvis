@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import logging
 import subprocess
@@ -558,7 +559,11 @@ class Hub:
         try:
             recorder = self.recorder
             if recorder is None:
-                from .listen import record_utterance as recorder
+                from .listen import pick_input_device, record_utterance
+
+                recorder = functools.partial(
+                    record_utterance, device=pick_input_device(self.prefs.mic)
+                )
             audio = await asyncio.to_thread(
                 recorder, self.settings.silence_seconds, self._level_callback()
             )
@@ -593,9 +598,14 @@ class Hub:
             factory = self.listener_factory
             if factory is None:
                 from .listen import ContinuousListener as factory
-            self._listener = factory(
-                on_utterance, self._level_callback(only_when_listening=True), HANDS_FREE_ENDPOINT
-            )
+            args = [
+                on_utterance,
+                self._level_callback(only_when_listening=True),
+                HANDS_FREE_ENDPOINT,
+            ]
+            if self.listener_factory is None:
+                args.append(self.prefs.mic)
+            self._listener = factory(*args)
             try:
                 self._listener.start()
             except Exception as exc:  # no microphone
@@ -904,6 +914,10 @@ class Hub:
             self.speaker.effect = self.prefs.voice_effect
         if "hands_free" in changed:
             self._apply_hands_free()
+        if "mic" in changed and self._listener is not None:
+            self._listener.stop()
+            self._listener = None
+            self._apply_hands_free()
         sources = {
             "brain_notes": "notes",
             "brain_bsh": "bsh",
@@ -970,6 +984,37 @@ class Hub:
             self._spawn(self.reset())
         elif kind == "task_cancel":
             self.tasks.cancel(int(msg.get("id", 0)))
+        elif kind == "task_new":
+            try:
+                self.tasks.start(
+                    str(msg.get("prompt", "")),
+                    str(msg.get("directory", "")),
+                    mode=str(msg.get("mode", "ask")),
+                    resume=str(msg.get("session_id", "")),
+                    title=str(msg.get("title", "")),
+                )
+            except ValueError as exc:
+                self.emit("error", text=str(exc))
+        elif kind == "task_send":
+            self.tasks.send(int(msg.get("id", 0)), str(msg.get("text", ""))[:20000])
+        elif kind == "task_interrupt":
+            await self.tasks.interrupt(int(msg.get("id", 0)))
+        elif kind == "task_mode":
+            self.tasks.set_mode(int(msg.get("id", 0)), str(msg.get("mode", "")))
+        elif kind == "task_transcript":
+            task_id = int(msg.get("id", 0))
+            self.emit("task_transcript", id=task_id, entries=self.tasks.transcript(task_id))
+        elif kind == "claude_projects":
+            self.emit("claude_projects", items=self.tasks.projects())
+        elif kind == "claude_sessions":
+            try:
+                items = await asyncio.to_thread(
+                    self.tasks.past_sessions, str(msg.get("directory", ""))
+                )
+            except ValueError as exc:
+                items = []
+                self.emit("error", text=str(exc))
+            self.emit("claude_sessions", directory=str(msg.get("directory", "")), items=items)
         elif kind == "refresh":
             self._spawn(self._refresh_status(calendar=True))
         elif kind == "set_prefs" and isinstance(msg.get("changes"), dict):

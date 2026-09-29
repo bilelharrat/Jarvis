@@ -343,6 +343,7 @@ function renderPrefs(p) {
     ? [document.createTextNode('Say “Jarvis” · talk over me to interrupt')]
     : [document.createTextNode('Tap the orb, or press '), el('kbd', '', '⌥ Space'), document.createTextNode(' anywhere')]));
   setSwitch('sw-effect', p.voice_effect);
+  $('mic-select').value = p.mic || 'builtin';
   setSwitch('sw-handsfree', p.hands_free);
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-notes', p.brain_notes);
@@ -410,6 +411,7 @@ $('settings-close').addEventListener('click', () => toggleSettings(false));
 $('model-chip').addEventListener('click', () => { toggleSettings(true); $('model-select').focus(); });
 $('sw-voice').addEventListener('click', () => send({ type: 'mute', value: !muted }));
 $('sw-effect').addEventListener('click', () => setPrefs({ voice_effect: !prefs.voice_effect }));
+$('mic-select').addEventListener('change', (e) => setPrefs({ mic: e.target.value }));
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-notes').addEventListener('click', () => setPrefs({ brain_notes: !prefs.brain_notes }));
