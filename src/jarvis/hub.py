@@ -62,6 +62,7 @@ from . import (
 )
 from .brain import (
     EGRESS_TOOLS,
+    SCREEN_LOOKS,
     app_tool,
     browser_address,
     browser_tool,
@@ -991,6 +992,8 @@ class Hub:
         if self._rid:
             self._turn_progress = True  # a tool ran: a retry mustn't run it again
         kind = result_kind(tool_name)
+        if kind == "private" and self.prefs.control_always and tool_name in SCREEN_LOOKS:
+            kind = "web"  # operating the Mac freely: a look at the screen doesn't stop it
         if kind != "none":
             self._note_read(kind, tool_label(tool_name))
 
@@ -1084,6 +1087,9 @@ class Hub:
             )
         if not (reads["private"] or reads["web"] or not self._turn_text):
             return True
+        navigating = tool_name in (browser_tool("browser_open"), mac_tool("open_url"))
+        if navigating and self.prefs.control_always and not reads["private"]:
+            return True  # browsing: following where the pages it read lead
         if tool_name == browser_tool("browser_open"):
             address = browser_address(str(tool_input.get("url", "")))
             if address is None:
@@ -1895,7 +1901,7 @@ class Hub:
     async def shortcut_gate(self, name: str, with_input: bool = False) -> bool:
         """Instant shortcuts run unasked; others ask, with an 'always' option. Handing a
         shortcut text to act on always asks: that text could come from anywhere."""
-        if name in self.prefs.instant_shortcuts and not with_input:
+        if self.prefs.control_always or (name in self.prefs.instant_shortcuts and not with_input):
             return True
         question = f"Run the shortcut “{name}”?"
         self._say(question)
@@ -1915,7 +1921,7 @@ class Hub:
         if command is None:
             return False
         try:
-            reply = await system_voice.carry_out(command)
+            reply = await system_voice.carry_out(command, free=self.prefs.control_always)
         except (mac_tools.ToolFailure, ValueError, OSError) as exc:
             reply = f"That didn't work: {exc}"
         except Exception as exc:  # Quartz without the Accessibility permission, say
@@ -3577,7 +3583,7 @@ class Hub:
         @tool(
             "browser_click",
             "Click a link or button in the built-in browser by its visible text (or a CSS "
-            "selector). Needs the user's OK once per request.",
+            "selector).",
             {
                 "type": "object",
                 "properties": {"text": {"type": "string"}, "selector": {"type": "string"}},
@@ -3588,6 +3594,10 @@ class Hub:
             result = await hub.browser_call("click", target)
             if result.get("needsConfirm"):  # it starts a run, sends, pays, deletes…
                 label = result.get("label") or target["text"] or target["selector"]
+                # Paying still meets the purchase guard around the browser either way.
+                if hub.prefs.control_always:
+                    result = await hub.browser_call("click", {**target, "force": True})
+                    return done(result)
                 if not await hub.confirm(f"Click “{label}” in the browser?"):
                     return done({"ok": False, "message": "The user said no. Don't click it."})
                 result = await hub.browser_call("click", {**target, "force": True})
@@ -3597,7 +3607,7 @@ class Hub:
             "browser_type",
             "Type into a field in the built-in browser. field: words from its label or "
             "placeholder (optional); submit: press Return after. Never type passwords or card "
-            "numbers. Needs the user's OK once per request.",
+            "numbers.",
             {
                 "type": "object",
                 "properties": {

@@ -17,7 +17,8 @@ APP_SUPPORT = Path.home() / "Library" / "Application Support" / "Jarvis"
 # The settings file's format. 2: the Research Center moved from a local dev server to its
 # hosted address, so a file still on the old default follows it (once: a later choice of
 # the old address is saved as version 2 and kept).
-VERSION = 2
+# 3: operating the Mac without asking became the default, and the owner asked for it on.
+VERSION = 3
 LEGACY_RESEARCH_URL = "http://127.0.0.1:8010"
 
 # What a damaged settings file must never switch on by itself: the always-on microphone,
@@ -112,7 +113,7 @@ class Prefs:
     remote_enabled: bool = False  # the iPhone and Watch companion (off until turned on)
     code_narrate: bool = True  # voice coding: short spoken progress notes
     code_sentences: int = 3  # voice coding: sentences of each reply read aloud
-    control_always: bool = False  # mouse, keyboard and browser clicks without asking
+    control_always: bool = True  # operate the Mac (mouse, keyboard, browser, apps) unasked
     proactive_voice: bool = True
     quiet_hours: str = "22:00-07:00"
     research_url: str = "https://app.bshventures.com/research"  # the Research Center (Markets)
@@ -346,6 +347,10 @@ class PrefsStore:
         if not isinstance(version, int) or version < 2:
             if prefs.research_url == LEGACY_RESEARCH_URL:
                 prefs.research_url = Prefs.research_url
+        if (not isinstance(version, int) or version < 3) and isinstance(
+            data.get("control_always", False), bool
+        ):
+            prefs.control_always = True
         if how == "restored":
             self.notice = (
                 "Your settings file was damaged, so I went back to its last good copy (the "

@@ -104,6 +104,7 @@ async def test_after_a_web_page_only_sites_the_user_named_go_unasked(
     hub = await started(
         settings, quiet_speaker, isolated, said="summarize the article at theverge.com/tech/1"
     )
+    hub.set_prefs({"control_always": False})
     assert await hub.turn_gate(FETCH, {"url": "https://www.theverge.com/tech/1"}) is True
     hub.note_tool_result(FETCH)  # the page is in: it may hide instructions
     assert await hub.turn_gate(FETCH, {"url": "https://www.theverge.com/tech/2"}) is True
@@ -401,3 +402,21 @@ def test_asking_means_a_request_not_a_word_somewhere():
             assert user_asked(pattern, said), said
         for said in no:
             assert not user_asked(pattern, said), said
+
+
+async def test_operating_the_mac_freely_browses_without_asking(settings, quiet_speaker, isolated):
+    """Control my Mac without asking (the default): after a page or a look at the screen,
+    the browser follows links anywhere; after private data it still checks first."""
+    from jarvis.brain import computer_tool
+
+    hub = await started(settings, quiet_speaker, isolated, said="find me a ramen place")
+    assert hub.prefs.control_always
+    hub.note_tool_result(BROWSER_OPEN)  # a web page is in
+    hub.note_tool_result(computer_tool("see_screen"))  # and a look at the screen
+    assert await hub.turn_gate(BROWSER_OPEN, {"url": "tabelog.com/ramen"}) is True
+    assert not hub.approvals
+    hub.note_tool_result("mcp__mac__list_emails")  # private mail is in context now
+    q = hub.subscribe()
+    pending = asyncio.create_task(hub.turn_gate(BROWSER_OPEN, {"url": "evil.example/?d=1"}))
+    await answer(hub, q, "deny")
+    assert await pending is False

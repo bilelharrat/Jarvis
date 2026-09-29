@@ -57,6 +57,36 @@ async def test_confirmable_tools_ask_and_respect_the_answer():
     assert isinstance(denied, PermissionResultDeny)
 
 
+async def test_free_control_operates_the_mac_without_asking():
+    asked = []
+
+    async def confirm(q):
+        asked.append(q)
+        return False
+
+    async def control_gate():
+        asked.append("control")
+        return False
+
+    ctx = ToolPermissionContext()
+    free = brain.make_permission_policy(confirm, control_gate, free_control=lambda: True)
+    for name, args in [
+        ("mcp__computer__click", {"x": 1, "y": 2}),
+        ("mcp__computer__type_text", {"text": "hi"}),
+        (brain.browser_tool("browser_click"), {"text": "Next"}),
+        ("mcp__mac__quit_app", {"name": "Mail"}),
+        ("mcp__mac__run_shortcut", {"name": "Lock"}),
+    ]:
+        assert isinstance(await free(name, args, ctx), PermissionResultAllow), name
+    # Not operating the Mac: a calendar event still asks.
+    event = {"title": "Dentist", "start": "2026-10-01T09:00"}
+    assert isinstance(await free("mcp__mac__create_event", event, ctx), PermissionResultDeny)
+    assert asked == ["Add “Dentist” to your calendar at 2026-10-01T09:00 for 60 minutes?"]
+    off = brain.make_permission_policy(confirm, control_gate, free_control=lambda: False)
+    assert isinstance(await off("mcp__computer__click", {}, ctx), PermissionResultDeny)
+    assert asked[-1] == "control"
+
+
 async def test_unknown_tools_are_denied_without_asking():
     policy = brain.make_permission_policy(never)
     result = await policy("Bash", {"command": "ls"}, ToolPermissionContext())

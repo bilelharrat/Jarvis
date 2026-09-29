@@ -444,6 +444,7 @@ async def test_instant_shortcut_runs_without_claude(settings, quiet_speaker, iso
 async def test_shortcut_always_makes_it_instant(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
+    hub.set_prefs({"control_always": False})
     q = hub.subscribe()
     asking = asyncio.create_task(hub.shortcut_gate("Good Night"))
     await asyncio.sleep(0)
@@ -559,15 +560,18 @@ async def test_spoken_yes_or_no_answers_the_open_question(settings, quiet_speake
 async def test_mouse_and_keyboard_can_be_always_allowed(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
-    assert "taking over the mouse and keyboard" in hub.client.options.system_prompt
-    hub.set_prefs({"control_always": True})
-    assert await hub.control_gate() is True  # no question asked
-    assert not hub.approvals
-    await hub.reset()
-    assert "taking over the mouse and keyboard" not in hub.client.options.system_prompt
+    assert hub.prefs.control_always  # the default: operating the Mac never asks
     prompt = hub.client.options.system_prompt
-    assert "never click to delete" in prompt  # the rule stays with control always allowed
+    assert "taking over the mouse and keyboard" not in prompt
+    assert "they've said never to ask" in prompt and "never click to delete" not in prompt
     assert "through confirm_transaction, never with the mouse and keyboard" in prompt
+    assert await hub.control_gate() is True  # no question asked
+    assert await hub.shortcut_gate("Unlock Front Door", with_input=True) is True
+    assert not hub.approvals
+    hub.set_prefs({"control_always": False})
+    await hub.reset()
+    prompt = hub.client.options.system_prompt
+    assert "taking over the mouse and keyboard" in prompt and "never click to delete" in prompt
 
 
 async def test_a_finished_request_is_answered_before_the_full_silence(
@@ -612,6 +616,7 @@ async def _hands_free_hub(settings, speaker, isolated):
 
 async def test_its_own_questions_are_never_its_answers(settings, quiet_speaker, isolated):
     hub = await _hands_free_hub(settings, quiet_speaker, isolated)
+    hub.set_prefs({"control_always": False})
     send = asyncio.create_task(hub.send_gate("Send this to Ben?", "hi"))
     await asyncio.sleep(0)
     await hub.on_heard("Send this to Ben?")  # the microphone hearing the question
@@ -900,7 +905,7 @@ async def test_a_mac_command_runs_at_once_without_claude(
 
     done = []
 
-    async def carry_out(command):
+    async def carry_out(command, **_k):
         done.append((command.kind, command.arg))
         return "Opening Safari."
 

@@ -51,7 +51,7 @@ def test_the_old_local_research_address_moves_to_the_hosted_one(tmp_path):
     assert store.prefs.research_url == "https://app.bshventures.com/research"
     assert store.prefs.humor == 40
     store.save()
-    assert json.loads(path.read_text())["version"] == 2
+    assert json.loads(path.read_text())["version"] == 3
 
 
 def test_choosing_the_local_address_again_is_kept(tmp_path):

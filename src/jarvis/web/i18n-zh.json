@@ -287,7 +287,6 @@
   "Download": "下载",
   "Context window": "上下文窗口",
   "Compact": "压缩",
-  "Clear": "清空",
   "Click again to clear": "再点一次清空",
   "Summarize the conversation so far and keep going with room to spare": "把目前的对话总结一下，腾出空间继续",
   "Start this session over with an empty context": "以空的上下文重新开始这个会话",
@@ -336,7 +335,6 @@
   "Just a rather very intelligent system": "只是一个相当聪明的智能系统",
   "Keep computer awake": "让电脑保持唤醒",
   "Leave empty to sign in with the browser": "留空则通过浏览器登录",
-  "Let me click and type on screen and in the browser without asking first each time. I still never type passwords or buy, send or delete for you.": "让我在屏幕上和浏览器里点按、输入时，不必每次都先问你。我依然绝不会替你输入密码，也不会替你购买、发送或删除。",
   "Let my phone connect": "允许手机连接",
   "Linear": "Linear",
   "Link": "链路",
@@ -365,8 +363,6 @@
   "Models, datasets and Spaces.": "模型、数据集和 Spaces。",
   "More": "更多",
   "Morning briefing": "晨间简报",
-  "Mouse & keyboard without asking": "无需询问即可操作鼠标和键盘",
-  "Mouse and keyboard without asking": "无需询问即可操作鼠标和键盘",
   "Muted": "已静音",
   "Name": "名称",
   "Narrate progress": "播报进度",
@@ -402,7 +398,6 @@
   "Open in its own app": "用对应的 App 打开",
   "Open notes": "打开记录",
   "Open report": "打开报告",
-  "Open the BSH Research Center": "打开 BSH 研究中心",
   "Open the BSH Research Center": "打开 BSH 研究中心",
   "Opens a companion page on your home network (port 8765). Only phones you pair can use it. On shared Wi-Fi or away from home, use Tailscale.": "在家庭网络上开启一个配套网页（端口 8765）。只有配对过的手机才能使用。在共享 Wi-Fi 上或不在家时，请使用 Tailscale。",
   "Optimal": "最佳",
@@ -1388,7 +1383,9 @@
   "Ready: I'm listening in it now.": "准备好了：现在我用这种语言聆听。",
   "Set a spending limit on each key at its provider. Jarvis keeps keys in the Keychain and out of sessions' environment, but a program running as you on this Mac could still use one.": "请在各提供方为每个密钥设置消费上限。Jarvis 把密钥存放在钥匙串中，不放进会话的环境变量，但以你的身份在这台 Mac 上运行的程序仍可能用到它。",
   "Your goals file can’t be read right now; nothing will be saved over it.": "目前无法读取你的目标文件；不会有任何内容覆盖它。",
-  "Your goals file can't be read right now, so nothing changed.": "目前无法读取你的目标文件，所以没有做任何更改。"
+  "Your goals file can't be read right now, so nothing changed.": "目前无法读取你的目标文件，所以没有做任何更改。",
+  "Control my Mac without asking": "无需询问即可操作我的 Mac",
+  "Click, type, browse, open and quit apps and run Shortcuts without asking first. Paying still waits for your OK, and I never type passwords.": "点按、输入、浏览网页、打开和退出应用、运行快捷指令，都不必先问你。付款仍需你确认，我也绝不会输入密码。"
  },
  "patterns": [
   [

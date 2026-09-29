@@ -163,5 +163,13 @@ async def test_a_found_button_named_risky_is_left_alone():
     assert reply == "“send message” is one I leave for you to press." and not mac.mouse
 
 
+async def test_with_free_control_the_users_own_click_presses_anything():
+    mac = Fake(click='{"found": true, "name": "send message", "app": "Messages", "x": 1, "y": 2}')
+    reply = await real_carry_out(
+        Command("click", "send", {"how": "click"}), mac.run, mac, free=True
+    )
+    assert reply == "Done." and mac.mouse == [("click", 1.0, 2.0, "left", 1)]
+
+
 def test_the_stand_in_is_what_other_tests_get():
     assert system_voice.carry_out is not real_carry_out

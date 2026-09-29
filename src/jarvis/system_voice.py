@@ -3,8 +3,9 @@
 round trip to Claude. Anything else (and anything this can't do) goes to Claude as before,
 where the see-the-screen, click and type tools handle the rest.
 
-What stays yours: clicking anything that sends, pays, buys, deletes or signs out. Those
-words are turned down here, as they are everywhere else in JARVIS.
+These are the user's own spoken words, so with Settings › Control my Mac without asking on
+(the default) "click Send" presses Send. With it off, buttons that send, pay, buy, delete or
+sign out are left for the user to press.
 
 Posting keys and clicks needs the Accessibility permission of the app running JARVIS;
 clicking a button by its name also needs Automation for System Events.
@@ -256,6 +257,7 @@ async def carry_out(
     command: Command,
     run: Runner = run_command,
     post: Any = computer,
+    free: bool = False,
 ) -> str | None:
     """Does it and says what happened; None when it isn't one after all (an app name that
     isn't an installed app), so the request goes to Claude instead."""
@@ -313,7 +315,7 @@ async def carry_out(
         )
         return "Clicked."
     if kind == "click":
-        if RISKY.search(arg):
+        if not free and RISKY.search(arg):
             return f"“{arg}” is one I leave for you to press."
         how = command.extra.get("how", "click")
         try:
@@ -323,7 +325,7 @@ async def carry_out(
             return f"I couldn't look for “{arg}” on the screen. Is Accessibility allowed?"
         if not found.get("found"):
             return f"I don't see “{arg}” in {found.get('app') or 'the app in front'}."
-        if RISKY.search(found.get("name", "")):
+        if not free and RISKY.search(found.get("name", "")):
             return f"“{found['name']}” is one I leave for you to press."
         if "x" in found:  # no press action (or a double or right click): a real click on it
             clicks = 2 if how == "double click" else 1
