@@ -25,6 +25,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import secrets
 from collections import OrderedDict
 from collections.abc import AsyncIterator
@@ -36,9 +37,39 @@ log = logging.getLogger(__name__)
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models"
 VERTEX_EXPRESS = "https://aiplatform.googleapis.com/v1/publishers/google/models"
-SUGGESTED = ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-3-pro-preview")
+# Google's "-latest" names follow each family's newest model; numbered ones get retired
+# (gemini-2.5-flash was, for new keys, in 2026).
+SUGGESTED = (
+    "gemini-flash-latest",
+    "gemini-pro-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.8-flash",
+    "gemini-3.1-pro-preview",
+)
+
+
+def successor(model: str) -> str | None:
+    """Where a retired model's requests go: the newest of its family."""
+    for family in ("flash-lite", "pro", "flash"):
+        if f"-{family}" in model and not model.endswith("-latest"):
+            return f"gemini-{family}-latest"
+    return None
+
+
 DEFAULT_MAX_TOKENS = 8192
+FOREIGN_SIGNATURE = "skip_thought_signature_validator"
 SIGNATURES_KEPT = 5000
+
+# Added to the system prompt when tools come with a request: what Claude does with tools by
+# habit, and Gemini does better when told (it tends to describe a step instead of taking
+# it, stop after one call, or answer before checking what an action did).
+TOOL_HABITS = """
+
+How to work with your tools:
+- When a request needs a tool, call it yourself now; don't describe what you would do or ask whether to do it. Keep calling tools until the request is completely done, then answer.
+- Use exactly the parameter names each function declares.
+- Operating a screen or a web page: after every action, check what happened (read the page or look at the screen again) before the next one. Prefer acting by name or visible text (press_button, browser_click with text) over coordinates. If something didn't work, try another way (another element, a keyboard shortcut, scrolling to find it, going back) instead of giving up.
+- Report what actually happened, from what the tools returned."""
 
 # Schema keywords Gemini's function declarations don't take.
 _DROP_SCHEMA = {"$schema", "$id", "$defs", "definitions", "$ref", "$comment", "examples", "default"}
@@ -125,8 +156,10 @@ def to_gemini(body: dict[str, Any], signatures: Signatures | None = None) -> dic
                     }
                 }
                 signature = signatures.get(block.get("id", "")) if signatures else None
-                if signature:
-                    part["thoughtSignature"] = signature
+                # A call Gemini didn't make (Claude's, before the fallback took over, or one
+                # whose signature has aged out) has none, and Gemini 3 turns the whole
+                # request down without one: Google's stand-in for history from elsewhere.
+                part["thoughtSignature"] = signature or FOREIGN_SIGNATURE
                 parts.append(part)
             elif kind == "tool_result":
                 result = block.get("content")
@@ -157,9 +190,11 @@ def to_gemini(body: dict[str, Any], signatures: Signatures | None = None) -> dic
     out: dict[str, Any] = {"contents": contents}
     system = body.get("system")
     system_text = _text_of(system) if not isinstance(system, str) else system
+    tools = [t for t in body.get("tools") or [] if t.get("name") and "input_schema" in t]
+    if tools:
+        system_text = (system_text or "") + TOOL_HABITS
     if system_text:
         out["systemInstruction"] = {"parts": [{"text": system_text}]}
-    tools = [t for t in body.get("tools") or [] if t.get("name") and "input_schema" in t]
     if tools:
         out["tools"] = [
             {
@@ -191,8 +226,30 @@ def to_gemini(body: dict[str, Any], signatures: Signatures | None = None) -> dic
             generation[dst] = body[src]
     if body.get("stop_sequences"):
         generation["stopSequences"] = list(body["stop_sequences"])[:5]
+    level = thinking_level(body)
+    if level:
+        generation["thinkingConfig"] = {"thinkingLevel": level}
     out["generationConfig"] = generation
     return out
+
+
+def thinking_level(body: dict[str, Any]) -> str | None:
+    """How hard Gemini 3 Flash thinks, from what the request asked of Claude: a session that
+    thinks (Jarvis Code at high effort and up) gets Gemini's full thinking; one with thinking
+    off (JARVIS's voice turns) thinks lightly, about three times faster to the first word.
+    None leaves Gemini's default: Pro (thinking lightly, it leaks stray words into its reply
+    and writes tool calls out as text instead of making them) and older models, which take
+    no level."""
+    model = str(body.get("model") or "").removeprefix("google/")
+    if not model.startswith("gemini-") or re.match(r"gemini-[12]\b|gemini-[12]\.", model):
+        return None
+    if "flash" not in model:
+        return None
+    thinking = body.get("thinking") if isinstance(body.get("thinking"), dict) else {}
+    effort = str((body.get("output_config") or {}).get("effort") or "").lower()
+    if thinking.get("type") in ("enabled", "adaptive") or effort in ("high", "xhigh", "max"):
+        return None
+    return "low"
 
 
 FINISH = {
@@ -431,6 +488,14 @@ class GeminiRelay:
         stream = bool(body.get("stream"))
         try:
             response = await self._open(key, model, payload, stream)
+            newer = successor(model) if response.status_code == 404 else None
+            if newer:
+                text = await self._error_text(response)
+                if "no longer available" in text or "not found" in text.lower():
+                    log.info("gemini: %s is retired; using %s", model, newer)
+                    await response.aclose()
+                    model = newer
+                    response = await self._open(key, model, payload, stream)
         except httpx.HTTPError as exc:
             return (*anthropic_error(529, f"Couldn't reach Gemini ({exc})."), None)
         if response.status_code >= 400:

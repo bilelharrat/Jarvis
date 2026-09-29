@@ -75,7 +75,11 @@ def test_a_conversation_with_tools_and_pictures_becomes_gemini():
         ],
     }
     out = to_gemini(body, sig)
-    assert out["systemInstruction"] == {"parts": [{"text": "You are Jarvis."}]}
+    system = out["systemInstruction"]["parts"][0]["text"]
+    assert system.startswith("You are Jarvis.") and system.endswith(gemini_proxy.TOOL_HABITS)
+    # Without tools the prompt goes as it came.
+    bare = to_gemini({"system": "Be brief.", "messages": [{"role": "user", "content": "Hi"}]})
+    assert bare["systemInstruction"] == {"parts": [{"text": "Be brief."}]}
     roles = [c["role"] for c in out["contents"]]
     assert roles == ["user", "model", "user"]  # the two user turns after the call are one
     assert out["contents"][0]["parts"][1] == {
@@ -353,3 +357,76 @@ async def test_the_model_name_reaches_google(model):
     relay, seen = fake_google(reply={"candidates": [{"content": {"parts": [{"text": "OK."}]}}]})
     await relay.messages(KEY, {"model": model, "messages": [{"role": "user", "content": "hi"}]})
     assert f"/models/{model.removeprefix('google/')}:" in seen[0][0]
+
+
+def test_a_call_gemini_never_made_carries_googles_stand_in_signature():
+    """History from Claude (before the fallback took over) has no Gemini signatures, and
+    Gemini 3 turns a request down over one missing."""
+    body = {
+        "messages": [
+            {"role": "user", "content": "Look at my screen"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "toolu_c", "name": "see_screen", "input": {}}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "toolu_c", "content": "ok"}],
+            },
+        ]
+    }
+    call = to_gemini(body, Signatures())["contents"][1]["parts"][0]
+    assert call["thoughtSignature"] == gemini_proxy.FOREIGN_SIGNATURE
+
+
+@pytest.mark.parametrize(
+    ("model", "extra", "level"),
+    [
+        ("gemini-flash-latest", {}, "low"),  # JARVIS's voice turns: thinking off
+        ("gemini-3.8-flash", {"thinking": {"type": "disabled"}}, "low"),
+        ("gemini-pro-latest", {"thinking": {"type": "enabled", "budget_tokens": 16000}}, None),
+        ("gemini-flash-latest", {"output_config": {"effort": "high"}}, None),
+        ("gemini-pro-latest", {}, None),  # Pro thinking lightly leaks stray words
+        ("gemini-2.5-flash", {}, None),  # older models take no level
+        ("gemma-4-31b-it", {}, None),
+    ],
+)
+def test_thinking_follows_what_the_request_asked_for(model, extra, level):
+    body = {"model": model, "messages": [{"role": "user", "content": "hi"}], **extra}
+    config = to_gemini(body)["generationConfig"].get("thinkingConfig")
+    assert config == ({"thinkingLevel": level} if level else None)
+
+
+def test_a_retired_model_has_a_successor_in_its_family():
+    assert gemini_proxy.successor("gemini-2.5-flash") == "gemini-flash-latest"
+    assert gemini_proxy.successor("gemini-2.5-flash-lite") == "gemini-flash-lite-latest"
+    assert gemini_proxy.successor("gemini-3.1-pro-preview") == "gemini-pro-latest"
+    assert gemini_proxy.successor("gemini-pro-latest") is None
+    assert gemini_proxy.successor("gemma-4-31b-it") is None
+
+
+async def test_a_retired_model_is_answered_by_the_newest_of_its_family():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if "gemini-2.5-flash:" in str(request.url):
+            return httpx.Response(
+                404,
+                json={
+                    "error": {
+                        "message": "This model models/gemini-2.5-flash is no longer "
+                        "available to new users."
+                    }
+                },
+            )
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "OK."}]}}]})
+
+    relay = GeminiRelay(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    status, body, _ = await relay.messages(
+        KEY, {"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert status == 200 and body["content"][0]["text"] == "OK."
+    assert "/models/gemini-flash-latest:" in seen[-1]

@@ -121,7 +121,13 @@ KINDS: dict[str, Kind] = {
         "Gemini relay on this Mac.",
         "AIza",
         "https://aistudio.google.com/app/apikey",
-        ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-3-pro-preview"),
+        (
+            "gemini-flash-latest",
+            "gemini-pro-latest",
+            "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
+            "gemini-3.1-pro-preview",
+        ),
     ),
     "custom": Kind(
         "custom",
@@ -305,7 +311,7 @@ _DATED = r"(?:[-@](?:\d{8}|\d{4}-\d{2}-\d{2})|-latest)"
 # published by each provider; a model not listed shows what Claude Code reports.
 CONTEXT_WINDOWS: list[tuple[str, int]] = [
     (r"gemini-1\.5-pro", 2_000_000),
-    (r"gemini-(1\.5-flash|2|3)", 1_048_576),
+    (r"gemini-(1\.5-flash|2|3|flash|pro)", 1_048_576),
     (r"gpt-5", 400_000),
     (r"gpt-4\.1", 1_047_576),
     (r"gpt-4o|gpt-4-turbo", 128_000),
@@ -1309,7 +1315,7 @@ async def _ask(provider: Provider, key: str, client: httpx.AsyncClient) -> dict[
         status, body, _ = await relay.messages(
             key,
             {
-                "model": "gemini-2.5-flash",
+                "model": "gemini-flash-lite-latest",
                 "max_tokens": 8,
                 "messages": [{"role": "user", "content": "Say OK."}],
             },

@@ -163,8 +163,8 @@ async def test_a_gemini_key_brings_flash_and_pro_and_picks_flash(
     monkeypatch.setattr(hub.providers, "add_model", add_model)
     monkeypatch.setattr(hub.providers, "known", lambda ref: ref.startswith("custom:"))
     await hub._gemini_added("g1")
-    assert added == ["gemini-2.5-flash", "gemini-2.5-pro"]
-    assert hub.prefs.fallback_model == "custom:gemini-2.5-flash"
+    assert added == ["gemini-flash-latest", "gemini-pro-latest"]
+    assert hub.prefs.fallback_model == "custom:gemini-flash-latest"
     await asyncio.sleep(0)
 
 

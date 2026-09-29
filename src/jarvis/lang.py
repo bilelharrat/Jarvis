@@ -1847,6 +1847,7 @@ ZH_TEXTS: dict[str, str] = {
     "Checked traffic": "查看了路况",
     "Looked at your screen": "查看了你的屏幕",
     "Clicked": "点击了",
+    "Pressed a button": "按下了按钮",
     "Typed": "输入了内容",
     "Pressed keys": "按了按键",
     "Scrolled": "滚动了",

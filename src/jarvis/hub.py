@@ -142,6 +142,7 @@ TOOL_LABELS = {
     "drive_time": "Checked traffic",
     "see_screen": "Looked at your screen",
     "click": "Clicked",
+    "press_button": "Pressed a button",
     "type_text": "Typed",
     "press_keys": "Pressed keys",
     "scroll": "Scrolled",
@@ -875,6 +876,7 @@ class Hub:
                 self._connected_ref = ref
             except ValueError as exc:  # gone, or its key: Claude it is, and say why
                 self.emit("error", text=f"The fallback model isn't usable: {exc}")
+        self.screen.grid = self.providers.kind_of(self._connected_ref) == "gemini"
         # Stream text as it's written, so the first sentence can be spoken right away.
         options.include_partial_messages = True
         if resume:
@@ -4298,12 +4300,12 @@ class Hub:
                 log.warning("gemini relay didn't start: %s", exc)
 
     async def _gemini_added(self, provider_id: str) -> None:
-        """One paste is enough: a Gemini key brings Gemini 2.5 Flash (fast; the fallback when
-        none is set) and 2.5 Pro to the model lists."""
+        """One paste is enough: a Gemini key brings Gemini Flash (fast; the fallback when none
+        is set) and Gemini Pro to the model lists, each the newest of its family."""
         refs = []
         for model, label in (
-            ("gemini-2.5-flash", "Gemini 2.5 Flash"),
-            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            ("gemini-flash-latest", "Gemini Flash"),
+            ("gemini-pro-latest", "Gemini Pro"),
         ):
             try:
                 refs.append(self.providers.add_model(provider_id, model, label)["ref"])

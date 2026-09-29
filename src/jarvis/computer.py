@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -166,6 +167,10 @@ class Screen:
 
     def __init__(self) -> None:
         self.scale = 1.0  # screen points per screenshot pixel
+        # Gemini points at things on a 0-1000 grid over an image (its native way of
+        # locating), not in the image's pixels; the hub sets this while Gemini is answering.
+        self.grid = False
+        self.size = (0, 0)  # the latest screenshot's pixels
 
     def points(self) -> tuple[float, float]:
         import Quartz
@@ -188,10 +193,27 @@ class Screen:
             data = base64.b64encode(path.read_bytes()).decode()
         points_w, _ = self.points()
         self.scale = points_w / width
+        self.size = (width, height)
         return data, width, height
 
     def to_points(self, x: float, y: float) -> tuple[float, float]:
+        if self.grid and self.size[0]:
+            width, height = self.size
+            x, y = min(max(x, 0), GRID) * width / GRID, min(max(y, 0), GRID) * height / GRID
         return x * self.scale, y * self.scale
+
+    def how_to_point(self, width: int, height: int) -> str:
+        if self.grid:
+            return (
+                f"Screenshot of the whole screen. Give click and scroll positions as x and y on "
+                f"a 0-{GRID} grid over this image: 0,0 is the top-left corner, {GRID},{GRID} the "
+                "bottom-right. Aim at the middle of what you want."
+            )
+        return f"Screenshot {width}x{height} px. Give click and scroll positions in its pixels."
+
+
+GRID = 1000
+SETTLE = 0.35  # seconds after an action, so the next look sees what it did
 
 
 def parse_sips_size(out: str) -> tuple[int, int]:
@@ -287,8 +309,9 @@ if (front.startsWith('Safari')) {
 out;
 """
 
-# Tools that move the mouse or type need the user's OK once per request.
-CONTROL_TOOLS = ["click", "type_text", "press_keys", "scroll"]
+# Tools that move the mouse or type (asked once per request, unless the user has turned on
+# Control my Mac without asking).
+CONTROL_TOOLS = ["click", "press_button", "type_text", "press_keys", "scroll"]
 READ_TOOLS = ["see_screen", "find_files", "read_file", "browser_page"]
 
 
@@ -297,8 +320,8 @@ def build_server(screen: Screen | None = None):
 
     @tool(
         "see_screen",
-        "Take a screenshot of the main display to see what's on it. Coordinates for click "
-        "are in this image's pixels.",
+        "Take a screenshot of the main display to see what's on it. Its result says how to give "
+        "positions for click and scroll.",
         {},
     )
     async def see_screen(_args):
@@ -308,15 +331,16 @@ def build_server(screen: Screen | None = None):
             return _error(str(exc))
         return {
             "content": [
-                {"type": "text", "text": f"Screenshot {width}x{height} px."},
+                {"type": "text", "text": screen.how_to_point(width, height)},
                 {"type": "image", "data": data, "mimeType": "image/png"},
             ]
         }
 
     @tool(
         "click",
-        "Click at a point in the latest screenshot's pixel coordinates. button: left or right. "
-        "clicks: 1 or 2.",
+        "Click at a point in the latest see_screen screenshot (x and y as its result says). "
+        "button: left or right. clicks: 1 or 2. To press a button, link, tab or menu item "
+        "that has a name, press_button is more reliable.",
         {
             "type": "object",
             "properties": {
@@ -332,11 +356,59 @@ def build_server(screen: Screen | None = None):
         x, y = screen.to_points(float(args["x"]), float(args["y"]))
         clicks = max(1, min(3, int(args.get("clicks") or 1)))
         await asyncio.to_thread(_post_mouse, "click", x, y, args.get("button") or "left", clicks)
-        return _text(f"Clicked at {args['x']:.0f},{args['y']:.0f}.")
+        await asyncio.sleep(SETTLE)
+        return _text(f"Clicked at {float(args['x']):.0f},{float(args['y']):.0f}.")
+
+    @tool(
+        "press_button",
+        "Press a button, link, tab, checkbox, menu or menu-bar item in the app in front by its "
+        "name (its label, title or description), through the Mac's accessibility interface: "
+        "no coordinates needed, so prefer it to click for anything with a name. how: click "
+        "(default), double click or right click.",
+        {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "how": {"type": "string"}},
+            "required": ["name"],
+        },
+    )
+    async def press_button(args):
+        from .system_voice import CLICK_JXA  # it imports this module
+
+        name = str(args.get("name", "")).strip()
+        how = str(args.get("how") or "click").strip().lower()
+        if how not in ("click", "double click", "right click"):
+            how = "click"
+        if not name:
+            return _error("Say which button to press.")
+        try:
+            raw = await run_command(
+                "osascript", "-l", "JavaScript", "-e", CLICK_JXA, name, how, timeout=8
+            )
+            found = json.loads(raw.strip().splitlines()[-1])
+        except (ToolFailure, ValueError, IndexError):
+            return _error(
+                "I couldn't read the app's buttons. Allow Accessibility (and Automation for "
+                "System Events) for the app running JARVIS; or use see_screen and click."
+            )
+        app = found.get("app") or "the app in front"
+        if not found.get("found"):
+            return _error(
+                f"No button, link or menu item named “{name}” in {app}. Use see_screen and "
+                "click instead."
+            )
+        if "x" in found:  # no press action (or a double or right click): a real click on it
+            button = "right" if how == "right click" else "left"
+            clicks = 2 if how == "double click" else 1
+            await asyncio.to_thread(
+                _post_mouse, "click", float(found["x"]), float(found["y"]), button, clicks
+            )
+        await asyncio.sleep(SETTLE)
+        return _text(f"Pressed “{found.get('name') or name}” in {app}.")
 
     @tool("type_text", "Type text at the current keyboard focus.", {"text": str})
     async def type_text(args):
         await asyncio.to_thread(_post_text, str(args["text"])[:2000])
+        await asyncio.sleep(SETTLE)
         return _text("Typed it.")
 
     @tool(
@@ -349,15 +421,34 @@ def build_server(screen: Screen | None = None):
             await asyncio.to_thread(_post_keys, args["keys"])
         except ValueError as exc:
             return _error(str(exc))
+        await asyncio.sleep(SETTLE)
         return _text(f"Pressed {args['keys']}.")
 
     @tool(
         "scroll",
-        "Scroll the view under the mouse. amount: lines, negative scrolls down.",
-        {"amount": int},
+        "Scroll. amount: lines, negative scrolls down, positive up. x and y (optional, as "
+        "see_screen's result says): what to scroll, e.g. a list or a page; otherwise whatever "
+        "is under the mouse.",
+        {
+            "type": "object",
+            "properties": {
+                "amount": {"type": "integer"},
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+            },
+            "required": ["amount"],
+        },
     )
     async def scroll(args):
-        await asyncio.to_thread(_post_scroll, max(-50, min(50, int(args["amount"]))))
+        try:
+            amount = max(-50, min(50, int(args["amount"])))
+        except (TypeError, ValueError):
+            return _error("amount: a whole number of lines, negative to scroll down.")
+        if args.get("x") is not None and args.get("y") is not None:
+            x, y = screen.to_points(float(args["x"]), float(args["y"]))
+            await asyncio.to_thread(_post_mouse, "move", x, y)
+        await asyncio.to_thread(_post_scroll, amount)
+        await asyncio.sleep(SETTLE)
         return _text("Scrolled.")
 
     @tool(
@@ -420,6 +511,7 @@ def build_server(screen: Screen | None = None):
         tools=[
             see_screen,
             click,
+            press_button,
             type_text,
             press_keys,
             scroll,
