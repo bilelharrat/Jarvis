@@ -519,9 +519,10 @@ function renderPrefs(p) {
   const model = (p.models || []).find((m) => m.id === p.model);
   $('model-chip').textContent = model ? model.name : p.model;
   $('hf-indicator').hidden = !p.hands_free;
+  // What to say or press, plus the What's-this key.
   $('hint').replaceChildren(...(p.hands_free
-    ? [document.createTextNode('Say “Jarvis” · talk over me to interrupt')]
-    : [document.createTextNode('Tap the orb, or press '), el('kbd', '', '⌥ Space'), document.createTextNode(' anywhere')]));
+    ? [document.createTextNode('Say “Hey Jarvis” · '), el('kbd', '', '⌥ Space'), document.createTextNode(' talk · '), el('kbd', '', '⌥⇧ Space'), document.createTextNode(' what’s this?')]
+    : [el('kbd', '', '⌥ Space'), document.createTextNode(' talk · '), el('kbd', '', '⌥⇧ Space'), document.createTextNode(' what’s this?')]));
   setSwitch('sw-effect', p.voice_effect);
   $('mic-select').value = p.mic || 'builtin';
   setSwitch('sw-location', p.use_location !== false);
