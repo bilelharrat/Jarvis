@@ -1308,3 +1308,20 @@ body.in-app.rc-open .cards { top: 118px; }
 .screen-pill svg { animation: screen-blink 4s ease-in-out infinite; }
 @keyframes screen-blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.15); } }
 @media (prefers-reduced-motion: reduce) { .screen-pill svg { animation: none; } }
+/* HUD: System // Defense */
+.df-link { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.df-link b { font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-link span { color: var(--muted); font-size: 12px; }
+.df-ping { margin-left: auto; color: var(--action) !important; font-variant-numeric: tabular-nums; }
+.df-ping.bad { color: #f0a458 !important; }
+.df-rates { display: flex; gap: 18px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.df-rates b { color: var(--ink); font-weight: 500; }
+.df-shields { list-style: none; margin: 2px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.df-shields li { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 1px; border: 1px solid var(--line); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+.df-shields li b { font-weight: 500; color: var(--ink-2); font-size: 8px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: 100%; }
+.df-shields li span { font-size: 11px; }
+.df-shields li.on span { color: var(--action); text-shadow: 0 0 8px rgba(79, 211, 255, 0.6); }
+.df-shields li.off { border-color: rgba(240, 164, 88, 0.45); }
+.df-shields li.off span { color: #f0a458; }
+.df-shields li.unknown span { color: var(--muted); }
+body[data-look="hud"] #p-defense { gap: 10px; }

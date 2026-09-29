@@ -72,6 +72,7 @@ function onEvent(ev) {
       history = ev.history || [];
       renderHistory();
       if (ev.vitals) renderVitals(ev.vitals);
+      if (ev.defense) renderDefense(ev.defense);
       renderWeather(ev.weather);
       renderMarkets(ev.markets);
       $('v-accounts').textContent = (ev.accounts || []).length;
@@ -143,6 +144,7 @@ function onEvent(ev) {
     case 'browser_cmd': runBrowserCommand(ev); break;
     case 'research_cmd': runResearchCmd(ev); break;
     case 'ui': applyUi(ev); break;
+    case 'defense': renderDefense(ev); break;
     case 'ask_queue': renderAskQueue(ev.items || []); break;
     case 'pdf_cmd': makePdf(ev); break;
     case 'saved': onSaved(ev); break;
@@ -825,7 +827,33 @@ let history = [];
 
 function bar(id, pct) { $(id).style.width = `${Math.max(0, Math.min(100, pct))}%`; }
 
+// The HUD's Defense panel: the Mac's real shields and link.
+function rate(bytes) {
+  if (!(bytes >= 0)) return '–';
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB/s`;
+  if (bytes >= 1e3) return `${Math.round(bytes / 1e3)} KB/s`;
+  return `${Math.round(bytes)} B/s`;
+}
+
+function renderDefense(d) {
+  const shields = d.shields || [];
+  const up = shields.filter((x) => x.on).length;
+  $('df-score').textContent = shields.length ? `${up}/${shields.length} up` : '–';
+  const link = d.link || {};
+  $('df-kind').textContent = link.name ? `${link.kind} · ${link.name}` : (link.kind || 'Link');
+  $('df-addr').textContent = link.address || '';
+  $('df-ping').textContent = d.latency == null ? 'no route' : `${Math.round(d.latency)} ms`;
+  $('df-ping').classList.toggle('bad', d.latency == null || d.latency > 150);
+  $('df-shields').replaceChildren(...shields.map((x) => {
+    const li = el('li', x.on ? 'on' : x.on === false ? 'off' : 'unknown');
+    li.title = x.detail;
+    li.append(el('b', '', x.name), el('span', '', x.on ? 'On' : x.on === false ? 'Off' : '?'));
+    return li;
+  }));
+}
+
 function renderVitals(v) {
+  if (v.net) { $('df-down').textContent = rate(v.net.down); $('df-up').textContent = rate(v.net.up); }
   $('v-cpu').textContent = `${v.cpu}%`; bar('bar-cpu', v.cpu);
   $('v-mem').textContent = `${v.mem_used} / ${v.mem_total} GB`; bar('bar-mem', v.mem_pct);
   $('v-disk').textContent = `${v.disk_pct}%`; bar('bar-disk', v.disk_pct);

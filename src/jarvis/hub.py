@@ -37,7 +37,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import computer, invoices, mac_tools, research, screenwatch, ui
+from . import computer, defense, invoices, mac_tools, research, screenwatch, ui
 from .brain import build_options
 from .config import Settings
 from .connectors import ConnectorManager
@@ -247,6 +247,8 @@ class Hub:
         self.invoices = invoice_store or invoices.InvoiceStore()
         self.screen_watch = screen_watch or screenwatch.ScreenWatcher(app_name=frontmost_app)
         self._whats_this_app = "their Mac"
+        self.net = defense.NetMeter()
+        self.defense: dict[str, Any] = {"shields": [], "link": {}, "latency": None}
         self.meeting: Any = None  # meeting notes in progress
         self.notes_transcriber = notes_transcriber
         self._summarize = summarize
@@ -337,6 +339,7 @@ class Hub:
             self._spawn(self.watcher.run())
             self._spawn(self._routine_clock())
             self._spawn(self._markets_loop())
+            self._spawn(self._defense_loop())
         if self.prefs.remote_enabled:
             await self.remote.start()
         if self.prefs.hands_free:
@@ -684,6 +687,7 @@ class Hub:
             "brain": {**self.kb.summary(), **self.brain_state},
             "history": list(self.history),
             "vitals": self.vitals(),
+            "defense": self.defense,
             "weather": self.weather,
             "location": self.location,
             "accounts": self.connectors.connected_names(),
@@ -2880,7 +2884,25 @@ class Hub:
             "uptime": int(time.monotonic() - self.started_at),
             "commands": self.commands,
             "battery": battery(),
+            "net": self.net.read(),
         }
+
+    async def _defense_loop(self) -> None:
+        """The HUD's Defense panel: the shields every ten minutes, the round trip to the
+        internet every thirty seconds, while a window is watching."""
+        checked = -1e9
+        while True:
+            if self._subscribers:
+                if time.monotonic() - checked > 600:
+                    shields, link = await asyncio.gather(
+                        asyncio.to_thread(defense.read_shields),
+                        asyncio.to_thread(defense.read_link),
+                    )
+                    self.defense.update(shields=shields, link=link)
+                    checked = time.monotonic()
+                self.defense["latency"] = await defense.latency_ms()
+                self.emit("defense", **self.defense)
+            await asyncio.sleep(30)
 
     async def _vitals_loop(self) -> None:
         while True:
