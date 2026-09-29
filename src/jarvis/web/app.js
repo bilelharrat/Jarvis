@@ -236,9 +236,12 @@ $('ask-form').addEventListener('submit', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
+  // Anywhere text goes in (fields, the composer and other text boxes, a title being
+  // renamed), Space is a space: never the microphone.
+  const field = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
+  const typing = field || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable);
   if (e.key === 'Escape') {
-    if (typing) e.target.blur();
+    if (field) e.target.blur();
     if (!$('browser').hidden && !typing) toggleBrowser(false);
     else if (!$('cc').hidden) { if (!jcEscape(e)) toggleCC(false); }
     else if (!$('accounts').hidden) toggleAccounts(false);
