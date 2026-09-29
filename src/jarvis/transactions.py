@@ -393,9 +393,11 @@ _MONEY = re.compile(
     rf"(?: ?(?P<suf>{_SUFFIX}))?",
     re.IGNORECASE,
 )
-# "1 234,50 €": grouped with spaces, which only counts with a currency after it.
+# "1 234,50 €": grouped with spaces, which only counts with a currency after it. At most
+# four groups (999 999 999 999): with no limit, a line of "111 111 111 …" and no currency
+# was tried from every group to the end of the line, and took seconds.
 _SPACED = re.compile(
-    r"(?<![\d.,])(?P<int>\d{1,3}(?: \d{3})+)(?:,(?P<dec>\d{1,2}))? ?"
+    r"(?<![\d.,])(?P<int>\d{1,3}(?: \d{3}){1,4})(?:,(?P<dec>\d{1,2}))? ?"
     r"(?P<suf>€|zł|(?:eur|kr|chf|pln|sek|nok|dkk)(?![a-z]))",
     re.IGNORECASE,
 )
@@ -440,14 +442,16 @@ def money_in(text: str) -> list[Money]:
     """Every amount in a line of text, with the currencies its sign allows."""
     line = _nfkc(text)
     found: list[Money] = []
-    masked = line
+    parts, at = [], 0  # the line with the spaced amounts blanked out, built in one pass
     for m in _SPACED.finditer(line):
         found.append(
             Money(
                 _number(m["int"], m["dec"]), _signs(None, m["suf"]), len(m["dec"] or ""), *m.span()
             )
         )
-        masked = masked[: m.start()] + " " * (m.end() - m.start()) + masked[m.end() :]
+        parts += [line[at : m.start()], " " * (m.end() - m.start())]
+        at = m.end()
+    masked = "".join(parts) + line[at:]
     for m in _MONEY.finditer(masked):
         before = masked[m.start() - 1 : m.start()]
         at_number = masked[m.start("int") - 1 : m.start("int")]
@@ -485,17 +489,20 @@ def page_lines(page: dict[str, Any] | None) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def _counts(money_: Money, line: str) -> bool:
-    """A number that is surely a price: it has a currency sign, or cents, or it sits on
-    a line about a price or a total."""
-    return money_.signed or money_.decimals == 2 or bool(_MONEY_CUE.search(line))
+def _counted(line: str) -> list[Money]:
+    """The numbers on a line that are surely prices: each has a currency sign, or cents,
+    or the line is about a price or a total. The line is searched for that once, not once
+    per number: a page line of 7,000 bare numbers took seconds."""
+    found = money_in(line)
+    sure = [m for m in found if m.signed or m.decimals == 2]
+    if len(sure) < len(found) and _MONEY_CUE.search(line):
+        return found
+    return sure
 
 
 def amount_on_page(amount: float, currency: str, page: dict[str, Any]) -> bool:
     for line in page_lines(page):
-        for found in money_in(line):
-            if not _counts(found, line):
-                continue
+        for found in _counted(line):
             if found.signed and currency not in found.signs:
                 continue
             if abs(found.value - amount) < CENT:
@@ -619,7 +626,7 @@ def charge_currency(amount: float, currency: str, page: dict[str, Any]) -> tuple
         found
         for line in page_lines(page)
         for found in money_in(line)
-        if found.signed and "?" not in found.signs and _counts(found, line)
+        if found.signed and "?" not in found.signs  # a signed amount always counts
     ]
     shown = [m for m in priced if abs(m.value - amount) < CENT and currency in m.signs]
     sets = {found.signs for found in shown or priced}
@@ -1068,7 +1075,7 @@ class PageView:
 
     @cached_property
     def amounts(self) -> bool:
-        return any(_counts(m, line) for line in self.lines for m in money_in(line))
+        return any(_counted(line) for line in self.lines)
 
     @cached_property
     def cues(self) -> str:
