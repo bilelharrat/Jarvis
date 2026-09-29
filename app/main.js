@@ -922,8 +922,13 @@ async function runBrowserCommand({ action, args = {} }) {
   }
 }
 
+// The slot's place in the window's CSS pixels, as the view's bounds: the same unless the
+// window's page is zoomed.
 function fitBounds(b) {
-  return { x: Math.round(b.x), y: Math.round(b.y), width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)) };
+  const z = win && !win.isDestroyed() ? win.webContents.getZoomFactor() || 1 : 1;
+  const x = Math.round(b.x * z);
+  const y = Math.round(b.y * z);
+  return { x, y, width: Math.max(0, Math.round((b.x + b.width) * z) - x), height: Math.max(0, Math.round((b.y + b.height) * z) - y) };
 }
 
 ipcMain.handle('browser:show', (event, bounds) => {

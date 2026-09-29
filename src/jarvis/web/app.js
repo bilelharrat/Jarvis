@@ -3673,7 +3673,29 @@ function slotBounds() {
 }
 
 function syncBrowserBounds() {
-  if (browserOpenNow && app && app.browser && $('br-message').hidden && $('bd-lib').hidden) app.browser.setBounds(slotBounds());
+  if (browserOpenNow && app && app.browser && $('br-message').hidden && $('bd-lib').hidden) {
+    const b = slotBounds();
+    slotSeen = boundsKey(b);
+    app.browser.setBounds(b);
+  }
+}
+
+// The page is a native view laid over the slot, so it goes where it's told, not where the
+// slot is. The slot also moves without changing size (the dock slides in, full screen and
+// the guide strip shift it), which no ResizeObserver sees; so while the browser is open,
+// every frame checks where the slot is and moves the page there when it has moved.
+let slotSeen = '';
+let slotWatching = false;
+const boundsKey = (b) => [b.x, b.y, b.width, b.height].map(Math.round).join(',');
+function watchSlot() {
+  if (slotWatching) return;
+  slotWatching = true;
+  const tick = () => {
+    if (!browserOpenNow) { slotWatching = false; slotSeen = ''; return; }
+    if (boundsKey(slotBounds()) !== slotSeen) syncBrowserBounds();
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 function toggleBrowser(open) {
@@ -3684,7 +3706,7 @@ function toggleBrowser(open) {
   $('browser-btn').setAttribute('aria-expanded', String(open));
   if (open) {
     applyDockWidth(dockWidth());
-    requestAnimationFrame(() => app.browser.show(slotBounds()));
+    requestAnimationFrame(() => { const b = slotBounds(); slotSeen = boundsKey(b); app.browser.show(b); watchSlot(); });
   } else {
     app.browser.hide();
     if (app.browser.find) { closeFind(); closeLibrary(); document.body.classList.remove('browser-full', 'browser-page-full'); $('br-full').setAttribute('aria-pressed', 'false'); }
