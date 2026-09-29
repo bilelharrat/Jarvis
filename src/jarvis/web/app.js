@@ -190,6 +190,7 @@ function onEvent(ev) {
     case 'browser_cmd': runBrowserCommand(ev); break;
     case 'research_cmd': runResearchCmd(ev); break;
     case 'ui': applyUi(ev); break;
+    case 'desktop_hands': onDesktopHands(ev); break;
     case 'defense': renderDefense(ev); break;
     case 'ask_queue': renderAskQueue(ev.items || []); break;
     case 'task_bash': onBang(ev); break;
@@ -435,7 +436,31 @@ const HAND_HELP = {
   page: '✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close',
   galaxy: '☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close',
   app: '☝ point · pinch to press · pinch and move to scroll · wave to dismiss a notice (or change the look) · hold an open palm to talk · hold a fist to stop me',
+  desktop: '✋ aim · pinch to click (twice: double click) · pinch and move to drag · thumb to middle finger: right click · two fingers up and move to scroll · hold a fist to pause, an open palm to resume',
 };
+
+// Hands steering the whole Mac: gestures go to the backend, which moves the real pointer;
+// a small indicator stays on top of every app.
+let deskTarget = null;
+const handHud = (u) => window.jarvisApp && window.jarvisApp.handHud && window.jarvisApp.handHud(u);
+function desktopTarget() {
+  if (!deskTarget) {
+    deskTarget = {
+      ...handsModule.desktopMessages(send),
+      status: (text) => handHud({ status: tr(text) }),
+      paused: (on) => handHud({ paused: on }),
+      feedback: (fb) => handHud(fb),
+    };
+  }
+  return deskTarget;
+}
+function onDesktopHands(ev) {
+  if (ev.state === 'blocked' || ev.state === 'error') {
+    handHud({ blocked: true, status: ev.text });
+    notice('Hand control', 'Can’t steer the Mac', ev.text, 15000);
+    if (handsOn) stopHandControl();
+  }
+}
 
 function clickableAt(x, y) {
   handPoint = { x, y };
@@ -487,6 +512,7 @@ const appTarget = {
 };
 
 function handTarget() {
+  if (prefs && prefs.desktop_hands && handsModule) return { target: desktopTarget(), close: () => {}, help: HAND_HELP.desktop };
   if (browserOpenNow) return { target: pageTarget, close: () => toggleBrowser(false), help: HAND_HELP.page };
   return galaxyMode === 'open'
     ? { target: galaxy, close: () => setGalaxyMode('off'), help: HAND_HELP.galaxy }
@@ -511,10 +537,11 @@ async function startHandControl() {
   setHandButtons(true);
   $('hand-panel').hidden = false;
   $('hand-status').textContent = 'Loading hand tracking…';
-  const { target, close, help } = handTarget();
-  $('hand-help').textContent = help;
   try {
     handsModule = handsModule || (await import(`/static/hands.js?v=${Date.now()}`));
+    const { target, close, help } = handTarget(); // now that the Mac's target can be made
+    $('hand-help').textContent = help;
+    if (target.kind === 'desktop' && window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(true);
     await handsModule.startHands(target, {
       overlayCanvas: $('hand-overlay'),
       statusEl: $('hand-status'),
@@ -525,12 +552,14 @@ async function startHandControl() {
     $('hand-status').textContent = `Hand control couldn't start: ${err.message || err}`;
     handsOn = false;
     setHandButtons(false);
+    if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(false);
   }
 }
 
 function stopHandControl() {
   handsOn = false;
   if (handsModule) handsModule.stopHands();
+  if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(false);
   if (handHover) handHover.classList.remove('hand-hover');
   handHover = null;
   setHandButtons(false);
@@ -638,6 +667,7 @@ function renderPrefs(p) {
   setSwitch('sw-location', p.use_location !== false);
   setSwitch('sw-handsfree', p.hands_free);
   setSwitch('sw-clap', p.clap_hands !== false);
+  setSwitch('sw-desktop-hands', p.desktop_hands);
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
   setSwitch('sw-screen', p.screen_aware);
@@ -741,6 +771,15 @@ $('mic-select').addEventListener('change', (e) => setPrefs({ mic: e.target.value
 $('sw-location').addEventListener('click', () => setPrefs({ use_location: prefs.use_location === false }));
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('sw-clap').addEventListener('click', () => setPrefs({ clap_hands: prefs.clap_hands === false }));
+$('sw-desktop-hands').addEventListener('click', () => {
+  const on = !prefs.desktop_hands;
+  setPrefs({ desktop_hands: on });
+  prefs.desktop_hands = on; // retarget now, not on the round trip
+  if (handsOn) {
+    retargetHands();
+    if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(on);
+  }
+});
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
 $('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
 $('sw-screen').addEventListener('click', () => setPrefs({ screen_aware: !prefs.screen_aware }));

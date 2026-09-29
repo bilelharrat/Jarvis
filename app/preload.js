@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('jarvisApp', {
   attention: () => ipcRenderer.send('jarvis:attention'),
   pickFolder: () => ipcRenderer.invoke('jarvis:pick-folder'),
   pdf: (page) => ipcRenderer.invoke('jarvis:pdf', page),
+  desktopHands: (on) => ipcRenderer.send('jarvis:desktop-hands', !!on),
+  handHud: (update) => ipcRenderer.send('jarvis:hand-hud', update),
   browser: {
     show: (bounds) => ipcRenderer.invoke('browser:show', bounds),
     hide: () => ipcRenderer.invoke('browser:hide'),

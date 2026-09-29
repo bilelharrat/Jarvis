@@ -1,10 +1,19 @@
 // Hand control, Stark-style: MediaPipe's hand tracker runs locally in the window (the
 // camera never leaves this Mac) and gestures.js turns hands into actions on a target:
 // the knowledge galaxy while it's open, the Research Center while it's open (a "page"
-// target, which draws its own cursor), the rest of the app otherwise.
+// target, which draws its own cursor), the rest of the app otherwise, or, in desktop mode,
+// the whole Mac (a "desktop" target: gestures become real cursor events, posted by
+// desktop_hands.py on the backend).
+//
+// Desktop mode has to keep working while JARVIS's window is behind other apps or hidden.
+// requestVideoFrameCallback only fires for a window that is being drawn, so there frames
+// come straight off the camera track (MediaStreamTrackProcessor), or failing that from a
+// timer; either needs the window's background throttling off (main.js).
 
 import { FilesetResolver, HandLandmarker } from '/vision/vision_bundle.mjs';
-import { createGestures, createPageGestures, wellFormed } from './gestures.js';
+import { createDesktopGestures, createGestures, createPageGestures, desktopMessages, wellFormed } from './gestures.js';
+
+export { desktopMessages };
 
 let landmarker = null;
 let video = null;
@@ -17,6 +26,11 @@ let cursor = null;
 let step = null;
 let closeFn = null;
 let lastStamp = 0;
+let desk = null; // the desktop gestures while the target is the whole Mac
+let pumping = false; // desktop mode: frames come from pump(), not the video callback
+let pumpStop = null;
+let busy = false;
+let lastFeedback = null;
 
 function setStatus(text) { if (status) status.textContent = text; }
 
@@ -42,7 +56,12 @@ function hideCursor() {
 
 function letGoOf(target) {
   if (!target) return;
-  if (target.kind === 'page') target.hide();
+  if (target.kind === 'desktop') {
+    if (desk) desk.stop(); // lets go of a held button before anything else
+    desk = null;
+    if (target.stop) target.stop();
+    stopPump();
+  } else if (target.kind === 'page') target.hide();
   else target.hoverAtClient(null, null);
 }
 
@@ -50,7 +69,15 @@ function onFrame(result, stamp) {
   // Whole hands only: a malformed one would throw in drawOverlay and lose the good hand's frame.
   const hands = (result.landmarks || []).filter(wellFormed);
   const view = step(hands, stamp) || { hand: 0, pinch: 0 };
-  drawOverlay(hands, view);
+  if (overlay && !document.hidden) drawOverlay(hands, view); // nobody sees it behind other apps
+  if (galaxyRef && galaxyRef.kind === 'desktop' && galaxyRef.feedback) {
+    // Only when it changes (the pinch by a visible step): it crosses to another window.
+    const fb = { hand: view.hand >= 0, pinch: Math.round(view.pinch * 10) / 10, paused: !!(desk && desk.paused) };
+    if (!lastFeedback || fb.hand !== lastFeedback.hand || fb.pinch !== lastFeedback.pinch || fb.paused !== lastFeedback.paused) {
+      lastFeedback = fb;
+      galaxyRef.feedback(fb);
+    }
+  }
 }
 
 // The camera view: the steering hand bright, any other dimmed, and the thumb-to-index
@@ -104,11 +131,65 @@ function frameStamp(meta) {
 
 function loop(_now, meta) {
   if (!running) return;
-  if (video.readyState >= 2) {
+  if (!pumping && video.readyState >= 2) {
     const stamp = frameStamp(meta);
     try { onFrame(landmarker.detectForVideo(video, stamp), stamp); } catch (err) { console.warn(err); }
   }
   video.requestVideoFrameCallback(loop);
+}
+
+// Desktop mode's frames: straight off the camera track, so they keep coming while the
+// window isn't drawn. A frame that arrives while the last is still being read is dropped
+// (closed at once), never queued: the cursor follows the newest hand, not a backlog.
+function startPump() {
+  if (pumping || !stream) return;
+  pumping = true;
+  const track = stream.getVideoTracks()[0];
+  let stopped = false;
+  if (typeof MediaStreamTrackProcessor === 'function' && track) {
+    const reader = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader();
+    pumpStop = () => { stopped = true; reader.cancel().catch(() => {}); };
+    (async () => {
+      while (!stopped && running) {
+        let frame;
+        try {
+          ({ value: frame } = await reader.read());
+        } catch { break; }
+        if (!frame) break;
+        try {
+          if (!busy && !stopped) {
+            busy = true;
+            const stamp = frameStamp(null);
+            onFrame(landmarker.detectForVideo(frame, stamp), stamp);
+          }
+        } catch (err) {
+          console.warn(err);
+        } finally {
+          busy = false;
+          frame.close();
+        }
+      }
+    })();
+  } else {
+    // No track reader: a timer on the video element (works while hidden only with the
+    // window's background throttling off).
+    const tick = () => {
+      if (stopped || !running) return;
+      if (video.readyState >= 2) {
+        const stamp = frameStamp(null);
+        try { onFrame(landmarker.detectForVideo(video, stamp), stamp); } catch (err) { console.warn(err); }
+      }
+      timer = setTimeout(tick, 33);
+    };
+    let timer = setTimeout(tick, 33);
+    pumpStop = () => { stopped = true; clearTimeout(timer); };
+  }
+}
+
+function stopPump() {
+  if (pumpStop) pumpStop();
+  pumpStop = null;
+  pumping = false;
 }
 
 // Point the same hands at something else (the galaxy or the Research Center opening or
@@ -118,7 +199,22 @@ export function setTarget(target, close) {
   galaxyRef = target;
   closeFn = close;
   const closeIt = () => closeFn && closeFn();
-  if (target.kind === 'page') {
+  if (target.kind === 'desktop') {
+    // target: desktopMessages(send) plus optional status(text), paused(on) and
+    // feedback({ hand, pinch, paused }) for the always-on-top indicator.
+    if (desk) return; // already steering the Mac
+    hideCursor();
+    lastFeedback = null;
+    desk = createDesktopGestures({
+      desktop: target,
+      status: (text) => { setStatus(text); if (target.status) target.status(text); },
+      paused: (on) => { if (target.paused) target.paused(on); },
+      aspect: cameraAspect,
+    });
+    step = desk.step;
+    if (target.start) target.start();
+    if (running) startPump();
+  } else if (target.kind === 'page') {
     hideCursor(); // the page draws its own
     step = createPageGestures({ page: target, status: setStatus, close: closeIt, aspect: cameraAspect });
   } else {
@@ -155,14 +251,25 @@ export async function startHands(target, { overlayCanvas, statusEl, cursorEl, cl
   running = true;
   setStatus('Show me your hand');
   video.requestVideoFrameCallback(loop);
+  if (desk) startPump();
 }
 
 export function stopHands() {
+  letGoOf(galaxyRef); // desktop mode first: its held button is let go before the camera stops
+  galaxyRef = null;
   running = false;
+  stopPump();
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
   if (cursor) cursor.hidden = true;
-  letGoOf(galaxyRef);
 }
 
 export function handsRunning() { return running; }
+
+// Desktop mode: whether it's steering the Mac, and pausing it from elsewhere (a spoken
+// "stop", the indicator's button). Pausing lets go of anything held at once.
+export function desktopMode() { return !!desk; }
+export function pauseDesktop(on = true) { if (desk) desk.pause(on); }
+
+// A window closing mid-drag: the backend's watchdog would let go within a second anyway.
+addEventListener('pagehide', () => { if (desk) desk.stop(); });

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<title>Hand control</title>
+<link rel="stylesheet" href="hand-hud.css">
+</head>
+<body>
+  <!-- Desktop hand control's indicator: always on top, never focused, clicks pass through.
+       It's the only sign of the hands over other apps, so it says what they're doing. -->
+  <div id="hud" data-state="idle" role="status" aria-live="polite">
+    <span id="ring" aria-hidden="true"><span id="dot"></span></span>
+    <span id="text">Hand control of the Mac</span>
+  </div>
+  <script src="hand-hud.js"></script>
+</body>
+</html>

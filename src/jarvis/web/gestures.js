@@ -662,3 +662,324 @@ export function createPageGestures({ page, status, close, box = PAGE_BOX, aspect
     return out;
   };
 }
+
+// ── Desktop control: the whole Mac ──
+//
+// The hands drive the real macOS cursor (desktop_hands.py posts the events), so every
+// gesture here errs toward doing nothing: a missed click costs a second try, a stray one
+// can drop a file in the wrong folder.
+// - The middle of your hand aims, over a fixed box of the camera (DESKTOP_BOX) that
+//   covers the whole screen: the same spot of the camera is always the same spot of the
+//   screen, and the screen's edges are reached with the hand still well inside the frame.
+//   Stronger smoothing than the app's and a small dead zone hold the cursor on a still
+//   hand; a hand passing through the frame moves nothing until it has stayed a moment.
+// - Pinch (thumb to index) and let go: click where you aimed just before the fingers
+//   closed. Twice quickly: double click. Pinch and move, or pinch and hold still: the
+//   button goes down there, the cursor follows the hand, letting go drops.
+// - Thumb to middle finger (index still up): right click.
+// - Two fingers up (index and middle, like a trackpad's two-finger scroll) and move:
+//   the content under the cursor follows the hand. The cursor holds still meanwhile.
+// - Hold a fist: pause at once (a held button is let go); hold an open palm to resume.
+// Losing the hand lets go of a held button where the cursor is and clicks nothing.
+
+export const DESKTOP_BOX = { cx: 0.5, cy: 0.45, width: 0.5, height: 0.42 }; // of the camera frame
+const DESKTOP_FILTER = { minCutoff: 0.45, beta: 8 }; // steadier than the app's at rest, as quick moving
+const DESKTOP_DEAD = 0.0012; // of the screen (~2 pt on a laptop): a still hand's tremor moves nothing
+const DESKTOP_ENGAGE_MS = 250; // a hand must stay this long before it moves the cursor
+const DESKTOP_PRESS_MS = 450; // a pinch held still this long presses (then move to drag slowly)
+const DESKTOP_DOUBLE_MS = 500; // a second click this soon after the first...
+const DESKTOP_DOUBLE_NEAR = 0.015; // ...and this close (of the screen) is a double click
+const RIGHT_ON = 0.35; // thumb to middle tip, in hand sizes, like PINCH_ON / PINCH_OFF
+const RIGHT_OFF = 0.5;
+const RIGHT_APART = 0.6; // the index must be clearly away from the thumb meanwhile
+const RIGHT_SETTLE_MS = 50; // twice a pinch's: a right click is rarer and costlier to misfire
+const SCROLL_SETTLE_MS = 90;
+const SCROLL_START = 0.12; // hand sizes the two fingers must travel before the page moves
+const SCROLL_GAIN = 1.4; // of the screen scrolled per screen's worth of hand movement
+const DESKTOP_STOP_MS = 600; // a fist held this long pauses
+const DESKTOP_RESUME_MS = 900; // an open palm held this long resumes
+
+const DESKTOP_LABELS = {
+  idle: 'Raise a hand to steer the Mac', found: 'Found your hand…',
+  aim: 'Pinch to click · two fingers to scroll · hold a fist to pause',
+  press: 'Let go to click · keep pinching to drag', drag: 'Dragging · let go to drop',
+  clicked: 'Click', doubled: 'Double click', right: 'Right click', scroll: 'Scrolling',
+  stopHold: 'Keep the fist to pause…', paused: 'Paused · hold an open palm to resume',
+  resumeHold: 'Keep the palm open to resume…', resumed: 'Steering the Mac',
+  unsteady: 'Hard to see your hand · more light helps',
+};
+
+// The box's point under the hand as a point of the screen, 0..1 from its top left. Camera
+// x is mirrored: the hand moving to the user's right lowers it.
+export function toDesktop(p, b = DESKTOP_BOX) {
+  return { x: clamp01(0.5 - (p.x - b.cx) / b.width), y: clamp01(0.5 + (p.y - b.cy) / b.height) };
+}
+
+// Back to off at once (the hand is gone), with nothing pending.
+function unsettle(s) { s.value = false; s.pending = null; }
+
+// Index and middle up, ring and pinky curled: the two-finger scroll pose.
+function twoFingers(lm, aspect) {
+  return extended(lm, 'index', aspect) && extended(lm, 'middle', aspect)
+    && !extended(lm, 'ring', aspect) && !extended(lm, 'pinky', aspect);
+}
+
+// Thumb to middle fingertip in hand sizes.
+function middleGap(lm, aspect) {
+  return dist(lm[TIP.thumb], lm[TIP.middle], aspect) / handSize(lm, aspect);
+}
+
+// desktop: { move(x, y), press(x, y, button), release(x, y, button),
+// click(x, y, { button, count }), scroll(dx, dy), cancel() } with x, y in 0..1 of the
+// screen from its top left and scroll's dx, dy how far (of the screen) the content should
+// follow the hand (dy > 0: it moves down). cancel() lets go of anything held at once.
+// status(text) and paused(on) drive the UI; aspect() is the camera's width / height.
+// step(hands, now) returns { hand, pinch } like createGestures'.
+export function createDesktopGestures({ desktop, status, paused: onPause = () => {}, box = DESKTOP_BOX, aspect = () => 1 }) {
+  const track = createTracker(aspect);
+  const fx = oneEuro(DESKTOP_FILTER), fy = oneEuro(DESKTOP_FILTER);
+  const say = DESKTOP_LABELS;
+  let cur = null; // the cursor after the dead zone
+  let trail = []; // { t, x, y (cursor), rx, ry (raw palm), size }
+  let engagedAt = null;
+  let seenLast = false;
+  let aim = null; // left pinch: { x, y (where it lands), sx, sy (cursor as it closed), start (raw palm), speed }
+  let pinch = null; // { t, pressed, ignored, blinked }
+  let shown = null; // where the cursor was last put
+  let lastClick = null; // { t, x, y, count }
+  const rightPinch = settle(RIGHT_SETTLE_MS);
+  let raim = null; // right pinch's aim, like aim
+  let right = null; // { t, moved }
+  const scrollPose = settle(SCROLL_SETTLE_MS);
+  let scroll = null; // { anchor: { x, y, rx, ry }, active, axis, last }
+  let isPaused = false;
+  const stopHold = createHold(DESKTOP_STOP_MS);
+  const resumeHold = createHold(DESKTOP_RESUME_MS);
+  const blinks = createBlinks();
+  let lastStatus = null;
+  const tell = (text) => { if (text !== lastStatus) { lastStatus = text; status(text); } };
+
+  // Let go of whatever is held, where the cursor is: a drop, never a click.
+  function letGoAll() {
+    if (pinch && pinch.pressed && shown) desktop.release(shown.x, shown.y, 'left');
+    pinch = null;
+    aim = null;
+    right = null;
+    raim = null;
+    scroll = null;
+  }
+
+  function pause(on) {
+    if (isPaused === on) return;
+    isPaused = on;
+    letGoAll();
+    if (on) desktop.cancel();
+    onPause(on);
+  }
+
+  function aimFrom(since) {
+    const at = lookback(trail, since - LOOKBACK_MS);
+    const start = lookback(trail, since);
+    return { x: at.x, y: at.y, sx: start.x, sy: start.y, start, speed: speedBefore(trail, since) };
+  }
+
+  function click(x, y, now) {
+    let count = 1;
+    if (lastClick && now - lastClick.t < DESKTOP_DOUBLE_MS
+        && Math.hypot(x - lastClick.x, y - lastClick.y) < DESKTOP_DOUBLE_NEAR) {
+      count = Math.min(3, lastClick.count + 1);
+      ({ x, y } = lastClick); // a double click lands on the first one's spot, as macOS wants
+    }
+    desktop.click(x, y, { button: 'left', count });
+    lastClick = { t: now, x, y, count };
+    tell(count > 1 ? say.doubled : say.clicked);
+  }
+
+  return {
+    step(seen, now) {
+      const view = track(usable(seen), now);
+      const p = view.primary;
+      if (!p) {
+        seenLast = false;
+        if (view.waiting) { // a blink: the cursor holds, a held button stays held
+          if (pinch) pinch.blinked = true;
+          return { hand: -1, pinch: 0 };
+        }
+        letGoAll();
+        engagedAt = null;
+        trail = [];
+        cur = null;
+        unsettle(rightPinch);
+        unsettle(scrollPose);
+        stopHold.clear();
+        resumeHold.clear();
+        tell(isPaused ? say.paused : say.idle);
+        return { hand: -1, pinch: 0 };
+      }
+      if (!seenLast && !view.fresh) blinks.blink(now);
+      seenLast = true;
+      if (engagedAt === null) {
+        engagedAt = now;
+        fx.reset();
+        fy.reset();
+      }
+      const a = view.aspect;
+      const kind = p.kind;
+      const out = { hand: p.index, pinch: isPaused ? 0 : pinchProgress(p) };
+
+      const raw = toDesktop(p.palm, box);
+      const x = fx(raw.x, now), y = fy(raw.y, now);
+      if (!cur || Math.hypot(x - cur.x, y - cur.y) > DESKTOP_DEAD) cur = { x, y };
+      trail = trail.filter((s) => now - s.t <= 500);
+      trail.push({ t: now, x: cur.x, y: cur.y, rx: p.palm.x * a, ry: p.palm.y, size: p.size });
+
+      if (isPaused) {
+        if (resumeHold.feed(kind === 'palm', p, now, a)) {
+          pause(false);
+          engagedAt = now - DESKTOP_ENGAGE_MS; // the hand is plainly there: steer from now
+          tell(say.resumed);
+          return out;
+        }
+        if (kind !== 'palm') resumeHold.rearm(now);
+        tell(kind === 'palm' && !resumeHold.done ? say.resumeHold : say.paused);
+        return out;
+      }
+      if (now - engagedAt < DESKTOP_ENGAGE_MS) {
+        tell(say.found);
+        return out;
+      }
+
+      // A fist: the cursor stops where it is, anything held is let go; held on, a pause.
+      if (kind === 'fist' && p.upright) {
+        letGoAll();
+        if (stopHold.feed(true, p, now, a)) {
+          pause(true);
+          resumeHold.clear();
+          tell(say.paused);
+          return out;
+        }
+        if (!stopHold.done) tell(say.stopHold);
+        return out;
+      }
+      if (kind === 'palm' || kind === 'point') stopHold.clear();
+      else stopHold.rearm(now);
+
+      // Left pinch: aim from just before the fingers began to close.
+      const pinchy = kind === 'pinch' || p.closing;
+      if (pinchy && !aim) aim = aimFrom(p.pinchSince ?? now);
+      if (!pinchy && !pinch) aim = null;
+
+      // Right pinch (thumb to middle, index up), only while no left pinch is going.
+      const lm = p.lm;
+      const rightRaw = !pinchy && !pinch && extended(lm, 'index', a) && pinchGap(lm, a) > RIGHT_APART
+        && middleGap(lm, a) < (rightPinch.value ? RIGHT_OFF : RIGHT_ON);
+      rightPinch.feed(rightRaw, now);
+      const righty = rightPinch.value || rightPinch.pending !== null;
+      if (righty && !raim) raim = aimFrom(rightPinch.value ? rightPinch.at : rightPinch.pending);
+      if (!righty && !right) raim = null;
+
+      // Two fingers up: scroll.
+      const scrolly = scrollPose.feed(!pinchy && !pinch && !righty && !right && twoFingers(lm, a)
+        && middleGap(lm, a) > RIGHT_OFF, now);
+
+      // Where the cursor goes: held on the aim through a pinch, following the hand
+      // (from the aim) through a drag, held still through a scroll.
+      let target;
+      if (pinch && pinch.pressed) target = { x: aim.x + cur.x - aim.sx, y: aim.y + cur.y - aim.sy };
+      else if (aim) target = aim;
+      else if (raim) target = raim;
+      else if ((scroll || scrolly) && shown) target = shown;
+      else target = cur;
+      shown = { x: clamp01(target.x), y: clamp01(target.y) };
+      desktop.move(shown.x, shown.y);
+
+      if (kind === 'pinch') {
+        if (!pinch) {
+          // A pinch closed while the hand sweeps past does nothing at all: on the desktop
+          // a stray grab is as bad as a stray click.
+          pinch = { t: p.pinchSince ?? now, pressed: false, ignored: aim.speed > TAP_SPEED, blinked: false };
+        } else if (!p.opening && !pinch.ignored) {
+          if (pinch.blinked) pinch.blinked = false; // came back still pinching
+          const moved = Math.hypot(p.palm.x * a - aim.start.rx, p.palm.y - aim.start.ry) / p.size;
+          if (!pinch.pressed && (moved > DRAG_START || now - pinch.t >= DESKTOP_PRESS_MS)) {
+            pinch.pressed = true;
+            desktop.press(aim.x, aim.y, 'left');
+          }
+        }
+        tell(pinch.ignored ? say.aim : pinch.pressed ? say.drag : say.press);
+        return out;
+      }
+      if (pinch) {
+        if (pinch.pressed) desktop.release(shown.x, shown.y, 'left');
+        else if (!pinch.ignored && !pinch.blinked && now - pinch.t < TAP_MS) click(aim.x, aim.y, now);
+        pinch = null;
+        aim = null;
+        return out;
+      }
+
+      if (rightPinch.value) {
+        if (!right) right = { t: rightPinch.at, moved: false };
+        const start = raim.start;
+        if (Math.hypot(p.palm.x * a - start.rx, p.palm.y - start.ry) / p.size > DRAG_START) right.moved = true;
+        tell(say.right);
+        return out;
+      }
+      if (right) {
+        if (!right.moved && now - right.t < TAP_MS && raim.speed <= TAP_SPEED) {
+          desktop.click(raim.x, raim.y, { button: 'right', count: 1 });
+        }
+        right = null;
+        raim = null;
+        return out;
+      }
+
+      if (scrolly) {
+        if (!scroll) scroll = { anchor: { x: cur.x, y: cur.y, rx: p.palm.x * a, ry: p.palm.y }, active: false, axis: '', last: null };
+        if (!scroll.active) {
+          const mx = p.palm.x * a - scroll.anchor.rx, my = p.palm.y - scroll.anchor.ry;
+          if (Math.hypot(mx, my) / p.size > SCROLL_START) {
+            scroll.active = true;
+            scroll.axis = Math.abs(my) > Math.abs(mx) * 1.5 ? 'y' : Math.abs(mx) > Math.abs(my) * 1.5 ? 'x' : '';
+            scroll.last = { x: cur.x, y: cur.y };
+          }
+        } else {
+          const dx = scroll.axis === 'y' ? 0 : cur.x - scroll.last.x;
+          const dy = scroll.axis === 'x' ? 0 : cur.y - scroll.last.y;
+          if (dx || dy) desktop.scroll(dx * SCROLL_GAIN, dy * SCROLL_GAIN);
+          scroll.last = { x: cur.x, y: cur.y };
+        }
+        tell(say.scroll);
+        return out;
+      }
+      scroll = null;
+      tell(blinks.unsteady(now) ? say.unsteady : say.aim);
+      return out;
+    },
+    // Stop driving the Mac at once (the Settings switch, a spoken "stop"): lets go of
+    // anything held.
+    stop() {
+      letGoAll();
+      desktop.cancel();
+    },
+    get paused() { return isPaused; },
+    pause,
+  };
+}
+
+// The desktop sink as WebSocket messages for desktop_hands.py: { type: 'desktop_hand',
+// op, ... }. Positions are rounded to 1/10000 of the screen, well under a point.
+export function desktopMessages(send) {
+  const r = (v) => Math.round(v * 10000) / 10000;
+  const msg = (op, fields = {}) => send({ type: 'desktop_hand', op, ...fields });
+  return {
+    kind: 'desktop',
+    move: (x, y) => msg('move', { x: r(x), y: r(y) }),
+    press: (x, y, button) => msg('press', { x: r(x), y: r(y), button }),
+    release: (x, y, button) => msg('release', { x: r(x), y: r(y), button }),
+    click: (x, y, { button = 'left', count = 1 } = {}) => msg('click', { x: r(x), y: r(y), button, count }),
+    scroll: (dx, dy) => msg('scroll', { dx: r(dx), dy: r(dy) }),
+    cancel: () => msg('cancel'),
+    start: () => msg('start'),
+    stop: () => msg('stop'),
+  };
+}

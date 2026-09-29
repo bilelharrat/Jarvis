@@ -1,0 +1,32 @@
+:root {
+  --bg: rgba(17, 19, 23, 0.78);
+  --fg: #e6f8ff;
+  --accent: #4fd3ff;
+  --paused: #f5b942;
+  --blocked: #ff6b6b;
+  --dim: rgba(151, 166, 186, 0.7);
+}
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { display: flex; align-items: center; justify-content: center; font: 500 12px/1.2 -apple-system, BlinkMacSystemFont, sans-serif; }
+#hud {
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 8px);
+  padding: 6px 12px 6px 8px; border-radius: 999px;
+  background: var(--bg); color: var(--fg);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.3s;
+}
+#ring {
+  flex: none; width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--dim); box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+}
+#dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); transform: scale(var(--pinch-scale, 1)); transition: transform 0.06s linear; }
+#text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud[data-state="hand"] #ring { border-color: var(--accent); }
+#hud[data-state="hand"] #dot { background: var(--accent); }
+#hud[data-state="paused"] #ring { border-color: var(--paused); }
+#hud[data-state="paused"] #dot { background: var(--paused); }
+#hud[data-state="blocked"] #ring { border-color: var(--blocked); }
+#hud[data-state="blocked"] #dot { background: var(--blocked); }
+#hud[data-state="idle"] { opacity: 0.75; }

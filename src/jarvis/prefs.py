@@ -84,6 +84,7 @@ class Prefs:
     mic: str = "builtin"  # builtin | default
     hands_free: bool = True
     clap_hands: bool = True  # two claps (heard while hands-free listens) turn hand control on
+    desktop_hands: bool = False  # hand control steers the whole Mac
     briefing_enabled: bool = True
     briefing_time: str = "08:00"
     last_briefing: str = ""
@@ -252,6 +253,7 @@ def _clean(name: str, value: Any) -> Any:
         "file_index",
         "pay_enabled",
         "clap_hands",
+        "desktop_hands",
     }:
         return bool(value)
     return None

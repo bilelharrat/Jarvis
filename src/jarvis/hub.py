@@ -72,6 +72,7 @@ from .brain import (
 )
 from .config import Settings
 from .connectors import ConnectorManager
+from .desktop_hands import DesktopHands
 from .home import Shortcuts
 from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
@@ -583,6 +584,7 @@ class Hub:
         self.collector = Collector(self.kb, settings.bsh_dir)
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
         self.screen = computer.Screen()
+        self.desktop_hands = DesktopHands()
         from .prefs import APP_SUPPORT
         from .tasks import RuleStore
 
@@ -805,6 +807,8 @@ class Hub:
             self._spawn(self._markets_loop())
             self._spawn(self._defense_loop())
             self._spawn(self._awake_loop())
+        # Hands steering the Mac: lets go of a held button if the window stops talking.
+        self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
         if self.prefs.remote_enabled:
             await self.remote.start()
         if self.prefs.hands_free:
@@ -1506,6 +1510,7 @@ class Hub:
             )
 
     async def close(self) -> None:
+        self.desktop_hands.release_all()
         self._save_prefs_if_pending()  # a last try at a settings save that failed
         if self._listener is not None:
             self._listener.stop()
@@ -1554,6 +1559,7 @@ class Hub:
     def unsubscribe(self, queue: WindowQueue) -> None:
         self._subscribers.discard(queue)
         if not self._subscribers:  # the last window went: no one to stream pictures to
+            self.desktop_hands.disconnect()
             self.workbench.watch_simulator(None)
             self._window_gone()
 
@@ -4339,6 +4345,11 @@ class Hub:
 
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
+        if kind == "desktop_hand":  # ~30/s while steering the Mac; posting is sub-millisecond
+            event = self.desktop_hands.handle(msg)
+            if event:
+                self.emit("desktop_hands", **event)
+            return
         if kind == "ask":
             text = msg.get("text")
             if isinstance(text, str):  # null or a number is nothing to ask

@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  APP_BOX, classify, createGestures, createPageGestures, handSize, oneEuro, pageBox, palmCenter, pinchGap, toPage, wellFormed,
+  APP_BOX, DESKTOP_BOX, classify, createDesktopGestures, createGestures, createPageGestures, desktopMessages, handSize, oneEuro,
+  pageBox, palmCenter, pinchGap, toDesktop, toPage, wellFormed,
 } from '../../src/jarvis/web/gestures.js';
 
 // A right hand around (cx, cy): wrist at the bottom, fingers pointing up. `up` lists the
@@ -750,4 +751,301 @@ test('a bad frame (NaN, a short list, no hand at all) never freezes the page cur
   assert.equal(f(0.4, 0), 0.4);
   assert.equal(f(NaN, 16), 0.4); // held, not kept
   assert.ok(Number.isFinite(f(0.41, 32)));
+});
+
+// ── desktop control (the whole Mac) ──
+
+function deskRig({ aspect } = {}) {
+  const calls = [];
+  const desktop = {
+    move: (x, y) => calls.push(['move', x, y]),
+    press: (x, y, b) => calls.push(['press', x, y, b]),
+    release: (x, y, b) => calls.push(['release', x, y, b]),
+    click: (x, y, o) => calls.push(['click', x, y, o.button, o.count]),
+    scroll: (dx, dy) => calls.push(['scroll', dx, dy]),
+    cancel: () => calls.push(['cancel']),
+  };
+  const statuses = [];
+  const pauses = [];
+  const g = createDesktopGestures({ desktop, status: (s) => statuses.push(s), paused: (on) => pauses.push(on), aspect });
+  const named = (n) => calls.filter((c) => c[0] === n);
+  // Anything that presses a button: what must never happen by accident.
+  const buttons = () => calls.filter((c) => c[0] === 'click' || c[0] === 'press');
+  return { g, step: g.step, calls, statuses, pauses, named, buttons, last: (n) => named(n).at(-1) };
+}
+
+const twoUp = (o = {}) => hand({ up: ['index', 'middle'], ...o });
+// Thumb to the middle fingertip, the index still up: a right click.
+function rightPinched(o = {}) {
+  const lm = hand({ up: ['index'], ...o });
+  lm[4] = { x: lm[12].x + 0.01 * (o.size || 1), y: lm[12].y };
+  return lm;
+}
+
+test('desktop: the box covers the screen, mirrored, with the hand inside the frame', () => {
+  const b = DESKTOP_BOX;
+  assert.deepEqual(toDesktop({ x: b.cx, y: b.cy }), { x: 0.5, y: 0.5 });
+  const left = toDesktop({ x: b.cx + b.width / 2, y: b.cy - b.height / 2 }); // camera right = screen left
+  assert.ok(Math.abs(left.x) < 1e-9 && Math.abs(left.y) < 1e-9);
+  assert.deepEqual(toDesktop({ x: 0, y: 1 }), { x: 1, y: 1 }, 'clamped to the screen');
+  // The palm at the box's edge: a real-sized hand is still wholly in view.
+  const edge = open({ cx: b.cx + b.width / 2, cy: b.cy, size: 0.75 });
+  assert.ok(edge.every((p) => p.x > 0 && p.x < 1 && p.y > 0 && p.y < 1));
+});
+
+test('desktop: a hand passing through the frame moves nothing; one that stays steers', () => {
+  const r = deskRig();
+  play(r.step, 0, 6, (_, i) => [open({ cx: 0.3 + i * 0.05 })]); // 200 ms
+  play(r.step, 1000, 3, () => []);
+  assert.equal(r.named('move').length, 0);
+  play(r.step, 2000, 15, () => [open({ cx: 0.4 })]);
+  assert.ok(r.named('move').length > 0);
+  const [, x] = r.last('move');
+  assert.ok(Math.abs(x - toDesktop(palmCenter(open({ cx: 0.4 }))).x) < 0.01, `cursor x ${x}`);
+});
+
+test('desktop: moving right moves the cursor right; a still hand holds it within a point or two', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open({ cx: 0.55 })]);
+  const x0 = r.last('move')[1];
+  t = play(r.step, t, 15, (_, i) => [open({ cx: 0.55 - (i + 1) * 0.01 })]);
+  assert.ok(r.last('move')[1] > x0 + 0.2, 'camera x falling is the hand going to the user’s right');
+  const rnd = noise(5);
+  play(r.step, t + 2000, 60, () => [jittered(open({ cx: 0.45 }), 0.002, rnd)]);
+  const xs = r.named('move').slice(-30).map((c) => c[1] * 1728);
+  assert.ok(Math.max(...xs) - Math.min(...xs) < 3, `jitter spread ${Math.max(...xs) - Math.min(...xs)} pt`);
+});
+
+test('desktop: moving about without pinching never clicks or presses', () => {
+  const r = deskRig();
+  const rnd = noise(17);
+  // A long wander: open, pointing, relaxed, fingers drifting toward a pinch but never
+  // closing, one misread pinch frame, tracking noise.
+  play(r.step, 0, 400, (_, i) => {
+    const cx = 0.5 + 0.2 * Math.sin(i / 17), cy = 0.45 + 0.15 * Math.cos(i / 23);
+    const shape = i % 97 === 50 ? pinched({ cx, cy })
+      : i % 40 < 10 ? hand({ up: ['index'], gap: 0.12 + 0.05 * Math.abs(Math.sin(i)), cx, cy })
+        : i % 40 < 25 ? open({ cx, cy }) : point({ cx, cy });
+    return [jittered(shape, 0.002, rnd)];
+  });
+  assert.equal(r.buttons().length, 0, JSON.stringify(r.buttons().slice(0, 3)));
+  assert.equal(r.named('scroll').length, 0);
+  assert.ok(r.named('move').length > 300);
+});
+
+test('desktop: a quick pinch clicks once, where the hand aimed before the fingers closed', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 20, () => [open()]);
+  const [, ax, ay] = r.last('move');
+  // The fingers close (the palm dips a little each frame), then let go.
+  t = play(r.step, t, 3, (_, i) => [hand({ up: ['index'], gap: 0.1 - i * 0.03, cy: 0.5 + i * 0.004 })]);
+  t = play(r.step, t, 5, (_, i) => [pinched({ cy: 0.512 + i * 0.004 })]);
+  const during = r.named('move').slice(-5);
+  assert.ok(during.every(([, x, y]) => Math.hypot(x - ax, y - ay) < 0.004), 'the cursor held through the pinch');
+  play(r.step, t, 4, () => [open({ cy: 0.53 })]);
+  assert.equal(r.named('click').length, 1);
+  const [, cx, cy, button, count] = r.last('click');
+  assert.ok(Math.hypot(cx - ax, cy - ay) < 0.004, `clicked ${cx - ax}, ${cy - ay} from the aim`);
+  assert.deepEqual([button, count], ['left', 1]);
+  assert.equal(r.named('press').length, 0);
+  assert.equal(r.named('release').length, 0);
+});
+
+test('desktop: one bad frame that looks like a pinch clicks nothing', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open()]);
+  t = play(r.step, t, 1, () => [pinched()]);
+  play(r.step, t, 10, () => [open()]);
+  assert.equal(r.buttons().length, 0);
+});
+
+test('desktop: a pinch closed while the hand sweeps past does nothing at all', () => {
+  const r = deskRig();
+  play(r.step, 0, 30, (_, i) => [i >= 12 && i < 20 ? pinched({ cx: 0.3 + i * 0.02 }) : open({ cx: 0.3 + i * 0.02 })]);
+  assert.equal(r.buttons().length, 0);
+  assert.equal(r.named('release').length, 0);
+});
+
+test('desktop: pinch and move drags from where it aimed and drops where the hand goes', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open({ cx: 0.55 })]);
+  const [, ax, ay] = r.last('move');
+  t = play(r.step, t, 3, () => [pinched({ cx: 0.55 })]);
+  t = play(r.step, t, 20, (_, i) => [pinched({ cx: 0.55 - (i + 1) * 0.006 })]);
+  play(r.step, t, 4, () => [open({ cx: 0.43 })]);
+  assert.equal(r.named('press').length, 1);
+  const [, px, py, b] = r.last('press');
+  assert.ok(Math.hypot(px - ax, py - ay) < 0.004 && b === 'left');
+  const moves = r.calls.slice(r.calls.indexOf(r.last('press')), r.calls.indexOf(r.last('release'))).filter((c) => c[0] === 'move');
+  assert.ok(moves.length > 5 && moves.at(-1)[1] > ax + 0.15, 'the cursor followed the hand while held');
+  assert.equal(r.named('release').length, 1);
+  assert.ok(r.last('release')[1] > ax + 0.15);
+  assert.equal(r.named('click').length, 0, 'a drag is never also a click');
+});
+
+test('desktop: a pinch held still presses, so a slow drag can start exactly on its mark', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open()]);
+  const [, ax] = r.last('move');
+  t = play(r.step, t, 20, () => [pinched()]); // 660 ms
+  assert.equal(r.named('press').length, 1);
+  assert.ok(Math.abs(r.last('press')[1] - ax) < 0.004);
+  t = play(r.step, t, 20, (_, i) => [pinched({ cx: 0.5 - i * 0.002 })]); // slowly
+  play(r.step, t, 3, () => [open({ cx: 0.46 })]);
+  assert.equal(r.named('release').length, 1);
+  assert.ok(r.last('release')[1] > ax + 0.03);
+  assert.equal(r.named('click').length, 0);
+});
+
+test('desktop: two quick pinches double click on the first one’s spot; slow ones are two clicks', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open()]);
+  t = play(r.step, t, 4, () => [pinched()]);
+  t = play(r.step, t, 4, () => [open({ cx: 0.501 })]);
+  t = play(r.step, t, 4, () => [pinched({ cx: 0.501 })]);
+  t = play(r.step, t, 4, () => [open({ cx: 0.501 })]);
+  const clicks = r.named('click');
+  assert.deepEqual(clicks.map((c) => c[4]), [1, 2]);
+  assert.deepEqual(clicks[1].slice(1, 3), clicks[0].slice(1, 3));
+  t = play(r.step, t + 1000, 4, () => [pinched()]);
+  play(r.step, t, 4, () => [open()]);
+  assert.equal(r.last('click')[4], 1, 'a second later is a new single click');
+});
+
+test('desktop: thumb to middle finger right clicks, once; a bad frame does not', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [point()]);
+  const [, ax, ay] = r.last('move');
+  t = play(r.step, t, 1, () => [rightPinched()]);
+  t = play(r.step, t, 8, () => [point()]);
+  assert.equal(r.buttons().length, 0);
+  t = play(r.step, t, 6, () => [rightPinched()]);
+  play(r.step, t, 5, () => [point()]);
+  assert.equal(r.named('click').length, 1);
+  const [, x, y, button, count] = r.last('click');
+  assert.deepEqual([button, count], ['right', 1]);
+  assert.ok(Math.hypot(x - ax, y - ay) < 0.004);
+  assert.equal(r.named('press').length, 0);
+});
+
+test('desktop: two fingers up and moving scroll the content with the hand, and never click', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [point()]);
+  const held = r.last('move');
+  t = play(r.step, t, 5, () => [twoUp()]);
+  t = play(r.step, t, 15, (_, i) => [twoUp({ cy: 0.5 - (i + 1) * 0.01, cx: 0.5 + i * 0.001 })]);
+  const scrolls = r.named('scroll');
+  assert.ok(scrolls.length > 5);
+  assert.ok(scrolls.every(([, dx, dy]) => dx === 0 && dy < 0), 'hand up, content up, and only up');
+  const total = scrolls.reduce((s, c) => s + c[2], 0);
+  assert.ok(total < -0.3, `scrolled ${total} of the screen`);
+  const moves = r.named('move').slice(-15);
+  assert.ok(moves.every(([, x, y]) => Math.hypot(x - held[1], y - held[2]) < 0.02), 'the cursor held still');
+  play(r.step, t, 10, () => [point({ cy: 0.35 })]);
+  assert.equal(r.buttons().length, 0);
+});
+
+test('desktop: two fingers held still scroll nothing', () => {
+  const r = deskRig();
+  const rnd = noise(9);
+  play(r.step, 0, 60, () => [jittered(twoUp(), 0.002, rnd)]);
+  assert.equal(r.named('scroll').length, 0);
+});
+
+test('desktop: a held fist pauses at once and holds the cursor; an open palm held resumes', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open()]);
+  t = play(r.step, t, 10, () => [hand()]); // 330 ms: not yet
+  assert.deepEqual(r.pauses, []);
+  assert.equal(r.statuses.at(-1), 'Keep the fist to pause…');
+  t = play(r.step, t, 15, () => [hand()]);
+  assert.deepEqual(r.pauses, [true]);
+  assert.equal(r.named('cancel').length, 1);
+  const moves = r.named('move').length;
+  t = play(r.step, t, 20, (_, i) => [pinched({ cx: 0.4 + i * 0.01 })]); // nothing works while paused
+  t = play(r.step, t, 10, () => [point()]);
+  assert.equal(r.named('move').length, moves);
+  assert.equal(r.buttons().length, 0);
+  assert.equal(r.g.paused, true);
+  t = play(r.step, t, 35, () => [open()]);
+  assert.deepEqual(r.pauses, [true, false]);
+  play(r.step, t, 3, () => [open()]);
+  assert.ok(r.named('move').length > moves, 'steering again');
+});
+
+// A fist closed the rest of the way from a pinch: the index curled into the palm.
+function tightFist(o = {}) {
+  const lm = hand(o);
+  const size = o.size || 1;
+  lm[8] = { x: lm[0].x - 0.03 * size, y: lm[0].y - 0.14 * size };
+  return lm;
+}
+
+test('desktop: a fist mid-drag drops at once; a fist closing a pinch never clicks', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open()]);
+  t = play(r.step, t, 12, (_, i) => [pinched({ cx: 0.5 - i * 0.008 })]);
+  assert.equal(r.named('press').length, 1);
+  play(r.step, t, 2, () => [tightFist({ cx: 0.41 })]); // the pinch settles open, then it's a fist
+  assert.equal(r.named('release').length, 1, 'let go as soon as the fist shows');
+  assert.equal(r.named('click').length, 0);
+  const r2 = deskRig();
+  t = play(r2.step, 0, 15, () => [open()]);
+  t = play(r2.step, t, 4, () => [pinched()]);
+  play(r2.step, t, 5, () => [tightFist()]);
+  assert.equal(r2.buttons().length, 0);
+  assert.equal(r2.named('release').length, 0);
+});
+
+test('desktop: losing the hand drops a drag and clicks nothing; a blink holds on', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open()]);
+  t = play(r.step, t, 12, (_, i) => [pinched({ cx: 0.5 - i * 0.008 })]);
+  t = play(r.step, t, 3, () => []); // 100 ms blink
+  assert.equal(r.named('release').length, 0);
+  t = play(r.step, t, 4, (_, i) => [pinched({ cx: 0.41 - i * 0.008 })]);
+  assert.equal(r.named('press').length, 1, 'the same drag');
+  play(r.step, t, 12, () => []); // gone
+  assert.equal(r.named('release').length, 1);
+  const r2 = deskRig();
+  t = play(r2.step, 0, 15, () => [open()]);
+  t = play(r2.step, t, 4, () => [pinched()]);
+  t = play(r2.step, t, 12, () => []);
+  play(r2.step, t, 20, () => [open()]);
+  assert.equal(r2.buttons().length, 0);
+  assert.ok(r2.statuses.includes('Raise a hand to steer the Mac'));
+});
+
+test('desktop: stop() lets go of a held button', () => {
+  const r = deskRig();
+  let t = play(r.step, 0, 15, () => [open()]);
+  play(r.step, t, 20, () => [pinched()]);
+  assert.equal(r.named('press').length, 1);
+  r.g.stop();
+  assert.equal(r.named('release').length, 1);
+  assert.equal(r.last('cancel')[0], 'cancel');
+});
+
+test('desktop: bad frames are no hand', () => {
+  const r = deskRig();
+  for (const bad of [[[{ x: NaN, y: 0 }]], [undefined], 'junk', undefined, null]) {
+    assert.doesNotThrow(() => r.step(bad, 0));
+  }
+  assert.equal(r.calls.length, 0);
+});
+
+test('desktop: messages for the backend', () => {
+  const sent = [];
+  const m = desktopMessages((msg) => sent.push(msg));
+  m.move(0.123456, 0.5);
+  m.click(0.1, 0.2, { button: 'right', count: 1 });
+  m.scroll(0, -0.02);
+  m.cancel();
+  assert.deepEqual(sent, [
+    { type: 'desktop_hand', op: 'move', x: 0.1235, y: 0.5 },
+    { type: 'desktop_hand', op: 'click', x: 0.1, y: 0.2, button: 'right', count: 1 },
+    { type: 'desktop_hand', op: 'scroll', dx: 0, dy: -0.02 },
+    { type: 'desktop_hand', op: 'cancel' },
+  ]);
+  assert.equal(m.kind, 'desktop');
 });

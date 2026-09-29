@@ -1,6 +1,6 @@
 // Jarvis desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
 
-const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell } = require('electron');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -973,8 +973,42 @@ app.whenReady().then(async () => {
 });
 
 app.on('activate', () => win && win.show());
+// ── Hands steering the whole Mac: a small always-on-top indicator (never focused, clicks go
+// through it), and the window keeps getting camera frames while it's behind other apps ──
+let hud = null;
+let napBlock = null;
+function showHandHud(on) {
+  if (!on) { if (hud && !hud.isDestroyed()) hud.destroy(); hud = null; return; }
+  if (hud && !hud.isDestroyed()) return;
+  const { workArea } = screen.getPrimaryDisplay();
+  const width = 360, height = 40;
+  hud = new BrowserWindow({
+    width, height, x: Math.round(workArea.x + (workArea.width - width) / 2), y: workArea.y + workArea.height - height - 8,
+    frame: false, transparent: true, resizable: false, movable: false, focusable: false, skipTaskbar: true,
+    hasShadow: false, show: false, alwaysOnTop: true,
+    webPreferences: { preload: path.join(__dirname, 'hud-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
+  });
+  hud.setAlwaysOnTop(true, 'screen-saver');
+  hud.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  hud.setIgnoreMouseEvents(true);
+  hud.loadFile(path.join(__dirname, 'hand-hud.html'));
+  hud.once('ready-to-show', () => hud && hud.showInactive());
+}
+ipcMain.on('jarvis:desktop-hands', (event, on) => {
+  if (!win || event.sender !== win.webContents) return;
+  win.webContents.setBackgroundThrottling(!on); // camera frames keep coming behind other apps
+  if (on && napBlock === null) napBlock = powerSaveBlocker.start('prevent-app-suspension'); // no App Nap
+  if (!on && napBlock !== null) { powerSaveBlocker.stop(napBlock); napBlock = null; }
+  showHandHud(!!on);
+});
+ipcMain.on('jarvis:hand-hud', (event, update) => {
+  if (!win || event.sender !== win.webContents) return;
+  if (hud && !hud.isDestroyed()) hud.webContents.send('hand-hud:update', update);
+});
+
 app.on('before-quit', () => {
   quitting = true;
+  showHandHud(false);
   globalShortcut.unregisterAll();
   if (backend) backend.kill('SIGTERM');
 });
