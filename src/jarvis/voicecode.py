@@ -844,7 +844,7 @@ class VoiceCoder:
             ok = await tasks.set_model(task.id, intent.arg)
             say(f"Switched this session to {intent.arg}." if ok else "Couldn't switch models.")
         elif intent.kind == "new_session":
-            fresh = tasks.start("", str(task.cwd), mode=task.mode)
+            fresh = tasks.start_like(task.id)  # its model, effort, folders… as /clear keeps them
             if self.focus == task.id:
                 self.focus = fresh.id
                 self._changed()

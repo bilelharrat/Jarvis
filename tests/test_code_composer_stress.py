@@ -122,3 +122,18 @@ async def test_agents_hooks_and_todos_answer_in_the_transcript(hub, tmp_path, mo
     assert notes[1].startswith("No hooks")
     assert len(notes) == 3 and sent == []  # none of them went to Claude
     task.handle.cancel()
+
+
+async def test_an_export_that_cannot_be_saved_says_so(hub, tmp_path, monkeypatch):
+    from jarvis import tasks as tasks_mod
+
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where the folder should be")
+    monkeypatch.setattr(tasks_mod, "EXPORT_DIR", blocked / "Jarvis Code")
+    (tmp_path / "proj").mkdir()
+    task = hub.tasks.start("", "proj")
+    sent = _record(hub)
+    await hub.handle({"type": "task_export", "id": task.id})
+    captions = [d["text"] for k, d in sent if k == "caption"]
+    assert captions and captions[-1].startswith("Couldn't save the transcript")
+    task.handle.cancel()

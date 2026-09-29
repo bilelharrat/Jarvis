@@ -902,6 +902,30 @@ class TaskManager:
         self._changed()
         return task
 
+    def start_like(self, task_id: int, prompt: str = "") -> ClaudeTask | None:
+        """A fresh conversation set up as this session is (/clear, "new session"): the same
+        folder, mode, model (another provider's too), effort, ultracode, added folders,
+        plugins and connectors switched off, as Claude Code's /clear keeps them."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return None
+        fresh = self.start(
+            prompt,
+            str(task.cwd),
+            mode=task.mode,
+            model=task.model,
+            model_label=task.model_label,
+            model_ref=task.model_ref,
+            effort=task.effort,
+            env=task.env,
+            provider_settings=task.provider_settings,
+            ultracode=task.ultracode,
+        )
+        # Straight across, not through add_dir/add_plugin: no notes, and no reopen.
+        fresh.add_dirs, fresh.plugins = list(task.add_dirs), list(task.plugins)
+        fresh.disabled_mcp = set(task.disabled_mcp)
+        return fresh
+
     def _by_session(self, session_id: str) -> ClaudeTask | None:
         """The task that is this Claude Code session (an open one first)."""
         same = [
@@ -1321,7 +1345,7 @@ class TaskManager:
                 lines += ["**Plan**", "", text, ""]
             elif role in ("system", "note") and text:
                 lines += [f"_{text}_", ""]
-        path.write_text("\n".join(lines))
+        path.write_text("\n".join(lines), encoding="utf-8")
         return path
 
     async def mcp_status(self, task_id: int) -> list[dict[str, str]]:

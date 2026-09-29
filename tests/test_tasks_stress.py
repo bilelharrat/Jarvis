@@ -358,3 +358,38 @@ async def test_a_rewind_forgets_the_files_only_the_rewound_rounds_changed(settin
     assert set(task.checkpoint_files) == {"u-1"}
     assert (await tm.undo(1)).startswith("Undone")
     assert task.files_changed == set() and task.checkpoint_files == {}
+
+
+async def test_clear_starts_a_fresh_conversation_set_up_as_the_session_was(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import make_hub
+
+    (tmp_path / "proj").mkdir()
+    extra = tmp_path / "docs"
+    extra.mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    task = hub.tasks.start(
+        "",
+        "proj",
+        mode="edits",
+        model="claude-sonnet-5-5",
+        model_label="Sonnet 5.5",
+        model_ref="sonnet",
+        effort="low",
+        ultracode=True,
+        add_dirs=[str(extra)],
+    )
+    hub.tasks.set_mcp(task.id, "github", False)
+    await hub._code_command(task, "/clear")
+    fresh = max(hub.tasks.tasks.values(), key=lambda t: t.id)
+    assert fresh is not task and fresh.session_id == "" and not fresh.fork
+    for name in ("cwd", "mode", "model", "model_label", "model_ref", "effort", "ultracode"):
+        assert getattr(fresh, name) == getattr(task, name), name
+    assert fresh.add_dirs == [str(extra.resolve())] and fresh.disabled_mcp == {"github"}
+    opts = hub.tasks.options_for(fresh)
+    assert opts.model == "claude-sonnet-5-5" and opts.effort == "low" and opts.resume is None
+    assert not [e for e in fresh.transcript if e["role"] == "system"]  # no "Added…" notes
+    assert hub.tasks.start_like(9999) is None
+    for t in (task, fresh):
+        t.handle.cancel()

@@ -4798,7 +4798,11 @@ class Hub:
         elif kind == "task_effort":
             self.tasks.set_effort(int(msg.get("id", 0)), str(msg.get("effort", "")))
         elif kind == "task_export":
-            path = self.tasks.export(int(msg.get("id", 0)))
+            try:
+                path = self.tasks.export(int(msg.get("id", 0)))
+            except OSError as exc:  # a full disk, Documents not writable: say so
+                self.emit("caption", text=f"Couldn't save the transcript: {exc.strerror or exc}")
+                return
             if path is not None:
                 self.emit("caption", text=f"Saved the transcript to {path.name}.")
                 self._spawn(self._quiet(mac_tools.run_command("open", "-R", str(path))))
