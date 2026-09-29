@@ -1888,6 +1888,9 @@ class FileIndex:
         conn = sqlite3.connect(self.path, timeout=BUSY_SECONDS, isolation_level=None)
         try:
             conn.execute("PRAGMA synchronous = NORMAL")
+            # The write-ahead log shrinks back to 64 MB after a checkpoint, however big a
+            # refresh made it (it otherwise stays at its largest).
+            conn.execute("PRAGMA journal_size_limit = 67108864")
             yield conn
         finally:
             conn.close()

@@ -228,3 +228,11 @@ def test_stopping_ends_a_stuck_spotlight_read_at_once(tmp_path, monkeypatch):
     worker.join(10)
     assert not worker.is_alive() and time.monotonic() - begun < 2  # not SPOTLIGHT_SECONDS
     assert killed and done["stopped"]
+
+
+def test_the_write_ahead_log_is_kept_to_a_size(tmp_path):
+    from jarvis.fileindex import FileIndex
+
+    index = FileIndex(tmp_path / "files.db", [], home=tmp_path)
+    with index._db() as conn:
+        assert conn.execute("PRAGMA journal_size_limit").fetchone()[0] == 64 * 1024 * 1024
