@@ -85,7 +85,7 @@ button, a[href], input, select, textarea, summary, label, [role="button"], [role
 /* ── stage ── */
 .stage {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 22px; padding: 12px 40px; min-height: 0;
+  --stage-gap: 22px; gap: var(--stage-gap); padding: 12px 40px; min-height: 0;
 }
 h1 {
   margin: 0; font-family: var(--serif); font-weight: 300;
@@ -97,7 +97,8 @@ h1 {
 .orb {
   position: relative; border: 0; padding: 0; background: transparent;
   width: clamp(180px, 29vh, 260px); aspect-ratio: 1; border-radius: 50%;
-  margin: 18px 0 6px;
+  /* its glow rings reach 40px out: the greeting above and the line below stay clear of them */
+  margin: 40px 0 36px;
 }
 .orb-core, .orb-sheen { position: absolute; inset: 0; border-radius: 50%; }
 .orb-core {
@@ -1256,7 +1257,18 @@ body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }
 
 /* ── BSH Research Center (driven only by J.A.R.V.I.S.) ── */
 #p-markets { cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease; }
-#p-markets:hover, #p-markets:focus-visible { transform: translateY(-2px); box-shadow: 0 0 0 1px var(--action), 0 12px 30px rgba(0, 0, 0, 0.16); outline: none; }
+#p-markets:hover, #p-markets:focus-visible {
+  transform: translateY(-2px); border-color: var(--action); outline: none;
+  box-shadow: inset 0 0 0 0.5px var(--action), 0 12px 30px rgba(0, 0, 0, 0.16);
+}
+/* the header fits the card: a narrow card keeps just the arrow, and a long market status truncates */
+#p-markets { container-type: inline-size; }
+#p-markets h2 { min-width: 0; }
+#p-markets .mk-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 380px) {
+  #p-markets .mk-open { font-size: 0; }
+  #p-markets .mk-open::after { content: "↗"; font-size: 14px; }
+}
 .mk-open { margin-left: auto; font-size: 11px; font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: var(--action); opacity: 0.55; transition: opacity 160ms ease; white-space: nowrap; }
 #p-markets:hover .mk-open, #p-markets:focus-visible .mk-open { opacity: 1; }
 
@@ -1376,18 +1388,22 @@ body[data-look="console"] .pill.dock-app { border: 0; }
 /* ═════════════ The orb stage fits any window height ═════════════ */
 body[data-look="orb"] .stage { justify-content: safe center; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 body[data-look="orb"] .stage::-webkit-scrollbar { display: none; }
-.orb { width: clamp(130px, min(29vh, 30vw), 260px); }
+.orb { width: clamp(130px, min(26.5vh, 30vw), 260px); }
+/* an empty caption (nothing heard or said yet) takes no room, not even its gap */
+body[data-look="orb"] .stage > .caption:has(> #heard:empty):has(> #reply:empty):not(:has(> div:not([hidden]))) {
+  margin-top: calc(-1 * var(--stage-gap));
+}
 @media (max-height: 860px) {
-  .stage { gap: 16px; }
+  .stage { --stage-gap: 16px; }
   h1 { font-size: clamp(32px, 5.2vh, 50px); }
-  .orb { margin: 24px 0 4px; width: clamp(120px, 25vh, 240px); } /* its glow rings reach 40px out */
+  .orb { margin: 44px 0 40px; width: clamp(120px, 21.4vh, 240px); } /* 40px of glow rings, then air */
   .chips { gap: 8px; }
   .chip { min-height: 36px; padding: 0 15px; font-size: 14px; border-radius: 18px; }
   .ask input { height: 40px; }
 }
 @media (max-height: 740px) {
-  .stage { gap: 12px; }
-  .orb { width: clamp(110px, 21vh, 200px); margin: 28px 0 2px; }
+  .stage { --stage-gap: 12px; }
+  .orb { width: clamp(100px, 18vh, 200px); margin: 44px 0 42px; }
   /* one row of suggestions that scrolls sideways instead of a second row */
   .chips { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; max-width: 100%; padding: 2px 4px; scrollbar-width: none; }
   .chips::-webkit-scrollbar { display: none; }
@@ -1396,7 +1412,7 @@ body[data-look="orb"] .stage::-webkit-scrollbar { display: none; }
 }
 @media (max-height: 620px) {
   .caption, #next-event { display: none; }
-  .orb { width: clamp(96px, 18vh, 160px); }
+  .orb { width: clamp(90px, 15vh, 160px); }
 }
 
 /* ═════════════ Glass side panels (Ambient Orb) ═════════════ */
