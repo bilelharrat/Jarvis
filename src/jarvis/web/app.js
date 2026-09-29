@@ -74,8 +74,10 @@ function onEvent(ev) {
       $('v-accounts').textContent = (ev.accounts || []).length;
       $('v-model').textContent = ev.model_name || '–';
       renderMemory(ev.memory || []);
+      renderRoutines(ev.routines || []);
       break;
     case 'memory': renderMemory(ev.items || []); break;
+    case 'routines': renderRoutines(ev.items || []); break;
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
     case 'weather': renderWeather(ev.weather); break;
@@ -1196,6 +1198,35 @@ function renderShortcuts(names, instant) {
       setPrefs({ instant_shortcuts: [...now] });
     });
     li.append(label, sw);
+    return li;
+  }));
+}
+
+function renderRoutines(items) {
+  const list = $('routine-list');
+  if (!items.length) {
+    list.replaceChildren(el('li', 'muted', 'No routines yet.'));
+    return;
+  }
+  list.replaceChildren(...items.map((r) => {
+    const li = el('li', 'routine');
+    const text = el('span', 'fact');
+    text.append(el('strong', '', r.name), el('small', '', `${r.when}${r.enabled ? '' : ' · paused'}`));
+    text.title = r.prompt;
+    const sw = el('button', 'switch');
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', String(r.enabled));
+    sw.setAttribute('aria-label', `${r.name} on`);
+    sw.addEventListener('click', () => send({ type: 'routine_toggle', id: r.id, enabled: !r.enabled }));
+    const run = el('button', 'btn', 'Run now');
+    run.type = 'button';
+    run.addEventListener('click', () => send({ type: 'routine_run', id: r.id }));
+    const rm = el('button', 'btn', 'Delete');
+    rm.type = 'button';
+    rm.setAttribute('aria-label', `Delete ${r.name}`);
+    rm.addEventListener('click', () => send({ type: 'routine_delete', id: r.id }));
+    li.append(text, run, rm, sw);
     return li;
   }));
 }

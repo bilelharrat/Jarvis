@@ -93,6 +93,7 @@ def isolated(tmp_path):
     from jarvis.knowledge import KnowledgeBase
     from jarvis.memory import MemoryStore
     from jarvis.prefs import PrefsStore
+    from jarvis.routines import RoutineStore
 
     async def never_asked(*_args):
         return "deny"
@@ -103,6 +104,7 @@ def isolated(tmp_path):
         "prefs_store": store,
         "kb": KnowledgeBase(tmp_path / "brain" / "index.json"),
         "memory": MemoryStore(tmp_path / "memory.json"),
+        "routines": RoutineStore(tmp_path / "routines.json"),
         "connectors": ConnectorManager(
             lambda *a, **k: None,
             never_asked,

@@ -45,6 +45,7 @@ from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
 from .proactive import Alert, Watcher, in_quiet_hours
+from .routines import RoutineStore
 from .speech import Speaker, SpeechQueue, cloud_voice_from, split_sentences
 from .tasks import ClaudeTask, TaskManager
 from .wake import find_wake, is_echo, is_stop, words
@@ -150,6 +151,7 @@ class Hub:
         listener_factory: Callable[..., Any] | None = None,
         connectors: ConnectorManager | None = None,
         memory: MemoryStore | None = None,
+        routines: RoutineStore | None = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -196,6 +198,7 @@ class Hub:
         self.connectors.on_tools_changed = self._tools_changed
         self.memory = memory or MemoryStore()
         self.shortcuts = Shortcuts()
+        self.routines = routines or RoutineStore()
         self.meeting: Any = None  # meeting notes in progress
         self._alert_notes: deque[str] = deque(maxlen=3)
         self.watcher = Watcher(
@@ -253,6 +256,7 @@ class Hub:
             self._spawn(self._location_loop())
             self._spawn(self.shortcuts.refresh())
             self._spawn(self.watcher.run())
+            self._spawn(self._routine_clock())
         if self.prefs.hands_free:
             self._apply_hands_free()
 
@@ -284,9 +288,14 @@ class Hub:
         await self.client.connect()
 
     def _feature_servers(self) -> dict[str, Any]:
-        from . import memory
+        from . import memory, routines
 
-        return {memory.SERVER_NAME: memory.build_server(self.memory, self._memory_changed)}
+        return {
+            memory.SERVER_NAME: memory.build_server(self.memory, self._memory_changed),
+            routines.SERVER_NAME: routines.build_server(
+                self.routines, self.confirm, self._routines_changed
+            ),
+        }
 
     def _feature_prompt(self) -> str:
         return (
@@ -294,10 +303,29 @@ class Hub:
             "the user's Shortcuts (they reach HomeKit). For anything like that, list_shortcuts "
             "to find the right one and run_shortcut it. Shortcuts the user made instant run "
             "without asking."
+            "\n- Routines: create_routine schedules something for you to do on your own "
+            "(daily, weekdays, weekly or once), e.g. 'brief me every weekday at 7' or 'research "
+            "X overnight'; list_routines, pause_routine and delete_routine manage them. When a "
+            "routine runs, its request arrives marked 'Routine'; carry it out, briefly."
             "\n- Memory: remember saves a lasting fact about the user when they tell you to "
             "remember something (or state something clearly stable about themselves); recall "
             "looks facts up; forget removes one." + self.memory.prompt_block()
         )
+
+    def _routines_changed(self) -> None:
+        self.emit("routines", items=self.routines.public())
+
+    async def _routine_clock(self) -> None:
+        while True:
+            if self.meeting is None:  # a routine can wait for the meeting to end
+                for routine in self.routines.take_due(datetime.now()):
+                    log.info("routine due")
+                    self._routines_changed()
+                    self._spawn(self.run_routine(routine))
+            await asyncio.sleep(30)
+
+    async def run_routine(self, routine) -> None:
+        await self.ask(routine.prompt, display=f"Routine · {routine.name}")
 
     def _memory_changed(self) -> None:
         self.emit("memory", items=self.memory.public())
@@ -364,6 +392,7 @@ class Hub:
             "location": self.location,
             "accounts": self.connectors.connected_names(),
             "memory": self.memory.public(),
+            "routines": self.routines.public(),
         }
 
     def set_state(self, state: str) -> None:
@@ -1643,6 +1672,16 @@ class Hub:
         elif kind == "shortcuts":
             names = await self.shortcuts.refresh(force=bool(msg.get("refresh")))
             self.emit("shortcuts", names=names, instant=self.prefs.instant_shortcuts)
+        elif kind == "routine_delete":
+            if self.routines.remove(str(msg.get("id", ""))):
+                self._routines_changed()
+        elif kind == "routine_toggle":
+            if self.routines.set_enabled(str(msg.get("id", "")), bool(msg.get("enabled"))):
+                self._routines_changed()
+        elif kind == "routine_run":
+            routine = self.routines.find(str(msg.get("id", "")))
+            if routine is not None:
+                self._spawn(self.run_routine(routine))
         elif kind == "memory_forget":
             if self.memory.forget(str(msg.get("id", ""))):
                 self._memory_changed()
