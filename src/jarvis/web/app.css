@@ -346,3 +346,49 @@ body.in-app .galaxy-top { left: 92px; }
 .note-text { margin: 0; font-size: 14px; line-height: 1.55; color: #c3cfdf; white-space: pre-wrap; }
 .note-panel .btn { align-self: flex-start; color: #eef3fb; border-color: #22304a; }
 .galaxy-hint { position: absolute; bottom: 28px; right: 40px; margin: 0; font-size: 13px; color: #7f8ea3; }
+
+/* ── tools & accounts ── */
+.sheet.wide { width: min(720px, 100vw); }
+.sheet-intro { margin: 0 0 8px; font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+.form-error { margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; background: rgba(154, 74, 16, 0.12); color: var(--warn); font-size: 14px; }
+.form-error[hidden] { display: none; }
+.connections { display: flex; flex-direction: column; gap: 10px; }
+.conn {
+  border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center;
+}
+.conn-name { display: flex; align-items: center; gap: 10px; font-weight: 500; font-size: 15px; }
+.conn-dot { width: 9px; height: 9px; border-radius: 5px; background: var(--muted); flex: none; }
+.conn.connected .conn-dot { background: #2f9e5b; }
+.conn.signing_in .conn-dot, .conn.connecting .conn-dot { background: #d99a1e; animation: blink 1.4s infinite; }
+.conn.error .conn-dot { background: #c2410c; }
+.conn-meta { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+.conn-error { grid-column: 1 / -1; font-size: 13px; color: var(--warn); }
+.conn-actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.conn-actions select { min-height: 40px; }
+.catalog-cat { margin: 6px 0 2px; font-size: 13px; color: var(--muted); }
+.catalog { display: flex; flex-direction: column; gap: 8px; }
+.catalog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.svc {
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: transparent;
+  text-align: left; display: flex; flex-direction: column; gap: 4px; min-height: 44px;
+}
+.svc:hover { background: var(--chip-hover); }
+.svc strong { font-weight: 500; font-size: 15px; display: flex; justify-content: space-between; gap: 8px; }
+.svc small { font-size: 13px; color: var(--muted); line-height: 1.35; }
+.svc .badge { font-size: 11px; letter-spacing: 0.4px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 1px 6px; white-space: nowrap; }
+.svc.done { opacity: 0.55; }
+.svc-form {
+  grid-column: 1 / -1; border: 1px solid var(--action); border-radius: 12px; padding: 14px;
+  display: flex; flex-direction: column; gap: 8px; font-size: 14px;
+}
+.svc-form p { margin: 0; color: var(--ink-2); line-height: 1.45; }
+.svc-form input, .custom-form input {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; min-height: 40px; padding: 0 10px;
+}
+.custom-form { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.custom-form label small { color: var(--muted); }
+.custom-form .btn { align-self: flex-start; margin-top: 6px; }
+code { font-family: var(--mono); font-size: 12px; background: var(--bg); border-radius: 5px; padding: 1px 5px; }
+@media (max-width: 700px) { .catalog-grid { grid-template-columns: minmax(0, 1fr); } }

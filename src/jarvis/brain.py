@@ -28,6 +28,7 @@ BLOCKED_BUILTINS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Gr
 
 Confirm = Callable[[str], Awaitable[bool]]
 Gate = Callable[[], Awaitable[bool]]
+ToolGate = Callable[[str, dict[str, Any]], Awaitable[bool | None]]
 
 
 def mac_tool(name: str) -> str:
@@ -61,7 +62,12 @@ def humor_line(humor: int) -> str:
     return f"Humor setting: {humor} percent. {tone}"
 
 
-def system_prompt(settings: Settings, bsh_enabled: bool, prefs: Prefs | None = None) -> str:
+def system_prompt(
+    settings: Settings,
+    bsh_enabled: bool,
+    prefs: Prefs | None = None,
+    accounts: list[str] | None = None,
+) -> str:
     prefs = prefs or Prefs(address=settings.address)
     name, persona = PERSONAS.get(prefs.persona, PERSONAS["jarvis"])
     address = (
@@ -74,6 +80,14 @@ def system_prompt(settings: Settings, bsh_enabled: bool, prefs: Prefs | None = N
         "decisions, reference calls, transcripts, portfolio and signal scores. Prefer these "
         "over the web for anything about BSH's own companies or portfolio."
         if bsh_enabled
+        else ""
+    )
+    connected = (
+        "\n- Connected accounts: "
+        + ", ".join(accounts)
+        + ". Their tools are named after each service; use them for anything in those accounts. "
+        "Reading runs freely; anything that changes data asks the user first."
+        if accounts
         else ""
     )
     return f"""You are {name}, a voice assistant running on the user's Mac.{address}
@@ -97,7 +111,7 @@ What you can do:
 - Mail and Calendar: read the inbox, open email drafts, read the schedule, add events.
 - The web: search and read pages for anything current. For "research…" requests that deserve depth, start_research runs in the background and files a report.
 - Claude Code: start a coding agent in one of the user's project folders (run_claude_code) and check on it (claude_task_status). It works in the background; the user approves its edits and commands in the app. Say you've started it; don't wait for it.
-- Models: switch_model changes which Claude model you run on (opus, sonnet, haiku, fable) from the next request.{bsh}
+- Models: switch_model changes which Claude model you run on (opus, sonnet, haiku, fable) from the next request.{bsh}{connected}
 
 Rules:
 - You cannot send email. draft_email opens a draft the user reviews and sends themselves; say so.
@@ -121,7 +135,9 @@ def build_mcp_servers(settings: Settings) -> dict[str, Any]:
     return servers
 
 
-def make_permission_policy(confirm: Confirm, control_gate: Gate | None = None):
+def make_permission_policy(
+    confirm: Confirm, control_gate: Gate | None = None, tool_gate: ToolGate | None = None
+):
     """Tools on the allow list never reach this callback; everything else does."""
     confirmable = {mac_tool(name) for name in mac_tools.NEEDS_CONFIRMATION}
     confirmable |= {task_tool(name) for name in TASK_NEEDS_CONFIRMATION}
@@ -134,6 +150,12 @@ def make_permission_policy(confirm: Confirm, control_gate: Gate | None = None):
             if await confirm(describe_action(tool_name, tool_input)):
                 return PermissionResultAllow()
             return PermissionResultDeny(message="The user said no. Don't do it.")
+        if tool_gate is not None:
+            decision = await tool_gate(tool_name, tool_input)
+            if decision is not None:
+                if decision:
+                    return PermissionResultAllow()
+                return PermissionResultDeny(message="The user didn't allow that. Don't retry it.")
         if tool_name in control and control_gate is not None:
             if await control_gate():
                 return PermissionResultAllow()
@@ -172,6 +194,10 @@ def build_options(
     app_server: Any | None = None,
     computer_server: Any | None = None,
     control_gate: Gate | None = None,
+    account_servers: dict[str, Any] | None = None,
+    account_allowed: list[str] | None = None,
+    accounts: list[str] | None = None,
+    tool_gate: ToolGate | None = None,
 ) -> ClaudeAgentOptions:
     servers = build_mcp_servers(settings)
     bsh_enabled = BSH_SERVER in servers
@@ -190,12 +216,15 @@ def build_options(
         allowed += [computer_tool(name) for name in computer.READ_TOOLS]
     if bsh_enabled:
         allowed.append(f"mcp__{BSH_SERVER}")
+    if account_servers:
+        servers.update(account_servers)
+        allowed += list(account_allowed or [])
     # Auto-allowed tools skipping can_use_tool is the design, not an accident.
     warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
     return ClaudeAgentOptions(
         model=prefs.model_id() if prefs else settings.model,
         effort=settings.effort,
-        system_prompt=system_prompt(settings, bsh_enabled, prefs),
+        system_prompt=system_prompt(settings, bsh_enabled, prefs, accounts),
         tools=WEB_TOOLS,
         allowed_tools=allowed,
         disallowed_tools=BLOCKED_BUILTINS,
@@ -204,7 +233,7 @@ def build_options(
         strict_mcp_config=True,
         setting_sources=[],
         permission_mode="default",
-        can_use_tool=make_permission_policy(confirm, control_gate),
+        can_use_tool=make_permission_policy(confirm, control_gate, tool_gate),
         cwd=str(PROJECT_DIR),
         # Keep every MCP tool loaded up front rather than behind tool search.
         env={"ENABLE_TOOL_SEARCH": "false"},

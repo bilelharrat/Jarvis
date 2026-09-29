@@ -63,6 +63,7 @@ function onEvent(ev) {
       (ev.approvals || []).forEach(showApproval);
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });
+      send({ type: 'connectors' });
       break;
     case 'state': setState(ev.value); break;
     case 'level': document.documentElement.style.setProperty('--level', ev.value); break;
@@ -91,6 +92,11 @@ function onEvent(ev) {
     case 'galaxy_changed': send({ type: 'galaxy' }); break;
     case 'note': showNote(ev); break;
     case 'toast': notice(ev.title, '', ev.text, 8000); break;
+    case 'connectors': renderConnectors(ev); break;
+    case 'connector_error': showAccountsError(ev.text); break;
+    case 'tools_reloaded':
+      if (ev.accounts && ev.accounts.length) notice('Tools & Accounts', 'Tools updated', `Connected: ${ev.accounts.join(', ')}`, 6000);
+      break;
     case 'error': notice('Heads up', 'Something went wrong', ev.text, 10000); break;
   }
 }
@@ -138,7 +144,8 @@ document.addEventListener('keydown', (e) => {
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
   if (e.key === 'Escape') {
     if (typing) e.target.blur();
-    if (!$('settings').hidden) toggleSettings(false);
+    if (!$('accounts').hidden) toggleAccounts(false);
+    else if (!$('settings').hidden) toggleSettings(false);
     else if (galaxyMode === 'open') setGalaxyMode('off');
     else if (!$('activity').hidden) toggleDrawer(false);
     if (state !== 'idle') send({ type: 'stop' });
@@ -400,6 +407,146 @@ $('folder-form').addEventListener('submit', (e) => {
   if (path) setPrefs({ brain_folders: [...(prefs.brain_folders || []), path] });
   $('folder-path').value = '';
   $('folder-form').hidden = true;
+});
+
+// ── tools & accounts ──
+
+const AUTH_BADGE = { oauth: 'Sign in', token: 'Token', own_app: 'Your own app' };
+const POLICY_NAMES = { ask: 'Ask before changes', allow: 'Allow everything', read_only: 'Read-only' };
+const STATUS_NAMES = { connected: 'Connected', connecting: 'Connecting…', signing_in: 'Finish signing in in your browser', error: 'Problem', disconnected: 'Disconnected', off: 'Off' };
+let openService = null;
+
+function toggleAccounts(open) {
+  $('accounts').hidden = !open;
+  $('accounts-btn').setAttribute('aria-expanded', String(open));
+  if (open) { toggleSettings(false); send({ type: 'connectors' }); }
+}
+$('accounts-btn').addEventListener('click', () => toggleAccounts($('accounts').hidden));
+$('accounts-close').addEventListener('click', () => toggleAccounts(false));
+$('open-accounts').addEventListener('click', () => toggleAccounts(true));
+
+function showAccountsError(text) {
+  $('accounts-error').textContent = text;
+  $('accounts-error').hidden = !text;
+}
+
+function link(href, text) {
+  const a = el('a', '', text);
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  return a;
+}
+
+function renderConnectors(data) {
+  const conns = data.connections || [];
+  $('connections-empty').hidden = conns.length > 0;
+  $('connections').replaceChildren(...conns.map((c) => {
+    const box = el('div', `conn ${c.status}`);
+    const name = el('div', 'conn-name');
+    name.append(el('span', 'conn-dot'), document.createTextNode(c.name));
+    box.append(name, el('span', 'small-status', STATUS_NAMES[c.status] || c.status));
+    const ro = c.tools.filter((t) => t.read_only).length;
+    const meta = c.status === 'connected'
+      ? `${c.tools.length} tools · ${ro} read-only${c.always_allow.length ? ` · always allowed: ${c.always_allow.join(', ')}` : ''}`
+      : c.kind === 'stdio' ? c.command : c.url;
+    box.append(el('div', 'conn-meta', meta));
+    if (c.error) box.append(el('div', 'conn-error', c.error));
+    const actions = el('div', 'conn-actions');
+    if (c.status === 'signing_in' && c.sign_in_url) actions.append(link(c.sign_in_url, 'Open the sign-in page again'));
+    const label = el('label', 'sr-only', `Permissions for ${c.name}`);
+    const select = el('select');
+    select.id = `policy-${c.id}`;
+    label.htmlFor = select.id;
+    for (const [id, text] of Object.entries(POLICY_NAMES)) {
+      const o = el('option', '', text);
+      o.value = id;
+      o.selected = id === c.policy;
+      select.append(o);
+    }
+    select.addEventListener('change', () => send({ type: 'connector_policy', id: c.id, policy: select.value }));
+    const again = el('button', 'btn', c.status === 'connected' ? 'Reconnect' : 'Try again');
+    again.type = 'button';
+    again.addEventListener('click', () => send({ type: 'reconnect', id: c.id }));
+    const remove = el('button', 'btn', 'Disconnect');
+    remove.type = 'button';
+    remove.addEventListener('click', () => send({ type: 'disconnect', id: c.id }));
+    actions.append(label, select, again, remove);
+    box.append(actions);
+    return box;
+  }));
+
+  const byCat = new Map();
+  for (const svc of data.catalog || []) {
+    if (!byCat.has(svc.category)) byCat.set(svc.category, []);
+    byCat.get(svc.category).push(svc);
+  }
+  const blocks = [];
+  for (const [cat, list] of byCat) {
+    blocks.push(el('div', 'catalog-cat', cat));
+    const grid = el('div', 'catalog-grid');
+    for (const svc of list) {
+      const card = el('button', `svc${svc.connected ? ' done' : ''}`);
+      card.type = 'button';
+      const title = el('strong');
+      title.append(document.createTextNode(svc.name), el('span', 'badge', svc.connected ? 'Connected' : AUTH_BADGE[svc.auth]));
+      card.append(title, el('small', '', svc.blurb));
+      card.disabled = svc.connected;
+      card.addEventListener('click', () => { openService = openService === svc.id ? null : svc.id; renderConnectors(data); });
+      grid.append(card);
+      if (openService === svc.id && !svc.connected) grid.append(serviceForm(svc));
+    }
+    blocks.push(grid);
+  }
+  $('catalog').replaceChildren(...blocks);
+}
+
+function serviceForm(svc) {
+  const form = el('form', 'svc-form');
+  form.autocomplete = 'off';
+  const fields = {};
+  const field = (key, labelText, type) => {
+    const id = `svc-${svc.id}-${key}`;
+    const label = el('label', '', labelText);
+    label.htmlFor = id;
+    const input = el('input');
+    input.id = id;
+    input.type = type;
+    input.autocomplete = 'off';
+    fields[key] = input;
+    form.append(label, input);
+  };
+  if (svc.auth === 'oauth') {
+    form.append(el('p', '', `Jarvis opens ${svc.name}’s sign-in page in your browser. Approve access there and you’re done.`));
+  } else if (svc.auth === 'token') {
+    form.append(el('p', '', svc.help));
+    if (svc.help_url) form.append(link(svc.help_url, `Create a ${svc.name} token`));
+    field('token', `${svc.name} token`, 'password');
+  } else {
+    form.append(el('p', '', svc.help));
+    if (svc.help_url) form.append(link(svc.help_url, 'Setup guide'));
+    field('client_id', 'OAuth client ID', 'text');
+    field('client_secret', 'OAuth client secret', 'password');
+  }
+  const go = el('button', 'btn primary', svc.auth === 'oauth' ? `Sign in to ${svc.name}` : `Connect ${svc.name}`);
+  go.type = 'submit';
+  form.append(go);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    showAccountsError('');
+    const msg = { type: 'connect', id: svc.id };
+    for (const [k, input] of Object.entries(fields)) msg[k] = input.value;
+    send(msg);
+    openService = null;
+  });
+  return form;
+}
+
+$('custom-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  showAccountsError('');
+  send({ type: 'add_custom', name: $('custom-name').value, target: $('custom-target').value, token: $('custom-token').value });
+  $('custom-form').reset();
 });
 
 // ── cards ──

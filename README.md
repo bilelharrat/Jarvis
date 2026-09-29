@@ -42,6 +42,15 @@ origin, so other pages in your browser can't drive your Mac through it.
 - **Morning briefing:** at a set time or with "Brief me": calendar, unread mail, BSH alerts
   and finished tasks.
 
+- **Tools & Accounts** (the link icon, top right): connect Notion, Linear, Jira &
+  Confluence, monday, Todoist, Sentry, Vercel, Supabase, Hugging Face, Stripe, Zapier and
+  Canva by signing in with your browser; GitHub with a personal access token; Gmail,
+  Google Calendar, Google Drive, Asana and HubSpot with an OAuth app you create at that
+  service (Google's connectors are a developer preview). "Add any tool" takes any MCP
+  server URL or command. Read-only tools run freely; anything that changes data asks
+  first, with "Always allow this" per tool, or set a service to Allow everything or
+  Read-only. Tokens and sign-ins live in the macOS Keychain.
+
 macOS will ask once each for Microphone, Automation (Mail, Calendar, Notes, Music),
 Screen Recording (screenshots) and Accessibility (mouse and keyboard). Grant them to
 Jarvis, or to Electron when running from `npm start`.

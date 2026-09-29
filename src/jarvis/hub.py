@@ -32,6 +32,7 @@ from claude_agent_sdk import (
 from . import computer, mac_tools
 from .brain import build_options
 from .config import Settings
+from .connectors import ConnectorManager
 from .knowledge import Collector, KnowledgeBase
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
 from .speech import Speaker, cloud_voice_from
@@ -117,6 +118,7 @@ class Hub:
         prefs_store: PrefsStore | None = None,
         kb: KnowledgeBase | None = None,
         listener_factory: Callable[..., Any] | None = None,
+        connectors: ConnectorManager | None = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -159,6 +161,10 @@ class Hub:
         self.tasks = TaskManager(settings, self.request_approval, self.emit)
         self.tasks.model = self.prefs.model_id()
         self.tasks.on_finished = self._task_finished
+        self.connectors = connectors or ConnectorManager(self.emit, self.request_approval)
+        self.connectors.on_tools_changed = self._tools_changed
+        self._session_id = ""
+        self._reload_pending = False
         self.client: Any = None
 
     # ── lifecycle ──
@@ -170,6 +176,7 @@ class Hub:
             self.transcriber = Transcriber(self.settings.whisper_model)
             self.transcriber.warm_up()
         await self._connect()
+        await self.connectors.start_all()
         if self.poll:
             self._spawn(self._poll_status())
             self._spawn(self._briefing_clock())
@@ -178,7 +185,8 @@ class Hub:
         if self.prefs.hands_free:
             self._apply_hands_free()
 
-    async def _connect(self) -> None:
+    async def _connect(self, resume: str = "") -> None:
+        account_servers, account_allowed = self.connectors.build_servers()
         options = build_options(
             self.settings,
             self.confirm,
@@ -188,7 +196,13 @@ class Hub:
             app_server=self._app_server(),
             computer_server=computer.build_server(self.screen),
             control_gate=self.control_gate,
+            account_servers=account_servers,
+            account_allowed=account_allowed,
+            accounts=self.connectors.connected_names(),
+            tool_gate=self.connectors.gate,
         )
+        if resume:
+            options.resume = resume
         self.client = self.client_factory(options=options)
         await self.client.connect()
 
@@ -198,6 +212,7 @@ class Hub:
         for task in list(self._background):
             task.cancel()
         await self.tasks.close()
+        await self.connectors.close()
         self.speaker.stop()
         if self.client is not None:
             with contextlib.suppress(Exception):
@@ -353,6 +368,11 @@ class Hub:
             for block in message.content:
                 if isinstance(block, ToolResultBlock):
                     self._tool_finished(block.tool_use_id, ok=not block.is_error)
+        elif isinstance(message, ResultMessage) and message.session_id:
+            self._session_id = message.session_id
+            if message.is_error and not self._stopping:
+                detail = "; ".join(message.errors or []) or message.subtype
+                self.emit("error", text=f"Claude stopped: {detail}")
         elif isinstance(message, ResultMessage) and message.is_error and not self._stopping:
             detail = "; ".join(message.errors or []) or message.subtype
             self.emit("error", text=f"Claude stopped: {detail}")
@@ -398,6 +418,21 @@ class Hub:
             await self._connect()
             self.turn = {}
             self.emit("turn", rid="", user="")
+
+    def _tools_changed(self) -> None:
+        """A service connected or dropped: reload Claude's tools, keeping the conversation."""
+        if not self._reload_pending and self.client is not None:
+            self._reload_pending = True
+            self._spawn(self._reload_tools())
+
+    async def _reload_tools(self) -> None:
+        await asyncio.sleep(1.5)  # let a burst of changes settle
+        async with self._lock:
+            self._reload_pending = False
+            with contextlib.suppress(Exception):
+                await self.client.disconnect()
+            await self._connect(resume=self._session_id)
+        self.emit("tools_reloaded", accounts=self.connectors.connected_names())
 
     async def _apply_pending_model(self) -> None:
         model, self._pending_model = self._pending_model, None
@@ -802,12 +837,39 @@ class Hub:
                 )
         elif kind == "open_note":
             self.open_note(str(msg.get("id")))
+        elif kind == "connectors":
+            self.emit("connectors", **self.connectors.public())
+        elif kind in ("connect", "add_custom", "disconnect", "reconnect", "connector_policy"):
+            self._spawn(self._connector_command(kind, msg))
         elif kind == "open_report":
             path = str(msg.get("path", ""))
             with contextlib.suppress(ValueError):
                 safe = computer.safe_path(path)
                 if safe.suffix == ".md" and Path(safe).is_file():
                     self._spawn(self._quiet(mac_tools.run_command("open", str(safe))))
+
+    async def _connector_command(self, kind: str, msg: dict[str, Any]) -> None:
+        cid = str(msg.get("id", ""))
+        try:
+            if kind == "connect":
+                await self.connectors.connect(
+                    cid,
+                    token=str(msg.get("token", "")),
+                    client_id=str(msg.get("client_id", "")),
+                    client_secret=str(msg.get("client_secret", "")),
+                )
+            elif kind == "add_custom":
+                await self.connectors.add_custom(
+                    str(msg.get("name", "")), str(msg.get("target", "")), str(msg.get("token", ""))
+                )
+            elif kind == "disconnect":
+                await self.connectors.disconnect(cid)
+            elif kind == "reconnect":
+                await self.connectors.reconnect(cid)
+            elif kind == "connector_policy":
+                self.connectors.set_policy(cid, str(msg.get("policy", "")))
+        except ValueError as exc:
+            self.emit("connector_error", id=cid, text=str(exc))
 
     # ── live status ──
 

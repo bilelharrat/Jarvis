@@ -88,12 +88,22 @@ def quiet_speaker():
 @pytest.fixture
 def isolated(tmp_path):
     """Prefs and second-brain index in a temp folder, never the user's real ones."""
+    from jarvis.connectors import ConnectorManager, MemoryVault
     from jarvis.knowledge import KnowledgeBase
     from jarvis.prefs import PrefsStore
+
+    async def never_asked(*_args):
+        return "deny"
 
     store = PrefsStore(tmp_path / "prefs.json")
     store.prefs.hands_free = False  # never open the real microphone in tests
     return {
         "prefs_store": store,
         "kb": KnowledgeBase(tmp_path / "brain" / "index.json"),
+        "connectors": ConnectorManager(
+            lambda *a, **k: None,
+            never_asked,
+            vault=MemoryVault(),
+            store=tmp_path / "connections.json",
+        ),
     }
