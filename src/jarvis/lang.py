@@ -1006,6 +1006,7 @@ def parse_research_zh(text: str) -> research.Command | None:
 # The window's panels and looks by their Chinese names (ui.PANELS and ui.LOOKS in English).
 PANELS_ZH = {
     "贾维斯代码": "code", "jarvis代码": "code", "代码面板": "code", "编程面板": "code",
+    "模拟器": "simulator", "ios模拟器": "simulator", "iphone模拟器": "simulator",
     "编程窗口": "code", "浏览器": "browser", "网页浏览器": "browser", "内置浏览器": "browser",
     "研究中心": "research", "bsh研究中心": "research", "市场明细": "research", "设置": "settings",
     "偏好设置": "settings", "设定": "settings", "第二大脑": "brain", "知识星系": "brain",
@@ -1015,7 +1016,7 @@ PANELS_ZH = {
 }  # fmt: skip
 PANEL_NAMES_ZH = {
     "code": "Jarvis Code", "browser": "浏览器", "research": "研究中心", "settings": "设置",
-    "brain": "第二大脑", "activity": "活动记录", "accounts": "工具与账户",
+    "brain": "第二大脑", "activity": "活动记录", "accounts": "工具与账户", "simulator": "iOS 模拟器",
 }  # fmt: skip
 LOOKS_ZH = {
     "光球": "orb", "环境光球": "orb", "球": "orb", "hud": "hud", "斯塔克hud": "hud",
@@ -2121,6 +2122,7 @@ ZH_TEXTS: dict[str, str] = {
 # Words that turn up inside the sentences above (panel and look names, reasons…).
 VALUES_ZH = {
     "Jarvis Code": "Jarvis Code",
+    "the iOS Simulator": "iOS 模拟器",
     "the browser": "浏览器",
     "the Research Center": "研究中心",
     "Settings": "设置",

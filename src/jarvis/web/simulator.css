@@ -1,0 +1,206 @@
+/* ═════════════ The iOS Simulator pane (simulator.js) ═════════════
+   Summit Glass, like the rest of Jarvis Code: a glass capsule of controls above a device
+   drawn in titanium and black glass, the live screen inside it. The pane's tokens
+   (--glass-*, --c-*) come from .deck.jc; fallbacks keep it readable anywhere else. */
+
+.sim-panel {
+  position: relative; height: 100%; min-height: 360px; display: flex; flex-direction: column; gap: 10px;
+  font-size: 13px; color: rgb(var(--c-ink, 29 29 31));
+}
+
+/* ── the control capsule ──
+   Button rules start with :root .sim-panel: .deck.jc button (font and color: inherit)
+   would otherwise win over them. */
+.sim-bar {
+  display: flex; align-items: center; gap: 6px; padding: 3px; border-radius: 999px; flex: none;
+  background: var(--glass-fill-strong, rgba(253, 253, 254, 0.84));
+  box-shadow: var(--glass-rim, inset 0 1px 0 #fff), var(--glass-edge, 0 0 0 0.5px rgba(0, 0, 0, 0.08)), 0 1px 3px rgb(0 0 0 / 0.08);
+}
+:root .sim-panel .sim-pick {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 auto; max-width: 250px;
+  height: 30px; padding: 0 10px 0 11px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--glass-pill, rgba(255, 255, 255, 0.9)); color: rgb(var(--c-ink, 29 29 31));
+  box-shadow: var(--glass-rim, none), 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px -1px rgb(0 0 0 / 0.14);
+  font: inherit; font-size: 12.5px; font-weight: 500;
+}
+:root .sim-panel .sim-pick:hover { background: rgb(var(--c-surface, 255 255 255)); }
+:root .sim-panel .sim-pick svg { flex: none; opacity: 0.55; }
+:root .sim-panel .sim-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root .sim-panel .sim-pick-os { flex: none; color: rgb(var(--c-muted, 122 122 128)); font-weight: 400; font-size: 11.5px; }
+.sim-live-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--c-subtle, 162 162 168)); }
+:root .sim-panel .sim-pick.live .sim-live-dot {
+  background: rgb(var(--c-success, 36 164 78));
+  box-shadow: 0 0 0 3px rgb(var(--c-success, 36 164 78) / 0.18);
+  animation: sim-pulse 2.4s ease-in-out infinite;
+}
+@keyframes sim-pulse { 50% { box-shadow: 0 0 0 5px rgb(var(--c-success, 36 164 78) / 0.06); } }
+
+.sim-actions { display: inline-flex; align-items: center; gap: 1px; margin-left: auto; flex: none; }
+:root .sim-panel .sim-act {
+  width: 30px; height: 30px; border: 0; border-radius: 999px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: rgb(var(--c-ink-2, 88 88 94));
+  transition: background-color 120ms ease, color 120ms ease, transform 160ms var(--ease-spring, ease);
+}
+:root .sim-panel .sim-act:hover:not(:disabled) { background: rgb(var(--c-ink, 29 29 31) / 0.07); color: rgb(var(--c-ink, 29 29 31)); }
+:root .sim-panel .sim-act:active:not(:disabled) { transform: scale(0.9); }
+:root .sim-panel .sim-act:disabled { opacity: 0.35; cursor: default; }
+:root .sim-panel .sim-act:focus-visible, :root .sim-panel .sim-pick:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(var(--c-accent, 11 135 214) / 0.55); }
+.sim-sep { width: 1px; height: 16px; margin: 0 3px; background: rgb(var(--c-ink, 29 29 31) / 0.1); }
+
+/* ── the stage and the device ── */
+.sim-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; }
+.sim-device {
+  --bezel: 14px; --radius: 44px;
+  position: relative; box-sizing: border-box; padding: var(--bezel);
+  border-radius: calc(var(--radius) + var(--bezel));
+  /* black glass inside a thin titanium band */
+  background:
+    radial-gradient(120% 60% at 30% 0%, rgb(255 255 255 / 0.07), transparent 60%),
+    linear-gradient(160deg, #1d1d20 0%, #0a0a0b 55%, #151517 100%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.06),
+    inset 0 0 0 calc(var(--bezel) * 0.22) #050506,
+    0 0 0 1.5px #8e8c88,
+    0 0 0 2.5px #3b3a38,
+    0 1px 0 3px rgb(255 255 255 / 0.05),
+    0 30px 60px -22px rgb(0 0 0 / 0.55),
+    0 10px 24px -12px rgb(0 0 0 / 0.35);
+  animation: sim-rise 420ms var(--ease-spring, ease-out) both;
+  transition: width 380ms var(--ease-spring, ease), height 380ms var(--ease-spring, ease);
+}
+.sim-device[hidden] { display: none; }
+@keyframes sim-rise { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+
+/* hardware buttons: lock on the right, volume on the left (turned with the device) */
+.sim-hw {
+  position: absolute; border: 0; padding: 0; cursor: pointer; border-radius: 2px;
+  background: linear-gradient(90deg, #6f6d69, #a9a7a2 45%, #5e5c59);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.5);
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.sim-hw:hover:not(:disabled) { filter: brightness(1.2); }
+.sim-hw:active:not(:disabled) { transform: scale(0.94); }
+.sim-hw:disabled { cursor: default; }
+.sim-hw-lock { right: -5px; top: 24%; width: 3.5px; height: 9%; }
+.sim-hw-up { left: -5px; top: 21%; width: 3.5px; height: 6.5%; }
+.sim-hw-down { left: -5px; top: 29.5%; width: 3.5px; height: 6.5%; }
+/* turned counterclockwise (3): the right side is on top, the left underneath */
+.sim-device.turned-3 .sim-hw-lock { right: auto; top: -5px; left: 24%; width: 9%; height: 3.5px; }
+.sim-device.turned-3 .sim-hw-up { top: auto; bottom: -5px; left: 21%; width: 6.5%; height: 3.5px; }
+.sim-device.turned-3 .sim-hw-down { top: auto; bottom: -5px; left: 29.5%; width: 6.5%; height: 3.5px; }
+/* clockwise (4): the right side underneath, the left on top, both counted from the right */
+.sim-device.turned-4 .sim-hw-lock { top: auto; bottom: -5px; right: 24%; width: 9%; height: 3.5px; }
+.sim-device.turned-4 .sim-hw-up { left: auto; top: -5px; right: 21%; width: 6.5%; height: 3.5px; }
+.sim-device.turned-4 .sim-hw-down { left: auto; top: -5px; right: 29.5%; width: 6.5%; height: 3.5px; }
+/* upside down (2) */
+.sim-device.turned-2 .sim-hw-lock { right: auto; left: -5px; top: auto; bottom: 24%; }
+.sim-device.turned-2 .sim-hw-up { left: auto; right: -5px; top: auto; bottom: 21%; }
+.sim-device.turned-2 .sim-hw-down { left: auto; right: -5px; top: auto; bottom: 29.5%; }
+.sim-device.ipad .sim-hw-up, .sim-device.ipad .sim-hw-down { display: none; }
+
+.sim-screen {
+  position: relative; width: 100%; height: 100%; overflow: hidden; outline: none;
+  border-radius: var(--radius); background: #000; cursor: default; touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  transition: box-shadow 160ms ease;
+}
+.sim-screen:focus-visible, .sim-screen:focus { box-shadow: 0 0 0 2px rgb(var(--c-glow, 56 168 232) / 0.55); }
+.sim-screen.view-only { cursor: not-allowed; }
+.sim-img { display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; image-rendering: auto; }
+.sim-img:not([src]) { visibility: hidden; }
+
+/* where the finger is, as Simulator shows it */
+.sim-dot {
+  position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.28) 60%, rgb(255 255 255 / 0.12));
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.18), 0 2px 8px rgb(0 0 0 / 0.25);
+  transform: scale(0.9); transition: opacity 120ms ease;
+}
+.sim-dot[hidden] { display: none; }
+.sim-screen.touching .sim-dot { transform: scale(1); }
+
+.sim-veil {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: rgb(0 0 0 / 0.45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.sim-veil[hidden] { display: none; }
+
+/* ── empty and waiting states ── */
+.sim-empty { display: grid; place-items: center; gap: 12px; text-align: center; padding: 12px; }
+.sim-empty[hidden] { display: none; }
+.sim-empty-card { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 320px; }
+.sim-empty-phone {
+  width: 54px; height: 94px; border-radius: 14px; margin-bottom: 6px;
+  background: linear-gradient(160deg, rgb(var(--c-fill-2, 235 235 239)), rgb(var(--c-fill-3, 242 242 245)));
+  box-shadow: inset 0 0 0 1.5px rgb(var(--c-ink, 29 29 31) / 0.14), inset 0 0 0 5px rgb(var(--c-surface, 255 255 255) / 0.6), var(--shadow-card, none);
+}
+.sim-empty-title { margin: 0; font-size: 14px; font-weight: 600; }
+.sim-muted { margin: 0; color: rgb(var(--c-muted, 122 122 128)); font-size: 12.5px; }
+:root .sim-panel .sim-boot-list { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 6px; }
+:root .sim-panel .sim-boot {
+  display: flex; align-items: center; gap: 8px; width: 100%; border: 0; cursor: pointer; text-align: left;
+  padding: 8px 12px; border-radius: 11px; font: inherit; font-size: 13px; color: rgb(var(--c-ink, 29 29 31));
+  background: rgb(var(--c-surface, 255 255 255)); box-shadow: var(--shadow-card, 0 0 0 0.5px rgb(0 0 0 / 0.08));
+}
+:root .sim-panel .sim-boot:hover { background: rgb(var(--c-surface-muted, 248 248 250)); }
+.sim-spinner {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid rgb(var(--c-ink, 29 29 31) / 0.12); border-top-color: rgb(var(--c-accent, 11 135 214));
+  animation: sim-spin 0.8s linear infinite;
+}
+@keyframes sim-spin { to { transform: rotate(360deg); } }
+
+/* ── the status line ── */
+.sim-foot { display: flex; align-items: center; gap: 8px; min-height: 18px; padding: 0 6px; font-size: 11.5px; color: rgb(var(--c-muted, 122 122 128)); flex: none; }
+.sim-state { font-weight: 500; white-space: nowrap; }
+.sim-state:empty, .sim-fps:empty { display: none; }
+.sim-state[data-tone="live"] { color: rgb(var(--c-success-ink, 22 128 58)); }
+.sim-state[data-tone="warn"] { color: rgb(var(--c-warning-ink, 190 86 0)); white-space: normal; }
+.sim-fps { white-space: nowrap; font-variant-numeric: tabular-nums; padding: 1px 6px; border-radius: 999px; background: rgb(var(--c-ink, 29 29 31) / 0.06); }
+.sim-hint { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sim-hint[data-tone="ok"] { color: rgb(var(--c-success-ink, 22 128 58)); }
+.sim-hint[data-tone="warn"] { color: rgb(var(--c-danger-ink, 200 30 30)); }
+
+/* ── popovers: devices, apps, a link ── */
+.sim-pop {
+  position: absolute; z-index: 6; min-width: 240px; max-width: min(340px, 100%); max-height: 320px; overflow-y: auto;
+  padding: 5px; border-radius: 14px;
+  background: var(--glass-fill-strong, rgba(253, 253, 254, 0.94));
+  backdrop-filter: var(--glass-blur, blur(26px) saturate(185%)); -webkit-backdrop-filter: var(--glass-blur, blur(26px) saturate(185%));
+  box-shadow: var(--glass-rim, none), var(--glass-edge, none), var(--shadow-sheet, 0 12px 32px rgb(0 0 0 / 0.2));
+  animation: sim-pop 200ms var(--ease-spring, ease-out) both;
+}
+.sim-pop[hidden] { display: none; }
+.sim-pop[data-kind="link"] { width: min(340px, 100%); }
+@keyframes sim-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+.sim-menu { display: flex; flex-direction: column; }
+.sim-menu .sim-muted { padding: 8px 10px; }
+:root .sim-panel .sim-menu-item {
+  display: flex; align-items: center; gap: 9px; border: 0; background: transparent; text-align: left; cursor: pointer;
+  padding: 7px 10px; border-radius: 9px; font: inherit; font-size: 13px; color: rgb(var(--c-ink, 29 29 31));
+}
+:root .sim-panel .sim-menu-item:hover, :root .sim-panel .sim-menu-item:focus-visible { background: rgb(var(--c-accent, 11 135 214)); color: #fff; outline: none; }
+:root .sim-panel .sim-menu-item:hover .sim-menu-os, :root .sim-panel .sim-menu-item:hover .sim-menu-tag { color: rgb(255 255 255 / 0.8); }
+.sim-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sim-menu-os { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: rgb(var(--c-muted, 122 122 128)); }
+.sim-menu-tag { flex: none; font-size: 11.5px; font-weight: 500; color: rgb(var(--c-accent-ink, 4 104 174)); }
+.sim-state-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--c-ink, 29 29 31) / 0.18); }
+.sim-state-dot.on { background: rgb(var(--c-success, 36 164 78)); }
+.sim-form { display: flex; gap: 6px; padding: 4px; }
+.sim-field {
+  flex: 1; min-width: 0; font: inherit; font-size: 13px; color: rgb(var(--c-ink, 29 29 31)); border: 0; border-radius: 9px;
+  padding: 7px 11px; background: rgb(var(--c-surface, 255 255 255)); box-shadow: inset 0 0 0 1px rgb(var(--c-ink, 29 29 31) / 0.11); outline: none;
+}
+.sim-field:focus { box-shadow: inset 0 0 0 1px rgb(var(--c-accent, 11 135 214) / 0.7), 0 0 0 3px rgb(var(--c-glow, 56 168 232) / 0.25); }
+:root .sim-panel .sim-go {
+  flex: none; border: 0; border-radius: 999px; padding: 0 14px; height: 30px; align-self: center; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
+  background: rgb(var(--c-accent, 11 135 214)); color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(var(--c-accent, 11 135 214) / 0.3);
+}
+:root .sim-panel .sim-go:hover { background: rgb(var(--c-accent-hover, 6 118 192)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-device, .sim-pop, .sim-pick.live .sim-live-dot { animation: none; }
+  .sim-device { transition: none; }
+}

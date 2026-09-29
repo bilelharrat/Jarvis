@@ -1259,6 +1259,7 @@ function applyUi(ev) {
     case 'browser': if (app && app.browser) toggleBrowser(open); break;
     case 'research': if (open) openResearch(lastResearchPath); else toggleBrowser(false); break;
     case 'settings': toggleSettings(open); break;
+    case 'simulator': if (open) { toggleCC(true); openPane('sim'); } else if (currentPane === 'sim') closePane(); break;
     case 'accounts': toggleAccounts(open); break;
     case 'brain': setGalaxyMode(open ? 'open' : 'off'); break;
     case 'activity': toggleDrawer(open); break;
@@ -1358,7 +1359,7 @@ function toggleCC(open) {
     setTimeout(() => $('deck-input').focus(), 40);
   } else {
     closeMenu();
-    if (currentPane === 'sim') { send({ type: 'sim_watch', udid: '' }); simWatching = ''; }
+    if (currentPane === 'sim') closeSimPanel();
   }
 }
 $('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
@@ -3193,8 +3194,8 @@ let currentPane = null;
 const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions' };
 const term = { id: null, xterm: null, fit: null, loading: null, observer: null };
 let diffFiles = [];
-let simDevices = [];
-let simWatching = '';
+let simPanel = null; // the iOS Simulator pane (simulator.js) while it's showing
+function closeSimPanel() { if (simPanel) { simPanel.unmount(); simPanel = null; } }
 let fileView = null;
 let mcpServers = [];
 let rules = [];
@@ -3206,14 +3207,13 @@ $('jc-browser').addEventListener('click', () => { if (typeof toggleBrowser === '
 $('jc-pane-close').addEventListener('click', closePane);
 
 function openPane(kind) {
-  if (currentPane === 'sim' && kind !== 'sim') { send({ type: 'sim_watch', udid: '' }); simWatching = ''; }
+  if (currentPane === 'sim' && kind !== 'sim') closeSimPanel();
   currentPane = kind;
   $('jc-pane').hidden = false;
   $('jc-pane-title').textContent = PANE_TITLES[kind] || kind;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pane === kind)));
   const t = currentTask();
   if (kind === 'diff' && t) send({ type: 'task_diff', id: t.id });
-  if (kind === 'sim') send({ type: 'sim_list' });
   if (kind === 'mcp' && t) send({ type: 'task_mcp', id: t.id });
   if (kind === 'rules' && t) send({ type: 'task_rules', id: t.id });
   if ((kind === 'files' || kind === 'artifacts') && deckProject && !projectFiles[deckProject]) send({ type: 'project_files', directory: deckProject });
@@ -3221,7 +3221,7 @@ function openPane(kind) {
 }
 
 function closePane() {
-  if (currentPane === 'sim') { send({ type: 'sim_watch', udid: '' }); simWatching = ''; }
+  if (currentPane === 'sim') closeSimPanel();
   if (currentPane === 'terminal' && term.id) { send({ type: 'term_close', term: term.id }); term.id = null; }
   currentPane = null;
   $('jc-pane').hidden = true;
@@ -3303,33 +3303,10 @@ function renderDiffPane(body) {
 }
 
 function renderSimPane(body) {
-  const box = el('div', 'jc-sim');
-  const booted = simDevices.filter((d) => d.state === 'Booted');
-  if (!simDevices.length) { body.replaceChildren(el('p', 'jc-empty', 'Looking for simulators… (Xcode needs to be installed)')); return; }
-  if (booted.length) {
-    const device = booted[0];
-    if (simWatching !== device.udid) { simWatching = device.udid; send({ type: 'sim_watch', udid: device.udid }); }
-    const img = el('img');
-    img.id = 'jc-sim-img';
-    img.alt = `${device.name} screen`;
-    const open = el('button', 'jc-btn small', 'Open Simulator');
-    open.type = 'button';
-    open.addEventListener('click', () => send({ type: 'sim_open' }));
-    box.append(el('p', 'jc-dim', `${device.name} · ${device.os}`), img, open);
-  } else {
-    box.append(el('p', 'jc-dim', 'No simulator is running. Boot one:'));
-    const ul = el('ul', 'jc-list');
-    ul.append(...simDevices.slice(0, 8).map((d) => {
-      const li = el('li');
-      const boot = el('button', 'jc-btn small', 'Boot');
-      boot.type = 'button';
-      boot.addEventListener('click', () => { boot.textContent = 'Booting…'; send({ type: 'sim_boot', udid: d.udid }); });
-      li.append(el('span', '', `${d.name}`), el('small', '', d.os), boot);
-      return li;
-    }));
-    box.append(ul);
-  }
-  body.replaceChildren(box);
+  // Mounted once: renderPaneBody runs again on unrelated changes and mustn't restart the stream.
+  if (simPanel && !simPanel.closed && body.contains(simPanel.el)) return;
+  closeSimPanel();
+  simPanel = window.JarvisSim.mount(body, { send });
 }
 
 function renderFilesPane(body, files, placeholder) {
@@ -3529,14 +3506,10 @@ function onJarvisCodeEvent(ev) {
         term.id = null;
       }
       return true;
-    case 'sim_watch_ended': {
-      simWatching = '';
-      const img = $('jc-sim-img');
-      if (img && currentPane === 'sim') img.after(el('p', 'jc-dim', 'The live view paused after 30 minutes. Watch again to resume.'));
+    case 'sim_list': case 'sim_status': case 'sim_frame': case 'sim_shot': case 'sim_apps':
+    case 'sim_error': case 'sim_installed': case 'sim_watch_ended':
+      if (simPanel) simPanel.onEvent(ev);
       return true;
-    }
-    case 'sim_list': simDevices = ev.devices || []; if (currentPane === 'sim') renderPaneBody(); return true;
-    case 'sim_frame': { const img = $('jc-sim-img'); if (img) img.src = `data:image/jpeg;base64,${ev.jpeg}`; return true; }
     case 'awake': awake = !!ev.on; return true;
     default: return false;
   }

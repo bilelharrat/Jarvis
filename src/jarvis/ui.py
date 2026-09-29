@@ -19,6 +19,10 @@ SERVER_NAME = "window"
 
 # What people call each panel -> the window's name for it.
 PANELS = {
+    "simulator": "simulator",
+    "ios simulator": "simulator",
+    "the simulator": "simulator",
+    "iphone simulator": "simulator",
     "jarvis code": "code",
     "the code panel": "code",
     "code panel": "code",
@@ -43,6 +47,7 @@ PANELS = {
     "connectors": "accounts",
 }
 PANEL_NAMES = {
+    "simulator": "the iOS Simulator",
     "code": "Jarvis Code",
     "browser": "the browser",
     "research": "the Research Center",

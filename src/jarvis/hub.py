@@ -660,6 +660,11 @@ class Hub:
 
         self.markets = Markets()
         self.workbench = Workbench(self.emit)
+        from .simulator import Controller as SimulatorController
+
+        self.simulator = SimulatorController(
+            self.emit
+        )  # the iOS Simulator pane (live frames + input)
         # A Jarvis Code session gets the built-in browser and the iOS Simulator too.
         self.tasks.session_servers = lambda cwd: code_tools.build_servers(
             self.browser_call, self.workbench, lambda: cwd
@@ -1521,6 +1526,7 @@ class Hub:
             self._listener.stop()
         self.screen_watch.stop()
         self.workbench.close()
+        await self.simulator.close()
         if self.meeting is not None:  # keep every line that was said
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self.meeting.finish_transcript(), 10)
@@ -1566,6 +1572,7 @@ class Hub:
         if not self._subscribers:  # the last window went: no one to stream pictures to
             self.desktop_hands.disconnect()
             self.workbench.watch_simulator(None)
+            self.simulator.stop()
             self._window_gone()
 
     def _window_gone(self) -> None:
@@ -4715,15 +4722,8 @@ class Hub:
             self._sync_awake(force=True)
         elif kind == "file_open":
             self.open_project_file(msg)
-        elif kind == "sim_list":
-            self.emit("sim_list", devices=await self.workbench.simulators())
-        elif kind == "sim_boot":
-            await self.workbench.boot(str(msg.get("udid", "")))
-            self.emit("sim_list", devices=await self.workbench.simulators())
-        elif kind == "sim_watch":
-            self.workbench.watch_simulator(str(msg.get("udid") or "") or None)
-        elif kind == "sim_open":
-            self._spawn(self._quiet(mac_tools.run_command("open", "-a", "Simulator")))
+        elif kind.startswith("sim_") and await self.simulator.handle(kind, msg):
+            pass
         elif kind == "file_read":
             try:
                 root = self.tasks.resolve_dir(str(msg.get("directory", "")))
