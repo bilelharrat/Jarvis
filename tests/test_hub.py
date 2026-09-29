@@ -48,7 +48,7 @@ async def test_ask_streams_turn_tools_reply_and_state(settings, quiet_speaker, i
     assert [e["text"] for e in events if e["type"] == "reply"] == ["Two meetings tomorrow."]
     assert [e["value"] for e in events if e["type"] == "state"] == ["thinking", "idle"]
     assert hub.activity[0]["status"] == "done"
-    assert hub.client.queries == ["what's on tomorrow?"]
+    assert hub.client.said == ["what's on tomorrow?"]
 
 
 async def test_error_result_is_reported(settings, quiet_speaker, isolated):
@@ -97,7 +97,7 @@ async def test_listen_transcribes_then_asks(settings, quiet_speaker, isolated):
     assert {"type": "heard", "text": "what's on tomorrow"} in events
     states = [e["value"] for e in events if e["type"] == "state"]
     assert states[:2] == ["listening", "transcribing"]
-    assert hub.client.queries == ["what's on tomorrow"]
+    assert hub.client.said == ["what's on tomorrow"]
 
 
 async def test_silence_does_not_ask(settings, quiet_speaker, isolated):
@@ -146,13 +146,13 @@ async def test_hands_free_wake_word_asks(settings, quiet_speaker, isolated):
     assert hub._listener.running
     await hub.on_heard("Jarvis, what's on tomorrow?")
     await asyncio.sleep(0.01)
-    assert hub.client.queries == ["what's on tomorrow"]
+    assert hub.client.said == ["what's on tomorrow"]
     await asyncio.sleep(0.05)
     # Right after a reply, the next sentence is a follow-up: no wake word needed.
     assert hub.state == "listening"
     await hub.on_heard("and the day after?")
     await asyncio.sleep(0.05)
-    assert hub.client.queries[-1] == "and the day after?"
+    assert hub.client.said[-1] == "and the day after?"
     # Once the follow-up window has passed, ordinary talk is ignored again.
     hub._armed_until = 0.0
     hub.state = "idle"
@@ -169,7 +169,7 @@ async def test_bare_wake_word_arms_then_next_utterance_asks(settings, quiet_spea
     assert hub.state == "listening"
     await hub.on_heard("dim the lights")
     await asyncio.sleep(0.01)
-    assert hub.client.queries == ["dim the lights"]
+    assert hub.client.said == ["dim the lights"]
 
 
 async def test_barge_in_stops_speech(settings, quiet_speaker, isolated):
@@ -199,7 +199,7 @@ async def test_style_note_and_model_switch(settings, quiet_speaker, isolated):
     assert hub.client.queries[-1].startswith("[Note from the app:")
     assert "Humor 95 percent" in hub.client.queries[-1]
     await hub.ask("again")
-    assert hub.client.queries[-1] == "again"
+    assert hub.client.said[-1] == "again"
 
 
 async def test_briefing_window(settings, quiet_speaker, isolated):
@@ -438,7 +438,7 @@ async def test_instant_shortcut_runs_without_claude(settings, quiet_speaker, iso
     assert hub.client.queries == []  # Claude never saw it
     assert hub.history[-1] == {"role": "assistant", "text": "Done.", "at": hub.history[-1]["at"]}
     await hub.ask("what's a good movie?")  # not a shortcut's name: Claude answers
-    assert hub.client.queries == ["what's a good movie?"]
+    assert hub.client.said == ["what's a good movie?"]
 
 
 async def test_shortcut_always_makes_it_instant(settings, quiet_speaker, isolated):
@@ -593,7 +593,7 @@ async def test_a_finished_request_is_answered_before_the_full_silence(
     await hub._early_utterance(3, "Jarvis, what's on my calendar tomorrow?")
     await asyncio.sleep(0.05)
     assert hub._listener.committed == [3]
-    assert [q.rstrip("?") for q in hub.client.queries] == ["what's on my calendar tomorrow"]
+    assert [q.rstrip("?") for q in hub.client.said] == ["what's on my calendar tomorrow"]
     await hub._early_utterance(4, "Jarvis, what's the weather in")  # sounds unfinished: wait
     hub._armed_until = 0.0  # the follow-up window after its answer has passed
     await hub._early_utterance(5, "so anyway the meeting went fine.")  # not for JARVIS

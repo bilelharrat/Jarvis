@@ -15,6 +15,13 @@ from jarvis.config import Settings
 from jarvis.speech import Speaker
 
 
+def strip_note(query):
+    """A query without the "[Note from the app: …]" the hub puts in front of it."""
+    if isinstance(query, str) and query.startswith("[Note from the app:"):
+        return query.split("]\n\n", 1)[-1]
+    return query
+
+
 class FakeClient:
     """Stands in for ClaudeSDKClient: records queries, replays a scripted response (as one
     turn from receive_response, and on the connection's stream from receive_messages)."""
@@ -38,6 +45,11 @@ class FakeClient:
 
     async def disconnect(self):
         self.connected = False
+
+    @property
+    def said(self):
+        """The queries as the user put them, without the app's note in front."""
+        return [strip_note(q) for q in self.queries]
 
     async def query(self, text):
         self.queries.append(text)

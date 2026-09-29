@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from conftest import strip_note
 
 from jarvis import hub as hub_module
 from jarvis.ui import parse
@@ -89,7 +90,7 @@ async def test_requests_wait_their_turn_and_can_be_taken_back(hub):
     asked = []
 
     async def fake_run(rid, query, images=None):
-        asked.append(query)
+        asked.append(strip_note(query))
 
     hub._run_query = fake_run
     await hub._lock.acquire()  # something is being answered
@@ -169,7 +170,7 @@ async def test_with_queueing_off_a_new_request_interrupts(hub):
     asked = []
 
     async def fake_run(rid, query, images=None):
-        asked.append(query)
+        asked.append(strip_note(query))
 
     hub.emit = lambda *_a, **_k: None
     hub._run_query = fake_run
