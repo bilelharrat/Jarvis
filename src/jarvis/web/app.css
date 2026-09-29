@@ -690,3 +690,7 @@ body.cards-open .browser-pane { right: 384px; }
 .hand-cursor[data-mode="palm"] { border-style: dashed; }
 .hand-cursor[data-mode="fist"] { border-color: #f0a458; box-shadow: 0 0 18px rgba(240, 164, 88, 0.7); }
 .galaxy-hint { right: 200px !important; }
+
+/* Side sheets are solid in every look, so the dashboard never shows through. */
+.sheet { background: var(--bg); }
+body[data-look="hud"] .sheet, body[data-look="console"] .sheet { box-shadow: -24px 0 60px rgba(0, 0, 0, 0.55); }

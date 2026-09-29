@@ -15,12 +15,21 @@ from claude_agent_sdk import (
 )
 
 from . import computer, mac_tools
-from .config import PROJECT_DIR, Settings
+from .config import Settings
 from .prefs import PERSONAS, Prefs
 
 BSH_SERVER = "bsh"
 TASKS_SERVER = "claude"
 BRAIN_SERVER = "brain"
+BROWSER_SERVER = "browser"
+BROWSER_READ = [
+    "browser_open",
+    "browser_read",
+    "browser_scroll",
+    "browser_back",
+    "browser_screenshot",
+]
+BROWSER_CONTROL = ["browser_click", "browser_type"]
 APP_SERVER = "jarvis"
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 # Claude Code's own coding tools stay off: JARVIS talks, it doesn't edit files or run shells.
@@ -111,6 +120,7 @@ Everything you write is read aloud by text-to-speech, so talk, don't type:
 
 What you can do:
 - Second brain: the user's Apple Notes, chosen folders, the BSH desk and past research reports. Use search_notes for anything the user might have written down or researched before, then read_note for detail. Name the note you're drawing on in passing ("your note on…"); the app shows the sources.
+- Built-in browser: a browser inside the J.A.R.V.I.S. window the user can watch. To do something on a website, browser_open it, browser_read the page, then browser_click and browser_type (the user OKs clicking and typing once per request), checking with browser_read or browser_screenshot as you go. Prefer it over the mouse and keyboard for websites. open_url is only for sending the user to their own browser.
 - Files: find_files searches the Mac with Spotlight; read_file reads documents and PDFs.
 - Screen: see_screen shows you the display. With the user's OK (asked once per request) you can click, type_text, press_keys and scroll to operate apps and the browser: look, act, then look again to check. browser_page gives the frontmost browser's address.
 - Mac: open and quit apps, snap windows left, right or full screen, open web pages, control Spotify or Apple Music, set the volume, save Apple Notes, list and run Shortcuts, report the time and battery.
@@ -148,6 +158,7 @@ def make_permission_policy(
     confirmable = {mac_tool(name) for name in mac_tools.NEEDS_CONFIRMATION}
     confirmable |= {task_tool(name) for name in TASK_NEEDS_CONFIRMATION}
     control = {computer_tool(name) for name in computer.CONTROL_TOOLS}
+    control |= {f"mcp__{BROWSER_SERVER}__{name}" for name in BROWSER_CONTROL}
 
     async def can_use_tool(
         tool_name: str, tool_input: dict[str, Any], _context: ToolPermissionContext
@@ -192,6 +203,14 @@ def describe_action(tool_name: str, tool_input: dict[str, Any]) -> str:
     return f"Allow {tool_name}?"
 
 
+def _workspace():
+    from .prefs import APP_SUPPORT
+
+    path = APP_SUPPORT / "workspace"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def build_options(
     settings: Settings,
     confirm: Confirm,
@@ -200,6 +219,7 @@ def build_options(
     prefs: Prefs | None = None,
     brain_server: Any | None = None,
     app_server: Any | None = None,
+    browser_server: Any | None = None,
     computer_server: Any | None = None,
     control_gate: Gate | None = None,
     account_servers: dict[str, Any] | None = None,
@@ -219,6 +239,9 @@ def build_options(
     if app_server is not None:
         servers[APP_SERVER] = app_server
         allowed.append(f"mcp__{APP_SERVER}")
+    if browser_server is not None:
+        servers[BROWSER_SERVER] = browser_server
+        allowed += [f"mcp__{BROWSER_SERVER}__{name}" for name in BROWSER_READ]
     if computer_server is not None:
         servers[computer.SERVER_NAME] = computer_server
         allowed += [computer_tool(name) for name in computer.READ_TOOLS]
@@ -242,7 +265,8 @@ def build_options(
         setting_sources=[],
         permission_mode="default",
         can_use_tool=make_permission_policy(confirm, control_gate, tool_gate),
-        cwd=str(PROJECT_DIR),
+        # Its own workspace, so its chats never show up as a project's Claude Code sessions.
+        cwd=str(_workspace()),
         # Keep every MCP tool loaded up front rather than behind tool search.
         env={"ENABLE_TOOL_SEARCH": "false"},
     )

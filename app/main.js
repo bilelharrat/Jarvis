@@ -1,6 +1,6 @@
 // Jarvis desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
 
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, dialog, globalShortcut, ipcMain, nativeTheme, shell } = require('electron');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -160,6 +160,191 @@ ipcMain.handle('jarvis:pick-folder', async () => {
     properties: ['openDirectory'],
   });
   return result.canceled ? null : result.filePaths[0];
+});
+
+// ── The built-in browser ──
+// A sandboxed page in its own storage partition: no preload, no Node, no access to the
+// app. It sits over a slot in the Jarvis window, and Jarvis can drive it.
+
+let browserView = null;
+let browserShown = false;
+
+function sendBrowserState() {
+  if (!browserView || !win) return;
+  const wc = browserView.webContents;
+  win.webContents.send('browser:state', {
+    url: wc.getURL(),
+    title: wc.getTitle(),
+    loading: wc.isLoading(),
+    canBack: wc.navigationHistory.canGoBack(),
+    canForward: wc.navigationHistory.canGoForward(),
+  });
+}
+
+function ensureBrowser() {
+  if (browserView) return browserView;
+  browserView = new WebContentsView({
+    webPreferences: { partition: 'persist:jarvis-browser', sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  const wc = browserView.webContents;
+  wc.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) wc.loadURL(url);
+    return { action: 'deny' };
+  });
+  wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  for (const event of ['did-navigate', 'did-navigate-in-page', 'page-title-updated', 'did-start-loading', 'did-stop-loading']) {
+    wc.on(event, sendBrowserState);
+  }
+  return browserView;
+}
+
+function toUrl(input) {
+  const text = String(input || '').trim();
+  if (/^https?:\/\//i.test(text)) return text;
+  if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(text)) return `https://${text}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
+}
+
+function waitForLoad(wc, ms = 20000) {
+  return new Promise((resolve) => {
+    if (!wc.isLoading()) return setTimeout(resolve, 300);
+    const done = () => { clearTimeout(timer); resolve(); };
+    const timer = setTimeout(done, ms);
+    wc.once('did-stop-loading', done);
+  });
+}
+
+const READ_PAGE = `(() => {
+  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const links = [...document.querySelectorAll('a[href]')].filter(visible).slice(0, 40)
+    .map((a) => ({ text: (a.innerText || a.getAttribute('aria-label') || '').trim().slice(0, 80), href: a.href }))
+    .filter((l) => l.text);
+  const fields = [...document.querySelectorAll('input, textarea, select, button')].filter(visible).slice(0, 30)
+    .map((el) => ({ tag: el.tagName.toLowerCase(), type: el.type || '', name: el.name || '', label: (el.getAttribute('aria-label') || el.placeholder || el.innerText || el.value || '').trim().slice(0, 60) }));
+  return { title: document.title, url: location.href, text: (document.body ? document.body.innerText : '').slice(0, 15000), links, fields };
+})()`;
+
+function clickScript(target) {
+  return `(() => {
+    const t = ${JSON.stringify(target)};
+    const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    let el = null;
+    if (t.selector) { try { el = document.querySelector(t.selector); } catch (e) {} }
+    if (!el && t.text) {
+      const want = t.text.trim().toLowerCase();
+      const pool = [...document.querySelectorAll('a, button, [role=button], input[type=submit], input[type=button], summary, label, [onclick]')].filter(visible);
+      el = pool.find((e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim().toLowerCase() === want)
+        || pool.find((e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').toLowerCase().includes(want));
+    }
+    if (!el) return { ok: false, message: 'Nothing on the page matches that.' };
+    el.scrollIntoView({ block: 'center' });
+    el.click();
+    return { ok: true, message: 'Clicked ' + (el.innerText || el.value || el.getAttribute('aria-label') || el.tagName).trim().slice(0, 80) };
+  })()`;
+}
+
+function focusScript(target) {
+  return `(() => {
+    const t = ${JSON.stringify(target)};
+    const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    let el = null;
+    if (t.selector) { try { el = document.querySelector(t.selector); } catch (e) {} }
+    if (!el && t.field) {
+      const want = t.field.toLowerCase();
+      el = [...document.querySelectorAll('input, textarea, [contenteditable=true]')].filter(visible)
+        .find((e) => ((e.getAttribute('aria-label') || '') + ' ' + (e.placeholder || '') + ' ' + (e.name || '')).toLowerCase().includes(want));
+    }
+    if (!el && document.activeElement && document.activeElement !== document.body) el = document.activeElement;
+    if (!el) el = [...document.querySelectorAll('input[type=text], input[type=search], input:not([type]), textarea')].find(visible);
+    if (!el) return false;
+    el.scrollIntoView({ block: 'center' });
+    el.focus();
+    if ('value' in el && t.replace) el.value = '';
+    return true;
+  })()`;
+}
+
+async function runBrowserCommand({ action, args = {} }) {
+  const view = ensureBrowser();
+  const wc = view.webContents;
+  switch (action) {
+    case 'open':
+      win.webContents.send('browser:open');
+      await wc.loadURL(toUrl(args.url)).catch(() => {});
+      await waitForLoad(wc);
+      return { url: wc.getURL(), title: wc.getTitle() };
+    case 'back':
+      if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+      await waitForLoad(wc);
+      return { url: wc.getURL(), title: wc.getTitle() };
+    case 'read':
+      if (!wc.getURL()) return { error: 'The browser is empty. Open a page first.' };
+      return wc.executeJavaScript(READ_PAGE);
+    case 'click': {
+      const result = await wc.executeJavaScript(clickScript({ text: args.text || '', selector: args.selector || '' }));
+      await waitForLoad(wc, 8000);
+      return { ...result, url: wc.getURL(), title: wc.getTitle() };
+    }
+    case 'type': {
+      const focused = await wc.executeJavaScript(focusScript({ selector: args.selector || '', field: args.field || '', replace: true }));
+      if (!focused) return { ok: false, message: 'No text field to type into.' };
+      await wc.insertText(String(args.text || ''));
+      if (args.submit) {
+        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+        wc.sendInputEvent({ type: 'char', keyCode: '\r' });
+        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+        await waitForLoad(wc, 10000);
+      }
+      return { ok: true, url: wc.getURL(), title: wc.getTitle() };
+    }
+    case 'scroll':
+      await wc.executeJavaScript(`window.scrollBy(0, ${Number(args.amount || 5) * 120})`);
+      return { ok: true };
+    case 'screenshot': {
+      const image = await wc.capturePage();
+      const size = image.getSize();
+      const scaled = size.width > 1280 ? image.resize({ width: 1280 }) : image;
+      return { png: scaled.toPNG().toString('base64'), url: wc.getURL(), title: wc.getTitle() };
+    }
+    default:
+      return { error: `Unknown browser action ${action}` };
+  }
+}
+
+function fitBounds(b) {
+  return { x: Math.round(b.x), y: Math.round(b.y), width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)) };
+}
+
+ipcMain.handle('browser:show', (_event, bounds) => {
+  const view = ensureBrowser();
+  if (!browserShown) {
+    win.contentView.addChildView(view);
+    browserShown = true;
+  }
+  view.setBounds(fitBounds(bounds));
+  if (!view.webContents.getURL()) view.webContents.loadURL('https://www.google.com');
+  sendBrowserState();
+});
+ipcMain.handle('browser:hide', () => {
+  if (browserView && browserShown) {
+    win.contentView.removeChildView(browserView);
+    browserShown = false;
+  }
+});
+ipcMain.handle('browser:bounds', (_event, bounds) => browserView && browserView.setBounds(fitBounds(bounds)));
+ipcMain.handle('browser:nav', async (_event, { action, url }) => {
+  const wc = ensureBrowser().webContents;
+  if (action === 'go') wc.loadURL(toUrl(url)).catch(() => {});
+  if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+  if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+  if (action === 'reload') wc.reload();
+});
+ipcMain.handle('browser:command', async (_event, command) => {
+  try {
+    return await runBrowserCommand(command);
+  } catch (err) {
+    return { error: String(err && err.message ? err.message : err) };
+  }
 });
 
 ipcMain.on('jarvis:attention', () => {
