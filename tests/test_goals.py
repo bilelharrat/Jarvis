@@ -1619,7 +1619,7 @@ def test_clean_text_says_what_it_refuses():
 _FUZZ_WORDS = [
     "Run", "a", "marathon", "Ship", "the", "app", "no", "meetings", "before", "10", "10:30",
     "Learn", "Spanish", "cello", "“", "”", '"', "'", "Don’t", "don't", "PIN", "4821",
-    "password", "hunter2", "目标", "每周跑步", "​", "\U000e0041", "️", "­",
+    "password", "hunter2", "目标", "每周跑步", "\u200b", "\U000e0041", "️", "\xad",
     "\n", "#", "Mum’s", "5k",
 ]  # fmt: skip
 

@@ -445,9 +445,9 @@ def test_harmless_buttons(label):
         ("Bοοk now", "booking"),  # Greek o
         ("Trаnsfer", "transfer"),
         ("Pláce order", "purchase"),  # an accent
-        ("Pla​ce order", "purchase"),  # a zero-width space inside a word
-        ("Pay​now", "purchase"),  # ...or between two
-        ("‮Pay", "purchase"),  # a direction override
+        ("Pla\u200bce order", "purchase"),  # a zero-width space inside a word
+        ("Pay\u200bnow", "purchase"),  # ...or between two
+        ("\u202ePay", "purchase"),  # a direction override
         ("P1ace 0rder", "purchase"),
         ("Add to cаrt", None),
     ],
@@ -457,8 +457,8 @@ def test_look_alike_letters_do_not_hide_a_final_button(label, kind):
 
 
 INVISIBLE = [
-    "​", "⁦", "⁩", "️", "\U000e0020", "ㅤ", "ᅟ", "͏",
-    "᠎", "⠀", "­", "؜", "⁠", "﻿", "\U0001d173", "ﾠ",
+    "\u200b", "\u2066", "\u2069", "️", "\U000e0020", "ㅤ", "ᅟ", "͏",
+    "\u180e", "⠀", "\xad", "\u061c", "\u2060", "\ufeff", "\U0001d173", "ﾠ",
     "᠋", "\U000e0100",
 ]  # fmt: skip
 
@@ -484,7 +484,7 @@ def test_every_format_character_is_invisible():
 def test_a_look_alike_final_button_still_needs_a_yes():
     guard = TransactionGuard(Clock())
     assert not guard.allow_click(CHECKOUT, "Plаce yоur оrder").allowed
-    guard.issue(pending(button="Pla​ce your order"))
+    guard.issue(pending(button="Pla\u200bce your order"))
     assert guard.allow_click(CHECKOUT, "Place your order").allowed  # invisible: same words
 
 
@@ -1013,7 +1013,7 @@ def test_harmless_words_with_a_selector_are_checked_as_the_selector():
         ("立即支付》", "》"),
         ("Book now →", "→"),
         ("Donate →", "→"),
-        ("Place your order", "​"),
+        ("Place your order", "\u200b"),
     ],
 )
 def test_words_that_name_nothing_are_refused_where_money_is_near(button, words):
@@ -1740,9 +1740,9 @@ def test_the_buttons_words_are_matched_as_given_and_shown_safely():
     cut = "Place your order and pay with Visa ending in 42…"
     ask = tx.clean_ask(order(button=f"“{cut}”\n"), "USD")
     assert ask.button == cut  # not "...": the window compares the words as they are
-    reversed_ = Pending("purchase", "Shop", "x", 5.0, "USD", CHECKOUT, "‮redro", 5.0, "USD")
+    reversed_ = Pending("purchase", "Shop", "x", 5.0, "USD", CHECKOUT, "\u202eredro", 5.0, "USD")
     detail = tx.approval_detail(reversed_, tx.DEFAULT_LIMITS, 0)
-    assert "Button: “redro”" in detail and "‮" not in detail  # no reordering the card
+    assert "Button: “redro”" in detail and "\u202e" not in detail  # no reordering the card
 
 
 async def test_the_card_speaks_chinese(tmp_path):
