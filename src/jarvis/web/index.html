@@ -250,6 +250,13 @@
   </section>
 
   <section class="group">
+    <h3>Speaking up</h3>
+    <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Claude Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
+    <div class="row"><span><strong>Say them out loud</strong><small>Otherwise they only appear as cards</small></span><button type="button" class="switch" role="switch" id="sw-proactive-voice" aria-checked="true" aria-label="Say heads-ups out loud"></button></div>
+    <div class="row"><span><strong>Quiet hours</strong><small>Cards only, no voice</small></span><span class="time-range"><input type="time" id="quiet-start" aria-label="Quiet hours start" value="22:00"><input type="time" id="quiet-end" aria-label="Quiet hours end" value="07:00"></span></div>
+  </section>
+
+  <section class="group">
     <h3>Morning briefing</h3>
     <div class="row"><span><strong>Brief me each morning</strong><small>When Jarvis is running at that time</small></span><button type="button" class="switch" role="switch" id="sw-briefing" aria-checked="true" aria-label="Morning briefing"></button></div>
     <label class="row" for="briefing-time"><span><strong>Time</strong></span><input type="time" id="briefing-time" value="08:00"></label>

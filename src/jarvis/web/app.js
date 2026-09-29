@@ -144,6 +144,7 @@ function onEvent(ev) {
     case 'galaxy_changed': send({ type: 'galaxy' }); break;
     case 'note': showNote(ev); break;
     case 'toast': notice(ev.title, '', ev.text, 8000); break;
+    case 'alert': onAlert(ev); break;
     case 'connectors': renderConnectors(ev); break;
     case 'connector_error': showAccountsError(ev.text); break;
     case 'tools_reloaded':
@@ -426,6 +427,11 @@ function renderPrefs(p) {
   setSwitch('sw-location', p.use_location !== false);
   setSwitch('sw-handsfree', p.hands_free);
   setSwitch('sw-briefing', p.briefing_enabled);
+  setSwitch('sw-proactive', p.proactive);
+  setSwitch('sw-proactive-voice', p.proactive_voice);
+  const [qs, qe] = (p.quiet_hours || '22:00-07:00').split('-');
+  if (document.activeElement !== $('quiet-start')) $('quiet-start').value = qs;
+  if (document.activeElement !== $('quiet-end')) $('quiet-end').value = qe;
   setSwitch('sw-notes', p.brain_notes);
   setSwitch('sw-bsh', p.brain_bsh);
   setSwitch('sw-computer', p.brain_computer);
@@ -496,6 +502,11 @@ $('mic-select').addEventListener('change', (e) => setPrefs({ mic: e.target.value
 $('sw-location').addEventListener('click', () => setPrefs({ use_location: prefs.use_location === false }));
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
+$('sw-proactive').addEventListener('click', () => setPrefs({ proactive: !prefs.proactive }));
+$('sw-proactive-voice').addEventListener('click', () => setPrefs({ proactive_voice: !prefs.proactive_voice }));
+['quiet-start', 'quiet-end'].forEach((id) => $(id).addEventListener('change', () => {
+  if ($('quiet-start').value && $('quiet-end').value) setPrefs({ quiet_hours: `${$('quiet-start').value}-${$('quiet-end').value}` });
+}));
 $('sw-notes').addEventListener('click', () => setPrefs({ brain_notes: !prefs.brain_notes }));
 $('sw-bsh').addEventListener('click', () => setPrefs({ brain_bsh: !prefs.brain_bsh }));
 for (const [id, key] of [['sw-computer', 'brain_computer'], ['sw-photos', 'brain_photos'], ['sw-mail', 'brain_mail'], ['sw-messages', 'brain_messages']]) {
@@ -1253,6 +1264,17 @@ function notice(kicker, title, text, ms, extra) {
   card.append(actions);
   $('cards').append(card);
   if (ms) setTimeout(() => card.remove(), ms);
+}
+
+const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', task: 'Background work' };
+
+// A heads-up JARVIS raised on its own. Claude Code already has its own cards; everything
+// else gets one, plus a macOS notification when the window isn't in front.
+function onAlert(ev) {
+  if (ev.alert_kind !== 'task') notice(ALERT_KICKERS[ev.alert_kind] || 'Heads-up', ev.title, ev.text, 60000);
+  if (document.hidden || !document.hasFocus()) {
+    try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }
+  }
 }
 
 function onTaskFinished(ev) {

@@ -71,6 +71,9 @@ class Prefs:
     brain_messages: bool = True
     brain_folders: list[str] = field(default_factory=list)
     instant_shortcuts: list[str] = field(default_factory=list)
+    proactive: bool = True
+    proactive_voice: bool = True
+    quiet_hours: str = "22:00-07:00"
 
     def model_id(self) -> str:
         return MODELS[self.model]
@@ -113,6 +116,10 @@ def _clean(name: str, value: Any) -> Any:
         return str(value).strip()[:40]
     if name == "briefing_time":
         return value if isinstance(value, str) and _TIME.match(value) else None
+    if name == "quiet_hours":
+        parts = str(value).split("-")
+        ok = len(parts) == 2 and all(_TIME.match(p) for p in parts)
+        return str(value) if ok else None
     if name == "instant_shortcuts":
         if not isinstance(value, list):
             return None
@@ -138,6 +145,8 @@ def _clean(name: str, value: Any) -> Any:
         "brain_mail",
         "brain_messages",
         "use_location",
+        "proactive",
+        "proactive_voice",
     }:
         return bool(value)
     return None

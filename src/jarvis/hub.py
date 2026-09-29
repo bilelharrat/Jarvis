@@ -44,6 +44,7 @@ from .home import Shortcuts, match_shortcut
 from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
+from .proactive import Alert, Watcher, in_quiet_hours
 from .speech import Speaker, SpeechQueue, cloud_voice_from, split_sentences
 from .tasks import ClaudeTask, TaskManager
 from .wake import find_wake, is_echo, is_stop, words
@@ -188,13 +189,25 @@ class Hub:
         self.collector = Collector(self.kb, settings.bsh_dir)
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
         self.screen = computer.Screen()
-        self.tasks = TaskManager(settings, self.request_approval, self.emit)
+        self.tasks = TaskManager(settings, self._task_approval, self._task_event)
         self.tasks.model = self.prefs.model_id()
         self.tasks.on_finished = self._task_finished
         self.connectors = connectors or ConnectorManager(self.emit, self.request_approval)
         self.connectors.on_tools_changed = self._tools_changed
         self.memory = memory or MemoryStore()
         self.shortcuts = Shortcuts()
+        self.meeting: Any = None  # meeting notes in progress
+        self._alert_notes: deque[str] = deque(maxlen=3)
+        self.watcher = Watcher(
+            self.notify,
+            events=self._upcoming_events,
+            eta=self._eta_minutes,
+            battery=battery,
+            weather=lambda: self.weather,
+            mail=self._recent_mail,
+            vip_text=lambda: " ".join(f.text for f in self.memory.facts),
+            enabled=lambda: self.prefs.proactive,
+        )
         self._session_id = ""
         self._reload_pending = False
         self.speech = SpeechQueue(self.speaker, self._on_speaking)
@@ -239,6 +252,7 @@ class Hub:
             self._spawn(self._prepare_fillers())
             self._spawn(self._location_loop())
             self._spawn(self.shortcuts.refresh())
+            self._spawn(self.watcher.run())
         if self.prefs.hands_free:
             self._apply_hands_free()
 
@@ -476,9 +490,14 @@ class Hub:
                 if display is None and await self._instant_shortcut(rid, text):
                     pass
                 else:
-                    if self._style_note:
-                        query = f"[Note from the app: {self._style_note}]\n\n{text}"
+                    notes = [self._style_note] if self._style_note else []
+                    if self._alert_notes:
+                        said = "; ".join(repr(t) for t in self._alert_notes)
+                        notes.append(f"you recently told the user, unprompted: {said}")
+                    if notes:
+                        query = f"[Note from the app: {' '.join(notes)}]\n\n{text}"
                         self._style_note = ""
+                        self._alert_notes.clear()
                     await self._run_query(rid, query)
             except Exception as exc:  # the Claude Code process died: reconnect and retry once
                 log.warning("query failed (%s); reconnecting and retrying", exc)
@@ -1405,8 +1424,98 @@ class Hub:
     def _task_finished(self, task: ClaudeTask) -> None:
         if task.kind == "research" and task.report_path:
             self._spawn(self.rebuild_brain(only={"research"}))
-            if not self._lock.locked():
-                self._spawn(self.speaker.say(f"Your research on {task.prompt} is ready."))
+            self.notify(
+                Alert(
+                    f"research:{task.id}",
+                    "task",
+                    "Research ready",
+                    f"Your research on {task.prompt} is ready.",
+                )
+            )
+
+    def _task_event(self, kind: str, **data: Any) -> None:
+        self.emit(kind, **data)
+        if kind == "task_finished" and data.get("task_kind") == "code":
+            done = data.get("status") == "done"
+            self.notify(
+                Alert(
+                    f"code:{data.get('id')}:{time.monotonic():.0f}",
+                    "task",
+                    str(data.get("label", "Claude Code")),
+                    f"Claude Code {'finished' if done else 'stopped'} in {data.get('folder')}."
+                    + (f" {data['result']}" if done and data.get("result") else ""),
+                )
+            )
+
+    async def _task_approval(self, question, detail="", choices=None, context=None) -> str:
+        """Claude Code waiting on a yes: say so, since the user may be elsewhere."""
+        if context and context.get("task_id"):
+            self.notify(
+                Alert(
+                    f"code-ok:{context['task_id']}:{time.monotonic():.0f}",
+                    "task",
+                    "Claude Code needs you",
+                    question.replace("wants to", "needs your OK to") + ".",
+                ),
+                speak_if_busy=False,
+            )
+        return await self.request_approval(question, detail, choices, context)
+
+    # ── speaking up unasked ──
+
+    def notify(self, alert: Alert, speak_if_busy: bool = False) -> None:
+        """Show an alert, and say it when that's welcome."""
+        self.emit("alert", key=alert.key, alert_kind=alert.kind, title=alert.title, text=alert.text)
+        self.history.append({"role": "assistant", "text": alert.text, "at": _now()})
+        self.emit("history", items=list(self.history))
+        self._alert_notes.append(alert.text)
+        busy = self._lock.locked() or self.state in ("listening", "speaking")
+        quiet = in_quiet_hours(datetime.now(), self.prefs.quiet_hours)
+        if (
+            self.prefs.proactive_voice
+            and not quiet
+            and self.meeting is None
+            and (not busy or speak_if_busy)
+        ):
+            self._spawn(self._announce(alert.text))
+        log.info("alert: %s", alert.kind)
+
+    async def _announce(self, text: str) -> None:
+        if not self.speaker.muted:
+            with contextlib.suppress(OSError):
+                subprocess.Popen(
+                    ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+            await asyncio.sleep(0.4)
+        self.speech.push(text)
+        await self.speech.drain()
+        if self._listener is not None and self._listener.running and not self._lock.locked():
+            self._arm(seconds=FOLLOW_UP_SECONDS, chime=False)  # "how long will it take?"
+
+    async def _upcoming_events(self) -> list[dict[str, Any]]:
+        from . import calendar_kit
+
+        found = await calendar_kit.fetch(0, 4)
+        if "events" not in found:
+            raise RuntimeError(found.get("error", "no calendar"))
+        return calendar_kit.parse(found["events"])
+
+    async def _eta_minutes(self, destination: str) -> int | None:
+        from .maps import run_helper
+
+        if not self.location:
+            return None
+        result = await run_helper(
+            "eta", str(self.location["lat"]), str(self.location["lon"]), destination
+        )
+        return result.get("minutes")
+
+    async def _recent_mail(self) -> list[Any]:
+        from .sources import collect_mail_index
+
+        if not self.prefs.brain_mail:
+            return []
+        return await asyncio.to_thread(collect_mail_index, None, 1, 100)
 
     # ── morning briefing ──
 
