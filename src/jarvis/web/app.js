@@ -1183,11 +1183,27 @@ function renderVitals(v) {
   $('sys-status').textContent = busy ? 'Under load' : 'Optimal';
 }
 
+let lastWeather = null;  // what the card shows, for its pop-out
+
 function renderWeather(w) {
   const chip = $('weather-chip');
-  if (!w || w.error) {
+  const card = $('p-weather');
+  const ok = Boolean(w && !w.error);
+  lastWeather = ok ? w : null;
+  // With weather to show, the card opens the pop-out (a button, by mouse or keyboard).
+  card.classList.toggle('wx-ready', ok);
+  if (ok) {
+    card.setAttribute('role', 'button');
+    card.tabIndex = 0;
+    card.setAttribute('aria-haspopup', 'dialog');
+    card.setAttribute('aria-label', `Weather: ${w.temp}${w.unit}, ${w.summary}. Open details`);
+  } else {
+    for (const attr of ['role', 'tabindex', 'aria-haspopup', 'aria-label']) card.removeAttribute(attr);
+  }
+  if (!ok) {
     chip.hidden = true;
     $('weather-body').replaceChildren(el('p', 'muted', w && w.error ? w.error : 'Set your city in Settings to see the weather.'));
+    closeWeather(false);
     return;
   }
   chip.hidden = false;
@@ -1203,7 +1219,320 @@ function renderWeather(w) {
     grid.append(cell);
   }
   $('weather-body').replaceChildren(now, grid);
+  if (wxIsOpen()) renderWeatherPop(w);  // a refresh while it's open updates it in place
 }
+
+// ── the weather pop-out: the card, grown up (hours, the week, the details) ──
+
+let wxReturnFocus = null;
+let wxClosing = null;
+
+function wxIsOpen() { return !$('wx-layer').hidden && !wxClosing; }
+function wxCap(s) { return s ? s[0].toUpperCase() + s.slice(1) : ''; }
+
+function wxIcon(code, day = true) {
+  if (code === 0) return day ? '☀️' : '🌙';
+  if (code === 1) return day ? '🌤️' : '🌙';
+  if (code === 2) return day ? '⛅' : '☁️';
+  if (code === 3) return '☁️';
+  if (code === 45 || code === 48) return '🌫️';
+  if (code >= 95) return '⛈️';
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '🌨️';
+  if ((code >= 51 && code <= 55) || (code >= 80 && code <= 82)) return day ? '🌦️' : '🌧️';
+  if (code >= 56 && code <= 67) return '🌧️';
+  return '☁️';
+}
+
+function wxGlyph(glyph, label) {
+  const icon = el('span', 'wx-emoji', glyph);
+  icon.setAttribute('role', 'img');
+  icon.setAttribute('aria-label', wxCap(label || ''));
+  return icon;
+}
+function wxEmoji(code, day, label) { return wxGlyph(wxIcon(code, day), label); }
+
+// Sunrise and sunset as Apple draws them: half a sun on the horizon, an arrow up or down.
+function wxSunIcon(kind) {
+  const icon = wxGlyph('', kind);
+  icon.classList.add('wx-sun');
+  const arrow = kind === 'Sunrise' ? 'M12 10V2.5M9.6 4.9 12 2.5l2.4 2.4' : 'M12 2.5V10M9.6 7.6 12 10l2.4-2.4';
+  icon.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M5.5 19a6.5 6.5 0 0 1 13 0z" fill="#ffb340"/><path d="M3.6 12.4l1.5 1.5M20.4 12.4l-1.5 1.5M2 19h20M${arrow.slice(1)}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return icon;
+}
+
+// A temperature's colour, as Apple's Weather paints its range bars: cold blue to hot red.
+const WX_TEMP_STOPS = [[-10, [94, 92, 230]], [0, [64, 156, 255]], [8, [100, 210, 255]], [16, [48, 209, 88]], [23, [255, 214, 10]], [29, [255, 159, 10]], [36, [255, 69, 58]]];
+function wxTempColor(t, unit) {
+  const c = unit === '°F' ? ((t - 32) * 5) / 9 : t;
+  let i = 0;
+  while (i < WX_TEMP_STOPS.length - 1 && c > WX_TEMP_STOPS[i + 1][0]) i += 1;
+  const [t0, a] = WX_TEMP_STOPS[i];
+  const [t1, b] = WX_TEMP_STOPS[Math.min(i + 1, WX_TEMP_STOPS.length - 1)];
+  const k = t1 === t0 ? 0 : Math.min(1, Math.max(0, (c - t0) / (t1 - t0)));
+  return `rgb(${a.map((v, j) => Math.round(v + (b[j] - v) * k)).join(' ')})`;
+}
+
+function wxDot(fraction) {
+  const dot = el('b');
+  dot.style.left = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+  return dot;
+}
+
+function wxHourLabel(at) {
+  return new Intl.DateTimeFormat(uiLocale(), { hour: 'numeric' }).format(new Date(at));
+}
+
+function wxHours(w) {
+  const list = el('ol', 'wx-hours');
+  list.tabIndex = 0;  // scrolls sideways with the arrow keys
+  list.setAttribute('aria-label', 'Hourly forecast');
+  const item = (cls, label, icon, rain, value) => {
+    const li = el('li', `wx-hour ${cls}`.trim());
+    const sky = el('span', 'wx-hour-sky');
+    sky.append(icon);
+    if (rain != null && rain >= 20) sky.append(el('small', 'wx-rain', `${rain}%`));
+    li.append(el('small', 'wx-hour-time', label), sky, el('b', '', value));
+    return li;
+  };
+  const d = w.details || {};
+  list.append(item('now', 'Now', wxEmoji(w.code, d.is_day !== false, w.summary), null, `${w.temp}°`));
+  const hours = w.hours || [];
+  if (!hours.length) return list;
+  // Sunrise and sunset fall between the hours, as in Apple's Weather.
+  const first = w.observed || hours[0].at;
+  const last = hours[hours.length - 1].at;
+  const marks = [];
+  for (const day of w.days || []) {
+    for (const [kind, at] of [['Sunrise', day.sunrise], ['Sunset', day.sunset]]) {
+      if (at && at > first && at < last) marks.push({ at, kind });
+    }
+  }
+  const timeline = [...hours.map((h) => ({ at: h.at, hour: h })), ...marks].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  for (const entry of timeline) {
+    if (entry.hour) {
+      const h = entry.hour;
+      list.append(item('', wxHourLabel(h.at), wxEmoji(h.code, h.is_day, h.summary), h.rain, h.temp == null ? '–' : `${h.temp}°`));
+    } else {
+      list.append(item('sun', clockText(entry.at), wxSunIcon(entry.kind), null, entry.kind));
+    }
+  }
+  // A mouse wheel scrolls it sideways too (a trackpad already does).
+  list.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    const max = list.scrollWidth - list.clientWidth;
+    if ((e.deltaY < 0 && list.scrollLeft <= 0) || (e.deltaY > 0 && list.scrollLeft >= max)) return;
+    e.preventDefault();
+    list.scrollLeft += e.deltaY;
+  }, { passive: false });
+  return list;
+}
+
+function wxDays(w) {
+  const days = (w.days || []).filter((d) => d.high != null && d.low != null);
+  if (!days.length) return null;
+  const lo = Math.min(...days.map((d) => d.low));
+  const hi = Math.max(...days.map((d) => d.high));
+  const span = Math.max(1, hi - lo);
+  const weekday = new Intl.DateTimeFormat(uiLocale(), { weekday: 'short' });
+  const list = el('ol', 'wx-days');
+  days.forEach((d, i) => {
+    const row = el('li', 'wx-day');
+    const sky = el('span', 'wx-day-sky');
+    sky.append(wxEmoji(d.code, true, d.summary));
+    if (d.rain != null && d.rain >= 20) sky.append(el('small', 'wx-rain', `${d.rain}%`));
+    const range = el('span', 'wx-range');
+    range.setAttribute('aria-hidden', 'true');
+    const fill = el('i');
+    fill.style.left = `${((d.low - lo) / span) * 100}%`;
+    fill.style.right = `${((hi - d.high) / span) * 100}%`;
+    fill.style.background = `linear-gradient(90deg, ${wxTempColor(d.low, w.unit)}, ${wxTempColor(d.high, w.unit)})`;
+    range.append(fill);
+    if (i === 0 && w.temp != null) range.append(wxDot((w.temp - lo) / span));  // where today is now
+    const low = el('span', 'wx-lo', `${d.low}°`);
+    low.setAttribute('aria-label', `Low ${d.low}°`);
+    const high = el('span', 'wx-hi', `${d.high}°`);
+    high.setAttribute('aria-label', `High ${d.high}°`);
+    row.append(el('span', 'wx-day-name', i === 0 ? 'Today' : weekday.format(new Date(`${d.date}T12:00`))), sky, low, range, high);
+    list.append(row);
+  });
+  return list;
+}
+
+function wxTile(label, value, unit, sub, ...extra) {
+  const tile = el('div', 'wx-card wx-tile');
+  const big = el('b', 'wx-value', value);
+  if (unit) big.append(el('small', '', unit));
+  tile.append(el('small', 'wx-label', label), big, ...extra);
+  if (sub) tile.append(el('p', 'wx-sub', sub));
+  return tile;
+}
+
+function wxTiles(w) {
+  const d = w.details || {};
+  const tiles = [];
+  if (w.feels != null) {
+    const gap = w.feels - w.temp;
+    tiles.push(wxTile('Feels like', `${w.feels}°`, '', Math.abs(gap) <= 2 ? 'Similar to the actual temperature.' : gap < 0 ? 'Wind is making it feel cooler.' : 'Humidity is making it feel warmer.'));
+  }
+  if (d.uv != null) {
+    const level = d.uv < 3 ? 'Low' : d.uv < 6 ? 'Moderate' : d.uv < 8 ? 'High' : d.uv < 11 ? 'Very high' : 'Extreme';
+    const bar = el('span', 'wx-uvbar');
+    bar.setAttribute('aria-hidden', 'true');
+    bar.append(wxDot(d.uv / 11));
+    tiles.push(wxTile('UV index', String(d.uv), '', w.uv_max != null ? `Peaks at ${w.uv_max} today.` : '', el('span', 'wx-level', level), bar));
+  }
+  if (w.wind != null) {
+    const compass = el('span', 'wx-compass');
+    compass.setAttribute('aria-hidden', 'true');
+    for (const k of ['N', 'E', 'S', 'W']) compass.append(el('i', k.toLowerCase(), k));
+    if (d.wind_deg != null) {
+      const needle = el('b');
+      needle.style.transform = `rotate(${d.wind_deg}deg)`;
+      compass.append(needle);
+    }
+    const parts = [d.wind_dir ? `From the ${d.wind_dir}` : '', d.gusts != null ? `gusts ${d.gusts} ${w.wind_unit}` : ''].filter(Boolean);
+    tiles.push(wxTile('Wind', String(w.wind), w.wind_unit, wxCap(parts.join(', ')) + (parts.length ? '.' : ''), compass));
+  }
+  if (w.humidity != null) {
+    tiles.push(wxTile('Humidity', `${w.humidity}%`, '', w.humidity < 30 ? 'The air is dry.' : w.humidity < 60 ? 'Comfortable.' : 'It’s humid.'));
+  }
+  if (w.rain_chance != null) {
+    const tomorrow = w.tomorrow && w.tomorrow.rain_chance != null ? `Tomorrow: ${w.tomorrow.rain_chance}%.` : '';
+    tiles.push(wxTile('Chance of rain', `${w.rain_chance}%`, '', tomorrow || 'Today.'));
+  }
+  const today = (w.days || [])[0] || {};
+  const tomorrow = (w.days || [])[1] || {};
+  if (today.sunrise && today.sunset) {
+    const now = w.observed || '';
+    const [kind, at, other] = now < today.sunrise ? ['Sunrise', today.sunrise, `Sunset: ${clockText(today.sunset)}.`]
+      : now < today.sunset ? ['Sunset', today.sunset, `Sunrise: ${clockText(today.sunrise)}.`]
+        : ['Sunrise', tomorrow.sunrise || '', `Sunset: ${clockText(today.sunset)}.`];
+    if (at) tiles.push(wxTile(kind, clockText(at), '', other));
+  }
+  if (d.visibility != null) {
+    const km = d.visibility_unit === 'mi' ? d.visibility * 1.609 : d.visibility;
+    const shown = d.visibility >= 10 ? Math.round(d.visibility) : d.visibility;
+    tiles.push(wxTile('Visibility', String(shown), d.visibility_unit, km >= 16 ? 'Perfectly clear view.' : km >= 8 ? 'Clear view.' : km >= 3 ? 'Some haze.' : 'Poor visibility.'));
+  }
+  if (d.pressure != null) {
+    const shown = d.pressure_unit === 'inHg' ? d.pressure.toFixed(2) : String(d.pressure);
+    tiles.push(wxTile('Pressure', shown, d.pressure_unit, d.clouds != null ? `Cloud cover: ${d.clouds}%.` : ''));
+  }
+  return tiles;
+}
+
+function renderWeatherPop(w) {
+  const body = $('wx-body');
+  const oldHours = body.querySelector('.wx-hours');
+  const keep = { top: $('wx-pop').scrollTop, left: oldHours ? oldHours.scrollLeft : 0 };
+
+  const hero = el('div', 'wx-hero');
+  const place = el('div', 'wx-place');
+  place.append(el('span', 'wx-city', `${w.from_location ? '⌖ ' : ''}${w.city}`));
+  if (w.region) place.append(el('span', 'wx-region', w.region));
+  place.append(el('span', 'wx-sky', wxCap(w.summary)));
+  if (w.high != null && w.low != null) place.append(el('span', 'wx-hl', `H:${w.high}°  L:${w.low}°`));
+  hero.append(el('p', 'wx-temp', `${w.temp}${w.unit}`), place);
+
+  const grid = el('div', 'wx-grid');
+  const hourly = el('section', 'wx-card wx-hourly');
+  hourly.append(el('small', 'wx-label', 'Hourly forecast'), wxHours(w));
+  grid.append(hourly);
+  const days = wxDays(w);
+  const tiles = wxTiles(w);
+  if (days) {
+    const week = el('section', 'wx-card wx-week');
+    week.append(el('small', 'wx-label', `${(w.days || []).length}-day forecast`), days);
+    grid.append(week);
+  }
+  // Beside the week, the first four; the rest in a row under both.
+  const side = el('div', 'wx-tiles');
+  side.append(...tiles.slice(0, days ? 4 : tiles.length));
+  grid.append(side);
+  if (days && tiles.length > 4) {
+    const row = el('div', 'wx-tiles wide');
+    row.append(...tiles.slice(4));
+    grid.append(row);
+  }
+  body.replaceChildren(hero, grid);
+  $('wx-pop').scrollTop = keep.top;
+  body.querySelector('.wx-hours').scrollLeft = keep.left;
+}
+
+// The pop-out grows from the card and shrinks back into it.
+function wxFlight(pop) {
+  const from = $('p-weather').getBoundingClientRect();
+  const to = pop.getBoundingClientRect();
+  if (!from.width || !to.width) return 'none';
+  const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+  const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+  return `translate(${dx}px, ${dy}px) scale(${Math.max(0.2, from.width / to.width)})`;
+}
+
+function wxReduced() { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+
+function openWeather() {
+  if (!lastWeather || wxIsOpen()) return;
+  if (wxClosing) { wxClosing.cancel(); wxClosing = null; }
+  wxReturnFocus = document.activeElement;
+  renderWeatherPop(lastWeather);
+  $('wx-layer').hidden = false;
+  $('wx-pop').scrollTop = 0;
+  const pop = $('wx-pop');
+  $('wx-scrim').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 280, easing: 'ease-out' });
+  if (wxReduced()) {
+    pop.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'ease-out' });
+  } else {
+    pop.animate([
+      { transform: wxFlight(pop), opacity: 0 },
+      { opacity: 1, offset: 0.3 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: 480, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+  }
+  $('wx-close').focus({ preventScroll: true });
+}
+
+function closeWeather(animate = true) {
+  if ($('wx-layer').hidden || wxClosing) return;
+  const pop = $('wx-pop');
+  const done = () => {
+    $('wx-layer').hidden = true;
+    wxClosing = null;
+    const back = wxReturnFocus;
+    wxReturnFocus = null;
+    if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
+  };
+  if (!animate) { done(); return; }
+  const reduced = wxReduced();
+  const frames = reduced
+    ? [{ opacity: 1 }, { opacity: 0 }]
+    : [{ transform: 'none', opacity: 1 }, { opacity: 1, offset: 0.55 }, { transform: wxFlight(pop), opacity: 0 }];
+  const flight = pop.animate(frames, { duration: reduced ? 140 : 280, easing: 'cubic-bezier(0.4, 0, 0.9, 0.6)', fill: 'forwards' });
+  const scrim = $('wx-scrim').animate([{ opacity: 1 }, { opacity: 0 }], { duration: reduced ? 140 : 260, easing: 'ease-in', fill: 'forwards' });
+  wxClosing = { cancel() { flight.cancel(); scrim.cancel(); } };
+  flight.onfinish = () => { flight.cancel(); scrim.cancel(); done(); };
+}
+
+$('p-weather').addEventListener('click', openWeather);
+$('p-weather').addEventListener('keydown', (e) => {
+  if (lastWeather && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openWeather(); }
+});
+$('wx-close').addEventListener('click', () => closeWeather());
+$('wx-scrim').addEventListener('click', () => closeWeather());
+// Escape closes it, and only it: not also the window behind or Jarvis mid-sentence.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && wxIsOpen()) { e.preventDefault(); e.stopPropagation(); closeWeather(); }
+}, true);
+// Tab stays inside while it's open.
+$('wx-pop').addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const stops = [...$('wx-pop').querySelectorAll('button, [tabindex="0"]')];
+  if (!stops.length) return;
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 let historyScroll = 0;
 

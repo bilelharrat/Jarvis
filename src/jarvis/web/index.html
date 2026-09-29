@@ -50,7 +50,7 @@
     <div class="meter"><span>Battery</span><b id="v-batt">–</b><i><em id="bar-batt"></em></i></div>
   </section>
   <section class="panel not-hud" id="p-weather">
-    <h2>Weather</h2>
+    <h2>Weather<span class="wx-more" aria-hidden="true">Details ›</span></h2>
     <div id="weather-body" class="weather-body"><p class="muted">Set your city in Settings to see the weather.</p></div>
   </section>
   <section class="panel not-hud" id="p-markets" role="button" tabindex="0" aria-label="Markets — open the BSH Research Center" title="Open the BSH Research Center">
@@ -768,6 +768,20 @@
   </div>
 <div id="hand-cursor" class="hand-cursor" hidden></div>
 <div id="offline" class="offline" hidden>Reconnecting to Jarvis…</div>
+<!-- The weather card's pop-out: the same glass, with the hours, the week and the details. -->
+<div id="wx-layer" class="wx-layer" hidden>
+  <div class="wx-scrim" id="wx-scrim"></div>
+  <section class="wx-pop" id="wx-pop" role="dialog" aria-modal="true" aria-labelledby="wx-title">
+    <header class="wx-head">
+      <h2 id="wx-title">Weather</h2>
+      <button type="button" class="wx-close" id="wx-close" aria-label="Close weather">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="wx-body" id="wx-body"></div>
+  </section>
+</div>
+
 <script src="/static/i18n.js"></script>
 <script src="/static/galaxy.js"></script>
 <script src="/static/attach.js"></script>

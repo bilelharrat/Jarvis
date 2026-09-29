@@ -2292,3 +2292,123 @@ body.in-app.browser-full .bd-panel { margin-top: 40px; }
 .jc-audit-switch .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 0.3); transition: left 200ms var(--ease-spring); }
 .deck.jc .jc-audit-switch .sw.on { background: rgb(var(--c-success)); }
 .jc-audit-switch .sw.on::after { left: 17px; }
+
+/* ═════════════ The weather pop-out (the weather card opens it) ═════════════
+   The card's own glass, grown up: in the orb look the same --panel-* blur, rim and inset
+   tiles as the card; in the other looks, their card and line colours. */
+#p-weather.wx-ready { cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease; }
+#p-weather.wx-ready:hover, #p-weather.wx-ready:focus-visible {
+  transform: translateY(-2px); border-color: var(--action); outline: none;
+  box-shadow: inset 0 1px 0 var(--panel-edge, transparent), inset 0 0 0 0.5px var(--action), 0 14px 34px rgba(0, 0, 0, 0.2);
+}
+.wx-more { margin-left: auto; font-size: 11px; font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: var(--action); opacity: 0; transition: opacity 160ms ease; white-space: nowrap; }
+#p-weather.wx-ready .wx-more { opacity: 0.55; }
+#p-weather.wx-ready:hover .wx-more, #p-weather.wx-ready:focus-visible .wx-more { opacity: 1; }
+
+.wx-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; }
+.wx-layer[hidden] { display: none; }
+.wx-scrim { position: absolute; inset: 0; background: rgba(20, 24, 32, 0.16); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.wx-pop {
+  --wx-line: var(--line); --wx-inset: var(--chip-hover); --wx-edge: transparent; --wx-rain: #0a7ee0;
+  position: relative; width: min(880px, 100%); max-height: min(900px, calc(100vh - 48px));
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
+  border-radius: 22px; padding: 18px 22px 22px; color: var(--ink);
+  background: var(--card); border: 1px solid var(--wx-line);
+  box-shadow: inset 0 1px 0 var(--wx-edge), 0 2px 6px rgba(0, 0, 0, 0.1), 0 40px 100px -24px rgba(0, 0, 0, 0.5);
+}
+.wx-pop::-webkit-scrollbar { display: none; }
+body[data-look="orb"] .wx-pop {
+  --wx-line: var(--panel-line); --wx-inset: var(--panel-inset); --wx-edge: var(--panel-edge);
+  /* the card's glass (a gradient) over a frosted base, so it reads over the dimmed room */
+  background-color: rgba(250, 250, 252, 0.66); background-image: var(--panel-glass);
+  -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
+}
+@media (prefers-color-scheme: dark) {
+  .wx-scrim { background: rgba(4, 6, 10, 0.42); }
+  .wx-pop { --wx-rain: #64d2ff; }
+  body[data-look="orb"] .wx-pop { background-color: rgba(22, 25, 32, 0.6); }
+}
+
+.wx-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wx-head h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.1px; }
+.wx-close {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center;
+  cursor: pointer; color: var(--ink-2); background: var(--wx-inset); box-shadow: inset 0 0 0 1px var(--wx-line);
+  transition: background 140ms ease, color 140ms ease;
+}
+.wx-close:hover { color: var(--ink); background: var(--chip-hover); }
+.wx-close:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+/* the card's top row, bigger: the temperature left, where and what right */
+.wx-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 2px 20px; }
+.wx-temp { margin: 0; font-family: var(--sans); font-size: 72px; font-weight: 500; letter-spacing: -2.5px; line-height: 1; font-variant-numeric: tabular-nums; }
+.wx-place { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; min-width: 0; }
+.wx-city { font-size: 20px; font-weight: 600; letter-spacing: -0.2px; }
+.wx-region, .wx-sky, .wx-hl { font-size: 13.5px; color: var(--ink-2); }
+.wx-hl { font-variant-numeric: tabular-nums; white-space: pre; }
+
+.wx-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 12px; }
+.wx-card { background: var(--wx-inset); border: 1px solid var(--wx-line); border-radius: 14px; padding: 12px 14px 14px; min-width: 0; }
+.wx-label { display: block; font-size: 12.5px; color: var(--muted); letter-spacing: 0.01em; }
+.wx-hourly, .wx-tiles.wide { grid-column: 1 / -1; }
+.wx-hourly > .wx-label, .wx-week > .wx-label { padding-bottom: 9px; margin-bottom: 4px; border-bottom: 1px solid var(--wx-line); }
+
+.wx-hours {
+  list-style: none; margin: 0 -8px; padding: 4px 8px 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+  scroll-snap-type: x proximity; outline: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 8px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 8px, #000 calc(100% - 28px), transparent);
+}
+.wx-hours::-webkit-scrollbar { display: none; }
+.wx-hours:focus-visible { box-shadow: inset 0 0 0 2px var(--action); border-radius: 10px; }
+.wx-hour { flex: none; min-width: 54px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 4px 2px; scroll-snap-align: start; }
+.wx-hour-time { font-size: 12.5px; font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+.wx-hour.now .wx-hour-time { color: var(--ink); font-weight: 600; }
+.wx-hour-sky { height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.wx-hour .wx-emoji { font-size: 22px; line-height: 1; }
+.wx-sun { color: var(--ink-2); display: block; height: 24px; }
+.wx-sun svg { display: block; }
+.wx-hour > b { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.wx-hour.sun > b { font-size: 12px; color: var(--ink-2); }
+.wx-rain { font-size: 11px; font-weight: 600; color: var(--wx-rain); font-variant-numeric: tabular-nums; }
+
+.wx-days { list-style: none; margin: 0; padding: 0; }
+.wx-day { display: grid; grid-template-columns: 3.6em 2.4em 2.4em minmax(48px, 1fr) 2.4em; align-items: center; gap: 10px; min-height: 40px; font-size: 15px; }
+.wx-day + .wx-day { border-top: 1px solid var(--wx-line); }
+.wx-day-name { font-weight: 600; }
+.wx-day-sky { display: flex; flex-direction: column; align-items: center; line-height: 1.05; }
+.wx-day-sky .wx-emoji { font-size: 19px; }
+.wx-lo, .wx-hi { text-align: right; font-variant-numeric: tabular-nums; }
+.wx-lo { color: var(--muted); }
+.wx-hi { font-weight: 500; }
+.wx-range, .wx-uvbar { position: relative; height: 5px; border-radius: 3px; background: rgba(128, 128, 128, 0.2); }
+.wx-range i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.wx-range b, .wx-uvbar b {
+  position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.32), 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.wx-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 12px; }  /* as tall as the week beside them */
+.wx-tiles.wide { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.wx-tile { position: relative; display: flex; flex-direction: column; gap: 5px; min-height: 128px; }
+.wx-value { font-size: 26px; font-weight: 500; letter-spacing: -0.5px; line-height: 1.15; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.wx-value small { font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--ink-2); margin-left: 4px; }
+.wx-sub { margin: auto 0 0; font-size: 12.5px; line-height: 1.35; color: var(--ink-2); }
+.wx-level { font-size: 14px; font-weight: 600; margin-top: -3px; }
+.wx-uvbar { margin: 6px 0 2px; background: linear-gradient(90deg, #30d158, #ffd60a 30%, #ff9f0a 55%, #ff453a 75%, #bf5af2); }
+.wx-compass { position: absolute; top: 12px; right: 12px; width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--wx-line); font-size: 8.5px; font-weight: 600; color: var(--muted); }
+.wx-compass i { position: absolute; font-style: normal; line-height: 1; }
+.wx-compass .n { top: 4px; left: 50%; transform: translateX(-50%); }
+.wx-compass .s { bottom: 4px; left: 50%; transform: translateX(-50%); }
+.wx-compass .e { right: 5px; top: 50%; transform: translateY(-50%); }
+.wx-compass .w { left: 5px; top: 50%; transform: translateY(-50%); }
+.wx-compass b { position: absolute; left: 50%; top: 50%; width: 2px; height: 32px; margin: -16px 0 0 -1px; border-radius: 1px; background: linear-gradient(var(--action) 50%, rgba(128, 128, 128, 0.45) 50%); }
+
+@media (max-width: 760px) {
+  .wx-grid { grid-template-columns: minmax(0, 1fr); }
+  .wx-tiles.wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wx-temp { font-size: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #p-weather.wx-ready:hover, #p-weather.wx-ready:focus-visible { transform: none; }
+}
