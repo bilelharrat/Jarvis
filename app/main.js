@@ -13,6 +13,7 @@ app.setName('J.A.R.V.I.S.');
 
 const TOKEN = crypto.randomBytes(24).toString('hex');
 const SHORTCUT = 'Alt+Space';
+const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
 const LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', 'Jarvis');
 
 let win = null;
@@ -363,6 +364,11 @@ app.whenReady().then(async () => {
   }
   if (!globalShortcut.register(SHORTCUT, summon)) {
     console.warn(`${SHORTCUT} is taken by another app; use the Dock icon instead.`);
+  }
+  // Deliberately doesn't bring the window forward: Jarvis needs to see what you're
+  // looking at, and answers out loud.
+  if (!globalShortcut.register(WHATS_THIS, () => win && win.webContents.send('jarvis:whats-this'))) {
+    console.warn(`${WHATS_THIS} is taken by another app.`);
   }
 });
 

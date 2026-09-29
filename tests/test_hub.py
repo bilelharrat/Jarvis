@@ -453,3 +453,15 @@ async def test_shortcut_always_makes_it_instant(settings, quiet_speaker, isolate
     assert await asking is True
     assert hub.prefs.instant_shortcuts == ["Good Night"]
     assert await hub.shortcut_gate("Good Night") is True  # no second question
+
+
+async def test_whats_this_looks_at_the_screen(settings, quiet_speaker, isolated, monkeypatch):
+    from jarvis import hub as hub_module
+
+    monkeypatch.setattr(hub_module, "frontmost_app", lambda: "Xcode")
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    await hub.handle({"type": "whats_this"})
+    await asyncio.sleep(0.05)
+    assert "using Xcode" in hub.client.queries[-1] and "see_screen" in hub.client.queries[-1]
+    assert hub.history[0]["text"] == "What's this?"

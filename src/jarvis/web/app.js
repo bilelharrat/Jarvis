@@ -220,6 +220,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (app) app.onSummon(() => { if (state === 'idle') send({ type: 'listen' }); });
+if (app && app.onWhatsThis) app.onWhatsThis(() => send({ type: 'whats_this' }));
 
 // ── sources & the galaxy ──
 
