@@ -517,12 +517,15 @@ async def test_short_claude_code_turns_are_not_announced(settings, quiet_speaker
     assert [e for e in drain(q) if e["type"] == "alert"]
 
 
-async def test_quiet_hours_routine_runs_without_a_sound(settings, quiet_speaker, isolated):
+async def test_quiet_hours_routine_runs_without_a_sound(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from jarvis import hub as hub_module
     from jarvis.routines import Routine
 
+    monkeypatch.setattr(hub_module, "in_quiet_hours", lambda *_a: True)  # any time of day
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
-    hub.prefs.quiet_hours = "00:00-23:59"
     spoken = []
     hub.speech.push = spoken.append
     await hub.run_routine(Routine("r", "Research", "Research X", "once", "01:00"))

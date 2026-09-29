@@ -13,7 +13,9 @@ a project, and choose per session how much it may do unasked:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import itertools
+import json
 import re
 import time
 import warnings
@@ -31,7 +33,13 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     PermissionResultDeny,
     ResultMessage,
+    StreamEvent,
+    TaskNotificationMessage,
+    TaskProgressMessage,
+    TaskStartedMessage,
+    TaskUpdatedMessage,
     TextBlock,
+    ThinkingBlock,
     ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
@@ -47,7 +55,66 @@ from .knowledge import RESEARCH_DIR
 READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite"]
 EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 
-ALLOW, ALLOW_EDITS, DENY = "allow", "allow_edits", "deny"
+ALLOW, ALLOW_EDITS, DENY, ALWAYS = "allow", "allow_edits", "deny", "always"
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+AGENT_TOOLS = {"Task", "Agent"}
+EXPORT_DIR = Path.home() / "Documents" / "Jarvis" / "Claude Code"
+# Commands whose second word says what they do: "git commit", "npm test", "uv run".
+_TWO_WORD = {
+    "git", "npm", "pnpm", "yarn", "uv", "cargo", "go", "make", "docker", "gh", "bun",
+    "python", "python3", "pip", "poetry", "swift", "xcodebuild", "kubectl", "terraform", "brew",
+}  # fmt: skip
+
+
+def command_rule(command: str) -> str:
+    """The prefix 'don't ask again' remembers for a shell command: its program, plus
+    the subcommand for tools like git or npm."""
+    words = command.strip().split()
+    if not words:
+        return ""
+    if words[0] in _TWO_WORD and len(words) > 1 and not words[1].startswith(("-", "/", ".")):
+        return " ".join(words[:2])
+    return words[0]
+
+
+def rule_allows(rule: str, command: str) -> bool:
+    command = command.strip()
+    return command == rule or command.startswith(rule + " ")
+
+
+class RuleStore:
+    """'Don't ask again' rules per project folder, kept by JARVIS (never written into
+    the project's own Claude Code settings). path None keeps them in memory."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path
+        self.rules: dict[str, list[str]] = {}
+        if path is not None:
+            try:
+                self.rules = json.loads(path.read_text())
+            except (OSError, ValueError):
+                self.rules = {}
+
+    def for_project(self, cwd: Path) -> list[str]:
+        return list(self.rules.get(str(cwd), []))
+
+    def add(self, cwd: Path, rule: str) -> None:
+        rules = self.rules.setdefault(str(cwd), [])
+        if rule and rule not in rules:
+            rules.append(rule)
+            self._save()
+
+    def remove(self, cwd: Path, rule: str) -> None:
+        if rule in self.rules.get(str(cwd), []):
+            self.rules[str(cwd)].remove(rule)
+            self._save()
+
+    def _save(self) -> None:
+        if self.path is not None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(self.rules, indent=2))
+
+
 MODES = ("plan", "ask", "edits", "auto")
 # What each mode is in Claude Code itself. Only plan mode changes the CLI's own
 # behavior; the rest is enforced by policy_for below.
@@ -92,6 +159,12 @@ class ClaudeTask:
     title: str = ""
     transcript: list[dict[str, Any]] = field(default_factory=list)
     plan: str = ""  # the last plan Claude Code proposed
+    effort: str = ""  # "" means the default
+    todos: list[dict[str, Any]] = field(default_factory=list)
+    background: dict[str, dict[str, Any]] = field(default_factory=dict)
+    resume_at: str = ""  # fork from this message
+    fork: bool = False
+    seq: int = 0  # numbers transcript entries
     checkpoints: list[str] = field(default_factory=list)  # user-message ids, for undo
     model: str = ""
     inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
@@ -111,6 +184,10 @@ class ClaudeTask:
             "mode": self.mode,
             "plan": self.plan,
             "can_undo": bool(self.checkpoints),
+            "effort": self.effort,
+            "todos": self.todos,
+            "background": list(self.background.values()),
+            "queued": self.inbox.qsize(),
             "model": self.model,
             "session_id": self.session_id,
             "busy": self.busy,
@@ -169,6 +246,7 @@ class TaskManager:
         approve: Approve,
         emit: Emit,
         client_factory: Callable[..., Any] = ClaudeSDKClient,
+        rules: RuleStore | None = None,
     ) -> None:
         self.settings = settings
         self.approve = approve
@@ -178,6 +256,7 @@ class TaskManager:
         self._ids = itertools.count(1)
         self.model = settings.model
         self.on_finished: Callable[[ClaudeTask], None] | None = None
+        self.rules = rules or RuleStore()
 
     # ── folders ──
 
@@ -219,14 +298,14 @@ class TaskManager:
         self._changed()
         return task
 
-    def send(self, task_id: int, text: str) -> bool:
+    def send(self, task_id: int, text: str, images: list[dict[str, str]] | None = None) -> bool:
         """A follow-up message; queued if the session is mid-step, and it reopens a
-        finished session by resuming it."""
+        finished session by resuming it. images: [{media_type, data (base64)}]."""
         task = self.tasks.get(task_id)
         text = text.strip()
-        if task is None or task.kind != "code" or not text:
+        if task is None or task.kind != "code" or not (text or images):
             return False
-        task.inbox.put_nowait(text)
+        task.inbox.put_nowait({"text": text, "images": images[:6]} if images else text)
         if task.handle is None or task.handle.done():
             task.status = "running"
             task.handle = asyncio.create_task(self._session(task))
@@ -296,6 +375,132 @@ class TaskManager:
         self._changed()
         return "Undone: the files are back as they were before that change."
 
+    async def rewind_to(self, task_id: int, uuid: str) -> str:
+        """Files back to how they were just before one of the user's messages."""
+        task = self.tasks.get(task_id)
+        if task is None or task.client is None:
+            return "That session isn't open."
+        if task.busy:
+            return "It's still working; stop it first."
+        if uuid not in task.checkpoints:
+            return "I can't rewind to that message."
+        try:
+            await task.client.rewind_files(uuid)
+        except Exception as exc:
+            return f"Couldn't rewind: {exc}"
+        del task.checkpoints[task.checkpoints.index(uuid) :]
+        self._log(task, "system", "Rewound the code to before that message.")
+        self._changed()
+        return "Rewound: the files are back as they were before that message."
+
+    def fork(self, task_id: int, uuid: str = "") -> ClaudeTask | None:
+        """A new session that starts from this one's conversation (up to a message, if
+        given) and goes its own way; the original is untouched."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code" or not task.session_id:
+            return None
+        fork = ClaudeTask(
+            id=next(self._ids),
+            prompt="",
+            cwd=task.cwd,
+            mode=task.mode,
+            session_id=task.session_id,
+            title=f"{task.title or task.prompt[:60] or 'Session'} (fork)",
+            fork=True,
+            resume_at=uuid,
+            effort=task.effort,
+            model=task.model,
+        )
+        self.tasks[fork.id] = fork
+        fork.handle = asyncio.create_task(self._session(fork))
+        self._changed()
+        return fork
+
+    def rename(self, task_id: int, title: str) -> bool:
+        task = self.tasks.get(task_id)
+        title = " ".join(title.split())[:100]
+        if task is None or not title:
+            return False
+        task.title = title
+        self._changed()
+        return True
+
+    def set_effort(self, task_id: int, effort: str) -> bool:
+        """How hard Claude thinks. Takes effect by reopening the session (same
+        conversation) once it's between steps."""
+        task = self.tasks.get(task_id)
+        if task is None or effort not in EFFORTS:
+            return False
+        task.effort = effort
+        self._log(task, "system", f"Effort: {effort}.")
+        if task.handle is not None and not task.handle.done() and not task.busy and task.session_id:
+            asyncio.create_task(self._reopen(task))
+        self._changed()
+        return True
+
+    async def _reopen(self, task: ClaudeTask) -> None:
+        handle = task.handle
+        if handle is not None and not handle.done():
+            handle.cancel()
+            with contextlib.suppress(BaseException):
+                await handle
+        task.status = "waiting"
+        task.handle = asyncio.create_task(self._session(task))
+
+    def export(self, task_id: int) -> Path | None:
+        """The transcript as Markdown in ~/Documents/Jarvis/Claude Code."""
+        task = self.tasks.get(task_id)
+        if task is None:
+            return None
+        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        slug = (
+            re.sub(r"[^A-Za-z0-9 ]+", "", task.title or task.prompt or "Session").strip()[:60]
+            or "Session"
+        )
+        path = EXPORT_DIR / f"{datetime.now():%Y-%m-%d %H%M} {slug}.md"
+        lines = [f"# {task.title or task.prompt or 'Claude Code session'}", "", f"_{task.cwd}_", ""]
+        for e in task.transcript:
+            role, text = e.get("role"), e.get("text", "")
+            if role == "user":
+                lines += [f"> {text}", ""]
+            elif role == "assistant":
+                lines += [text, ""]
+            elif role == "tool":
+                lines += [f"- **{e.get('tool')}** {text}", ""]
+            elif role == "plan":
+                lines += ["**Plan**", "", text, ""]
+            elif role in ("system", "note") and text:
+                lines += [f"_{text}_", ""]
+        path.write_text("\n".join(lines))
+        return path
+
+    async def mcp_status(self, task_id: int) -> list[dict[str, str]]:
+        task = self.tasks.get(task_id)
+        if task is None or task.client is None:
+            return []
+        try:
+            status = await task.client.get_mcp_status()
+        except Exception:
+            return []
+        servers = (
+            status.get("mcpServers") or status.get("servers") or []
+            if isinstance(status, dict)
+            else []
+        )
+        return [
+            {"name": str(s.get("name", "")), "status": str(s.get("status", ""))} for s in servers
+        ]
+
+    async def stop_background(self, task_id: int, background_id: str) -> bool:
+        task = self.tasks.get(task_id)
+        if task is None or task.client is None or background_id not in task.background:
+            return False
+        try:
+            await task.client.stop_task(background_id)
+        except Exception:
+            return False
+        return True
+
     async def context_usage(self, task_id: int) -> dict[str, Any] | None:
         task = self.tasks.get(task_id)
         if task is None or task.client is None:
@@ -331,8 +536,52 @@ class TaskManager:
             )
         return out
 
+    def _on_stream(self, task: ClaudeTask, message: Any) -> None:
+        """Claude's words and thinking as they're written, for the live view."""
+        if getattr(message, "parent_tool_use_id", None):
+            return
+        event = message.event or {}
+        if event.get("type") != "content_block_delta":
+            return
+        delta = event.get("delta") or {}
+        if delta.get("type") == "text_delta" and delta.get("text"):
+            self.emit("task_stream", id=task.id, part="text", text=delta["text"])
+        elif delta.get("type") == "thinking_delta" and delta.get("thinking"):
+            self.emit("task_stream", id=task.id, part="thinking", text=delta["thinking"])
+
+    def _on_background(self, task: ClaudeTask, message: Any) -> None:
+        """Background shells and agents Claude Code started: shown until they end."""
+        bg_id = str(getattr(message, "task_id", "") or "")
+        if not bg_id:
+            return
+        item = task.background.setdefault(
+            bg_id, {"id": bg_id, "description": "", "status": "running", "kind": ""}
+        )
+        if getattr(message, "description", None):
+            item["description"] = str(message.description)[:200]
+        if getattr(message, "task_type", None):
+            item["kind"] = str(message.task_type)
+        if getattr(message, "last_tool_name", None):
+            item["last"] = str(message.last_tool_name)
+        status = getattr(message, "status", None)
+        if status:
+            item["status"] = str(status)
+        if getattr(message, "summary", None):
+            item["summary"] = str(message.summary)[:400]
+        if item["status"] in ("completed", "failed", "killed", "stopped", "done"):
+            task.background.pop(bg_id, None)
+            if item.get("summary") or item["description"]:
+                self._log(
+                    task,
+                    "system",
+                    f"Background task {item['status']}: {item.get('summary') or item['description']}",
+                )
+        self._changed()
+
     def _log(self, task: ClaudeTask, role: str, text: str, **extra: Any) -> None:
+        task.seq += 1
         entry = {
+            "n": task.seq,
             "role": role,
             "text": text[:8000],
             "at": datetime.now().isoformat(timespec="seconds"),
@@ -409,12 +658,15 @@ class TaskManager:
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
             model=task.model or self.model,
-            effort=self.settings.task_effort,
+            effort=task.effort or self.settings.task_effort,
             cwd=str(task.cwd),
             tools={"type": "preset", "preset": "claude_code"},
             allowed_tools=list(READ_ONLY_TOOLS),
             permission_mode=SDK_MODES[task.mode],
             can_use_tool=self.policy_for(task),
+            # Claude's words and (summarized) thinking arrive as they're written.
+            include_partial_messages=True,
+            thinking={"type": "adaptive", "display": "summarized"},
             # The project's own CLAUDE.md and settings apply, as in a normal session there.
             setting_sources=["project"],
             # Checkpoints make "undo that" possible: files can be rewound to how they
@@ -424,6 +676,10 @@ class TaskManager:
         )
         if task.session_id:
             options.resume = task.session_id
+            if task.fork:
+                options.fork_session = True
+            if task.resume_at:
+                options.resume_session_at = task.resume_at
         return options
 
     async def _session(self, task: ClaudeTask) -> None:
@@ -444,10 +700,13 @@ class TaskManager:
                     task.busy = True
                     task.status = "running"
                     task.last_action = "Working"
-                    self._log(task, "user", text)
+                    images = []
+                    if isinstance(text, dict):
+                        text, images = text.get("text", ""), text.get("images") or []
+                    self._log(task, "user", text, images=len(images))
                     self._changed()
                     turn_started = time.monotonic()
-                    await client.query(text)
+                    await client.query(_with_images(text, images) if images else text)
                     async for message in client.receive_response():
                         self._on_task_message(task, message)
                     task.busy = False
@@ -485,8 +744,56 @@ class TaskManager:
             self._changed()
 
     def _on_task_message(self, task: ClaudeTask, message: Any) -> None:
+        if isinstance(message, StreamEvent):
+            self._on_stream(task, message)
+            return
+        if isinstance(
+            message,
+            (TaskStartedMessage, TaskProgressMessage, TaskUpdatedMessage, TaskNotificationMessage),
+        ):
+            self._on_background(task, message)
+            return
         if isinstance(message, AssistantMessage):
+            parent = getattr(message, "parent_tool_use_id", None) or None
             for block in message.content:
+                if isinstance(block, ThinkingBlock) and block.thinking.strip() and not parent:
+                    self._log(task, "thinking", block.thinking.strip())
+                    continue
+                if isinstance(block, ToolUseBlock) and block.name == "TodoWrite":
+                    task.todos = [
+                        {"content": str(t.get("content", "")), "status": str(t.get("status", "pending")),
+                         "active": str(t.get("activeForm", ""))}
+                        for t in (block.input.get("todos") or [])[:30]
+                    ]  # fmt: skip
+                    self._log(task, "todos", "", todos=task.todos)
+                    self._changed()
+                    continue
+                if isinstance(block, ToolUseBlock) and block.name in AGENT_TOOLS:
+                    task.last_action = f"Agent: {block.input.get('description', 'working')}"
+                    self._log(
+                        task,
+                        "tool",
+                        task.last_action,
+                        tool="Agent",
+                        tool_id=block.id,
+                        detail=str(block.input.get("prompt", ""))[:4000],
+                        agent=str(block.input.get("subagent_type", "general-purpose")),
+                        status="running",
+                    )
+                    self._changed()
+                    continue
+                if isinstance(block, ToolUseBlock) and parent:
+                    # A subagent's step: shown inside its agent's card.
+                    self._log(
+                        task,
+                        "subtool",
+                        describe_tool(block.name, block.input),
+                        tool=block.name,
+                        parent=parent,
+                    )
+                    continue
+                if isinstance(block, TextBlock) and parent:
+                    continue  # the agent's own words come back as its result
                 if isinstance(block, ToolUseBlock):
                     task.last_action = describe_tool(block.name, block.input)
                     path = block.input.get("file_path") or block.input.get("notebook_path")
@@ -513,14 +820,39 @@ class TaskManager:
             for block in results:
                 self._tool_result(task, block)
             uid = getattr(message, "uuid", None)
-            if uid and not results:  # the user's own message: a point to undo back to
+            if uid and not results and not getattr(message, "parent_tool_use_id", None):
+                # The user's own message: a point to undo, rewind or fork back to.
                 task.checkpoints.append(uid)
                 del task.checkpoints[:-50]
+                for entry in reversed(task.transcript):
+                    if entry.get("role") == "user":
+                        if not entry.get("uuid"):
+                            entry["uuid"] = uid
+                            self.emit("task_entry_meta", id=task.id, n=entry.get("n"), uuid=uid)
+                        break
         elif isinstance(message, ResultMessage):
             task.session_id = message.session_id or task.session_id
             task.cost_usd = (task.cost_usd or 0) + (message.total_cost_usd or 0)
             if message.is_error:
                 self._log(task, "system", f"Ended with an error: {message.subtype}")
+            usage = message.usage or {}
+            tokens = sum(
+                int(usage.get(k) or 0)
+                for k in (
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_creation_input_tokens",
+                    "cache_read_input_tokens",
+                )
+            )
+            self._log(
+                task,
+                "turn",
+                "",
+                seconds=round((message.duration_ms or 0) / 1000),
+                tokens=tokens,
+                cost=round(message.total_cost_usd or 0, 4),
+            )
 
     async def _run(self, task: ClaudeTask) -> None:
         try:
@@ -578,10 +910,18 @@ class TaskManager:
                 return PermissionResultAllow()
             if tool_name in EDIT_TOOLS and (task.allow_edits or task.mode == "edits"):
                 return PermissionResultAllow()
-            choices = [(ALLOW, "Allow")]
+            command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
+            rule = command_rule(command) if command else ""
+            if command and any(rule_allows(r, command) for r in self.rules.for_project(task.cwd)):
+                return PermissionResultAllow()
+            choices = [(ALLOW, "Yes")]
             if tool_name in EDIT_TOOLS:
-                choices.append((ALLOW_EDITS, "Allow all edits"))
-            choices.append((DENY, "Deny"))
+                choices.append((ALLOW_EDITS, "Yes, allow all edits this session"))
+            if rule:
+                choices.append(
+                    (ALWAYS, f"Yes, and don't ask again for {rule} commands in {task.cwd.name}")
+                )
+            choices.append((DENY, "No, and tell Claude what to do differently"))
             verb = "run a command" if tool_name == "Bash" else f"use {tool_name}"
             if tool_name in EDIT_TOOLS:
                 verb = "edit a file"
@@ -595,9 +935,17 @@ class TaskManager:
             )
             if choice == ALLOW_EDITS:
                 task.allow_edits = True
-            if choice in (ALLOW, ALLOW_EDITS):
+            if choice == ALWAYS and rule:
+                self.rules.add(task.cwd, rule)
+                self._log(task, "system", f"Won't ask again for {rule} commands here.")
+            if choice in (ALLOW, ALLOW_EDITS, ALWAYS):
                 return PermissionResultAllow()
-            return PermissionResultDeny(message="The user declined this step.")
+            feedback = choice.split(":", 1)[1].strip() if ":" in choice else ""
+            return PermissionResultDeny(
+                message=f"The user said no: {feedback}"
+                if feedback
+                else "The user declined this step."
+            )
 
         return can_use_tool
 
@@ -795,6 +1143,25 @@ class TaskManager:
                 claude_task_status,
             ],
         )
+
+
+async def _with_images(text: str, images: list[dict[str, str]]):
+    """A user message with pictures, in the streaming shape Claude Code takes."""
+    content: list[dict[str, Any]] = [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": img["media_type"], "data": img["data"]},
+        }
+        for img in images
+        if img.get("media_type", "").startswith("image/") and img.get("data")
+    ]
+    content.append({"type": "text", "text": text or "Take a look at this."})
+    yield {
+        "type": "user",
+        "message": {"role": "user", "content": content},
+        "parent_tool_use_id": None,
+        "session_id": "default",
+    }
 
 
 async def _deny_everything(tool_name: str, _input: dict[str, Any], _ctx: ToolPermissionContext):

@@ -109,6 +109,42 @@ def parse(text: str) -> Intent:
         said,
     ):
         return Intent("exit")
+    if re.fullmatch(
+        r"(ultrathink|ultra think|think as hard as you can|max(imum)? effort|think really hard)",
+        said,
+    ):
+        return Intent("effort", "max")
+    if short(6) and re.fullmatch(
+        r"(think|thinks) (harder|more|deeper|carefully)( about (this|it))?|more effort|high effort",
+        said,
+    ):
+        return Intent("effort", "up")
+    if short(6) and re.fullmatch(
+        r"think less|(be )?quick(er)?( mode| answers)?|low effort|less effort", said
+    ):
+        return Intent("effort", "low")
+    if short(5) and re.fullmatch(
+        r"(fork|branch off)( this| the session| the conversation| it)?( here)?", said
+    ):
+        return Intent("fork")
+    m = re.fullmatch(
+        r"(rename|call|name) (this|the|this session|the session|it) (to |as )?(?P<t>.+)", said
+    )
+    if m and n <= 14:
+        return Intent("rename", re.sub(r"^(session )?(to |as )", "", m.group("t")).strip())
+    if short(8) and re.fullmatch(
+        r"(what's|what is|read( me)?|show( me)?)( on)? (the |your )?(to ?do|todo)( list)?|what's left( to do)?"
+        r"|what are you working on|to ?do list",
+        said,
+    ):
+        return Intent("todos")
+    if short(6) and re.fullmatch(
+        r"(export|save)( the| this)? (transcript|session|conversation)", said
+    ):
+        return Intent("export")
+    m = re.fullmatch(r"(rewind|roll back|go back) (the code )?to (before|when) (?P<t>.+)", said)
+    if m:
+        return Intent("rewind", m.group("t").strip())
     if short(3) and re.fullmatch(
         r"(stop|stop it|stop that|hold on|hold it|wait|cancel|cancel that|pause|halt)", said
     ):
@@ -473,6 +509,42 @@ class VoiceCoder:
                 self._changed()
             self.hub.emit("show_session", id=fresh.id)
             say(f"Fresh session in {task.cwd.name}. What should we do?")
+        elif intent.kind == "effort":
+            from .tasks import EFFORTS
+
+            current = task.effort or self.hub.settings.task_effort
+            index = EFFORTS.index(current) if current in EFFORTS else 2
+            effort = {"max": "max", "low": "low"}.get(
+                intent.arg, EFFORTS[min(index + 1, len(EFFORTS) - 1)]
+            )
+            tasks.set_effort(task.id, effort)
+            say(
+                f"Effort {effort}. {'Thinking as hard as it can.' if effort == 'max' else ''}".strip()
+            )
+        elif intent.kind == "fork":
+            fork = tasks.fork(task.id)
+            if fork is None:
+                say("There's nothing to fork yet; send it a message first.")
+            else:
+                if self.focus == task.id:
+                    self.focus = fork.id
+                    self._changed()
+                self.hub.emit("show_session", id=fork.id)
+                say("Forked. This copy goes its own way; the original is untouched.")
+        elif intent.kind == "rename":
+            tasks.rename(task.id, intent.arg)
+            say(f"Renamed to {intent.arg}.")
+        elif intent.kind == "todos":
+            say(todo_speech(task.todos))
+        elif intent.kind == "export":
+            path = tasks.export(task.id)
+            say(
+                f"Saved the transcript to {path.name} in Documents, Jarvis, Claude Code."
+                if path
+                else "Nothing to export."
+            )
+        elif intent.kind == "rewind":
+            say(await self._rewind_by_words(task, intent.arg))
         elif intent.kind == "repeat":
             say(self._last_reply_spoken or "I haven't said anything about this session yet.")
         elif intent.kind == "rest":
@@ -494,6 +566,21 @@ class VoiceCoder:
                  "tests": "Running the tests."}[intent.arg], follow_up=False)  # fmt: skip
         else:
             await self._send(task, intent.text)
+
+    async def _rewind_by_words(self, task, words_said: str) -> str:
+        """'Rewind to before the tests': the user message that best matches."""
+        said = set(words_said.lower().split()) - {"the", "a", "i", "you", "we", "asked", "said"}
+        best, best_score = None, 0.0
+        for entry in task.transcript:
+            if entry.get("role") != "user" or not entry.get("uuid"):
+                continue
+            text = set(str(entry.get("text", "")).lower().split())
+            score = len(said & text) / max(1, len(said))
+            if score > best_score:
+                best, best_score = entry, score
+        if best is None or best_score < 0.34:
+            return "I couldn't tell which message you mean. Say undo that to go back one step."
+        return await self.hub.tasks.rewind_to(task.id, best["uuid"])
 
     def _rest_of_reply(self) -> str:
         """The next few sentences of the last reply ('read the rest')."""
@@ -559,6 +646,20 @@ class VoiceCoder:
             return False
         self.hub.say(approval_speech(approval))
         return True
+
+
+def todo_speech(todos: list[dict[str, Any]]) -> str:
+    if not todos:
+        return "There's no to-do list in this session."
+    done = [t for t in todos if t["status"] == "completed"]
+    doing = [t for t in todos if t["status"] == "in_progress"]
+    left = [t for t in todos if t["status"] == "pending"]
+    parts = [f"{len(done)} of {len(todos)} done."]
+    if doing:
+        parts.append(f"Now: {_short(doing[0]['active'] or doing[0]['content'], 12)}.")
+    if left:
+        parts.append("Still to do: " + "; ".join(_short(t["content"], 8) for t in left[:3]) + ".")
+    return " ".join(parts)
 
 
 def _narration(action: str) -> str:

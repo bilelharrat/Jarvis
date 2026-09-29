@@ -388,3 +388,57 @@ async def test_typed_slash_commands_answer_in_the_transcript(
     await hub.handle({"type": "voicecode_start", "directory": "proj"})
     assert hub.voicecode.focus == task.id
     task.handle.cancel()
+
+
+def test_voice_for_the_new_session_features():
+    assert [vc.parse(u).arg for u in ("think harder", "ultrathink", "think less")] == [
+        "up",
+        "max",
+        "low",
+    ]
+    assert kinds("fork this", "what's on the todo list", "export the transcript") == [
+        "fork",
+        "todos",
+        "export",
+    ]
+    assert vc.parse("rename this session to retry work").arg == "retry work"
+    assert vc.parse("rewind to before the tests").arg == "the tests"
+    assert (
+        vc.todo_speech(
+            [
+                {"content": "Add retry", "status": "completed", "active": ""},
+                {"content": "Write test", "status": "in_progress", "active": "Writing the test"},
+                {"content": "Update docs", "status": "pending", "active": ""},
+            ]
+        )
+        == "1 of 3 done. Now: Writing the test. Still to do: Update docs."
+    )
+
+
+async def test_always_and_no_with_feedback_by_voice(settings, quiet_speaker, isolated):
+    import asyncio
+
+    from test_hub import make_hub
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    choices = [
+        ("allow", "Yes"),
+        ("always", "Yes, and don't ask again for git commit commands"),
+        ("deny", "No, and tell Claude what to do differently"),
+    ]
+    first = asyncio.create_task(
+        hub.request_approval(
+            "Run git commit?", "$ git commit", choices, {"task_id": 1, "tool": "Bash"}
+        )
+    )
+    await asyncio.sleep(0)
+    hub._spoke_until = 0
+    await hub.on_heard("yes, always allow that")
+    assert await first == "always"
+    second = asyncio.create_task(
+        hub.request_approval("Run make?", "$ make", choices, {"task_id": 1, "tool": "Bash"})
+    )
+    await asyncio.sleep(0)
+    await hub.on_heard("no, use the Makefile target instead")
+    assert await second == "deny:use the Makefile target instead"

@@ -214,7 +214,15 @@ class Hub:
         self.collector = Collector(self.kb, settings.bsh_dir)
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
         self.screen = computer.Screen()
-        self.tasks = TaskManager(settings, self._task_approval, self._task_event)
+        from .prefs import APP_SUPPORT
+        from .tasks import RuleStore
+
+        self.tasks = TaskManager(
+            settings,
+            self._task_approval,
+            self._task_event,
+            rules=RuleStore(APP_SUPPORT / "permissions.json") if poll else RuleStore(),
+        )
         self.tasks.model = self.prefs.model_id()
         self.tasks.on_finished = self._task_finished
         self.connectors = connectors or ConnectorManager(self.emit, self.request_approval)
@@ -667,12 +675,14 @@ class Hub:
             self._futures.pop(approval_id, None)
             self.emit("approval_resolved", id=approval_id)
 
-    def resolve(self, approval_id: str, choice: str) -> bool:
+    def resolve(self, approval_id: str, choice: str, feedback: str = "") -> bool:
+        """Answer an approval. A 'no' can carry what to do instead ('deny:<feedback>')."""
         future = self._futures.get(approval_id)
         valid = {c["id"] for c in self.approvals.get(approval_id, {}).get("choices", [])}
         if future is None or future.done() or choice not in valid:
             return False
-        future.set_result(choice)
+        feedback = " ".join(str(feedback).split())[:2000]
+        future.set_result(f"{choice}:{feedback}" if feedback and choice == "deny" else choice)
         return True
 
     def _say(self, text: str) -> None:
@@ -701,6 +711,11 @@ class Hub:
         approval = list(self.approvals.values())[-1]
         choices = [c["id"] for c in approval["choices"]]
         labels = [c["label"] for c in approval["choices"]]
+        if "always" in choices and re.search(
+            r"\b(always|don'?t ask( me)? again|every time)\b", text, re.I
+        ):
+            self.emit("heard", text=text)
+            return self.resolve(approval["id"], "always")
         # A question or a plan has named answers: "option two", "keep planning".
         if approval.get("ask_kind") in ("question", "plan") or len(choices) > 2:
             index = pick_choice(text, labels)
@@ -711,11 +726,24 @@ class Hub:
             if approval.get("ask_kind") == "question":
                 return False  # "yes" doesn't answer "which one?"
         answer = yes_no(text)
+        if answer is None and re.match(
+            r"\W*(?:jarvis\W+)?(no|nope|nah|don'?t)\b[\s,.!-]+\w", text, re.I
+        ):
+            answer = False  # "no, use the Makefile target instead": a no with a reason
         if answer is None:
             return False
         log.info("approval answered by voice: %s", "yes" if answer else "no")
         self.emit("heard", text=text)
-        return self.resolve(approval["id"], choices[0] if answer else choices[-1])
+        feedback = ""
+        if not answer:  # "no, use the Makefile instead": the rest is what to do
+            m = re.match(
+                r"\W*(?:jarvis\W+)?(?:no|nope|nah|don'?t|do not|stop|cancel)\b[\s,.!-]*(.*)",
+                text,
+                re.I,
+            )
+            rest = (m.group(1) if m else "").strip()
+            feedback = rest if len(rest.split()) >= 2 else ""
+        return self.resolve(approval["id"], choices[0] if answer else choices[-1], feedback)
 
     async def confirm(self, question: str) -> bool:
         """The chat's permission gate: speak the question, wait for a tap."""
@@ -1282,6 +1310,31 @@ class Hub:
         """A short pre-voiced 'On it.' so a request never meets silence."""
         if self._fillers and not self._silent and not self.speaker.muted:
             self.speech.push_clip(self._fillers[next(self._filler_order) % len(self._fillers)])
+
+    async def _diff_files(self, task) -> list[dict[str, Any]]:
+        """Every changed file with its lines, for the Changes view."""
+        from . import diffspeak
+
+        changes = await asyncio.to_thread(diffspeak.collect, task.cwd, None)
+        return [
+            {
+                "path": c.path,
+                "added": c.added,
+                "removed": c.removed,
+                "new": c.new,
+                "deleted": c.deleted,
+                "hunks": [
+                    {
+                        "line": h.line,
+                        "where": h.where,
+                        "removed": h.removed[:400],
+                        "added": h.added[:400],
+                    }
+                    for h in c.hunks[:60]
+                ],
+            }
+            for c in (changes or [])[:80]
+        ]
 
     async def current_branch(self, task) -> str:
         return await self._git(task.cwd, "rev-parse", "--abbrev-ref", "HEAD")
@@ -2153,7 +2206,7 @@ class Hub:
         elif kind == "stop":
             await self.stop()
         elif kind == "approve":
-            self.resolve(str(msg.get("id")), str(msg.get("choice")))
+            self.resolve(str(msg.get("id")), str(msg.get("choice")), str(msg.get("feedback", "")))
         elif kind == "mute":
             self.speaker.muted = bool(msg.get("value"))
             if self.speaker.muted:
@@ -2175,7 +2228,55 @@ class Hub:
             except ValueError as exc:
                 self.emit("error", text=str(exc))
         elif kind == "task_send":
-            self.tasks.send(int(msg.get("id", 0)), str(msg.get("text", ""))[:20000])
+            images = [
+                {"media_type": str(i.get("media_type", "")), "data": str(i.get("data", ""))}
+                for i in (msg.get("images") or [])[:6]
+                if isinstance(i, dict) and len(str(i.get("data", ""))) < 8_000_000
+            ]
+            self.tasks.send(int(msg.get("id", 0)), str(msg.get("text", ""))[:20000], images or None)
+        elif kind == "task_rename":
+            self.tasks.rename(int(msg.get("id", 0)), str(msg.get("title", "")))
+        elif kind == "task_fork":
+            fork = self.tasks.fork(int(msg.get("id", 0)), str(msg.get("uuid", "")))
+            if fork is not None:
+                self.emit("show_session", id=fork.id)
+        elif kind == "task_rewind":
+            task_id = int(msg.get("id", 0))
+            reply = await self.tasks.rewind_to(task_id, str(msg.get("uuid", "")))
+            self.emit("caption", text=reply)
+        elif kind == "task_effort":
+            self.tasks.set_effort(int(msg.get("id", 0)), str(msg.get("effort", "")))
+        elif kind == "task_export":
+            path = self.tasks.export(int(msg.get("id", 0)))
+            if path is not None:
+                self.emit("caption", text=f"Saved the transcript to {path.name}.")
+                self._spawn(self._quiet(mac_tools.run_command("open", "-R", str(path))))
+        elif kind == "task_mcp":
+            task_id = int(msg.get("id", 0))
+            self.emit("task_mcp", id=task_id, servers=await self.tasks.mcp_status(task_id))
+        elif kind == "task_bg_stop":
+            await self.tasks.stop_background(int(msg.get("id", 0)), str(msg.get("bg", "")))
+        elif kind == "task_rules":
+            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            if task is not None:
+                if msg.get("remove"):
+                    self.tasks.rules.remove(task.cwd, str(msg["remove"]))
+                self.emit("task_rules", id=task.id, rules=self.tasks.rules.for_project(task.cwd))
+        elif kind == "task_diff":
+            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            if task is not None:
+                self.emit("task_diff", id=task.id, files=await self._diff_files(task))
+        elif kind == "project_files":
+            from .code_vocab import vocab_for
+
+            try:
+                path = self.tasks.resolve_dir(str(msg.get("directory", "")))
+            except ValueError:
+                return
+            vocab = await asyncio.to_thread(vocab_for, path)
+            self.emit(
+                "project_files", directory=str(msg.get("directory", "")), files=vocab.files[:6000]
+            )
         elif kind == "task_interrupt":
             await self.tasks.interrupt(int(msg.get("id", 0)))
         elif kind == "task_mode":
