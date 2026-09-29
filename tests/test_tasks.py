@@ -188,6 +188,7 @@ async def test_streaming_thinking_todos_agents_and_background(settings, tmp_path
             event={"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hel"}},
         ),
     )
+    tm._flush_stream(task)  # live words go out in batches (STREAM_FLUSH)
     assert ("task_stream", {"id": 1, "part": "text", "text": "Hel"}) in events
     tm._on_task_message(
         task,

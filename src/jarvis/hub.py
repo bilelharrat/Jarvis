@@ -264,6 +264,9 @@ ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be hea
 ECHO_WINDOW = 12.0  # what it said this recently may come back through the microphone
 VOICE_ANSWER_SECONDS = 60  # a question it asked out loud can be answered without the wake word
 CODE_ANNOUNCE_SECONDS = 20  # Claude Code turns shorter than this finish unannounced
+# Said once for the heads-ups that came in while one was being said (N sessions finishing, or
+# asking, at the same moment): one or two things said, never N.
+HEADS_UP_MORE = "{n} more heads-ups are on screen."
 SPOKEN_TEXT = 400  # longer than this, a message for Claude Code is on screen, not read out
 # Window commands that can take a while (Claude Code control calls, git, simctl, big reads):
 # they run in the background, so a slow one never holds up the next (an Allow click, a stop).
@@ -592,6 +595,8 @@ class Hub:
         self._summarize = summarize
         self.meetings_dir = meetings_dir
         self._alert_notes: deque[tuple[float, str]] = deque(maxlen=3)
+        self._announcing = False  # a heads-up is being said: later ones wait and join up
+        self._held_heads_ups: list[str] = []
         self._silent = False
         from .voicecode import VoiceCoder
 
@@ -3653,7 +3658,11 @@ class Hub:
             and (breakthrough or (not quiet and self.meeting is None))
             and (not busy or speak_if_busy)
         ):
-            self._spawn(self._announce(alert.text))
+            if self._announcing:  # said together, after the one being said
+                self._held_heads_ups.append(alert.text)
+            else:
+                self._announcing = True  # (at once: a burst mustn't start a heads-up each)
+                self._spawn(self._announce_all(alert.text))
         log.info("alert: %s", alert.kind)
 
     async def purchase_gate(self, question: str, detail: str) -> bool:
@@ -3819,6 +3828,19 @@ class Hub:
             if isinstance(message, AssistantMessage):
                 parts += [b.text for b in message.content if isinstance(b, TextBlock)]
         return "\n".join(parts)
+
+    async def _announce_all(self, text: str) -> None:
+        """A heads-up, then the ones that came in while it was said, in one sentence."""
+        try:
+            await self._announce(text)
+            while self._held_heads_ups:
+                held, self._held_heads_ups = self._held_heads_ups, []
+                await self._announce(
+                    held[0] if len(held) == 1 else HEADS_UP_MORE.format(n=len(held))
+                )
+        finally:
+            self._announcing = False
+            self._held_heads_ups = []
 
     async def _announce(self, text: str) -> None:
         if not self.speaker.muted:
@@ -4107,7 +4129,10 @@ class Hub:
             self.tasks.unqueue(int(msg.get("id", 0)), int(msg.get("item", 0)))
         elif kind == "task_send":
             self.tasks.send(
-                int(msg.get("id", 0)), str(msg.get("text", ""))[:20000], self._attachments(msg)
+                int(msg.get("id", 0)),
+                str(msg.get("text", ""))[:20000],
+                self._attachments(msg),
+                plain=msg.get("plain") is True,  # the window's own wording (/init, /review)
             )
         elif kind == "slash_list":
             # The project's and the user's custom commands and skills, for the / palette.

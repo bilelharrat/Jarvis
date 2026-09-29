@@ -1939,6 +1939,7 @@ ZH_TEXTS: dict[str, str] = {
     "Jarvis Code finished in {folder}. {result}": "Jarvis Code 在 {folder} 中完成了。{result}",
     "Jarvis Code needs you": "Jarvis Code 需要你",
     "Jarvis Code in {folder} needs your OK to {verb}.": "{folder} 中的 Jarvis Code 需要你同意才能{verb}。",
+    "{n} more heads-ups are on screen.": "还有{n}条提醒在屏幕上。",
     "Saved the transcript to {file}.": "对话记录已保存到 {file}。",
     "The J.A.R.V.I.S. window isn't open.": "J.A.R.V.I.S. 窗口没有打开。",
     "No location fix yet.": "还没有定位到位置。",

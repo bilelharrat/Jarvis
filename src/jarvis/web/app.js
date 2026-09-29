@@ -1905,6 +1905,7 @@ function renderQueue(t) {
   const items = (t && t.queue) || [];
   const list = $('jc-queue');
   list.hidden = !items.length;
+  const more = t && t.queued > items.length ? t.queued - items.length : 0;
   list.replaceChildren(...items.map((q) => {
     const li = el('li', 'jc-queued');
     li.append(el('span', 'jc-queued-kicker', 'Queued'), q.text ? mine(el('span', 'jc-queued-text', q.text)) : el('span', 'jc-queued-text', q.images ? `${q.images} image${q.images === 1 ? '' : 's'}` : ''));
@@ -1915,6 +1916,7 @@ function renderQueue(t) {
     li.append(x);
     return li;
   }));
+  if (more) list.append(el('li', 'jc-queued', `and ${more} more waiting`));
 }
 
 function answerApproval(a, choice, feedback) {
@@ -2028,8 +2030,8 @@ function localSlash(text) {
     }
     case 'add-dir': addCodeFolder(); return true;
     case 'model': if (!arg) { modelMenu(); return true; } return false;
-    case 'init': if (t) send({ type: 'task_send', id: t.id, text: 'Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.' }); return true;
-    case 'review': if (t) send({ type: 'task_send', id: t.id, text: 'Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.' }); return true;
+    case 'init': if (t) send({ type: 'task_send', id: t.id, plain: true, text: 'Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.' }); return true;
+    case 'review': if (t) send({ type: 'task_send', id: t.id, plain: true, text: 'Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.' }); return true;
     default: return false;
   }
 }

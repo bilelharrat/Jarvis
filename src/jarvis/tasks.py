@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import heapq
 import itertools
 import json
 import logging
@@ -21,6 +22,7 @@ import re
 import shlex
 import time
 import warnings
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -312,6 +314,18 @@ MODE_LABELS = {
 PLAN_APPROVE_EDITS, PLAN_APPROVE, PLAN_KEEP = "plan_edits", "plan_ask", "plan_keep"
 IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
 MAX_ENDED = 20  # ended sessions kept in the list; older ones are let go (still resumable)
+# Claude Code processes open at once (each is 100-650 MB). Past this, the longest-idle open
+# session closes; it resumes, same conversation, on its next message.
+MAX_CONNECTED = 8
+ROOM_IDLE = 60.0  # idle this long, an open session may close to make room (never between turns)
+CONNECTS_PER_SECOND = 3  # Claude Codes started in any one second (a burst waits its turn)
+SPAWN_WINDOW = 1.0
+MAX_QUEUED = 50  # messages waiting for one session: more is a runaway, not someone typing
+QUEUE_SHOWN = 20  # of those, what the windows' list carries (the count is always whole)
+CHANGED_EVERY = 0.1  # the windows' list of sessions: at most this often in a burst of changes
+REOPEN_QUIET = 0.75  # a burst of + menu changes reopens once, when they've stopped
+STREAM_FLUSH = 0.04  # live words go to the windows in batches this long, not a token each
+AUTO_RESTARTS = 2  # reopenings in a row, for waiting messages, of a Claude Code that went away
 # A question on a card goes unanswered after five minutes (the hub's APPROVAL_TIMEOUT). The
 # turn then stops, rather than Claude asking again (and again) while the user is away.
 UNANSWERED_SECONDS = 295
@@ -349,7 +363,7 @@ class Inbox:
     taken back before it's sent; once the session takes it, it's gone from here."""
 
     def __init__(self) -> None:
-        self._items: list[dict[str, Any]] = []
+        self._items: deque[dict[str, Any]] = deque()
         self._ids = itertools.count(1)
 
     def put(
@@ -364,13 +378,13 @@ class Inbox:
         keyword."""
         item = {"id": next(self._ids), "text": text, "images": list(images or []), "plain": plain}
         if front:
-            self._items.insert(0, item)
+            self._items.appendleft(item)
         else:
             self._items.append(item)
         return item["id"]
 
     def take(self) -> dict[str, Any] | None:
-        return self._items.pop(0) if self._items else None
+        return self._items.popleft() if self._items else None
 
     def remove(self, item_id: int) -> bool:
         for item in self._items:
@@ -386,9 +400,11 @@ class Inbox:
         return len(self._items)
 
     def public(self) -> list[dict[str, Any]]:
+        """The first few waiting, for the windows (qsize says how many in all): the whole
+        queue in every update of every session would grow with the square of its length."""
         return [
-            {"id": i["id"], "text": i["text"][:2000], **attachment_counts(i["images"])}
-            for i in self._items
+            {"id": i["id"], "text": i["text"][:500], **attachment_counts(i["images"])}
+            for i in itertools.islice(self._items, QUEUE_SHOWN)
         ]
 
 
@@ -436,7 +452,7 @@ class ClaudeTask:
     last_uuid: str = ""  # the latest entry in Claude Code's own transcript
     live_effort: str | None = None  # the effort the open connection was started with
     conn_cost: float | None = None  # the open connection's running total
-    finished_background: set[str] = field(default_factory=set)
+    finished_background: dict[str, None] = field(default_factory=dict)  # newest last, bounded
     # As in Claude Code's composer: more folders, plugins, connectors switched off for
     # this session, ultracode, and another provider's model (its environment).
     add_dirs: list[str] = field(default_factory=list)
@@ -455,6 +471,16 @@ class ClaudeTask:
     # ... and those messages, so a connection that closes first gives them back to the queue
     steered_items: list[dict[str, Any]] = field(default_factory=list)
     ending: bool = False  # End session pressed: a second press must not cut the shutdown short
+    in_flight: dict[str, Any] | None = None  # the message sent whose turn hasn't begun yet
+    restarts: int = 0  # reopened by itself for waiting messages since the last finished turn
+    reopen_at: float = 0.0  # the latest change that needs a reopen
+    live_key: tuple = ()  # what the open connection was started with (see _options_key)
+    applying_mode: bool = False  # a permission-mode switch is on its way to Claude Code
+    tool_ids: dict[str, None] = field(default_factory=dict)  # top-level steps awaiting results
+    last_active: float = field(default_factory=time.monotonic)
+    close_idle: bool = False  # close when idle, to make room for another session
+    stream_buf: list[tuple[str, list[str]]] = field(default_factory=list)  # (part, pieces)
+    stream_timer: Any = None  # the batch of live words is due
 
     def public(self) -> dict[str, Any]:
         return {
@@ -483,7 +509,7 @@ class ClaudeTask:
             "session_id": self.session_id,
             "busy": self.busy,
             "entries": len(self.transcript),
-            "files_changed": sorted(self.files_changed)[:50],
+            "files_changed": heapq.nsmallest(50, self.files_changed),  # (sorted, first 50)
             "commands": self.commands,
             "path": str(self.cwd),
             "report_path": self.report_path,
@@ -604,6 +630,12 @@ class TaskManager:
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
         # connection re-derives the session's settings, re-checking the key's Keychain seal.
         self.providers: Any = None
+        self.closing = False  # the app is quitting: nothing opens again by itself
+        self._spawns: deque[float] = deque()  # when the latest Claude Codes were started
+        self._open: set[int] = set()  # sessions connecting or connected
+        self._changed_at = 0.0
+        self._changed_timer: asyncio.TimerHandle | None = None
+        self._room_timer: asyncio.TimerHandle | None = None  # a look again at the cap is due
 
     # ── folders ──
 
@@ -730,10 +762,14 @@ class TaskManager:
             # Into the running step: Claude Code takes it up after the tool it's on.
             asyncio.create_task(self._steer(task, text, (images or [])[:6]))
             return True
+        if task.inbox.qsize() >= MAX_QUEUED:
+            self._log(task, "system", f"Not queued: {MAX_QUEUED} messages are already waiting.")
+            self._changed()
+            return False
         task.inbox.put(text, (images or [])[:6], plain=plain)
         task.stirred.set()
         if task.handle is None or task.handle.done():
-            task.status = "running"
+            task.status, task.restarts = "running", 0
             task.handle = asyncio.create_task(self._session(task))
         self._changed()
         return True
@@ -747,11 +783,11 @@ class TaskManager:
         try:
             await task.client.query(_with_images(text, images) if images else text)
         except Exception:  # the connection just went: send it as a normal follow-up
-            if steered in task.steered_items:
-                task.steered_items.remove(steered)
+            if any(s is steered for s in task.steered_items):  # (unless its end requeued it)
+                task.steered_items = [s for s in task.steered_items if s is not steered]
                 task.steered = max(0, task.steered - 1)
-            task.inbox.put(text, images)
-            task.stirred.set()
+                task.inbox.put(text, images, front=True)
+                task.stirred.set()
 
     def unqueue(self, task_id: int, item_id: int) -> bool:
         """Take back a message that's still waiting; one the session took is on its way."""
@@ -786,17 +822,30 @@ class TaskManager:
             return False
         previous, task.mode = task.mode, mode
         task.allow_edits = mode in ("edits", "auto")
-        if task.client is not None and SDK_MODES[previous] != SDK_MODES[mode]:
-            asyncio.create_task(self._apply_mode(task))
+        if (
+            task.client is not None
+            and SDK_MODES[previous] != SDK_MODES[mode]
+            and not task.applying_mode
+        ):
+            task.applying_mode = True
+            asyncio.create_task(self._apply_mode(task, task.client))
         self._log(task, "system", f"Permission mode: {MODE_LABELS[mode]}.")
         self._changed()
         return True
 
-    async def _apply_mode(self, task: ClaudeTask) -> None:
+    async def _apply_mode(self, task: ClaudeTask, client: Any) -> None:
+        """The session's mode to Claude Code, one request at a time: a burst of switches
+        sends the one it ended on (and a closed connection's next one starts in it)."""
+        sent = None
         try:
-            await task.client.set_permission_mode(SDK_MODES[task.mode])
-        except Exception as exc:  # the session just closed
-            self._log(task, "system", f"Couldn't switch mode: {exc}")
+            while task.client is client and sent != SDK_MODES[task.mode]:
+                sent = SDK_MODES[task.mode]
+                await client.set_permission_mode(sent)
+        except Exception as exc:
+            if task.client is client:
+                self._log(task, "system", f"Couldn't switch mode: {exc}")
+        finally:
+            task.applying_mode = False
 
     async def set_model(self, task_id: int, model: str, label: str = "", ref: str = "") -> bool:
         task = self.tasks.get(task_id)
@@ -804,12 +853,20 @@ class TaskManager:
             return False
         if task.env or task.provider_settings:  # leaving another provider's model
             return self.set_env(task_id, model, {}, label, ref)
+        before = (task.model, task.model_label, task.model_ref)
         task.model, task.model_label, task.model_ref = model, label, ref
-        if task.client is not None:
+        client = task.client
+        if client is not None:
             try:
-                await task.client.set_model(model)
-            except Exception:
-                return False
+                await client.set_model(model)
+            except Exception as exc:
+                if task.client is client:  # Claude Code said no: it runs what it ran
+                    if (task.model, task.model_label, task.model_ref) == (model, label, ref):
+                        task.model, task.model_label, task.model_ref = before
+                    self._log(task, "system", f"Couldn't switch the model: {exc}")
+                    self._changed()
+                    return False
+                # (that connection closed meanwhile: the next one starts on this model)
         self._log(task, "system", f"Model: {label or model}.")
         if task.mode == "smart" and not auto_capable(model):
             # Auto isn't there on this model: Manual, the safe side, until they pick again.
@@ -904,6 +961,7 @@ class TaskManager:
         if task is None or effort not in EFFORTS:
             return False
         task.effort = effort
+        task.reopen_at = time.monotonic()
         later = task.client is not None and (task.busy or task.background)
         self._log(task, "system", f"Effort: {effort}." + (" From the next step." if later else ""))
         task.stirred.set()
@@ -914,7 +972,7 @@ class TaskManager:
 
     def _reopen_soon(self, task: ClaudeTask, note: str) -> None:
         """New options take a new connection to the same conversation, between steps."""
-        task.reopen = True
+        task.reopen, task.reopen_at = True, time.monotonic()
         task.stirred.set()
         self._log(task, "system", note)
         self._changed()
@@ -1108,9 +1166,32 @@ class TaskManager:
             return
         delta = event.get("delta") or {}
         if delta.get("type") == "text_delta" and delta.get("text"):
-            self.emit("task_stream", id=task.id, part="text", text=delta["text"])
+            self._stream(task, "text", delta["text"])
         elif delta.get("type") == "thinking_delta" and delta.get("thinking"):
-            self.emit("task_stream", id=task.id, part="thinking", text=delta["thinking"])
+            self._stream(task, "thinking", delta["thinking"])
+
+    def _stream(self, task: ClaudeTask, part: str, text: str) -> None:
+        """Live words, batched: a window needs them every frame or so, not every token (50
+        sessions writing at once were 5,000 events a second to every window)."""
+        if task.stream_buf and task.stream_buf[-1][0] == part:
+            task.stream_buf[-1][1].append(text)
+        else:
+            task.stream_buf.append((part, [text]))
+        if task.stream_timer is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:  # no loop (a caller outside one): as it comes
+                self._flush_stream(task)
+                return
+            task.stream_timer = loop.call_later(STREAM_FLUSH, self._flush_stream, task)
+
+    def _flush_stream(self, task: ClaudeTask) -> None:
+        if task.stream_timer is not None:
+            task.stream_timer.cancel()
+            task.stream_timer = None
+        batch, task.stream_buf = task.stream_buf, []
+        for part, pieces in batch:
+            self.emit("task_stream", id=task.id, part=part, text="".join(pieces))
 
     def _on_background(self, task: ClaudeTask, message: Any) -> None:
         """Background shells and agents Claude Code started: shown until they end."""
@@ -1133,7 +1214,9 @@ class TaskManager:
             item["summary"] = str(message.summary)[:400]
         if item["status"] in ("completed", "failed", "killed", "stopped", "done"):
             task.background.pop(bg_id, None)
-            task.finished_background.add(bg_id)
+            task.finished_background[bg_id] = None
+            if len(task.finished_background) > 500:
+                del task.finished_background[next(iter(task.finished_background))]
             if item.get("summary") or item["description"]:
                 self._log(
                     task,
@@ -1141,9 +1224,11 @@ class TaskManager:
                     f"Background task {item['status']}: {item.get('summary') or item['description']}",
                 )
         task.stirred.set()
-        self._changed()
+        self._changed_soon()
 
     def _log(self, task: ClaudeTask, role: str, text: str, **extra: Any) -> None:
+        if task.stream_buf:  # the live words so far come first (a reply's entry replaces them)
+            self._flush_stream(task)
         task.seq += 1
         entry = {
             "n": task.seq,
@@ -1168,17 +1253,20 @@ class TaskManager:
             content = "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
         output = str(content or "")[:2000]
         status = "failed" if block.is_error else "done"
+        shown = task.tool_ids.pop(block.tool_use_id, 0) is None  # a step the timeline shows
         for entry in reversed(task.transcript):
             if entry.get("tool_id") == block.tool_use_id:
                 entry["status"], entry["output"] = status, output
-                self.emit(
-                    "task_log_update",
-                    id=task.id,
-                    tool_id=block.tool_use_id,
-                    status=status,
-                    output=output,
-                )
+                shown = True
                 break
+        if shown:  # (a window still shows a step the kept 400 entries have let go)
+            self.emit(
+                "task_log_update",
+                id=task.id,
+                tool_id=block.tool_use_id,
+                status=status,
+                output=output,
+            )
 
     def start_research(self, topic: str) -> ClaudeTask:
         RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -1207,11 +1295,14 @@ class TaskManager:
     async def close(self) -> None:
         """The app is quitting: end every session and wait (briefly) for their Claude
         Code processes to go, so none outlives the app."""
-        handles = [
-            t.handle for t in self.tasks.values() if t.handle is not None and not t.handle.done()
-        ]
-        for handle in handles:
-            handle.cancel()
+        self.closing = True  # a session ending now must not open again for its queue
+        handles = []
+        for task in self.tasks.values():
+            if task.handle is not None and not task.handle.done():
+                task.ending = True
+                if not task.handle.cancelling():  # (End pressed already: it's shutting down)
+                    task.handle.cancel()
+                handles.append(task.handle)
         if handles:
             await asyncio.wait(handles, timeout=12)
 
@@ -1227,6 +1318,31 @@ class TaskManager:
         return out
 
     def _changed(self) -> None:
+        """The windows' list of sessions, at once (the user's own action shows at once)."""
+        self._emit_changed()
+
+    def _changed_soon(self) -> None:
+        """The same for what Claude Code does (each step, a to-do list, a background note,
+        a turn's start and end). The first in a while goes at once; a burst after it goes as
+        one update CHANGED_EVERY later, never one per change: each carries every session."""
+        if self._changed_timer is not None:
+            return  # an update is due: it will carry this change too
+        wait = self._changed_at + CHANGED_EVERY - time.monotonic()
+        if wait > 0:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:  # no loop (called directly): at once
+                pass
+            else:
+                self._changed_timer = loop.call_later(wait, self._emit_changed)
+                return
+        self._emit_changed()
+
+    def _emit_changed(self) -> None:
+        if self._changed_timer is not None:
+            self._changed_timer.cancel()  # this update carries what it would have
+            self._changed_timer = None
+        self._changed_at = time.monotonic()
         self.emit("tasks", items=self.public())
 
     def _prune(self, keep: int | None = None) -> None:
@@ -1349,10 +1465,18 @@ class TaskManager:
                 status = "failed" if task.status == "failed" else "stopped"
                 self._turn_finished(task, status, always=True)
             ending, task.ending = task.ending, False
-            if task.status in ("closed", "stopped") and not task.inbox.empty() and not ending:
-                # A message came in while it was closing (idle, or Claude Code exited):
-                # open it again for that, rather than leave it waiting unsent. After End
-                # session, the queue waits for the user.
+            if (
+                task.status in ("closed", "stopped", "failed")
+                and not task.inbox.empty()
+                and not ending
+                and not self.closing
+                and task.restarts < AUTO_RESTARTS
+            ):
+                # A message came in while it was closing (idle, or Claude Code exited or
+                # crashed): open it again for that, rather than leave it waiting unsent, but
+                # never over and over for one that fails every time. After End session, the
+                # queue waits for the user.
+                task.restarts += 1
                 task.status = "running"
                 task.handle = asyncio.create_task(self._session(task))
             self._prune()
@@ -1363,29 +1487,98 @@ class TaskManager:
         _REOPEN (a new effort), _IDLE or _GONE."""
         task.reopen = False  # these options have every change made so far
         task.turns_pending, task.steered = 0, 0  # a new connection has nothing in flight
+        task.close_idle = False
         options = self.options_for(task)
-        async with self.client_factory(options=options) as client:
-            task.client, task.live_effort, task.conn_cost = client, options.effort, None
-            await self._catch_up(task, client, options)
-            self._changed()
-            reader = asyncio.create_task(self._read(task, client))
-            item: Any = _GONE
-            try:
-                while True:
-                    item = await self._next_message(task, reader)
-                    if item in (_IDLE, _GONE):
-                        break
-                    if item == _REOPEN:
-                        self._log(task, "system", "Reopening with the new settings.")
-                        return _REOPEN
-                    await self._send_turn(task, client, item)
-            finally:
-                reader.cancel()
-                await asyncio.gather(reader, return_exceptions=True)
-                self._connection_gone(task)
-            if not reader.cancelled() and reader.exception() is not None:
-                raise reader.exception()
-        return item
+        live_key = self._options_key(task)
+        self._open.add(task.id)
+        try:
+            self._make_room()
+            await self._spawn_slot()  # a burst of sessions starts a few Claude Codes a second
+            async with self.client_factory(options=options) as client:
+                task.client, task.live_effort, task.conn_cost = client, options.effort, None
+                task.live_key, task.last_active = live_key, time.monotonic()
+                await self._catch_up(task, client, options)
+                self._changed()
+                reader = asyncio.create_task(self._read(task, client))
+                item: Any = _GONE
+                try:
+                    while True:
+                        item = await self._next_message(task, reader)
+                        if item in (_IDLE, _GONE):
+                            break
+                        if item == _REOPEN:
+                            self._log(task, "system", "Reopening with the new settings.")
+                            return _REOPEN
+                        await self._send_turn(task, client, item)
+                finally:
+                    reader.cancel()
+                    await asyncio.gather(reader, return_exceptions=True)
+                    self._connection_gone(task, idle=item == _IDLE)
+                if not reader.cancelled() and reader.exception() is not None:
+                    raise reader.exception()
+            return item
+        finally:
+            self._open.discard(task.id)
+
+    async def _spawn_slot(self) -> None:
+        """At most CONNECTS_PER_SECOND Claude Codes start in any SPAWN_WINDOW: fifty sessions
+        opened at once would otherwise start fifty processes (and their MCP servers) at
+        the same moment. A slow connect never holds up the next one."""
+        while True:
+            now = time.monotonic()
+            while self._spawns and now - self._spawns[0] >= SPAWN_WINDOW:
+                self._spawns.popleft()
+            if len(self._spawns) < CONNECTS_PER_SECOND:
+                self._spawns.append(now)
+                return
+            await asyncio.sleep(SPAWN_WINDOW - (now - self._spawns[0]))
+
+    def _options_key(self, task: ClaudeTask) -> tuple:
+        """What only a new connection can change: folders, plugins, connectors, another
+        provider's model and its settings."""
+        other = task.env or task.provider_settings or task.model_ref.startswith("custom:")
+        return (
+            tuple(task.add_dirs),
+            tuple(task.plugins),
+            tuple(sorted(task.disabled_mcp)),
+            tuple(sorted(task.env.items())),
+            task.provider_settings,
+            task.model if other else "",
+        )
+
+    def _make_room(self) -> None:
+        """More than MAX_CONNECTED Claude Codes open: the ones idle longest close (they
+        resume on their next message), once idle ROOM_IDLE; sooner would close a session
+        between two turns and reopen it at once. A session at work, with a background task
+        running or with messages waiting is never closed for this."""
+        if self._room_timer is not None:
+            self._room_timer.cancel()
+            self._room_timer = None
+        staying = [i for i in self._open if not getattr(self.tasks.get(i), "close_idle", True)]
+        over = len(staying) - MAX_CONNECTED
+        if over <= 0:
+            return
+        now = time.monotonic()
+        idle = [
+            t
+            for t in self.tasks.values()
+            if t.id in self._open
+            and t.client is not None
+            and not (t.busy or t.background or t.close_idle or t.steered_items)
+            and t.inbox.empty()
+        ]
+        ready = sorted(
+            (t for t in idle if now - t.last_active >= ROOM_IDLE), key=lambda t: t.last_active
+        )
+        for t in ready[:over]:
+            t.close_idle = True
+            t.stirred.set()
+        waiting = [t.last_active for t in idle if now - t.last_active < ROOM_IDLE]
+        if len(ready) < over and waiting:  # the rest are only just idle: look again then
+            with contextlib.suppress(RuntimeError):  # (no loop: the next change looks again)
+                self._room_timer = asyncio.get_running_loop().call_later(
+                    ROOM_IDLE - (now - min(waiting)) + 0.01, self._make_room
+                )
 
     async def _catch_up(self, task: ClaudeTask, client: Any, options: Any) -> None:
         """A mode or model picked while this connection was opening reached no one (the old
@@ -1404,17 +1597,29 @@ class TaskManager:
             except Exception as exc:
                 self._log(task, "system", f"Couldn't switch model: {exc}")
 
-    def _connection_gone(self, task: ClaudeTask) -> None:
+    def _connection_gone(self, task: ClaudeTask, idle: bool = False) -> None:
         """A connection closed: what lived in that Claude Code process went with it.
-        Background tasks (a dev server) are gone, and messages steered into its step
-        that it never took up go back to the front of the queue, in order."""
+        Background tasks (a dev server) are gone, and the messages it never took up go
+        back to the front of the queue, in the order sent: steered ones, then the one sent
+        as it went. After an hour idle, a steered message it never took up was dropped
+        long ago (at an interrupt, say): it's noted, never sent unasked."""
         task.client = None  # a switch from now on waits for the next connection
+        if task.stream_buf or task.stream_timer is not None:
+            self._flush_stream(task)
+        task.tool_ids.clear()
         if task.background:
             task.background.clear()
             self._log(task, "system", "Background tasks ended with the connection.")
-        for steered in reversed(task.steered_items):
-            task.inbox.put(steered["text"], steered["images"], front=True)
-        if task.steered_items:
+        again = [] if idle else list(task.steered_items)
+        if idle and task.steered_items:
+            dropped = "; ".join(s["text"][:80] for s in task.steered_items)
+            self._log(task, "system", f"Never taken up, so not sent: {dropped}")
+        if task.in_flight is not None:
+            again.append(task.in_flight)
+            task.in_flight = None
+        for item in reversed(again):
+            task.inbox.put(item["text"], item["images"], front=True, plain=item.get("plain", False))
+        if again:
             task.stirred.set()
         task.steered_items.clear()
         task.steered = 0
@@ -1436,22 +1641,35 @@ class TaskManager:
         to do, _GONE when Claude Code itself has gone."""
         idle_since = time.monotonic()
         while not reader.done():
+            hold = 0.0
             if task.busy or task.background:
                 idle_since = time.monotonic()  # working, or a dev server running: stay
             if not task.busy:
-                if (
-                    (self._effort_pending(task) or task.reopen)
-                    and not task.background
-                    and not task.steered
-                ):
-                    task.reopen = False
-                    return _REOPEN
-                item = task.inbox.take()
-                if item is not None:
-                    return item
+                effort = self._effort_pending(task)
+                if (effort or task.reopen) and not task.background and not task.steered:
+                    if not effort and self._options_key(task) == task.live_key:
+                        task.reopen = False  # the changes cancelled out: nothing to reopen for
+                    else:
+                        hold = REOPEN_QUIET - (time.monotonic() - task.reopen_at)
+                        if hold <= 0:  # the changes have stopped: one reopen for all of them
+                            task.reopen = False
+                            return _REOPEN
+                if hold <= 0:  # (while a reopen waits, a message waits for the new settings)
+                    item = task.inbox.take()
+                    if item is not None:
+                        return item
+                    if task.close_idle and not task.steered:
+                        self._log(
+                            task,
+                            "system",
+                            "Closed to make room for other sessions; your next message opens "
+                            "it again.",
+                        )
+                        return _IDLE  # it resumes, same conversation, on its next message
                 if task.status == "running":
                     task.status, task.last_action = "waiting", "Waiting for you"
-                    self._changed()  # open and idle: it's the user's turn
+                    self._changed_soon()  # open and idle: it's the user's turn
+                    self._make_room()
             remaining = IDLE_CLOSE_SECONDS - (time.monotonic() - idle_since)
             if remaining <= 0:
                 return _IDLE
@@ -1459,7 +1677,9 @@ class TaskManager:
             waiter = asyncio.ensure_future(task.stirred.wait())
             try:
                 await asyncio.wait(
-                    {waiter, reader}, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                    {waiter, reader},
+                    timeout=min(remaining, hold) if hold > 0 else remaining,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
             finally:
                 waiter.cancel()
@@ -1471,6 +1691,7 @@ class TaskManager:
         plain = item.get("plain", False)  # a git command's own wording
         if (
             task.ultracode
+            and text  # a picture with no words: "Take a look at this.", never the keyword alone
             and not plain
             and "ultracode" not in text.lower()
             and not text.startswith("/")
@@ -1479,12 +1700,13 @@ class TaskManager:
         task.turns_pending += 1
         task.busy = True
         task.status, task.last_action = "running", "Working"
-        task.turn_started = time.monotonic()
+        task.turn_started = task.last_active = time.monotonic()
         self._new_turn(task)
         self._log(task, "user", text, **attachment_counts(images))
         if not task.title and not task.prompt and text and not text.startswith("/"):
             task.title = _session_title(text)  # named after its first request, as Claude Code does
         self._changed()
+        task.in_flight = item  # until its turn begins; if the connection ends first, it goes again
         await client.query(_with_images(sent, images) if images else sent)
 
     def _new_turn(self, task: ClaudeTask) -> None:
@@ -1499,6 +1721,7 @@ class TaskManager:
             return
         if task.turns_pending and not announce:
             task.current = "user"  # the user's turn, its replayed prompt not seen
+            task.in_flight = None
             return
         task.current, task.injected, task.busy = "claude", True, True
         task.turn_started = time.monotonic()
@@ -1507,7 +1730,7 @@ class TaskManager:
         if announce:
             kind = origin.get("kind", "") if isinstance(origin, dict) else ""
             self._log(task, "system", _ON_ITS_OWN.get(kind, "It picked something up on its own."))
-        self._changed()
+        self._changed_soon()
 
     def _user_turn(self, task: ClaudeTask, uid: str) -> None:
         """The user's own message, as Claude Code takes it up: a point to undo, rewind or
@@ -1523,6 +1746,8 @@ class TaskManager:
                     task.steered_items.pop(0)
                 task.turns_pending += 1
                 task.busy = True
+            else:
+                task.in_flight = None  # the message sent has begun its turn
             task.current = "user"
             self._new_turn(task)
         task.checkpoints.append(uid)
@@ -1568,8 +1793,10 @@ class TaskManager:
             task.injected = False
         else:
             task.turns_pending = max(0, task.turns_pending - 1)
+            task.in_flight = None  # its turn is over, whatever was (or wasn't) replayed
         task.current = ""
         task.busy = task.turns_pending > 0 or task.injected
+        task.restarts, task.last_active = 0, time.monotonic()
         stopped = str(getattr(message, "terminal_reason", "") or "").startswith("aborted")
         status = "stopped" if stopped else "failed" if message.is_error else "done"
         origin = getattr(message, "origin", None)
@@ -1595,11 +1822,15 @@ class TaskManager:
     def _turn_finished(
         self, task: ClaudeTask, status: str, origin: str = "user", always: bool = False
     ) -> None:
+        if task.stream_buf:
+            self._flush_stream(task)
         idle = not task.busy and task.inbox.empty()
         if not task.busy and task.client is not None:
             task.status = "waiting" if task.inbox.empty() else "running"
             task.last_action = "Waiting for you" if task.inbox.empty() else "Next message"
-            self._changed()
+            self._changed_soon()
+            if idle:
+                self._make_room()  # one more idle: past the cap, the longest idle closes
         if not (idle or always or origin != "user"):
             return  # more of the user's messages to go: the last one says it's done
         self.emit(
@@ -1663,8 +1894,12 @@ class TaskManager:
                         for t in (block.input.get("todos") or [])[:30]
                     ]  # fmt: skip
                     self._log(task, "todos", "", todos=task.todos)
-                    self._changed()
+                    self._changed_soon()
                     continue
+                if isinstance(block, ToolUseBlock):
+                    task.tool_ids[block.id] = None
+                    if len(task.tool_ids) > 500:
+                        del task.tool_ids[next(iter(task.tool_ids))]
                 if isinstance(block, ToolUseBlock) and block.name in AGENT_TOOLS:
                     task.last_action = f"Agent: {block.input.get('description', 'working')}"
                     self._log(
@@ -1677,7 +1912,7 @@ class TaskManager:
                         agent=str(block.input.get("subagent_type", "general-purpose")),
                         status="running",
                     )
-                    self._changed()
+                    self._changed_soon()
                     continue
                 if isinstance(block, ToolUseBlock):
                     task.last_action = describe_tool(block.name, block.input)
@@ -1693,7 +1928,7 @@ class TaskManager:
                         detail=approval_detail(block.name, block.input, task.cwd)[:4000],
                         status="running",
                     )
-                    self._changed()
+                    self._changed_soon()
                 elif isinstance(block, TextBlock) and block.text.strip():
                     task.result = block.text.strip()
                     self._log(task, "assistant", block.text.strip())
@@ -1722,7 +1957,7 @@ class TaskManager:
                         for block in message.content:
                             if isinstance(block, ToolUseBlock):
                                 task.last_action = describe_tool(block.name, block.input)
-                                self._changed()
+                                self._changed_soon()
                             elif isinstance(block, TextBlock) and block.text.strip():
                                 task.result = block.text.strip()
                     elif isinstance(message, ResultMessage):
@@ -1816,7 +2051,7 @@ class TaskManager:
             elif tool_name in READ_TOOLS:
                 verb = "read outside the project"
             task.last_action = "Waiting for you"
-            self._changed()
+            self._changed_soon()
             asked_at = time.monotonic()
             choice = await self.approve(
                 f"Jarvis Code in {task.cwd.name} wants to {verb}",
@@ -1901,7 +2136,7 @@ class TaskManager:
                 for i, o in enumerate(q.get("options", [])[:6])
             )
             task.last_action = "Asking you"
-            self._changed()
+            self._changed_soon()
             asked_at = time.monotonic()
             choice = await self.approve(
                 question,
@@ -1950,8 +2185,15 @@ class TaskManager:
             {"task_id": int, "message": str},
         )
         async def message_claude_task(args):
+            task = self.tasks.get(int(args["task_id"]))
             ok = self.send(int(args["task_id"]), str(args["message"]))
-            text = "Sent." if ok else "No Jarvis Code session with that number."
+            text = (
+                "Sent."
+                if ok
+                else f"Not sent: {MAX_QUEUED} messages are already waiting for that session."
+                if task is not None and task.inbox.qsize() >= MAX_QUEUED
+                else "No Jarvis Code session with that number."
+            )
             return {"content": [{"type": "text", "text": text}], "is_error": not ok}
 
         @tool(
