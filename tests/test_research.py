@@ -20,7 +20,8 @@ def test_page_names_and_paths():
 
 
 def test_clean_url():
-    assert clean_url("") == research.DEFAULT_URL
+    assert clean_url("") == ""  # none: Markets is only markets
+    assert clean_url("   ") == ""
     assert clean_url("127.0.0.1:8010") == "http://127.0.0.1:8010"
     assert clean_url("https://research.example.org/markets?x=1") == "https://research.example.org"
     assert clean_url("javascript:alert(1)") is None
@@ -28,13 +29,13 @@ def test_clean_url():
 
 
 def test_the_hosted_research_center_keeps_its_path():
-    assert research.DEFAULT_URL == "https://app.bshventures.com/research"
-    assert clean_url("https://app.bshventures.com/research/") == research.DEFAULT_URL
-    assert clean_url("app.bshventures.com/research") == research.DEFAULT_URL  # typed: https
+    assert research.HOSTED_URL == "https://app.bshventures.com/research"
+    assert clean_url("https://app.bshventures.com/research/") == research.HOSTED_URL
+    assert clean_url("app.bshventures.com/research") == research.HOSTED_URL  # typed: https
     # a pasted page address keeps only the app's own path
-    assert clean_url("https://app.bshventures.com/research/markets") == research.DEFAULT_URL
+    assert clean_url("https://app.bshventures.com/research/markets") == research.HOSTED_URL
     assert clean_url("https://app.bshventures.com/research/innovation-lab/hormuz#x") == (
-        research.DEFAULT_URL
+        research.HOSTED_URL
     )
     assert clean_url("localhost:8010") == "http://localhost:8010"  # this Mac stays http
     assert clean_url("https://x.example/a b") is None
@@ -210,6 +211,18 @@ async def test_research_state_and_results_from_the_window(hub):
 async def test_research_call_without_the_app_window(hub):
     hub.research_available = False
     assert "app window" in (await hub.research_call("read"))["error"]
+
+
+async def test_with_no_research_center_set_opening_says_so_without_the_window(hub):
+    """A new install has none (Markets is only the markets): the tool says where to add one,
+    and nothing is asked of the window."""
+    hub.research_available = True
+    sent = []
+    hub.emit = lambda kind, **data: sent.append(kind)
+    hub.prefs.research_url = ""
+    said = await hub.research_call("open", {"path": "/markets"})
+    assert said == {"error": research.NONE_SET} and "research_cmd" not in sent
+    assert "Settings › Markets" in said["error"]
 
 
 def test_command_defaults():

@@ -18,8 +18,11 @@ APP_SUPPORT = Path.home() / "Library" / "Application Support" / "Jarvis"
 # hosted address, so a file still on the old default follows it (once: a later choice of
 # the old address is saved as version 2 and kept).
 # 3: operating the Mac without asking became the default, and the owner asked for it on.
-VERSION = 3
+# 4: the Research Center is the owner's own (private to BSH), so a new install has none;
+# a file from before keeps the hosted one it had.
+VERSION = 4
 LEGACY_RESEARCH_URL = "http://127.0.0.1:8010"
+HOSTED_RESEARCH_URL = "https://app.bshventures.com/research"
 
 # What a damaged settings file must never switch on by itself: the always-on microphone,
 # indexing private mail, messages, photos and files, and what watches the screen or acts.
@@ -131,7 +134,7 @@ class Prefs:
     control_always: bool = True  # operate the Mac (mouse, keyboard, browser, apps) unasked
     proactive_voice: bool = True
     quiet_hours: str = "22:00-07:00"
-    research_url: str = "https://app.bshventures.com/research"  # the Research Center (Markets)
+    research_url: str = ""  # the Research Center Markets opens ("": none, Markets is only markets)
     invoice_from: str = ""  # the business at the top of invoices (the user fills it in)
     invoice_payment: str = ""  # how to pay, printed on invoices
     screen_aware: bool = False  # keep an eye on the screen (pictures stay in memory, 2 min)
@@ -458,7 +461,9 @@ class PrefsStore:
         version = data.get("version")
         if not isinstance(version, int) or version < 2:
             if prefs.research_url == LEGACY_RESEARCH_URL:
-                prefs.research_url = Prefs.research_url
+                prefs.research_url = HOSTED_RESEARCH_URL
+        if (not isinstance(version, int) or version < 4) and not prefs.research_url:
+            prefs.research_url = HOSTED_RESEARCH_URL  # an install from before keeps its own
         if (not isinstance(version, int) or version < 3) and isinstance(
             data.get("control_always", False), bool
         ):

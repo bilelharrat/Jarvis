@@ -233,7 +233,7 @@
       <button type="button" role="radio" data-look="console" aria-checked="false">Command Center</button>
     </div>
     <div class="row"><span><strong>Use my location</strong><small>For local weather and live traffic times. Stays on this Mac until you ask about it.</small></span><button type="button" class="switch" role="switch" id="sw-location" aria-checked="true" aria-label="Use my location"></button></div>
-    <label class="row stack" for="weather-city"><span><strong>Weather city</strong><small>Used when location is off, e.g. Berkeley</small></span>
+    <label class="row stack" for="weather-city"><span><strong>Weather city</strong><small>Used when location is off, e.g. Lisbon</small></span>
       <input type="text" id="weather-city" maxlength="80" placeholder="Your city"></label>
   </section>
 
@@ -277,10 +277,10 @@
     <h3>Markets</h3>
     <label class="row stack" for="watchlist"><span><strong>Watchlist</strong><small>Tickers for the Markets panel and “how’s the market?”, separated by spaces or commas</small></span>
       <input type="text" id="watchlist" placeholder="AAPL NVDA MSFT"></label>
-    <label class="row stack" for="research-url"><span><strong>Research Center</strong><small>Where the BSH Research Center runs. Clicking Markets opens it here, driven only by Jarvis; you sign in once and stay signed in.</small></span>
-      <input type="url" id="research-url" placeholder="https://app.bshventures.com/research" spellcheck="false"></label>
+    <label class="row stack" for="research-url"><span><strong>Research Center</strong><small>Optional: a research web app for Markets to open. It opens here, driven only by Jarvis; you sign in once and stay signed in. Empty: Markets shows only the markets.</small></span>
+      <input type="url" id="research-url" placeholder="https://research.example.com" spellcheck="false"></label>
     <label class="row stack" for="invoice-from"><span><strong>Invoices: your business</strong><small>Printed at the top of invoices Jarvis makes: name on the first line, then address and email</small></span>
-      <textarea id="invoice-from" rows="3" placeholder="BSH Ventures&#10;2150 Shattuck Ave, Berkeley CA&#10;billing@example.com"></textarea></label>
+      <textarea id="invoice-from" rows="3" placeholder="Your Company&#10;1 Main Street, Springfield&#10;billing@example.com"></textarea></label>
     <label class="row stack" for="invoice-payment"><span><strong>Invoices: how to pay</strong><small>Printed under the total (bank or payment link); type it yourself, Jarvis never fills this in</small></span>
       <textarea id="invoice-payment" rows="2" placeholder="Pay by bank transfer or at pay.example.com"></textarea></label>
   </section>
@@ -436,7 +436,7 @@
     <div id="line-options">
       <div class="row"><span><strong>Talk with callers</strong><small>Callers have a real conversation with Jarvis instead of pressing keys: it chats, answers questions, takes a message, books a time or notes something for your calendar (you confirm). Needs a Claude API key under Anthropic in Settings › Models.</small></span><button type="button" class="switch" role="switch" id="sw-line-talk" aria-checked="true" aria-label="Talk with callers"></button></div>
       <label class="row stack" for="line-about"><span><strong>What Jarvis may tell callers about you</strong><small>Optional. Anything else about you stays private.</small></span>
-        <textarea id="line-about" rows="2" maxlength="500" placeholder="Bilel runs BSH Ventures in Berkeley and is usually free in the afternoons."></textarea></label>
+        <textarea id="line-about" rows="2" maxlength="500" placeholder="Alex runs a small design studio and is usually free in the afternoons."></textarea></label>
       <div class="row"><span><strong>Let callers book a time</strong><small>Jarvis offers open times from your calendar: weekdays from tomorrow, a morning and an afternoon time a day</small></span><button type="button" class="switch" role="switch" id="sw-line-booking" aria-checked="true" aria-label="Let callers book a time"></button></div>
       <label class="row" for="line-minutes"><span><strong>Meeting length</strong></span><select id="line-minutes"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option></select></label>
       <div class="row"><span><strong>Offer times between</strong></span><span class="time-range"><input type="time" id="line-start" aria-label="Offer times from" value="09:00"><input type="time" id="line-end" aria-label="Offer times until" value="17:00"></span></div>

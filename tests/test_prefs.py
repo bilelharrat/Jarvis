@@ -51,7 +51,7 @@ def test_the_old_local_research_address_moves_to_the_hosted_one(tmp_path):
     assert store.prefs.research_url == "https://app.bshventures.com/research"
     assert store.prefs.humor == 40
     store.save()
-    assert json.loads(path.read_text())["version"] == 3
+    assert json.loads(path.read_text())["version"] == 4
 
 
 def test_choosing_the_local_address_again_is_kept(tmp_path):
@@ -67,3 +67,44 @@ def test_a_chosen_research_address_is_never_moved(tmp_path):
     path = tmp_path / "prefs.json"
     path.write_text(json.dumps({"research_url": "http://192.168.1.5:8010"}))
     assert PrefsStore(path).prefs.research_url == "http://192.168.1.5:8010"
+
+
+def test_a_new_install_has_no_research_center(tmp_path):
+    """The Research Center is the owner's own (private to BSH): someone else's first start has
+    none, and Markets shows only the markets."""
+    import json
+
+    store = PrefsStore(tmp_path / "prefs.json")
+    assert store.prefs.research_url == ""
+    store.save()
+    saved = json.loads((tmp_path / "prefs.json").read_text())
+    assert saved["research_url"] == "" and saved["version"] == 4
+    assert PrefsStore(tmp_path / "prefs.json").prefs.research_url == ""  # kept empty
+
+
+def test_an_install_from_before_keeps_its_research_center(tmp_path):
+    import json
+
+    hosted = "https://app.bshventures.com/research"
+    path = tmp_path / "prefs.json"
+    # The owner's file as it is today: version 3, the hosted address saved in it.
+    path.write_text(json.dumps({"research_url": hosted, "humor": 40, "version": 3}))
+    assert PrefsStore(path).prefs.research_url == hosted
+    # One from before the address was saved at all, or with it unreadable.
+    path.write_text(json.dumps({"humor": 40, "version": 3}))
+    assert PrefsStore(path).prefs.research_url == hosted
+    path.write_text(json.dumps({"research_url": "http://[zz", "version": 3}))
+    assert PrefsStore(path).prefs.research_url == hosted
+    # Another address chosen before is kept as it is.
+    path.write_text(json.dumps({"research_url": "https://research.example.org", "version": 3}))
+    assert PrefsStore(path).prefs.research_url == "https://research.example.org"
+
+
+def test_clearing_the_research_center_is_kept(tmp_path):
+    store = PrefsStore(tmp_path / "prefs.json")
+    store.prefs.update({"research_url": "https://research.example.org"})
+    store.save()
+    reread = PrefsStore(tmp_path / "prefs.json")
+    assert reread.prefs.update({"research_url": ""}) == ["research_url"]
+    reread.save()
+    assert PrefsStore(tmp_path / "prefs.json").prefs.research_url == ""

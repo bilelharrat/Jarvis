@@ -4556,6 +4556,27 @@ test('An invitation that clashes says so on a Calendar card, with its reply to c
   assert(JSON.stringify(await sentOf('clash_reply')) === '[{"type":"clash_reply","key":"clash:k2"}]', 'no draft asked for');
 });
 
+// ── What only the owner's install shows (web/features/newuser.js) ──
+
+test('Markets is a button only with a Research Center set; the BSH desk’s switch and chip only with the desk', async () => {
+  await featureScript('newuser.js');
+  await deliver({ type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, status: {}, activity: [], tasks: [], brain: {}, approvals: [], history: [],
+    prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50, research_url: '' } });
+  assert((await sentOf('newuser_state')).length === 1, 'the window didn’t ask what this install has');
+  let r = await js('({ role: $("p-markets").getAttribute("role"), tab: $("p-markets").getAttribute("tabindex"), cls: $("p-markets").className, label: $("p-markets").getAttribute("aria-label"), dock: $("br-research").classList.contains("no-research") })');
+  assert(r.role === null && r.tab === null && /no-research/.test(r.cls) && r.label === 'Markets' && r.dock, JSON.stringify(r));
+  await deliver({ type: 'prefs', research_url: 'https://research.example.com', look: 'orb', language: 'en' });
+  r = await js('({ role: $("p-markets").getAttribute("role"), tab: $("p-markets").tabIndex, cls: $("p-markets").className })');
+  assert(r.role === 'button' && r.tab === 0 && !/no-research/.test(r.cls), JSON.stringify(r));
+  await deliver({ type: 'newuser', bsh_desk: false, packaged: true });
+  const chip = 'document.querySelector(\'.chips .chip[data-ask^="How\\\'s the BSH portfolio"]\')';
+  r = await js(`({ chip: ${chip}.hidden, row: $("sw-bsh").closest(".row").hidden })`);
+  assert(r.chip && r.row, JSON.stringify(r));
+  await deliver({ type: 'newuser', bsh_desk: true, packaged: false });
+  r = await js(`({ chip: ${chip}.hidden, row: $("sw-bsh").closest(".row").hidden })`);
+  assert(!r.chip && !r.row, JSON.stringify(r));
+});
+
 // ── Settings › About (web/features/updates.js; app/features/updates.js is a stand-in here) ──
 
 test('Settings › About shows the version; an update that has downloaded is offered, never installed unasked', async () => {

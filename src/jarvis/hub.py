@@ -4112,6 +4112,8 @@ class Hub:
         over the socket."""
         if not self.research_available:
             return {"error": "The Research Center only opens in the J.A.R.V.I.S. app window."}
+        if action == "open" and not self.prefs.research_url:
+            return {"error": research.NONE_SET}  # a new install has none: Markets is only markets
         call_id = uuid.uuid4().hex[:10]
         future = asyncio.get_running_loop().create_future()
         self._research_calls[call_id] = future

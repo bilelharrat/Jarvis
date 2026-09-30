@@ -1,0 +1,10 @@
+{
+  "strings": {
+    "Used when location is off, e.g. Lisbon": "定位关闭时使用，例如里斯本",
+    "Optional: a research web app for Markets to open. It opens here, driven only by Jarvis; you sign in once and stay signed in. Empty: Markets shows only the markets.": "可选：点按“市场”时打开的研究网页应用。它在这里打开，只由 Jarvis 操控；登录一次即可保持登录。留空时，“市场”只显示行情。",
+    "Your Company 1 Main Street, Springfield billing@example.com": "你的公司\n春田市主街 1 号\nbilling@example.com",
+    "Alex runs a small design studio and is usually free in the afternoons.": "Alex 经营一家小型设计工作室，通常下午有空。",
+    "Markets": "市场"
+  },
+  "patterns": []
+}

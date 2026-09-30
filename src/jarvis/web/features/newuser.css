@@ -1,0 +1,6 @@
+/* Markets without a Research Center (web/features/newuser.js): only the markets, not a button. */
+#p-markets.no-research { cursor: default; }
+#p-markets.no-research:hover, #p-markets.no-research:focus-visible { transform: none; box-shadow: none; }
+#p-markets.no-research .mk-open { display: none; }
+#br-research.no-research { display: none; }
+.chips .chip[hidden], #settings .row[hidden] { display: none; }

@@ -8,9 +8,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from . import packaged
+
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_PROJECTS_DIR = Path.home() / "Investment agent"
 DEFAULT_BSH_DIR = DEFAULT_PROJECTS_DIR / "bsh-research-center"
+# The app people download assumes none of the owner's folders: projects where Mac developers
+# keep them, and no BSH research desk (JARVIS_PROJECTS_DIR and JARVIS_BSH_DIR still say).
+NEUTRAL_PROJECTS_DIR = Path.home() / "Developer"
 
 
 # The SDK's default 1 MB cap on one message from Claude Code is smaller than a
@@ -40,7 +45,9 @@ class Settings:
 def load_settings(env_file: Path | None = None) -> Settings:
     load_dotenv(env_file or PROJECT_DIR / ".env")
     env = os.environ
-    bsh = env.get("JARVIS_BSH_DIR", str(DEFAULT_BSH_DIR)).strip()
+    owners = not packaged.is_packaged()  # run from the repo: the owner's own layout
+    projects = DEFAULT_PROJECTS_DIR if owners else NEUTRAL_PROJECTS_DIR
+    bsh = env.get("JARVIS_BSH_DIR", str(DEFAULT_BSH_DIR) if owners else "").strip()
     return Settings(
         model=env.get("JARVIS_MODEL", Settings.model),
         effort=env.get("JARVIS_EFFORT", Settings.effort),
@@ -52,7 +59,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         calendar=env.get("JARVIS_CALENDAR", "").strip(),
         # An empty JARVIS_BSH_DIR turns the research-desk tools off.
         bsh_dir=Path(bsh).expanduser() if bsh else None,
-        projects_dir=Path(env.get("JARVIS_PROJECTS_DIR", str(DEFAULT_PROJECTS_DIR))).expanduser(),
+        projects_dir=Path(env.get("JARVIS_PROJECTS_DIR", str(projects))).expanduser(),
         task_effort=env.get("JARVIS_TASK_EFFORT", Settings.task_effort),
         **_tts_settings(env),
     )

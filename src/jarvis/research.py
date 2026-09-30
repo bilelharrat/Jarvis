@@ -18,9 +18,12 @@ from urllib.parse import urlsplit
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from .prefs import HOSTED_RESEARCH_URL
+
 SERVER_NAME = "research"
-DEFAULT_URL = "https://app.bshventures.com/research"  # the hosted Research Center
+HOSTED_URL = HOSTED_RESEARCH_URL  # the hosted BSH Research Center (none is set for a new install)
 LEGACY_URL = "http://127.0.0.1:8010"  # the default before it was hosted: a dev server
+NONE_SET = "No Research Center is set up. Add its address in Settings › Markets."
 
 # Spoken page names -> paths in the research center's router.
 PAGES = {
@@ -64,10 +67,11 @@ PAGE_NAMES = ", ".join(sorted({k for k in PAGES if " " not in k or k.endswith("d
 def clean_url(value: Any) -> str | None:
     """The research center's address: http(s), host, port and the path the app lives under
     (the hosted one is at /research). A pasted page address keeps only the app's own path:
-    ".../research/markets" is the app at ".../research"."""
+    ".../research/markets" is the app at ".../research". Empty is none: Markets then shows
+    only the markets."""
     text = str(value or "").strip()
     if not text:
-        return DEFAULT_URL
+        return ""
     if re.match(r"^[a-z][a-z0-9+.\-]*:(?!\d)", text, re.IGNORECASE) and "://" not in text:
         return None  # javascript:, file:, mailto: …
     if "://" not in text:  # a typed address: https, except for this Mac or the local network

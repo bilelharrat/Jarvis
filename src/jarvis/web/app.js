@@ -4786,7 +4786,6 @@ function onJarvisCodeEvent(ev) {
 // fist to close); on the Research Center's own pages only Jarvis can drive it.
 
 const BD_MIN = 380;
-const RC_DEFAULT = 'https://app.bshventures.com/research';
 // What the header calls each Research Center page (its own titles don't say).
 const RC_NAMES = {
   '/': 'Home', '/markets': 'Markets', '/market-radar': 'Markets · Market', '/weekly-summary': 'Markets · Pulse',
@@ -4803,7 +4802,8 @@ let researchShown = false;
 let lastResearchPath = '/markets';
 
 function browserOpen() { return browserOpenNow; }
-function researchBaseUrl() { return (prefs && prefs.research_url) || RC_DEFAULT; }
+// '' when none is set (a new install): Markets is then only the markets.
+function researchBaseUrl() { return (prefs && prefs.research_url) || ''; }
 
 function pageName(url, title, base = '') {
   const own = String(title || '').replace(/[|·–—-]\s*BSH Research Center\s*$/i, '').trim();
@@ -4894,6 +4894,7 @@ function toggleBrowser(open) {
 }
 
 async function openResearch(path = '/markets') {
+  if (!researchBaseUrl()) return { error: 'No Research Center is set up. Add its address in Settings › Markets.' };
   lastResearchPath = path;
   if (!app || !app.browser) {
     window.open(`${researchBaseUrl()}${path}`, '_blank', 'noopener');
