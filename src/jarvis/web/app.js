@@ -763,6 +763,7 @@ function renderPrefs(p) {
   document.querySelectorAll('#interrupt-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === (p.interruptions || 'urgent'))));
   if (document.activeElement !== $('vips')) $('vips').value = (p.vips || []).join(', ');
   setSwitch('sw-pay', p.pay_enabled !== false);
+  setSwitch('sw-type-codes', p.type_codes !== false);
   $('pay-limits').classList.toggle('off', p.pay_enabled === false);
   for (const [id, key] of [['pay-purchase', 'pay_limit_purchase'], ['pay-transfer', 'pay_limit_transfer'], ['pay-day', 'pay_limit_day']]) {
     if (document.activeElement !== $(id) && p[key] !== undefined) $(id).value = String(p[key]);
@@ -878,6 +879,7 @@ $('sw-learn-interrupts').addEventListener('click', () => setPrefs({ learn_interr
 $('sw-suggestions').addEventListener('click', () => setPrefs({ suggestions: prefs.suggestions === false }));
 $('documents-folder').addEventListener('change', (e) => setPrefs({ documents_folder: e.target.value.trim() }));
 $('sw-pay').addEventListener('click', () => setPrefs({ pay_enabled: prefs.pay_enabled === false }));
+$('sw-type-codes').addEventListener('click', () => setPrefs({ type_codes: prefs.type_codes === false }));
 for (const [id, key] of [['pay-purchase', 'pay_limit_purchase'], ['pay-transfer', 'pay_limit_transfer'], ['pay-day', 'pay_limit_day']]) {
   $(id).addEventListener('change', (e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) setPrefs({ [key]: n }); });
 }

@@ -157,6 +157,10 @@ class Prefs:
     pay_limit_purchase: float = 250.0
     pay_limit_transfer: float = 100.0
     pay_limit_day: float = 500.0
+    # The built-in browser may type a one-time verification code (one JARVIS reads from the
+    # owner's own Mail, say); on at the owner's request. Cards, passwords and bank sign-ins
+    # are never typed either way.
+    type_codes: bool = True
     # Settings of jarvis.features modules, each registered with register_feature_pref.
     features: dict[str, Any] = field(default_factory=dict)
 
@@ -316,6 +320,7 @@ def _clean(name: str, value: Any) -> Any:
         "learn_interruptions",
         "suggestions",
         "pay_enabled",
+        "type_codes",
         "clap_hands",
         "desktop_hands",
         "wake_call",

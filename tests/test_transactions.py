@@ -1980,7 +1980,7 @@ def test_the_server_and_the_prompt(tmp_path):
         "confirm_transaction",
         "confirm purchase",
         "Never type card numbers",
-        "one-time codes",
+        "one-time verification code",
         "saved on the site",
         "Apple Pay",
         "named themselves",
@@ -2340,8 +2340,8 @@ async def test_typing_never_carries_a_secret(tmp_path):
     assert ok["ok"] is True and len(window.did("type")) == 1
 
 
-async def test_a_one_time_code_page_gets_nothing_typed(tmp_path):
-    window = Window(
+def otp_window():
+    return Window(
         "https://bank.example/verify",
         [
             "Verify it's you",
@@ -2349,11 +2349,31 @@ async def test_a_one_time_code_page_gets_nothing_typed(tmp_path):
             El("input", name="otc"),
         ],
     )
-    browser, _, _ = guarded(tmp_path, window)
+
+
+async def test_a_one_time_code_page_gets_nothing_typed_with_codes_off(tmp_path):
+    window = otp_window()
+    browser, _, _ = guarded(tmp_path, window, prefs=SimpleNamespace(type_codes=False))
     for field in ("", "otc", "input"):
         out = await browser("type", {"text": "482913", "field": field})
         assert out["ok"] is False and out["message"] == HAND_OVER["code"]
     assert window.did("type") == []
+
+
+async def test_a_one_time_code_is_typed_when_the_owner_allows_it(tmp_path):
+    # On by default (the owner asked): a code from their own email goes in; nothing else
+    # secret does.
+    window = otp_window()
+    browser, _, _ = guarded(tmp_path, window)
+    out = await browser("type", {"text": "482913", "field": "otc"})
+    assert out["ok"] is True and window.did("type")
+    assert typing_refusal("KEXM3K", "Verification code", codes=True) is None
+    assert typing_refusal("hunter2", "Password", codes=True) == HAND_OVER["password"]
+    assert typing_refusal("4242 4242 4242 4242", "code", codes=True) == HAND_OVER["card"]
+    assert typing_refusal("123", "CVV", codes=True) == HAND_OVER["card"]
+    assert typing_refusal("x", "Bank login", codes=True) == HAND_OVER["bank"]
+    card = {"text": "Card number\nCVC\nEnter the code we sent", "fields": []}
+    assert typing_refusal("482913", "input", card, codes=True) == HAND_OVER["card"]
 
 
 async def test_return_is_not_pressed_on_a_checkout(tmp_path):
