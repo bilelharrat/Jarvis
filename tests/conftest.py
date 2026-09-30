@@ -1,4 +1,5 @@
 import asyncio
+import functools
 from dataclasses import replace
 
 import pytest
@@ -135,6 +136,73 @@ def _quick_saves(monkeypatch):
     from jarvis import jsonstore
 
     monkeypatch.setattr(jsonstore, "_sync", os.fsync)
+
+
+# The Mac's own voice and player: what no test may start.
+REAL_AUDIO = frozenset({"say", "afplay"})
+
+
+@functools.cache
+def _portaudio():
+    """sounddevice, imported once (it starts PortAudio); None where it can't load."""
+    try:
+        import sounddevice
+    except Exception:  # no PortAudio on this machine: there's no microphone to open
+        return None
+    return sounddevice
+
+
+@pytest.fixture(autouse=True)
+def _no_real_audio(monkeypatch):
+    """No test makes a sound, voices anything with the Mac's `say` or opens the real
+    microphone. Starting `say` or `afplay` fails as it does on a Mac without them
+    (FileNotFoundError), which every caller already takes in its stride: no fillers voiced,
+    no chime, no preview. Switching the language (hub.set_prefs({"language": "zh"})) voiced
+    the Chinese fillers with the real `say` (slow, and it hung under load), and a bare wake
+    word or a heads-up played the real chime. PortAudio's streams can't open either: a
+    hands-free listener whose other source ends falls back to the microphone. Stand-ins
+    (fake players and helpers, run by Python) still start. The fixture's value lists what
+    was refused ("say", "afplay", "microphone"), for tests that check it."""
+    import errno
+    import os
+    import subprocess
+
+    refused: list[str] = []
+    real = subprocess.Popen
+
+    class NoRealAudio(real):
+        def __init__(self, args, *rest, **kwargs):
+            program = args if isinstance(args, str | bytes | os.PathLike) else next(iter(args), "")
+            name = os.fsdecode(program).strip()
+            if kwargs.get("shell"):
+                name = name.split(maxsplit=1)[0] if name else ""
+            name = os.path.basename(name)
+            if name in REAL_AUDIO:
+                refused.append(name)
+                raise FileNotFoundError(errno.ENOENT, "no real audio in tests", name)
+            super().__init__(args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", NoRealAudio)
+    sd = _portaudio()
+    if sd is not None:
+
+        def no_microphone(*_args, **_kwargs):
+            refused.append("microphone")
+            raise sd.PortAudioError("no real microphone or speaker in tests")
+
+        for name in (
+            "InputStream",
+            "RawInputStream",
+            "OutputStream",
+            "RawOutputStream",
+            "Stream",
+            "RawStream",
+            "rec",
+            "play",
+            "playrec",
+        ):
+            monkeypatch.setattr(sd, name, no_microphone)
+    return refused
 
 
 @pytest.fixture(autouse=True)
