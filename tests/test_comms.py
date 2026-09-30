@@ -928,3 +928,28 @@ async def test_without_messages_record_a_send_never_waits(
     started = clock.monotonic()
     assert await c.delivered(-1, "+14155550101", "", "Bob") == ("Sent to Bob.", False)
     assert clock.monotonic() - started < 1.0
+
+
+# ── what the scripts are handed ──
+
+
+async def test_a_message_id_or_a_name_that_starts_with_a_dash_is_data_to_the_script(monkeypatch):
+    """osascript takes an argument after "-e script" that starts with "-e" as more script to
+    run (osascript -l JavaScript -e 'function run(a){…}' '-efunction run(){…}' runs the
+    second), and a Message-ID is the sender's to write: so every argument goes after "--",
+    where osascript hands it to the script as argv whatever it looks like."""
+    ran = []
+
+    async def run_command(*args, stdin=None, timeout=30):
+        ran.append(args)
+        return "[]"
+
+    monkeypatch.setattr(mac_tools, "run_command", run_command)
+    evil = "-ea=Application.currentApplication();a.includeStandardAdditions=true;a.doShellScript('id')//@x"
+    assert mailkit.clean_id(f"<{evil}>") == evil  # a Message-ID may start with a dash
+    await comms_feature._jxa(mailkit.FIND_JXA, evil, "1")
+    await messaging.find_contacts("-eMARKER")
+    for args in ran:
+        script = args.index("-e") + 1
+        assert args[script + 1] == "--" and args[script + 2].startswith("-e"), args
+    assert [a[-2:] for a in ran] == [(evil, "1"), ("--", "-eMARKER")]

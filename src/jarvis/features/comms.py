@@ -137,8 +137,10 @@ def _text(text: str, error: bool = False) -> dict[str, Any]:
 
 
 async def _jxa(script: str, *argv: str, timeout: float = 60) -> str:
+    # "--": an argument that starts with "-e" would otherwise be more script to run, and a
+    # Message-ID is the sender's to write.
     return await mac_tools.run_command(
-        "osascript", "-l", "JavaScript", "-e", script, *argv, timeout=timeout
+        "osascript", "-l", "JavaScript", "-e", script, "--", *argv, timeout=timeout
     )
 
 

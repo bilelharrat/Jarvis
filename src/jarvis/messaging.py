@@ -92,8 +92,9 @@ def is_phone(text: str) -> bool:
 
 
 async def find_contacts(query: str) -> list[dict[str, Any]]:
+    # "--": a name that starts with "-e" is a name, never more script to run.
     out = await mac_tools.run_command(
-        "osascript", "-l", "JavaScript", "-e", FIND_CONTACT_JXA, query, timeout=30
+        "osascript", "-l", "JavaScript", "-e", FIND_CONTACT_JXA, "--", query, timeout=30
     )
     try:
         return json.loads(out or "[]")
