@@ -1,0 +1,15 @@
+{
+  "strings": {
+    "Picture": "图片",
+    "Saved in Documents › Jarvis › Images as": "已保存到“文稿 › Jarvis › Images”，文件名是",
+    "Image model": "图像模型",
+    "A Gemini image model. Google’s price is about 4 cents a picture for the default one.": "一个 Gemini 图像模型。默认模型的价格大约是每张 4 美分。",
+    "Pictures": "图片",
+    "Show the Images folder": "显示 Images 文件夹",
+    "Ask for a picture and Jarvis makes it with your Google Gemini key, then saves it in Documents › Jarvis › Images.": "让 Jarvis 画图，它会用你的 Google Gemini 密钥画好，然后保存到“文稿 › Jarvis › Images”。",
+    "To make pictures, add a Google Gemini key in Settings › Models.": "要画图，请在“设置 › 模型”里添加一个 Google Gemini 密钥。",
+    "Made a picture": "画了一张图",
+    "Billed to your Gemini key:": "记在你的 Gemini 密钥上："
+  },
+  "patterns": []
+}

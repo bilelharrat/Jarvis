@@ -23,6 +23,10 @@ and nothing is sent). The purposes this module knows:
                 the owner says "make that a skill": one tool-less turn on at most 12,000
                 characters.                                                           8 a day
 
+Other features count their own capped calls here too (register_purpose), each with its cost
+policy in its own module: picture (Google Gemini on the owner's key, not Claude:
+features.pictures, 50 a day).
+
 Nothing here runs at import or install: a call happens only when a caller makes one. Tests
 never reach a model: conftest refuses run_turn unless a test fakes it.
 """

@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
-const FILES = ['local-models.js', 'skills.js', 'jarvis-mcp.js', 'widgets.js'].filter((f) => existsSync(`${WEB}/features/${f}`));
-const FRAGMENTS = ['local-models.json', 'skills.json', 'jarvis-mcp.json', 'background.json', 'widgets.json'].filter((f) => existsSync(`${WEB}/i18n/${f}`));
+const FILES = ['local-models.js', 'skills.js', 'jarvis-mcp.js', 'widgets.js', 'pictures.js'].filter((f) => existsSync(`${WEB}/features/${f}`));
+const FRAGMENTS = ['local-models.json', 'skills.json', 'jarvis-mcp.json', 'background.json', 'widgets.json', 'pictures.json'].filter((f) => existsSync(`${WEB}/i18n/${f}`));
 const base = JSON.parse(readFileSync(`${WEB}/i18n-zh.json`, 'utf8'));
 // As the server merges them (server.zh_strings): the base, then every fragment in name order.
 const merged = { strings: { ...base.strings }, patterns: [...base.patterns] };
@@ -81,7 +81,7 @@ function literals(code) {
 
 // The window's own sentences: quoted texts that read as words, less selectors, class names,
 // event and command names, markup and template literals with values in them.
-const NOT_WORDS = /^(?:#|\.|\[|<|aria-|data-|feature:|btn|lm-|sk-|mcp-|wg-|allow-|image\/|http|Enter$|Escape$|Tab$)/;
+const NOT_WORDS = /^(?:#|\.|\[|<|aria-|data-|feature:|btn|lm-|sk-|mcp-|wg-|pic-|allow-|image\/|http|Enter$|Escape$|Tab$)/;
 function sentences(source) {
   const found = new Set();
   for (const text of literals(source)) {

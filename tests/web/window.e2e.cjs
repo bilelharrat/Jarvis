@@ -3128,6 +3128,34 @@ test('Settings › Jarvis in other apps: on and off, asking first, the lines to 
   assert(await js('$("mcp-status").classList.contains("bad") && $("mcp-status").textContent.includes("couldn’t start")'), 'the error is not shown');
 });
 
+const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+test('A picture on a card, opened only by its id; Settings › Pictures', async () => {
+  await loadFeatures('pictures.js', 'pictures.css');
+  await js(`__ev(${JSON.stringify(HELLO)})`);
+  assert((await sentOf('pictures_state')).length === 1, 'the state was not asked for');
+  await js(`__ev({ type: 'pictures', key: false, model: 'gemini-2.5-flash-image', default_model: 'gemini-2.5-flash-image', folder: '/Users/o/Documents/Jarvis/Images', cost: 'about 4 cents a picture' })`);
+  assert((await js('$("pictures-status").textContent')).startsWith('To make pictures, add a Google Gemini key'), 'no key: not said');
+  await js(`__ev({ type: 'pictures', key: true, model: 'gemini-2.5-flash-image', default_model: 'gemini-2.5-flash-image', folder: '/x', cost: 'about 4 cents a picture' })`);
+  assert((await js('$("pictures-status").textContent')).startsWith('Ask for a picture'), 'the key is not taken in');
+  const made = { type: 'image_made', rid: 'r1', id: 'abc123', name: '2026-09-30 091500 a <b>fox</b>.png', path: '/x/a.png', mime: 'image/png', data: PNG_1PX,
+    prompt: 'A fox <img src=x onerror="window.__owned=1">', cost: 'about 4 cents a picture' };
+  await js('__sent.length = 0');
+  await js(`__ev(${JSON.stringify(made)})`);
+  const card = await js(`(() => { const c = document.querySelector('#cards .pic-card'); return { src: c.querySelector('img').src.slice(0, 22), prompt: c.querySelector('.pic-prompt').textContent,
+    bold: c.querySelectorAll('b').length, imgs: c.querySelectorAll('img').length, text: c.textContent, data: !!c.querySelector('.pic-prompt').closest('[data-no-i18n]') }; })()`);
+  assert(card.src === 'data:image/png;base64,' && card.prompt === made.prompt && card.bold === 0 && card.imgs === 1 && card.data, JSON.stringify(card));
+  assert(card.text.includes('a <b>fox</b>.png') && card.text.includes('Billed to your Gemini key: about 4 cents a picture') && !(await js('window.__owned')), JSON.stringify(card));
+  assert(await clickText('#cards .pic-card', 'Open') && await clickText('#cards .pic-card', 'Show in Finder'), 'no Open or Show in Finder');
+  assert(JSON.stringify(await js('__sent.map((m) => m.type + " " + m.id)')) === '["image_open abc123","image_reveal abc123"]', 'the buttons');
+  await js(`__ev(${JSON.stringify({ ...made, id: 'def', mime: 'text/html' })}); __ev(${JSON.stringify({ ...made, id: 'ghi', data: 'x");alert(1);("' })})`);
+  assert(await js('[...document.querySelectorAll("#cards .pic-card img")].slice(1).every((i) => !i.getAttribute("src"))'), 'a picture that isn’t one was shown');
+  await js('__sent.length = 0; $("image-model").value = "gemini-3-pro-image-preview"; $("image-model").dispatchEvent(new Event("change"))');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === '[{"type":"feature_prefs","changes":{"image_model":"gemini-3-pro-image-preview"}}]', 'the model was not set');
+  await js('__sent.length = 0');
+  assert(await clickText('#pictures-group', 'Show the Images folder') && (await sentOf('pictures_folder')).length === 1, 'the folder was not asked for');
+});
+
 // ──
 
 let base;

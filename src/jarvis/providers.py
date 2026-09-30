@@ -849,6 +849,18 @@ class ProviderStore:
                     return key
         return ""
 
+    def key_of(self, kind: str) -> str:
+        """The key of the first provider of this kind whose key is saved and still sealed with
+        its own address ("" when there's none): for a feature that calls that provider itself
+        (pictures from Google Gemini), and sends the key nowhere else."""
+        for provider in self.providers.values():
+            if provider.kind == kind:
+                try:
+                    return self._key(provider)
+                except ValueError:
+                    continue
+        return ""
+
     def _bump(self, provider_id: str) -> None:
         self._versions[provider_id] = self._versions.get(provider_id, 0) + 1
 

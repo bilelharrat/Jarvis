@@ -1,0 +1,4 @@
+/* Pictures on cards (pictures.js) */
+.pic-image { display: block; max-width: 100%; max-height: 320px; margin: 8px auto 4px; border-radius: 10px; object-fit: contain; }
+.pic-prompt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.pic-saved { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
