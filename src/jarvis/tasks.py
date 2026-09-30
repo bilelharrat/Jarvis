@@ -1852,6 +1852,16 @@ class TaskManager:
         task.fork_points = {**past["fork_points"], **task.fork_points}
         for stale in list(task.fork_points)[:-200]:
             del task.fork_points[stale]
+        if not task.fork:
+            # Its own conversation, so its file checkpoints are there to rewind and undo to
+            # (a fork's aren't: Claude Code doesn't copy them), with the files each changed.
+            known = set(task.checkpoints)
+            task.checkpoints[:0] = [c for c in past.get("checkpoints", []) if c not in known]
+            del task.checkpoints[:-50]
+            for point, files in past.get("checkpoint_files", {}).items():
+                task.files_changed |= files
+                if point in task.checkpoints:
+                    task.checkpoint_files.setdefault(point, set()).update(files)
         task.last_uuid = task.last_uuid or past["last_uuid"]
         self.emit("task_transcript", id=task.id, entries=list(task.transcript))
         self._changed()
@@ -3010,6 +3020,9 @@ def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, An
     entries: list[dict[str, Any]] = []
     steps: dict[str, dict[str, Any]] = {}  # tool id -> its entry, for its result
     fork_points: dict[str, str] = {}
+    checkpoints: list[str] = []  # the user's messages in order: points to rewind files to
+    changed: dict[str, set[str]] = {}  # ... and the files each of their rounds changed
+    edits: dict[str, tuple[str, str]] = {}  # an edit's tool id -> (its round, its file)
     last = ""
     for message in messages:
         body = message.message if isinstance(message.message, dict) else {}
@@ -3025,12 +3038,19 @@ def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, An
                     entries.append(entry)
                     if entry.get("tool_id"):
                         steps[entry["tool_id"]] = entry
+                args = block.get("input") if isinstance(block.get("input"), dict) else {}
+                path = args.get("file_path") or args.get("notebook_path")
+                if block.get("name") in EDIT_TOOLS and path and checkpoints:
+                    edits[str(block.get("id") or "")] = (checkpoints[-1], str(path))
         else:
             said: list[str] = []
             images, files = 0, []
             for block in blocks:
                 kind = block.get("type")
                 if kind == "tool_result":
+                    edit = edits.pop(str(block.get("tool_use_id") or ""), None)
+                    if edit is not None and not block.get("is_error"):  # (not a refused one)
+                        changed.setdefault(edit[0], set()).add(edit[1])
                     step = steps.get(str(block.get("tool_use_id") or ""))
                     if step is not None:
                         out = block.get("content")
@@ -3054,6 +3074,7 @@ def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, An
                 if message.uuid:
                     entry["uuid"] = message.uuid
                     fork_points[message.uuid] = last
+                    checkpoints.append(message.uuid)
                 entries.append(entry)
             elif role != "user" and text:
                 entries.append({"role": role, "text": text})
@@ -3067,6 +3088,8 @@ def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, An
         "entries": kept,
         "fork_points": {u: p for u, p in fork_points.items() if u in shown},
         "last_uuid": last,
+        "checkpoints": checkpoints[-50:],  # as _user_turn keeps them
+        "checkpoint_files": changed,
     }
 
 
