@@ -3214,6 +3214,138 @@ test('A widget: on a card and the dashboard, sealed in its sandbox, pinned and t
   WIDGET_DOCS.clear();
 });
 
+// ── Memory (features/memory.js): its rows and sheet, its cards, and "Do it" on an intent ──
+
+const MEM_FACTS = [
+  { id: 'a1', text: 'Ann Lee is my co-founder <img src=x onerror="window.__pwned=1">', at: '2026-09-22T10:00:00', category: 'people', confidence: 'high', expires: '', source: 'said', origin: 'remember Ann is my co-founder', learned: '2026-09-22T10:00:00' },
+  { id: 'b2', text: 'I am in Tokyo for the conference', at: '2026-09-23T10:00:00', category: 'places', confidence: 'medium', expires: '2099-10-12', source: 'settings', origin: 'Settings', learned: '2026-09-23T10:00:00' },
+];
+const memState = (extra = {}) => JSON.stringify({ type: 'memory_state', counts: { people: 1, places: 1 }, total: 2, max: 200, suggestions: { pending: [], nights: [] }, about: { about: '', behave: '', max: 4000 }, intents: [], promises: [], people: ['Ann Lee'], journal: { notes: [], folder: '/Users/x/Documents/Jarvis/Journal', time: '21:00' }, left: {}, incognito: false, ...extra });
+async function withMemory() {
+  await loadFeatures('memory.js', 'memory.css');
+  await js(`__ev({ type: 'memory', items: ${JSON.stringify(MEM_FACTS)} }); __ev(${memState()}); __sent.length = 0; true`);
+}
+
+test('Settings › Memory opens its sheet on the row picked; the old list gives way; Escape closes only the sheet', async () => {
+  await withMemory();
+  await js('toggleSettings(true); __sent.length = 0; true');
+  const r = await js(`({ rows: [...document.querySelectorAll('#mem-rows .mem-row')].map((b) => b.dataset.memTab), old: getComputedStyle($('memory-list')).display === 'none' && getComputedStyle($('memory-form')).display === 'none', line: $('mem-line-facts').textContent, learning: [...document.querySelectorAll('#mem-learning [role=radio]')].map((b) => b.dataset.mode + ':' + b.getAttribute('aria-checked')) })`);
+  assert(JSON.stringify(r.rows) === JSON.stringify(['facts', 'suggested', 'about', 'intents', 'people', 'promises', 'journal', 'import']) && r.old && r.line === '2 facts', JSON.stringify(r));
+  assert(JSON.stringify(r.learning) === '["propose:true","silent:false","off:false"]', JSON.stringify(r.learning));
+  await js('document.querySelector("[data-mem-tab=intents]").click(); true');
+  const open = await js('({ open: !$("mem-layer").hidden, tab: document.querySelector("#mem-pop [aria-selected=true]").dataset.tab, sent: __sent.map((m) => m.type), focus: document.activeElement && document.activeElement.id })');
+  assert(open.open && open.tab === 'intents' && open.sent.includes('memory_state') && open.focus === 'mem-close', JSON.stringify(open));
+  await opsPress('Escape', 'Escape', 27);
+  const after = await js('({ sheet: $("mem-layer").hidden, settings: !$("settings").hidden, sent: __sent.map((m) => m.type) })');
+  assert(after.sheet && after.settings && !after.sent.includes('stop'), `Escape: ${JSON.stringify(after)}`);
+  await js('document.querySelector("#mem-learning [data-mode=silent]").click(); true');
+  const pref = await sentOf('feature_prefs');
+  assert(JSON.stringify(pref) === JSON.stringify([{ type: 'feature_prefs', changes: { memory_learning: 'silent' } }]), JSON.stringify(pref));
+});
+
+test('Facts show their category, how sure and until when; Why says where; edit and forget send what was chosen', async () => {
+  await withMemory();
+  await js('toggleSettings(true); document.querySelector("[data-mem-tab=facts]").click(); __sent.length = 0; true');
+  const shown = await js(`({ items: [...document.querySelectorAll('#mem-tab-facts .mem-item')].map((li) => li.dataset.fact), data: document.querySelector('[data-fact=a1] .mem-fact').hasAttribute('data-no-i18n'), meta: document.querySelector('[data-fact=b2] .mem-meta').textContent, imgs: document.querySelectorAll('#mem-tab-facts img').length })`);
+  assert(JSON.stringify(shown.items) === '["a1","b2"]' && shown.data && shown.imgs === 0, JSON.stringify(shown));
+  assert(shown.meta.startsWith('Places · Fairly sure') && shown.meta.includes('Until'), shown.meta);
+  assert(await clickText('[data-fact="a1"]', 'Why?'), 'no Why?');
+  const why = await js('document.querySelector("[data-fact=a1] .mem-why").textContent');
+  assert(why.includes('You told me') && why.includes('remember Ann is my co-founder'), why);
+  assert(await clickText('[data-fact="b2"]', 'Why?'), 'no Why? on b2');
+  const settingsWhy = await js('({ text: document.querySelector("[data-fact=b2] .mem-why").textContent, quotes: document.querySelectorAll("[data-fact=b2] .mem-why q").length })');
+  assert(settingsWhy.text.startsWith('Added in Settings') && settingsWhy.quotes === 0 && !settingsWhy.text.includes('“Settings”'), JSON.stringify(settingsWhy));
+  assert(await clickText('[data-fact="b2"]', 'Edit'), 'no Edit');
+  await js(`(() => { const f = document.querySelector('[data-fact=b2] form'); f.querySelector('textarea').value = 'I am in Osaka for the conference'; f.querySelectorAll('select')[1].value = 'high'; f.querySelector('input[type=date]').value = ''; f.requestSubmit(); })(); true`);
+  const edit = await sentOf('memory_edit');
+  assert(JSON.stringify(edit) === JSON.stringify([{ type: 'memory_edit', id: 'b2', text: 'I am in Osaka for the conference', category: 'places', confidence: 'high', expires: 'never' }]), JSON.stringify(edit));
+  assert(await clickText('[data-fact="a1"]', 'Forget'), 'no Forget');
+  assert(JSON.stringify(await sentOf('memory_forget')) === JSON.stringify([{ type: 'memory_forget', id: 'a1' }]), 'forget');
+  await js(`(() => { const f = document.querySelector('#mem-tab-facts .mem-add'); f.querySelector('input').value = 'My sister is Ada'; f.querySelector('select').value = 'people'; f.requestSubmit(); })(); true`);
+  assert(JSON.stringify(await sentOf('memory_add')) === JSON.stringify([{ type: 'memory_add', text: 'My sister is Ada', category: 'people' }]), 'add');
+  assert(!(await js('window.__pwned')), 'a fact became markup');
+  await js(`__ev({ type: 'memory', items: ${JSON.stringify(MEM_FACTS.slice(0, 1))} }); true`);
+  const chips = await js('[...document.querySelectorAll("#mem-tab-facts .mem-chip")].map((c) => c.textContent)');
+  assert(JSON.stringify(chips) === '["All 1","People 1"]', `counts follow the facts: ${JSON.stringify(chips)}`);
+});
+
+test('Forgetting by where it was learned shows the list first, then forgets exactly those', async () => {
+  await withMemory();
+  await js('toggleSettings(true); document.querySelector("[data-mem-tab=facts]").click(); document.querySelector("#mem-tab-facts .mem-forget").open = true; __sent.length = 0; true');
+  await js(`(() => { const box = document.querySelector('#mem-tab-facts .mem-forget'); box.querySelector('select').value = 'chatgpt'; })(); true`);
+  assert(await clickText('#mem-tab-facts .mem-forget', 'Show what that is'), 'no Show');
+  const asked = await sentOf('memory_forget_where');
+  assert(JSON.stringify(asked) === JSON.stringify([{ type: 'memory_forget_where', source: 'chatgpt', day: '' }]), JSON.stringify(asked));
+  await js(`__ev({ type: 'memory_forget_preview', count: 7, ids: ['a', 'b', 'c', 'd', 'e', 'f', 'g'], examples: ['One', 'Two', 'Three', 'Four', 'Five'] }); __sent.length = 0; true`);
+  const confirm = await js(`({ text: document.querySelector('#mem-tab-facts .mem-confirm p').textContent, items: document.querySelectorAll('#mem-tab-facts .mem-examples li').length })`);
+  assert(confirm.text === 'This forgets 7 things:' && confirm.items === 6, JSON.stringify(confirm));
+  assert(await clickText('#mem-tab-facts .mem-confirm', 'Forget 7'), 'no Forget 7');
+  const done = await sentOf('memory_forget_where');
+  assert(JSON.stringify(done) === JSON.stringify([{ type: 'memory_forget_where', source: 'chatgpt', day: '', confirm: true, ids: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }]), JSON.stringify(done));
+});
+
+test('Waiting suggestions and the Dream diary get cards; Remember goes to the hub, Later puts them away until something new', async () => {
+  await withMemory();
+  const talk = { id: 's1', text: 'Your sister Ada is a nurse', category: 'people', confidence: 'high', origin: 'conversation', quote: 'my sister Ada', day: '2026-09-29', batch: 'talk', at: '' };
+  const dream = { ...talk, id: 'd1', text: 'You like Chez Panisse', origin: 'dream' };
+  const state = (pending) => `__ev(${memState({ suggestions: { pending, nights: [] } })}); true`;
+  await js(state([talk, dream]));
+  const cards = await js('[...document.querySelectorAll("[data-memory-card]")].map((c) => c.dataset.memoryCard + ":" + c.querySelector(".card-kicker").textContent)');
+  assert(JSON.stringify(cards) === '["conversation:Worth remembering?","dream:Dream diary"]', JSON.stringify(cards));
+  assert(await js('document.querySelector("[data-memory-card=conversation] .mem-fact").hasAttribute("data-no-i18n")'), 'a suggestion is the owner’s data');
+  assert(await clickText('[data-memory-card="conversation"]', 'Remember'), 'no Remember');
+  assert(JSON.stringify(await sentOf('memory_suggestion')) === JSON.stringify([{ type: 'memory_suggestion', id: 's1', action: 'keep' }]), 'keep');
+  assert(await clickText('[data-memory-card="dream"]', 'Later'), 'no Later');
+  assert(await js('!document.querySelector("[data-memory-card=dream]")'), 'Later left the card');
+  await js(state([talk, dream]));
+  assert(await js('!document.querySelector("[data-memory-card=dream]")'), 'the card came back for the same suggestions');
+  await js(state([talk, dream, { ...dream, id: 'd2', text: 'You swim on Fridays' }]));
+  assert(await js('!!document.querySelector("[data-memory-card=dream]")'), 'something new brought no card');
+  await js(state([]));
+  assert(await js('!document.querySelector("[data-memory-card]")'), 'cards stayed with nothing waiting');
+});
+
+test('A fired intent that asks for more than a reminder gets Do it, and only that one', async () => {
+  await withMemory();
+  await js(`__ev({ type: 'alert', key: 'intent:i1:mail:1', alert_kind: 'intent', title: 'Ann emails about the deck', text: 'Ann Lee emailed. You asked me to: draft a reply' });
+    __ev({ type: 'memory_intent_fired', key: 'intent:i1:mail:1', id: 'i1', doable: true });
+    __ev({ type: 'alert', key: 'intent:i2:message:2', alert_kind: 'intent', title: 'Bob texts', text: 'Bob texted. Reminder: call him' });
+    __ev({ type: 'memory_intent_fired', key: 'intent:i2:message:2', id: 'i2', doable: false }); __sent.length = 0; true`);
+  const r = await js(`({ kicker: document.querySelector('[data-alert="intent:i1:mail:1"] .card-kicker').textContent, doIt: document.querySelectorAll('.mem-doit').length, second: !!document.querySelector('[data-alert="intent:i2:message:2"] .mem-doit') })`);
+  assert(r.kicker === 'Reminder' && r.doIt === 1 && !r.second, JSON.stringify(r));
+  assert(await clickText('[data-alert="intent:i1:mail:1"]', 'Do it'), 'no Do it');
+  assert(JSON.stringify(await sentOf('memory_intent_run')) === JSON.stringify([{ type: 'memory_intent_run', id: 'i1' }]), 'run');
+  assert(await js('!document.querySelector("[data-alert=\'intent:i1:mail:1\']")'), 'the card stayed');
+});
+
+test('An import is looked over first: what fits is ticked, and only what stays ticked is saved', async () => {
+  await withMemory();
+  await js(`__ev({ type: 'memory_import_review', id: 'r1', source: 'chatgpt', origin: 'ChatGPT export (x.zip)', items: [{ id: 'a', text: 'Likes jazz', category: 'preferences' }, { id: 'b', text: 'Has two kids', category: 'people' }, { id: 'c', text: 'Runs on Saturdays', category: 'health' }], about: 'I run a fund.', behave: '', notes: ['1 that looked like a password, key or account number was left out.'], room: 2 }); __sent.length = 0; true`);
+  const r = await js(`({ open: !$('mem-layer').hidden, tab: document.querySelector('#mem-pop [aria-selected=true]').dataset.tab, ticked: [...document.querySelectorAll('#mem-tab-import .mem-pick input[type=checkbox]')].map((b) => b.checked), about: !!document.querySelector('#mem-tab-import .mem-pre[data-no-i18n]') })`);
+  assert(r.open && r.tab === 'import' && JSON.stringify(r.ticked) === '[true,true,false]' && r.about, JSON.stringify(r));
+  await js(`document.querySelectorAll('#mem-tab-import .mem-pick input[type=checkbox]')[1].click(); true`);
+  await js(`(() => { const t = document.querySelector('#mem-tab-import .mem-pick input[type=text]'); t.value = 'Loves jazz'; t.dispatchEvent(new Event('input')); })(); true`);
+  assert(await clickText('#mem-tab-import', 'Save 1'), 'no Save 1');
+  const saved = await sentOf('memory_import_save');
+  assert(JSON.stringify(saved) === JSON.stringify([{ type: 'memory_import_save', review: 'r1', items: [{ id: 'a', text: 'Loves jazz', category: 'preferences' }], about: true, behave: false }]), JSON.stringify(saved));
+  await js(`__ev({ type: 'memory_import_review', done: true, saved: 1, left: 0 }); true`);
+  assert(await js('!document.querySelector("#mem-tab-import .mem-pick")'), 'the review stayed after saving');
+});
+
+test('A standing intent and About me are sent as written', async () => {
+  await withMemory();
+  await js('toggleSettings(true); document.querySelector("[data-mem-tab=intents]").click(); __sent.length = 0; true');
+  await js(`(() => { const f = document.querySelector('#mem-tab-intents .mem-form'); const [when, then, people] = f.querySelectorAll('input[type=text]'); when.value = 'Ann emails about the deck'; then.value = 'remind me to send the numbers'; people.value = 'Ann'; f.querySelector('input[type=checkbox][value=mail]').checked = true; f.requestSubmit(); })(); true`);
+  const added = await sentOf('memory_intent_add');
+  assert(JSON.stringify(added) === JSON.stringify([{ type: 'memory_intent_add', when: 'Ann emails about the deck', then: 'remind me to send the numbers', fuzzy: false, cooldown: 12, people: 'Ann', watch: ['mail'] }]), JSON.stringify(added));
+  await js('document.querySelector("#mem-pop [data-tab=about]").click(); true');
+  await js(`(() => { const t = document.querySelector('#mem-tab-about textarea'); t.value = 'I run a small fund.'; t.dispatchEvent(new Event('input')); })(); true`);
+  const counted = await js('document.querySelector("#mem-tab-about .mem-count").textContent');
+  assert(counted === '19 / 4,000', counted);
+  assert(await clickText('#mem-tab-about', 'Save'), 'no Save');
+  assert(JSON.stringify(await sentOf('memory_about')) === JSON.stringify([{ type: 'memory_about', about: 'I run a small fund.' }]), 'about');
+});
+
 // ──
 
 let base;

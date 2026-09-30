@@ -1,0 +1,166 @@
+/* Memory (features/memory.js): its rows in Settings › Memory, its sheet, and the cards for
+   waiting suggestions and the Dream diary. The sheet is the same glass as the other sheets:
+   the card's colours in every look, and frosted --panel-* glass in the orb look. */
+
+.mem-layer, .mem-rows { --mem-warn: #b56b00; --mem-bad: #c62f25; }
+@media (prefers-color-scheme: dark) {
+  .mem-layer, .mem-rows { --mem-warn: #f0a458; --mem-bad: #ff6b61; }
+}
+
+/* ── Settings › Memory ── */
+/* The core's fact list gives way to the rows (.folders sets display, which beats [hidden]). */
+#memory-list[hidden] { display: none; }
+.mem-rows { display: flex; flex-direction: column; }
+.mem-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 50px; padding: 7px 0;
+  border: 0; background: transparent; text-align: left; color: var(--ink); border-radius: 10px;
+}
+.mem-row + .mem-row { border-top: 1px solid var(--line); border-radius: 0; }
+.mem-row:hover .mem-row-text strong { color: var(--action); }
+.mem-row:focus-visible { outline-offset: -2px; }
+.mem-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mem-row-text strong { font-size: 15px; font-weight: 500; }
+.mem-row-text small { font-size: 13px; color: var(--muted); }
+.mem-chev { flex: none; font-size: 20px; line-height: 1; color: var(--muted); }
+.mem-learning-inner { display: flex; flex-direction: column; gap: 8px; }
+.mem-seg { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mem-seg button { min-height: 38px; }
+
+/* ── the sheet ── */
+.mem-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; }
+.mem-layer[hidden] { display: none; }
+/* A light scrim, no blur: what's underneath stays readable. */
+.mem-scrim { position: absolute; inset: 0; background: rgba(20, 24, 32, 0.14); }
+.mem-pop {
+  --mem-line: var(--line); --mem-inset: var(--chip-hover); --mem-edge: transparent;
+  position: relative; width: min(780px, 100%); max-height: min(880px, calc(100vh - 48px));
+  display: flex; flex-direction: column; border-radius: 22px; color: var(--ink);
+  background: var(--card); border: 1px solid var(--mem-line);
+  box-shadow: inset 0 1px 0 var(--mem-edge), 0 2px 6px rgba(0, 0, 0, 0.1), 0 40px 100px -24px rgba(0, 0, 0, 0.5);
+  animation: mem-rise 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+body[data-look="orb"] .mem-pop {
+  --mem-line: var(--panel-line); --mem-inset: var(--panel-inset); --mem-edge: var(--panel-edge);
+  background-color: rgba(250, 250, 252, 0.72); background-image: var(--panel-glass);
+  -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
+}
+@media (prefers-color-scheme: dark) {
+  .mem-scrim { background: rgba(4, 6, 10, 0.42); }
+  body[data-look="orb"] .mem-pop { background-color: rgba(22, 25, 32, 0.66); }
+}
+@keyframes mem-rise { from { opacity: 0; transform: translateY(8px) scale(0.99); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mem-pop { animation: none; } }
+
+.mem-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px 6px; }
+.mem-head h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.1px; }
+.mem-close {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center;
+  color: var(--ink-2); background: var(--mem-inset); box-shadow: inset 0 0 0 1px var(--mem-line);
+}
+.mem-close:hover { color: var(--ink); background: var(--chip-hover); }
+.mem-tabs { display: flex; gap: 4px; padding: 6px 18px 10px; flex-wrap: wrap; }
+.mem-tabs button {
+  border: 0; background: transparent; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 500; color: var(--ink-2);
+}
+.mem-tabs button:hover { background: var(--chip-hover); }
+.mem-tabs button[aria-selected="true"] { background: var(--mem-inset); color: var(--ink); box-shadow: inset 0 0 0 1px var(--mem-line), 0 1px 3px rgba(0, 0, 0, 0.08); }
+.mem-body { overflow-y: auto; overscroll-behavior: contain; padding: 4px 22px 22px; min-height: 0; }
+.mem-panel[hidden] { display: none; }
+.mem-panel { display: flex; flex-direction: column; gap: 12px; }
+
+.mem-section { margin: 6px 2px 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+:root:lang(zh-Hans) .mem-section { letter-spacing: 0.04em; }
+.mem-hint { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+.mem-hint.warn { color: var(--mem-warn); }
+.mem-empty { padding: 12px 14px; font-size: 13px; color: var(--muted); }
+.mem-path { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+
+.mem-filter { display: flex; flex-direction: column; gap: 8px; }
+.mem-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mem-chip {
+  border: 1px solid var(--mem-line, var(--line)); background: var(--card); color: var(--ink-2);
+  border-radius: 999px; padding: 4px 11px; font-size: 12.5px;
+}
+.mem-chip:hover { background: var(--chip-hover); }
+.mem-chip.on { background: var(--action); border-color: var(--action); color: var(--action-ink); }
+
+.mem-list { list-style: none; margin: 0; padding: 0; border-radius: 14px; border: 1px solid var(--mem-line); background: var(--mem-inset); }
+.mem-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start; padding: 11px 14px; }
+.mem-item + .mem-item, .mem-list > .mem-empty + .mem-item { border-top: 1px solid var(--mem-line); }
+.mem-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.mem-fact { font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.mem-meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0 2px; }
+.mem-until { margin-left: 6px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--mem-line); }
+.mem-why { font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+.mem-quote { font-style: italic; overflow-wrap: anywhere; }
+.mem-quote.mem-block { display: block; font-size: 12px; color: var(--ink-2); }
+.mem-changed, .mem-paused { color: var(--muted); }
+.mem-late { color: var(--mem-bad); }
+.mem-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.mem-actions.mem-left { justify-content: flex-start; }
+.btn.mem-small { min-height: 30px; padding: 0 11px; font-size: 12.5px; border-radius: 8px; }
+.btn.mem-small:not(.primary) { background: var(--card); }
+.btn.mem-small:not(.primary):hover { background: var(--chip-hover); }
+.btn.mem-danger { background: var(--mem-bad); border-color: var(--mem-bad); }
+
+.mem-edit, .mem-form { display: flex; flex-direction: column; gap: 8px; grid-column: 1 / -1; }
+.mem-form > .btn { align-self: flex-start; }
+.mem-edit-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mem-edit-row > input[type="text"] { flex: 1; min-width: 160px; }
+.mem-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.mem-panel textarea, .mem-cardlet textarea, .mem-panel input[type="date"] {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+}
+.mem-panel input[type="date"] { min-height: 40px; padding: 0 10px; }
+.mem-panel textarea { resize: vertical; line-height: 1.45; width: 100%; box-sizing: border-box; }
+.mem-add { display: flex; gap: 8px; flex-wrap: wrap; }
+.mem-add > input[type="text"] { flex: 1; min-width: 180px; }
+.mem-pair { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; gap: 8px; }
+.mem-label { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.mem-intent { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.mem-arrow { color: var(--muted); }
+.mem-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.mem-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.mem-check.mem-block { display: flex; }
+.mem-field { display: flex; flex-direction: column; gap: 6px; }
+.mem-field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.mem-field-head strong { font-size: 15px; font-weight: 500; }
+.mem-field > small { font-size: 12.5px; color: var(--muted); }
+.mem-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.mem-forget summary, .mem-closed summary { cursor: pointer; font-size: 13px; color: var(--action); }
+.mem-forget[open] > summary, .mem-closed[open] > summary { margin-bottom: 8px; }
+.mem-confirm { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--mem-bad); }
+.mem-confirm p { margin: 0; font-size: 13px; }
+.mem-examples { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.mem-more { list-style: none; color: var(--muted); }
+
+.mem-nights { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.mem-nights strong { font-weight: 500; color: var(--ink); }
+
+.mem-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--mem-line); background: var(--mem-inset); }
+.mem-card-name { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 21px; }
+.mem-sub { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; line-height: 1.45; }
+.mem-sub .mem-meta { display: inline; }
+
+.mem-import { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--mem-line); background: var(--mem-inset); }
+.mem-import strong { font-size: 14px; font-weight: 600; }
+.mem-import small { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.mem-import > .btn { align-self: flex-start; }
+.mem-review-head { font-size: 14px; }
+.mem-pick { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+.mem-pick input[type="text"] { min-width: 0; }
+.mem-pre { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--mem-line); font-family: var(--sans); font-size: 12.5px; white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
+
+/* ── the cards: waiting suggestions and the Dream diary ── */
+.mem-card-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mem-card-list li { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.mem-card-list li:first-child { border-top: 0; padding-top: 0; }
+.mem-card-list .mem-actions { justify-content: flex-start; }
+
+@media (max-width: 640px) {
+  .mem-item { grid-template-columns: minmax(0, 1fr); }
+  .mem-item > .mem-actions { justify-content: flex-start; }
+  .mem-pick { grid-template-columns: auto minmax(0, 1fr); }
+}
