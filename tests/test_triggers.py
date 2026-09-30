@@ -217,6 +217,26 @@ async def test_debounce_and_the_daily_cap(tmp_path):
     assert saved["counts"]["ann"] == ["2026-09-30", 1]
 
 
+@pytest.mark.parametrize(
+    "last",
+    [
+        "2026-09-29T08:59:00Z",  # another build's zoned time (or a hand edit)
+        "2026-09-29T08:59:00+02:00",
+        "2027-03-01T09:00:00",  # from a clock that was set a year ahead, since put back
+    ],
+)
+async def test_a_rules_last_run_as_kept_never_stops_it_for_good(tmp_path, last):
+    """The time a rule last ran, as the file has it, with a zone or far in the future: the
+    rule still runs on the next email (and so do the rules read after it)."""
+    ann = routine({"type": "mail", "from": "ann"}, "ann", debounce=5)
+    bob = routine({"type": "mail", "from": "bob"}, "bob", debounce=5)
+    (tmp_path / "triggers.json").write_text(json.dumps({"last": {"ann": last, "bob": last}}))
+    rig = Rig(tmp_path, ann, bob)
+    rig.engine.on_messages([mail("ann@example.com", "a"), mail("bob@example.com", "b")])
+    await rig.tick(seconds=5)
+    assert [i for i, _c in rig.fired] == ["ann", "bob"]
+
+
 async def test_a_paused_routine_never_fires_and_meeting_notes_hold_it(tmp_path):
     ann = routine({"type": "mail", "from": "ann"}, "ann", debounce=0)
     rig = Rig(tmp_path, ann)

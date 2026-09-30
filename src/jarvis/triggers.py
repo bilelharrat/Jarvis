@@ -65,6 +65,7 @@ RADIUS = 300  # meters around a place, by default
 INBOX_KEPT = 200  # new messages waiting to be matched
 DEFERRED_KEPT = 20  # runs waiting for meeting notes to end
 FIRED_KEPT_DAYS = 2
+STALE_AHEAD = timedelta(hours=2)  # a last run further ahead than this: the clock was wrong
 
 
 # ── what a trigger is ──
@@ -407,10 +408,15 @@ class TriggerEngine:
         debounce = int(spec.get("debounce", 0) or 0)
         if last and debounce:
             try:
-                if now - datetime.fromisoformat(last) < timedelta(minutes=debounce):
-                    return False
+                then = datetime.fromisoformat(last)
             except ValueError:
-                pass
+                then = None
+            if then is not None and then.tzinfo is not None:  # another build's zoned time
+                then = then.astimezone().replace(tzinfo=None)
+            # One far ahead is from a clock set wrong since put right: it holds nothing back.
+            if then is not None and then <= now + STALE_AHEAD:
+                if now - then < timedelta(minutes=debounce):
+                    return False
         day = now.date().isoformat()
         count = state["counts"].get(routine.id)
         used = count[1] if count and count[0] == day else 0
