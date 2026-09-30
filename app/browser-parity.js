@@ -377,7 +377,7 @@ class BrowserParity {
     const wc = child.webContents;
     this.wire(wc);
     // Its own popups are windows too; its links for a new window open tabs in the dock.
-    wc.setWindowOpenHandler((details) => this.windowOpen(wc, details) || this.toTab(details));
+    wc.setWindowOpenHandler((details) => this.windowOpen(wc, details) || this.toTab(details, wc));
     // The title bar names the site the popup is really on.
     const title = () => { if (!child.isDestroyed()) child.setTitle(lib.popupTitle(wc.getURL(), wc.getTitle())); };
     child.on('page-title-updated', (event) => { event.preventDefault(); title(); });
@@ -388,8 +388,8 @@ class BrowserParity {
     this.showPopup(child);
   }
 
-  toTab({ url }) {
-    if (/^https?:\/\//i.test(String(url || '')) && this.hooks.openTab) this.hooks.openTab(url);
+  toTab({ url }, opener) {
+    if (/^https?:\/\//i.test(String(url || '')) && this.hooks.openTab) this.hooks.openTab(url, this.profileOf(opener));
     return { action: 'deny' };
   }
 
@@ -1004,6 +1004,19 @@ class BrowserParity {
   isPrivate(wc) {
     const view = this.viewOf(wc);
     return Boolean(view && view.private);
+  }
+
+  // The profile a page's new tabs open in: its own (a private tab's links stay private,
+  // JARVIS's signed-out tab's stay signed out); the owner's gives none to ask for.
+  profileOf(wc) {
+    const ses = wc && !wc.isDestroyed() ? wc.session : null;
+    if (ses && ses === session.fromPartition(PRIVATE_PARTITION)) return { partition: PRIVATE_PARTITION };
+    if (ses && ses === session.fromPartition(AGENT_PARTITION)) return { partition: AGENT_PARTITION };
+    return undefined;
+  }
+
+  partitions() {
+    return [PARTITION, PRIVATE_PARTITION, AGENT_PARTITION];
   }
 
   // A tab JARVIS opens for itself: in its own profile, signed out of the owner's sites, when

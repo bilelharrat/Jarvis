@@ -490,12 +490,12 @@ function pageMenu(view, p) {
   const items = [];
   const sep = () => { if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' }); };
   if (p.linkURL && /^https?:/.test(p.linkURL)) {
-    items.push({ label: 'Open Link in New Tab', click: () => { newTab(p.linkURL); sendBrowserState(); } });
+    items.push({ label: 'Open Link in New Tab', click: () => { newTab(p.linkURL, parity.profileOf(wc)); sendBrowserState(); } }); // (a private tab's link stays private)
     items.push({ label: 'Copy Link Address', click: () => clipboard.writeText(p.linkURL) });
     sep();
   }
   if (p.mediaType === 'image' && p.srcURL) {
-    if (/^https?:/.test(p.srcURL)) items.push({ label: 'Open Image in New Tab', click: () => { newTab(p.srcURL); sendBrowserState(); } });
+    if (/^https?:/.test(p.srcURL)) items.push({ label: 'Open Image in New Tab', click: () => { newTab(p.srcURL, parity.profileOf(wc)); sendBrowserState(); } });
     items.push({ label: 'Save Image As…', click: () => wc.downloadURL(p.srcURL) });
     items.push({ label: 'Copy Image', click: () => wc.copyImageAt(p.x, p.y) });
     sep();
@@ -507,7 +507,7 @@ function pageMenu(view, p) {
   } else if (p.selectionText) {
     const text = p.selectionText.trim().slice(0, 60);
     items.push({ role: 'copy', label: 'Copy' });
-    items.push({ label: `Search ${searchEngine().name} for “${text}${p.selectionText.trim().length > 60 ? '…' : ''}”`, click: () => { newTab(searchUrl(p.selectionText)); sendBrowserState(); } });
+    items.push({ label: `Search ${searchEngine().name} for “${text}${p.selectionText.trim().length > 60 ? '…' : ''}”`, click: () => { newTab(searchUrl(p.selectionText), parity.profileOf(wc)); sendBrowserState(); } });
     sep();
   }
   if (!p.linkURL && !p.isEditable && !p.selectionText && p.mediaType === 'none') {
@@ -562,7 +562,7 @@ function readyDownloads() {
   if (downloadsReady) return;
   downloadsReady = true;
   fs.rmSync(stagingDir(), { recursive: true, force: true }); // left by a quit mid-download
-  session.fromPartition('persist:jarvis-browser').on('will-download', (_event, item) => {
+  const staging = (_event, item) => {
     const id = ++downloadIds;
     const name = path.basename(item.getFilename() || 'download').replace(/^\.+/, '') || 'download';
     fs.mkdirSync(stagingDir(), { recursive: true });
@@ -580,7 +580,9 @@ function readyDownloads() {
       sendDownload(id);
     });
     sendDownload(id);
-  });
+  };
+  // Every profile's (the owner's, private tabs', JARVIS's own): each download waits for Save.
+  for (const partition of parity.partitions()) session.fromPartition(partition).on('will-download', staging);
 }
 
 // ── Ad and tracker blocking: Ghostery's engine with EasyList, EasyPrivacy, uBlock Origin's
@@ -711,7 +713,7 @@ function createTab(opts = {}) {
     if (popup) return popup;
     const { url } = details;
     // a link that wants a new window: a new tab (behind, when it came from a tab behind)
-    if (/^https?:\/\//.test(url)) { if (view === browserView) newTab(url); else browserAgent.popup(view, url); }
+    if (/^https?:\/\//.test(url)) { if (view === browserView) newTab(url, parity.profileOf(wc)); else browserAgent.popup(view, url); }
     return { action: 'deny' };
   });
   parity.wireTab(view); // per-site permission prompts (browser-parity.js)
@@ -911,7 +913,7 @@ const parity = createParity({
   fromWindow,
   dev: Boolean(DEV_URL),
   // A popup's link for a new window, or a new private tab: a tab in the dock.
-  openTab: (url, opts) => { newTab(url, opts); sendBrowserState(); if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
+  openTab: (url, opts) => { ensureBrowser(); newTab(url, opts); sendBrowserState(); if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
   // The tabs put back from last time: each an empty tab its page is loaded into.
   restoreTab: () => { const view = createTab(); tabs.push(view); browserAsked = true; return view; },
   select: (view) => { selectTab(view); sendBrowserState(); },

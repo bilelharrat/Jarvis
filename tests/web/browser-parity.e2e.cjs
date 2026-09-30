@@ -734,6 +734,16 @@ test('A private tab keeps nothing: its own cookies, no visits, no session, no zo
   parity.sessionNow();
   const kept = JSON.stringify(parity.state().session);
   assert(!kept.includes('private-only') && kept.includes(`${base}/other`), `the private tab was kept for next time: ${kept}`);
+  // Its new tabs stay private: a link for a new window, or one from a popup it opened.
+  assert(parity.profileOf(priv.webContents).partition === PRIVATE_PARTITION && parity.profileOf(normal.webContents) === undefined, 'a private tab’s links would leave it');
+  const privPopup = new BrowserWindow({ show: false, webPreferences: { partition: PRIVATE_PARTITION, sandbox: true } });
+  parity.toTab({ url: `${base}/other?from-private-popup` }, privPopup.webContents);
+  assert(active.private === true && active !== priv, 'a private popup’s link opened outside the private profile');
+  tabs.splice(tabs.indexOf(active), 1);
+  active.webContents.close();
+  privPopup.destroy();
+  active = priv;
+  assert(JSON.stringify(parity.partitions()) === JSON.stringify([PARTITION, PRIVATE_PARTITION, AGENT_PARTITION]), 'every profile’s downloads wait for Save');
   // Its permission answers are asked afresh and kept nowhere.
   const privPerms = parity.permissionsFor(priv.webContents.session);
   assert(privPerms.remember === false && privPerms !== parity.permissionsFor(session.fromPartition(PARTITION)), 'a private tab shares the owner’s permissions');
