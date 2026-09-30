@@ -95,7 +95,7 @@ function install(ctx) {
         const r = await pageAi(view, 'context', { text: Boolean(args.text), limit: Number(args.limit) || 0 });
         return { ...r, ...where(view) };
       }
-      case 'extract': return { ...(await pageAi(view, 'extract', { limit: Number(args.limit) || 0 }, 8000)), ...where(view) };
+      case 'extract': return { ...where(view), ...(await pageAi(view, 'extract', { limit: Number(args.limit) || 0 }, 8000)) }; // the article's own title
       case 'handback': return { ...(await pageAi(view, 'handback', { codes: Boolean(args.codes) }, 3000)), ...where(view) };
       case 'look': { // ⌥⇧Space with the page in front: what it says, and a picture of it
         const r = await pageAi(view, 'context', { text: true, limit: Number(args.limit) || 0 });

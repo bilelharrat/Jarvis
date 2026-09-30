@@ -26,4 +26,7 @@ TEXTS: dict[str, str] = {
     "Second brain": "第二大脑",
     # the hand back (handback.py): the banner's Carry on, in the owner's words
     "Carry on.": "继续。",
+    # reader mode (reader.py): why the reader couldn't open, said back
+    "There is no page to read.": "没有可以阅读的页面。",
+    "This page has nothing to read.": "这个页面没有可以阅读的内容。",
 }

@@ -5483,6 +5483,45 @@ test('Browser AI hands a page back: “Your turn” over it, its tab brought for
   assert(JSON.stringify(await sentOf('browser_ai_handback_cancel')) === JSON.stringify([{ type: 'browser_ai_handback_cancel' }]), JSON.stringify(await js('__sent')));
 });
 
+test('Reader mode shows the article in place of the page, reads it on Listen and follows the reading', async () => {
+  await browserAi();
+  await js(`window.__hidden = 0; window.__shown = [];
+    jarvisApp.browser.hide = () => { __hidden++; return Promise.resolve(); }; jarvisApp.browser.show = (b) => { __shown.push(b); return Promise.resolve(); };
+    jarvisApp.feature.invoke = (channel, msg) => { __calls.push([channel, msg]);
+      if (msg.action !== 'extract') return Promise.resolve({ ok: true });
+      return Promise.resolve({ ok: true, url: 'https://news.example/soup#x', title: 'Why soup is good', byline: 'Ann Lee', site: 'The Daily Spoon',
+        blocks: [{ kind: 'p', text: 'Soup warms you.' }, { kind: 'h', text: 'How to start' }, { kind: 'pre', text: 'code()' }, { kind: 'li', text: 'Onions.' }, { kind: 'li', text: 'Carrots.' }] }); };
+    document.body.classList.add('browser-open'); __state({ url: 'https://news.example/soup#x', title: 'Soup', tabs: [{ id: 3, active: true }] }); true`);
+  assert(await js('!$("bai-reader-btn").hidden'), 'no Reader button on a web page');
+  await js('$("bai-reader-btn").click(); true');
+  for (let i = 0; i < 40 && await js('!$("bai-reader") || $("bai-reader").hidden'); i++) await sleep(20);
+  assert(await js('__hidden') === 1 && await js('__calls.some(([, m]) => m.action === "extract" && m.args.tab === 3)'), 'the page didn’t step aside for the reader');
+  const shown = await js('[...$("bai-reader-body").children].map((n) => n.tagName + (n.dataset.read || "") + ":" + n.textContent)');
+  assert(JSON.stringify(shown) === JSON.stringify(['P:The Daily Spoon · Ann Lee', 'H1:Why soup is good', 'P0:Soup warms you.', 'H21:How to start', 'PRE:code()', 'UL:Onions.Carrots.']), JSON.stringify(shown));
+  assert(await js('[...document.querySelectorAll("#bai-reader-body li")].map((n) => n.dataset.read).join()') === '2,3', 'list items aren’t read in order');
+  assert(await js('$("bai-reader-body").hasAttribute("data-no-i18n")'), 'the article would be translated');
+  await js('__sent.length = 0; $("bai-read-play").click(); true');
+  const start = (await sentOf('browser_ai_read'))[0];
+  assert(start && start.action === 'start' && start.at === 0 && start.url === 'https://news.example/soup' && JSON.stringify(start.blocks.map((b) => b.text)) === JSON.stringify(['Soup warms you.', 'How to start', 'Onions.', 'Carrots.']), JSON.stringify(start));
+  await deliver({ type: 'browser_ai_reading', state: 'playing', at: 2, count: 4, url: 'https://news.example/soup', title: 'Why soup is good' });
+  assert(await js('document.querySelector(".bai-reading") && document.querySelector(".bai-reading").textContent') === 'Onions.', 'the paragraph being read isn’t lit');
+  assert(await js('$("bai-read-where").textContent') === '3 / 4' && await js('$("bai-read-play").textContent') === 'Pause', await js('$("bai-read-play").textContent'));
+  assert(await js('$("bai-read-note").hidden'), 'the voice-off note shows while reading');
+  await deliver({ type: 'browser_ai_reading', state: 'paused', at: 2, count: 4, url: 'https://news.example/soup', muted: true });
+  assert(!(await js('$("bai-read-note").hidden')) && await js('$("bai-read-play").textContent') === 'Resume', 'muted: no note');
+  await deliver({ type: 'browser_ai_reading', state: 'playing', at: 2, count: 4, url: 'https://news.example/soup' });
+  await js('__sent.length = 0; $("bai-read-play").click(); $("bai-read-skip").click(); $("bai-read-back").click(); true');
+  assert(JSON.stringify((await sentOf('browser_ai_read')).map((m) => m.action)) === JSON.stringify(['pause', 'skip', 'back']), JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; $("bai-reader-done").click(); true');
+  assert(await js('$("bai-reader").hidden') && (await sentOf('browser_ai_read'))[0].action === 'stop' && await js('__shown.length') === 1, 'Done didn’t close it and stop the reading');
+  // Said on the page: the reader opens and reads; another page closes it.
+  await deliver({ type: 'browser_ai_cmd', id: 'r1', action: 'page_ui', args: { op: 'reader', listen: true } });
+  for (let i = 0; i < 40 && !(await sentOf('browser_ai_result')).length; i++) await sleep(20);
+  assert(!(await js('$("bai-reader").hidden')) && (await sentOf('browser_ai_read')).some((m) => m.action === 'start'), 'said, it didn’t open and read');
+  await js(`__state({ url: 'https://news.example/other', title: 'Other', tabs: [{ id: 3, active: true }] }); true`);
+  assert(await js('$("bai-reader").hidden'), 'another page didn’t close it');
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);

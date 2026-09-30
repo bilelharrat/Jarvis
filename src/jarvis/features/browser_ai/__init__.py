@@ -26,6 +26,10 @@
   summarize a link's page, explain a picture, and save any of them to the second brain.
 - Questions across the open tabs (tabsread.py): the read_tabs tool on the browser_ai
   server reads up to six open tabs at once, as the page's words.
+- Reader mode (reader.py; the view is the window's): the page's article in place of the
+  page, from the address bar's Reader button or "reader mode" / "read this to me" said, read
+  aloud in JARVIS's voice through the speech queue a paragraph at a time, with pause,
+  resume, skip, back and again (buttons, or said); a new request or "stop" pauses it.
 - Hand back (handback.py): at a captcha (never touched), a password, card details, a
   one-time code or a sign-in wall, JARVIS stops and it's the owner's turn: a "Your turn"
   banner over the page, and nothing acts on that tab until they say "carry on" (or press
@@ -33,10 +37,11 @@
 
 Window commands: browser_ai_page, browser_ai_result, browser_ai_sites, browser_ai_site,
 browser_ai_dwell, browser_ai_memories, browser_ai_memory_forget, browser_ai_ask,
-browser_ai_carry_on, browser_ai_handback_cancel, whats_this (before Jarvis Code's).
+browser_ai_carry_on, browser_ai_handback_cancel, browser_ai_read, whats_this (before Jarvis
+Code's).
 Tool server: browser_ai (read_tabs).
 Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites, browser_ai_memories,
-browser_ai_handback.
+browser_ai_handback, browser_ai_reading.
 Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules,
 browser_memories (the brain's browsing source).
 

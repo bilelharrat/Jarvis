@@ -10,6 +10,10 @@
 // - "Your turn" over a page that needs the owner (browser_ai_handback: a captcha, a
 //   password, card details, a code, a sign-in), its tab brought forward; Carry on asks
 //   JARVIS to pick up (browser_ai_carry_on), × lets it go (browser_ai_handback_cancel);
+// - reader mode: the page's article, as a reader view finds it, in place of the page (the
+//   address bar's Reader button, or "reader mode" / "read this to me" said), read aloud in
+//   JARVIS's voice on Listen (browser_ai_read; the hub's reader.py says where it is:
+//   browser_ai_reading), with pause, back and skip;
 // - Settings › Browser: the sensitive sites (banks, email, health: JARVIS acts there only
 //   while the owner can see the tab) and the owner's rule for any site (always, ask first,
 //   never), changed only here (browser_ai_sites, browser_ai_site); and browser memories,
@@ -323,6 +327,147 @@
     window.GALAXY_SOURCES.names.browsing = 'Browsing';
   }
 
+  // ── Reader mode: the article in place of the page, and read aloud ──
+  const READ_KINDS = new Set(['h', 'p', 'li', 'quote', 'caption']); // as reader.py reads them (never code)
+  let reader = null; // { tab, url, title, byline, site, blocks, readable: [block index...] }
+  let reading = { state: 'idle', at: 0, count: 0 };
+  function slotRect() {
+    const r = F.$('browser-slot').getBoundingClientRect();
+    return { x: r.left, y: r.top, width: r.width, height: r.height };
+  }
+  function readerPanel() {
+    let panel = F.$('bai-reader');
+    if (panel) return panel;
+    const slot = F.$('browser-slot');
+    if (!slot) return null;
+    panel = el('div', 'bai-reader');
+    panel.id = 'bai-reader';
+    panel.hidden = true;
+    const bar = el('div', 'bai-reader-bar');
+    const play = button('Listen', 'bai-read-play', () => {
+      if (!reader) return;
+      if (reading.state === 'playing') F.send({ type: 'browser_ai_read', action: 'pause' });
+      else if (reading.state === 'paused' && reading.url === reader.url) F.send({ type: 'browser_ai_read', action: 'resume' });
+      else startReading(0);
+    });
+    play.id = 'bai-read-play';
+    const back = button('‹', 'bai-read-step', () => F.send({ type: 'browser_ai_read', action: 'back' }), 'Previous paragraph');
+    back.id = 'bai-read-back';
+    const skip = button('›', 'bai-read-step', () => F.send({ type: 'browser_ai_read', action: 'skip' }), 'Next paragraph');
+    skip.id = 'bai-read-skip';
+    const where = mine(el('span', 'bai-read-where'));
+    where.id = 'bai-read-where';
+    const note = el('span', 'bai-read-note', 'Jarvis’s voice is off.');
+    note.id = 'bai-read-note';
+    note.hidden = true;
+    const done = button('Done', 'bd-find-done', () => closeReader());
+    done.id = 'bai-reader-done';
+    bar.append(play, back, skip, where, note, el('span', 'bai-reader-gap'), done);
+    const scroller = el('div', 'bai-reader-scroll');
+    const body = mine(el('article', 'bai-reader-body'));
+    body.id = 'bai-reader-body';
+    scroller.append(body);
+    panel.append(bar, scroller);
+    panel.addEventListener('keydown', (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeReader(); } }); // (a key's name, not shown)
+    slot.append(panel);
+    return panel;
+  }
+  function renderReading() {
+    const panel = F.$('bai-reader');
+    if (!panel || !reader) return;
+    const mineNow = reading.url === reader.url;
+    const state = mineNow ? reading.state : 'idle';
+    F.$('bai-read-play').textContent = F.t(state === 'playing' ? 'Pause' : state === 'paused' ? 'Resume' : 'Listen');
+    F.$('bai-read-play').setAttribute('aria-pressed', String(state === 'playing'));
+    F.$('bai-read-back').disabled = F.$('bai-read-skip').disabled = state === 'idle';
+    F.$('bai-read-where').textContent = state === 'idle' ? '' : `${Math.min(reading.at + 1, reading.count)} / ${reading.count}`;
+    F.$('bai-read-note').hidden = !(mineNow && reading.muted && state !== 'playing');
+    for (const node of panel.querySelectorAll('.bai-reading')) node.classList.remove('bai-reading');
+    if (state === 'idle') return;
+    const node = panel.querySelector(`[data-read="${reading.at}"]`);
+    if (node) { node.classList.add('bai-reading'); node.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  }
+  function renderReader() {
+    const panel = readerPanel();
+    if (!panel || !reader) return;
+    const body = F.$('bai-reader-body');
+    const parts = [];
+    const meta = [reader.site, reader.byline].filter(Boolean).join(' · ');
+    if (meta) parts.push(el('p', 'bai-reader-meta', meta));
+    if (reader.title) parts.push(el('h1', 'bai-reader-title', reader.title));
+    let n = 0;
+    let list = null;
+    for (const b of reader.blocks) {
+      const tag = { h: 'h2', p: 'p', li: 'li', quote: 'blockquote', pre: 'pre', caption: 'p' }[b.kind] || 'p';
+      const node = el(tag, b.kind === 'caption' ? 'bai-reader-caption' : '', b.text);
+      if (READ_KINDS.has(b.kind)) node.dataset.read = String(n++);
+      if (b.kind === 'li') {
+        if (!list) { list = el('ul'); parts.push(list); }
+        list.append(node);
+      } else {
+        list = null;
+        parts.push(node);
+      }
+    }
+    body.replaceChildren(...parts);
+    renderReading();
+  }
+  async function openReader(listen = false) {
+    if (!app || !app.feature || page.tab === null || !/^https?:/.test(page.url) || page.research) return { ok: false, message: 'There is no page to read.' };
+    const r = await call('extract', { tab: page.tab });
+    if (!r || r.ok === false || !Array.isArray(r.blocks)) return r || { ok: false };
+    if (!r.blocks.some((b) => READ_KINDS.has(b.kind))) return { ok: false, message: 'This page has nothing to read.' };
+    reader = { tab: page.tab, url: B.pageKey(r.url || page.url), title: r.title || page.title, byline: r.byline || '', site: r.site || '', blocks: r.blocks.slice(0, 400) };
+    const panel = readerPanel();
+    renderReader();
+    panel.hidden = false;
+    if (app.browser && app.browser.hide) app.browser.hide(); // the page is a native view over the slot: it steps aside
+    const btn = F.$('bai-reader-btn');
+    if (btn) btn.setAttribute('aria-pressed', 'true');
+    F.$('bai-reader-done').focus();
+    if (listen) startReading(0);
+    return { ok: true };
+  }
+  function startReading(at) {
+    if (!reader) return;
+    const blocks = reader.blocks.filter((b) => READ_KINDS.has(b.kind)).map((b) => ({ kind: b.kind, text: b.text }));
+    F.send({ type: 'browser_ai_read', action: 'start', blocks, at, title: reader.title, url: reader.url });
+  }
+  function closeReader(showPage = true) {
+    const panel = F.$('bai-reader');
+    if (!panel || panel.hidden) { reader = null; return; }
+    panel.hidden = true;
+    if (reading.state !== 'idle' && reader && reading.url === reader.url) F.send({ type: 'browser_ai_read', action: 'stop' });
+    reader = null;
+    const btn = F.$('bai-reader-btn');
+    if (btn) btn.setAttribute('aria-pressed', 'false');
+    if (showPage && dockOpenNow() && app && app.browser && app.browser.show) app.browser.show(slotRect());
+  }
+  const dockOpenNow = () => document.body.classList.contains('browser-open');
+  F.on('browser_ai_reading', (ev) => {
+    reading = { state: String(ev.state || 'idle'), at: Math.max(0, Number(ev.at) || 0), count: Math.max(0, Number(ev.count) || 0), url: String(ev.url || ''), muted: !!ev.muted };
+    renderReading();
+  });
+  // The address bar's Reader button (a web page on show, not the Research Center).
+  function readerButton() {
+    const star = F.$('br-star');
+    if (!star || F.$('bai-reader-btn')) return;
+    const b = button('', 'bd-star bai-reader-btn', () => { if (reader) closeReader(); else openReader(false); }, 'Reader');
+    b.id = 'bai-reader-btn';
+    b.title = F.t('Reader');
+    b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 3.5h10M3 6.5h10M3 9.5h10M3 12.5h6"/></svg>';
+    b.hidden = true;
+    star.before(b);
+  }
+  readerButton();
+  // The reader follows the page: another page, another tab, the dock closed or the
+  // bookmarks and history put in its place end it.
+  const lib = F.$('bd-lib');
+  if (lib) new MutationObserver(() => { if (!lib.hidden) closeReader(false); }).observe(lib, { attributes: true, attributeFilter: ['hidden'] });
+  new MutationObserver(() => { if (!dockOpenNow()) closeReader(false); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  B.openReader = openReader;
+
   // ── the page on show, as the hub needs it ──
   // Sent when it changes. The addresses are the owner's own browsing: they go only to the
   // hub on this Mac, which keeps the latest.
@@ -370,6 +515,9 @@
     page = next;
     nav = { canBack: !!(st && st.canBack), canForward: !!(st && st.canForward), tabs: tabs.length };
     if (moved) renderFlag();
+    if (reader && (page.tab !== reader.tab || B.pageKey(page.url) !== reader.url)) closeReader();
+    const rb = F.$('bai-reader-btn');
+    if (rb) rb.hidden = !/^https?:/.test(page.url) || page.research;
     if (turn && tabs.length && !tabs.some((x) => x.id === turn.tab)) { // its tab closed: let it go
       turn = null;
       F.send({ type: 'browser_ai_handback_cancel' });
@@ -465,6 +613,7 @@
         }
         return { ok: true };
       }
+      case 'reader': return openReader(Boolean(args.listen)); // "reader mode", "read this to me"
       case 'bookmark': {
         const lib = await b.data();
         if (lib && (lib.bookmarks || []).some((x) => x && x.url === page.url)) return { ok: true, already: true };

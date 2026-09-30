@@ -16,6 +16,17 @@ from jarvis.features.browser_ai.sites import ADDED_KEY
 from jarvis.knowledge import Note
 
 ARTICLE = "Soup has warmed people up for thousands of years. " * 12
+
+
+async def until(done, seconds=5.0):
+    """Wait for background work (a spawned task, a thread) to have done its part."""
+    for _ in range(int(seconds / 0.01)):
+        if done():
+            return True
+        await asyncio.sleep(0.01)
+    return done()
+
+
 URL = "https://news.example/2026/soup"
 
 
@@ -144,7 +155,8 @@ async def test_new_pages_reach_the_brain_in_one_refresh(
     hub.set_feature_prefs({memories.PREF: True})
     await desk.memories.on_dwell({"url": URL})
     await desk.memories.on_dwell({"url": URL})
-    await asyncio.sleep(0.1)
+    assert await until(lambda: rebuilt)
+    await asyncio.sleep(0.05)  # (and no second refresh follows)
     assert rebuilt == [{"browsing"}]
 
 
@@ -160,10 +172,14 @@ async def test_the_window_lists_and_forgets_them(settings, quiet_speaker, isolat
         await desk.memories.on_dwell({"url": f"https://news.example/{n}"})
     q = hub.subscribe()
     await hub._handle({"type": "browser_ai_memories"})
-    await asyncio.sleep(0.05)  # it runs in the background
     events = []
-    while not q.empty():
-        events.append(q.get_nowait())
+
+    def listed_yet():
+        while not q.empty():
+            events.append(q.get_nowait())
+        return any(e["type"] == "browser_ai_memories" for e in events)
+
+    assert await until(listed_yet)  # it runs in the background
     listed = [e for e in events if e["type"] == "browser_ai_memories"][-1]
     assert listed["on"] is True and listed["count"] == 2
     assert [m["title"] for m in listed["recent"]] == ["Page 1", "Page 0"]
@@ -173,8 +189,8 @@ async def test_the_window_lists_and_forgets_them(settings, quiet_speaker, isolat
     await desk.memories.on_forget({"id": oldest["id"], "kind": "page"})
     assert [p["url"] for p in read_pages(folder_for(hub.kb.store))] == ["https://news.example/1"]
     await desk.memories.on_forget({"all": True})
-    await asyncio.sleep(0.01)
-    assert read_pages(folder_for(hub.kb.store)) == [] and refreshed
+    assert await until(lambda: refreshed)
+    assert read_pages(folder_for(hub.kb.store)) == []
 
 
 def test_the_brain_reads_them_as_its_browsing_source(tmp_path):
@@ -208,7 +224,7 @@ async def test_a_remembered_page_opens_in_the_built_in_browser(settings, quiet_s
     assert "browsing" in brain_feature.SWITCHES  # the feature's switches: the source is one
     page = Note(id="browsing:x", source="browsing", title="Soup", text="", ref=URL)
     assert hub.brain_extension.open_note(page) is True
-    await asyncio.sleep(0.01)
+    assert await until(lambda: opened)
     assert opened == [("open", {"url": URL, "newTab": True})]
     hub.brain_extension.open_note(
         Note(id="browsing:y", source="browsing", title="", text="", ref="javascript:x")
@@ -231,9 +247,9 @@ async def test_what_the_owner_saves_is_kept_whether_or_not_memories_are_on(
             "text": "Soup has warmed people up.",
         }  # fmt: skip
     )
-    await asyncio.sleep(0.01)
+    assert await until(lambda: refreshed)  # the brain reads it at once
     folder = folder_for(hub.kb.store)
-    assert memories.clips_kept(folder) and read_pages(folder) == [] and refreshed
+    assert memories.clips_kept(folder) and read_pages(folder) == []
     clip = memories.read_clips(folder)[0]
     assert clip["kind"] == "clip" and clip["text"] == "Soup has warmed people up."
     # The brain reads clips with memories off, and pages only with them on.

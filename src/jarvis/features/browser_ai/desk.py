@@ -13,6 +13,7 @@ from .memories import Memories
 from .menuask import MenuAsk
 from .pagectx import PageContext
 from .pagevoice import PageVoice
+from .reader import Reader
 from .sites import Sites
 from .sitesettings import SiteSettings
 from .texts import TEXTS
@@ -34,6 +35,7 @@ class BrowserAi:
         self.memories = Memories(hub, self.bridge, self.sites)
         self.menu = MenuAsk(hub, self.page, self.memories, self.sites)
         self.tabs = tabsread.TabsReader(hub, self.bridge, self.sites)
+        self.reader = Reader(hub, self.bridge, self.page)
 
     def install(self) -> None:
         hub = self.hub
@@ -44,7 +46,9 @@ class BrowserAi:
         hub.add_browser_result(self.handback.on_result)
         hub.add_request_context(self.page.context)
         hub.add_request_context(self.handback.context)
+        hub.register_instant(self.reader.instant)  # (before the page's: "continue reading")
         hub.register_instant(self.voice.instant)
+        hub.add_event_sink(("turn",), self.reader.on_turn)
         hub.register_command("browser_ai_result", self.bridge.on_result)
         hub.register_command("browser_ai_page", self.page.on_page)
         hub.register_command("browser_ai_sites", self.site_settings.on_list)
@@ -56,6 +60,7 @@ class BrowserAi:
         hub.register_command("browser_ai_ask", self.menu.command)
         hub.register_command("browser_ai_carry_on", self.handback.on_carry_on)
         hub.register_command("browser_ai_handback_cancel", self.handback.on_cancel)
+        hub.register_command("browser_ai_read", self.reader.on_command)
         hub.register_server(
             tabsread.SERVER,
             self.tabs.build,

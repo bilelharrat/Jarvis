@@ -49,7 +49,17 @@
   "This page wants you to sign in.": "这个页面需要你登录。",
   "This page needs you.": "这个页面需要你来操作。",
   "Say “carry on” when you’re done.": "完成后说“继续”。",
-  "Carry on": "继续"
+  "Carry on": "继续",
+  "Reader": "阅读模式",
+  "Listen": "朗读",
+  "Pause": "暂停",
+  "Resume": "继续",
+  "Previous paragraph": "上一段",
+  "Next paragraph": "下一段",
+  "Done": "完成",
+  "There is no page to read.": "没有可以阅读的页面。",
+  "This page has nothing to read.": "这个页面没有可以阅读的内容。",
+  "Jarvis’s voice is off.": "Jarvis 的语音已关闭。"
  },
  "patterns": [
   [

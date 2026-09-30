@@ -153,7 +153,10 @@ async def test_save_keeps_a_clip_without_asking_claude(settings, quiet_speaker, 
         )
     )
     await hub._handle(picked(action="save", save="link", link="javascript:x"))  # nothing
-    await asyncio.sleep(0.1)
+    for _ in range(300):  # each is kept on a thread, then the brain's refresh is started
+        if len(refreshed) == 3:
+            break
+        await asyncio.sleep(0.01)
     clips = memories.read_clips(folder_for(hub.kb.store))
     assert sorted((c["title"], c["url"]) for c in clips) == [
         ("A chart", "https://news.example/c.png"),
