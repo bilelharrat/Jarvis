@@ -1056,3 +1056,30 @@ def test_the_hub_gives_the_interrupter_memorys_facts_and_the_watcher_no_mail(
     params = inspect.signature(proactive.Watcher).parameters
     assert "mail" not in params and "vip_text" not in params
     assert not hasattr(proactive, "urgent_mail")
+
+
+# ── 8. the MCP pane knows a session that isn't running from one with no servers ──
+
+
+async def test_the_mcp_answer_says_whether_the_session_is_running(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from test_hub import drain, make_hub
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    task = ClaudeTask(id=7, prompt="", cwd=tmp_path)
+    hub.tasks.tasks[7] = task
+    q = hub.subscribe()
+    await hub._handle({"type": "task_mcp", "id": 7})
+    [answer] = [e for e in drain(q) if e["type"] == "task_mcp"]
+    assert answer == {"type": "task_mcp", "id": 7, "servers": [], "connected": False}
+
+    class Client:
+        async def get_mcp_status(self):
+            return {"mcpServers": [{"name": "github", "status": "connected"}]}
+
+    task.client = Client()
+    await hub._handle({"type": "task_mcp", "id": 7})
+    [answer] = [e for e in drain(q) if e["type"] == "task_mcp"]
+    assert answer["connected"] is True
+    assert answer["servers"] == [{"name": "github", "status": "connected"}]

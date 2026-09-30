@@ -5694,7 +5694,10 @@ class Hub:
                 self._spawn(self._quiet(mac_tools.run_command("open", "-R", str(path))))
         elif kind == "task_mcp":
             task_id = int(msg.get("id", 0))
-            self.emit("task_mcp", id=task_id, servers=await self.tasks.mcp_status(task_id))
+            task = self.tasks.tasks.get(task_id)
+            live = task is not None and task.client is not None  # its servers run with it
+            servers = await self.tasks.mcp_status(task_id)
+            self.emit("task_mcp", id=task_id, servers=servers, connected=live)
         elif kind == "task_bg_stop":
             await self.tasks.stop_background(int(msg.get("id", 0)), str(msg.get("bg", "")))
         elif kind == "task_rules":

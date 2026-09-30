@@ -1998,6 +1998,11 @@ function renderCC(items) {
   if (changed('background', [t.id, t.background])) renderBackground(t.background || []);
   if (changed('queue', [t.id, t.queue, t.steerable])) renderQueue(t);
   if (currentPane === 'background' && changed('bgpane', [t.id, t.background])) renderPaneBody();
+  // The session started running while its MCP servers showed as not running: ask again.
+  if (currentPane === 'mcp' && changed('mcplive', [t.id, t.status, t.busy]) && mcpAnswer && mcpAnswer.id === t.id && !mcpAnswer.connected && mcpAsked !== t.id) {
+    mcpAsked = t.id;
+    send({ type: 'task_mcp', id: t.id });
+  }
 }
 
 function setCtx(percent) {
@@ -3904,6 +3909,8 @@ let simPanel = null; // the iOS Simulator pane (simulator.js) while it's showing
 function closeSimPanel() { if (simPanel) { simPanel.unmount(); simPanel = null; } }
 let fileView = null;
 let mcpServers = [];
+let mcpAnswer = null; // the latest answer for the session on show: { id, connected }
+let mcpAsked = null; // the session an MCP question is out for
 let rules = [];
 
 document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.addEventListener('click', () => {
@@ -3920,7 +3927,7 @@ function openPane(kind) {
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pane === kind)));
   const t = currentTask();
   if (kind === 'diff' && t) send({ type: 'task_diff', id: t.id });
-  if (kind === 'mcp' && t) send({ type: 'task_mcp', id: t.id });
+  if (kind === 'mcp' && t) { mcpAnswer = null; mcpAsked = t.id; send({ type: 'task_mcp', id: t.id }); }
   if (kind === 'rules' && t) send({ type: 'task_rules', id: t.id });
   if (kind === 'audit' && t) send({ type: 'task_audit', id: t.id });
   if ((kind === 'files' || kind === 'artifacts') && deckProject && !projectFiles[deckProject]) send({ type: 'project_files', directory: deckProject });
@@ -3968,7 +3975,15 @@ function renderPaneBody() {
     return;
   }
   if (currentPane === 'mcp') {
-    if (!mcpServers.length) { body.replaceChildren(el('p', 'jc-empty', t && t.client !== null ? 'No MCP servers in this project.' : 'Open a session to see its MCP servers.')); return; }
+    // Why there's nothing to list: no session, one that isn't running (its servers start
+    // with it), the answer still to come, or a running session with none.
+    const answer = t && mcpAnswer && mcpAnswer.id === t.id ? mcpAnswer : null;
+    if (t && !answer && mcpAsked !== t.id) { mcpAsked = t.id; send({ type: 'task_mcp', id: t.id }); }
+    const empty = !t ? 'Open a session to see its MCP servers.'
+      : !answer ? 'Checking MCP servers…'
+        : !answer.connected ? 'MCP servers show while the session is running.'
+          : !mcpServers.length ? 'No MCP servers in this project.' : '';
+    if (empty) { body.replaceChildren(el('p', 'jc-empty', empty)); return; }
     const ul = el('ul', 'jc-list');
     ul.append(...mcpServers.map((s) => { const li = el('li'); li.append(el('span', '', s.name), el('small', '', s.status)); return li; }));
     body.replaceChildren(ul);
@@ -4233,7 +4248,7 @@ function onJarvisCodeEvent(ev) {
     case 'task_diff': if (ev.id === ccSelected) { diffFiles = ev.files || []; if (currentPane === 'diff' || currentPane === 'artifacts') renderPaneBody(); } return true;
     case 'task_rules': if (ev.id === ccSelected) { rules = ev.rules || []; if (currentPane === 'rules') renderPaneBody(); } return true;
     case 'task_audit': if (ev.id === ccSelected) { auditItems = ev.items || []; if (currentPane === 'audit') renderPaneBody(); } return true;
-    case 'task_mcp': if (ev.id === ccSelected) { mcpServers = ev.servers || []; if (currentPane === 'mcp') renderPaneBody(); refreshConnectorsMenu(); } return true;
+    case 'task_mcp': if (ev.id === ccSelected) { mcpServers = ev.servers || []; mcpAnswer = { id: ev.id, connected: ev.connected !== false }; mcpAsked = null; if (currentPane === 'mcp') renderPaneBody(); refreshConnectorsMenu(); } return true;
     case 'dictation': onDictation(ev); return true;
     case 'providers': onProviders(ev); return true;
     case 'providers_check': onProviderCheck(ev); return true;

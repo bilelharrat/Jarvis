@@ -980,6 +980,28 @@ test('Scheduled wake: asked for as Settings opens, set and removed only by the b
   assert(JSON.stringify(await wakes()) === '["status","set","clear","status"]', JSON.stringify(await wakes()));
 });
 
+// ── the MCP servers pane ──
+
+test('The MCP pane says why it lists nothing: no session, not running yet, checking, or none', async () => {
+  const body = () => js('$("jc-pane-body").textContent');
+  const asked = () => js('__sent.filter((m) => m.type === "task_mcp").map((m) => m.id)');
+  await js('deckProjects = [{ name: "alpha", branch: "main" }]; deckProject = "alpha"; onEvent({ type: "tasks", items: [] }); toggleCC(true); ccSelected = null; openPane("mcp"); __sent.length = 0; true');
+  assert(await body() === 'Open a session to see its MCP servers.', await body());
+  await open(1, 'onEvent({ type: "tasks", items: [__task(1, { status: "closed", busy: false })] }); openPane("mcp")');
+  assert(await body() === 'Checking MCP servers…', await body());
+  assert(JSON.stringify(await asked()) === '[1]', JSON.stringify(await asked()));
+  await js('onEvent({ type: "task_mcp", id: 1, servers: [], connected: false })');
+  assert(await body() === 'MCP servers show while the session is running.', await body());
+  // It starts running: asked again, once, and the answer is the truth.
+  await js('onEvent({ type: "tasks", items: [__task(1, { status: "waiting", busy: false })] })');
+  await js('onEvent({ type: "tasks", items: [__task(1, { status: "waiting", busy: false })] })');
+  assert(JSON.stringify(await asked()) === '[1,1]', JSON.stringify(await asked()));
+  await js('onEvent({ type: "task_mcp", id: 1, servers: [], connected: true })');
+  assert(await body() === 'No MCP servers in this project.', await body());
+  await js('onEvent({ type: "task_mcp", id: 1, servers: [{ name: "github", status: "connected" }], connected: true })');
+  assert((await body()).includes('github'), await body());
+});
+
 // ──
 
 let base;

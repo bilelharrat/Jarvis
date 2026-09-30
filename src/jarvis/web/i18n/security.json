@@ -11,7 +11,9 @@
     "Don't publish": "不发表",
     "Don't delete": "不删除",
     "Submit": "提交",
-    "Don't submit": "不提交"
+    "Don't submit": "不提交",
+    "Checking MCP servers…": "正在查看 MCP 服务器…",
+    "MCP servers show while the session is running.": "会话运行时才会显示它的 MCP 服务器。"
   },
   "patterns": [
     [
