@@ -10,7 +10,7 @@ from claude_agent_sdk import AssistantMessage, ToolResultBlock, ToolUseBlock, Us
 from test_tasks import stream_manager, until
 
 from jarvis import code_records, tasks
-from jarvis.code_records import RecordMedia, keys_of, pictures_in, record_path
+from jarvis.code_records import RecordMedia, keys_of, pictures_in, record_path, timestamps
 
 SID = "0f5d8c1e-7a41-4b8e-9d6b-2f1a3c4e5b6d"
 PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg=="
@@ -156,6 +156,20 @@ def test_the_record_is_found_where_claude_code_keeps_it(tmp_path, monkeypatch):
     assert record_path("not-a-session-id", project) is None
     assert record_path("", project) is None
     assert RecordMedia().pictures(SID, project, ["u-000000000001"])
+
+
+def test_when_each_message_was_written_is_its_own_not_a_quoted_one(tmp_path):
+    record = tmp_path / "record.jsonl"
+    quoted = 'look: {"uuid": "11111111-1111-1111-1111-111111111111", "timestamp": "1999"}'
+    write_record(record, [
+        {"type": "user", "message": {"content": quoted}, "uuid": "22222222-2222-2222-2222-222222222222",
+         "timestamp": "2026-09-29T10:00:00.000Z"},
+        {"type": "summary", "summary": "no uuid here"},
+    ])  # fmt: skip
+    assert timestamps(record) == {
+        "22222222-2222-2222-2222-222222222222": "2026-09-29T10:00:00.000Z"
+    }
+    assert timestamps(None) == {} and timestamps(tmp_path / "none.jsonl") == {}
 
 
 def test_image_count_reads_a_tool_result():

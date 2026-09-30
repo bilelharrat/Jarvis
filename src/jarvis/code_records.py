@@ -6,6 +6,7 @@ conversation (~/.claude/projects/<folder>/<session id>.jsonl). Read here, never 
   transcript's thumbnails. The file is indexed once, as the byte offset of each line that
   holds a picture, and after that only what was added to it is read; a picture itself is
   read back from its line when a window asks for it, so none is kept in memory.
+- When each message was written (timestamps), for a full export (code_export).
 
 Nothing here calls a model.
 """
@@ -33,6 +34,8 @@ IMAGE_MAX = 8_000_000  # characters of base64: a picture bigger than this isn't 
 REPLY_MAX = 16_000_000  # characters of base64 in one answer to a window, all pictures in it
 KEYS_MAX = 24  # entries one request may ask pictures for
 FILES_KEPT = 16  # records whose index is kept (the sessions open lately)
+_TIMESTAMP = re.compile(rb'"timestamp"\s*:\s*"([^"]{10,40})"')
+_UUID = re.compile(rb'"uuid"\s*:\s*"([0-9a-fA-F-]{36})"')
 
 
 def record_path(session_id: str, cwd: Path | str) -> Path | None:
@@ -180,3 +183,30 @@ class RecordMedia:
                             budget -= size
                             out.setdefault(key, []).append(picture)
         return out
+
+
+def timestamps(path: Path | None) -> dict[str, str]:
+    """When each message of a record was written, by its uuid (for an export's times),
+    read without parsing the lines (a picture can make one megabytes long)."""
+    found: dict[str, str] = {}
+    if path is None:
+        return found
+
+    def last(pattern: re.Pattern[bytes], text: bytes) -> bytes | None:
+        # The entry's own fields come after its message (which may quote a uuid of its own).
+        match = None
+        for match in pattern.finditer(text):  # noqa: B007 - the last one is wanted
+            pass
+        return match.group(1) if match is not None else None
+
+    try:
+        with path.open("rb") as f:
+            for line in f:
+                uuid, when = last(_UUID, line[-4096:]), last(_TIMESTAMP, line[-4096:])
+                if uuid is None or when is None:
+                    uuid, when = last(_UUID, line), last(_TIMESTAMP, line)
+                if uuid is not None and when is not None:
+                    found[uuid.decode()] = when.decode(errors="replace")
+    except OSError:
+        return {}
+    return found

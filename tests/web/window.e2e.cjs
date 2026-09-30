@@ -4314,6 +4314,39 @@ test('The Health pane shows the engine, the sign-in with the command that signs 
   assert(fresh && fresh.fresh === true, JSON.stringify(await js('__sent')));
 });
 
+test('Export the whole session: share-safe, paths hidden, as a PDF, then shown in Finder', async () => {
+  await featureScript('code-export.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(await clickText('#jc-menu', 'Export the whole session…'), 'no Export in the More menu');
+  assert(await js('$("jc-pane-title").textContent') === 'Export', 'the pane did not open');
+  await js(`(() => {
+    const radio = (label) => [...document.querySelectorAll('#jc-pane-body .cx-option')].find((l) => l.textContent.startsWith(label)).querySelector('input');
+    radio('Share-safe').click(); radio('A PDF').click();
+    document.querySelector('#jc-pane-body .cx-check input').click();
+    return true; })()`);
+  // The session changing meanwhile doesn't undo what was chosen.
+  await deliver({ type: 'tasks', items: [await js('__task(1, { last_action: "Reading b.py" })')] });
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body', 'Export'), 'no Export button');
+  const [asked] = await sentOf('cw_export');
+  assert(asked && asked.id === 1 && asked.safe === true && asked.anonymize === true && asked.format === 'pdf', JSON.stringify(asked));
+  assert(await js('document.querySelector("#jc-pane-body .cx-go").textContent') === 'Exporting…', 'no sign of exporting');
+  await deliver({ type: 'cw_export', ref: asked.ref, ok: true, path: '/Users/x/Documents/Jarvis/Jarvis Code/2026-09-30 0930 Fix (share-safe).pdf', name: '2026-09-30 0930 Fix (share-safe).pdf', entries: 12 });
+  await frames(2);
+  assert(await js('$("jc-pane-body").textContent.includes("2026-09-30 0930 Fix (share-safe).pdf")'), 'the saved name is not shown');
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body', 'Show in Finder'), 'no Show in Finder');
+  assert(JSON.stringify(await sentOf('cw_export_reveal')) === JSON.stringify([{ type: 'cw_export_reveal', path: '/Users/x/Documents/Jarvis/Jarvis Code/2026-09-30 0930 Fix (share-safe).pdf' }]), JSON.stringify(await js('__sent')));
+  // A PDF without the app says why.
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body', 'Export'), 'no Export button');
+  const [again] = await sentOf('cw_export');
+  await deliver({ type: 'cw_export', ref: again.ref, error: 'A PDF needs the app\'s window: export the page instead, or try again in the app.' });
+  await frames(2);
+  assert(await js('document.querySelector("#jc-pane-body .cx-result.bad").textContent').then((t) => t.includes('needs the app’s window') || t.includes('needs the app\'s window')), 'the error is not shown');
+});
+
 // ──
 
 let base;

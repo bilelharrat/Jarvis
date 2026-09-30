@@ -119,7 +119,24 @@
     "Start it again on the same conversation": "在同一个对话上重新启动它",
     "A new connection, between steps": "在两步之间换一个新连接",
     "Open a session to see how its connection is doing.": "打开一个会话，查看它的连接情况。",
-    "Check again": "再检查一次"
+    "Check again": "再检查一次",
+    "Open a session to export it.": "打开一个会话才能导出它。",
+    "What": "内容",
+    "Every message, each step’s input and output, the thinking and pictures": "每条消息、每一步的输入和输出、思考过程和图片",
+    "Share-safe": "可安全分享",
+    "The same, with keys, tokens and passwords blanked out, and no pictures": "同样的内容，但密钥、令牌和密码会被抹去，也不含图片",
+    "Hide where things are on this Mac": "隐藏这台 Mac 上的位置信息",
+    "Your home folder, the project’s folder and your user name": "你的个人文件夹、项目文件夹和用户名",
+    "As": "格式",
+    "A page (HTML)": "网页（HTML）",
+    "Opens in any browser": "任何浏览器都能打开",
+    "A PDF": "PDF",
+    "Laid out for printing, steps opened": "为打印排版，步骤都展开",
+    "Exporting…": "正在导出…",
+    "Export": "导出",
+    "Saved in Documents › Jarvis › Jarvis Code:": "已存到 文稿 › Jarvis › Jarvis Code：",
+    "Export the whole session…": "导出整个会话…",
+    "A PDF needs the app's window: export the page instead, or try again in the app.": "PDF 需要应用的窗口：改为导出网页，或在应用里再试一次。"
   },
   "patterns": [
     [
@@ -177,6 +194,10 @@
     [
       "^The terminal didn't start: (.+)$",
       "终端没能启动：$1"
+    ],
+    [
+      "^Couldn't save the export: (.+)$",
+      "没能保存导出的文件：$1"
     ]
   ]
 }
