@@ -286,8 +286,10 @@ class BrowserParity {
     this.sessionSoon();
   }
 
+  // The tab strip told (main.js's sendBrowserState); never while quitting, when the window and
+  // the tab on show may already be gone.
   changed() {
-    if (this.hooks.changed) this.hooks.changed();
+    if (this.hooks.changed && !this.quitting) this.hooks.changed();
   }
 
   wire(wc) {
@@ -853,7 +855,7 @@ class BrowserParity {
       if (live) popWin.contentView.removeChildView(view);
       if (!closing) popWin.destroy();
     }
-    if (live && this.hooks.tabs().includes(view)) this.hooks.select(view);
+    if (live && !this.quitting && this.hooks.tabs().includes(view)) this.hooks.select(view); // (quitting: it stays kept for next time)
     this.changed();
     return true;
   }

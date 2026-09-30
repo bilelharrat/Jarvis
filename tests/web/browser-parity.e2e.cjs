@@ -887,6 +887,36 @@ test('A tab popped out into a window of its own: the dock shows another, its bar
   assert(fourth.isDestroyed(), 'the window outlived its tab');
 });
 
+test('Quitting with a split on and a tab popped out: nothing calls back into the dock as the windows close', async () => {
+  const a = newTab();
+  await a.webContents.loadURL(`${base}/other?qa`);
+  const b = newTab();
+  await b.webContents.loadURL(`${base}/other?qb`);
+  const c = newTab();
+  await c.webContents.loadURL(`${base}/other?qc`);
+  active = a;
+  parity.selected(a);
+  parity.dock({ open: true });
+  assert(parity.splitWith(b) && parity.popOut(c), 'no split, or no popped-out tab');
+  const calls = [];
+  const was = { select: parity.hooks.select, changed: parity.hooks.changed };
+  parity.hooks.select = () => calls.push('select');
+  parity.hooks.changed = () => calls.push('changed');
+  parity.quitting = true; // as app's before-quit sets it
+  try {
+    const own = c.popout;
+    own.close(); // the window closing as the app quits
+    tabs.splice(tabs.indexOf(b), 1);
+    b.webContents.close(); // the split's tab going
+    await until(() => parity.split === null && own.isDestroyed());
+    assert(parity.split === null && !c.popout, 'the split or the popped-out tab outlived the quit');
+    assert(!calls.length, `the dock was called back while quitting: ${calls}`);
+  } finally {
+    parity.quitting = false;
+    Object.assign(parity.hooks, was);
+  }
+});
+
 let failed = 0;
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
