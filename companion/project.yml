@@ -48,6 +48,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
+        # Only Apple's own encryption: HTTPS through URLSession (trusted by the certificate's
+        # SHA-256, which is a hash, not encryption), the Keychain and WatchConnectivity.
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: J.A.R.V.I.S. finds Jarvis on your Mac and talks to it over your network.
         NSBonjourServices:
@@ -58,6 +60,7 @@ targets:
         NSLocationWhenInUseUsageDescription: Only if you turn on Share my location. Tells Jarvis on your Mac where you are, for travel times. Only your Mac gets it.
         NSLocationAlwaysAndWhenInUseUsageDescription: So Jarvis on your Mac knows when you arrive at or leave home and work, even when J.A.R.V.I.S. isn’t open. Low-power updates only; only your Mac gets it.
         NSHealthShareUsageDescription: Only if you turn on the daily health summary. Steps, sleep, resting heart rate and workouts go to Jarvis on your Mac for your briefing. Nothing is written to Health.
+        NSHealthUpdateUsageDescription: J.A.R.V.I.S. never writes to Apple Health. It only reads the daily summary you turn on.
         CFBundleURLTypes:
           - CFBundleURLName: com.bshventures.jarvis.companion.pairing
             CFBundleURLSchemes:
@@ -86,7 +89,9 @@ targets:
     entitlements:
       path: iOS/JarvisCompanion.entitlements
       properties:
-        # Xcode signs Release/TestFlight builds with "production" from the profile.
+        # Development builds push through APNs' sandbox. The App Store Connect export signs
+        # the TestFlight build with "production" from its distribution profile (archive.sh
+        # checks); setting it here would break the development-signed archive.
         aps-environment: development
         com.apple.security.application-groups:
           - group.com.bshventures.jarvis.companion
@@ -151,6 +156,7 @@ targets:
         CFBundleDisplayName: J.A.R.V.I.S.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -182,6 +188,7 @@ targets:
         CFBundleDisplayName: J.A.R.V.I.S.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
@@ -219,6 +226,7 @@ targets:
         CFBundleDisplayName: JARVIS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:

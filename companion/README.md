@@ -71,9 +71,9 @@ portal):
 
 - The App Group is `group.com.bshventures.jarvis.companion`: the shared container and the
   Keychain access group for the pairing (no Keychain Sharing capability needed).
-- `aps-environment` is `development` in the entitlements; a TestFlight or App Store export
-  signs it as `production`, and the app tells the Mac which (`sandbox` from Debug builds,
-  `production` from Release).
+- `aps-environment` is `development` in the entitlements (the archive is signed for
+  development first); the App Store Connect export signs it as `production`, and the app
+  tells the Mac which (`sandbox` from Debug builds, `production` from Release).
 - Pushes also need an APNs key on the Mac: in the developer portal, Keys › + › Apple Push
   Notifications service; paste the `.p8`'s contents, its Key ID, the team and the iPhone
   app's bundle ID into the Mac's Settings (iPhone & Watch).
@@ -85,6 +85,65 @@ portal):
   policy URL, since the app reads Health data and location.
 - CarPlay isn't built: a CarPlay app needs an entitlement Apple grants on request, for
   certain kinds of app only.
+
+## TestFlight
+
+What the project already carries for App Store Connect:
+
+- **Version and build.** `MARKETING_VERSION` in `project.yml` is the version testers see;
+  `CURRENT_PROJECT_VERSION` is the build number, which `scripts/archive.sh` sets to the time
+  (`date +%Y%m%d%H%M`) for each upload, since every upload needs a new one. The app, the
+  Watch app and all three extensions read both, so they always match.
+- **Privacy manifests.** Each target has a `PrivacyInfo.xcprivacy`: no tracking, no
+  tracking domains, no data collected, and the one required-reason API the code uses,
+  UserDefaults (the app's own settings, reason CA92.1; no App Group suite). Nothing reads
+  file timestamps, the boot time or disk space. "Collected" is Apple's word for data that
+  reaches the developer or its partners: everything the app sends (requests, answers to
+  cards, the Health summary, location, photos, shares) goes only to your own Mac, over the
+  pinned connection. (To declare Health and location anyway, add them to each manifest as
+  App Functionality, not linked, no tracking, and answer App Privacy the same way.)
+- **Export compliance.** `ITSAppUsesNonExemptEncryption` is `NO` in every Info.plist: the
+  app uses only Apple's encryption (HTTPS through URLSession, the Keychain,
+  WatchConnectivity), and pinning takes a certificate's SHA-256, a hash, not encryption.
+  App Store Connect doesn't ask about encryption for each build.
+- **Icons.** One opaque 1024×1024 PNG each for the iPhone and the Watch app (no alpha, as
+  the App Store needs); Xcode makes every other size from it. The extensions show the
+  app's icon.
+- **Push.** The App Store Connect export signs `aps-environment` as `production` (the
+  script checks), and a Release build tells the Mac it's `production`.
+
+Upload (never from a Simulator build):
+
+```sh
+companion/scripts/archive.sh --dry-run    # print what it runs
+companion/scripts/archive.sh              # xcodegen, archive, export and upload
+```
+
+It needs xcodegen and Xcode signed in (Settings › Accounts) with an Admin or App Manager
+in team 9ZSY5R8A5C. With an App Store Connect API key instead:
+`ASC_KEY_PATH=~/keys/AuthKey_ABC123.p8 ASC_KEY_ID=ABC123 ASC_ISSUER_ID=<issuer> companion/scripts/archive.sh`.
+
+In App Store Connect (appstoreconnect.apple.com):
+
+1. **The app record, once.** Apps › + › New App: iOS; a name (it must be unique on the
+   App Store; the Home Screen keeps saying J.A.R.V.I.S. whatever the record is called);
+   English (U.S.); the bundle ID `com.bshventures.jarvis.companion` (automatic signing
+   registers it on the first device build or archive); a SKU such as `jarvis-companion`.
+   The Watch app comes inside the iPhone app: it has no record of its own.
+2. **Internal testers.** People on your App Store Connect team (Users and Access, up to
+   100). TestFlight › Internal Testing › + a group, add them; each build reaches them once
+   Apple has processed it (an email says so). No review.
+3. **External testers** (anyone with an email address). TestFlight › Test Information:
+   a beta description, a feedback email, contact details and a **privacy policy URL**,
+   which Beta App Review needs because the app reads Health data and location. The policy
+   should say what the app sends to your Mac (requests, approvals, the Health summary,
+   location, photos and shared items), that none of it goes to BSH Ventures, and that
+   Jarvis on the Mac may send requests to Claude under the owner's own account. In the
+   review notes, say the app does nothing until it's paired with Jarvis on the tester's
+   own Mac, and attach a short screen recording. Then External Testing › + a group › add the
+   build: the first build of each version goes to Beta App Review (about a day).
+4. **Export compliance** is answered by the Info.plist key above: no question per build.
+5. For the App Store later: App Privacy › "Data Not Collected", as the manifests say.
 
 ## Pairing
 

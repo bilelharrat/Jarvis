@@ -62,6 +62,8 @@
 	<string>Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Only if you turn on the daily health summary. Steps, sleep, resting heart rate and workouts go to Jarvis on your Mac for your briefing. Nothing is written to Health.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>J.A.R.V.I.S. never writes to Apple Health. It only reads the daily summary you turn on.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>J.A.R.V.I.S. finds Jarvis on your Mac and talks to it over your network.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
