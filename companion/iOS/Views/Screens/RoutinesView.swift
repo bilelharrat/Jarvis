@@ -45,7 +45,7 @@ struct RoutinesView: View {
                     row(routine)
                 }
             } footer: {
-                ListFooter("They run on your Mac. Tap one to change its time or days.")
+                ListFooter("They run on your Mac. Tap one to change it, run it or delete it.")
             }
             .glassRow()
         }
@@ -74,7 +74,7 @@ struct RoutinesView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(routine.name), \(subtitle(routine))")
-            .accessibilityHint("Change its time or days, or delete it")
+            .accessibilityHint("Change it, run it or delete it")
 
             Toggle("On", isOn: Binding(get: { routine.enabled }, set: { value in Task { await setEnabled(routine, value) } }))
                 .labelsHidden()
@@ -185,35 +185,40 @@ private struct RoutineEditor: View {
     @State private var saving = false
     @State private var confirmDelete = false
 
-    private let originalClock: String?
-    private let originalDays: Set<Int>?
+    private let edit: RoutineEdit
 
     init(routine: RoutineItem, onChange: @escaping () async -> Void) {
         self.routine = routine
         self.onChange = onChange
-        originalClock = routine.clock
-        originalDays = routine.weekdays.map(Set.init)
-        _time = State(initialValue: routine.clock.map { RoutineSchedule.date(for: $0) } ?? RoutineSchedule.date(for: "08:00"))
-        _days = State(initialValue: Set(routine.weekdays ?? []))
+        edit = RoutineEdit(routine)
+        _time = State(initialValue: RoutineSchedule.date(for: edit.startClock))
+        _days = State(initialValue: edit.startDays)
     }
 
-    /// A one-off routine has a date, not days.
-    private var repeats: Bool { !routine.scheduleText.lowercased().hasPrefix("once") }
+    private var repeats: Bool { edit.editsDays }
 
     private var clock: String { RoutineSchedule.clock(of: time) }
-    private var timeChanged: Bool { clock != originalClock }
-    private var daysChanged: Bool { repeats && !days.isEmpty && days != (originalDays ?? []) }
+    private var change: RoutineEdit.Change { edit.changes(clock: clock, days: days) }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute)
-                        .foregroundStyle(Palette.ink)
+                    if edit.editsTime {
+                        DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute)
+                            .foregroundStyle(Palette.ink)
+                    } else {
+                        Text(routine.scheduleText.isEmpty ? "On its own schedule" : routine.scheduleText.capitalizedFirst)
+                            .foregroundStyle(Palette.ink)
+                    }
                 } header: {
                     ListHeader("When")
                 } footer: {
-                    if !routine.scheduleText.isEmpty { ListFooter("Now: \(routine.scheduleText).") }
+                    if !edit.editsTime {
+                        ListFooter("Change when it runs in Jarvis on your Mac.")
+                    } else if !routine.scheduleText.isEmpty {
+                        ListFooter("Now: \(routine.scheduleText).")
+                    }
                 }
                 .glassRow()
 
@@ -273,7 +278,7 @@ private struct RoutineEditor: View {
                     } label: {
                         if saving { ProgressView() } else { Text("Save").fontWeight(.semibold) }
                     }
-                    .disabled(saving || !(timeChanged || daysChanged))
+                    .disabled(saving || change.isEmpty)
                 }
             }
         }
@@ -294,11 +299,8 @@ private struct RoutineEditor: View {
         saving = true
         defer { saving = false }
         do {
-            let ok = try await api.updateRoutine(
-                id: routine.id,
-                time: timeChanged ? clock : nil,
-                days: daysChanged ? days.sorted() : nil
-            )
+            let change = change
+            let ok = try await api.updateRoutine(id: routine.id, time: change.time, days: change.days)
             if ok {
                 Haptics.answered(negative: false)
                 await onChange()

@@ -609,9 +609,10 @@ struct RoutineItem: Identifiable, Equatable, Sendable, Decodable {
         self.days = days.isEmpty ? nil : Array(Set(days)).sorted()
     }
 
-    /// "HH:MM", from the Mac or from the next run.
+    /// "HH:MM", from the Mac, else from its schedule ("weekdays at 7 AM"), else from the
+    /// next run (none when it's off).
     var clock: String? {
-        time ?? nextRun.map { RoutineSchedule.clock(of: $0) }
+        time ?? RoutineSchedule.timeOfDay(in: scheduleText) ?? nextRun.map { RoutineSchedule.clock(of: $0) }
     }
 
     /// 0 = Monday … 6 = Sunday, from the Mac or read from the schedule text.
@@ -636,6 +637,16 @@ enum RoutineSchedule {
     static let dayLetters = ["M", "T", "W", "T", "F", "S", "S"]
     static let dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
+    /// A schedule of weekdays at a time, as the Mac describes one ("every day at 7 AM",
+    /// "weekdays at 7 AM", "Mondays, Fridays at 4 PM"): the only kind the Mac keeps as it
+    /// is when it's given days. (A routine on a trigger, every so often, monthly or once reads
+    /// otherwise.)
+    static func isDayBased(_ text: String) -> Bool {
+        let day = "(?:mon|tues|wednes|thurs|fri|satur|sun)days"
+        let pattern = "^(?:every day|daily|weekdays|weekends|\(day)(?:(?:, | and |, and )\(day))*) at "
+        return text.trimmed.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
     /// "7:05", "07:05", "7:05:00" → "07:05"; nil for anything else.
     static func clock(_ text: String) -> String? {
         let parts = text.trimmed.split(separator: ":")
@@ -647,6 +658,27 @@ enum RoutineSchedule {
     static func clock(of date: Date, calendar: Calendar = .current) -> String {
         let parts = calendar.dateComponents([.hour, .minute], from: date)
         return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+    }
+
+    /// The time of day in a schedule as the Mac describes it ("weekdays at 7 AM",
+    /// "Mondays, Fridays at 4:30 PM", "daily at 22:30"): "HH:MM", or nil when it names none.
+    static func timeOfDay(in text: String) -> String? {
+        let pattern = #"\bat (\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?(?![0-9A-Za-z])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).last else { return nil }
+        func group(_ index: Int) -> String? {
+            Range(match.range(at: index), in: text).map { String(text[$0]) }
+        }
+        guard var hour = group(1).flatMap({ Int($0) }) else { return nil }
+        let minute = group(2).flatMap { Int($0) } ?? 0
+        if let half = group(3)?.lowercased() {
+            guard (1...12).contains(hour) else { return nil }
+            hour = hour % 12 + (half == "pm" ? 12 : 0)
+        } else if group(2) == nil {
+            return nil  // "at 7" alone isn't a time the Mac writes
+        }
+        guard (0...23).contains(hour), (0...59).contains(minute) else { return nil }
+        return String(format: "%02d:%02d", hour, minute)
     }
 
     /// Days named in a schedule ("weekdays at 7:00", "Mondays and Fridays at 16:00",
@@ -665,6 +697,48 @@ enum RoutineSchedule {
         let parts = clock.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return now }
         return calendar.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: now) ?? now
+    }
+}
+
+/// The routine editor's decisions: what it starts at, what it may change, and what Save
+/// sends (only what changed).
+struct RoutineEdit: Equatable {
+    struct Change: Equatable {
+        var time: String?
+        var days: [Int]?
+
+        var isEmpty: Bool { time == nil && days == nil }
+    }
+
+    let routine: RoutineItem
+    /// What the time picker and the day keys start at: the routine's own.
+    let startClock: String
+    let startDays: Set<Int>
+
+    init(_ routine: RoutineItem) {
+        self.routine = routine
+        startClock = routine.clock ?? "08:00"
+        startDays = Set(routine.weekdays ?? [])
+    }
+
+    /// Days, for a routine that runs on weekdays at a time. Given days, the Mac makes any
+    /// routine one of those, so one on a trigger, every so often, monthly or once is
+    /// changed on the Mac instead.
+    var editsDays: Bool { routine.days != nil || RoutineSchedule.isDayBased(routine.scheduleText) }
+
+    /// A time of day: the day-based ones, a one-off and a monthly one. A routine on a trigger
+    /// or every so often has none.
+    var editsTime: Bool {
+        let text = routine.scheduleText.trimmed.lowercased()
+        return routine.time != nil || editsDays || text.hasPrefix("once") || text.hasPrefix("monthly")
+    }
+
+    /// Only what the owner changed: a time or days sent unchanged could still change the
+    /// routine (a time the phone didn't know).
+    func changes(clock: String, days: Set<Int>) -> Change {
+        let time = editsTime && clock != startClock ? clock : nil
+        let days = editsDays && !days.isEmpty && days != startDays ? days.sorted() : nil
+        return Change(time: time, days: days)
     }
 }
 

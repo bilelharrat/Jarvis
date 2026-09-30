@@ -208,11 +208,11 @@ final class ContractDecodingTests: XCTestCase {
         ]}
         """)
         XCTAssertEqual(list.items.map(\.id), ["r1", "r2", "r3"])
-        XCTAssertEqual(list.items[0].clock, "07:00")  // from the next run
+        XCTAssertEqual(list.items[0].clock, "07:00")  // from its schedule
         XCTAssertEqual(list.items[0].weekdays, [0, 1, 2, 3, 4])
         XCTAssertEqual(list.items[1].weekdays, [0, 4])
         XCTAssertFalse(list.items[1].enabled)
-        XCTAssertNil(list.items[1].clock)
+        XCTAssertEqual(list.items[1].clock, "16:00")  // off, so no next run: from its schedule
         XCTAssertEqual(list.items[2].clock, "22:30")
         XCTAssertEqual(list.items[2].weekdays, [0, 6])  // from the Mac, out-of-range dropped
     }
