@@ -1083,3 +1083,34 @@ async def test_the_mcp_answer_says_whether_the_session_is_running(
     [answer] = [e for e in drain(q) if e["type"] == "task_mcp"]
     assert answer["connected"] is True
     assert answer["servers"] == [{"name": "github", "status": "connected"}]
+
+
+async def test_the_accessibility_probe_is_built_once_and_never_hangs(tmp_path, monkeypatch):
+    """swiftc is never run here: the build is faked, and the "probe" is a tiny script."""
+    import asyncio
+
+    from jarvis import hands_guard
+
+    builds = []
+    script = tmp_path / "probe"
+    script.write_text('#!/bin/sh\necho \'{"trusted": true, "app": "Slack", "argv": "\'"$1"\'"}\'\n')
+    script.chmod(0o755)
+
+    def ensure_probe():
+        builds.append(1)
+        return script
+
+    monkeypatch.setattr(hands_guard, "ensure_probe", ensure_probe)
+    monkeypatch.setattr(hands_guard, "front_app", lambda: {"app": "Messages", "bundle": "b"})
+    assert await hands_guard.AXProbe(enabled=False)("focus") == {}  # tests: nothing looked at
+    assert builds == []
+    probe = hands_guard.AXProbe()
+    first, second = await asyncio.gather(probe("focus"), probe("focus"))
+    assert first == second == {"app": "Messages", "bundle": "b", "fallback": True}
+    await probe.prepare()
+    assert builds == [1]  # one build, shared
+    assert await probe("point", "1", "2") == {"trusted": True, "app": "Slack", "argv": "point"}
+    # A probe that hangs is stopped and the app in front is all that's known.
+    script.write_text("#!/bin/sh\nsleep 30\n")
+    monkeypatch.setattr(hands_guard, "PROBE_SECONDS", 0.3)
+    assert (await probe("focus"))["fallback"] is True

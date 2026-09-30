@@ -152,9 +152,9 @@ _SENDS = [
     ("submit", re.compile(r"^(?:submit|提交)(?![a-z])")),
 ]
 # Keys that press what has the keyboard: a button (Return, Space), a message box's send
-# (Return, ⌘Return, ⌘⇧D in Mail), or deleting a selected message.
-_RETURNS = {"return", "enter", "cmd+return", "cmd+enter", "ctrl+return", "ctrl+enter",
-            "option+return", "alt+return"}  # fmt: skip
+# (Return, ⌘Return, ⌘⇧D in Mail), or deleting a selected message. (⇧Return and ⌥Return
+# start a new line in a chat's box.)
+_RETURNS = {"return", "enter", "cmd+return", "cmd+enter", "ctrl+return", "ctrl+enter"}
 _MAIL_SEND = {"cmd+shift+d", "shift+cmd+d", "cmd+return", "cmd+enter"}
 _DELETES = {"delete", "backspace", "forwarddelete", "cmd+delete", "cmd+backspace"}
 _PRESSES = {"space"}
@@ -302,19 +302,38 @@ class AXProbe:
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
         self.binary: Path | None = None
-        self._building: asyncio.Task | None = None
+        self._building: asyncio.Future | None = None
+        self._told = False  # a build that failed unexpectedly, already logged
+
+    def _build(self) -> asyncio.Future:
+        """The one build: whoever asks first starts it, everyone after shares it."""
+        if self._building is None:
+            self._building = asyncio.ensure_future(asyncio.to_thread(ensure_probe))
+        return self._building
+
+    def _built(self) -> None:
+        building = self._build()
+        if not building.done() or building.cancelled() or self._told:
+            return
+        if building.exception() is not None:  # said once; the app in front is all it knows
+            log.warning("the accessibility probe didn't build: %s", building.exception())
+            self._told = True
+            return
+        self.binary = building.result()
 
     async def prepare(self) -> None:
         if self.enabled and self.binary is None:
-            self.binary = await asyncio.to_thread(ensure_probe)
+            await asyncio.wait({self._build()})
+            self._built()
 
     async def __call__(self, *argv: str) -> dict[str, Any]:
         if not self.enabled:
             return {}
         if self.binary is None:
-            if self._building is None:  # built in the background; meanwhile, the app only
-                self._building = asyncio.ensure_future(self.prepare())
+            self._built()  # built in the background; meanwhile, the app in front only
+        if self.binary is None:
             return {**await asyncio.to_thread(front_app), "fallback": True}
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 str(self.binary),
@@ -326,6 +345,9 @@ class AXProbe:
             found = json.loads(out.decode(errors="replace").strip().splitlines()[-1])
         except (OSError, ValueError, IndexError, TimeoutError) as exc:
             log.info("accessibility probe failed (%s)", type(exc).__name__)
+            if proc is not None and proc.returncode is None:
+                proc.kill()
+                await proc.wait()
             return {**await asyncio.to_thread(front_app), "fallback": True}
         if not isinstance(found, dict):
             return {"fallback": True}
