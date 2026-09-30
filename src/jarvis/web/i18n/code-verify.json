@@ -5,6 +5,9 @@
     "Dev servers": "开发服务器",
     "Suggested": "建议",
     "Read from the project. Nothing runs until you save one and start it.": "根据项目读出。保存并启动之前不会运行任何东西。",
+    "manage.py: a Django project": "manage.py：Django 项目",
+    "Gemfile: a Rails app": "Gemfile：Rails 应用",
+    "index.html: a static site, served from this folder": "index.html：静态网站，由这个文件夹提供",
     "No dev servers yet. Save a suggestion below, or add one to .claude/launch.json.": "还没有开发服务器。保存下面的建议，或在 .claude/launch.json 中添加一个。",
     "Looking at the project…": "正在查看项目…",
     "Starting…": "正在启动…",
@@ -115,6 +118,14 @@
     "This session no longer uses the Mac.": "这个会话不再使用这台 Mac。"
   },
   "patterns": [
+    [
+      "^(\\S*)package\\.json: (\\S+) runs (.+)$",
+      "$1package.json：$2 脚本运行 $3"
+    ],
+    [
+      "^(\\S+\\.py): a (FastAPI|Flask) app$",
+      "$1：$2 应用"
+    ],
     [
       "^It exited with code (\\d+)\\.$",
       "它已退出，代码 $1。"

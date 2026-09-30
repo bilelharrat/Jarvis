@@ -226,7 +226,9 @@
     const head = el('div', 'cv-server-head');
     head.append(mine(el('strong', '', s.name)), el('span', 'jc-spacer'),
       button('Save', 'jc-mini', () => F.send({ type: 'cv_save', name: s.name, ...whereOf(state.info) })));
-    li.append(head, mine(el('code', 'cv-cmd', s.command + (s.cwd ? `   (in ${s.cwd}/)` : ''))), mine(el('small', 'cv-note', s.why)));
+    // Why it's suggested is the backend's own wording ("manage.py: a Django project"): it's
+    // translated, a script it quotes kept as it is.
+    li.append(head, mine(el('code', 'cv-cmd', s.command + (s.cwd ? `   (in ${s.cwd}/)` : ''))), el('small', 'cv-note', s.why));
     return li;
   }
 

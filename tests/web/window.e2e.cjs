@@ -3094,6 +3094,32 @@ test('The Tests pane shows a run only under its own suite’s chip', async () =>
   assert(!r.line && !r.buttons.includes('Stop') && r.buttons.includes('Run all'), JSON.stringify(r));
 });
 
+test('In Chinese a dev server suggestion’s reason reads in Chinese; its name and command stay as they are', async () => {
+  await featureScript('code-verify.js');
+  const merged = (() => {
+    const base = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n-zh.json'), 'utf8'));
+    const cv = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n', 'code-verify.json'), 'utf8'));
+    return { strings: { ...base.strings, ...cv.strings }, patterns: [...base.patterns, ...cv.patterns] };
+  })();
+  await js(`(() => { const zh = ${JSON.stringify(JSON.stringify(merged))}; const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(zh)) : real(url, o)); })(); true`);
+  await js('window.jarvisI18n.setLang("zh")');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-preview"); true');
+  // Each reason as devservers.suggest words it.
+  const suggestion = (name, command, why) => ({ name, command, port: 8000, url: '', cwd: '', source: '', why });
+  await deliver({ type: 'cv_state', project: 'alpha', path: '/Users/x/Projects/alpha', id: 1, session: null, problems: [], servers: [], configs: [],
+    suggestions: [suggestion('web dev', 'npm run dev', 'web/package.json: dev runs vite --port 5173'),
+      suggestion('api', 'uv run uvicorn main:app --reload', 'main.py: a FastAPI app'),
+      suggestion('django', 'uv run python manage.py runserver 127.0.0.1:8000', 'manage.py: a Django project'),
+      suggestion('rails', 'bin/rails server -b 127.0.0.1', 'Gemfile: a Rails app'),
+      suggestion('static', 'python3 -m http.server 8000 --bind 127.0.0.1', 'index.html: a static site, served from this folder')] });
+  await frames(3);
+  const rows = await js(`[...document.querySelectorAll('#jc-pane-body .cv-suggestion')].map((li) => [li.querySelector('strong').textContent, li.querySelector('.cv-note').textContent, li.querySelector('.cv-cmd').textContent])`);
+  assert(JSON.stringify(rows.map((r) => r[1])) === JSON.stringify(['web/package.json：dev 脚本运行 vite --port 5173', 'main.py：FastAPI 应用', 'manage.py：Django 项目',
+    'Gemfile：Rails 应用', 'index.html：静态网站，由这个文件夹提供']), JSON.stringify(rows));
+  assert(rows.map((r) => r[0]).join() === 'web dev,api,django,rails,static' && rows[0][2] === 'npm run dev', JSON.stringify(rows));
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this
