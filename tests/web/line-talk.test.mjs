@@ -78,8 +78,8 @@ mod.exports.claude = (key) => {
 
 function reply(fields) {
   return {
-    say: '', action: 'none', start: '', title: '', minutes: 0, digits: '', caller_name: '', about: '',
-    note_for_owner: '', outcome: '', outcome_start: '', outcome_details: '', ...fields,
+    say: '', action: 'none', start: '', title: '', minutes: 0, amount: 0, digits: '', caller_name: '', about: '',
+    note_for_owner: '', outcome: '', outcome_start: '', outcome_details: '', next_steps: '', ...fields,
   };
 }
 
@@ -314,7 +314,8 @@ test("a placed call listens first; if no one speaks, Jarvis introduces itself as
   assert.match(params.system, /- Party size: 2\n- Flexibility: up to 30 minutes either way/);
   assert.doesNotMatch(params.system, /Card details/); // empty details aren't listed
   assert.match(params.system, /must say who you are and that you're an AI/);
-  assert.match(params.system, /Never give card details/);
+  assert.match(params.system, /Never give card numbers, passwords, PINs, Social Security numbers/);
+  assert.match(params.system, /Everything else about Bilel is off limits/);
   assert.match(params.messages[0].content, /\(The call has connected\.\)\n\(They picked up but haven't said anything yet\.\)/);
 });
 
@@ -340,7 +341,7 @@ test('a placed call presses keys at a menu, holds when asked, and ends with how 
   assert.match(xml, /Goodbye\.<\/Say><Hangup\/>/);
   assert.deepEqual(talkOf('m1').outcome, {
     status: 'done', start: '2026-10-02T19:30:00-07:00',
-    details: 'Booked a table for 2 at 7:30 PM Friday under Bilel; confirmation 4471.',
+    details: 'Booked a table for 2 at 7:30 PM Friday under Bilel; confirmation 4471.', next: '',
   });
 });
 
@@ -364,4 +365,68 @@ test("a placed call can't book the owner's open times", async () => {
   claude.replies.push(reply({ say: 'Sure.', action: 'book', start: open[0].start }));
   await placed({ step: 'talk', SpeechResult: 'Want to meet Bilel?' });
   assert.equal(sync.items.length, 0);
+});
+
+// ── the owner's card: what a placed call may agree to and say ──
+
+function errand(limits, extra) {
+  sync.talks['talk-m1'] = {
+    data: {
+      mode: 'out', kind: 'errand', owner: 'Bilel', tz: 'America/Los_Angeles', name: 'Comcast',
+      goal: 'Cancel the internet plan on account 88123456.',
+      details: { 'What you may tell them': 'Account 88123456, under Bilel Harrat.' },
+      limits, turns: [], note: '', ...extra,
+    },
+  };
+}
+
+test('the card sets the limits in the prompt, and a yes is checked against them here', async () => {
+  reset({ owner: 'Bilel' });
+  errand({ commit: true, max_amount: 20, currency: '$', earliest: '2026-10-01', latest: '2026-10-09' });
+  await placed({ step: 'dial', AnsweredBy: 'human' });
+  claude.replies.push(reply({ say: 'Yes, a $45 early-cancellation fee is fine.', action: 'agree', title: 'Cancel with fee', amount: 45 }));
+  let xml = await placed({ step: 'talk', SpeechResult: "There's a $45 fee to cancel. Is that OK?" });
+  assert.match(claude.requests[0].params.system, /Limits: You may commit for Bilel, up to \$20 in total, for dates from 2026-10-01 to 2026-10-09\./);
+  assert.match(xml, /That's more than I can agree to for Bilel\. I'll take that back to Bilel/);
+  assert.doesNotMatch(xml, /is fine/);
+  assert.equal(talkOf('m1').agreed, undefined);
+  assert.match(talkOf('m1').turns.at(-2).text, /Not agreed: \$45 is over the \$20 limit/);
+  claude.replies.push(reply({ say: 'Then yes, please cancel it on October 5th.', action: 'agree', title: 'Cancel the plan', amount: 0, start: '2026-10-20T09:00:00-07:00' }));
+  xml = await placed({ step: 'talk', SpeechResult: 'We can waive it if it ends on the 20th.' });
+  assert.match(xml, /That date is outside what I can agree to/);
+  claude.replies.push(reply({ say: 'Yes, please cancel it on the 5th.', action: 'agree', title: 'Cancel the plan', amount: 0, start: '2026-10-05T09:00:00-07:00' }));
+  xml = await placed({ step: 'talk', SpeechResult: 'Or the 5th, no fee.' });
+  assert.match(xml, /Yes, please cancel it on the 5th\./);
+  assert.deepEqual(talkOf('m1').agreed, [{ what: 'Cancel the plan', amount: 0, start: '2026-10-05T09:00:00-07:00' }]);
+});
+
+test('a call that only gathers options agrees to nothing', async () => {
+  reset({ owner: 'Bilel' });
+  errand({ commit: false, max_amount: 0 });
+  await placed({ step: 'dial', AnsweredBy: 'human' });
+  claude.replies.push(reply({ say: "Hi, this is Jarvis, an AI assistant for Bilel. Yes, let's do the $10 plan.", action: 'agree', amount: 10 }));
+  const xml = await placed({ step: 'talk', SpeechResult: 'We could offer $10 a month instead.' });
+  assert.match(claude.requests[0].params.system, /Only gather options/);
+  assert.match(xml, /not able to agree to anything on this call, only to find out the options/);
+  assert.equal(talkOf('m1').agreed, undefined);
+});
+
+test('a placed call says it is an AI first, and no number leaves that the card or they did not give', async () => {
+  reset({ owner: 'Bilel' });
+  errand({ commit: true });
+  await placed({ step: 'dial', AnsweredBy: 'human' });
+  claude.replies.push(reply({ say: "I'm calling to cancel an internet plan." }));
+  let xml = await placed({ step: 'talk', SpeechResult: 'Comcast, how can I help?' });
+  assert.match(xml, /Hi, this is Jarvis, an AI assistant calling on behalf of Bilel\. I'm calling to cancel/);
+  claude.replies.push(reply({ say: 'Sure, the account is 8812 3456.' }));
+  xml = await placed({ step: 'talk', SpeechResult: "What's the account number?" });
+  assert.match(xml, /the account is 8812 3456\./); // on the card
+  assert.doesNotMatch(xml, /AI assistant calling/); // said once
+  claude.replies.push(reply({ say: 'The card is 4111 1111 1111 1111.' }));
+  xml = await placed({ step: 'talk', SpeechResult: 'And the card on file?' });
+  assert.doesNotMatch(xml, /4111/);
+  assert.match(xml, /can't give that out over the phone\. Bilel can follow up with you directly/);
+  claude.replies.push(reply({ say: 'Your confirmation is 5519 0022, thank you.' }));
+  xml = await placed({ step: 'talk', SpeechResult: 'Confirmation number 5519 0022.' });
+  assert.match(xml, /5519 0022/); // their own number, read back
 });
