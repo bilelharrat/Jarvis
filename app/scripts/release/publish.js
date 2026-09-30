@@ -10,6 +10,12 @@
 // ad hoc build, a missing notarization ticket and a version that's already released.
 //
 //   node scripts/release/publish.js [--notes "What's new"] [--prerelease]
+//   node scripts/release/publish.js --preview
+//
+// --preview publishes the ad hoc build (npm run dist -- --adhoc) as a pre-release,
+// "v<version>-preview", for trying J.A.R.V.I.S. before it's notarized: macOS won't open it
+// until the person allows it once in System Settings › Privacy & Security, the notes say
+// how, and it never updates itself (the notarized release replaces it).
 'use strict';
 
 const fs = require('fs');
@@ -27,7 +33,41 @@ function flag(name) {
   return at < 0 ? null : process.argv[at + 1] || '';
 }
 
+const PREVIEW_NOTES = (version) => [
+  `A preview of J.A.R.V.I.S. ${version} for Apple-silicon Macs (M1 or later) on macOS 14 or later.`,
+  '',
+  "It isn't notarized by Apple yet, so macOS asks you to allow it once:",
+  '1. Open the disk image and drag J.A.R.V.I.S. onto Applications.',
+  '2. Open J.A.R.V.I.S. from Applications. macOS says it can\'t check it: click Done.',
+  '3. Open System Settings › Privacy & Security, scroll to Security and click Open Anyway, then Open.',
+  '',
+  "You'll need your own Anthropic API key (console.anthropic.com › API keys) for Setup's Claude step.",
+  "This preview doesn't update itself: download the notarized release when it's out.",
+].join('\n');
+
+function preview() {
+  const version = PKG.version;
+  const tag = `v${version}-preview`;
+  const dmg = path.join(OUT, `${DISPLAY}-${version}-adhoc.dmg`);
+  const sums = path.join(OUT, 'SHA256SUMS.txt');
+  for (const file of [dmg, sums]) {
+    if (!fs.existsSync(file)) throw new BuildError(`Missing ${path.relative(APP, file)}: run npm run dist -- --adhoc first.`);
+  }
+  if (!fs.readFileSync(sums, 'utf8').includes(path.basename(dmg))) throw new BuildError('SHA256SUMS.txt is for another build.');
+  if (run('gh', ['auth', 'status'], { allowFail: true, quiet: true }).status !== 0) {
+    throw new BuildError('The GitHub CLI isn\'t signed in: run gh auth login first.');
+  }
+  if (run('gh', ['release', 'view', tag, '--repo', REPO], { allowFail: true, quiet: true }).status === 0) {
+    throw new BuildError(`${tag} is already released.`);
+  }
+  say(`publishing the preview ${tag} to ${REPO}`);
+  run('gh', ['release', 'create', tag, dmg, sums, '--repo', REPO, '--prerelease', '--title', `J.A.R.V.I.S. ${version} preview (not notarized)`, '--notes', flag('--notes') || PREVIEW_NOTES(version)]);
+  say(`  published: https://github.com/${REPO}/releases/tag/${tag}`);
+  say(`  download:  https://github.com/${REPO}/releases/download/${tag}/${encodeURIComponent(path.basename(dmg))}`);
+}
+
 function main() {
+  if (process.argv.includes('--preview')) return preview();
   const version = PKG.version;
   const tag = `v${version}`;
   const dmg = path.join(OUT, `${DISPLAY}-${version}.dmg`);
