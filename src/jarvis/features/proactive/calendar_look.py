@@ -72,5 +72,5 @@ class CalendarLook:
                 log.exception("proactive: a calendar listener failed")
 
     def timed(self) -> list[dict[str, Any]]:
-        """The events with a time of day (not all-day ones)."""
-        return [e for e in self.events if not e.get("all_day")]
+        """The events with a time of day (not all-day ones) the owner hasn't declined."""
+        return [e for e in self.events if not e.get("all_day") and e.get("reply") != "declined"]

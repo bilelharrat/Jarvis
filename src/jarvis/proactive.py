@@ -324,10 +324,13 @@ class Watcher:
             return
         self._events_at = now
         try:
-            self._events = await self._events_fn()
+            events = await self._events_fn()
         except Exception as exc:  # no calendar access
             log.info("proactive: no calendar (%s)", exc)
-            self._events = []
+            events = []
+        # One the owner declined isn't theirs to go to: no heads-up, no leave time, and
+        # not a meeting they're in.
+        self._events = [e for e in events if e.get("reply") != "declined"]
 
     async def _etas_for(self, now: datetime) -> dict[str, int | None]:
         out = {}

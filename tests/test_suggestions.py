@@ -247,6 +247,14 @@ async def test_no_prep_when_there_is_material_or_the_title_is_suspicious(tmp_pat
     assert await s2.tick() == []
 
 
+async def test_no_prep_for_a_meeting_the_owner_declined(tmp_path):
+    async def events():
+        return [{**meeting(), "reply": "declined"}]
+
+    s, _ = make(tmp_path, events=events, has_prep=lambda e: False)
+    assert await s.tick() == []
+
+
 async def test_calendar_failure_is_quiet(tmp_path):
     async def events():
         raise RuntimeError("no calendar access")

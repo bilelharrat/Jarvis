@@ -686,6 +686,8 @@ class Suggester:
             begin = event.get("begin")
             if not isinstance(begin, datetime) or event.get("all_day"):
                 continue
+            if event.get("reply") == "declined":  # not theirs to go to: nothing to prepare
+                continue
             if begin.tzinfo is not None:
                 begin = begin.astimezone().replace(tzinfo=None)
             hours = (begin - now).total_seconds() / 3600

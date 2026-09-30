@@ -377,7 +377,11 @@ class Briefing:
         found = await calendar_kit.fetch(back, ahead)
         if "events" not in found:
             return ""  # no calendar access: Claude can still look
-        events = [e for e in calendar_kit.parse(found["events"]) if not e.get("all_day")]
+        events = [
+            e
+            for e in calendar_kit.parse(found["events"])
+            if not e.get("all_day") and e.get("reply") != "declined"
+        ]
         done = [e for e in events if e["begin"].date() == now.date() and e["begin"] <= now]
         tomorrow = sorted(
             (e for e in events if e["begin"].date() == now.date() + timedelta(days=1)),

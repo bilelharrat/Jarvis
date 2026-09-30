@@ -119,6 +119,26 @@ async def test_watcher_announces_each_thing_once():
     assert [a.kind for a in said].count("battery") == 2  # warned again after charging
 
 
+async def test_a_meeting_the_owner_declined_gets_no_heads_up():
+    """Declined: no "starts in 8 minutes", no "time to leave", and it doesn't count as
+    being in a meeting."""
+    said = []
+    declined = {**event("Vendor pitch", 8, "https://zoom.us/j/1"), "reply": "declined"}
+    far = {**event("Offsite", 40, "1 Market St, San Francisco"), "reply": "declined"}
+    kept = {**event("Standup", 9, "https://zoom.us/j/2"), "reply": "accepted"}
+
+    async def events():
+        return [declined, far, kept]
+
+    async def eta(_where):
+        return 35
+
+    w = Watcher(said.append, events=events, eta=eta, battery=lambda: None, weather=lambda: None)
+    await w.tick(NOW)
+    assert [a.text for a in said] == ["Standup starts in 9 minutes."]
+    assert [e["title"] for e in w.known_events()] == ["Standup"]
+
+
 async def test_hub_speaks_alerts_only_when_welcome(settings, quiet_speaker, isolated):
     from test_hub import drain, make_hub
 
