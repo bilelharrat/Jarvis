@@ -61,7 +61,7 @@ async def test_the_briefing_clock_survives_a_full_disk(settings, quiet_speaker, 
     hub.briefing_due = lambda now=None: True
     briefed = []
 
-    async def briefing():
+    async def briefing(silent=False):
         briefed.append(1)
 
     hub.briefing = briefing

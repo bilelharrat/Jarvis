@@ -5310,9 +5310,10 @@ class Hub:
 
     # ── morning briefing ──
 
-    async def briefing(self) -> None:
+    async def briefing(self, silent: bool = False) -> None:
+        """The morning briefing (silent: without a sound, as the clock's in quiet hours)."""
         request, carries = await self.briefing_request()
-        await self.ask(request, display="Morning briefing", untrusted=carries)
+        await self.ask(request, display="Morning briefing", untrusted=carries, silent=silent)
 
     async def briefing_request(self) -> tuple[str, str]:
         """What the briefing asks, and the private data that carries ("" when none; the
@@ -5859,7 +5860,9 @@ class Hub:
                     except OSError as exc:  # brief anyway: the date is saved on a later tick
                         log.warning("couldn't save the briefing date: %s", exc)
                         self._prefs_unsaved = True
-                    self._spawn(self.briefing())
+                    # The app's own, like a routine: in quiet hours (a Focus mode, the
+                    # weekend's own hours) it runs without a sound, as the wrap-up does.
+                    self._spawn(self.briefing(silent=self.quiet_now()))
                 if self.wake_call_due() and not self._lock.locked():
                     self.prefs.last_wake_call = datetime.now().date().isoformat()
                     try:

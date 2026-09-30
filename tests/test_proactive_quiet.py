@@ -193,6 +193,37 @@ async def test_in_focus_a_heads_up_is_a_card_not_words(settings, quiet_speaker, 
     assert said == ["Rain at 5."] and [a.key for a in shown] == ["rain:1", "rain:2"]
 
 
+async def test_the_morning_briefing_keeps_a_focus_modes_quiet(settings, quiet_speaker, isolated):
+    """The briefing at its time is the app's own, like a routine: in quiet hours as a Focus
+    mode or the weekend's hours make them, it runs without a sound (a card with the words),
+    as the evening wrap-up does. Asked for in the window, it speaks."""
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.prefs.quiet_hours = "00:00-00:00"  # the range in Settings never says quiet
+    asked = []
+
+    async def ask(request, **kw):
+        asked.append(kw.get("silent", False))
+        return ""
+
+    hub.ask = ask
+    hub.briefing_due = lambda now=None: True
+    feature_of(hub).quiet.focus = {"state": "on", "name": "Sleep"}
+    clock = asyncio.create_task(hub._briefing_clock())
+    for _ in range(50):
+        if asked:
+            break
+        await asyncio.sleep(0.01)
+    clock.cancel()
+    assert asked == [True]
+    feature_of(hub).quiet.focus = {"state": "off"}
+    await hub._handle({"type": "briefing"})  # the owner's own click
+    for _ in range(50):
+        if len(asked) == 2:
+            break
+        await asyncio.sleep(0.01)
+    assert asked == [True, False]
+
+
 async def test_the_kits_hear_the_hubs_say(settings, quiet_speaker, isolated, tmp_path):
     from jarvis.interrupts import Interrupter
     from jarvis.suggestions import Suggester
