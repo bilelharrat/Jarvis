@@ -17,6 +17,9 @@ log = logging.getLogger("jarvis")
 SAMPLE_RATE = 16_000
 BLOCK_SECONDS = 0.05
 STALL_SECONDS = 2.0  # no audio at all for this long: the microphone has stalled
+# With a neural voice detector, a voice starts an utterance from this share of the loudness
+# bar (the detector already tells it from noise; a whisper from the next room stays out).
+VOICED_LEVEL = 0.5
 
 
 def pick_input_device(preference: str = "builtin") -> int | None:
@@ -203,12 +206,19 @@ class Segmenter:
         block_seconds: float = BLOCK_SECONDS,
         early_seconds: float | None = None,
         on_early: Callable[[int, np.ndarray], None] | None = None,
+        voice: Callable[[np.ndarray], bool | None] | None = None,
     ) -> None:
         """early_seconds/on_early: after that much quiet, hand over the utterance so far
         (with a number of its own) so it can be transcribed while we wait to be sure
         you've finished; commit(number) then ends it there, as if the full silence had
         passed. Speaking again makes that copy stale: only the newest copy of an
-        utterance, with nothing said since, can end it."""
+        utterance, with nothing said since, can end it.
+
+        voice: a neural voice detector (vad.VoiceGate): speech or not for each block. With
+        it, speech starts only on a voice that's also above half the room's loudness bar
+        (not a door, the keyboard, a fan), and ends when the voice does, however loud the
+        room stays. Without it, loudness alone decides."""
+        self.voice = voice
         self.silence_blocks = round(silence_seconds / block_seconds)
         self.early_blocks = round(early_seconds / block_seconds) if early_seconds else 0
         self.on_early = on_early
@@ -267,12 +277,17 @@ class Segmenter:
     def _feed(
         self, block: np.ndarray, rms: float
     ) -> tuple[np.ndarray | None, tuple[int, np.ndarray] | None]:
+        # Every block, calibration too: the detector's memory follows the stream.
+        voiced = self.voice(block) if self.voice is not None else None
         if len(self._noise) < self.calibration_blocks:
             self._noise.append(rms)
             if len(self._noise) == self.calibration_blocks:
                 self.threshold = max(float(np.median(self._noise)) * 3.5, 0.012)
             return None, None
-        loud = rms >= self.threshold
+        if voiced is None:
+            loud = rms >= self.threshold
+        else:
+            loud = voiced and (self.in_speech or rms >= self.threshold * VOICED_LEVEL)
         if not self.in_speech:
             self._recalibrate(rms)
             self._preroll = (self._preroll + [block])[-6:]
@@ -471,8 +486,12 @@ class ContinuousListener:
         self.early_seconds: float | None = None
         self.on_early: Callable[[int, np.ndarray], None] | None = None
         self.on_double_clap: Callable[[], None] | None = None  # two claps (set by the hub)
+        # A neural voice detector for each stream opened (features/voice.py sets it; None
+        # or a factory giving None: loudness decides).
+        self.voice_factory: Callable[[], Callable[[np.ndarray], bool | None] | None] | None = None
         self.segmenter: Segmenter | None = None
         self._stop = threading.Event()
+        self._reopen = threading.Event()
         self._thread: threading.Thread | None = None
 
     @property
@@ -489,6 +508,11 @@ class ContinuousListener:
     def stop(self) -> None:
         self._stop.set()
 
+    def reopen(self) -> None:
+        """Close the stream and open it again, with the settings as they are now (another
+        voice detector). What was being said is dropped."""
+        self._reopen.set()
+
     def commit(self, number: int) -> bool:
         """End the utterance at early copy `number`: its transcript was enough."""
         return self.segmenter.commit(number) if self.segmenter is not None else False
@@ -497,6 +521,17 @@ class ContinuousListener:
         """Whether early copy `number` can still be committed: if not, it isn't worth
         transcribing (you kept talking; a newer copy or the whole utterance follows)."""
         return self.segmenter.early_is_current(number) if self.segmenter is not None else False
+
+    def _voice(self) -> Callable[[np.ndarray], bool | None] | None:
+        """A fresh voice detector for a stream about to open; None (loudness decides) when
+        there's no factory or it fails."""
+        if self.voice_factory is None:
+            return None
+        try:
+            return self.voice_factory()
+        except Exception as exc:  # the neural detector must never cost the microphone
+            log.warning("voice detector unavailable (%s); using loudness", exc)
+            return None
 
     def _run(self) -> None:
         owned = _HANDS_FREE.acquire(timeout=STALL_SECONDS + 3)
@@ -518,11 +553,13 @@ class ContinuousListener:
 
         failures = 0
         while not self._stop.is_set():
+            self._reopen.clear()
             blocks: queue.Queue[np.ndarray] = queue.Queue()
             segmenter = Segmenter(
                 silence_seconds=self.silence_seconds,
                 early_seconds=self.early_seconds,
                 on_early=self.on_early,
+                voice=self._voice(),
             )
             self.segmenter = segmenter
             claps = ClapDetector(on_clap=lambda level: log.debug("a clap (level %.3f)", level))
@@ -552,6 +589,8 @@ class ContinuousListener:
                             failures += 1
                             log.warning("microphone went quiet; reopening it")
                             break
+                        if self._reopen.is_set():
+                            break  # opened again with the new settings, straight away
                         failures = 0  # sound is arriving: this microphone works
                         rms = float(np.sqrt(np.mean(block**2)))
                         if self.on_level is not None:

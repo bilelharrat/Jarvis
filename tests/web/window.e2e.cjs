@@ -2480,6 +2480,36 @@ test('Settings has the switch for new sessions’ checks, kept as a feature sett
   assert(await js('$("sw-cv-new-sessions").closest("section").previousElementSibling.contains($("sw-code-narrate"))'), 'not beside Voice coding');
 });
 
+// ── Settings › Listening (web/features/voice.js) ──
+
+// A feature module's window script, run in the page as features.js would run it (this
+// harness serves only the window's top folder), with its stylesheet.
+async function loadVoiceFeature(name) {
+  const dir = path.join(WEB, 'features');
+  const css = fs.existsSync(path.join(dir, `${name}.css`)) ? fs.readFileSync(path.join(dir, `${name}.css`), 'utf8') : '';
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(css)}; document.head.append(s); return true; })()`);
+  await js(fs.readFileSync(path.join(dir, `${name}.js`), 'utf8') + '\n;true');
+}
+
+test('Listening sits after Voice, asks for its state and switches the detector', async () => {
+  await loadVoiceFeature('voice');
+  const place = await js(`(() => { const g = $('voice-listening'); return { after: g.previousElementSibling === $('sw-voice').closest('section.group') }; })()`);
+  assert(place.after, 'the Listening group is not right after Voice');
+  await js('__sent.length = 0; featureEvent({ type: "hello" }); true');
+  assert(JSON.stringify(await sent()) === '["voice_status"]', JSON.stringify(await sent()));
+  await js('featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, neural_why: "" }); true');
+  const r = await js(`({ checked: $('voice-detector').querySelector('[aria-checked="true"]').textContent, slider: $('voice-sensitivity').value,
+    shown: getComputedStyle($('voice-sensitivity').closest('label')).display !== 'none', note: $('voice-detector-note').textContent })`);
+  assert(r.checked === 'Neural' && r.slider === '50' && r.shown && /tells speech from noise/.test(r.note), JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await clickText('#voice-detector', 'Loudness');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'voice_settings', changes: { voice_detector: 'energy' } }]), JSON.stringify(s));
+  await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: false, neural_why: "no onnxruntime" }); true`);
+  const off = await js(`({ shown: getComputedStyle($('voice-sensitivity').closest('label')).display !== 'none', note: $('voice-detector-note').textContent })`);
+  assert(!off.shown && /couldn’t load/.test(off.note), JSON.stringify(off));
+});
+
 // ──
 
 let base;

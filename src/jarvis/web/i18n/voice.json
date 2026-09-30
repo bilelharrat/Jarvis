@@ -1,0 +1,17 @@
+{
+  "strings": {
+    "Listening": "聆听",
+    "Voice detection": "语音检测",
+    "How hands-free tells your voice from other sounds": "免提模式如何把你的声音和其他声音区分开",
+    "Neural": "神经网络",
+    "Loudness": "音量",
+    "Sensitivity": "灵敏度",
+    "Hears quieter voices": "能听到更轻的声音",
+    "Only clear speech": "只听清晰的语音",
+    "Normal": "标准",
+    "Loudness decides: any loud sound can start listening.": "按音量判断：任何较响的声音都可能触发聆听。",
+    "The neural detector couldn’t load here, so loudness decides.": "神经网络检测器在这台 Mac 上无法加载，所以改为按音量判断。",
+    "A neural model tells speech from noise: doors, typing and fans don’t start a request.": "由神经网络模型区分语音和噪音：关门声、打字声和风扇声都不会触发请求。"
+  },
+  "patterns": []
+}

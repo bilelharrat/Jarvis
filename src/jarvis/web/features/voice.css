@@ -1,0 +1,3 @@
+/* Settings › Listening and Speaking (features/voice.js). Rows are Settings' own; this only
+   keeps a hidden row hidden (.row's display: flex would otherwise win). */
+.voice-group [hidden] { display: none !important; }
