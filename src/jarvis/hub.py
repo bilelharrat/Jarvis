@@ -86,12 +86,12 @@ from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
 from .proactive import Alert, Watcher, in_quiet_hours
+from .providers import MAX_MODELS, ProviderStore
 from .providers import PROMPT as MODELS_PROMPT
 from .providers import SERVER_NAME as MODELS_SERVER
-from .providers import ProviderStore
 from .providers import build_server as models_server
 from .routines import RoutineStore
-from .speech import Speaker, SpeechQueue, cloud_voice_from
+from .speech import Speaker, SpeechQueue, ai_voice_effect, cloud_voice_from
 from .tasks import CLAUDE_DOWN, ClaudeTask, TaskManager
 from .wake import find_wake, is_homecoming
 
@@ -361,10 +361,12 @@ SPOKEN_TEXT = 400  # longer than this, a message for Claude Code is on screen, n
 SLOW_COMMANDS = frozenset(
     {
         "stop", "task_rewind", "task_mcp", "task_bg_stop", "task_diff", "project_files",
-        "task_interrupt", "claude_projects", "project_git", "claude_sessions", "whats_this",
+        "task_interrupt", "claude_projects", "project_git", "claude_sessions", "claude_history",
+        "whats_this",
         "shortcuts", "meeting_start", "sim_list", "sim_boot", "file_read", "code_command",
         "task_context", "task_undo", "voicecode_start", "voicecode_enter",
         "providers_check", "task_model", "slash_list", "delegation_continue", "files_clear",
+        "phone_test", "phone_caller_name",
     }
 )  # fmt: skip
 
@@ -652,7 +654,7 @@ class Hub:
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
         self.screen = computer.Screen()
         self.desktop_hands = DesktopHands()
-        self.phone = phone.Phone(lambda: self.prefs)
+        self.phone = phone.Phone(lambda: self.prefs, voice=self._call_voice)
         from .prefs import APP_SUPPORT
         from .tasks import RuleStore
 
@@ -1026,7 +1028,9 @@ class Hub:
                 self.invoices, self.pdf_call, lambda: self.prefs, mac_tools.run_applescript
             ),
             messaging.SERVER_NAME: messaging.build_server(self.send_gate),
-            phone.SERVER_NAME: phone.build_server(self.phone, self.confirm),
+            phone.SERVER_NAME: phone.build_server(
+                self.phone, self.confirm, approve=self.call_gate, after_call=self._follow_call
+            ),
             "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(
                 self.memory, self._memory_changed, self.feature_gate
@@ -1985,7 +1989,13 @@ class Hub:
             self._voice_link = (_current_task(), spoken)
             self.speech.push(spoken)
 
-    async def send_gate(self, question: str, detail: str, spoken: str = "") -> bool:
+    async def send_gate(
+        self,
+        question: str,
+        detail: str,
+        spoken: str = "",
+        choices: tuple[str, str] = ("Send", "Don't send"),
+    ) -> bool:
         """A message or email about to go out: the card shows exactly what and to whom,
         and spoken (the text itself, ending on a question) is read out before a spoken yes
         can count. It goes through the speech queue, not the one-off voice: while it plays
@@ -1993,10 +2003,14 @@ class Hub:
         "Send this…?" itself) isn't taken for the user's yes."""
         said = self._speakable(spoken) if spoken else None
         self._say(said or "It's on your screen. Do you want it sent as it is?")
-        choice = await self.request_approval(
-            question, detail, [("allow", "Send"), ("deny", "Don't send")]
-        )
+        yes, no = choices
+        choice = await self.request_approval(question, detail, [("allow", yes), ("deny", no)])
         return choice == "allow"
+
+    async def call_gate(self, question: str, detail: str, spoken: str = "") -> bool:
+        """A call to someone else from the Twilio number: who, and exactly what JARVIS will
+        say, on a card (and read out) before a yes."""
+        return await self.send_gate(question, detail, spoken, ("Call", "Don't call"))
 
     def _voice_question(self) -> dict[str, Any] | None:
         """The open question JARVIS most recently put out loud, while it can still be
@@ -4335,6 +4349,8 @@ class Hub:
             }
         )
         if context and context.get("task_id") and not spoken:
+            # Read out only while voice coding; otherwise it's the card (and a macOS
+            # notification when the window isn't in front), in silence.
             self.notify(
                 Alert(
                     f"code-ok:{context['task_id']}:{time.monotonic():.0f}",
@@ -4343,17 +4359,19 @@ class Hub:
                     question.replace("wants to", "needs your OK to") + ".",
                 ),
                 speak_if_busy=False,
+                speak=self.voicecode.focus is not None,
             )
         # Only a question it put out loud can be answered by voice: this one, if it did.
         return await self.request_approval(question, detail, choices, context, spoken=spoken)
 
     # ── speaking up unasked ──
 
-    def notify(self, alert: Alert, speak_if_busy: bool = False) -> None:
-        """Show an alert, and say it when that's welcome. Heads-ups off means none at all
-        (Claude Code and research still get their own cards)."""
-        # A conversation held for them that needs them shows even with heads-ups off.
-        if not self.prefs.proactive and alert.kind not in ("meeting", "delegate"):
+    def notify(self, alert: Alert, speak_if_busy: bool = False, speak: bool = True) -> None:
+        """Show an alert, and say it when that's welcome (never, with speak off). Heads-ups
+        off means none at all (Claude Code and research still get their own cards)."""
+        # A conversation held for them that needs them, or how a call they asked for went,
+        # shows even with heads-ups off.
+        if not self.prefs.proactive and alert.kind not in ("meeting", "delegate", "call"):
             return
         self.emit("alert", key=alert.key, alert_kind=alert.kind, title=alert.title, text=alert.text)
         self.history.append({"role": "assistant", "text": alert.text, "at": _now()})
@@ -4375,7 +4393,8 @@ class Hub:
         quiet = in_quiet_hours(datetime.now(), self.prefs.quiet_hours)
         breakthrough = bool(getattr(alert, "breakthrough", False))  # a VIP's urgent message
         if (
-            self.prefs.proactive_voice
+            speak
+            and self.prefs.proactive_voice
             and (breakthrough or (not quiet and self.meeting is None))
             and (not busy or speak_if_busy)
         ):
@@ -4847,6 +4866,8 @@ class Hub:
                     "This is how your wake-up calls will sound."
                 )
                 note = "Calling you now."
+            elif kind == "phone_caller_name":
+                note = await self.phone.show_as(str(msg.get("name", "")) or phone.CALLER_NAME)
         except phone.PhoneError as exc:
             note = str(exc)
         except Exception as exc:  # the Keychain refused, say
@@ -4854,6 +4875,26 @@ class Hub:
             note = "Couldn't reach the Keychain. Try again."
         status = await asyncio.to_thread(self.phone.status)
         self.emit("phone_status", note=note, **status)
+
+    def _follow_call(self, call_sid: str, name: str) -> None:
+        """After a call to someone else: a heads-up on how it went, once it's over."""
+        self._spawn(self._call_outcome(call_sid, name))
+
+    async def _call_outcome(self, call_sid: str, name: str) -> None:
+        said = await self.phone.outcome(call_sid, name)
+        if said:
+            self.notify(Alert(f"call:{call_sid[-8:]}", "call", "Phone call", said))
+
+    async def _call_voice(self, text: str) -> tuple[Any, int] | None:
+        """A phone call's words in JARVIS's own voice: the cloud voice the Mac speaks with,
+        and its effect when that's on. None without one (Twilio's voice reads the call)."""
+        cloud = getattr(self.speaker, "cloud", None)
+        if cloud is None:
+            return None
+        audio, rate = await cloud.synthesize(self.speaker.clean(text))
+        if self.prefs.voice_effect:
+            audio = await asyncio.to_thread(ai_voice_effect, audio, rate)
+        return audio, rate
 
     async def wake_up_call(self) -> None:
         """The morning brief, written quietly, then read to the owner on the phone."""
@@ -5042,6 +5083,20 @@ class Hub:
                     str(msg.get("model", "")),
                     str(msg.get("label", "")) or None,
                 )
+            elif kind == "providers_add_models":  # Add all: what the key's check listed
+                wanted = msg.get("models")
+                pairs = [
+                    (str(m.get("model", "")), str(m.get("label", "")) or None)
+                    for m in (wanted if isinstance(wanted, list) else [])
+                    if isinstance(m, dict)
+                ]
+                done = store.add_models(str(msg.get("id", "")), pairs)
+                if done["full"]:
+                    self.emit(
+                        "providers_error",
+                        text=f"Added {len(done['added'])}. A provider holds {MAX_MODELS} "
+                        "models, so the rest didn't fit; remove some to make room.",
+                    )
             elif kind == "providers_remove_model":
                 store.remove_model(str(msg.get("ref", "")))
                 if self.prefs.code_model and not store.known(self.prefs.code_model):
@@ -5060,7 +5115,13 @@ class Hub:
 
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
-        if kind in ("phone_status", "phone_credentials", "phone_forget", "phone_test"):
+        if kind in (
+            "phone_status",
+            "phone_credentials",
+            "phone_forget",
+            "phone_test",
+            "phone_caller_name",
+        ):
             await self._phone_command(kind, msg)
             return
         if kind == "desktop_hand":  # ~30/s while steering the Mac; posting is sub-millisecond
@@ -5292,6 +5353,10 @@ class Hub:
                 items = []
                 self.emit("error", text=str(exc))
             self.emit("claude_sessions", directory=str(msg.get("directory", "")), items=items)
+        elif kind == "claude_history":
+            # Jarvis Code's past sessions in every project, for the sidebar: they outlast a
+            # restart, being Claude Code's own records.
+            self.emit("claude_history", items=await asyncio.to_thread(self.tasks.recent_sessions))
         elif kind == "refresh":
             self._spawn(self._refresh_status(calendar=True))
         elif kind == "set_prefs" and isinstance(msg.get("changes"), dict):

@@ -28,6 +28,32 @@ async def test_a_provider_key_never_comes_back_to_the_window(settings, quiet_spe
     assert KEY not in json.dumps(hub.snapshot())
 
 
+async def test_add_all_puts_every_listed_model_in_the_picker(settings, quiet_speaker, isolated):
+    from jarvis.providers import MAX_MODELS
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    provider = hub.providers.add_provider("openrouter", "", KEY)
+    q = hub.subscribe()
+    listed = [
+        {"model": "google/gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+        {"model": "google/gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
+        "not a model",
+    ]
+    await hub._handle({"type": "providers_add_models", "id": provider["id"], "models": listed})
+    events = drain(q)
+    picker = [e for e in events if e["type"] == "providers"][-1]["models"]
+    assert [(m["model"], m["label"]) for m in picker if not m["builtin"]] == [
+        ("google/gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ("google/gemini-2.5-flash", "Gemini 2.5 Flash"),
+    ]
+    assert not [e for e in events if e["type"] == "providers_error"]
+    many = [{"model": f"google/gemini-9.{n}-flash"} for n in range(MAX_MODELS)]
+    await hub._handle({"type": "providers_add_models", "id": provider["id"], "models": many})
+    (error,) = [e for e in drain(q) if e["type"] == "providers_error"]
+    assert error["text"].startswith(f"Added {MAX_MODELS - 2}.")
+
+
 async def test_bad_input_is_said_plainly(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()

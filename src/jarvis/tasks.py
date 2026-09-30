@@ -50,6 +50,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
     create_sdk_mcp_server,
+    get_session_messages,
     list_sessions,
     tool,
 )
@@ -431,6 +432,8 @@ MODE_LABELS = {
 PLAN_APPROVE_EDITS, PLAN_APPROVE, PLAN_KEEP = "plan_edits", "plan_ask", "plan_keep"
 IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
 MAX_ENDED = 20  # ended sessions kept in the list; older ones are let go (still resumable)
+TRANSCRIPT_KEEP = 400  # a session's newest transcript entries, kept for the windows
+HISTORY_PER_PROJECT = 20  # past sessions per project in the history across projects
 # Claude Code processes open at once (each is 100-650 MB). Past this, the longest-idle open
 # session closes; it resumes, same conversation, on its next message.
 MAX_CONNECTED = 8
@@ -681,6 +684,7 @@ class ClaudeTask:
     close_idle: bool = False  # close when idle, to make room for another session
     stream_buf: list[tuple[str, list[str]]] = field(default_factory=list)  # (part, pieces)
     stream_timer: Any = None  # the batch of live words is due
+    history_read: bool = False  # a reopened session's earlier conversation has been read in
 
     @property
     def steerable(self) -> bool:
@@ -1467,9 +1471,24 @@ class TaskManager:
                     "last_modified": datetime.fromtimestamp(info.last_modified / 1000).isoformat(
                         timespec="minutes"
                     ),
+                    "modified": info.last_modified,  # ms, for ordering across projects
                     "branch": info.git_branch or "",
+                    "folder": path.name,
                 }
             )
+        return out
+
+    def recent_sessions(self, per_project: int = HISTORY_PER_PROJECT) -> list[dict[str, Any]]:
+        """Jarvis Code's history across every project, newest first: each project's latest
+        sessions, from Claude Code's own records of them, so they outlast the app (and
+        include the ones the user ran in Claude Code themselves)."""
+        out: list[dict[str, Any]] = []
+        for name in self.projects():
+            try:
+                out += self.past_sessions(name, per_project)
+            except Exception:  # a folder that's no project now, or a damaged record
+                log.warning("Couldn't list past sessions in %s", name, exc_info=True)
+        out.sort(key=lambda item: item.get("modified", 0), reverse=True)
         return out
 
     def _on_stream(self, task: ClaudeTask, message: Any) -> None:
@@ -1553,7 +1572,7 @@ class TaskManager:
             **extra,
         }
         task.transcript.append(entry)
-        del task.transcript[:-400]
+        del task.transcript[:-TRANSCRIPT_KEEP]
         self.emit("task_log", id=task.id, entry=entry)
 
     def _tool_result(self, task: ClaudeTask, block: Any) -> None:
@@ -1760,6 +1779,8 @@ class TaskManager:
             return
         task.status = "running"
         try:
+            if not task.history_read:
+                await self._read_history(task)
             while await self._connect(task) == _REOPEN:
                 pass
             task.status = "closed"
@@ -1797,6 +1818,32 @@ class TaskManager:
                 task.status = "running"
                 task.handle = asyncio.create_task(self._session(task))
             self._prune()
+
+    async def _read_history(self, task: ClaudeTask) -> None:
+        """A past session reopened (after a restart, from another project's history, or as
+        a fork) shows its conversation so far, read from Claude Code's own record of it, as
+        though it had been open all along: the messages, what each step did, and a fork
+        point at each of the user's messages. Read once, before its first connection."""
+        task.history_read = True
+        if task.kind != "code" or not task.session_id:
+            return
+        until = task.resume_at if task.fork else ""
+        past = await asyncio.to_thread(session_history, task.session_id, task.cwd, until)
+        if not past["entries"]:
+            return
+        # Before anything said since (a note about a folder it couldn't add): renumbered,
+        # and the windows given the whole of it again.
+        merged = [*past["entries"], *task.transcript][-TRANSCRIPT_KEEP:]
+        for n, entry in enumerate(merged, 1):
+            entry["n"] = n
+        task.transcript[:] = merged
+        task.seq = len(merged)
+        task.fork_points = {**past["fork_points"], **task.fork_points}
+        for stale in list(task.fork_points)[:-200]:
+            del task.fork_points[stale]
+        task.last_uuid = task.last_uuid or past["last_uuid"]
+        self.emit("task_transcript", id=task.id, entries=list(task.transcript))
+        self._changed()
 
     async def _connect(self, task: ClaudeTask) -> str:
         """One connection to Claude Code: a reader that takes in everything it says for as
@@ -2667,16 +2714,28 @@ class TaskManager:
 
         @tool(
             "list_claude_sessions",
-            "List recent past Jarvis Code (Claude Code) sessions in a project folder, including "
-            "ones the user ran in Claude Code themselves, with ids to resume.",
-            {"directory": str},
+            "List recent past Jarvis Code (Claude Code) sessions, including ones the user ran "
+            "in Claude Code themselves, with ids to resume: in one project folder, or with no "
+            "directory, the latest across every project (each with its folder).",
+            {
+                "type": "object",
+                "properties": {"directory": {"type": "string"}},
+            },
         )
         async def list_claude_sessions(args):
+            directory = str(args.get("directory") or "").strip()
             try:
-                items = self.past_sessions(str(args["directory"]), limit=10)
+                items = await asyncio.to_thread(
+                    lambda: self.past_sessions(directory, limit=10)
+                    if directory
+                    else self.recent_sessions(per_project=10)[:15]
+                )
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
-            lines = [f"{i['session_id']} · {i['last_modified']} · {i['title']}" for i in items]
+            lines = [
+                f"{i['session_id']} · {i['folder']} · {i['last_modified']} · {i['title']}"
+                for i in items
+            ]
             return {"content": [{"type": "text", "text": "\n".join(lines) or "No past sessions."}]}
 
         @tool(
@@ -2824,6 +2883,165 @@ async def _with_images(text: str, images: list[dict[str, str]]):
 
 async def _deny_everything(tool_name: str, _input: dict[str, Any], _ctx: ToolPermissionContext):
     return PermissionResultDeny(message=f"{tool_name} isn't available to the research desk.")
+
+
+_COMMAND = re.compile(r"<command-name>(.*?)</command-name>", re.S)
+_COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
+_COMMAND_OUT = re.compile(
+    r"<(local-command-stdout|local-command-stderr|bash-stdout|bash-stderr)>(.*?)</\1>", re.S
+)
+_BASH_INPUT = re.compile(r"<bash-input>(.*?)</bash-input>", re.S)
+_ASIDES = re.compile(r"<(system-reminder|preview-annotation-context)>.*?</\1>\s*", re.S)
+_SUMMARIZED = "This session is being continued from a previous conversation"
+
+
+def _history_said(text: str) -> tuple[str, str]:
+    """A message as Claude Code keeps it, as the transcript shows it: (role, text). Slash
+    commands, ! commands and their output are kept wrapped in tags; background reports,
+    interruptions and a summary of what came before are Claude Code's, not the user's."""
+    text = text.strip()
+    if text.startswith("<task-notification>"):
+        return "system", _ON_ITS_OWN["task-notification"]
+    if text.startswith("[Request interrupted by user"):
+        return "system", "Interrupted."
+    if text.startswith(_SUMMARIZED):
+        return "system", "The conversation before this point was summarized to make room."
+    if command := _COMMAND.search(text):
+        args = _COMMAND_ARGS.search(text)
+        return "user", f"{command.group(1).strip()} {args.group(1).strip() if args else ''}".strip()
+    if bash := _BASH_INPUT.search(text):
+        return "user", f"! {bash.group(1).strip()}"
+    if outputs := _COMMAND_OUT.findall(text):
+        return "note", "\n".join(out.strip() for _, out in outputs if out.strip())
+    text = _ASIDES.sub("", text)
+    if text.startswith("[Note from the app:"):  # what the app added, not what was said
+        text = text.split("]\n\n", 1)[-1]
+    if text.endswith("\n\nultracode"):  # the keyword ultracode sessions add (_send_turn)
+        text = text[: -len("\n\nultracode")]
+    return "user", text.strip()
+
+
+def _history_step(block: dict[str, Any], cwd: Path) -> dict[str, Any] | None:
+    """One block of what Claude said or did, as a transcript entry (as _on_task_message
+    logs it live)."""
+    kind = block.get("type")
+    if kind == "text":
+        text = str(block.get("text") or "").strip()
+        return {"role": "assistant", "text": text} if text else None
+    if kind == "thinking":
+        text = str(block.get("thinking") or "").strip()
+        return {"role": "thinking", "text": text} if text else None
+    if kind != "tool_use":
+        return None
+    name = str(block.get("name") or "")
+    args = block.get("input") if isinstance(block.get("input"), dict) else {}
+    tool_id = str(block.get("id") or "")
+    if name == "TodoWrite":
+        todos = [
+            {"content": str(t.get("content", "")), "status": str(t.get("status", "pending")),
+             "active": str(t.get("activeForm", ""))}
+            for t in (args.get("todos") or [])[:30] if isinstance(t, dict)
+        ]  # fmt: skip
+        return {"role": "todos", "text": "", "todos": todos}
+    if name == "ExitPlanMode" and str(args.get("plan") or "").strip():
+        return {"role": "plan", "text": str(args["plan"]).strip()}
+    if name in AGENT_TOOLS:
+        return {
+            "role": "tool",
+            "text": f"Agent: {args.get('description', 'working')}",
+            "tool": "Agent",
+            "tool_id": tool_id,
+            "detail": str(args.get("prompt", ""))[:4000],
+            "agent": str(args.get("subagent_type", "general-purpose")),
+            "status": "done",
+        }
+    return {
+        "role": "tool",
+        "text": describe_tool(name, args),
+        "tool": name,
+        "tool_id": tool_id,
+        "detail": approval_detail(name, args, cwd)[:4000],
+        "status": "done",
+    }
+
+
+def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, Any]:
+    """A past session's conversation as Jarvis Code's transcript shows it, from Claude
+    Code's own record: its entries (the newest TRANSCRIPT_KEEP, each marked past), a fork
+    point for each of the user's messages (the message before it, as _user_turn keeps
+    them) and its last message's id. until: a fork's resume point, the last message kept."""
+    empty: dict[str, Any] = {"entries": [], "fork_points": {}, "last_uuid": ""}
+    try:
+        messages = get_session_messages(session_id, directory=str(cwd))
+    except Exception:  # an unreadable record: the session opens without its history
+        log.warning("Couldn't read the history of session %s", session_id, exc_info=True)
+        return empty
+    if until:
+        ids = [m.uuid for m in messages]
+        if until not in ids:
+            return empty  # a point not on this conversation's line: show nothing, not too much
+        messages = messages[: ids.index(until) + 1]
+    entries: list[dict[str, Any]] = []
+    steps: dict[str, dict[str, Any]] = {}  # tool id -> its entry, for its result
+    fork_points: dict[str, str] = {}
+    last = ""
+    for message in messages:
+        body = message.message if isinstance(message.message, dict) else {}
+        content = body.get("content")
+        blocks = (
+            [{"type": "text", "text": content}]
+            if isinstance(content, str)
+            else [b for b in content or [] if isinstance(b, dict)]
+        )
+        if message.type == "assistant":
+            for block in blocks:
+                if (entry := _history_step(block, cwd)) is not None:
+                    entries.append(entry)
+                    if entry.get("tool_id"):
+                        steps[entry["tool_id"]] = entry
+        else:
+            said: list[str] = []
+            images, files = 0, []
+            for block in blocks:
+                kind = block.get("type")
+                if kind == "tool_result":
+                    step = steps.get(str(block.get("tool_use_id") or ""))
+                    if step is not None:
+                        out = block.get("content")
+                        if isinstance(out, list):
+                            out = "\n".join(
+                                str(c.get("text", "")) for c in out if isinstance(c, dict)
+                            )
+                        step["status"] = "failed" if block.get("is_error") else "done"
+                        step["output"] = str(out or "")[:2000]
+                elif kind == "text":
+                    said.append(str(block.get("text") or ""))
+                elif kind == "image":
+                    images += 1
+                elif kind == "document":
+                    files.append(str(block.get("title") or "file")[:120])
+            role, text = _history_said("\n\n".join(said)) if said else ("user", "")
+            if role == "user" and (text or images or files):
+                entry = {"role": "user", "text": text, "images": images}
+                if files:
+                    entry["files"] = files
+                if message.uuid:
+                    entry["uuid"] = message.uuid
+                    fork_points[message.uuid] = last
+                entries.append(entry)
+            elif role != "user" and text:
+                entries.append({"role": role, "text": text})
+        last = message.uuid or last
+    kept = entries[-TRANSCRIPT_KEEP:]
+    for entry in kept:
+        entry["text"] = entry["text"][:8000]
+        entry["past"] = True
+    shown = {e["uuid"] for e in kept if e.get("uuid")}
+    return {
+        "entries": kept,
+        "fork_points": {u: p for u, p in fork_points.items() if u in shown},
+        "last_uuid": last,
+    }
 
 
 def _ended(message: ResultMessage) -> str:

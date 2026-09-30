@@ -955,6 +955,10 @@ $('phone-save').addEventListener('click', () => {
 });
 $('phone-forget').addEventListener('click', () => send({ type: 'phone_forget' }));
 $('phone-test').addEventListener('click', () => { $('phone-note').textContent = tr('Calling…'); send({ type: 'phone_test' }); });
+$('phone-caller-save').addEventListener('click', () => {
+  $('phone-note').textContent = tr('Setting up the caller ID name…');
+  send({ type: 'phone_caller_name', name: $('phone-caller-name').value.trim() });
+});
 $('phone-from').addEventListener('change', (e) => setPrefs({ phone_from: e.target.value }));
 $('phone-me').addEventListener('change', (e) => setPrefs({ phone_me: e.target.value }));
 $('sw-wake-call').addEventListener('click', () => setPrefs({ wake_call: !prefs.wake_call }));
@@ -988,7 +992,8 @@ function onPhoneStatus(ev) {
   $('phone-forget').hidden = !ev.signed_in;
   if (ev.signed_in) $('phone-sid').value = '';
   $('phone-sid').placeholder = ev.signed_in ? ev.sid_hint : 'AC…';
-  if (ev.note !== undefined) $('phone-note').textContent = ev.note;
+  // A line each (the Contacts card, then Twilio), so each is translated on its own.
+  if (ev.note !== undefined) $('phone-note').replaceChildren(...String(ev.note).split('\n').map((line) => el('div', '', line)));
 }
 $('brief-now').addEventListener('click', () => { toggleSettings(false); send({ type: 'briefing' }); });
 $('rebuild').addEventListener('click', () => send({ type: 'brain_rebuild' }));
@@ -3518,6 +3523,17 @@ function selectJcsTab(tab) {
   document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   $('jcs-general').hidden = tab !== 'general';
   $('jcs-models').hidden = tab !== 'models';
+  if (tab === 'models') checkGeminiOnce();
+}
+// A Gemini key's full model list comes with a check: run once when the Models tab first
+// shows it, so every model on the key is there to add without pressing Check key.
+function checkGeminiOnce() {
+  if ($('jc-settings').hidden || $('jcs-models').hidden) return;
+  for (const p of providerInfo.providers) {
+    if (p.kind !== 'gemini' || providerChecks[p.id]) continue;
+    providerChecks[p.id] = { busy: true };
+    send({ type: 'providers_check', id: p.id });
+  }
 }
 function openJcSettings(tab = 'general') {
   closeMenu();
@@ -3598,7 +3614,7 @@ function onProviders(ev) {
   $('jcs-advice').hidden = !providerInfo.advice;
   modelList = providerInfo.models;
   renderComposer();
-  if (!$('jc-settings').hidden) { renderProviders(); renderJcGeneral(); }
+  if (!$('jc-settings').hidden) { checkGeminiOnce(); renderProviders(); renderJcGeneral(); }
 }
 function onProviderCheck(ev) {
   providerChecks[ev.id] = ev;
@@ -3666,6 +3682,28 @@ function renderProviders() {
       if (model) send({ type: 'providers_add_model', id: p.id, model });
     });
     li.append(head, status, models, add);
+    // Gemini: every model on the key (Google's own list, by name and number), each a click
+    // to add, or all at once. OpenRouter's hundreds stay in the id box.
+    const added = new Set(p.models.map((m) => m.model));
+    const more = p.kind === 'gemini' ? offered.filter((m) => m.tools !== false && !added.has(m.id)) : [];
+    if (more.length) {
+      const box = el('div', 'jcs-p-more');
+      const top = el('div', 'jcs-p-more-head');
+      const all = el('button', 'jc-btn', 'Add all');
+      all.type = 'button';
+      all.addEventListener('click', () => send({ type: 'providers_add_models', id: p.id, models: more.map((m) => ({ model: m.id, label: m.name })) }));
+      top.append(el('small', '', 'More models on this key'), all);
+      const chips = el('div', 'jcs-p-models');
+      chips.append(...more.map((m) => {
+        const b = mine(el('button', 'jcs-model-chip jcs-model-add', `+ ${m.name}`));
+        b.type = 'button';
+        b.title = m.id;
+        b.addEventListener('click', () => send({ type: 'providers_add_model', id: p.id, model: m.id, label: m.name }));
+        return b;
+      }));
+      box.append(top, chips);
+      li.append(box);
+    }
     return li;
   }));
   // The add form: one chip per kind of provider.
@@ -5142,7 +5180,7 @@ function syncDismissAll() {
   if ($('cards').firstElementChild !== all) $('cards').prepend(all);
 }
 
-const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work', learned: 'Learned' };
+const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work', learned: 'Learned', call: 'Phone call' };
 
 // A heads-up JARVIS raised on its own. Claude Code already has its own cards; everything
 // else gets one, plus a macOS notification when the window isn't in front.

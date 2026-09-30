@@ -241,6 +241,51 @@ async def test_focused_approvals_are_spoken_and_answered_by_choice(
     task.handle.cancel()
 
 
+async def test_other_sessions_approvals_are_read_out_only_while_voice_coding(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    from test_hub import make_hub
+
+    import jarvis.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "in_quiet_hours", lambda *_a: False)  # any time of day
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "other").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    hub.prefs.proactive = hub.prefs.proactive_voice = True
+    hub.say = lambda text, follow_up=True: None
+    announced = []
+    hub._announce_later = announced.append
+    alerts = []
+    emit = hub.emit
+    hub.emit = lambda kind, **data: (
+        (alerts.append(data) if kind == "alert" else None) or emit(kind, **data)
+    )
+    task = hub.tasks.start("", "proj")
+
+    async def approval() -> None:
+        pending = asyncio.create_task(
+            hub._task_approval(
+                "Jarvis Code in proj wants to run a command",
+                "$ npm test",
+                [("allow", "Yes"), ("deny", "No")],
+                {"task_id": task.id, "tool": "Bash"},
+            )
+        )
+        await asyncio.sleep(0)
+        assert hub.resolve(next(iter(hub.approvals)), "deny")
+        await pending
+
+    await approval()  # not voice coding: the card and a silent heads-up
+    assert announced == [] and alerts[-1]["title"] == "Jarvis Code needs you"
+    await hub.voice_code("other")  # voice coding (in another session): read out
+    await approval()
+    assert announced == ["Jarvis Code in proj needs your OK to run a command."]
+    hub.voicecode.task.handle.cancel()
+    task.handle.cancel()
+
+
 def test_stage_three_commands():
     assert kinds("repeat that", "say that again", "read the rest") == ["repeat", "repeat", "rest"]
     assert vc.parse("switch to the bsh research center project").arg == "bsh research center"

@@ -245,9 +245,9 @@
   "That doesn't look like an Account SID: it starts with AC and has 34 characters.": "这看起来不像 Account SID：它以 AC 开头，共 34 个字符。",
   "That doesn't look like an Auth Token: 32 letters and digits.": "这看起来不像 Auth Token：应为 32 位字母和数字。",
   "Twilio didn't accept the Account SID and Auth Token.": "Twilio 没有接受这个 Account SID 和 Auth Token。",
+  "Twilio hasn't verified this account yet, so it can't make calls or buy numbers. In the Twilio Console, open Trust Hub and create a Primary Customer Profile; Twilio approves it within a day.": "Twilio 还没有验证这个账户，所以它暂时不能打电话或购买号码。请在 Twilio 控制台打开 Trust Hub，创建 Primary Customer Profile；Twilio 会在一天内审核通过。",
   "Couldn't reach the Keychain. Try again.": "无法访问钥匙串。请再试一次。",
   "Phone": "电话",
-  "Jarvis calls you through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can call your own verified number). Your Account SID and Auth Token go into the Mac’s Keychain.": "Jarvis 通过你自己的 Twilio 账户给你打电话（twilio.com：号码每月约 1.15 美元，通话每分钟约 1.4 美分；免费试用可以拨打你验证过的号码）。你的 Account SID 和 Auth Token 会存进 Mac 的钥匙串。",
   "Twilio Account SID": "Twilio Account SID",
   "Not set up yet": "尚未设置",
   "Twilio Auth Token": "Twilio Auth Token",
@@ -267,6 +267,18 @@
   "Saving…": "正在保存…",
   "Calling…": "正在拨打…",
   "Signed in": "已登录",
+  "Jarvis calls you, and people you ask it to call, through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can only call numbers verified in Twilio). Your Account SID and Auth Token go into the Mac’s Keychain.": "Jarvis 通过你自己的 Twilio 账户给你打电话，也可以替你打给别人（twilio.com：号码每月约 1.15 美元，通话每分钟约 1.4 美分；免费试用只能拨打在 Twilio 验证过的号码）。你的 Account SID 和 Auth Token 会存进 Mac 的钥匙串。",
+  "Caller ID name": "来电显示名称",
+  "The name shown when Jarvis calls. Your iPhone shows it straight away (a Contacts card); other people’s phones once Twilio approves it, which needs a business profile in Twilio’s Trust Hub. US numbers only, and some mobile carriers show just the number.": "Jarvis 来电时显示的名称。你的 iPhone 会立即显示（通过一张联系人名片）；其他人的手机要等 Twilio 审核通过后才会显示，这需要在 Twilio 的 Trust Hub 中有企业资料。仅限美国号码，而且部分移动运营商只显示号码。",
+  "Show calls as this name": "来电显示这个名称",
+  "Setting up the caller ID name…": "正在设置来电显示名称…",
+  "Phone call": "电话",
+  "Calling from your Twilio number isn't set up yet. In Settings › Phone, add your Twilio Account SID, Auth Token and Twilio number.": "还没有设置用你的 Twilio 号码拨打电话。请在“设置 › 电话”里填写你的 Twilio Account SID、Auth Token 和 Twilio 号码。",
+  "Your Twilio account is a free trial, which can only call numbers verified in Twilio. Upgrade it in the Twilio Console (or verify that number there) and I can call anyone.": "你的 Twilio 账户是免费试用账户，只能拨打在 Twilio 验证过的号码。请在 Twilio 控制台升级账户（或在那里验证这个号码），我就能拨打任何号码。",
+  "A caller ID name can be up to 15 letters, digits, periods, commas and spaces, starting with a letter.": "来电显示名称最多 15 个字符，只能包含字母、数字、句点、逗号和空格，并且必须以字母开头。",
+  "Twilio only registers a caller ID name for a business: it needs an approved Business profile in Trust Hub, with an EIN or DUNS number (Twilio doesn't offer it for personal use). In the Twilio Console, open Trust Hub and create a Primary Business Profile; once Twilio approves it, press this again.": "Twilio 只为企业注册来电显示名称：需要在 Trust Hub 中有一个已审核通过、带 EIN 或 DUNS 编号的企业资料（Twilio 不为个人用途提供此服务）。请在 Twilio 控制台打开 Trust Hub，创建 Primary Business Profile；Twilio 审核通过后，再按一次这个按钮。",
+  "Twilio is still reviewing your Trust Hub business profile. Once it's approved, press this again to register the caller ID name.": "Twilio 仍在审核你的 Trust Hub 企业资料。审核通过后，再按一次这个按钮来注册来电显示名称。",
+  "Your Trust Hub business profile has no email address on it.": "你的 Trust Hub 企业资料里没有电子邮件地址。",
   "Control the whole Mac with my hands": "用手势操控整台 Mac",
   "When hand control is on, your hand moves the Mac’s pointer in every app: pinch to click, two fingers to scroll, hold a fist to pause. Needs the Accessibility permission.": "开启手势控制后，你的手会在所有应用中移动 Mac 的指针：捏合点击，两指滚动，握拳保持即可暂停。需要“辅助功能”权限。",
   "Raise a hand to steer the Mac": "举起一只手来操控 Mac",
@@ -1223,6 +1235,8 @@
   "That key didn’t work.": "这个密钥无效。",
   "Check key": "检查密钥",
   "Add model": "添加模型",
+  "Add all": "全部添加",
+  "More models on this key": "此密钥可用的更多模型",
   "Model id, e.g. openai/gpt-5": "模型 ID，例如 openai/gpt-5",
   "Model id": "模型 ID",
   "Get a key at": "获取密钥：",
@@ -2891,6 +2905,54 @@
   [
    "^Undo: (.+)$",
    "撤销：$1"
+  ],
+  [
+   "^Your Twilio number is in Contacts as (.+), so your iPhone shows it\\.$",
+   "你的 Twilio 号码已存进联系人，名称为 $1，所以你的 iPhone 会显示它。"
+  ],
+  [
+   "^Couldn't add your Twilio number to Contacts \\((.+)\\)\\.$",
+   "无法把你的 Twilio 号码添加到联系人（$1）。"
+  ],
+  [
+   "^Sent “(.+)” to Twilio for review as your caller ID name\\. Once it's approved, carriers pick it up within two or three days: landlines show it, and mobiles whose carrier shows caller names\\.$",
+   "已把“$1”作为来电显示名称提交给 Twilio 审核。审核通过后，运营商会在两三天内生效：固定电话会显示它，支持显示来电名称的运营商的手机也会显示。"
+  ],
+  [
+   "^Twilio approved “(.+)” as your caller ID name; carriers show it within two or three days of the approval\\.$",
+   "Twilio 已批准“$1”作为你的来电显示名称；运营商会在批准后两三天内显示它。"
+  ],
+  [
+   "^Twilio is still reviewing “(.+)” as your caller ID name\\.$",
+   "Twilio 仍在审核“$1”作为你的来电显示名称。"
+  ],
+  [
+   "^To show “(.+)” instead, remove that registration in the Twilio Console \\(Trust Hub › Trust Products\\) and press this again\\.$",
+   "如果想改为显示“$1”，请在 Twilio 控制台（Trust Hub › Trust Products）删除那条注册，然后再按一次这个按钮。"
+  ],
+  [
+   "^Twilio turned down “(.+)” as your caller ID name \\(error ([\\d, ]+)\\)\\. Try another name, or see Trust Hub in the Twilio Console for why\\.$",
+   "Twilio 拒绝了“$1”作为你的来电显示名称（错误 $2）。请换一个名称，或在 Twilio 控制台的 Trust Hub 中查看原因。"
+  ],
+  [
+   "^Twilio turned down “(.+)” as your caller ID name\\. Try another name, or see Trust Hub in the Twilio Console for why\\.$",
+   "Twilio 拒绝了“$1”作为你的来电显示名称。请换一个名称，或在 Twilio 控制台的 Trust Hub 中查看原因。"
+  ],
+  [
+   "^Twilio's check turned down the caller ID name: (.+)\\.$",
+   "Twilio 的检查没有通过这个来电显示名称：$1。"
+  ],
+  [
+   "^(\\+\\d+) isn't a number on your Twilio account\\.$",
+   "$1 不是你 Twilio 账户里的号码。"
+  ],
+  [
+   "^Twilio said no: (.+)$",
+   "Twilio 拒绝了：$1"
+  ],
+  [
+   "^Couldn't reach Twilio \\((.+)\\)\\.$",
+   "无法连接 Twilio（$1）。"
   ]
  ]
 }

@@ -42,7 +42,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 from claude_agent_sdk import create_sdk_mcp_server, tool
@@ -981,6 +981,40 @@ class ProviderStore:
             raise
         return self._public_model(entry)
 
+    def add_models(self, provider_id: str, models: list[tuple[Any, Any]]) -> dict[str, Any]:
+        """Add several (model, label) pairs to a provider's list in one save: {"added": the
+        ids added, "skipped": those already there or that couldn't go on, "full": whether
+        the list filled up first}. ValueError when there's no such provider, or the save
+        failed (then none are added)."""
+        if str(provider_id or "") not in self.providers:
+            raise ValueError("Add the provider first, then its models.")
+        before = self._snapshot()
+        added: list[str] = []
+        skipped: list[str] = []
+        full = False
+        for model, label in models[:MAX_LISTED]:
+            if len(self.models_of(provider_id)) >= MAX_MODELS:
+                full = True
+                skipped.append(str(model))
+                continue
+            try:
+                provider, model_id, clean = self.can_add(provider_id, model, label)
+            except ValueError:
+                try:  # a label another model has: shown by its id instead
+                    provider, model_id, clean = self.can_add(provider_id, model, None)
+                except ValueError:  # already there, or not a model id
+                    skipped.append(str(model))
+                    continue
+            self._add_entry(provider.id, model_id, clean)
+            added.append(model_id)
+        if added:
+            try:
+                self._persist()
+            except ValueError:
+                self._restore(before)
+                raise
+        return {"added": added, "skipped": skipped, "full": full}
+
     def _add_entry(self, provider_id: str, model: str, label: Any) -> ModelEntry:
         entry = ModelEntry(
             uuid.uuid4().hex[:12], provider_id, model, clean_name(label, LABEL_LIMIT) or model
@@ -1356,6 +1390,12 @@ async def _ask(provider: Provider, key: str, client: httpx.AsyncClient) -> dict[
             return _checked(False, error=f"Google didn't accept that key. {said}".strip())
         which = next(iter(relay.endpoints.values()), "gemini")
         where = "Vertex AI (express mode)" if which == "vertex" else "the Gemini API"
+        listed = await _gemini_models(client, key, provider) if which == "gemini" else None
+        if listed:
+            count = f"{len(listed)} model{'' if len(listed) == 1 else 's'}"
+            return _checked(
+                True, models=listed, note=f"Gemini works, through {where}: {count} on this key."
+            )
         models = [{"id": m, "name": m, "tools": True} for m in KINDS["gemini"].suggested]
         return _checked(True, models=models, note=f"Gemini works, through {where}.")
     headers = _headers(provider, key)
@@ -1518,6 +1558,83 @@ def _parse_models(payload: Any) -> list[dict[str, Any]] | None:
         if len(out) >= MAX_LISTED:
             break
     return out if out or not items else None
+
+
+# Gemini models that can't hold a conversation with tools: speech, transcription,
+# pictures, live audio, embeddings, and the robotics and computer-use ones.
+_GEMINI_NOT_CHAT = re.compile(r"tts|transcribe|image|audio|live|embed|robotics|computer-use|aqa")
+GEMINI_PAGES = 5  # pages of Google's model list read, a thousand models each
+
+
+async def _gemini_models(
+    client: httpx.AsyncClient, key: str, provider: Provider
+) -> list[dict[str, Any]] | None:
+    """The Gemini models this key can run JARVIS and Jarvis Code on, from Google's own list
+    (the Gemini API's; Vertex AI express keys can't list), in _gemini_rank's order, Pro
+    before Flash before Flash-Lite within a version. None when Google wouldn't say."""
+    from .gemini_proxy import GEMINI_API
+
+    headers = {"Accept": "application/json", "User-Agent": "Jarvis", "x-goog-api-key": key}
+    items: list[Any] = []
+    token = ""
+    for _ in range(GEMINI_PAGES):
+        url = f"{GEMINI_API}?pageSize=1000" + (
+            f"&pageToken={quote(token, safe='')}" if token else ""
+        )
+        try:
+            payload = await _get_json(client, url, headers, provider, key)
+        except _Failed:
+            return None
+        if not isinstance(payload, dict) or not isinstance(payload.get("models"), list):
+            return None
+        items += payload["models"]
+        token = payload.get("nextPageToken")
+        if not isinstance(token, str) or not token:
+            break
+    return _parse_gemini_models(items) or None
+
+
+def _parse_gemini_models(items: list[Any]) -> list[dict[str, Any]]:
+    """Google's model list as a check reports it: [{"id", "name", "tools"}], the name being
+    Google's own ("Gemini 2.5 Pro"); one that two models share shows the id instead."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    names: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = _plain(str(item.get("name") or ""), 200).removeprefix("models/")
+        methods = item.get("supportedGenerationMethods")
+        if (
+            not model_id.startswith("gemini-")
+            or model_id in seen
+            or not _MODEL_ID.fullmatch(model_id)
+            or not isinstance(methods, list)
+            or "generateContent" not in methods
+            or _GEMINI_NOT_CHAT.search(model_id)
+        ):
+            continue
+        seen.add(model_id)
+        name = _plain(str(item.get("displayName") or ""), LABEL_LIMIT) or model_id
+        if name.casefold() in names or looks_like_key(name) or _id_shaped(name):
+            name = model_id
+        names.add(name.casefold())
+        out.append({"id": model_id, "name": name, "tools": True})
+    return sorted(out, key=lambda m: _gemini_rank(m["id"]))[:MAX_LISTED]
+
+
+def _gemini_rank(model_id: str) -> tuple[int, tuple[int, ...], int, bool, str]:
+    """Where a model goes in the list: the "-latest" names, then numbered ones newest first
+    (3.8 before 3.1 before 3), then the rest (gemini-omni-…)."""
+    number = re.match(r"gemini-(\d+(?:\.\d+)*)-", model_id)
+    parts = [int(n) for n in number.group(1).split(".")] if number else []
+    version = tuple(-n for n in (parts + [0, 0, 0])[:3])
+    group = 0 if model_id.endswith("-latest") else 1 if number else 2
+    family = 0 if "-pro" in model_id else 2 if "-flash-lite" in model_id else 1
+    if family == 1 and "-flash" not in model_id:
+        family = 3  # neither Pro nor Flash: after them
+    stable = "preview" not in model_id and "exp" not in model_id
+    return (group, version, family, not stable, model_id)
 
 
 def _offered(model: str, listed: set[str]) -> bool:

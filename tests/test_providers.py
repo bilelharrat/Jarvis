@@ -1257,6 +1257,128 @@ async def test_checking_an_anthropic_key_lists_its_models(tmp_path):
     assert (status["ok"], status["count"], status["error"]) == (True, 3, "")
 
 
+GOOGLE_KEY = "AIza" + "x" * 35
+GEMINI = "https://generativelanguage.googleapis.com/v1beta/models"
+SAID_OK = {"candidates": [{"content": {"parts": [{"text": "OK."}]}, "finishReason": "STOP"}]}
+
+
+def google_model(model_id, name, methods=("generateContent", "countTokens")):
+    return {
+        "name": f"models/{model_id}",
+        "displayName": name,
+        "supportedGenerationMethods": list(methods),
+    }
+
+
+async def test_checking_a_gemini_key_lists_every_model_on_it_by_name_and_number(tmp_path):
+    store = make_store(tmp_path)
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    first = {
+        "models": [
+            google_model("gemini-2.5-flash", "Gemini 2.5 Flash"),
+            google_model("gemini-embedding-001", "Gemini Embedding 001", ["embedContent"]),
+            google_model("gemini-2.5-flash-preview-tts", "Gemini 2.5 Flash Preview TTS"),
+            google_model("gemini-3-pro-preview", "Gemini 3 Pro Preview"),
+            google_model("gemini-flash-latest", "Gemini Flash Latest"),
+            google_model("gemma-3-27b-it", "Gemma 3 27B"),
+            google_model("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite"),
+            google_model("gemini-omni-1.1-flash", "Gemini Omni 1.1 Flash"),
+            google_model("gemini-3.8-flash", "Gemini 3.8 Flash"),
+            google_model("gemini-3.5-transcribe", "Gemini 3.5 Transcribe"),
+            google_model("gemini-pro-latest", "Gemini Pro Latest"),
+        ],
+        "nextPageToken": "page two",
+    }
+    second = {
+        "models": [
+            google_model("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            google_model("gemini-2.5-flash-image", "Nano Banana"),
+            google_model("gemini-2.0-flash-001", "Gemini 2.5 Flash"),  # a name it shares
+            google_model("gemini-3-pro-preview", "Gemini 3 Pro Preview"),  # listed twice
+        ]
+    }
+
+    def listing(request):
+        return httpx.Response(200, json=second if request.url.params.get("pageToken") else first)
+
+    seen = []
+    routes = {f"{GEMINI}/": answer(json=SAID_OK), f"{GEMINI}?": listing}
+    async with router_client(routes, seen) as client:
+        result = await store.check(pid, client)
+    assert result["ok"], result
+    assert result["note"] == "Gemini works, through the Gemini API: 9 models on this key."
+    # No speech, transcription, embedding, picture or Gemma models; the "-latest" names
+    # first, then the newest version (3.8 before 3), Pro before Flash before Flash-Lite, then
+    # the unnumbered rest. A name two share shows the id.
+    assert [(m["id"], m["name"]) for m in result["models"]] == [
+        ("gemini-pro-latest", "Gemini Pro Latest"),
+        ("gemini-flash-latest", "Gemini Flash Latest"),
+        ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ("gemini-3-pro-preview", "Gemini 3 Pro Preview"),
+        ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+        ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite"),
+        ("gemini-2.0-flash-001", "gemini-2.0-flash-001"),
+        ("gemini-omni-1.1-flash", "Gemini Omni 1.1 Flash"),
+    ]
+    assert all(m["tools"] for m in result["models"])
+    lists = [r for r in seen if r.method == "GET"]
+    assert len(lists) == 2 and lists[1].url.params["pageToken"] == "page two"
+    assert all(r.headers["x-goog-api-key"] == GOOGLE_KEY for r in lists)
+    assert all("key=" not in str(r.url) for r in lists)  # the key stays out of the address
+
+
+async def test_a_gemini_key_google_wont_list_for_offers_the_usual_models(tmp_path):
+    store = make_store(tmp_path)
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    routes = {f"{GEMINI}/": answer(json=SAID_OK), f"{GEMINI}?": answer(403, json={})}
+    async with router_client(routes, []) as client:
+        result = await store.check(pid, client)
+    assert result["ok"] and result["note"] == "Gemini works, through the Gemini API."
+    assert [m["id"] for m in result["models"]] == list(providers.KINDS["gemini"].suggested)
+
+
+def test_adding_all_of_a_keys_models_at_once(tmp_path):
+    store = make_store(tmp_path)
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    store.add_model(pid, "gemini-flash-latest", "Gemini Flash")
+    done = store.add_models(
+        pid,
+        [
+            ("gemini-flash-latest", "Gemini Flash Latest"),  # there already
+            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            ("gemini-2.5-flash", "Gemini Flash"),  # another's label: shown by its id
+        ],
+    )
+    assert done == {
+        "added": ["gemini-2.5-pro", "gemini-2.5-flash"],
+        "skipped": ["gemini-flash-latest"],
+        "full": False,
+    }
+    labels = {m["model"]: m["label"] for m in store.public()["providers"][0]["models"]}
+    assert labels == {
+        "gemini-flash-latest": "Gemini Flash",
+        "gemini-2.5-pro": "Gemini 2.5 Pro",
+        "gemini-2.5-flash": "gemini-2.5-flash",
+    }
+    assert make_store(tmp_path).models()[-1]["model"] == "gemini-2.5-flash"  # saved
+    many = [(f"gemini-9.{n}-flash", f"Gemini 9.{n} Flash") for n in range(MAX_MODELS)]
+    done = store.add_models(pid, many)
+    assert done["full"] and len(done["added"]) == MAX_MODELS - 3
+    assert len(store.models_of(pid)) == MAX_MODELS
+    with pytest.raises(ValueError):
+        store.add_models("nope", many)
+
+
+def test_adding_all_adds_none_when_the_list_cant_be_saved(tmp_path):
+    store = make_store(tmp_path)
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    block_saving(store, tmp_path)
+    with pytest.raises(ValueError, match="couldn't save"):
+        store.add_models(pid, [("gemini-2.5-pro", "Gemini 2.5 Pro")])
+    assert store.models_of(pid) == []
+
+
 async def test_checking_openrouter_tries_the_key_then_lists_models(tmp_path):
     store = make_store(tmp_path)
     pid = store.add_provider("openrouter", "", OR_KEY)["id"]

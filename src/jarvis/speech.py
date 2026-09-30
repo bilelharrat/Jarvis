@@ -137,6 +137,11 @@ def read_wav(source: Path | bytes) -> tuple[np.ndarray, int]:
 
 
 def write_wav(path: Path, audio: np.ndarray, rate: int) -> None:
+    path.write_bytes(wav_bytes(audio, rate))
+
+
+def wav_bytes(audio: np.ndarray, rate: int) -> bytes:
+    """float mono -> a 16-bit PCM WAV file's bytes."""
     pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
     header = (
         b"RIFF"
@@ -152,7 +157,7 @@ def write_wav(path: Path, audio: np.ndarray, rate: int) -> None:
         + b"data"
         + len(pcm).to_bytes(4, "little")
     )
-    path.write_bytes(header + pcm)
+    return header + pcm
 
 
 @dataclass

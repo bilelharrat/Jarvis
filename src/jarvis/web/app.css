@@ -1744,6 +1744,11 @@ body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: n
 .jcs-model-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; font: 12px var(--mono); background: rgb(var(--c-accent) / 0.1); color: rgb(var(--c-accent-ink)); }
 .jcs-model-chip .jc-chip-x { background: rgb(var(--c-accent) / 0.18); color: inherit; }
 .jcs-p-add { display: flex; gap: 8px; margin-top: 10px; }
+.jcs-p-more { margin-top: 12px; }
+.jcs-p-more-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jcs-p-more-head small { color: rgb(var(--c-muted)); }
+.jcs-model-add { padding: 3px 10px; border: 1px dashed rgb(var(--c-accent) / 0.35); background: transparent; cursor: pointer; }
+.jcs-model-add:hover { background: rgb(var(--c-accent) / 0.1); }
 .jcs-p-add .jcs-input { max-width: none; font-family: var(--mono); font-size: 12.5px; }
 .jcs-add { padding: 12px 14px 14px; }
 .jcs-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1985,6 +1990,8 @@ body[data-look="orb"] .sheet {
   background: var(--wash), rgb(var(--c-canvas) / 0.58);
   -webkit-backdrop-filter: blur(44px) saturate(170%); backdrop-filter: blur(44px) saturate(170%);
 }
+/* the dashboard's orb would blur through that glass as a blue sphere, so it steps out while Jarvis Code is open */
+body:has(#cc:not([hidden])) #orb { visibility: hidden; }
 .deck.jc, .browser-dock {
   --glass-fill: rgba(255, 255, 255, 0.34);
   --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.16));
@@ -2008,6 +2015,8 @@ body[data-look="orb"] .sheet {
 .jc-side { top: 8px; left: 8px; bottom: 8px; }
 body.in-app .jc-side { top: 8px; padding-top: 7px; }
 body.in-app .jc-side-head { padding-left: 70px; min-height: 32px; }
+/* and it's see-through: no fill, blur or shadow, its rows sit straight on the pane */
+.deck.jc .jc-side.glass-panel::before { background-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
 .jc-main { left: 284px; }
 body.in-app .jc-toolbar { padding-top: 6px; min-height: 52px; }
 body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }

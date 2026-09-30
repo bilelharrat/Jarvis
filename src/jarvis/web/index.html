@@ -415,7 +415,7 @@
 
   <section class="group">
     <h3>Phone</h3>
-    <p class="small-status">Jarvis calls you through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can call your own verified number). Your Account SID and Auth Token go into the Mac’s Keychain.</p>
+    <p class="small-status">Jarvis calls you, and people you ask it to call, through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can only call numbers verified in Twilio). Your Account SID and Auth Token go into the Mac’s Keychain.</p>
     <label class="row stack" for="phone-sid"><span><strong>Twilio Account SID</strong><small id="phone-signed">Not set up yet</small></span>
       <input type="text" id="phone-sid" placeholder="AC…" autocomplete="off" spellcheck="false"></label>
     <label class="row stack" for="phone-token"><span><strong>Twilio Auth Token</strong><small>Goes straight into your Keychain and is never shown again</small></span>
@@ -427,7 +427,9 @@
       <input type="text" id="phone-me" placeholder="+1 415 555 0199" autocomplete="off"></label>
     <div class="row"><span><strong>Wake-up call</strong><small>Jarvis rings you with the morning brief (while it’s running on this Mac)</small></span><button type="button" class="switch" role="switch" id="sw-wake-call" aria-checked="false" aria-label="Wake-up call"></button></div>
     <label class="row" for="wake-call-time"><span><strong>Call at</strong></span><input type="time" id="wake-call-time" value="07:00"></label>
-    <button type="button" class="btn" id="phone-test">Call me now</button>
+    <label class="row stack" for="phone-caller-name"><span><strong>Caller ID name</strong><small>The name shown when Jarvis calls. Your iPhone shows it straight away (a Contacts card); other people’s phones once Twilio approves it, which needs a business profile in Twilio’s Trust Hub. US numbers only, and some mobile carriers show just the number.</small></span>
+      <input type="text" id="phone-caller-name" value="J.A.R.V.I.S." maxlength="15" autocomplete="off" spellcheck="false"></label>
+    <div class="folder-form"><button type="button" class="btn" id="phone-test">Call me now</button><button type="button" class="btn" id="phone-caller-save">Show calls as this name</button></div>
     <p class="small-status" id="phone-note" aria-live="polite"></p>
   </section>
 
