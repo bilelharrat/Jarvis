@@ -531,8 +531,13 @@ final class AppModel {
 
     private func drainOutbox() async {
         guard let api = pairing?.api else { return }
+        // Held through the question too: background refresh never sends it (or the rest) twice.
+        _ = await outbox.exclusively { await self.drainHeld(using: api) }
+    }
+
+    private func drainHeld(using api: JarvisAPI) async {
         let sender = OutboxSender.sender(for: api)
-        let report = await OutboxSender.drain(outbox) { item, body in
+        let report = await OutboxSender.pass(outbox) { item, body in
             item.kind == .ask ? .later : await sender(item, body)
         }
         reloadQueue()

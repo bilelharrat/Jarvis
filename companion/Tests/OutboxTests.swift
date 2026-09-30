@@ -116,6 +116,36 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(report.remaining, 1)
     }
 
+    /// The app's own drain and background refresh's can start at the same moment (a push
+    /// or the app coming to the front during a refresh): each request still goes once.
+    func testTwoDrainsAtOnceSendEachRequestOnce() async throws {
+        let box = outbox()
+        try box.add(.command(.runRoutine(id: "r1"), label: "Routine", at: clock.now))
+        try box.add(.codeSend(session: 4, text: "Also add tests", title: "Fix login", at: clock.now))
+        let log = SlowLog()
+        async let first = OutboxSender.drain(box) { item, _ in await log.send(item) }
+        async let second = OutboxSender.drain(box) { item, _ in await log.send(item) }
+        _ = await (first, second)
+        let sent = await log.sent
+        XCTAssertEqual(sent.sorted(), ["Fix login: Also add tests", "Routine"])
+        XCTAssertTrue(box.items().isEmpty)
+    }
+
+    /// A question the Mac is too busy for keeps its place: a later question waits behind it
+    /// (the Mac may be free by the time the next one goes), while other requests go on.
+    func testABusyQuestionIsNotOvertakenByALaterOne() async throws {
+        let box = outbox()
+        try box.add(.ask("First", at: clock.now))
+        try box.add(.ask("Second", at: clock.now))
+        try box.add(.command(.briefing, label: "Brief me", at: clock.now))
+        let log = SendLog(outcomes: [.later, .delivered(reply: nil), .delivered(reply: nil)])
+        let report = await OutboxSender.drain(box) { item, _ in await log.send(item) }
+        let sent = await log.sent
+        XCTAssertEqual(sent, ["First", "Brief me"])
+        XCTAssertEqual(box.items().compactMap(\.question), ["First", "Second"])
+        XCTAssertEqual(report.remaining, 2)
+    }
+
     func testDrainDropsExpiredFirst() async throws {
         let box = outbox()
         try box.add(.ask("Too old", at: clock.now))
@@ -151,6 +181,17 @@ final class OutboxTests: XCTestCase {
 final class TestClock: @unchecked Sendable {
     var now: Date
     init(_ now: Date) { self.now = now }
+}
+
+/// Records what's sent, taking a moment over each, as the Mac would.
+private actor SlowLog {
+    private(set) var sent: [String] = []
+
+    func send(_ item: OutboxItem) async -> OutboxSender.Outcome {
+        sent.append(item.question ?? item.label)
+        try? await Task.sleep(for: .milliseconds(300))
+        return .delivered(reply: nil)
+    }
 }
 
 private actor SendLog {

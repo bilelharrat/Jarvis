@@ -91,6 +91,7 @@ final class Outbox: @unchecked Sendable {
     let directory: URL
     private let now: @Sendable () -> Date
     private let lock = NSLock()
+    private var draining = false
 
     /// The shared queue in the App Group container.
     static let shared = Outbox(directory: AppGroup.directory.appending(path: "Outbox", directoryHint: .isDirectory))
@@ -128,6 +129,21 @@ final class Outbox: @unchecked Sendable {
 
     func remove(_ id: UUID) {
         try? update { items in items.removeAll { $0.id == id } }
+    }
+
+    /// Runs `body` unless another drain of this queue is under way in this process (the
+    /// app's own and background refresh's can start together): nil then, so nothing waiting
+    /// is sent twice. The app is the only process that sends from the queue; Siri and the
+    /// share sheet only add to it.
+    func exclusively<T>(_ body: () async -> T) async -> T? {
+        let mine: Bool = lock.withLock {
+            guard !draining else { return false }
+            draining = true
+            return true
+        }
+        guard mine else { return nil }
+        defer { lock.withLock { draining = false } }
+        return await body()
     }
 
     func removeAll() {
@@ -286,14 +302,22 @@ enum OutboxSender {
         }
     }
 
-    /// One pass over the queue, oldest first. The Mac answers one question per device at a
-    /// time, so a question it's still working on makes the next one wait (busy) for a later
-    /// pass while the rest go on.
+    /// One pass over the queue, oldest first, unless another is already under way (see
+    /// `Outbox.exclusively`).
     static func drain(_ outbox: Outbox, send: Send) async -> Report {
+        await outbox.exclusively { await pass(outbox, send: send) } ?? Report(remaining: outbox.items().count)
+    }
+
+    /// One pass, for a caller already draining the queue. The Mac answers one question per
+    /// device at a time, so a question it's still working on waits (busy) for a later pass,
+    /// and so do the questions after it, which would otherwise get ahead of it; the rest go on.
+    static func pass(_ outbox: Outbox, send: Send) async -> Report {
         var report = Report()
+        var questionWaiting = false
         report.expired = outbox.pruneExpired()
         for item in outbox.items() {
             if Task.isCancelled { break }
+            if item.kind == .ask, questionWaiting { continue }
             let body: Data
             do {
                 body = try outbox.body(for: item)
@@ -315,6 +339,7 @@ enum OutboxSender {
                 report.remaining = outbox.items().count
                 return report
             case .later:
+                if item.kind == .ask { questionWaiting = true }
                 continue
             }
         }
