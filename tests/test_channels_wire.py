@@ -2,7 +2,8 @@
 client against local fakes of Slack's Web API and Socket Mode, and of Discord's REST API and
 Gateway (tests/chat_wire.py), on real sockets, TLS for the WebSockets. What's checked is the
 exchange itself: acks and heartbeats as sent, identify and resume, a reply posted, a 429's
-wait honoured, a button press answered, a refused token. Nothing leaves 127.0.0.1."""
+wait honoured, a button press answered, a refused token, and reconnecting after a drop
+(at once when the service asks, after a pause otherwise). Nothing leaves 127.0.0.1."""
 
 import asyncio
 import json
@@ -11,10 +12,11 @@ from datetime import UTC, datetime
 
 import pytest
 from channels_fakes import make_hub, settle
-from chat_wire import HTTPFake, Redirect, WSFake, until
+from chat_wire import HTTPFake, Redirect, Sleeps, WSFake, until
 from starlette.responses import JSONResponse, Response
 
 from jarvis.channels import discord as dc
+from jarvis.channels import slack as sl
 from jarvis.channels.store import Owner
 
 # Made-up tokens in the services' shapes, built from parts so that no secret scanner takes
@@ -135,6 +137,33 @@ async def test_slack_answers_the_owner_over_the_wire_and_acks_every_envelope(sla
     assert call.host == "slack.com" and call.headers["authorization"] == f"Bearer {BOT}"
     [opened] = http.calls("/apps.connections.open")
     assert opened.headers["authorization"] == f"Bearer {APP}"  # the app-level token, there only
+
+
+async def test_slack_reconnects_at_once_when_it_asks_and_after_a_pause_when_the_socket_drops(
+    slack_world, monkeypatch
+):
+    hub, router, slack, api, http, ws, start = slack_world
+    sleeps = Sleeps()
+    monkeypatch.setattr(sl, "asyncio", sleeps)
+    start()
+    first = await ws.next()
+    await first.send({"type": "hello"})
+    await until(lambda: slack.state == "listening", what="listening")
+    await first.send({"type": "disconnect", "reason": "refresh_requested"})
+    second = await ws.next()
+    assert second.path == "/link/2" and api.opened == 2
+    assert [s for s in sleeps.seen if s >= 1] == []  # Slack asked: a new socket at once
+    await second.send({"type": "hello"})
+    await until(lambda: slack.state == "listening", what="listening again")
+    # Now sockets that close without a word, again and again: each retry waits longer, and
+    # none is made in a burst.
+    await second.close(1011)
+    for _ in range(3):
+        conn = await ws.next()
+        await conn.close(1000)
+    await ws.next()
+    assert [s for s in sleeps.seen if s >= 1] == [1.0, 2.0, 4.0, 8.0]
+    assert slack.state == "reconnecting"
 
 
 async def test_slack_waits_out_a_rate_limit_and_sends_once(slack_world):

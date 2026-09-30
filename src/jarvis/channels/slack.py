@@ -85,6 +85,7 @@ class Slack(Channel):
         self.connect: Any = None  # tests: a fake socket; else websockets
         self._client: httpx.AsyncClient | None = None
         self._seen: deque[str] = deque(maxlen=500)  # events already handled (Slack retries)
+        self.backoff = 1.0  # seconds before the next try at connecting
 
     def home_chat(self) -> str | None:
         owner = self.router.state.owners.get(self.name)
@@ -177,7 +178,11 @@ class Slack(Channel):
     # ── receiving ──
 
     async def run(self) -> None:
-        backoff = 1.0
+        """Each wait before trying again is twice the last (a minute at most), and a
+        connection Slack said hello on starts that over. A new socket goes at once only when
+        Slack asks for one; a socket that just closes is tried again after the wait, so a
+        link that keeps dropping never becomes a burst of connections."""
+        self.backoff = 1.0
         while True:
             try:
                 opened = await self.api("apps.connections.open", token=self.secret("app_token"))
@@ -192,22 +197,26 @@ class Slack(Channel):
                     )
                     return
                 self.set_state("reconnecting", "Can't reach Slack. Trying again.")
-                await asyncio.sleep(backoff)
-                backoff = min(60.0, backoff * 2)
+                await self._wait()
                 continue
+            asked = False
             try:
                 async with self._socket(url) as ws:
-                    await self._read(ws)
-                backoff = 1.0
+                    asked = await self._read(ws)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 log.info("slack: the socket closed (%s)", type(exc).__name__)
+            if not asked:
                 self.set_state("reconnecting", "Lost the connection to Slack. Reconnecting.")
-                await asyncio.sleep(backoff)
-                backoff = min(60.0, backoff * 2)
+                await self._wait()
 
-    async def _read(self, ws: Any) -> None:
+    async def _wait(self) -> None:
+        await asyncio.sleep(self.backoff)
+        self.backoff = min(60.0, self.backoff * 2)
+
+    async def _read(self, ws: Any) -> bool:
+        """Hand on what comes in; True when Slack asks for a fresh connection."""
         async for raw in ws:
             try:
                 envelope = json.loads(raw)
@@ -220,9 +229,10 @@ class Slack(Channel):
                 await ws.send(json.dumps({"envelope_id": envelope_id}))
             kind = envelope.get("type")
             if kind == "hello":
+                self.backoff = 1.0  # a good connection: a drop after it is retried promptly
                 self.set_state("listening" if self.home_chat() else "needs_pairing")
             elif kind == "disconnect":
-                return  # Slack asks for a fresh connection now and then
+                return True  # Slack asks for a fresh connection now and then
             elif kind in ("events_api", "interactive"):
                 payload = envelope.get("payload")
                 if not isinstance(payload, dict):
@@ -233,6 +243,7 @@ class Slack(Channel):
                         await self.router.receive(msg)
                 except Exception as exc:  # one odd event never stops the rest
                     log.warning("slack: couldn't handle an event (%s)", type(exc).__name__)
+        return False
 
     def _event(self, payload: dict[str, Any]) -> Inbound | None:
         event_id = str(payload.get("event_id") or "")
