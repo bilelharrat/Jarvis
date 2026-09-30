@@ -1575,6 +1575,24 @@ test('Settings › Snippets won’t rename one onto another’s name, and saves 
   assert(JSON.stringify(r) === JSON.stringify([[{ name: 'a', text: 'Alpha.' }, { name: 'b', text: 'Beta, edited.' }]]), JSON.stringify(r));
 });
 
+test('Words typed with no session open stay when a session with a draft is opened', async () => {
+  await sessions([1, 2]);
+  // JARVIS restarted: no session is open, and session 2 has a draft kept.
+  const restart = (hub) => js(`__ev({ type: 'hello', hub_id: '${hub}', state: 'idle', muted: true, status: {}, activity: [], tasks: [1, 2].map((id) => __task(id, { busy: false, status: 'waiting' })), prefs, brain: {}, approvals: [], history: [] });
+    __ev({ type: 'code_meta', full: true, items: { 2: { draft: 'half a thought' } } }); $('deck-input').focus(); $('deck-input').selectionStart = $('deck-input').value.length; ccSelected`);
+  assert(await restart('hub-b') === null, 'a session is still open');
+  await typeText('and the tests');
+  await js('selectTask(2)');
+  let text = await js('$("deck-input").value');
+  assert(text === 'half a thought\nand the tests', `the composer: ${JSON.stringify(text)}`);
+  // Words that go on from its draft (typed after another restart) aren't doubled.
+  await restart('hub-c');
+  await typeText(' now');
+  await js('selectTask(2)');
+  text = await js('$("deck-input").value');
+  assert(text === 'half a thought\nand the tests now', `the composer: ${JSON.stringify(text)}`);
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

@@ -165,8 +165,11 @@
       if (attachments.length) S.held.set(previous, attachments); else S.held.delete(previous);
     }
     if (previous !== id) {
-      const draft = S.drafts.get(id);
-      if (previous != null || draft) setComposer(draft || '');
+      const draft = S.drafts.get(id) || '';
+      // With no session open before, what was typed stays, after this one's draft (words that
+      // go on from that draft, typed after a restart, aren't doubled).
+      const typed = previous == null ? input.value : '';
+      if (previous != null || draft) setComposer(!typed ? draft : typed.startsWith(draft) ? typed : `${draft}\n${typed}`);
       attachments = S.held.get(id) || (previous != null ? [] : attachments);
       S.held.delete(id);
       renderAttachments();
