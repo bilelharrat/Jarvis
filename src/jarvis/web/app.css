@@ -2515,3 +2515,15 @@ body[data-look="orb"] .wx-pop {
 .sys-table tr:hover td { background: var(--wx-inset); }
 .sys-note { margin: 0; font-size: 11.5px; color: var(--muted); }
 @media (max-width: 720px) { .sys-tabs button { padding: 7px 9px; } }
+
+/* Settings and the other sheets float as one rounded pane of glass (every corner round,
+   a little room all round), like the browser and the pop-outs. */
+body[data-look="orb"] .sheet {
+  top: 10px; right: 10px; bottom: 10px; width: min(400px, calc(100vw - 20px));
+  border-radius: 22px; border: 0.5px solid var(--s-line); overscroll-behavior: contain;
+}
+body[data-look="orb"] .sheet.wide { width: min(720px, calc(100vw - 20px)); }
+body[data-look="orb"].browser-open .sheet { right: calc(var(--bd-w) + 10px); }
+.usage-kind { color: var(--muted); font-size: 11px; }
+.usage-pop .usage-row .usage-note { max-width: 100%; }
+.usage-row.api { grid-template-columns: 170px 1fr 22em; }

@@ -187,3 +187,36 @@ async def test_the_plan_is_asked_with_the_login_and_nothing_else():
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(refused)) as client:
         assert await fetch_plan(client, token="tok") is None
+
+
+async def test_api_providers_are_listed_and_counted_on_their_own(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    gem = SimpleNamespace(name="Google Gemini", kind="gemini")
+    orouter = SimpleNamespace(name="OpenRouter", kind="openrouter")
+    hub.providers.providers = {"g": gem, "o": orouter}
+    hub.providers.provider_of = lambda ref: {"custom:g1": gem}.get(ref)
+
+    def result(total, n=1000):
+        return ResultMessage(
+            subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=1,
+            session_id="s1", total_cost_usd=total, usage=usage(i=n),
+            model_usage={"gemini-flash-latest": {}},
+        )  # fmt: skip
+
+    hub._connected_ref = "custom:g1"  # JARVIS on the Gemini fallback
+    await hub._on_message("r1", result(0.40))
+    hub._code_usage(SimpleNamespace(model="custom:g1"), 0.9, result(0.9, n=5000))
+    s = hub.usage_summary()
+    rows = {p["name"]: p for p in s["providers"]}
+    assert list(rows) == ["Google Gemini", "OpenRouter"]  # every added one, used or not
+    assert rows["Google Gemini"]["month"]["requests"] == 2
+    assert rows["Google Gemini"]["month"]["tokens"] == usage()["output_tokens"] * 2 + 6000 + 2 * (
+        5000 + 300
+    )
+    # Claude Code only prices Anthropic's models: Gemini's answers carry tokens, not a price.
+    assert rows["Google Gemini"]["month"]["cost"] == 0 and s["today"]["cost"] == 0
+    assert rows["OpenRouter"]["month"]["requests"] == 0
+    # Removed since: still shown with what it used.
+    hub.providers.providers = {"o": orouter}
+    assert [p["name"] for p in hub.usage_summary()["providers"]] == ["OpenRouter", "Google Gemini"]

@@ -1702,9 +1702,19 @@ function renderUsagePop(u) {
   // The plan's limits, as Claude Code last reported them.
   const plan = el('section');
   plan.append(el('h3', '', 'Plan limits'));
-  const limits = (u.limits || []).filter((l) => l.utilization != null || l.status === 'rejected');
-  if (!limits.length) plan.append(el('p', 'usage-empty', 'Your plan’s limits show here after Jarvis’s next answer: Claude Code reports them as it goes.'));
+  // The 5-hour and weekly windows always, then any other the plan has (Opus, Sonnet, extra).
+  const known = (u.limits || []).filter((l) => l.utilization != null || l.status === 'rejected');
+  const limits = [
+    ...['five_hour', 'seven_day'].map((type) => known.find((l) => l.type === type) || { type, label: type === 'five_hour' ? '5-hour limit' : 'Weekly limit', pending: true }),
+    ...known.filter((l) => l.type !== 'five_hour' && l.type !== 'seven_day'),
+  ];
   for (const l of limits) {
+    if (l.pending) {
+      const row = el('div', 'usage-row');
+      row.append(el('span', '', l.label), el('div', 'usage-bar'), el('span', 'usage-note', 'Checking…'));
+      plan.append(row);
+      continue;
+    }
     const pct = l.utilization == null ? 100 : Math.round(l.utilization * 100);
     const row = el('div', `usage-row ${limitLevel(l)}`);
     const bar = el('div', 'usage-bar');
@@ -1753,6 +1763,29 @@ function renderUsagePop(u) {
   models.append(u.month.models.length ? usageRows(u.month.models, u.month.cost) : el('p', 'usage-empty', 'Nothing yet.'));
   split.append(where, models);
   parts.push(split);
+  // Every API provider added in Settings (Gemini, OpenRouter…), used yet or not.
+  const apis = el('section');
+  apis.append(el('h3', '', 'API providers'));
+  const provs = u.providers || [];
+  if (!provs.length) apis.append(el('p', 'usage-empty', 'Add a model with an API key (Jarvis Code › model menu) and its usage shows here.'));
+  const ptop = Math.max(1, ...provs.map((p) => p.month.tokens));
+  for (const p of provs) {
+    const row = el('div', 'usage-row api');
+    const bar = el('div', 'usage-bar');
+    const fill = el('span');
+    fill.style.width = `${p.month.tokens ? Math.max(2, Math.round((100 * p.month.tokens) / ptop)) : 0}%`;
+    bar.append(fill);
+    const name = el('span');
+    name.append(mine(el('span', '', p.name)));
+    if (p.kind && p.kind !== p.name) name.append(el('small', 'usage-kind', ` ${p.kind}`));
+    const cost = p.month.cost ? ` · ${usd(p.month.cost)}` : '';
+    const note = p.month.requests
+      ? `Today ${tokensText(p.today.tokens)} · 30 days ${tokensText(p.month.tokens)} tokens${cost}`
+      : 'Not used yet';
+    row.append(name, bar, el('span', 'usage-note', note));
+    apis.append(row);
+  }
+  parts.push(apis);
   // The tokens themselves.
   const kinds = el('section');
   kinds.append(el('h3', '', 'Tokens · 30 days'));

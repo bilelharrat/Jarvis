@@ -98,6 +98,7 @@ from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore, clean_feature_values
 from .proactive import Alert, Watcher, in_quiet_hours
+from .providers import KINDS as PROVIDER_KINDS
 from .providers import MAX_MODELS, ProviderStore
 from .providers import PROMPT as MODELS_PROMPT
 from .providers import SERVER_NAME as MODELS_SERVER
@@ -2215,7 +2216,7 @@ class Hub:
             "brain": {**self.kb.summary(), **self.brain_state},
             "history": list(self.history),
             "vitals": self.vitals(),
-            "usage": self.usage.summary(),
+            "usage": self.usage_summary(),
             "defense": self.defense,
             "weather": self.weather,
             "location": self.location,
@@ -5155,7 +5156,8 @@ class Hub:
         model = next(iter(models), "") or getattr(
             getattr(self.client, "options", None), "model", ""
         )
-        self.usage.record("jarvis", cost, getattr(message, "usage", None), model or "")
+        provider, cost = self._usage_provider(self._connected_ref, cost)
+        self.usage.record("jarvis", cost, getattr(message, "usage", None), model or "", provider)
         self._usage_changed()
         self._plan_soon.set()
 
@@ -5163,7 +5165,8 @@ class Hub:
         """A Jarvis Code turn ended (tasks._turn_over): its share of the usage."""
         models = getattr(message, "model_usage", None) or {}
         model = next(iter(models), "") or getattr(task, "model", "") or ""
-        self.usage.record("code", cost, getattr(message, "usage", None), model)
+        provider, cost = self._usage_provider(getattr(task, "model", ""), cost)
+        self.usage.record("code", cost, getattr(message, "usage", None), model, provider)
         self._usage_changed()
         self._plan_soon.set()
 
@@ -5202,6 +5205,42 @@ class Hub:
                     self._usage_changed()
             await asyncio.sleep(2)
 
+    def _usage_provider(self, ref: str | None, cost: float) -> tuple[str, float]:
+        """Which added API provider an answer went to ("" for Claude on the subscription),
+        and its cost: Claude Code prices only Anthropic's models, so another provider's
+        answer counts its tokens, not a made-up price."""
+        provider = self.providers.provider_of(ref) if ref else None
+        if provider is None:
+            return "", cost
+        return provider.name, cost if provider.kind == "anthropic" else 0.0
+
+    def usage_summary(self) -> dict[str, Any]:
+        """The usage book's numbers, with every API provider added in Settings (used or
+        not yet, and any used before and since removed) after Claude."""
+        summary = self.usage.summary()
+        today = summary["today"].pop("providers", {})
+        month = summary["month"].pop("providers", {})
+        for span in ("session", "week"):
+            summary[span].pop("providers", None)
+        blank = {"cost": 0.0, "requests": 0, "tokens": 0}
+        listed = []
+        for p in self.providers.providers.values():
+            kind = PROVIDER_KINDS[p.kind].name if p.kind in PROVIDER_KINDS else p.kind
+            listed.append(
+                {
+                    "name": p.name,
+                    "kind": kind,
+                    "today": today.get(p.name, blank),
+                    "month": month.get(p.name, blank),
+                }
+            )
+        for name in month.keys() - {p["name"] for p in listed}:
+            listed.append(
+                {"name": name, "kind": "", "today": today.get(name, blank), "month": month[name]}
+            )
+        summary["providers"] = listed
+        return summary
+
     def _usage_changed(self) -> None:
         """The windows' Session card, at most once a second (a burst of answers is one)."""
         now = time.monotonic()
@@ -5211,7 +5250,7 @@ class Hub:
                 self._spawn(self._usage_later())
             return
         self._usage_sent = now
-        self.emit("usage", **self.usage.summary())
+        self.emit("usage", **self.usage_summary())
 
     async def _usage_later(self) -> None:
         await asyncio.sleep(1.0)
@@ -5691,6 +5730,7 @@ class Hub:
 
     def _providers_changed(self) -> None:
         self.emit("providers", **self.providers.public())
+        self._usage_changed()  # a provider added or removed shows in Claude usage at once
 
     async def _providers_command(self, kind: str, msg: dict[str, Any]) -> None:
         """Settings › Models & API keys. The key comes from the window once, straight to

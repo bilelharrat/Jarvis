@@ -1046,6 +1046,11 @@ class ProviderStore:
             raise
         return True
 
+    def provider_of(self, ref: str | None) -> Provider | None:
+        """The provider behind an added model's ref; None for Claude's own models."""
+        entry = self._entry(str(ref or "")) if str(ref or "").startswith(CUSTOM) else None
+        return self.providers.get(entry.provider) if entry is not None else None
+
     def kind_of(self, ref: str | None) -> str:
         """The provider kind behind a model ref ("gemini", "openrouter"…); "" for Claude's own."""
         entry = self._entry(str(ref or "")) if str(ref or "").startswith(CUSTOM) else None

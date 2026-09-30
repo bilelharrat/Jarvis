@@ -1614,7 +1614,11 @@
   "macOS doesn’t show other apps how much each process sends or receives.": "macOS 不向其他 App 提供每个进程的收发量。",
   "CPU load · 6 min": "CPU 负载 · 6 分钟",
   "6 min": "6 分钟",
-  "1, 5 and 15 min": "1、5 和 15 分钟"
+  "1, 5 and 15 min": "1、5 和 15 分钟",
+  "API providers": "API 提供商",
+  "Add a model with an API key (Jarvis Code › model menu) and its usage shows here.": "用 API 密钥添加模型（Jarvis Code › 模型菜单）后，它的用量会显示在这里。",
+  "Not used yet": "尚未使用",
+  "Checking…": "正在检查…"
  },
  "patterns": [
   [
@@ -3168,6 +3172,14 @@
   [
    "^of (.+)$",
    "共 $1"
+  ],
+  [
+   "^Today (\\S+) · 30 days (\\S+) tokens$",
+   "今天 $1 · 30 天 $2 令牌"
+  ],
+  [
+   "^Today (\\S+) · 30 days (\\S+) tokens · (\\$[\\d.]+)$",
+   "今天 $1 · 30 天 $2 令牌 · $3"
   ]
  ]
 }

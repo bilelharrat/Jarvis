@@ -185,9 +185,15 @@ class UsageBook:
     # ── recording ──
 
     def record(
-        self, source: str, cost: float | None, usage: dict[str, Any] | None, model: str = ""
+        self,
+        source: str,
+        cost: float | None,
+        usage: dict[str, Any] | None,
+        model: str = "",
+        provider: str = "",
     ) -> None:
-        """One answer from Claude: where it came from, its cost and tokens, its model."""
+        """One answer: where it came from, its cost and tokens, its model, and the API
+        provider it went to ("" for Claude on the subscription)."""
         cost = max(0.0, float(cost or 0.0))
         tokens = _tokens(usage)
         if not cost and not any(tokens.values()):
@@ -196,6 +202,8 @@ class UsageBook:
         _add(day, cost, tokens)
         _add(day["sources"].setdefault(source, _blank()), cost, tokens)
         _add(day["models"].setdefault(model_name(model), _blank()), cost, tokens)
+        if provider:
+            _add(day.setdefault("providers", {}).setdefault(provider, _blank()), cost, tokens)
         _add(self.session, cost, tokens)
         self._trim()
         self._changed()
@@ -280,7 +288,7 @@ class UsageBook:
         }
 
     def _span(self, today: date, days: int) -> dict[str, Any]:
-        total, sources, models = _blank(), {}, {}
+        total, sources, models, providers = _blank(), {}, {}, {}
         for n in range(days):
             day = self.days.get((today - timedelta(days=n)).isoformat())
             if not day:
@@ -290,6 +298,8 @@ class UsageBook:
                 _merge(sources.setdefault(name, _blank()), bucket)
             for name, bucket in (day.get("models") or {}).items():
                 _merge(models.setdefault(name, _blank()), bucket)
+            for name, bucket in (day.get("providers") or {}).items():
+                _merge(providers.setdefault(name, _blank()), bucket)
         out = self._public(total)
         out["sources"] = [
             {"name": SOURCES.get(k, k), **self._public(v)}
@@ -299,6 +309,7 @@ class UsageBook:
             {"name": k, **self._public(v)}
             for k, v in sorted(models.items(), key=lambda kv: -kv[1]["cost"])
         ]
+        out["providers"] = {k: self._public(v) for k, v in providers.items()}
         return out
 
     @staticmethod
