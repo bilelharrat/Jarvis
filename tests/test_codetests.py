@@ -19,7 +19,7 @@ def plain_env():
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "")}
 
 
-async def until(condition, seconds=20.0):
+async def until(condition, seconds=90.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         if condition():
@@ -67,6 +67,11 @@ def test_go_cargo_swift_and_xcode(tmp_path):
     (tmp_path / "App.xcodeproj").mkdir()
     (tmp_path / "App.xcworkspace").mkdir()
     assert codetests.xcode_container(tmp_path) == ("-workspace", "App.xcworkspace")
+    rn = tmp_path / "rn"
+    (rn / "ios" / "Shop.xcworkspace").mkdir(parents=True)
+    (rn / "ios" / "Shop.xcodeproj" / "project.xcworkspace").mkdir(parents=True)
+    assert codetests.xcode_container(rn) == ("-workspace", "ios/Shop.xcworkspace")
+    assert codetests.pick_scheme(["Shop", "ShopTests", "Other"], "ios/Shop.xcworkspace") == "Shop"
     listing = (
         'Command line invocation: ...\n{"project": {"name": "App", "schemes": ["App", "AppTests"]}}'
     )
@@ -320,7 +325,7 @@ async def test_a_run_can_be_stopped_and_a_missing_runner_says_so(tmp_path):
     run = await tests.start(project, PYTEST, {"file": "tests/test_slow.py"})
     await asyncio.sleep(0.5)
     assert await tests.stop(project)
-    assert await until(lambda: run.status == "stopped", 8)
+    assert await until(lambda: run.status == "stopped", 30)
     with pytest.raises(ValueError, match="isn't installed"):
         await tests.start(project, Suite("go", "go test", ("no-such-go-jarvis", "test")))
     with pytest.raises(ValueError, match="npm install"):

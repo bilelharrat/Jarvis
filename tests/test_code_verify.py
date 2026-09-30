@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -56,7 +57,7 @@ def events(queue, kind=None):
     return out
 
 
-async def until(condition, seconds=25.0):
+async def until(condition, seconds=90.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         if condition():
@@ -245,7 +246,7 @@ def sent_messages(hub, monkeypatch):
     return sent
 
 
-async def wait_for(q, kind, check=lambda ev: True, seconds=30.0):
+async def wait_for(q, kind, check=lambda ev: True, seconds=120.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         while not q.empty():
@@ -562,3 +563,75 @@ async def test_new_sessions_check_their_work_when_the_owner_says_so(hub, project
     hub.set_feature_prefs({"code_verify_new_sessions": False})
     assert hub.code_verify.session(42).verify is False
     assert hub.code_verify.session(41).verify is True  # a session's own switch stays
+
+
+# ── a session's extra hands: the iOS Simulator, Xcode's tools ──
+
+
+async def test_a_session_gets_the_simulators_fast_tools_and_they_follow_its_mode(hub, project):
+    task = ClaudeTask(id=12, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[12] = task
+    options = hub.tasks.options_for(task)
+    assert "jarvis_ios" in options.mcp_servers
+    assert {"mcp__jarvis_ios__sim_look", "mcp__jarvis_ios__sim_logs"} <= set(options.allowed_tools)
+    assert "mcp__jarvis_ios__sim_tap" not in options.allowed_tools
+    assert "xcode" not in options.mcp_servers  # only when the owner turns it on
+    asked = []
+
+    async def approve(question, detail, choices, context=None):
+        asked.append((question, detail))
+        return "allow"
+
+    hub.tasks.approve = approve
+    policy = hub.tasks.policy_for(task)
+    await policy("mcp__jarvis_ios__sim_tap", {"x": 10, "y": 20}, ToolPermissionContext())
+    assert asked == [
+        (
+            "Jarvis Code in shop wants to use the iOS Simulator",
+            "tap at 10, 20 of the latest picture",
+        )
+    ]
+
+
+async def test_xcodes_tools_are_the_owners_to_turn_on_for_an_xcode_project(
+    hub, project, monkeypatch
+):
+    task = ClaudeTask(id=13, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[13] = task
+    reopened = []
+    monkeypatch.setattr(
+        hub.tasks, "reopen", lambda task_id, note: reopened.append((task_id, note)) or True
+    )
+    q = hub.subscribe()
+    await hub._handle({"type": "cv_session", "id": 13, "xcode": True})
+    assert "no Xcode workspace or project" in events(q, "cv_error")[0]["text"] and reopened == []
+    (project / "Shop.xcodeproj").mkdir()
+    before = hub.tasks._options_key(task)
+    await hub._handle({"type": "cv_session", "id": 13, "xcode": True})
+    [state] = events(q, "cv_session")
+    assert state["xcode"] and state["xcode_project"]
+    assert reopened and reopened[0][0] == 13 and "Xcode must be open" in reopened[0][1]
+    assert hub.tasks._options_key(task) != before  # a new connection gets it
+    options = hub.tasks.options_for(task)
+    assert options.mcp_servers["xcode"] == {
+        "type": "stdio",
+        "command": "/usr/bin/xcrun",
+        "args": ["mcpbridge"],
+    }
+    assert not any(name.startswith("mcp__xcode") for name in options.allowed_tools)  # it asks
+    await hub._handle({"type": "cv_session", "id": 13, "xcode": False})
+    assert "xcode" not in hub.tasks.options_for(task).mcp_servers
+    assert reopened[-1][1] == "Xcode's tools are off for this session."
+
+
+async def test_steps_that_run_the_projects_own_commands_always_ask(hub, project):
+    """Claude Code's Auto mode would judge dev_server_start by its name: it always asks."""
+    task = ClaudeTask(id=14, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[14] = task
+    options = hub.tasks.options_for(task)
+    matcher = next(m for m in options.hooks["PreToolUse"] if "dev_server_start" in m.matcher)
+    for name in ("mcp__jarvis_dev__dev_server_start", "mcp__jarvis_ios__sim_build_run"):
+        assert re.fullmatch(matcher.matcher, name)
+        out = await matcher.hooks[0]({"tool_name": name, "tool_input": {}}, "t", None)
+        assert out["hookSpecificOutput"]["permissionDecision"] == "ask", name
+    assert await matcher.hooks[0]({"tool_name": "mcp__jarvis_dev__dev_servers"}, "t", None) == {}

@@ -2044,6 +2044,15 @@ class TaskManager:
             tuple(_hook_key(hook, task) for hook in self.option_hooks),
         )
 
+    def reopen(self, task_id: int, note: str) -> bool:
+        """A feature changed what the session's connection is made with (option_hooks):
+        reopen it, same conversation, between steps."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return False
+        self._reopen_soon(task, note)
+        return True
+
     def add_entry(self, task_id: int, role: str, text: str, **extra: Any) -> bool:
         """A feature's own entry in a session's transcript (a preview check and its proof)."""
         task = self.tasks.get(task_id)

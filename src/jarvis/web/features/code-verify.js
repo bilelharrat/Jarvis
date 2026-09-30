@@ -1,8 +1,9 @@
 // Jarvis Code checks its work (features/code_verify.py): the Preview pane (the project's
 // dev servers, their logs, the session's check after each turn), each check in the
 // transcript (its picture, larger on a click, and what it found), the Tests pane (runs, the
-// failures as a tree, watch mode), the Problems pane (the project's own checkers), and the
-// Settings switch for new sessions. The page itself is checked by the app
+// failures as a tree, watch mode), the Problems pane (the project's own checkers), the
+// Settings switch for new sessions, and the More menu's switches for a session's extra
+// hands (Xcode's tools). The page itself is checked by the app
 // (app/features/code-verify.js), asked from here.
 //
 // Everything shown from the backend is data: text only (textContent), user data marked
@@ -480,6 +481,31 @@
     const src = jpegSrc(ev.jpeg);
     if (src) lightbox.querySelector('img').src = src;
     else lightbox.querySelector('.cv-lightbox-note').textContent = t('The full picture isn’t kept anymore.');
+  });
+
+  // ── a session's extra hands: the More menu's switches ──
+
+  const hands = new Map();  // session id -> what cv_session last said of it
+  let handsFor = null;
+  function askHands() {  // a session newly on show: what are its switches?
+    const task = F.currentTask();
+    const id = task ? task.id : null;
+    if (id === handsFor) return;
+    handsFor = id;
+    if (id !== null) F.send({ type: 'cv_session', id });
+  }
+  F.on('tasks', askHands);
+  F.on('task_transcript', askHands);
+  F.on('cv_session', (ev) => { hands.set(ev.id, { ...(hands.get(ev.id) || {}), ...ev }); });
+  const handsOf = (task) => (task ? hands.get(task.id) || {} : {});
+
+  F.registerMoreItem({
+    label: 'Xcode’s tools',
+    note: 'Xcode’s own tools for this session, while Xcode is open',
+    keepOpen: true,
+    get switch() { return !!handsOf(F.currentTask()).xcode; },
+    when: (task) => !!handsOf(task).xcode_project,
+    run: (on) => { const task = F.currentTask(); if (task) F.send({ type: 'cv_session', id: task.id, xcode: !!on }); },
   });
 
   // ── Settings: new sessions' switch ──

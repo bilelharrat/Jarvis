@@ -236,12 +236,21 @@ def discover(project: Path, xcode_schemes: list[tuple[str, str, str]] | None = N
     return suites
 
 
+XCODE_FOLDERS = ("", "ios", "macos", "apple")  # where a project keeps its Xcode project
+
+
 def xcode_container(project: Path) -> tuple[str, str] | None:
-    """An Xcode workspace (preferred) or project at the top of the folder: (flag, name)."""
-    for pattern, flag in (("*.xcworkspace", "-workspace"), ("*.xcodeproj", "-project")):
-        for found in sorted(project.glob(pattern)):
-            if found.name != "project.xcworkspace":
-                return flag, found.name
+    """An Xcode workspace (preferred) or project at the top of the folder, or in its ios/,
+    macos/ or apple/ folder (React Native and Flutter keep theirs there): (flag, its path
+    from the project's folder)."""
+    for sub in XCODE_FOLDERS:
+        folder = project / sub if sub else project
+        if sub and not folder.is_dir():
+            continue
+        for pattern, flag in (("*.xcworkspace", "-workspace"), ("*.xcodeproj", "-project")):
+            for found in sorted(folder.glob(pattern)):
+                if found.name != "project.xcworkspace":
+                    return flag, str(found.relative_to(project))
     return None
 
 
@@ -264,7 +273,7 @@ def pick_scheme(schemes: list[str], container: str, wanted: str = "") -> str:
         return wanted if wanted in schemes else ""
     if len(schemes) == 1:
         return schemes[0]
-    stem = container.rsplit(".", 1)[0]
+    stem = Path(container).stem
     if stem in schemes:
         return stem
     apps = [s for s in schemes if not s.endswith(("Tests", "UITests"))]
@@ -715,12 +724,8 @@ class SuiteRunner:
             k: str(v) for k, v in (target or {}).items() if k in ("file", "test", "package") and v
         }
         report = self._tmp / f"jarvis-tests-{os.getpid()}-{abs(hash((key, time.time())))}.out"
-        env = {
-            **(await asyncio.to_thread(self.env)),
-            "NO_COLOR": "1",
-            "FORCE_COLOR": "0",
-            "CI": "1",
-        }
+        # As the owner's own run would be (no CI: jest would stop writing new snapshots).
+        env = {**(await asyncio.to_thread(self.env)), "NO_COLOR": "1", "FORCE_COLOR": "0"}
         cwd = project / suite.cwd if suite.cwd else project
         argv = command(suite, target, report, destination)
         exe = runproc.which(argv[0], env, cwd)

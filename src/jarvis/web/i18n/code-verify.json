@@ -96,7 +96,19 @@
     "That check has nothing to fix.": "那次检查没有需要修复的内容。",
     "Only a dev server on this Mac is checked.": "只检查这台 Mac 上的开发服务器。",
     "The page didn’t finish loading in time.": "页面没有及时加载完成。",
-    "Nothing to check yet.": "暂时没有可检查的内容。"
+    "Nothing to check yet.": "暂时没有可检查的内容。",
+    "Xcode’s tools": "Xcode 的工具",
+    "Xcode’s own tools for this session, while Xcode is open": "这个会话可使用 Xcode 自己的工具（需要 Xcode 打开）",
+    "Xcode's tools are on for this session (Xcode must be open; it may ask to allow them).": "这个会话已开启 Xcode 的工具（Xcode 需要打开；它可能会询问是否允许）。",
+    "Xcode's tools are off for this session.": "这个会话已关闭 Xcode 的工具。",
+    "This project has no Xcode workspace or project (at its top, or in ios/ or macos/).": "这个项目没有 Xcode 工作区或项目（顶层、ios/ 或 macos/ 中都没有）。",
+    "tsc isn't installed (install the packages)": "tsc 未安装（请先安装依赖）",
+    "eslint isn't installed (install the packages)": "eslint 未安装（请先安装依赖）",
+    "ruff isn't installed": "ruff 未安装",
+    "pyright isn't installed": "pyright 未安装",
+    "mypy isn't installed": "mypy 未安装",
+    "That dev server isn't known.": "不认识那个开发服务器。",
+    "Couldn't save it.": "没能保存。"
   },
   "patterns": [
     [
@@ -190,6 +202,26 @@
     [
       "^The check didn’t work: (.*)$",
       "检查没有成功：$1"
+    ],
+    [
+      "^(.*)package\\.json \\(install the project's packages first: (vitest|jest) isn't installed\\)$",
+      "$1package.json（请先安装项目的依赖：$2 未安装）"
+    ],
+    [
+      "^The run exited with code (\\d+) before it reported results\\.$",
+      "运行在报告结果之前退出了，代码 $1。"
+    ],
+    [
+      "^The run was (killed|terminated|interrupted|hung up) before it reported results\\.$",
+      "运行在报告结果之前被终止了。"
+    ],
+    [
+      "^It didn't start: (.*)$",
+      "没能启动：$1"
+    ],
+    [
+      "^(\\d+) dev servers are running already; stop one first\\.$",
+      "已经有 $1 个开发服务器在运行；请先停止一个。"
     ]
   ]
 }

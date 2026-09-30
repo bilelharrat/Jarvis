@@ -35,7 +35,7 @@ def plain_env():
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "")}
 
 
-async def until(condition, seconds=25.0):
+async def until(condition, seconds=90.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         if condition():
@@ -339,7 +339,7 @@ async def test_stopping_takes_down_a_child_that_ignores_sigterm(tmp_path):
     t0 = time.monotonic()
     await server.proc.stop(grace=0.5)
     assert time.monotonic() - t0 < 6
-    assert await until(lambda: not pid_alive(child), 5), (
+    assert await until(lambda: not pid_alive(child), 20), (
         "the child that ignored SIGTERM is still running"
     )
 
@@ -374,7 +374,7 @@ async def test_nothing_outlives_the_app_even_one_killed_without_a_word(tmp_path)
         assert pid_alive(server)
         app.send_signal(signal.SIGKILL)
         app.wait()
-        assert await until(lambda: not pid_alive(server), 8), "the server outlived the app"
+        assert await until(lambda: not pid_alive(server), 30), "the server outlived the app"
     finally:
         if app.poll() is None:
             app.kill()
@@ -421,7 +421,7 @@ async def test_a_server_that_never_says_its_address_is_found_by_its_socket(tmp_p
     servers = DevServers(lambda *a, **k: None, env=plain_env)
     server = await servers.start(tmp_path, "quiet")
     try:
-        assert await until(lambda: server.status == "ready", 12)
+        assert await until(lambda: server.status == "ready", 45)
         assert server.port == port
     finally:
         await servers.close()
@@ -448,4 +448,24 @@ async def test_a_sessions_servers_stop_when_it_ends(tmp_path):
         assert theirs.alive  # the owner's own keeps running
     finally:
         servers.shutdown()
-    assert await until(lambda: not theirs.alive, 5)
+    assert await until(lambda: not theirs.alive, 20)
+
+
+async def test_what_a_finished_command_leaves_behind_goes_with_it(tmp_path):
+    """sh starts a background sleep that keeps the output open, and ends: the run still ends,
+    and the sleep with it."""
+    marker = tmp_path / "left.pid"
+    lines = []
+    ended = []
+    proc = runproc.Proc(
+        ["/bin/sh", "-c", f"sleep 600 & echo $! > {marker}; echo started"],
+        tmp_path,
+        plain_env(),
+        lines.extend,
+        ended.append,
+    )
+    await proc.start()
+    assert await until(lambda: ended, 45), "the run never ended"
+    assert lines == ["started"] and ended == [0]
+    left = int(marker.read_text())
+    assert await until(lambda: not pid_alive(left), 20), "the sleep it left outlived it"

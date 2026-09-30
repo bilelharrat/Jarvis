@@ -1,7 +1,9 @@
 """Jarvis Code checks its own work: the project's dev servers (a Preview pane, and tools for
 a session), the check after each turn that changed files (the page, the server's output,
-the checkers, a watch run of the tests; its proof in the transcript), and the Tests and
-Problems panes.
+the checkers, a watch run of the tests; its proof in the transcript), the Tests and
+Problems panes, and more hands for a session: the iOS Simulator's fast bridge (tap, swipe,
+type, buttons, pictures, build and run, the app's log) and, when the owner turns them on
+for it, Xcode's own tools (xcrun mcpbridge).
 
 What it adds, and where:
 - Window commands (cv_*): each pane's state and actions. Long work runs in the background:
@@ -28,15 +30,16 @@ import asyncio
 import atexit
 import contextlib
 import logging
+import re
 import time
 import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import create_sdk_mcp_server, tool
+from claude_agent_sdk import HookMatcher, create_sdk_mcp_server, tool
 
-from .. import codetests, devservers, diagnostics, prefs, previewcheck, runproc, tasks
+from .. import codetests, devservers, diagnostics, prefs, previewcheck, runproc, simtools, tasks
 from ..codetests import SuiteRunner
 from ..devservers import DevServers
 from ..diagnostics import Diagnostics
@@ -45,7 +48,8 @@ from ..previewcheck import Finding, FollowUps, PageChecks, ProofStore
 log = logging.getLogger("jarvis")
 
 DEV = "jarvis_dev"  # the session's dev server tools
-READ_ONLY = [f"mcp__{DEV}__dev_servers", f"mcp__{DEV}__dev_server_logs"]
+READ_ONLY = [f"mcp__{DEV}__dev_servers", f"mcp__{DEV}__dev_server_logs", *simtools.READ_ONLY]
+XCODE = "xcode"  # Xcode's own tools, through its MCP bridge (xcrun mcpbridge: stdio)
 START_WAIT = 30.0  # seconds dev_server_start waits for the server to answer
 TOOL_LINES = 200  # lines of output a tool returns at most
 TOOL_CHARS = 16_000
@@ -90,6 +94,7 @@ class SessionChecks:
     checking: bool = False
     said_nothing_to_check: bool = False
     last: dict[str, Any] | None = None  # the latest check, for the Preview pane
+    xcode: bool = False  # Xcode's tools (its MCP bridge) for this session
 
 
 @dataclass(eq=False)
@@ -111,6 +116,7 @@ class CodeVerify:
         self.diags = Diagnostics(self.hub.emit)
         self.pages = PageChecks(self.hub.emit, lambda: bool(self.hub.browser_available))
         self.proofs = ProofStore(self.hub.feature_path("code-verify-proofs"))
+        self.sim = simtools.SimHands(self.hub.simulator)
         _ALL.add(self)
 
     def add_error_source(self, source: previewcheck.ErrorSource) -> None:
@@ -126,6 +132,7 @@ class CodeVerify:
 
     async def close(self) -> None:
         self.pages.cancel_all()
+        await self.sim.close()
         await self.servers.close()
         await self.tests.close()
         await self.diags.close()
@@ -178,9 +185,15 @@ class CodeVerify:
             project=project.name,
             path=str(project),
             id=task.id if task is not None else None,
-            session={"verify": checks.verify, "checking": checks.checking, "last": checks.last}
+            session={
+                "verify": checks.verify,
+                "checking": checks.checking,
+                "last": checks.last,
+                "xcode": checks.xcode,
+            }
             if checks is not None
             else None,
+            xcode_project=codetests.xcode_container(project) is not None,
             servers=self.servers.public(project),
             **found,
         )
@@ -246,7 +259,31 @@ class CodeVerify:
                 setattr(checks, name, msg[name])
                 if msg[name]:
                     checks.said_nothing_to_check = False
-        self.hub.emit("cv_session", id=task.id, verify=checks.verify, problems=checks.problems)
+        if isinstance(msg.get("xcode"), bool) and msg["xcode"] != checks.xcode:
+            if msg["xcode"] and codetests.xcode_container(task.cwd) is None:
+                self.error(
+                    "This project has no Xcode workspace or project (at its top, or in ios/ or macos/)."
+                )
+            else:
+                checks.xcode = msg["xcode"]
+                self.hub.tasks.reopen(
+                    task.id,
+                    "Xcode's tools are on for this session (Xcode must be open; it may ask to allow them)."
+                    if checks.xcode
+                    else "Xcode's tools are off for this session.",
+                )
+        self.hub.emit("cv_session", **self.session_public(task))
+
+    def session_public(self, task: Any) -> dict[str, Any]:
+        """A session's switches, for the window (the Preview pane, the More menu)."""
+        checks = self.session(task.id)
+        return {
+            "id": task.id,
+            "verify": checks.verify,
+            "problems": checks.problems,
+            "xcode": checks.xcode,
+            "xcode_project": codetests.xcode_container(task.cwd) is not None,
+        }
 
     def cmd_check(self, msg: dict[str, Any]) -> None:
         """Check now (the Preview pane's button): the same check, sending nothing."""
@@ -683,7 +720,20 @@ class CodeVerify:
     # ── a session's tools ──
 
     def session_servers(self, task: Any) -> dict[str, Any]:
-        return {DEV: create_sdk_mcp_server(name=DEV, version="0.1.0", tools=dev_tools(self, task))}
+        servers: dict[str, Any] = {
+            DEV: create_sdk_mcp_server(name=DEV, version="0.1.0", tools=dev_tools(self, task)),
+            simtools.SERVER: create_sdk_mcp_server(
+                name=simtools.SERVER,
+                version="0.1.0",
+                tools=simtools.sim_tools(self.sim, lambda: task.cwd),
+            ),
+        }
+        checks = self.sessions.get(task.id)
+        if checks is not None and checks.xcode and codetests.xcode_container(task.cwd) is not None:
+            # Xcode's MCP bridge, as `xcrun mcpbridge --help` describes it: with no
+            # subcommand it's a stdio bridge to the running Xcode's tool service.
+            servers[XCODE] = {"type": "stdio", "command": "/usr/bin/xcrun", "args": ["mcpbridge"]}
+        return servers
 
     async def forever(self) -> None:
         """Runs with the app: when it quits, every process this feature started stops."""
@@ -809,6 +859,27 @@ def dev_tools(cv: CodeVerify, task: Any) -> list[Any]:
     return [dev_servers, dev_server_start, dev_server_stop, dev_server_logs]
 
 
+# Steps that run what the project defines (a dev server's command, an Xcode build and its
+# scripts): Claude Code's Auto mode would judge them by their name and input alone, never
+# seeing the command, so they always come to the session's own prompt, whose card shows it.
+RUNS_PROJECT_CODE = (f"mcp__{DEV}__dev_server_start", f"mcp__{simtools.SERVER}__sim_build_run")
+
+
+def ask_every_time(tools: tuple[str, ...] = RUNS_PROJECT_CODE) -> HookMatcher:
+    async def hook(input_data: dict[str, Any], _tool_use_id: Any, _context: Any) -> dict[str, Any]:
+        if input_data.get("tool_name") not in tools:
+            return {}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": "It runs the project's own command",
+            }
+        }
+
+    return HookMatcher(matcher="|".join(re.escape(t) for t in tools), hooks=[hook])
+
+
 def _start_detail(tool_input: dict[str, Any], cwd: Path) -> str:
     """What an approval card shows for dev_server_start: the command it would run."""
     name = str(tool_input.get("name") or "")
@@ -832,9 +903,13 @@ class _SessionOptions:
         base = options.mcp_servers if isinstance(options.mcp_servers, dict) else {}
         options.mcp_servers = {**base, **self.cv.session_servers(task)}
         options.allowed_tools = [*options.allowed_tools, *READ_ONLY]
+        hooks = dict(options.hooks or {})
+        hooks["PreToolUse"] = [*hooks.get("PreToolUse", []), ask_every_time()]
+        options.hooks = hooks
 
     def key(self, task: Any) -> Any:
-        return ()
+        checks = self.cv.sessions.get(task.id)
+        return (checks.xcode,) if checks is not None else (False,)
 
 
 def install(hub: Any) -> None:
@@ -842,6 +917,7 @@ def install(hub: Any) -> None:
     hub.code_verify = cv
     tasks.FEATURE_TOOLS[f"mcp__{DEV}__dev_server_start"] = ("start a dev server", _start_detail)
     tasks.FEATURE_TOOLS[f"mcp__{DEV}__dev_server_stop"] = ("stop a dev server", None)
+    tasks.FEATURE_TOOLS.update(simtools.FEATURE_TOOLS)
     hub.tasks.option_hooks.append(_SessionOptions(cv))
 
     previous = hub.tasks.emit

@@ -2433,6 +2433,27 @@ test('The Preview pane has the session’s check: its switch, Check now, and how
   assert(await js('$("jc-pane-body").textContent.includes("Preview check: 1 problem.")'), 'the last check did not update');
 });
 
+test('Xcode’s tools are a switch in the More menu for a session in an Xcode project', async () => {
+  await featureScript('code-verify.js');
+  await js('__sent.length = 0; true');
+  await open(1);
+  // A session on show is asked about once (what its switches are).
+  await deliver({ type: 'task_transcript', id: 1, entries: [] });
+  await clickAt('#jc-more');
+  let items = await js('[...document.querySelectorAll("#jc-menu .mi-label")].map((n) => n.textContent)');
+  assert(!items.includes('Xcode’s tools'), 'offered before knowing the project is an Xcode one');
+  await js('closeMenu(); true');
+  await deliver({ type: 'cv_session', id: 1, verify: false, problems: false, xcode: false, xcode_project: true, mac: false });
+  await clickAt('#jc-more');
+  items = await js('[...document.querySelectorAll("#jc-menu .mi-label")].map((n) => n.textContent)');
+  assert(items.includes('Xcode’s tools'), JSON.stringify(items));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-menu', await js('[...document.querySelectorAll("#jc-menu button")].find((b) => b.textContent.includes("Xcode’s tools")).textContent')), 'no switch');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_session', id: 1, xcode: true }]), JSON.stringify(s));
+  assert(!(await js('document.getElementById("jc-menu").hidden')), 'a switch closes the menu');
+});
+
 test('Settings has the switch for new sessions’ checks, kept as a feature setting', async () => {
   await featureScript('code-verify.js');
   await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_verify_new_sessions: true } });
