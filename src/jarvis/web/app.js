@@ -4354,6 +4354,12 @@ $('jc-more').addEventListener('click', () => {
 // Activity: every step a session took and why it could (automatic, you allowed it, denied,
 // Bypass), filterable; the Permissions pane is where the rules behind "automatic" live.
 let auditItems = [];
+let auditFor = null;  // the session auditItems are the steps of
+// The steps shown are the session's own: another session's go, and its own are asked for.
+function askAudit(t) {
+  if (auditFor !== t.id) { auditItems = []; auditFor = t.id; }
+  send({ type: 'task_audit', id: t.id });
+}
 let auditFilter = 'all';
 let auditQuery = '';
 const AUDIT_FILTERS = [['all', 'All'], ['commands', 'Commands'], ['edits', 'Edits'], ['web', 'Web'], ['asked', 'You decided'], ['denied', 'Denied']];
@@ -4365,6 +4371,7 @@ function auditKind(a) {
 }
 function renderAudit(body, t) {
   if (!t) { body.replaceChildren(el('p', 'jc-empty', 'Pick a session to see what it did.')); return; }
+  if (auditFor !== t.id) askAudit(t);  // another session picked while the pane is open
   const counts = { auto: 0, allowed: 0, denied: 0, bypass: 0 };
   for (const a of auditItems) counts[a.decision] = (counts[a.decision] || 0) + 1;
   const bar = el('div', 'jc-audit-bar');
@@ -4438,7 +4445,7 @@ function openPane(kind) {
   if (kind === 'diff' && t) send({ type: 'task_diff', id: t.id });
   if (kind === 'mcp' && t) { mcpAnswer = null; mcpAsked = t.id; send({ type: 'task_mcp', id: t.id }); }
   if (kind === 'rules' && t) send({ type: 'task_rules', id: t.id });
-  if (kind === 'audit' && t) send({ type: 'task_audit', id: t.id });
+  if (kind === 'audit' && t) askAudit(t);
   if ((kind === 'files' || kind === 'artifacts') && deckProject && !projectFiles[deckProject]) send({ type: 'project_files', directory: deckProject });
   renderPaneBody();
 }
@@ -4757,7 +4764,7 @@ function onJarvisCodeEvent(ev) {
     case 'task_entry_meta': onEntryMeta(ev); return true;
     case 'task_diff': if (ev.id === ccSelected) { diffFiles = ev.files || []; if (currentPane === 'diff' || currentPane === 'artifacts') renderPaneBody(); } return true;
     case 'task_rules': if (ev.id === ccSelected) { rules = ev.rules || []; if (currentPane === 'rules') renderPaneBody(); } return true;
-    case 'task_audit': if (ev.id === ccSelected) { auditItems = ev.items || []; if (currentPane === 'audit') renderPaneBody(); } return true;
+    case 'task_audit': if (ev.id === ccSelected) { auditItems = ev.items || []; auditFor = ev.id; if (currentPane === 'audit') renderPaneBody(); } return true;
     case 'task_mcp': if (ev.id === ccSelected) { mcpServers = ev.servers || []; mcpAnswer = { id: ev.id, connected: ev.connected !== false }; mcpAsked = null; if (currentPane === 'mcp') renderPaneBody(); refreshConnectorsMenu(); } return true;
     case 'dictation': onDictation(ev); return true;
     case 'providers': onProviders(ev); return true;

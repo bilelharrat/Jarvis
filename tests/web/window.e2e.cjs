@@ -493,6 +493,21 @@ test('Slash commands before there is a session: a mode starts one in it, the res
   assert(palette, '/help did not open the command palette');
 });
 
+test('Activity shows the steps of the session on show: another session’s are never left in it', async () => {
+  const step = (what) => ({ at: '2026-09-30T10:00:00', tool: 'Bash', what, why: 'You allowed it', decision: 'allowed' });
+  await open(1, `onEvent({ type: 'tasks', items: [__task(1), __task(2)] }); openPane('audit')`);
+  await js(`onEvent({ type: 'task_audit', id: 1, items: ${JSON.stringify([step('rm -rf build/')])} })`);
+  assert((await js('$("jc-pane-body").textContent')).includes('rm -rf build/'), 'session 1’s step is not listed');
+  await js('__sent.length = 0; selectTask(2)');
+  let r = await js('({ text: $("jc-pane-body").textContent, asked: __sent.filter((m) => m.type === "task_audit").map((m) => m.id) })');
+  assert(!r.text.includes('rm -rf build/') && JSON.stringify(r.asked) === '[2]', JSON.stringify(r));
+  await js(`onEvent({ type: 'task_audit', id: 2, items: ${JSON.stringify([step('npm test')])} })`);
+  // Closed, another session picked, and opened again: its own steps, never the last ones shown.
+  await js(`closePane(); selectTask(1); openPane('audit'); true`);
+  r = await js('({ text: $("jc-pane-body").textContent, asked: __sent.filter((m) => m.type === "task_audit").map((m) => m.id) })');
+  assert(!r.text.includes('npm test') && JSON.stringify(r.asked) === '[2,1]', JSON.stringify(r));
+});
+
 test('/rename with nothing after it names the session in place', async () => {
   await open(1, '$("deck-input").focus()');
   await typeText('/rename');
