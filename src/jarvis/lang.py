@@ -1115,6 +1115,210 @@ def match_shortcut_zh(text: str, names: list[str]) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
+# system_voice.parse in Mandarin: the whole Mac at once (新标签页, 按回车, 向下滚动, 调大音量,
+# 点击保存, 输入…, 打开微信, 切换到邮件, 退出音乐). Keys by their Chinese names, apps by the names
+# Apple gives them in Chinese (their files are named in English).
+SYSTEM_ACTIONS_ZH = {
+    "新标签页": "cmd+t", "新建标签页": "cmd+t", "打开新标签页": "cmd+t", "开个新标签页": "cmd+t",
+    "新开一个标签页": "cmd+t", "关闭标签页": "cmd+w", "关掉标签页": "cmd+w", "关闭这个标签页": "cmd+w",
+    "关掉这个标签页": "cmd+w", "关闭窗口": "cmd+w", "关掉窗口": "cmd+w", "关闭这个窗口": "cmd+w",
+    "新窗口": "cmd+n", "新建窗口": "cmd+n", "打开新窗口": "cmd+n", "下一个标签页": "ctrl+tab",
+    "上一个标签页": "ctrl+shift+tab", "重新打开标签页": "cmd+shift+t", "恢复关闭的标签页": "cmd+shift+t",
+    "重新打开关闭的标签页": "cmd+shift+t", "最小化": "cmd+m", "最小化窗口": "cmd+m", "全屏": "ctrl+cmd+f",
+    "进入全屏": "ctrl+cmd+f", "退出全屏": "ctrl+cmd+f", "全屏显示": "ctrl+cmd+f", "撤销": "cmd+z",
+    "撤消": "cmd+z", "重做": "cmd+shift+z", "复制": "cmd+c", "粘贴": "cmd+v", "剪切": "cmd+x",
+    "全选": "cmd+a", "保存": "cmd+s", "查找": "cmd+f", "刷新": "cmd+r", "刷新页面": "cmd+r",
+    "重新加载": "cmd+r", "重新加载页面": "cmd+r", "后退": "cmd+[", "返回上一页": "cmd+[",
+    "前进": "cmd+]", "放大": "cmd+=", "缩小": "cmd+-", "实际大小": "cmd+0", "截图": "cmd+shift+3",
+    "截屏": "cmd+shift+3", "截个图": "cmd+shift+3", "屏幕截图": "cmd+shift+3", "锁屏": "ctrl+cmd+q",
+    "锁定屏幕": "ctrl+cmd+q", "锁上屏幕": "ctrl+cmd+q", "聚焦搜索": "cmd+space",
+    "打开聚焦搜索": "cmd+space", "切换应用": "cmd+tab", "切换程序": "cmd+tab",
+    "隐藏这个应用": "cmd+h", "隐藏当前应用": "cmd+h", "打印": "cmd+p", "滚到顶部": "cmd+up",
+    "滚动到顶部": "cmd+up", "回到顶部": "cmd+up", "滚到底部": "cmd+down", "滚动到底部": "cmd+down",
+    "上一页": "pageup", "向上翻页": "pageup", "往上翻页": "pageup", "下一页": "pagedown",
+    "向下翻页": "pagedown", "往下翻页": "pagedown",
+}  # fmt: skip
+SYSTEM_MISSION_ZH = ("调度中心", "打开调度中心", "显示所有窗口")
+# Key names -> computer.parse_keys names ("按下命令加T" -> cmd+t). Not 右键 or 左键: said
+# alone, those are the mouse's buttons.
+KEYS_ZH = {
+    "回车键": "return", "回车": "return", "换行": "return", "退出键": "escape", "空格键": "space",
+    "空格": "space", "删除键": "delete", "退格键": "delete", "退格": "delete", "制表键": "tab",
+    "上箭头": "up", "下箭头": "down", "左箭头": "left", "右箭头": "right", "向上键": "up",
+    "向下键": "down", "向左键": "left", "向右键": "right", "上方向键": "up", "下方向键": "down",
+    "左方向键": "left", "右方向键": "right", "命令键": "cmd", "命令": "cmd", "选项键": "option",
+    "选项": "option", "控制键": "ctrl", "控制": "ctrl", "上档键": "shift", "上档": "shift",
+    "一": "1", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8",
+    "九": "9", "零": "0",
+}  # fmt: skip
+_KEY_NAMES_ZH = re.compile("|".join(sorted(map(re.escape, KEYS_ZH), key=len, reverse=True)))
+_KEYS_LATIN = {"command": "cmd", "cmd": "cmd", "option": "option", "alt": "option",
+               "control": "ctrl", "ctrl": "ctrl", "shift": "shift", "enter": "return",
+               "return": "return", "esc": "escape", "escape": "escape", "tab": "tab",
+               "space": "space", "delete": "delete", "backspace": "delete"}  # fmt: skip
+# Apple's own apps by their Chinese names (their files are named in English), and a few
+# others whose files are.
+APPS_ZH = {
+    "备忘录": "Notes", "日历": "Calendar", "邮件": "Mail", "信息": "Messages", "短信": "Messages",
+    "音乐": "Music", "照片": "Photos", "地图": "Maps", "访达": "Finder", "终端": "Terminal",
+    "系统设置": "System Settings", "系统偏好设置": "System Settings", "提醒事项": "Reminders",
+    "通讯录": "Contacts", "计算器": "Calculator", "预览": "Preview", "文本编辑": "TextEdit",
+    "天气": "Weather", "时钟": "Clock", "播客": "Podcasts", "图书": "Books", "应用商店": "App Store",
+    "活动监视器": "Activity Monitor", "快捷指令": "Shortcuts", "微信": "WeChat",
+    "谷歌浏览器": "Google Chrome", "火狐浏览器": "Firefox", "火狐": "Firefox",
+}  # fmt: skip
+_APP_SUFFIX = re.compile(r"(?:这个)?(?:应用程序|应用|程序|软件|app)$", re.IGNORECASE)
+_SYS_SCROLL_ZH = re.compile(
+    r"(?:向|往|朝)?(?P<way>上|下|左|右)(?:滚动|滚|翻|滑动|滑)(?P<amt>一点点?|一些|很多|好多|多一点)?"
+    r"|(?:滚动|滚|翻)(?:向|往)(?P<way2>上|下|左|右)(?P<amt2>一点点?|一些|很多|好多|多一点)?"
+)
+_SYS_SCROLL_AMOUNT = {"一点": 4, "一点点": 4, "一些": 4, "很多": 30, "好多": 30, "多一点": 20}
+_SYS_WAYS = {"上": "up", "下": "down", "左": "left", "右": "right"}
+_VOLUME_UP_ZH = re.compile(
+    r"(?:把)?(?:音量|声音)(?:调|开|加)?(?:大|高)(?:一点|一些|点)?|(?:调|开|加)(?:大|高)(?:音量|声音)"
+    r"|大声(?:一)?点|音量加大"
+)
+_VOLUME_DOWN_ZH = re.compile(
+    r"(?:把)?(?:音量|声音)(?:调|关)?(?:小|低)(?:一点|一些|点)?|(?:调|关)(?:小|低)(?:音量|声音)"
+    r"|小声(?:一)?点|音量减小"
+)
+_VOLUME_SET_ZH = re.compile(
+    r"(?:把)?音量(?:调到|调成|设为|设置为|设成|开到)(?:百分之)?(?P<level>[0-9]{1,3}|[零一二两三四五六七八九十百]{1,4})(?:%|的音量)?"
+)
+_POINT_ZH = {
+    "点击": "click", "点一下": "click", "单击": "click", "点这里": "click", "点击这里": "click",
+    "点一下这里": "click", "点这个": "click", "双击": "double click", "双击这里": "double click",
+    "右键": "right click", "右击": "right click", "右键点击": "right click", "右键这里": "right click",
+}  # fmt: skip
+_CLICK_SYS_ZH = re.compile(
+    r"(?P<how>右键点击|右键单击|右击|双击|点击|单击|点一下|点下)(?:一下)?(?:那个|这个)?(?P<label>.+?)"
+    r"(?:按钮|链接|标签页|标签|选项卡|菜单|选项)?"
+)
+_KEYS_SYS_ZH = re.compile(r"(?:按下|按一下|按|敲一下|敲)(?P<keys>.+)")
+_TYPE_ZH = re.compile(
+    r"^\s*(?:请|帮我)?(?:输入|键入)(?!法)[：:\s]*(?P<text>.+?)[。.!！]?\s*$", re.DOTALL
+)
+_OPEN_APP_ZH = re.compile(r"(?:打开|启动|运行|开启)(?P<app>.+)")
+_FOCUS_APP_ZH = re.compile(r"(?:切换到|切到|转到)(?P<app>.+)")
+_QUIT_APP_ZH = re.compile(r"(?:退出|关闭|关掉|结束)(?P<app>.+)")
+_HIDE_APP_ZH = re.compile(r"隐藏(?P<app>.+)")
+
+
+def _zh_int(text: str) -> int | None:
+    """50, 五十, 七十五, 一百 -> the number (up to a hundred); None for anything else."""
+    if text.isdigit():
+        return int(text)
+    digits = {c: i for i, c in enumerate(_DIGITS_ZH)} | {"两": 2}
+    if text == "一百" or text == "百":
+        return 100
+    if "十" in text:
+        tens, _, ones = text.partition("十")
+        if (tens and tens not in digits) or (ones and ones not in digits):
+            return None
+        return (digits[tens] if tens else 1) * 10 + (digits[ones] if ones else 0)
+    return digits.get(text) if len(text) == 1 else None
+
+
+def spoken_keys_zh(words: str) -> str | None:
+    """ "命令加T" / "command 加 t" / "回车" -> "cmd+t" / "return"; None if a part isn't a key."""
+    tokens: list[str] = []
+    for part in re.split(r"[+加和\s]+", words.strip().lower()):
+        if not part:
+            continue
+        while part:
+            m = _KEY_NAMES_ZH.match(part)
+            if m:
+                tokens.append(KEYS_ZH[m.group()])
+                part = part[m.end() :].removeprefix("键")
+                continue
+            latin = re.match(r"[a-z0-9]+", part)
+            if not latin:
+                return None
+            word = latin.group()
+            if word in _KEYS_LATIN:
+                tokens.append(_KEYS_LATIN[word])
+            elif re.fullmatch(r"[a-z0-9]|f(?:[1-9]|1[0-2])", word):
+                tokens.append(word)
+            else:
+                return None
+            part = part[latin.end() :].removeprefix("键")
+    if not tokens:
+        return None
+    combo = "+".join(tokens)
+    from .computer import parse_keys
+
+    try:
+        parse_keys(combo)
+    except ValueError:
+        return None
+    return combo
+
+
+def _app_zh(said: str) -> str:
+    name = _APP_SUFFIX.sub("", said.strip()).strip()
+    return APPS_ZH.get(name, name)
+
+
+def parse_system_zh(text: str):
+    """system_voice.parse for Mandarin: 新标签页, 按回车, 按命令加T, 向下滚动, 调大音量, 静音,
+    音量调到50, 点击保存, 双击这里, 输入你好, 打开微信, 切换到邮件, 退出音乐, 隐藏访达. Returns
+    system_voice.Command objects with the same kind and argument the English phrase gets;
+    the replies are translated as they're said. English said in Chinese mode goes to the
+    English parser."""
+    from .system_voice import Command, parse
+
+    if not has_cjk(text):
+        return parse(text or "")
+    m = _TYPE_ZH.match(to_simplified(text))
+    if m and m.group("text").strip():
+        return Command("type", m.group("text").strip())
+    t = _command_zh(text)
+    if not t or len(t) > 30:
+        return None
+    if t in SYSTEM_ACTIONS_ZH:
+        return Command("keys", SYSTEM_ACTIONS_ZH[t], {"name": t})
+    if t in SYSTEM_MISSION_ZH:
+        return Command("mission")
+    if t in ("静音", "关掉声音", "关闭声音"):
+        return Command("volume", "mute")
+    if t in ("取消静音", "打开声音", "恢复声音"):
+        return Command("volume", "unmute")
+    if m := _VOLUME_SET_ZH.fullmatch(t):
+        level = _zh_int(m.group("level"))
+        return Command("volume", "set", {"level": min(100, level)}) if level is not None else None
+    if _VOLUME_UP_ZH.fullmatch(t):
+        return Command("volume", "up")
+    if _VOLUME_DOWN_ZH.fullmatch(t):
+        return Command("volume", "down")
+    if m := _SYS_SCROLL_ZH.fullmatch(t):
+        way = _SYS_WAYS[m.group("way") or m.group("way2")]
+        amount = _SYS_SCROLL_AMOUNT.get(m.group("amt") or m.group("amt2") or "", 10)
+        return Command("scroll", way, {"amount": amount})
+    if t in _POINT_ZH:
+        return Command("point", _POINT_ZH[t])
+    if m := _KEYS_SYS_ZH.fullmatch(t):
+        combo = spoken_keys_zh(m.group("keys"))
+        if combo:
+            return Command("keys", combo, {"name": m.group("keys")})
+    if m := _CLICK_SYS_ZH.fullmatch(t):
+        how = {"右键点击": "right click", "右键单击": "right click", "右击": "right click",
+               "双击": "double click"}.get(m.group("how"), "click")  # fmt: skip
+        label = m.group("label").strip()
+        if label and label not in ("这里", "这", "那里", "它"):
+            return Command("click", label, {"how": how})
+        return Command("point", how)
+    for pattern, kind in (
+        (_OPEN_APP_ZH, "open"),
+        (_FOCUS_APP_ZH, "focus"),
+        (_QUIT_APP_ZH, "quit"),
+        (_HIDE_APP_ZH, "hide"),
+    ):
+        if m := pattern.fullmatch(t):
+            name = _app_zh(m.group("app"))
+            return Command(kind, name) if name else None
+    return None
+
+
 ABOUT_SCREEN_ZH = re.compile(
     r"这个|那个|这些|那些|这里|屏幕|窗口|页面|标签页|错误|报错|警告|提示|对话框|弹窗|我在看|显示的|文档|"
     r"文章|邮件|图表|表格|代码|幻灯片|照片|图片|视频|写的什么|说的什么|写了什么|说了什么|读一下|总结一下"
@@ -2609,6 +2813,12 @@ def clean_transcript(text: str, lang: str = "en") -> str:
     from .listen import is_hallucination
 
     return "" if is_hallucination(text) else text
+
+
+def parse_system(text: str, lang: str = "en"):
+    from .system_voice import parse as english
+
+    return parse_system_zh(text) if is_zh(lang) else english(text)
 
 
 def about_screen(text: str, lang: str = "en") -> bool:

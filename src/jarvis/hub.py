@@ -2376,7 +2376,7 @@ class Hub:
     async def _instant_system(self, rid: str, text: str) -> bool:
         """'Open Safari', 'press command T', 'click Save', 'scroll down': the whole Mac, at
         once, without asking Claude. Anything it can't place goes to Claude as before."""
-        command = system_voice.parse(text)
+        command = lang.parse_system(text, self.language)
         if command is None:
             return False
         try:
@@ -2533,7 +2533,7 @@ class Hub:
                     if screen or (
                         display is None
                         and self.prefs.screen_aware
-                        and screenwatch.about_screen(text)
+                        and lang.about_screen(text, self.language)
                     ):
                         frame = await self.screen_watch.latest(
                             0 if screen else screenwatch.FRESH_SECONDS

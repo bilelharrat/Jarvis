@@ -737,3 +737,103 @@ async def test_meeting_prep_looks_thirty_hours_ahead_and_the_watcher_still_four(
     # Tomorrow's people are speech hints too.
     await hub._seed_hearing_names()
     assert {"Priya Raman", "tom.ellis"} <= set(hub.hearing.seeds["calendar"])
+
+
+# ── 5. Chinese: the screen and the instant Mac commands ──
+
+SYSTEM_ZH = [
+    ("新标签页", "keys", "cmd+t"),
+    ("请帮我关闭这个标签页", "keys", "cmd+w"),
+    ("截个图", "keys", "cmd+shift+3"),
+    ("锁屏", "keys", "ctrl+cmd+q"),
+    ("下一页", "keys", "pagedown"),
+    ("按回车", "keys", "return"),
+    ("按一下回车键", "keys", "return"),
+    ("按下命令加T", "keys", "cmd+t"),
+    ("按 command 加 shift 加 t", "keys", "cmd+shift+t"),
+    ("按命令加一", "keys", "cmd+1"),
+    ("按退出键", "keys", "escape"),
+    ("向下滚动", "scroll", "down"),
+    ("往上滚一点", "scroll", "up"),
+    ("向右滚动", "scroll", "right"),
+    ("调大音量", "volume", "up"),
+    ("声音小一点", "volume", "down"),
+    ("静音", "volume", "mute"),
+    ("取消静音", "volume", "unmute"),
+    ("把音量调到百分之五十", "volume", "set"),
+    ("点击这里", "point", "click"),
+    ("双击", "point", "double click"),
+    ("右键", "point", "right click"),
+    ("点击保存", "click", "保存"),
+    ("点一下发送按钮", "click", "发送"),
+    ("右键点击桌面", "click", "桌面"),
+    ("输入你好，世界", "type", "你好，世界"),
+    ("打开微信", "open", "WeChat"),
+    ("打开备忘录应用", "open", "Notes"),
+    ("启动网易云音乐", "open", "网易云音乐"),
+    ("切换到邮件", "focus", "Mail"),
+    ("退出音乐", "quit", "Music"),
+    ("隐藏访达", "hide", "Finder"),
+    ("调度中心", "mission", ""),
+]
+
+
+def test_the_instant_mac_commands_in_chinese():
+    from jarvis import lang
+
+    for said, kind, arg in SYSTEM_ZH:
+        command = lang.parse_system(said, "zh")
+        assert command is not None, said
+        assert (command.kind, command.arg) == (kind, arg), said
+    assert lang.parse_system("把音量调到百分之五十", "zh").extra == {"level": 50}
+    assert lang.parse_system("往上滚一点", "zh").extra == {"amount": 4}
+    assert lang.parse_system("点击保存", "zh").extra == {"how": "click"}
+    assert lang.parse_system("右键点击桌面", "zh").extra == {"how": "right click"}
+    # English in Chinese mode is the English command; questions go to Claude.
+    assert lang.parse_system("open Safari", "zh").arg == "safari"
+    for said in ("明天几点开会", "输入法怎么切换", "音乐是谁唱的", "按时完成了吗", "帮我总结一下"):
+        command = lang.parse_system(said, "zh")
+        assert command is None or command.kind in ("open", "quit"), said  # an app, or Claude
+    assert lang.parse_system("按时完成了吗", "zh") is None
+    assert lang.parse_system("新标签页", "en") is None  # English mode: the English parser
+    assert lang.spoken_keys_zh("命令加上档加t") == "cmd+shift+t"
+    assert lang.spoken_keys_zh("香蕉") is None
+
+
+async def test_chinese_mac_commands_and_screen_questions_reach_the_hub(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from test_hub import make_hub
+
+    from jarvis import lang, system_voice
+    from jarvis.screenwatch import ScreenWatcher
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.prefs.language = "zh"
+    ran = []
+
+    async def carry_out(command, **_k):
+        ran.append((command.kind, command.arg))
+        return "Opening WeChat."
+
+    monkeypatch.setattr(system_voice, "carry_out", carry_out)
+    assert await hub._instant_system("r1", "打开微信")
+    assert ran == [("open", "WeChat")]
+    assert hub.turn["reply"] == lang.translate("Opening WeChat.", "zh") != "Opening WeChat."
+    # "这个报错是什么意思" is about the screen: the picture goes with it.
+    sent = []
+
+    async def run_query(rid, query, images=None):
+        sent.append(images)
+
+    async def capture():
+        return "PIXELS"
+
+    hub.emit = lambda *_a, **_k: None
+    hub._run_query = run_query
+    hub.screen_watch = ScreenWatcher(capture=capture, app_name=lambda: "Xcode")
+    hub.prefs.screen_aware = True
+    await hub.ask("这个报错是什么意思")
+    assert sent[-1] == [{"media_type": "image/jpeg", "data": "PIXELS"}]
+    await hub.ask("明天几点开会")
+    assert not sent[-1]
