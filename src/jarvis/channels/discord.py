@@ -103,6 +103,7 @@ class Discord(Channel):
         self.session: dict[str, Any] = {"id": "", "seq": None, "url": ""}
         self.me = ""
         self.heartbeat_every = 41.25
+        self.backoff = 1.0  # seconds before the next try at connecting
 
     def home_chat(self) -> str | None:
         owner = self.router.state.owners.get(self.name)
@@ -201,7 +202,9 @@ class Discord(Channel):
     # ── the Gateway ──
 
     async def run(self) -> None:
-        backoff = 1.0
+        """Each wait before trying again is twice the last (a minute at most); a connection
+        Discord said READY or RESUMED on starts that over."""
+        self.backoff = 1.0
         while True:
             resume = bool(self.session.get("id") and self.session.get("url"))
             try:
@@ -237,8 +240,8 @@ class Discord(Channel):
                     self.session = {"id": "", "seq": None, "url": ""}
                 log.info("discord: the connection closed (%s %s)", type(exc).__name__, code or "")
                 self.set_state("reconnecting", "Lost the connection to Discord. Reconnecting.")
-            await asyncio.sleep(backoff)
-            backoff = min(60.0, backoff * 2)
+            await asyncio.sleep(self.backoff)
+            self.backoff = min(60.0, self.backoff * 2)
 
     async def _session(self, ws: Any, resume: bool) -> None:
         hello = json.loads(await ws.recv())
@@ -323,8 +326,10 @@ class Discord(Channel):
             self.session["id"] = str(data.get("session_id") or "")
             self.session["url"] = str(data.get("resume_gateway_url") or "")
             self.me = str((data.get("user") or {}).get("id") or "")
+            self.backoff = 1.0  # a good connection: a drop after it is retried promptly
             self.set_state("listening" if self.home_chat() else "needs_pairing")
         elif kind == "RESUMED":
+            self.backoff = 1.0
             self.set_state("listening" if self.home_chat() else "needs_pairing")
         elif kind in ("MESSAGE_CREATE", "INTERACTION_CREATE"):
             try:

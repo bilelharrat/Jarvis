@@ -3,7 +3,8 @@ client against local fakes of Slack's Web API and Socket Mode, and of Discord's 
 Gateway (tests/chat_wire.py), on real sockets, TLS for the WebSockets. What's checked is the
 exchange itself: acks and heartbeats as sent, identify and resume, a reply posted, a 429's
 wait honoured, a button press answered, a refused token, and reconnecting after a drop
-(at once when the service asks, after a pause otherwise). Nothing leaves 127.0.0.1."""
+(at once when the service asks, after a pause otherwise, and promptly again once a
+connection has been good). Nothing leaves 127.0.0.1."""
 
 import asyncio
 import json
@@ -346,6 +347,28 @@ async def test_discord_stops_for_good_when_the_token_is_refused(discord_world):
     await conn.close(4004, "Authentication failed")
     await asyncio.wait_for(run, 10)
     assert discord.halted and "refused the bot token" in discord.error
+
+
+async def test_discord_reconnects_promptly_once_a_connection_has_been_good(
+    discord_world, monkeypatch
+):
+    """Retries after failures wait longer each time; a connection that then works (READY)
+    starts that over: the next drop is retried after the first wait, not the last one."""
+    hub, router, discord, api, http, ws, start = discord_world
+    sleeps = Sleeps()
+    monkeypatch.setattr(dc, "asyncio", sleeps)
+    api.gateway_fails = 3  # Discord unreachable for a while
+    start()
+    conn = await ws.next()
+    assert [s for s in sleeps.seen if s >= 1] == [1.0, 2.0, 4.0]
+    await hello(conn)
+    conn.auto = heartbeat_acks
+    await conn.send(ready(ws))
+    await until(lambda: discord.state == "listening", what="listening")
+    before = len(sleeps.seen)
+    await conn.close(1011)  # dropped (a server error), not asked to resume
+    await until(lambda: len(sleeps.seen) > before, what="the wait before retrying")
+    assert sleeps.seen[before] == 1.0
 
 
 async def test_discord_button_press_is_answered_over_the_wire(discord_world):
