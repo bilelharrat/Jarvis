@@ -334,8 +334,16 @@ class Ops:
             home=self.home,
             run=self.run,
             now=self.clock,
-            **self.probe_extra,
+            **{"key_signin": self._key_signin, **self.probe_extra},
         )
+
+    async def _key_signin(self) -> dict[str, Any] | None:
+        """The API key JARVIS signs in with, checked now (features/signin.py); None when it
+        signs in with the Claude account."""
+        from .. import signin
+
+        found = signin.signin_for(self.hub)
+        return await found.check() if found is not None else None
 
     def hub_state(self) -> dict[str, Any]:
         """What the hub knows, read on its loop (the checks then run off it)."""

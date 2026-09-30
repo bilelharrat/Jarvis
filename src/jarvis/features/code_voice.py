@@ -61,6 +61,7 @@ from typing import Any
 
 from .. import codelook, codepeers, lang
 from .. import codesupervisor as cs
+from ..claude_signin import signed_in
 from ..code_vocab import normalize
 from ..prefs import MODELS
 from ..voicecode import parse as voice_command
@@ -118,6 +119,7 @@ async def haiku(prompt: str, system: str = SUMMARY_SYSTEM) -> str:
         max_turns=1,
         env={"ENABLE_TOOL_SEARCH": "false"},
     )
+    options = signed_in(options)  # the user's own API key, if that's how Jarvis signs in
     parts: list[str] = []
     async for message in sdk_query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):

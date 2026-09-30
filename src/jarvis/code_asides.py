@@ -39,6 +39,7 @@ from claude_agent_sdk import (
     ToolPermissionContext,
 )
 
+from .claude_signin import signed_in
 from .computer import is_sensitive
 from .config import MAX_BUFFER
 from .prefs import MODELS
@@ -150,7 +151,7 @@ async def one_shot(factory: Callable[..., Any], options: Any, prompt: str, secon
 
 
 def btw_options(cwd: Path) -> ClaudeAgentOptions:
-    return ClaudeAgentOptions(
+    options = ClaudeAgentOptions(
         max_buffer_size=MAX_BUFFER,
         model=MODEL,
         system_prompt=BTW_PROMPT,
@@ -164,10 +165,11 @@ def btw_options(cwd: Path) -> ClaudeAgentOptions:
         cwd=str(cwd),
         env={"ENABLE_TOOL_SEARCH": "false"},
     )
+    return signed_in(options)
 
 
 def check_options(cwd: Path) -> ClaudeAgentOptions:
-    return ClaudeAgentOptions(
+    options = ClaudeAgentOptions(
         max_buffer_size=MAX_BUFFER,
         model=MODEL,
         system_prompt=CHECK_PROMPT,
@@ -179,6 +181,7 @@ def check_options(cwd: Path) -> ClaudeAgentOptions:
         cwd=str(cwd),
         env={"ENABLE_TOOL_SEARCH": "false"},
     )
+    return signed_in(options)
 
 
 def btw_prompt(task: Any, question: str) -> str:

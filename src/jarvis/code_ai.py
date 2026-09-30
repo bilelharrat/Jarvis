@@ -37,6 +37,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .claude_signin import signed_in
 from .prefs import MODELS
 
 log = logging.getLogger("jarvis")
@@ -156,6 +157,7 @@ async def complete(
         **({"cwd": cwd} if cwd else {}),
         **({"can_use_tool": can_use_tool} if can_use_tool is not None else {}),
     )
+    options = signed_in(options)  # the user's own API key, if that's how Jarvis signs in
     parts: list[str] = []
 
     async def run() -> None:

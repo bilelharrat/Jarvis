@@ -91,6 +91,7 @@ from .brain import (
     task_tool,
     url_host,
 )
+from .claude_signin import signed_in
 from .config import Settings
 from .connectors import ConnectorManager
 from .desktop_hands import DesktopHands
@@ -1301,7 +1302,7 @@ class Hub:
                 cfg = self.providers.session_config(ref)
                 options.model = cfg["model"]
                 options.env = {**(options.env or {}), **cfg["env"]}
-                options.settings = cfg.get("settings")
+                options.settings = cfg.get("settings") or options.settings  # a built-in: signed in
                 self._connected_ref = ref
             except ValueError as exc:  # gone, or its key: Claude it is, and say why
                 self.emit("error", text=f"The fallback model isn't usable: {exc}")
@@ -5089,6 +5090,7 @@ class Hub:
             max_turns=1,
             env={"ENABLE_TOOL_SEARCH": "false"},
         )
+        options = signed_in(options)  # the user's own API key, if that's how Jarvis signs in
         parts: list[str] = []
         async for message in sdk_query(prompt=text, options=options):
             if isinstance(message, AssistantMessage):

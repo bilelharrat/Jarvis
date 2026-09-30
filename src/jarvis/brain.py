@@ -18,6 +18,7 @@ from claude_agent_sdk import (
 )
 
 from . import computer, mac_tools
+from .claude_signin import signed_in
 from .config import MAX_BUFFER, Settings
 from .prefs import Prefs
 
@@ -662,7 +663,7 @@ def build_options(
     # fact or a setting would stop it starting at all, on every launch. The stores clean
     # what they keep; this is the last line of defense.
     prompt = argv_text(system_prompt(settings, bsh_enabled, prefs, accounts, extra_prompt))
-    return ClaudeAgentOptions(
+    options = ClaudeAgentOptions(
         max_buffer_size=MAX_BUFFER,
         model=prefs.model_id() if prefs else settings.model,
         effort=settings.effort,
@@ -695,3 +696,4 @@ def build_options(
         # Keep every MCP tool loaded up front rather than behind tool search.
         env={"ENABLE_TOOL_SEARCH": "false"},
     )
+    return signed_in(options)

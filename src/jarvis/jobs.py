@@ -60,6 +60,7 @@ from claude_agent_sdk import (
 )
 
 from . import jsonstore, lang, mac_tools, messaging
+from .claude_signin import signed_in
 from .config import MAX_BUFFER
 from .prefs import MODELS as MODEL_IDS
 from .proactive import Alert, in_quiet_hours, quiet_hours_now
@@ -450,7 +451,7 @@ class Reader:
         self.used = 0
 
     def options(self) -> ClaudeAgentOptions:
-        return ClaudeAgentOptions(
+        options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
             model=MODEL_IDS["haiku"],
             system_prompt=READER_SYSTEM + lang.reply_instruction(self.language()),
@@ -466,6 +467,7 @@ class Reader:
             cwd=str(self.cwd()),
             env={"ENABLE_TOOL_SEARCH": "false"},
         )
+        return signed_in(options)
 
     async def read(self, instructions: str, source: str, content: str) -> str | None:
         """The owner's instructions applied to someone else's words; None when the day's or
@@ -761,7 +763,7 @@ class JobRunner:
                 builtins.append("WebFetch")
         workspace = self.workspace()
         workspace.mkdir(parents=True, exist_ok=True)
-        return ClaudeAgentOptions(
+        options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
             model=MODEL_IDS.get(model, MODEL_IDS["haiku"]),
             system_prompt=ROUTINE_SYSTEM + lang.reply_instruction(self.language()),
@@ -779,6 +781,7 @@ class JobRunner:
             cwd=str(workspace),
             env={"ENABLE_TOOL_SEARCH": "false"},
         )
+        return signed_in(options)
 
     def _mac_tools(self, level: str) -> list:
         tools = [

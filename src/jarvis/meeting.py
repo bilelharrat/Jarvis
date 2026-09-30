@@ -26,6 +26,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from .claude_signin import signed_in
 from .config import MAX_BUFFER
 from .knowledge import MEETINGS_DIR  # filed where the second brain looks
 
@@ -284,6 +285,7 @@ async def claude_summarize(prompt: str, model: str, cwd: str) -> str:
         cwd=cwd,
         env={"ENABLE_TOOL_SEARCH": "false"},
     )
+    options = signed_in(options)  # the user's own API key, if that's how Jarvis signs in
     parts: list[str] = []
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):

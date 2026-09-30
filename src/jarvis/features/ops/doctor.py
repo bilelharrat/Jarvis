@@ -23,7 +23,7 @@ import shlex
 import shutil
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -70,6 +70,12 @@ class Probe:
     whisper_cached: Callable[[str], bool | None] | None = None
     claude_cli: Callable[[], str | None] | None = None
     login_command: Callable[[str], str] | None = None
+    # The API key JARVIS signs in with, checked with Anthropic now ({"ok", "error",
+    # "hint"}), or None when it signs in with the Claude account (features/signin.py).
+    key_signin: Callable[[], Awaitable[dict[str, Any] | None]] | None = None
+    # The app people download: no repo, no uv, no swiftc (packaged.is_packaged).
+    packaged: Callable[[], bool] | None = None
+    helpers_dir: Callable[[], Path | None] | None = None
 
 
 def check(
@@ -190,9 +196,18 @@ def _last_json(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _packaged(probe: Probe) -> bool:
+    if probe.packaged is not None:
+        return probe.packaged()
+    from ... import packaged
+
+    return packaged.is_packaged()
+
+
 async def claude_check(probe: Probe) -> dict[str, Any]:
     cli = (probe.claude_cli or claude_cli)()
     title = "Claude sign-in"
+    bundled = _packaged(probe)
     if not cli:
         return check(
             "claude",
@@ -200,13 +215,34 @@ async def claude_check(probe: Probe) -> dict[str, Any]:
             title,
             "problem",
             "Jarvis's Claude engine is missing",
-            "Run uv sync in Jarvis's folder to put it back, then restart Jarvis.",
+            "Install Jarvis again from its disk image, then open it."
+            if bundled
+            else "Run uv sync in Jarvis's folder to put it back, then restart Jarvis.",
         )
     version = ""
     with contextlib.suppress(OSError, TimeoutError, ValueError):
         code, out, _err = await probe.run(cli, "--version", timeout=15)
         if code == 0:
             version = out.strip().split(" ")[0][:40]
+    key = None
+    if probe.key_signin is not None:
+        with contextlib.suppress(Exception):
+            key = await probe.key_signin()
+    if key is not None:  # signed in with the user's own API key, asked of Anthropic now
+        if key.get("ok"):
+            meta = " · ".join(x for x in ("API key", version) if x)
+            return check("claude", "jarvis", title, "ok", "Signed in", meta=meta)
+        return check(
+            "claude",
+            "jarvis",
+            title,
+            "problem",
+            "Anthropic didn't take the API key",
+            "Remove it in Setup's Claude step and paste a working one (console.anthropic.com "
+            "› API keys).",
+            meta=version,
+            details=[str(key.get("error") or "")[:300], str(key.get("hint") or "")],
+        )
     try:
         _code, out, _err = await probe.run(cli, "auth", "status", "--json", timeout=20)
         status = _last_json(out)
@@ -223,6 +259,17 @@ async def claude_check(probe: Probe) -> dict[str, Any]:
             meta=version,
         )
     if not status["loggedIn"]:
+        if bundled:  # its way in is the user's own API key, not a Claude account login
+            return check(
+                "claude",
+                "jarvis",
+                title,
+                "problem",
+                "Not signed in",
+                "Paste your Anthropic API key in Setup's Claude step (console.anthropic.com "
+                "› API keys).",
+                meta=version,
+            )
         return check(
             "claude",
             "jarvis",
@@ -285,10 +332,34 @@ def whisper_check(probe: Probe, model: str, loaded: bool) -> dict[str, Any]:
     )
 
 
+def _prebuilt_helpers(probe: Probe) -> Path | None:
+    if probe.helpers_dir is not None:
+        return probe.helpers_dir()
+    from ...swift_helper import HELPERS_ENV
+
+    folder = os.environ.get(HELPERS_ENV, "").strip()
+    return Path(folder) if folder else None
+
+
 async def swift_check(probe: Probe) -> dict[str, Any]:
     """xcode-select first: with no developer tools, the swiftc in /usr/bin is only a stub
-    that offers to install them."""
+    that offers to install them. The app people download carries its helpers prebuilt and
+    needs no compiler: that's said instead (and nothing is run)."""
     title = "Swift compiler"
+    folder = _prebuilt_helpers(probe)
+    if folder is not None:
+        if (folder / "helpers.json").is_file():
+            return check(
+                "swiftc", "jarvis", title, "ok", "Not needed: Jarvis's helpers are built in"
+            )
+        return check(
+            "swiftc",
+            "jarvis",
+            title,
+            "warn",
+            "Jarvis's built-in helpers are missing",
+            "Install Jarvis again from its disk image, then open it.",
+        )
     hint = (
         "Some of Jarvis's native helpers can't be built, so it uses slower fallbacks. "
         "Install Xcode, or run xcode-select --install in Terminal."

@@ -174,3 +174,8 @@ body[data-look="orb"] .ops-pop {
   .ops-item > .ops-actions { grid-column: 2; justify-content: flex-start; }
   .ops-step-name { display: none; }
 }
+
+/* Setup › Claude: the user's own Anthropic API key, pasted once. */
+.ops-key-form { display: flex; gap: 8px; align-items: center; }
+.ops-key-form input { flex: 1; min-width: 0; min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--ops-line); background: var(--card); font: inherit; font-size: 13px; }
+.ops-key .ops-small { align-self: flex-start; }

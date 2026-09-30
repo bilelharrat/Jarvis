@@ -37,6 +37,7 @@ from claude_agent_sdk import (
 )
 
 from . import jsonstore, lang
+from .claude_signin import signed_in
 from .config import MAX_BUFFER
 from .jobs import _fence, one_shot
 from .prefs import MODELS as MODEL_IDS
@@ -410,7 +411,7 @@ class Heartbeat:
         async def nothing_else(tool_name: str, _input: dict[str, Any], _context: Any):
             return PermissionResultDeny(message=f"{tool_name} isn't available to a check-in.")
 
-        return ClaudeAgentOptions(
+        options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
             model=MODEL_IDS["haiku"],
             system_prompt=SYSTEM + lang.reply_instruction(self.hub.prefs.language),
@@ -439,6 +440,7 @@ class Heartbeat:
             cwd=str(workspace),
             env={"ENABLE_TOOL_SEARCH": "false"},
         )
+        return signed_in(options)
 
     def tools(self) -> list:
         """The check-in's own tools: they only read."""

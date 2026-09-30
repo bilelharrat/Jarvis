@@ -1,0 +1,13 @@
+{
+  "strings": {
+    "Remove the key Jarvis has before adding another.": "请先移除 Jarvis 现有的密钥，再添加新的。",
+    "Anthropic didn't take that key.": "Anthropic 没有接受这个密钥。",
+    "Signed in with your API key.": "已用你的 API 密钥登录。",
+    "The API key is removed; Jarvis signs in with your Claude account.": "API 密钥已移除；Jarvis 改用你的 Claude 账户登录。"
+  },
+  "patterns": [
+    ["^(.+) turned the key down \\((\\d+)\\)\\. Check it, or paste a fresh key\\.(?: It said: .*)?$", "$1 拒绝了这个密钥（$2）。请检查它，或粘贴一个新的密钥。"],
+    ["^(.+) says the account is out of credit \\(402\\)\\.(?: It said: .*)?$", "$1 表示账户余额不足（402）。"],
+    ["^I couldn't reach (.+)\\. Check the address and the internet connection\\.$", "无法连接 $1。请检查地址和网络连接。"]
+  ]
+}

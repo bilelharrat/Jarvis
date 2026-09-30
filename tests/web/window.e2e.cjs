@@ -1159,6 +1159,7 @@ test('Setup shows by itself on a fresh install, once; its steps set things only 
     { type: 'ops_mic_test' },
     { type: 'ops_open_settings', pane: 'screen' },
     { type: 'ops_claude' },
+    { type: 'signin_state' },
     { type: 'set_prefs', changes: { hands_free: true } },
     { type: 'ops_setup', state: 'done' },
   ]), JSON.stringify(s));
@@ -4554,6 +4555,31 @@ test('An invitation that clashes says so on a Calendar card, with its reply to c
   assert(await js(`${clash}.querySelector(".clash-reply").hasAttribute("data-no-i18n")`), 'the reply would be translated');
   await js(`__sent.length = 0; [...${clash}.querySelectorAll("button")].find((b) => b.textContent === "Draft in Mail").click(); true`);
   assert(JSON.stringify(await sentOf('clash_reply')) === '[{"type":"clash_reply","key":"clash:k2"}]', 'no draft asked for');
+});
+
+test('Setup › Claude takes an Anthropic API key once, never shows it back, and offers only Remove while it’s in use', async () => {
+  await withOps();
+  await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
+  await js('$("ops-setup-next").click(); $("ops-setup-next").click(); $("ops-setup-next").click(); true');  // Claude
+  assert((await sentOf('signin_state')).length === 1, 'the sign-in wasn’t asked for');
+  await opsEvent({ type: 'signin', mode: 'account', hint: '', status: null, key_url: 'https://console.anthropic.com/settings/keys', error: '', note: '' });
+  const key = `sk-ant-api03-${'k'.repeat(40)}Wxyz`;
+  let r = await js('({ type: document.querySelector("#ops-setup-body .ops-key-form input").type, lead: document.querySelector("#ops-setup-body .ops-lead").textContent })');
+  assert(r.type === 'password' && /your own Anthropic API key/.test(r.lead), JSON.stringify(r));
+  await js(`(() => { const i = document.querySelector('#ops-setup-body .ops-key-form input'); i.value = ${JSON.stringify(key)}; i.form.requestSubmit(); })(); true`);
+  r = await js('({ value: document.querySelector("#ops-setup-body .ops-key-form input").value, busy: document.querySelector("#ops-setup-body .ops-key-form button").disabled })');
+  assert(r.value === '' && r.busy, JSON.stringify(r));
+  const asked = await sentOf('signin_key');
+  assert(asked.length === 1 && asked[0].key === key, JSON.stringify(asked));
+  await js('__sent.length = 0; true');
+  await opsEvent({ type: 'signin', mode: 'key', hint: 'sk-…Wxyz', status: { ok: true }, key_url: '', error: '', note: 'Signed in with your API key.' });
+  r = await js('({ form: !!document.querySelector("#ops-setup-body .ops-key-form"), hint: document.querySelector("#ops-setup-body .ops-key .ops-meta").textContent, data: !!document.querySelector("#ops-setup-body .ops-key .ops-meta[data-no-i18n]"), text: $("ops-setup-body").textContent })');
+  assert(!r.form && r.hint === 'sk-…Wxyz' && r.data && !r.text.includes(key), JSON.stringify(r));
+  assert((await sentOf('ops_claude')).length === 1, 'the check didn’t run again for the new sign-in');
+  assert(await clickText('#ops-setup-body .ops-key', 'Remove the key'), 'no Remove');
+  assert((await sentOf('signin_forget')).length === 1, 'Remove went nowhere');
+  await opsEvent({ type: 'signin', mode: 'account', hint: '', status: null, key_url: '', error: 'Anthropic didn’t take that key.', note: '' });
+  assert(await js('!!document.querySelector("#ops-setup-body .ops-key-form") && document.querySelector("#ops-setup-body .ops-key .warn").textContent.length > 0'), 'no form or no error after');
 });
 
 // ── What only the owner's install shows (web/features/newuser.js) ──

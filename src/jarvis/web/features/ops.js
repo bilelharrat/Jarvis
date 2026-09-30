@@ -30,6 +30,8 @@
     step: 0,
     perms: null,
     claude: null,
+    signin: null, // the API key sign-in (features/signin.py): { mode, hint, error, note }
+    signinBusy: false,
     mic: { state: '', text: '', level: 0 },
     voiceMuted: false,
   };
@@ -768,8 +770,49 @@
       F.send({ type: 'ops_permissions' });
       permsTimer = setInterval(() => { if (document.hasFocus()) F.send({ type: 'ops_permissions' }); }, 4000);
     }
-    if (id === 'claude') F.send({ type: 'ops_claude' });
+    if (id === 'claude') { F.send({ type: 'ops_claude' }); F.send({ type: 'signin_state' }); }
     renderStep();
+  }
+
+  // The user's own Anthropic API key, instead of a Claude account: pasted once, checked
+  // with Anthropic, kept in the Keychain; the window never sees it again.
+  function keyCard() {
+    const k = S.signin || {};
+    const card = el('div', 'ops-card ops-key');
+    if (k.mode === 'key') {
+      const line = el('div', 'ops-line');
+      line.dataset.state = 'ok';
+      line.append(el('i', 'ops-dot'), el('strong', '', 'Jarvis uses your Anthropic API key'), data(el('span', 'ops-meta', k.hint || '')));
+      card.append(line, el('p', 'ops-hint', 'Claude is billed to your Anthropic account. The key stays in your Keychain.'));
+      card.append(button('Remove the key', 'btn ops-small', () => { S.signinBusy = true; F.send({ type: 'signin_forget' }); renderStep(); }));
+    } else {
+      card.append(el('strong', '', 'Or use your own Anthropic API key'),
+        el('p', 'ops-hint', 'Make one at console.anthropic.com › API keys. Claude is then billed to your Anthropic account; the key stays in your Keychain.'));
+      const form = el('form', 'ops-key-form');
+      const input = el('input', '');
+      input.type = 'password';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.placeholder = 'sk-ant-…';
+      input.setAttribute('aria-label', 'Anthropic API key');
+      const use = el('button', 'btn ops-small', S.signinBusy ? 'Checking…' : 'Use this key');
+      use.type = 'submit';
+      use.disabled = S.signinBusy;
+      form.append(input, use);
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const key = input.value.trim();
+        if (!key || S.signinBusy) return;
+        input.value = '';
+        S.signinBusy = true;
+        F.send({ type: 'signin_key', key });
+        renderStep();
+      });
+      card.append(form);
+    }
+    if (k.error) card.append(el('p', 'ops-hint warn', k.error));
+    else if (k.note) card.append(el('p', 'ops-hint ok', k.note));
+    return card;
   }
 
   function stopPermsTimer() { if (permsTimer) { clearInterval(permsTimer); permsTimer = null; } }
@@ -841,7 +884,7 @@
         if (S.perms.error) nodes.push(el('p', 'ops-hint warn', S.perms.error));
       }
     } else if (id === 'claude') {
-      nodes.push(el('h3', '', 'Jarvis thinks with Claude'), el('p', 'ops-lead', 'It needs a Claude account signed in on this Mac.'));
+      nodes.push(el('h3', '', 'Jarvis thinks with Claude'), el('p', 'ops-lead', 'It needs a Claude account signed in on this Mac, or your own Anthropic API key.'));
       const c = S.claude;
       if (!c) nodes.push(el('p', 'ops-empty', 'Checking…'));
       else {
@@ -859,6 +902,7 @@
         }
         nodes.push(box);
       }
+      nodes.push(keyCard());
       nodes.push(button('Check again', 'btn', () => { S.claude = null; F.send({ type: 'ops_claude' }); renderStep(); }));
     } else if (id === 'habits') {
       nodes.push(el('h3', '', 'How you’d like to talk'));
@@ -1039,6 +1083,14 @@
 
   F.on('ops_claude', (ev) => {
     S.claude = ev;
+    if (setupOpen()) renderStep();
+  });
+
+  F.on('signin', (ev) => {
+    const changed = !S.signin || S.signin.mode !== ev.mode;
+    S.signin = ev;
+    S.signinBusy = false;
+    if (changed && setupOpen() && STEPS[S.step][0] === 'claude') { S.claude = null; F.send({ type: 'ops_claude' }); }
     if (setupOpen()) renderStep();
   });
 

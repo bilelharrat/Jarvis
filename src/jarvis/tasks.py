@@ -56,6 +56,7 @@ from claude_agent_sdk import (
 )
 
 from . import browser_gate, code_changes, code_tools
+from .claude_signin import signed_in
 from .computer import is_sensitive
 from .config import MAX_BUFFER, Settings
 from .knowledge import RESEARCH_DIR
@@ -1846,7 +1847,7 @@ class TaskManager:
 
     def options_for(self, task: ClaudeTask) -> ClaudeAgentOptions:
         if task.kind == "research":
-            return ClaudeAgentOptions(
+            options = ClaudeAgentOptions(
                 max_buffer_size=MAX_BUFFER,
                 model=self.model,
                 effort=self.settings.task_effort,
@@ -1859,6 +1860,7 @@ class TaskManager:
                 setting_sources=[],
                 strict_mcp_config=True,
             )
+            return signed_in(options)
         # TodoWrite needing no check is the design, as in brain.py.
         warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
         options = ClaudeAgentOptions(
@@ -1887,6 +1889,7 @@ class TaskManager:
             enable_file_checkpointing=True,
             extra_args={"replay-user-messages": None},
         )
+        options = signed_in(options)  # the user's own API key, if that's how Jarvis signs in
         if self.session_servers is not None:
             # Added to the user's own MCP servers from their settings, never instead.
             extra = self.session_servers(task.cwd, task.id)  # its own browser tab, by id

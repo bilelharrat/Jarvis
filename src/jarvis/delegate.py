@@ -43,6 +43,7 @@ from typing import Any, NamedTuple
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import jsonstore
+from .claude_signin import signed_in
 from .config import MAX_BUFFER
 from .prefs import APP_SUPPORT
 
@@ -2913,6 +2914,7 @@ def claude_draft(model: Callable[[], str] | str, cwd: str | Path, query: Any = N
             cwd=str(cwd),
             env={"ENABLE_TOOL_SEARCH": "false"},
         )
+        options = signed_in(options)  # the user's own API key, if that's how Jarvis signs in
         parts: list[str] = []
         async for message in (query or sdk_query)(
             prompt=conversation_text(transcript), options=options
