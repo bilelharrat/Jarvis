@@ -1,0 +1,21 @@
+# askeden.com/jarvis: the download page and the app file, on Cloudflare (see src/worker.js).
+# Deploy: npx wrangler deploy (from this folder, after npx wrangler login).
+name = "jarvis-download"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+# Only /jarvis and below; the rest of askeden.com stays with Vercel.
+routes = [
+  { pattern = "askeden.com/jarvis*", zone_name = "askeden.com" },
+  { pattern = "www.askeden.com/jarvis*", zone_name = "askeden.com" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[r2_buckets]]
+binding = "DOWNLOADS"
+bucket_name = "jarvis-downloads"

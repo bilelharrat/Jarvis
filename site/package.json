@@ -1,0 +1,10 @@
+{
+  "name": "jarvis-download",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/",
+    "deploy": "npx wrangler deploy",
+    "upload-release": "node scripts/upload-release.js"
+  }
+}
