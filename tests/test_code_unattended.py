@@ -505,10 +505,10 @@ def test_every_sentence_it_says_has_chinese_with_the_same_slots():
     from collections import Counter
 
     from jarvis import github, lang
-    from jarvis.features import code_issues, code_pr, code_unattended
+    from jarvis.features import code_issues, code_limit, code_pr, code_unattended
 
     slot = re.compile(r"\{(\w+)\}")
-    for module in (github, code_pr, code_unattended, code_issues):
+    for module in (github, code_pr, code_unattended, code_issues, code_limit):
         for english, chinese in module.ZH.items():
             assert Counter(slot.findall(english)) == Counter(slot.findall(chinese)), english
             assert lang.has_cjk(chinese), english

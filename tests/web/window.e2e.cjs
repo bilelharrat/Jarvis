@@ -2892,6 +2892,38 @@ test('GitHub settings: failing checks fixed by themselves, and a repository opte
   assert((await js('document.querySelector(".jcx-issue-connect").textContent')).startsWith('Connect GitHub in Tools & Accounts first.'), 'no way to connect');
 });
 
+// ── Jarvis Code waiting out Claude's usage limit (web/features/code_limit.js) ──
+
+test('Claude’s limit: a waiting session counts down in its header, and the setting says which way', async () => {
+  await open(1);
+  await loadFeatures('code_limit.js', 'code_limit.css');
+  await js(`__ev({ type: 'prefs', language: 'en', features: { code_limit_wait: true } })`);
+  assert(await js('$("jcx-limit-wait").value') === 'wait', 'the setting doesn’t show waiting');
+  await js('__sent.length = 0; (() => { const pick = $("jcx-limit-wait"); pick.value = "fallback"; pick.dispatchEvent(new Event("change")); })()');
+  let s = await js('__sent.filter((m) => m.type === "feature_prefs")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { code_limit_wait: false } }]), JSON.stringify(s));
+  const until = Date.now() / 1000 + 2 * 3600 + 5;
+  await js(`__ev({ type: 'tasks', items: [__task(1, { hold_until: ${until}, busy: false, status: 'waiting', queued: 1 })] })`);
+  await frames(2);
+  const bar = await js(`({ hidden: document.querySelector('.jcx-limit').hidden, words: document.querySelector('.jcx-limit-words').textContent,
+    left: document.querySelector('.jcx-limit-left').textContent })`);
+  assert(!bar.hidden && bar.words.startsWith('Waiting for Claude’s limit to reset at') && /^2:00:0\d$/.test(bar.left), JSON.stringify(bar));
+  await js('__sent.length = 0');
+  await clickText('.jcx-limit', 'Try now');
+  await clickText('.jcx-limit', 'Use the fallback');
+  s = await js('__sent.filter((m) => m.type === "code_limit").map((m) => m.id + " " + m.action)');
+  assert(JSON.stringify(s) === '["1 now","1 fallback"]', JSON.stringify(s));
+  // A weekly limit, days away: the day it resets is said too.
+  const later = Date.now() / 1000 + 3 * 86400;
+  await js(`__ev({ type: 'tasks', items: [__task(1, { hold_until: ${later}, busy: false, status: 'waiting' })] })`);
+  await frames(2);
+  const day = await js(`new Date(${later} * 1000).toLocaleString([], { weekday: 'short' })`);
+  const words = await js('document.querySelector(".jcx-limit-words").textContent');
+  assert(words.includes(day), `${words} (no ${day})`);
+  await js(`__ev({ type: 'tasks', items: [__task(1, { hold_until: 0 })] })`);
+  assert(await js('document.querySelector(".jcx-limit").hidden'), 'the countdown stayed after the wait');
+});
+
 // ──
 
 let base;

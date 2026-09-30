@@ -696,6 +696,9 @@ class ClaudeTask:
     # Its isolated copy, once it runs in one: {"slug", "branch", "base" (the commit it
     # started from), "into" (the branch it lands in)}. Its changes are then all of the copy's.
     workspace: dict[str, str] = field(default_factory=dict)
+    # Claude's usage limit, waited out (features.code_limit): until then (epoch seconds) its
+    # messages wait in the queue, none is sent. 0: they don't wait.
+    hold_until: float = 0.0
 
     @property
     def steerable(self) -> bool:
@@ -737,6 +740,7 @@ class ClaudeTask:
             "workspace": {
                 k: self.workspace[k] for k in ("slug", "branch", "into") if k in self.workspace
             },
+            "hold_until": self.hold_until,
             "report_path": self.report_path,
             "status": self.status,
             "last_action": self.last_action,
@@ -1116,7 +1120,8 @@ class TaskManager:
         # anything the user queued meanwhile.
         task.inbox.put(text, (images or [])[:6], plain=plain, note=note, front=note)
         task.stirred.set()
-        if task.handle is None or task.handle.done():
+        held = task.hold_until > time.time()  # waiting out Claude's limit: it opens after
+        if (task.handle is None or task.handle.done()) and not held:
             task.status, task.restarts = "running", 0
             task.handle = asyncio.create_task(self._session(task))
         self._changed()
@@ -1927,6 +1932,7 @@ class TaskManager:
                 and not ending
                 and not self.closing
                 and task.restarts < AUTO_RESTARTS
+                and task.hold_until <= time.time()  # (waiting out Claude's limit: not yet)
             ):
                 # A message came in while it was closing (idle, or Claude Code exited or
                 # crashed): open it again for that, rather than leave it waiting unsent, but
@@ -2182,8 +2188,10 @@ class TaskManager:
                         if hold <= 0:  # the changes have stopped: one reopen for all of them
                             task.reopen = False
                             return _REOPEN
+                # Waiting out Claude's usage limit: the queue waits too, till the wait's over.
+                held = task.hold_until - time.time()
                 if hold <= 0:  # (while a reopen waits, a message waits for the new settings)
-                    item = task.inbox.take()
+                    item = task.inbox.take() if held <= 0 else None
                     if item is not None:
                         return item
                     if task.close_idle and not task.steered:
@@ -2198,6 +2206,8 @@ class TaskManager:
                     task.status, task.last_action = "waiting", "Waiting for you"
                     self._changed_soon()  # open and idle: it's the user's turn
                     self._make_room()
+                if held > 0:
+                    hold = min(hold, held) if hold > 0 else held  # (awake when it's over)
             remaining = IDLE_CLOSE_SECONDS - (time.monotonic() - idle_since)
             if remaining <= 0:
                 return _IDLE

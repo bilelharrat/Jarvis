@@ -1,0 +1,15 @@
+{
+  "strings": {
+    "When Claude’s usage limit is reached": "达到 Claude 的用量上限时",
+    "Switch to the fallback model": "换到备用模型",
+    "Wait for it to reset": "等它重置",
+    "Waiting holds the session and anything you send it, then carries on on Claude when the limit resets.": "等待时会暂停这个会话和你发给它的消息，等上限重置后再用 Claude 接着做。",
+    "Try now": "现在试试",
+    "Sends it to Claude again now; if the limit is still there, it waits again": "现在再交给 Claude；如果上限还在，就继续等",
+    "Use the fallback": "用备用模型",
+    "Moves the session to the fallback model, which carries on from here": "把会话换到备用模型，由它接着做"
+  },
+  "patterns": [
+    ["^Waiting for Claude’s limit to reset at (.+)$", "在等 Claude 的用量上限于 $1 重置"]
+  ]
+}
