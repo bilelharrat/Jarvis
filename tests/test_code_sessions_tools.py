@@ -367,3 +367,82 @@ async def test_the_board_counts_the_lines_each_session_changed(
     await hub._handle({"type": "code_board"})
     item = [e for e in seen() if e["type"] == "code_board"][-1]["items"]["7"]
     assert (item["added"], item["removed"], item["branch"]) == (4, 0, "main")
+
+
+# ── the window's socket is never held up ──
+
+
+async def test_slow_session_commands_never_hold_up_the_window_s_next_one(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """The window's socket awaits Hub.handle for each command it sends: a side question (a
+    model's answer, up to two minutes), the board (git in each session's folder), a rewind,
+    opening a resting session, a new session with a goal and a project added or removed run
+    in the background, so the next command (an approval's answer, a stop) goes through."""
+    import asyncio
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated, client=scripted())
+    task = await session(hub)
+    later = asyncio.Event()
+
+    async def slow(*_a, **_k):
+        await later.wait()
+        return ""
+
+    async def slow_rewind(*_a, **_k):
+        await later.wait()
+        return False, ""
+
+    async def slow_goal(*_a, **_k):
+        await later.wait()
+        return False
+
+    resting = ClaudeTask(id=90, prompt="", cwd=task.cwd, session_id="s-90", status="resting")
+    hub.tasks.tasks[90] = resting
+    desk = hub.code_sessions
+    monkeypatch.setattr(code_asides, "one_shot", slow)
+    monkeypatch.setattr(hub, "_git", slow)
+    monkeypatch.setattr(hub, "_projects_overview", slow)
+    monkeypatch.setattr(hub.tasks, "_read_history", slow)
+    monkeypatch.setattr(desk, "rewind_in_place", slow_rewind)
+    monkeypatch.setattr(desk, "native_goal_for", slow_goal)
+    task.files_changed = {str(task.cwd / "a.py")}
+    for msg in [
+        {"type": "code_btw", "id": task.id, "question": "how?", "ref": "b"},
+        {"type": "code_board"},
+        {"type": "code_rewind", "id": task.id, "uuid": "u-1"},
+        {"type": "code_session_open", "id": 90},
+        {"type": "code_goal", "id": task.id, "action": "set", "text": "ship it"},
+        {"type": "code_goal_new", "directory": "proj", "text": "ship it"},
+        {"type": "code_project_add", "path": str(tmp_path / "proj")},
+        {"type": "code_project_remove", "path": str(tmp_path / "proj")},
+    ]:
+        await asyncio.wait_for(hub.handle(msg), 5)  # (inline, each would wait for `later`)
+    later.set()
+    await end_all(hub)
+
+
+async def test_the_board_s_line_counts_last_past_the_window_s_poll(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """The open board asks again every 15 s (web/features/code-board.js): a session whose
+    changed files are the same reuses its counts then, not git in its folder each time."""
+    import time
+
+    from jarvis.features import code_sessions as feature
+
+    hub = make_hub(settings, quiet_speaker, isolated, client=scripted())
+    asked = []
+
+    async def git(*args, **_k):
+        asked.append(args)
+        return ""
+
+    monkeypatch.setattr(hub, "_git", git)
+    task = ClaudeTask(id=7, prompt="x", cwd=tmp_path)
+    task.files_changed = {str(tmp_path / "a.py")}
+    files = (str(tmp_path / "a.py"),)
+    hub.code_sessions._lines[7] = (time.monotonic() - 15.5, files, (3, 1))  # the last poll
+    assert await hub.code_sessions._line_counts(task) == (3, 1)
+    assert asked == [] and feature.BOARD_TTL > 15

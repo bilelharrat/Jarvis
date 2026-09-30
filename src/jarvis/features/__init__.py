@@ -11,6 +11,9 @@ A feature registers what it adds through the hub instead of editing its core tab
 - hub.register_command(kind, handler): a window command ({"type": kind, ...}). A handler
   that returns False passes the message on (to the next feature's, then the built-in
   command of that kind), so a feature can take only some of a core command's messages.
+  slow=True for one that awaits a while (a model, git, the network, a card): the window's
+  socket waits for each command it sends, so it runs in the background, never holding up
+  the window's next command (that card's answer among them).
 - hub.register_instant(handler): words the user says or types to JARVIS, answered at once
   without Claude (the reply, or None when they aren't the feature's).
 - hub.register_loop(name, factory): a background loop, started with the others (never in

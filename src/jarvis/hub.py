@@ -1001,6 +1001,7 @@ class Hub:
         self._extra_servers: dict[str, Callable[[], Any]] = {}
         self._extra_prompts: list[Callable[[], str]] = []
         self._commands: dict[str, list[Callable[[dict[str, Any]], Any]]] = {}
+        self._slow_commands: set[str] = set()  # features' kinds that run as SLOW_COMMANDS do
         self._loops: list[tuple[str, Callable[[], Any]]] = []
         self._notify_sinks: list[Callable[[Alert], Any]] = []
         self._approval_sinks: list[Callable[[dict[str, Any]], Any]] = []
@@ -1057,12 +1058,19 @@ class Hub:
         EXTRA_QUIET_RESULTS.update(f"mcp__{name}__{tool}" for tool in quiet)
         EXTRA_WEB_RESULTS.update(f"mcp__{name}__{tool}" for tool in web)
 
-    def register_command(self, kind: str, handler: Callable[[dict[str, Any]], Any]) -> None:
+    def register_command(
+        self, kind: str, handler: Callable[[dict[str, Any]], Any], *, slow: bool = False
+    ) -> None:
         """A window command, {"type": kind, ...}: the handler gets the message (and may be
         async). Checked before the built-in commands, in the order registered: a handler
         that returns False leaves the message to the next one, then to the built-in
-        command of that kind (a feature taking only some of a core command's messages)."""
+        command of that kind (a feature taking only some of a core command's messages).
+        slow: it awaits something that can take a while (a model, git, Claude Code, a card):
+        it runs in the background, as SLOW_COMMANDS do, so the window's next command (a
+        card's answer, a stop) is never held up behind it."""
         self._commands.setdefault(kind, []).append(handler)
+        if slow:
+            self._slow_commands.add(kind)
 
     def register_instant(self, handler: Callable[[str], Any]) -> None:
         """Words the user said or typed to JARVIS, answered at once without asking Claude:
@@ -5881,7 +5889,7 @@ class Hub:
         window's connection."""
         if not isinstance(msg, dict) or not isinstance(msg.get("type"), str):
             return  # not a command: no name to act on
-        if msg["type"] in SLOW_COMMANDS:
+        if msg["type"] in SLOW_COMMANDS or msg["type"] in self._slow_commands:
             self._spawn(self._handle_logged(msg))
         else:
             await self._handle_logged(msg)

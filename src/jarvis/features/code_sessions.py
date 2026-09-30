@@ -53,7 +53,15 @@ prefs.register_feature_pref("code_groups", [], code_projects.clean_groups)
 
 SAVE_DELAY = 1.0  # a burst of changes is saved once, this long after it starts
 PARKED_DAYS = 14  # a session whose folder isn't there is kept this long, in case it's back
-BOARD_TTL = 10.0  # the board's line counts for a session, reused this long
+# The board's line counts for a session, reused this long: past the open board's own poll
+# (every 15 s, web/features/code-board.js), so git runs at most every other one.
+BOARD_TTL = 25.0
+# Commands that await a while (a model's answer, git, Claude Code, the projects' list):
+# the hub runs them in the background, never holding up the window's next command.
+SLOW = {
+    "code_session_open", "code_rewind", "code_board", "code_btw", "code_goal",
+    "code_goal_new", "code_project_add", "code_project_remove",
+}  # fmt: skip
 BRANCH_TTL = 30.0
 BTW_AT_ONCE = 2
 
@@ -128,7 +136,7 @@ class CodeSessions:
             "code_project_add": self._cmd_project_add,
             "code_project_remove": self._cmd_project_remove,
         }.items():
-            hub.register_command(kind, handler)
+            hub.register_command(kind, handler, slow=kind in SLOW)
         hub.register_loop("code_sessions", self.restore)
 
     def heard(self, kind: str, data: dict[str, Any]) -> None:
