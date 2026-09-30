@@ -152,3 +152,11 @@ test('the browser-ai fragment is well formed', () => {
   }
   for (const [re, rep] of fragment.patterns) assert.doesNotThrow(() => new RegExp(re), rep);
 });
+
+test('main.js hands the browser-ai feature every profile a tab can be in, so each gets the page reader', () => {
+  const main = readFileSync(fileURLToPath(new URL('../../app/main.js', import.meta.url)), 'utf8');
+  const hooks = main.slice(main.indexOf('browser: {', main.indexOf('const featureContext')));
+  assert.match(hooks.slice(0, 600), /partitions: \(\) => parity\.partitions\(\)/);
+  const feature = readFileSync(fileURLToPath(new URL('../../app/features/browser-ai.js', import.meta.url)), 'utf8');
+  assert.match(feature, /for \(const partition of browser\.partitions \? browser\.partitions\(\) : \[browser\.partition\]\)/);
+});

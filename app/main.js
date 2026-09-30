@@ -1215,6 +1215,7 @@ const featureContext = {
   // tabs, the one on show while the dock is open, and the page's own menu.
   browser: {
     partition: 'persist:jarvis-browser',
+    partitions: () => parity.partitions(), // every profile a tab can be in: the owner's, private, JARVIS's own
     tabs: () => tabs.slice(),
     shown: () => (browserShown && browserView ? browserView : null),
     byId: (id) => tabById(id) || null,

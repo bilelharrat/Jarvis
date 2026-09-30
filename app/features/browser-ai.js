@@ -31,7 +31,11 @@ function install(ctx) {
   const browser = ctx.browser;
   if (!browser) return; // an app without the browser hooks: nothing to add
   const { ipcMain } = ctx;
-  session.fromPartition(browser.partition).registerPreloadScript({ type: 'frame', filePath: PRELOAD });
+  // Every profile a tab can be in (the owner's, private tabs', JARVIS's signed-out one): the
+  // hand back, recording and the reader need it wherever JARVIS or the owner is.
+  for (const partition of browser.partitions ? browser.partitions() : [browser.partition]) {
+    session.fromPartition(partition).registerPreloadScript({ type: 'frame', filePath: PRELOAD });
+  }
 
   const waiting = new Map(); // command id -> resolve
   const fromTab = (event) => browser.tabs().some((view) => !view.webContents.isDestroyed() && event.sender === view.webContents);

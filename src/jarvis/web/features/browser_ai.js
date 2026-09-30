@@ -711,7 +711,7 @@
   const DWELL_MS = 60 * 1000;
   const dwell = { key: '', ms: 0, told: new Set() };
   B.dwellTick = (ms = 1000) => {
-    if (!memories.on || !dockOpen() || document.visibilityState !== 'visible' || page.research || !/^https?:/.test(page.url)) return;
+    if (!memories.on || !dockOpen() || document.visibilityState !== 'visible' || page.research || page.private || !/^https?:/.test(page.url)) return; // (a private tab's pages are kept nowhere)
     const key = B.pageKey(page.url);
     if (key !== dwell.key) { dwell.key = key; dwell.ms = 0; }
     dwell.ms += ms;
@@ -725,7 +725,7 @@
   function onState(st) {
     const tabs = Array.isArray(st && st.tabs) ? st.tabs : [];
     const shown = tabs.find((x) => x.active) || {};
-    const next = { url: String((st && st.url) || ''), title: String((st && st.title) || ''), tab: shown.id ?? null, research: !!(st && st.research) };
+    const next = { url: String((st && st.url) || ''), title: String((st && st.title) || ''), tab: shown.id ?? null, research: !!(st && st.research), private: !!shown.private };
     const moved = next.url !== page.url || next.tab !== page.tab;
     next.selected = moved ? 0 : page.selected; // a new page starts with nothing selected
     page = next;

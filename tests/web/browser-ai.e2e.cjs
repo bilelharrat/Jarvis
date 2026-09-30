@@ -127,8 +127,10 @@ let base;
 let agent;
 const tabs = [];
 let shown = null;
-const newTab = () => {
-  const view = new WebContentsView({ webPreferences: { partition: 'browser-ai-test', preload: path.join(ROOT, 'page-preload.js'), sandbox: true, contextIsolation: true } });
+// The profiles a tab can be in, as main.js has them: the owner's, private tabs', JARVIS's own.
+const PROFILES = ['browser-ai-test', 'browser-ai-test-private', 'browser-ai-test-agent'];
+const newTab = (partition = PROFILES[0]) => {
+  const view = new WebContentsView({ webPreferences: { partition, preload: path.join(ROOT, 'page-preload.js'), sandbox: true, contextIsolation: true } });
   view.setBounds({ x: 0, y: 0, width: 1000, height: 700 });
   tabs.push(view);
   return view;
@@ -169,7 +171,7 @@ const featureContext = {
   fromWindow: () => true,
   getWindow: () => win,
   browser: {
-    partition: 'browser-ai-test', tabs: () => tabs.slice(), shown: () => shown, byId: (id) => tabs.find((v) => v.webContents.id === Number(id)) || null,
+    partition: 'browser-ai-test', partitions: () => PROFILES.slice(), tabs: () => tabs.slice(), shown: () => shown, byId: (id) => tabs.find((v) => v.webContents.id === Number(id)) || null,
     focused: () => false, menu: (fn) => menus.push(fn),
   },
 };
@@ -317,6 +319,26 @@ test('A page that needs the owner is told from one that doesn’t (the hand back
     if (!r.ok || r.kind !== want || (want && !r.what)) wrong.push(`${where} ${JSON.stringify(args)}: ${JSON.stringify(r)}`);
   }
   assert(!wrong.length, wrong.join('\n'));
+});
+
+test('A private tab and JARVIS’s signed-out tab read as every tab does: the hand back and recording work there too', async () => {
+  for (const partition of PROFILES.slice(1)) {
+    const view = newTab(partition);
+    try {
+      await load(view, '/captcha.html');
+      let r = await callFeature('handback', { tab: view.webContents.id });
+      assert(r.ok && r.kind === 'captcha', `${partition}: ${JSON.stringify(r)}`);
+      await load(view, '/login.html');
+      r = await callFeature('handback', { tab: view.webContents.id });
+      assert(r.ok && r.kind === 'password', `${partition}: ${JSON.stringify(r)}`);
+      r = await callFeature('record', { tab: view.webContents.id, on: true });
+      assert(r.ok && r.recording === true, `${partition} record: ${JSON.stringify(r)}`);
+      await callFeature('record', { on: false });
+    } finally {
+      tabs.splice(tabs.indexOf(view), 1);
+      view.webContents.close();
+    }
+  }
 });
 
 test('A shop’s own price is the one in the biggest type, not one struck out or beside it', async () => {

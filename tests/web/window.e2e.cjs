@@ -6669,6 +6669,8 @@ test('Browser memories: a page on show for a minute is told once, only with memo
   await js(`__state({ url: 'https://rc.example/markets', title: 'RC', research: true, tabs: [{ id: 4, active: true }] }); jarvisBrowserAi.dwellTick(61000); true`);
   await js(`document.body.classList.remove('browser-open'); __state({ url: 'https://news.example/b', title: 'B', tabs: [{ id: 3, active: true }] }); jarvisBrowserAi.dwellTick(61000); true`);
   assert((await sentOf('browser_ai_dwell')).length === 1, 'the Research Center or a closed dock was counted');
+  await js(`document.body.classList.add('browser-open'); __state({ url: 'https://news.example/private', title: 'P', tabs: [{ id: 5, active: true, private: true }] }); jarvisBrowserAi.dwellTick(61000); true`);
+  assert((await sentOf('browser_ai_dwell')).length === 1, 'a private tab’s page was told, to be kept');
 });
 
 test('Settings › Browser remembers pages only when switched on, and forgets them', async () => {
