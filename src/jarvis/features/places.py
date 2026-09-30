@@ -163,8 +163,9 @@ class Places:
         destination = " ".join(str(destination or "").split())[:200]
         if not destination:
             return _error("Say where you're going.")
+        now = self.now()
         try:
-            arrive = places.parse_arrival(arrive_by, self.now())
+            arrive = places.parse_arrival(arrive_by, now)
         except ValueError as exc:
             return _error(str(exc))
         how = places.mode_of(mode)
@@ -177,10 +178,11 @@ class Places:
         far = (
             f"{found['miles']} mi" if self.imperial(await self.here()) else f"{found.get('km')} km"
         )
-        late = " That's already past: leave now, and you'll be late." if leave < self.now() else ""
+        late = " That's already past: leave now, and you'll be late." if leave < now else ""
         return _text(
-            f"Leave by {places.clock(leave)} to reach {name} by {places.clock(arrive)}: about "
-            f"{minutes} minutes {how} ({far}), with {places.LEAVE_BUFFER} minutes to spare." + late
+            f"Leave by {places.clock(leave, now)} to reach {name} by {places.clock(arrive, now)}: "
+            f"about {minutes} minutes {how} ({far}), with {places.LEAVE_BUFFER} minutes to spare."
+            + late
         )
 
     async def share(self, to: str, destination: str, mode: str = "") -> dict[str, Any]:

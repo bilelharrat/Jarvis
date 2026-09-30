@@ -103,6 +103,12 @@ def test_leave_by_uses_maps_own_departure_with_time_to_spare():
     assert places.leave_by(arrive, 40, depart) == datetime(2026, 9, 29, 15, 30)
 
 
+def test_a_time_names_its_day_by_the_clock_given():
+    now = datetime(2026, 9, 29, 23, 50)
+    assert places.clock(datetime(2026, 9, 29, 23, 55), now) == "11:55 PM"
+    assert places.clock(datetime(2026, 9, 30, 0, 20), now) == "Wed 12:20 AM"  # past midnight
+
+
 def test_distances_read_the_way_people_say_them():
     assert places.distance_words(420, imperial=False) == "420 m"
     assert places.distance_words(2300, imperial=False) == "2.3 km"

@@ -71,10 +71,11 @@ def leave_by(arrive: datetime, minutes: int, depart: float | None = None) -> dat
     return start - timedelta(minutes=LEAVE_BUFFER)
 
 
-def clock(moment: datetime) -> str:
-    """4:05 PM (today), or Thu 4:05 PM for another day."""
+def clock(moment: datetime, now: datetime | None = None) -> str:
+    """4:05 PM (the day it is now), or Thu 4:05 PM for another day."""
     text = f"{moment.hour % 12 or 12}:{moment.minute:02d} {'AM' if moment.hour < 12 else 'PM'}"
-    return text if moment.date() == datetime.now().date() else f"{moment:%a} {text}"
+    today = (now or datetime.now()).date()
+    return text if moment.date() == today else f"{moment:%a} {text}"
 
 
 def distance_words(meters: float | None, imperial: bool) -> str:
