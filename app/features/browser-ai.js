@@ -4,7 +4,9 @@
 //   reader view does and says what the owner has selected;
 // - the window's calls ('feature:browser-ai:call'), answered from the tabs: what's in front
 //   (front), a page's address, title, selection and text (context), its article (extract),
-//   and a look at the page on show (look: its context and a picture of it).
+//   and a look at the page on show (look: its context and a picture of it); and Chrome's
+//   shortcuts for the dock (shortcut: find, bookmark, close), sent to the window's own handler
+//   as main.js sends the page's.
 // Only the window's own page may call; only the browser's tabs may answer.
 'use strict';
 
@@ -13,6 +15,7 @@ const crypto = require('crypto');
 const { session } = require('electron');
 
 const PRELOAD = path.join(__dirname, '..', 'page-ai-preload.js');
+const SHORTCUTS = new Set(['find', 'bookmark', 'close']); // the dock's ⌘F, ⌘D and ⌘W
 const SHOT_WIDTH = 1280; // the widest picture Claude gets
 
 function install(ctx) {
@@ -70,6 +73,13 @@ function install(ctx) {
     if (action === 'front') {
       const shown = browser.shown();
       return { ok: true, focused: browser.focused(), shown: Boolean(shown), tab: shown ? shown.webContents.id : null };
+    }
+    if (action === 'shortcut') {
+      const name = String(args.name || '');
+      if (!SHORTCUTS.has(name)) return { ok: false, message: `Unknown shortcut ${name}` };
+      if (!browser.shown()) return { ok: false, message: 'The browser is closed.' };
+      ctx.send('browser:shortcut', name);
+      return { ok: true };
     }
     const view = target(args);
     if (!view) return { ok: false, message: args.tab ? `Tab ${args.tab} is closed.` : 'The browser is closed.' };

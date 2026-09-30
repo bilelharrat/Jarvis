@@ -5330,6 +5330,56 @@ test('Browser AI passes the hub’s calls to the app and answers each by its id'
   assert(results.length === 1 && results[0].id === 'c1' && results[0].result.echo === 'context', JSON.stringify(results));
 });
 
+// ...and the dock's own controls, for the instant page commands (page_ui): what each did.
+async function browserAiControls() {
+  await js(`window.__calls = []; window.__state = null; window.__bookmarks = []; window.__findInputs = [];
+    const did = (name, answer) => (...args) => { __calls.push([name, ...args]); return Promise.resolve(answer); };
+    window.jarvisApp = {
+      browser: { onState: (fn) => { window.__state = fn; }, command: did('command', { ok: true }), nav: did('nav'), shortcut: did('shortcut', true),
+        tab: did('tab'), data: (...args) => { __calls.push(['data', ...args]); return Promise.resolve({ bookmarks: __bookmarks, history: [] }); } },
+      feature: { invoke: (channel, msg) => { __calls.push([channel, msg]); if (msg.args && msg.args.name === 'find') $('bd-find').hidden = false; return Promise.resolve({ ok: true }); },
+        on: () => {}, send: () => {} } };
+    $('bd-find').hidden = true;
+    $('bd-find-input').addEventListener('input', (e) => __findInputs.push(e.target.value));
+    true`);
+  await loadFeature('browser_ai.js');
+  await js(`document.body.classList.add('browser-open'); __state({ url: 'https://news.example/a', title: 'A', canBack: false, canForward: false, tabs: [{ id: 5, active: true }] }); true`);
+}
+const pageUi = async (args) => {
+  await js('__calls.length = 0; __sent.length = 0; true');
+  await deliver({ type: 'browser_ai_cmd', id: `u${Math.random()}`, action: 'page_ui', args });
+  for (let i = 0; i < 40 && !(await sentOf('browser_ai_result')).length; i++) await sleep(20);
+  return { calls: await js('__calls'), result: ((await sentOf('browser_ai_result'))[0] || {}).result };
+};
+
+test('Browser AI works the dock’s own controls for a spoken page command', async () => {
+  await browserAiControls();
+  let r = await pageUi({ op: 'scroll', direction: 'down', amount: 0.4 });
+  assert(JSON.stringify(r.calls) === JSON.stringify([['command', { action: 'scroll', args: { direction: 'down', amount: 0.4 } }]]) && r.result.ok, JSON.stringify(r));
+  r = await pageUi({ op: 'back' });
+  assert(r.calls.length === 0 && r.result.ok === false && r.result.message === "There's no page to go back to.", JSON.stringify(r));
+  await js(`__state({ url: 'https://news.example/a', title: 'A', canBack: true, canForward: false, tabs: [{ id: 5, active: true }, { id: 6, active: false }] }); true`);
+  r = await pageUi({ op: 'back' });
+  assert(JSON.stringify(r.calls) === JSON.stringify([['nav', 'back']]) && r.result.ok, JSON.stringify(r));
+  r = await pageUi({ op: 'zoom', direction: 'in' });
+  assert(JSON.stringify(r.calls) === JSON.stringify([['shortcut', 'zoom-in']]) && r.result.ok, JSON.stringify(r));
+  r = await pageUi({ op: 'new_tab' });
+  assert(JSON.stringify(r.calls) === JSON.stringify([['tab', 'new']]), JSON.stringify(r));
+  r = await pageUi({ op: 'close_tab' }); // two tabs: the one on show closes
+  assert(JSON.stringify(r.calls) === JSON.stringify([['tab', 'close']]), JSON.stringify(r));
+  await js(`__state({ url: 'https://news.example/a', title: 'A', canBack: true, tabs: [{ id: 5, active: true }] }); true`);
+  r = await pageUi({ op: 'close_tab' }); // the last tab: the dock closes, as ⌘W does
+  assert(r.calls.length === 1 && r.calls[0][1].action === 'shortcut' && r.calls[0][1].args.name === 'close', JSON.stringify(r));
+  r = await pageUi({ op: 'find', text: 'lentil soup' });
+  assert(r.calls[0][1].action === 'shortcut' && r.calls[0][1].args.name === 'find' && r.result.ok, JSON.stringify(r));
+  assert(await js('$("bd-find-input").value') === 'lentil soup' && JSON.stringify(await js('__findInputs')) === '["lentil soup"]', 'the find bar was not filled');
+  r = await pageUi({ op: 'bookmark' });
+  assert(JSON.stringify(r.calls.map((c) => c[0] === 'data' ? 'data' : c[1].args.name)) === '["data","bookmark"]' && r.result.ok && !r.result.already, JSON.stringify(r));
+  await js(`__bookmarks.push({ url: 'https://news.example/a', title: 'A' }); true`);
+  r = await pageUi({ op: 'bookmark' }); // already there: ★ isn't pressed (it would take it off)
+  assert(JSON.stringify(r.calls.map((c) => c[0])) === '["data"]' && r.result.already === true, JSON.stringify(r));
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);

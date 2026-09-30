@@ -9,6 +9,10 @@
   (browser_ai_page) and answers the feature's calls into the browser (bridge.py, through
   web/features/browser_ai.js and app/features/browser-ai.js, whose page-ai-preload.js reads
   pages the way a reader view does).
+- Page commands (pagevoice.py): scroll, top and bottom, back and forward, zoom, find, a new
+  tab, close the tab, bookmark and reload, said in English or Chinese, done at once without
+  Claude while a web page is on show in the dock of the window in front (an instant handler;
+  the window's browser_ai.js works the dock's own controls: page_ui).
 - Sensitive sites (sites.py): banks, email and health; what's read there counts as the
   owner's private data.
 
