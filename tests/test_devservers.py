@@ -497,3 +497,23 @@ async def test_one_that_slips_into_a_session_of_its_own_is_not_waited_for(tmp_pa
     finally:
         with contextlib.suppress(Exception):
             os.kill(int(marker.read_text()), signal.SIGKILL)
+
+
+async def test_a_stop_while_it_is_still_starting_still_stops_it(tmp_path):
+    """Stop pressed right after Start (or a session ending just after it started one): the
+    stop waits for the process to be there, and takes it down."""
+    marker = tmp_path / "started.pid"
+    script = server_script(
+        tmp_path,
+        "import os, sys, time\nopen(sys.argv[1], 'w').write(str(os.getpid()))\ntime.sleep(600)\n",
+    )
+    proc = runproc.Proc(
+        [sys.executable, str(script), str(marker)], tmp_path, plain_env(), lambda _l: None
+    )
+    starting = asyncio.create_task(proc.start())
+    await asyncio.sleep(0)  # start() is under way, the process not there yet
+    assert proc.proc is None
+    await asyncio.gather(starting, proc.stop(grace=2.0))
+    assert await until(lambda: proc.finished, 30), "a stop during its start was lost"
+    if marker.exists() and marker.read_text().strip():
+        assert await until(lambda: not pid_alive(int(marker.read_text())), 20)

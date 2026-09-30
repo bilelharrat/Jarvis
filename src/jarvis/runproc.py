@@ -243,6 +243,7 @@ class Proc:
         self.stopping = False
         self._reader: asyncio.Task | None = None
         self._done = asyncio.Event()
+        self._launched = asyncio.Event()  # start() is over: started, or couldn't
 
     @property
     def pid(self) -> int | None:
@@ -259,21 +260,26 @@ class Proc:
 
     async def start(self) -> None:
         """Raises OSError when it can't start at all."""
-        self.proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-I",
-            "-S",
-            "-c",
-            SUPERVISE,
-            *self.argv,
-            cwd=str(self.cwd),
-            env=self.env,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            start_new_session=True,
-        )
-        self._reader = asyncio.create_task(self._read())
+        try:
+            self.proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                SUPERVISE,
+                *self.argv,
+                cwd=str(self.cwd),
+                env=self.env,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                start_new_session=True,
+            )
+            self._reader = asyncio.create_task(self._read())
+            if self.stopping:  # stopped while it was starting: it goes as soon as it's there
+                signal_group(self.proc.pid, signal.SIGTERM)
+        finally:
+            self._launched.set()
 
     async def _read(self) -> None:
         assert self.proc is not None and self.proc.stdout is not None
@@ -338,9 +344,14 @@ class Proc:
     async def stop(self, grace: float = STOP_GRACE) -> None:
         """SIGTERM to the whole group, then SIGKILL to whatever of it (and its session) is
         still there after grace seconds."""
-        if self.proc is None or self._done.is_set():
+        if self._done.is_set():
             return
         self.stopping = True
+        if self.proc is None:  # still starting: start() sees `stopping` once it's there
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._launched.wait(), 30.0)
+            if self.proc is None:
+                return  # it never started
         pid = self.proc.pid
         signal_group(pid, signal.SIGTERM)
         with contextlib.suppress(TimeoutError):
@@ -351,10 +362,11 @@ class Proc:
                 await asyncio.wait_for(self._done.wait(), 3.0)
 
     def kill_now(self) -> None:
-        """The app is quitting: the group gets SIGTERM, then SIGKILL a moment later."""
+        """The app is quitting: the group gets SIGTERM, then SIGKILL a moment later (one
+        still starting gets it as soon as it's there)."""
+        self.stopping = True
         if self.proc is None or self.proc.returncode is not None:
             return
-        self.stopping = True
         signal_group(self.proc.pid, signal.SIGTERM)
 
 
