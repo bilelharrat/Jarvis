@@ -1,7 +1,8 @@
 // The app shell's pure logic, apart from Electron so node --test can check it
 // (app/features/shell.js wires it up): the words its menus use, what the window reports,
-// the menus themselves as templates, the window's place on each set of displays, how often
-// a crashed page is reloaded, and the small file it keeps beside the app's data.
+// the menus themselves as templates, the global shortcuts the user may choose, the window's
+// place on each set of displays, how often a crashed page is reloaded, and the small file
+// it keeps beside the app's data.
 'use strict';
 
 // ── words ──
@@ -146,6 +147,69 @@ function normalizeHeadsUp(raw) {
   return h.title || h.text ? h : null;
 }
 
+// ── global shortcuts ──
+// Electron accelerators, in one spelling: modifiers in this order, then the key.
+
+const MODIFIERS = ['Command', 'Control', 'Alt', 'Shift'];
+const FKEYS = Array.from({ length: 24 }, (_, i) => `F${i + 1}`);
+const KEYS = new Set([
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', ...FKEYS, 'Space', 'Return', 'Tab', 'Backspace', 'Delete',
+  'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', '-', '=', '[', ']', '\\', ';', "'", ',', '.', '/', '`',
+]);
+const DEFAULT_SHORTCUTS = { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' };
+// macOS's own, which it keeps for itself (or would lose): input sources, the emoji picker,
+// Finder search, the app switcher, screenshots, lock and log out, Spaces. (Kept in step with
+// jarvis.features.shell.RESERVED, which checks what's saved.)
+const RESERVED = new Set([
+  'Control+Space', 'Command+Control+Space', 'Command+Alt+Space', 'Command+Tab', 'Command+Shift+Tab',
+  'Command+Shift+3', 'Command+Shift+4', 'Command+Shift+5', 'Command+Control+Q', 'Command+Shift+Q',
+  'Control+Up', 'Control+Down', 'Control+Left', 'Control+Right',
+]);
+
+// {ok, accelerator} with it spelled the one way, or {ok: false, error}: 'invalid' (not a
+// key combination), 'modifier' (no ⌃ or ⌥, or ⌘ alone: that would take the key from
+// every app), 'reserved' (macOS's).
+function checkAccelerator(value) {
+  if (typeof value !== 'string' || !value || value.length > 60) return { ok: false, error: 'invalid' };
+  const parts = value.split('+');
+  const key = parts.pop();
+  if (!KEYS.has(key) || new Set(parts).size !== parts.length || parts.some((m) => !MODIFIERS.includes(m))) {
+    return { ok: false, error: 'invalid' };
+  }
+  const mods = MODIFIERS.filter((m) => parts.includes(m));
+  const accelerator = [...mods, key].join('+');
+  const fkey = FKEYS.includes(key);
+  const strong = mods.includes('Control') || mods.includes('Alt') || (mods.includes('Command') && mods.length > 1);
+  if (!fkey && !strong) return { ok: false, error: 'modifier' };
+  if (RESERVED.has(accelerator)) return { ok: false, error: 'reserved' };
+  return { ok: true, accelerator };
+}
+
+const KEY_SIGNS = { Return: '↩', Tab: '⇥', Backspace: '⌫', Delete: '⌦', Up: '↑', Down: '↓', Left: '←', Right: '→', Home: '↖', End: '↘', PageUp: '⇞', PageDown: '⇟' };
+
+// As the Mac writes it: ⌃⌥⇧⌘, then the key ("⌥ Space", "⌃⌥J", "⇧⌘ F5").
+function shortcutLabel(accelerator) {
+  if (typeof accelerator !== 'string' || !accelerator) return '';
+  const parts = accelerator.split('+');
+  const key = parts.pop();
+  const signs = [['Control', '⌃'], ['Alt', '⌥'], ['Shift', '⇧'], ['Command', '⌘']].filter(([m]) => parts.includes(m)).map(([, sign]) => sign).join('');
+  const shown = KEY_SIGNS[key] || key;
+  return shown.length > 1 ? `${signs} ${shown}`.trim() : `${signs}${shown}`;
+}
+
+// What the user chose, each one checked; the defaults for anything missing or wrong, and
+// never one key combination for both.
+function normalizeShortcuts(raw) {
+  const given = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const [slot, fallback] of Object.entries(DEFAULT_SHORTCUTS)) {
+    const checked = checkAccelerator(given[slot]);
+    out[slot] = checked.ok ? checked.accelerator : fallback;
+  }
+  if (out.whatsThis === out.ask) out.whatsThis = out.ask === DEFAULT_SHORTCUTS.whatsThis ? DEFAULT_SHORTCUTS.ask : DEFAULT_SHORTCUTS.whatsThis;
+  return out;
+}
+
 // ── the window's place, remembered for each set of displays ──
 // At the desk with the big screen it opens where it was on the big screen; on the laptop
 // alone, where it was on the laptop.
@@ -231,11 +295,12 @@ function readStore(text) {
       places[key] = { x: place.x, y: place.y, width: place.width, height: place.height, at: finite(place.at) ? place.at : 0 };
     }
   }
-  return { version: 1, menuBar: raw.menuBar !== false, places };
+  return { version: 1, menuBar: raw.menuBar !== false, shortcuts: normalizeShortcuts(raw.shortcuts), places };
 }
 
 module.exports = {
   DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate,
   excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp,
+  DEFAULT_SHORTCUTS, checkAccelerator, shortcutLabel, normalizeShortcuts,
   MIN_SIZE, displaySetKey, placeWindow, centerOn, rememberPlace, allowReload, readStore,
 };

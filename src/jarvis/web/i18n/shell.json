@@ -15,12 +15,32 @@
     "Open J.A.R.V.I.S.": "打开 J.A.R.V.I.S.",
     "Quit J.A.R.V.I.S.": "退出 J.A.R.V.I.S.",
     "Say “confirm purchase”, or confirm it in J.A.R.V.I.S.": "说“确认购买”，或在 J.A.R.V.I.S. 中确认。",
-    "The window stopped unexpectedly and was reloaded.": "窗口意外停止，已重新载入。"
+    "The window stopped unexpectedly and was reloaded.": "窗口意外停止，已重新载入。",
+    "From any app: shows JARVIS and starts listening.": "在任何应用中：显示 JARVIS 并开始聆听。",
+    "What’s this?": "这是什么？",
+    "From any app: JARVIS explains what’s in front of you.": "在任何应用中：JARVIS 讲解你眼前的内容。",
+    "Change…": "更改…",
+    "Type the new shortcut, or press Esc.": "按下新的快捷键，或按 Esc 取消。",
+    "Use ⌃ or ⌥, or ⌘ together with ⇧, ⌃ or ⌥.": "请使用 ⌃ 或 ⌥，或把 ⌘ 与 ⇧、⌃ 或 ⌥ 一起使用。",
+    "Talk and What’s this? need different shortcuts.": "“对话”和“这是什么？”需要不同的快捷键。",
+    "That key can’t be a shortcut.": "这个键不能用作快捷键。"
   },
   "patterns": [
     [
       "^Heads-ups paused until (.+)$",
       "提醒已暂停至 $1"
+    ],
+    [
+      "^(.+) is taken by another app\\. Pick another\\.$",
+      "$1 已被其他应用占用，请换一个。"
+    ],
+    [
+      "^(.+) belongs to macOS\\. Pick another\\.$",
+      "$1 是 macOS 自带的快捷键，请换一个。"
+    ],
+    [
+      "^Tap the orb or press (.+)$",
+      "轻点光球，或按下 $1"
     ]
   ]
 }

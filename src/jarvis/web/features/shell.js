@@ -2,12 +2,49 @@
 // what JARVIS is doing for the menu bar icon and which cards wait for an OK (the Dock's
 // badge, their notifications), hands it heads-ups to raise as macOS notifications, carries
 // out what its menus and notifications ask over this window's connection, and adds the
-// "This Mac" group to Settings.
+// "This Mac" group to Settings (the menu bar icon, the global shortcuts).
 (() => {
+  // ── pure helpers (tests/web/shell.test.mjs requires this file for them) ──
+
+  const CODE_KEYS = {
+    Space: 'Space', Enter: 'Return', NumpadEnter: 'Return', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete',
+    ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Home: 'Home', End: 'End',
+    PageUp: 'PageUp', PageDown: 'PageDown', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']',
+    Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`',
+  };
+
+  // The key of a keydown as an accelerator names it: by its place on the keyboard (⌥ changes
+  // the letter a key types, never where it is), or '' for a modifier, Escape or the like.
+  function keyOf(code) {
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+    return CODE_KEYS[code] || '';
+  }
+
+  // The key combination pressed, as an Electron accelerator ('' while only modifiers are held).
+  function acceleratorFromKey(e) {
+    const key = keyOf(String(e.code || ''));
+    if (!key) return '';
+    return [e.metaKey && 'Command', e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+');
+  }
+
+  // The modifiers held while a shortcut is being typed, as the Mac writes them.
+  function heldLabel(e) {
+    return [e.ctrlKey && '⌃', e.altKey && '⌥', e.shiftKey && '⇧', e.metaKey && '⌘'].filter(Boolean).join('');
+  }
+
+  if (typeof module === 'object' && module.exports) module.exports = { keyOf, acceleratorFromKey, heldLabel };
   if (typeof window === 'undefined' || !window.jarvisFeatures) return;
+
   const F = window.jarvisFeatures;
   const bridge = window.jarvisApp && window.jarvisApp.feature ? window.jarvisApp.feature : null;
   const CH = 'feature:shell:';
+  // English for the page, which i18n.js translates as it appears (the tests find these).
+  // What goes to the app (its menus, notifications) is translated here, with F.t.
+  const en = (text) => text;
+  const SHORTCUT_PREFS = { ask: 'shell_shortcut_ask', whatsThis: 'shell_shortcut_whats_this' };
+  const SHORTCUT_DEFAULTS = { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' };
 
   // What the app reports, as the window last heard it.
   const seen = { state: 'idle', muted: false, prefs: null };
@@ -15,6 +52,7 @@
   let online = false;
   let canNotify = false; // the app raises notifications itself (not in the test window)
   const approvals = new Map(); // the cards waiting for an OK, as the hub sent them
+  let keyStatus = null; // the global shortcuts, as the app has them: { live, ask: {accelerator, label, error}, whatsThis }
 
   const feature = (key, fallback) => {
     const features = (seen.prefs && seen.prefs.features) || {};
@@ -78,6 +116,10 @@
         handsFree: Boolean(seen.prefs && seen.prefs.hands_free),
         pausedUntil: pausedUntil(),
         menuBar: feature('shell_menu_bar', true) !== false,
+        shortcuts: {
+          ask: feature(SHORTCUT_PREFS.ask, SHORTCUT_DEFAULTS.ask),
+          whatsThis: feature(SHORTCUT_PREFS.whatsThis, SHORTCUT_DEFAULTS.whatsThis),
+        },
         labels: labels(),
       };
       const sign = JSON.stringify(msg);
@@ -169,14 +211,38 @@
     return row;
   }
 
+  // A global shortcut: its keys, and Change… to type new ones.
+  function shortcutRow(slot, title, note) {
+    const row = F.el('div', 'row shell-key-row');
+    const words = F.el('span');
+    words.append(F.el('strong', '', title), F.el('small', '', note));
+    const keys = F.el('span', 'shell-key');
+    const cap = F.el('kbd');
+    cap.id = `shell-key-${slot}`;
+    const change = F.el('button', 'btn', 'Change…');
+    change.type = 'button';
+    change.id = `shell-rec-${slot}`;
+    change.addEventListener('click', () => (recordingSlot === slot ? stopRecording() : startRecording(slot)));
+    keys.append(cap, change);
+    row.append(words, keys);
+    return row;
+  }
+
   let group = null;
   function buildGroup() {
     if (group || !bridge) return;
     group = F.el('section', 'group shell-group');
     group.id = 'shell-group';
+    const note = F.el('p', 'small-status');
+    note.id = 'shell-key-note';
+    note.hidden = true;
+    note.setAttribute('aria-live', 'polite');
     group.append(
       F.el('h3', '', 'This Mac'),
       switchRow('sw-shell-menubar', 'Show in the menu bar', 'What JARVIS is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
+      shortcutRow('ask', 'Talk', 'From any app: shows JARVIS and starts listening.'),
+      shortcutRow('whatsThis', 'What’s this?', 'From any app: JARVIS explains what’s in front of you.'),
+      note,
     );
     const settings = F.$('settings');
     const accounts = F.$('open-accounts');
@@ -190,6 +256,112 @@
   function renderGroup() {
     if (!group) return;
     F.$('sw-shell-menubar').setAttribute('aria-checked', String(feature('shell_menu_bar', true) !== false));
+    renderShortcuts();
+  }
+
+  // ── the global shortcuts ──
+
+  let recordingSlot = '';
+  let noteFrom = ''; // what the note is about: 'recorder', 'taken' (found at start) or ''
+
+  function setNote(text, warn, from) {
+    const note = F.$('shell-key-note');
+    if (!note) return;
+    note.hidden = !text;
+    note.textContent = text || '';
+    note.classList.toggle('warn-line', Boolean(warn));
+    noteFrom = text ? from : '';
+  }
+
+  function problem(error, label) {
+    if (error === 'taken') return en(`${label} is taken by another app. Pick another.`);
+    if (error === 'modifier') return en('Use ⌃ or ⌥, or ⌘ together with ⇧, ⌃ or ⌥.');
+    if (error === 'reserved') return en(`${label} belongs to macOS. Pick another.`);
+    if (error === 'same') return en('Talk and What’s this? need different shortcuts.');
+    return en('That key can’t be a shortcut.');
+  }
+
+  function renderShortcuts() {
+    if (!group || !keyStatus) return;
+    for (const slot of ['ask', 'whatsThis']) {
+      const s = keyStatus[slot];
+      if (!s) continue;
+      if (recordingSlot !== slot) F.$(`shell-key-${slot}`).textContent = s.label;
+      F.$(`shell-rec-${slot}`).disabled = !online && recordingSlot !== slot;
+    }
+    // A shortcut another app already had when JARVIS started: said until it's changed.
+    const taken = ['ask', 'whatsThis'].map((slot) => keyStatus[slot]).find((s) => s && s.error === 'taken');
+    if (taken && noteFrom !== 'recorder') setNote(problem('taken', taken.label), true, 'taken');
+    else if (!taken && noteFrom === 'taken') setNote('', false, '');
+    updateHint();
+  }
+
+  // The hint under the orb and the idle line say the shortcuts as they are now.
+  function updateHint() {
+    if (!keyStatus || !keyStatus.ask || !keyStatus.whatsThis) return;
+    const caps = document.querySelectorAll('#hint kbd');
+    if (caps[0]) caps[0].textContent = keyStatus.ask.label;
+    if (caps[1]) caps[1].textContent = keyStatus.whatsThis.label;
+    const idle = en(`Tap the orb or press ${keyStatus.ask.label}`);
+    if (STATE_LINES.idle !== idle) {
+      STATE_LINES.idle = idle;
+      if (state === 'idle') setState('idle');
+    }
+  }
+
+  function startRecording(slot) {
+    if (recordingSlot) stopRecording();
+    recordingSlot = slot;
+    bridge.send(`${CH}recording`, true); // the app's own shortcuts step aside, so their keys reach here
+    const cap = F.$(`shell-key-${slot}`);
+    cap.textContent = '…';
+    cap.classList.add('recording');
+    F.$(`shell-rec-${slot}`).textContent = en('Cancel');
+    setNote(en('Type the new shortcut, or press Esc.'), false, 'recorder');
+    window.addEventListener('keydown', onRecordKey, true);
+    window.addEventListener('keyup', onRecordKeyUp, true);
+  }
+
+  function stopRecording(tellApp = true) {
+    if (!recordingSlot) return;
+    window.removeEventListener('keydown', onRecordKey, true);
+    window.removeEventListener('keyup', onRecordKeyUp, true);
+    const slot = recordingSlot;
+    recordingSlot = '';
+    if (tellApp) bridge.send(`${CH}recording`, false);
+    F.$(`shell-key-${slot}`).classList.remove('recording');
+    F.$(`shell-rec-${slot}`).textContent = en('Change…');
+    if (noteFrom === 'recorder') setNote('', false, '');
+    renderShortcuts();
+  }
+
+  // While recording, every key is the shortcut's: none reaches the rest of the window
+  // (Space would talk, Esc close Settings, ⌘, open Jarvis Code's settings).
+  function onRecordKey(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.repeat) return;
+    if (e.code === 'Escape' && !(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)) { stopRecording(); return; }
+    const accelerator = acceleratorFromKey(e);
+    const slot = recordingSlot;
+    if (!accelerator) { F.$(`shell-key-${slot}`).textContent = heldLabel(e) || '…'; return; }
+    stopRecording(false); // the app ends its own recording when it's asked to take one
+    bridge.invoke(`${CH}shortcut`, { which: slot, accelerator }).then((r) => {
+      if (r && r.ok) {
+        F.send({ type: 'feature_prefs', changes: { [SHORTCUT_PREFS[slot]]: r.accelerator } });
+        keyStatus = { ...keyStatus, [slot]: { accelerator: r.accelerator, label: r.label, error: '' } };
+        setNote('', false, '');
+      } else {
+        setNote(problem(r && r.error, (r && r.label) || ''), true, 'recorder');
+      }
+      renderShortcuts();
+    }, () => bridge.send(`${CH}recording`, false));
+  }
+
+  function onRecordKeyUp(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (recordingSlot) F.$(`shell-key-${recordingSlot}`).textContent = heldLabel(e) || '…';
   }
 
   // ── start: the group first, so the events heard next (and the one replayed) fill it in ──
@@ -231,16 +403,19 @@
   // Offline while the window's connection is down ("Reconnecting to Jarvis…" is showing).
   const offline = F.$('offline');
   if (offline) {
-    new MutationObserver(() => { online = offline.hidden; report(); })
+    new MutationObserver(() => { online = offline.hidden; report(); renderShortcuts(); })
       .observe(offline, { attributes: true, attributeFilter: ['hidden'] });
   }
 
   if (bridge) {
     bridge.on(`${CH}command`, run);
+    bridge.on(`${CH}shortcuts`, (status) => { keyStatus = status; renderShortcuts(); });
     bridge.invoke(`${CH}hello`).then((info) => {
       if (!info) return;
       ready = true;
       canNotify = info.notify === true;
+      if (info.shortcuts) keyStatus = info.shortcuts;
+      renderShortcuts();
       report();
       sendApprovals();
       if (info.recovered) notice('Jarvis', '', 'The window stopped unexpectedly and was reloaded.', 15000);

@@ -100,3 +100,35 @@ def test_a_failing_gate_holds_nothing_back(hub):
     seen = shown(hub)
     hub.notify(Alert("rain:1", "rain", "Rain", "Rain in an hour."), speak=False)
     assert seen == ["rain"]
+
+
+def test_shortcuts_are_kept_spelled_one_way_and_checked():
+    ok = shell.clean_accelerator
+    assert ok("Alt+Space") == "Alt+Space"
+    assert ok("Shift+Alt+Space") == "Alt+Shift+Space"
+    assert ok("Shift+Command+J") == "Command+Shift+J"
+    assert ok("F13") == "F13"
+    for bad in (
+        "Command+J",
+        "Shift+K",
+        "K",
+        "Control+Space",
+        "Command+Shift+4",
+        "Alt+",
+        "Alt+Alt+J",
+    ):
+        assert ok(bad) is None, bad
+    for bad in ("Hyper+J", "Alt+Escape", "", 5, None, ["Alt+J"], "Alt+" + "J" * 70):
+        assert ok(bad) is None, bad
+
+
+async def test_the_shortcut_settings(hub):
+    assert hub.prefs.feature(shell.ASK_SHORTCUT_KEY) == "Alt+Space"
+    assert hub.prefs.feature(shell.WHATS_THIS_SHORTCUT_KEY) == "Alt+Shift+Space"
+    await hub._handle(
+        {"type": "feature_prefs", "changes": {shell.ASK_SHORTCUT_KEY: "Shift+Control+Alt+J"}}
+    )
+    assert hub.prefs.feature(shell.ASK_SHORTCUT_KEY) == "Control+Alt+Shift+J"
+    # One that would take ⌘J from every app is refused: the old one stays.
+    await hub._handle({"type": "feature_prefs", "changes": {shell.ASK_SHORTCUT_KEY: "Command+J"}})
+    assert hub.prefs.feature(shell.ASK_SHORTCUT_KEY) == "Control+Alt+Shift+J"

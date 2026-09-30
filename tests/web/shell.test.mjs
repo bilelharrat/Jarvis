@@ -14,9 +14,18 @@ const require = createRequire(import.meta.url);
 const lib = require('../../app/features/shell-lib.js');
 const icon = require('../../app/features/shell-icon.js');
 const shell = require('../../app/features/shell.js');
+const windowSide = require('../../src/jarvis/web/features/shell.js');
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
+// Waits for what a timer does (the machine may be busy): up to a few seconds, then fails.
+async function until(done, what = 'the condition', ms = 4000) {
+  const started = Date.now();
+  while (!done()) {
+    if (Date.now() - started > ms) throw new Error(`timed out waiting for ${what}`);
+    await tick(5);
+  }
+}
 
 // ── a stand-in Electron and main.js context ──
 
@@ -48,11 +57,23 @@ function fakeElectron() {
     },
   };
   const Menu = { buildFromTemplate: (template) => ({ template }) };
+  // Global shortcuts: another app holds those in `taken`; what's ours is in `mine`.
+  const globalShortcut = {
+    taken: new Set(),
+    mine: new Map(),
+    register(accelerator, fn) {
+      if (this.taken.has(accelerator) || this.mine.has(accelerator)) return false;
+      this.mine.set(accelerator, fn);
+      return true;
+    },
+    unregister(accelerator) { this.mine.delete(accelerator); },
+    press(accelerator) { const fn = this.mine.get(accelerator); if (fn) fn(); return Boolean(fn); },
+  };
   const screen = new EventEmitter();
   screen.displays = [LAPTOP];
   screen.getAllDisplays = () => screen.displays;
   screen.getPrimaryDisplay = () => screen.displays[0];
-  return { Tray, Menu, Notification, nativeImage, screen, made };
+  return { Tray, Menu, Notification, globalShortcut, nativeImage, screen, made };
 }
 
 // A laptop's screen (the menu bar and Dock take some of it), and a big one above-right.
@@ -206,8 +227,9 @@ test('the window’s labels and reports are taken only in their expected shapes'
   assert.deepEqual(lib.normalizeState({ state: 'dancing', online: 'yes', pausedUntil: 'soon', menuBar: 0 }),
     { state: 'idle', online: false, muted: false, handsFree: false, pausedUntil: 0, menuBar: true });
   assert.deepEqual(lib.normalizeState(null).state, 'idle');
-  assert.deepEqual(lib.readStore('{broken'), { version: 1, menuBar: true, places: {} });
-  assert.deepEqual(lib.readStore('[1,2]'), { version: 1, menuBar: true, places: {} });
+  const blank = { version: 1, menuBar: true, shortcuts: { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' }, places: {} };
+  assert.deepEqual(lib.readStore('{broken'), blank);
+  assert.deepEqual(lib.readStore('[1,2]'), blank);
   assert.equal(lib.readStore('{"menuBar": false}').menuBar, false);
 });
 
@@ -240,7 +262,7 @@ test('menu commands reach the window only once its page is there; Ask and Quit n
   assert.deepEqual(t.commands(), []);
   assert.equal(t.win.shown, 1);
   await t.hello();
-  await tick();
+  await until(() => t.commands().length === 1, 'the kept command');
   assert.deepEqual(t.commands(), [{ action: 'open', panel: 'code' }]);
   s.act('mute');
   s.act('pause');
@@ -307,7 +329,8 @@ test('a yes-or-no card gets its own two buttons; a purchase, a plan or a questio
 test('a card that goes up while the window is away: a notification whose buttons answer it', async () => {
   const t = fakeContext();
   const s = shell.install(t.ctx);
-  assert.deepEqual(await t.hello(), { dev: false, notify: true, recovered: false });
+  const hi = await t.hello();
+  assert.deepEqual([hi.dev, hi.notify, hi.recovered, hi.shortcuts.live], [false, true, false, true]);
   t.tell('approval', card('a1'));
   const [note] = t.electron.made.notes;
   assert.ok(note.shown);
@@ -384,7 +407,8 @@ test('a heads-up raised for the window opens JARVIS on its card when clicked', a
 test('the test window raises no notifications and leaves the Dock alone', async () => {
   const t = fakeContext({ dev: true });
   shell.install(t.ctx);
-  assert.deepEqual(await t.hello(), { dev: true, notify: false, recovered: false });
+  const hi = await t.hello();
+  assert.deepEqual([hi.dev, hi.notify, hi.recovered, hi.shortcuts.live], [true, false, false, false]);
   t.tell('approval', card('a1'));
   t.tell('heads-up', { key: 'rain:1', kind: 'rain', title: 'Rain', text: 'Soon.' });
   assert.equal(t.electron.made.notes.length, 0);
@@ -401,10 +425,120 @@ test('the Dock’s menu: Ask, Mute or Unmute, Jarvis Code and the browser', asyn
   assert.deepEqual(items.map((i) => i.label || '—'), ['Ask…', 'Unmute', '—', 'Jarvis Code', '浏览器']);
   items[4].click();
   items[1].click();
-  await tick();
+  await until(() => t.commands().length === 2, 'both commands');
   assert.deepEqual(t.commands(), [{ action: 'open', panel: 'browser' }, { action: 'unmute' }]);
   items[0].click();
   assert.equal(t.ctx.summons, 1);
+});
+
+// ── global shortcuts ──
+
+test('a shortcut needs ⌃ or ⌥ (or ⌘ with another), is spelled one way, and never macOS’s own', () => {
+  const ok = (a) => lib.checkAccelerator(a);
+  assert.deepEqual(ok('Alt+Space'), { ok: true, accelerator: 'Alt+Space' });
+  assert.deepEqual(ok('Shift+Alt+Space'), { ok: true, accelerator: 'Alt+Shift+Space' });
+  assert.deepEqual(ok('Shift+Command+J'), { ok: true, accelerator: 'Command+Shift+J' });
+  assert.deepEqual(ok('F13'), { ok: true, accelerator: 'F13' }, 'a function key alone is fine');
+  assert.deepEqual(ok('Command+J'), { ok: false, error: 'modifier' }, '⌘J would take the key from every app');
+  assert.deepEqual(ok('Shift+K'), { ok: false, error: 'modifier' });
+  assert.deepEqual(ok('K'), { ok: false, error: 'modifier' });
+  assert.deepEqual(ok('Control+Space'), { ok: false, error: 'reserved' });
+  assert.deepEqual(ok('Command+Shift+4'), { ok: false, error: 'reserved' });
+  for (const bad of ['', 'Alt+', 'Alt+Alt+J', 'Hyper+J', 'Alt+Escape', 'Alt+Enter', 5, null, `Alt+${'J'.repeat(70)}`]) {
+    assert.equal(ok(bad).ok, false, String(bad));
+  }
+  assert.equal(lib.shortcutLabel('Alt+Space'), '⌥ Space');
+  assert.equal(lib.shortcutLabel('Alt+Shift+Space'), '⌥⇧ Space');
+  assert.equal(lib.shortcutLabel('Command+Control+Alt+Shift+J'), '⌃⌥⇧⌘J');
+  assert.equal(lib.shortcutLabel('Control+Alt+Return'), '⌃⌥↩');
+  assert.equal(lib.shortcutLabel('Command+Shift+F5'), '⇧⌘ F5');
+  assert.equal(lib.shortcutLabel(''), '');
+  assert.deepEqual(lib.normalizeShortcuts({ ask: 'Command+J', whatsThis: 'Control+Alt+W' }), { ask: 'Alt+Space', whatsThis: 'Control+Alt+W' });
+  assert.deepEqual(lib.normalizeShortcuts({ ask: 'Alt+Shift+Space' }), { ask: 'Alt+Shift+Space', whatsThis: 'Alt+Space' }, 'never one combination for both');
+  assert.deepEqual(lib.normalizeShortcuts(null), lib.DEFAULT_SHORTCUTS);
+});
+
+test('Settings reads a shortcut by where the keys are, whatever ⌥ makes them type', () => {
+  const press = (code, mods = {}) => windowSide.acceleratorFromKey({ code, ...mods });
+  assert.equal(press('KeyJ', { altKey: true, metaKey: true }), 'Command+Alt+J');
+  assert.equal(press('Space', { altKey: true, shiftKey: true }), 'Alt+Shift+Space');
+  assert.equal(press('Digit5', { ctrlKey: true, altKey: true }), 'Control+Alt+5');
+  assert.equal(press('F13'), 'F13');
+  assert.equal(press('Enter', { altKey: true }), 'Alt+Return');
+  assert.equal(press('BracketLeft', { ctrlKey: true, altKey: true }), 'Control+Alt+[');
+  assert.equal(press('AltLeft', { altKey: true }), '', 'only a modifier so far');
+  assert.equal(press('Escape', { altKey: true }), '');
+  assert.equal(press('MediaPlayPause'), '');
+  assert.equal(windowSide.heldLabel({ metaKey: true, shiftKey: true, ctrlKey: true, altKey: true }), '⌃⌥⇧⌘');
+  // What Settings reads is what the app checks.
+  assert.deepEqual(lib.checkAccelerator(press('KeyJ', { altKey: true, metaKey: true })), { ok: true, accelerator: 'Command+Alt+J' });
+});
+
+test('the shortcuts are the app’s from launch; main.js leaves its own to them', () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  const keys = t.electron.globalShortcut;
+  assert.equal(t.ctx.ownsShortcuts, true);
+  assert.deepEqual([...keys.mine.keys()], ['Alt+Space', 'Alt+Shift+Space']);
+  keys.press('Alt+Space');
+  assert.equal(t.ctx.summons, 1);
+  keys.press('Alt+Shift+Space');
+  assert.deepEqual(t.wc.sent.at(-1), ['jarvis:whats-this']);
+  // The test window takes none (and main.js, seeing it didn't, takes none either there).
+  const dev = fakeContext({ dev: true });
+  shell.install(dev.ctx);
+  assert.equal(dev.ctx.ownsShortcuts, undefined);
+  assert.equal(dev.electron.globalShortcut.mine.size, 0);
+});
+
+test('a new shortcut from Settings is tried at once; a taken one leaves the old one working', async () => {
+  const t = fakeContext();
+  const s = shell.install(t.ctx);
+  const keys = t.electron.globalShortcut;
+  await t.hello();
+  const tryIt = (which, accelerator) => t.ctx.ipcMain.handlers.get('feature:shell:shortcut')({ sender: t.wc }, { which, accelerator });
+  keys.taken.add('Command+Alt+J');
+  assert.deepEqual(tryIt('ask', 'Command+Alt+J'), { ok: false, error: 'taken', label: '⌥⌘J' });
+  assert.ok(keys.mine.has('Alt+Space'), 'the old one still works');
+  assert.deepEqual(tryIt('ask', 'Command+J'), { ok: false, error: 'modifier', label: '⌘J' });
+  assert.deepEqual(tryIt('ask', 'Alt+Shift+Space'), { ok: false, error: 'same', label: '⌥⇧ Space' });
+  assert.deepEqual(tryIt('nope', 'Control+Alt+K'), { ok: false, error: 'invalid' });
+  assert.deepEqual(tryIt('ask', 'Control+Alt+K'), { ok: true, accelerator: 'Control+Alt+K', label: '⌃⌥K' });
+  assert.deepEqual([...keys.mine.keys()].sort(), ['Alt+Shift+Space', 'Control+Alt+K']);
+  const pushed = t.wc.sent.filter(([c]) => c === 'feature:shell:shortcuts').at(-1)[1];
+  assert.equal(pushed.ask.label, '⌃⌥K');
+  assert.equal(JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).shortcuts.ask, 'Control+Alt+K');
+  assert.equal(t.electron.made.trays[0].menu.template[2].accelerator, 'Control+Alt+K', 'the menu bar’s Ask… shows it');
+  // A report still carrying the old setting (the new one's on its way to the backend)
+  // doesn't undo it: only a change in the settings does.
+  t.report({ state: 'idle', online: true, shortcuts: { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' } });
+  t.report({ state: 'thinking', online: true, shortcuts: { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' } });
+  assert.ok(keys.mine.has('Alt+Space') && !keys.mine.has('Control+Alt+K'), 'the first report is the settings’ word');
+  t.report({ state: 'idle', online: true, shortcuts: { ask: 'Control+Alt+K', whatsThis: 'Alt+Shift+Space' } });
+  assert.ok(keys.mine.has('Control+Alt+K') && !keys.mine.has('Alt+Space'));
+  t.report({ state: 'speaking', online: true, shortcuts: { ask: 'Control+Alt+K', whatsThis: 'Alt+Shift+Space' } });
+  assert.ok(keys.mine.has('Control+Alt+K'));
+  assert.equal(s.state().state, 'speaking');
+});
+
+test('one another app holds at launch is said in Settings; recording steps ours aside', async () => {
+  const t = fakeContext();
+  t.electron.globalShortcut.taken.add('Alt+Space');
+  shell.install(t.ctx);
+  const keys = t.electron.globalShortcut;
+  const hi = await t.hello();
+  assert.deepEqual(hi.shortcuts.ask, { accelerator: 'Alt+Space', label: '⌥ Space', error: 'taken' });
+  assert.equal(hi.shortcuts.whatsThis.error, '');
+  t.tell('recording', true);
+  assert.equal(keys.mine.size, 0, 'the keys reach the window while it records');
+  t.tell('recording', false);
+  assert.ok(keys.mine.has('Alt+Shift+Space'));
+  // A page that goes away mid-recording gives them back.
+  t.tell('recording', true);
+  t.wc.emit('did-navigate');
+  assert.ok(keys.mine.has('Alt+Shift+Space'));
+  t.ctx.ipcMain.emit('feature:shell:recording', { sender: {} }, true); // only the window can
+  assert.ok(keys.mine.has('Alt+Shift+Space'));
 });
 
 // ── the window's place, for each set of displays ──
@@ -437,7 +571,7 @@ test('a remembered place is put back on its screen, fitted to what that screen s
 
 test('the places kept: the most recent sets of displays, read back safely', () => {
   let store = lib.readStore('');
-  assert.deepEqual(store, { version: 1, menuBar: true, places: {} });
+  assert.deepEqual(store.places, {});
   for (let i = 0; i < 15; i++) store = lib.rememberPlace(store, `set${i}`, { x: i + 0.4, y: 50, width: 900, height: 700 }, 1000 + i);
   assert.equal(Object.keys(store.places).length, 12);
   assert.ok(!('set0' in store.places) && 'set14' in store.places);
@@ -457,40 +591,42 @@ test('the window opens where it was on these displays, and keeps where the user 
   t.win.bounds = { x: 300, y: 90, width: 1100, height: 760 };
   t.win.emit('move');
   t.win.emit('resize');
-  await tick(30);
-  const saved = JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).places[key];
+  const kept = () => { try { return JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).places[key]; } catch { return {}; } };
+  await until(() => kept().x === 300, 'the new place kept');
+  const saved = kept();
   assert.deepEqual([saved.x, saved.y, saved.width, saved.height], [300, 90, 1100, 760]);
 });
 
 test('displays coming and going: each set gets its own place back, never macOS’s shuffle', async () => {
   const t = fakeContext();
   shell.install(t.ctx);
+  const places = () => { try { return JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).places; } catch { return {}; } };
+  const desk = lib.displaySetKey([LAPTOP, BIG]);
   // At the desk: the big screen arrives, and the user moves the window onto it.
   t.electron.screen.displays = [LAPTOP, BIG];
   t.electron.screen.emit('display-added');
-  await tick(30);
+  await until(() => t.win.placed.length === 1, 'the window placed for the new displays');
   t.win.bounds = { x: 2000, y: -300, width: 1600, height: 1000 };
   t.win.emit('move');
-  await tick(30);
+  await until(() => (places()[desk] || {}).x === 2000, 'the desk’s place kept');
   // Unplugged: macOS moves the window to the laptop by itself (not kept), and it goes back
   // to the laptop's own place (none yet: where macOS left it, fitted on the screen).
   t.electron.screen.displays = [LAPTOP];
   t.win.bounds = { x: 400, y: 200, width: 1600, height: 1000 };
   t.win.emit('move');
   t.electron.screen.emit('display-removed');
-  await tick(30);
+  await until(() => t.win.bounds.x === 0, 'the window fitted on the laptop');
   assert.deepEqual(t.win.bounds, { x: 0, y: 38, width: 1512, height: 870 });
-  const places = JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).places;
-  assert.deepEqual(places[lib.displaySetKey([LAPTOP, BIG])].x, 2000, 'the desk’s place survived the unplugging');
+  assert.deepEqual(places()[desk].x, 2000, 'the desk’s place survived the unplugging');
   // Back at the desk: back on the big screen.
   t.electron.screen.displays = [LAPTOP, BIG];
   t.electron.screen.emit('display-added');
-  await tick(30);
+  await until(() => t.win.bounds.x === 2000, 'the window back on the big screen');
   assert.deepEqual(t.win.bounds, { x: 2000, y: -300, width: 1600, height: 1000 });
   // Only the visible area changed (the Dock): nothing moves.
   const placed = t.win.placed.length;
   t.electron.screen.emit('display-metrics-changed');
-  await tick(30);
+  await tick(60);
   assert.equal(t.win.placed.length, placed);
 });
 
@@ -500,7 +636,7 @@ test('a window left off every screen comes back to the middle of the main one', 
   t.win.bounds = { x: 5000, y: 3000, width: 1280, height: 840 };
   t.electron.screen.displays = [{ ...LAPTOP, scaleFactor: 1 }];
   t.electron.screen.emit('display-metrics-changed');
-  await tick(30);
+  await until(() => t.win.bounds.x === 116, 'the window back in the middle');
   assert.deepEqual(t.win.bounds, { x: 116, y: 53, width: 1280, height: 840 });
 });
 
@@ -520,16 +656,14 @@ test('a crashed page is reloaded, says so once, and at most three times in five 
   shell.install(t.ctx);
   assert.equal((await t.hello()).recovered, false);
   t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
-  await tick(30);
-  assert.equal(t.wc.reloads, 1);
+  await until(() => t.wc.reloads === 1, 'the reload');
   assert.equal((await t.hello()).recovered, true);
   assert.equal((await t.hello()).recovered, false, 'said once');
   for (const reason of ['oom', 'killed']) { clock += 1000; t.wc.emit('render-process-gone', {}, { reason }); }
-  await tick(30);
-  assert.equal(t.wc.reloads, 3);
+  await until(() => t.wc.reloads === 3, 'three reloads');
   clock += 1000;
   t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
-  await tick(30);
+  await tick(60);
   assert.equal(t.wc.reloads, 3, 'a crash loop is not reloaded again');
   assert.equal(t.win.loaded.length, 1);
   assert.match(t.win.loaded[0][0], /loading\.html$/);
@@ -537,8 +671,7 @@ test('a crashed page is reloaded, says so once, and at most three times in five 
   // Five minutes on, it may reload again.
   clock += 5 * 60_000;
   t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
-  await tick(30);
-  assert.equal(t.wc.reloads, 4);
+  await until(() => t.wc.reloads === 4, 'a reload five minutes on');
 });
 
 test('a page that ends cleanly, or while quitting, is left alone', async () => {
@@ -547,7 +680,7 @@ test('a page that ends cleanly, or while quitting, is left alone', async () => {
   t.wc.emit('render-process-gone', {}, { reason: 'clean-exit' });
   t.app.emit('before-quit');
   t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
-  await tick(30);
+  await tick(60);
   assert.equal(t.wc.reloads, 0);
   assert.deepEqual(lib.allowReload([1, 2, 3], 4), { ok: false, times: [1, 2, 3] });
   assert.deepEqual(lib.allowReload([1, 2, 3], 4 + 5 * 60_000), { ok: true, times: [4 + 5 * 60_000] });
@@ -567,7 +700,9 @@ test('every string the window side shows has a Chinese entry', () => {
   for (const m of source.matchAll(/\bt\(`((?:[^`\\]|\\.)+)`\)/g)) found.add(m[1].replace(/\$\{[^}]+\}/g, '3:40 PM'));
   for (const m of source.matchAll(/F\.el\('[\w-]+', '[^']*', '((?:[^'\\]|\\.)+)'\)/g)) found.add(m[1]);
   for (const m of source.matchAll(/notice\('[^']*', '[^']*', '((?:[^'\\]|\\.)+)'/g)) found.add(m[1]);
-  for (const m of source.matchAll(/(?:switchRow|buttonRow|infoRow)\('[\w-]+', '((?:[^'\\]|\\.)+)', '((?:[^'\\]|\\.)+)'/g)) { found.add(m[1]); found.add(m[2]); }
+  for (const m of source.matchAll(/\ben\('((?:[^'\\]|\\.)+)'\)/g)) found.add(m[1]);
+  for (const m of source.matchAll(/\ben\(`((?:[^`\\]|\\.)+)`\)/g)) found.add(m[1].replace(/\$\{[^}]+\}/g, '⌥ Space'));
+  for (const m of source.matchAll(/\w+Row\('[\w-]+', '((?:[^'\\]|\\.)+)', '((?:[^'\\]|\\.)+)'/g)) { found.add(m[1]); found.add(m[2]); }
   assert.ok(found.size > 10, `found ${found.size}`);
   const missing = [...found].map((s) => s.replace(/\\'/g, "'")).filter((s) => !(s in strings) && !patterns.some((re) => re.test(s)));
   assert.deepEqual(missing, []);

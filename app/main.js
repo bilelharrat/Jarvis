@@ -1102,6 +1102,7 @@ const featureContext = {
   dev: Boolean(DEV_URL),
   logDir: LOG_DIR,
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
+  ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
 };
 function loadAppFeatures() {
   const dir = path.join(__dirname, 'features');
@@ -1134,6 +1135,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     showProblem(`Jarvis couldn't start: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
   }
+  if (featureContext.ownsShortcuts) return; // app/features/shell.js registered the ones chosen in Settings
   if (!globalShortcut.register(SHORTCUT, summon)) {
     console.warn(`${SHORTCUT} is taken by another app; use the Dock icon instead.`);
   }

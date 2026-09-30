@@ -9,3 +9,10 @@
 @media (prefers-reduced-motion: reduce) {
   .card.shell-flash { animation: none; outline: 2px solid var(--action); outline-offset: 2px; }
 }
+
+/* Settings › This Mac: a global shortcut's keys, and Change… beside them. */
+.row span.shell-key { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; flex: none; }
+.shell-key kbd { min-width: 64px; text-align: center; background: var(--card); transition: box-shadow 150ms ease; }
+.shell-key kbd.recording { box-shadow: 0 0 0 3px color-mix(in srgb, var(--action) 35%, transparent); border-color: var(--action); }
+.sheet .shell-key .btn { min-height: 30px; padding: 0 12px; font-size: 13px; }
+.sheet .shell-key .btn:disabled { opacity: 0.5; cursor: default; }

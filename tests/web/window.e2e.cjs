@@ -778,6 +778,62 @@ test('After the app reloads a crashed page, the window says so once', async () =
   assert(await js('$("cards").querySelectorAll(".card.plain").length') === 0, 'a notice without a crash');
 });
 
+const SHORTCUTS = { live: true, ask: { accelerator: 'Alt+Space', label: '⌥ Space', error: '' }, whatsThis: { accelerator: 'Alt+Shift+Space', label: '⌥⇧ Space', error: '' } };
+const keyEvent = async (code, key, vk, modifiers = 0) => {
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, modifiers });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers });
+};
+
+test('Settings records a new shortcut; its keys never reach the rest of the window', async () => {
+  await loadShell({ dev: false, notify: true, recovered: false, shortcuts: SHORTCUTS });
+  await js(`__app.answer = (channel, msg) => {
+      if (channel !== 'feature:shell:shortcut') return null;
+      if (msg.accelerator === 'Space') return { ok: false, error: 'modifier', label: 'Space' };
+      if (msg.accelerator === 'Command+Alt+K') return { ok: false, error: 'taken', label: '⌥⌘K' };
+      return { ok: true, accelerator: msg.accelerator, label: '⌥⌘J' };
+    };
+    toggleSettings(true); __sent.length = 0; __app.sent.length = 0; __app.invoked.length = 0; true`);
+  let r = await js('({ cap: $("shell-key-ask").textContent, hint: $("hint").querySelector("kbd").textContent })');
+  assert(r.cap === '⌥ Space' && r.hint === '⌥ Space', JSON.stringify(r));
+  const recording = () => js('__app.sent.filter(([c]) => c === "feature:shell:recording").map(([, on]) => on)');
+  // Esc: nothing changes.
+  await js('$("shell-rec-ask").click(); true');
+  assert(await js('$("shell-key-ask").classList.contains("recording") && $("shell-rec-ask").textContent === "Cancel"'), 'not recording');
+  await keyEvent('Escape', 'Escape', 27);
+  r = await js('({ cap: $("shell-key-ask").textContent, open: !$("settings").hidden, tried: __app.invoked.filter(([c]) => c === "feature:shell:shortcut").length })');
+  assert(r.cap === '⌥ Space' && r.open && r.tried === 0, `Esc: ${JSON.stringify(r)}`);
+  assert(JSON.stringify(await recording()) === '[true,false]', JSON.stringify(await recording()));
+  // Space alone: refused, and never the microphone.
+  await js('$("shell-rec-ask").click(); true');
+  await keyEvent('Space', ' ', 32);
+  r = await js('({ note: $("shell-key-note").textContent, sent: __sent.map((m) => m.type) })');
+  assert(r.note === 'Use ⌃ or ⌥, or ⌘ together with ⇧, ⌃ or ⌥.' && !r.sent.includes('listen'), JSON.stringify(r));
+  // Taken by another app: said, and the old one stays on show.
+  await js('$("shell-rec-ask").click(); true');
+  await keyEvent('KeyK', 'k', 75, 1 | 4); // ⌥⌘K
+  r = await js('({ note: $("shell-key-note").textContent, cap: $("shell-key-ask").textContent })');
+  assert(r.note === '⌥⌘K is taken by another app. Pick another.' && r.cap === '⌥ Space', JSON.stringify(r));
+  // ⌥⌘J: kept in the settings, and the hint and the idle line say it.
+  await js('$("shell-rec-ask").click(); true');
+  await keyEvent('KeyJ', 'j', 74, 1 | 4);
+  await sleep(20);
+  r = await js(`({ sent: __sent.filter((m) => m.type === 'feature_prefs'), cap: $('shell-key-ask').textContent, hint: $('hint').querySelector('kbd').textContent,
+    line: $('state-line').textContent, note: $('shell-key-note').hidden })`);
+  assert(JSON.stringify(r.sent) === JSON.stringify([{ type: 'feature_prefs', changes: { shell_shortcut_ask: 'Command+Alt+J' } }]), JSON.stringify(r.sent));
+  assert(r.cap === '⌥⌘J' && r.hint === '⌥⌘J' && r.line === 'Tap the orb or press ⌥⌘J' && r.note, JSON.stringify(r));
+  const tried = await js('__app.invoked.filter(([c]) => c === "feature:shell:shortcut").map(([, m]) => m.accelerator)');
+  assert(JSON.stringify(tried) === JSON.stringify(['Space', 'Command+Alt+K', 'Command+Alt+J']), JSON.stringify(tried));
+});
+
+test('A shortcut another app holds is said in Settings; Change… waits for the connection', async () => {
+  await loadShell({ dev: false, notify: true, recovered: false, shortcuts: { ...SHORTCUTS, whatsThis: { accelerator: 'Alt+Shift+Space', label: '⌥⇧ Space', error: 'taken' } } });
+  const r = await js('({ note: $("shell-key-note").textContent, warn: $("shell-key-note").classList.contains("warn-line"), hidden: $("shell-key-note").hidden })');
+  assert(r.note === '⌥⇧ Space is taken by another app. Pick another.' && r.warn && !r.hidden, JSON.stringify(r));
+  await js('$("offline").hidden = false; true');
+  await sleep(20);
+  assert(await js('$("shell-rec-ask").disabled && $("shell-rec-whatsThis").disabled'), 'Change… works offline');
+});
+
 // ──
 
 let base;
