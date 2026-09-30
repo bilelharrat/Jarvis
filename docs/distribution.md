@@ -76,7 +76,7 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
    cd app
    JARVIS_SIGN_IDENTITY="Developer ID Application: BSH Ventures … (9ZSY5R8A5C)" \
    JARVIS_NOTARY_PROFILE=jarvis-notary \
-   JARVIS_UPDATE_URL=https://downloads.example.com/jarvis/release.json \
+   JARVIS_UPDATE_URL=https://github.com/bilelharrat/Jarvis/releases/latest/download/release.json \
    npm run dist
    ```
 
@@ -97,10 +97,20 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
    node ../../scripts/release/verify.js J.A.R.V.I.S-darwin-arm64/J.A.R.V.I.S.app --notarized
    ```
 
-6. **Publish.** Put `J.A.R.V.I.S.-<version>.dmg` (and `SHA256SUMS.txt`) wherever testers
-   download from. For updates, upload `J.A.R.V.I.S.-<version>-mac.zip` and then
-   `release.json` into the folder `JARVIS_UPDATE_URL` names (the zip first: the feed points
-   at it).
+6. **Publish** as a GitHub release of bilelharrat/Jarvis (a public repo, so anyone can
+   download; `gh auth login` once first):
+
+   ```sh
+   npm run publish-release -- --notes "What's new in this one"
+   ```
+
+   It refuses an ad hoc build, a disk image without its notarization ticket and a version
+   already released; it makes a draft with the disk image, the update's zip and the
+   checksums, uploads `release.json` last (the feed never points at a zip that isn't up
+   yet), then publishes it as the latest. People download from
+   `https://github.com/bilelharrat/Jarvis/releases/latest`, and the app's update feed,
+   `…/releases/latest/download/release.json`, always serves the newest release with its
+   zip beside it.
 
 `npm run dist -- --adhoc` builds the same app signed ad hoc, with no credentials, and makes
 `J.A.R.V.I.S.-<version>-adhoc.dmg`: for checking the build on your own Mac. Don't give it to

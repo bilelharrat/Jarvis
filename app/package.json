@@ -9,7 +9,8 @@
     "start": "electron .",
     "package": "node scripts/bake-home.js && electron-packager . J.A.R.V.I.S --platform=darwin --arch=arm64 --out=dist --overwrite --icon=build/icon.icns --extend-info=build/extend-info.plist --app-bundle-id=com.bshventures.jarvis --ignore=^/dist --ignore=^/scripts --ignore=^/build && sh scripts/finish-app.sh",
     "install-app": "npm run package && rm -rf ~/Applications/J.A.R.V.I.S.app && mkdir -p ~/Applications && cp -R dist/J.A.R.V.I.S-darwin-arm64/J.A.R.V.I.S.app ~/Applications/ && open ~/Applications/J.A.R.V.I.S.app",
-    "dist": "node scripts/release/dist.js"
+    "dist": "node scripts/release/dist.js",
+    "publish-release": "node scripts/release/publish.js"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
