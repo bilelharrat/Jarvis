@@ -112,6 +112,7 @@ function confirmBypass(kind, text, then, otherwise) {
 const featureDecorators = [];  // (entry, li) -> add to a transcript entry as it's drawn (pictures)
 let featureRichText = null;  // (text) -> an element: a feature's fuller Markdown for Claude's words
 const featureTabs = [];  // (element, tab) -> what a feature adds to each of the dock's tabs (browser.js)
+let featureBookmarks = null;  // (list, bookmarks, query): a feature draws the library's Bookmarks tab (browser.js: folders)
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -145,6 +146,7 @@ window.jarvisFeatures = {
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
   registerTab(fn) { featureTabs.push(fn); if (browserState.tabs) { tabsShown = ''; renderTabs(browserState.tabs); } },
+  registerBookmarks(render) { featureBookmarks = render; },
   unregisterSlash(name) { featureSlash.delete(String(name).toLowerCase()); },
 };
 
@@ -5088,6 +5090,7 @@ function renderLibrary() {
   $('br-history').setAttribute('aria-pressed', String(libKind === 'history'));
   $('bd-lib-clear').hidden = libKind !== 'history' || !libData.history.length;
   const q = $('bd-lib-search').value.trim().toLowerCase();
+  if (libKind === 'bookmarks' && featureBookmarks) { featureBookmarks($('bd-lib-list'), libData.bookmarks, q); return; }
   const items = (libKind === 'bookmarks' ? libData.bookmarks.slice().reverse() : libData.history)
     .filter((x) => !q || `${x.title} ${x.url}`.toLowerCase().includes(q)).slice(0, 300);
   let day = '';

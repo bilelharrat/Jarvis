@@ -157,3 +157,63 @@ test('each site’s zoom is kept by its host; a page on this Mac shares one', ()
   assert.equal(lib.zoomKey('about:blank'), '');
   assert.equal(lib.zoomKey('nonsense'), '');
 });
+
+test('bookmark folders: a path of names, tidied; every folder and the folders it’s in', () => {
+  assert.equal(lib.cleanFolder('  Work /  Deep   Reading/ '), 'Work/Deep Reading');
+  assert.equal(lib.cleanFolder('a/b/c/d/e/f/g/h'), 'a/b/c/d/e/f', 'six levels at most');
+  assert.equal(lib.cleanFolder(`${'x'.repeat(100)}`).length, 60);
+  assert.equal(lib.cleanFolder(null), '');
+  assert.deepEqual(lib.folders([{ folder: 'Work/Reading' }, { folder: 'Home' }, {}, { folder: 'Work' }, null]), ['Home', 'Work', 'Work/Reading']);
+});
+
+test('a bookmark renamed or moved; a folder renamed with its subfolders', () => {
+  const bookmarks = [
+    { url: 'https://a.example/', title: 'A', folder: 'Work/Reading' },
+    { url: 'https://b.example/', title: 'B', folder: 'Work/Reading/Later' },
+    { url: 'https://c.example/', title: 'C', folder: 'Workshop' },
+    { url: 'https://d.example/', title: 'D' },
+  ];
+  assert.equal(lib.editBookmark(bookmarks, 'https://d.example/', { title: '  Daily   paper ', folder: 'News' }), true);
+  assert.deepEqual(bookmarks[3], { url: 'https://d.example/', title: 'Daily paper', folder: 'News' });
+  lib.editBookmark(bookmarks, 'https://d.example/', { title: '   ', folder: '' });
+  assert.deepEqual(bookmarks[3], { url: 'https://d.example/', title: 'https://d.example/' }, 'no name: its address; no folder: the top');
+  assert.equal(lib.editBookmark(bookmarks, 'https://nowhere.example/', { title: 'x' }), false);
+  assert.equal(lib.renameFolder(bookmarks, 'Work/Reading', 'Reading'), 2);
+  assert.deepEqual(bookmarks.map((b) => b.folder), ['Reading', 'Reading/Later', 'Workshop', undefined], 'a folder whose name only starts the same stays');
+  assert.equal(lib.renameFolder(bookmarks, 'Reading', ''), 2);
+  assert.deepEqual(bookmarks.map((b) => b.folder), [undefined, 'Later', 'Workshop', undefined], 'no name: its bookmarks to the top');
+  assert.equal(lib.renameFolder(bookmarks, '', 'x'), 0);
+});
+
+test('an import files bookmarks under its own folder, adds history by date, and nothing twice', () => {
+  const store = {
+    bookmarks: [{ url: 'https://have.example/', title: 'Have' }],
+    history: [{ url: 'https://seen.example/', title: 'Seen', at: 3000 }, { url: 'https://late.example/', title: 'Late', at: 9000 }],
+  };
+  const added = lib.mergeImport(store, {
+    bookmarks: [
+      { url: 'https://have.example/', title: 'Again' },
+      { url: 'https://new.example/', title: 'New', folder: 'Bookmarks bar/Work' },
+      { url: 'javascript:alert(1)', title: 'x' },
+      { url: 'https://top.example/', title: '' },
+    ],
+    history: [
+      { url: 'https://seen.example/', title: 'Seen again', at: 5000, visits: 4 },
+      { url: 'https://old.example/', title: 'Old', at: 1000, visits: 12 },
+      { url: 'ftp://files.example/', at: 2000 },
+      { url: 'https://nodate.example/' },
+    ],
+  }, { label: 'Imported from Chrome' });
+  assert.deepEqual(added, { bookmarks: 2, history: 1 });
+  assert.deepEqual(store.bookmarks.slice(1), [
+    { url: 'https://new.example/', title: 'New', folder: 'Imported from Chrome/Bookmarks bar/Work' },
+    { url: 'https://top.example/', title: 'https://top.example/', folder: 'Imported from Chrome' },
+  ]);
+  assert.deepEqual(store.history.map((h) => h.url), ['https://old.example/', 'https://seen.example/', 'https://late.example/'], 'by date');
+  assert.equal(store.history[0].n, 12, 'its visits count for the address bar');
+  // A full history keeps the latest.
+  const full = { bookmarks: [], history: Array.from({ length: lib.HISTORY_MAX }, (_, i) => ({ url: `https://h${i}.example/`, at: 10_000 + i })) };
+  const more = lib.mergeImport(full, { history: [{ url: 'https://older.example/', at: 5 }, { url: 'https://newer.example/', at: 99_999 }] });
+  assert.equal(full.history.length, lib.HISTORY_MAX);
+  assert.deepEqual([more.history, full.history.at(-1).url, full.history.some((h) => h.url === 'https://older.example/')], [1, 'https://newer.example/', false]);
+});

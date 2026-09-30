@@ -2,7 +2,8 @@
 // up): the user agent Google sign-in accepts; which window.open is a real popup, where it
 // goes and what its title bar says; which sign-in request may ask; which failed load is a
 // certificate's; the tabs kept for next time and their order (pinned tabs first); what the
-// address bar suggests, in which order; each site's zoom. node --test tests/web/ covers it.
+// address bar suggests, in which order; each site's zoom; bookmark folders; and what's
+// imported from another browser. node --test tests/web/ covers it.
 'use strict';
 
 // ── the user agent: Chromium's own, without the app's name and Electron's tokens (Google's
@@ -275,8 +276,94 @@ function zoomKey(url) {
   }
 }
 
+// ── bookmark folders: a bookmark's folder is a path ("Work/Reading"), none at the top ──
+const FOLDER_DEPTH = 6;
+
+function cleanFolder(path) {
+  return String(path || '').split('/').map((p) => p.replace(/\s+/g, ' ').trim().slice(0, 60)).filter(Boolean)
+    .slice(0, FOLDER_DEPTH).join('/');
+}
+
+// Every folder the bookmarks are in, and the folders those are in, sorted.
+function folders(bookmarks = []) {
+  const found = new Set();
+  for (const b of bookmarks) {
+    const f = cleanFolder(b && b.folder);
+    if (!f) continue;
+    const parts = f.split('/');
+    for (let i = 1; i <= parts.length; i++) found.add(parts.slice(0, i).join('/'));
+  }
+  return [...found].sort((a, b) => a.localeCompare(b));
+}
+
+function editBookmark(bookmarks, url, { title, folder } = {}) {
+  const b = bookmarks.find((x) => x && x.url === url);
+  if (!b) return false;
+  if (typeof title === 'string') b.title = title.replace(/\s+/g, ' ').trim().slice(0, 200) || b.url;
+  if (typeof folder === 'string') {
+    const f = cleanFolder(folder);
+    if (f) b.folder = f; else delete b.folder;
+  }
+  return true;
+}
+
+// A folder renamed (or moved: "Work/Reading" to "Reading"), its subfolders with it; the
+// number of bookmarks that moved.
+function renameFolder(bookmarks, from, to) {
+  const old = cleanFolder(from);
+  const next = cleanFolder(to);
+  if (!old) return 0;
+  let n = 0;
+  for (const b of bookmarks) {
+    const f = cleanFolder(b && b.folder);
+    if (f === old || f.startsWith(`${old}/`)) {
+      const moved = cleanFolder(next + f.slice(old.length));
+      if (moved) b.folder = moved; else delete b.folder;
+      n += 1;
+    }
+  }
+  return n;
+}
+
+// ── imports: another browser's bookmarks (under "Imported from <it>") and history, into
+// this one's; a page already bookmarked or in history isn't added twice ──
+const BOOKMARKS_MAX = 5000;
+const HISTORY_MAX = 2000;
+
+function mergeImport(store, data = {}, { label = 'Imported' } = {}) {
+  const added = { bookmarks: 0, history: 0 };
+  const have = new Set(store.bookmarks.map((b) => b && b.url));
+  for (const b of Array.isArray(data.bookmarks) ? data.bookmarks : []) {
+    if (store.bookmarks.length >= BOOKMARKS_MAX) break;
+    if (!b || typeof b.url !== 'string' || !/^https?:\/\//i.test(b.url) || b.url.length > 4000 || have.has(b.url)) continue;
+    have.add(b.url);
+    const folder = cleanFolder(`${label}/${b.folder || ''}`);
+    store.bookmarks.push({ url: b.url, title: String(b.title || b.url).slice(0, 200), ...(folder ? { folder } : {}) });
+    added.bookmarks += 1;
+  }
+  const seen = new Set(store.history.map((h) => h && h.url));
+  const incoming = [];
+  for (const h of Array.isArray(data.history) ? data.history : []) {
+    if (incoming.length >= HISTORY_MAX) break;
+    if (!h || typeof h.url !== 'string' || !/^https?:\/\//i.test(h.url) || h.url.length > 4000 || seen.has(h.url)) continue;
+    const at = Number(h.at);
+    if (!Number.isFinite(at) || at <= 0) continue;
+    seen.add(h.url);
+    incoming.push({ url: h.url, title: String(h.title || '').slice(0, 300), at, n: Math.max(1, Math.min(100000, Math.round(Number(h.visits) || 1))) });
+  }
+  if (incoming.length) {
+    const merged = [...store.history, ...incoming].sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+    const kept = merged.slice(-HISTORY_MAX);
+    const keptSet = new Set(kept);
+    added.history = incoming.filter((h) => keptSet.has(h)).length;
+    store.history.splice(0, store.history.length, ...kept);
+  }
+  return added;
+}
+
 module.exports = {
   cleanUserAgent, isPopup, hostOf, originOfUrl, popupTitle, popupBounds, POPUP_MIN,
   authAllowed, authInsecure, isCertError, certProblem,
   sessionOf, pinnedFirst, moveTab, suggest, pagesOf, PAUSE_MEDIA, zoomKey,
+  cleanFolder, folders, editBookmark, renameFolder, mergeImport, BOOKMARKS_MAX, HISTORY_MAX,
 };

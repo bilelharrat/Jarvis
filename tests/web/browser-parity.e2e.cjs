@@ -121,6 +121,7 @@ const syncBoxes = []; // the leave-page questions
 let syncAnswer = 1;
 const opened = []; // new tabs main.js would have opened
 const browserData = { bookmarks: [], history: [] }; // main.js's browser.json
+let saves = 0; // its saves
 let parity;
 
 function newTab() {
@@ -581,6 +582,22 @@ test('The tabs come back next time: pinned first, back lists and all; tabs behin
   assert(parity.restore() === false, 'restored twice');
 });
 
+test('Bookmarks renamed and filed; a folder renamed; another browser’s brought in, each written down', async () => {
+  browserData.bookmarks = [{ url: 'https://a.example/', title: 'A' }, { url: 'https://b.example/', title: 'B', folder: 'Work/Old' }];
+  browserData.history = [];
+  saves = 0;
+  const r = parity.bookmarkEdit({ url: 'https://a.example/', title: 'Alpha', folder: 'Work' });
+  assert(r.ok && JSON.stringify(r.folders) === '["Work","Work/Old"]' && saves === 1, JSON.stringify(r));
+  assert(!parity.bookmarkEdit({ url: 'https://none.example/', title: 'x' }).ok && saves === 1, 'a missing bookmark was saved');
+  const moved = parity.folderRename({ from: 'Work', to: 'Jobs' });
+  assert(moved.moved === 2 && JSON.stringify(browserData.bookmarks.map((b) => b.folder)) === '["Jobs","Jobs/Old"]' && saves === 2, JSON.stringify(browserData.bookmarks));
+  assert(parity.folderRename({ from: 1, to: 'x' }) === null, 'a bad rename went through');
+  const added = parity.importData({ label: 'Imported from Arc', bookmarks: [{ url: 'https://c.example/', title: 'C', folder: 'Bookmarks bar' }], history: [{ url: 'https://c.example/', title: 'C', at: 1000, visits: 3 }] });
+  assert(JSON.stringify(added) === '{"bookmarks":1,"history":1}' && saves === 3, JSON.stringify(added));
+  assert(browserData.bookmarks.at(-1).folder === 'Imported from Arc/Bookmarks bar' && browserData.history[0].n === 3, JSON.stringify(browserData));
+  assert(parity.importData({ label: '', bookmarks: [] }) === null && parity.importData({ label: 'x'.repeat(200) }) === null, 'an import without its folder’s name went through');
+});
+
 let failed = 0;
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
@@ -606,6 +623,7 @@ app.whenReady().then(async () => {
     changed: () => sent.push(['changed']),
     keep: (url) => !url.includes('/secret'),
     browserData: () => browserData,
+    saveBrowserData: () => { saves += 1; },
   });
   await sleep(50);
   for (const t of tests) {

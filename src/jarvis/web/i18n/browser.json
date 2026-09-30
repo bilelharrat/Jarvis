@@ -57,7 +57,20 @@
     "Pinned tab": "已固定的标签页",
     "Switch to tab": "切换到此标签页",
     "Reopen your tabs": "重新打开你的标签页",
-    "The tabs you had open, pinned ones too, come back the next time you open the browser": "下次打开浏览器时，你之前打开的标签页（包括固定的标签页）会重新出现"
+    "The tabs you had open, pinned ones too, come back the next time you open the browser": "下次打开浏览器时，你之前打开的标签页（包括固定的标签页）会重新出现",
+    "Rename or move": "重命名或移动",
+    "Rename folder": "重命名文件夹",
+    "Remove bookmark": "移除书签",
+    "Folder": "文件夹",
+    "Folder (none: the top)": "文件夹（留空：放在最上层）",
+    "No bookmarks yet. Press ★ in the address bar (⌘D) to add this page, or import them from another browser in Settings › Browser.": "还没有书签。按地址栏中的 ★（⌘D）添加此页面，或在“设置 › 浏览器”中从其他浏览器导入。",
+    "Import bookmarks and history": "导入书签和历史记录",
+    "From another browser on this Mac. Nothing leaves the Mac.": "从这台 Mac 上的其他浏览器导入。数据不会离开这台 Mac。",
+    "Browser to import from": "要从中导入的浏览器",
+    "Import": "导入",
+    "No other browser here": "这里没有其他浏览器",
+    "Safari keeps its bookmarks and history private. Allow J.A.R.V.I.S. in System Settings › Privacy & Security › Full Disk Access, then import again.": "Safari 会将书签和历史记录设为私密。请在“系统设置 › 隐私与安全性 › 完全磁盘访问权限”中允许 J.A.R.V.I.S.，然后再次导入。",
+    "That browser can’t be imported from.": "无法从该浏览器导入。"
   },
   "patterns": [
     ["^Camera: ([\\w.:\\[\\]-]+)$", "摄像头：$1"],
@@ -66,6 +79,12 @@
     ["^Notifications: ([\\w.:\\[\\]-]+)$", "通知：$1"],
     ["^Clipboard: ([\\w.:\\[\\]-]+)$", "剪贴板：$1"],
     ["^Forget ([\\w.:\\[\\]-]+)$", "忘记 $1"],
-    ["^Search (Google|DuckDuckGo|Bing|Brave|Kagi)$", "用 $1 搜索"]
+    ["^Search (Google|DuckDuckGo|Bing|Brave|Kagi)$", "用 $1 搜索"],
+    ["^Reading (Chrome|Arc|Brave|Edge|Safari)’s bookmarks and history…$", "正在读取 $1 的书签和历史记录…"],
+    ["^Imported ([\\d,]+) bookmarks? and ([\\d,]+) pages? of history from (Chrome|Arc|Brave|Edge|Safari)\\.$", "已从 $3 导入 $1 个书签和 $2 条历史记录。"],
+    ["^(Chrome|Arc|Brave|Edge|Safari) has nothing to import on this Mac\\.$", "这台 Mac 上的 $1 没有可导入的内容。"],
+    ["^(Chrome|Arc|Brave|Edge|Safari)’s bookmarks and history couldn’t be read\\.$", "无法读取 $1 的书签和历史记录。"],
+    ["^Imported from (Chrome|Arc|Brave|Edge|Safari)$", "从 $1 导入"],
+    ["^Nothing new from (Chrome|Arc|Brave|Edge|Safari): its bookmarks and history are here already\\.$", "$1 没有新的内容：它的书签和历史记录已经在这里了。"]
   ]
 }

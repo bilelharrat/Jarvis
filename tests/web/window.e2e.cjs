@@ -4907,6 +4907,7 @@ async function loadBrowser(answers = '') {
         onState: (cb) => __b.state.push(cb), show: (b) => __b.calls.push(['show']), hide: () => __b.calls.push(['hide']),
         tab: (...a) => __b.calls.push(['tab', ...a]), nav: (...a) => __b.calls.push(['nav', ...a]),
         onShortcut: (cb) => { __b.shortcut = cb; },
+        data: (...a) => { __b.calls.push(['data', ...a]); return Promise.resolve(null); },
       },
       feature: {
         invoke: (channel, ...args) => { __b.invoked.push([channel, ...args]); return Promise.resolve(__b.answer ? __b.answer(channel, ...args) : channel === 'feature:browser:hello' ? __b.hello : null); },
@@ -5156,6 +5157,72 @@ test('Settings › Browser keeps reopening tabs as a switch; the dock closing st
   await js('$("browser").hidden = true; true');
   await settle();
   assert(JSON.stringify(await invokedOn('feature:browser:dock')) === '[{"open":false}]', JSON.stringify(await invokedOn('feature:browser:dock')));
+});
+
+test('The library’s Bookmarks: folders to open, each bookmark and folder renamed or moved in place, search across them', async () => {
+  await loadBrowser(`__b.answer = (channel) => channel === 'feature:browser:hello' ? __b.hello
+    : channel === 'feature:browser:bookmark' ? { ok: true, folders: [] } : channel === 'feature:browser:folder' ? { moved: 2, folders: [] } : null;`);
+  await js(`libData = { bookmarks: [
+      { url: 'https://top.example/', title: 'Top' },
+      { url: 'https://a.example/', title: 'Alpha', folder: 'Work' },
+      { url: 'https://b.example/', title: 'Beta', folder: 'Work/Reading' },
+    ], history: [] };
+    $("browser").hidden = false; $("bd-lib").hidden = false; libKind = 'bookmarks'; $("bd-lib-search").value = ''; renderLibrary(); true`);
+  const rows = () => js('[...$("bd-lib-list").children].map((li) => (li.classList.contains("bp-folder") ? "folder:" : "") + li.querySelector(".bd-lib-title").textContent + (li.querySelector(".bp-count") ? " " + li.querySelector(".bp-count").textContent : ""))');
+  assert(JSON.stringify(await rows()) === '["Top","folder:Work 2"]', JSON.stringify(await rows()));
+  const openFolder = (name) => js(`[...$("bd-lib-list").querySelectorAll(".bp-folder")].find((li) => li.querySelector(".bd-lib-title").textContent === ${JSON.stringify(name)}).querySelector(".bp-folder-go").click(); true`);
+  await openFolder('Work');
+  assert(JSON.stringify(await rows()) === '["Top","folder:Work 2","Alpha","folder:Reading 1"]', JSON.stringify(await rows()));
+  await openFolder('Reading');
+  assert(JSON.stringify(await rows()) === '["Top","folder:Work 2","Alpha","folder:Reading 1","Beta"]', JSON.stringify(await rows()));
+  assert(await js('parseFloat(getComputedStyle([...$("bd-lib-list").children][4]).paddingLeft) > parseFloat(getComputedStyle([...$("bd-lib-list").children][2]).paddingLeft)'), 'a bookmark in a subfolder isn’t set in further');
+  // Alpha renamed and moved.
+  await js(`[...$("bd-lib-list").children].find((li) => li.textContent.includes("Alpha")).querySelector(".bp-bm-act").click(); true`);
+  await frames();
+  const form = await js('({ name: document.querySelector(".bp-bm-form input").value, folder: document.querySelectorAll(".bp-bm-form input")[1].value, focused: document.activeElement === document.querySelector(".bp-bm-form input"), list: document.querySelectorAll(".bp-bm-form input")[1].getAttribute("list"), folders: [...$("bp-folders").options].map((o) => o.value) })');
+  assert(form.name === 'Alpha' && form.folder === 'Work' && form.focused && form.list === 'bp-folders' && JSON.stringify(form.folders) === '["Work","Work › Reading"]', JSON.stringify(form));
+  await js(`const f = document.querySelectorAll(".bp-bm-form input"); f[0].value = "Alpha docs"; f[1].value = "Work › Reading"; document.querySelector(".bp-bm-form").requestSubmit(); true`);
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:bookmark')) === '[{"url":"https://a.example/","title":"Alpha docs","folder":"Work/Reading"}]', JSON.stringify(await invokedOn('feature:browser:bookmark')));
+  assert(await js('!document.querySelector(".bp-bm-form")'), 'the editor stayed');
+  // The Work folder renamed, subfolders with it.
+  await js(`[...$("bd-lib-list").querySelectorAll(".bp-folder")][0].querySelector(".bp-bm-act").click(); true`);
+  await js(`const i = document.querySelector(".bp-bm-form input"); i.value = "Jobs"; document.querySelector(".bp-bm-form").requestSubmit(); true`);
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:folder')) === '[{"from":"Work","to":"Jobs"}]', JSON.stringify(await invokedOn('feature:browser:folder')));
+  // Esc leaves an editor as it was.
+  await js(`[...$("bd-lib-list").children][0].querySelector(".bp-bm-act").click(); true`);
+  await js(`document.querySelector(".bp-bm-form").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
+  assert(await js('!document.querySelector(".bp-bm-form")') && (await invokedOn('feature:browser:bookmark')).length === 1, 'Esc saved or stayed');
+  // Removing asks the app, as ★ does.
+  await js(`[...$("bd-lib-list").children][0].querySelector(".bd-tab-x").click(); true`);
+  assert(await js('JSON.stringify(__b.calls.filter(([c]) => c === "data")) === JSON.stringify([["data", "bookmark", "https://top.example/"]])'), await js('JSON.stringify(__b.calls)'));
+  // A search looks through every folder, and says where each is.
+  await js('$("bd-lib-search").value = "beta"; renderLibrary(); true');
+  assert(JSON.stringify(await js('[...$("bd-lib-list").children].map((li) => li.textContent)')) === '["Betab.example · Work › Reading✕"]', JSON.stringify(await js('[...$("bd-lib-list").children].map((li) => li.textContent)')));
+  await js('$("bd-lib-search").value = "zzz"; renderLibrary(); true');
+  assert(await js('$("bd-lib-list").textContent === "Nothing matches."'), 'no empty result');
+  await js('$("bd-lib-search").value = ""; libData = { bookmarks: [], history: [] }; renderLibrary(); true');
+  assert(/^No bookmarks yet/.test(await js('$("bd-lib-list").textContent')), 'no empty state');
+});
+
+test('Settings › Browser imports from another browser on this Mac: the browsers found, then how much came in, or why not', async () => {
+  await loadBrowser(`__b.answer = (channel) => channel === 'feature:browser:hello' ? __b.hello : channel === 'feature:browser:import' ? { bookmarks: 1204, history: 2000 } : null;`);
+  await js(`featureEvent({ type: 'browser_import_sources', sources: [{ id: 'chrome', name: 'Chrome', found: true }, { id: 'arc', name: 'Arc', found: false }, { id: 'safari', name: 'Safari', found: true }] }); true`);
+  assert(JSON.stringify(await js('[...$("bp-import-from").options].map((o) => o.value + ":" + o.textContent)')) === '["chrome:Chrome","safari:Safari"]', 'the browsers found');
+  await js('$("bp-import-go").click(); true');
+  assert(await js('JSON.stringify(__sent.filter((m) => m.type === "browser_import")) === JSON.stringify([{ type: "browser_import", browser: "chrome" }])'), await js('JSON.stringify(__sent)'));
+  assert(await js('$("bp-import-status").textContent === "Reading Chrome’s bookmarks and history…" && $("bp-import-go").disabled'), 'no reading note');
+  await js(`featureEvent({ type: 'browser_import', browser: 'chrome', name: 'Chrome', ok: true, bookmarks: [{ url: 'https://a.example/', title: 'A', folder: 'Bookmarks bar' }], history: [{ url: 'https://a.example/', title: 'A', at: 5, visits: 2 }] }); true`);
+  await settle();
+  const [asked] = await invokedOn('feature:browser:import');
+  assert(asked && asked.label === 'Imported from Chrome' && asked.bookmarks.length === 1 && asked.history.length === 1, JSON.stringify(asked));
+  assert(await js('$("bp-import-status").textContent === "Imported 1,204 bookmarks and 2,000 pages of history from Chrome." && !$("bp-import-go").disabled'), await js('$("bp-import-status").textContent'));
+  await js(`featureEvent({ type: 'browser_import', browser: 'safari', name: 'Safari', ok: false, error: 'full_disk_access' }); true`);
+  await settle();
+  assert(/Full Disk Access/.test(await js('$("bp-import-status").textContent')), 'the refusal isn’t explained');
+  await js(`featureEvent({ type: 'browser_import_sources', sources: [{ id: 'edge', name: 'Edge', found: false }] }); true`);
+  assert(await js('$("bp-import-from").disabled && $("bp-import-go").disabled && $("bp-import-from").textContent === "No other browser here"'), 'importing from nothing');
 });
 
 test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {

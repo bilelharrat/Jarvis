@@ -132,3 +132,35 @@ body.browser-slim .bd-ask-text { flex-basis: calc(100% - 80px); }
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.07);
 }
 .bp-row.on .bp-badge { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.14); }
+
+/* ── the library's bookmarks: folders, and each one renamed or moved in place ── */
+.bp-bm, .bp-folder, .bp-bm-edit { padding-left: calc(var(--bp-depth, 0) * 18px); }
+.bp-folder .bp-row-head svg:first-child { transition: transform 150ms ease; }
+.bp-folder.open .bp-row-head svg:first-child { transform: rotate(90deg); }
+.bp-folder .bp-row-head { color: rgb(var(--c-ink-2)); }
+.bp-folder .bd-lib-title { font-weight: 600; }
+.bp-count { grid-column: 2; font-size: 11.5px; color: rgb(var(--c-muted)); font-variant-numeric: tabular-nums; }
+.bp-bm-act {
+  flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 11px; cursor: pointer; opacity: 0;
+  display: inline-flex; align-items: center; justify-content: center; color: rgb(var(--c-muted)); background: transparent;
+  transition: opacity 120ms ease;
+}
+.bd-lib-row:hover .bp-bm-act, .bp-bm-act:focus-visible { opacity: 1; }
+.bp-bm-act:hover { background: rgb(var(--c-ink) / 0.1); color: rgb(var(--c-ink)); }
+.bp-bm-edit { list-style: none; padding-top: 4px; padding-bottom: 4px; }
+.bp-bm-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border-radius: 10px; background: rgb(var(--c-accent) / 0.08); }
+.bp-bm-field {
+  flex: 1 1 140px; min-width: 0; height: 28px; padding: 0 9px; border: 0; border-radius: 8px; font: 13px var(--sans, inherit);
+  color: rgb(var(--c-ink)); background: rgb(var(--c-surface) / 0.9); box-shadow: inset 0 0 0 1px rgb(var(--c-ink) / 0.14);
+}
+.bp-bm-field:focus { outline: none; box-shadow: inset 0 0 0 1.5px rgb(var(--c-accent)); }
+.bp-bm-cancel { height: 26px; padding: 0 10px; border: 0; border-radius: 8px; cursor: pointer; font-size: 12.5px; color: rgb(var(--c-ink-2)); background: transparent; }
+.bp-bm-cancel:hover { background: rgb(var(--c-ink) / 0.08); }
+
+/* ── Settings › Browser: importing from another browser ── */
+.bp-import-pick { display: flex; gap: 8px; align-items: center; margin: 2px 0 0; }
+.bp-group .bp-import-pick select { flex: 1; min-width: 0; max-width: none; }
+.bp-import-pick .btn { flex: none; min-height: 34px; font-size: 13px; }
+.bp-import-pick .btn:disabled { opacity: 0.5; cursor: default; }
+.bp-import-status { margin: 2px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.bp-import-status:empty { display: none; }

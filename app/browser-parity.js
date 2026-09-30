@@ -1,8 +1,9 @@
 // Chrome's everyday behaviour in the built-in browser, beside main.js (which owns the tabs, the
 // dock and the page's own commands): per-site permission prompts, sign-in and payment popups,
 // the leave-page question, HTTP sign-in, certificate warnings, pinned and muted tabs and their
-// order, the tabs reopened next time, each site's zoom, the address bar's suggestions, the
-// user agent Google's sign-in accepts, and Settings › Browser. main.js hands it what it needs
+// order, the tabs reopened next time, each site's zoom, the address bar's suggestions,
+// bookmark folders and what's imported from another browser, the user agent Google's sign-in
+// accepts, and Settings › Browser. main.js hands it what it needs
 // as hooks (createParity) and calls it where a tab or a session is made.
 //
 // What the window shows comes over the app feature channels ('feature:browser:…', which
@@ -84,6 +85,9 @@ class BrowserParity {
     this.handle('suggest', (msg) => this.suggest(msg || {}));
     this.handle('cover', (msg) => this.setCover(msg || {}));
     this.handle('dock', (msg) => this.dock(msg || {}));
+    this.handle('bookmark', (msg) => this.bookmarkEdit(msg || {}));
+    this.handle('folder', (msg) => this.folderRename(msg || {}));
+    this.handle('import', (msg) => this.importData(msg || {}));
     app.whenReady().then(() => this.setupSession(session.fromPartition(PARTITION)));
     // Quitting: the tabs as they are now are the ones to reopen (not the none left as windows
     // close), and a change a moment ago is kept.
@@ -712,6 +716,44 @@ class BrowserParity {
     if (Math.abs(f - 1) < 0.01) delete zoom[key];
     else if (key in zoom || Object.keys(zoom).length < ZOOM_SITES_MAX) zoom[key] = Math.round(f * 1000) / 1000;
     this.save();
+  }
+
+  // ── bookmarks: renamed, filed in folders; another browser's brought in ──
+
+  browserData() {
+    return this.hooks.browserData ? this.hooks.browserData() : null;
+  }
+
+  saved() {
+    if (this.hooks.saveBrowserData) this.hooks.saveBrowserData();
+  }
+
+  bookmarkEdit({ url, title, folder }) {
+    const data = this.browserData();
+    if (!data) return null;
+    const ok = lib.editBookmark(data.bookmarks, String(url || ''), {
+      title: typeof title === 'string' ? title : undefined, folder: typeof folder === 'string' ? folder : undefined,
+    });
+    if (ok) this.saved();
+    return { ok, folders: lib.folders(data.bookmarks) };
+  }
+
+  folderRename({ from, to }) {
+    const data = this.browserData();
+    if (!data || typeof from !== 'string' || typeof to !== 'string') return null;
+    const moved = lib.renameFolder(data.bookmarks, from, to);
+    if (moved) this.saved();
+    return { moved, folders: lib.folders(data.bookmarks) };
+  }
+
+  // What the backend read from another browser (features/browser_import.py), merged: its
+  // bookmarks under "Imported from <it>" (the window's words for it), its history by date.
+  importData({ label, bookmarks, history }) {
+    const data = this.browserData();
+    if (!data || typeof label !== 'string' || !label.trim() || label.length > 80) return null;
+    const added = lib.mergeImport(data, { bookmarks, history }, { label });
+    this.saved();
+    return added;
   }
 
   // ── the address bar: what's typed, and the open tabs, bookmarks and history it matches ──

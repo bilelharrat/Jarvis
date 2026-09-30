@@ -73,3 +73,29 @@ test('every sentence the browser feature shows has its Chinese', () => {
   for (const text of ['Camera: meet.google.com', 'Forget zoom.us', 'Clipboard: localhost:3000', 'Search DuckDuckGo', 'Search Google']) assert.ok(zh(text), text);
   assert.ok(!zh('Forget the old folder and everything in it?') || strings['Forget the old folder and everything in it?'], 'a pattern caught a sentence');
 });
+
+test('bookmark folders as the library shows them: every folder, its parents, and what each holds', () => {
+  assert.deepEqual(win.folderTree([{ folder: 'Work/Reading' }, { folder: 'Work' }, { folder: 'Work/Reading' }, {}, { folder: 'Home' }]), [
+    { path: 'Home', count: 1, depth: 0 },
+    { path: 'Work', count: 3, depth: 0 },
+    { path: 'Work/Reading', count: 2, depth: 1 },
+  ]);
+  assert.deepEqual(win.folderTree([]), []);
+});
+
+test('what went wrong reading another browser, in words, in both languages', () => {
+  assert.match(win.importError({ error: 'full_disk_access', name: 'Safari' }), /Full Disk Access/);
+  assert.equal(win.importError({ error: 'not_found', name: 'Arc' }), 'Arc has nothing to import on this Mac.');
+  assert.equal(win.importError({ error: 'unreadable', name: 'Edge' }), 'Edge’s bookmarks and history couldn’t be read.');
+  assert.equal(win.importError({ error: 'not_found' }), 'That browser can’t be imported from.');
+  assert.equal(win.importError({ error: 'unknown', name: 'Netscape' }), 'That browser can’t be imported from.');
+  const mine = JSON.parse(readFileSync(`${WEB}i18n/browser.json`, 'utf8'));
+  const patterns = mine.patterns.map(([p, r]) => [new RegExp(p), r]);
+  const zh = (text) => mine.strings[text] || (patterns.find(([re]) => re.test(text)) || [])[1];
+  for (const text of ['Arc has nothing to import on this Mac.', 'Edge’s bookmarks and history couldn’t be read.', 'Reading Chrome’s bookmarks and history…',
+    win.importedText({ bookmarks: 1204, history: 2000 }, 'Safari'), win.importedText({ bookmarks: 1, history: 1 }, 'Arc'), 'Imported from Brave']) assert.ok(zh(text), text);
+  assert.equal(win.importedText({ bookmarks: 1204, history: 2000 }, 'Safari'), 'Imported 1,204 bookmarks and 2,000 pages of history from Safari.');
+  assert.equal(win.importedText({ bookmarks: 1, history: 0 }, 'Arc'), 'Imported 1 bookmark and 0 pages of history from Arc.');
+  assert.equal(win.importedText({ bookmarks: 0, history: 0 }, 'Edge'), 'Nothing new from Edge: its bookmarks and history are here already.');
+  assert.ok(zh(win.importedText({ bookmarks: 0, history: 0 }, 'Edge')), 'nothing new, in Chinese');
+});

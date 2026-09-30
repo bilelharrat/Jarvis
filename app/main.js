@@ -915,7 +915,8 @@ const parity = createParity({
   changed: () => sendBrowserState(),
   // Never kept for next time: the Research Center's sign-in pages (their addresses can carry a reset token).
   keep: (url) => !(onResearch(url) && RESEARCH_AUTH.test(researchPath(url))),
-  browserData: () => browserStore(), // history and bookmarks, for the address bar's suggestions
+  browserData: () => browserStore(), // history and bookmarks: the address bar's suggestions, folders, imports
+  saveBrowserData: () => saveBrowserStore(),
 });
 
 async function runBrowserCommand({ action, args = {} }) {

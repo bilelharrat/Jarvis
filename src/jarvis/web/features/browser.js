@@ -2,9 +2,10 @@
 // half): what the tab on show waits on (a site's request for the camera, the microphone,
 // location, notifications or the clipboard; a site's sign-in; a certificate warning), the
 // site's own menu at the start of the address, pinned and muted tabs dragged into order, tab
-// search, the address bar's list (open tabs, bookmarks, history), and Settings › Browser (the
-// search engine, reopening tabs, each site's permissions). Only in the J.A.R.V.I.S. app, where
-// the built-in browser is.
+// search, the address bar's list (open tabs, bookmarks, history), the library's bookmarks in
+// folders, and Settings › Browser (the search engine, reopening tabs, importing from another
+// browser, each site's permissions). Only in the J.A.R.V.I.S. app, where the built-in browser
+// is.
 (() => {
   // ── pure helpers (tests/web/browser-window.test.mjs requires this file for them) ──
 
@@ -47,7 +48,40 @@
   // A tab dropped on another's near or far half: where it goes in the list without it.
   const dropIndex = (from, target, after) => target + (after ? 1 : 0) - (from < target ? 1 : 0);
 
-  if (typeof module === 'object' && module.exports) module.exports = { askText, onceFits, KIND_NAMES, CERT_PROBLEMS, certText, tabMatches, dropIndex };
+  // Every folder the bookmarks are in, and the folders those are in, sorted ("Work",
+  // "Work/Reading"); and how many bookmarks each holds, its subfolders' too.
+  function folderTree(bookmarks) {
+    const counts = new Map();
+    for (const b of bookmarks || []) {
+      const parts = String((b && b.folder) || '').split('/').filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) {
+        const path = parts.slice(0, i).join('/');
+        counts.set(path, (counts.get(path) || 0) + 1);
+      }
+    }
+    return [...counts.keys()].sort((a, b) => a.localeCompare(b)).map((path) => ({ path, count: counts.get(path), depth: path.split('/').length - 1 }));
+  }
+
+  // What went wrong reading another browser, in words.
+  function importError(ev) {
+    const name = ev && ev.name;
+    switch (ev && ev.error) {
+      case 'full_disk_access': return 'Safari keeps its bookmarks and history private. Allow J.A.R.V.I.S. in System Settings › Privacy & Security › Full Disk Access, then import again.';
+      case 'not_found': if (name) return `${name} has nothing to import on this Mac.`; break;
+      case 'unreadable': if (name) return `${name}’s bookmarks and history couldn’t be read.`; break;
+      default: break;
+    }
+    return 'That browser can’t be imported from.';
+  }
+
+  // How much an import brought in.
+  function importedText(r, name) {
+    if (!Number(r.bookmarks) && !Number(r.history)) return `Nothing new from ${name}: its bookmarks and history are here already.`;
+    const count = (x, one, many) => { const k = Number(x || 0); return `${k.toLocaleString('en')} ${k === 1 ? one : many}`; };
+    return `Imported ${count(r.bookmarks, 'bookmark', 'bookmarks')} and ${count(r.history, 'page', 'pages')} of history from ${name}.`;
+  }
+
+  if (typeof module === 'object' && module.exports) module.exports = { askText, onceFits, KIND_NAMES, CERT_PROBLEMS, certText, tabMatches, dropIndex, folderTree, importError, importedText };
   if (typeof window === 'undefined' || !window.jarvisFeatures) return;
 
   const F = window.jarvisFeatures;
@@ -80,6 +114,9 @@
     star: '<path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/>',
     clock: '<path d="M2.7 8.6A5.4 5.4 0 104.2 4.2"/><path d="M2.3 2.4v2.8h2.8"/><path d="M8 5.2V8l2 1.3"/>',
     tabs: '<rect x="2" y="4.5" width="12" height="9" rx="1.8"/><path d="M4.5 4.5V3.2A1.2 1.2 0 015.7 2h4.6a1.2 1.2 0 011.2 1.2v1.3"/>',
+    folder: '<path d="M2 4.6A1.6 1.6 0 013.6 3h2.6l1.5 1.6h4.7A1.6 1.6 0 0114 6.2v5.2A1.6 1.6 0 0112.4 13H3.6A1.6 1.6 0 012 11.4z"/>',
+    chevron: '<path d="M6 4l4 4-4 4"/>',
+    pencil: '<path d="M10.8 2.8l2.4 2.4L6 12.4 3 13l.6-3z"/>',
   };
   const button = (label, cls, onClick) => {
     const b = F.el('button', cls, label);
@@ -512,6 +549,166 @@
     }
   }
 
+  // ── the library's Bookmarks (app.js draws History): folders to open and close, and each
+  // bookmark or folder renamed or moved in place ──
+
+  const LIB_MAX = 300; // rows drawn at once
+  const openFolders = new Set();
+  let editing = ''; // the address of the bookmark being edited, or folder: and the path of a folder
+  const redraw = () => { if (typeof renderLibrary === 'function') renderLibrary(); };
+  // The library's lists read afresh from the app (after a change here).
+  const reloadLibrary = () => Promise.resolve().then(() => refreshLibrary()).catch(() => { /* no app bridge */ });
+  const pathLabel = (path) => String(path || '').split('/').join(' › ');
+  const iconButton = (icon, label, onClick) => {
+    const b = F.el('button', 'bp-bm-act');
+    b.type = 'button';
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.append(svg(icon, 13));
+    b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return b;
+  };
+  const indent = (li, depth) => { li.style.setProperty('--bp-depth', String(depth)); return li; };
+
+  function bookmarkRow(b, { depth = 0, folder = false } = {}) {
+    if (editing === b.url) return bookmarkEditor(b, depth);
+    const li = indent(F.el('li', 'bd-lib-row bp-bm'), depth);
+    const go = F.el('button', 'bd-lib-go');
+    go.type = 'button';
+    const title = F.el('span', 'bd-lib-title', b.title || hostOf(b.url));
+    const where = F.el('span', 'bd-lib-url', folder && b.folder ? `${hostOf(b.url)} · ${pathLabel(b.folder)}` : hostOf(b.url));
+    title.setAttribute('data-no-i18n', '');
+    where.setAttribute('data-no-i18n', '');
+    go.append(title, where);
+    go.addEventListener('click', (e) => {
+      if (e.metaKey) B.tab('new', null, b.url); else B.nav('go', b.url);
+      if (typeof closeLibrary === 'function') closeLibrary();
+    });
+    const x = F.el('button', 'bd-tab-x', '✕');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Remove bookmark');
+    x.addEventListener('click', () => { Promise.resolve(B.data && B.data('bookmark', b.url)).then(reloadLibrary, () => {}); });
+    li.append(go, iconButton(ICONS.pencil, 'Rename or move', () => { editing = b.url; redraw(); }), x);
+    return li;
+  }
+
+  function bookmarkEditor(b, depth) {
+    const li = indent(F.el('li', 'bp-bm-edit'), depth);
+    const form = F.el('form', 'bp-bm-form');
+    const title = F.el('input', 'bp-bm-field');
+    title.value = b.title || '';
+    title.placeholder = 'Name';
+    title.setAttribute('aria-label', 'Name');
+    const folder = F.el('input', 'bp-bm-field');
+    folder.value = pathLabel(b.folder || '');
+    folder.placeholder = 'Folder (none: the top)';
+    folder.setAttribute('aria-label', 'Folder');
+    folder.setAttribute('list', 'bp-folders');
+    for (const f of [title, folder]) { f.autocomplete = 'off'; f.spellcheck = false; f.setAttribute('data-no-i18n', ''); }
+    const done = () => { editing = ''; redraw(); };
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await invoke('bookmark', { url: b.url, title: title.value, folder: folder.value.split('›').map((p) => p.trim()).join('/') });
+      editing = '';
+      reloadLibrary();
+      redraw();
+    });
+    form.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(); } });
+    const save = F.el('button', 'bd-find-done', 'Save');
+    save.type = 'submit';
+    form.append(title, folder, save, button('Cancel', 'bp-bm-cancel', done));
+    li.append(form);
+    requestAnimationFrame(() => title.focus());
+    return li;
+  }
+
+  function folderRow({ path, count, depth }) {
+    const name = path.split('/').pop();
+    if (editing === `folder:${path}`) {
+      const li = indent(F.el('li', 'bp-bm-edit'), depth);
+      const form = F.el('form', 'bp-bm-form');
+      const input = F.el('input', 'bp-bm-field');
+      input.value = pathLabel(path);
+      input.setAttribute('aria-label', 'Folder');
+      input.setAttribute('data-no-i18n', '');
+      input.autocomplete = 'off';
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const to = input.value.split('›').map((p) => p.trim()).join('/');
+        await invoke('folder', { from: path, to });
+        if (openFolders.delete(path) && to) openFolders.add(to);
+        editing = '';
+        reloadLibrary();
+        redraw();
+      });
+      form.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); editing = ''; redraw(); } });
+      const save = F.el('button', 'bd-find-done', 'Save');
+      save.type = 'submit';
+      form.append(input, save, button('Cancel', 'bp-bm-cancel', () => { editing = ''; redraw(); }));
+      li.append(form);
+      requestAnimationFrame(() => input.focus());
+      return li;
+    }
+    const open = openFolders.has(path);
+    const li = indent(F.el('li', `bd-lib-row bp-folder${open ? ' open' : ''}`), depth);
+    const toggle = F.el('button', 'bd-lib-go bp-folder-go');
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', String(open));
+    const head = F.el('span', 'bp-row-head');
+    const label = F.el('span', 'bd-lib-title', name);
+    label.setAttribute('data-no-i18n', '');
+    head.append(svg(ICONS.chevron, 11), svg(ICONS.folder, 14), label);
+    const n = F.el('span', 'bp-count', String(count));
+    n.setAttribute('data-no-i18n', '');
+    toggle.append(head, n);
+    toggle.addEventListener('click', () => { if (open) openFolders.delete(path); else openFolders.add(path); redraw(); });
+    li.append(toggle, iconButton(ICONS.pencil, 'Rename folder', () => { editing = `folder:${path}`; redraw(); }));
+    return li;
+  }
+
+  function renderBookmarks(list, bookmarks, q) {
+    const all = (bookmarks || []).slice().reverse(); // the newest first, as before
+    const rows = [];
+    const tree = folderTree(all);
+    let names = F.$('bp-folders');
+    if (!names) {
+      names = F.el('datalist');
+      names.id = 'bp-folders';
+      document.body.append(names);
+    }
+    names.replaceChildren(...tree.map((f) => { const o = F.el('option'); o.value = pathLabel(f.path); return o; }));
+    if (q) {
+      for (const b of all) {
+        if (rows.length >= LIB_MAX) break;
+        if (`${b.title} ${b.url} ${b.folder || ''}`.toLowerCase().includes(q)) rows.push(bookmarkRow(b, { folder: true }));
+      }
+      list.replaceChildren(...(rows.length ? rows : [F.el('li', 'bd-lib-empty', 'Nothing matches.')]));
+      return;
+    }
+    const inFolder = new Map();
+    for (const b of all) {
+      const f = b.folder || '';
+      if (!inFolder.has(f)) inFolder.set(f, []);
+      inFolder.get(f).push(b);
+    }
+    for (const b of inFolder.get('') || []) {
+      if (rows.length >= LIB_MAX) break;
+      rows.push(bookmarkRow(b));
+    }
+    const shown = (path) => path.split('/').every((_, i, parts) => i === parts.length - 1 || openFolders.has(parts.slice(0, i + 1).join('/')));
+    for (const f of tree) {
+      if (rows.length >= LIB_MAX) break;
+      if (!shown(f.path)) continue; // inside a closed folder
+      rows.push(folderRow(f));
+      if (!openFolders.has(f.path)) continue;
+      for (const b of inFolder.get(f.path) || []) {
+        if (rows.length >= LIB_MAX) break;
+        rows.push(bookmarkRow(b, { depth: f.depth + 1 }));
+      }
+    }
+    list.replaceChildren(...(rows.length ? rows : [F.el('li', 'bd-lib-empty', 'No bookmarks yet. Press ★ in the address bar (⌘D) to add this page, or import them from another browser in Settings › Browser.')]));
+  }
+
   // ── Settings › Browser ──
 
   let hello = { engine: 'google', engines: [], sites: [] };
@@ -551,6 +748,61 @@
     });
     row.append(words, sw);
     return row;
+  }
+
+  // Bookmarks and history from another browser on this Mac (features/browser_import.py reads
+  // them; the app files them).
+  function importRow() {
+    const wrap = F.el('div', 'bp-import');
+    const row = F.el('div', 'row');
+    const words = F.el('span');
+    words.append(F.el('strong', '', 'Import bookmarks and history'), F.el('small', '', 'From another browser on this Mac. Nothing leaves the Mac.'));
+    const pick = F.el('span', 'bp-import-pick');
+    const select = F.el('select');
+    select.id = 'bp-import-from';
+    select.setAttribute('aria-label', 'Browser to import from');
+    const go = button('Import', 'btn bp-import-go', () => {
+      if (!select.value) return;
+      const name = select.selectedOptions[0] ? select.selectedOptions[0].textContent : select.value;
+      go.disabled = true;
+      status.textContent = `Reading ${name}’s bookmarks and history…`;
+      F.send({ type: 'browser_import', browser: select.value });
+    });
+    go.id = 'bp-import-go';
+    pick.append(select, go);
+    row.append(words);
+    const status = F.el('p', 'bp-import-status');
+    status.id = 'bp-import-status';
+    status.setAttribute('aria-live', 'polite');
+    wrap.append(row, pick, status);
+    return wrap;
+  }
+
+  function renderSources(sources) {
+    const select = F.$('bp-import-from');
+    const go = F.$('bp-import-go');
+    if (!select || !go) return;
+    const found = (sources || []).filter((s) => s && s.found);
+    select.replaceChildren(...(found.length ? found.map((s) => {
+      const o = F.el('option', '', s.name);
+      o.value = s.id;
+      o.setAttribute('data-no-i18n', '');
+      return o;
+    }) : [F.el('option', '', 'No other browser here')]));
+    select.disabled = !found.length;
+    go.disabled = !found.length;
+  }
+
+  async function imported(ev) {
+    const status = F.$('bp-import-status');
+    const go = F.$('bp-import-go');
+    if (go) go.disabled = false;
+    if (!status || !ev) return;
+    if (!ev.ok) { status.textContent = importError(ev); return; }
+    const r = await invoke('import', { label: F.t(`Imported from ${ev.name}`), bookmarks: ev.bookmarks, history: ev.history });
+    if (!r) { status.textContent = importError({ name: ev.name, error: 'unreadable' }); return; }
+    status.textContent = importedText(r, ev.name);
+    reloadLibrary();
   }
 
   function siteRow(site) {
@@ -610,7 +862,7 @@
   function buildGroup() {
     const list = F.el('ul', 'bp-sites');
     list.id = 'bp-sites';
-    group.append(F.el('h3', '', 'Browser'), engineRow(), restoreRow(), F.el('p', 'bp-sub', 'Site permissions'), list);
+    group.append(F.el('h3', '', 'Browser'), engineRow(), restoreRow(), importRow(), F.el('p', 'bp-sub', 'Site permissions'), list);
     const settings = F.$('settings');
     const accounts = F.$('open-accounts');
     const last = accounts ? accounts.closest('section.group') : null;
@@ -668,8 +920,16 @@
     siteBtn.hidden = !/^(https?|file):/.test((st && st.url) || '') || Boolean(st && st.research);
     if (!tabsPanel.hidden) renderTabSearch();
   });
-  // Settings opening reads the list afresh (a site may have asked meanwhile).
-  new MutationObserver(() => { if (!F.$('settings').hidden) refresh(); }).observe(F.$('settings'), { attributes: true, attributeFilter: ['hidden'] });
+  // Settings opening reads the list afresh (a site may have asked meanwhile), and which
+  // browsers there are to import from.
+  new MutationObserver(() => {
+    if (F.$('settings').hidden) return;
+    refresh();
+    F.send({ type: 'browser_import_sources' });
+  }).observe(F.$('settings'), { attributes: true, attributeFilter: ['hidden'] });
+  F.on('browser_import_sources', (ev) => renderSources(ev.sources));
+  F.on('browser_import', (ev) => imported(ev));
+  if (typeof F.registerBookmarks === 'function') F.registerBookmarks(renderBookmarks);
   F.on('prefs', () => setTimeout(sendLabels, 300), { replay: true });
   refresh();
   sendLabels();
