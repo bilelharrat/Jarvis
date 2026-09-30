@@ -87,6 +87,9 @@ class TabCdp {
     dbg.on('detach', this.onDetach);
     this.attached = true;
     this.watchingSince = this.now();
+    // Whatever happened while detached (a navigation, a new renderer numbering its nodes from
+    // one again) wasn't seen: refs from before are stale, as for a new page.
+    this.docGen += 1;
     // A tab that has never loaded a page answers these once it has one; each has its limit.
     const quiet = (p) => p.catch(() => {});
     await Promise.all([

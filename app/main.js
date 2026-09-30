@@ -879,10 +879,14 @@ const browserAgent = createAgent({
     return result.canceled ? [] : result.filePaths.slice(0, 20);
   },
   // A page's question the agent didn't answer in time: the user answers it in the Mac's box.
-  askUser: ({ type, message, host, signal }) => dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
-    type: type === 'confirm' ? 'question' : 'info', message: message || ' ', detail: host ? `From ${host}` : '',
-    buttons: type === 'confirm' ? ['OK', 'Cancel'] : ['OK'], defaultId: 0, cancelId: type === 'confirm' ? 1 : 0, signal,
-  }).then((r) => r.response === 0),
+  askUser: ({ type, message, host, signal }) => {
+    const options = {
+      type: type === 'confirm' ? 'question' : 'info', message: message || ' ', detail: host ? `From ${host}` : '',
+      buttons: type === 'confirm' ? ['OK', 'Cancel'] : ['OK'], defaultId: 0, cancelId: type === 'confirm' ? 1 : 0, signal,
+    };
+    const asked = win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options);
+    return asked.then((r) => r.response === 0);
+  },
 });
 
 async function runBrowserCommand({ action, args = {} }) {

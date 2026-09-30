@@ -690,10 +690,10 @@ for (const type of ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'dragstart
 let agentDialogs = false;
 try {
   const own = { alert: window.alert, confirm: window.confirm, prompt: window.prompt };
-  const ask = (type) => (message, value) => {
-    if (!agentDialogs) return own[type].call(window, message, value);
+  const ask = (type) => (...args) => {
+    if (!agentDialogs) return own[type].apply(window, args); // exactly as the page called it
     const text = (v) => (v === undefined || v === null ? '' : String(v)).slice(0, 2000);
-    const answer = ipcRenderer.sendSync('page:dialog', { type, message: text(message), value: text(value) });
+    const answer = ipcRenderer.sendSync('page:dialog', { type, message: text(args[0]), value: text(args[1]) });
     return type === 'alert' ? undefined : answer;
   };
   contextBridge.executeInMainWorld({
