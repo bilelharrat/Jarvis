@@ -329,4 +329,14 @@ final class ContractFixtureTests: XCTestCase {
             }
         }
     }
+
+    /// A Jarvis Code session whose turn is over is "waiting" in the Mac's task list: it
+    /// isn't running.
+    func testOnlyTasksThatAreRunningCountAsRunning() throws {
+        let (state, json) = try decode(RemoteState.self, "state")
+        let running = list(json, "tasks").filter { $0["status"] as? String == "running" }.map { "\($0["id"] ?? "")" }
+        XCTAssertFalse(running.isEmpty)
+        XCTAssertTrue(state.tasks.contains { $0.status == "waiting" })
+        XCTAssertEqual(state.activeTasks.map(\.id), running)
+    }
 }

@@ -257,8 +257,9 @@ struct BackgroundTask: Identifiable, Equatable, Sendable, Decodable {
         lastAction = c.text(.lastAction) ?? ""
     }
 
-    /// Still going: running, or waiting on the user.
-    var isActive: Bool { status == "running" || status == "waiting" }
+    /// Running now. ("waiting" is a Jarvis Code session whose turn is over, waiting for the
+    /// next message: idle, however long it stays open.)
+    var isActive: Bool { status == "running" }
 }
 
 struct Routine: Identifiable, Equatable, Sendable, Decodable {
