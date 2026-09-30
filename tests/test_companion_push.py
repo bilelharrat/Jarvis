@@ -294,7 +294,7 @@ async def test_calls_voicemail_and_unknown_kinds(setup):
 async def test_jarvis_code_finishing_is_pushed_once_it_took_a_while(setup):
     s = setup
     await ready(s)
-    emit = s.hub.tasks.emit  # the hub's, wrapped by the feature
+    emit = s.hub.tasks.emit  # the task manager's: the feature hears it through its task sink
     emit("task_finished", id=3, task_kind="code", status="done", folder="alpha", elapsed=5)
     emit("task_finished", id=4, task_kind="code", status="stopped", folder="alpha", elapsed=500)
     emit("task_finished", id=5, task_kind="research", status="done", folder="R", elapsed=500)
@@ -320,6 +320,22 @@ async def test_jarvis_code_finishing_is_pushed_once_it_took_a_while(setup):
     emit("task_finished", id=9, task_kind="code", status="done", folder="alpha", elapsed=300)
     await settle(s.hub)
     assert s.curl.calls == []
+
+
+async def test_jarvis_code_is_heard_through_the_hubs_task_sink(setup):
+    """The kit's task sink, not a wrapper round the task manager's emit: every Jarvis Code
+    event the hub has reaches the phone's notifier and its Live Activities, once each."""
+    s = setup
+    await ready(s)
+    companion = s.companion
+    assert s.hub._task_sinks.count(companion.notifier.task_event) == 1
+    assert s.hub._task_sinks.count(companion.live.task_event) == 1
+    s.hub._task_event(
+        "task_finished", id=6, task_kind="code", status="done", folder="alpha", elapsed=300
+    )
+    await settle(s.hub)
+    [done] = s.curl.payloads()
+    assert done["jarvis"]["kind"] == "code_done" and done["jarvis"]["task_id"] == 6
 
 
 async def test_a_conversation_waiting_on_the_owner_is_pushed_once(setup):

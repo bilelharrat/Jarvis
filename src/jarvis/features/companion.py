@@ -20,15 +20,11 @@ conversation, called when the briefing or the owner asks.
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable
 from typing import Any
 
 from .. import remote
 from ..companion_push import WHEN_PREF
 from ..prefs import register_feature_pref
-
-log = logging.getLogger("jarvis")
 
 register_feature_pref(remote.PLAIN_PREF, False)
 register_feature_pref(WHEN_PREF, "away", lambda v: v if v in ("away", "always") else None)
@@ -44,24 +40,6 @@ COMMANDS = (
 )
 
 
-def watch_tasks(hub: Any, listener: Callable[[str, dict[str, Any]], Any]) -> None:
-    """Jarvis Code's events reach the listener too, after the hub has had each one as
-    before (the task manager's emit, wrapped: one failing listener never stops them)."""
-    tasks = getattr(hub, "tasks", None)
-    original = getattr(tasks, "emit", None)
-    if original is None:
-        return
-
-    def emit(kind: str, **data: Any) -> None:
-        original(kind, **data)
-        try:
-            listener(kind, data)
-        except Exception:
-            log.exception("companion: a Jarvis Code event failed")
-
-    tasks.emit = emit
-
-
 def install(hub: Any) -> None:
     from ..companion import LABELS, PROMPT, Companion
 
@@ -75,11 +53,11 @@ def install(hub: Any) -> None:
     notifier, live = companion.notifier, companion.live
     hub.add_approval_sink(notifier.approval)
     hub.add_notify_sink(notifier.alert)
-    watch_tasks(hub, notifier.task_event)
+    hub.add_task_sink(notifier.task_event)  # Jarvis Code's sessions ending
     notifier.settle_delegations()  # already in memory: only what changes after this is news
     # Live Activities: a look every few seconds, and at once when a card, a session, a call
     # or a conversation changes (the loop runs with the app, never in tests).
     hub.add_approval_sink(live.approval, resolved=live.resolved)
     hub.add_notify_sink(live.alert)
-    watch_tasks(hub, live.task_event)
+    hub.add_task_sink(live.task_event)
     hub.register_loop("companion_live", live.loop)
