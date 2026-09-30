@@ -900,6 +900,46 @@ test('Settings adds “Ask JARVIS” to the Services menu and takes it away; nev
   assert(r.hidden && !r.note, JSON.stringify(r));
 });
 
+test('Open at login: offered by the installed app, switched there, and macOS’s wait for an OK said', async () => {
+  await loadShell(undefined, `
+    window.__login = { available: true, on: false, status: 'not-registered', error: '' };
+    window.__approval = false; // macOS holds the login item until the owner approves it
+    __app.answer = (channel, req) => {
+      if (channel === 'feature:shell:hello') return __app.hello;
+      if (channel !== 'feature:shell:login') return null;
+      if (typeof req.on === 'boolean') {
+        __login = __approval && req.on ? { ...__login, on: false, status: 'requires-approval' }
+          : { ...__login, on: req.on, status: req.on ? 'enabled' : 'not-registered' };
+      }
+      return { ...__login };
+    };`);
+  await sleep(30);
+  const row = () => js('({ hidden: $("sw-shell-login").closest(".row").hidden, on: $("sw-shell-login").getAttribute("aria-checked"), note: $("shell-login-note").hidden ? "" : $("shell-login-note").textContent })');
+  let r = await row();
+  assert(!r.hidden && r.on === 'false' && !r.note, JSON.stringify(r));
+  await js('$("sw-shell-login").click(); true');
+  await sleep(30);
+  assert((await row()).on === 'true', 'not switched on');
+  await js('$("sw-shell-login").click(); true');
+  await sleep(30);
+  assert((await row()).on === 'false', 'not switched off');
+  await js('__approval = true; $("sw-shell-login").click(); true');
+  await sleep(30);
+  r = await row();
+  assert(r.on === 'false' && r.note === 'macOS is waiting for your OK: System Settings › General › Login Items.', JSON.stringify(r));
+  const asked = await js('__app.invoked.filter(([c]) => c === "feature:shell:login").map(([, m]) => m)');
+  assert(JSON.stringify(asked) === JSON.stringify([{}, { on: true }, { on: false }, { on: true }]), JSON.stringify(asked));
+  // History from the app's menu where there's no built-in browser (a plain page): nothing, and no error.
+  await js('__app.on["feature:shell:command"]({ action: "library", kind: "history" }); __app.on["feature:shell:command"]({ action: "library", kind: "passwords" }); true');
+});
+
+test('Open at login isn’t offered where it can’t work (the test window, a build from source)', async () => {
+  await loadShell(undefined, `__app.answer = (channel) => channel === 'feature:shell:hello' ? __app.hello
+    : channel === 'feature:shell:login' ? { available: false, on: false, status: '', error: '' } : null;`);
+  await sleep(30);
+  assert(await js('$("sw-shell-login").closest(".row").hidden && $("shell-login-note").hidden'), 'the row shows where it can’t work');
+});
+
 // ──
 
 let base;

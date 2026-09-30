@@ -29,6 +29,39 @@ const DEFAULT_LABELS = {
   allow: 'Allow',
   notNow: 'Not now',
   purchaseHint: 'Say “confirm purchase”, or confirm it in J.A.R.V.I.S.',
+  // the app's menu bar
+  about: 'About J.A.R.V.I.S.',
+  settings: 'Settings…',
+  history: 'History',
+  bookmarks: 'Bookmarks',
+  services: 'Services',
+  hide: 'Hide J.A.R.V.I.S.',
+  hideOthers: 'Hide Others',
+  showAll: 'Show All',
+  edit: 'Edit',
+  undo: 'Undo',
+  redo: 'Redo',
+  cut: 'Cut',
+  copy: 'Copy',
+  paste: 'Paste',
+  pasteAndMatchStyle: 'Paste and Match Style',
+  delete: 'Delete',
+  selectAll: 'Select All',
+  speech: 'Speech',
+  startSpeaking: 'Start Speaking',
+  stopSpeaking: 'Stop Speaking',
+  view: 'View',
+  reload: 'Reload',
+  forceReload: 'Force Reload',
+  devTools: 'Developer Tools',
+  actualSize: 'Actual Size',
+  zoomIn: 'Zoom In',
+  zoomOut: 'Zoom Out',
+  fullScreen: 'Full Screen',
+  window: 'Window',
+  minimize: 'Minimize',
+  zoom: 'Zoom',
+  front: 'Bring All to Front',
 };
 
 // The window's labels over the defaults: only known keys, only short plain strings.
@@ -93,6 +126,74 @@ function dockTemplate(s, L, act) {
     { type: 'separator' },
     { label: L.code, click: () => act('code') },
     { label: L.browser, click: () => act('browser') },
+  ];
+}
+
+// ── the app's menu bar ──
+// Its first menu (macOS names it J.A.R.V.I.S.) has JARVIS's own places beside the usual
+// About, Services, Hide and Quit; Edit is the standard one, so copy and paste work in the
+// window and the browser; View and Window as before. act(name): settings, code, browser,
+// history, bookmarks. The key equivalents reach a page first: one it uses itself (⌘Y in
+// the browser, ⌘, in Jarvis Code) stays the page's.
+function appMenuTemplate(L, act) {
+  const sep = { type: 'separator' };
+  return [
+    {
+      label: 'J.A.R.V.I.S.',
+      submenu: [
+        { role: 'about', label: L.about },
+        sep,
+        { label: L.settings, accelerator: 'Command+,', click: () => act('settings') },
+        sep,
+        { label: L.code, accelerator: 'Shift+Command+J', click: () => act('code') },
+        { label: L.browser, accelerator: 'Shift+Command+B', click: () => act('browser') },
+        { label: L.history, accelerator: 'Command+Y', click: () => act('history') },
+        { label: L.bookmarks, accelerator: 'Alt+Command+B', click: () => act('bookmarks') },
+        sep,
+        { role: 'services', label: L.services },
+        sep,
+        { role: 'hide', label: L.hide },
+        { role: 'hideOthers', label: L.hideOthers },
+        { role: 'unhide', label: L.showAll },
+        sep,
+        { role: 'quit', label: L.quit },
+      ],
+    },
+    {
+      label: L.edit,
+      submenu: [
+        { role: 'undo', label: L.undo },
+        { role: 'redo', label: L.redo },
+        sep,
+        { role: 'cut', label: L.cut },
+        { role: 'copy', label: L.copy },
+        { role: 'paste', label: L.paste },
+        { role: 'pasteAndMatchStyle', label: L.pasteAndMatchStyle },
+        { role: 'delete', label: L.delete },
+        { role: 'selectAll', label: L.selectAll },
+        sep,
+        { label: L.speech, submenu: [{ role: 'startSpeaking', label: L.startSpeaking }, { role: 'stopSpeaking', label: L.stopSpeaking }] },
+      ],
+    },
+    {
+      label: L.view,
+      submenu: [
+        { role: 'reload', label: L.reload },
+        { role: 'forceReload', label: L.forceReload },
+        { role: 'toggleDevTools', label: L.devTools },
+        sep,
+        { role: 'resetZoom', label: L.actualSize },
+        { role: 'zoomIn', label: L.zoomIn },
+        { role: 'zoomOut', label: L.zoomOut },
+        sep,
+        { role: 'togglefullscreen', label: L.fullScreen },
+      ],
+    },
+    {
+      label: L.window,
+      role: 'window',
+      submenu: [{ role: 'minimize', label: L.minimize }, { role: 'zoom', label: L.zoom }, sep, { role: 'front', label: L.front }],
+    },
   ];
 }
 
@@ -299,7 +400,7 @@ function readStore(text) {
 }
 
 module.exports = {
-  DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate,
+  DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate, appMenuTemplate,
   excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp,
   DEFAULT_SHORTCUTS, checkAccelerator, shortcutLabel, normalizeShortcuts,
   MIN_SIZE, displaySetKey, placeWindow, centerOn, rememberPlace, allowAgain, readStore,

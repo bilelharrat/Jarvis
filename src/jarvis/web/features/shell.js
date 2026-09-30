@@ -2,8 +2,8 @@
 // what JARVIS is doing for the menu bar icon and which cards wait for an OK (the Dock's
 // badge, their notifications), hands it heads-ups to raise as macOS notifications, carries
 // out what its menus, notifications and jarvis:// links ask over this window's connection,
-// and adds the "This Mac" group to Settings (the menu bar icon, the global shortcuts, the
-// Services menu's "Ask JARVIS").
+// and adds the "This Mac" group to Settings (the menu bar icon, opening at login, the
+// global shortcuts, the Services menu's "Ask JARVIS").
 (() => {
   // ── pure helpers (tests/web/shell.test.mjs requires this file for them) ──
 
@@ -86,6 +86,39 @@
       allow: t('Allow'),
       notNow: t('Not now'),
       purchaseHint: t('Say “confirm purchase”, or confirm it in J.A.R.V.I.S.'),
+      // the app's menu bar
+      about: t('About J.A.R.V.I.S.'),
+      settings: t('Settings…'),
+      history: t('History'),
+      bookmarks: t('Bookmarks'),
+      services: t('Services'),
+      hide: t('Hide J.A.R.V.I.S.'),
+      hideOthers: t('Hide Others'),
+      showAll: t('Show All'),
+      edit: t('Edit'),
+      undo: t('Undo'),
+      redo: t('Redo'),
+      cut: t('Cut'),
+      copy: t('Copy'),
+      paste: t('Paste'),
+      pasteAndMatchStyle: t('Paste and Match Style'),
+      delete: t('Delete'),
+      selectAll: t('Select All'),
+      speech: t('Speech'),
+      startSpeaking: t('Start Speaking'),
+      stopSpeaking: t('Stop Speaking'),
+      view: t('View'),
+      reload: t('Reload'),
+      forceReload: t('Force Reload'),
+      devTools: t('Developer Tools'),
+      actualSize: t('Actual Size'),
+      zoomIn: t('Zoom In'),
+      zoomOut: t('Zoom Out'),
+      fullScreen: t('Full Screen'),
+      window: t('Window'),
+      minimize: t('Minimize'),
+      zoom: t('Zoom'),
+      front: t('Bring All to Front'),
     };
   }
 
@@ -206,6 +239,17 @@
     if (!pickProject(name)) wantedProject = name;
   }
 
+  // History or Bookmarks from the app's menu: the browser, with that list in front.
+  function openLibraryPanel(kind) {
+    if (!window.jarvisApp || !window.jarvisApp.browser) return;
+    if (!browserOpenNow) toggleBrowser(true);
+    // After the browser's first frame (it puts its page up then), so the list steps in front.
+    requestAnimationFrame(() => {
+      if (F.$('bd-lib').hidden) openLibrary(kind);
+      else if (libKind !== kind) { libKind = kind; renderLibrary(); }
+    });
+  }
+
   function openPanel(panel) {
     if (panel === 'settings') { if (F.$('settings').hidden) toggleSettings(true); }
     else if (panel === 'code') { if (F.$('cc').hidden) toggleCC(true); }
@@ -227,6 +271,7 @@
         break;
       case 'reveal': reveal(cmd); break;
       case 'prefill': prefill(cmd.text); break;
+      case 'library': if (['history', 'bookmarks'].includes(cmd.kind)) openLibraryPanel(cmd.kind); break;
       case 'project': openProject(cmd.name); break;
       default: break;
     }
@@ -264,6 +309,24 @@
     keys.append(cap, change);
     row.append(words, keys);
     return row;
+  }
+
+  // Opening at login: macOS's Login Items keep it (the installed app only).
+  let loginState = null;
+  function renderLogin() {
+    const sw = F.$('sw-shell-login');
+    if (!sw || !loginState) return;
+    sw.closest('.row').hidden = !loginState.available;
+    sw.setAttribute('aria-checked', String(Boolean(loginState.on)));
+    const note = F.$('shell-login-note');
+    const text = loginState.status === 'requires-approval'
+      ? en('macOS is waiting for your OK: System Settings › General › Login Items.')
+      : loginState.error ? en('That didn’t work. Try again.') : '';
+    note.hidden = !text || !loginState.available;
+    note.textContent = text;
+  }
+  function setLogin(on) {
+    bridge.invoke(`${CH}login`, typeof on === 'boolean' ? { on } : {}).then((state) => { loginState = state; renderLogin(); }, () => {});
   }
 
   // The Services menu's "Ask JARVIS": Add writes the Quick Action, Remove takes it away.
@@ -314,8 +377,15 @@
     const serviceNote = F.el('p', 'small-status warn-line');
     serviceNote.id = 'shell-service-note';
     serviceNote.hidden = true;
+    const loginRow = switchRow('sw-shell-login', 'Open at login', 'JARVIS opens when you log in to this Mac.');
+    loginRow.hidden = true; // until the app says it can (the installed app only)
+    const loginNote = F.el('p', 'small-status warn-line');
+    loginNote.id = 'shell-login-note';
+    loginNote.hidden = true;
     group.append(
       F.el('h3', '', 'This Mac'),
+      loginRow,
+      loginNote,
       switchRow('sw-shell-menubar', 'Show in the menu bar', 'What JARVIS is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
       shortcutRow('ask', 'Talk', 'From any app: shows JARVIS and starts listening.'),
       shortcutRow('whatsThis', 'What’s this?', 'From any app: JARVIS explains what’s in front of you.'),
@@ -327,6 +397,7 @@
     const accounts = F.$('open-accounts');
     const last = accounts ? accounts.closest('section.group') : null;
     settings.insertBefore(group, last && last.parentElement === settings ? last : null);
+    F.$('sw-shell-login').addEventListener('click', () => setLogin(!(loginState && loginState.on)));
     F.$('sw-shell-menubar').addEventListener('click', () => {
       F.send({ type: 'feature_prefs', changes: { shell_menu_bar: feature('shell_menu_bar', true) === false } });
     });
@@ -508,6 +579,7 @@
       sendApprovals();
       if (info.recovered) notice('Jarvis', '', 'The window stopped unexpectedly and was reloaded.', 15000);
       serviceAction('status');
+      setLogin();
     }, () => { /* an app without the shell feature: nothing to report to */ });
   }
 })();

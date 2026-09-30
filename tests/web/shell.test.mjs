@@ -30,7 +30,7 @@ async function until(done, what = 'the condition', ms = 4000) {
 // ── a stand-in Electron and main.js context ──
 
 function fakeElectron() {
-  const made = { trays: [], images: [], notes: [] };
+  const made = { trays: [], images: [], notes: [], appMenus: [] };
   class Notification extends EventEmitter {
     static isSupported() { return true; }
     constructor(options) { super(); this.options = options; this.shown = false; this.closed = false; made.notes.push(this); }
@@ -56,7 +56,7 @@ function fakeElectron() {
       return image;
     },
   };
-  const Menu = { buildFromTemplate: (template) => ({ template }) };
+  const Menu = { buildFromTemplate: (template) => ({ template }), setApplicationMenu(menu) { made.appMenus.push(menu); } };
   // Global shortcuts: another app holds those in `taken`; what's ours is in `mine`.
   const globalShortcut = {
     taken: new Set(),
@@ -91,6 +91,12 @@ function fakeContext({ dev = false, packaged = false, userData = mkdtempSync(pat
   app.focus = () => {};
   app.dock = { badge: '', menu: null, setBadge(text) { this.badge = text; }, setMenu(menu) { this.menu = menu; } };
   app.isPackaged = packaged;
+  app.login = { openAtLogin: false, status: 'not-registered' };
+  app.getLoginItemSettings = () => ({ ...app.login });
+  app.setLoginItemSettings = ({ openAtLogin }) => {
+    if (app.loginFails) throw new Error('SMAppService said no');
+    app.login = { openAtLogin, status: openAtLogin ? 'enabled' : 'not-registered' };
+  };
   app.protocols = [];
   app.isDefaultProtocolClient = (scheme) => app.protocols.includes(scheme);
   app.setAsDefaultProtocolClient = (scheme) => { app.protocols.push(scheme); return true; };
@@ -116,6 +122,8 @@ function fakeContext({ dev = false, packaged = false, userData = mkdtempSync(pat
     isFullScreen: () => false,
     loaded: [],
     loadFile(file, options) { this.loaded.push([file, options]); },
+    hidden: 0,
+    hide() { this.hidden += 1; },
   });
   wc.reloads = 0;
   wc.reload = () => { wc.reloads += 1; };
@@ -127,7 +135,7 @@ function fakeContext({ dev = false, packaged = false, userData = mkdtempSync(pat
     dev,
     logDir: userData,
     getWindow: () => win,
-    delays: { save: 5, displays: 5, reload: 5 },
+    delays: { save: 5, displays: 5, reload: 5, quit: 200 },
     servicesDir: path.join(userData, 'Services'),
     ran: [],
     send: (channel, ...args) => wc.sent.push([channel, ...args]),
@@ -777,6 +785,122 @@ test('the test window and a build from source never write a Quick Action', () =>
     const got = t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action: 'add' });
     assert.deepEqual(got, { available: false, installed: false, taken: false, error: '' });
     assert.equal(existsSync(t.ctx.servicesDir), false);
+  }
+});
+
+// ── the app's menu bar ──
+
+test('the app’s first menu has JARVIS’s places; Edit is the standard one', () => {
+  const acted = [];
+  const menu = lib.appMenuTemplate(lib.mergeLabels(), (name) => acted.push(name));
+  assert.deepEqual(menu.map((m) => m.label), ['J.A.R.V.I.S.', 'Edit', 'View', 'Window']);
+  const first = menu[0].submenu.filter((i) => i.type !== 'separator');
+  assert.deepEqual(first.map((i) => i.label), ['About J.A.R.V.I.S.', 'Settings…', 'Jarvis Code', 'Browser', 'History', 'Bookmarks', 'Services', 'Hide J.A.R.V.I.S.', 'Hide Others', 'Show All', 'Quit J.A.R.V.I.S.']);
+  assert.deepEqual(first.filter((i) => i.accelerator).map((i) => [i.label, i.accelerator]), [
+    ['Settings…', 'Command+,'], ['Jarvis Code', 'Shift+Command+J'], ['Browser', 'Shift+Command+B'], ['History', 'Command+Y'], ['Bookmarks', 'Alt+Command+B'],
+  ]);
+  for (const item of first) if (item.click) item.click();
+  assert.deepEqual(acted, ['settings', 'code', 'browser', 'history', 'bookmarks']);
+  assert.deepEqual(first.filter((i) => i.role).map((i) => i.role), ['about', 'services', 'hide', 'hideOthers', 'unhide', 'quit']);
+  const edit = menu[1].submenu.filter((i) => i.role).map((i) => i.role);
+  for (const role of ['undo', 'redo', 'cut', 'copy', 'paste', 'pasteAndMatchStyle', 'delete', 'selectAll']) assert.ok(edit.includes(role), role);
+  assert.equal(menu[3].role, 'window');
+  // Nothing on it says what the app is built with.
+  assert.doesNotMatch(JSON.stringify(menu), /electron/i);
+});
+
+test('the menu bar is set at launch, again in the window’s language, and its items reach the window', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  assert.equal(t.electron.made.appMenus.length, 1);
+  await t.hello();
+  t.report({ state: 'idle', online: true, labels: { edit: '编辑', history: '历史记录' } });
+  t.report({ state: 'thinking', online: true, labels: { edit: '编辑', history: '历史记录' } });
+  assert.equal(t.electron.made.appMenus.length, 2, 'rebuilt once for the new words, not for every state');
+  const [first, edit] = t.electron.made.appMenus[1].template;
+  assert.equal(edit.label, '编辑');
+  first.submenu.find((i) => i.label === '历史记录').click();
+  first.submenu.find((i) => i.label === 'Settings…').click();
+  first.submenu.find((i) => i.label === 'Bookmarks').click();
+  assert.deepEqual(t.commands(), [{ action: 'library', kind: 'history' }, { action: 'open', panel: 'settings' }, { action: 'library', kind: 'bookmarks' }]);
+  assert.equal(t.win.shown, 3);
+});
+
+// ── opening at login ──
+
+test('open at login: the installed app’s setting in macOS’s Login Items; elsewhere not offered', () => {
+  const login = (t, req) => t.ctx.ipcMain.handlers.get('feature:shell:login')({ sender: t.wc }, req);
+  const fromSource = fakeContext();
+  shell.install(fromSource.ctx);
+  assert.deepEqual(login(fromSource, { on: true }), { available: false, on: false, status: '', error: '' });
+  assert.equal(fromSource.app.login.openAtLogin, false);
+  const t = fakeContext({ packaged: true });
+  shell.install(t.ctx);
+  assert.deepEqual(login(t, {}), { available: true, on: false, status: 'not-registered', error: '' });
+  assert.deepEqual(login(t, { on: true }), { available: true, on: true, status: 'enabled', error: '' });
+  assert.deepEqual(login(t, { on: 'yes' }), { available: true, on: true, status: 'enabled', error: '' }, 'only a true or false changes it');
+  t.app.loginFails = true;
+  assert.equal(login(t, { on: false }).error, 'failed');
+  assert.equal(t.ctx.ipcMain.handlers.get('feature:shell:login')({ sender: {} }, { on: false }), null);
+});
+
+// ── quitting ──
+
+function fakeBackend() {
+  const proc = new EventEmitter();
+  Object.assign(proc, { exitCode: null, signalCode: null, killed: false, signals: [] });
+  proc.kill = (signal) => { proc.killed = true; proc.signals.push(signal); return true; };
+  return proc;
+}
+const quitEvent = () => ({ prevented: false, preventDefault() { this.prevented = true; } });
+
+test('quitting waits for the backend to stop, out of sight, so opening again finds its data free', async () => {
+  const t = fakeContext();
+  const proc = fakeBackend();
+  proc.kill('SIGTERM'); // main.js's own before-quit asked first
+  t.ctx.backend = () => proc;
+  shell.install(t.ctx);
+  const first = quitEvent();
+  t.app.emit('before-quit', first);
+  assert.equal(first.prevented, true);
+  assert.equal(t.win.hidden, 1);
+  assert.equal(t.electron.made.trays[0].destroyed, true);
+  assert.deepEqual(proc.signals, ['SIGTERM'], 'asked once, not twice');
+  const again = quitEvent(); // ⌘Q pressed again meanwhile
+  t.app.emit('before-quit', again);
+  assert.equal(again.prevented, true);
+  assert.equal(t.app.quits, 0);
+  proc.exitCode = 0;
+  proc.emit('exit', 0);
+  assert.equal(t.app.quits, 1);
+  const last = quitEvent();
+  t.app.emit('before-quit', last);
+  assert.equal(last.prevented, false, 'the quit that follows goes through');
+  await tick(250);
+  assert.equal(t.app.quits, 1, 'and the timer is off');
+});
+
+test('a backend that takes too long is left to finish; nothing to wait for quits at once', async () => {
+  const slow = fakeContext();
+  const proc = fakeBackend();
+  slow.ctx.backend = () => proc;
+  shell.install(slow.ctx);
+  slow.app.emit('before-quit', quitEvent());
+  assert.deepEqual(proc.signals, ['SIGTERM']);
+  await until(() => slow.app.quits === 1, 'the quit after the wait');
+  const cases = [
+    ['no backend', () => null, {}],
+    ['already gone', () => Object.assign(fakeBackend(), { exitCode: 1 }), {}],
+    ['stopped by a signal', () => Object.assign(fakeBackend(), { signalCode: 'SIGKILL' }), {}],
+    ['the test window', () => fakeBackend(), { dev: true }],
+  ];
+  for (const [what, backend, options] of cases) {
+    const t = fakeContext(options);
+    t.ctx.backend = backend;
+    shell.install(t.ctx);
+    const event = quitEvent();
+    t.app.emit('before-quit', event);
+    assert.equal(event.prevented, false, what);
   }
 });
 

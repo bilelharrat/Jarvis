@@ -1114,6 +1114,7 @@ const featureContext = {
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
+  backend: () => backend, // the running `jarvis serve` (shell.js waits for it to stop when quitting)
 };
 function loadAppFeatures() {
   const dir = path.join(__dirname, 'features');

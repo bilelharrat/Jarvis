@@ -4,7 +4,8 @@
 // the window isn't in front, and for heads-ups, which open JARVIS on their card; the
 // global shortcuts for Talk and What's this?, the ones the user chose in Settings;
 // jarvis:// links, and the Services menu's "Ask JARVIS" that sends a selection to one; the
-// window's place, remembered for each set of displays; and a crashed page reloaded.
+// app's menu bar; opening at login; the window's place, remembered for each set of
+// displays; a crashed page reloaded; and a quit that lets the backend finish first.
 //
 // The window is the go-between: it hears the backend's events and reports JARVIS's state
 // here ('feature:shell:state'), and carries out what the menus ask ('feature:shell:command')
@@ -40,7 +41,7 @@ function install(ctx) {
   const { app, ipcMain } = ctx;
   const { Menu, Notification, Tray, globalShortcut, nativeImage, screen } = electron;
   const now = ctx.now || Date.now;
-  const wait = ctx.delays || { save: 500, displays: 800, reload: 500 }; // the tests' are shorter
+  const wait = ctx.delays || { save: 500, displays: 800, reload: 500, quit: 5000 }; // the tests' are shorter
   const storeFile = path.join(app.getPath('userData'), 'shell.json');
   let store = lib.readStore(readText(storeFile));
   let state = lib.normalizeState({ menuBar: store.menuBar });
@@ -110,9 +111,12 @@ function install(ctx) {
       else { showWindow(); ctx.send('jarvis:summon'); }
     } else if (name === 'open') {
       showWindow();
-    } else if (name === 'code' || name === 'browser') {
+    } else if (name === 'code' || name === 'browser' || name === 'settings') {
       showWindow();
       toWindow({ action: 'open', panel: name });
+    } else if (name === 'history' || name === 'bookmarks') {
+      showWindow();
+      toWindow({ action: 'library', kind: name });
     } else if (name === 'quit') {
       app.quit();
     } else if (['mute', 'unmute', 'hands-free', 'pause', 'resume'].includes(name)) {
@@ -157,6 +161,17 @@ function install(ctx) {
       pauseTimer = setTimeout(refreshTray, Math.min(state.pausedUntil - now() + 500, 2 ** 31 - 1));
       if (pauseTimer.unref) pauseTimer.unref();
     }
+  }
+
+  // ── the app's menu bar (in the window's language once it has said which) ──
+
+  let appMenuShown = '';
+  function refreshAppMenu() {
+    if (!Menu.setApplicationMenu) return;
+    const sign = JSON.stringify(labels);
+    if (sign === appMenuShown) return;
+    appMenuShown = sign;
+    Menu.setApplicationMenu(Menu.buildFromTemplate(lib.appMenuTemplate(labels, act)));
   }
 
   // ── the Dock: its menu, and a badge counting the cards that wait for an OK ──
@@ -398,6 +413,27 @@ function install(ctx) {
     return serviceStatus();
   });
 
+  // ── opening at login (the installed app only: macOS's Login Items keep the setting) ──
+
+  function loginStatus(error = '') {
+    if (!installed) return { available: false, on: false, status: '', error };
+    const settings = app.getLoginItemSettings();
+    return { available: true, on: Boolean(settings.openAtLogin), status: String(settings.status || ''), error };
+  }
+
+  ipcMain.handle(`${CH}login`, (event, req) => {
+    if (!ctx.fromWindow(event)) return null;
+    if (installed && req && typeof req.on === 'boolean') {
+      try {
+        app.setLoginItemSettings({ openAtLogin: req.on });
+      } catch (err) {
+        console.warn(`shell: couldn't change the login item: ${err && err.message}`);
+        return loginStatus('failed');
+      }
+    }
+    return loginStatus();
+  });
+
   // ── the window's place, for each set of displays ──
 
   let displaysKey = '';
@@ -511,6 +547,7 @@ function install(ctx) {
     }
     refreshTray();
     refreshDock();
+    refreshAppMenu();
   });
 
   // Every card waiting when the window (re)connects: the badge counts them; one that's gone
@@ -556,9 +593,37 @@ function install(ctx) {
     });
   }
 
-  app.on('before-quit', () => {
+  // Quitting lets the backend finish first: main.js has asked it to stop (SIGTERM, which
+  // `uv run` passes on and `jarvis serve` answers by saving and closing), and the app waits
+  // up to five seconds for it to be gone, out of sight meanwhile. A Jarvis opened again
+  // straight away then finds its data free instead of another backend still holding it.
+  let released = false;
+  let waiting = false;
+  app.on('before-quit', (event) => {
     quitting = true;
     if (placeTimer) { clearTimeout(placeTimer); placeTimer = null; keepPlace(); } // a move just made
+    if (released || ctx.dev || !ctx.backend) return;
+    const proc = ctx.backend();
+    if (!proc || proc.exitCode !== null || proc.signalCode !== null) return; // nothing to wait for
+    event.preventDefault();
+    if (waiting) return;
+    waiting = true;
+    const win = windowOf();
+    if (win) win.hide();
+    if (tray) { tray.destroy(); tray = null; trayShown = ''; }
+    if (!proc.killed) proc.kill('SIGTERM');
+    let timer = null;
+    const go = () => {
+      if (released) return;
+      released = true;
+      clearTimeout(timer);
+      app.quit();
+    };
+    timer = setTimeout(() => {
+      console.warn('shell: the backend is still stopping; quitting without it');
+      go();
+    }, wait.quit);
+    proc.once('exit', go);
   });
 
   if (takesShortcuts) {
@@ -569,6 +634,7 @@ function install(ctx) {
   watchCrashes();
   refreshTray();
   refreshDock();
+  refreshAppMenu();
   return {
     act,
     tray: () => tray,
