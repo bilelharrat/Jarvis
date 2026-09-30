@@ -178,9 +178,13 @@ async def test_a_browser_check_can_stop_a_call_and_a_broken_one_can_t(
         "ok": False,
         "message": "Not on this site.",
     }
-    assert calls == []
+
+    def acted():  # what reached the page (watch mode also looks at the list of tabs)
+        return [a for a, _ in calls if a != "tabs"]
+
+    assert acted() == []
     assert (await hub.browser_call("act", {"ref": "e1"}))["message"] == "Clicked"
-    assert [a for a, _ in calls] == ["act"]
+    assert acted() == ["act"]
 
 
 async def test_a_browser_result_hook_can_add_to_an_answer_and_a_broken_one_can_t_lose_it(

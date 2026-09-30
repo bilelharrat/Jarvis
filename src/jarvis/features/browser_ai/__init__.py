@@ -13,11 +13,16 @@
   tab, close the tab, bookmark and reload, said in English or Chinese, done at once without
   Claude while a web page is on show in the dock of the window in front (an instant handler;
   the window's browser_ai.js works the dock's own controls: page_ui).
-- Sensitive sites (sites.py): banks, email and health; what's read there counts as the
-  owner's private data.
+- Sensitive sites (sites.py) and watch mode (watch.py): on banks, email and health sites
+  (the owner's list, Settings › Browser) the browser acts only while that tab is on show for
+  the owner to watch, and what JARVIS reads there counts as their private data; each site
+  can have the owner's rule: always, ask first, or never (a browser check, weighing the tab
+  the action lands in; sitesettings.py changes them, from the window only).
 
-Window commands: browser_ai_page, browser_ai_result, whats_this (before Jarvis Code's).
-Events: browser_ai_flag, browser_ai_cmd.
+Window commands: browser_ai_page, browser_ai_result, browser_ai_sites, browser_ai_site,
+whats_this (before Jarvis Code's).
+Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites.
+Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules.
 
 Everything here is registered through the feature kit; install() only registers.
 

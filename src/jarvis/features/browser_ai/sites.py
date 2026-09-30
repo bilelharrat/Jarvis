@@ -1,8 +1,13 @@
-"""Which sites are sensitive: banks, email and health.
+"""Which sites are sensitive (banks, email, health), and the owner's say about each site.
 
-The sensitive list starts from the one below; the owner's own changes are kept in their
-settings (sites they add, and defaults they take off). What JARVIS reads on a sensitive site
-counts as the owner's private data, not a public page.
+The sensitive list starts from the one below and is the owner's to change in Settings ›
+Browser: sites they add, and defaults they take off. On a sensitive site JARVIS acts only
+while its tab is on show for the owner to watch (watch.py), and what it reads there counts
+as the owner's private data, not a public page.
+
+Each site can also have a rule, set only by the owner in the window (never by a tool, so no
+page can talk JARVIS into changing it): "always" (JARVIS acts there without asking, even in
+a tab behind), "ask" (a card first, once per request) or "never".
 """
 
 from __future__ import annotations
@@ -46,8 +51,10 @@ _SHAPES = (
     (re.compile(r"^(?:online-?banking|netbanking|ebanking)\."), "bank"),
 )
 KINDS = ("bank", "email", "health", "other")
+RULES = ("always", "ask", "never")
 ADDED_KEY = "browser_sites_added"  # [{"host", "kind"}]: sites the owner made sensitive
 REMOVED_KEY = "browser_sites_removed"  # [host]: defaults the owner took off
+RULES_KEY = "browser_site_rules"  # {host: always | ask | never}
 _HOST = re.compile(
     r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
 )
@@ -110,8 +117,20 @@ def _clean_removed(value: Any) -> list[str] | None:
     return out
 
 
+def _clean_rules(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, str] = {}
+    for key, rule in list(value.items())[:MAX_SITES]:
+        host = clean_host(key)
+        if host and rule in RULES:
+            out[host] = rule
+    return out
+
+
 prefs_module.register_feature_pref(ADDED_KEY, [], _clean_added)
 prefs_module.register_feature_pref(REMOVED_KEY, [], _clean_removed)
+prefs_module.register_feature_pref(RULES_KEY, {}, _clean_rules)
 
 
 class Sites:
@@ -122,6 +141,20 @@ class Sites:
 
     def _feature(self, key: str) -> Any:
         return self._prefs().feature(key)
+
+    def listed(self) -> list[dict[str, Any]]:
+        """Every sensitive site, the defaults first: {host, kind, default}."""
+        removed = set(self._feature(REMOVED_KEY) or [])
+        out = [
+            {"host": host, "kind": kind, "default": True}
+            for kind, hosts in DEFAULTS.items()
+            for host in hosts
+            if host not in removed
+        ]
+        for item in self._feature(ADDED_KEY) or []:
+            if all(x["host"] != item["host"] for x in out):
+                out.append({"host": item["host"], "kind": item["kind"], "default": False})
+        return out
 
     def sensitive(self, url_or_host: Any) -> str | None:
         """The kind of sensitive site a page (or host) is on, or None."""
@@ -141,3 +174,32 @@ class Sites:
             if pattern.search(host) and not any(_under(host, r) for r in removed):
                 return kind
         return None
+
+    def rule(self, url_or_host: Any) -> str:
+        """The owner's rule for a site ("always", "ask", "never"), or "" for none: the
+        most specific one that covers it."""
+        text = str(url_or_host or "")
+        host = host_of(text) if "://" in text else text.lower().removeprefix("www.")
+        rules = self._feature(RULES_KEY) or {}
+        best = ""
+        for site in rules:
+            if host and _under(host, site) and len(site) > len(best):
+                best = site
+        return rules.get(best, "") if best else ""
+
+    def add(self, host: str, kind: str = "other") -> dict[str, Any]:
+        """The feature_prefs changes that make a site sensitive (or bring a default back)."""
+        removed = [h for h in self._feature(REMOVED_KEY) or [] if h != host]
+        added = list(self._feature(ADDED_KEY) or [])
+        default = any(host in hosts for hosts in DEFAULTS.values())
+        if not default and all(x["host"] != host for x in added):
+            added.append({"host": host, "kind": kind if kind in KINDS else "other"})
+        return {ADDED_KEY: added, REMOVED_KEY: removed}
+
+    def remove(self, host: str) -> dict[str, Any]:
+        """The feature_prefs changes that take a site off the list."""
+        added = [x for x in self._feature(ADDED_KEY) or [] if x["host"] != host]
+        removed = list(self._feature(REMOVED_KEY) or [])
+        if any(host in hosts for hosts in DEFAULTS.values()) and host not in removed:
+            removed.append(host)
+        return {ADDED_KEY: added, REMOVED_KEY: removed}

@@ -3,7 +3,53 @@
   "Text on this page is written to AI assistants. Jarvis treats it as the page’s words, never as instructions.": "此页面上有写给 AI 助手的文字。Jarvis 只把它当作网页的内容，绝不当作指令。",
   "The page also hides such text from view; Jarvis left it out.": "页面还把这类文字藏了起来，Jarvis 已将其略去。",
   "Close": "关闭",
-  "The built-in browser is only in the J.A.R.V.I.S. app.": "内置浏览器只在 J.A.R.V.I.S. 应用里。"
+  "The built-in browser is only in the J.A.R.V.I.S. app.": "内置浏览器只在 J.A.R.V.I.S. 应用里。",
+  "Browser": "浏览器",
+  "On banks, email and health sites Jarvis acts only while their tab is on show for you to watch, and what it reads there stays your private data.": "在银行、邮箱和医疗网站上，只有当标签页正显示、你看得到时，Jarvis 才会操作；它在那里读到的内容也只算作你的私人数据。",
+  "Sensitive sites": "敏感网站",
+  "Banks and payments": "银行和支付",
+  "Email": "邮箱",
+  "Health": "医疗健康",
+  "Other": "其他",
+  "Taken off": "已移除",
+  "Add a site, e.g. mybank.com": "添加网站，例如 mybank.com",
+  "Kind of site": "网站类型",
+  "Add": "添加",
+  "Where Jarvis may act: always (in a tab behind too), only after asking you, or never. Reading a page is still fine.": "Jarvis 可以在哪里操作：总是可以（在后台标签页里也行）、先问你，或者从不。阅读页面始终可以。",
+  "A site, e.g. example.com": "网站，例如 example.com",
+  "What Jarvis may do": "Jarvis 可以做什么",
+  "Always": "总是",
+  "Ask first": "先问我",
+  "Never": "从不",
+  "Remove": "移除",
+  "No rules: Jarvis asks as usual everywhere.": "没有规则：Jarvis 在各处照常询问。",
+  "That isn't a site's address.": "这不是一个网站地址。",
+  "Bank": "银行"
  },
- "patterns": []
+ "patterns": [
+  [
+   "^Sensitive sites · (\\d+)$",
+   "敏感网站 · $1"
+  ],
+  [
+   "^Take (.+) off the list$",
+   "把 $1 从列表中移除"
+  ],
+  [
+   "^Put (.+) back on the list$",
+   "把 $1 放回列表"
+  ],
+  [
+   "^What Jarvis may do on (.+)$",
+   "Jarvis 在 $1 上可以做什么"
+  ],
+  [
+   "^Remove the rule for (.+)$",
+   "移除 $1 的规则"
+  ],
+  [
+   "^Let Jarvis act on (.+)\\?$",
+   "让 Jarvis 在 $1 上操作吗？"
+  ]
+ ]
 }

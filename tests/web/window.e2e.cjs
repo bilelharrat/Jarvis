@@ -5380,6 +5380,36 @@ test('Browser AI works the dock’s own controls for a spoken page command', asy
   assert(JSON.stringify(r.calls.map((c) => c[0])) === '["data"]' && r.result.already === true, JSON.stringify(r));
 });
 
+test('Settings › Browser lists the sensitive sites and the rules, and changes them by the window’s commands', async () => {
+  await browserAi();
+  await js('featureEvent({ type: "hello", hub_id: "hub-a" }); true'); // (fresh() gives app.js its hello, not the features)
+  assert((await sentOf('browser_ai_sites')).length === 1, 'the list was not asked for');
+  assert(await js('$("bai-settings").previousElementSibling.contains($("research-url"))'), 'not after Markets');
+  await deliver({ type: 'browser_ai_sites', removed: ['wellsfargo.com'], rules: { 'news.example': 'never' },
+    sites: [{ host: 'chase.com', kind: 'bank', default: true }, { host: 'mail.google.com', kind: 'email', default: true }, { host: 'mycu.org', kind: 'bank', default: false }] });
+  assert(await js('$("bai-sites-summary").textContent') === 'Sensitive sites · 3', await js('$("bai-sites-summary").textContent'));
+  const kinds = await js('[...document.querySelectorAll("#bai-kinds .bai-kind")].map((k) => k.querySelector(".bai-kind-name").textContent + ":" + [...k.querySelectorAll(".bai-chip-host")].map((h) => h.textContent).join(","))');
+  assert(JSON.stringify(kinds) === JSON.stringify(['Banks and payments:chase.com,mycu.org', 'Email:mail.google.com', 'Taken off:wellsfargo.com']), JSON.stringify(kinds));
+  assert(await js('[...document.querySelectorAll(".bai-chip-host")].every((h) => h.hasAttribute("data-no-i18n"))'), 'a host would be translated');
+  await js('__sent.length = 0; document.querySelector(".bai-chip-x").click(); document.querySelector(".bai-removed .bai-chip-x").click(); true');
+  let sentNow = await sentOf('browser_ai_site');
+  assert(JSON.stringify(sentNow) === JSON.stringify([{ type: 'browser_ai_site', op: 'remove', host: 'chase.com' }, { type: 'browser_ai_site', op: 'add', host: 'wellsfargo.com' }]), JSON.stringify(sentNow));
+  const rule = await js('[...document.querySelectorAll("#bai-rules .bai-rule button[role=radio]")].map((b) => b.textContent + "=" + b.getAttribute("aria-checked"))');
+  assert(JSON.stringify(rule) === JSON.stringify(['Always=false', 'Ask first=false', 'Never=true']), JSON.stringify(rule));
+  await js(`__sent.length = 0; [...document.querySelectorAll("#bai-rules button[role=radio]")].find((b) => b.textContent === 'Ask first').click();
+    $('bai-rule-form-input').value = 'https://shop.example/cart'; $('bai-rule-form-choice').value = 'always'; $('bai-rule-form').requestSubmit();
+    $('bai-site-form-input').value = 'myclinic.org'; $('bai-site-form-choice').value = 'health'; $('bai-site-form').requestSubmit(); true`);
+  sentNow = await sentOf('browser_ai_site');
+  assert(JSON.stringify(sentNow) === JSON.stringify([
+    { type: 'browser_ai_site', op: 'rule', host: 'news.example', rule: 'ask' },
+    { type: 'browser_ai_site', op: 'rule', host: 'https://shop.example/cart', rule: 'always' },
+    { type: 'browser_ai_site', op: 'add', host: 'myclinic.org', kind: 'health' },
+  ]), JSON.stringify(sentNow));
+  assert(await js('$("bai-rule-form-input").value') === '', 'the form kept what was typed');
+  await deliver({ type: 'browser_ai_sites', sites: [], removed: [], rules: {}, error: 'That isn’t a site’s address.' });
+  assert(await js('!$("bai-sites-error").hidden && $("bai-rules").textContent.includes("No rules")'), 'no error or empty state shown');
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);

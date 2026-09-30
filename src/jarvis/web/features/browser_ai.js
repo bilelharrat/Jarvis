@@ -6,7 +6,10 @@
 //   (browser_ai_result); the page's own controls (page_ui: the instant page commands,
 //   pagevoice.py) are worked here, as the dock's buttons and Chrome's shortcuts work them;
 // - a notice over a page whose text is written to AI assistants (browser_ai_flag), shown
-//   while that page is on show until the owner closes it.
+//   while that page is on show until the owner closes it;
+// - Settings › Browser: the sensitive sites (banks, email, health: JARVIS acts there only
+//   while the owner can see the tab) and the owner's rule for any site (always, ask first,
+//   never), changed only here (browser_ai_sites, browser_ai_site).
 //
 // Everything a page brings (its address, title, the lines it wrote) is data: shown with
 // textContent and marked data-no-i18n. The helpers at the top are pure
@@ -87,6 +90,124 @@
     if (flags.size > 200) flags.delete(flags.keys().next().value);
     renderFlag();
   });
+
+  // ── Settings › Browser ──
+  const KINDS = [['bank', 'Banks and payments'], ['email', 'Email'], ['health', 'Health'], ['other', 'Other']];
+  const KIND_CHOICES = [['bank', 'Bank'], ['email', 'Email'], ['health', 'Health'], ['other', 'Other']]; // short: the select is narrow
+  const RULES = [['always', 'Always'], ['ask', 'Ask first'], ['never', 'Never']];
+  let sites = { sites: [], removed: [], rules: {} };
+
+  function option(value, label) {
+    const o = el('option', '', label);
+    o.value = value;
+    return o;
+  }
+  function siteForm(id, placeholder, choices, onAdd) {
+    const form = el('form', 'folder-form');
+    form.id = id;
+    const input = el('input');
+    input.id = `${id}-input`;
+    input.maxLength = 300;
+    input.placeholder = placeholder;
+    input.spellcheck = false;
+    input.autocomplete = 'off';
+    const label = el('label', 'sr-only', placeholder);
+    label.htmlFor = input.id;
+    const select = el('select');
+    select.id = `${id}-choice`;
+    select.setAttribute('aria-label', id === 'bai-site-form' ? 'Kind of site' : 'What Jarvis may do');
+    for (const [value, text] of choices) select.append(option(value, text));
+    const add = el('button', 'btn', 'Add');
+    add.type = 'submit';
+    form.append(label, input, select, add);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const host = input.value.trim();
+      if (!host) return;
+      onAdd(host, select.value);
+      input.value = '';
+    });
+    return form;
+  }
+  function sitesGroup() {
+    const settings = F.$('settings');
+    if (!settings || F.$('bai-settings')) return;
+    const group = el('section', 'group');
+    group.id = 'bai-settings';
+    group.append(el('h3', '', 'Browser'),
+      el('p', 'small-status', 'On banks, email and health sites Jarvis acts only while their tab is on show for you to watch, and what it reads there stays your private data.'));
+    const details = el('details', 'bai-sites');
+    const summary = el('summary', '', 'Sensitive sites');
+    summary.id = 'bai-sites-summary';
+    const kinds = el('div', 'bai-kinds');
+    kinds.id = 'bai-kinds';
+    details.append(summary, kinds,
+      siteForm('bai-site-form', 'Add a site, e.g. mybank.com', KIND_CHOICES, (host, kind) => F.send({ type: 'browser_ai_site', op: 'add', host, kind })));
+    const rulesHead = el('p', 'small-status', 'Where Jarvis may act: always (in a tab behind too), only after asking you, or never. Reading a page is still fine.');
+    const rules = el('ul', 'folders bai-rules');
+    rules.id = 'bai-rules';
+    const error = el('p', 'small-status warn-line');
+    error.id = 'bai-sites-error';
+    error.hidden = true;
+    group.append(details, rulesHead, rules,
+      siteForm('bai-rule-form', 'A site, e.g. example.com', RULES, (host, rule) => F.send({ type: 'browser_ai_site', op: 'rule', host, rule })), error);
+    const after = F.$('research-url') && F.$('research-url').closest('section');
+    if (after) after.after(group); else settings.append(group);
+  }
+  function chip(host, sign, label, onClick) {
+    const box = el('span', 'bai-chip');
+    const b = button(sign, 'bai-chip-x', onClick, label);
+    box.append(mine(el('span', 'bai-chip-host', host)), b);
+    return box;
+  }
+  function renderSites() {
+    const kinds = F.$('bai-kinds');
+    const rules = F.$('bai-rules');
+    if (!kinds || !rules) return;
+    F.$('bai-sites-summary').textContent = `Sensitive sites · ${sites.sites.length}`;
+    const groups = [];
+    for (const [kind, name] of KINDS) {
+      const here = sites.sites.filter((x) => x.kind === kind);
+      if (!here.length) continue;
+      const box = el('div', 'bai-kind');
+      const chips = el('div', 'bai-chips');
+      for (const x of here) chips.append(chip(x.host, '×', `Take ${x.host} off the list`, () => F.send({ type: 'browser_ai_site', op: 'remove', host: x.host })));
+      box.append(el('p', 'bai-kind-name', name), chips);
+      groups.push(box);
+    }
+    if (sites.removed.length) {
+      const box = el('div', 'bai-kind bai-removed');
+      const chips = el('div', 'bai-chips');
+      for (const host of sites.removed) chips.append(chip(host, '+', `Put ${host} back on the list`, () => F.send({ type: 'browser_ai_site', op: 'add', host })));
+      box.append(el('p', 'bai-kind-name', 'Taken off'), chips);
+      groups.push(box);
+    }
+    kinds.replaceChildren(...groups);
+    const rows = Object.entries(sites.rules || {}).sort((a, b) => a[0].localeCompare(b[0])).map(([host, rule]) => {
+      const li = el('li', 'bai-rule');
+      const seg = el('div', 'segmented modes compact');
+      seg.setAttribute('role', 'radiogroup');
+      seg.setAttribute('aria-label', `What Jarvis may do on ${host}`);
+      for (const [value, text] of RULES) {
+        const b = button(text, '', () => F.send({ type: 'browser_ai_site', op: 'rule', host, rule: value }));
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(rule === value));
+        seg.append(b);
+      }
+      const rm = button('Remove', 'btn', () => F.send({ type: 'browser_ai_site', op: 'rule', host, rule: '' }), `Remove the rule for ${host}`);
+      li.append(mine(el('span', 'bai-rule-host', host)), seg, rm);
+      return li;
+    });
+    rules.replaceChildren(...(rows.length ? rows : [el('li', 'muted', 'No rules: Jarvis asks as usual everywhere.')]));
+  }
+  F.on('browser_ai_sites', (ev) => {
+    sites = { sites: Array.isArray(ev.sites) ? ev.sites : [], removed: Array.isArray(ev.removed) ? ev.removed : [], rules: ev.rules && typeof ev.rules === 'object' ? ev.rules : {} };
+    const error = F.$('bai-sites-error');
+    if (error) { error.hidden = !ev.error; error.textContent = ev.error || ''; }
+    renderSites();
+  });
+  sitesGroup();
+  F.on('hello', () => F.send({ type: 'browser_ai_sites' }), { replay: true });
 
   // ── the page on show, as the hub needs it ──
   // Sent when it changes. The addresses are the owner's own browsing: they go only to the
