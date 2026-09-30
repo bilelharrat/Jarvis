@@ -2454,6 +2454,23 @@ test('Xcode’s tools are a switch in the More menu for a session in an Xcode pr
   assert(!(await js('document.getElementById("jc-menu").hidden')), 'a switch closes the menu');
 });
 
+test('“Let this session use the Mac” is off until switched on, for the session on show', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await clickAt('#jc-more');
+  const row = () => js('(() => { const b = [...document.querySelectorAll("#jc-menu button")].find((x) => x.textContent.includes("Let this session use the Mac")); return b && { checked: b.getAttribute("aria-checked"), text: b.textContent }; })()');
+  let mac = await row();
+  assert(mac && mac.checked === 'false' && mac.text.includes('Every step asks, except in Bypass permissions.'), JSON.stringify(mac));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-menu', mac.text), 'no switch');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_session', id: 1, mac: true }]), JSON.stringify(await js('__sent')));
+  await js('closeMenu(); true');
+  await deliver({ type: 'cv_session', id: 1, verify: false, problems: false, xcode: false, xcode_project: false, mac: true });
+  await clickAt('#jc-more');
+  mac = await row();
+  assert(mac.checked === 'true', 'the switch does not show it on');
+});
+
 test('Settings has the switch for new sessions’ checks, kept as a feature setting', async () => {
   await featureScript('code-verify.js');
   await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_verify_new_sessions: true } });

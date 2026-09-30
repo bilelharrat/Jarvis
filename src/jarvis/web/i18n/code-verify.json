@@ -108,7 +108,11 @@
     "pyright isn't installed": "pyright 未安装",
     "mypy isn't installed": "mypy 未安装",
     "That dev server isn't known.": "不认识那个开发服务器。",
-    "Couldn't save it.": "没能保存。"
+    "Couldn't save it.": "没能保存。",
+    "Let this session use the Mac": "允许这个会话使用这台 Mac",
+    "See the screen, click and type. Every step asks, except in Bypass permissions.": "查看屏幕、点击和输入。每一步都会先询问，绕过权限模式除外。",
+    "This session may use the Mac now: it can see the screen, click and type. Every step asks first, unless the session is in Bypass permissions.": "这个会话现在可以使用这台 Mac：它可以查看屏幕、点击和输入。每一步都会先询问，除非会话处于绕过权限模式。",
+    "This session no longer uses the Mac.": "这个会话不再使用这台 Mac。"
   },
   "patterns": [
     [

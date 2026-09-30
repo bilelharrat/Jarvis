@@ -3,7 +3,8 @@ a session), the check after each turn that changed files (the page, the server's
 the checkers, a watch run of the tests; its proof in the transcript), the Tests and
 Problems panes, and more hands for a session: the iOS Simulator's fast bridge (tap, swipe,
 type, buttons, pictures, build and run, the app's log) and, when the owner turns them on
-for it, Xcode's own tools (xcrun mcpbridge).
+for it, Xcode's own tools (xcrun mcpbridge) and the Mac itself (sessionmac: computer.py's
+screen, mouse and keyboard, every step asked in the session's permission mode).
 
 What it adds, and where:
 - Window commands (cv_*): each pane's state and actions. Long work runs in the background:
@@ -39,7 +40,18 @@ from typing import Any
 
 from claude_agent_sdk import HookMatcher, create_sdk_mcp_server, tool
 
-from .. import codetests, devservers, diagnostics, prefs, previewcheck, runproc, simtools, tasks
+from .. import (
+    codetests,
+    computer,
+    devservers,
+    diagnostics,
+    prefs,
+    previewcheck,
+    runproc,
+    sessionmac,
+    simtools,
+    tasks,
+)
 from ..codetests import SuiteRunner
 from ..devservers import DevServers
 from ..diagnostics import Diagnostics
@@ -95,6 +107,8 @@ class SessionChecks:
     said_nothing_to_check: bool = False
     last: dict[str, Any] | None = None  # the latest check, for the Preview pane
     xcode: bool = False  # Xcode's tools (its MCP bridge) for this session
+    mac: bool = False  # "Let this session use the Mac": off unless the owner turns it on
+    screen: Any = None  # computer.Screen: where the session's clicks land, per its screenshots
 
 
 @dataclass(eq=False)
@@ -259,6 +273,15 @@ class CodeVerify:
                 setattr(checks, name, msg[name])
                 if msg[name]:
                     checks.said_nothing_to_check = False
+        if isinstance(msg.get("mac"), bool) and msg["mac"] != checks.mac:
+            checks.mac = msg["mac"]
+            self.hub.tasks.reopen(
+                task.id,
+                "This session may use the Mac now: it can see the screen, click and type. Every "
+                "step asks first, unless the session is in Bypass permissions."
+                if checks.mac
+                else "This session no longer uses the Mac.",
+            )
         if isinstance(msg.get("xcode"), bool) and msg["xcode"] != checks.xcode:
             if msg["xcode"] and codetests.xcode_container(task.cwd) is None:
                 self.error(
@@ -283,6 +306,7 @@ class CodeVerify:
             "problems": checks.problems,
             "xcode": checks.xcode,
             "xcode_project": codetests.xcode_container(task.cwd) is not None,
+            "mac": checks.mac,
         }
 
     def cmd_check(self, msg: dict[str, Any]) -> None:
@@ -729,6 +753,9 @@ class CodeVerify:
             ),
         }
         checks = self.sessions.get(task.id)
+        if checks is not None and checks.mac:
+            checks.screen = checks.screen or computer.Screen()
+            servers[sessionmac.SERVER] = sessionmac.build(checks.screen)
         if checks is not None and checks.xcode and codetests.xcode_container(task.cwd) is not None:
             # Xcode's MCP bridge, as `xcrun mcpbridge --help` describes it: with no
             # subcommand it's a stdio bridge to the running Xcode's tool service.
@@ -903,13 +930,22 @@ class _SessionOptions:
         base = options.mcp_servers if isinstance(options.mcp_servers, dict) else {}
         options.mcp_servers = {**base, **self.cv.session_servers(task)}
         options.allowed_tools = [*options.allowed_tools, *READ_ONLY]
+        checks = self.cv.sessions.get(task.id)
+        if checks is not None and checks.mac:
+            options.disallowed_tools = [*options.disallowed_tools, *sessionmac.disallowed()]
+            hook = sessionmac.pre_tool_hook(
+                lambda: checks.mac, lambda: task.mode, checks.screen or computer.Screen()
+            )
+            hooks = dict(options.hooks or {})
+            hooks["PreToolUse"] = [*hooks.get("PreToolUse", []), hook]  # beside ask_every_time's
+            options.hooks = hooks
         hooks = dict(options.hooks or {})
         hooks["PreToolUse"] = [*hooks.get("PreToolUse", []), ask_every_time()]
         options.hooks = hooks
 
     def key(self, task: Any) -> Any:
         checks = self.cv.sessions.get(task.id)
-        return (checks.xcode,) if checks is not None else (False,)
+        return (checks.xcode, checks.mac) if checks is not None else (False, False)
 
 
 def install(hub: Any) -> None:
@@ -918,6 +954,7 @@ def install(hub: Any) -> None:
     tasks.FEATURE_TOOLS[f"mcp__{DEV}__dev_server_start"] = ("start a dev server", _start_detail)
     tasks.FEATURE_TOOLS[f"mcp__{DEV}__dev_server_stop"] = ("stop a dev server", None)
     tasks.FEATURE_TOOLS.update(simtools.FEATURE_TOOLS)
+    tasks.FEATURE_TOOLS.update(sessionmac.FEATURE_TOOLS)
     hub.tasks.option_hooks.append(_SessionOptions(cv))
 
     previous = hub.tasks.emit

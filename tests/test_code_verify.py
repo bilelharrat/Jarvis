@@ -635,3 +635,50 @@ async def test_steps_that_run_the_projects_own_commands_always_ask(hub, project)
         out = await matcher.hooks[0]({"tool_name": name, "tool_input": {}}, "t", None)
         assert out["hookSpecificOutput"]["permissionDecision"] == "ask", name
     assert await matcher.hooks[0]({"tool_name": "mcp__jarvis_dev__dev_servers"}, "t", None) == {}
+
+
+# ── a session's use of the Mac ──
+
+
+async def test_the_mac_is_a_sessions_only_when_the_owner_says_so(hub, project, monkeypatch):
+    task = ClaudeTask(id=21, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[21] = task
+    assert "jarvis_mac" not in hub.tasks.options_for(task).mcp_servers  # off by default
+    reopened = []
+    monkeypatch.setattr(hub.tasks, "reopen", lambda task_id, note: reopened.append(note) or True)
+    before = hub.tasks._options_key(task)
+    await hub._handle({"type": "cv_session", "id": 21, "mac": True})
+    assert reopened and reopened[0].startswith("This session may use the Mac now")
+    assert hub.tasks._options_key(task) != before
+    options = hub.tasks.options_for(task)
+    assert "jarvis_mac" in options.mcp_servers
+    assert {"mcp__jarvis_mac__read_file", "mcp__jarvis_mac__find_files"} <= set(
+        options.disallowed_tools
+    )
+    assert not any(t.startswith("mcp__jarvis_mac") for t in options.allowed_tools)
+    matcher = next(m for m in options.hooks["PreToolUse"] if m.matcher == "mcp__jarvis_mac__.*")
+    hook = matcher.hooks[0]
+    ask = await hook({"tool_name": "mcp__jarvis_mac__see_screen", "tool_input": {}}, "t", None)
+    assert ask["hookSpecificOutput"]["permissionDecision"] == "ask"
+    # Its cards say what each step does, in the session's own permission prompt.
+    asked = []
+
+    async def approve(question, detail, choices, context=None):
+        asked.append((question, detail))
+        return "deny"
+
+    hub.tasks.approve = approve
+    policy = hub.tasks.policy_for(task)
+    await policy("mcp__jarvis_mac__type_text", {"text": "hello"}, ToolPermissionContext())
+    assert asked == [("Jarvis Code in shop wants to type on your Mac", "type: hello")]
+    task.mode = "auto"  # Bypass: the owner turned this on for the session, so it goes ahead
+    assert isinstance(
+        await policy("mcp__jarvis_mac__type_text", {"text": "hi"}, ToolPermissionContext()),
+        PermissionResultAllow,
+    )
+    # Turned off: refused at once, even before the connection reopens without it.
+    await hub._handle({"type": "cv_session", "id": 21, "mac": False})
+    deny = await hook({"tool_name": "mcp__jarvis_mac__see_screen", "tool_input": {}}, "t", None)
+    assert deny["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "jarvis_mac" not in hub.tasks.options_for(task).mcp_servers
+    assert reopened[-1] == "This session no longer uses the Mac."

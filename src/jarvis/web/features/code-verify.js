@@ -3,7 +3,7 @@
 // transcript (its picture, larger on a click, and what it found), the Tests pane (runs, the
 // failures as a tree, watch mode), the Problems pane (the project's own checkers), the
 // Settings switch for new sessions, and the More menu's switches for a session's extra
-// hands (Xcode's tools). The page itself is checked by the app
+// hands (Xcode's tools, and the Mac itself). The page itself is checked by the app
 // (app/features/code-verify.js), asked from here.
 //
 // Everything shown from the backend is data: text only (textContent), user data marked
@@ -483,31 +483,6 @@
     else lightbox.querySelector('.cv-lightbox-note').textContent = t('The full picture isn’t kept anymore.');
   });
 
-  // ── a session's extra hands: the More menu's switches ──
-
-  const hands = new Map();  // session id -> what cv_session last said of it
-  let handsFor = null;
-  function askHands() {  // a session newly on show: what are its switches?
-    const task = F.currentTask();
-    const id = task ? task.id : null;
-    if (id === handsFor) return;
-    handsFor = id;
-    if (id !== null) F.send({ type: 'cv_session', id });
-  }
-  F.on('tasks', askHands);
-  F.on('task_transcript', askHands);
-  F.on('cv_session', (ev) => { hands.set(ev.id, { ...(hands.get(ev.id) || {}), ...ev }); });
-  const handsOf = (task) => (task ? hands.get(task.id) || {} : {});
-
-  F.registerMoreItem({
-    label: 'Xcode’s tools',
-    note: 'Xcode’s own tools for this session, while Xcode is open',
-    keepOpen: true,
-    get switch() { return !!handsOf(F.currentTask()).xcode; },
-    when: (task) => !!handsOf(task).xcode_project,
-    run: (on) => { const task = F.currentTask(); if (task) F.send({ type: 'cv_session', id: task.id, xcode: !!on }); },
-  });
-
   // ── Settings: new sessions' switch ──
 
   function settingsGroup() {
@@ -860,5 +835,38 @@
     if (!problems.info || ev.check.project !== problems.info.path) return;
     problems.info.check = ev.check;
     renderProblems();
+  });
+
+  // ── a session's extra hands: the More menu's switches ──
+
+  const hands = new Map();  // session id -> what cv_session last said of it
+  let handsFor = null;
+  function askHands() {  // a session newly on show: what are its switches?
+    const task = F.currentTask();
+    const id = task ? task.id : null;
+    if (id === handsFor) return;
+    handsFor = id;
+    if (id !== null) F.send({ type: 'cv_session', id });
+  }
+  F.on('tasks', askHands);
+  F.on('task_transcript', askHands);
+  F.on('cv_session', (ev) => { hands.set(ev.id, { ...(hands.get(ev.id) || {}), ...ev }); });
+  const handsOf = (task) => (task ? hands.get(task.id) || {} : {});
+
+  F.registerMoreItem({
+    label: 'Let this session use the Mac',
+    note: 'See the screen, click and type. Every step asks, except in Bypass permissions.',
+    keepOpen: true,
+    get switch() { return !!handsOf(F.currentTask()).mac; },
+    when: (task) => !!task,
+    run: (on) => { const task = F.currentTask(); if (task) F.send({ type: 'cv_session', id: task.id, mac: !!on }); },
+  });
+  F.registerMoreItem({
+    label: 'Xcode’s tools',
+    note: 'Xcode’s own tools for this session, while Xcode is open',
+    keepOpen: true,
+    get switch() { return !!handsOf(F.currentTask()).xcode; },
+    when: (task) => !!handsOf(task).xcode_project,
+    run: (on) => { const task = F.currentTask(); if (task) F.send({ type: 'cv_session', id: task.id, xcode: !!on }); },
   });
 })(typeof window === 'object' ? window : globalThis);
