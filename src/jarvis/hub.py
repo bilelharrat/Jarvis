@@ -3456,19 +3456,12 @@ class Hub:
             self.speech.push_clip(self._fillers[index], self._filler_phrases()[index])
 
     async def _revert_file(self, task, path: str) -> str:
-        """One changed file back as it is in the last commit (the Changes pane's Revert).
-        Only a file the pane lists as changed, and never a new one: reverting that would
-        delete it."""
-        changed = {f["path"]: f for f in await self._diff_files(task)}
-        change = changed.get(path)
-        if change is None:
-            return f"{path or 'That file'} has no changes to revert."
-        if change["new"]:
-            return f"{path} is a new file; delete it yourself if you don't want it."
-        await self._git(task.cwd, "restore", "--source=HEAD", "--staged", "--worktree", "--", path)
-        if any(f["path"] == path for f in await self._diff_files(task)):
-            return f"Couldn't revert {path}."
-        return f"Reverted {path} to the last commit."
+        """The session's own changes in one file undone (the Changes pane's Revert): only
+        the hunks its edits made, each applied in reverse, so another session's or the
+        owner's edits in the same file stay. Never a new file: that would delete it."""
+        from . import code_changes
+
+        return await asyncio.to_thread(code_changes.undo_file, task, path)
 
     async def _diff_files(self, task) -> list[dict[str, Any]]:
         """Every changed file with its lines, for the Changes view."""
@@ -3546,20 +3539,21 @@ class Hub:
 
     async def explain_change_prompt(self, task, index: int) -> str:
         """Ask the session to explain one numbered change, quoting it so there's no doubt
-        which ("the second change" counts the hunks the way 'what changed' reads them)."""
-        from . import diffspeak
+        which ("the second change" is number 2 in the Changes pane, the one "undo change 2"
+        undoes: the session's own hunks, biggest file first)."""
+        from . import code_changes
 
-        changes = await asyncio.to_thread(diffspeak.collect, task.cwd, set(task.files_changed))
-        pieces = diffspeak.hunks(changes or [])
+        view = await asyncio.to_thread(code_changes.numbered_view, task)
+        pieces = view.numbered() if view is not None else []
         brief = "In two or three short spoken sentences (no code, no lists), explain "
         if not pieces:
             which = "your most recent change" if index < 0 else f"change number {index + 1}"
             return brief + f"{which} this session: what it does and why."
-        hunk = pieces[index if -len(pieces) <= index < len(pieces) else -1]
+        _n, changed, hunk = pieces[index if -len(pieces) <= index < len(pieces) else -1]
         return (
             brief
             + "this change you made, what it does and why:\n\n"
-            + diffspeak.describe_hunk(hunk)
+            + code_changes.describe(view.repo, changed, hunk)
         )
 
     async def with_code_hints(self, task, text: str) -> str:

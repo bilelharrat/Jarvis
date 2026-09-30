@@ -139,8 +139,14 @@ async def test_an_export_that_cannot_be_saved_says_so(hub, tmp_path, monkeypatch
     task.handle.cancel()
 
 
-async def test_revert_puts_one_changed_file_back_and_never_deletes_a_new_one(hub, tmp_path):
+async def test_revert_undoes_only_the_sessions_own_edits_and_never_deletes_a_new_file(
+    hub, tmp_path
+):
+    """The Changes pane's Revert once put the whole file back to the last commit, taking the
+    owner's and other sessions' edits in it along. It undoes this session's hunks only."""
     import subprocess
+
+    from claude_agent_sdk import AssistantMessage, ToolResultBlock, ToolUseBlock, UserMessage
 
     project = tmp_path / "proj"
     project.mkdir()
@@ -151,24 +157,53 @@ async def test_revert_puts_one_changed_file_back_and_never_deletes_a_new_one(hub
     git("init", "-q")
     git("config", "user.email", "t@example.com")
     git("config", "user.name", "t")
-    (project / "a.py").write_text("x = 1\n")
+    (project / "a.py").write_text("".join(f"x{i} = {i}\n" for i in range(30)))
     (project / "b.py").write_text("y = 1\n")
     git("add", ".")
     git("commit", "-qm", "one")
-    (project / "a.py").write_text("x = 2\n")
-    (project / "b.py").write_text("y = 2\n")
-    (project / "new.py").write_text("z = 1\n")
     task = hub.tasks.start("", "proj")
+
+    def session_edits(tool, tool_input, apply):  # as Claude Code's Edit/Write reach the session
+        hub.tasks._on_task_message(
+            task,
+            AssistantMessage(
+                content=[ToolUseBlock(id=tool, name=tool.split("-")[0], input=tool_input)],
+                model="m",
+            ),
+        )
+        apply()
+        hub.tasks._on_task_message(
+            task,
+            UserMessage(content=[ToolResultBlock(tool_use_id=tool, content="ok", is_error=False)]),
+        )
+
+    a = project / "a.py"
+    hub.tasks._on_task_message(task, UserMessage(content="fix it", uuid="u-1"))
+    session_edits(
+        "Edit-1",
+        {"file_path": str(a), "old_string": "x2 = 2\n", "new_string": "x2 = 'two'\n"},
+        lambda: a.write_text(a.read_text().replace("x2 = 2\n", "x2 = 'two'\n")),
+    )
+    session_edits(
+        "Write-2",
+        {"file_path": str(project / "new.py"), "content": "z = 1\n"},
+        lambda: (project / "new.py").write_text("z = 1\n"),
+    )
+    a.write_text(a.read_text().replace("x25 = 25\n", "x25 = 'owner'\n"))  # the owner's own edit
+    (project / "b.py").write_text("y = 2\n")
     sent = _record(hub)
     await hub.handle({"type": "task_revert", "id": task.id, "path": "a.py"})
-    assert (project / "a.py").read_text() == "x = 1\n"
+    assert "x2 = 2\n" in a.read_text() and "x25 = 'owner'\n" in a.read_text()
     assert (project / "b.py").read_text() == "y = 2\n"  # only the file asked for
-    assert ("caption", {"text": "Reverted a.py to the last commit."}) in sent
+    assert ("caption", {"text": "Undid this session's 1 change in a.py."}) in sent
     files = [d["files"] for k, d in sent if k == "task_diff"][-1]
-    assert sorted(f["path"] for f in files) == ["b.py", "new.py"]
-    for path in ("new.py", "../outside.py", "a.py", ""):
+    assert sorted(f["path"] for f in files) == ["a.py", "b.py", "new.py"]  # the owner's stay
+    for path in ("new.py", "../outside.py", "b.py", ""):
         await hub.handle({"type": "task_revert", "id": task.id, "path": path})
     captions = [d["text"] for k, d in sent if k == "caption"][-4:]
     assert captions[0].startswith("new.py is a new file") and (project / "new.py").exists()
-    assert all("no changes to revert" in c for c in captions[1:])
+    assert captions[1].endswith("has no changes to revert.")
+    assert captions[2].startswith("None of the changes in b.py are this session's")
+    assert captions[3] == "That file has no changes to revert."
+    assert (project / "b.py").read_text() == "y = 2\n"
     task.handle.cancel()

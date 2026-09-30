@@ -4054,11 +4054,12 @@ function renderPaneBody() {
   }
 }
 
-// Revert one file to the last commit: a second click within a few seconds confirms.
+// Undo this session's own changes in one file (never another's edits in it): a second
+// click within a few seconds confirms.
 function revertButton(t, path) {
   const b = el('button', 'jc-mini jc-revert', 'Revert');
   b.type = 'button';
-  b.title = tr('Put this file back as it is in the last commit');
+  b.title = tr('Undo this session’s own changes in this file');
   let armed = 0;
   b.addEventListener('click', (e) => {
     e.preventDefault();  // (inside the summary: never opens or closes the file)

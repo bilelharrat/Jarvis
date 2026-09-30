@@ -55,7 +55,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import browser_gate, code_tools
+from . import browser_gate, code_changes, code_tools
 from .computer import is_sensitive
 from .config import MAX_BUFFER, Settings
 from .knowledge import RESEARCH_DIR
@@ -688,6 +688,10 @@ class ClaudeTask:
     stream_buf: list[tuple[str, list[str]]] = field(default_factory=list)  # (part, pieces)
     stream_timer: Any = None  # the batch of live words is due
     history_read: bool = False  # a reopened session's earlier conversation has been read in
+    # What each of its edits wrote and took out (code_changes.EditMark), so its changes can
+    # be told from anyone else's in a shared folder; and those of edits not yet done.
+    edit_marks: list[Any] = field(default_factory=list)
+    pending_marks: dict[str, Any] = field(default_factory=dict)
 
     @property
     def steerable(self) -> bool:
@@ -1254,6 +1258,7 @@ class TaskManager:
             )
             for gone in task.checkpoints[at:]:
                 task.files_changed -= task.checkpoint_files.pop(gone, set()) - kept
+            code_changes.forget(task, set(task.checkpoints[at:]))
             del task.checkpoints[at:]
         return "Rewound: the files are back as they were before that message."
 
@@ -1636,11 +1641,13 @@ class TaskManager:
         """Attach a step's outcome and a bit of its output to its timeline entry, and
         count an edit as a change once it's done (a refused edit changed nothing)."""
         path = task.pending_edits.pop(block.tool_use_id, None)
+        mark = task.pending_marks.pop(block.tool_use_id, None)
         if path and not block.is_error:
             task.files_changed.add(path)
             task.turn_files.add(path)
             if task.checkpoints:
                 task.checkpoint_files.setdefault(task.checkpoints[-1], set()).add(path)
+            code_changes.remember(task, path, mark)
         content = block.content
         if isinstance(content, list):
             content = "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
@@ -2339,6 +2346,7 @@ class TaskManager:
         path = block.input.get("file_path") or block.input.get("notebook_path")
         if block.name in EDIT_TOOLS and path:
             task.pending_edits[block.id] = str(path)
+            task.pending_marks[block.id] = code_changes.fingerprint(block.name, block.input)
 
     def _claude_down(self, task: ClaudeTask, why: str, said: str) -> None:
         """Claude couldn't answer this session (its usage limit, an outage). When the hub
