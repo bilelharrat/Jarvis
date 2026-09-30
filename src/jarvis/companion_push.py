@@ -44,7 +44,7 @@ PUSH_RATE = (20, 10)  # pushes a minute to one phone, and the most at once
 REPEAT_SECONDS = 60  # the same push again this soon isn't sent
 # Heads-ups whose words are JARVIS's own about the owner's calendar, weather and Mac (or
 # their own request): shown as they are. Any other kind shows only a fixed line.
-OWN_WORDS = frozenset({"leave", "soon", "battery", "rain", "task", "learned", "call"})
+OWN_WORDS = frozenset({"leave", "soon", "battery", "rain", "weather", "task", "learned", "call"})
 
 TEXTS = {
     "en": {

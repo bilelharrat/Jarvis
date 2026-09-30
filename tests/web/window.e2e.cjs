@@ -4440,6 +4440,28 @@ test('The evening wrap-up is switched on at a time, and “Wrap up now” asks f
   assert(await js('$("settings").hidden'), 'Settings stayed open');
 });
 
+test('Weather and travel switches the weather heads-ups, says what it watches, and weather cards say so', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: {} });
+  assert(await js('$("travel-group").previousElementSibling.contains($("sw-briefing"))'), 'not after Morning briefing');
+  assert(await js('$("sw-weather-severe").getAttribute("aria-checked")') === 'true', 'severe weather is off by itself');
+  assert(await js('$("weather-air").querySelector("[aria-checked=true]").dataset.mode') === 'sensitive', 'the air’s level');
+  await js('toggleSettings(true); __sent.length = 0; $("sw-weather-severe").click(); $("weather-air").querySelector("[data-mode=unhealthy]").click(); $("sw-weather-swings").click(); true');
+  const s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s.map((m) => m.changes)) === JSON.stringify([{ weather_severe: false }, { weather_air: 'unhealthy' }, { weather_swings: false }]), JSON.stringify(s));
+  await deliver({ ...PREFS, features: { weather_severe: false, weather_air: 'unhealthy' } });
+  assert(await js('$("sw-weather-severe").getAttribute("aria-checked")') === 'false', 'still shown on');
+  assert(await js('$("weather-air").querySelector("[aria-checked=true]").dataset.mode') === 'unhealthy', 'the level set');
+  await deliver({ type: 'proactive', weather: { place: 'Berkeley', warnings: ['Red Flag Warning for your area until 4:45 PM.'], air: { aqi: 168, words: 'unhealthy', level: 3, scale: 'us' }, today: null, checked: 1, error: '' } });
+  const line = await js('$("weather-status").textContent');
+  assert(line.includes('Berkeley') && line.includes('Red Flag Warning') && line.includes('AQI 168'), line);
+  assert(await js('$("weather-status").querySelector("bdi").hasAttribute("data-no-i18n")'), 'the place would be translated');
+  await deliver({ type: 'proactive', weather: { place: '', warnings: [], air: null, today: null, checked: 0, error: '' } });
+  assert((await js('$("weather-status").textContent')).includes('Needs your location'), 'no word on what it needs');
+  await deliver({ type: 'alert', key: 'weather:nws:1', alert_kind: 'weather', title: 'Severe weather', text: 'Tornado Warning for your area.' });
+  assert(await js('[...document.querySelectorAll("#cards .card-kicker")].some((k) => k.textContent === "Weather")'), 'no Weather kicker on the card');
+});
+
 // ──
 
 let base;

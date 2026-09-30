@@ -59,3 +59,13 @@ test('a section moves one place, and never off either end', () => {
   assert.deepEqual(P.toggled(s, 'mail').map((x) => x.on), [true, true, true]);
   assert.equal(s[2].on, false);  // the list it was given is left as it was
 });
+
+test('the weather status: what it needs, else where it watches and what it sees', () => {
+  assert.deepEqual(P.weatherLine(null, 'sensitive'), { words: '', place: '', details: '' });
+  assert.equal(P.weatherLine({ place: '' }, 'sensitive').words, 'Needs your location, or a weather city, to watch the weather.');
+  assert.equal(P.weatherLine({ place: '', error: 'The weather city couldn\'t be found just now.' }, 'sensitive').words, 'The weather city couldn\'t be found just now.');
+  const w = { place: 'Berkeley', warnings: ['Red Flag Warning for your area.', 7], air: { aqi: 42, words: 'good' } };
+  assert.deepEqual(P.weatherLine(w, 'sensitive'), { words: 'Watching the weather in', place: 'Berkeley', details: 'Red Flag Warning for your area. · AQI 42 · good' });
+  assert.equal(P.weatherLine(w, 'off').details, 'Red Flag Warning for your area.');
+  assert.equal(P.weatherLine({ place: 'Paris', warnings: [], air: null }, 'sensitive').details, '');
+});

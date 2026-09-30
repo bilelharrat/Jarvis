@@ -47,7 +47,21 @@
     "Checked your reminders": "查看了提醒事项",
     "Added a reminder": "添加了提醒事项",
     "Ticked off a reminder": "完成了一条提醒事项",
-    "Deleted a reminder": "删除了一条提醒事项"
+    "Deleted a reminder": "删除了一条提醒事项",
+    "Weather and travel": "天气与出行",
+    "Severe weather": "恶劣天气",
+    "In the US, warnings from the National Weather Service; elsewhere, storms, ice, heavy snow, gales and extreme heat or cold in the forecast": "在美国，来自美国国家气象局的预警；在其他地方，天气预报里的雷暴、冰冻、大雪、大风和极端冷热",
+    "Air quality warnings": "空气质量提醒",
+    "When the air gets unhealthy for sensitive groups, or for everyone": "空气对敏感人群或对所有人不健康时提醒你",
+    "Sensitive groups": "敏感人群",
+    "Unhealthy": "不健康",
+    "Big temperature swings": "气温骤变",
+    "Said in the evening when tomorrow will be much warmer or colder than today": "明天比今天暖和或冷很多时，晚上告诉你",
+    "Watching the weather in": "正在关注天气：",
+    "No warnings right now.": "目前没有预警。",
+    "Needs your location, or a weather city, to watch the weather.": "需要你的位置或天气城市，才能关注天气。",
+    "The weather city couldn't be found just now.": "暂时找不到天气城市。",
+    "Checked weather warnings": "查看了天气预警"
   },
   "patterns": []
 }

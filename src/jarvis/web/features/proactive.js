@@ -1,7 +1,9 @@
 // The proactive feature's window side (jarvis.features.proactive): Settings › Speaking up
 // gains the weekend's own quiet hours, following a Focus mode (with why it can't, when it
 // can't) and a snooze with its Resume; Settings › Morning briefing gains its sections (each
-// on or off, in the owner's order), news topics and the evening wrap-up.
+// on or off, in the owner's order), news topics and the evening wrap-up; a new Settings ›
+// Weather and travel holds the weather heads-ups (severe weather, the air, big swings).
+// Weather heads-ups get their own kicker on cards.
 //
 // Everything the backend or the owner wrote (a Focus mode's name, a time) is shown with
 // textContent and marked data-no-i18n; the window's own words are translated by i18n.js as
@@ -70,6 +72,15 @@
     toggled(sections, id) {
       return sections.map((s) => (s.id === id ? { ...s, on: !s.on } : { ...s }));
     },
+    // What Settings says the weather watch sees: {words, place, details} (details: the
+    // warnings and the air, the backend's words; '' when there are none).
+    weatherLine(w, air) {
+      if (!w) return { words: '', place: '', details: '' };
+      if (!w.place) return { words: w.error || 'Needs your location, or a weather city, to watch the weather.', place: '', details: '' };
+      const bits = Array.isArray(w.warnings) ? w.warnings.filter((x) => typeof x === 'string' && x) : [];
+      if (air !== 'off' && w.air && Number.isFinite(w.air.aqi)) bits.push(`AQI ${w.air.aqi} · ${w.air.words}`);
+      return { words: 'Watching the weather in', place: w.place, details: bits.join(' · ') };
+    },
   };
   window.jarvisProactive = P;
 
@@ -82,6 +93,7 @@
   let features = {};
   let quiet = null;
   let briefing = null;  // the backend's word on the briefing (its sections' defaults)
+  let weather = null;  // what the weather watch last saw
 
   function button(label, cls, onClick, aria) {
     const b = el('button', cls, label);
@@ -271,6 +283,71 @@
     if (briefing) briefing.wrapup = { ...wrap, on, time: at };
   }
 
+  // ── Settings › Weather and travel: weather heads-ups ──
+
+  // Weather heads-ups say so on their cards (app.js's kickers name each kind of heads-up).
+  if (typeof ALERT_KICKERS === 'object' && ALERT_KICKERS) ALERT_KICKERS.weather = 'Weather';
+
+  const AIR_MODES = [['off', 'Off'], ['sensitive', 'Sensitive groups'], ['unhealthy', 'Unhealthy']];
+
+  function segmented(id, label, options, onPick) {
+    const group = el('div', 'segmented');
+    group.id = id;
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', label);
+    for (const [value, text] of options) {
+      const b = button(text, '', () => onPick(value));
+      b.setAttribute('role', 'radio');
+      b.dataset.mode = value;
+      b.setAttribute('aria-checked', 'false');
+      group.append(b);
+    }
+    return group;
+  }
+
+  function pick(id, value) {
+    F.$(id)?.querySelectorAll('[role="radio"]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === value)));
+  }
+
+  function buildWeather() {
+    const before = F.$('sw-briefing')?.closest('section.group');
+    if (!before || F.$('travel-group')) return;
+    const group = el('section', 'group');
+    group.id = 'travel-group';
+    const severe = toggle('sw-weather-severe', 'Severe weather', () => setFeatures({ weather_severe: features.weather_severe === false }));
+    const swings = toggle('sw-weather-swings', 'Big temperature swings', () => setFeatures({ weather_swings: features.weather_swings === false }));
+    const air = segmented('weather-air', 'Air quality warnings', AIR_MODES, (mode) => setFeatures({ weather_air: mode }));
+    const status = el('p', 'small-status');
+    status.id = 'weather-status';
+    group.append(
+      el('h3', '', 'Weather and travel'),
+      row('Severe weather', 'In the US, warnings from the National Weather Service; elsewhere, storms, ice, heavy snow, gales and extreme heat or cold in the forecast', severe),
+      row('Air quality warnings', 'When the air gets unhealthy for sensitive groups, or for everyone'),
+      air,
+      row('Big temperature swings', 'Said in the evening when tomorrow will be much warmer or colder than today', swings),
+      status,
+    );
+    before.after(group);
+    renderWeather();
+  }
+
+  function renderWeather() {
+    F.$('sw-weather-severe')?.setAttribute('aria-checked', String(features.weather_severe !== false));
+    F.$('sw-weather-swings')?.setAttribute('aria-checked', String(features.weather_swings !== false));
+    const air = ['off', 'sensitive', 'unhealthy'].includes(features.weather_air) ? features.weather_air : 'sensitive';
+    pick('weather-air', air);
+    const status = F.$('weather-status');
+    if (!status) return;
+    const { words, place, details } = P.weatherLine(weather, air);
+    status.replaceChildren();
+    if (words) status.append(el('span', '', words));
+    if (place) {
+      status.append(' ', mine(el('bdi', '', place)), el('br'));
+      status.append(details ? mine(el('span', 'weather-now', details)) : el('span', 'weather-now', 'No warnings right now.'));
+    }
+    status.hidden = !words;
+  }
+
   // ── events ──
 
   function onPrefs(p) {
@@ -279,6 +356,7 @@
     if (p.features) features = p.features;
     renderQuiet();
     renderBriefing();
+    renderWeather();
   }
 
   // The backend's state when this script loads (it may load after the hello: a prefs event
@@ -288,9 +366,11 @@
   F.on('proactive', (ev) => {
     if (ev.quiet) { quiet = ev.quiet; renderQuiet(); }
     if (ev.briefing) { briefing = ev.briefing; renderBriefing(); }
+    if (ev.weather) { weather = ev.weather; renderWeather(); }
   });
   buildQuiet();
   buildBriefing();
+  buildWeather();
   send({ type: 'proactive_state' });
   // A pause ends by itself: Settings shows it, and the Focus line, as they are now.
   setInterval(() => { if (!F.$('settings')?.hidden) renderQuiet(); }, 30000);

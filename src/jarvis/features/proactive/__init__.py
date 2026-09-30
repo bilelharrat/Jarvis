@@ -7,6 +7,8 @@ Its parts, each a module here with the details (settings, tools, commands, cost)
   facts the app already knows) and an evening wrap-up.
 - reminders.py: Apple Reminders by voice (list, add, tick off, delete on a card), and the
   reminders due in the briefing and the wrap-up.
+- weather_watch.py: severe weather warnings, the air and big temperature swings, as
+  heads-ups and in the briefing.
 
 Window: {"type": "proactive_state"} -> one "proactive" event with every part's state (each
 part sends its own piece again, as {"type": "proactive", <part>: {...}}, when it changes);
@@ -21,7 +23,7 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-from . import briefing, quiet, reminders
+from . import briefing, quiet, reminders, weather_watch
 
 _FEATURES: weakref.WeakKeyDictionary[Any, Proactive] = weakref.WeakKeyDictionary()
 
@@ -34,16 +36,22 @@ class Proactive:
         self.quiet = quiet.Quiet(hub)
         self.briefing = briefing.Briefing(hub)
         self.reminders = reminders.Reminders(hub, self.briefing)
+        self.weather = weather_watch.WeatherWatch(hub, self.briefing)
 
     def install(self) -> None:
         self.quiet.install()
         self.briefing.install()
         self.reminders.install()
+        self.weather.install()
         self.hub.register_command("proactive_state", self.send_state)
         self.hub.register_command("proactive_snooze", self.snooze_command)
 
     def state(self) -> dict[str, Any]:
-        return {"quiet": self.quiet.state(), "briefing": self.briefing.state()}
+        return {
+            "quiet": self.quiet.state(),
+            "briefing": self.briefing.state(),
+            "weather": self.weather.state(),
+        }
 
     def send_state(self, _msg: dict[str, Any] | None = None) -> None:
         self.hub.emit("proactive", **self.state())
