@@ -144,6 +144,35 @@ async def test_something_needs_them_its_said_once(rig):
     assert "Already told the owner today:\n- Ann replied" in factory.made[1].queries[0]
 
 
+@pytest.mark.parametrize(
+    "edited",
+    [
+        {"day": 5, "count": "3", "last": 5, "told": 7.5, "quiet_digest": 3},
+        {
+            "last": [{"at": 9, "outcome": ["x"], "said": None}, "row"],
+            "told": [[7, "x"], ["2026-09-29T11:00:00", 9], "row", ["2026-09-29T11:30:00", "Hi"]],
+        },
+    ],
+)
+async def test_a_hand_edited_file_never_stops_the_check_ins(rig, edited):
+    """heartbeat.json with fields of the wrong type (a hand edit): what can't be used is left
+    out, so Settings still shows the check-ins and the next one still runs."""
+    import json
+
+    rig.beat.path.parent.mkdir(parents=True, exist_ok=True)
+    rig.beat.path.write_text(json.dumps(edited))
+    rig.beat._state = None
+    public = rig.beat.public()
+    assert all(isinstance(c["at"], str) and isinstance(c["said"], str) for c in public["last"])
+    assert rig.beat.blocked(NOON) == ""
+    rig.feature.state()  # Settings › Routines' whole state
+    answer(rig, "Ann replied about the lease.")
+    out = await rig.beat.check(NOON)
+    assert out["outcome"] == "said" and [a.text for a in rig.heard] == [
+        "Ann replied about the lease."
+    ]
+
+
 async def test_what_it_looks_at_and_how_someone_elses_words_are_fenced(rig):
     hub, beat = rig.hub, rig.beat
     rig.events.append(

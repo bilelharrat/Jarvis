@@ -155,8 +155,23 @@ class Heartbeat:
                 data = jsonstore.load_json(self.path, dict) or {}
             except jsonstore.Unreadable:
                 data = {}
-            last = [c for c in data.get("last", []) if isinstance(c, dict)][-KEPT:]
-            told = [t for t in data.get("told", []) if isinstance(t, list) and len(t) == 2]
+
+            # A field of the wrong type (a hand edit) is left out, never an error: this is
+            # read by every check-in and by Settings.
+            def listed(key: str) -> list[Any]:
+                value = data.get(key)
+                return value if isinstance(value, list) else []
+
+            last = [
+                {k: str(c.get(k) or "") for k in ("at", "outcome", "said")}
+                for c in listed("last")
+                if isinstance(c, dict)
+            ][-KEPT:]
+            told = [
+                t
+                for t in listed("told")
+                if isinstance(t, list) and len(t) == 2 and all(isinstance(x, str) for x in t)
+            ]
             count = data.get("count")
             self._state = {
                 "day": data.get("day") if isinstance(data.get("day"), str) else "",
