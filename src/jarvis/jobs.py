@@ -292,6 +292,9 @@ class Run:
     model: str = ""
     cost: float | None = None
     skipped: list[str] = field(default_factory=list)  # asked, nobody answered
+    # What the run has read of the owner's data or someone else's words (never saved): a
+    # page's address or a research topic could carry it off, so those ask then (policy).
+    read: list[str] = field(default_factory=list)
 
     @property
     def note(self) -> str:
@@ -595,6 +598,21 @@ OWN_READ = (
     "find_contact",
 )
 SELF_GATED = ("send_message", "send_email")  # they check the standing orders themselves
+# The routine's own tools whose answers are its own words or public facts: anything else it
+# runs (mail, the calendar, notes, contacts, a Shortcut's answer) counts as read (Run.read).
+QUIET_OWN = (
+    "weather",
+    "markets",
+    "notify_me",
+    "send_message",
+    "send_email",
+    "message_session",
+    "start_research",
+    "call_me",
+)
+# Standing orders that reach past the Mac to places the order doesn't name: after the run
+# has read something, they ask (a page on a site the routine's own words name still goes).
+EGRESS = ("web", "research")
 BLOCKED = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep", "Task"]
 SKIPPED_NOTE = (
     "The owner wasn't there to OK that, so it's skipped. Don't retry it or find another "
@@ -617,6 +635,7 @@ ZH = {
     "start research on {topic}": "开始研究{topic}",
     "call your phone": "打你的手机",
     "read a page on {host}": "读取{host}上的一个网页",
+    "This run has read your data or someone else's words, and a page's address or a research topic can carry some of that off the Mac.": "这次运行读过你的数据或别人写的内容，网页地址或研究主题可能把其中一些带出这台 Mac。",
     "message {who}": "给{who}发消息",
     "email {who}": "给{who}发邮件",
 }
@@ -752,6 +771,8 @@ class JobRunner:
                 return
             model = getattr(routine, "model", "") or "haiku"
             run.model = model
+            if summary or cause.context:  # someone else's words are in its prompt
+                run.read.append(cause.source or cause.label or "what started it")
             prompt = self._prompt(routine, cause, summary)
             options = self.options(routine, run, level, model)
             if self._slots is None:
@@ -820,6 +841,8 @@ class JobRunner:
         return "\n\n".join(lines)
 
     def options(self, routine: Any, run: Run, level: str, model: str) -> ClaudeAgentOptions:
+        from .brain import taint_hooks
+
         servers: dict[str, Any] = {}
         allowed: list[str] = []
         builtins: list[str] = []
@@ -851,6 +874,8 @@ class JobRunner:
             setting_sources=[],
             permission_mode="default",
             can_use_tool=self.policy(routine, run, level),
+            # Every tool once it has answered, allowed ones too: what the run has read.
+            hooks=taint_hooks(lambda name: self._note_read(run, name)) if servers else None,
             max_turns=MAX_TURNS.get(level, 1),
             max_budget_usd=BUDGET_USD.get(model, BUDGET_USD["haiku"]),
             thinking={"type": "disabled"},
@@ -944,14 +969,51 @@ class JobRunner:
                     message="This routine only reads: it can't do that. Finish without it."
                 )
             kind, target, what, detail = need
-            if allows(list(getattr(routine, "may", []) or []), kind, target):
+            carries = self._carries_off(routine, run, kind, tool_input or {})
+            if not carries and allows(list(getattr(routine, "may", []) or []), kind, target):
                 return PermissionResultAllow()
+            if carries:
+                detail = (
+                    self.say(
+                        "This run has read your data or someone else's words, and a page's "
+                        "address or a research topic can carry some of that off the Mac."
+                    )
+                    + "\n\n"
+                    + detail
+                )
             answer = await self.ask(routine, run, what, detail)
             if answer is None:
                 return PermissionResultDeny(message=SKIPPED_NOTE)
             return PermissionResultAllow() if answer else PermissionResultDeny(message=SAID_NO)
 
         return can_use_tool
+
+    @staticmethod
+    def _note_read(run: Run, tool_name: str) -> None:
+        """A tool of the run's session answered: its answer counts as read unless it's the
+        routine's own words or public facts (as JARVIS's own turn gate weighs them)."""
+        from .brain import result_kind
+
+        if tool_name in {f"mcp__{SERVER}__{n}" for n in QUIET_OWN}:
+            return
+        if result_kind(tool_name) == "private":
+            name = tool_name.rsplit("__", 1)[-1]
+            if name not in run.read:
+                run.read.append(name)
+
+    @staticmethod
+    def _carries_off(routine: Any, run: Run, kind: str, args: dict[str, Any]) -> bool:
+        """A standing order that reaches past the Mac, once the run has read something: it
+        asks, as JARVIS's own turn gate does, unless it's a page on a site the routine's own
+        words (approved on its card) name."""
+        if kind not in EGRESS or not run.read:
+            return False
+        if kind == "web":
+            from .brain import host_said, url_host
+
+            host = url_host(str(args.get("url", "")).strip())
+            return not (host and host_said(host, str(getattr(routine, "prompt", "") or "")))
+        return True
 
     async def ask(self, routine: Any, run: Run, what: str, detail: str) -> bool | None:
         """A card (said too, outside quiet hours): the owner's yes or no, or None when nobody
