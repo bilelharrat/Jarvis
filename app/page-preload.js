@@ -324,12 +324,112 @@ function find(text) {
   return best;
 }
 
-function readPage() {
+// ── the fuller read JARVIS's and Jarvis Code's browser_read ask for (rich) ──
+// What <main> leaves out: an open dialog, an alert or toast, a fixed banner or drawer, a
+// sidebar (an order summary with the total). Each goes ahead of <main>'s text, labelled.
+const REGIONS = [
+  ['Dialog', 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"], [popover]:popover-open'],
+  ['Alert', '[role="alert"], [role="status"], [aria-live="assertive"], [aria-live="polite"], output'],
+  ['Sidebar', 'aside, [role="complementary"]'],
+];
+const REGION_MAX = 3000;
+const REGIONS_MAX = 8000;
+const SECRET_FIELD = /(pass(word|code|phrase)?|\bpin\b|cvv|cvc|csc|security.?code|card.?(number|no)|cc-|one.?time|otp|2fa|verification.?code|\bssn\b|social.?security|iban|routing|account.?number)/i;
+
+const squash = (text, max) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, max);
+
+function regionName(el) {
+  const by = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+    .map((id) => { const n = document.getElementById(id); return n ? n.innerText : ''; }).join(' ');
+  const heading = el.querySelector('h1, h2, h3, h4, legend, [role="heading"]');
+  return squash(by || el.getAttribute('aria-label') || (heading && heading.innerText) || '', 80);
+}
+
+// Fixed or sticky boxes near the top of the tree: cookie banners, drawers, sticky summaries.
+function pinnedBoxes() {
+  const found = [];
+  const walk = (el, depth) => {
+    for (const kid of el.children) {
+      if (found.length >= 12 || kid.tagName === 'JARVIS-HAND' || kid.tagName === 'SCRIPT' || kid.tagName === 'STYLE') continue;
+      const position = getComputedStyle(kid).position;
+      if ((position === 'fixed' || position === 'sticky') && visible(kid) && inView(kid)) found.push(kid);
+      else if (depth < 3) walk(kid, depth + 1);
+    }
+  };
+  if (document.body) walk(document.body, 0);
+  return found;
+}
+
+function regionsOutside(main) {
+  const picked = [];
+  const add = (kind, el) => {
+    if (!el || el === main || main.contains(el) || el.closest('jarvis-hand') || !visible(el)) return;
+    if (picked.some((p) => p.el.contains(el) || el.contains(p.el))) return;
+    const text = squash(el.innerText, REGION_MAX);
+    if (text) picked.push({ kind, el, text, name: regionName(el) });
+  };
+  for (const [kind, selector] of REGIONS) {
+    let els = [];
+    try { els = [...document.querySelectorAll(selector)]; } catch (_) { els = []; }
+    for (const el of els.slice(0, 20)) add(kind, el);
+  }
+  for (const el of pinnedBoxes()) add('Banner', el);
+  return picked.slice(0, 8);
+}
+
+// A form field's own label, as a screen reader says it: aria-labelledby, aria-label, its
+// <label>, the legend of its group (for a radio or checkbox), its title.
+function fieldLabel(f) {
+  const by = (f.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+    .map((id) => { const n = document.getElementById(id); return n ? n.innerText : ''; }).join(' ');
+  const labels = f.labels ? [...f.labels].map((l) => l.innerText).join(' ') : '';
+  const fieldset = (f.type === 'radio' || f.type === 'checkbox') && f.closest('fieldset');
+  const legend = fieldset && fieldset.querySelector('legend');
+  return squash([legend ? legend.innerText : '', by || f.getAttribute('aria-label') || labels || f.title || ''].filter(Boolean).join(': '), 120);
+}
+
+function fieldError(f) {
+  const id = f.getAttribute('aria-errormessage');
+  if (f.getAttribute('aria-invalid') === 'true') {
+    const n = id && document.getElementById(id);
+    const described = (f.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
+      .map((d) => { const x = document.getElementById(d); return x ? x.innerText : ''; }).join(' ');
+    return squash((n && n.innerText) || described || 'invalid', 160);
+  }
+  try { if (f.matches(':user-invalid')) return squash(f.validationMessage || 'invalid', 160); } catch (_) { /* older engine */ }
+  return '';
+}
+
+function richField(f) {
+  const tag = f.tagName.toLowerCase();
+  const type = String(f.type || '').toLowerCase();
+  const label = fieldLabel(f);
+  const out = {
+    tag, type, name: f.name || '', id: f.id || '', label: label || labelOf(f),
+    placeholder: f.getAttribute('placeholder') || '', autocomplete: f.getAttribute('autocomplete') || '',
+  };
+  const secret = type === 'password' || SECRET_FIELD.test(`${label} ${out.name} ${out.id} ${out.autocomplete} ${out.placeholder}`);
+  if (type === 'checkbox' || type === 'radio') out.checked = Boolean(f.checked);
+  else if (tag === 'select') {
+    out.value = squash([...f.selectedOptions].map((o) => o.label).join(', '), 120);
+    out.options = [...f.options].slice(0, 12).map((o) => squash(o.label, 40));
+    if (f.options.length > 12) out.more = f.options.length - 12;
+  } else if (typeof f.value === 'string' && f.value) out.value = secret ? '(hidden)' : squash(f.value, 120);
+  if (f.required) out.required = true;
+  if (f.disabled) out.disabled = true;
+  const error = fieldError(f);
+  if (error) out.error = error;
+  return out;
+}
+
+function readPage(args = {}) {
   const main = document.querySelector('main') || mainScroller() || document.body;
   const links = [...document.querySelectorAll('a[href]')].filter(visible).slice(0, 40)
     .map((a) => ({ text: labelOf(a), href: a.href })).filter((l) => l.text);
-  const fields = [...document.querySelectorAll('input, textarea, select')].filter(visible).slice(0, 30)
-    .map((f) => ({ tag: f.tagName.toLowerCase(), type: f.type || '', name: f.name || '', label: labelOf(f) }));
+  const fields = args.rich
+    ? [...document.querySelectorAll('input:not([type="hidden"]), textarea, select')].filter(visible).slice(0, 40).map(richField)
+    : [...document.querySelectorAll('input, textarea, select')].filter(visible).slice(0, 30)
+      .map((f) => ({ tag: f.tagName.toLowerCase(), type: f.type || '', name: f.name || '', label: labelOf(f) }));
   const headings = [...document.querySelectorAll('h1, h2, h3')].filter(visible)
     .map((h) => h.innerText.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 30);
   const seen = new Set();
@@ -342,7 +442,7 @@ function readPage() {
     actions.push(label);
     if (actions.length >= 60) break;
   }
-  return {
+  const page = {
     title: document.title,
     url: location.href,
     path: location.pathname,
@@ -352,6 +452,29 @@ function readPage() {
     links,
     fields,
     hovered: hover ? labelOf(hover) : '',
+  };
+  if (!args.rich) return page;
+  // Dialogs, alerts, banners and sidebars first (a sidebar's total counts for the purchase
+  // guard), then <main>; read on from offset past the limit.
+  let budget = REGIONS_MAX;
+  const regions = [];
+  for (const r of regionsOutside(main)) {
+    if (budget <= 0) break;
+    const text = r.text.slice(0, budget);
+    budget -= text.length;
+    regions.push({ kind: r.kind, name: r.name, text });
+  }
+  const head = regions.map((r) => `[${r.kind}${r.name ? `: ${r.name}` : ''}]\n${r.text}`).join('\n\n');
+  const full = `${head}${head ? '\n\n[Main content]\n' : ''}${main.innerText || ''}`.slice(0, 2_000_000);
+  const offset = Math.max(0, Math.min(full.length, Number(args.offset) || 0));
+  const limit = Math.max(1000, Math.min(120000, Number(args.limit) || 20000));
+  return {
+    ...page,
+    text: full.slice(offset, offset + limit),
+    offset,
+    total: full.length,
+    more: offset + limit < full.length,
+    regions: regions.map((r) => ({ kind: r.kind, name: r.name })),
   };
 }
 
@@ -539,7 +662,7 @@ async function command({ action, args = {} }) {
       setTimeout(() => { if (hover !== el) place(hover); }, 900);
       return { ok: true, label: labelOf(el), risky: risky(el), x: Math.round(c.x * z), y: Math.round(c.y * z) };
     }
-    case 'read': return readPage();
+    case 'read': return readPage(args);
     case 'scroll': return scrollPage(args);
     case 'search': return search(args);
     case 'navigate': return navigate(args);

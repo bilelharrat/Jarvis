@@ -753,8 +753,13 @@ function focusScript(target) {
     if (t.selector) { try { el = document.querySelector(t.selector); } catch (e) {} }
     if (!el && t.field) {
       const want = t.field.toLowerCase();
+      // its words as the page read gives them to the purchase guard: its labels, placeholder, name and id
+      const text = (id) => { const n = document.getElementById(id); return n ? n.innerText : ''; };
+      const words = (e) => [(e.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(text).join(' '),
+        e.getAttribute('aria-label'), e.labels ? [...e.labels].map((l) => l.innerText).join(' ') : '', e.title,
+        e.placeholder, e.name, e.id].filter(Boolean).join(' ').toLowerCase();
       el = [...document.querySelectorAll('input, textarea, [contenteditable=true]')].filter(visible)
-        .find((e) => ((e.getAttribute('aria-label') || '') + ' ' + (e.placeholder || '') + ' ' + (e.name || '')).toLowerCase().includes(want));
+        .find((e) => words(e).includes(want));
     }
     if (!el && document.activeElement && document.activeElement !== document.body) el = document.activeElement;
     if (!el) el = [...document.querySelectorAll('input[type=text], input[type=search], input:not([type]), textarea')].find(visible);
@@ -881,7 +886,8 @@ async function runBrowserCommand({ action, args = {} }) {
       return { ok: true, ...where() };
     case 'read':
       if (!wc.getURL()) return { error: 'The browser is empty. Open a page first.' };
-      return { ...(await pageCall('read', {}, 6000, view)), locked: lockedHere, tab: wc.id };
+      // rich: dialogs, banners and sidebars too, real field labels and values, read on from offset
+      return { ...(await pageCall('read', { rich: Boolean(args.rich), offset: Number(args.offset) || 0, limit: Number(args.limit) || 0 }, 6000, view)), locked: lockedHere, tab: wc.id };
     case 'click': {
       const found = await pageCall('locate', { text: String(args.text || ''), selector: String(args.selector || '') }, 6000, view);
       if (!found.ok) return found;

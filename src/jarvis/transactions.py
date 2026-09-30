@@ -2831,6 +2831,10 @@ _LOOKING = frozenset(
 )
 # What says which tab a call is for; the guard reads that same tab.
 _ROUTE = ("tab", "owner")
+# How the guard reads a page: fuller than Claude's read (dialogs, banners and sidebars too,
+# with each form box's own words) and far past 14,000 characters, so a total anywhere on
+# the page counts.
+GUARD_READ = {"rich": True, "limit": 60000}
 # browser_act's presses and what the guard does with their keys.
 _PRESSES = frozenset({"click", "dblclick", "rightclick", "check", "uncheck"})
 _ENTER = frozenset({"enter", "return"})
@@ -2872,7 +2876,7 @@ async def _guard_act(desk: Transactions, call: BrowserCall, args: dict[str, Any]
     number, and no Enter on a page that pays or books."""
     route = _route(args)
     kind = str(args.get("kind") or "click").lower()
-    page = await call("read", dict(route))
+    page = await call("read", {**route, **GUARD_READ})
     if not _readable(page):
         return {
             "ok": False,
@@ -2980,7 +2984,7 @@ def guard_browser(desk: Transactions, call: BrowserCall) -> BrowserCall:
         if action not in ("click", "type", "search"):
             desk.page_changed()
             return await call(action, args)
-        page = await call("read", _route(args))
+        page = await call("read", {**_route(args), **GUARD_READ})
         if not _readable(page):
             return {
                 "ok": False,

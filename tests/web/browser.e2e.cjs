@@ -7,7 +7,7 @@
 //   app/node_modules/.bin/electron tests/web/browser.e2e.cjs      (about 20 s; exit 1 on a failure)
 'use strict';
 
-const { app, BrowserWindow, WebContentsView } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain } = require('electron');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
@@ -48,6 +48,19 @@ addEventListener('click', (e) => { window.trusted = e.isTrusted; }, true);
   '/frame.html': '<!doctype html><body><button onclick="this.textContent=\'frame clicked\'">Frame button</button></body>',
   '/frame2.html': '<!doctype html><body><label>Card holder <input id="ch"></label><button onclick="this.textContent=\'cross clicked\'">Cross button</button></body>',
   '/other.html': '<!doctype html><title>Other</title><body><h1>Another page</h1><a href="/shop.html">Back to shop</a></body>',
+  '/form.html': `<!doctype html><title>Form</title><body>
+<div id="banner" style="position:fixed;bottom:0;left:0;right:0;background:#fee">We use cookies. <button>Accept</button></div>
+<div role="dialog" aria-labelledby="dt" style="position:fixed;top:20px;left:20px;background:#fff"><h2 id="dt">Sign in</h2><p>Welcome back</p></div>
+<div role="status">Saved your draft</div>
+<main><h1>Details</h1>
+<label for="em">Email address</label><input id="em" type="email" value="not-an-email" aria-invalid="true" aria-errormessage="emerr"><span id="emerr">Enter a valid email</span>
+<span id="nm">Full name</span><input aria-labelledby="nm" value="Ada Lovelace">
+<input type="password" id="pw" aria-label="Password" value="hunter2">
+<fieldset><legend>Shipping</legend><label><input type="radio" name="s" checked> Express</label></fieldset>
+<select aria-label="Country"><option>Chile</option><option selected>Peru</option></select>
+<p>${'Lorem ipsum dolor sit amet. '.repeat(1800)}</p>
+</main>
+<aside><h2>Summary</h2><p>Order total: $56.26</p></aside></body>`,
 };
 
 function serve() {
@@ -80,6 +93,16 @@ const refOf = (snap, re) => {
   if (!line) throw new Error(`no line matching ${re} in:\n${snap.text}`);
   return line.match(/\[(e\d+)\]/)[1];
 };
+
+// main.js's pageCall: a command to the tab's page-preload.js, its answer by IPC.
+const answers = new Map();
+ipcMain.on('page:result', (_event, message) => { const done = answers.get(message && message.id); if (done) { answers.delete(message.id); done(message.result); } });
+const pageCall = (view, action, args = {}) => new Promise((resolve) => {
+  const id = `c${Math.random()}`;
+  answers.set(id, resolve);
+  view.webContents.send('jarvis:command', { id, action, args });
+  setTimeout(() => { if (answers.delete(id)) resolve({ timeout: true }); }, 5000);
+});
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -189,6 +212,28 @@ test('A tab behind the one on show takes snapshots and clicks, and refs stay wit
   assert(!wrong.ok && /belongs to tab/.test(wrong.message), wrong.message);
   const closed = await run('snapshot', { tab: 99999 });
   assert(!closed.ok && /closed/.test(closed.message), closed.message);
+});
+
+test('The fuller read has dialogs, alerts, banners and sidebars, real labels, values and errors, and reads on', async () => {
+  await shown.webContents.loadURL(`${base}/form.html`);
+  await sleep(150);
+  const plain = await pageCall(shown, 'read', {});
+  assert(!/Order total/.test(plain.text) && plain.text.length <= 14000, 'the plain read changed');
+  const r = await pageCall(shown, 'read', { rich: true });
+  assert(r.text.startsWith('[Dialog: Sign in]\nSign in Welcome back'), r.text.slice(0, 200));
+  for (const want of ['[Alert]\nSaved your draft', '[Sidebar: Summary]\nSummary Order total: $56.26', '[Banner]\nWe use cookies. Accept', '[Main content]\nDetails']) {
+    assert(r.text.includes(want), `missing ${JSON.stringify(want)} in ${r.text.slice(0, 400)}`);
+  }
+  assert(r.total > 40000 && r.more && r.text.length === 20000 && r.offset === 0, JSON.stringify({ total: r.total, more: r.more, len: r.text.length }));
+  const next = await pageCall(shown, 'read', { rich: true, offset: 19950, limit: 1000 });
+  assert(next.offset === 19950 && next.text.slice(0, 50) === r.text.slice(19950) && next.text.length === 1000, 'reading on from an offset');
+  const byLabel = Object.fromEntries(r.fields.map((f) => [f.label, f]));
+  assert(byLabel['Email address'] && byLabel['Email address'].value === 'not-an-email' && byLabel['Email address'].error === 'Enter a valid email', JSON.stringify(r.fields));
+  assert(byLabel['Full name'] && byLabel['Full name'].value === 'Ada Lovelace', JSON.stringify(r.fields));
+  assert(byLabel.Password && byLabel.Password.value === '(hidden)', 'a password showed');
+  assert(byLabel['Shipping: Express'] && byLabel['Shipping: Express'].checked === true, JSON.stringify(r.fields));
+  assert(byLabel.Country && byLabel.Country.value === 'Peru' && byLabel.Country.options.join() === 'Chile,Peru', JSON.stringify(r.fields));
+  assert(JSON.stringify(r.regions.map((x) => x.kind)) === JSON.stringify(['Dialog', 'Alert', 'Sidebar', 'Banner']), JSON.stringify(r.regions));
 });
 
 app.whenReady().then(async () => {

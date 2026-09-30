@@ -320,7 +320,8 @@ async def test_a_final_button_by_ref_needs_its_confirmation(tmp_path):
     out = await browser("act", {"kind": "click", "ref": "e1", "tab": 3})
     assert out["ok"] is False and "confirm_transaction" in out["message"]
     assert window.did("act") == []
-    assert window.did("read") == [{"tab": 3}] and window.did("describe")[0]["tab"] == 3  # that tab
+    assert window.did("read") == [{"tab": 3, **tx.GUARD_READ}]  # that tab, read in full
+    assert window.did("describe")[0]["tab"] == 3
 
 
 async def test_a_confirmed_purchase_is_pressed_by_ref_once_and_logged(tmp_path):
@@ -438,5 +439,58 @@ def test_the_guard_reads_the_tab_a_click_by_words_is_for():
     import asyncio
 
     asyncio.run(tx.guard_browser(d, window)("click", {"text": "Add gift note", "tab": 5}))
-    assert window.did("read") == [{"tab": 5}]
+    assert window.did("read") == [{"tab": 5, **tx.GUARD_READ}]
     assert window.did("click")[0]["tab"] == 5
+
+
+# ── the fuller read ──
+
+
+def test_the_guard_reads_every_part_of_the_page_far_past_what_claude_reads():
+    assert tx.GUARD_READ["rich"] is True
+    assert tx.GUARD_READ["limit"] > browser_agent.READ_LIMIT
+
+
+def test_a_read_shows_where_it_is_its_regions_and_how_to_read_on():
+    r = {
+        "tab": 4, "title": "Checkout", "url": "https://shop.example/checkout", "shown": True,
+        "text": "[Dialog: Sign in]\nEmail\n\n[Main content]\nYour cart", "offset": 20000,
+        "total": 53112, "more": True, "headings": ["Your cart"],
+        "regions": [{"kind": "Dialog", "name": "Sign in"}, {"kind": "Sidebar", "name": ""}],
+        "links": [{"text": "Help", "href": "https://shop.example/help"}],
+        "fields": [
+            {"tag": "input", "type": "email", "label": "Email address", "value": "a@b.example", "required": True, "error": "Enter a valid email"},
+            {"tag": "input", "type": "password", "label": "Password", "value": "(hidden)"},
+            {"tag": "input", "type": "checkbox", "label": "Gift wrap", "checked": False},
+            {"tag": "select", "type": "select-one", "label": "Country", "value": "Chile", "options": ["Chile", "Peru"], "more": 190},
+        ],
+        "actions": ["Place order", "Apply"],
+    }  # fmt: skip
+    out = browser_agent.read_text(r)
+    head, body = out.split(browser_agent.UNTRUSTED, 1)
+    assert head.startswith("Tab 4 · Checkout — https://shop.example/checkout")
+    assert "Also on the page, outside its main content: Dialog “Sign in”, Sidebar." in head
+    assert body.rstrip().endswith(browser_agent.UNTRUSTED_END)
+    end = 20000 + len(r["text"])
+    assert f"Characters 20,000–{end:,} of 53,112. More: browser_read with offset {end}." in body
+    assert "- email “Email address” = “a@b.example” (required) — error: Enter a valid email" in body
+    assert "- password “Password” = “(hidden)”" in body
+    assert "- checkbox “Gift wrap” (unchecked)" in body
+    assert "- select “Country” = “Chile” — options: Chile, Peru … 190 more" in body
+    assert "Things you can press: Place order, Apply" in body
+    short = browser_agent.read_text({"title": "T", "url": "https://x.example/", "text": "Hi"})
+    assert "Characters" not in short and "(none in view)" in short
+
+
+async def test_browser_read_asks_for_the_fuller_read_from_its_offset():
+    window = FakeWindow()
+    tools = handlers(code_tools.browser_tools(window, CodeSession(Tasks(), 7)))
+    await tools["browser_read"]({"offset": 20000})
+    assert window.did("read")[0] == {
+        "rich": True, "offset": 20000, "limit": browser_agent.READ_LIMIT, "owner": "code:7",
+    }  # fmt: skip
+    hub = SimpleNamespace(browser_call=window)
+    assert browser_agent.read_request({"offset": "x", "tab": 3}) == {
+        "rich": True, "offset": 0, "limit": browser_agent.READ_LIMIT, "tab": 3,
+    }  # fmt: skip
+    assert hub.browser_call is window
