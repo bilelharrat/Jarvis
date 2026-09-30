@@ -79,8 +79,10 @@ _TEXT_IS_WHERE = frozenset({"browser_click"})
 SHOWN = 600  # of the words or script, on the card
 SEARCH_HOST = "www.google.com"  # where words the address bar doesn't take for an address go
 
-PageUrl = Callable[[], Awaitable[str | None]]
-Where = Callable[[], Awaitable[dict[str, str]]]
+# page() / page(tab): the address, or {"url", "title"}, of the page a call lands in: the
+# one it would act on unnamed, or in the tab it names.
+PageUrl = Callable[..., Awaitable[str | None]]
+Where = Callable[..., Awaitable[dict[str, str]]]
 Ask = Callable[[str, str, str], Awaitable[bool]]
 Send = Callable[[str, str, str, tuple[str, str]], Awaitable[bool]]
 # Web messaging and mail apps by their host (and anything under it) -> (name, kind), as
@@ -220,11 +222,28 @@ def address_host(text: str) -> str | None:
     return page_host(address) if address else SEARCH_HOST
 
 
-async def read_where(call: Callable[..., Awaitable[Any]]) -> dict[str, str]:
-    """The page on show in the built-in browser, by reading it: {"url", "title"}, empty when
-    there's no page or it didn't answer."""
+def named_tab(args: Any) -> int | None:
+    """The one tab a call names (tab, tab_id, tabid), or None: a call that names a tab lands
+    in it, so that's the page to weigh."""
+    if not isinstance(args, dict):
+        return None
+    for key in ("tab", "tab_id", "tabid"):
+        value = args.get(key)
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        try:
+            tab = int(value)
+        except (TypeError, ValueError):
+            return None
+        return tab if tab > 0 else None
+    return None
+
+
+async def read_where(call: Callable[..., Awaitable[Any]], tab: int | None = None) -> dict[str, str]:
+    """The page on show in the built-in browser (or in the tab named), by reading it:
+    {"url", "title"}, empty when there's no page or it didn't answer."""
     try:
-        page = await call("read", {})
+        page = await call("read", {"tab": tab} if tab is not None else {})
     except Exception:
         return {}
     if not isinstance(page, dict) or page.get("error") or page.get("ok") is False:
@@ -289,15 +308,19 @@ class Target:
 
 async def target(tool: str, args: Any, page: PageUrl | None) -> Target:
     """Where a Jarvis Code session's browser call acts: the address it opens, or the page
-    on show (a call that names a tab and carries words can't be placed)."""
+    on show, or in the tab the call names (a call that names a tab and carries words can't
+    be placed)."""
     name = tool.rsplit("__", 1)[-1]
     what = carried(tool, args)
     hosts: list[str | None] = [address_host(u) for u in what.urls]
+    tab = named_tab(args) if what.tab else None
     if name != "browser_open":
-        if what.tab and (what.words or what.script or what.files):
+        if what.tab and (what.words or what.script or what.files or tab is None):
             hosts.append(None)
-        else:
-            hosts.append(page_host(await page()) if page is not None else None)
+        elif page is None:
+            hosts.append(None)
+        else:  # the page it lands on: in the tab it names, else the session's own
+            hosts.append(page_host(await (page(tab) if tab is not None else page())))
     known = [h for h in hosts if h]
     host = known[0] if known and len(known) == len(hosts) else None
     local = bool(hosts) and len(known) == len(hosts) and all(is_local(h) for h in known)
@@ -318,13 +341,13 @@ async def target(tool: str, args: Any, page: PageUrl | None) -> Target:
 class ActingGate:
     """The turn gate's call for a built-in browser tool that acts on a page. reads(): what
     the turn and its conversation have read (hub._gate_reads); words(): the user's own
-    words this turn; turn(): the request's id; page(): the page on show ({"url",
-    "title"}); ask(question, detail, spoken): a card, said aloud; asked(kind): the user's
-    own words asked for that kind of send; send(question, detail, spoken, choices): the
-    send card (hub.send_gate); free(): Control my Mac without asking is on (with it off,
-    the browser asks before any click that sends, deletes or pays by itself). check()
-    returns None when there's nothing to weigh (the mouse-and-keyboard rules decide), else
-    whether the user said yes."""
+    words this turn; turn(): the request's id; page(): the page a call lands in ({"url",
+    "title"}), page(tab) the one in the tab a call names; ask(question, detail, spoken): a
+    card, said aloud; asked(kind): the user's own words asked for that kind of send;
+    send(question, detail, spoken, choices): the send card (hub.send_gate); free():
+    Control my Mac without asking is on (with it off, the browser asks before any click
+    that sends, deletes or pays by itself). check() returns None when there's nothing to
+    weigh (the mouse-and-keyboard rules decide), else whether the user said yes."""
 
     def __init__(
         self,
@@ -360,11 +383,15 @@ class ActingGate:
         what = carried(tool, args)
         name = tool.rsplit("__", 1)[-1]
         seen: dict[str, str] | None = None
+        tab = named_tab(args) if what.tab else None  # a call that names a tab lands there
 
         async def page() -> dict[str, str]:  # read once, whichever check needs it first
             nonlocal seen
             if seen is None:
-                found = await self._page()
+                if what.tab and tab is None:
+                    found: Any = {}  # a tab named that can't be told: no page to weigh
+                else:
+                    found = await (self._page(tab) if tab is not None else self._page())
                 seen = found if isinstance(found, dict) else {}
             return seen
 

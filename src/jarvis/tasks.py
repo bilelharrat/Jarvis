@@ -958,7 +958,8 @@ class TaskManager:
         # The address on show in that browser, set by the hub: a page on this Mac
         # (localhost) is a session's own work, typed into unasked in Accept edits and Auto.
         # (by the session's id: its own tab's page, or the tab on show while it has none).
-        self.page_url: Callable[[int], Awaitable[str | None]] | None = None
+        # page_url(task_id, tab) is the page in a tab the call names.
+        self.page_url: Callable[..., Awaitable[str | None]] | None = None
         # A finished research report with the owner's own material folded in, by a second
         # session that has no web access (jarvis.features.brain): the revised report, or
         # None to keep the web one.
@@ -2928,7 +2929,12 @@ class TaskManager:
         if not tool_name.startswith(prefix) or tool_name in code_tools.READ_ONLY:
             return None
         page_url = self.page_url
-        page = (lambda: page_url(task.id)) if page_url is not None else None
+        if page_url is None:
+            return await browser_gate.target(tool_name, tool_input, None)
+
+        def page(tab: int | None = None) -> Awaitable[str | None]:
+            return page_url(task.id) if tab is None else page_url(task.id, tab)  # a tab named
+
         return await browser_gate.target(tool_name, tool_input, page)
 
     def _goes_ahead(

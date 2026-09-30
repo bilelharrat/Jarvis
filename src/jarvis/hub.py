@@ -762,7 +762,8 @@ class Hub:
             reads=self._gate_reads,
             words=lambda: self._turn_text,
             turn=lambda: self._rid,
-            page=lambda: browser_gate.read_where(self._browser_routed),  # where it'll act
+            # where it'll act: the tab it works in, or the one a call names
+            page=lambda tab=None: browser_gate.read_where(self._browser_routed, tab),
             ask=self._ask_user,
             asked=lambda kind: self._user_asked_for(f"hands_{kind}"),
             send=self.send_gate,
@@ -4482,10 +4483,11 @@ class Hub:
         not the one on show."""
         return await self._browser_raw(action, self.browser_tabs.route(dict(args or {}), self._rid))
 
-    async def _session_page_url(self, task_id: int) -> str | None:
-        """The address a Jarvis Code session's next browser action lands on: its own tab's
-        page, or the tab on show while it has none (where such a session acts)."""
-        tab = self.browser_tabs.session_tab(task_id)
+    async def _session_page_url(self, task_id: int, tab: int | None = None) -> str | None:
+        """The address a Jarvis Code session's next browser action lands on: the tab it
+        names (tab), else its own tab's page, or the tab on show while it has none (where
+        such a session acts)."""
+        tab = tab or self.browser_tabs.session_tab(task_id)
         where = {"tab": tab} if tab else {}
 
         async def read(action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
