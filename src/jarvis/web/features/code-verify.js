@@ -158,6 +158,15 @@
     return task ? { id: task.id } : { directory: typeof deckProject !== 'undefined' ? deckProject : '' };
   }
 
+  // Whether an answer (cv_state, cv_tests, cv_problems_state) is about what the panes show:
+  // the session on show, else the project picked. Answers go to every window and can come
+  // late (the Tests and Problems ones are worked out in the background): another's is never
+  // drawn.
+  function forShown(ev) {
+    const task = F.currentTask();
+    return task ? ev.id === task.id : !ev.id && ev.project === (typeof deckProject !== 'undefined' ? deckProject : '');
+  }
+
   function openAddress(url) {
     if (!isLocal(url)) return;
     const app = root.jarvisApp;
@@ -365,8 +374,8 @@
 
   F.on('cv_state', (ev) => {
     const before = state.servers;
-    state.info = ev;
-    if (Array.isArray(ev.servers)) {
+    if (forShown(ev)) state.info = ev;
+    if (Array.isArray(ev.servers)) {  // (any project's: they're all kept)
       const others = state.servers.filter((s) => s.project !== ev.path);
       state.servers = others.concat(ev.servers);
     }
@@ -737,6 +746,7 @@
   F.registerMoreItem({ label: 'Tests', run: () => F.openPane('cv-tests') });
 
   F.on('cv_tests', (ev) => {
+    if (!forShown(ev)) return;
     tests.info = ev;
     if (!ev.suites.some((s) => s.key === tests.suite)) tests.suite = ev.watch ? ev.watch.suite : '';
     tests.output = ev.run && ev.run.output ? mergeLines([], ev.run.output) : [];
@@ -865,7 +875,11 @@
   });
   F.registerMoreItem({ label: 'Problems', run: () => F.openPane('cv-problems') });
 
-  F.on('cv_problems_state', (ev) => { problems.info = ev; renderProblems(); });
+  F.on('cv_problems_state', (ev) => {
+    if (!forShown(ev)) return;
+    problems.info = ev;
+    renderProblems();
+  });
   F.on('cv_problems', (ev) => {
     if (!problems.info || ev.check.project !== problems.info.path) return;
     problems.info.check = ev.check;

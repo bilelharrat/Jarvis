@@ -2950,6 +2950,38 @@ test('A dev server started again starts its logs over, with the new run’s firs
   assert(text === '$ npm run dev\nVITE ready\nLocal: http://localhost:5173/\nGET /', JSON.stringify(text.length > 120 ? `${text.slice(0, 40)}…${text.slice(-60)}` : text));
 });
 
+test('A late answer about another session never replaces the Tests, Problems or Preview pane on show', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('onEvent({ type: "tasks", items: [__task(1), __task(2, { folder: "beta" })] }); jarvisFeatures.openPane("cv-tests"); true');
+  const alpha = '/Users/x/Projects/alpha';
+  const beta = '/Users/x/Projects/beta';
+  const testsOf = (project, dir, id, runner) => ({ type: 'cv_tests', project, path: dir, id, files: {}, watch: null, run: null,
+    suites: [{ key: `${runner}::`, id: runner, label: runner, command: runner, cwd: '', ready: true, why: '', files: false }] });
+  // Session 2 (in beta) picked while session 1's answer (alpha's tests) is still to come.
+  await js('selectTask(2); true');
+  await deliver(testsOf('alpha', alpha, 1, 'pytest'));
+  let text = await js('$("jc-pane-body").textContent');
+  assert(text === 'Looking for the project’s tests…', `session 1's tests shown for session 2: ${text}`);
+  await deliver(testsOf('beta', beta, 2, 'vitest'));
+  await deliver(testsOf('alpha', alpha, 1, 'pytest'));  // (another window's, say)
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .cv-bar', 'Run all'), 'no Run all');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_tests', action: 'run', suite: 'vitest::', id: 2 }]), JSON.stringify(s));
+  // The Problems and Preview panes: the same.
+  await js('jarvisFeatures.openPane("cv-problems"); true');
+  await deliver({ type: 'cv_problems_state', project: 'alpha', path: alpha, id: 1, after_turn: false, check: null,
+    checkers: [{ id: 'ruff', label: 'Ruff', command: 'ruff check', ready: true, why: '', slow: false }] });
+  text = await js('$("jc-pane-body").textContent');
+  assert(text === 'Looking for the project’s checkers…', `session 1's checkers shown for session 2: ${text}`);
+  await js('jarvisFeatures.openPane("cv-preview"); true');
+  await deliver({ type: 'cv_state', project: 'alpha', path: alpha, id: 1, session: { verify: true, checking: false, last: null }, problems: [], suggestions: [], servers: [],
+    configs: [{ name: 'web', command: 'npm run dev', port: 5173, url: '', cwd: '', source: '.claude/launch.json', why: '' }] });
+  text = await js('$("jc-pane-body").textContent');
+  assert(text === 'Looking at the project…', `session 1's dev servers shown for session 2: ${text}`);
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this
