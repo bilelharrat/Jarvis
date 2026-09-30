@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import threading
 import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -54,6 +56,7 @@ ACTIONS = {
     "leave_home": "Left home",
     "arrive_work": "Arrived at work",
     "leave_work": "Left work",
+    "live": "Followed something on the Lock Screen",
 }
 WORDS = {
     "en": {"photo_question": "What's in this photo?"},
@@ -68,37 +71,44 @@ PROMPT = (
 LABELS = {"phone_health": "Checked your health from your iPhone"}
 
 
+_NOTHING = object()
+
+
 class Saver:
-    """Saves a store's file off the event loop, one save at a time: a burst of changes is
-    one save, of the state after the last of them. With no event loop running (a test
-    calling in directly), it saves at once."""
+    """Saves a store's file off the event loop: the state is copied where it changed (on
+    the loop), and written by a thread of its own, one save at a time; a burst of
+    changes while one is being written is one more save, of the latest copy."""
 
     def __init__(self, path: Path, snapshot: Callable[[], Any], name: str) -> None:
         self.path = path
         self.snapshot = snapshot
         self.name = name
-        self._task: asyncio.Task | None = None
-        self._again = False
         self.error = ""
+        self._lock = threading.Lock()
+        self._pending: Any = _NOTHING
+        self._busy = False
+        self._idle = threading.Event()
+        self._idle.set()
 
     def soon(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._write(self.snapshot())
-            return
-        if self._task is not None and not self._task.done():
-            self._again = True
-            return
-        self._task = loop.create_task(self._run())
-
-    async def _run(self) -> None:
-        while True:
-            self._again = False
-            data = self.snapshot()  # taken here, on the loop: never read mid-change
-            await asyncio.to_thread(self._write, data)
-            if not self._again:
+        data = self.snapshot()  # copied here: never read while it changes
+        with self._lock:
+            self._pending = data
+            if self._busy:
                 return
+            self._busy = True
+            self._idle.clear()
+        threading.Thread(target=self._drain, name=f"save {self.path.name}", daemon=True).start()
+
+    def _drain(self) -> None:
+        while True:
+            with self._lock:
+                data, self._pending = self._pending, _NOTHING
+                if data is _NOTHING:
+                    self._busy = False
+                    self._idle.set()
+                    return
+            self._write(data)
 
     def _write(self, data: Any) -> None:
         try:
@@ -110,8 +120,7 @@ class Saver:
             self.error = exc.strerror or str(exc)
 
     async def flush(self) -> None:
-        while self._task is not None and not self._task.done():
-            await asyncio.shield(self._task)
+        await asyncio.to_thread(self._idle.wait, 30)
 
 
 class AuditLog:
@@ -122,7 +131,7 @@ class AuditLog:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._items: list[dict[str, str]] | None = None
-        self.saver = Saver(path, lambda: list(self.items), "the phone log")
+        self.saver = Saver(path, lambda: [dict(i) for i in self.items], "the phone log")
 
     @property
     def items(self) -> list[dict[str, str]]:
@@ -166,6 +175,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "calls": True,  # how a call went; calls to the Jarvis number
 }
 LIVE_KINDS = ("code", "delegation", "call", "video")
+LIVE_ACTIVITY = re.compile(r"(code|delegation|call|video):[A-Za-z0-9_-]{1,64}")
 LIVE_PER_DEVICE = 8  # Live Activities one phone can follow at once
 LIVE_HOURS = 12  # after this, a Live Activity's token is let go (iOS ends them by then)
 
@@ -196,17 +206,21 @@ def _clean_push(raw: Any) -> dict[str, str] | None:
 
 
 def _clean_live(raw: Any) -> dict[str, dict[str, Any]]:
-    from .push import valid_token
+    from .push import HOSTS, valid_bundle, valid_token
 
     out: dict[str, dict[str, Any]] = {}
     for key, item in raw.items() if isinstance(raw, dict) else []:
         if not (isinstance(key, str) and isinstance(item, dict)):
             continue
-        kind, _, ident = key.partition(":")
+        if not LIVE_ACTIVITY.fullmatch(key):
+            continue
         token, at = item.get("token"), item.get("at")
-        if kind in LIVE_KINDS and ident and valid_token(token):
-            if isinstance(at, (int, float)) and not isinstance(at, bool):
-                out[key] = {"token": token, "at": float(at)}
+        if valid_token(token) and isinstance(at, (int, float)) and not isinstance(at, bool):
+            out[key] = {"token": token, "at": float(at)}
+            if item.get("environment") in HOSTS:
+                out[key]["environment"] = item["environment"]
+            if valid_bundle(item.get("bundle_id")):
+                out[key]["bundle_id"] = item["bundle_id"]
     return dict(list(out.items())[-LIVE_PER_DEVICE:])
 
 
@@ -315,10 +329,12 @@ class CompanionStore:
 
     # Live Activities
 
-    def follow(self, device_id: str, activity: str, token: str, now: float) -> None:
+    def follow(self, device_id: str, activity: str, token: str, now: float, **where: str) -> None:
+        """where: the app's environment and bundle ID, when it says (else its push
+        registration's)."""
         live = self.device(device_id)["live"]
         live.pop(activity, None)
-        live[activity] = {"token": token, "at": now}
+        live[activity] = {"token": token, "at": now, **{k: v for k, v in where.items() if v}}
         while len(live) > LIVE_PER_DEVICE:
             del live[next(iter(live))]
         self.saver.soon()
@@ -358,6 +374,9 @@ class Companion:
         self.keys = push.Keys(hub.connectors.vault)
         self.sender = push.Sender(self.keys, run=run)
         self.notifier = Notifier(self, self.sender, away=away or owner_away)
+        from .companion_live import Live
+
+        self.live = Live(self, self.sender)
         self.location: dict[str, Any] | None = None  # the phone's latest fix (memory only)
         self.inbox_folder: Path | None = None  # tests: somewhere of their own
 

@@ -84,7 +84,8 @@
     "Left home": "离开了家",
     "Arrived at work": "到公司了",
     "Left work": "离开了公司",
-    "Checked your health from your iPhone": "查看了 iPhone 上的健康数据"
+    "Checked your health from your iPhone": "查看了 iPhone 上的健康数据",
+    "Followed something on the Lock Screen": "在锁定屏幕上关注了一项内容"
   },
   "patterns": [
     [

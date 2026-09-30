@@ -72,8 +72,14 @@ def install(hub: Any) -> None:
     # The phone's health, for the briefing (its result is the owner's own: private).
     hub.register_server("companion", companion.build_server, prompt=PROMPT, labels=LABELS)
     hub.travel_fixes.append(companion.phone_fix)  # trips start where the phone is
-    notifier = companion.notifier
+    notifier, live = companion.notifier, companion.live
     hub.add_approval_sink(notifier.approval)
     hub.add_notify_sink(notifier.alert)
     watch_tasks(hub, notifier.task_event)
     notifier.settle_delegations()  # already in memory: only what changes after this is news
+    # Live Activities: a look every few seconds, and at once when a card, a session, a call
+    # or a conversation changes (the loop runs with the app, never in tests).
+    hub.add_approval_sink(live.approval, resolved=live.resolved)
+    hub.add_notify_sink(live.alert)
+    watch_tasks(hub, live.task_event)
+    hub.register_loop("companion_live", live.loop)

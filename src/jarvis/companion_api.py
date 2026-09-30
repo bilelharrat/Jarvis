@@ -956,6 +956,34 @@ class Api:
         self.companion.record(device, "routine_deleted", routine.name)
         return _ok()
 
+    # ── Live Activities ──
+
+    async def live_register(self, request: Request) -> Response:
+        """A Live Activity the app started ("<kind>:<id>", its push token): the Mac keeps
+        it current until what it follows is over."""
+        from .companion import LIVE_ACTIVITY
+
+        device, data, refused = await self._post(request, "report")
+        if refused is not None:
+            return refused
+        activity = str(data.get("activity") or "")
+        token = str(data.get("token") or "").strip().lower()
+        environment = data.get("environment")
+        bundle_id = data.get("bundle_id")
+        if not LIVE_ACTIVITY.fullmatch(activity):
+            return _bad("activity")
+        if not push.valid_token(token):
+            return _bad("token")
+        if environment is not None and environment not in push.HOSTS:
+            return _bad("environment")
+        if bundle_id is not None and not push.valid_bundle(bundle_id):
+            return _bad("bundle_id")
+        self.companion.live.follow(
+            device.id, activity, token, environment=environment or "", bundle_id=bundle_id or ""
+        )
+        self.companion.record(device, "live", activity.partition(":")[0])
+        return _ok()
+
     # ── where the phone is ──
 
     async def location(self, request: Request) -> Response:
@@ -1075,6 +1103,7 @@ def routes(companion: Any, gate: Any) -> list[Route]:
     return [
         Route("/api/push/register", api.push_register, methods=["POST"]),
         Route("/api/push/unregister", api.push_unregister, methods=["POST"]),
+        Route("/api/live/register", api.live_register, methods=["POST"]),
         Route("/api/code/sessions", api.code_sessions),
         Route("/api/code/session", api.code_session),
         Route("/api/code/diff", api.code_diff),
