@@ -25,6 +25,12 @@ booking must be one of the open times, something for the calendar waits for the 
 The same conversation runs calls JARVIS places for the owner, each one shown and said yes to
 first: a table at a restaurant, a question for a business. How each went comes back as a
 heads-up, and a reservation that was made goes in the calendar.
+
+Voice: callers hear the voice the Mac speaks with. With a cloud voice (Fish Audio or
+ElevenLabs), its key and voice go in the service's variables like the Claude key, and the
+Function voices each line with it, with the Mac's AI effect when that's on. Without one, or
+while the voice service is failing, Twilio's British voice reads the call. A new voice, the
+effect turned on or off, or a newer Function goes up to Twilio by itself.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ import base64
 import contextlib
 import hashlib
 import hmac
+import html
 import io
 import json
 import logging
@@ -98,6 +105,14 @@ WHISPER_RATE = 16_000
 BUILD_WAIT = 180
 MODEL = "claude-opus-5-5"  # what the Function talks with (its CLAUDE_MODEL variable)
 KEY_VARIABLE, MODEL_VARIABLE = "ANTHROPIC_API_KEY", "CLAUDE_MODEL"
+# The cloud voice the Mac speaks with, as the Function's variables (line.js "JARVIS's voice").
+VOICE_VARIABLES = {
+    "provider": "VOICE_PROVIDER",
+    "key": "VOICE_KEY",
+    "id": "VOICE_ID",
+    "model": "VOICE_MODEL",
+    "effect": "VOICE_EFFECT",
+}
 # What the Function is built with: Claude's SDK, and what Twilio puts in a build by default
 # (a build that names its own packages gets only those).
 DEPENDENCIES = [
@@ -304,6 +319,16 @@ def local_zone() -> str:
 def fingerprint(key: str) -> str:
     """Tells a Claude key from another without keeping it ("" for none)."""
     return hashlib.sha256(key.encode()).hexdigest()[:16] if key else ""
+
+
+def voice_fingerprint(voice: dict[str, str] | None) -> str:
+    """Tells one voice (and its effect) from another without keeping its key ("" for none)."""
+    return fingerprint(json.dumps(voice, sort_keys=True)) if voice else ""
+
+
+def code_fingerprint() -> str:
+    """Which Function the Mac would put up now: a newer one goes up by itself."""
+    return fingerprint(CODE.read_text(encoding="utf-8"))
 
 
 def transcript(talk: dict[str, Any] | None, who: str) -> str:
@@ -526,10 +551,12 @@ class Line:
         before: dict[str, str] | None = None,
         key: str = "",
         model: str = MODEL,
+        voice: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Deploys the Function (with the Claude key it talks with, when there is one), makes
-        the Sync document and list, and points the number's calls at the Function. Returns
-        what's set up, with how the number answered before (put back by take_down)."""
+        """Deploys the Function (with the Claude key it talks with and the cloud voice it
+        speaks with, when there are), makes the Sync document and list, and points the
+        number's calls at the Function. Returns what's set up, with how the number answered
+        before (put back by take_down)."""
 
         def call(method: str, url: str, **kw: Any) -> dict:
             return self.request(method, url, sid, token, **kw)
@@ -541,9 +568,10 @@ class Line:
         if pn is None:
             raise PhoneError(f"{number} isn't a number on your Twilio account.")
         store = self._sync(call)
-        service, environment, domain = self._function(
-            call, store, {KEY_VARIABLE: key, MODEL_VARIABLE: model if key else ""}
-        )
+        variables = {KEY_VARIABLE: key, MODEL_VARIABLE: model if key else ""}
+        # "" takes a variable away: without a voice, Twilio's reads the calls.
+        variables |= {name: str((voice or {}).get(f) or "") for f, name in VOICE_VARIABLES.items()}
+        service, environment, domain = self._function(call, store, variables)
         url = f"https://{domain}{LINE_PATH}"
         earlier = {
             "voice_url": str(pn.get("voice_url") or ""),
@@ -570,6 +598,8 @@ class Line:
             "environment": environment,
             "before": earlier,
             "talk_key": fingerprint(key),  # which key the Function has (never the key)
+            "voice": voice_fingerprint(voice),  # … which voice (never its key)
+            "code": code_fingerprint(),  # … and which Function
         }
 
     def _sync(self, call: Callable[..., dict]) -> str:
@@ -955,6 +985,8 @@ class Answering:
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         claude_key: Callable[[], str] | None = None,  # Settings › Models › Anthropic's key
         lookup: Any = None,  # Contacts search, for a name to call (messaging.find_contacts)
+        # The cloud voice the Mac speaks with ({provider, key, id, model, effect}), for callers.
+        voice: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.prefs = prefs
         self.phone = phone
@@ -976,6 +1008,7 @@ class Answering:
         self.sleep = sleep
         self.claude_key = claude_key
         self.lookup = lookup
+        self.voice = voice
         self.busy = ""  # "on" | "off" while it's being turned on or off
         self.note = ""  # the latest word on it, for Settings
         self._lock: asyncio.Lock | None = None
@@ -1033,6 +1066,26 @@ class Answering:
             log.warning("answering: couldn't read the Claude key: %s", type(exc).__name__)
             return ""
 
+    def _voice(self) -> dict[str, str]:
+        """The cloud voice callers hear, as the Function's variables take it ({} when the Mac
+        has none: Twilio's voice reads the calls)."""
+        if self.voice is None:
+            return {}
+        try:
+            found = self.voice() or {}
+        except Exception as exc:  # a locked Keychain
+            log.warning("answering: couldn't read the voice: %s", type(exc).__name__)
+            return {}
+        if not (found.get("key") and found.get("id")):
+            return {}
+        return {
+            "provider": str(found.get("provider") or ""),
+            "key": str(found["key"]),
+            "id": str(found["id"]),
+            "model": str(found.get("model") or ""),
+            "effect": "1" if found.get("effect") else "",
+        }
+
     def talking(self) -> bool:
         """Callers talk with Jarvis (a key, and Settings says so)."""
         return bool(getattr(self.prefs(), "line_talk", True)) and bool(self._key())
@@ -1052,7 +1105,12 @@ class Answering:
             try:
                 earlier = self.log.line if self.log.line.get("number") == number else {}
                 state = await asyncio.to_thread(
-                    self.line.set_up, number, *creds, earlier.get("before"), self._key()
+                    self.line.set_up,
+                    number,
+                    *creds,
+                    earlier.get("before"),
+                    self._key(),
+                    voice=self._voice(),
                 )
                 state["since"] = earlier.get("since") or self.clock()
                 self.log.line = state
@@ -1128,6 +1186,8 @@ class Answering:
                 "callers may not get through. Turn it off and on again; if it stays, look at "
                 "the jarvis-line service's logs in the Twilio Console."
             )
+        # What's said, whether Twilio's voice reads it or it's in the voice step's addresses.
+        said = html.unescape(urllib.parse.unquote_plus(text))
         if talking:
             if 'input="speech"' not in text:
                 return on + (
@@ -1136,7 +1196,7 @@ class Answering:
                 )
             return on
         offers = json.loads(self.log.published or "{}").get("booking")
-        if offers and "press 1" not in text:
+        if offers and "press 1" not in said:
             return on + (
                 " But booking isn't working yet (the service couldn't read the open times), so "
                 "for now callers can only leave a message."
@@ -1214,16 +1274,16 @@ class Answering:
 
     async def run(self) -> None:
         """Every half minute while answering is on: new calls; every ten, the open times. A
-        Claude key added, changed or removed in Settings goes up to the Function."""
+        Claude key or voice changed in Settings, and a newer Function, go up to Twilio."""
         while True:
             try:
-                if self.log.line and self._key_changed():
+                if self.log.line and self._line_stale():
                     self._resetup_at = self.clock()
                     try:
                         self.note = await self.turn_on()
                     except PhoneError as exc:  # said in Settings; tried again in ten minutes
-                        log.warning("answering: couldn't give the Function the new key: %s", exc)
-                        self.note = f"Couldn't give the phone line your Claude key yet: {exc}"
+                        log.warning("answering: couldn't update the Function: %s", exc)
+                        self.note = f"Couldn't update the phone line yet: {exc}"
                         self._changed()
                 if self.log.line:
                     creds = await self._creds()
@@ -1238,10 +1298,16 @@ class Answering:
                 log.exception("answering: a look at the calls failed")
             await self.sleep(LOOK_EVERY)
 
-    def _key_changed(self) -> bool:
-        """The Function has another Claude key than Settings (tried again every ten
-        minutes at most, if putting it there fails)."""
-        if fingerprint(self._key()) == str(self.log.line.get("talk_key") or ""):
+    def _line_stale(self) -> bool:
+        """The Function isn't what the Mac would put up now: another Claude key or voice
+        (or its effect) than Settings, or older code (tried again every ten minutes at most,
+        if putting it there fails)."""
+        line = self.log.line
+        if (
+            fingerprint(self._key()) == str(line.get("talk_key") or "")
+            and voice_fingerprint(self._voice()) == str(line.get("voice") or "")
+            and code_fingerprint() == str(line.get("code") or "")
+        ):
             return False
         return not self._resetup_at or self.clock() - self._resetup_at >= RESETUP_EVERY
 

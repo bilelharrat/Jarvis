@@ -14,8 +14,12 @@
 // What it keeps: a message is Twilio's recording on the call; a time a caller picks goes in
 // the Sync list "picks"; a conversation is a Sync document ("talk-<call>") with what was said,
 // which the Mac collects and removes. Nothing is kept past a few days if the Mac never does.
+//
+// Jarvis speaks in its own voice: the cloud voice the Mac speaks with (see "JARVIS's voice"
+// below). Twilio's British voice reads a line only when there's no cloud voice to use.
 'use strict';
 
+const crypto = require('crypto');
 const https = require('https');
 
 const SYNC = '__SYNC__'; // the Sync service with the open times ("availability") and "picks"
@@ -741,6 +745,325 @@ function placed(data, who) {
   ];
 }
 
+// ── JARVIS's voice ──
+//
+// Callers hear the voice the owner hears on the Mac: the Mac puts its cloud voice (Fish
+// Audio or ElevenLabs, with the owner's voice model) in this service's variables, and each
+// line is a <Play> of this Function's "voice" step instead of Twilio's <Say>. That step has
+// the service voice the line and sends back the phone's 8 kHz WAV, made the way the Mac makes
+// a call's audio: the same request, the Mac's AI effect when it's on (speech.ai_voice_effect)
+// and the same filter down to the phone's rate (phone.to_phone_rate). Twilio fetches it
+// signed, like every request to a protected Function, and keeps it (a greeting is voiced
+// once). When the service fails, the line is silence rather than an error, and Twilio's
+// voice reads the call for a while (the "voice-down" document) so no caller waits on it.
+
+const PHONE_RATE = 8000; // all a phone line carries
+const VOICE_PIECE = 300; // characters voiced per <Play>, well inside a step's ten seconds
+const VOICE_MS = 7000; // the service's time to voice a piece (a retry included)
+const VOICE_DOWN = 'voice-down';
+const DOWN_REFUSED = 3600; // it said no (the key, the credit, the voice): Twilio's voice an hour
+const DOWN_FAILED = 120; // it was slow or away: a couple of minutes
+const REFLECTIONS = [[23, 0.2], [37, 0.14], [53, 0.1], [79, 0.06], [107, 0.035]];
+
+function hasVoice(context) {
+  return Boolean(context.VOICE_KEY && context.VOICE_ID);
+}
+
+// Which voice a line is in: part of its address, so a new voice isn't served from Twilio's cache.
+function voiceTag(context) {
+  const which = [context.VOICE_PROVIDER, context.VOICE_ID, context.VOICE_MODEL, context.VOICE_EFFECT];
+  return crypto.createHash('sha256').update(which.join('|')).digest('hex').slice(0, 10);
+}
+
+// Whether lines go out in JARVIS's voice: there is one, and it hasn't just failed.
+async function voiceUp(context) {
+  if (!hasVoice(context)) return false;
+  try {
+    const doc = await sync(context, 'GET', `/Documents/${VOICE_DOWN}`);
+    const until = Date.parse((doc && doc.data && doc.data.until) || '');
+    return !(until > Date.now());
+  } catch (err) { // 404: nothing's wrong with it (and Sync away says nothing about the voice)
+    return true;
+  }
+}
+
+async function voiceDown(context, status) {
+  const seconds = refused(status) ? DOWN_REFUSED : DOWN_FAILED;
+  const Data = JSON.stringify({ until: new Date(Date.now() + seconds * 1000).toISOString(), status: status || 0 });
+  try {
+    try {
+      await sync(context, 'POST', '/Documents', { UniqueName: VOICE_DOWN, Data, Ttl: String(seconds) });
+    } catch (err) {
+      if (err.status !== 409) throw err;
+      await sync(context, 'POST', `/Documents/${VOICE_DOWN}`, { Data, Ttl: String(seconds) });
+    }
+  } catch (err) {
+    console.error('voice-down', err.message);
+  }
+}
+
+function refused(status) {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
+function unesc(text) {
+  return String(text)
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&');
+}
+
+// A line in pieces the service voices well inside a step's time: whole sentences, and a
+// sentence longer than a piece at its last word that fits.
+function pieces(text) {
+  const out = [];
+  let piece = '';
+  for (let sentence of text.split(/(?<=[.!?])\s+/)) {
+    while (sentence.length > VOICE_PIECE) {
+      const cut = sentence.lastIndexOf(' ', VOICE_PIECE);
+      const at = cut > 0 ? cut : VOICE_PIECE;
+      if (piece) { out.push(piece); piece = ''; }
+      out.push(sentence.slice(0, at).trim());
+      sentence = sentence.slice(at).trim();
+    }
+    if (!sentence) continue;
+    if (piece && piece.length + 1 + sentence.length > VOICE_PIECE) { out.push(piece); piece = ''; }
+    piece = piece ? `${piece} ${sentence}` : sentence;
+  }
+  if (piece) out.push(piece);
+  return out;
+}
+
+const SAID = new RegExp(`<Say voice="${VOICE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}">([^<]*)</Say>`, 'g');
+
+// The call's script in JARVIS's voice: each <Say> a <Play> of the voice step saying it.
+function voiceover(context, xml, up) {
+  if (!up) return xml;
+  const v = voiceTag(context);
+  return xml.replace(SAID, (_whole, text) =>
+    pieces(unesc(text).replace(/\s+/g, ' ').trim())
+      .map((p) => `<Play>${esc(url(context, 'voice', { v, say: p }))}</Play>`)
+      .join(''));
+}
+
+// One request to the voice service; its raw 16-bit mono PCM.
+function post(host, path, headers, body, ms) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    let timer = null;
+    const done = (fn, value) => { clearTimeout(timer); fn(value); };
+    const req = https.request(
+      {
+        host,
+        path,
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on('error', (err) => done(reject, err));
+        res.on('end', () => {
+          if (res.statusCode >= 400) {
+            const err = new Error(`${host} said ${res.statusCode}`);
+            err.status = res.statusCode;
+            done(reject, err);
+            return;
+          }
+          done(resolve, Buffer.concat(chunks));
+        });
+      }
+    );
+    timer = setTimeout(() => req.destroy(new Error(`${host} took too long`)), ms);
+    req.on('error', (err) => done(reject, err));
+    req.write(data);
+    req.end();
+  });
+}
+
+// The line in the owner's voice, as the Mac asks for it (speech.CloudVoice): [samples, rate].
+async function speak(context, text, ms) {
+  const model = context.VOICE_MODEL;
+  if (String(context.VOICE_PROVIDER || '').toLowerCase() === 'elevenlabs') {
+    const pcm = await post(
+      'api.elevenlabs.io',
+      `/v1/text-to-speech/${encodeURIComponent(context.VOICE_ID)}?output_format=pcm_22050`,
+      { 'xi-api-key': context.VOICE_KEY },
+      { text, model_id: model || 'eleven_flash_v2_5' },
+      ms
+    );
+    return [samples(pcm), 22050];
+  }
+  const pcm = await post(
+    'api.fish.audio',
+    '/v1/tts',
+    { Authorization: `Bearer ${context.VOICE_KEY}`, model: model || 's2.1-pro' },
+    { text, reference_id: context.VOICE_ID, format: 'pcm', sample_rate: 24000, latency: 'low' },
+    ms
+  );
+  return [samples(pcm), 24000];
+}
+
+// Tried again once when it failed fast and not for good (a blip, not a refused key).
+async function synthesize(context, text) {
+  const started = Date.now();
+  try {
+    return await speak(context, text, VOICE_MS);
+  } catch (err) {
+    const left = VOICE_MS - (Date.now() - started);
+    if (refused(err.status) || left < 3000) throw err;
+    return speak(context, text, left);
+  }
+}
+
+function samples(pcm) {
+  const n = Math.floor(pcm.length / 2);
+  if (!n) throw new Error('the voice came back empty');
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = pcm.readInt16LE(2 * i) / 32768;
+  return out;
+}
+
+// speech._lowpass: a one-pole low-pass as its impulse response, cut where it's 1e-4.
+function lowpass(x, a) {
+  const length = a > 0 && a < 1 ? Math.max(1, Math.ceil(Math.log(1e-4) / Math.log(a))) : 1;
+  const h = new Float32Array(length);
+  for (let k = 0; k < length; k++) h[k] = (1 - a) * a ** k;
+  const y = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) {
+    let s = 0;
+    for (let k = Math.min(length - 1, i); k >= 0; k--) s += h[k] * x[i - k];
+    y[i] = s;
+  }
+  return y;
+}
+
+function highpass(x, a) {
+  const low = lowpass(x, a);
+  const y = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) y[i] = x[i] - low[i];
+  return y;
+}
+
+// speech.ai_voice_effect: a tight doubled voice, a small room, trimmed lows and highs.
+function aiVoiceEffect(x, rate) {
+  const n = x.length;
+  if (!n) return x;
+  const y = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const delay = (0.011 + 0.0015 * Math.sin(2 * Math.PI * 0.35 * (i / rate))) * rate;
+    const idx = Math.min(Math.max(i - delay, 0), n - 1);
+    const lo = Math.floor(idx);
+    const frac = idx - lo;
+    const hi = Math.min(lo + 1, n - 1);
+    y[i] = x[i] + 0.32 * (x[lo] * (1 - frac) + x[hi] * frac);
+  }
+  const wet = new Float32Array(n + Math.trunc(0.12 * rate));
+  wet.set(y);
+  for (const [ms, gain] of REFLECTIONS) {
+    const d = Math.trunc((ms / 1000) * rate);
+    for (let i = 0; i < n; i++) wet[d + i] += gain * y[i];
+  }
+  const out = lowpass(highpass(wet, Math.exp((-2 * Math.PI * 140) / rate)), Math.exp((-2 * Math.PI * 7500) / rate));
+  let peak = 0;
+  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
+  const scale = 0.89 / (peak || 1);
+  for (let i = 0; i < out.length; i++) out[i] *= scale;
+  return out;
+}
+
+// phone.to_phone_rate: filtered below the phone band first (no hiss folding back), then 8 kHz.
+function toPhoneRate(audio, rate) {
+  if (rate === PHONE_RATE || !audio.length) return audio;
+  let x = audio;
+  const half = 64;
+  if (rate > PHONE_RATE && audio.length > 2 * half + 1) {
+    const cutoff = (0.9 * (PHONE_RATE / 2)) / rate;
+    const h = new Float64Array(2 * half + 1);
+    let sum = 0;
+    for (let k = -half; k <= half; k++) {
+      const arg = 2 * cutoff * k;
+      const sinc = arg === 0 ? 1 : Math.sin(Math.PI * arg) / (Math.PI * arg);
+      const hamming = 0.54 - 0.46 * Math.cos((2 * Math.PI * (k + half)) / (2 * half));
+      h[k + half] = 2 * cutoff * sinc * hamming;
+      sum += h[k + half];
+    }
+    const taps = Float32Array.from(h, (v) => v / sum);
+    // np.convolve(..., mode="same"): each sample from the taps whose samples are there.
+    x = new Float32Array(audio.length);
+    for (let i = 0; i < audio.length; i++) {
+      let s = 0;
+      const last = Math.min(half, i);
+      for (let k = Math.max(-half, i - (audio.length - 1)); k <= last; k++) s += taps[k + half] * audio[i - k];
+      x[i] = s;
+    }
+  }
+  const n = Math.max(1, Math.trunc((audio.length * PHONE_RATE) / rate));
+  const out = new Float32Array(n);
+  const step = n > 1 ? (x.length - 1) / (n - 1) : 0;
+  for (let j = 0; j < n; j++) {
+    const p = j === n - 1 && n > 1 ? x.length - 1 : j * step;
+    const lo = Math.floor(p);
+    const hi = Math.min(lo + 1, x.length - 1);
+    out[j] = x[lo] + (x[hi] - x[lo]) * (p - lo);
+  }
+  return out;
+}
+
+// speech.wav_bytes: 16-bit PCM mono WAV.
+function wavBytes(audio, rate) {
+  const pcm = Buffer.alloc(audio.length * 2);
+  for (let i = 0; i < audio.length; i++) {
+    pcm.writeInt16LE(Math.trunc(Math.max(-1, Math.min(1, audio[i])) * 32767), 2 * i);
+  }
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write('WAVEfmt ', 8, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+// The voice step: a line in JARVIS's voice as the phone's WAV. Never an error, which Twilio
+// might end the call on: when the service fails, a moment's silence (kept by no one), and
+// Twilio's voice takes over the next lines.
+async function voice(context, event) {
+  const text = unesc(String(event.say || '')).replace(/\s+/g, ' ').trim().slice(0, 2 * VOICE_PIECE);
+  if (text && hasVoice(context)) {
+    try {
+      const [audio, rate] = await synthesize(context, text);
+      const effect = ['1', 'true'].includes(String(context.VOICE_EFFECT || '').toLowerCase());
+      return { wav: wavBytes(toPhoneRate(effect ? aiVoiceEffect(audio, rate) : audio, rate), PHONE_RATE), keep: true };
+    } catch (err) {
+      console.error('voice', err && err.message);
+      await voiceDown(context, err && err.status);
+    }
+  }
+  return { wav: wavBytes(new Float32Array(PHONE_RATE / 4), PHONE_RATE), keep: false };
+}
+
+function sendAudio(callback, { wav, keep }) {
+  if (typeof Twilio !== 'undefined' && Twilio.Response) {
+    const response = new Twilio.Response();
+    response.appendHeader('Content-Type', 'audio/wav');
+    response.appendHeader('Content-Length', String(wav.length));
+    response.appendHeader('Cache-Control', keep ? 'max-age=86400' : 'no-store');
+    response.setBody(wav);
+    callback(null, response);
+    return;
+  }
+  callback(null, wav);
+}
+
 const STEPS = { answer, choose, slots: slotsStep, pick, booked, left, talk, dial };
 
 function reply(callback, xml) {
@@ -756,14 +1079,21 @@ function reply(callback, xml) {
 }
 
 exports.handler = async function handler(context, event, callback) {
+  if (event.step === 'voice') {
+    sendAudio(callback, await voice(context, event));
+    return;
+  }
   const step = Object.prototype.hasOwnProperty.call(STEPS, event.step) ? event.step : 'answer';
+  const up = voiceUp(context); // looked up while the step runs
+  let xml;
   try {
-    reply(callback, await STEPS[step](context, event));
+    xml = await STEPS[step](context, event);
   } catch (err) {
     // Whatever went wrong, a caller can still leave a message; a call Jarvis placed ends.
     console.error(step, err && err.message);
-    reply(callback, placedCall(event)
+    xml = placedCall(event)
       ? respond(say("I'm sorry, something went wrong on my side. Goodbye."), '<Hangup/>')
-      : respond(say('Sorry, something went wrong on my side. Please leave a message after the tone.'), record(context, 'message')));
+      : respond(say('Sorry, something went wrong on my side. Please leave a message after the tone.'), record(context, 'message'));
   }
+  reply(callback, voiceover(context, xml, await up));
 };

@@ -676,6 +676,7 @@ class Hub:
             calendar=settings.calendar,
             # Settings › Models' Anthropic key: what callers talk with (set up below).
             claude_key=lambda: self.providers.anthropic_key(),
+            voice=self._line_voice,  # … and the voice they hear: the one the Mac speaks with
         )
         from .prefs import APP_SUPPORT
         from .tasks import RuleStore
@@ -5160,6 +5161,20 @@ class Hub:
             note = "Something went wrong there. Try again."
         self.answering.note = note or self.answering.note
         self._line_changed()
+
+    def _line_voice(self) -> dict[str, Any]:
+        """The cloud voice the Mac speaks with, and its effect, for the Jarvis number to
+        speak with too ({} without one: Twilio's voice reads the calls)."""
+        cloud = getattr(self.speaker, "cloud", None)
+        if cloud is None:
+            return {}
+        return {
+            "provider": cloud.provider,
+            "key": cloud.api_key,
+            "id": cloud.voice_id,
+            "model": cloud.model,
+            "effect": bool(self.prefs.voice_effect),
+        }
 
     async def _call_voice(self, text: str) -> tuple[Any, int] | None:
         """A phone call's words in JARVIS's own voice: the cloud voice the Mac speaks with,

@@ -368,8 +368,10 @@ class Desk:
             me=lambda: "Mac",
             claude_key=lambda: self.key,
             lookup=self._contacts,
+            voice=lambda: self.voice,
         )
         self.key = ""  # Settings › Models › Anthropic's
+        self.voice = {}  # the cloud voice the Mac speaks with (none: the Mac's own)
 
     async def _contacts(self, query):
         people = {
@@ -414,6 +416,8 @@ class Desk:
             "sync": "IS1",
             "since": since,
             "before": {"voice_url": "https://demo.twilio.com/welcome/voice/"},
+            "voice": "",
+            "code": answering.code_fingerprint(),
         }
         self.twilio.doc = {}
         return self
@@ -509,6 +513,17 @@ async def test_the_check_after_turning_on_says_what_callers_would_miss(tmp_path,
     d = Desk(tmp_path)
     d.twilio.lines = {"status": answered[0], "text": answered[1]}
     assert said in await d.desk.turn_on()
+
+
+async def test_the_check_hears_the_menu_in_jarvis_s_voice_too(tmp_path):
+    d = Desk(tmp_path)
+    at = "https://jarvis-line-1-line.twil.io/call?step=voice&amp;v=ab12&amp;say="
+    d.twilio.lines = {
+        "text": f"<Response><Gather><Play>{at}To+book+a+time%2C+press+1+now.</Play></Gather>"
+        "</Response>"
+    }
+    note = await d.desk.turn_on()
+    assert note.startswith("Answering is on") and "isn't working" not in note
 
 
 async def test_turning_on_needs_the_twilio_sign_in(tmp_path):
@@ -1130,15 +1145,82 @@ async def test_how_a_call_for_me_went_is_said_plainly(tmp_path, status, outcome,
 
 async def test_a_new_claude_key_goes_up_to_the_function_again(tmp_path):
     d = Desk(tmp_path).on()
-    assert not d.desk._key_changed()  # no key, none there
+    assert not d.desk._line_stale()  # no key, none there
     d.key = KEY
-    assert d.desk._key_changed()
+    assert d.desk._line_stale()
     d.desk._resetup_at = T0 - 60  # tried a minute ago: not again yet
-    assert not d.desk._key_changed()
+    assert not d.desk._line_stale()
     d.desk._resetup_at = T0 - answering.RESETUP_EVERY
-    assert d.desk._key_changed()
+    assert d.desk._line_stale()
     d.desk.log.line["talk_key"] = answering.fingerprint(KEY)
-    assert not d.desk._key_changed()
+    assert not d.desk._line_stale()
+
+
+# ── the voice callers hear ──
+
+FISH = {"provider": "fish", "key": "fish-" + "f" * 30, "id": "jarvis-voice", "model": "s2.1-pro"}
+
+
+def test_setting_up_gives_the_function_the_mac_s_voice_and_takes_it_away():
+    twilio = Twilio()
+    ticks = itertools.count(0, 5)
+    line = Line(request=twilio, clock=lambda: next(ticks), wait=lambda _s: None)
+    voice = {**FISH, "effect": "1"}
+    state = line.set_up(NUMBER, SID, TOKEN, voice=voice)
+    assert {k: v for k, (_s, v) in twilio.variables.items()} == {
+        "VOICE_PROVIDER": "fish",
+        "VOICE_KEY": FISH["key"],
+        "VOICE_ID": "jarvis-voice",
+        "VOICE_MODEL": "s2.1-pro",
+        "VOICE_EFFECT": "1",
+    }
+    assert state["voice"] == answering.voice_fingerprint(voice)
+    assert state["code"] == answering.code_fingerprint()
+    assert FISH["key"] not in json.dumps(state)
+    # The effect turned off: its variable goes, the rest stay.
+    state = line.set_up(NUMBER, SID, TOKEN, state["before"], voice={**FISH, "effect": ""})
+    assert "VOICE_EFFECT" not in twilio.variables and "VOICE_KEY" in twilio.variables
+    again = line.set_up(NUMBER, SID, TOKEN, state["before"])  # the Mac's own voice: Twilio's
+    assert twilio.variables == {} and again["voice"] == ""
+
+
+async def test_turning_on_puts_up_the_voice_the_mac_speaks_with(tmp_path):
+    d = Desk(tmp_path)
+    d.voice = {**FISH, "effect": True}
+    await d.desk.turn_on()
+    assert d.twilio.variables["VOICE_ID"][1] == "jarvis-voice"
+    assert d.twilio.variables["VOICE_EFFECT"][1] == "1"
+    assert not d.desk._line_stale()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda d: d.voice.update(id="another-voice"),  # another voice picked
+        lambda d: d.voice.update(effect=False),  # the AI effect turned off
+        lambda d: d.voice.clear(),  # back to the Mac's own voice
+        lambda d: d.desk.log.line.update(code="older"),  # a newer Function in this version
+    ],
+)
+async def test_a_new_voice_effect_or_function_goes_up_by_itself(tmp_path, change):
+    d = Desk(tmp_path).on()
+    d.voice = {**FISH, "effect": True}
+    d.desk.log.line["voice"] = answering.voice_fingerprint(d.desk._voice())
+    assert not d.desk._line_stale()
+    change(d)
+    assert d.desk._line_stale()
+
+
+async def test_a_voice_without_a_key_or_one_that_can_t_be_read_is_no_voice(tmp_path):
+    d = Desk(tmp_path)
+    d.voice = {**FISH, "key": ""}
+    assert d.desk._voice() == {}
+
+    def locked():
+        raise RuntimeError("Keychain locked")
+
+    d.desk.voice = locked
+    assert d.desk._voice() == {}
 
 
 def test_the_talk_settings_are_read_safely():
