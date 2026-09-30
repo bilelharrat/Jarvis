@@ -909,7 +909,7 @@ class Hub:
         # What feature modules (jarvis.features) add, kept apart from the core tables.
         self._extra_servers: dict[str, Callable[[], Any]] = {}
         self._extra_prompts: list[Callable[[], str]] = []
-        self._commands: dict[str, Callable[[dict[str, Any]], Any]] = {}
+        self._commands: dict[str, list[Callable[[dict[str, Any]], Any]]] = {}
         self._loops: list[tuple[str, Callable[[], Any]]] = []
         self._notify_sinks: list[Callable[[Alert], Any]] = []
         self._approval_sinks: list[Callable[[dict[str, Any]], Any]] = []
@@ -949,9 +949,10 @@ class Hub:
 
     def register_command(self, kind: str, handler: Callable[[dict[str, Any]], Any]) -> None:
         """A window command, {"type": kind, ...}: the handler gets the message (and may be
-        async). Checked before the built-in commands: a handler that returns False leaves
-        the message to the built-in command of that kind (it takes only some of them)."""
-        self._commands[kind] = handler
+        async). Checked before the built-in commands, in the order registered: a handler
+        that returns False leaves the message to the next one, then to the built-in
+        command of that kind (a feature taking only some of a core command's messages)."""
+        self._commands.setdefault(kind, []).append(handler)
 
     def register_instant(self, handler: Callable[[str], Any]) -> None:
         """Words the user said or typed to JARVIS, answered at once without asking Claude:
@@ -5390,12 +5391,11 @@ class Hub:
 
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
-        handler = self._commands.get(kind) if isinstance(kind, str) else None
-        if handler is not None:  # a feature module's command (register_command)
-            result = handler(msg)
+        for handler in self._commands.get(kind, ()) if isinstance(kind, str) else ():
+            result = handler(msg)  # a feature module's command (register_command)
             if asyncio.iscoroutine(result):
                 result = await result
-            if result is not False:  # False: not the feature's after all; the built-in's
+            if result is not False:  # False: not this feature's; the next one's, or the built-in's
                 return
         if kind in (
             "phone_status",

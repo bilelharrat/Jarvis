@@ -34,6 +34,11 @@ that red") goes to the focused session with what the hand points at: the element
 words, CSS path and box on the page (or the spot on the simulator's screen), and a
 picture of it. The window has POINT_TIMEOUT to say; otherwise the request goes alone.
 
+Sessions talk to each other (codepeers): "@session-3 …" in a session's composer goes to
+session 3 (task_send and task_new messages that open with a mention), and every session
+gets the jarvis_sessions tools (list_sessions, session_summary, message_session) through
+TaskManager.session_extras.
+
 Claude cost policy: "what's everyone doing" and the rest never call a model. "Catch me
 up" calls Haiku 4.5 once for a session only when several of its replies need condensing
 into one sentence, and "read lines…" once to describe the lines. All such calls share a
@@ -54,7 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .. import codelook, lang
+from .. import codelook, codepeers, lang
 from .. import codesupervisor as cs
 from ..prefs import MODELS
 from ..voicecode import parse as voice_command
@@ -148,6 +153,7 @@ class CodeVoice:
         self.point_calls: dict[str, asyncio.Future] = {}
         self.speak_next: set[int] = set()  # sessions whose next reply is read out
         self.helper_told = False  # the look-at-this helper couldn't be built: said once
+        self.peers = codepeers.Peers(hub)
 
     def install(self) -> None:
         hub = self.hub
@@ -159,6 +165,9 @@ class CodeVoice:
         hub.register_command("whats_this", self.on_whats_this)
         hub.register_command("code_voice_hand", self.on_hand)
         hub.register_command("code_voice_pointed", self.on_pointed)
+        hub.register_command("task_send", self.on_task_send)
+        hub.register_command("task_new", self.on_task_new)
+        hub.tasks.session_extras.append(self.peers.extend)
 
     # ── words ──
 
@@ -634,12 +643,35 @@ class CodeVoice:
             self.speak_next.add(task.id)  # asked by voice: the answer is read out too
             hub.say(self.say("Sent to {session}.", session=cs.name_of(task, self.language)))
 
+    # ── sessions talking to each other ──
+
+    def on_task_send(self, msg: dict[str, Any]) -> bool | None:
+        """A message from a session's composer that opens with "@session-3": to session 3."""
+        text = str(msg.get("text", ""))
+        if not codepeers.MENTION.match(text):
+            return False
+        routed = self.peers.mention(msg.get("id"), text, self.hub._attachments(msg))
+        return False if routed is None else None
+
+    def on_task_new(self, msg: dict[str, Any]) -> bool | None:
+        """The same from a new session's composer: it goes to session 3, which is shown,
+        and no new session starts."""
+        text = str(msg.get("prompt", ""))
+        if not codepeers.MENTION.match(text):
+            return False
+        routed = self.peers.mention(None, text, self.hub._attachments(msg))
+        if routed is None:
+            return False
+        self.hub.emit("show_session", id=routed)
+        return None
+
     # ── what happens in the sessions ──
 
     def on_task_event(self, kind: str, data: dict[str, Any]) -> None:
         self.journal.event(kind, data)
         task_id = data.get("id")
         if kind == "task_finished" and data.get("task_kind") == "code":
+            self.peers.on_finished(data)
             if self.hub.voicecode.focus == task_id:
                 self.journal.mark_seen(task_id)  # its reply is being read out
             elif task_id in self.speak_next:

@@ -415,3 +415,22 @@ def test_what_the_hand_points_at_is_kept_only_in_its_shapes():
     )
     assert cs.points_at("make this bigger") and cs.points_at("把这个改成蓝色")
     assert not cs.points_at("add a retry around the query")
+
+
+def test_long_and_hostile_words_are_read_quickly():
+    import time
+
+    hostile = [
+        "tell the " + "session " * 60,
+        "tell " + "a " * 190 + "session to x",
+        "what does the " + "x " * 190 + "session want",
+        "read lines 1 to 2 of " + "a b " * 90,
+        "ask the " + "session " * 30 + " what " * 20,
+        "告诉" + "测试" * 140 + "会话也更新",
+        "问" + "会话" * 140,
+        "x" * 100_000,  # far past what's spoken: not even looked at
+    ]
+    for text in hostile:
+        started = time.perf_counter()
+        cs.parse(text)
+        assert time.perf_counter() - started < 0.05, text[:30]  # well under 1 ms here

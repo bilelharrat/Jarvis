@@ -67,6 +67,7 @@ const featureListeners = new Map();  // event type ('*': every event) -> handler
 const featureLast = new Map();  // the latest event of each type, for a listener added late
 const featurePanes = new Map();  // Jarvis Code pane id -> { title, render(body, task) }
 const featureMoreItems = [];  // Jarvis Code "More" menu items: { label, run, when?(task) }
+const featureMentions = [];  // Jarvis Code composer: (query, textBefore) -> more @ suggestions
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -89,6 +90,7 @@ window.jarvisFeatures = {
   registerPane(id, pane) { featurePanes.set(id, pane); PANE_TITLES[id] = pane.title || id; },
   openPane: (id) => openPane(id),
   registerMoreItem(item) { featureMoreItems.push(item); },
+  registerMentions(suggest) { featureMentions.push(suggest); },
   currentTask: () => currentTask(),
 };
 
@@ -2547,7 +2549,8 @@ function suggestions() {
   if (m) {
     const q = m[1].toLowerCase();
     const files = (projectFiles[deckProject] || []).filter((f) => f.toLowerCase().includes(q)).sort((x, y) => x.length - y.length).slice(0, 12);
-    return { kind: 'at', query: m[1], items: files.map((f) => ({ label: f, help: '', value: f })) };
+    const more = featureMentions.flatMap((suggest) => { try { return suggest(m[1], v) || []; } catch (err) { console.error('feature mentions', err); return []; } });
+    return { kind: 'at', query: m[1], items: [...more, ...files.map((f) => ({ label: f, help: '', value: f }))].slice(0, 16) };
   }
   return { kind: '', items: [] };
 }
@@ -2561,7 +2564,10 @@ function renderSuggestions() {
     const b = el('button', i === pickIndex ? 'active' : '');
     b.type = 'button';
     b.setAttribute('role', 'option');
-    if (s.kind === 'at') b.append(el('code', '', item.label));
+    if (s.kind === 'at') {
+      b.append(el('code', '', item.label));
+      if (item.help) { const help = el('span', '', item.help); help.setAttribute('data-no-i18n', ''); b.append(help); }
+    }
     else b.append(el('strong', '', item.label), el('span', '', item.help));
     b.addEventListener('mousedown', (e) => { e.preventDefault(); pick(s, item); });
     return b;

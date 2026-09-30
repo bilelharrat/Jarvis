@@ -35,3 +35,17 @@ test('the picture sent is a square around the spot, never off the screen', () =>
   assert.deepEqual(cv.cropBox({ x: 0, y: 0 }, 1000, 2000), { sx: 0, sy: 0, sw: 400, sh: 400 });
   assert.deepEqual(cv.cropBox({ x: 1, y: 1 }, 1000, 2000), { sx: 600, sy: 1600, sw: 400, sh: 400 });
 });
+
+test('the composer offers the other sessions as @mentions, by number, title or project', () => {
+  const tasks = [
+    { id: 1, kind: 'code', title: 'Add a retry', folder: 'jarvis' },
+    { id: 2, kind: 'code', title: 'Write the docs', folder: 'bsh' },
+    { id: 3, kind: 'research', title: 'Market study', folder: 'Research' },
+    { id: 12, kind: 'code', prompt: 'Fix the login', folder: 'api' },
+  ];
+  assert.deepEqual(cv.sessionMentions('', tasks, 1).map((m) => m.label), ['@session-2', '@session-12']);
+  assert.deepEqual(cv.sessionMentions('docs', tasks, 1), [{ label: '@session-2', help: 'Write the docs · bsh', value: 'session-2' }]);
+  assert.deepEqual(cv.sessionMentions('session-1', tasks, null).map((m) => m.value), ['session-1', 'session-12']);
+  assert.deepEqual(cv.sessionMentions('api', tasks, 1).map((m) => m.value), ['session-12']);
+  assert.deepEqual(cv.sessionMentions('zzz', tasks, 1), []);
+});

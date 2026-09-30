@@ -803,6 +803,11 @@ ZH = {
     ),
     "It's inside {symbol}.": "它在 {symbol} 里面。",
     "message session {n}": "给会话 {n} 发消息",
+    "Nothing to send to session {n}.": "没有要发给会话{n}的内容。",
+    "Session {n} has too many messages waiting; this one wasn't sent.": "会话{n}排队的消息太多了，这条没发出去。",
+    "Sent to session {n} ({about}): {message}": "已发给会话{n}（{about}）：{message}",
+    "Session {n} ({about}) stopped with an error.": "会话{n}（{about}）出错停下了。",
+    "Session {n} ({about}) answered: {result}": "会话{n}（{about}）回复：{result}",
 }
 
 lang.add_texts(ZH)

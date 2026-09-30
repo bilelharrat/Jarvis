@@ -5,7 +5,9 @@
 //   Files viewer, those lines marked;
 // - point and speak: says when hand control points at the built-in browser's page or the
 //   iOS Simulator pane, and, asked, what the hand points at (a page element, or a spot on
-//   the simulator's screen) with a picture of it.
+//   the simulator's screen) with a picture of it;
+// - offers the other sessions as @mentions in the composer: a message that opens with
+//   "@session-3" goes to session 3 (the backend routes it).
 // Pure helpers are exported for node --test (tests/web/code-voice.test.mjs).
 (function (root) {
   'use strict';
@@ -46,7 +48,19 @@
     return { sx, sy, sw: Math.min(side, w), sh: Math.min(side, h) };
   }
 
-  const api = { looking, lineSpan, spotOn, inside, cropBox, SEEN_EVERY_MS };
+  // The other sessions a composer's "@…" can mean, by number, title or project: the
+  // composer's suggestions (the current session left out).
+  function sessionMentions(query, tasks, currentId, limit = 6) {
+    const q = String(query || '').toLowerCase().replace(/^session-?/, '');
+    return (tasks || [])
+      .filter((t) => t && t.kind === 'code' && t.id !== currentId)
+      .filter((t) => !q || String(t.id).startsWith(q) || String(t.title || t.prompt || '').toLowerCase().includes(q)
+        || String(t.folder || '').toLowerCase().includes(q))
+      .slice(0, limit)
+      .map((t) => ({ label: `@session-${t.id}`, help: `${String(t.title || t.prompt || '').slice(0, 60)} · ${t.folder}`, value: `session-${t.id}` }));
+  }
+
+  const api = { looking, lineSpan, spotOn, inside, cropBox, sessionMentions, SEEN_EVERY_MS };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -150,4 +164,13 @@
     try { ref = await pointedAt(); } catch (_) { ref = null; }
     F.send({ type: 'code_voice_pointed', id: ev.id, ref });
   });
+
+  // ── @session mentions: only as the first thing in a message (that's where they route) ──
+  if (F.registerMentions) {
+    F.registerMentions((query, before) => {
+      if (!/^@[\w-]*$/.test(before.trim())) return [];
+      const current = F.currentTask();
+      return sessionMentions(query, typeof ccTasks !== 'undefined' ? ccTasks : [], current ? current.id : null);
+    });
+  }
 })(typeof window === 'object' ? window : globalThis);

@@ -624,6 +624,20 @@ test('With hand control on a page, the window says so and says what the hand poi
   assert(JSON.stringify((await sentOf('code_voice_hand')).map((m) => m.pointing)) === '[false]', 'the hand going off was not said');
 });
 
+test('“@” at the start of a Jarvis Code message offers the other sessions to send it to', async () => {
+  await loadFeature('code-voice.js');
+  await open(3);
+  await js(`onEvent({ type: 'tasks', items: [__task(3), __task(4, { title: 'Write the docs' })] }); $("deck-input").focus(); true`);
+  await type('@wri');
+  const offered = await js('[...$("cc-slash").querySelectorAll("button")].map((b) => b.textContent)');
+  assert(offered.length >= 1 && offered[0] === '@session-4Write the docs · alpha', JSON.stringify(offered));
+  await key('\t');  // Tab picks it
+  assert(await js('$("deck-input").value') === '@session-4 ', await js('$("deck-input").value'));
+  await js('$("deck-input").value = "fix @wri"; $("deck-input").dispatchEvent(new Event("input")); true');
+  const midway = await js('[...$("cc-slash").querySelectorAll("button")].map((b) => b.textContent)');
+  assert(!midway.some((t) => t.startsWith('@session')), JSON.stringify(midway));  // only at the start
+});
+
 // ──
 
 let base;

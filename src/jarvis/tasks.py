@@ -836,6 +836,9 @@ class TaskManager:
         # Extra MCP servers for a session in a folder (the built-in browser, the iOS
         # Simulator: code_tools), set by the hub.
         self.session_servers: Callable[[Path], dict[str, Any]] | None = None
+        # Feature modules' own additions to a code session's options (jarvis.features):
+        # each is called with the session and its options as they're made.
+        self.session_extras: list[Callable[[ClaudeTask, ClaudeAgentOptions], None]] = []
         # True when follow-ups should steer the running step (the owner's setting).
         self.steer_now: Callable[[], bool] | None = None
         # Claude couldn't answer a session (its limit, an outage): the hub's fallback, told
@@ -1753,6 +1756,11 @@ class TaskManager:
             base = options.mcp_servers if isinstance(options.mcp_servers, dict) else {}
             options.mcp_servers = {**base, **extra}
             options.allowed_tools = [*options.allowed_tools, *code_tools.READ_ONLY]
+        for extend in self.session_extras:
+            try:
+                extend(task, options)
+            except Exception:  # a broken feature never keeps a session from starting
+                log.exception("a feature's session options failed")
         if self.providers is not None and task.model_ref.startswith("custom:"):
             # Fresh from the store at every (re)connect: a removed model, a key that no
             # longer matches its provider, or none saved, fails with that plain reason.
