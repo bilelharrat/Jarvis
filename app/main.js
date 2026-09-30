@@ -9,6 +9,7 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const { toUrl } = require('./url-input'); // what the address bar makes of what's typed
+const { pagePermission } = require('./page-permissions'); // full screen, nothing else
 
 app.setName('J.A.R.V.I.S.');
 
@@ -699,7 +700,7 @@ function createTab() {
     if (/^https?:\/\//.test(url)) newTab(url); // a link that wants a new window: a new tab
     return { action: 'deny' };
   });
-  wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  wc.session.setPermissionRequestHandler((_wc, permission, callback) => callback(pagePermission(permission)));
   // On the Research Center, direct input never reaches the page (Jarvis's own does).
   wc.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && win) win.webContents.send('browser:escape');
