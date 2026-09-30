@@ -9,7 +9,9 @@
 //   while that page is on show until the owner closes it;
 // - Settings › Browser: the sensitive sites (banks, email, health: JARVIS acts there only
 //   while the owner can see the tab) and the owner's rule for any site (always, ask first,
-//   never), changed only here (browser_ai_sites, browser_ai_site).
+//   never), changed only here (browser_ai_sites, browser_ai_site); and browser memories,
+//   opt-in: a page on show for a minute is told to the hub (browser_ai_dwell), which keeps
+//   its text in the second brain's Browsing source (browser_ai_memories to list and forget).
 //
 // Everything a page brings (its address, title, the lines it wrote) is data: shown with
 // textContent and marked data-no-i18n. The helpers at the top are pure
@@ -207,7 +209,73 @@
     renderSites();
   });
   sitesGroup();
-  F.on('hello', () => F.send({ type: 'browser_ai_sites' }), { replay: true });
+
+  // Browser memories: the switch is the second brain's Browsing source (brain_source).
+  let memories = { on: false, count: 0, recent: [] };
+  function memoriesRows() {
+    const group = F.$('bai-settings');
+    if (!group || F.$('sw-bai-memories')) return;
+    const row = el('div', 'row');
+    const text = el('span');
+    text.append(el('strong', '', 'Remember pages I read'),
+      el('small', '', 'A page you keep on show for a minute is kept as text in your second brain (Browsing), to find and ask about later. Never banks, email or health sites; nothing leaves your Mac.'));
+    const sw = el('button', 'switch');
+    sw.type = 'button';
+    sw.id = 'sw-bai-memories';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', 'false');
+    sw.setAttribute('aria-label', 'Remember pages I read');
+    sw.addEventListener('click', () => {
+      memories.on = sw.getAttribute('aria-checked') !== 'true';
+      sw.setAttribute('aria-checked', String(memories.on));
+      F.send({ type: 'brain_source', source: 'browsing', on: memories.on });
+      renderMemories();
+    });
+    row.append(text, sw);
+    const box = el('div', 'bai-memories');
+    box.id = 'bai-memories';
+    box.hidden = true;
+    group.insertBefore(row, group.querySelector('.bai-sites'));
+    group.insertBefore(box, group.querySelector('.bai-sites'));
+    renderMemories();
+  }
+  function renderMemories() {
+    const sw = F.$('sw-bai-memories');
+    const box = F.$('bai-memories');
+    if (!sw || !box) return;
+    sw.setAttribute('aria-checked', String(memories.on));
+    if (!memories.count) { box.replaceChildren(); box.hidden = true; return; }
+    box.hidden = false;
+    const head = el('div', 'bai-memories-head');
+    head.append(el('span', 'small-status', `${memories.count} ${memories.count === 1 ? 'page' : 'pages'} remembered`),
+      button('Forget all', 'btn', () => F.send({ type: 'browser_ai_memory_forget', all: true })));
+    const list = el('ul', 'folders bai-memory-list');
+    for (const m of memories.recent) {
+      const li = el('li');
+      const words = el('span', 'bai-memory');
+      words.append(mine(el('b', '', m.title || m.url)), mine(el('small', '', m.site || '')));
+      li.append(words, button('Forget', 'btn', () => F.send({ type: 'browser_ai_memory_forget', url: m.url }), `Forget ${m.title || m.url}`));
+      list.append(li);
+    }
+    box.replaceChildren(head, list);
+  }
+  F.on('browser_ai_memories', (ev) => {
+    memories = { on: !!ev.on, count: Math.max(0, Number(ev.count) || 0), recent: Array.isArray(ev.recent) ? ev.recent.slice(0, 12) : [] };
+    renderMemories();
+  });
+  const memoriesPref = (p) => { if (p && p.features && 'browser_memories' in p.features) { memories.on = p.features.browser_memories === true; renderMemories(); } };
+  F.on('prefs', memoriesPref, { replay: true });
+  memoriesRows();
+  F.on('hello', (ev) => {
+    memoriesPref(ev.prefs);
+    F.send({ type: 'browser_ai_sites' });
+    F.send({ type: 'browser_ai_memories' });
+  }, { replay: true });
+  // The galaxy shows the Browsing source's pages in a color and name of their own.
+  if (window.GALAXY_SOURCES) {
+    window.GALAXY_SOURCES.colors.browsing = '#38bdf8';
+    window.GALAXY_SOURCES.names.browsing = 'Browsing';
+  }
 
   // ── the page on show, as the hub needs it ──
   // Sent when it changes. The addresses are the owner's own browsing: they go only to the
@@ -230,6 +298,22 @@
   F.on('hello', () => { sentKey = ''; report(); });
   new MutationObserver(() => report()).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   document.addEventListener('visibilitychange', () => report());
+
+  // A web page on show in the dock of a window in view, counted a second at a time: at a
+  // minute it's told to the hub once (it keeps the page when memories are on).
+  const DWELL_MS = 60 * 1000;
+  const dwell = { key: '', ms: 0, told: new Set() };
+  B.dwellTick = (ms = 1000) => {
+    if (!memories.on || !dockOpen() || document.visibilityState !== 'visible' || page.research || !/^https?:/.test(page.url)) return;
+    const key = B.pageKey(page.url);
+    if (key !== dwell.key) { dwell.key = key; dwell.ms = 0; }
+    dwell.ms += ms;
+    if (dwell.ms < DWELL_MS || dwell.told.has(key)) return;
+    dwell.told.add(key);
+    if (dwell.told.size > 500) dwell.told.delete(dwell.told.values().next().value);
+    F.send({ type: 'browser_ai_dwell', url: page.url, tab: page.tab, seconds: Math.round(dwell.ms / 1000) });
+  };
+  setInterval(() => B.dwellTick(), 1000);
 
   function onState(st) {
     const tabs = Array.isArray(st && st.tabs) ? st.tabs : [];

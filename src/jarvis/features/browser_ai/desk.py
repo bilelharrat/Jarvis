@@ -7,6 +7,7 @@ from typing import Any
 from ... import lang
 from .bridge import Bridge
 from .flags import Flags
+from .memories import Memories
 from .pagectx import PageContext
 from .pagevoice import PageVoice
 from .sites import Sites
@@ -25,6 +26,7 @@ class BrowserAi:
         self.voice = PageVoice(hub, self.bridge, self.page)
         self.watch = Watch(hub, self.sites, self.page)
         self.site_settings = SiteSettings(hub, self.sites)
+        self.memories = Memories(hub, self.bridge, self.sites)
 
     def install(self) -> None:
         hub = self.hub
@@ -38,5 +40,9 @@ class BrowserAi:
         hub.register_command("browser_ai_page", self.page.on_page)
         hub.register_command("browser_ai_sites", self.site_settings.on_list)
         hub.register_command("browser_ai_site", self.site_settings.on_change)
+        memories = self.memories
+        hub.register_command("browser_ai_dwell", memories.command(memories.on_dwell))
+        hub.register_command("browser_ai_memories", memories.command(memories.on_list))
+        hub.register_command("browser_ai_memory_forget", memories.command(memories.on_forget))
         # Before Jarvis Code's (code_voice), which takes the key for a session in front.
         hub.register_command("whats_this", self.page.on_whats_this)

@@ -24,7 +24,12 @@
   "Remove": "移除",
   "No rules: Jarvis asks as usual everywhere.": "没有规则：Jarvis 在各处照常询问。",
   "That isn't a site's address.": "这不是一个网站地址。",
-  "Bank": "银行"
+  "Bank": "银行",
+  "Remember pages I read": "记住我读过的页面",
+  "A page you keep on show for a minute is kept as text in your second brain (Browsing), to find and ask about later. Never banks, email or health sites; nothing leaves your Mac.": "你在浏览器里停留满一分钟的页面，会以文字形式保存在你的第二大脑（浏览记录）里，方便以后查找和提问。银行、邮箱和医疗网站从不保存；所有内容都不会离开你的 Mac。",
+  "Forget all": "全部忘记",
+  "Forget": "忘记",
+  "Browsing": "浏览记录"
  },
  "patterns": [
   [
@@ -50,6 +55,14 @@
   [
    "^Let Jarvis act on (.+)\\?$",
    "让 Jarvis 在 $1 上操作吗？"
+  ],
+  [
+   "^(\\d+) pages? remembered$",
+   "已记住 $1 个页面"
+  ],
+  [
+   "^Forget (.+)$",
+   "忘记 $1"
   ]
  ]
 }

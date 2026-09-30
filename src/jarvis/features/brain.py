@@ -5,7 +5,8 @@ PDFs). Each lives in its own module (embeddings, ocr, brain_sources, reminders_k
 this registers them on the hub:
 
 - settings (prefs.features): brain_semantic, brain_conversations, brain_images, brain_safari,
-  brain_bookmarks, brain_reminders, brain_voicememos, research_local;
+  brain_bookmarks, brain_reminders, brain_voicememos, research_local (and browser_memories,
+  the browsing source's, whose switch is browser_ai's, in Settings › Browser);
 - hub.brain_extension: the rebuild's arguments for them, the ones refreshed with mail and
   texts every four hours, and opening their notes;
 - hub.kb.semantic: search by meaning, for every search of the second brain (JARVIS's
@@ -39,7 +40,7 @@ log = logging.getLogger("jarvis")
 for _key, _default in [*SWITCHES.values(), SEMANTIC, reports.LOCAL_PREF]:
     prefs.register_feature_pref(_key, _default)
 
-RECENT = ("conversations", "images", "reminders", "voicememos")  # refreshed every 4 hours
+RECENT = ("conversations", "images", "reminders", "voicememos", "browsing")  # every 4 hours
 PROMPT = (
     "\n- The second brain also holds your past conversations with the user (source "
     "conversations), and, as they turn them on, text in their screenshots and images, their "
@@ -90,6 +91,9 @@ class BrainExtension:
         if note.source in ("safari", "bookmarks"):
             if brain_sources._web_url(note.ref):
                 hub._spawn(hub._quiet(mac_tools.run_command("open", note.ref)))
+        elif note.source == "browsing":  # a page read in the built-in browser: open it there
+            if brain_sources._web_url(note.ref):
+                hub._spawn(hub._browser_raw("open", {"url": note.ref, "newTab": True}))
         elif note.source in APPS:
             hub._spawn(hub._quiet(mac_tools.run_command("open", "-a", APPS[note.source])))
         elif note.source == "images" or note.id.startswith("file:"):

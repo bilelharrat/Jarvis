@@ -18,11 +18,16 @@
   the owner to watch, and what JARVIS reads there counts as their private data; each site
   can have the owner's rule: always, ask first, or never (a browser check, weighing the tab
   the action lands in; sitesettings.py changes them, from the window only).
+- Browser memories (memories.py), opt-in: a page on show for a minute is kept as text for
+  the second brain's Browsing source (brain_sources reads it; never a sensitive site or
+  this Mac's own pages), listed and forgotten in Settings › Browser.
 
 Window commands: browser_ai_page, browser_ai_result, browser_ai_sites, browser_ai_site,
-whats_this (before Jarvis Code's).
-Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites.
-Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules.
+browser_ai_dwell, browser_ai_memories, browser_ai_memory_forget, whats_this (before Jarvis
+Code's).
+Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites, browser_ai_memories.
+Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules,
+browser_memories (the brain's browsing source).
 
 Everything here is registered through the feature kit; install() only registers.
 

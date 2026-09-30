@@ -5410,6 +5410,41 @@ test('Settings › Browser lists the sensitive sites and the rules, and changes 
   assert(await js('!$("bai-sites-error").hidden && $("bai-rules").textContent.includes("No rules")'), 'no error or empty state shown');
 });
 
+test('Browser memories: a page on show for a minute is told once, only with memories on', async () => {
+  await browserAi();
+  await js(`document.body.classList.add('browser-open'); __state({ url: 'https://news.example/soup#top', title: 'Soup', tabs: [{ id: 3, active: true }] }); true`);
+  await js('jarvisBrowserAi.dwellTick(61000); true');
+  assert((await sentOf('browser_ai_dwell')).length === 0, 'told with memories off');
+  await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { browser_memories: true } });
+  await js('jarvisBrowserAi.dwellTick(30000); true');
+  assert((await sentOf('browser_ai_dwell')).length === 0, 'told before a minute');
+  await js('jarvisBrowserAi.dwellTick(30000); jarvisBrowserAi.dwellTick(30000); true');
+  const told = await sentOf('browser_ai_dwell');
+  assert(told.length === 1 && told[0].url === 'https://news.example/soup#top' && told[0].tab === 3, JSON.stringify(told));
+  await js(`__state({ url: 'https://rc.example/markets', title: 'RC', research: true, tabs: [{ id: 4, active: true }] }); jarvisBrowserAi.dwellTick(61000); true`);
+  await js(`document.body.classList.remove('browser-open'); __state({ url: 'https://news.example/b', title: 'B', tabs: [{ id: 3, active: true }] }); jarvisBrowserAi.dwellTick(61000); true`);
+  assert((await sentOf('browser_ai_dwell')).length === 1, 'the Research Center or a closed dock was counted');
+});
+
+test('Settings › Browser remembers pages only when switched on, and forgets them', async () => {
+  await browserAi();
+  await js('featureEvent({ type: "hello", hub_id: "hub-a", prefs: { features: {} } }); true');
+  assert((await sentOf('browser_ai_memories')).length === 1, 'the list was not asked for');
+  assert(await js('$("sw-bai-memories").getAttribute("aria-checked")') === 'false' && await js('$("bai-memories").hidden'), 'on, or a list, before any');
+  await js('__sent.length = 0; $("sw-bai-memories").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'brain_source', source: 'browsing', on: true }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'browser_ai_memories', on: true, count: 2, recent: [
+    { url: 'https://news.example/b', title: 'Lentils', site: 'The Daily Spoon', last: 2 },
+    { url: 'https://news.example/a', title: '', site: 'news.example', last: 1 }] });
+  assert(await js('$("bai-memories").textContent.includes("2 pages remembered")'), await js('$("bai-memories").textContent'));
+  const rows = await js('[...document.querySelectorAll(".bai-memory-list .bai-memory b")].map((b) => b.textContent + (b.closest("[data-no-i18n]") || b.hasAttribute("data-no-i18n") ? "" : "!"))');
+  assert(JSON.stringify(rows) === JSON.stringify(['Lentils', 'https://news.example/a']), JSON.stringify(rows));
+  await js('__sent.length = 0; document.querySelector(".bai-memory-list .btn").click(); document.querySelector(".bai-memories-head .btn").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_memory_forget', url: 'https://news.example/b' }, { type: 'browser_ai_memory_forget', all: true }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'browser_ai_memories', on: false, count: 0, recent: [] });
+  assert(await js('$("bai-memories").hidden && $("sw-bai-memories").getAttribute("aria-checked") === "false"'), 'still shown when off and empty');
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);

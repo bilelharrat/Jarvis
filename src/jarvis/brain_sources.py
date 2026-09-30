@@ -11,6 +11,8 @@
 - voicememos: Voice Memos, transcribed on this Mac by JARVIS's Whisper model, a few a
   rebuild, each transcript cached by the recording's hash.
 - journal: JARVIS's daily notes, Documents › Jarvis › Journal (jarvis.journal writes them).
+- browsing: pages the owner read in the built-in browser, kept as text beside the index
+  (jarvis.features.browser_ai.memories; its switch is in Settings › Browser).
 
 Each is a switch under Second brain (jarvis.features.brain keeps them, SWITCHES); the app
 passes them, and search by meaning's, to the rebuild as args["more"]. Everything is read in
@@ -52,6 +54,7 @@ SWITCHES: dict[str, tuple[str, bool]] = {
     "reminders": ("brain_reminders", False),
     "voicememos": ("brain_voicememos", False),
     "journal": ("brain_journal", True),
+    "browsing": ("browser_memories", False),
 }
 SEMANTIC = ("brain_semantic", False)  # search by meaning: may download Apple's model files
 VECTORS = "vectors"  # rebuild_brain(only={VECTORS}): re-read nothing, make vectors
@@ -695,6 +698,10 @@ def extra_sources(args: dict[str, Any]) -> dict[str, Callable[[], list[Note]]]:
         sources["voicememos"] = lambda: collect_voice_memos(
             store.with_name("voicememos.db"), lambda: whisper_transcriber(model, language)
         )
+    if more.get("browsing"):
+        from .features.browser_ai.memories import collect_browsing, folder_for
+
+        sources["browsing"] = lambda: collect_browsing(folder_for(store))
     return sources
 
 

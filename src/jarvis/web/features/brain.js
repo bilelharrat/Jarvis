@@ -44,6 +44,7 @@
     ['bookmarks', 'Bookmarks', ['safari', 'bookmarks']],
     ['reminders', 'Reminders', ['reminders']],
     ['voicememos', 'Voice memos', ['voicememos']],
+    ['browsing', 'Browsing', ['browsing']],  // pages read in the built-in browser (browser_ai.js)
   ];
   const SEARCH_WAIT = 250;
   const RESULTS = 30;
