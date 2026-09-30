@@ -161,6 +161,33 @@ async def test_an_email_rule_matches_the_sender_by_address_or_contacts_never_dis
     assert cause.context == ""
 
 
+@pytest.mark.parametrize(
+    "wanted, handle, contact, fires",
+    [
+        ("Ann", "ann@example.com", "", True),  # her address, no card in Contacts
+        ("Ann", "a.lee@example.com", "Ann Lee", True),  # Contacts' Ann
+        ("Ann", "hannah@corp.example", "Hannah Weiss", False),  # a longer name
+        ("Ann", "joanna@corp.example", "", False),
+        ("Ann", "annual-report@newsletter.example", "", False),
+        ("ann@example.com", "ann@example.com", "", True),
+        ("ann@example.com", "ann@example.com.evil.net", "", False),  # not her address
+        ("ann@example.com", "joann@example.com", "", False),
+        ("@acme.com", "billing@acme.com", "", True),
+        ("acme.com", "billing@acme.com", "", True),
+        ("acme.com", "billing@acme.com.evil.net", "", False),
+        ("acme.com", "billing@notacme.com", "", False),
+        ("(510) 555-0100", "+15105550100", "", True),
+        ("Mom", "+15105550199", "Mom", True),
+        ("Mom", "+15105550199", "Mommy's friend", False),
+    ],
+)
+def test_a_senders_word_matches_whole_names_and_whole_addresses(wanted, handle, contact, fires):
+    """An email rule's or a text rule's sender: a name as whole words of Contacts' name or
+    of the address before its @, an address whole, a domain as the address's own; never a
+    longer name that holds it, or an address that only starts with one."""
+    assert triggers.sender_matches(wanted, handle, contact) is fires
+
+
 async def test_a_text_from_a_contact_by_name_or_number(tmp_path):
     mom = routine({"type": "text", "from": "Mom"}, "mom")
     bob = routine({"type": "text", "from": "(510) 555-0100"}, "bob")

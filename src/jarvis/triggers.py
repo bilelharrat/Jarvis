@@ -249,17 +249,29 @@ def _digits(text: str) -> str:
     return re.sub(r"\D", "", text or "")
 
 
+_DOMAIN = re.compile(r"[\w-]+(?:\.[\w-]+)+")
+
+
 def sender_matches(wanted: str, handle: str, contact: str) -> bool:
-    """The owner's word for someone against a message's sender: their Contacts name or
-    address (never the name an email's sender gave themselves), or the number's last
-    digits."""
+    """The owner's word for someone against a message's sender (never the name an email's
+    sender gave themselves): a name as whole words of their Contacts name or of their
+    address before its @ ("Ann": never Hannah or annual-report@), an address whole ("@acme.com"
+    or "acme.com": the address's own domain), or the number's last digits."""
     wanted = wanted.casefold().strip()
     if not wanted:
         return True
-    if wanted in (contact or "").casefold() or wanted in (handle or "").casefold():
-        return True
+    handle, contact = (handle or "").casefold().strip(), (contact or "").casefold()
+    if "@" in wanted:
+        return handle.endswith(wanted) if wanted.startswith("@") else handle == wanted
+    if _DOMAIN.fullmatch(wanted) and "@" in handle:
+        domain = handle.rsplit("@", 1)[1]
+        return domain == wanted or domain.endswith(f".{wanted}")
     digits = _digits(wanted)
-    return len(digits) >= 7 and _digits(handle).endswith(digits[-10:])
+    if len(digits) >= 7:
+        return _digits(handle).endswith(digits[-10:])
+    whole = re.compile(rf"(?<![^\W_]){re.escape(wanted)}(?![^\W_])")
+    local = handle.split("@", 1)[0] if "@" in handle else ""
+    return bool(whole.search(contact) or (local and whole.search(local)))
 
 
 def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
