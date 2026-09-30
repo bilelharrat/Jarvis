@@ -19,6 +19,7 @@ import re
 import socket
 import sqlite3
 import time
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -58,9 +59,26 @@ def clean_id(value: Any) -> str:
 _ADDRESS = re.compile(r"[A-Za-z0-9_.+'-]+@[\w-]+(?:\.[\w-]+)+")
 
 
+# Characters that make text read in another order: never on a card or in a sentence, where
+# "invoice<U+202E>fdp.exe" would show as "invoiceexe.pdf".
+_REORDERING = frozenset("\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
+def one_line(text: Any) -> str:
+    """Someone else's words (a name, a subject) as a card or a sentence shows them: one line
+    (a newline there would be a line of the card's own, "Bcc: …" or "This is safe"), and
+    nothing that changes the order text reads in."""
+    kept = (
+        " " if unicodedata.category(c) == "Cc" else c
+        for c in str(text or "")
+        if c not in _REORDERING
+    )
+    return " ".join("".join(kept).split())
+
+
 def split_sender(text: Any) -> tuple[str, str]:
     """'Ann Lee <ann@x.com>' -> ("Ann Lee", "ann@x.com"); a bare address -> ("", it)."""
-    raw = " ".join(str(text or "").split())
+    raw = one_line(text)
     found = _ADDRESS.findall(raw)
     address = found[-1].lower() if found else ""
     name = raw.split("<", 1)[0].strip().strip('"').strip() if "<" in raw else ""
@@ -304,8 +322,8 @@ def headlines(db: Path, ids: list[str]) -> list[str]:
     finally:
         conn.close()
     found = {
-        clean_id(header): f"{shown(str(comment or '').strip(), str(address or ''))} — "
-        f"{' '.join(str(subject or '(no subject)').split())[:160]}"
+        clean_id(header): f"{shown(one_line(comment), str(address or ''))} — "
+        f"{one_line(subject or '(no subject)')[:160]}"
         for header, address, comment, subject in rows
     }
     return [found[i] for i in wanted if i in found]

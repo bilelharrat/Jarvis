@@ -461,7 +461,7 @@ class Comms:
         options = mailkit.unsubscribe_options(email.get("unsubscribe", ""), email.get("post", ""))
         name, address = mailkit.split_sender(email.get("sender"))
         sender = name or address or "this sender"
-        head = f"From: {mailkit.shown(name, address)}\nSubject: {email.get('subject', '')}"
+        head = f"From: {mailkit.shown(name, address)}\nSubject: {mailkit.one_line(email.get('subject'))}"
         if "one_click" in options:
             url = options["one_click"]
             how = f"I'll send the list's one-click unsubscribe request to {url_host(url)}:\n{url}"

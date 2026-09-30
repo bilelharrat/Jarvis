@@ -204,7 +204,9 @@ def _names(people: list[str]) -> str:
 
 def _re(subject: str) -> str:
     """A reply's subject: "Re: " in front unless it's there already."""
-    subject = " ".join(str(subject or "").split()) or "(no subject)"
+    from .mailkit import one_line
+
+    subject = one_line(subject) or "(no subject)"
     if re.match(r"^(?:re|aw|sv|antw|回复|答复)\s*[:：]", subject, re.IGNORECASE):
         return subject
     return f"Re: {subject}"
@@ -595,7 +597,7 @@ def build_tools(
                 who = str((person or {}).get("address") or "").strip().lower()
                 if who and who != address and who not in mine and "@" in who:
                     if who not in {a for _n, a in copies}:
-                        copies.append((str(person.get("name") or "").strip() or who, who))
+                        copies.append((mailkit.one_line(person.get("name")) or who, who))
         more = await people(_list(args.get("cc")), "email")
         if isinstance(more, str):
             return _text(more, error=True)

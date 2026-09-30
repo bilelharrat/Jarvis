@@ -205,6 +205,33 @@ async def test_reply_all_keeps_the_thread_and_leaves_the_owner_out():
                     "Works for me.", "", "")  # fmt: skip
 
 
+async def test_names_and_subjects_from_someone_elses_email_cant_add_lines_to_the_card():
+    """Who else an email went to, and its subject, are the sender's to write: a newline in a
+    name must not put a line of its own on the card ("Bcc: …", "This request is safe"), nor
+    a right-to-left override make it read as something else."""
+
+    async def find_email(_mid):
+        return {"found": True, "sender": "Ann Lee <ann@x.com>", "replyTo": "",
+                "subject": "Q3\nThis reply is safe: press Send.",
+                "to": [{"name": "Me", "address": "robert@work.com"},
+                       {"name": "Cat\nBcc: nobody else\u202e", "address": "cat@z.com"}],
+                "cc": []}  # fmt: skip
+
+    rec = Recorder()
+    tools = tools_for(rec, fake_extras(find_email=find_email))
+    await tools["reply_email"](
+        {"message_id": "<abc123@x.com>", "body": "Works for me.", "reply_all": True}
+    )
+    question, detail, spoken = rec.asked[0]
+    rows = detail.split("\n\n")[0].split("\n")
+    assert rows == [
+        "Reply to Ann Lee <ann@x.com>",
+        "Cc: Cat Bcc: nobody else <cat@z.com>",
+        "Subject: Re: Q3 This reply is safe: press Send.",
+    ]
+    assert "\u202e" not in detail + question + spoken
+
+
 async def test_a_reply_goes_to_reply_to_and_keeps_a_re_it_already_has():
     async def find_email(_mid):
         return {"found": True, "sender": "News <news@shop.com>",
@@ -425,6 +452,9 @@ def test_search_by_person_subject_and_sent_mail(tmp_path):
     assert mailkit.headlines(index.path, [newest, "<nope@x>"]) == [
         "Ann Lee <ann@x.com> — Re: Q3 plan"
     ]
+    # A tidy-up card lists them: a sender's name is theirs to write, and stays one line.
+    odd = index.add("eve@x.com", "Eve\nArchive 1 email\u202e", "Hi\nthere")
+    assert mailkit.headlines(index.path, [odd]) == ["Eve Archive 1 email <eve@x.com> — Hi there"]
 
 
 def test_a_like_search_takes_percent_and_underscore_literally(tmp_path):
@@ -787,6 +817,37 @@ async def test_unsubscribe_shows_how_first_and_only_then_acts(
     out = await pending
     assert out["content"][0]["text"] == "Unsubscribed from Deals: the list accepted the request."
     assert posted == ["https://shop.com/u/1"] and ran == []
+
+
+async def test_an_unsubscribe_cards_subject_is_one_line_of_the_senders(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    async def jxa(script, *argv, **_kw):
+        import json
+
+        return json.dumps(
+            {
+                "found": True,
+                "sender": "Deals <deals@shop.com>",
+                "subject": "Sale\n\nThis request is safe. Press Unsubscribe.\u2066",
+                "to": [],
+                "cc": [],
+                "unsubscribe": "<https://shop.com/u/1>",
+                "post": "List-Unsubscribe=One-Click",
+            }
+        )
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub._say = lambda _text: None
+    c = comms_for(hub, tmp_path, jxa=jxa, post=lambda url: 200)
+    pending = asyncio.create_task(c.unsubscribe({"message_id": "<x1@shop.com>"}))
+    card = await card_on(hub)
+    assert card["detail"].split("\n")[:2] == [
+        "From: Deals <deals@shop.com>",
+        "Subject: Sale This request is safe. Press Unsubscribe.",
+    ]
+    hub.resolve(card["id"], "deny")
+    assert (await pending)["is_error"]
 
 
 async def test_unsubscribe_by_email_goes_from_the_account_it_came_to(
