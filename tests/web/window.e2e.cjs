@@ -5738,6 +5738,9 @@ app.whenReady().then(async () => {
     try {
       // What the window keeps in localStorage (the Changes pane's side by side, the editor's
       // unsaved copies, the folded sidebar) outlives a reload: each test starts without it.
+      // The last test's page goes first, so none of its timers (the editor keeps a copy half
+      // a second after typing) can write it back.
+      await win.loadURL('about:blank');
       await win.webContents.session.clearStorageData({ storages: ['localstorage'] });
       await fresh();
       await t.fn();
