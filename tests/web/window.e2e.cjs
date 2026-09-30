@@ -4645,6 +4645,42 @@ test('Without a feed (the owner’s own build) About shows the version and no Ch
   assert(r.version === 'J.A.R.V.I.S. 0.1.0' && r.check && /doesn’t check for updates/.test(r.line), JSON.stringify(r));
 });
 
+// ── What Jarvis did (web/features/actions.js): the Activity drawer's History tab ──
+
+test('Activity: a History tab searches what Jarvis did, a day at a time', async () => {
+  await loadFeatures('actions.js', 'actions.css');
+  const day = (back) => { const d = new Date(Date.now() - back * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  await js(`toggleDrawer(true); __sent.length = 0; true`);
+  const tabs = await js(`({ now: $('act-tab-now').getAttribute('aria-selected'), hidden: $('act-history').hidden, after: $('act-tabs').previousElementSibling.className })`);
+  assert(tabs.now === 'true' && tabs.hidden && tabs.after === 'drawer-head', JSON.stringify(tabs));
+  await js(`$('act-tab-history').click(); true`);
+  const asked = await sentOf('action_log');
+  assert(asked.length === 1 && asked[0].q === '' && asked[0].before === '', JSON.stringify(asked));
+  assert(await js(`$('activity-list').classList.contains('act-away') && !$('act-history').hidden`), 'the Now list stayed');
+  await js(`__ev({ type: 'action_log', q: '', before: '', seq: ${JSON.stringify(asked[0].seq)}, more: true, items: [
+    { t: '${day(0)}T10:00:00', tool: 'open_app', label: 'Opened an app', summary: 'Safari', outcome: 'done' },
+    { t: '${day(1)}T09:00:00', tool: 'send_email', label: 'Sent an email', summary: '', outcome: 'failed' }] }); true`);
+  const shown = await js(`({ heads: [...document.querySelectorAll('.act-day-head')].map((h) => h.textContent),
+    rows: [...document.querySelectorAll('.act-list li')].map((li) => li.querySelector('.act-what').textContent + '|' + li.querySelector('.st').textContent),
+    mine: document.querySelector('.act-words').hasAttribute('data-no-i18n'), more: !$('act-more').hidden })`);
+  assert(JSON.stringify(shown.heads) === '["Today","Yesterday"]', JSON.stringify(shown));
+  assert(JSON.stringify(shown.rows) === '["Opened an appSafari|","Sent an email|failed"]' && shown.mine && shown.more, JSON.stringify(shown));
+  await js(`__sent.length = 0; $('act-more').click(); true`);
+  const earlier = await sentOf('action_log');
+  assert(earlier.length === 1 && earlier[0].before === `${day(1)}T09:00:00`, JSON.stringify(earlier));
+  await js(`__ev({ type: 'action_log', q: '', before: 'x', seq: 'stale', more: false, items: [] }); true`);
+  assert(await js(`document.querySelectorAll('.act-list li').length === 2`), 'an older answer replaced the list');
+  await js(`__sent.length = 0; (() => { const f = $('act-search'); f.value = 'safari'; f.dispatchEvent(new Event('input')); })(); true`);
+  await sleep(450);
+  const searched = await sentOf('action_log');
+  assert(searched.length === 1 && searched[0].q === 'safari' && searched[0].before === '', JSON.stringify(searched));
+  await js(`__ev({ type: 'action_log', q: 'safari', before: '', seq: ${JSON.stringify(searched[0].seq)}, more: false, items: [] }); true`);
+  assert(await js(`!$('act-empty').hidden && $('act-empty').textContent === 'Nothing Jarvis did matches.' && $('act-more').hidden && !document.querySelector('.act-day')`), 'no empty note');
+  await js(`$('act-tab-now').click(); true`);
+  assert(await js(`!$('activity-list').classList.contains('act-away') && $('act-history').hidden && $('act-tab-now').getAttribute('aria-selected') === 'true'`), 'Now did not come back');
+  await js(`toggleDrawer(false); true`);
+});
+
 // ── JARVIS's own conversation (web/features/conversation*.js, loaded as features.js would) ──
 
 const CONVO = ['conversation.js', 'conversation.css'];

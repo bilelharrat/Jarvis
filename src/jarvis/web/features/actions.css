@@ -1,0 +1,26 @@
+/* What Jarvis did (features/actions.js): the Activity drawer's Now and History tabs, and the
+   history itself, a day under each heading, in the drawer's own list style. */
+
+.act-tabs {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; padding: 2px;
+  margin: 0 0 10px; border-radius: 10px; background: var(--chip-hover);
+}
+.act-tab {
+  font: inherit; font-size: 13px; border: 0; border-radius: 8px; padding: 5px 10px; min-height: 28px;
+  background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.act-tab[aria-selected="true"] { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.act-away { display: none !important; }
+
+.act-history[hidden] { display: none; }
+.act-search {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; padding: 8px 12px; margin: 0 0 8px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+}
+.act-day-head { margin: 12px 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: none; }
+.act-day:first-child .act-day-head { margin-top: 4px; }
+.act-what { display: flex; flex-direction: column; min-width: 0; }
+.act-words { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-list .stopped .st { color: var(--muted); }
+.act-more { margin: 10px 0 2px; }
+.act-more[hidden] { display: none; }

@@ -1,0 +1,16 @@
+{
+  "strings": {
+    "Now": "现在",
+    "History": "历史",
+    "Today": "今天",
+    "Yesterday": "昨天",
+    "Search what Jarvis did": "搜索 Jarvis 做过的事",
+    "Show earlier": "显示更早的",
+    "Nothing Jarvis did matches.": "没有符合的记录。",
+    "Nothing Jarvis did is kept yet.": "还没有保留 Jarvis 做过的事。",
+    "stopped": "已中止",
+    "failed": "失败",
+    "Looked back at what I did": "回顾了我做过的事"
+  },
+  "patterns": []
+}
