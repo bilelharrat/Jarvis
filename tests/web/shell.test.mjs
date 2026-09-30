@@ -48,8 +48,16 @@ function fakeElectron() {
     },
   };
   const Menu = { buildFromTemplate: (template) => ({ template }) };
-  return { Tray, Menu, Notification, nativeImage, made };
+  const screen = new EventEmitter();
+  screen.displays = [LAPTOP];
+  screen.getAllDisplays = () => screen.displays;
+  screen.getPrimaryDisplay = () => screen.displays[0];
+  return { Tray, Menu, Notification, nativeImage, screen, made };
 }
+
+// A laptop's screen (the menu bar and Dock take some of it), and a big one above-right.
+const LAPTOP = { bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 38, width: 1512, height: 870 }, scaleFactor: 2 };
+const BIG = { bounds: { x: 1512, y: -400, width: 2560, height: 1440 }, workArea: { x: 1512, y: -375, width: 2560, height: 1415 }, scaleFactor: 1 };
 
 function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), 'shell-test-')) } = {}) {
   const ipcMain = new EventEmitter();
@@ -76,7 +84,16 @@ function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), '
     front: false, // visible and focused
     isVisible() { return this.front; },
     isFocused() { return this.front; },
+    bounds: { x: 116, y: 53, width: 1280, height: 840 },
+    placed: [],
+    setBounds(b) { this.bounds = { ...b }; this.placed.push({ ...b }); this.emit('move'); },
+    getNormalBounds() { return { ...this.bounds }; },
+    isFullScreen: () => false,
+    loaded: [],
+    loadFile(file, options) { this.loaded.push([file, options]); },
   });
+  wc.reloads = 0;
+  wc.reload = () => { wc.reloads += 1; };
   const electron = fakeElectron();
   const ctx = {
     app,
@@ -85,6 +102,7 @@ function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), '
     dev,
     logDir: userData,
     getWindow: () => win,
+    delays: { save: 5, displays: 5, reload: 5 },
     send: (channel, ...args) => wc.sent.push([channel, ...args]),
     fromWindow: (event) => Boolean(event && event.sender === wc),
     summons: 0,
@@ -188,8 +206,8 @@ test('the window’s labels and reports are taken only in their expected shapes'
   assert.deepEqual(lib.normalizeState({ state: 'dancing', online: 'yes', pausedUntil: 'soon', menuBar: 0 }),
     { state: 'idle', online: false, muted: false, handsFree: false, pausedUntil: 0, menuBar: true });
   assert.deepEqual(lib.normalizeState(null).state, 'idle');
-  assert.deepEqual(lib.readStore('{broken'), { version: 1, menuBar: true });
-  assert.deepEqual(lib.readStore('[1,2]'), { version: 1, menuBar: true });
+  assert.deepEqual(lib.readStore('{broken'), { version: 1, menuBar: true, places: {} });
+  assert.deepEqual(lib.readStore('[1,2]'), { version: 1, menuBar: true, places: {} });
   assert.equal(lib.readStore('{"menuBar": false}').menuBar, false);
 });
 
@@ -289,7 +307,7 @@ test('a yes-or-no card gets its own two buttons; a purchase, a plan or a questio
 test('a card that goes up while the window is away: a notification whose buttons answer it', async () => {
   const t = fakeContext();
   const s = shell.install(t.ctx);
-  assert.deepEqual(await t.hello(), { dev: false, notify: true });
+  assert.deepEqual(await t.hello(), { dev: false, notify: true, recovered: false });
   t.tell('approval', card('a1'));
   const [note] = t.electron.made.notes;
   assert.ok(note.shown);
@@ -366,7 +384,7 @@ test('a heads-up raised for the window opens JARVIS on its card when clicked', a
 test('the test window raises no notifications and leaves the Dock alone', async () => {
   const t = fakeContext({ dev: true });
   shell.install(t.ctx);
-  assert.deepEqual(await t.hello(), { dev: true, notify: false });
+  assert.deepEqual(await t.hello(), { dev: true, notify: false, recovered: false });
   t.tell('approval', card('a1'));
   t.tell('heads-up', { key: 'rain:1', kind: 'rain', title: 'Rain', text: 'Soon.' });
   assert.equal(t.electron.made.notes.length, 0);
@@ -389,6 +407,152 @@ test('the Dock’s menu: Ask, Mute or Unmute, Jarvis Code and the browser', asyn
   assert.equal(t.ctx.summons, 1);
 });
 
+// ── the window's place, for each set of displays ──
+
+test('a set of displays is known by each one’s size, place and scale, in any order', () => {
+  assert.equal(lib.displaySetKey([BIG, LAPTOP]), lib.displaySetKey([LAPTOP, BIG]));
+  assert.notEqual(lib.displaySetKey([LAPTOP]), lib.displaySetKey([LAPTOP, BIG]));
+  assert.notEqual(lib.displaySetKey([LAPTOP]), lib.displaySetKey([{ ...LAPTOP, scaleFactor: 1 }]));
+  assert.equal(lib.displaySetKey([LAPTOP, { bounds: null }, null]), lib.displaySetKey([LAPTOP]));
+  assert.equal(lib.displaySetKey('nope'), '');
+});
+
+test('a remembered place is put back on its screen, fitted to what that screen shows', () => {
+  const both = [LAPTOP, BIG];
+  // Where it was: as it was.
+  assert.deepEqual(lib.placeWindow({ x: 2000, y: -300, width: 1600, height: 1000 }, both), { x: 2000, y: -300, width: 1600, height: 1000 });
+  // Too big for the screen now, and partly off it: fitted and moved onto it.
+  assert.deepEqual(lib.placeWindow({ x: 100, y: 800, width: 1800, height: 1200 }, [LAPTOP]), { x: 0, y: 38, width: 1512, height: 870 });
+  assert.deepEqual(lib.placeWindow({ x: 1300, y: 500, width: 900, height: 700 }, [LAPTOP]), { x: 612, y: 208, width: 900, height: 700 });
+  // Never smaller than the window's minimum (unless the screen is).
+  assert.deepEqual(lib.placeWindow({ x: 10, y: 60, width: 300, height: 200 }, [LAPTOP]), { x: 10, y: 60, width: 760, height: 620 });
+  // Its title bar is on no screen (the big one is gone), or barely: nowhere to put it back.
+  assert.equal(lib.placeWindow({ x: 2000, y: -300, width: 1600, height: 1000 }, [LAPTOP]), null);
+  assert.equal(lib.placeWindow({ x: 1500, y: 100, width: 800, height: 600 }, [LAPTOP]), null);
+  assert.equal(lib.placeWindow({ x: 'a', y: 0, width: 800, height: 600 }, [LAPTOP]), null);
+  assert.equal(lib.placeWindow({ x: 0, y: 0, width: 800, height: 600 }, []), null);
+  assert.deepEqual(lib.centerOn(LAPTOP.workArea, { width: 1280, height: 840 }), { x: 116, y: 53, width: 1280, height: 840 });
+  assert.deepEqual(lib.centerOn(LAPTOP.workArea, { width: 3000, height: 2000 }), LAPTOP.workArea);
+});
+
+test('the places kept: the most recent sets of displays, read back safely', () => {
+  let store = lib.readStore('');
+  assert.deepEqual(store, { version: 1, menuBar: true, places: {} });
+  for (let i = 0; i < 15; i++) store = lib.rememberPlace(store, `set${i}`, { x: i + 0.4, y: 50, width: 900, height: 700 }, 1000 + i);
+  assert.equal(Object.keys(store.places).length, 12);
+  assert.ok(!('set0' in store.places) && 'set14' in store.places);
+  assert.deepEqual(store.places.set14, { x: 14, y: 50, width: 900, height: 700, at: 1014 });
+  assert.equal(lib.rememberPlace(store, '', { x: 0, y: 0, width: 1, height: 1 }, 1), store);
+  const back = lib.readStore(JSON.stringify({ ...store, places: { ...store.places, bad: { x: 'no' }, worse: 7 } }));
+  assert.deepEqual(Object.keys(back.places).sort(), Object.keys(store.places).sort());
+  assert.deepEqual(lib.readStore('{"places": [1, 2]}').places, {});
+});
+
+test('the window opens where it was on these displays, and keeps where the user puts it', async () => {
+  const t = fakeContext();
+  const key = lib.displaySetKey([LAPTOP]);
+  writeFileSync(path.join(t.userData, 'shell.json'), JSON.stringify({ places: { [key]: { x: 40, y: 60, width: 1000, height: 700, at: 1 } } }));
+  shell.install(t.ctx);
+  assert.deepEqual(t.win.bounds, { x: 40, y: 60, width: 1000, height: 700 });
+  t.win.bounds = { x: 300, y: 90, width: 1100, height: 760 };
+  t.win.emit('move');
+  t.win.emit('resize');
+  await tick(30);
+  const saved = JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).places[key];
+  assert.deepEqual([saved.x, saved.y, saved.width, saved.height], [300, 90, 1100, 760]);
+});
+
+test('displays coming and going: each set gets its own place back, never macOS’s shuffle', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  // At the desk: the big screen arrives, and the user moves the window onto it.
+  t.electron.screen.displays = [LAPTOP, BIG];
+  t.electron.screen.emit('display-added');
+  await tick(30);
+  t.win.bounds = { x: 2000, y: -300, width: 1600, height: 1000 };
+  t.win.emit('move');
+  await tick(30);
+  // Unplugged: macOS moves the window to the laptop by itself (not kept), and it goes back
+  // to the laptop's own place (none yet: where macOS left it, fitted on the screen).
+  t.electron.screen.displays = [LAPTOP];
+  t.win.bounds = { x: 400, y: 200, width: 1600, height: 1000 };
+  t.win.emit('move');
+  t.electron.screen.emit('display-removed');
+  await tick(30);
+  assert.deepEqual(t.win.bounds, { x: 0, y: 38, width: 1512, height: 870 });
+  const places = JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).places;
+  assert.deepEqual(places[lib.displaySetKey([LAPTOP, BIG])].x, 2000, 'the desk’s place survived the unplugging');
+  // Back at the desk: back on the big screen.
+  t.electron.screen.displays = [LAPTOP, BIG];
+  t.electron.screen.emit('display-added');
+  await tick(30);
+  assert.deepEqual(t.win.bounds, { x: 2000, y: -300, width: 1600, height: 1000 });
+  // Only the visible area changed (the Dock): nothing moves.
+  const placed = t.win.placed.length;
+  t.electron.screen.emit('display-metrics-changed');
+  await tick(30);
+  assert.equal(t.win.placed.length, placed);
+});
+
+test('a window left off every screen comes back to the middle of the main one', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  t.win.bounds = { x: 5000, y: 3000, width: 1280, height: 840 };
+  t.electron.screen.displays = [{ ...LAPTOP, scaleFactor: 1 }];
+  t.electron.screen.emit('display-metrics-changed');
+  await tick(30);
+  assert.deepEqual(t.win.bounds, { x: 116, y: 53, width: 1280, height: 840 });
+});
+
+test('the test window isn’t moved or remembered', async () => {
+  const t = fakeContext({ dev: true });
+  writeFileSync(path.join(t.userData, 'shell.json'), JSON.stringify({ places: { [lib.displaySetKey([LAPTOP])]: { x: 40, y: 60, width: 1000, height: 700, at: 1 } } }));
+  shell.install(t.ctx);
+  assert.equal(t.win.placed.length, 0);
+});
+
+// ── a crashed page ──
+
+test('a crashed page is reloaded, says so once, and at most three times in five minutes', async () => {
+  let clock = 1_000_000;
+  const t = fakeContext();
+  t.ctx.now = () => clock;
+  shell.install(t.ctx);
+  assert.equal((await t.hello()).recovered, false);
+  t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
+  await tick(30);
+  assert.equal(t.wc.reloads, 1);
+  assert.equal((await t.hello()).recovered, true);
+  assert.equal((await t.hello()).recovered, false, 'said once');
+  for (const reason of ['oom', 'killed']) { clock += 1000; t.wc.emit('render-process-gone', {}, { reason }); }
+  await tick(30);
+  assert.equal(t.wc.reloads, 3);
+  clock += 1000;
+  t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
+  await tick(30);
+  assert.equal(t.wc.reloads, 3, 'a crash loop is not reloaded again');
+  assert.equal(t.win.loaded.length, 1);
+  assert.match(t.win.loaded[0][0], /loading\.html$/);
+  assert.match(t.win.loaded[0][1].query.error, /stopped several times/);
+  // Five minutes on, it may reload again.
+  clock += 5 * 60_000;
+  t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
+  await tick(30);
+  assert.equal(t.wc.reloads, 4);
+});
+
+test('a page that ends cleanly, or while quitting, is left alone', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  t.wc.emit('render-process-gone', {}, { reason: 'clean-exit' });
+  t.app.emit('before-quit');
+  t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
+  await tick(30);
+  assert.equal(t.wc.reloads, 0);
+  assert.deepEqual(lib.allowReload([1, 2, 3], 4), { ok: false, times: [1, 2, 3] });
+  assert.deepEqual(lib.allowReload([1, 2, 3], 4 + 5 * 60_000), { ok: true, times: [4 + 5 * 60_000] });
+});
+
 // ── the window's words have their Chinese ──
 
 test('every string the window side shows has a Chinese entry', () => {
@@ -402,6 +566,7 @@ test('every string the window side shows has a Chinese entry', () => {
   for (const m of source.matchAll(/\bt\('((?:[^'\\]|\\.)+)'\)/g)) found.add(m[1]);
   for (const m of source.matchAll(/\bt\(`((?:[^`\\]|\\.)+)`\)/g)) found.add(m[1].replace(/\$\{[^}]+\}/g, '3:40 PM'));
   for (const m of source.matchAll(/F\.el\('[\w-]+', '[^']*', '((?:[^'\\]|\\.)+)'\)/g)) found.add(m[1]);
+  for (const m of source.matchAll(/notice\('[^']*', '[^']*', '((?:[^'\\]|\\.)+)'/g)) found.add(m[1]);
   for (const m of source.matchAll(/(?:switchRow|buttonRow|infoRow)\('[\w-]+', '((?:[^'\\]|\\.)+)', '((?:[^'\\]|\\.)+)'/g)) { found.add(m[1]); found.add(m[2]); }
   assert.ok(found.size > 10, `found ${found.size}`);
   const missing = [...found].map((s) => s.replace(/\\'/g, "'")).filter((s) => !(s in strings) && !patterns.some((re) => re.test(s)));

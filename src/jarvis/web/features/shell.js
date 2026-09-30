@@ -243,6 +243,7 @@
       canNotify = info.notify === true;
       report();
       sendApprovals();
+      if (info.recovered) notice('Jarvis', '', 'The window stopped unexpectedly and was reloaded.', 15000);
     }, () => { /* an app without the shell feature: nothing to report to */ });
   }
 })();

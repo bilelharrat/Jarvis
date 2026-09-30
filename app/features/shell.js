@@ -1,7 +1,8 @@
 // The app's shell on the Mac (main.js loads it from app/features): JARVIS in the menu bar
 // with what it's doing, and the quick controls there; the Dock's menu and its badge (the
 // cards waiting for an OK); macOS notifications for those cards, with Allow / Not now when
-// the window isn't in front, and for heads-ups, which open JARVIS on their card.
+// the window isn't in front, and for heads-ups, which open JARVIS on their card; the
+// window's place, remembered for each set of displays; and a crashed page reloaded.
 //
 // The window is the go-between: it hears the backend's events and reports JARVIS's state
 // here ('feature:shell:state'), and carries out what the menus ask ('feature:shell:command')
@@ -32,8 +33,9 @@ function writeAtomic(file, text) {
 function install(ctx) {
   const electron = ctx.electron || require('electron');
   const { app, ipcMain } = ctx;
-  const { Menu, Notification, Tray, nativeImage } = electron;
+  const { Menu, Notification, Tray, nativeImage, screen } = electron;
   const now = ctx.now || Date.now;
+  const wait = ctx.delays || { save: 500, displays: 800, reload: 500 }; // the tests' are shorter
   const storeFile = path.join(app.getPath('userData'), 'shell.json');
   let store = lib.readStore(readText(storeFile));
   let state = lib.normalizeState({ menuBar: store.menuBar });
@@ -48,6 +50,9 @@ function install(ctx) {
   const approvals = new Map(); // id -> the card, as the window reported it
   const approvalNotes = new Map(); // id -> its notification
   const headsUpNotes = []; // the latest few: a notification let go of leaves Notification Center
+  let quitting = false;
+  let reloads = []; // when a crashed page was last reloaded
+  let recovered = false; // the page on show is one reloaded after a crash
 
   const saveStore = () => writeAtomic(storeFile, JSON.stringify(store));
 
@@ -200,6 +205,91 @@ function install(ctx) {
     note.show();
   }
 
+  // ── the window's place, for each set of displays ──
+
+  let displaysKey = '';
+  let placeTimer = null;
+  let displaysTimer = null;
+
+  function currentKey() {
+    return lib.displaySetKey(screen.getAllDisplays());
+  }
+
+  // Kept when the user moves or resizes the window, a moment after they stop; never for a
+  // move macOS made because a display came or went (the old set's place stays as it was).
+  function keepPlace() {
+    const win = windowOf();
+    if (!win || win.isMinimized() || win.isFullScreen()) return;
+    const key = currentKey();
+    if (key !== displaysKey) return; // the displays just changed: settled in placeFor()
+    store = lib.rememberPlace(store, key, win.getNormalBounds(), now());
+    saveStore();
+  }
+  const keepPlaceSoon = () => {
+    clearTimeout(placeTimer);
+    placeTimer = setTimeout(keepPlace, wait.save);
+  };
+
+  // The window where it was on these displays; else, if it's off every screen now, the
+  // middle of the main one.
+  function placeFor(displays) {
+    const win = windowOf();
+    if (!win) return;
+    const saved = store.places[displaysKey];
+    const place = (saved && lib.placeWindow(saved, displays))
+      || lib.placeWindow(win.getNormalBounds(), displays)
+      || lib.centerOn(screen.getPrimaryDisplay().workArea, win.getNormalBounds());
+    win.setBounds(place);
+  }
+
+  function displaysChanged() {
+    clearTimeout(displaysTimer);
+    displaysTimer = setTimeout(() => {
+      const key = currentKey();
+      if (key === displaysKey) return; // the visible area moved (the Dock, the menu bar): no matter
+      displaysKey = key;
+      placeFor(screen.getAllDisplays());
+    }, wait.displays);
+  }
+
+  function watchPlace() {
+    const win = windowOf();
+    if (!win || ctx.dev || !screen) return; // the test window opens where it opens
+    displaysKey = currentKey();
+    const saved = store.places[displaysKey];
+    const place = saved && lib.placeWindow(saved, screen.getAllDisplays());
+    if (place) win.setBounds(place); // before it's first shown
+    win.on('move', keepPlaceSoon);
+    win.on('resize', keepPlaceSoon);
+    for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, displaysChanged);
+  }
+
+  // ── a crashed page ──
+  // Reloaded with a word about it, at most three times in five minutes; past that, the
+  // loading page says what happened instead of a crash loop.
+  function watchCrashes() {
+    const win = windowOf();
+    if (!win) return;
+    win.webContents.on('render-process-gone', (_event, details) => {
+      if (quitting || (details && details.reason === 'clean-exit')) return;
+      windowReady = false;
+      state = { ...state, online: false };
+      refreshTray();
+      const allowed = lib.allowReload(reloads, now());
+      reloads = allowed.times;
+      const w = windowOf();
+      if (!w) return;
+      if (!allowed.ok) {
+        console.error(`shell: the window's page stopped again (${details && details.reason}); not reloading`);
+        w.loadFile(path.join(__dirname, '..', 'loading.html'), { query: { error: 'The window stopped several times in a few minutes. Quit J.A.R.V.I.S. and open it again; details are in ~/Library/Logs/Jarvis.' } });
+        return;
+      }
+      console.warn(`shell: the window's page stopped (${details && details.reason}); reloading it`);
+      recovered = true;
+      setTimeout(() => { const again = windowOf(); if (again) again.webContents.reload(); }, wait.reload);
+    });
+  }
+
   // ── the window's reports ──
 
   ipcMain.handle(`${CH}hello`, (event) => {
@@ -207,7 +297,9 @@ function install(ctx) {
     windowReady = true;
     const waiting = queued.splice(0);
     setTimeout(() => waiting.forEach((c) => ctx.send(`${CH}command`, c)), 0); // after this reply
-    return { dev: Boolean(ctx.dev), notify: canNotify };
+    const reply = { dev: Boolean(ctx.dev), notify: canNotify, recovered };
+    recovered = false; // said once
+    return reply;
   });
 
   ipcMain.on(`${CH}state`, (event, report) => {
@@ -264,6 +356,13 @@ function install(ctx) {
     });
   }
 
+  app.on('before-quit', () => {
+    quitting = true;
+    if (placeTimer) { clearTimeout(placeTimer); placeTimer = null; keepPlace(); } // a move just made
+  });
+
+  watchPlace();
+  watchCrashes();
   refreshTray();
   refreshDock();
   return {

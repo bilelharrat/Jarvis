@@ -642,12 +642,12 @@ test('“@” at the start of a Jarvis Code message offers the other sessions to
 
 // Loaded as features.js would load it, after app.js, with window.jarvisApp.feature recording
 // what goes to the app and keeping the handler for what the app sends.
-async function loadShell() {
+async function loadShell(hello = { dev: false, notify: true, recovered: false }) {
   const source = fs.readFileSync(path.join(WEB, 'features', 'shell.js'), 'utf8');
   await js(`
-    window.__app = { sent: [], on: {}, invoked: [] };
+    window.__app = { sent: [], on: {}, invoked: [], hello: ${JSON.stringify(hello)} };
     window.jarvisApp = { feature: {
-      invoke: (channel, ...args) => { __app.invoked.push([channel, ...args]); return Promise.resolve(__app.answer ? __app.answer(channel, ...args) : { dev: false, notify: true }); },
+      invoke: (channel, ...args) => { __app.invoked.push([channel, ...args]); return Promise.resolve(__app.answer ? __app.answer(channel, ...args) : channel === 'feature:shell:hello' ? __app.hello : null); },
       send: (channel, msg) => __app.sent.push([channel, msg]),
       on: (channel, fn) => { __app.on[channel] = fn; },
     } };
@@ -767,6 +767,15 @@ test('The shell raises heads-ups through the app, and opens JARVIS on the card a
   await js('toggleCC(false); ccSelected = null; true');
   await reveal({ what: 'approval', id: 'x', task: 4 });
   assert(await js('!$("cc").hidden && ccSelected === 4'), 'the approval’s session did not open');
+});
+
+test('After the app reloads a crashed page, the window says so once', async () => {
+  await loadShell({ dev: false, notify: true, recovered: true });
+  const r = await js('[...$("cards").querySelectorAll(".card.plain .card-text")].map((n) => n.textContent)');
+  assert(JSON.stringify(r) === JSON.stringify(['The window stopped unexpectedly and was reloaded.']), JSON.stringify(r));
+  await js('$("cards").replaceChildren(); true');
+  await loadShell();
+  assert(await js('$("cards").querySelectorAll(".card.plain").length') === 0, 'a notice without a crash');
 });
 
 // ──

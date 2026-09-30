@@ -1,6 +1,7 @@
 // The app shell's pure logic, apart from Electron so node --test can check it
 // (app/features/shell.js wires it up): the words its menus use, what the window reports,
-// the menus themselves as templates, and the small file it keeps beside the app's data.
+// the menus themselves as templates, the window's place on each set of displays, how often
+// a crashed page is reloaded, and the small file it keeps beside the app's data.
 'use strict';
 
 // ── words ──
@@ -145,17 +146,96 @@ function normalizeHeadsUp(raw) {
   return h.title || h.text ? h : null;
 }
 
+// ── the window's place, remembered for each set of displays ──
+// At the desk with the big screen it opens where it was on the big screen; on the laptop
+// alone, where it was on the laptop.
+
+const MIN_SIZE = { width: 760, height: 620 }; // main.js's minimum
+const PLACES_KEPT = 12;
+const finite = (n) => typeof n === 'number' && Number.isFinite(n);
+const isRect = (r) => Boolean(r) && ['x', 'y', 'width', 'height'].every((k) => finite(r[k])) && r.width > 0 && r.height > 0;
+
+// Which displays these are: each one's size, place in the arrangement and scale, in any order.
+function displaySetKey(displays) {
+  return (Array.isArray(displays) ? displays : [])
+    .filter((d) => d && isRect(d.bounds))
+    .map((d) => `${d.bounds.x},${d.bounds.y},${d.bounds.width}x${d.bounds.height}@${d.scaleFactor || 1}`)
+    .sort()
+    .join('|');
+}
+
+function overlap(a, b) {
+  const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+// Where a remembered window goes: onto the screen its title bar overlaps most, no bigger
+// than that screen's visible area (the menu bar and the Dock left out) and wholly on it.
+// Null when its title bar isn't on any screen enough to grab (it then opens as it would
+// have anyway).
+function placeWindow(saved, displays, min = MIN_SIZE) {
+  if (!isRect(saved)) return null;
+  const areas = (Array.isArray(displays) ? displays : []).map((d) => d && d.workArea).filter(isRect);
+  const bar = { x: saved.x, y: saved.y, width: saved.width, height: 40 };
+  let best = null;
+  let most = 0;
+  for (const area of areas) {
+    const o = overlap(bar, area);
+    if (o > most) { most = o; best = area; }
+  }
+  if (!best || most < 40 * 40) return null;
+  const width = Math.round(Math.min(best.width, Math.max(saved.width, min.width)));
+  const height = Math.round(Math.min(best.height, Math.max(saved.height, min.height)));
+  return {
+    x: Math.round(Math.min(Math.max(saved.x, best.x), best.x + best.width - width)),
+    y: Math.round(Math.min(Math.max(saved.y, best.y), best.y + best.height - height)),
+    width,
+    height,
+  };
+}
+
+// A window of this size in the middle of a screen's visible area (no bigger than it).
+function centerOn(area, size) {
+  const width = Math.round(Math.min(area.width, size.width));
+  const height = Math.round(Math.min(area.height, size.height));
+  return { x: Math.round(area.x + (area.width - width) / 2), y: Math.round(area.y + (area.height - height) / 2), width, height };
+}
+
+// The store with this place kept for these displays (the most recent few sets only).
+function rememberPlace(store, key, bounds, at) {
+  if (!key || !isRect(bounds)) return store;
+  const places = { ...store.places, [key]: { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height), at } };
+  const keep = Object.entries(places).sort((a, b) => b[1].at - a[1].at).slice(0, PLACES_KEPT);
+  return { ...store, places: Object.fromEntries(keep) };
+}
+
+// ── a crashed page: reloaded, but not over and over ──
+// The times of the reloads still counted, and whether another one may go now.
+function allowReload(times, now, { max = 3, windowMs = 5 * 60_000 } = {}) {
+  const recent = (times || []).filter((t) => now - t < windowMs);
+  return recent.length < max ? { ok: true, times: [...recent, now] } : { ok: false, times: recent };
+}
+
 // ── the shell's own file (shell.json beside the app's data) ──
-// What the app needs before the backend answers: whether to show the menu bar icon.
-// Read defensively: a damaged or hand-edited file never stops the app.
+// What the app needs before the backend answers: whether to show the menu bar icon, and
+// where the window was. Read defensively: a damaged or hand-edited file never stops the app.
 function readStore(text) {
   let raw = {};
   try { raw = JSON.parse(text) || {}; } catch { raw = {}; }
   if (typeof raw !== 'object' || Array.isArray(raw)) raw = {};
-  return { version: 1, menuBar: raw.menuBar !== false };
+  const places = {};
+  const given = raw.places && typeof raw.places === 'object' && !Array.isArray(raw.places) ? raw.places : {};
+  for (const [key, place] of Object.entries(given).slice(0, 50)) {
+    if (typeof key === 'string' && key.length <= 2000 && isRect(place)) {
+      places[key] = { x: place.x, y: place.y, width: place.width, height: place.height, at: finite(place.at) ? place.at : 0 };
+    }
+  }
+  return { version: 1, menuBar: raw.menuBar !== false, places };
 }
 
 module.exports = {
   DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate,
-  excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp, readStore,
+  excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp,
+  MIN_SIZE, displaySetKey, placeWindow, centerOn, rememberPlace, allowReload, readStore,
 };

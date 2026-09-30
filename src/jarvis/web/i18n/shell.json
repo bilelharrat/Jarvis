@@ -14,7 +14,8 @@
     "Resume heads-ups": "恢复提醒",
     "Open J.A.R.V.I.S.": "打开 J.A.R.V.I.S.",
     "Quit J.A.R.V.I.S.": "退出 J.A.R.V.I.S.",
-    "Say “confirm purchase”, or confirm it in J.A.R.V.I.S.": "说“确认购买”，或在 J.A.R.V.I.S. 中确认。"
+    "Say “confirm purchase”, or confirm it in J.A.R.V.I.S.": "说“确认购买”，或在 J.A.R.V.I.S. 中确认。",
+    "The window stopped unexpectedly and was reloaded.": "窗口意外停止，已重新载入。"
   },
   "patterns": [
     [
