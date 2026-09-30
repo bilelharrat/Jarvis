@@ -140,7 +140,8 @@
     if (!asked.has(key)) { asked.add(key); F.send({ type: 'cw_terms', ...whereNow(), ref: key }); }
     const folder = folderOf.get(key);
     const items = folder ? lists.get(folder) || [] : null;
-    if (items === null) { status('Opening a terminal…'); return; }
+    // (while its list comes, no tabs: not another folder's, nor those from before a reconnect)
+    if (items === null) { drawTabs(); status('Opening a terminal…'); return; }
     const opening = startFor === key;
     if (opening) startFor = '';
     const extra = F.$('jc-pane-extra');
@@ -406,13 +407,16 @@
     if (paneShown()) drawTabs();
   });
 
-  // Another backend (a restart): its terminals are other ones.
+  // A reconnect, or another backend (a restart: its terminals are other ones): what was shown
+  // goes, and an open pane is drawn again from the list asked for anew, attaching again to the
+  // shells still there.
   F.on('hello', () => {
     for (const term of [...views.keys()]) dispose(term);
     lists.clear();
     folderOf.clear();
     asked.clear();
     making.clear();
+    if (paneShown() && rootEl) render(F.$('jc-pane-body'));
   });
 
   // ── "!" commands, streaming into the transcript ──

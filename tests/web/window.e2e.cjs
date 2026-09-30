@@ -5235,6 +5235,29 @@ test('The terminal takes the keys when the pane is opened or a tab picked, never
   assert(where === 'terminal 1', `picking a tab didn't give it the keys: ${where}`);
 });
 
+test('After a reconnect an open Terminal pane is drawn again from the new list, with no stale tabs', async () => {
+  await featureScript('code-terminal.js');
+  await open(1);
+  await js(FAKE_XTERM);
+  await js('jarvisFeatures.openPane("terminal"); true');
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1'), TERM('t2', 'zsh 2')], ref: 'task:1' });
+  for (let i = 0; i < 20 && !(await js('__xterms.length')); i++) await frames(2);
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, status: {}, activity: [], tasks: [await js('__task(1)')],
+    prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50 }, brain: {}, approvals: [], history: [] });
+  await frames(2);
+  const again = await js('({ asked: __sent.filter((m) => m.type === "cw_terms"), tabs: [...document.querySelectorAll("#jc-pane-body .ct-tab-name")].map((b) => b.textContent) })');
+  assert(again.asked.length === 1 && again.asked[0].ref === 'task:1', `the pane didn't ask for its terminals again: ${JSON.stringify(again)}`);
+  assert(!again.tabs.length, `stale tabs while the list comes: ${again.tabs}`);
+  // zsh 1 ended meanwhile: the pane shows zsh 2, attached again, with what it printed.
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t2', 'zsh 2')], ref: 'task:1' });
+  for (let i = 0; i < 20 && !(await sentOf('cw_term_attach')).length; i++) await frames(2);
+  const r = await js('({ tabs: [...document.querySelectorAll("#jc-pane-body .ct-tab-name")].map((b) => b.textContent), attached: __sent.filter((m) => m.type === "cw_term_attach").map((m) => m.term) })');
+  assert(r.tabs.join() === 'zsh 2' && r.attached.join() === 't2', JSON.stringify(r));
+  await deliver({ type: 'cw_term_replay', term: 't2', data: b64('$ npm run dev\r\n'), alive: true });
+  assert(await js('__xterms[__xterms.length - 1].shown') === '$ npm run dev\r\n', await js('__xterms[__xterms.length - 1].shown'));
+});
+
 test('@ suggests the terminal, folders, where names are defined and, after the first words, other sessions', async () => {
   await featureScript('code-mentions.js');
   await open(1);
