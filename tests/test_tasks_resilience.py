@@ -35,7 +35,7 @@ async def test_a_steered_message_the_connection_never_took_goes_back_to_the_queu
     assert task.steered == 0 and task.steered_items == []
     assert [i["text"] for i in task.inbox.public()] == ["and add a test"]
     assert task.client is None
-    task.handle.cancel()
+    await tm.close()  # not a bare cancel: the queued message would open it again, left behind
 
 
 async def test_a_mode_picked_while_connecting_reaches_claude_code(settings, tmp_path):

@@ -180,7 +180,7 @@ async def test_ultracode_goes_with_every_message_but_not_the_transcript(settings
         "migrate the tests to pytest"
     ]
     assert tm.set_ultracode(task.id, False) and not task.ultracode
-    await close(task)
+    await tm.close()  # every connection it made goes with it, none left for the next test
 
 
 async def test_folders_plugins_connectors_and_models_reach_the_options(settings, tmp_path):
