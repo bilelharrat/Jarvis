@@ -277,7 +277,13 @@ class HelperEmbedder:
         self._process = LineProcess([str(binary), "serve"], timeout=timeout)
 
     def embed(self, texts: list[str], timeout: float | None = None) -> list[Vector | str]:
-        answers = self._process.ask([{"text": t[:EMBED_CHARS]} for t in texts], timeout)
+        # Half of a surrogate pair (a passage cut in an emoji) is one Foundation's JSON
+        # refuses: the helper would never answer it, nor anything after it.
+        whole = [
+            t[:EMBED_CHARS].encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+            for t in texts
+        ]
+        answers = self._process.ask([{"text": t} for t in whole], timeout)
         return [_answer(a) for a in answers]
 
     def close(self) -> None:

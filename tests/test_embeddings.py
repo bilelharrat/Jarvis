@@ -442,6 +442,26 @@ def test_the_helper_answers_each_text_by_its_id(tmp_path):
         embedder.close()
 
 
+# Foundation's JSON parser (the Swift helper's) refuses half of a surrogate pair: no answer.
+STRICT = ANSWERS.replace(
+    "    item = json.loads(line)\n",
+    "    item = json.loads(line)\n"
+    "    if any(0xD800 <= ord(c) <= 0xDFFF for c in item['text']):\n"
+    "        continue\n",
+)
+
+
+def test_half_an_emoji_in_a_passage_never_stalls_the_helper(tmp_path):
+    """A passage cut in the middle of an emoji (half of a surrogate pair) is sent as its
+    replacement character: the helper answers it, and every passage after it."""
+    embedder = embeddings.HelperEmbedder(fake_helper(tmp_path, STRICT), timeout=5)
+    try:
+        out = embedder.embed(["cut emoji \ud83d", "fine"])
+        assert out[0][0] == "m1" and out[1][0] == "m1"
+    finally:
+        embedder.close()
+
+
 def test_a_helper_that_stalls_times_out_and_starts_afresh(tmp_path):
     stuck = fake_helper(tmp_path, "import sys, time\nfor line in sys.stdin:\n    time.sleep(30)\n")
     embedder = embeddings.HelperEmbedder(stuck, timeout=0.5)
