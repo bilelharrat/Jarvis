@@ -71,6 +71,10 @@ class BackupError(Exception):
     """What went wrong, in words the window can show."""
 
 
+class NothingToBackUp(BackupError):
+    """A data folder with no stores yet (a fresh install): no backup, and nothing wrong."""
+
+
 def default_folder(home: Path | None = None) -> Path:
     return (home or Path.home()) / "Documents" / "Jarvis" / "Backups"
 
@@ -183,7 +187,7 @@ def create(
     ensure_folder(dest)
     files = collect(folder, knowledge)
     if not files:
-        raise BackupError("There's nothing to back up yet.")
+        raise NothingToBackUp("There's nothing to back up yet.")
     now = clock()
     target = _unique(dest, f"Jarvis backup {_stamp(now)}{SUFFIX[kind]}")
     partial = target.with_name(f".{target.name}.part")

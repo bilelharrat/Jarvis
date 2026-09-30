@@ -673,6 +673,8 @@ class Ops:
                     return None
         try:
             made = await self.make_backup("daily")
+        except backup.NothingToBackUp:
+            return None  # a fresh install: nothing of the owner's yet, nothing wrong
         except (backup.BackupError, OSError) as exc:
             why = str(exc) if isinstance(exc, backup.BackupError) else _why(exc)
             log.warning("daily backup failed: %s", why)

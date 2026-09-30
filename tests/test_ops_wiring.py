@@ -454,6 +454,9 @@ async def test_a_chosen_folder_and_a_zip_path_from_anywhere_else_are_checked(hub
 
 
 async def test_the_daily_backup_keeps_seven_and_says_once_when_it_fails(hub, desk_, tmp_path):
+    queue = Watch(hub)
+    assert await desk_.daily_if_due() is None  # a fresh install: nothing to back up, no alarm
+    assert not [e for e in drain(queue) if e["type"] == "alert"]
     (tmp_path / "memory.json").write_text("{}")
     folder = desk_.backup_folder()
     for day in range(8):
