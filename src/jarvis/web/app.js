@@ -387,8 +387,22 @@ const OWN_SPACE = 'button, a[href], summary, select, [role="button"], [role="sep
 function spaceTalks(e) {
   const t = e.target;
   return e.code === 'Space' && !e.repeat && !e.defaultPrevented && !e.isComposing && !e.metaKey && !e.ctrlKey
-    && !(t instanceof Element && (t.closest(OWN_SPACE) || t.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') || (t instanceof HTMLElement && t.isContentEditable)));
+    && !(t instanceof Element && (t.closest(OWN_SPACE) || t.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') || (t instanceof HTMLElement && t.isContentEditable)))
+    && !typingLost();
 }
+
+// A redraw that takes away the text field being typed in (a pane drawn again on a step)
+// leaves the focus on the page, where the keys still being typed would talk (Space) or
+// answer an approval (a digit). They're typing, not commands: they do nothing until the
+// owner moves the focus themselves (a click, or Tab).
+let typedIn = null;  // the text field the last key went to
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable)) typedIn = t;
+  else if (t !== document.body) typedIn = null;
+}, true);
+document.addEventListener('mousedown', () => { typedIn = null; }, true);
+function typingLost() { return !!typedIn && !typedIn.isConnected && document.activeElement === document.body; }
 
 document.addEventListener('keydown', (e) => {
   // Anywhere text goes in (fields, the composer and other text boxes, a title being
@@ -3538,7 +3552,11 @@ document.addEventListener('keydown', (e) => {
   const n = Number(e.key);
   const inDeck = !(e.target instanceof Element) || e.target === document.body || $('cc').contains(e.target);
   const writingReason = !!document.querySelector('#deck-timeline .jc-feedback:not([hidden])');
-  if (a && !a.multi && n >= 1 && n <= a.choices.length && inDeck && !e.repeat && !writingReason) {  // (several at once: its sheet's own keys)
+  // Only the approval whose sheet is on screen: never one a sheet over the transcript (the
+  // agent board) hides.
+  const sheet = a && document.querySelector(`#deck-timeline [data-approval="${CSS.escape(a.id)}"]`);
+  const shown = !!sheet && sheet.checkVisibility({ visibilityProperty: true });
+  if (a && shown && !a.multi && n >= 1 && n <= a.choices.length && inDeck && !e.repeat && !writingReason && !typingLost()) {  // (several at once: its sheet's own keys)
     e.preventDefault();
     const c = a.choices[n - 1];
     if (c.id === 'deny') { const box = document.querySelector(`[data-approval="${CSS.escape(a.id)}"] .jc-feedback`); if (box) { box.hidden = false; box.querySelector('input').focus(); } } else answerApproval(a, c.id);

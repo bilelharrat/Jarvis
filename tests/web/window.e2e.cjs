@@ -199,6 +199,28 @@ test('Number keys answer only from Jarvis Code itself, once per press', async ()
   assert(s.length === 1 && s[0] === 'approve A allow', `sent ${s}`);
 });
 
+// A moment for an approval to have been up.
+const SETTLED = 450;
+
+test('Keys typed into a field a redraw took away never answer an approval or talk', async () => {
+  await open(1, 'onEvent(__approval("A"))');
+  await sleep(SETTLED);
+  // Activity's search box, drawn again (as a pane is on every step) while it's being typed in.
+  await js('openPane("audit"); document.querySelector("#jc-pane-body input").focus()');
+  await key('4');
+  await js('renderPaneBody()');
+  assert(await js('document.activeElement === document.body'), 'the focus did not fall to the page');
+  await key('1');
+  await key(' ');
+  let s = await sent();
+  assert(!s.some((x) => x.startsWith('approve')) && !s.includes('listen'), `the keys typed went on: ${s}`);
+  // The owner moves the focus themselves: the number keys answer again.
+  await clickAt('#cc-scroll');
+  await key('1');
+  s = (await sent()).filter((x) => x.startsWith('approve'));
+  assert(s.join() === 'approve A allow', `sent ${s}`);
+});
+
 // ── a reconnect ──
 
 test('A reconnect replaces what is waiting: answered ones go, new ones get a sheet and keys', async () => {
@@ -1259,6 +1281,22 @@ test('The agent board: lanes by where each session stands, answering from a card
   await press('Escape');
   r = await js('({ hidden: document.querySelector(".cs-board").hidden, cc: !$("cc").hidden })');
   assert(r.hidden && r.cc, JSON.stringify(r));
+});
+
+test('With the agent board over the transcript, a number key never answers the approval it hides', async () => {
+  await sessions([1, 2]);
+  await loadFeatures('code-board.css');  // (the board covers the transcript by its style)
+  await js('__ev({ ...__approval("a1"), task_id: 1 }); document.querySelector(".cs-board-btn").click()');
+  await sleep(SETTLED);
+  await frames(2);
+  assert(await js('!document.querySelector(".cs-board").hidden && !document.querySelector("#deck-timeline [data-approval=a1]").checkVisibility({ visibilityProperty: true })'), 'the board is not over the sheet');
+  await key('1');
+  assert(!(await sent()).some((s) => s.startsWith('approve')), `a key answered an approval out of sight: ${await sent()}`);
+  // The board closed, the sheet in view: the key answers it.
+  await press('Escape');
+  await js('document.activeElement.blur()');
+  await key('1');
+  assert((await sent()).includes('approve a1 allow'), `sent ${await sent()}`);
 });
 
 test('Each session keeps its own draft and attachments; a sent one is forgotten', async () => {
