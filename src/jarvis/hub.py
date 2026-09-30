@@ -2021,7 +2021,9 @@ class Hub:
                 due = self.routines.take_due(datetime.now())
                 if due:
                     self._routines_changed()
-                backlog += due
+                # Due again while it waited (every 5 minutes through an hour of notes): it
+                # runs once when the notes end, not once for each time.
+                backlog = [r for r in backlog if r.id not in {d.id for d in due}] + due
                 if self.meeting is None:  # routines wait for meeting notes to end
                     for routine in backlog:
                         log.info("routine due")

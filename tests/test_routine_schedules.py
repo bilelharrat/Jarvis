@@ -252,3 +252,44 @@ async def test_the_feature_wires_the_card_language_and_the_state(settings, quiet
     event = q.get_nowait()
     assert event["type"] == "automation" and event["language"] == "zh"
     assert [r["when_zh"] for r in event["routines"]] == ["每月1日上午9点"]
+
+
+async def test_routines_held_by_meeting_notes_run_once_each_when_they_end(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """An every-5-minutes routine is due twelve times in an hour of meeting notes: when the
+    notes end it runs once, not twelve times at the same second."""
+    import asyncio
+
+    from test_hub import make_hub
+
+    from jarvis import hub as hub_module
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    routine = Routine("r1", "Build", "Check the build", "interval", "00:00", spec={"every": 5})
+    due = [[routine]] * 12  # due at each of twelve looks while the notes run
+    hub.routines.take_due = lambda _now: due.pop(0) if due else []
+    ran = []
+
+    async def run(r):
+        ran.append(r.id)
+
+    hub.run_routine = run
+    hub.meeting = object()
+    real_sleep, ticks = asyncio.sleep, []
+
+    async def quick(seconds, *args, **kwargs):
+        ticks.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr(hub_module.asyncio, "sleep", quick)
+    clock = asyncio.create_task(hub._routine_clock())
+    while len(ticks) < 12:
+        await real_sleep(0)
+    hub.meeting = None
+    while len(ticks) < 15:
+        await real_sleep(0)
+    clock.cancel()
+    for _ in range(5):
+        await real_sleep(0)
+    assert ran == ["r1"]
