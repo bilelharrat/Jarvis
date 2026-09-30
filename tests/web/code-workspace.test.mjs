@@ -79,7 +79,7 @@ test('the words made with numbers and names in them have patterns', () => {
   for (const shown of ['12 matches in 3 files', '1 match in 1 file', '7 matches in 1 file', '2000 matches in 9 files (the first ones only)',
     'That isn\'t a regular expression here: missing ), unterminated subpattern at position 0', 'Ln 12, Col 4', 'Ln 1, Col 1 (23 selected)', '3 of 17', '3 of 10000+', 'Indent: 2 spaces', 'Indent: tabs',
     'Close hub.py', 'Contents of src/jarvis/hub.py', 'Couldn\'t read it: Permission denied',
-    'Couldn\'t save it: No space left on device']) {
+    'Couldn\'t save it: No space left on device', '… (12345 characters more, not shown) …', '… (101 earlier lines)']) {
     assert.ok(covered(dict, shown), shown);
   }
 });

@@ -5258,6 +5258,34 @@ test('After a reconnect an open Terminal pane is drawn again from the new list, 
   assert(await js('__xterms[__xterms.length - 1].shown') === '$ npm run dev\r\n', await js('__xterms[__xterms.length - 1].shown'));
 });
 
+test('In Chinese a shell’s end and a "!" command’s notes about what isn’t shown are in Chinese', async () => {
+  const merged = (() => {
+    const base = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n-zh.json'), 'utf8'));
+    const mine = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n', 'code-workspace.json'), 'utf8'));
+    return { strings: { ...base.strings, ...mine.strings }, patterns: [...base.patterns, ...mine.patterns] };
+  })();
+  await js(`(() => { const zh = ${JSON.stringify(JSON.stringify(merged))}; const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(zh)) : real(url, o)); })(); true`);
+  await js('window.jarvisI18n.setLang("zh")');
+  await featureScript('code-terminal.js');
+  await open(1);
+  await js(FAKE_XTERM);
+  await js('jarvisFeatures.openPane("terminal"); true');
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1')], ref: 'task:1' });
+  for (let i = 0; i < 20 && !(await js('__xterms.length')); i++) await frames(2);
+  await deliver({ type: 'cw_term_replay', term: 't1', data: b64('$ exit\r\n'), alive: true });
+  await deliver({ type: 'cw_term_exit', term: 't1' });
+  assert(await js('__xterms[0].shown') === '$ exit\r\n\r\n[这个 shell 已结束]\r\n', JSON.stringify(await js('__xterms[0].shown')));
+  await js('$("deck-input").value = "!npm test"; $("deck-composer").requestSubmit(); true');
+  const [bash] = await sentOf('task_bash');
+  await deliver({ type: 'cw_bang_start', ref: bash.ref });
+  await deliver({ type: 'cw_bang_data', ref: bash.ref, text: 'PASS\r\n', skipped: 12345 });
+  const skipped = await js('document.querySelector(".jc-bang .ct-bang-live").textContent');
+  assert(skipped.includes('…（另有 12345 个字符未显示）…'), JSON.stringify(skipped));
+  await deliver({ type: 'cw_bang_data', ref: bash.ref, text: 'ok\r\n'.repeat(2100), skipped: 0 });
+  const dropped = await js('document.querySelector(".jc-bang .ct-bang-live").textContent');
+  assert(/^…（前面还有 \d+ 行）\nok\n/.test(dropped), JSON.stringify(dropped.slice(0, 80)));
+});
+
 test('@ suggests the terminal, folders, where names are defined and, after the first words, other sessions', async () => {
   await featureScript('code-mentions.js');
   await open(1);

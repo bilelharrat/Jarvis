@@ -15,9 +15,10 @@
 
   // A "!" command's output so far, as lines: a line rewritten with \r (a progress bar) shows
   // as it ended up, a backspace takes a character back, and only the last LIVE_LINES stay.
+  // say: the window's words in the window's language (its output box isn't translated).
   function liveOutput() { return { lines: [''], dropped: 0, cr: false }; }
-  function applyOutput(out, text, skipped = 0) {
-    if (skipped > 0) out.lines.push(`… (${skipped} characters more, not shown) …`, '');
+  function applyOutput(out, text, skipped = 0, say = String) {
+    if (skipped > 0) out.lines.push(say(`… (${skipped} characters more, not shown) …`), '');
     // A terminal ends its lines with \r\n; a \r at the end of one message may be the start
     // of the next's \r\n, so it waits for it.
     let s = `${out.cr ? '\r' : ''}${String(text || '')}`;
@@ -55,7 +56,7 @@
 
   const F = root.jarvisFeatures;
   if (!F) return;
-  const { el } = F;
+  const { el, t } = F;  // (t: the window's words written into a terminal or an output box)
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
 
   // ── the Terminal pane ──
@@ -380,7 +381,7 @@
     view.replayed = true;
     view.xterm.reset();
     view.xterm.write(Uint8Array.from(atob(ev.data || ''), (c) => c.charCodeAt(0)));
-    if (!ev.alive) view.xterm.write('\r\n[this shell has ended]\r\n');
+    if (!ev.alive) view.xterm.write(`\r\n${t('[this shell has ended]')}\r\n`);
   });
 
   F.on('cw_term_data', (ev) => {
@@ -392,7 +393,7 @@
   F.on('cw_term_exit', (ev) => {
     for (const items of lists.values()) for (const item of items) if (item.term === ev.term) item.alive = false;
     const view = views.get(ev.term);
-    if (view && view.replayed) view.xterm.write('\r\n[this shell has ended]\r\n');
+    if (view && view.replayed) view.xterm.write(`\r\n${t('[this shell has ended]')}\r\n`);
     if (paneShown()) drawTabs();
   });
 
@@ -445,10 +446,10 @@
   F.on('cw_bang_data', (ev) => {
     const b = bangs.get(ev.ref);
     if (!b) return;
-    applyOutput(b.out, ev.text, ev.skipped);
+    applyOutput(b.out, ev.text, ev.skipped, t);
     const atEnd = b.pre.scrollTop + b.pre.clientHeight >= b.pre.scrollHeight - 8;
     b.pre.hidden = false;
-    b.pre.textContent = (b.out.dropped ? `… (${b.out.dropped} earlier lines)\n` : '') + b.out.lines.join('\n');
+    b.pre.textContent = (b.out.dropped ? `${t(`… (${b.out.dropped} earlier lines)`)}\n` : '') + b.out.lines.join('\n');
     if (atEnd) b.pre.scrollTop = b.pre.scrollHeight;
   });
 
