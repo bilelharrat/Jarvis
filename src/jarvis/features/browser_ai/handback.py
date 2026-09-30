@@ -11,7 +11,8 @@ to sign in first.
   touched: the action is refused and the page handed back. So are the others, unless the
   owner already did their part on that very page (a carry on clears it for a while).
 - After an action or a read lands on such a page, the result says so to Claude: stop, it's
-  the user's turn, tell them in a sentence.
+  the user's turn, tell them in a sentence. (A refusal or a result like that carries "turn":
+  what the page needs, so a recorded task's replay stops there too.)
 - Handing back shows the owner a "Your turn" banner over that page in the dock (the tab is
   brought forward), and until they carry on, anything that would act on that tab is refused.
 - "Carry on", "continue", "I'm done", 继续, 好了… while a hand back is open clears it and
@@ -160,7 +161,7 @@ class HandBack:
             return None
         live = self.live()
         if live is not None and live["tab"] == tab and not owner.startswith("code"):
-            return {"ok": False, "message": WAITING.format(what=live["what"])}
+            return {"ok": False, "message": WAITING.format(what=live["what"]), "turn": live["what"]}
         found = await self._detect(tab, url)
         if found is None:
             return None
@@ -168,7 +169,8 @@ class HandBack:
             return None  # the owner did their part here just now
         if not owner.startswith("code"):
             self._hand_back(tab, url, found)
-        return {"ok": False, "message": NOTE.format(what=found["what"]), "url": url, "tab": tab}
+        refusal = {"ok": False, "message": NOTE.format(what=found["what"]), "url": url, "tab": tab}
+        return {**refusal, "turn": found["what"]}
 
     async def on_result(
         self, action: str, args: dict[str, Any], result: dict[str, Any]
@@ -197,6 +199,7 @@ class HandBack:
         out = dict(result)
         out["notices"] = [*(result.get("notices") or []), note]
         out["message"] = f"{note} {result.get('message') or ''}".strip()
+        out["turn"] = found["what"]  # (a replay stops here: macros.py)
         return out
 
     # ── carrying on ──

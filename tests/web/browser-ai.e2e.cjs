@@ -1,6 +1,7 @@
 // The browser-ai feature's page side in a real Chromium, against local test pages: reads and
 // snapshots leave out text no one can see (app/page-preload.js sightJudge, the agent's
-// invisibleText); app/page-ai-preload.js finds a page's article and what's selected; and
+// invisibleText); app/page-ai-preload.js finds a page's article and what's selected, tells
+// the owner's steps while a tab records and finds them again for a replay; and
 // app/features/browser-ai.js (installed with the browser hooks main.js gives it) puts Ask
 // Jarvis in the page's menu. No window is ever shown; nothing leaves 127.0.0.1.
 //
@@ -87,6 +88,23 @@ Object.assign(PAGES, {
   '/wall.html': '<!doctype html><title>Members</title><body><main><h2>Sign in to continue reading</h2><button>Sign in</button> <button>Create account</button></main></body>',
 });
 
+// A shop to record a task in (record and replay).
+PAGES['/shop.html'] = `<!doctype html><title>Shop</title><body><main>
+<form id="find" onsubmit="event.preventDefault(); document.getElementById('out').textContent = 'Searched'">
+<label for="q">Search</label> <input id="q" name="q"> <input type="submit" value="Go"></form>
+<label>Password <input type="password" id="pw" name="pw"></label>
+<div class="item"><span>Tomato soup</span> <button>Add to cart</button></div>
+<div class="item"><span>Lentil soup</span> <button>Add to cart</button></div>
+<label><input type="checkbox" id="gift"> Gift wrap</label>
+<label for="size">Size</label> <select id="size"><option>Small</option><option>Large</option></select>
+<p id="out"></p></main></body>`;
+
+PAGES['/notes.html'] = `<!doctype html><title>Notes</title><body><main>
+<textarea id="note" aria-label="Note"></textarea>
+<div id="chat" role="textbox" contenteditable="true" aria-label="Message" style="border:1px solid;min-height:20px"
+  onkeydown="if (event.key === 'Enter') { event.preventDefault(); document.getElementById('sent').textContent = this.textContent; this.textContent = ''; }"></div>
+<p id="sent"></p><button>Done</button></main></body>`;
+
 function serve() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -139,12 +157,14 @@ const pageAi = (view, action, args = {}) => new Promise((resolve) => {
   setTimeout(() => { if (aiAnswers.delete(id)) resolve({ timeout: true }); }, 8000);
 });
 const page = (view, code) => view.webContents.executeJavaScript(code, true);
+const callFeature = (action, args = {}) => handlers['feature:browser-ai:call']({ sender: null }, { action, args });
 
 // The app feature, as main.js installs it: the browser's hooks, the window's channel.
 const menus = [];
 const toWindow = [];
+const handlers = {}; // the feature's ipcMain.handle channels (the window's calls)
 const featureContext = {
-  ipcMain,
+  ipcMain: { on: (...args) => ipcMain.on(...args), handle: (channel, fn) => { handlers[channel] = fn; } },
   send: (channel, message) => toWindow.push([channel, message]),
   fromWindow: () => true,
   getWindow: () => win,
@@ -306,6 +326,97 @@ test('A shop’s own price is the one in the biggest type, not one struck out or
   await load(shown, '/results.html');
   const none = await pageAi(shown, 'mainPrice', {});
   assert(none.ok && none.text === '', JSON.stringify(none));
+});
+
+test('Recording: the owner’s clicks, typing and Enter become steps; a password never does, nor a page script’s events', async () => {
+  await load(shown, '/shop.html');
+  const tab = shown.webContents.id;
+  const started = await callFeature('record', { tab, on: true });
+  assert(started.ok && started.recording && started.url.endsWith('/shop.html'), JSON.stringify(started));
+  toWindow.length = 0;
+  let snap = await run('snapshot', { interactive: true });
+  const ref = (re) => (snap.text.match(re) || [])[1];
+  await run('act', { kind: 'type', ref: ref(/\[(e\d+)\] textbox "Search"/), text: 'tomato soup', submit: true });
+  await run('act', { kind: 'type', ref: ref(/\[(e\d+)\] textbox "Password"/), text: 'hunter2' });
+  snap = await run('snapshot', { interactive: true });
+  const carts = [...snap.text.matchAll(/\[(e\d+)\] button "Add to cart"/g)].map((m) => m[1]);
+  await run('act', { kind: 'click', ref: carts[1] }); // (the password box's change comes first)
+  await run('act', { kind: 'click', ref: ref(/\[(e\d+)\] checkbox "Gift wrap"/) });
+  // A page's own scripts can't make steps: only the owner's input counts (a script's change here).
+  await run('act', { kind: 'select', ref: ref(/\[(e\d+)\] combobox "Size"/), values: ['Large'] });
+  await page(shown, `document.querySelector('.item button').dispatchEvent(new MouseEvent('click', { bubbles: true })), true`);
+  for (let i = 0; i < 40 && toWindow.filter(([c, m]) => c === 'feature:browser-ai:event' && m.kind === 'step').length < 5; i++) await sleep(50);
+  await sleep(300);
+  const steps = toWindow.filter(([c, m]) => c === 'feature:browser-ai:event' && m.kind === 'step').map(([, m]) => m);
+  assert(steps.every((m) => m.tab === tab && m.step.url.endsWith('/shop.html')), JSON.stringify(steps));
+  const said = steps.map(({ step: x }) => [x.kind, x.text === undefined ? '' : x.text, x.field || '', x.secret ? 'secret' : ''].join('|'));
+  assert(JSON.stringify(said) === JSON.stringify([ // (Enter's own change and its form's click: no steps)
+    'type|tomato soup|Search|', 'press|||', 'type||Password|secret', 'click|Add to cart||', 'click|Gift wrap||',
+  ]), JSON.stringify(said));
+  assert(!JSON.stringify(toWindow).includes('hunter2') && !JSON.stringify(pageEvents).includes('hunter2'), 'the password was told');
+  const cart = steps[3].step.selector;
+  assert(await page(shown, `document.querySelector(${JSON.stringify(cart)}) === document.querySelectorAll('.item button')[1]`), `the selector finds another: ${cart}`);
+  // Stopped: nothing more is told, wherever the tab is.
+  assert((await callFeature('record', { on: false })).ok, 'stop');
+  toWindow.length = 0;
+  await run('act', { kind: 'click', ref: carts[0] });
+  await sleep(300);
+  assert(!toWindow.some(([c, m]) => c === 'feature:browser-ai:event' && m.kind === 'step'), JSON.stringify(toWindow));
+});
+
+test('Recording: Enter in a box of many lines is a new line; in a chat’s box that sends, it’s a press', async () => {
+  await load(shown, '/notes.html');
+  await callFeature('record', { tab: shown.webContents.id, on: true });
+  toWindow.length = 0;
+  const snap = await run('snapshot', { interactive: true });
+  const ref = (re) => (snap.text.match(re) || [])[1];
+  const note = ref(/\[(e\d+)\] textbox "Note"/);
+  await run('act', { kind: 'type', ref: note, text: 'first line' });
+  await run('act', { kind: 'press', ref: note, key: 'Enter' });
+  await run('act', { kind: 'type', ref: ref(/\[(e\d+)\] textbox "Message"/), text: 'hi there', submit: true });
+  await run('act', { kind: 'click', ref: ref(/\[(e\d+)\] button "Done"/) });
+  for (let i = 0; i < 40 && toWindow.filter(([, m]) => m && m.kind === 'step').length < 4; i++) await sleep(50);
+  await sleep(300);
+  const said = toWindow.filter(([, m]) => m && m.kind === 'step').map(([, m]) => [m.step.kind, JSON.stringify(m.step.text || ''), m.step.field || ''].join('|'));
+  assert(await page(shown, `document.getElementById('sent').textContent`) === 'hi there', 'the chat box didn’t send');
+  assert(JSON.stringify(said) === JSON.stringify(['type|"first line\\n"|Note', 'type|"hi there"|Message', 'press|""|', 'click|"Done"|']), JSON.stringify(said));
+  await callFeature('record', { on: false });
+});
+
+test('Recording follows the tab to its next page, and only that tab', async () => {
+  await load(shown, '/shop.html');
+  await callFeature('record', { tab: shown.webContents.id, on: true });
+  await load(shown, '/results.html');
+  toWindow.length = 0;
+  const snap = await run('snapshot', { interactive: true });
+  await run('act', { kind: 'click', ref: (snap.text.match(/\[(e\d+)\] link "Lentil soup"/) || [])[1] });
+  for (let i = 0; i < 40 && !toWindow.some(([, m]) => m && m.kind === 'step'); i++) await sleep(50);
+  const step = (toWindow.find(([, m]) => m && m.kind === 'step') || [])[1];
+  assert(step && step.step.kind === 'click' && step.step.text === 'Lentil soup' && step.step.url.endsWith('/results.html'), JSON.stringify(toWindow));
+  await callFeature('record', { on: false });
+});
+
+test('Replay’s probe: the recorded thing if it’s still the same, which of two with the same words, never a guess', async () => {
+  await load(shown, '/shop.html');
+  const tab = shown.webContents.id;
+  const probe = (args) => callFeature('probe', { tab, ...args });
+  const second = await page(shown, `(() => { const b = document.querySelectorAll('.item button')[1]; b.id = ''; return 'div:nth-of-type(2) > button'; })()`);
+  let r = await probe({ kind: 'click', selector: `main > ${second}`, text: 'Add to cart' });
+  assert(r.ok && r.count === 2 && r.nth === 1 && r.selector === `main > ${second}`, JSON.stringify(r));
+  r = await probe({ kind: 'click', selector: '#gone', text: 'Add to cart' });
+  assert(r.ok && r.count === 2 && r.nth === -1 && r.selector === '', JSON.stringify(r));
+  r = await probe({ kind: 'click', selector: '#gone', text: 'Gift wrap' }); // its label isn't a second one
+  assert(r.ok && r.count === 1 && r.nth === 0 && r.selector === '#gift', JSON.stringify(r));
+  r = await probe({ kind: 'click', selector: '#gift', text: 'Something else' });
+  assert(r.ok && r.count === 0 && r.selector === '', JSON.stringify(r));
+  r = await probe({ kind: 'type', selector: '#q', field: 'Search' });
+  assert(r.ok && r.selector === '#q' && r.secret === false, JSON.stringify(r));
+  r = await probe({ kind: 'type', selector: '#nope', field: 'Password' });
+  assert(r.ok && r.selector === '#pw' && r.secret === true, JSON.stringify(r));
+  r = await probe({ kind: 'select', selector: '#size', field: 'Size', text: 'Large' });
+  assert(r.ok && r.selector === '#size' && r.has === true, JSON.stringify(r));
+  r = await probe({ kind: 'select', selector: '#size', field: 'Size', text: 'Huge' });
+  assert(r.ok && r.has === false, JSON.stringify(r));
 });
 
 app.whenReady().then(async () => {

@@ -38,15 +38,25 @@
   one-time code or a sign-in wall, JARVIS stops and it's the owner's turn: a "Your turn"
   banner over the page, and nothing acts on that tab until they say "carry on" (or press
   it); the page is looked at before each action and after each landing.
+- Record and replay (macros.py): the address bar's Record button records a task in a tab
+  (clicks, typing, choices and Enter, as page-ai-preload.js tells them: never a password, a
+  card or a code), named and edited before it's saved; run_macro does it again by name,
+  each step through the turn gate and the browser's guards (watch mode, the hand back, the
+  purchase guard), stopping safely, and saying where, when a page isn't as it was recorded
+  or it's the owner's turn. Listed, run and removed in Settings › Browser.
 
 Window commands: browser_ai_page, browser_ai_result, browser_ai_sites, browser_ai_site,
 browser_ai_dwell, browser_ai_memories, browser_ai_memory_forget, browser_ai_ask,
 browser_ai_carry_on, browser_ai_handback_cancel, browser_ai_read, browser_ai_watches,
-browser_ai_watch_stop, whats_this (before Jarvis Code's).
-Tool server: browser_ai (read_tabs, watch_page, list_watches, stop_watch). Loop:
-browser_watches.
+browser_ai_watch_stop, browser_ai_record, browser_ai_record_step, browser_ai_macro_save,
+browser_ai_macro_delete, browser_ai_macros, browser_ai_macro_run, whats_this (before
+Jarvis Code's).
+Tool server: browser_ai (read_tabs, watch_page, list_watches, stop_watch, run_macro,
+list_macros). Loop: browser_watches. Files: browser_watches.json and browser_macros.json
+(hub.feature_path); the remembered pages in a browsing/ folder beside the brain's index.
 Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites, browser_ai_memories,
-browser_ai_handback, browser_ai_reading, browser_ai_watches.
+browser_ai_handback, browser_ai_reading, browser_ai_watches, browser_ai_recording,
+browser_ai_macros.
 Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules,
 browser_memories (the brain's browsing source).
 
@@ -55,7 +65,8 @@ Everything here is registered through the feature kit; install() only registers.
 Cost policy (Claude): nothing here calls a model on its own. A page's text rides along only
 inside a request the owner made (at most 12,000 characters of it); ⌥⇧Space and each Ask
 Jarvis question from the page's menu are one ordinary turn, asked by the owner's own key
-press or click; read_tabs is read in the turn that called it.
+press or click; read_tabs is read in the turn that called it; run_macro runs in the turn
+that called it (Settings' Run asks for one ordinary turn, in the owner's words).
 """
 
 from __future__ import annotations

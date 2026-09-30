@@ -7,7 +7,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server
 
 from ... import lang
-from . import tabsread, watchers
+from . import macros, tabsread, watchers
 from .bridge import Bridge
 from .flags import Flags
 from .handback import HandBack
@@ -39,6 +39,7 @@ class BrowserAi:
         self.tabs = tabsread.TabsReader(hub, self.bridge, self.sites)
         self.reader = Reader(hub, self.bridge, self.page)
         self.watchers = watchers.Watchers(hub, self.bridge, self.sites, self.page)
+        self.macros = macros.Macros(hub, self.bridge, self.page)
 
     def install(self) -> None:
         hub = self.hub
@@ -64,18 +65,25 @@ class BrowserAi:
         hub.register_command("browser_ai_carry_on", self.handback.on_carry_on)
         hub.register_command("browser_ai_handback_cancel", self.handback.on_cancel)
         hub.register_command("browser_ai_read", self.reader.on_command)
-        # The browser_ai tools: read_tabs, and the page watchers'.
+        # The browser_ai tools: read_tabs, the page watchers' and the recorded tasks'.
         hub.register_server(
             tabsread.SERVER,
             self.server,
-            prompt=tabsread.PROMPT + watchers.PROMPT,
-            labels={**tabsread.LABELS, **watchers.LABELS},
+            prompt=tabsread.PROMPT + watchers.PROMPT + macros.PROMPT,
+            labels={**tabsread.LABELS, **watchers.LABELS, **macros.LABELS},
             web=[tabsread.TOOL, "watch_page", "list_watches"],  # pages' words (titles)
             quiet=["stop_watch"],
         )
         hub.register_loop("browser_watches", self.watchers.loop)
         hub.register_command("browser_ai_watches", self.watchers.on_list)
         hub.register_command("browser_ai_watch_stop", self.watchers.on_stop)
+        tasks = self.macros  # record and replay
+        hub.register_command("browser_ai_record", tasks.command(tasks.on_record))
+        hub.register_command("browser_ai_record_step", tasks.on_step)
+        hub.register_command("browser_ai_macro_save", tasks.command(tasks.on_save))
+        hub.register_command("browser_ai_macro_delete", tasks.command(tasks.on_delete))
+        hub.register_command("browser_ai_macros", tasks.on_list)
+        hub.register_command("browser_ai_macro_run", tasks.on_run)
         # Before Jarvis Code's (code_voice), which takes the key for a session in front.
         hub.register_command("whats_this", self.page.on_whats_this)
 
@@ -83,5 +91,5 @@ class BrowserAi:
         return create_sdk_mcp_server(
             name=tabsread.SERVER,
             version="0.1.0",
-            tools=[self.tabs.tool(), *self.watchers.tools()],
+            tools=[self.tabs.tool(), *self.watchers.tools(), *self.macros.tools()],
         )

@@ -5,7 +5,9 @@
 // - the window's calls ('feature:browser-ai:call'), answered from the tabs: what's in front
 //   (front), a page's address, title, selection and text (context), its article (extract),
 //   whether it needs the owner (handback: a captcha, a password, a code, a sign-in wall),
-//   its own price (price: a page watcher's),
+//   its own price (price: a page watcher's), the owner's clicks and typing recorded as steps
+//   (record: on or off for a tab, and on again as each new page in it loads), whether what a
+//   recorded step presses or types into is still on the page (probe: replay's check),
 //   and a look at the page on show (look: its context and a picture of it); and Chrome's
 //   shortcuts for the dock (shortcut: find, bookmark, close), sent to the window's own handler
 //   as main.js sends the page's;
@@ -39,12 +41,35 @@ function install(ctx) {
     const done = waiting.get(message.id);
     if (done) { waiting.delete(message.id); done(message.result); }
   });
-  // What happens in a page that the window needs to know: how much is selected there.
+  // What happens in a page that the window needs to know: how much is selected there, and
+  // (only from the tab being recorded) the owner's steps.
+  let recorded = null; // { view, ready } while a tab records (record and replay)
   ipcMain.on('page-ai:event', (event, message) => {
-    if (!fromTab(event) || !message || message.kind !== 'selection') return;
-    const length = Math.max(0, Math.min(1000000, Number(message.length) || 0));
-    ctx.send('feature:browser-ai:event', { kind: 'selection', tab: event.sender.id, length });
+    if (!fromTab(event) || !message) return;
+    if (message.kind === 'selection') {
+      const length = Math.max(0, Math.min(1000000, Number(message.length) || 0));
+      ctx.send('feature:browser-ai:event', { kind: 'selection', tab: event.sender.id, length });
+    } else if (message.kind === 'step' && recorded && event.sender === recorded.view.webContents && message.step && typeof message.step === 'object') {
+      ctx.send('feature:browser-ai:event', { kind: 'step', tab: event.sender.id, step: message.step });
+    }
   });
+  // Recording follows the tab from page to page: each new page is told to record too.
+  function stopRecording() {
+    if (!recorded) return;
+    const { view, ready } = recorded;
+    recorded = null;
+    if (!view.webContents.isDestroyed()) {
+      view.webContents.off('dom-ready', ready);
+      pageAi(view, 'record', { on: false }, 2000);
+    }
+  }
+  async function startRecording(view) {
+    stopRecording();
+    const ready = () => { if (recorded && recorded.view === view) pageAi(view, 'record', { on: true }, 2000); };
+    recorded = { view, ready };
+    view.webContents.on('dom-ready', ready);
+    return pageAi(view, 'record', { on: true }, 3000);
+  }
 
   // A command to a tab's page-ai-preload.js, and its answer.
   function pageAi(view, action, args = {}, ms = 5000) {
@@ -81,6 +106,7 @@ function install(ctx) {
       const shown = browser.shown();
       return { ok: true, focused: browser.focused(), shown: Boolean(shown), tab: shown ? shown.webContents.id : null };
     }
+    if (action === 'record' && !args.on) { stopRecording(); return { ok: true }; } // wherever the tab is now
     if (action === 'shortcut') {
       const name = String(args.name || '');
       if (!SHORTCUTS.has(name)) return { ok: false, message: `Unknown shortcut ${name}` };
@@ -99,6 +125,12 @@ function install(ctx) {
       case 'extract': return { ...where(view), ...(await pageAi(view, 'extract', { limit: Number(args.limit) || 0 }, 8000)) }; // the article's own title
       case 'handback': return { ...(await pageAi(view, 'handback', { codes: Boolean(args.codes) }, 3000)), ...where(view) };
       case 'price': return { ...where(view), ...(await pageAi(view, 'mainPrice', {}, 3000)) };
+      case 'record': return { ...where(view), ...(await startRecording(view)) }; // (off: above)
+      case 'probe': { // replay's check before a step: is what it presses or types into still here?
+        const clip = (v, n) => String(v || '').slice(0, n);
+        const step = { kind: clip(args.kind, 10), selector: clip(args.selector, 300), text: clip(args.text, 200), field: clip(args.field, 80) };
+        return { ...where(view), ...(await pageAi(view, 'probe', step, 3000)) };
+      }
       case 'look': { // ⌥⇧Space with the page in front: what it says, and a picture of it
         const r = await pageAi(view, 'context', { text: true, limit: Number(args.limit) || 0 });
         return { ...r, ...where(view), png: await picture(view) };

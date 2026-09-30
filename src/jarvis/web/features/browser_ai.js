@@ -20,7 +20,13 @@
 //   opt-in: a page on show for a minute is told to the hub (browser_ai_dwell), which keeps
 //   its text in the second brain's Browsing source (browser_ai_memories to list and forget);
 //   and the page watches (browser_ai_watches, browser_ai_watch_stop), their heads-ups
-//   labelled Page watch.
+//   labelled Page watch;
+// - record and replay: the address bar's Record button records the tab on show
+//   (browser_ai_record: start, stop, cancel), its steps passed on as the page tells them
+//   (browser_ai_record_step), a banner while it records, then the steps to name and edit
+//   (browser_ai_recording says where it is) before they're saved (browser_ai_macro_save);
+//   Settings › Browser lists the tasks (browser_ai_macros) with Run (browser_ai_macro_run:
+//   a request in the owner's words) and Remove (browser_ai_macro_delete).
 //
 // Everything a page brings (its address, title, the lines it wrote) is data: shown with
 // textContent and marked data-no-i18n. The helpers at the top are pure
@@ -358,11 +364,178 @@
   watchesRows();
   if (typeof ALERT_KICKERS === 'object') ALERT_KICKERS.watch = 'Page watch'; // app.js's card labels
 
+  // ── Record and replay (macros.py): the address bar's Record button, the banner while a
+  // tab records, the steps to name and edit before they're saved, and Settings' list ──
+  let rec = { state: 'idle', tab: null, count: 0 };
+  let draft = []; // the steps under review, as the owner edits them
+  let recError = '';
+  let recErrorTimer = 0;
+  let recorded = []; // the saved tasks: { name, steps, site }
+  const isRecording = () => rec.state === 'recording';
+  function recordButton() {
+    const star = F.$('br-star');
+    if (!star || F.$('bai-record-btn')) return;
+    const b = button('', 'bd-star bai-record-btn', () => F.send({ type: 'browser_ai_record', action: isRecording() ? 'stop' : 'start' }), 'Record a task');
+    b.id = 'bai-record-btn';
+    b.title = F.t('Record a task');
+    b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.8" fill="currentColor"/></svg>';
+    b.hidden = true;
+    star.before(b);
+  }
+  recordButton();
+  const stepsWord = (n) => `${n} ${n === 1 ? 'step' : 'steps'}`;
+  function renderRecording() {
+    const btn = F.$('bai-record-btn');
+    if (btn) {
+      const label = isRecording() ? 'Stop recording' : 'Record a task';
+      btn.setAttribute('aria-pressed', String(isRecording()));
+      btn.setAttribute('aria-label', F.t(label));
+      btn.title = F.t(label);
+      if (isRecording()) btn.hidden = false; // Stop stays at hand on any page
+    }
+    const box = strip();
+    if (!box) return;
+    const old = box.querySelector('.bai-rec');
+    if (!isRecording() && !(recError && rec.state === 'idle')) { if (old) old.remove(); return; }
+    const note = el('div', 'bai-note bai-rec');
+    note.setAttribute('role', 'status');
+    const words = el('div', 'bai-note-words');
+    if (isRecording()) {
+      words.append(el('strong', '', `Recording · ${stepsWord(Math.max(0, rec.count - 1))}`),
+        el('span', 'bai-turn-hint', 'Do the task in this tab. Passwords, cards and codes are never recorded.'));
+      const stop = button('Stop', 'bai-turn-go bai-rec-stop', () => F.send({ type: 'browser_ai_record', action: 'stop' }));
+      const close = button('', 'bai-x', () => F.send({ type: 'browser_ai_record', action: 'cancel' }), 'Stop without saving');
+      close.textContent = '×';
+      note.append(el('span', 'bai-note-icon bai-rec-icon'), words, stop, close);
+    } else {
+      words.append(el('span', '', recError));
+      note.append(el('span', 'bai-note-icon'), words);
+    }
+    if (old) old.replaceWith(note); else box.prepend(note);
+  }
+  // The review: the steps recorded, each typed text editable and each step (but the first,
+  // the page it starts on) removable, and the task's name.
+  function stepRow(s, i) {
+    const li = el('li', 'bai-step');
+    const words = el('div', 'bai-step-words');
+    const verb = (text) => el('span', 'bai-step-verb', text);
+    const what = (text) => mine(el('span', 'bai-step-what', text));
+    const detail = (text) => mine(el('span', 'bai-step-detail', text));
+    if (s.kind === 'open') words.append(verb('Open'), what(s.url));
+    else if (s.kind === 'click') words.append(verb('Press'), what(`“${s.text || s.selector}”`));
+    else if (s.kind === 'select') words.append(verb('Choose'), what(`“${s.text}”`), ...(s.field ? [detail(s.field)] : []));
+    else if (s.kind === 'press') words.append(verb('Press Enter'));
+    else if (s.secret) words.append(verb('You type this yourself'), ...(s.field ? [detail(s.field)] : []));
+    else {
+      const input = el('input', 'bai-step-text');
+      input.type = 'text';
+      input.value = s.text || '';
+      input.maxLength = 2000;
+      input.spellcheck = false;
+      input.setAttribute('aria-label', F.t('What’s typed'));
+      input.addEventListener('input', () => { s.text = input.value; });
+      words.append(verb('Type in'), input, ...(s.field ? [detail(s.field)] : []));
+      if (s.submit) words.append(el('span', 'bai-step-detail', 'then Enter'));
+    }
+    li.append(el('span', 'bai-step-n', String(i + 1)), words);
+    if (i > 0) {
+      const x = button('', 'bai-x', () => { draft.splice(i, 1); renderReview(); }, 'Remove this step');
+      x.textContent = '×';
+      li.append(x);
+    }
+    return li;
+  }
+  function saveTask() {
+    const name = (F.$('bai-macro-name') || {}).value || '';
+    if (!name.trim()) { F.$('bai-macro-name').focus(); return; }
+    F.send({ type: 'browser_ai_macro_save', name: name.trim().slice(0, 60), steps: draft });
+  }
+  function renderReview(error = '') {
+    const box = strip();
+    if (!box) return;
+    let sheet = box.querySelector('.bai-macro');
+    if (rec.state !== 'review') { if (sheet) sheet.remove(); return; }
+    if (!sheet) {
+      sheet = el('form', 'bai-note bai-macro');
+      sheet.setAttribute('aria-live', 'off'); // (the strip's other notes are announced)
+      sheet.addEventListener('submit', (e) => { e.preventDefault(); saveTask(); });
+      const head = el('div', 'bai-macro-head');
+      const discard = button('Don’t save', 'btn', () => F.send({ type: 'browser_ai_record', action: 'cancel' }));
+      const keep = el('button', 'bai-turn-go', 'Save');
+      keep.type = 'submit';
+      head.append(el('strong', '', 'Save this task'), el('span', 'bai-reader-gap'), discard, keep);
+      const name = el('input', 'bai-macro-name');
+      name.type = 'text';
+      name.id = 'bai-macro-name';
+      name.maxLength = 60;
+      name.autocomplete = 'off';
+      name.placeholder = F.t('Name it, e.g. soup order');
+      const label = el('label', 'sr-only', 'Task name');
+      label.htmlFor = name.id;
+      const hint = el('p', 'small-status', 'Say “run my” and its name to do it again, or run it from Settings › Browser. It stops if a page has changed.');
+      const list = el('ol', 'bai-steps');
+      list.id = 'bai-macro-steps';
+      const err = el('p', 'small-status warn-line');
+      err.id = 'bai-macro-error';
+      err.hidden = true;
+      sheet.append(head, label, name, hint, list, err);
+      box.append(sheet);
+      setTimeout(() => name.focus(), 0);
+    }
+    F.$('bai-macro-steps').replaceChildren(...draft.map(stepRow));
+    const err = F.$('bai-macro-error');
+    err.hidden = !error;
+    err.textContent = error;
+  }
+  F.on('browser_ai_recording', (ev) => {
+    const was = rec.state;
+    rec = { state: String(ev.state || 'idle'), tab: ev.tab ?? null, count: Math.max(0, Number(ev.count) || 0) };
+    if (rec.state === 'review' && (was !== 'review' || !draft.length)) draft = (Array.isArray(ev.steps) ? ev.steps : []).slice(0, 100).map((x) => ({ ...x }));
+    if (rec.state !== 'review') draft = [];
+    clearTimeout(recErrorTimer);
+    recError = rec.state === 'idle' ? String(ev.error || '') : '';
+    if (recError) recErrorTimer = setTimeout(() => { recError = ''; renderRecording(); }, 6000);
+    renderRecording();
+    renderReview(rec.state === 'review' ? String(ev.error || '') : '');
+  });
+  // Settings › Browser: the tasks recorded, with Run (a request in the owner's words) and Remove.
+  function macrosRows() {
+    const group = F.$('bai-settings');
+    if (!group || F.$('bai-macros')) return;
+    const head = el('p', 'small-status', 'Tasks you recorded in the browser: press the record button in the address bar, do the task, then Stop. Say “run my” and a name to do one again.');
+    const list = el('ul', 'folders bai-watch-list');
+    list.id = 'bai-macros';
+    group.insertBefore(head, group.querySelector('.bai-sites'));
+    group.insertBefore(list, group.querySelector('.bai-sites'));
+    renderMacros();
+  }
+  function renderMacros() {
+    const list = F.$('bai-macros');
+    if (!list) return;
+    if (!recorded.length) { list.replaceChildren(el('li', 'muted', 'No recorded tasks.')); return; }
+    list.replaceChildren(...recorded.map((m) => {
+      const li = el('li', 'bai-watch');
+      const words = el('span', 'bai-memory');
+      const small = el('small');
+      small.append(el('span', '', stepsWord(Number(m.steps) || 0)), mine(el('span', 'bai-memory-kind', m.site || '')));
+      words.append(mine(el('b', '', m.name)), small);
+      li.append(words,
+        button('Run', 'btn', () => F.send({ type: 'browser_ai_macro_run', name: m.name }), `Run the task ${m.name}`),
+        button('Remove', 'btn', () => F.send({ type: 'browser_ai_macro_delete', name: m.name }), `Remove the task ${m.name}`));
+      return li;
+    }));
+  }
+  F.on('browser_ai_macros', (ev) => { recorded = Array.isArray(ev.items) ? ev.items.slice(0, 50) : []; renderMacros(); });
+  macrosRows();
+  B.recordState = () => ({ ...rec, steps: draft.length, error: recError }); // (the window's tests)
+
   F.on('hello', (ev) => {
     memoriesPref(ev.prefs);
     F.send({ type: 'browser_ai_sites' });
     F.send({ type: 'browser_ai_memories' });
     F.send({ type: 'browser_ai_watches' });
+    F.send({ type: 'browser_ai_macros' });
   }, { replay: true });
   // The galaxy shows the Browsing source's pages in a color and name of their own.
   if (window.GALAXY_SOURCES) {
@@ -561,6 +734,11 @@
     if (reader && (page.tab !== reader.tab || B.pageKey(page.url) !== reader.url)) closeReader();
     const rb = F.$('bai-reader-btn');
     if (rb) rb.hidden = !/^https?:/.test(page.url) || page.research;
+    const recBtn = F.$('bai-record-btn');
+    if (recBtn) recBtn.hidden = !isRecording() && (!/^https?:/.test(page.url) || page.research);
+    if (isRecording() && tabs.length && !tabs.some((x) => x.id === rec.tab)) { // its tab closed: what's recorded is kept
+      F.send({ type: 'browser_ai_record', action: 'stop' });
+    }
     if (turn && tabs.length && !tabs.some((x) => x.id === turn.tab)) { // its tab closed: let it go
       turn = null;
       F.send({ type: 'browser_ai_handback_cancel' });
@@ -571,8 +749,13 @@
   if (app && app.browser && app.browser.onState) app.browser.onState(onState);
   B.onState = onState; // the window's tests hand it the browser's state
 
-  // What happens in the pages (app/features/browser-ai.js): how much is selected in one.
+  // What happens in the pages (app/features/browser-ai.js): how much is selected in one, and
+  // the steps of a task being recorded (from its tab only), passed to the hub.
   function onPageEvent(e) {
+    if (e && e.kind === 'step') {
+      if (isRecording() && e.tab === rec.tab && e.step && typeof e.step === 'object') F.send({ type: 'browser_ai_record_step', tab: e.tab, step: e.step });
+      return;
+    }
     if (!e || e.kind !== 'selection' || e.tab !== page.tab) return;
     page.selected = Math.max(0, Number(e.length) || 0);
     report();

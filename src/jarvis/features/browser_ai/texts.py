@@ -35,4 +35,6 @@ TEXTS: dict[str, str] = {
     "{title} is back in stock.": "{title}有货了。",
     "{title} changed: {what}": "{title}有变化：{what}",
     "I stopped watching {host}: its page couldn't be read {n} times in a row.": "我不再关注{host}了：它的页面连续{n}次都读不到。",
+    # record and replay (macros.py): Settings' Run, in the owner's words
+    "Run my recorded task “{name}”.": "运行我录制的任务“{name}”。",
 }

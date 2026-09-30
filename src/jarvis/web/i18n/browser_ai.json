@@ -65,7 +65,34 @@
   "Any change": "任何变化",
   "Paused: the page couldn’t be read": "已暂停：读不到这个页面",
   "No pages watched.": "没有关注的页面。",
-  "Page watch": "网页关注"
+  "Page watch": "网页关注",
+  "Record a task": "录制任务",
+  "Stop recording": "停止录制",
+  "Do the task in this tab. Passwords, cards and codes are never recorded.": "在这个标签页里把任务做一遍。密码、银行卡和验证码从不录制。",
+  "Stop": "停止",
+  "Stop without saving": "停止且不保存",
+  "Open": "打开",
+  "Press": "点按",
+  "Choose": "选择",
+  "Press Enter": "按回车",
+  "You type this yourself": "由你自己输入",
+  "What’s typed": "输入的内容",
+  "then Enter": "然后按回车",
+  "Remove this step": "移除这一步",
+  "Save": "保存",
+  "Save this task": "保存这个任务",
+  "Name it, e.g. soup order": "给它起个名字，例如 订汤",
+  "Task name": "任务名称",
+  "Say “run my” and its name to do it again, or run it from Settings › Browser. It stops if a page has changed.": "说“运行我的”加上它的名字就能再做一遍，也可以在“设置 › 浏览器”里运行。如果页面变了，它会停下来。",
+  "Tasks you recorded in the browser: press the record button in the address bar, do the task, then Stop. Say “run my” and a name to do one again.": "你在浏览器里录制的任务：点地址栏里的录制按钮，把任务做一遍，然后点“停止”。说“运行我的”加上名字就能再做一遍。",
+  "No recorded tasks.": "没有录制的任务。",
+  "Run": "运行",
+  "There's no web page to record.": "没有可以录制的网页。",
+  "This page can't be recorded.": "这个页面无法录制。",
+  "Give it a name and keep at least one step.": "请起个名字，并至少保留一步。",
+  "The task couldn't be saved.": "这个任务没能保存。",
+  "Type in": "输入",
+  "Don’t save": "不保存"
  },
  "patterns": [
   [
@@ -119,6 +146,26 @@
   [
    "^Stop watching (.+)$",
    "不再关注 $1"
+  ],
+  [
+   "^Recording · (\\d+) steps?$",
+   "正在录制 · $1 步"
+  ],
+  [
+   "^(\\d+) steps?$",
+   "$1 步"
+  ],
+  [
+   "^Run the task (.+)$",
+   "运行任务 $1"
+  ],
+  [
+   "^Remove the task (.+)$",
+   "移除任务 $1"
+  ],
+  [
+   "^There are already (\\d+) recorded tasks\\.$",
+   "已经有 $1 个录制的任务了。"
   ]
  ]
 }

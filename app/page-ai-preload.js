@@ -9,7 +9,10 @@
 // - imageAt: the picture under the pointer (the page's menu), its box and its words;
 // - handback: whether the page needs the owner (a captcha, a password, a one-time code, a
 //   sign-in wall);
-// - mainPrice: the page's own price, as a shop shows it (page watchers).
+// - mainPrice: the page's own price, as a shop shows it (page watchers);
+// - record: the owner's clicks and typing in this tab, told as steps while it's on (record
+//   and replay), never a password, a card or a code; probe: whether what a step pressed or
+//   typed into is still on the page (replay's check before each step).
 // Text no one can see is left out, weighed as page-preload.js weighs it for every read
 // (globalThis.jarvisSight). Nothing here changes the page.
 'use strict';
@@ -281,7 +284,126 @@
     return best ? { ok: true, text: best.text, anchor: best.anchor } : { ok: true, text: '' };
   }
 
-  const COMMANDS = { context, extract, imageAt, handback, mainPrice };
+  // ── recording (record and replay): the owner's clicks and typing, as steps ──
+  // Only while the app says this tab records, only the owner's own input (isTrusted), and
+  // never a secret: a password, a card, a one-time code is a step that says the owner types
+  // there, without what they typed.
+  let recording = false;
+  const TEXT_TYPES = /^(?:text|search|email|url|tel|number|)$/;
+  const PRESSABLE = 'a, button, summary, label, select, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], input';
+  const quoted = (value) => `"${String(value).replace(/["\\]/g, '\\$&')}"`;
+  const unique = (sel) => { try { return document.querySelectorAll(sel).length === 1; } catch { return false; } };
+  function selectorFor(el) {
+    const tag = el.tagName.toLowerCase();
+    if (el.id && !/\d{4,}|^[a-f0-9-]{16,}$/i.test(el.id) && unique(`#${CSS.escape(el.id)}`)) return `#${CSS.escape(el.id)}`;
+    for (const attr of ['data-testid', 'data-test', 'name', 'aria-label', 'placeholder']) {
+      const value = el.getAttribute(attr);
+      if (value && value.length < 80 && unique(`${tag}[${attr}=${quoted(value)}]`)) return `${tag}[${attr}=${quoted(value)}]`;
+    }
+    const parts = [];
+    for (let node = el; node && node.nodeType === 1 && node !== document.body && parts.length < 6; node = node.parentElement) {
+      if (node !== el && node.id && !/\d{4,}/.test(node.id) && unique(`#${CSS.escape(node.id)}`)) { parts.unshift(`#${CSS.escape(node.id)}`); break; }
+      const same = node.parentElement ? [...node.parentElement.children].filter((c) => c.tagName === node.tagName) : [node];
+      parts.unshift(same.length > 1 ? `${node.tagName.toLowerCase()}:nth-of-type(${same.indexOf(node) + 1})` : node.tagName.toLowerCase());
+    }
+    return parts.join(' > ').slice(0, 300);
+  }
+  const fieldOf = (el) => squash([el.labels ? [...el.labels].map((l) => l.innerText).join(' ') : '', el.getAttribute('aria-label'), el.placeholder, el.name].find(Boolean) || '').slice(0, 80);
+  // What a press is called: a checkbox by its label, a submit input by its value, the rest
+  // by the words on them.
+  function wordsOf(el) {
+    const type = String(el.type || '').toLowerCase();
+    if (el.tagName === 'INPUT' && /^(?:checkbox|radio)$/.test(type)) return fieldOf(el);
+    const value = el.tagName === 'INPUT' && /^(?:button|submit|reset)$/.test(type) ? el.value : '';
+    return squash(el.getAttribute('aria-label') || el.innerText || value || el.getAttribute('title') || el.getAttribute('alt') || '').slice(0, 120);
+  }
+  function secret(el) {
+    const type = String(el.type || '').toLowerCase();
+    const auto = String(el.autocomplete || '').toLowerCase();
+    const digits = String(el.value || '').replace(/[\s-]/g, '');
+    return type === 'password' || /^cc-|one-time-code/.test(auto) || CARD_WORDS.test(fieldOf(el)) || CODE_WORDS.test(fieldOf(el)) || /^\d{13,19}$/.test(digits);
+  }
+  const typable = (el) => el && ((el.tagName === 'INPUT' && TEXT_TYPES.test(String(el.type || '').toLowerCase())) || el.tagName === 'TEXTAREA' || el.isContentEditable || String(el.type || '').toLowerCase() === 'password');
+  function step(s) {
+    if (recording) ipcRenderer.send('page-ai:event', { kind: 'step', step: { ...s, url: location.href } });
+  }
+  // Enter in a box sends what's in it: the box's own change after that, and the click its
+  // form gives its default button, are the same step, not new ones.
+  let entered = { el: null, value: '', at: 0 };
+  const valueOf = (el) => String(el.value !== undefined ? el.value : el.innerText || '');
+  function typed(el, change = false, value = valueOf(el)) {
+    if (change && entered.el === el && entered.value === value && Date.now() - entered.at < 5000) return;
+    const base = { kind: 'type', selector: selectorFor(el), field: fieldOf(el) };
+    step(secret(el) ? { ...base, secret: true } : { ...base, text: value.slice(0, 2000) });
+  }
+  document.addEventListener('click', (e) => {
+    if (!recording || !e.isTrusted || !(e.target instanceof Element)) return;
+    const el = e.target.closest(PRESSABLE) || e.target;
+    if (typable(el) || el.tagName === 'SELECT' || el.tagName === 'OPTION') return; // typing and choosing are their own steps
+    if (el.tagName === 'LABEL' && el.control) return; // its box gets the click next (or only the focus)
+    if (e.detail === 0 && entered.el && el.form && el.form === entered.el.form && Date.now() - entered.at < 1000) return;
+    step({ kind: 'click', selector: selectorFor(el), text: wordsOf(el), tag: el.tagName.toLowerCase() });
+  }, true);
+  document.addEventListener('change', (e) => {
+    if (!recording || !e.isTrusted || !(e.target instanceof Element)) return;
+    const el = e.target;
+    if (el.tagName === 'SELECT') {
+      const chosen = el.selectedOptions && el.selectedOptions[0];
+      step({ kind: 'select', selector: selectorFor(el), field: fieldOf(el), text: chosen ? squash(chosen.label || chosen.text).slice(0, 200) : '' });
+    } else if (typable(el)) typed(el, true);
+  }, true);
+  // Enter in a one-line box sends it; in a box of many lines it's a new line (typing), unless
+  // the page takes it to send (a chat's box): then it's a press too.
+  function entering(el, value) {
+    typed(el, false, value); // what's in the box first: Enter sends it before its change fires
+    step({ kind: 'press', key: "Enter", selector: selectorFor(el) });
+    entered = { el, value, at: Date.now() };
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!recording || !e.isTrusted || e.key !== "Enter" || e.shiftKey || !typable(e.target)) return; // (a key's name, not shown)
+    const el = e.target;
+    const value = valueOf(el);
+    if (el.tagName === 'INPUT') entering(el, value);
+    else setTimeout(() => { if (e.defaultPrevented) entering(el, value); }, 0); // (the page's own handlers first)
+  }, true);
+  function record(args = {}) {
+    recording = Boolean(args.on);
+    return { ok: true, recording, url: location.href, title: document.title.slice(0, 300) };
+  }
+
+  // ── replay: is what a step pressed, typed into or chose in still here? ──
+  // What the recorded selector finds, if it's still the same thing (the same words on it,
+  // the same label on the box); and how many on show have those words, and which of them
+  // it is (nth, in the page's order: a snapshot lists them in the same order), so replay
+  // never guesses between two. Only selectors and counts go back: nothing is read out.
+  const same = (a, b) => squash(a).toLowerCase() === squash(b).toLowerCase();
+  const onShow = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const inOrder = (a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+  function probe(args = {}) {
+    const kind = String(args.kind || '');
+    const want = kind === 'click' ? String(args.text || '') : String(args.field || '');
+    const fits = kind === 'click' ? () => true : kind === 'select' ? (el) => el.tagName === 'SELECT' : typable;
+    const words = kind === 'click' ? wordsOf : fieldOf;
+    let el = null;
+    try { el = args.selector ? document.querySelector(String(args.selector)) : null; } catch { el = null; }
+    const target = el && onShow(el) && fits(el) && (!want || same(words(el), want)) ? el : null;
+    let all = target ? [target] : [];
+    if (want) {
+      const pool = kind === 'click' ? PRESSABLE : kind === 'select' ? 'select' : 'input, textarea, [contenteditable="true"]';
+      // (a label that has a box is its box's: the box's click is the step, never the label's)
+      all = [...document.querySelectorAll(pool)].filter((c) => onShow(c) && fits(c) && same(words(c), want) && !(c.tagName === 'LABEL' && c.control));
+      if (target && !all.includes(target)) all = [...all, target].sort(inOrder);
+    }
+    const found = target || (all.length === 1 ? all[0] : null);
+    const out = { ok: true, count: all.length, nth: found ? all.indexOf(found) : -1, selector: '' };
+    if (!found) return out;
+    out.selector = found === el ? String(args.selector) : selectorFor(found);
+    if (kind === 'type') out.secret = secret(found);
+    if (kind === 'select') out.has = [...found.options].some((o) => same(o.label || o.text, args.text));
+    return out;
+  }
+
+  const COMMANDS = { context, extract, imageAt, handback, mainPrice, record, probe };
 
   // How much the owner has selected (never what): a request right after a selection then
   // carries it (the hub asks for the words themselves only then).

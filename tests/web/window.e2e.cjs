@@ -5539,6 +5539,70 @@ test('Settings › Browser lists the page watches, removes one, and labels their
   assert(await js('ALERT_KICKERS.watch') === 'Page watch', 'its heads-ups aren’t labelled');
 });
 
+test('Record and replay: the Record button, the banner while it records, the steps to name and edit, and Settings’ list', async () => {
+  await browserAi();
+  await js(`document.body.classList.add('browser-open'); __state({ url: 'https://shop.example/', title: 'Shop', tabs: [{ id: 4, active: true }, { id: 5, active: false }] }); true`);
+  assert(await js('!$("bai-record-btn").hidden && $("bai-record-btn").getAttribute("aria-pressed") === "false"'), 'no Record button on a web page');
+  await js('__sent.length = 0; $("bai-record-btn").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_record', action: 'start' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'browser_ai_recording', state: 'recording', tab: 4, count: 1 });
+  assert(await js('$("bai-record-btn").getAttribute("aria-pressed")') === 'true' && await js('$("bai-record-btn").title') === 'Stop recording', 'the button doesn’t show it records');
+  let banner = await js('document.querySelector(".bai-rec") && document.querySelector(".bai-rec").innerText');
+  assert(/Recording · 0 steps/.test(banner) && /never recorded/.test(banner), banner);
+  // The page's steps go to the hub, from the tab being recorded only.
+  await js(`__sent.length = 0; __pageEvent({ kind: 'step', tab: 4, step: { kind: 'click', url: 'https://shop.example/', text: 'Soup' } });
+    __pageEvent({ kind: 'step', tab: 5, step: { kind: 'click', url: 'https://x.example/', text: 'X' } }); true`);
+  const told = await sentOf('browser_ai_record_step');
+  assert(JSON.stringify(told) === JSON.stringify([{ type: 'browser_ai_record_step', tab: 4, step: { kind: 'click', url: 'https://shop.example/', text: 'Soup' } }]), JSON.stringify(told));
+  await deliver({ type: 'browser_ai_recording', state: 'recording', tab: 4, count: 2 });
+  assert(/Recording · 1 step(?!s)/.test(await js('document.querySelector(".bai-rec").innerText')), await js('document.querySelector(".bai-rec").innerText'));
+  // On a page that isn't a web page, Stop stays at hand while it records.
+  await js(`__state({ url: 'about:blank', title: '', tabs: [{ id: 4, active: true }, { id: 5, active: false }] }); true`);
+  assert(await js('!$("bai-record-btn").hidden'), 'the Record button went away while recording');
+  await js('__sent.length = 0; document.querySelector(".bai-rec-stop").click(); document.querySelector(".bai-rec .bai-x").click(); true');
+  assert(JSON.stringify((await sentOf('browser_ai_record')).map((m) => m.action)) === JSON.stringify(['stop', 'cancel']), JSON.stringify(await js('__sent')));
+  // The review: what's typed can be changed, a step (never the first) taken out, and a name given.
+  await deliver({ type: 'browser_ai_recording', state: 'review', tab: 4, count: 4, steps: [
+    { kind: 'open', url: 'https://shop.example/' },
+    { kind: 'type', url: 'https://shop.example/', selector: '#q', field: 'Search', text: 'tomato soup', submit: true },
+    { kind: 'type', url: 'https://shop.example/login', selector: '#pw', field: 'Password', secret: true, text: '' },
+    { kind: 'click', url: 'https://shop.example/s', selector: '#add', text: 'Add to cart' }] });
+  assert(!(await js('!!document.querySelector(".bai-rec")')) && await js('$("bai-record-btn").getAttribute("aria-pressed")') === 'false', 'the banner stayed');
+  const rows = await js('[...document.querySelectorAll("#bai-macro-steps li")].map((li) => [...li.querySelectorAll(".bai-step-n, .bai-step-verb, .bai-step-what, .bai-step-detail, .bai-x")].map((n) => n.textContent).join("|"))');
+  assert(JSON.stringify(rows) === JSON.stringify(['1|Open|https://shop.example/', '2|Type in|Search|then Enter|×', '3|You type this yourself|Password|×', '4|Press|“Add to cart”|×']), JSON.stringify(rows));
+  assert(await js('document.querySelector("#bai-macro-steps .bai-step-text").value') === 'tomato soup', 'what’s typed isn’t in its box');
+  assert(await js('[...document.querySelectorAll("#bai-macro-steps .bai-step-what, #bai-macro-steps .bai-step-detail")].every((n) => n.hasAttribute("data-no-i18n") || n.textContent === "then Enter")'), 'the page’s words would be translated');
+  await js(`__sent.length = 0; const box = document.querySelector('#bai-macro-steps .bai-step-text'); box.value = 'chicken soup'; box.dispatchEvent(new Event('input'));
+    document.querySelectorAll('#bai-macro-steps .bai-x')[1].click(); document.querySelector('.bai-macro').requestSubmit(); true`);
+  assert((await sentOf('browser_ai_macro_save')).length === 0, 'saved without a name');
+  await js(`$('bai-macro-name').value = ' soup order '; document.querySelector('.bai-macro').requestSubmit(); true`);
+  const saved = (await sentOf('browser_ai_macro_save'))[0];
+  assert(saved && saved.name === 'soup order' && JSON.stringify(saved.steps.map((x) => x.text || x.kind)) === JSON.stringify(['open', 'chicken soup', 'Add to cart']), JSON.stringify(saved));
+  await deliver({ type: 'browser_ai_recording', state: 'review', tab: 4, count: 4, error: 'The task couldn’t be saved.' });
+  assert(await js('!$("bai-macro-error").hidden && $("bai-macro-error").textContent') === 'The task couldn’t be saved.', 'no error shown');
+  assert(await js('document.querySelector("#bai-macro-steps .bai-step-text").value') === 'chicken soup', 'the owner’s edits were lost');
+  await js('__sent.length = 0; [...document.querySelectorAll(".bai-macro .btn")].find((b) => b.textContent === "Don’t save").click(); true');
+  assert(JSON.stringify(await sentOf('browser_ai_record')) === JSON.stringify([{ type: 'browser_ai_record', action: 'cancel' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'browser_ai_recording', state: 'idle' });
+  assert(!(await js('!!document.querySelector(".bai-macro")')), 'the review stayed');
+  await deliver({ type: 'browser_ai_recording', state: 'idle', error: 'There’s no web page to record.' });
+  assert(/no web page to record/.test(await js('document.querySelector(".bai-rec").innerText')), 'the error isn’t shown');
+  // Its tab closed while recording: it stops, and what's recorded is kept for the review.
+  await deliver({ type: 'browser_ai_recording', state: 'recording', tab: 4, count: 3 });
+  await js(`__sent.length = 0; __state({ url: 'https://news.example/', title: 'News', tabs: [{ id: 5, active: true }] }); true`);
+  assert(JSON.stringify(await sentOf('browser_ai_record')) === JSON.stringify([{ type: 'browser_ai_record', action: 'stop' }]), JSON.stringify(await js('__sent')));
+  // Settings › Browser: the tasks, with Run and Remove.
+  await js('featureEvent({ type: "hello", hub_id: "hub-a", prefs: { features: {} } }); true');
+  assert((await sentOf('browser_ai_macros')).length === 1, 'the tasks weren’t asked for');
+  assert(await js('$("bai-macros").textContent') === 'No recorded tasks.', await js('$("bai-macros").textContent'));
+  await deliver({ type: 'browser_ai_macros', items: [{ name: 'soup order', steps: 3, site: 'shop.example' }, { name: 'rent', steps: 1, site: 'bank.example' }] });
+  const tasks = await js('[...document.querySelectorAll("#bai-macros li")].map((li) => li.querySelector("b").textContent + " | " + li.querySelector("small").textContent)');
+  assert(JSON.stringify(tasks) === JSON.stringify(['soup order | 3 stepsshop.example', 'rent | 1 stepbank.example']), JSON.stringify(tasks));
+  assert(await js('[...document.querySelectorAll("#bai-macros b")].every((b) => b.hasAttribute("data-no-i18n"))'), 'a name would be translated');
+  await js('__sent.length = 0; const [run, remove] = document.querySelectorAll("#bai-macros li .btn"); run.click(); remove.click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_macro_run', name: 'soup order' }, { type: 'browser_ai_macro_delete', name: 'soup order' }]), JSON.stringify(await js('__sent')));
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);
