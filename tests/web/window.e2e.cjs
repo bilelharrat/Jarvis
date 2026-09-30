@@ -2858,6 +2858,40 @@ test('Without you: the scope goes to the backend, runs are listed, a running one
   assert(JSON.stringify(s) === JSON.stringify(['code_run_stop r1', 'code_run_forget j1']), JSON.stringify(s));
 });
 
+// ── Jarvis Code settings › GitHub (web/features/code_issues.js) ──
+
+test('GitHub settings: failing checks fixed by themselves, and a repository opted in for issues', async () => {
+  await js('deckProjects = [{ name: "alpha", branch: "main" }, { name: "beta", branch: "main" }]; true');
+  await loadFeatures('code_issues.js', 'code_issues.css');
+  await js(`__ev({ type: 'prefs', language: 'en', features: { code_pr_autofix: true } })`);
+  await js(`__ev({ type: 'code_issues', connected: true, repos: [{ repo: 'acme/app', project: 'alpha', label: 'jarvis', commands: [], spend_cap: 5, sandbox: true, since: 1 }] })`);
+  const shown = await js(`({ label: [...document.querySelectorAll('#jcs-general .jcs-label')].map((n) => n.textContent).includes('GitHub: pull requests and issues'),
+    on: document.querySelector('.jcx-issues .jcs-switch').getAttribute('aria-checked'), repos: [...document.querySelectorAll('.jcx-issue-repo')].map((n) => n.textContent) })`);
+  assert(shown.label && shown.on === 'true' && JSON.stringify(shown.repos) === JSON.stringify(['acme/app · “jarvis” · alpha']), JSON.stringify(shown));
+  await js('__sent.length = 0; document.querySelector(".jcx-issues .jcs-switch").click()');
+  let s = await js('__sent.filter((m) => m.type === "feature_prefs")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { code_pr_autofix: false } }]), JSON.stringify(s));
+  await clickText('.jcx-issue-list', 'Remove');
+  s = await js('__sent.filter((m) => m.type === "code_issue_remove")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'code_issue_remove', repo: 'acme/app' }]), JSON.stringify(s));
+  // A project picked: its repository is found, then the scope goes to the backend (which asks first).
+  await js(`(() => { const pick = document.querySelector('.jcx-issue-form select'); pick.value = 'beta'; pick.dispatchEvent(new Event('change')); })()`);
+  s = await js('__sent.filter((m) => m.type === "code_issue_detect")');
+  assert(s.length && s[s.length - 1].project === 'beta', JSON.stringify(s));
+  assert(await js('document.querySelector(".jcx-issue-form button[type=submit]").disabled'), 'Opt in offered before the repository was known');
+  await js(`__ev({ type: 'code_issue_repo', project: 'beta', repo: 'acme/beta', note: '' })`);
+  assert(await js('document.querySelector(".jcx-issue-where code").textContent') === 'acme/beta', 'the repository isn’t shown');
+  await js(`(() => { const [label, commands, spend] = document.querySelectorAll('.jcx-issue-form input'); label.value = 'ai-fix'; label.dispatchEvent(new Event('input'));
+    commands.value = 'npm test'; commands.dispatchEvent(new Event('input')); spend.value = '3'; spend.dispatchEvent(new Event('input'));
+    [...document.querySelectorAll('.jcx-issue-form .jcs-switch')].pop().click(); })()`);
+  await js('__sent.length = 0');
+  await clickText('.jcx-issue-form', 'Opt it in…');
+  s = await js('__sent.filter((m) => m.type === "code_issue_add")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'code_issue_add', project: 'beta', label: 'ai-fix', commands: ['npm test'], spend_cap: 3, sandbox: false }]), JSON.stringify(s));
+  await js(`__ev({ type: 'code_issues', connected: false, repos: [] })`);
+  assert((await js('document.querySelector(".jcx-issue-connect").textContent')).startsWith('Connect GitHub in Tools & Accounts first.'), 'no way to connect');
+});
+
 // ──
 
 let base;

@@ -61,7 +61,7 @@ CONNECT = "Connect GitHub in Tools & Accounts first: I use its token for pull re
 ZH = {
     CONNECT: "请先在“工具与账户”里连接 GitHub：我用它的令牌处理拉取请求。",
     "GitHub turned the token down. Reconnect GitHub in Tools & Accounts with a fresh token.": "GitHub 拒绝了这个令牌。请在“工具与账户”里用新令牌重新连接 GitHub。",
-    "The GitHub token isn't allowed to do that in {repo}. Give it access to the repository (contents, pull requests, checks and actions) in its settings on GitHub.": "这个 GitHub 令牌无权在 {repo} 里这样做。请在 GitHub 的令牌设置里给它这个仓库的权限（内容、拉取请求、检查和 Actions）。",
+    "The GitHub token isn't allowed to do that in {repo}. Give it access to the repository (contents, pull requests, issues, checks and actions) in its settings on GitHub.": "这个 GitHub 令牌无权在 {repo} 里这样做。请在 GitHub 的令牌设置里给它这个仓库的权限（内容、拉取请求、议题、检查和 Actions）。",
     "GitHub can't find {repo}, or the token can't see it. Check the token's repository access in Tools & Accounts.": "GitHub 找不到 {repo}，或者令牌看不到它。请在“工具与账户”里检查令牌能访问哪些仓库。",
     "GitHub's rate limit is used up until {time}.": "GitHub 的调用额度已用完，要到 {time} 才恢复。",
     "Couldn't reach GitHub: {error}": "连不上 GitHub：{error}",
@@ -324,7 +324,8 @@ class Client:
         if status == 403:
             text = (
                 f"The GitHub token isn't allowed to do that in {where}. Give it access to the "
-                "repository (contents, pull requests, checks and actions) in its settings on "
+                "repository (contents, pull requests, issues, checks and actions) in its "
+                "settings on "
                 "GitHub."
             )
             return GitHubError(self.tr(text), status)

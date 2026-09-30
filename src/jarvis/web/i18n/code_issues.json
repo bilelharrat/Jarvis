@@ -1,0 +1,18 @@
+{
+  "strings": {
+    "Label": "标签",
+    "An issue with this label starts a session.": "贴上这个标签的议题会开启一个会话。",
+    "Beyond the read-only ones and the project’s own rules.": "除只读命令和项目自己的规则之外。",
+    "For each session; it also stops after an hour.": "每个会话都有；运行一小时后也会停下。",
+    "Commands without network access": "命令不联网",
+    "Its commands run in a sandbox. Turn it off if its tests need the network.": "它的命令在沙盒里运行。如果它的测试需要联网就关掉。",
+    "Opt it in…": "开启…",
+    "Fix failing checks by themselves": "自动修复失败的检查",
+    "New pull requests send their failing checks’ logs to the session, at most 3 times. Each has its own switch in its pane.": "新的拉取请求会把失败检查的日志交给会话，最多 3 次。每个拉取请求在它的面板里都有自己的开关。",
+    "Issues for Jarvis": "交给我的议题",
+    "An issue labelled for Jarvis in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.": "这些仓库里贴上给我的标签的议题，会开启一个无人值守的会话。议题内容只当作数据，它的拉取请求会等你确认。",
+    "Connect GitHub in Tools & Accounts first.": "请先在“工具与账户”里连接 GitHub。",
+    "GitHub: pull requests and issues": "GitHub：拉取请求与议题"
+  },
+  "patterns": []
+}

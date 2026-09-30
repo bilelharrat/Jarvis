@@ -1,0 +1,16 @@
+/* Jarvis Code settings › GitHub: pull requests fixing their checks, and issues for Jarvis. */
+
+.jcx-issues .jcx-issue-list { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; gap: 4px; border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-issues .jcx-issue-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.jcx-issue-repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-issue-repo code, .jcx-issue-where code { font: 11.5px var(--mono); color: rgb(var(--c-accent-ink)); }
+.jcx-issue-form { display: flex; flex-direction: column; border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-issue-where { margin: 0 0 4px; font-size: 12px; }
+.jcx-issue-where:empty { display: none; }
+.jcx-issue-num { width: 80px; }
+.jcx-issue-actions { display: flex; align-items: center; padding: 6px 0 8px; }
+.jcx-issue-connect { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; font-size: 12.5px; color: rgb(var(--c-warning-ink)); border-top: 0.5px solid rgb(var(--c-border)); }
+.deck.jc .jcx-issues .jc-btn { font-size: 12px; }
+.deck.jc .jcx-issues .jc-btn.filled { color: #fff; }
+.deck.jc .jcx-issues .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.jcx-issues .jc-btn:disabled { opacity: 0.45; cursor: default; }
