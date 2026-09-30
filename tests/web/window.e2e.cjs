@@ -5145,7 +5145,7 @@ test('The address bar’s list: what Return does, then the open tabs, bookmarks 
   assert(covers.length >= 2 && JSON.stringify(covers.at(-1)) === '{"on":false}', JSON.stringify(covers));
 });
 
-test('Settings › Browser keeps reopening tabs as a switch; the dock closing stops the tabs’ sound', async () => {
+test('Settings › Browser keeps reopening tabs as a switch; the dock says when it opens and closes (its closing stops the tabs’ sound)', async () => {
   await loadBrowser(`__b.hello.restore = false;
     __b.answer = (channel, msg) => channel === 'feature:browser:hello' ? __b.hello : channel === 'feature:browser:settings' ? { ...__b.hello, ...msg } : null;`);
   assert(await js('$("sw-bp-restore").getAttribute("aria-checked") === "false" && $("sw-bp-restore").closest("section") === $("browser-group")'), 'the switch does not show the setting');
@@ -5156,7 +5156,7 @@ test('Settings › Browser keeps reopening tabs as a switch; the dock closing st
   await settle();
   await js('$("browser").hidden = true; true');
   await settle();
-  assert(JSON.stringify(await invokedOn('feature:browser:dock')) === '[{"open":false}]', JSON.stringify(await invokedOn('feature:browser:dock')));
+  assert(JSON.stringify(await invokedOn('feature:browser:dock')) === '[{"open":true},{"open":false}]', JSON.stringify(await invokedOn('feature:browser:dock')));
 });
 
 test('The library’s Bookmarks: folders to open, each bookmark and folder renamed or moved in place, search across them', async () => {
@@ -5263,6 +5263,25 @@ test('A private tab and JARVIS’s signed-out tabs look their part; ⌘⇧N open
   await js('$("sw-bp-agent").click(); true');
   await settle();
   assert(JSON.stringify(await invokedOn('feature:browser:settings')) === '[{"agentProfile":true}]' && await js('$("sw-bp-agent").getAttribute("aria-checked") === "true"'), 'the switch did not change it');
+});
+
+test('Split view: the slot takes the left half and a pane beside it the right; the pane tells the app where; ⇄ and ✕ answer', async () => {
+  await loadBrowser();
+  await js(`$("browser").hidden = false; applyDockWidth(900); __b.on['feature:browser:split']({ on: true, tab: 7, title: 'Flights', url: 'https://flights.example/' }); true`);
+  await frames(3);
+  const laid = await js(`(() => { const slot = $("browser-slot").getBoundingClientRect(); const pane = $("bp-split").getBoundingClientRect(); const area = document.querySelector(".bp-split-area").getBoundingClientRect();
+    return { on: document.body.classList.contains("bp-split-on"), shown: !$("bp-split").hidden, title: document.querySelector(".bp-split-title").textContent,
+      side: pane.left >= slot.right, top: Math.abs(pane.top - slot.top) < 1, height: Math.abs(pane.height - slot.height) < 1, halves: Math.abs(slot.width - pane.width) < 12, area: [area.x, area.y, area.width, area.height].map(Math.round) }; })()`);
+  assert(laid.on && laid.shown && laid.title === 'Flights' && laid.side && laid.top && laid.height && laid.halves, JSON.stringify(laid));
+  const told = (await invokedOn('feature:browser:split-bounds')).filter(Boolean).at(-1);
+  assert(told && JSON.stringify([told.x, told.y, told.width, told.height].map(Math.round)) === JSON.stringify(laid.area), `the app wasn’t told the page’s place: ${JSON.stringify(told)} vs ${JSON.stringify(laid.area)}`);
+  await js('document.querySelectorAll(".bp-split-head .bd-icon")[0].click(); document.querySelectorAll(".bp-split-head .bd-icon")[1].click(); true');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:split')) === '[{"action":"swap"},{"action":"close"}]', JSON.stringify(await invokedOn('feature:browser:split')));
+  await js(`__b.on['feature:browser:split']({ on: false }); true`);
+  assert(await js('$("bp-split").hidden && !document.body.classList.contains("bp-split-on")'), 'the pane stayed');
+  await js(`tabsShown = ''; renderTabs([{ id: 1, title: 'Left', url: 'https://a.example/', active: true, split: 'left' }, { id: 2, title: 'Out', url: 'https://b.example/', active: false, popout: true }]); true`);
+  assert(await js('!!document.querySelector("[data-tab=\\"2\\"] .bp-popout-mark") && document.querySelector("[data-tab=\\"1\\"]").classList.contains("bp-split-left")'), 'the strip doesn’t mark the split or the popped-out tab');
 });
 
 test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {

@@ -3,10 +3,10 @@
 // location, notifications or the clipboard; a site's sign-in; a certificate warning), the
 // site's own menu at the start of the address, pinned and muted tabs dragged into order, tab
 // search, the address bar's list (open tabs, bookmarks, history), the library's bookmarks in
-// folders, the page's ⋯ menu (a private tab, save as PDF, open in the default browser), and
-// Settings › Browser (the search engine, reopening tabs, importing from another browser,
-// clearing site data, JARVIS browsing signed out, each site's permissions). Only in the
-// J.A.R.V.I.S. app, where the built-in browser is.
+// folders, the page's ⋯ menu (a private tab, split view, save as PDF, open in the default
+// browser), split view's right pane, and Settings › Browser (the search engine, reopening
+// tabs, importing from another browser, clearing site data, JARVIS browsing signed out, each
+// site's permissions). Only in the J.A.R.V.I.S. app, where the built-in browser is.
 (() => {
   // ── pure helpers (tests/web/browser-window.test.mjs requires this file for them) ──
 
@@ -121,6 +121,9 @@
     more: '<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>',
     private: '<path d="M1.8 6.6c1.9-.8 3.9-1.1 6.2-1.1s4.3.3 6.2 1.1"/><path d="M2.6 7l.6 2.9a1.9 1.9 0 001.9 1.5h.4a1.9 1.9 0 001.9-1.6M13.4 7l-.6 2.9a1.9 1.9 0 01-1.9 1.5h-.4a1.9 1.9 0 01-1.9-1.6M7 9.6h2"/>',
     agent: '<path d="M8 1.8l1.4 3.9 3.9 1.4-3.9 1.4L8 12.4 6.6 8.5 2.7 7.1l3.9-1.4z"/>',
+    split: '<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="M8 3v10"/>',
+    swap: '<path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/>',
+    window: '<rect x="1.8" y="3" width="12.4" height="10" rx="1.8"/><path d="M1.8 5.8h12.4"/>',
   };
   const button = (label, cls, onClick) => {
     const b = F.el('button', cls, label);
@@ -147,7 +150,8 @@
       clearSite: t('Clear this site’s data…'), clear: t('Clear'), cancel: t('Cancel'),
       clearSiteTitle: t('Clear the data {host} keeps?'), clearSiteDetail: t('Its cookies, cache and stored data go, and you’re signed out of it.'),
       clearAllTitle: t('Clear all cookies and site data?'), clearAllDetail: t('Every site’s cookies, cache and stored data go, and you’re signed out of sites, the Research Center too.'),
-      newPrivate: t('New private tab'),
+      newPrivate: t('New private tab'), splitView: t('Split view'), closeSplit: t('Close split view'), besideThis: t('Show beside the tab on show'),
+      popOut: t('Open in a window'), back: t('Back'), forward: t('Forward'), dock: t('Back to the dock'), address: t('Address'),
     };
   }
   const sendLabels = () => invoke('labels', labels());
@@ -307,6 +311,16 @@
     tab.classList.toggle('pinned', Boolean(t.pinned));
     if (t.pinned) tab.prepend(tabIcon(t));
     // A private tab, and JARVIS's own signed-out profile, each look their part.
+    if (t.split) tab.classList.add(`bp-split-${t.split}`);
+    if (t.popout) {
+      // In a window of its own: a click brings that window forward.
+      tab.classList.add('bp-popout');
+      const mark = F.el('span', 'bp-tab-mark bp-popout-mark');
+      mark.append(svg(ICONS.window, 13));
+      mark.title = 'In a window of its own';
+      mark.setAttribute('aria-label', 'In a window of its own');
+      tab.insertBefore(mark, tab.querySelector('.bd-tab-title'));
+    }
     if (t.private || t.agentProfile) {
       const kind = t.private ? 'private' : 'agent';
       tab.classList.add(`bp-${kind}`);
@@ -728,6 +742,65 @@
     list.replaceChildren(...(rows.length ? rows : [F.el('li', 'bd-lib-empty', 'No bookmarks yet. Press ★ in the address bar (⌘D) to add this page, or import them from another browser in Settings › Browser.')]));
   }
 
+  // ── split view: the tab on the right, in a pane beside the page (the tab on show is on the
+  // left, in the dock's own slot); the app lays its page over the pane's lower part ──
+
+  let split = { on: false };
+  const splitPane = F.el('div', 'bp-split');
+  splitPane.id = 'bp-split';
+  splitPane.hidden = true;
+  const splitHead = F.el('div', 'bp-split-head');
+  const splitTitle = F.el('span', 'bp-split-title');
+  splitTitle.setAttribute('data-no-i18n', '');
+  const splitSwap = F.el('button', 'bd-icon');
+  splitSwap.type = 'button';
+  splitSwap.title = 'Swap sides';
+  splitSwap.setAttribute('aria-label', 'Swap sides');
+  splitSwap.append(svg(ICONS.swap, 14));
+  splitSwap.addEventListener('click', () => invoke('split', { action: 'swap' }));
+  const splitClose = F.el('button', 'bd-icon');
+  splitClose.type = 'button';
+  splitClose.title = 'Close split view';
+  splitClose.setAttribute('aria-label', 'Close split view');
+  splitClose.append(svg('<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>', 13));
+  splitClose.addEventListener('click', () => invoke('split', { action: 'close' }));
+  splitHead.append(svg(ICONS.split, 13), splitTitle, splitSwap, splitClose);
+  const splitArea = F.el('div', 'bp-split-area');
+  splitPane.append(splitHead, splitArea);
+  let splitSeen = '';
+  let splitWatching = false;
+
+  function renderSplit(next) {
+    split = next && next.on ? next : { on: false };
+    document.body.classList.toggle('bp-split-on', split.on);
+    splitPane.hidden = !split.on;
+    splitTitle.textContent = split.on ? split.title || hostOf(split.url || '') || 'New tab' : '';
+    if (!split.on) { splitSeen = ''; return; }
+    watchSplit();
+  }
+
+  // Every frame while the split shows: the pane beside the slot, and the page's place in it
+  // when that moved (the dock slid, resized or went full screen).
+  function watchSplit() {
+    if (splitWatching) return;
+    splitWatching = true;
+    const tick = () => {
+      const slotEl = F.$('browser-slot');
+      if (!split.on || !slotEl) { splitWatching = false; return; }
+      const pageFull = document.body.classList.contains('browser-page-full');
+      if (!F.$('browser').hidden && !pageFull) {
+        splitPane.style.top = `${slotEl.offsetTop}px`;
+        splitPane.style.height = `${slotEl.offsetHeight}px`;
+      }
+      const r = splitArea.getBoundingClientRect();
+      const b = pageFull || F.$('browser').hidden ? null : { x: r.left, y: r.top, width: r.width, height: r.height };
+      const key = b ? [b.x, b.y, b.width, b.height].map(Math.round).join(',') : 'none';
+      if (key !== splitSeen) { splitSeen = key; invoke('split-bounds', b); }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
   // ── Settings › Browser ──
 
   let hello = { engine: 'google', engines: [], sites: [] };
@@ -943,7 +1016,7 @@
   const url = F.$('br-url');
   if (url) url.parentElement.insertBefore(siteBtn, url.parentElement.firstChild);
   const slot = F.$('browser-slot');
-  if (slot) { slot.parentElement.insertBefore(strip, slot); slot.append(certPanel, tabsPanel, omniPanel); }
+  if (slot) { slot.parentElement.insertBefore(strip, slot); slot.append(certPanel, tabsPanel, omniPanel); slot.parentElement.append(splitPane); }
   const library = F.$('br-library');
   if (library) library.parentElement.insertBefore(tabsBtn, library);
   // The menu of the page: save it as a PDF, or open it in the default browser of the Mac.
@@ -984,13 +1057,15 @@
   privatePill.hidden = true;
   privatePill.prepend(svg(ICONS.private, 12));
   if (url) url.parentElement.insertBefore(privatePill, url);
-  // The dock closing: its panels go, and every video and sound in the tabs stops.
+  // The dock closing: its panels go, every video and sound in the tabs stops, and split
+  // view's right pane steps away with it (and comes back when the dock does).
   new MutationObserver(() => {
-    if (!F.$('browser').hidden) return;
+    if (!F.$('browser').hidden) { invoke('dock', { open: true }); if (split.on) watchSplit(); return; }
     closeOmni();
     closeTabSearch();
     invoke('dock', { open: false });
   }).observe(F.$('browser'), { attributes: true, attributeFilter: ['hidden'] });
+  bridge.on(CH + 'split', (next) => renderSplit(next));
   buildGroup();
   bridge.on(CH + 'ask', (next) => renderAsk(next));
   bridge.on(CH + 'site-state', (site) => renderSite(site));

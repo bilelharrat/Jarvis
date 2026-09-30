@@ -336,6 +336,7 @@ function ensureBrowser() {
 // Show another tab in the dock's slot (the page's lock and state follow it).
 function selectTab(view) {
   if (!view || view === browserView) return;
+  if (parity.poppedOut(view)) { parity.focusPopout(view); return; } // a tab in a window of its own
   if (browserShown && browserView) win.contentView.removeChildView(browserView);
   browserView = view;
   parity.selected(view);
@@ -518,7 +519,7 @@ function pageMenu(view, p) {
     sep();
   }
   items.push({ label: 'Inspect', click: () => { wc.inspectElement(p.x, p.y); } });
-  Menu.buildFromTemplate(items).popup({ window: win });
+  Menu.buildFromTemplate(items).popup({ window: parity.windowOf(view) || win }); // a popped-out tab's in its own window
 }
 
 // Downloads: each one lands in a private staging folder first, and only the user's Save in
@@ -718,7 +719,7 @@ function createTab(opts = {}) {
   wc.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && win && !agentInput) win.webContents.send('browser:escape');
     // Chrome's shortcuts work with the page focused too (they're the browser's, not the page's).
-    if (input.type === 'keyDown' && !browserSynthetic && !agentInput && browserShortcut(input)) { event.preventDefault(); return; }
+    if (input.type === 'keyDown' && !browserSynthetic && !agentInput && !parity.poppedOut(view) && browserShortcut(input)) { event.preventDefault(); return; }
     if (active() && browserLocked && !browserSynthetic) event.preventDefault();
   });
   // The window only shows local and data: images, so the icon comes over as data.

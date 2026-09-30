@@ -179,3 +179,26 @@ body.browser-slim .bd-ask-text { flex-basis: calc(100% - 80px); }
   border-radius: 10px; font-size: 11px; font-weight: 600; color: rgb(120 96 210); background: rgb(88 70 160 / 0.14);
 }
 .bp-private-pill[hidden] { display: none; }
+
+/* ── split view: the slot takes the left half, the pane beside it the right ── */
+body.bp-split-on:not(.browser-page-full) #browser-slot { margin-right: calc(50% + 3px); }
+.bp-split {
+  position: absolute; left: calc(50% + 3px); right: 6px; display: flex; flex-direction: column;
+  border-radius: 12px; overflow: hidden; background: rgb(var(--c-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--c-ink) / 0.08);
+}
+.bp-split[hidden], body.browser-page-full .bp-split { display: none; }
+.bp-split-head {
+  flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 10px;
+  font-size: 12px; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.04);
+  box-shadow: inset 0 -0.5px 0 rgb(var(--c-ink) / 0.1);
+}
+.bp-split-head > svg { flex: none; color: rgb(var(--c-muted)); }
+.bp-split-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.bp-split-head .bd-icon { width: 26px; height: 26px; }
+.bp-split-area { flex: 1; min-height: 0; }
+.bd-tab.bp-split-right { box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.45); }
+
+/* ── a tab popped out into a window of its own ── */
+.bd-tab.bp-popout .bd-tab-title { opacity: 0.7; }
+.bp-popout-mark { color: rgb(var(--c-accent-ink)); }

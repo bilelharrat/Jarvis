@@ -3,7 +3,8 @@
 // the leave-page question, HTTP sign-in, certificate warnings, pinned and muted tabs and their
 // order, the tabs reopened next time, each site's zoom, the address bar's suggestions,
 // bookmark folders and what's imported from another browser, PDFs (read for JARVIS, saved),
-// clearing a site's data, private tabs and JARVIS's own signed-out profile, the user agent
+// clearing a site's data, private tabs and JARVIS's own signed-out profile, split view (two
+// tabs side by side in the dock), a tab popped out into a window of its own, the user agent
 // Google's sign-in accepts, and Settings › Browser. main.js hands it what it needs
 // as hooks (createParity) and calls it where a tab or a session is made.
 //
@@ -14,7 +15,7 @@
 // tabs only, so a popup, a sign-in box or "Continue anyway" is always the user's to answer.
 'use strict';
 
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeTheme, screen, session, shell } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -35,6 +36,7 @@ const POPUP_BURST_MS = 10000;
 const AUTH_MAX = 3; // sign-in requests one tab may have waiting; more are cancelled at once
 const SESSION_MS = 1000; // the tabs are written down a moment after they change
 const PDF_MAX = 25 * 1024 * 1024; // the biggest PDF read for JARVIS (browser_pdf.py takes the same)
+const POPOUT_BAR = 44; // the bar over a popped-out tab (popout.html)
 const ZOOM_SITES_MAX = 1000;
 
 // English; the window sends them in the owner's language (feature:browser:labels).
@@ -55,7 +57,8 @@ const LABELS = {
   clearSite: 'Clear this site’s data…', clear: 'Clear', cancel: 'Cancel',
   clearSiteTitle: 'Clear the data {host} keeps?', clearSiteDetail: 'Its cookies, cache and stored data go, and you’re signed out of it.',
   clearAllTitle: 'Clear all cookies and site data?', clearAllDetail: 'Every site’s cookies, cache and stored data go, and you’re signed out of sites, the Research Center too.',
-  newPrivate: 'New private tab',
+  newPrivate: 'New private tab', splitView: 'Split view', closeSplit: 'Close split view', besideThis: 'Show beside the tab on show',
+  popOut: 'Open in a window', back: 'Back', forward: 'Forward', dock: 'Back to the dock', address: 'Address',
 };
 
 class BrowserParity {
@@ -79,6 +82,12 @@ class BrowserParity {
     this.quitting = false;
     this.sessionTimer = null;
     this.windowCover = false; // a panel of the window's is over the page (the address bar's list)
+    this.split = null; // split view: the tab on the right (the tab on show is on the left)
+    this.splitBounds = null; // where the window's right pane is (its CSS pixels)
+    this.dockOpen = false;
+    this.lastActive = null;
+    this.recent = []; // tabs by when they were last on show, the latest last
+    this.lastSplit = '';
     // The Mac's own box, on a window of the browser's (tests hand in their own).
     this.box = hooks.box || ((owner, options) => (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options)));
     this.boxSync = hooks.boxSync || ((owner, options) => dialog.showMessageBoxSync(owner, options));
@@ -103,6 +112,14 @@ class BrowserParity {
     this.handle('more-menu', (msg) => this.moreMenu(msg || {}));
     this.handle('clear-data', (msg) => this.clearAll(msg || {}));
     this.handle('private-tab', () => this.newPrivate());
+    this.handle('split-bounds', (b) => this.setSplitBounds(b));
+    this.handle('split', (msg) => this.splitAction(msg || {}));
+    this.handle('pop-out', () => this.popOut(this.hooks.active()));
+    // A popped-out tab's bar (popout.html), for its own tab only.
+    ipcMain.handle('browser-popout:act', (event, msg) => {
+      const view = this.hooks.tabs().find((v) => v.popout && !v.popout.isDestroyed() && v.popout.webContents === event.sender);
+      return view ? this.popoutAct(view, msg || {}) : false;
+    });
     this.saveDialog = hooks.saveDialog || ((owner, options) => (owner ? dialog.showSaveDialog(owner, options) : dialog.showSaveDialog(options)));
     this.openExternal = hooks.openExternal || ((url) => shell.openExternal(url));
     this.pdfCache = null; // the last PDF read: { tab, url, bytes }
@@ -251,6 +268,12 @@ class BrowserParity {
     if (wc.session === session.fromPartition(PRIVATE_PARTITION)) view.private = true;
     else if (wc.session === session.fromPartition(AGENT_PARTITION)) view.agentProfile = true;
     if (view.private) wc.once('destroyed', () => this.privateClosed(view));
+    wc.once('destroyed', () => { if (this.split === view) this.endSplit(); this.popoutGone(view); });
+    for (const event of ['did-navigate', 'did-navigate-in-page', 'page-title-updated', 'did-start-loading', 'did-stop-loading']) {
+      wc.on(event, () => { if (view.popout) this.popoutState(view); });
+    }
+    wc.on('before-input-event', (event, input) => { if (view.popout && this.popoutKey(view, input)) event.preventDefault(); });
+    for (const event of ['page-title-updated', 'did-navigate']) wc.on(event, () => { if (this.split === view) this.sendSplit(); });
     this.wire(wc);
     // A tab's sound shows on it; what it's on is written down for next time.
     wc.on('audio-state-changed', () => this.changed());
@@ -582,9 +605,109 @@ class BrowserParity {
   // tab put back from last time loads its page now.
   selected(view) {
     if (view && view.lazy) this.wake(view);
+    const before = this.lastActive;
+    this.lastActive = view;
+    if (view) this.recent = [...this.recent.filter((v) => v !== view), view].slice(-20);
+    // Split view: the tab on the right picked, the two change sides (main.js is putting it on
+    // the left now); another tab picked takes the left.
+    if (view && this.split === view) {
+      view.inSplit = false;
+      const alive = before && before !== view && before.webContents && !before.webContents.isDestroyed() && this.hooks.tabs().includes(before);
+      if (alive) { this.split = before; before.inSplit = false; } else this.endSplit();
+    }
+    this.placeSplit();
+    this.sendSplit();
     this.applyCovers();
     this.refreshAsk();
     this.sessionSoon();
+  }
+
+  // ── split view: a second tab beside the one on show, in the dock's right half ──
+
+  splitAction({ action, id }) {
+    if (action === 'close') { this.endSplit(); return true; }
+    if (action === 'swap') { if (this.split) this.hooks.select(this.split); return true; }
+    if (action === 'with') return this.splitWith(this.hooks.tabs().find((v) => v.webContents && v.webContents.id === Number(id)));
+    if (action === 'toggle') return this.splitToggle();
+    return false;
+  }
+
+  // The ... menu's Split view: beside the tab last on show, or a new tab when there's none.
+  splitToggle() {
+    if (this.split) { this.endSplit(); return true; }
+    const active = this.hooks.active();
+    if (!active) return false;
+    const other = [...this.recent].reverse().find((v) => v !== active && this.hooks.tabs().includes(v) && v.webContents && !v.webContents.isDestroyed());
+    if (other) return this.splitWith(other);
+    if (!this.hooks.openTab) return false;
+    this.hooks.openTab(); // a new tab, on show: it goes right, the one before back on the left
+    const fresh = this.hooks.active();
+    if (!fresh || fresh === active) return false;
+    this.splitWith(active);
+    this.hooks.select(active);
+    return true;
+  }
+
+  splitWith(view) {
+    const active = this.hooks.active();
+    if (!view || view === active || !view.webContents || view.webContents.isDestroyed()) return false;
+    if (this.split && this.split !== view) this.unplace(this.split);
+    this.split = view;
+    if (view.lazy) this.wake(view);
+    this.placeSplit();
+    this.sendSplit();
+    this.changed();
+    return true;
+  }
+
+  endSplit() {
+    const view = this.split;
+    this.split = null;
+    if (view) this.unplace(view);
+    this.sendSplit();
+    this.changed();
+  }
+
+  unplace(view) {
+    const win = this.hooks.window();
+    if (view.inSplit && win && view.webContents && !view.webContents.isDestroyed()) win.contentView.removeChildView(view);
+    view.inSplit = false;
+  }
+
+  setSplitBounds(b) {
+    const ok = b && ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(Number(b[k])));
+    this.splitBounds = ok ? { x: Number(b.x), y: Number(b.y), width: Math.max(0, Number(b.width)), height: Math.max(0, Number(b.height)) } : null;
+    this.placeSplit();
+    return true;
+  }
+
+  // The tab on the right, where the window's pane is while the dock shows (the window's page
+  // may be zoomed: its CSS pixels become the view's, as main.js's fitBounds does).
+  placeSplit() {
+    const view = this.split;
+    if (!view) return;
+    const win = this.hooks.window();
+    const b = this.splitBounds;
+    if (!win || !view.webContents || view.webContents.isDestroyed()) { this.endSplit(); return; }
+    if (this.dockOpen && b && b.width > 0 && b.height > 0 && view !== this.hooks.active()) {
+      const z = win.webContents.getZoomFactor() || 1;
+      const x = Math.round(b.x * z);
+      const y = Math.round(b.y * z);
+      if (!view.inSplit) { win.contentView.addChildView(view); view.inSplit = true; }
+      view.setBounds({ x, y, width: Math.round((b.x + b.width) * z) - x, height: Math.round((b.y + b.height) * z) - y });
+    } else {
+      this.unplace(view);
+    }
+  }
+
+  sendSplit() {
+    const view = this.split;
+    const wc = view && view.webContents;
+    const state = wc && !wc.isDestroyed() ? { on: true, tab: wc.id, title: wc.getTitle(), url: this.urlOf(view) } : { on: false };
+    const key = JSON.stringify(state);
+    if (key === this.lastSplit) return;
+    this.lastSplit = key;
+    this.send('split', state);
   }
 
   // ── tabs: pinned first, their order, their sound, and what the dock's closing stops ──
@@ -602,6 +725,8 @@ class BrowserParity {
     const info = {
       pinned: Boolean(view.pinned), audible: live && wc.isCurrentlyAudible(), muted: live && wc.isAudioMuted(),
       private: Boolean(view.private), agentProfile: Boolean(view.agentProfile),
+      split: this.split === view ? 'right' : this.split && view === this.hooks.active() ? 'left' : '',
+      popout: Boolean(view.popout),
     };
     return view.lazy ? { ...info, url: view.lazy.url, title: view.lazy.title } : info;
   }
@@ -645,6 +770,8 @@ class BrowserParity {
       { label: this.label('duplicate'), enabled: /^https?:/i.test(url) && Boolean(this.hooks.openTab), click: () => this.hooks.openTab(url) },
       { label: this.label(view.pinned ? 'unpinTab' : 'pinTab'), click: () => this.tabAction({ action: view.pinned ? 'unpin' : 'pin', id }) },
       { label: this.label(wc.isAudioMuted() ? 'unmuteTab' : 'muteTab'), click: () => this.tabAction({ action: wc.isAudioMuted() ? 'unmute' : 'mute', id }) },
+      { label: this.label('besideThis'), enabled: view !== this.hooks.active() && view !== this.split && !view.popout, click: () => this.splitWith(view) },
+      { label: this.label('popOut'), enabled: !view.popout, click: () => this.popOut(view) },
       { type: 'separator' },
       { label: this.label('closeTab'), enabled: many && Boolean(this.hooks.closeTab), click: () => this.hooks.closeTab(view) },
       { label: this.label('closeOthers'), enabled: many && Boolean(this.hooks.closeTab), click: () => { for (const v of this.hooks.tabs().slice()) if (v !== view && !v.pinned) this.hooks.closeTab(v); } },
@@ -654,6 +781,8 @@ class BrowserParity {
 
   // The dock closed: every video and sound in the tabs stops (JARVIS's own tabs too).
   dock({ open }) {
+    this.dockOpen = Boolean(open);
+    this.placeSplit();
     if (open) return true;
     for (const view of this.hooks.tabs()) {
       const wc = view.webContents;
@@ -663,6 +792,128 @@ class BrowserParity {
       } catch { /* the page is going */ }
     }
     return true;
+  }
+
+  // ── a tab in a window of its own: its page moves out of the dock under a slim bar
+  // (popout.html); the dock's strip still lists it (a click brings its window forward), JARVIS
+  // still reaches it, and closing the window puts it back in the dock ──
+
+  popOut(view) {
+    const wc = view && view.webContents;
+    if (!wc || wc.isDestroyed() || view.popout) return false;
+    if (this.split === view) this.endSplit();
+    const main = this.hooks.window();
+    const near = main ? main.getBounds() : null;
+    const area = (near ? screen.getDisplayMatching(near) : screen.getPrimaryDisplay()).workArea;
+    const width = Math.min(area.width, 1180);
+    const height = Math.min(area.height, 860);
+    const popWin = new BrowserWindow({
+      width, height, x: Math.round(area.x + (area.width - width) / 2), y: Math.round(area.y + (area.height - height) / 2),
+      minWidth: 480, minHeight: 320, show: false, title: wc.getTitle() || lib.hostOf(wc.getURL()) || ' ',
+      titleBarStyle: 'hiddenInset', backgroundColor: nativeTheme.shouldUseDarkColors ? '#242427' : '#f6f6f8',
+      webPreferences: { preload: path.join(__dirname, 'popout-preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    view.popout = popWin;
+    // The dock shows another tab (a new one when this was its only one).
+    if (view === this.hooks.active()) {
+      const tabs = this.hooks.tabs();
+      const other = [...this.recent].reverse().find((v) => v !== view && !v.popout && tabs.includes(v)) || tabs.find((v) => v !== view && !v.popout);
+      if (other) this.hooks.select(other);
+      else if (this.hooks.openTab) this.hooks.openTab();
+    }
+    popWin.contentView.addChildView(view);
+    const fit = () => {
+      if (popWin.isDestroyed() || !view.webContents || view.webContents.isDestroyed()) return;
+      const [w, h] = popWin.getContentSize();
+      view.setBounds({ x: 0, y: POPOUT_BAR, width: w, height: Math.max(0, h - POPOUT_BAR) });
+    };
+    fit();
+    popWin.on('resize', fit);
+    popWin.webContents.on('did-finish-load', () => this.popoutState(view));
+    popWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    popWin.webContents.on('will-navigate', (event) => event.preventDefault()); // the bar stays the bar
+    popWin.on('close', () => this.popIn(view, { closing: true })); // closing it puts the page back in the dock
+    popWin.loadFile(path.join(__dirname, 'popout.html')).catch(() => {});
+    this.showPopup(popWin);
+    this.changed();
+    return true;
+  }
+
+  popIn(view, { closing = false } = {}) {
+    const popWin = view && view.popout;
+    if (!popWin) return false;
+    view.popout = null;
+    const live = view.webContents && !view.webContents.isDestroyed();
+    if (!popWin.isDestroyed()) {
+      if (live) popWin.contentView.removeChildView(view);
+      if (!closing) popWin.destroy();
+    }
+    if (live && this.hooks.tabs().includes(view)) this.hooks.select(view);
+    this.changed();
+    return true;
+  }
+
+  // Its tab closed (from the dock's strip, or by JARVIS): the window goes too.
+  popoutGone(view) {
+    const popWin = view.popout;
+    view.popout = null;
+    if (popWin && !popWin.isDestroyed()) { popWin.removeAllListeners('close'); popWin.destroy(); }
+  }
+
+  popoutState(view) {
+    const popWin = view.popout;
+    const wc = view.webContents;
+    if (!popWin || popWin.isDestroyed() || !wc || wc.isDestroyed()) return;
+    const title = wc.getTitle() || lib.hostOf(wc.getURL());
+    popWin.setTitle(title || ' ');
+    popWin.webContents.send('popout:state', {
+      url: wc.getURL(), title, loading: wc.isLoading(),
+      canBack: wc.navigationHistory.canGoBack(), canForward: wc.navigationHistory.canGoForward(),
+      labels: { back: this.label('back'), forward: this.label('forward'), reload: this.label('reload'), dock: this.label('dock'), address: this.label('address') },
+    });
+  }
+
+  popoutAct(view, { action, url }) {
+    const wc = view.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    const history = wc.navigationHistory;
+    if (action === 'back' && history.canGoBack()) history.goBack();
+    else if (action === 'forward' && history.canGoForward()) history.goForward();
+    else if (action === 'reload') wc.reload();
+    else if (action === 'stop') wc.stop();
+    else if (action === 'go' && typeof url === 'string' && url.trim()) wc.loadURL(toUrl(url.slice(0, 4000), { typed: true })).catch(() => {});
+    else if (action === 'dock') return this.popIn(view);
+    else return false;
+    return true;
+  }
+
+  // Chrome's keys in a popped-out page, for that page (the dock's are for the tab on show).
+  popoutKey(view, input) {
+    if (!input || input.type !== 'keyDown' || !input.meta || input.alt || input.control) return false;
+    const key = String(input.key || '').toLowerCase();
+    const wc = view.webContents;
+    if (key === 'r' && !input.shift) { wc.reload(); return true; }
+    if (key === '[' && !input.shift) return this.popoutAct(view, { action: 'back' }) || true;
+    if (key === ']' && !input.shift) return this.popoutAct(view, { action: 'forward' }) || true;
+    if (key === 'l' && !input.shift) { view.popout.webContents.focus(); view.popout.webContents.send('popout:address'); return true; }
+    if (key === 'w' && !input.shift) { this.popIn(view); return true; }
+    return false;
+  }
+
+  poppedOut(view) {
+    return Boolean(view && view.popout && !view.popout.isDestroyed());
+  }
+
+  // A popped-out tab picked in the dock's strip: its window comes forward instead.
+  focusPopout(view) {
+    const popWin = view.popout;
+    if (!popWin || popWin.isDestroyed()) return;
+    if (this.hooks.dev) popWin.showInactive();
+    else { popWin.show(); popWin.focus(); }
+  }
+
+  windowOf(view) {
+    return this.poppedOut(view) ? view.popout : this.hooks.window();
   }
 
   // ── the tabs kept for next time ──
@@ -906,6 +1157,8 @@ class BrowserParity {
     if (/J\.?A\.?R\.?V\.?I\.?S/i.test(other) || other === app.getName()) other = ''; // this app itself
     const items = [
       { label: this.label('newPrivate'), accelerator: 'Shift+Command+N', registerAccelerator: false, click: () => this.newPrivate() },
+      { label: this.label(this.split ? 'closeSplit' : 'splitView'), click: () => this.splitToggle() },
+      { label: this.label('popOut'), click: () => this.popOut(this.hooks.active()) },
       { type: 'separator' },
       { label: this.label('savePdf'), enabled: /^(https?|file):/i.test(url), click: () => this.savePage(wc) },
       { label: other ? this.label('openIn', { app: other.replace(/\.app$/, '') }) : this.label('openInBrowser'), enabled: web, click: () => this.openExternal(url) },

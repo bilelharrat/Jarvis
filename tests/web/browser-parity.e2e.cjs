@@ -679,12 +679,13 @@ test('Save as PDF: a page printed where the owner says; a PDF saved as the very 
   assert((await parity.savePage(view.webContents)) === true && fs.readFileSync(path.join(dir, 'statement.pdf')).equals(PDF), 'the PDF was not saved as it is');
   const items = parity.moreItems(view.webContents);
   const save = items.find((i) => i.label === 'Save as PDF…');
-  const outside = items.find((i) => /^Open in /.test(i.label || ''));
+  const elsewhere = (i) => /^Open in /.test(i.label || '') && i.label !== 'Open in a window';
+  const outside = items.find(elsewhere);
   assert(save && save.enabled && outside && outside.enabled && items[0].label === 'New private tab', JSON.stringify(items.map((i) => [i.label, i.enabled])));
   outside.click();
   assert(openedOutside.at(-1) === `${base}/statement.pdf`, 'not opened in the default browser');
   const blank = newTab();
-  const none = parity.moreItems(blank.webContents).filter((i) => i.label === 'Save as PDF…' || /^Open in /.test(i.label || ''));
+  const none = parity.moreItems(blank.webContents).filter((i) => i.label === 'Save as PDF…' || elsewhere(i));
   assert(none.length === 2 && none.every((i) => i.enabled === false), 'an empty tab offered to save or open');
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -762,6 +763,93 @@ test('JARVIS browses signed out when the owner says: its own tabs in a profile o
   parity.sessionNow();
   assert(!parity.state().session.tabs.some((t) => t === agent), 'kept');
   parity.settings({ agentProfile: false });
+});
+
+test('Split view: a second tab beside the one on show, following the dock; picking it swaps sides; closing it ends the split', async () => {
+  for (const view of tabs.splice(0)) view.webContents.close();
+  const left = newTab();
+  await left.webContents.loadURL(`${base}/other?left`);
+  const right = newTab();
+  await right.webContents.loadURL(`${base}/other?right`);
+  active = left;
+  parity.selected(left);
+  parity.dock({ open: true });
+  parity.setSplitBounds({ x: 600, y: 100, width: 400, height: 500 });
+  assert(parity.splitWith(left) === false, 'split with itself');
+  assert(parity.splitWith(right) === true && parity.split === right, 'no split');
+  const placed = (view) => view.inSplit === true && JSON.stringify(view.getBounds()) === '{"x":600,"y":100,"width":400,"height":500}';
+  assert(placed(right), `the right tab isn’t in the right pane: ${JSON.stringify(right.getBounds())}`);
+  const said = lastSent('feature:browser:split')[1];
+  assert(said.on && said.tab === right.webContents.id && said.url === `${base}/other?right` && said.title === 'Other', JSON.stringify(said));
+  assert(parity.tabInfo(left).split === 'left' && parity.tabInfo(right).split === 'right', 'the strip isn’t told the sides');
+  parity.dock({ open: false });
+  assert(right.inSplit === false, 'the right pane stayed with the dock closed');
+  parity.dock({ open: true });
+  assert(placed(right), 'the right pane didn’t come back with the dock');
+  parity.setSplitBounds(null);
+  assert(right.inSplit === false, 'no place, still shown');
+  parity.setSplitBounds({ x: 600, y: 100, width: 400, height: 500 });
+  // The right tab picked (main.js puts it on the left): the two change sides.
+  active = right;
+  parity.selected(right);
+  assert(parity.split === left && placed(left) && right.inSplit === false, 'the sides didn’t swap');
+  parity.splitAction({ action: 'swap' }); // the pane's ⇄
+  assert(parity.split === right && active === right === false && placed(right), 'swap back');
+  // The tab on the right closes: the split ends.
+  tabs.splice(tabs.indexOf(right), 1);
+  right.webContents.close();
+  await until(() => parity.split === null);
+  assert(parity.split === null && lastSent('feature:browser:split')[1].on === false, 'the split outlived its tab');
+  parity.splitWith(newTab());
+  parity.splitAction({ action: 'close' });
+  assert(parity.split === null, 'Close split view didn’t');
+});
+
+test('A tab popped out into a window of its own: the dock shows another, its bar drives it, closing the window puts it back', async () => {
+  const a = newTab();
+  await a.webContents.loadURL(`${base}/other?a`);
+  const b = newTab();
+  await b.webContents.loadURL(`${base}/other?b`);
+  active = b;
+  parity.selected(b);
+  assert(parity.popOut(b) === true && parity.popOut(b) === false, 'popped out, or twice');
+  const popWin = b.popout;
+  assert(popWin && popWin.contentView.children.includes(b), 'the page did not move into its window');
+  assert(active !== b && tabs.includes(b), 'the dock kept it on show, or lost it');
+  assert(parity.tabInfo(b).popout === true && parity.poppedOut(b) && parity.windowOf(b) === popWin && parity.windowOf(a) === win, 'not marked as popped out');
+  const bounds = b.getBounds();
+  assert(bounds.y === 44 && bounds.width === popWin.getContentSize()[0], JSON.stringify(bounds));
+  const bar = (code) => popWin.webContents.executeJavaScript(code, true);
+  await until(async () => popWin.webContents.getURL().endsWith('popout.html') && (await bar('document.getElementById("address").value').catch(() => '')) === `${base}/other?b`, 10000);
+  assert((await bar('document.getElementById("address").value')) === `${base}/other?b` && popWin.getTitle() === 'Other', 'the bar doesn’t show the page');
+  // The bar goes somewhere typed, then back (through its preload, for its own tab only).
+  await bar(`document.getElementById("address").value = "${base}/other?c"; document.getElementById("bar").requestSubmit(); 1`);
+  await until(() => b.webContents.getURL() === `${base}/other?c`, 10000);
+  assert(b.webContents.getURL() === `${base}/other?c`, 'the bar’s address went nowhere');
+  await until(async () => !(await bar('document.getElementById("back").disabled')), 10000);
+  await bar('document.getElementById("back").click(); 1');
+  await until(() => b.webContents.getURL() === `${base}/other?b`, 10000);
+  assert(b.webContents.getURL() === `${base}/other?b`, 'the bar’s back didn’t');
+  // Its Back to the dock: the page comes back, the window goes.
+  await bar('document.getElementById("dock").click(); 1');
+  await until(() => popWin.isDestroyed());
+  assert(popWin.isDestroyed() && !b.popout && active === b, 'not back in the dock');
+  // Popped again, and its window closed: back in the dock too.
+  parity.popOut(b);
+  const again = b.popout;
+  again.close();
+  await until(() => again.isDestroyed());
+  assert(!b.popout && active === b, 'closing the window lost the page');
+  // Popped, and ⌘W in its page: back. Popped, and its tab closed: the window goes.
+  parity.popOut(b);
+  const third = b.popout;
+  assert(parity.popoutKey(b, { type: 'keyDown', key: 'w', meta: true }) === true && third.isDestroyed() && active === b, '⌘W didn’t put it back');
+  parity.popOut(b);
+  const fourth = b.popout;
+  tabs.splice(tabs.indexOf(b), 1);
+  b.webContents.close();
+  await until(() => fourth.isDestroyed());
+  assert(fourth.isDestroyed(), 'the window outlived its tab');
 });
 
 let failed = 0;

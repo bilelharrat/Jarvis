@@ -89,7 +89,14 @@
     "JARVIS’s own profile": "JARVIS 自己的配置文件",
     "JARVIS’s own profile, signed out of your sites": "JARVIS 自己的配置文件，未登录你的网站",
     "JARVIS browses signed out": "JARVIS 以未登录状态浏览",
-    "The tabs JARVIS opens for itself use a profile of their own, with none of your sign-ins or cookies": "JARVIS 为自己打开的标签页使用单独的配置文件，不含你的任何登录信息或 Cookie"
+    "The tabs JARVIS opens for itself use a profile of their own, with none of your sign-ins or cookies": "JARVIS 为自己打开的标签页使用单独的配置文件，不含你的任何登录信息或 Cookie",
+    "Split view": "分屏浏览",
+    "Close split view": "关闭分屏浏览",
+    "Show beside the tab on show": "显示在当前标签页旁边",
+    "Swap sides": "交换左右",
+    "Open in a window": "在窗口中打开",
+    "Back to the dock": "放回停靠栏",
+    "In a window of its own": "在单独的窗口中"
   },
   "patterns": [
     ["^Camera: ([\\w.:\\[\\]-]+)$", "摄像头：$1"],
