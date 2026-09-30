@@ -1,0 +1,76 @@
+{
+  "strings": {
+    "Usage": "用量",
+    "Usage and limits": "用量和上限",
+    "What sessions cost, and Claude’s limits": "各会话的花费，以及 Claude 的额度",
+    "Usage, limits and what sessions cost": "用量、上限和各会话的花费",
+    "Reading usage…": "正在读取用量…",
+    "Claude’s limits": "Claude 的额度",
+    "Claude Code reports your plan’s limits as sessions run. Nothing reported yet.": "会话运行时，Claude Code 会报告你套餐的额度。目前还没有报告。",
+    "used": "已用",
+    "Used up": "已用完",
+    "Near the limit": "接近上限",
+    "Reset since it was reported": "报告之后已经重置",
+    "Resets": "重置于",
+    "5-hour limit": "5 小时额度",
+    "Weekly limit": "每周额度",
+    "Weekly Opus limit": "每周 Opus 额度",
+    "Weekly Sonnet limit": "每周 Sonnet 额度",
+    "Extra usage": "额外用量",
+    "This session": "这个会话",
+    "today": "今天",
+    "All of Jarvis Code today": "Jarvis Code 今天合计",
+    "of": "/",
+    "Limit": "上限",
+    "Limit today": "今天上限",
+    "Limit a day": "每天上限",
+    "No limit": "不设上限",
+    "Jarvis Code’s limit a day": "Jarvis Code 每天的上限",
+    "This project’s limit a day": "这个项目每天的上限",
+    "This session’s limit": "这个会话的上限",
+    "An amount in dollars, like 5 or 12.50": "请输入美元金额，例如 5 或 12.50",
+    "Use the default": "使用默认值",
+    "Spending": "花费",
+    "Claude Code’s own estimates. A session stops at its limit and waits until you raise it.": "这是 Claude Code 自己的估算。会话到达上限会停下，等你调高后再继续。",
+    "Last 14 days": "最近 14 天",
+    "Two weeks:": "两周合计：",
+    "Today by project": "今天各项目",
+    "Default limits and heads-ups are in Jarvis Code settings › Limits.": "默认上限和提醒在 Jarvis Code 设置 › 上限里。",
+    "Limits": "上限",
+    "Spending limits": "花费上限",
+    "Each session": "每个会话",
+    "A session stops there and waits until you raise it.": "会话到这里会停下，等你调高后再继续。",
+    "Each project, a day": "每个项目，每天",
+    "Every session in one project, today.": "一个项目里所有会话，今天合计。",
+    "All of Jarvis Code, a day": "Jarvis Code 全部，每天",
+    "Every session in every project, today.": "所有项目的所有会话，今天合计。",
+    "Heads-ups at 50, 80 and 100%": "在 50%、80% 和 100% 时提醒",
+    "Of each limit, and of Claude’s own 5-hour and weekly limits.": "针对每个上限，以及 Claude 自己的 5 小时和每周额度。",
+    "Costs are Claude Code’s own estimates. Each session and project can have its own limit in its Usage pane.": "花费是 Claude Code 自己的估算。每个会话和项目都可以在它的用量面板里设自己的上限。",
+    "On hold": "已暂停",
+    "Spending limits changed; it goes on with the new ones.": "花费上限已更改；会话会按新的上限继续。",
+    "It stopped at its spending limit.": "它在花费上限处停下了。"
+  },
+  "patterns": [
+    [
+      "^On hold: this session has spent its (\\$[\\d.,]+) limit\\. Raise it in Usage to go on\\.$",
+      "已暂停：这个会话已花到 $1 的上限。在用量面板里调高上限即可继续。"
+    ],
+    [
+      "^On hold: Jarvis Code has spent today's (\\$[\\d.,]+) limit\\. Raise it in Usage, or it goes on tomorrow\\.$",
+      "已暂停：Jarvis Code 今天已花到 $1 的上限。在用量面板里调高上限，或者明天继续。"
+    ],
+    [
+      "^On hold: (.+) has spent its (\\$[\\d.,]+) limit for today\\. Raise it in Usage, or it goes on tomorrow\\.$",
+      "已暂停：$1 今天已花到 $2 的上限。在用量面板里调高上限，或者明天继续。"
+    ],
+    [
+      "^Stopped: Jarvis Code has spent today's (\\$[\\d.,]+) limit\\.$",
+      "已停止：Jarvis Code 今天已花到 $1 的上限。"
+    ],
+    [
+      "^Stopped: (.+) has spent its (\\$[\\d.,]+) limit for today\\.$",
+      "已停止：$1 今天已花到 $2 的上限。"
+    ]
+  ]
+}

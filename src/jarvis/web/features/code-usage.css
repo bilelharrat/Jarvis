@@ -1,0 +1,33 @@
+/* Jarvis Code's usage meter (features/code-usage.js): the Usage pane's meters and chart,
+   in the workbench's own cards and type. */
+
+.cu-section { margin-bottom: 14px; }
+.cu-section:first-child .jc-label { margin-top: 2px; }
+.cu-intro { margin: 6px 4px 0; line-height: 1.45; }
+.cu-list li.cu-row { display: block; padding: 10px 12px; }
+.cu-row-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.cu-list .cu-row-head > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.cu-list .cu-row-head span { flex: none; }
+.cu-num { font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cu-row-foot { display: flex; gap: 10px; margin-top: 5px; }
+.cu-list .cu-row-foot span { flex: none; }
+
+.cu-meter { display: block; position: relative; height: 6px; margin-top: 7px; border-radius: 3px; background: rgb(var(--c-ink) / 0.08); overflow: hidden; }
+.cu-fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: rgb(var(--c-accent)); transition: width 400ms var(--ease-spring); }
+.cu-meter.warn .cu-fill { background: rgb(var(--c-warning)); }
+.cu-meter.high .cu-fill { background: rgb(var(--c-warning-ink)); }
+.cu-meter.full .cu-fill { background: rgb(var(--c-danger)); }
+
+.cu-cap { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.cu-list .cu-cap span { flex: none; }
+.cu-cap-input { width: 92px; padding: 4px 9px; font-variant-numeric: tabular-nums; }
+.cu-cap-note { color: rgb(var(--c-danger-ink)); }
+.cu-default { padding: 3px 9px; }
+.cu-list li.cu-held { display: block; font-size: 12.5px; line-height: 1.45; color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); box-shadow: none; }
+
+.cu-chart { display: flex; align-items: flex-end; gap: 4px; height: 64px; padding: 8px 10px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.cu-bar { flex: 1; min-width: 4px; border-radius: 3px 3px 1px 1px; background: rgb(var(--c-accent) / 0.55); }
+.cu-bar:last-child { background: rgb(var(--c-accent)); }
+
+.cu-limits .jcs-input.bad { box-shadow: inset 0 0 0 1px rgb(var(--c-danger) / 0.8); }
+.cu-default-cap { max-width: 110px; text-align: right; font-variant-numeric: tabular-nums; }

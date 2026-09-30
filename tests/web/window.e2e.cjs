@@ -3346,6 +3346,65 @@ test('A standing intent and About me are sent as written', async () => {
   assert(JSON.stringify(await sentOf('memory_about')) === JSON.stringify([{ type: 'memory_about', about: 'I run a small fund.' }]), 'about');
 });
 
+// ── Jarvis Code's usage meter and limits (web/features/code-usage.js) ──
+
+// A menu item with a note under its label: its button's text starts with the label.
+const clickItem = (root, label) => js(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(root)} + ' button')].find((x) => x.textContent.startsWith(${JSON.stringify(label)})); if (!b) return false; b.click(); return true; })()`);
+const USAGE_PROJECT = '/Users/x/Projects/<b>alpha</b>';
+const usageState = (extra = {}) => ({
+  type: 'cu_state',
+  windows: [{ kind: 'five_hour', label: '5-hour limit', status: 'allowed_warning', percent: 82, resets_at: Math.round(Date.now() / 1000) + 3600 },
+    { kind: 'seven_day', label: 'weekly limit', status: 'allowed', percent: null, resets_at: null }],
+  today: 3.5, recent: [{ day: '2026-09-29', total: 1 }, { day: '2026-09-30', total: 3.5 }],
+  by_project: [{ project: USAGE_PROJECT, name: '<b>alpha</b>', cost: 3.5 }],
+  sessions: { 1: { cost: 1.25, cap: 5, own: false, held: '', project: USAGE_PROJECT } },
+  projects: { [USAGE_PROJECT]: { name: '<b>alpha</b>', today: 3.5, cap: 0, own: false } },
+  defaults: { session: 5, project: 0, day: 20 }, alerts: true, ...extra,
+});
+
+test('The Usage pane shows Claude’s limits and what’s spent, and a limit typed there goes to the session', async () => {
+  await featureScript('code-usage.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(await clickItem('#jc-menu', 'Usage and limits'), 'no Usage item in the More menu');
+  assert(await js('$("jc-pane-title").textContent') === 'Usage', 'the pane did not open');
+  assert((await sentOf('cu_state')).length === 1, JSON.stringify(await js('__sent')));
+  await deliver(usageState());
+  const r = await js(`({ text: $('jc-pane-body').textContent, meters: [...document.querySelectorAll('#jc-pane-body .cu-meter')].map((m) => m.className),
+    bold: document.querySelectorAll('#jc-pane-body b').length, names: [...document.querySelectorAll('#jc-pane-body [data-no-i18n]')].map((n) => n.textContent) })`);
+  assert(r.text.includes('82% used') && r.text.includes('Near the limit') && r.text.includes('Resets'), r.text);
+  assert(r.text.includes('$1.25 of $5') && r.text.includes('$3.50 of $20') && r.bold === 0, r.text);
+  assert(r.meters[0].includes('high') && r.names.includes('<b>alpha</b>'), JSON.stringify(r));
+  await js('__sent.length = 0; window.__cap = document.querySelector("#jc-pane-body .cu-cap-input"); __cap.value = "lots"; __cap.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); true');
+  assert((await sentOf('cu_cap')).length === 0, 'a limit that isn’t an amount went');
+  assert((await js('document.querySelector("#jc-pane-body .cu-cap-note").textContent')).includes('like 5 or 12.50'), 'no word on what a limit is');
+  await js('__cap.value = "$12.50"; __cap.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); true');
+  assert(JSON.stringify(await sentOf('cu_cap')) === JSON.stringify([{ type: 'cu_cap', id: 1, scope: 'session', cap: 12.5 }]), JSON.stringify(await js('__sent')));
+  // Held: the pane says why, and the session's own limit can go back to the default. (The
+  // pane isn't redrawn under a limit being typed: the field is left first.)
+  await js('document.activeElement.blur(); true');
+  await deliver(usageState({ sessions: { 1: { cost: 5, cap: 5, own: true, held: 'On hold: this session has spent its $5 limit. Raise it in Usage to go on.', project: USAGE_PROJECT } } }));
+  assert(await js('!!document.querySelector("#jc-pane-body .cu-held")'), 'the hold isn’t shown');
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body', 'Use the default'), 'no way back to the default');
+  assert(JSON.stringify(await sentOf('cu_cap')) === JSON.stringify([{ type: 'cu_cap', id: 1, scope: 'session', cap: null }]), JSON.stringify(await js('__sent')));
+});
+
+test('Jarvis Code settings has a Limits tab with the default limits and the heads-ups switch', async () => {
+  await featureScript('code-usage.js');
+  await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_budget_session: 5, code_budget_alerts: false } });
+  await open(1);
+  await js('openJcSettings(); selectJcsTab("limits"); true');
+  const r = await js(`({ shown: !$('jcs-limits').hidden, general: $('jcs-general').hidden, session: document.querySelector('[data-key="code_budget_session"]').value,
+    day: document.querySelector('[data-key="code_budget_day"]').value, alerts: $('cu-alerts').getAttribute('aria-checked') })`);
+  assert(r.shown && r.general && r.session === '5' && r.day === '' && r.alerts === 'false', JSON.stringify(r));
+  await js('__sent.length = 0; $("cu-alerts").click(); window.__day = document.querySelector("[data-key=code_budget_day]"); __day.value = "20"; __day.dispatchEvent(new Event("change")); true');
+  const sent = await sentOf('feature_prefs');
+  assert(JSON.stringify(sent.map((m) => m.changes)) === JSON.stringify([{ code_budget_alerts: true }, { code_budget_day: 20 }]), JSON.stringify(sent));
+  await js('selectJcsTab("general"); true');
+  assert(await js('$("jcs-limits").hidden && !$("jcs-general").hidden'), 'the Limits tab stayed over General');
+});
+
 // ──
 
 let base;

@@ -527,7 +527,8 @@ CLAUDE_DOWN = frozenset(
 # How a turn that ended in an error ended, for the transcript.
 _ENDED = {
     "error_max_turns": "It stopped: that's the most steps one turn may take.",
-    "error_max_budget_usd": "It stopped: that's the spending limit for this session.",
+    # (the session's, the day's or the project's, whichever comes first: features.code_usage)
+    "error_max_budget_usd": "It stopped at its spending limit.",
     "error_during_execution": "It stopped with an error.",
 }
 
@@ -686,6 +687,9 @@ class ClaudeTask:
     tool_ids: dict[str, None] = field(default_factory=dict)  # top-level steps awaiting results
     last_active: float = field(default_factory=time.monotonic)
     close_idle: bool = False  # close when idle, to make room for another session
+    # Why its waiting messages are held back (TaskManager.turn_gate: a spending cap), as
+    # its transcript last said; "" when nothing holds them.
+    gated: str = ""
     stream_buf: list[tuple[str, list[str]]] = field(default_factory=list)  # (part, pieces)
     stream_timer: Any = None  # the batch of live words is due
     history_read: bool = False  # a reopened session's earlier conversation has been read in
@@ -913,6 +917,10 @@ class TaskManager:
         # hook's apply(task, options) adds to them (MCP servers, allowed tools, hooks), and
         # its key(task) is what of that only a new connection can change (_options_key).
         self.option_hooks: list[Any] = []
+        # Whether a session's next waiting message may start a turn (jarvis.features: a
+        # spending cap reached): "" when it may, else why not, said once in its transcript
+        # while the message waits. release(task_id) looks again (a cap raised).
+        self.turn_gate: Callable[[ClaudeTask], str] | None = None
         self._spawns: deque[float] = deque()  # when the latest Claude Codes were started
         self._open: set[int] = set()  # sessions connecting or connected
         self._changed_at = 0.0
@@ -1379,10 +1387,12 @@ class TaskManager:
     # ── Claude Code's "+" menu: folders, plugins, connectors; and ultracode ──
 
     def _reopen_soon(self, task: ClaudeTask, note: str) -> None:
-        """New options take a new connection to the same conversation, between steps."""
+        """New options take a new connection to the same conversation, between steps (with
+        no note: a change the transcript needn't mention)."""
         task.reopen, task.reopen_at = True, time.monotonic()
         task.stirred.set()
-        self._log(task, "system", note)
+        if note:
+            self._log(task, "system", note)
         self._changed()
 
     def add_dir(self, task_id: int, directory: str) -> str:
@@ -1936,6 +1946,7 @@ class TaskManager:
             if (
                 task.status in ("closed", "stopped", "failed")
                 and not task.inbox.empty()
+                and not task.gated  # (held back: release() opens it again when they may go)
                 and not ending
                 and not self.closing
                 and task.restarts < AUTO_RESTARTS
@@ -2060,13 +2071,48 @@ class TaskManager:
             tuple(_hook_key(hook, task) for hook in self.option_hooks),
         )
 
-    def reopen(self, task_id: int, note: str) -> bool:
+    def reopen(self, task_id: int, note: str = "") -> bool:
         """A feature changed what the session's connection is made with (option_hooks):
-        reopen it, same conversation, between steps."""
+        reopen it, same conversation, between steps (with no note, quietly)."""
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code":
             return False
         self._reopen_soon(task, note)
+        return True
+
+    def _gated(self, task: ClaudeTask) -> str:
+        """Why the next waiting message can't start a turn now, "" when it can (turn_gate:
+        a spending cap reached). The reason is said once in the transcript while it holds."""
+        why = ""
+        if self.turn_gate is not None and not task.inbox.empty():
+            try:
+                why = str(self.turn_gate(task) or "")
+            except Exception:  # a broken gate never strands the owner's messages
+                log.exception("Jarvis Code: a feature's turn gate failed")
+        if why and why != task.gated:
+            self._log(task, "system", why)
+            if task.status == "running":  # (between turns: it's waiting, on hold)
+                task.status = "waiting"
+            task.last_action = "On hold"
+            self._changed_soon()
+        elif not why and task.gated and task.status == "waiting":
+            task.last_action = "Waiting for you"
+            self._changed_soon()
+        task.gated = why
+        return why
+
+    def release(self, task_id: int) -> bool:
+        """A session's held messages may go now (a spending cap raised): the gate is asked
+        again, and a session whose connection closed meanwhile opens again for them."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code" or not task.gated or self._gated(task):
+            return False
+        task.stirred.set()
+        if (task.handle is None or task.handle.done()) and not self.closing:
+            if not task.inbox.empty():
+                task.status, task.restarts = "running", 0
+                task.handle = asyncio.create_task(self._session(task))
+            self._changed()
         return True
 
     def add_entry(self, task_id: int, role: str, text: str, **extra: Any) -> bool:
@@ -2198,7 +2244,8 @@ class TaskManager:
                 # Waiting out Claude's usage limit: the queue waits too, till the wait's over.
                 held = task.hold_until - time.time()
                 if hold <= 0:  # (while a reopen waits, a message waits for the new settings)
-                    item = task.inbox.take() if held <= 0 else None
+                    # (held by Claude's usage limit, or by a spending cap: turn_gate)
+                    item = task.inbox.take() if held <= 0 and not self._gated(task) else None
                     if item is not None:
                         return item
                     if task.close_idle and not task.steered:
