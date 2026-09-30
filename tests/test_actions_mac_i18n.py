@@ -15,7 +15,7 @@ import pytest
 from jarvis import lang
 from jarvis.server import WEB_DIR, zh_strings
 
-FEATURES = ["places", "stocks", "mac_music", "mac_switches"]
+FEATURES = ["places", "stocks", "mac_music", "mac_switches", "mac_files"]
 SCRIPTS = ["stocks.js", "mac-actions.js"]
 # What a {slot} or ${…} stands for when a sentence is tried against the window's patterns.
 SAMPLE = "2"
@@ -58,6 +58,30 @@ def test_every_card_is_spoken_and_shown_in_chinese(merged, name):
     for english in getattr(module, "DETAIL_TEXTS", {}):
         sample = re.sub(r"\{\w+\}", "2", english)
         assert lang.has_cjk(lang.translate(sample, "zh")), english  # mac_gate translates it
+
+
+def _shown(merged: dict, text: str) -> str | None:
+    """What the window shows for text: its string, or the first pattern that matches it
+    with its $1… filled in (as the window's translator does)."""
+    if text in merged["strings"]:
+        return merged["strings"][text]
+    for pattern, replacement in merged["patterns"]:
+        if re.search(pattern, text):
+            return re.sub(pattern, re.sub(r"\$(\d)", r"\\\1", replacement), text)
+    return None
+
+
+@pytest.mark.parametrize("name", FEATURES)
+def test_a_card_shows_what_is_said(merged, name):
+    """The window's Chinese for a card's question is the one spoken (no other feature's
+    pattern gets to it first), spaces aside; and its buttons have their Chinese."""
+    module = _module(name)
+    for english, zh in getattr(module, "TEXTS", {}).items():
+        shown = _shown(merged, re.sub(r"\{\w+\}", "2", english))
+        said = re.sub(r"\{\w+\}", "2", zh)
+        assert shown is not None and "".join(shown.split()) == "".join(said.split()), english
+    for choices in (v for k, v in vars(module).items() if k.endswith("_CHOICES")):
+        assert all(chinese(merged, label) is not None for label in choices), choices
 
 
 def _literals(source: str) -> set[str]:

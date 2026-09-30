@@ -41,7 +41,22 @@
     "Add a question shortcut…": "添加一个问题快捷指令…",
     "No other shortcuts to add": "没有其他可添加的快捷指令",
     "Add a home question": "添加家居问题",
-    "Focus and Do Not Disturb: make shortcuts with the Set Focus action named like “Work Focus On” and “Focus Off”, then say “Jarvis, turn on work focus.”": "专注模式和勿扰模式：用“设定专注模式”操作做几个快捷指令，命名为“工作专注模式 开”“专注模式 关”之类，然后说“贾维斯，打开工作专注模式。”"
+    "Focus and Do Not Disturb: make shortcuts with the Set Focus action named like “Work Focus On” and “Focus Off”, then say “Jarvis, turn on work focus.”": "专注模式和勿扰模式：用“设定专注模式”操作做几个快捷指令，命名为“工作专注模式 开”“专注模式 关”之类，然后说“贾维斯，打开工作专注模式。”",
+    "Moved files": "移动了文件",
+    "Renamed a file": "重命名了文件",
+    "Moved files to the Trash": "把文件移到了废纸篓",
+    "Undid a file change": "撤销了文件更改",
+    "Checked recent file changes": "查看了最近的文件更改",
+    "Read the clipboard": "读取了剪贴板",
+    "Copied to the clipboard": "复制到了剪贴板",
+    "Move": "移动",
+    "Don't move": "不移动",
+    "Rename": "重命名",
+    "Don't rename": "不重命名",
+    "Move to Trash": "移到废纸篓",
+    "Keep": "保留",
+    "Put this on the clipboard?": "要把这段文字放到剪贴板吗？",
+    "Don't copy": "不复制"
   },
   "patterns": [
     [
@@ -111,6 +126,34 @@
     [
       "^Remove “(.+)” from home questions$",
       "从家居问题中移除“$1”"
+    ],
+    [
+      "^Move “(.+)” to the Trash\\?$",
+      "要把“$1”移到废纸篓吗？"
+    ],
+    [
+      "^Move (\\d+) items to the Trash\\?$",
+      "要把 $1 项移到废纸篓吗？"
+    ],
+    [
+      "^Move “(.+)” to your home folder\\?$",
+      "要把“$1”移到你的个人文件夹吗？"
+    ],
+    [
+      "^Move (\\d+) items to your home folder\\?$",
+      "要把 $1 项移到你的个人文件夹吗？"
+    ],
+    [
+      "^Move “(.+)” to (.+)\\?$",
+      "要把“$1”移到 $2 吗？"
+    ],
+    [
+      "^Move (\\d+) items to (.+)\\?$",
+      "要把 $1 项移到 $2 吗？"
+    ],
+    [
+      "^Rename “(.+)” to “(.+)”\\?$",
+      "要把“$1”重命名为“$2”吗？"
     ]
   ]
 }
