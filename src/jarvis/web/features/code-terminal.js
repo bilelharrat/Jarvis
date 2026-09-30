@@ -69,6 +69,10 @@
   const making = new Set();  // keys a terminal is being made for
   const armed = new Map();  // term -> timer: × clicked once while something runs in it
   let startFor = '';  // the key the pane was opened for, until its list is seen: none there starts one
+  // The key whose terminal takes the keys when it's next drawn: the pane was opened, or a tab,
+  // +, Split or × pressed. Never on a redraw from elsewhere (another session, a new list), so
+  // what's typed in the composer never goes to the shell.
+  let focusFor = '';
   // Whether the pane was closed, or showed another one, since the terminal was drawn in it: its
   // next drawing is then the owner opening it. Else it's only drawn again (another session
   // shown, Jarvis Code opened again, a new list).
@@ -100,7 +104,7 @@
       const tabs = el('div', 'ct-tabs');
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', 'Terminals');
-      const add = button('+', 'jc-icon ct-add', () => newTerminal(), 'New terminal');
+      const add = button('+', 'jc-icon ct-add', () => { focusFor = keyNow(); newTerminal(); }, 'New terminal');
       add.setAttribute('aria-label', 'New terminal');
       const split = button('Split', 'jc-mini ct-split', () => toggleSplit(), 'Two terminals, one above the other');
       const sendSel = button('Send to Jarvis Code', 'jc-mini ct-send', () => sendSelection(), 'Put the selected text in the message');
@@ -229,7 +233,8 @@
   }
 
   function drawArea() {
-    const lay = layoutOf(keyNow());
+    const key = keyNow();
+    const lay = layoutOf(key);
     const area = rootEl.querySelector('.ct-area');
     area.classList.toggle('split', lay.split);
     for (const [slotName, term] of [['top', lay.top], ['bottom', lay.split ? lay.bottom : '']]) {
@@ -248,12 +253,13 @@
     requestAnimationFrame(() => {
       for (const term of [lay.top, lay.split ? lay.bottom : '']) if (term && views.has(term)) fitView(term, views.get(term));
       const focusTerm = lay.focus === 'bottom' && lay.split ? lay.bottom : lay.top;
-      if (focusTerm && views.has(focusTerm) && paneShown()) views.get(focusTerm).xterm.focus();
+      if (focusTerm && views.has(focusTerm) && paneShown() && focusFor === key) { focusFor = ''; views.get(focusTerm).xterm.focus(); }
     });
   }
 
   function show(term) {
-    const lay = layoutOf(keyNow());
+    focusFor = keyNow();
+    const lay = layoutOf(focusFor);
     if (lay.split && lay.focus === 'bottom') {
       if (term === lay.top) lay.top = lay.bottom;
       lay.bottom = term;
@@ -273,6 +279,7 @@
 
   function toggleSplit() {
     const key = keyNow();
+    focusFor = key;
     const lay = layoutOf(key);
     if (lay.split) { lay.split = false; lay.bottom = ''; lay.focus = 'top'; drawTabs(); drawArea(); return; }
     lay.split = true;
@@ -284,6 +291,7 @@
   }
 
   function closeTerminal(term, x) {
+    focusFor = keyNow();  // (the one left takes the keys)
     if (armed.has(term)) {
       clearTimeout(armed.get(term));
       armed.delete(term);
@@ -330,7 +338,7 @@
   F.registerPane('terminal', {
     title: 'Terminal',
     render: (body) => {
-      if (away) { away = false; startFor = keyNow(); } else startFor = '';
+      if (away) { away = false; startFor = focusFor = keyNow(); } else startFor = focusFor = '';
       render(body);
     },
   });
@@ -388,6 +396,7 @@
   });
 
   F.on('cw_term_busy', (ev) => {
+    focusFor = '';  // (nothing closed: nothing new to give the keys to)
     const item = currentItems().find((i) => i.term === ev.term);
     armed.set(ev.term, setTimeout(() => { armed.delete(ev.term); if (paneShown()) drawTabs(); if (busyNote) busyNote.hidden = true; }, 5000));
     if (!rootEl) return;

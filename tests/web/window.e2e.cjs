@@ -5201,6 +5201,40 @@ test('Closing the last terminal leaves none; one starts only when the pane is op
   assert(!(await sentOf('cw_term_new')).length, `a session shown started a terminal: ${JSON.stringify(await js('__sent'))}`);
 });
 
+test('The terminal takes the keys when the pane is opened or a tab picked, never from the composer on a redraw', async () => {
+  await featureScript('code-terminal.js');
+  await open(1);
+  await js(FAKE_XTERM);
+  // (xterm.js takes the keys in a text box of its own)
+  await js(`Terminal.prototype.focus = function () {
+    let keys = this.el.querySelector('.fake-keys');
+    if (!keys) { keys = Object.assign(document.createElement('textarea'), { className: 'fake-keys' }); keys.dataset.n = String(__xterms.indexOf(this)); this.el.append(keys); }
+    keys.focus();
+  }; true`);
+  const focused = () => js('(() => { const a = document.activeElement; return a && a.classList.contains("fake-keys") ? "terminal " + a.dataset.n : (a && a.id) || ""; })()');
+  // Two sessions in the same folder: one set of terminals.
+  await js('onEvent({ type: "tasks", items: [__task(1, { path: "/Users/x/alpha" }), __task(2, { path: "/Users/x/alpha" })] }); jarvisFeatures.openPane("terminal"); true');
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1')], ref: 'task:/Users/x/alpha' });
+  let where = '';
+  for (let i = 0; i < 20 && where !== 'terminal 0'; i++) { await frames(2); where = await focused(); }
+  assert(where === 'terminal 0', `opening the pane didn't give the terminal the keys: ${where}`);
+  // Another session shown: the composer has the keys, and what's typed goes there.
+  await js('selectTask(2); true');
+  await frames(4);
+  await type('hi');
+  assert(await js('$("deck-input").value') === 'hi' && await focused() === 'deck-input', `after a session switch the keys went to ${await focused()}; composer: "${await js('$("deck-input").value')}"`);
+  // A terminal opened elsewhere in the folder: the list comes, the composer keeps the keys.
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1'), TERM('t2', 'zsh 2')] });
+  await frames(4);
+  await type('!');
+  assert(await js('$("deck-input").value') === 'hi!' && await focused() === 'deck-input', `after a new list the keys went to ${await focused()}`);
+  // A tab picked: that terminal takes them.
+  assert(await clickText('#jc-pane-body .ct-tabs', 'zsh 2'), 'no zsh 2 tab');
+  where = '';
+  for (let i = 0; i < 20 && where !== 'terminal 1'; i++) { await frames(2); where = await focused(); }
+  assert(where === 'terminal 1', `picking a tab didn't give it the keys: ${where}`);
+});
+
 test('@ suggests the terminal, folders, where names are defined and, after the first words, other sessions', async () => {
   await featureScript('code-mentions.js');
   await open(1);
