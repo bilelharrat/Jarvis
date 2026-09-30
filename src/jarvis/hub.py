@@ -649,6 +649,11 @@ class Hub:
         self._heard_voice: Any = None  # the check of the utterance being handled
         self._turn_voice: Any = None  # the check of the utterance this turn answers
         self._voice_refused = False  # that utterance's spoken approval isn't the owner's
+        # A realtime conversation (features/realtime.py): mic_taken() is True while it hears
+        # the microphone itself (hands-free's utterances aren't transcribed meanwhile), and
+        # realtime_start(command, check) takes a wake word to start one (True: taken).
+        self.mic_taken: Callable[[], bool] | None = None
+        self.realtime_start: Callable[[str, Any], bool] | None = None
         self._speak_language()
         self.transcriber = transcriber
         self.recorder = recorder
@@ -3452,6 +3457,8 @@ class Hub:
             audio = await queue.get()
             if audio is None:
                 return
+            if self.mic_taken is not None and self.mic_taken():
+                continue  # a realtime conversation is hearing it (features/realtime.py)
             if isinstance(audio, tuple) and audio[0] == "early":  # ("early", n, audio, at)
                 if not queue.empty():
                     continue  # something newer is waiting: this early look is already stale
@@ -3707,6 +3714,13 @@ class Hub:
             self._ask_by_voice(request)
         elif woke:
             log.info("wake word heard (%d-word command)", len(lang.words(command, language)))
+            realtime = self.realtime_start
+            if (
+                realtime is not None
+                and not is_homecoming(text)
+                and realtime(command, self._heard_voice)
+            ):
+                return
             if len(lang.words(command, language)) >= 2:
                 self._ask_by_voice(command)
             elif is_homecoming(text):  # "wake up, daddy's home": a welcome, then listening
