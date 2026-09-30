@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import threading
 import uuid
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta
@@ -78,6 +79,12 @@ def _finite(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _local(stamp: str) -> datetime:
+    """A stored time as this Mac's clock reads it (one with a zone, hand-edited in, too)."""
+    when = datetime.fromisoformat(stamp)
+    return when.astimezone().replace(tzinfo=None) if when.tzinfo is not None else when
+
+
 def _price(value: float) -> str:
     return f"{value:,.2f}" if abs(value) < 1000 else f"{value:,.0f}"
 
@@ -115,8 +122,10 @@ def _alert_from(raw: Any) -> PriceAlert | None:
     texts = (alert.id, alert.symbol, alert.kind, alert.created, alert.fired)
     if not all(isinstance(t, str) for t in texts) or alert.kind not in KINDS:
         return None
-    if not clean_symbols([alert.symbol]) or not alert.value > 0:
+    symbols = clean_symbols([alert.symbol])
+    if not symbols or not alert.value > 0:
         return None
+    alert.symbol = symbols[0]  # as CNBC names it ("nvda" in a hand edit is NVDA)
     alert.armed = alert.armed is not False
     return alert
 
@@ -141,6 +150,9 @@ class AlertStore:
         self.sent: dict[str, int] = {}  # day -> heads-ups sent that day
         self.moved: dict[str, list[str]] = {}  # session day -> watchlist symbols already said
         self.unreadable = ""
+        # The brain, Settings and the loop change the alerts from worker threads: one at a
+        # time, so none puts back a list another has just added to.
+        self._lock = threading.RLock()
         self._load()
 
     def _load(self) -> None:
@@ -177,6 +189,10 @@ class AlertStore:
     def add(self, symbol: str, kind: str, value: float, last: float | None = None) -> PriceAlert:
         """A new alert (or the same one already set). last: the price now, so an alert set
         on the far side of its line waits for the price to come back first."""
+        with self._lock:
+            return self._add(symbol, kind, value, last)
+
+    def _add(self, symbol: str, kind: str, value: float, last: float | None) -> PriceAlert:
         cleaned = clean_symbols([symbol])
         if not cleaned:
             raise ValueError(f"“{symbol}” isn't a ticker.")
@@ -207,21 +223,26 @@ class AlertStore:
             armed=armed,
         )
         self.alerts.append(alert)
-        self.save()
+        try:
+            self.save()
+        except BaseException:  # not saved: not set either (the owner hears it wasn't)
+            self.alerts.remove(alert)
+            raise
         return alert
 
     def remove(self, alert_id: str = "", symbol: str = "") -> list[PriceAlert]:
         """By id, or every alert for a symbol; what went."""
         symbol = (clean_symbols([symbol]) or [""])[0] if symbol else ""
-        gone = [
-            a
-            for a in self.alerts
-            if (alert_id and a.id == alert_id) or (symbol and a.symbol == symbol)
-        ]
-        if gone:
-            self.alerts = [a for a in self.alerts if a not in gone]
-            self.save()
-        return gone
+        with self._lock:
+            gone = [
+                a
+                for a in self.alerts
+                if (alert_id and a.id == alert_id) or (symbol and a.symbol == symbol)
+            ]
+            if gone:
+                self.alerts = [a for a in self.alerts if a not in gone]
+                self.save()
+            return gone
 
     # ── the checks ──
 
@@ -246,6 +267,16 @@ class AlertStore:
     ) -> list[tuple[str, str, str]]:
         """The heads-ups these quotes call for: (key, title, text), within today's cap. Saves
         what went off, and re-arms alerts whose price came back across their line."""
+        with self._lock:
+            return self._check(quotes, watchlist, watch_move, language)
+
+    def _check(
+        self,
+        quotes: dict[str, dict[str, Any]],
+        watchlist: list[str],
+        watch_move: float,
+        language: str,
+    ) -> list[tuple[str, str, str]]:
         now = self.clock()
         today = now.date().isoformat()
         session = session_day(now)
@@ -325,9 +356,9 @@ class AlertStore:
         for alert in self.alerts:
             if alert.kind != "move" and alert.fired:
                 try:
-                    if now - datetime.fromisoformat(alert.fired) > KEEP_FIRED:
+                    if now - _local(alert.fired) > KEEP_FIRED:
                         continue
-                except ValueError:
+                except (ValueError, TypeError, OverflowError, OSError):
                     continue
             keep.append(alert)
         dropped = len(keep) != len(self.alerts)

@@ -123,6 +123,75 @@ def test_a_quote_that_cant_be_right_sets_nothing_off(tmp_path):
     assert fired[0][2] == "AAPL is above 200.00: 201.00, up 1.0% today."
 
 
+def test_a_hand_edited_zone_or_lower_case_symbol_never_stops_the_alerts(tmp_path):
+    path = tmp_path / "alerts.json"
+    path.write_text(
+        json.dumps(
+            {
+                "alerts": [
+                    {"id": "a1", "symbol": "nvda", "kind": "above", "value": 150, "created": "x"},
+                    {
+                        "id": "a2",
+                        "symbol": "AAPL",
+                        "kind": "above",
+                        "value": 100,
+                        "created": "x",
+                        "fired": "2026-09-29T08:00:00Z",
+                    },
+                ]
+            }  # fmt: skip
+        )
+    )
+    store = AlertStore(path, Clock(datetime(2026, 9, 29, 10, 0)))
+    assert [a.symbol for a in store.alerts] == ["NVDA", "AAPL"]
+    assert store.add("NVDA", "above", 150) is store.alerts[0]  # the same one, not a second
+    fired = store.check({"NVDA": q(151, 1.0)}, [], 0)
+    assert [f[1] for f in fired] == ["NVDA"]
+
+
+def test_an_alert_set_while_the_loop_checks_is_never_lost(tmp_path):
+    """Setting and removing alerts (the brain, Settings) and the loop's check run in worker
+    threads: one can't replace the list the other has just added to."""
+    import threading
+
+    store = AlertStore(tmp_path / "alerts.json", Clock(datetime(2026, 9, 29, 10, 0)))
+    store.add("TSLA", "above", 900, last=100)
+    added = threading.Event()
+
+    class Racing(list):
+        def __iter__(self):  # the check has read the list; before it puts its own back…
+            yield from super().__iter__()
+            if not added.is_set():
+                added.set()
+                side = threading.Thread(target=lambda: store.add("NVDA", "above", 150, last=100))
+                side.start()
+                side.join(0.3)  # done at once without a lock; waits for this check with one
+                self.side = side
+
+    store.alerts = Racing(store.alerts)
+    racing = store.alerts
+    store.check({"TSLA": q(120, 1.0)}, [], 0)
+    racing.side.join(5)
+    assert sorted(a.symbol for a in store.alerts) == ["NVDA", "TSLA"]
+    assert sorted(a.symbol for a in AlertStore(tmp_path / "alerts.json").alerts) == ["NVDA", "TSLA"]
+
+
+def test_an_alert_that_couldnt_be_saved_isnt_left_set(tmp_path, monkeypatch):
+    import errno
+
+    from jarvis import jsonstore
+
+    store = AlertStore(tmp_path / "alerts.json")
+
+    def full(*_a, **_k):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(jsonstore, "save_json", full)
+    with pytest.raises(OSError):  # the owner hears it wasn't saved…
+        store.add("NVDA", "above", 150)
+    assert store.alerts == [] and store.public()["items"] == []  # …and it isn't set either
+
+
 def test_heads_ups_in_chinese():
     assert (
         heads_up("NVDA", "above", 150, 151.2, 2.34, "zh")
