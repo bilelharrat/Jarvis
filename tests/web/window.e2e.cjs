@@ -1561,6 +1561,20 @@ test('A project’s new sessions start in Bypass permissions only once that’s 
   assert(JSON.stringify(r) === JSON.stringify([{ type: 'feature_prefs', changes: { code_project_defaults: { '/Users/x/alpha': { mode: 'auto' } } } }]), JSON.stringify(r));
 });
 
+test('Settings › Snippets won’t rename one onto another’s name, and saves one under its own', async () => {
+  await sessions([1]);
+  await js('__ev({ type: "prefs", look: "orb", language: "en", models: [], personas: [], humor: 50, features: { code_snippets: [{ name: "a", text: "Alpha." }, { name: "b", text: "Beta." }] } }); openJcSettings("general"); [...document.querySelectorAll(".jcs-tabs button")].find((b) => b.dataset.tab === "snippets").click()');
+  await frames(2);
+  const save = (name, text) => js(`(() => { const f = document.querySelector('.cs-snippet-form'); const [n, t] = f.querySelectorAll('.jcs-input'); n.value = ${JSON.stringify(name)}; t.value = ${JSON.stringify(text)}; f.requestSubmit(); return f.querySelector('.jcs-help').textContent; })()`);
+  await js('__sent.length = 0; document.querySelectorAll(".cs-snippet")[1].querySelector("button").click(); true');  // Edit /b
+  const refused = await save('a', 'Beta, renamed.');
+  assert(!(await sentOf('feature_prefs')).length, `renamed onto /a, which keeps only one of them: ${JSON.stringify(await sentOf('feature_prefs'))}`);
+  assert(refused.includes('already'), refused);
+  await save('b', 'Beta, edited.');
+  const r = await js('__sent.filter((m) => m.type === "feature_prefs").map((m) => m.changes.code_snippets)');
+  assert(JSON.stringify(r) === JSON.stringify([[{ name: 'a', text: 'Alpha.' }, { name: 'b', text: 'Beta, edited.' }]]), JSON.stringify(r));
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

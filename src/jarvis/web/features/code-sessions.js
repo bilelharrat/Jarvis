@@ -810,7 +810,8 @@
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) { help.textContent = t('Name it with letters, digits and dashes, like review-pr.'); return; }
       if ([...SLASH_COMMANDS.map(([n]) => n), 'btw', 'goal'].includes(name)) { help.textContent = t('That name is a built-in command: pick another.'); return; }
       if (!text.trim()) { help.textContent = t('Write the prompt it puts in the composer.'); return; }
-      if (!editing && list.some((s) => s.name === name)) { help.textContent = t('There’s a snippet with that name already.'); return; }
+      // Another's name, new or renamed onto it: the hub keeps only the first of two.
+      if (list.some((s) => s.name === name && s !== editing)) { help.textContent = t('There’s a snippet with that name already.'); return; }
       const rest = list.filter((s) => s.name !== (editing ? editing.name : name));
       editingSnippet = null;
       save([...rest, { name, text }]);
