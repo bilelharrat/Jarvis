@@ -73,7 +73,8 @@
     clearTimeout(timer);
     const text = state.text;
     if (!text.trim() || (!now && text.trim().length < MIN_CHARS)) {
-      if (!text.trim()) { state.result = null; state.busy = false; draw(); }
+      // (cleared: the answer to a search still out isn't shown under the empty box)
+      if (!text.trim()) { state.result = null; state.busy = false; state.ref = ''; state.where = ''; draw(); }
       return;
     }
     const go = () => {
@@ -182,9 +183,10 @@
     render(into) {
       if (!ui) ui = build();
       if (host !== into || !into.contains(ui.box)) { host = into; into.replaceChildren(ui.box); }
-      // Another session or project shown since: its own files are what to search.
+      // Another session or project shown since: its own files are what to search (a search
+      // still out for the one before too: its answer is for there).
       const where = JSON.stringify(root.JarvisEditor.where());
-      if (state.result && state.where && state.where !== where) { state.result = null; state.where = ''; run(true); }
+      if (state.where && state.where !== where) { state.result = null; state.where = ''; run(true); }
       draw();
     },
     focus() { if (ui) requestAnimationFrame(() => { ui.input.focus(); ui.input.select(); }); },

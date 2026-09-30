@@ -4754,6 +4754,42 @@ test('A file left open across a backend restart goes through the session on show
   assert(save && save.id === 2 && save.text === 'a = 1\nb = 2', JSON.stringify(save));
 });
 
+test('Search never shows the answer of a search cleared meanwhile, or of the session before: the one on show is searched', async () => {
+  await featureScript('code-editor.js');
+  await featureScript('code-search.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); true');
+  await deliver({ type: 'project_files', directory: 'alpha', files: ['src/app.py'] });
+  await frames(2);
+  assert(await clickText('#jc-pane-body .ce-seg', 'Search'), 'no Search beside Files');
+  const search = (text) => js(`(() => { const i = document.querySelector("#jc-pane-body .cs-input"); i.focus(); i.value = ${JSON.stringify(text)}; i.dispatchEvent(new Event("input")); return true; })()`);
+  const answer = (ref) => deliver({ type: 'cw_search', ref, total: 1, files: [{ path: 'src/app.py', matches: [{ line: 1, text: 'retry', spans: [[0, 5]] }] }] });
+  await search('retry');
+  await press('Enter');
+  let [asked] = await sentOf('cw_search');
+  assert(asked && asked.text === 'retry', JSON.stringify(await js('__sent')));
+  // Cleared before its answer: nothing under the empty box.
+  await press('Escape');
+  await answer(asked.ref);
+  await frames(2);
+  const r = await js('({ value: document.querySelector("#jc-pane-body .cs-input").value, files: document.querySelectorAll("#jc-pane-body .cs-file").length, status: document.querySelector("#jc-pane-body .cs-status").textContent })');
+  assert(r.value === '' && r.files === 0 && r.status === '', JSON.stringify(r));
+  // Another session shown while a search is out: its own folder is searched, and the answer for alpha isn't shown.
+  await search('retry');
+  await press('Enter');
+  [asked] = (await sentOf('cw_search')).slice(-1);
+  await js('onEvent({ type: "tasks", items: [__task(1), __task(2, { folder: "beta" })] }); __sent.length = 0; selectTask(2); true');
+  await deliver({ type: 'project_files', directory: 'beta', files: ['b.py'] });
+  await frames(2);
+  assert(await clickText('#jc-pane-body .ce-seg', 'Search'), 'no Search in session 2');
+  const [again] = await sentOf('cw_search');
+  assert(again && again.id === 2 && again.directory === 'beta' && again.text === 'retry', JSON.stringify(await js('__sent')));
+  await answer(asked.ref);
+  await frames(2);
+  const files = await js('[...document.querySelectorAll("#jc-pane-body .cs-path")].map((n) => n.title)');
+  assert(!files.length && await js('document.querySelector("#jc-pane-body .cs-status").textContent') === 'Searching…', JSON.stringify(files));
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {
