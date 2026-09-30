@@ -315,4 +315,18 @@ final class ContractFixtureTests: XCTestCase {
         // An endpoint this Mac doesn't have yet.
         XCTAssertEqual(try error("error_unknown_endpoint"), .unsupported)
     }
+
+    /// The Mac answers 404 for a session, routine or conversation it no longer has, with its
+    /// reason: that isn't a Mac that needs updating (which answers 404 with no reason).
+    func testSomethingGoneOnTheMacIsntAnOlderMac() throws {
+        for name in ["error_no_session", "error_no_routine"] {
+            let fixture = try Self.fixture(name)
+            XCTAssertThrowsError(try JarvisAPI.check(status: fixture.status, data: fixture.data)) { error in
+                let problem = error as? JarvisError
+                XCTAssertNotEqual(problem, .unsupported, name)
+                XCTAssertEqual(problem?.title, "Not on your Mac anymore", name)
+                XCTAssertFalse(problem?.neverDelivered ?? true, name)
+            }
+        }
+    }
 }

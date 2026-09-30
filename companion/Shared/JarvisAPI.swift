@@ -25,6 +25,9 @@ enum JarvisError: LocalizedError, Equatable {
     case notJarvis
     /// 404 on a newer endpoint: the Mac's Jarvis doesn't have it yet.
     case unsupported
+    /// 404 with the Mac's reason ("no such session"): what it was about isn't on the Mac
+    /// anymore (closed, finished or deleted there).
+    case gone(String)
     case server(Int, String?)
     case invalidAddress
     /// The server presented a certificate other than the one pinned for this Mac.
@@ -49,6 +52,7 @@ enum JarvisError: LocalizedError, Equatable {
         case .timedOut: "Still working"
         case .notJarvis: "That isn’t Jarvis"
         case .unsupported: "Not on this Mac yet"
+        case .gone: "Not on your Mac anymore"
         case .server: "The Mac had a problem"
         case .invalidAddress: "Check the address"
         case .certificateMismatch: "This isn’t your Mac"
@@ -82,6 +86,8 @@ enum JarvisError: LocalizedError, Equatable {
             "Something answered at that address, but it isn’t the Jarvis companion. Check the address and port (usually 8765)."
         case .unsupported:
             "Update Jarvis on your Mac to use this from your iPhone."
+        case .gone:
+            "It may have been closed or deleted there."
         case .server(let status, let message):
             message ?? "HTTP \(status)"
         case .invalidAddress:
@@ -380,7 +386,11 @@ struct JarvisAPI: Sendable {
         case 401: throw JarvisError.unpaired
         case 403: throw pairing ? JarvisError.wrongCode(message ?? "") : JarvisError.rejected(message ?? "The Mac didn’t allow that.")
         case 400: throw JarvisError.rejected(message ?? "The Mac didn’t accept that.")
-        case 404: throw pairing ? JarvisError.notJarvis : JarvisError.unsupported
+        case 404:
+            // The Mac says why when it's the thing asked about that's missing; an endpoint it
+            // doesn't have yet answers without a reason.
+            if pairing { throw JarvisError.notJarvis }
+            throw message.map { JarvisError.gone($0) } ?? JarvisError.unsupported
         case 409: throw pairing && message == "fingerprint" ? JarvisError.fingerprintRefused : JarvisError.rejected(message ?? "The Mac didn’t accept that.")
         case 413: throw JarvisError.tooBig
         case 429: throw JarvisError.busy(message ?? "")
