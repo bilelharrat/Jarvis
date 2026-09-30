@@ -2684,6 +2684,36 @@ test('Orders and subscriptions: listed after Conversations, a Remove takes one o
   assert(JSON.stringify(r) === JSON.stringify([{ type: 'orders_forget', id: 'a2' }, { type: 'feature_prefs', changes: { orders_renewal_days: 7 } }]), JSON.stringify(r));
 });
 
+test('Invoicing: after the invoice settings, says why Stripe cannot make links, and switches, stops and removes', async () => {
+  await loadFeatures('invoicing.js', 'invoicing.css');
+  await js('featureEvent({ type: "hello", prefs: { features: {} } }); true');
+  assert((await sentOf('invoicing')).length === 1, 'the invoicing state was not asked for');
+  await js(`toggleSettings(true); __ev({ type: 'invoicing', reminders: false, error: '',
+    stripe: "Stripe isn't connected (Tools & Accounts › Stripe).",
+    clients: [{ id: 'c1', name: 'Acme', email: 'ap@acme.com', address: '1 Main St', currency: 'EUR', notes: '' }],
+    recurring: [{ id: 'r1', client: 'Acme', total: 2000, currency: 'USD', every: 'monthly', next: '2026-11-01' }] }); true`);
+  await sleep(250);  // the sheet slides in
+  const shown = await js(`({
+    placed: $("invoice-from").closest("section.group").nextElementSibling === $("invoicing-group"),
+    stripe: $("invoicing-stripe").textContent,
+    client: document.querySelector("#invoicing-clients .fact").textContent,
+    schedule: document.querySelector("#invoicing-recurring .fact").textContent,
+    error: $("invoicing-error").hidden })`);
+  assert(shown.placed && shown.error, JSON.stringify(shown));
+  assert(shown.stripe === "Stripe isn't connected (Tools & Accounts › Stripe).", shown.stripe);
+  assert(shown.client === 'Acmeap@acme.com · EUR', shown.client);
+  assert(shown.schedule.startsWith('Acme$2,000.00 · Monthly · next on '), shown.schedule);
+  await clickIn('#sw-invoice-reminders');
+  await clickIn('#invoicing-recurring .btn');
+  await clickIn('#invoicing-clients .btn');
+  const r = await js('__sent.filter((m) => m.type.startsWith("invoic") && m.type !== "invoicing")');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'invoice_reminders', on: true }, { type: 'invoicing_stop', id: 'r1' }, { type: 'invoicing_client_remove', id: 'c1' }]), JSON.stringify(r));
+  await js('__ev({ type: "invoicing", reminders: true, stripe: "", clients: [], recurring: [], error: "Couldn\'t save that (disk full)." }); true');
+  const after = await js('({ stripe: $("invoicing-stripe").textContent, on: $("sw-invoice-reminders").getAttribute("aria-checked"), heads: [...document.querySelectorAll(".invoicing-subhead")].map((h) => h.hidden), error: $("invoicing-error").textContent })');
+  assert(after.stripe === 'Payment links: Stripe is connected. Ask for one on any invoice.' && after.on === 'true', JSON.stringify(after));
+  assert(JSON.stringify(after.heads) === '[true,true]' && after.error === "Couldn't save that (disk full).", JSON.stringify(after));
+});
+
 // ──
 
 let base;

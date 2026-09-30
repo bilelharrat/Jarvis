@@ -1,0 +1,7 @@
+/* Settings › Invoicing (features/invoicing.js) */
+.sheet .group > h4.invoicing-subhead {
+  margin: 0; padding: 12px 1px 6px; font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.sheet .group > h4.invoicing-subhead[hidden] { display: none; }
+.sheet .group > h4.invoicing-subhead + .itemlist { border-top: 0; padding-top: 0; }
+.invoicing-group .itemlist .fact small { overflow-wrap: anywhere; }
