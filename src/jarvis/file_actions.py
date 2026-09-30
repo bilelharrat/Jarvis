@@ -20,6 +20,7 @@ import errno
 import logging
 import os
 import shutil
+import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -40,6 +41,10 @@ HOME_FOLDERS = frozenset(
     "Desktop Documents Downloads Library Pictures Movies Music Applications Public Sites .Trash".split()
 )
 ICLOUD = Path("Library") / "Mobile Documents" / "com~apple~CloudDocs"
+NAME_LIMIT = 255  # characters of a file's name the disk takes
+# Characters a new name never has: controls (a NUL can't be on disk) and the ones that make
+# text read in another order, so a card can't show "invoice<U+202E>fdp.exe" as "invoiceexe.pdf".
+_NOT_IN_NAMES = frozenset("\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
 PRIVATE_TYPES = ("org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType")
 CLIPBOARD_LIMIT = 20_000
 
@@ -101,6 +106,12 @@ def _credentials(path: Path) -> bool:
     """A credentials file, or a folder that keeps them (~/.ssh, a copy of one elsewhere):
     what's inside it counts as credentials by its path."""
     return is_sensitive(path) or is_sensitive(path / "_")
+
+
+def _bad_name(name: str) -> bool:
+    return len(name) > NAME_LIMIT or any(
+        c in _NOT_IN_NAMES or unicodedata.category(c) == "Cc" for c in name
+    )
 
 
 class FileActions:
@@ -267,6 +278,11 @@ class FileActions:
             raise Refused("Give a plain new name (no slashes, and not starting with a dot).")
         if not Path(name).suffix and src.suffix and not src.is_dir():
             name += src.suffix  # "rename it budget" keeps its .xlsx
+        if _bad_name(name):
+            raise Refused(
+                f"Give a plain new name (at most {NAME_LIMIT} characters, and only ones that "
+                "show as they are)."
+            )
         dest = src.with_name(name)
         if dest == src:
             raise Refused(f"It's already called “{name}”.")

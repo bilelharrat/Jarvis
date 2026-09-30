@@ -227,6 +227,22 @@ def test_a_link_is_moved_as_a_link(actions, home, tmp_path):
     assert (home / "Documents" / "shortcut.txt").is_symlink() and outside.exists()
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["x" * 256, "a\x00b", "bell\x07", "invoice\u202efdp.exe"],
+    ids=["too-long", "nul", "control", "right-to-left-override"],
+)
+def test_a_name_no_disk_takes_or_that_reads_backwards_is_refused_first(actions, home, name):
+    """Refused before any card: a card for a rename that can't happen, or one whose new name
+    shows as something else ("invoice\u202efdp.exe" reads as "invoiceexe.pdf")."""
+    with pytest.raises(fa.Refused, match="plain new name"):
+        actions.plan_rename(str(home / "Desktop" / "notes.txt"), name)
+    long_but_fine = "文" * 200  # 600 bytes, 200 characters: the disk takes it
+    assert actions.plan_rename(str(home / "Desktop" / "notes.txt"), long_but_fine)[1].stem == (
+        long_but_fine
+    )
+
+
 def test_undo_says_when_something_took_the_old_place(actions, home):
     actions.move(actions.plan_move([str(home / "Desktop" / "notes.txt")], str(home / "Documents")))
     (home / "Desktop" / "notes.txt").write_text("a new one")
