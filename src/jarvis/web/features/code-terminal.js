@@ -68,6 +68,11 @@
   const asked = new Set();  // keys whose terminals were asked for
   const making = new Set();  // keys a terminal is being made for
   const armed = new Map();  // term -> timer: × clicked once while something runs in it
+  let startFor = '';  // the key the pane was opened for, until its list is seen: none there starts one
+  // Whether the pane was closed, or showed another one, since the terminal was drawn in it: its
+  // next drawing is then the owner opening it. Else it's only drawn again (another session
+  // shown, Jarvis Code opened again, a new list).
+  let away = true;
   let rootEl = null;
   let busyNote = null;
 
@@ -132,11 +137,16 @@
     const folder = folderOf.get(key);
     const items = folder ? lists.get(folder) || [] : null;
     if (items === null) { status('Opening a terminal…'); return; }
+    const opening = startFor === key;
+    if (opening) startFor = '';
     const extra = F.$('jc-pane-extra');
     if (extra) extra.replaceChildren(mine(el('span', 'jc-dim', folder.split('/').pop())));
     if (!items.length) {
-      if (!making.has(key)) newTerminal();
-      status('Starting a shell…');
+      // One starts when the pane is opened on a folder with none, never after the last one
+      // is closed (nor on another session shown).
+      if (opening && !making.has(key)) newTerminal();
+      drawTabs();
+      status(making.has(key) ? 'Starting a shell…' : 'No terminals here: + opens one.');
       return;
     }
     try {
@@ -317,7 +327,17 @@
     view.box.remove();
   }
 
-  F.registerPane('terminal', { title: 'Terminal', render: (body) => { render(body); } });
+  F.registerPane('terminal', {
+    title: 'Terminal',
+    render: (body) => {
+      if (away) { away = false; startFor = keyNow(); } else startFor = '';
+      render(body);
+    },
+  });
+  // (closed: the pane hides; another pane shown: its title changes)
+  const left = () => { if (!paneShown()) away = true; };
+  if (F.$('jc-pane')) new MutationObserver(left).observe(F.$('jc-pane'), { attributes: true, attributeFilter: ['hidden'] });
+  if (F.$('jc-pane-title')) new MutationObserver(left).observe(F.$('jc-pane-title'), { childList: true, characterData: true, subtree: true });
 
   F.on('cw_terms', (ev) => {
     const before = new Set((lists.get(ev.folder) || []).map((i) => i.term));

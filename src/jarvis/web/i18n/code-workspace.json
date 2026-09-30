@@ -81,6 +81,7 @@
     "Close this terminal": "关闭这个终端",
     "Opening a terminal…": "正在打开终端…",
     "Starting a shell…": "正在启动 shell…",
+    "No terminals here: + opens one.": "这里没有终端：点 + 打开一个。",
     "Still running:": "仍在运行：",
     "Click × again to close it anyway.": "再点一次 × 仍然关闭。",
     "Stop this command": "停止这个命令",

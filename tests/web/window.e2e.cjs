@@ -5163,6 +5163,44 @@ test('A "!" command streams its output as it comes, can be cancelled, and ends a
   assert(msg && msg.text.includes('$ npm test') && msg.text.includes('(exit 130)') && msg.text.endsWith('fix it'), JSON.stringify(msg));
 });
 
+test('Closing the last terminal leaves none; one starts only when the pane is opened on a folder with none', async () => {
+  await featureScript('code-terminal.js');
+  await open(1);
+  await js(FAKE_XTERM);
+  await js('jarvisFeatures.openPane("terminal"); true');
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1')], ref: 'task:1' });
+  for (let i = 0; i < 20 && !(await js('__xterms.length')); i++) await frames(2);
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .ct-tab-x").click(); true');
+  assert(JSON.stringify(await sentOf('cw_term_close')) === JSON.stringify([{ type: 'cw_term_close', term: 't1' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [] });
+  await frames(3);
+  const closed = await js('({ made: __sent.filter((m) => m.type === "cw_term_new").length, tabs: document.querySelectorAll("#jc-pane-body .ct-tab").length, said: (document.querySelector("#jc-pane-body .ct-status") || {}).textContent })');
+  assert(closed.made === 0, `closing the last terminal started another: ${JSON.stringify(closed)}`);
+  assert(closed.tabs === 0 && closed.said === 'No terminals here: + opens one.', JSON.stringify(closed));
+  // Jarvis Code closed and opened again, the pane with it: that isn't opening the pane.
+  await js('toggleCC(false); true');
+  await js('toggleCC(true); true');
+  await frames(2);
+  assert(!(await sentOf('cw_term_new')).length, `Jarvis Code opened again started a terminal: ${JSON.stringify(await js('__sent'))}`);
+  // Opened again on a folder with none: one starts.
+  await js('closePane(); true');
+  await js('jarvisFeatures.openPane("terminal"); true');
+  const [made] = await sentOf('cw_term_new');
+  assert(made && made.ref === 'task:1', JSON.stringify(await js('__sent')));
+  // At the cap it says so; opened again (from another pane) it tries again.
+  await deliver({ type: 'cw_term_new', ref: 'task:1', error: 'That\'s the most terminals at once: close one first.' });
+  assert(await js('document.querySelector("#jc-pane-body .ct-status").textContent') === 'That\'s the most terminals at once: close one first.', 'the cap isn’t said');
+  await js('__sent.length = 0; jarvisFeatures.openPane("files"); true');
+  await js('jarvisFeatures.openPane("terminal"); true');
+  const [retry] = await sentOf('cw_term_new');
+  assert(retry && retry.ref === 'task:1', JSON.stringify(await js('__sent')));
+  // Another session shown with the pane open, in a folder with none: nothing starts.
+  await js('__sent.length = 0; onEvent({ type: "tasks", items: [__task(1), __task(2)] }); selectTask(2); true');
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [], ref: 'task:2' });
+  await frames(3);
+  assert(!(await sentOf('cw_term_new')).length, `a session shown started a terminal: ${JSON.stringify(await js('__sent'))}`);
+});
+
 test('@ suggests the terminal, folders, where names are defined and, after the first words, other sessions', async () => {
   await featureScript('code-mentions.js');
   await open(1);
