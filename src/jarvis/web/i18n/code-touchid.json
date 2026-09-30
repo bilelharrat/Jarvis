@@ -1,0 +1,9 @@
+{
+  "strings": {
+    "Safety": "安全",
+    "Touch ID for Bypass and risky steps": "绕过权限和有风险的步骤使用触控 ID",
+    "Switching to Bypass permissions, and allowing a step that deletes, pushes, publishes or runs as root, asks for your fingerprint. Without Touch ID, it asks you to confirm.": "切换到绕过权限，以及允许会删除、推送、发布或以 root 身份运行的步骤时，会要求验证你的指纹。没有触控 ID 时，会请你确认。",
+    "This step can’t easily be undone, or reaches past this Mac. Allow it?": "这一步不容易撤销，或者会影响到这台 Mac 以外。要允许吗？"
+  },
+  "patterns": []
+}

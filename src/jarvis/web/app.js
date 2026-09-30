@@ -89,6 +89,26 @@ function featureApproval(a, where, answer) {
   }
   return null;
 }
+// A feature's check before something risky goes ahead (Touch ID): check(kind, info) gives a
+// Promise of true (go ahead) or false, or null to leave it to the usual way. Kinds: 'bypass'
+// (a session into Bypass permissions; info.text is the usual question), 'bypass-default' (new
+// sessions start in it), 'approve' (info: {approval, choice}).
+const featureChecks = [];
+function featureCheck(kind, info) {
+  for (const check of featureChecks) {
+    try {
+      const found = check(kind, info);
+      if (found && typeof found.then === 'function') return found.then((ok) => ok === true, () => false);
+    } catch (err) { console.error('feature check', err); }
+  }
+  return null;
+}
+// Bypass permissions, asked about first: a feature's check, or the usual question.
+function confirmBypass(kind, text, then, otherwise) {
+  const check = featureCheck(kind, { text });
+  if (check) { check.then((ok) => { if (ok) then(); else if (otherwise) otherwise(); }); return; }
+  if (confirm(tr(text))) then(); else if (otherwise) otherwise();
+}
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -115,6 +135,7 @@ window.jarvisFeatures = {
   registerSessionOption(fn) { featureSessionOptions.push(fn); },
   registerEntry(role, render) { featureEntries.set(role, render); },
   registerApprovalView(view) { featureApprovalViews.push(view); },
+  registerCheck(check) { featureChecks.push(check); },
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
@@ -2933,8 +2954,12 @@ function renderQueue(t) {
 }
 
 function answerApproval(a, choice, feedback) {
-  send({ type: 'approve', id: a.id, choice, feedback: feedback || '' });
-  document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove());
+  const go = () => {
+    send({ type: 'approve', id: a.id, choice, feedback: feedback || '' });
+    document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove());
+  };
+  const check = featureCheck('approve', { approval: a, choice });
+  if (check) check.then((ok) => { if (ok) go(); }); else go();
 }
 
 // ── the composer: messages, / commands, @ files, pictures ──
@@ -3113,11 +3138,10 @@ function slashWithoutSession(text) {
   if (SLASH_MODE_IDS[name]) {
     const mode = SLASH_MODE_IDS[name];
     if (mode === 'smart' && !autoCapable(composerState().modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return true; }
-    if (mode === 'auto' && !confirm(tr('Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?'))) return true;
-    if (!send({ type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields() })) return unsent();
-    takePending();
-    awaitingNewSession = true;
-    return true;
+    const msg = { type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields() };
+    const start = () => { if (!send(msg)) return unsent(); takePending(); awaitingNewSession = true; return true; };
+    if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start); return true; }
+    return start();
   }
   if (name === 'model' && !arg) { modelMenu(); return true; }
   if (SLASH_WITHOUT_SESSION.has(name)) { localSlash(text); return true; }
@@ -3776,9 +3800,13 @@ function setMode(id) {
   if (!JC_MODES.some((m) => m.id === id)) return;
   const s = composerState();
   if (id === 'smart' && !autoCapable(s.modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return; }
-  if (id === 'auto' && s.mode !== 'auto' && !confirm(tr('Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?'))) return;
-  if (s.t) send({ type: 'task_mode', id: s.t.id, mode: id });
-  else { codeDefaults.mode = id; send({ type: 'code_defaults', code_mode: id }); renderComposer(); }
+  const target = s.t ? s.t.id : null;  // (the session it was asked for, whatever shows by the time it's a yes)
+  const go = () => {
+    if (target !== null) send({ type: 'task_mode', id: target, mode: id });
+    else { codeDefaults.mode = id; send({ type: 'code_defaults', code_mode: id }); renderComposer(); }
+  };
+  if (id === 'auto' && s.mode !== 'auto') confirmBypass('bypass', 'Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', go);
+  else go();
 }
 
 function modeMenu() {
@@ -4124,10 +4152,9 @@ function renderJcGeneral() {
 $('jcs-model').addEventListener('change', () => { codeDefaults.model = $('jcs-model').value; send({ type: 'code_defaults', code_model: codeDefaults.model }); renderComposer(); });
 $('jcs-mode').addEventListener('change', () => {
   const id = $('jcs-mode').value;
-  if (id === 'auto' && !confirm(tr('New sessions would run any command and change any file without asking. Start them in Bypass permissions?'))) { renderJcGeneral(); return; }
-  codeDefaults.mode = id;
-  send({ type: 'code_defaults', code_mode: id });
-  renderComposer();
+  const go = () => { codeDefaults.mode = id; send({ type: 'code_defaults', code_mode: id }); renderComposer(); };
+  if (id === 'auto') confirmBypass('bypass-default', 'New sessions would run any command and change any file without asking. Start them in Bypass permissions?', go, renderJcGeneral);
+  else go();
 });
 $('jcs-effort').addEventListener('input', () => {
   const stop = Number($('jcs-effort').value);
@@ -5735,14 +5762,14 @@ function showApproval(a) {
   const card = el('div', 'card needs-ok');
   card.dataset.approval = a.id;
   card.append(el('div', 'card-kicker', 'Needs your OK'), el('div', 'card-title', a.question));
-  const custom = featureApproval(a, 'card', (choice, feedback) => { send({ type: 'approve', id: a.id, choice, feedback: feedback || '' }); card.remove(); });
+  const custom = featureApproval(a, 'card', (choice, feedback) => answerApproval(a, choice, feedback));
   if (custom) { card.append(custom); $('cards').prepend(card); if (app) app.attention(); return; }
   if (a.detail) card.append(el('pre', '', a.detail));
   const actions = el('div', 'card-actions');
   a.choices.forEach((c, i) => {
     const b = el('button', i === 0 ? 'btn primary' : 'btn', c.label);
     b.type = 'button';
-    b.addEventListener('click', () => { send({ type: 'approve', id: a.id, choice: c.id }); card.remove(); });
+    b.addEventListener('click', () => answerApproval(a, c.id));
     actions.append(b);
   });
   card.append(actions);

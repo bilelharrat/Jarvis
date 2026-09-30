@@ -3555,6 +3555,61 @@ test('The Permissions pane’s Sandbox section: the switch, this session’s own
   assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { code_sandbox_bypass: false } }]), JSON.stringify(await js('__sent')));
 });
 
+// ── Touch ID for Bypass and risky steps (web/features/code-touchid.js) ──
+
+// The app's Touch ID, faked: what it was asked, and what the finger says (true, false, or
+// null for a Mac without Touch ID).
+const fakeTouchId = (answer) => js(`window.__touch = []; window.__finger = ${JSON.stringify(answer)}; window.__confirms = [];
+  window.confirm = (q) => { __confirms.push(q); return window.__confirmAnswer !== false; };
+  window.jarvisApp = { feature: { invoke: async (channel, kind) => { __touch.push(kind || channel);
+    if (channel === 'feature:touchid:available') return __finger !== null; return { ok: __finger === true }; } } }; true`);
+
+test('Bypass and a risky step allowed from its card ask for Touch ID first, or the usual question without it', async () => {
+  await featureScript('code-touchid.js');
+  await fakeTouchId(true);
+  await open(1);
+  await js('__sent.length = 0; $("jc-bypass").click(); true');
+  await sleep(60);
+  assert(JSON.stringify(await sentOf('task_mode')) === JSON.stringify([{ type: 'task_mode', id: 1, mode: 'auto' }]), JSON.stringify(await js('__sent')));
+  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['feature:touchid:available', 'bypass']) && (await js('__confirms.length')) === 0, JSON.stringify(await js('__touch')));
+  // The finger says no: nothing goes; no Touch ID here: the usual question decides.
+  await js('__sent.length = 0; __finger = false; $("jc-bypass").click(); true');
+  await sleep(60);
+  assert((await sentOf('task_mode')).length === 0, 'Bypass went on without the finger');
+  await js('__finger = null; __confirmAnswer = false; $("jc-bypass").click(); true');
+  await sleep(60);
+  assert((await sentOf('task_mode')).length === 0 && (await js('__confirms.length')) === 1, JSON.stringify(await js('__sent')));
+  // A risky step waits for the finger; an ordinary one goes at once.
+  await js('__finger = false; __touch.length = 0; true');
+  await deliver({ ...(await js('__approval("r1", { detail: "$ rm -rf build" })')), task_id: 1 });
+  await js('document.querySelector("#deck-timeline [data-approval=r1] .jc-choices button").click(); true');
+  await sleep(60);
+  assert((await sentOf('approve')).length === 0 && (await js('!!document.querySelector("#deck-timeline [data-approval=r1]")')), 'a risky step went without the finger');
+  await js('__finger = true; document.querySelector("#deck-timeline [data-approval=r1] .jc-choices button").click(); true');
+  await sleep(60);
+  assert(JSON.stringify((await sentOf('approve')).map((m) => [m.id, m.choice])) === JSON.stringify([['r1', 'allow']]), JSON.stringify(await js('__sent')));
+  assert(await js('!document.querySelector("[data-approval=r1]")'), 'the answered sheet stayed');
+  await deliver({ ...(await js('__approval("r2", { detail: "$ npm test" })')), task_id: 1 });
+  await js('__touch.length = 0; document.querySelector("#deck-timeline [data-approval=r2] .jc-choices button").click(); true');
+  assert(JSON.stringify((await sentOf('approve')).map((m) => m.id)) === JSON.stringify(['r1', 'r2']) && (await js('__touch.length')) === 0, 'an ordinary step waited');
+});
+
+test('Jarvis Code settings has the Touch ID switch; off, Bypass asks the usual question', async () => {
+  await featureScript('code-touchid.js');
+  await fakeTouchId(true);
+  await open(1);
+  await js('openJcSettings(); selectJcsTab("general"); true');
+  assert(await js('$("jcs-general").contains($("ct-touchid")) && $("ct-touchid").getAttribute("aria-checked") === "true"'), 'no Touch ID switch in General');
+  await js('__sent.length = 0; $("ct-touchid").click(); true');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { code_touchid: false } }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_touchid: false } });
+  assert(await js('$("ct-touchid").getAttribute("aria-checked") === "false"'), 'the switch didn’t follow the setting');
+  await js('closeJcSettings && closeJcSettings(); __sent.length = 0; $("jc-bypass").click(); true');
+  await sleep(60);
+  assert((await js('__touch.length')) === 0 && (await js('__confirms.length')) === 1, JSON.stringify(await js('__touch')));
+  assert(JSON.stringify(await sentOf('task_mode')) === JSON.stringify([{ type: 'task_mode', id: 1, mode: 'auto' }]), JSON.stringify(await js('__sent')));
+});
+
 // ──
 
 let base;
