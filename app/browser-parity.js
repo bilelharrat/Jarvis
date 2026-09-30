@@ -1,8 +1,9 @@
 // Chrome's everyday behaviour in the built-in browser, beside main.js (which owns the tabs, the
 // dock and the page's own commands): per-site permission prompts, sign-in and payment popups,
-// the leave-page question, HTTP sign-in, certificate warnings, the user agent Google's sign-in
-// accepts, and Settings › Browser. main.js hands it what it needs as hooks (createParity) and
-// calls it where a tab or a session is made.
+// the leave-page question, HTTP sign-in, certificate warnings, pinned and muted tabs and their
+// order, the tabs reopened next time, each site's zoom, the address bar's suggestions, the
+// user agent Google's sign-in accepts, and Settings › Browser. main.js hands it what it needs
+// as hooks (createParity) and calls it where a tab or a session is made.
 //
 // What the window shows comes over the app feature channels ('feature:browser:…', which
 // preload.js passes through): what the tab on show waits on (a permission, a sign-in, a
@@ -16,7 +17,7 @@ const path = require('path');
 const { SitePermissions, KINDS, originOf, hostOfOrigin } = require('./site-permissions');
 const { BrowserStore } = require('./browser-store');
 const lib = require('./browser-lib');
-const { ENGINES, setSearchEngine, searchEngine, homeUrl } = require('./url-input');
+const { ENGINES, setSearchEngine, searchEngine, homeUrl, toUrl } = require('./url-input');
 
 const PARTITION = 'persist:jarvis-browser';
 const CH = 'feature:browser:';
@@ -25,6 +26,8 @@ const POPUPS_MAX = 6; // popup windows open at once
 const POPUP_BURST = 3; // popups one page may open in POPUP_BURST_MS
 const POPUP_BURST_MS = 10000;
 const AUTH_MAX = 3; // sign-in requests one tab may have waiting; more are cancelled at once
+const SESSION_MS = 1000; // the tabs are written down a moment after they change
+const ZOOM_SITES_MAX = 1000;
 
 // English; the window sends them in the owner's language (feature:browser:labels).
 const LABELS = {
@@ -38,6 +41,8 @@ const LABELS = {
   cert_authority: 'Its certificate isn’t from an authority this Mac trusts.', cert_date: 'Its certificate has expired, or isn’t valid yet.',
   cert_name: 'Its certificate is for another site.', cert_revoked: 'Its certificate was withdrawn.',
   cert_weak: 'Its certificate uses weak security.', cert_other: 'Its certificate has a problem.',
+  reload: 'Reload', duplicate: 'Duplicate', pinTab: 'Pin tab', unpinTab: 'Unpin tab', muteTab: 'Mute tab',
+  unmuteTab: 'Unmute tab', closeTab: 'Close tab', closeOthers: 'Close other tabs',
 };
 
 class BrowserParity {
@@ -57,6 +62,10 @@ class BrowserParity {
     this.auths = new Map(); // tab id -> [sign-in asks]
     this.certs = new Map(); // tab id -> its certificate warning
     this.certOk = new Set(); // "host|fingerprint" the user continued to anyway, this session only
+    this.restored = false; // the tabs from last time were put back (or there were none)
+    this.quitting = false;
+    this.sessionTimer = null;
+    this.windowCover = false; // a panel of the window's is over the page (the address bar's list)
     // The Mac's own box, on a window of the browser's (tests hand in their own).
     this.box = hooks.box || ((owner, options) => (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options)));
     this.boxSync = hooks.boxSync || ((owner, options) => dialog.showMessageBoxSync(owner, options));
@@ -71,8 +80,15 @@ class BrowserParity {
     this.handle('sites', () => this.sitesList());
     this.handle('site', (msg) => this.setSite(msg || {}));
     this.handle('settings', (msg) => this.settings(msg || {}));
+    this.handle('tab', (msg) => this.tabAction(msg || {}));
+    this.handle('suggest', (msg) => this.suggest(msg || {}));
+    this.handle('cover', (msg) => this.setCover(msg || {}));
+    this.handle('dock', (msg) => this.dock(msg || {}));
     app.whenReady().then(() => this.setupSession(session.fromPartition(PARTITION)));
-    app.on('will-quit', () => { if (this.store) this.store.flushPending(); }); // a change a moment ago is kept
+    // Quitting: the tabs as they are now are the ones to reopen (not the none left as windows
+    // close), and a change a moment ago is kept.
+    app.on('before-quit', () => { if (!this.quitting && this.restored) this.sessionNow(); this.quitting = true; });
+    app.on('will-quit', () => { if (this.store) this.store.flushPending(); });
   }
 
   handle(name, fn) {
@@ -206,7 +222,17 @@ class BrowserParity {
   // ── each page: its tab's or popup's events ──
 
   wireTab(view) {
-    this.wire(view.webContents);
+    const wc = view.webContents;
+    this.wire(wc);
+    // A tab's sound shows on it; what it's on is written down for next time.
+    wc.on('audio-state-changed', () => this.changed());
+    for (const event of ['did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(event, () => this.sessionSoon());
+    wc.once('destroyed', () => this.sessionSoon());
+    this.sessionSoon();
+  }
+
+  changed() {
+    if (this.hooks.changed) this.hooks.changed();
   }
 
   wire(wc) {
@@ -252,8 +278,7 @@ class BrowserParity {
     let changed = this.certs.delete(id);
     for (const a of this.auths.get(id) || []) { this.settleAuth(a); changed = true; }
     this.auths.delete(id);
-    this.cover(wc, false);
-    if (changed) this.refreshAsk();
+    if (changed) { this.applyCovers(); this.refreshAsk(); }
   }
 
   // ── popups: sign-in and payment windows ──
@@ -408,18 +433,29 @@ class BrowserParity {
     const warning = { id: `c${++this.seq}`, tab: wc.id, url: String(url), host, problem: lib.certProblem(error), print };
     if (this.isTab(wc)) {
       this.certs.set(wc.id, warning);
-      this.cover(wc, true);
+      this.applyCovers();
       this.refreshAsk();
     } else {
       this.certInBox(wc, warning);
     }
   }
 
-  // The tab's page hides while its warning shows in the window (the page is a native view
-  // over the dock's slot, whatever the window draws there).
-  cover(wc, on) {
-    const view = this.viewOf(wc);
-    if (view && view.webContents && typeof view.setVisible === 'function') view.setVisible(!on);
+  // A tab's page hides while the window shows something in its place (the page is a native
+  // view over the dock's slot, whatever the window draws there): its certificate warning, or,
+  // for the tab on show, a panel of the window's (the address bar's list).
+  applyCovers() {
+    const active = this.hooks.active();
+    for (const view of this.hooks.tabs()) {
+      const wc = view.webContents;
+      if (!wc || wc.isDestroyed() || typeof view.setVisible !== 'function') continue;
+      view.setVisible(!(this.certs.has(wc.id) || (view === active && this.windowCover)));
+    }
+  }
+
+  setCover({ on }) {
+    this.windowCover = Boolean(on);
+    this.applyCovers();
+    return true;
   }
 
   certInBox(wc, warning) {
@@ -450,7 +486,7 @@ class BrowserParity {
     const warning = this.certs.get(wc.id);
     if (!warning || warning.id !== id) return false;
     this.certs.delete(wc.id);
-    this.cover(wc, false);
+    this.applyCovers();
     if (choice === 'proceed') this.proceed(wc, warning);
     else if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
     else wc.loadURL(homeUrl()).catch(() => {});
@@ -511,9 +547,187 @@ class BrowserParity {
     return false;
   }
 
-  // The tab on show changed (main.js's selectTab): what it waits on is what's shown.
-  selected() {
+  // The tab on show changed (main.js's selectTab): what it waits on is what's shown, and a
+  // tab put back from last time loads its page now.
+  selected(view) {
+    if (view && view.lazy) this.wake(view);
+    this.applyCovers();
     this.refreshAsk();
+    this.sessionSoon();
+  }
+
+  // ── tabs: pinned first, their order, their sound, and what the dock's closing stops ──
+
+  urlOf(view) {
+    return view.lazy ? view.lazy.url : view.webContents.getURL();
+  }
+
+  // What main.js's tab list adds for each tab: pinned, playing sound, muted; a tab not loaded
+  // yet (put back from last time) shows the page it will load.
+  tabInfo(view) {
+    const wc = view.webContents;
+    const live = Boolean(wc) && !wc.isDestroyed();
+    const info = { pinned: Boolean(view.pinned), audible: live && wc.isCurrentlyAudible(), muted: live && wc.isAudioMuted() };
+    return view.lazy ? { ...info, url: view.lazy.url, title: view.lazy.title } : info;
+  }
+
+  order(list) {
+    const tabs = this.hooks.tabs();
+    tabs.splice(0, tabs.length, ...list);
+  }
+
+  tabAction({ action, id, to, x, y, labels }) {
+    const view = this.hooks.tabs().find((v) => v.webContents && v.webContents.id === Number(id));
+    if (!view) return false;
+    const wc = view.webContents;
+    if (action === 'pin' || action === 'unpin') {
+      view.pinned = action === 'pin';
+      this.order(lib.pinnedFirst(this.hooks.tabs()));
+    } else if (action === 'mute' || action === 'unmute') {
+      wc.setAudioMuted(action === 'mute');
+    } else if (action === 'move') {
+      this.order(lib.moveTab(this.hooks.tabs(), view, to));
+    } else if (action === 'menu') {
+      this.setLabels(labels);
+      this.tabMenu(view, x, y);
+      return true;
+    } else {
+      return false;
+    }
+    this.changed();
+    this.sessionSoon();
+    return true;
+  }
+
+  // A tab's own menu (right-click on it in the strip), as in Chrome.
+  tabMenu(view, x, y) {
+    const wc = view.webContents;
+    const id = wc.id;
+    const many = this.hooks.tabs().length > 1;
+    const url = this.urlOf(view);
+    const items = [
+      { label: this.label('reload'), click: () => (view.lazy ? this.wake(view) : wc.reload()) },
+      { label: this.label('duplicate'), enabled: /^https?:/i.test(url) && Boolean(this.hooks.openTab), click: () => this.hooks.openTab(url) },
+      { label: this.label(view.pinned ? 'unpinTab' : 'pinTab'), click: () => this.tabAction({ action: view.pinned ? 'unpin' : 'pin', id }) },
+      { label: this.label(wc.isAudioMuted() ? 'unmuteTab' : 'muteTab'), click: () => this.tabAction({ action: wc.isAudioMuted() ? 'unmute' : 'mute', id }) },
+      { type: 'separator' },
+      { label: this.label('closeTab'), enabled: many && Boolean(this.hooks.closeTab), click: () => this.hooks.closeTab(view) },
+      { label: this.label('closeOthers'), enabled: many && Boolean(this.hooks.closeTab), click: () => { for (const v of this.hooks.tabs().slice()) if (v !== view && !v.pinned) this.hooks.closeTab(v); } },
+    ];
+    this.popupAt(items, x, y);
+  }
+
+  // The dock closed: every video and sound in the tabs stops (JARVIS's own tabs too).
+  dock({ open }) {
+    if (open) return true;
+    for (const view of this.hooks.tabs()) {
+      const wc = view.webContents;
+      if (!wc || wc.isDestroyed() || view.lazy) continue;
+      try {
+        for (const frame of wc.mainFrame.framesInSubtree) frame.executeJavaScript(lib.PAUSE_MEDIA).catch(() => {});
+      } catch { /* the page is going */ }
+    }
+    return true;
+  }
+
+  // ── the tabs kept for next time ──
+
+  sessionSoon() {
+    if (!this.restored || this.quitting) return;
+    clearTimeout(this.sessionTimer);
+    this.sessionTimer = setTimeout(() => this.sessionNow(), SESSION_MS);
+    if (this.sessionTimer.unref) this.sessionTimer.unref();
+  }
+
+  sessionNow() {
+    clearTimeout(this.sessionTimer);
+    this.sessionTimer = null;
+    const tabs = this.hooks.tabs();
+    const data = this.state();
+    data.session = lib.sessionOf(tabs.map((view) => this.sessionTab(view)), {
+      active: tabs.indexOf(this.hooks.active()), keep: this.hooks.keep || (() => true),
+    });
+    this.save();
+  }
+
+  // A tab as it's kept: its page and its back and forward list (addresses and titles only;
+  // never what was typed in the page). A private tab and a Jarvis Code session's aren't kept.
+  sessionTab(view) {
+    const wc = view.webContents;
+    if (!wc || wc.isDestroyed() || view.private || String(view.agentOwner || '').startsWith('code:')) return { skip: true };
+    if (view.lazy) return { ...view.lazy, pinned: Boolean(view.pinned) };
+    const history = wc.navigationHistory;
+    return {
+      url: wc.getURL(), title: wc.getTitle(), pinned: Boolean(view.pinned),
+      entries: history.getAllEntries().map((e) => ({ url: e.url, title: e.title })), index: history.getActiveIndex(),
+    };
+  }
+
+  // The first time the browser is wanted: last time's tabs, when the owner keeps them. The tab
+  // that was on show and the pinned ones load now, the rest when first shown.
+  restore() {
+    if (this.restored) return false;
+    this.restored = true;
+    const data = this.state();
+    const saved = data.session;
+    if (!data.restore || !saved.tabs.length || !this.hooks.restoreTab) return false;
+    const views = saved.tabs.map((t, i) => {
+      const view = this.hooks.restoreTab();
+      view.pinned = t.pinned;
+      if (i === saved.active || t.pinned) this.load(view, t);
+      else view.lazy = t;
+      return view;
+    });
+    this.order(lib.pinnedFirst(this.hooks.tabs()));
+    this.hooks.select(views[saved.active] || views[0]);
+    return true;
+  }
+
+  load(view, t) {
+    const wc = view.webContents;
+    if (t.entries && t.entries.length && t.index >= 0) wc.navigationHistory.restore({ entries: t.entries, index: t.index }).catch(() => {});
+    else wc.loadURL(t.url).catch(() => {});
+  }
+
+  wake(view) {
+    const t = view.lazy;
+    if (!t) return;
+    view.lazy = null;
+    this.load(view, t);
+  }
+
+  // ── each site's zoom, kept (never a private tab's) ──
+
+  zoomFor(wc) {
+    const key = lib.zoomKey(wc.getURL());
+    return (key && this.state().zoom[key]) || 1;
+  }
+
+  zoomed(wc, factor) {
+    const view = this.viewOf(wc);
+    const key = lib.zoomKey(wc.getURL());
+    if (!key || (view && view.private)) return;
+    const zoom = this.state().zoom;
+    const f = Number(factor) || 1;
+    if (Math.abs(f - 1) < 0.01) delete zoom[key];
+    else if (key in zoom || Object.keys(zoom).length < ZOOM_SITES_MAX) zoom[key] = Math.round(f * 1000) / 1000;
+    this.save();
+  }
+
+  // ── the address bar: what's typed, and the open tabs, bookmarks and history it matches ──
+
+  suggest({ text }) {
+    const words = String(text || '').trim().slice(0, 500);
+    if (!words) return { typed: null, rows: [] };
+    const active = this.hooks.active();
+    const tabs = this.hooks.tabs()
+      .filter((v) => v.webContents && !v.webContents.isDestroyed())
+      .map((v) => ({ id: v.webContents.id, url: this.urlOf(v), title: v.lazy ? v.lazy.title : v.webContents.getTitle(), active: v === active }));
+    const data = this.hooks.browserData ? this.hooks.browserData() : {};
+    const rows = lib.suggest(words, { tabs, bookmarks: data.bookmarks || [], history: data.history || [], limit: 7 });
+    const engine = searchEngine();
+    const url = toUrl(words, { typed: true });
+    return { typed: { text: words, url, search: url.startsWith(engine.search), engine: engine.name }, rows };
   }
 
   // ── the site's menu (the button at the address's start): its permissions and data ──
@@ -570,6 +784,10 @@ class BrowserParity {
       data.engine = setSearchEngine(changes.engine);
       this.save();
     }
+    if (typeof changes.restore === 'boolean') {
+      data.restore = changes.restore;
+      this.save();
+    }
     return this.hello();
   }
 
@@ -578,6 +796,7 @@ class BrowserParity {
     return {
       engine: searchEngine().id,
       engines: Object.entries(ENGINES).map(([id, e]) => ({ id, name: e.name })),
+      restore: this.state().restore,
       sites: this.sitesList(),
       ask: this.currentAsk(),
       site: this.siteState(),

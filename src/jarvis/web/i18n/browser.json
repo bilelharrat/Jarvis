@@ -43,7 +43,21 @@
     "Its certificate was withdrawn.": "它的证书已被吊销。",
     "Its certificate uses weak security.": "它的证书安全性较弱。",
     "Its certificate has a problem.": "它的证书有问题。",
-    "Not secure: you continued past a certificate warning here": "不安全：你在此网站忽略了证书警告并继续访问"
+    "Not secure: you continued past a certificate warning here": "不安全：你在此网站忽略了证书警告并继续访问",
+    "Duplicate": "复制标签页",
+    "Pin tab": "固定标签页",
+    "Unpin tab": "取消固定标签页",
+    "Mute tab": "将标签页静音",
+    "Unmute tab": "取消标签页静音",
+    "Close other tabs": "关闭其他标签页",
+    "Search tabs": "搜索标签页",
+    "Search tabs (⌘⇧A)": "搜索标签页（⌘⇧A）",
+    "No open tab matches.": "没有匹配的已打开标签页。",
+    "Current tab": "当前标签页",
+    "Pinned tab": "已固定的标签页",
+    "Switch to tab": "切换到此标签页",
+    "Reopen your tabs": "重新打开你的标签页",
+    "The tabs you had open, pinned ones too, come back the next time you open the browser": "下次打开浏览器时，你之前打开的标签页（包括固定的标签页）会重新出现"
   },
   "patterns": [
     ["^Camera: ([\\w.:\\[\\]-]+)$", "摄像头：$1"],
@@ -51,6 +65,7 @@
     ["^Location: ([\\w.:\\[\\]-]+)$", "位置：$1"],
     ["^Notifications: ([\\w.:\\[\\]-]+)$", "通知：$1"],
     ["^Clipboard: ([\\w.:\\[\\]-]+)$", "剪贴板：$1"],
-    ["^Forget ([\\w.:\\[\\]-]+)$", "忘记 $1"]
+    ["^Forget ([\\w.:\\[\\]-]+)$", "忘记 $1"],
+    ["^Search (Google|DuckDuckGo|Bing|Brave|Kagi)$", "用 $1 搜索"]
   ]
 }

@@ -111,6 +111,7 @@ function confirmBypass(kind, text, then, otherwise) {
 }
 const featureDecorators = [];  // (entry, li) -> add to a transcript entry as it's drawn (pictures)
 let featureRichText = null;  // (text) -> an element: a feature's fuller Markdown for Claude's words
+const featureTabs = [];  // (element, tab) -> what a feature adds to each of the dock's tabs (browser.js)
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -143,6 +144,7 @@ window.jarvisFeatures = {
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
+  registerTab(fn) { featureTabs.push(fn); if (browserState.tabs) { tabsShown = ''; renderTabs(browserState.tabs); } },
   unregisterSlash(name) { featureSlash.delete(String(name).toLowerCase()); },
 };
 
@@ -4910,7 +4912,7 @@ async function openResearch(path = '/markets') {
 let tabsShown = '';
 let tabOnShow = null; // the pill lifts only when the tab on show changes
 function renderTabs(list) {
-  const key = JSON.stringify(list.map((t) => [t.id, t.title, t.url, t.active, t.loading]));
+  const key = JSON.stringify(list.map((t) => [t.id, t.title, t.url, t.active, t.loading, t.pinned, t.audible, t.muted]));
   if (key === tabsShown) return;
   tabsShown = key;
   const strip = $('bd-tabs');
@@ -4936,6 +4938,10 @@ function renderTabs(list) {
       x.setAttribute('aria-label', 'Close tab');
       x.addEventListener('click', (e) => { e.stopPropagation(); app.browser.tab('close', t.id); });
       tab.append(x);
+    }
+    tab.dataset.tab = t.id;
+    for (const fn of featureTabs) {
+      try { fn(tab, t); } catch (err) { console.error('feature tab', err); }
     }
     return tab;
   }));

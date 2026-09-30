@@ -91,3 +91,44 @@ body.browser-slim .bd-ask-text { flex-basis: calc(100% - 80px); }
 }
 .bp-forget:hover { background: var(--chip-hover); }
 .bp-empty { font-size: 13px; line-height: 1.45; color: var(--muted); }
+
+/* ── the tabs: pinned ones small, their sound, where a dragged one lands ── */
+.bd-tab.pinned { flex: none; min-width: 0; width: 36px; padding: 0; justify-content: center; }
+.bd-tab.pinned .bd-tab-title, .bd-tab.pinned .bd-tab-x { display: none; }
+.bd-tab-icon { flex: none; width: 16px; height: 16px; border-radius: 4px; object-fit: contain; }
+.bd-tab-letter {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px;
+  font-size: 10.5px; font-weight: 700; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.09);
+}
+.bd-tab-sound {
+  flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 9px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; color: rgb(var(--c-ink-2)); background: transparent;
+}
+.bd-tab-sound:hover { background: rgb(var(--c-ink) / 0.1); color: rgb(var(--c-ink)); }
+.bd-tab-sound.muted { color: rgb(var(--c-muted)); }
+.bd-tab.pinned .bd-tab-sound {
+  position: absolute; top: -3px; right: -3px; width: 15px; height: 15px; border-radius: 8px;
+  background: var(--glass-pill, rgb(var(--c-surface))); box-shadow: var(--glass-rim, 0 0 0 0.5px rgb(var(--c-ink) / 0.12));
+}
+.bd-tab.pinned .bd-tab-sound svg { width: 10px; height: 10px; }
+.bd-tab.dragging { opacity: 0.45; }
+.bd-tab.drop-before::before, .bd-tab.drop-after::after {
+  content: ''; position: absolute; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: rgb(var(--c-accent));
+}
+.bd-tab.drop-before::before { left: -3px; }
+.bd-tab.drop-after::after { right: -3px; }
+
+/* ── tab search and the address bar's list, in the page's place ── */
+.bp-panel { z-index: 3; }
+.bp-omni { padding-top: 6px; }
+.bp-list .bp-row.on { background: rgb(var(--c-accent) / 0.12); }
+.bp-list .bp-row.on .bd-lib-title { color: rgb(var(--c-accent-ink)); }
+.bp-row .bd-lib-go { grid-template-columns: minmax(0, 1fr) auto; }
+.bp-row-head { grid-column: 1; min-width: 0; display: flex; align-items: center; gap: 8px; color: rgb(var(--c-muted)); }
+.bp-row-head svg { flex: none; }
+.bp-row .bd-lib-url { padding-left: 21px; }
+.bp-badge {
+  grid-column: 2; grid-row: 1 / span 2; align-self: center; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.07);
+}
+.bp-row.on .bp-badge { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.14); }

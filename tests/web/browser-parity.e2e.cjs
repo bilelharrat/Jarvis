@@ -26,6 +26,7 @@ const { createParity, PARTITION } = require('../../app/browser-parity');
 // An exception in the app's code fails the run (Electron would otherwise stop on its error box).
 let uncaught = 0;
 process.on('uncaughtException', (err) => { uncaught += 1; console.log(`UNCAUGHT ${err && err.stack}`); });
+app.on('window-all-closed', () => {}); // the run ends with its own exit code, not when the last window goes
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PAGES = {
@@ -41,7 +42,22 @@ const PAGES = {
     <script>setTimeout(() => window.opener && window.opener.postMessage('ok', location.origin), 50);</script></body>`,
   '/leave': `<!doctype html><title>Draft</title><body><textarea>half a letter</textarea>
     <script>addEventListener('beforeunload', (e) => { e.preventDefault(); e.returnValue = ''; });</script></body>`,
+  // A sound playing in the page and in a frame of it.
+  '/music': '<!doctype html><title>Music</title><body><audio id="a" src="/tone.wav" loop></audio><iframe id="f" src="/music-frame"></iframe></body>',
+  '/music-frame': '<!doctype html><title>Frame</title><body><audio id="a" src="/tone.wav" loop></audio></body>',
 };
+
+// A second of silence, as a WAV file (nothing is heard: the test runs muted too).
+function silence() {
+  const rate = 8000;
+  const data = Buffer.alloc(rate);
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0); head.writeUInt32LE(36 + data.length, 4); head.write('WAVE', 8); head.write('fmt ', 12);
+  head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(1, 22); head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate, 28); head.writeUInt16LE(1, 32); head.writeUInt16LE(8, 34); head.write('data', 36); head.writeUInt32LE(data.length, 40);
+  data.fill(128);
+  return Buffer.concat([head, data]);
+}
 const USER = 'owner';
 const PASS = 'correct horse'; // a test's own, for a server that lives for this run
 
@@ -54,6 +70,11 @@ function serve() {
         if (!ok) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Staff only"', 'content-type': 'text/html' }); res.end('<title>Unauthorized</title>no'); return; }
         res.writeHead(200, { 'content-type': 'text/html' });
         res.end('<title>Welcome</title>in');
+        return;
+      }
+      if (where === '/tone.wav') {
+        res.writeHead(200, { 'content-type': 'audio/wav' });
+        res.end(silence());
         return;
       }
       if (where === '/picture') { // a page with another site's picture that asks for a sign-in
@@ -99,6 +120,7 @@ let boxAnswer = 1;
 const syncBoxes = []; // the leave-page questions
 let syncAnswer = 1;
 const opened = []; // new tabs main.js would have opened
+const browserData = { bookmarks: [], history: [] }; // main.js's browser.json
 let parity;
 
 function newTab() {
@@ -437,6 +459,128 @@ test('A popup’s certificate warning asks in the Mac’s box on that popup', as
   popup.destroy();
 });
 
+test('Tabs: pinned ones go first, a dragged one keeps to its group, a muted one stays muted', async () => {
+  for (const view of tabs.splice(0)) view.webContents.close();
+  const [a, b, c] = [newTab(), newTab(), newTab()];
+  await Promise.all([a, b, c].map((v, i) => v.webContents.loadURL(`${base}/other?${i}`)));
+  const order = () => tabs.map((v) => [a, b, c].indexOf(v)).join('');
+  assert(parity.tabAction({ action: 'pin', id: c.webContents.id }) && order() === '201', `pinned: ${order()}`);
+  assert(parity.tabInfo(c).pinned === true && parity.tabInfo(a).pinned === false, 'the tab list does not say which is pinned');
+  parity.tabAction({ action: 'move', id: a.webContents.id, to: 0 });
+  assert(order() === '201', `a tab moved among the pinned: ${order()}`);
+  parity.tabAction({ action: 'move', id: a.webContents.id, to: 2 });
+  assert(order() === '210', `moved: ${order()}`);
+  assert(parity.tabAction({ action: 'mute', id: b.webContents.id }) && b.webContents.isAudioMuted() && parity.tabInfo(b).muted, 'not muted');
+  parity.tabAction({ action: 'unmute', id: b.webContents.id });
+  assert(!b.webContents.isAudioMuted(), 'still muted');
+  assert(!parity.tabAction({ action: 'pin', id: 99999 }) && !parity.tabAction({ action: 'explode', id: a.webContents.id }), 'a bad action did something');
+  assert(sent.some(([c2]) => c2 === 'changed'), 'the tab strip was not told');
+});
+
+test('Closing the dock stops every video and sound in the tabs, in frames too', async () => {
+  const view = newTab();
+  await view.webContents.loadURL(`${base}/music`);
+  const playing = `Promise.all([document.getElementById('a').play(), document.getElementById('f').contentDocument.getElementById('a').play()]).then(() => true, (e) => e.name)`;
+  assert((await page(view, playing)) === true, 'the test page could not play');
+  const paused = () => page(view, `[document.getElementById('a').paused, document.getElementById('f').contentDocument.getElementById('a').paused].join()`);
+  assert((await paused()) === 'false,false', await paused());
+  parity.dock({ open: true });
+  await sleep(200);
+  assert((await paused()) === 'false,false', 'opening the dock stopped the sound');
+  parity.dock({ open: false });
+  await until(async () => (await paused()) === 'true,true');
+  assert((await paused()) === 'true,true', `still playing: ${await paused()}`);
+});
+
+test('Each site keeps its zoom, and a private tab’s is never kept', async () => {
+  const view = newTab();
+  await view.webContents.loadURL(`${base}/other`);
+  parity.zoomed(view.webContents, 1.5);
+  assert(parity.zoomFor(view.webContents) === 1.5, 'the site forgot its zoom');
+  const other = newTab();
+  await other.webContents.loadURL(`${base2}/`);
+  assert(parity.zoomFor(other.webContents) === 1, 'another site took the zoom');
+  parity.zoomed(view.webContents, 1);
+  assert(!(new URL(base).host in parity.state().zoom), 'back to 100 % is kept as nothing');
+  other.private = true;
+  parity.zoomed(other.webContents, 2);
+  assert(!(new URL(base2).host in parity.state().zoom), 'a private tab’s zoom was kept');
+});
+
+test('The address bar’s list: open tabs to switch to, bookmarks and history, and what Return does', async () => {
+  const view = newTab();
+  active = view;
+  await view.webContents.loadURL(`${base}/other`);
+  const behind = newTab();
+  await behind.webContents.loadURL(`${base}/opener`);
+  browserData.history = [{ url: `${base}/leave`, title: 'Shop drafts', at: Date.now() }];
+  browserData.bookmarks = [{ url: 'https://shop.example/', title: 'The shop', folder: 'Errands' }];
+  const r = parity.suggest({ text: 'shop' });
+  assert(r.typed && r.typed.search === true && r.typed.engine === 'Google' && r.typed.url.startsWith('https://www.google.com/search?q=shop'), JSON.stringify(r.typed));
+  const kinds = r.rows.map((x) => x.kind);
+  const tab = r.rows.find((x) => x.kind === 'tab');
+  assert(tab && tab.tab === behind.webContents.id && tab.url === `${base}/opener`, `no tab to switch to: ${JSON.stringify(r.rows)}`);
+  assert(!r.rows.some((x) => x.kind === 'tab' && x.tab === view.webContents.id), 'the tab on show was offered');
+  assert(r.rows.some((x) => x.kind === 'bookmark' && x.folder === 'Errands') && kinds.indexOf('tab') < kinds.indexOf('history'), JSON.stringify(r.rows));
+  assert(parity.suggest({ text: 'example.com' }).typed.search === false, 'an address read as words');
+  assert(parity.suggest({ text: '   ' }).typed === null, 'nothing typed, something suggested');
+});
+
+test('The page steps aside while a panel of the window’s is over it', async () => {
+  const view = newTab();
+  active = view;
+  parity.selected(view);
+  parity.setCover({ on: true });
+  assert(view.getVisible() === false, 'the page stayed over the panel');
+  const other = newTab();
+  active = other;
+  parity.selected(other);
+  assert(view.getVisible() === true && other.getVisible() === false, 'the cover did not follow the tab on show');
+  parity.setCover({ on: false });
+  assert(other.getVisible() === true, 'the page stayed hidden');
+});
+
+test('The tabs come back next time: pinned first, back lists and all; tabs behind load when first shown', async () => {
+  for (const view of tabs.splice(0)) view.webContents.close();
+  parity.restored = false;
+  assert(parity.restore() === false, 'restored with nothing kept'); // (and from now on changes are kept)
+  const a = newTab();
+  await a.webContents.loadURL(`${base}/other?1`);
+  await a.webContents.loadURL(`${base}/other?2`);
+  const b = newTab();
+  await b.webContents.loadURL(`${base}/opener`);
+  const s = newTab();
+  await s.webContents.loadURL(`${base}/secret`).catch(() => {}); // an address never kept
+  const p = newTab();
+  p.private = true;
+  await p.webContents.loadURL(`${base}/other?private`);
+  parity.tabAction({ action: 'pin', id: b.webContents.id });
+  active = a;
+  parity.sessionNow();
+  const kept = parity.state().session;
+  assert(JSON.stringify(kept.tabs.map((t) => [t.url, t.pinned])) === JSON.stringify([[`${base}/opener`, true], [`${base}/other?2`, false]]), JSON.stringify(kept.tabs));
+  assert(kept.active === 1 && kept.tabs[1].index === 1 && kept.tabs[1].entries.length === 2, JSON.stringify(kept));
+  parity.store.flush();
+  const saved = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'browser-state.json'), 'utf8'));
+  assert(saved.session.tabs.length === 2 && !JSON.stringify(saved).includes('private') && !JSON.stringify(saved).includes('secret'), 'kept what it shouldn’t');
+  // Next time: the tab on show and the pinned one load; the other waits to be shown.
+  for (const view of tabs.splice(0)) view.webContents.close();
+  parity.restored = false;
+  parity.state().session = { tabs: [kept.tabs[1], { url: `${base}/other?3`, title: 'Three', pinned: false, entries: [], index: -1 }, kept.tabs[0]], active: 0 };
+  assert(parity.restore() === true, 'nothing restored');
+  assert(tabs.length === 3 && tabs[0].pinned && active === tabs[1], `order or tab on show: ${tabs.map((v) => parity.tabInfo(v).url)}`);
+  await until(() => tabs[1].webContents.getURL() === `${base}/other?2`, 10000);
+  assert(tabs[1].webContents.navigationHistory.canGoBack(), 'its back list did not come back');
+  await until(() => tabs[0].webContents.getURL() === `${base}/opener`, 10000);
+  assert(tabs[0].webContents.getURL() === `${base}/opener`, 'the pinned tab did not load');
+  assert(tabs[2].webContents.getURL() === '' && parity.tabInfo(tabs[2]).url === `${base}/other?3` && parity.tabInfo(tabs[2]).title === 'Three', 'a tab behind loaded, or shows nothing');
+  active = tabs[2];
+  parity.selected(tabs[2]);
+  await until(() => tabs[2].webContents.getURL() === `${base}/other?3`, 10000);
+  assert(tabs[2].webContents.getURL() === `${base}/other?3`, 'shown, it did not load');
+  assert(parity.restore() === false, 'restored twice');
+});
+
 let failed = 0;
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
@@ -456,6 +600,12 @@ app.whenReady().then(async () => {
     boxSync: (owner, options) => { syncBoxes.push({ owner, options }); return syncAnswer; },
     showPopup: () => {}, // no window is shown here
     openTab: (url) => opened.push(url),
+    restoreTab: () => newTab(),
+    select: (view) => { active = view; parity.selected(view); },
+    closeTab: (view) => { tabs.splice(tabs.indexOf(view), 1); view.webContents.close(); },
+    changed: () => sent.push(['changed']),
+    keep: (url) => !url.includes('/secret'),
+    browserData: () => browserData,
   });
   await sleep(50);
   for (const t of tests) {

@@ -264,7 +264,7 @@ let browserShown = false;
 let browserLocked = false;
 let browserSynthetic = false; // true only while Jarvis itself sends input
 let agentInput = false; // true while the browser agent's own keys and clicks go in (browser-agent.js)
-let browserZoom = 1; // this session's zoom; Chromium would otherwise keep one per host forever
+let browserZoom = 1; // the zoom last set (each site keeps its own: browser-parity.js)
 let researchBase = '';
 let browserAsked = false; // a page was asked for: showing the view must not load the start page over it
 const pageCalls = new Map();
@@ -292,7 +292,7 @@ function researchPath(url) {
 function tabList() {
   return tabs.map((view) => {
     const wc = view.webContents;
-    return { id: wc.id, title: wc.getTitle(), url: wc.getURL(), loading: wc.isLoading(), research: onResearch(wc.getURL()), active: view === browserView, favicon: view.favicon || '' };
+    return { id: wc.id, title: wc.getTitle(), url: wc.getURL(), loading: wc.isLoading(), research: onResearch(wc.getURL()), active: view === browserView, favicon: view.favicon || '', ...parity.tabInfo(view) };
   });
 }
 
@@ -326,7 +326,7 @@ function updateLock() {
 function ensureBrowser() {
   readyDownloads();
   readyAdblock();
-  if (!browserView) {
+  if (!browserView && !parity.restore()) { // last time's tabs, when the owner keeps them (browser-parity.js)
     browserView = createTab();
     tabs.push(browserView);
   }
@@ -343,7 +343,7 @@ function selectTab(view) {
     win.contentView.addChildView(view);
     if (lastBounds) view.setBounds(lastBounds);
   }
-  view.webContents.setZoomFactor(browserZoom);
+  view.webContents.setZoomFactor(parity.zoomFor(view.webContents)); // the site's own zoom
   updateLock();
 }
 
@@ -396,6 +396,7 @@ function browserShortcut(input) {
   if (alt) return false;
   if (shift) {
     if (key === 't') { reopenTab(); return true; }
+    if (key === 'a') return ui('tab-search'); // search the open tabs (browser.js)
     if (key === '[' || key === '{') return stepTab(-1);
     if (key === ']' || key === '}') return stepTab(1);
     return false;
@@ -433,6 +434,7 @@ function zoomBy(factor) {
   const wc = browserView.webContents;
   browserZoom = factor ? Math.min(3, Math.max(0.33, wc.getZoomFactor() * factor)) : 1;
   wc.setZoomFactor(browserZoom);
+  parity.zoomed(wc, browserZoom); // kept for the site
   sendBrowserState();
   return true;
 }
@@ -730,7 +732,7 @@ function createTab() {
   wc.on('context-menu', (_event, params) => { if (!(active() && browserLocked)) pageMenu(view, params); });
   wc.on('before-mouse-event', (event) => { if (active() && browserLocked && !browserSynthetic) event.preventDefault(); });
   for (const event of ['did-navigate', 'did-navigate-in-page']) wc.on(event, () => (active() ? updateLock() : sendBrowserState()));
-  wc.on('did-finish-load', () => wc.setZoomFactor(browserZoom));
+  wc.on('did-finish-load', () => wc.setZoomFactor(parity.zoomFor(wc))); // the site's own zoom
   for (const event of ['page-title-updated', 'did-start-loading', 'did-stop-loading']) wc.on(event, () => sendBrowserState());
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && active() && !isCertError(code)) { // a certificate's: browser-parity.js warns
@@ -906,6 +908,14 @@ const parity = createParity({
   dev: Boolean(DEV_URL),
   // A popup's link for a new window: a tab in the dock.
   openTab: (url) => { newTab(url); sendBrowserState(); if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
+  // The tabs put back from last time: each an empty tab its page is loaded into.
+  restoreTab: () => { const view = createTab(); tabs.push(view); browserAsked = true; return view; },
+  select: (view) => { selectTab(view); sendBrowserState(); },
+  closeTab: (view) => closeTab(view),
+  changed: () => sendBrowserState(),
+  // Never kept for next time: the Research Center's sign-in pages (their addresses can carry a reset token).
+  keep: (url) => !(onResearch(url) && RESEARCH_AUTH.test(researchPath(url))),
+  browserData: () => browserStore(), // history and bookmarks, for the address bar's suggestions
 });
 
 async function runBrowserCommand({ action, args = {} }) {
@@ -991,6 +1001,7 @@ async function runBrowserCommand({ action, args = {} }) {
       const next = args.direction === 'in' ? now * 1.15 : args.direction === 'out' ? now / 1.15 : 1;
       browserZoom = Math.min(1.8, Math.max(0.6, next));
       wc.setZoomFactor(browserZoom);
+      parity.zoomed(wc, browserZoom); // kept for the site
       sendBrowserState();
       return { ok: true, zoom: Math.round(browserZoom * 100) };
     }
@@ -1141,6 +1152,7 @@ ipcMain.on('browser:hand', (event, message) => {
     const wc = browserView.webContents;
     browserZoom = Math.min(1.8, Math.max(0.6, wc.getZoomFactor() * (Number(message.f) || 1)));
     wc.setZoomFactor(browserZoom);
+    parity.zoomed(wc, browserZoom); // kept for the site
     sendBrowserState();
     return;
   }

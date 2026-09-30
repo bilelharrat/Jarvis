@@ -4906,6 +4906,7 @@ async function loadBrowser(answers = '') {
       browser: {
         onState: (cb) => __b.state.push(cb), show: (b) => __b.calls.push(['show']), hide: () => __b.calls.push(['hide']),
         tab: (...a) => __b.calls.push(['tab', ...a]), nav: (...a) => __b.calls.push(['nav', ...a]),
+        onShortcut: (cb) => { __b.shortcut = cb; },
       },
       feature: {
         invoke: (channel, ...args) => { __b.invoked.push([channel, ...args]); return Promise.resolve(__b.answer ? __b.answer(channel, ...args) : channel === 'feature:browser:hello' ? __b.hello : null); },
@@ -5029,6 +5030,132 @@ test('A certificate warning takes the page’s place; Back to safety and Continu
   assert(await js('$("bd-cert").hidden && $("br-site").classList.contains("unsafe") && $("br-site").title === "Not secure: you continued past a certificate warning here"'), 'the site button does not warn');
   await js(`__b.on['feature:browser:site-state']({ unsafe: false }); true`);
   assert(await js('!$("br-site").classList.contains("unsafe") && $("br-site").title === "Site settings"'), 'the warning stayed');
+});
+
+test('Tabs in the strip: a pinned one small with its icon, a playing one’s sound mutes it, a right-click asks for its menu, a drop moves it', async () => {
+  await loadBrowser();
+  await js(`$("browser").hidden = false; tabsShown = ''; renderTabs([
+    { id: 1, title: 'Mail', url: 'https://www.mail.example/', active: false, pinned: true, favicon: '' },
+    { id: 2, title: 'Music', url: 'https://music.example/', active: true, audible: true },
+    { id: 3, title: 'News', url: 'https://news.example/', active: false, muted: true },
+  ]); true`);
+  const tabs = await js(`[...document.querySelectorAll('#bd-tabs .bd-tab')].map((t) => [t.dataset.tab, t.classList.contains('pinned'), (t.querySelector('.bd-tab-letter') || {}).textContent || '', (t.querySelector('.bd-tab-sound') || {}).title || '', t.draggable].join('|'))`);
+  assert(JSON.stringify(tabs) === '["1|true|M||true","2|false||Mute tab|true","3|false||Unmute tab|true"]', JSON.stringify(tabs));
+  await js(`tabsShown = ''; renderTabs([{ id: 5, title: 'Router', url: 'http://192.168.1.1/', active: true, pinned: true }]); true`);
+  assert(await js('!!document.querySelector("[data-tab=\\"5\\"] .bd-tab-letter svg") && document.querySelector("[data-tab=\\"5\\"] .bd-tab-letter").textContent === ""'), 'an address got a digit for its icon');
+  await js(`tabsShown = ''; renderTabs([
+    { id: 1, title: 'Mail', url: 'https://www.mail.example/', active: false, pinned: true, favicon: '' },
+    { id: 2, title: 'Music', url: 'https://music.example/', active: true, audible: true },
+    { id: 3, title: 'News', url: 'https://news.example/', active: false, muted: true },
+  ]); true`);
+  await js(`document.querySelector('[data-tab="2"] .bd-tab-sound').click(); document.querySelector('[data-tab="3"] .bd-tab-sound').click(); true`);
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:tab')) === '[{"action":"mute","id":2},{"action":"unmute","id":3}]', JSON.stringify(await invokedOn('feature:browser:tab')));
+  assert(await js('!__b.calls.some(([c, a]) => c === "tab" && a === "select")'), 'muting also picked the tab');
+  await js(`document.querySelector('[data-tab="3"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 20 })); true`);
+  await settle();
+  const menu = (await invokedOn('feature:browser:tab')).at(-1);
+  assert(menu.action === 'menu' && menu.id === 3 && menu.x === 40 && menu.y === 20 && menu.labels.pinTab === 'Pin tab' && menu.labels.closeOthers === 'Close other tabs', JSON.stringify(menu));
+  // News dropped on the near half of Music: it goes before it.
+  await js(`(() => {
+    const dt = new DataTransfer();
+    const from = document.querySelector('[data-tab="3"]');
+    const to = document.querySelector('[data-tab="2"]');
+    const r = to.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 3, clientY: r.top + 5 };
+    from.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    to.dispatchEvent(new DragEvent('dragover', at));
+    to.dispatchEvent(new DragEvent('drop', at));
+    from.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+    return true;
+  })()`);
+  await settle();
+  assert(JSON.stringify((await invokedOn('feature:browser:tab')).at(-1)) === '{"action":"move","id":3,"to":1}', JSON.stringify((await invokedOn('feature:browser:tab')).at(-1)));
+  assert(await js('!document.querySelector("#bd-tabs .drop-before, #bd-tabs .drop-after, #bd-tabs .dragging")'), 'the drop marks stayed');
+});
+
+test('Tab search (its button or ⌘⇧A) finds an open tab by its words; Return shows it, Esc closes; the page steps aside meanwhile', async () => {
+  await loadBrowser();
+  await js(`$("browser").hidden = false; __state({ url: 'https://ir.example/q3', tabs: [
+    { id: 1, title: 'Quarterly results', url: 'https://ir.example/q3', active: true },
+    { id: 2, title: 'Pull requests', url: 'https://github.com/owner/jarvis/pulls', active: false, pinned: true },
+    { id: 3, title: 'Weather', url: 'https://weather.example/', active: false },
+  ] }); true`);
+  assert(await js('$("br-tabsearch").nextElementSibling === $("br-library")'), 'the tabs button is missing or misplaced');
+  await js('$("br-tabsearch").click(); true');
+  await settle();
+  const open = await js(`({ hidden: $("bp-tabs").hidden, focused: document.activeElement === $("bp-tabs-search"), rows: [...$("bp-tabs-list").querySelectorAll(".bp-row")].map((r) => r.querySelector(".bd-lib-title").textContent + "|" + ((r.querySelector(".bp-badge") || {}).textContent || "")), on: $("bp-tabs-list").querySelector(".bp-row.on .bd-lib-title").textContent })`);
+  assert(!open.hidden && open.focused && JSON.stringify(open.rows) === '["Quarterly results|Current tab","Pull requests|Pinned tab","Weather|"]' && open.on === 'Quarterly results', JSON.stringify(open));
+  assert(JSON.stringify(await invokedOn('feature:browser:cover')) === '[{"on":true}]', 'the page did not step aside');
+  await js(`$("bp-tabs-search").value = "JARVIS pull"; $("bp-tabs-search").dispatchEvent(new Event("input")); true`);
+  assert(JSON.stringify(await js('[...$("bp-tabs-list").querySelectorAll(".bd-lib-title")].map((t) => t.textContent)')) === '["Pull requests"]', 'the words did not find it');
+  await js(`$("bp-tabs-search").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); true`);
+  await settle();
+  assert(await js('JSON.stringify(__b.calls.filter(([c]) => c === "tab")) === JSON.stringify([["tab", "select", 2]])'), await js('JSON.stringify(__b.calls)'));
+  assert(await js('$("bp-tabs").hidden') && JSON.stringify((await invokedOn('feature:browser:cover')).at(-1)) === '{"on":false}', 'the search stayed, or the page stayed aside');
+  await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })); true`);
+  assert(!(await js('$("bp-tabs").hidden')), '⌘⇧A did not open it');
+  await js(`$("bp-tabs-search").value = "zzz"; $("bp-tabs-search").dispatchEvent(new Event("input")); true`);
+  assert(await js('$("bp-tabs-list").textContent === "No open tab matches."'), 'no empty state');
+  await js(`$("bp-tabs-search").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
+  assert(await js('$("bp-tabs").hidden'), 'Esc left it open');
+  await js('__b.shortcut("tab-search"); true'); // ⌘⇧A with the page focused, from the app
+  assert(!(await js('$("bp-tabs").hidden')), 'the page’s ⌘⇧A did not open it');
+});
+
+test('The address bar’s list: what Return does, then the open tabs, bookmarks and history that match; ↓ and Return pick one', async () => {
+  await loadBrowser(`__b.answer = (channel, msg) => channel === 'feature:browser:hello' ? __b.hello
+    : channel === 'feature:browser:suggest' ? { typed: { text: msg.text.trim(), url: 'https://www.google.com/search?q=' + msg.text.trim(), search: true, engine: 'Google' },
+        rows: msg.text.trim() === 'nothing' ? [] : [{ kind: 'tab', url: 'https://github.com/owner/jarvis/pulls', title: 'Pull requests', tab: 2 },
+          { kind: 'bookmark', url: 'https://gitlab.com/', title: 'GitLab', folder: 'Work/Code' }, { kind: 'history', url: 'https://gist.github.com/x', title: 'A gist' }] }
+    : null;`);
+  assert(await js('!$("br-url").hasAttribute("list")'), 'the plain list is still there');
+  const typeIn = (text) => js(`$("browser").hidden = false; $("br-url").focus(); $("br-url").value = ${JSON.stringify(text)}; $("br-url").dispatchEvent(new Event("input")); true`);
+  await typeIn('git');
+  await until('!$("bp-omni").hidden');
+  const rows = await js('[...$("bp-omni-list").querySelectorAll(".bp-row")].map((r) => [r.querySelector(".bd-lib-title").textContent, (r.querySelector(".bp-badge") || {}).textContent || "", r.classList.contains("on")].join("|"))');
+  assert(JSON.stringify(rows) === '["git|Search Google|true","Pull requests|Switch to tab|false","GitLab|Work/Code|false","A gist||false"]', JSON.stringify(rows));
+  assert(await js('$("bp-omni-list").querySelector(".bp-badge").textContent === "Search Google" && $("bp-omni-list").querySelectorAll(".bp-row")[2].querySelector(".bp-badge").hasAttribute("data-no-i18n")'), 'a folder name would be translated');
+  const key = (k, extra = '') => js(`$("br-url").dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true${extra} })); true`);
+  await key('ArrowDown');
+  assert(await js('$("bp-omni-list").querySelectorAll(".bp-row")[1].classList.contains("on")'), '↓ did not move');
+  await key('ArrowUp');
+  await key('ArrowUp');
+  assert(await js('$("bp-omni-list").querySelectorAll(".bp-row")[3].classList.contains("on")'), '↑ from the top did not wrap');
+  await key('ArrowDown');
+  await key('ArrowDown');
+  await key('Enter');
+  await settle();
+  assert(await js('JSON.stringify(__b.calls.filter(([c]) => c === "tab" || c === "nav")) === JSON.stringify([["tab", "select", 2]])'), await js('JSON.stringify(__b.calls)'));
+  assert(await js('$("bp-omni").hidden'), 'the list stayed');
+  await typeIn('git');
+  await until('!$("bp-omni").hidden');
+  await js('$("bp-omni-list").querySelectorAll(".bp-row")[3].querySelector("button").click(); true');
+  assert(await js('JSON.stringify(__b.calls.filter(([c]) => c === "nav").at(-1)) === JSON.stringify(["nav", "go", "https://gist.github.com/x"])'), 'a click on history did not go there');
+  await js(`__state({ url: 'https://ir.example/q3', tabs: [] }); true`);
+  await typeIn('git');
+  await until('!$("bp-omni").hidden');
+  await key('Escape');
+  assert(await js('$("bp-omni").hidden && $("br-url").value === "https://ir.example/q3"'), 'Esc left the list, or the words typed');
+  await typeIn('nothing');
+  await sleep(250);
+  assert(await js('$("bp-omni").hidden'), 'a list with only the typed words hid the page');
+  const covers = await invokedOn('feature:browser:cover');
+  assert(covers.length >= 2 && JSON.stringify(covers.at(-1)) === '{"on":false}', JSON.stringify(covers));
+});
+
+test('Settings › Browser keeps reopening tabs as a switch; the dock closing stops the tabs’ sound', async () => {
+  await loadBrowser(`__b.hello.restore = false;
+    __b.answer = (channel, msg) => channel === 'feature:browser:hello' ? __b.hello : channel === 'feature:browser:settings' ? { ...__b.hello, ...msg } : null;`);
+  assert(await js('$("sw-bp-restore").getAttribute("aria-checked") === "false" && $("sw-bp-restore").closest("section") === $("browser-group")'), 'the switch does not show the setting');
+  await js('$("sw-bp-restore").click(); true');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:settings')) === '[{"restore":true}]' && await js('$("sw-bp-restore").getAttribute("aria-checked") === "true"'), 'the switch did not change it');
+  await js('$("browser").hidden = false; true');
+  await settle();
+  await js('$("browser").hidden = true; true');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:dock')) === '[{"open":false}]', JSON.stringify(await invokedOn('feature:browser:dock')));
 });
 
 test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {

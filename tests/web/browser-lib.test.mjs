@@ -75,3 +75,85 @@ test('which failed load is a certificate’s, and what’s wrong with it', () =>
   assert.equal(lib.certProblem('net::ERR_CERT_WEAK_KEY'), 'weak');
   assert.equal(lib.certProblem('net::ERR_CERT_INVALID'), 'other');
 });
+
+test('the tabs kept for next time: pages only, each with its back and forward list, the one on show remembered', () => {
+  const tabs = [
+    { url: 'https://mail.example/inbox', title: 'Inbox', pinned: true, entries: [{ url: 'https://mail.example/inbox', title: 'Inbox' }], index: 0 },
+    { skip: true, url: 'https://secret.example/' }, // a private tab
+    { url: 'about:blank', title: '', entries: [], index: -1 },
+    { url: 'https://news.example/b', title: 'B', entries: [{ url: 'https://news.example/a', title: 'A' }, { url: 'chrome-error://x', title: '' }, { url: 'https://news.example/b', title: 'B' }, { url: 'https://news.example/c', title: 'C' }], index: 2 },
+    { url: 'https://rc.example/login?reset=abc', title: 'Sign in', entries: [], index: -1 },
+  ];
+  const keep = (url) => !url.includes('reset=');
+  const s = lib.sessionOf(tabs, { active: 3, keep });
+  assert.deepEqual(s.tabs.map((t) => t.url), ['https://mail.example/inbox', 'https://news.example/b']);
+  assert.equal(s.active, 1, 'the tab on show, counted among the tabs kept');
+  assert.equal(s.tabs[0].pinned, true);
+  assert.deepEqual(s.tabs[1].entries.map((e) => e.url), ['https://news.example/a', 'https://news.example/b', 'https://news.example/c']);
+  assert.equal(s.tabs[1].index, 1, 'the page on show, after an entry that is left out');
+  assert.equal(lib.sessionOf([{ url: 'https://a.example/', title: 'x'.repeat(900) }]).tabs[0].title.length, 300);
+  assert.deepEqual(lib.sessionOf([], { active: 4 }), { tabs: [], active: 0 });
+});
+
+test('pinned tabs go first; a dragged tab stays within its own group', () => {
+  const [a, b, c, d] = [{ n: 'a' }, { n: 'b', pinned: true }, { n: 'c' }, { n: 'd', pinned: true }];
+  const names = (list) => list.map((t) => t.n).join('');
+  assert.equal(names(lib.pinnedFirst([a, b, c, d])), 'bdac');
+  const list = [b, d, a, c];
+  assert.equal(names(lib.moveTab(list, c, 2)), 'bdca');
+  assert.equal(names(lib.moveTab(list, c, 0)), 'bdca', 'a tab can’t go among the pinned');
+  assert.equal(names(lib.moveTab(list, b, 9)), 'dbac', 'a pinned tab stays among the pinned');
+  assert.equal(names(lib.moveTab(list, a, 'nonsense')), 'bdac');
+  assert.equal(names(lib.moveTab(list, { n: 'x' }, 0)), 'bdac', 'a tab that isn’t there moves nothing');
+});
+
+test('the address bar’s list: an open tab to switch to first, a bookmark over a page only visited, often and lately visited pages higher', () => {
+  const now = Date.UTC(2026, 8, 30);
+  const day = 24 * 60 * 60 * 1000;
+  const history = [
+    ...Array.from({ length: 12 }, (_, i) => ({ url: 'https://github.com/owner/jarvis', title: 'owner/jarvis', at: now - i * 3600e3 })),
+    { url: 'https://gist.github.com/x', title: 'A gist', at: now - 90 * day },
+    { url: 'https://example.com/github-tips', title: 'Tips', at: now - day },
+    { url: 'https://docs.example.com/', title: 'Docs for GitHub Actions', at: now - 2 * day },
+  ];
+  const rows = lib.suggest('git', {
+    now,
+    tabs: [{ id: 7, url: 'https://github.com/owner/jarvis/pulls', title: 'Pull requests', active: false }, { id: 8, url: 'https://github.com/', title: 'GitHub', active: true }],
+    bookmarks: [{ url: 'https://gitlab.com/', title: 'GitLab', folder: 'Work/Code' }],
+    history,
+  });
+  assert.deepEqual(rows.map((r) => r.kind), ['tab', 'history', 'bookmark', 'history', 'history', 'history']);
+  assert.equal(rows[0].tab, 7);
+  assert.equal(rows[1].url, 'https://github.com/owner/jarvis', 'visited twelve times today');
+  assert.equal(rows[2].folder, 'Work/Code');
+  assert.ok(!rows.some((r) => r.url === 'https://github.com/'), 'the tab on show isn’t offered');
+  assert.equal(new Set(rows.map((r) => r.url)).size, rows.length, 'each page once');
+  // Every word has to match, in the title or the address.
+  assert.deepEqual(lib.suggest('jarvis pulls', { tabs: [{ id: 7, url: 'https://github.com/owner/jarvis/pulls', title: 'Pull requests' }], history }).map((r) => r.url), ['https://github.com/owner/jarvis/pulls']);
+  assert.deepEqual(lib.suggest('', { history }), []);
+  assert.equal(lib.suggest('a', { history: Array.from({ length: 50 }, (_, i) => ({ url: `https://a${i}.example/`, at: now })) }).length, 8);
+  assert.deepEqual(lib.suggest('(', { history: [{ url: 'https://a.example/(x)', at: now }] }).map((r) => r.url), ['https://a.example/(x)'], 'a typed symbol is just a symbol');
+});
+
+test('the address bar’s list is quick with a full history and every bookmark', () => {
+  const now = Date.now();
+  const history = Array.from({ length: 2000 }, (_, i) => ({ url: `https://site${i % 700}.example/page/${i}`, title: `Page ${i} about things`, at: now - i * 60e3 }));
+  const bookmarks = Array.from({ length: 5000 }, (_, i) => ({ url: `https://bm${i}.example/`, title: `Bookmark ${i}` }));
+  // The quickest of five rounds: what the ranking costs, not what a busy Mac adds to it. A
+  // ranking that compared pages with each other would take many seconds here.
+  let best = Infinity;
+  for (let round = 0; round < 5; round++) {
+    const started = performance.now();
+    for (const q of ['s', 'site1', 'page about', 'bookmark 49', 'zzz']) lib.suggest(q, { history, bookmarks, now });
+    best = Math.min(best, performance.now() - started);
+  }
+  assert.ok(best < 1000, `${Math.round(best)} ms for five words, each against 7,000 pages`); // about 40 ms here
+});
+
+test('each site’s zoom is kept by its host; a page on this Mac shares one', () => {
+  assert.equal(lib.zoomKey('https://www.nytimes.com/section/world'), 'www.nytimes.com');
+  assert.equal(lib.zoomKey('http://localhost:3000/a'), 'localhost:3000');
+  assert.equal(lib.zoomKey('file:///Users/me/a.pdf'), 'file://');
+  assert.equal(lib.zoomKey('about:blank'), '');
+  assert.equal(lib.zoomKey('nonsense'), '');
+});
