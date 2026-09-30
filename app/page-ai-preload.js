@@ -8,7 +8,8 @@
 //   block with the most prose and the fewest links), as headings and paragraphs;
 // - imageAt: the picture under the pointer (the page's menu), its box and its words;
 // - handback: whether the page needs the owner (a captcha, a password, a one-time code, a
-//   sign-in wall).
+//   sign-in wall);
+// - mainPrice: the page's own price, as a shop shows it (page watchers).
 // Text no one can see is left out, weighed as page-preload.js weighs it for every read
 // (globalThis.jarvisSight). Nothing here changes the page.
 'use strict';
@@ -251,7 +252,36 @@
     return none;
   }
 
-  const COMMANDS = { context, extract, imageAt, handback };
+  // The page's own price, as a shop shows it (page watchers: "when the price drops below"):
+  // of the amounts in view near the top, the one in the biggest type. Its words before it
+  // (anchor) find it again on the next look.
+  const MONEY = /(?:[$€£¥₹₩]|US\$|CA\$|A\$|HK\$|S\$|R\$|CHF|USD|EUR|GBP|CNY|RMB|JPY)\s?\d(?:[\d,.']*\d)?|\d(?:[\d,.']*\d)?\s?(?:€|zł|kr|元|円|USD|EUR|GBP|CNY)/;
+  function mainPrice() {
+    const sight = judge();
+    let best = null;
+    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+    let seen = 0;
+    for (let node = walker.nextNode(); node && seen < 20000; node = walker.nextNode()) {
+      seen += 1;
+      const text = node.data;
+      const m = text && MONEY.exec(text);
+      if (!m) continue;
+      const el = node.parentElement;
+      if (!el || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|S|DEL|STRIKE)$/.test(el.tagName) || el.closest('s, del, strike, nav, footer') || !sight.textShows(node)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight * 2) continue;
+      const size = Number.parseFloat(getComputedStyle(el).fontSize) || 0;
+      const score = size * 10 - r.top / 100;
+      if (!best || score > best.score) {
+        const block = el.closest('p, div, li, td, section, article') || el;
+        const before = squash(String(block.innerText || '')).split(squash(m[0]))[0].slice(-40).trim();
+        best = { score, text: squash(m[0]), anchor: before };
+      }
+    }
+    return best ? { ok: true, text: best.text, anchor: best.anchor } : { ok: true, text: '' };
+  }
+
+  const COMMANDS = { context, extract, imageAt, handback, mainPrice };
 
   // How much the owner has selected (never what): a request right after a selection then
   // carries it (the hub asks for the words themselves only then).

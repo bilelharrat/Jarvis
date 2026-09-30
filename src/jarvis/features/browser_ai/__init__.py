@@ -30,6 +30,10 @@
   page, from the address bar's Reader button or "reader mode" / "read this to me" said, read
   aloud in JARVIS's voice through the speech queue a paragraph at a time, with pause,
   resume, skip, back and again (buttons, or said); a new request or "stop" pauses it.
+- Page watchers (watchers.py): watch_page tells the owner when a page changes, its price
+  drops below an amount or it's back in stock; looked at about every hour (fetched with
+  httpx, or in a tab behind for a page that builds itself), at most twenty, on a loop;
+  listed and removed in Settings › Browser.
 - Hand back (handback.py): at a captcha (never touched), a password, card details, a
   one-time code or a sign-in wall, JARVIS stops and it's the owner's turn: a "Your turn"
   banner over the page, and nothing acts on that tab until they say "carry on" (or press
@@ -37,11 +41,12 @@
 
 Window commands: browser_ai_page, browser_ai_result, browser_ai_sites, browser_ai_site,
 browser_ai_dwell, browser_ai_memories, browser_ai_memory_forget, browser_ai_ask,
-browser_ai_carry_on, browser_ai_handback_cancel, browser_ai_read, whats_this (before Jarvis
-Code's).
-Tool server: browser_ai (read_tabs).
+browser_ai_carry_on, browser_ai_handback_cancel, browser_ai_read, browser_ai_watches,
+browser_ai_watch_stop, whats_this (before Jarvis Code's).
+Tool server: browser_ai (read_tabs, watch_page, list_watches, stop_watch). Loop:
+browser_watches.
 Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites, browser_ai_memories,
-browser_ai_handback, browser_ai_reading.
+browser_ai_handback, browser_ai_reading, browser_ai_watches.
 Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules,
 browser_memories (the brain's browsing source).
 

@@ -29,4 +29,10 @@ TEXTS: dict[str, str] = {
     # reader mode (reader.py): why the reader couldn't open, said back
     "There is no page to read.": "没有可以阅读的页面。",
     "This page has nothing to read.": "这个页面没有可以阅读的内容。",
+    # page watchers (watchers.py): the heads-ups
+    "Page watch": "网页关注",
+    "{title} is now {price}, below your {below}.": "{title}现在是{price}，低于你设的{below}。",
+    "{title} is back in stock.": "{title}有货了。",
+    "{title} changed: {what}": "{title}有变化：{what}",
+    "I stopped watching {host}: its page couldn't be read {n} times in a row.": "我不再关注{host}了：它的页面连续{n}次都读不到。",
 }

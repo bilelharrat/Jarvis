@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from claude_agent_sdk import create_sdk_mcp_server, tool
+from claude_agent_sdk import tool
 
 from ...browser_agent import UNTRUSTED, UNTRUSTED_END
 from .aitext import addressed_to_ai
@@ -113,7 +113,8 @@ class TabsReader:
         body = _fenced(text) or "(no text)"
         return "\n".join([head, *notes, f"{UNTRUSTED}\n{body}\n{UNTRUSTED_END}"])
 
-    def build(self):
+    def tool(self):
+        """read_tabs, for the browser_ai server (desk.py builds it with the watchers' tools)."""
         reader = self
 
         @tool(
@@ -128,4 +129,4 @@ class TabsReader:
             wanted = [t for t in args.get("tabs") or [] if isinstance(t, int)][:20]
             return await reader.read(wanted or None)
 
-        return create_sdk_mcp_server(name=SERVER, version="0.1.0", tools=[read_tabs])
+        return read_tabs

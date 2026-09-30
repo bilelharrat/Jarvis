@@ -81,6 +81,9 @@ Object.assign(PAGES, {
 <div id="modal" style="display:none"><input type="password" name="password"></div><input type="password" style="opacity:0;position:absolute" name="trap"></body>`,
   '/otp.html': FORM(`<p>Enter the code we sent</p>${'<input maxlength="1" inputmode="numeric" style="width:30px">'.repeat(6)}`),
   '/card.html': FORM('<label>Card number <input autocomplete="cc-number" name="cardnumber"></label><label>Name <input name="name"></label>'),
+  '/product.html': `<!doctype html><title>Blue kettle</title><body><main><h1>Blue kettle</h1>
+<p style="font-size:14px">Was <s>$59.00</s></p><p style="font-size:30px;font-weight:600">Now only $44.99</p>
+<aside><p style="font-size:13px">Related: Red kettle $120.00</p></aside></main></body>`,
   '/wall.html': '<!doctype html><title>Members</title><body><main><h2>Sign in to continue reading</h2><button>Sign in</button> <button>Create account</button></main></body>',
 });
 
@@ -294,6 +297,15 @@ test('A page that needs the owner is told from one that doesn’t (the hand back
     if (!r.ok || r.kind !== want || (want && !r.what)) wrong.push(`${where} ${JSON.stringify(args)}: ${JSON.stringify(r)}`);
   }
   assert(!wrong.length, wrong.join('\n'));
+});
+
+test('A shop’s own price is the one in the biggest type, not one struck out or beside it', async () => {
+  await load(shown, '/product.html');
+  const r = await pageAi(shown, 'mainPrice', {});
+  assert(r.ok && r.text === '$44.99' && /Now only$/.test(r.anchor), JSON.stringify(r));
+  await load(shown, '/results.html');
+  const none = await pageAi(shown, 'mainPrice', {});
+  assert(none.ok && none.text === '', JSON.stringify(none));
 });
 
 app.whenReady().then(async () => {

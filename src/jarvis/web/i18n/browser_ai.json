@@ -59,7 +59,13 @@
   "Done": "完成",
   "There is no page to read.": "没有可以阅读的页面。",
   "This page has nothing to read.": "这个页面没有可以阅读的内容。",
-  "Jarvis’s voice is off.": "Jarvis 的语音已关闭。"
+  "Jarvis’s voice is off.": "Jarvis 的语音已关闭。",
+  "Pages Jarvis watches for you. Say “tell me when this page changes”, “when the price drops below $40” or “when it’s back in stock”.": "Jarvis 帮你关注的页面。说“这个页面有变化时告诉我”、“价格降到 40 美元以下时告诉我”或“到货时告诉我”。",
+  "Back in stock": "到货",
+  "Any change": "任何变化",
+  "Paused: the page couldn’t be read": "已暂停：读不到这个页面",
+  "No pages watched.": "没有关注的页面。",
+  "Page watch": "网页关注"
  },
  "patterns": [
   [
@@ -97,6 +103,22 @@
   [
    "^(\\d+) saved from the page menu$",
    "从页面菜单保存了 $1 项"
+  ],
+  [
+   "^Price below (.+)$",
+   "价格低于 $1"
+  ],
+  [
+   "^Done: (.+)$",
+   "完成：$1"
+  ],
+  [
+   "^Every (\\S+) h$",
+   "每 $1 小时"
+  ],
+  [
+   "^Stop watching (.+)$",
+   "不再关注 $1"
   ]
  ]
 }

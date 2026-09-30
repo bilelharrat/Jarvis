@@ -18,7 +18,9 @@
 //   while the owner can see the tab) and the owner's rule for any site (always, ask first,
 //   never), changed only here (browser_ai_sites, browser_ai_site); and browser memories,
 //   opt-in: a page on show for a minute is told to the hub (browser_ai_dwell), which keeps
-//   its text in the second brain's Browsing source (browser_ai_memories to list and forget).
+//   its text in the second brain's Browsing source (browser_ai_memories to list and forget);
+//   and the page watches (browser_ai_watches, browser_ai_watch_stop), their heads-ups
+//   labelled Page watch.
 //
 // Everything a page brings (its address, title, the lines it wrote) is data: shown with
 // textContent and marked data-no-i18n. The helpers at the top are pure
@@ -316,10 +318,51 @@
   const memoriesPref = (p) => { if (p && p.features && 'browser_memories' in p.features) { memories.on = p.features.browser_memories === true; renderMemories(); } };
   F.on('prefs', memoriesPref, { replay: true });
   memoriesRows();
+
+  // Page watches (watchers.py): what Jarvis watches, and Remove.
+  let watches = [];
+  function watchesRows() {
+    const group = F.$('bai-settings');
+    if (!group || F.$('bai-watches')) return;
+    const head = el('p', 'small-status', 'Pages Jarvis watches for you. Say “tell me when this page changes”, “when the price drops below $40” or “when it’s back in stock”.');
+    const list = el('ul', 'folders bai-watch-list');
+    list.id = 'bai-watches';
+    group.insertBefore(head, group.querySelector('.bai-sites'));
+    group.insertBefore(list, group.querySelector('.bai-sites'));
+    renderWatches();
+  }
+  function watchWhat(w) {
+    if (w.kind === 'below') return `Price below ${[w.below, w.currency].filter((x) => x !== null && x !== '').join(' ')}`;
+    return w.kind === 'stock' ? 'Back in stock' : 'Any change';
+  }
+  function watchState(w) {
+    if (w.done) return w.result ? `Done: ${w.result}` : 'Done';
+    if (w.paused) return 'Paused: the page couldn’t be read';
+    return `Every ${Number(w.every) || 1} h`;
+  }
+  function renderWatches() {
+    const list = F.$('bai-watches');
+    if (!list) return;
+    if (!watches.length) { list.replaceChildren(el('li', 'muted', 'No pages watched.')); return; }
+    list.replaceChildren(...watches.map((w) => {
+      const li = el('li', 'bai-watch');
+      const words = el('span', 'bai-memory');
+      const small = el('small');
+      small.append(el('span', '', watchWhat(w)), el('span', 'bai-memory-kind', watchState(w)));
+      words.append(mine(el('b', '', w.title || w.host || w.url)), small);
+      li.append(words, button('Remove', 'btn', () => F.send({ type: 'browser_ai_watch_stop', id: w.id }), `Stop watching ${w.host || w.url}`));
+      return li;
+    }));
+  }
+  F.on('browser_ai_watches', (ev) => { watches = Array.isArray(ev.items) ? ev.items.slice(0, 50) : []; renderWatches(); });
+  watchesRows();
+  if (typeof ALERT_KICKERS === 'object') ALERT_KICKERS.watch = 'Page watch'; // app.js's card labels
+
   F.on('hello', (ev) => {
     memoriesPref(ev.prefs);
     F.send({ type: 'browser_ai_sites' });
     F.send({ type: 'browser_ai_memories' });
+    F.send({ type: 'browser_ai_watches' });
   }, { replay: true });
   // The galaxy shows the Browsing source's pages in a color and name of their own.
   if (window.GALAXY_SOURCES) {

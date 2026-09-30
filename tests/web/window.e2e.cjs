@@ -5522,6 +5522,23 @@ test('Reader mode shows the article in place of the page, reads it on Listen and
   assert(await js('$("bai-reader").hidden'), 'another page didn’t close it');
 });
 
+test('Settings › Browser lists the page watches, removes one, and labels their heads-ups', async () => {
+  await browserAi();
+  await js('featureEvent({ type: "hello", hub_id: "hub-a", prefs: { features: {} } }); true');
+  assert((await sentOf('browser_ai_watches')).length === 1, 'the watches weren’t asked for');
+  assert(await js('$("bai-watches").textContent') === 'No pages watched.', await js('$("bai-watches").textContent'));
+  await deliver({ type: 'browser_ai_watches', max: 20, items: [
+    { id: 'w1', url: 'https://shop.example/kettle', host: 'shop.example', title: 'Blue kettle', kind: 'below', below: 40, currency: 'USD', every: 1, last: 0, paused: false, done: false, result: '' },
+    { id: 'w2', url: 'https://news.example/', host: 'news.example', title: '', kind: 'change', below: null, currency: '', every: 2, last: 0, paused: true, done: false, result: '' },
+    { id: 'w3', url: 'https://shop.example/pan', host: 'shop.example', title: 'Pan', kind: 'stock', below: null, currency: '', every: 1, last: 0, paused: false, done: true, result: 'in stock' }] });
+  const rows = await js('[...document.querySelectorAll("#bai-watches .bai-watch")].map((li) => li.querySelector("b").textContent + " | " + li.querySelector("small").textContent)');
+  assert(JSON.stringify(rows) === JSON.stringify(['Blue kettle | Price below 40 USDEvery 1 h', 'news.example | Any changePaused: the page couldn’t be read', 'Pan | Back in stockDone: in stock']), JSON.stringify(rows));
+  assert(await js('[...document.querySelectorAll("#bai-watches b")].every((b) => b.hasAttribute("data-no-i18n"))'), 'a title would be translated');
+  await js('__sent.length = 0; document.querySelector("#bai-watches .btn").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_watch_stop', id: 'w1' }]), JSON.stringify(await js('__sent')));
+  assert(await js('ALERT_KICKERS.watch') === 'Page watch', 'its heads-ups aren’t labelled');
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);
