@@ -236,6 +236,18 @@
     logTimer = setTimeout(() => { logTimer = 0; if (paneShown('cv-preview') && F.$('cv-log')) askLogs(); }, LOG_ASK_EVERY);
   }
 
+  // A server started again (Restart, or Stop then Start) is a new run, its output numbered
+  // from 1 again: the logs view starts over with it, asked from its start.
+  function newRun(before) {
+    const was = before.find((s) => s.key === state.logKey);
+    const now = state.servers.find((s) => s.key === state.logKey);
+    if (!was || !now || was.started_at === now.started_at) return;
+    state.logs.delete(now.key);
+    state.from = 0;
+    clearTimeout(logTimer);
+    logTimer = 0;  // (drawing the view asks)
+  }
+
   function logView() {
     const server = state.servers.find((s) => s.key === state.logKey);
     if (!server) return null;
@@ -352,15 +364,19 @@
   F.registerMoreItem({ label: 'Preview and dev servers', run: () => F.openPane('cv-preview') });
 
   F.on('cv_state', (ev) => {
+    const before = state.servers;
     state.info = ev;
     if (Array.isArray(ev.servers)) {
       const others = state.servers.filter((s) => s.project !== ev.path);
       state.servers = others.concat(ev.servers);
     }
+    newRun(before);
     renderPreview();
   });
   F.on('devservers', (ev) => {
+    const before = state.servers;
     state.servers = ev.items || [];
+    newRun(before);
     renderPreview();
   });
   F.on('cv_logs', (ev) => {

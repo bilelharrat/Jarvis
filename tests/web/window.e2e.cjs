@@ -2925,6 +2925,31 @@ test('A dev server’s logs keep coming while they’re open: the view asks agai
   assert(!(await sentOf('cv_logs')).length, JSON.stringify(await js('__sent')));
 });
 
+test('A dev server started again starts its logs over, with the new run’s first lines', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-preview"); true');
+  const dir = '/Users/x/Projects/alpha';
+  const key = `${dir}::web`;
+  const server = (extra = {}) => ({ key, project: dir, name: 'web', command: 'npm run dev', status: 'ready', port: 5173, url: 'http://localhost:5173/',
+    message: '', started_by: null, started_at: 100, lines: 50, ...extra });
+  await deliver({ type: 'cv_state', project: 'alpha', path: dir, id: 1, session: null, problems: [], suggestions: [],
+    configs: [{ name: 'web', command: 'npm run dev', port: 5173, url: '', cwd: '', source: '.claude/launch.json', why: '' }], servers: [server()] });
+  assert(await clickText('#jc-pane-body .cv-server', 'Logs'), 'no Logs button');
+  await deliver({ type: 'cv_logs', key, lines: Array.from({ length: 50 }, (_, i) => [i + 1, `old ${i + 1}`]) });
+  // Restart: the run stops, a new one starts (its output numbered from 1 again) and streams.
+  await deliver({ type: 'devservers', items: [server({ status: 'stopped' })] });
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'devservers', items: [server({ status: 'starting', started_at: 200, lines: 1 })] });
+  await deliver({ type: 'devserver_log', key, lines: [[2, 'VITE ready'], [3, 'Local: http://localhost:5173/']] });
+  // What was asked is answered, as the backend would.
+  if ((await sentOf('cv_logs')).length) await deliver({ type: 'cv_logs', key, lines: [[1, '$ npm run dev'], [2, 'VITE ready'], [3, 'Local: http://localhost:5173/']] });
+  await deliver({ type: 'devserver_log', key, lines: [[3, 'Local: http://localhost:5173/'], [4, 'GET /']] });
+  await frames(2);
+  const text = await js('$("cv-log").textContent');
+  assert(text === '$ npm run dev\nVITE ready\nLocal: http://localhost:5173/\nGET /', JSON.stringify(text.length > 120 ? `${text.slice(0, 40)}…${text.slice(-60)}` : text));
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this
