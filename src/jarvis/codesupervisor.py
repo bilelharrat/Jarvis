@@ -88,11 +88,16 @@ _OVERVIEW = _re(
     r"(?:so )?(?:what(?:'s| is| are)|what're) (?:every(?:one|body)|you all|y'all"
     r"|(?:all (?:of )?)?(?:the |my )?(?:coding |code |jarvis code )?(?:sessions|agents)) "
     r"(?:doing|up to|working on|busy with)(?: right now| now| at the moment)?"
-    r"|how(?:'s| is| are) (?:every(?:one|body)|(?:all (?:of )?)?(?:the |my )?(?:coding |code )?"
-    r"(?:sessions|agents))(?: doing| going| getting on| coming along)?(?: right now| now)?"
+    r"|how(?:'s| is| are) (?:all (?:of )?)?(?:the |my )?(?:coding |code )?(?:sessions|agents)"
+    r"(?: doing| going| getting on| coming along)?(?: right now| now)?"
     r"|(?:give me )?(?:a |the )?(?:status|rundown|round ?up)(?: report| update)? "
     r"(?:on|of|for) (?:all (?:of )?)?(?:the |my )?(?:coding |code )?sessions"
     r"|(?:all |every )?sessions? status|status of (?:all )?(?:the |my )?(?:coding )?sessions"
+)
+# Words that could be about people as much as sessions: the sessions' only while voice
+# coding (otherwise they're JARVIS's to answer).
+_OVERVIEW_WEAK = _re(
+    r"how(?:'s| is| are) every(?:one|body)(?: doing| going| getting on)?(?: right now| now)?"
     r"|who(?:'s| is) (?:doing|working on) what"
 )
 _WAITING = _re(
@@ -105,20 +110,21 @@ _WAITING = _re(
 )
 _CATCH_UP = _re(
     r"catch me up(?: on (?:the |my )?(?:sessions|coding|code|jarvis code|everything))?"
-    r"|bring me up to speed(?: on (?:the |my )?(?:sessions|coding|code|jarvis code))?"
+    r"|bring me up to speed on (?:the |my )?(?:sessions|coding|code|jarvis code)"
     r"|what did i miss (?:in|on|with|from) (?:the |my )?(?:sessions|coding|code|jarvis code)"
     r"|what (?:happened|changed) (?:in|with) (?:the |my )?(?:coding )?sessions"
     r"(?: while i was (?:away|gone|out))?"
-    r"|(?:give me )?(?:a |the )?(?:digest|recap)(?: of (?:the |my )?(?:sessions|coding))?"
+    r"|(?:give me )?(?:a |the )?(?:digest|recap) of (?:the |my )?(?:sessions|coding)"
 )
 _CATCH_UP_WEAK = _re(
     r"what did i miss|what have i missed|fill me in|any (?:news|updates)|what's new"
-    r"|what happened while i was (?:away|gone|out)"
+    r"|what happened while i was (?:away|gone|out)|bring me up to speed"
+    r"|(?:give me )?(?:a |the )?(?:digest|recap)"
 )
 _FOCUS = _re(
     r"(?:(?:switch|go|move|change|jump|get|head|flip)(?: back| over)? to|focus on"
     r"|let's (?:go to|switch to|talk to|work on|work in)|(?:talk|speak) to|take me to"
-    rf"|put me on|bring up|open) {_DET}{_REF}{_TAIL}"
+    rf"|put me on) {_DET}{_REF}{_TAIL}"
 )
 _STOP_WORDS = (
     r"(?:stop|halt|hold on|wait|pause|cancel)(?: (?:it|that|now|what it's doing|working))?"
@@ -222,7 +228,7 @@ _ZH_CATCH_UP = _zh(
 _ZH_CATCH_UP_WEAK = _zh(
     rf"我(?:都)?错过了(?:些)?(?:什么|啥){_ZH_END}|有(?:什么)?新(?:进展|消息|情况){_ZH_END}"
 )
-_ZH_FOCUS = _zh(rf"(?:切换到|切到|转到|换到|回到|打开)(?:到)?{_ZH_REF}{_ZH_END}")
+_ZH_FOCUS = _zh(rf"(?:切换到|切到|转到|换到|回到)(?:到)?{_ZH_REF}{_ZH_END}")
 _ZH_STOP = (
     _zh(rf"(?:停止|停下|停掉|中止|暂停|打断|叫停)(?:一下)?{_ZH_REF}{_ZH_END}"),
     _zh(rf"(?:让|叫){_ZH_REF}(?:先)?(?:停下来?|停一下|停止|别做了|暂停){_ZH_END}"),
@@ -365,8 +371,10 @@ def parse(text: str, language: str = "en") -> Ask | None:
         return None
     if _OVERVIEW.fullmatch(said):
         return Ask("overview")
+    if _OVERVIEW_WEAK.fullmatch(said):
+        return Ask("overview", weak=True)
     if _WAITING.fullmatch(said):
-        return Ask("waiting")
+        return Ask("waiting", weak=True)
     if _CATCH_UP.fullmatch(said):
         return Ask("catch_up")
     if _CATCH_UP_WEAK.fullmatch(said):
@@ -410,7 +418,7 @@ def _parse_zh(text: str) -> Ask | None:
     if _ZH_OVERVIEW.fullmatch(said):
         return Ask("overview")
     if _ZH_WAITING.fullmatch(said):
-        return Ask("waiting")
+        return Ask("waiting", weak=True)
     if _ZH_CATCH_UP.fullmatch(said):
         return Ask("catch_up")
     if _ZH_CATCH_UP_WEAK.fullmatch(said):

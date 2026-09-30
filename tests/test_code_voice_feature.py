@@ -232,15 +232,20 @@ async def test_a_sessions_question_is_read_out_and_only_the_owner_answers(
     close_all(hub)
 
 
-async def test_who_needs_me(settings, quiet_speaker, isolated, tmp_path):
-    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "a")
-    one = session(hub, "a", "First")
-    assert await hub.ask("who needs me?") == "No session needs you right now."
-    pending = await ask_for(hub, one)
-    assert (
-        await hub.ask("who needs me?")
-        == f"Session {one.id} (First) wants to run npm test. Should it?"
-    )
+async def test_who_needs_me_while_voice_coding(settings, quiet_speaker, isolated, tmp_path):
+    hub, said = await hub_with(settings, quiet_speaker, isolated, tmp_path, "a")
+    await hub.voice_code("a")
+    hub.voicecode.task.title = "First"
+    other = session(hub, "a", "Second")
+    await hub.voicecode.handle("who needs me?")
+    assert said[-1] == "No session needs you right now."
+    pending = await ask_for(hub, other)
+    await hub.voicecode.handle("who needs me?")
+    assert said[-1] == f"Session {other.id} (Second) wants to run npm test. Should it?"
+    # Said to JARVIS itself, not voice coding, the same words are its own to answer.
+    hub.voicecode.exit()
+    await hub.ask("who needs me?")
+    assert hub.client.said == ["who needs me?"]
     pending.cancel()
     close_all(hub)
 

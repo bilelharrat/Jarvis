@@ -57,9 +57,27 @@ def test_questions_about_everyone(said, kind):
 
 
 def test_everyday_words_are_only_about_the_sessions_while_voice_coding():
-    ask = cs.parse("what did I miss?")
-    assert ask.kind == "catch_up" and ask.weak
-    assert not cs.parse("catch me up").weak
+    for said, kind in (
+        ("what did I miss?", "catch_up"),
+        ("bring me up to speed", "catch_up"),
+        ("give me a recap", "catch_up"),
+        ("how's everyone doing", "overview"),
+        ("who needs me", "waiting"),
+        ("what does it want?", "waiting"),
+        ("谁在等我", "waiting"),
+    ):
+        ask = cs.parse(said)
+        assert (ask.kind, ask.weak) == (kind, True), said
+    for said in (
+        "catch me up",
+        "what's everyone doing",
+        "give me a recap of the sessions",
+        "大家都在做什么",
+    ):
+        assert not cs.parse(said).weak, said
+    # "Open the jarvis project" may mean an editor: only a switch moves voice focus.
+    assert cs.parse("open the jarvis project").kind == "open"  # a file, if it named one
+    assert cs.parse("打开jarvis项目") is None
 
 
 def test_one_session_by_number_title_or_project():
