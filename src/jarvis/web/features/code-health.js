@@ -115,12 +115,15 @@
   });
   if (F.registerMoreItem) F.registerMoreItem({ label: 'Health', run: () => F.openPane('cw-health') });
 
+  // An answer about another session than the one on show (asked before a switch, done after
+  // the new one's) is left: the one on show's is on its way.
   F.on('cw_health', (ev) => {
+    if ((ev.id || 0) !== taskId()) return;
     answer = ev;
     if (shown()) draw(F.$('jc-pane-body'));
   });
   F.on('cw_health_session', (ev) => {
-    if (!answer) return;
+    if (!answer || ev.id !== taskId()) return;
     answer = { ...answer, session: ev.session };
     if (shown()) draw(F.$('jc-pane-body'));
   });

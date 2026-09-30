@@ -5494,6 +5494,31 @@ test('The Health pane shows the engine, the sign-in with the command that signs 
   assert(fresh && fresh.fresh === true, JSON.stringify(await js('__sent')));
 });
 
+test('The Health pane shows the session on show, whatever order the checks come back in', async () => {
+  await featureScript('code-health.js');
+  await open(1);
+  await js('onEvent({ type: "tasks", items: [__task(1), __task(2)] }); jarvisFeatures.openPane("cw-health"); true');
+  const [first] = await sentOf('cw_health');
+  assert(first && first.id === 1, JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; selectTask(2); true');
+  const [second] = await sentOf('cw_health');
+  assert(second && second.id === 2, JSON.stringify(await js('__sent')));
+  const state = (id, status) => ({ id, status, connected: status !== 'failed', busy: false, model: 'Fable', error: '', fell_back: false });
+  const answer = (id, status) => ({ type: 'cw_health', id, sdk: '0.9.1', engine: { version: '2.1.3', path: '/app/_bundled/claude', bundled: true },
+    signin: { state: 'ok', summary: 'Signed in', hint: '', plan: 'Max', command: '' }, session: state(id, status) });
+  const shown = () => js('({ text: $("jc-pane-body").textContent, reconnect: [...document.querySelectorAll("#jc-pane-body button")].some((b) => b.textContent === "Reconnect") })');
+  await deliver(answer(2, 'failed'));
+  await deliver(answer(1, 'running'));  // session 1's check, done last (the engine's first look takes a while)
+  await frames(2);
+  let r = await shown();
+  assert(r.text.includes('This session') && r.text.includes('It stopped with an error') && r.reconnect, `an answer about session 1 hid session 2's: ${JSON.stringify(r)}`);
+  // Nor does session 1's state after a reconnect of it.
+  await deliver({ type: 'cw_health_session', id: 1, session: state(1, 'running') });
+  await frames(2);
+  r = await shown();
+  assert(r.text.includes('It stopped with an error') && r.reconnect, JSON.stringify(r));
+});
+
 test('Export the whole session: share-safe, paths hidden, as a PDF, then shown in Finder', async () => {
   await featureScript('code-export.js');
   await open(1);
