@@ -1206,6 +1206,15 @@ const featureContext = {
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
   backend: () => backend, // the running `jarvis serve` (shell.js waits for it to stop when quitting)
+  // The built-in browser's tabs, for features that work with them (browser-ai.js): the
+  // tabs and the one on show while the dock is open.
+  browser: {
+    partition: 'persist:jarvis-browser',
+    tabs: () => tabs.slice(),
+    shown: () => (browserShown && browserView ? browserView : null),
+    byId: (id) => tabById(id) || null,
+    focused: () => Boolean(win && !win.isDestroyed() && win.isFocused()),
+  },
 };
 function loadAppFeatures() {
   const dir = path.join(__dirname, 'features');

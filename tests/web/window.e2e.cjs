@@ -5301,6 +5301,35 @@ async function browserAi() {
   await loadFeature('browser_ai.js');
 }
 
+test('Browser AI tells the hub which page is on show, once per change', async () => {
+  await browserAi();
+  await js(`document.body.classList.add('browser-open'); __state({ url: 'https://news.example/a', title: 'A', research: false, tabs: [{ id: 5, active: true }, { id: 6, active: false }] }); true`);
+  await sleep(250);
+  let pages = await sentOf('browser_ai_page');
+  assert(pages.length === 1 && pages[0].open && pages[0].url === 'https://news.example/a' && pages[0].tab === 5 && pages[0].selected === 0, JSON.stringify(pages));
+  await js(`__state({ url: 'https://news.example/a', title: 'A', loading: true, tabs: [{ id: 5, active: true }] }); true`); // nothing it tells changed
+  await sleep(250);
+  assert((await sentOf('browser_ai_page')).length === 1, 'sent again for nothing');
+  await js(`__pageEvent({ kind: 'selection', tab: 5, length: 42 }); __pageEvent({ kind: 'selection', tab: 6, length: 9 }); true`);
+  await sleep(250);
+  pages = await sentOf('browser_ai_page');
+  assert(pages.length === 2 && pages[1].selected === 42, JSON.stringify(pages));
+  await js(`__state({ url: 'https://news.example/b', title: 'B', tabs: [{ id: 5, active: true }] }); true`);
+  await sleep(250);
+  pages = await sentOf('browser_ai_page');
+  assert(pages[pages.length - 1].selected === 0 && pages[pages.length - 1].url.endsWith('/b'), 'a new page kept the old selection');
+});
+
+test('Browser AI passes the hub’s calls to the app and answers each by its id', async () => {
+  await browserAi();
+  await deliver({ type: 'browser_ai_cmd', id: 'c1', action: 'context', args: { text: true } });
+  await sleep(50);
+  const calls = await js('__calls');
+  assert(calls.length === 1 && calls[0][0] === 'feature:browser-ai:call' && calls[0][1].action === 'context' && calls[0][1].args.text === true, JSON.stringify(calls));
+  const results = await sentOf('browser_ai_result');
+  assert(results.length === 1 && results[0].id === 'c1' && results[0].result.echo === 'context', JSON.stringify(results));
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);
