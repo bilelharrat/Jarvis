@@ -144,6 +144,8 @@ class Twilio:
         self.talks = {}  # conversations in Sync: talk id -> data
         self.placed = []  # calls placed through the Calls API
         self.statuses = {}  # call id -> its status (GET Calls/<id>.json)
+        self.tells = {}  # the owner's notes to live calls in Sync: talk id -> data
+        self.updates = []  # (call id, data) posted to a live call (hang up, new TwiML)
 
     def __call__(self, method, url, sid, token, data=None, files=None):
         assert (sid, token) == (SID, TOKEN)
@@ -168,6 +170,8 @@ class Twilio:
             call_sid = status[1]
             if call_sid not in self.statuses:
                 raise refusal(404)
+            if method == "POST":
+                self.updates.append((call_sid, data))
             return {"sid": call_sid, "status": self.statuses[call_sid]}
         if url.endswith("/Recordings.json"):
             return {"recordings": self.recordings.get(url.split("/Calls/")[1].split("/")[0], [])}
@@ -186,6 +190,18 @@ class Twilio:
         at = path.removeprefix("/Services/IS1")
         if at == "/Documents" and method == "POST" and data["UniqueName"].startswith("talk-"):
             self.talks[data["UniqueName"].removeprefix("talk-")] = json.loads(data["Data"])
+            return {}
+        if at == "/Documents" and method == "POST" and data["UniqueName"].startswith("tell-"):
+            self.tells[data["UniqueName"].removeprefix("tell-")] = json.loads(data["Data"])
+            return {}
+        if at.startswith("/Documents/tell-"):
+            talk_id = at.removeprefix("/Documents/tell-")
+            if talk_id not in self.tells:
+                raise refusal(404)
+            if method == "DELETE":
+                del self.tells[talk_id]
+            else:
+                self.tells[talk_id] = json.loads(data["Data"])
             return {}
         if at.startswith("/Documents/talk-"):
             talk_id = at.removeprefix("/Documents/talk-")

@@ -717,13 +717,41 @@ class Line:
         return data if isinstance(data, dict) else None
 
     def forget_talk(self, state: dict[str, Any], talk_id: str, sid: str, token: str) -> None:
-        """A collected conversation leaves Twilio (it's kept on the Mac)."""
-        url = f"{SYNC}/Services/{state['sync']}/Documents/talk-{talk_id}"
+        """A collected conversation leaves Twilio (it's kept on the Mac), with the owner's
+        notes to it."""
+        for name in (f"talk-{talk_id}", f"tell-{talk_id}"):
+            url = f"{SYNC}/Services/{state['sync']}/Documents/{name}"
+            try:
+                self.request("DELETE", url, sid, token)
+            except PhoneError as exc:
+                if exc.status != 404:
+                    raise
+
+    def tell(
+        self, state: dict[str, Any], talk_id: str, notes: list[dict], sid: str, token: str
+    ) -> None:
+        """The owner's notes to a live call ("tell-<id>", written only by the Mac, whole each
+        time): answers to what Jarvis asked, and what the owner types into the call."""
+        at = f"{SYNC}/Services/{state['sync']}/Documents"
+        data = json.dumps({"notes": notes[-20:]})
         try:
-            self.request("DELETE", url, sid, token)
+            self.request("POST", f"{at}/tell-{talk_id}", sid, token, data={"Data": data})
         except PhoneError as exc:
             if exc.status != 404:
                 raise
+            self.request(
+                "POST",
+                at,
+                sid,
+                token,
+                data={"UniqueName": f"tell-{talk_id}", "Data": data, "Ttl": str(3 * 24 * 3600)},
+            )
+
+    def update_call(self, call_sid: str, data: dict[str, str], sid: str, token: str) -> dict:
+        """A live call changed: hung up (Status=completed), or given new TwiML."""
+        return self.request(
+            "POST", f"{API}/Accounts/{sid}/Calls/{call_sid}.json", sid, token, data=data
+        )
 
     def start_talk(
         self, state: dict[str, Any], talk_id: str, data: dict[str, Any], sid: str, token: str
