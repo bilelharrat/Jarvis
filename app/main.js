@@ -149,7 +149,8 @@ function restartBackend(code) {
       await waitForBackend();
       if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}`);
     } catch (err) {
-      showProblem(`Jarvis couldn't start again: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+      // Another exit comes back to restartBackend, which says what happens next.
+      if (!err.exited) showProblem(`Jarvis couldn't start again: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
     }
   }, 1500 * restarts.length);
 }
@@ -167,7 +168,7 @@ function waitForBackend(timeoutMs = 90000) {
       req.on('timeout', () => req.destroy());
     };
     const retry = () => {
-      if (!backend) return reject(new Error('backend exited'));
+      if (!backend) return reject(Object.assign(new Error('backend exited'), { exited: true }));
       if (Date.now() - started > timeoutMs) return reject(new Error('backend took too long to start'));
       setTimeout(attempt, 400);
     };
@@ -1267,7 +1268,10 @@ app.whenReady().then(async () => {
     await waitForBackend();
     win.loadURL(`${appUrl()}?token=${TOKEN}`);
   } catch (err) {
-    showProblem(`Jarvis couldn't start: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+    // A backend that exited is restartBackend's: it has already said what's happening (for
+    // exit 75, waiting for a backend that's still quitting), starts it again and loads the
+    // window once it's up. Saying "couldn't start" over that read as final when it wasn't.
+    if (!err.exited) showProblem(`Jarvis couldn't start: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
   }
   if (featureContext.ownsShortcuts) return; // app/features/shell.js registered the ones chosen in Settings
   if (!globalShortcut.register(SHORTCUT, summon)) {

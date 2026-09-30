@@ -251,6 +251,11 @@ def event_text(event: dict[str, Any]) -> str:
     return text
 
 
+# How long a starting backend waits for the data folder when another backend holds it:
+# enough for the one of a Jarvis that was just quit or updated to finish quitting.
+FOLDER_WAIT_S = 20.0
+
+
 def serve(port: int, token: str) -> None:
     import logging
     import logging.handlers
@@ -263,14 +268,14 @@ def serve(port: int, token: str) -> None:
     # hand out the same invoice numbers and answer the same conversations twice. The lock
     # is held while this process lives, and the system lets go of it however it ends.
     try:
-        instance = jsonstore.claim_folder(APP_SUPPORT)
+        instance = jsonstore.claim_folder(APP_SUPPORT, wait=FOLDER_WAIT_S)
     except jsonstore.FolderTaken as exc:
         print(
             f"JARVIS can't start: {exc.strerror} ({APP_SUPPORT}). Quit that one first.",
             file=sys.stderr,
             flush=True,
         )
-        raise SystemExit(75) from None  # EX_TEMPFAIL: the app shows it rather than retrying
+        raise SystemExit(75) from None  # EX_TEMPFAIL: the app says so and tries again later
 
     # PortAudio first, while nothing else runs: importing sounddevice starts it with the
     # whole process's stderr pointed at /dev/null for a moment. Done later, on the

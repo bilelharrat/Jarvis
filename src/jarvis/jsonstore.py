@@ -156,11 +156,12 @@ def shallow(value: Any, depth: int = 32) -> bool:
     return True
 
 
-def claim_folder(folder: Path) -> IO[str] | None:
+def claim_folder(folder: Path, wait: float = 0) -> IO[str] | None:
     """One backend at a time on a data folder: an exclusive lock on <folder>/backend.lock,
     held while the returned file stays open and let go by the system when the process ends,
-    however it ends. Raises FolderTaken when another process holds it. None when the lock
-    can't be made at all (a read-only disk): that alone is no reason not to start."""
+    however it ends. Raises FolderTaken when another process still holds it after `wait`
+    seconds (a backend that is quitting lets go within a few). None when the lock can't be
+    made at all (a read-only disk): that alone is no reason not to start."""
     try:
         folder.mkdir(parents=True, exist_ok=True)
         fd = os.open(folder / "backend.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -168,18 +169,30 @@ def claim_folder(folder: Path) -> IO[str] | None:
         log.warning("couldn't make the backend lock (%s)", exc)
         return None
     handle = os.fdopen(fd, "r+", encoding="utf-8", errors="replace")
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        holder = handle.read(40).strip()
-        handle.close()
-        raise FolderTaken(
-            errno.EWOULDBLOCK, f"another JARVIS backend (process {holder or '?'}) is using it"
-        ) from None
-    except OSError as exc:  # a disk that can't lock files
-        log.warning("couldn't lock %s (%s)", folder, exc)
-        handle.close()
-        return None
+    deadline = time.monotonic() + wait
+    waiting = False
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() < deadline:
+                if not waiting:
+                    waiting = True
+                    log.warning(
+                        "%s is in use: waiting up to %gs for that backend to quit", folder, wait
+                    )
+                time.sleep(0.25)
+                continue
+            holder = handle.read(40).strip()
+            handle.close()
+            raise FolderTaken(
+                errno.EWOULDBLOCK, f"another JARVIS backend (process {holder or '?'}) is using it"
+            ) from None
+        except OSError as exc:  # a disk that can't lock files
+            log.warning("couldn't lock %s (%s)", folder, exc)
+            handle.close()
+            return None
     handle.seek(0)
     handle.truncate()
     handle.write(f"{os.getpid()}\n")  # who holds it, for the one that's turned away

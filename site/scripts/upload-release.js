@@ -1,4 +1,4 @@
-// Puts a notarized release's disk image on askeden.com/jarvis/download: uploads it to the
+// Puts a notarized release's disk image on askeden.com/download: uploads it to the
 // R2 bucket the download Worker reads, then points latest.json at it (last, so the page
 // never offers a file that isn't all there). Needs `npx wrangler login` once.
 //
@@ -40,7 +40,7 @@ try {
   fs.writeFileSync(latest, JSON.stringify({ version: v, size, file, published: new Date().toISOString() }));
   run(['r2', 'object', 'put', `${BUCKET}/latest.json`, '--file', latest, '--content-type', 'application/json', '--remote'], 'Pointing latest.json at it');
   fs.rmSync(latest, { force: true });
-  console.log(`live: https://www.askeden.com/jarvis/download is J.A.R.V.I.S. ${v}`);
+  console.log(`live: https://www.askeden.com/download is J.A.R.V.I.S. ${v}`);
 } catch (err) {
   console.error(`\n${err.message}`);
   process.exit(1);

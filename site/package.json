@@ -6,5 +6,8 @@
     "test": "node --test test/",
     "deploy": "npx wrangler deploy",
     "upload-release": "node scripts/upload-release.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
   }
 }

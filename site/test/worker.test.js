@@ -31,12 +31,21 @@ function env({ latest = { version: '0.1.0', size: BYTES.length, file: FILE }, fi
 
 const get = (path, e, init = {}) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e);
 
-test('the page is served for /jarvis and /jarvis/, its images by path', async () => {
+test('the page is the root and /jarvis; its images by path; old addresses go home', async () => {
   const e = env();
+  await get('/', e);
   await get('/jarvis', e);
   await get('/jarvis/', e);
   await get('/jarvis/icon.png', e);
-  assert.deepEqual(e.assets, ['/jarvis/', '/jarvis/', '/jarvis/icon.png']);
+  assert.deepEqual(e.assets, ['/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
+  const old = await get('/pricing', e);
+  assert.equal(old.status, 302);
+  assert.equal(old.headers.get('location'), 'https://www.askeden.com/');
+});
+
+test('/download and /latest.json work at the root as well', async () => {
+  assert.equal((await get('/download', env())).status, 200);
+  assert.equal((await (await get('/latest.json', env())).json()).version, '0.1.0');
 });
 
 test('the download is the latest disk image, whole and resumable', async () => {

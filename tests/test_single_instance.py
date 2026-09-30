@@ -1,10 +1,12 @@
 """One JARVIS backend per Mac: a second `jarvis serve` refuses to start and says why, the
-lock goes with the process however it ends, and only serve() takes it (the app window's
-server and the tests never do)."""
+lock goes with the process however it ends, a backend that is still quitting is waited
+for, and only serve() takes it (the app window's server and the tests never do)."""
 
 import os
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 from starlette.testclient import TestClient
@@ -64,9 +66,39 @@ def test_the_lock_goes_with_the_process_however_it_ends(tmp_path):
     lock.close()
 
 
+def test_a_backend_that_is_still_quitting_is_waited_for(tmp_path):
+    # Quitting and reopening Jarvis starts the new backend while the old one is finishing
+    # up: the new one waits for it rather than refusing to start.
+    holder = subprocess.Popen(
+        [sys.executable, "-c", HOLD, str(tmp_path)], stdout=subprocess.PIPE, text=True
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        threading.Timer(0.5, holder.kill).start()
+        lock = jsonstore.claim_folder(tmp_path, wait=30)
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+        holder.stdout.close()
+    assert lock is not None
+    lock.close()
+
+
+def test_waiting_for_the_folder_gives_up_in_the_end(tmp_path):
+    held = jsonstore.claim_folder(tmp_path)
+    try:
+        started = time.monotonic()
+        with pytest.raises(jsonstore.FolderTaken, match=f"process {os.getpid()}"):
+            jsonstore.claim_folder(tmp_path, wait=0.5)
+        assert time.monotonic() - started >= 0.5
+    finally:
+        held.close()
+
+
 def test_a_second_backend_refuses_to_start_and_says_why(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))  # nothing of the owner's, even if it got further
     monkeypatch.setattr(prefs, "APP_SUPPORT", tmp_path / "Jarvis")
+    monkeypatch.setattr(server, "FOLDER_WAIT_S", 0.3)
 
     def not_reached(*_args, **_kwargs):
         raise AssertionError("the second backend got past the lock")

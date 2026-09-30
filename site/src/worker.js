@@ -1,10 +1,11 @@
-// askeden.com/jarvis: J.A.R.V.I.S.'s download page and the download itself, on Cloudflare in
-// front of the rest of askeden.com (which Vercel serves as before: this Worker's routes are
-// only /jarvis and below).
+// askeden.com: J.A.R.V.I.S.'s site and the download itself, on Cloudflare (the whole domain;
+// the old Eden site on Vercel is no longer shown there).
 //
-//   /jarvis, /jarvis/…      the page and its images (./public/jarvis)
-//   /jarvis/download        the latest disk image, from R2 (resumable: Range requests)
-//   /jarvis/latest.json     its version, size and file name, for the page
+//   /, /jarvis              the page (./public/jarvis/index.html)
+//   /jarvis/…               its images
+//   /download, /jarvis/download   the latest disk image, from R2 (resumable: Range requests)
+//   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
+//   anything else           back to the page
 //
 // What "latest" is lives in R2 itself: latest.json, written by the release script after the
 // disk image is up, so a half-uploaded release is never offered.
@@ -18,13 +19,18 @@ export default {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
     }
-    if (path === '/jarvis/download') return download(request, env);
-    if (path === '/jarvis/latest.json') return latestInfo(env);
-    if (path === '/jarvis') {
-      // The page itself: /jarvis and /jarvis/ both, without a redirect to index.html.
+    if (path === '/download' || path === '/jarvis/download') return download(request, env);
+    if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
+    if (path === '/' || path === '/jarvis') {
+      // The page itself, at the domain's root and at /jarvis, without a redirect.
       return env.ASSETS.fetch(new Request(new URL('/jarvis/', url), request));
     }
-    return env.ASSETS.fetch(request);
+    if (path.startsWith('/jarvis/')) {
+      const asset = await env.ASSETS.fetch(request);
+      if (asset.status !== 404) return asset;
+    }
+    // An old Eden address, a typo: the page, not a dead end.
+    return Response.redirect(new URL('/', url).toString(), 302);
   },
 };
 
