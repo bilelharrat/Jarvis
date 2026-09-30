@@ -1676,6 +1676,41 @@ test('A /btw card closed while it’s being answered stays closed when the answe
   assert(await js('!document.querySelector(".cs-aside")'), 'the closed card came back with its answer');
 });
 
+test('Esc on the agent board closes what’s over it first: a name asked for, the effort, a picture', async () => {
+  await featureScript('code-verify.js');
+  await sessions([1]);
+  const state = () => js('({ board: !document.querySelector(".cs-board").hidden, ask: !!document.querySelector(".cs-ask"), effort: !$("jc-effort-pop").hidden, picture: !!document.querySelector(".cv-lightbox") })');
+  await js('document.querySelector(".cs-board-btn").click(); true');
+  // "New group…" from the session's menu in the sidebar, beside the board.
+  await js(`document.querySelector('#deck-project-list .jc-session[data-task="1"]').parentElement.querySelector('.cs-row-menu').click(); true`);
+  assert(await clickItem('#jc-menu', 'Move to group') && await clickItem('#jc-submenu', 'New group…'), 'no New group… in the menu');
+  assert(await js('document.activeElement === document.querySelector(".cs-ask input")'), 'the name isn’t asked for');
+  await press('Escape');
+  let r = await state();
+  assert(r.board && !r.ask, `Esc in the name box: ${JSON.stringify(r)}`);
+  await chord('e', ['meta', 'shift']);
+  assert((await state()).effort, 'the effort did not open');
+  await press('Escape');
+  r = await state();
+  assert(r.board && !r.effort, `Esc in the effort: ${JSON.stringify(r)}`);
+  await press('Escape');  // nothing over it: the board goes
+  assert(!(await state()).board, 'Esc did not close the board');
+  // A check's picture shown larger, and the board opened with it up (⇧⌘B).
+  await deliver({ type: 'task_log', id: 1, entry: { n: 7, role: 'verify', text: 'Preview check: 1 problem.', status: 'problems', url: 'http://localhost:5173/', title: 'Shop',
+    thumb: 'QUJDRA==', proof: '0123456789abcdef', sent: true, why_not: '', by_owner: false, more: 0,
+    findings: [{ kind: 'console', label: 'Page console', text: 'TypeError: cart is undefined', where: 'App.tsx:12' }], tests: { label: 'vitest', summary: '12 passed', failed: 0 } } });
+  await frames(2);
+  await js('document.querySelector("#deck-timeline .cv-thumb").click(); true');
+  await chord('b', ['meta', 'shift']);
+  r = await state();
+  assert(r.board && r.picture, `the board and the picture: ${JSON.stringify(r)}`);
+  await press('Escape');
+  r = await state();
+  assert(r.board && !r.picture, `Esc with the picture up: ${JSON.stringify(r)}`);
+  await press('Escape');
+  assert(!(await state()).board, 'Esc did not close the board after the picture');
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

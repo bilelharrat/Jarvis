@@ -103,8 +103,11 @@
     if ($('cc').hidden) return;
     if (e.key.toLowerCase() === 'b' && e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey) { e.preventDefault(); if (isOpen()) close(); else open(); }
   });
-  document.addEventListener('keydown', (e) => {  // Esc closes the board (a menu over it first)
-    if (e.key === 'Escape' && isOpen() && !$('cc').hidden && $('jc-menu').hidden && $('jc-settings').hidden) { e.stopPropagation(); e.preventDefault(); close(); }
+  // Esc closes the board, but what's over it first: a menu, or any dialog shown (Settings, a
+  // name being asked for, the effort, a picture shown larger), which closes by itself.
+  const covered = () => !$('jc-menu').hidden || [...document.querySelectorAll('[role="dialog"]')].some((d) => !d.closest('[hidden]'));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isOpen() && !$('cc').hidden && !covered()) { e.stopPropagation(); e.preventDefault(); close(); }
   }, true);
   F.on('jc_select', () => { if (isOpen()) close(); });
   F.on('code_board', (ev) => { B.figures = ev.items || {}; schedule(); });
