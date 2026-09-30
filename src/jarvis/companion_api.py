@@ -40,6 +40,8 @@ ENTRIES_AT_ONCE = 200  # transcript entries in one answer
 ENTRY_CHARS = 4000
 DIFF_FILES, DIFF_HUNKS, HUNK_LINES, LINE_CHARS = 40, 20, 200, 500
 SESSIONS_SHOWN = 50
+CODE_TEXT = 20_000  # characters of a message to a session (as the composer takes them)
+CODE_TEXT_BODY = CODE_TEXT * 6 + 1024  # ... as JSON: every character escaped at worst
 DIGEST_HOURS = 24
 DIGEST_ITEMS = 100
 BRANCH_SECONDS = 30.0  # a project's branch, looked up at most this often
@@ -674,13 +676,13 @@ class Api:
         return JSONResponse({"files": files})
 
     async def code_send(self, request: Request) -> Response:
-        device, data, refused = await self._post(request, "act")
+        device, data, refused = await self._post(request, "act", CODE_TEXT_BODY)
         if refused is not None:
             return refused
         task = self._session(data.get("id"))
         if task is None:
             return _bad("no such session", 404)
-        text = str(data.get("text") or "").strip()[:20000]
+        text = str(data.get("text") or "").strip()[:CODE_TEXT]
         if not text:
             return _bad("empty")
         ok = self.hub.tasks.send(task.id, text)  # queued as the composer queues it

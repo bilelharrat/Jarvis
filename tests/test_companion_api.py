@@ -97,9 +97,11 @@ def test_each_kind_of_call_has_its_budget(api, settings, quiet_speaker, isolated
 
 def test_bodies_are_capped(api):
     big = api.client.post(
-        "/api/code/send", content=b'{"id": 1, "text": "' + b"x" * 30_000 + b'"}', headers=api.auth
+        "/api/code/stop", content=b'{"id": 1, "text": "' + b"x" * 30_000 + b'"}', headers=api.auth
     )
     assert big.status_code == 413
+    huge = b'{"id": 1, "text": "' + b"x" * (companion_api.CODE_TEXT_BODY + 1) + b'"}'
+    assert api.client.post("/api/code/send", content=huge, headers=api.auth).status_code == 413
 
 
 # ── the state ──
@@ -349,6 +351,13 @@ def test_a_message_goes_to_a_session_as_the_composer_sends_it(api, tmp_path, mon
         "ok": True
     }
     assert sent == [(5, "also add a test")]
+    # A long message (a pasted log, a page of Chinese) is taken, up to the composer's 20,000
+    # characters, never refused as too big: 12,000 Chinese characters are 36 KB of JSON.
+    long_zh = "修复" * 6_000
+    assert api.post("/api/code/send", {"id": 5, "text": long_zh}).json() == {"ok": True}
+    assert sent[-1] == (5, long_zh)
+    assert api.post("/api/code/send", {"id": 5, "text": "x" * 30_000}).json() == {"ok": True}
+    assert sent[-1] == (5, "x" * 20_000)
     assert api.post("/api/code/send", {"id": 5, "text": "   "}).status_code == 400
     assert api.post("/api/code/send", {"id": 9, "text": "hi"}).status_code == 404
     assert api.post("/api/code/stop", {"id": 5}).json() == {"ok": True} and stopped == [5]
