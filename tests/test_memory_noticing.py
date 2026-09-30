@@ -331,3 +331,22 @@ async def test_keep_all_and_dismiss_all(hub, desk):
     assert {f.source for f in hub.memory.facts} == {"proposed"}
     await hub.handle({"type": "memory_suggestions_all", "action": "dismiss"})
     assert desk.inbox.pending == [] and len(desk.inbox.dismissed) == 1
+
+
+async def test_keep_all_takes_off_what_memory_learned_meanwhile_and_keeps_what_didnt_fit(hub, desk):
+    from jarvis.memory import MAX_FACTS, Fact
+
+    desk.inbox.offer(
+        [
+            {"text": "The user likes jazz.", "category": "preferences", "confidence": "high"},
+            {"text": "The user's son is Leo.", "category": "people", "confidence": "high"},
+            {"text": "The user swims on Fridays.", "category": "health", "confidence": "high"},
+        ],
+        [],
+    )
+    hub.memory.add("The user likes jazz.", source="said")  # told since it was suggested
+    hub.memory.facts += [Fact(f"f{i}", f"Old fact {i} zq{i}", "") for i in range(MAX_FACTS - 2)]
+    await hub.handle({"type": "memory_suggestions_all", "action": "keep"})
+    assert [p.text for p in desk.inbox.pending] == ["The user swims on Fridays."]  # no room
+    assert sum(f.text == "The user likes jazz." for f in hub.memory.facts) == 1
+    assert len(hub.memory.facts) == MAX_FACTS

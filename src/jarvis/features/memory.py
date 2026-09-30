@@ -1328,12 +1328,14 @@ class MemoryDesk:
             if not group:
                 continue
             try:
-                saved, _left = self.hub.memory.add_many(group, source=kind)
+                saved, left = self.hub.memory.add_many(group, source=kind)
             except ValueError as exc:
                 self.hub.emit("error", text=str(exc))
                 continue
-            texts = {f.text for f in saved}
-            saved_ids += [i["id"] for i in group if memory._tidy(i["text"]) in texts]
+            # Off the list: those saved, and those memory already had (known since they were
+            # suggested); what didn't fit waits.
+            waiting = set(left)
+            saved_ids += [i["id"] for i in group if memory._tidy(i["text"]) not in waiting]
         for ident in saved_ids:
             self.inbox.take(ident)
         if saved_ids:
