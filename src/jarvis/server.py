@@ -302,8 +302,12 @@ def serve(port: int, token: str) -> None:
     for noisy in ("pypdf", "fontTools", "httpx", "httpx2", "mcp"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
 
+    # Feature modules' work that must come before any store reads its file (a restored
+    # backup put in place), while this process holds the folder.
+    from . import features
     from .config import load_settings
 
+    features.prepare_all(APP_SUPPORT)
     app = create_app(Hub(load_settings()), token)
     print(f"JARVIS listening on http://127.0.0.1:{port}/?token={token}", flush=True)
     # Frames up to 64 MiB: a message with its attachments (the composer caps them at 24 MB).

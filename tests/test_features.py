@@ -33,6 +33,19 @@ def test_install_all_skips_a_feature_that_fails(monkeypatch):
     assert seen == [hub]
 
 
+def test_prepare_runs_before_the_hub_and_a_broken_one_never_stops_the_start(monkeypatch, tmp_path):
+    seen = []
+
+    def explode(_folder):
+        raise RuntimeError("broken")
+
+    good = types.SimpleNamespace(__name__="jarvis.features.good", prepare=seen.append)
+    bad = types.SimpleNamespace(__name__="jarvis.features.bad", prepare=explode)
+    monkeypatch.setattr(features, "modules", lambda: [bad, good])
+    assert features.prepare_all(tmp_path) == ["good"]
+    assert seen == [tmp_path]
+
+
 def test_a_registered_server_reaches_the_brain(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated)
     built = object()

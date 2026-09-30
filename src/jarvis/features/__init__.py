@@ -38,6 +38,10 @@ fails to import or install is logged and left out; the rest still load.
 
 install(hub) runs for every Hub, the tests' ones included: it only registers. No threads,
 network or files until a loop runs or a command arrives.
+
+A module may also define prepare(folder): run once in the backend itself, before the hub is
+made (server.serve, holding the data folder), for work that must come before any store has
+read its file, such as putting a restored backup in place.
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -79,3 +84,21 @@ def install_all(hub: Any) -> list[str]:
             continue
         installed.append(name)
     return installed
+
+
+def prepare_all(folder: Path) -> list[str]:
+    """Each feature module's prepare(folder), before the hub is made; the names of those
+    that ran. One that fails is logged and the rest carry on: the app starts either way."""
+    ran: list[str] = []
+    for module in modules():
+        prepare = getattr(module, "prepare", None)
+        if not callable(prepare):
+            continue
+        name = module.__name__.rsplit(".", 1)[-1]
+        try:
+            prepare(folder)
+        except Exception:
+            log.exception("feature %s didn't prepare", name)
+            continue
+        ran.append(name)
+    return ran
