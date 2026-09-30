@@ -117,10 +117,12 @@ struct InputBar: View {
     private var canSend: Bool { !text.trimmed.isEmpty }
 }
 
-/// The Mac can't be reached: say so, and how to fix it.
+/// The Mac can't be reached: say so, how to fix it, and what's waiting to go.
 struct ConnectionBanner: View {
     let reason: String
+    var waiting = 0
     let onRetry: () -> Void
+    var onShowWaiting: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.s) {
@@ -136,6 +138,16 @@ struct ConnectionBanner: View {
                     .font(.footnote)
                     .foregroundStyle(Palette.ink2)
                     .fixedSize(horizontal: false, vertical: true)
+                if waiting > 0 {
+                    Button(action: onShowWaiting) {
+                        Label(waiting == 1 ? "1 request waiting to send" : "\(waiting) requests waiting to send", systemImage: "tray.full.fill")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.champagne)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                    .accessibilityHint("Shows what goes to your Mac when it’s back")
+                }
             }
             Spacer(minLength: Space.xxs)
             Button("Retry", action: onRetry)
@@ -148,7 +160,7 @@ struct ConnectionBanner: View {
         }
         .padding(Space.m - 2)
         .glassCard(cornerRadius: 20, tint: Palette.amber, strength: 0.8)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 

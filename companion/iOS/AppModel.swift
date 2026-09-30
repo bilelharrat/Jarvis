@@ -32,6 +32,9 @@ final class AppModel {
     private(set) var answering: Set<String> = []
     private(set) var toast: Toast?
     private(set) var watchStatus = PhoneWatchBridge.Status()
+    /// Requests kept while the Mac couldn't be reached (from here, Siri or the share sheet),
+    /// oldest first.
+    private(set) var queued: [OutboxItem] = []
     /// Why the pairing screen is showing again.
     var pairingNotice: String?
     /// The address of a pairing made before the companion spoke TLS, to pair again with.
@@ -45,6 +48,8 @@ final class AppModel {
     let speech = SpeechController()
     let voice = VoicePlayer()
     @ObservationIgnored private let watch = PhoneWatchBridge()
+    @ObservationIgnored private let outbox = Outbox.shared
+    @ObservationIgnored private var draining = false
 
     @ObservationIgnored private var poller: Task<Void, Never>?
     @ObservationIgnored private var toastTimer: Task<Void, Never>?
@@ -72,6 +77,7 @@ final class AppModel {
                 pairingNotice = JarvisError.notPinned.message
             }
         }
+        queued = outbox.items()
         speakSetting = UserDefaults.standard.object(forKey: Self.speakKey) as? Bool ?? true
         #if DEBUG
         if let speak = DebugLaunch.speak { speakSetting = speak }
@@ -100,7 +106,7 @@ final class AppModel {
     }
 
     var transcript: [TranscriptLine] {
-        Transcript.lines(state: remote, pending: pending)
+        Transcript.lines(state: remote, pending: pending, queued: queued)
     }
 
     var isOffline: Bool {
@@ -146,6 +152,7 @@ final class AppModel {
     func setForeground(_ active: Bool) {
         foreground = active
         if active {
+            reloadQueue(sayExpired: true)
             restartPolling()
         } else {
             stopPolling()
@@ -269,11 +276,15 @@ final class AppModel {
         Task { await send(text) }
     }
 
-    func send(_ raw: String) async {
+    /// `queuedAt`: when it was first asked, for a question that waited in the outbox.
+    func send(_ raw: String, queuedAt: Date? = nil) async {
         let text = raw.trimmed
         guard !text.isEmpty, let api = pairing?.api else { return }
         voice.stop()
         speech.cancel()
+        if isOffline {  // the last check couldn't reach the Mac: keep it for when it's back
+            return keep(.ask(text, at: queuedAt ?? Date()))
+        }
         let request = PendingRequest(question: text, history: remote?.history ?? [])
         pending = request
         restartPolling()
@@ -290,6 +301,10 @@ final class AppModel {
             return lost()
         } catch JarvisError.timedOut {
             if pending?.id == request.id { pending?.phase = .waiting }
+        } catch let error as JarvisError where error.neverDelivered {
+            // It never got to the Mac: keep it (with when it was asked) until the Mac is back.
+            if pending?.id == request.id { pending = nil }
+            keep(.ask(text, at: queuedAt ?? request.sentAt))
         } catch is CancellationError {
             return
         } catch {
@@ -335,6 +350,9 @@ final class AppModel {
             voice.stop()
             speech.cancel()
         }
+        if isOffline, command.keepsWhenOffline {
+            return keep(.command(command, label: label(for: command)))
+        }
         do {
             try await api.command(command)
             switch command {
@@ -354,11 +372,95 @@ final class AppModel {
             }
         } catch JarvisError.unpaired {
             return lost()
+        } catch let error as JarvisError where error.neverDelivered && command.keepsWhenOffline {
+            keep(.command(command, label: label(for: command)))
         } catch {
             Haptics.failure()
             show((error as? JarvisError)?.errorDescription ?? error.localizedDescription, style: .problem)
         }
         restartPolling()
+    }
+
+    private func label(for command: MacCommand) -> String {
+        switch command {
+        case .briefing: return "Brief me"
+        case .runRoutine(let id):
+            return (remote?.routines.first { $0.id == id }?.name).map { "Routine · \($0)" } ?? "A routine"
+        case .stop: return "Stop"
+        case .meetingStart: return "Take notes"
+        case .meetingStop: return "Stop notes"
+        }
+    }
+
+    // MARK: - The outbox (requests kept while the Mac was out of reach)
+
+    /// Keeps a request to send when the Mac is back.
+    func keep(_ item: OutboxItem, payload: Data? = nil) {
+        do {
+            try outbox.add(item, payload: payload)
+            reloadQueue()
+            Haptics.tap()
+            show("Your Mac can’t be reached, so this waits here and goes when it’s back (within the hour).")
+        } catch {
+            Haptics.failure()
+            show("Couldn’t keep that to send later: \(error.localizedDescription)", style: .problem)
+        }
+    }
+
+    /// Don't send it after all.
+    func discard(_ item: OutboxItem) {
+        outbox.remove(item.id)
+        reloadQueue()
+    }
+
+    /// Reads the queue again (Siri or the share sheet may have added to it).
+    func reloadQueue(sayExpired: Bool = false) {
+        let expired = outbox.pruneExpired()
+        let items = outbox.items()
+        if items != queued { queued = items }
+        if sayExpired { tellExpired(expired) }
+    }
+
+    private func tellExpired(_ count: Int) {
+        guard count > 0 else { return }
+        show(count == 1
+            ? "Your Mac was out of reach for an hour, so one waiting request wasn’t sent."
+            : "Your Mac was out of reach for an hour, so \(count) waiting requests weren’t sent.")
+    }
+
+    /// Try the Mac now.
+    func retryOutbox() async {
+        await refresh()
+    }
+
+    /// The Mac answered: send what waited. Questions go through the conversation, one at a
+    /// time, so their replies show (and are spoken) like any other; the rest go straight.
+    private func startDrain() {
+        guard !draining, !queued.isEmpty, pairing != nil else { return }
+        draining = true
+        Task {
+            await drainOutbox()
+            draining = false
+        }
+    }
+
+    private func drainOutbox() async {
+        guard let api = pairing?.api else { return }
+        let sender = OutboxSender.sender(for: api)
+        let report = await OutboxSender.drain(outbox) { item, body in
+            item.kind == .ask ? .later : await sender(item, body)
+        }
+        reloadQueue()
+        tellExpired(report.expired)
+        if !report.sent.isEmpty {
+            show(report.sent.count == 1 ? "Sent to your Mac: \(report.sent[0].label)" : "Sent \(report.sent.count) waiting requests to your Mac.", style: .success)
+        } else if !report.refused.isEmpty {
+            show("Your Mac didn’t take \(report.refused.count == 1 ? "a waiting request" : "\(report.refused.count) waiting requests").", style: .problem)
+        }
+        guard pending?.isOpen != true, let ask = outbox.items().first(where: { $0.kind == .ask }), let question = ask.question else { return }
+        outbox.remove(ask.id)
+        reloadQueue()
+        await send(question, queuedAt: ask.createdAt)
     }
 
     // MARK: - Toasts
@@ -416,6 +518,7 @@ final class AppModel {
             applied = ticket
             if link != .online { link = .online }
             apply(state)
+            if !queued.isEmpty { startDrain() }
         } catch JarvisError.unpaired {
             if pairing?.token == api.token { lost() }
         } catch is CancellationError {
@@ -458,6 +561,8 @@ final class AppModel {
         speech.cancel()
         voice.stop()
         PairingStore.clear()
+        outbox.removeAll()  // nothing kept for this Mac goes to another
+        queued = []
         pairing = nil
         remote = nil
         pending = nil

@@ -16,12 +16,23 @@ struct TranscriptLine: Identifiable, Equatable {
     var sending = false
     /// On hold until someone answers an approval.
     var onHold = false
+    /// Kept on this iPhone until the Mac can be reached.
+    var waiting = false
 }
 
-/// Builds the conversation from the Mac's history, the turn it's working on right now, and
-/// the request this phone has in flight, without showing anything twice.
+/// Builds the conversation from the Mac's history, the turn it's working on right now, the
+/// request this phone has in flight, and the questions waiting for the Mac, without showing
+/// anything twice.
 enum Transcript {
-    static func lines(state: RemoteState?, pending: PendingRequest?) -> [TranscriptLine] {
+    static func lines(state: RemoteState?, pending: PendingRequest?, queued: [OutboxItem] = []) -> [TranscriptLine] {
+        var lines = conversation(state: state, pending: pending)
+        for item in queued where item.kind == .ask {
+            lines.append(TranscriptLine(id: "q:\(item.id)", kind: .user, text: item.question ?? item.label, time: item.createdAt, waiting: true))
+        }
+        return lines
+    }
+
+    private static func conversation(state: RemoteState?, pending: PendingRequest?) -> [TranscriptLine] {
         let history = state?.history ?? []
         var lines: [TranscriptLine] = []
         var seen: [String: Int] = [:]

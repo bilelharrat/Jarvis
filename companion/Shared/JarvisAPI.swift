@@ -322,6 +322,11 @@ struct JarvisAPI: Sendable {
         try await send(path, body: try body.encoded(), timeout: timeout)
     }
 
+    /// A POST with its body already encoded (a share with its data spliced in).
+    func send(raw path: String, body: Data, timeout: TimeInterval) async throws -> Data {
+        try await send(path, body: body, timeout: timeout)
+    }
+
     // MARK: - Plumbing
 
     private func send(

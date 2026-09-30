@@ -160,6 +160,18 @@ final class TranscriptTests: XCTestCase {
         XCTAssertEqual(lines[1].text, "It's 18")
     }
 
+    func testQuestionsWaitingForTheMacShowAfterTheConversation() {
+        var state = RemoteState()
+        state.history = [HistoryItem(role: .user, text: "Hi", at: "2026-09-29T14:00:00"), HistoryItem(role: .assistant, text: "Hello.", at: "2026-09-29T14:00:02")]
+        let asked = Date(timeIntervalSince1970: 1_790_000_000)
+        let lines = Transcript.lines(state: state, pending: nil, queued: [.ask("Weather tomorrow?", at: asked), .command(.briefing, label: "Brief me")])
+        XCTAssertEqual(lines.map(\.kind), [.user, .jarvis, .user])  // the briefing isn't a line of the conversation
+        XCTAssertTrue(lines[2].waiting)
+        XCTAssertEqual(lines[2].text, "Weather tomorrow?")
+        XCTAssertEqual(lines[2].time, asked)
+        XCTAssertFalse(lines[0].waiting)
+    }
+
     func testShowsAMacTurnInProgress() {
         var state = RemoteState()
         state.state = .speaking

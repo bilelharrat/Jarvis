@@ -155,3 +155,60 @@ struct IconTile: View {
             .accessibilityHidden(true)
     }
 }
+
+/// A Settings-style row on glass (a Form or List row background), with the Form's own
+/// grouping and continuous corners.
+struct GlassRowBackground: View {
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay(Rectangle().fill(Palette.spaceRaised.opacity(0.66)))
+            .overlay(Rectangle().fill(Color.white.opacity(0.035)))
+    }
+}
+
+/// A grouped-list section header, the way Settings sets it.
+struct ListHeader: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Palette.muted)
+            .textCase(.uppercase)
+            .tracking(0.6)
+    }
+}
+
+/// A grouped-list section footer.
+struct ListFooter: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(Palette.muted)
+    }
+}
+
+extension View {
+    /// The companion's grouped list: glass rows on the night, hairline separators.
+    func glassList() -> some View {
+        scrollContentBackground(.hidden)
+            .listSectionSpacing(Space.l)
+            .environment(\.defaultMinListRowHeight, 52)
+    }
+
+    func glassRow() -> some View {
+        listRowBackground(GlassRowBackground())
+            .listRowSeparatorTint(Palette.hairline)
+    }
+}

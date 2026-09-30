@@ -7,12 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03B4E9901CB2854CCC30AF88 /* OutboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */; };
 		04545E5A6C158C444584178D /* QuickActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4FDF01C107350849AA76BC /* QuickActions.swift */; };
 		04B3BC999C63CF69380E8D2C /* JarvisCompanionWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 566EE4877D185AFA856CBD13 /* JarvisCompanionWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0DFC948BC5C16B943AE7FC22 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		0DFD3E3D020BAC3EEC2CAB87 /* CodeEntryField.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48550560333BEA63660AEFB /* CodeEntryField.swift */; };
 		14C91675104C7897DA1EE458 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AF13DCCF32B738186BDB9A /* Components.swift */; };
+		18218B78E51630B5E3322D78 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
 		1A3CEF5E012ED60A975824B7 /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */; };
+		1A408249BA46C3330C48ADAF /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
 		1C7AE5CBE826C1176AC9F4BA /* WatchHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC74BF02082BE9C300BE504 /* WatchHomeView.swift */; };
 		28B2AFCF857820517007207E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 427EE7363E4456123529776B /* SettingsView.swift */; };
 		290992CE1E88AF781AD2C834 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
@@ -37,6 +40,7 @@
 		7A87977425D352C74CCB318E /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A5BA93B90B959C3CD804B40 /* Haptics.swift */; };
 		7B7B594D58F10411F91D8E5C /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
 		7E6F5B5FE55A496888E7A21C /* ScanPairingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBBAC77255D80E6992DBAE6 /* ScanPairingSheet.swift */; };
+		802B1721CF8D48B7DF72A12F /* OutboxSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */; };
 		8846E71BA9567B56B8004B11 /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
 		8872DDAC429CC1C13D43FA98 /* RoutinesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A8E8716E9EA38161D99DA7 /* RoutinesSheet.swift */; };
 		8C7DFDCE8DFF1317469D3022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6BE5DE502A3F52A1E60A6509 /* Assets.xcassets */; };
@@ -121,6 +125,7 @@
 		29A595BB503334F0561F7F03 /* CompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionModels.swift; sourceTree = "<group>"; };
 		2A5BA93B90B959C3CD804B40 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		2B044E543CF5359056ABF45C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxTests.swift; sourceTree = "<group>"; };
 		3E2D5B4892F9C5013D6940AD /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
 		427EE7363E4456123529776B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4329AC90D4506354C450578A /* JarvisWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisWatchApp.swift; sourceTree = "<group>"; };
@@ -140,12 +145,14 @@
 		8D4809DF873287D0210801F6 /* Decoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Decoding.swift; sourceTree = "<group>"; };
 		8E4FDF01C107350849AA76BC /* QuickActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActions.swift; sourceTree = "<group>"; };
 		A3A2333A360287AAA2927BBE /* CompanionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionTests.swift; sourceTree = "<group>"; };
+		A649152CDC719B11909C1BBC /* Outbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Outbox.swift; sourceTree = "<group>"; };
 		A8545DCC87751DD4885468A8 /* StatusStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusStrip.swift; sourceTree = "<group>"; };
 		AC863DBA3D2B3C37031C5C7F /* CompanionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionUITests.swift; sourceTree = "<group>"; };
 		AE6465A8EA614143D01D94BA /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONValue.swift; sourceTree = "<group>"; };
 		B478E423B94A7981AC6C870A /* JarvisCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisCompanionApp.swift; sourceTree = "<group>"; };
 		BDBBAC77255D80E6992DBAE6 /* ScanPairingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanPairingSheet.swift; sourceTree = "<group>"; };
 		BEB9E5E6712964B7972DDEB5 /* Transcript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcript.swift; sourceTree = "<group>"; };
+		C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxSheet.swift; sourceTree = "<group>"; };
 		C66F961E366B4F19E99AED7C /* JarvisCompanionTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = JarvisCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C9350356CCD0A6C3FA4A3865 /* PhoneWatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWatchBridge.swift; sourceTree = "<group>"; };
 		D3E96950806E459CE0D5B74A /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptView.swift; sourceTree = "<group>"; };
@@ -169,6 +176,7 @@
 				E48550560333BEA63660AEFB /* CodeEntryField.swift */,
 				43AF13DCCF32B738186BDB9A /* Components.swift */,
 				F482B0337D746CE0F05B44DA /* HomeView.swift */,
+				C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */,
 				E10DA979C0AFFE3D76DA961C /* PairingView.swift */,
 				8E4FDF01C107350849AA76BC /* QuickActions.swift */,
 				16A8E8716E9EA38161D99DA7 /* RoutinesSheet.swift */,
@@ -232,6 +240,7 @@
 			children = (
 				A3A2333A360287AAA2927BBE /* CompanionTests.swift */,
 				1026D031A91343564AB99990 /* ContractTests.swift */,
+				3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */,
 				8C3460FECA5A8F277DF87280 /* PinningTests.swift */,
 			);
 			path = Tests;
@@ -267,6 +276,7 @@
 				AE6465A8EA614143D01D94BA /* JSONValue.swift */,
 				1A36D13F368B90884D9B34D7 /* MacAddress.swift */,
 				24D271D5774776815961B42C /* Models.swift */,
+				A649152CDC719B11909C1BBC /* Outbox.swift */,
 				E828C88E6726C861CCEDF1B1 /* PairingLink.swift */,
 				ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */,
 				27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */,
@@ -450,6 +460,7 @@
 				B7722CE807343C959211C100 /* JarvisWatchApp.swift in Sources */,
 				37A26AC60B4992FB1385403E /* MacAddress.swift in Sources */,
 				7B7B594D58F10411F91D8E5C /* Models.swift in Sources */,
+				18218B78E51630B5E3322D78 /* Outbox.swift in Sources */,
 				748E241B0AF41C4D88CB73AF /* PairingLink.swift in Sources */,
 				8846E71BA9567B56B8004B11 /* PairingStore.swift in Sources */,
 				9671408682015C1E8DE997FF /* PendingRequest.swift in Sources */,
@@ -491,6 +502,8 @@
 				941BA50A4EFCCACBD219F5D6 /* JarvisCompanionApp.swift in Sources */,
 				AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */,
 				B71FEA2D9172CE2A3D59B5FF /* Models.swift in Sources */,
+				1A408249BA46C3330C48ADAF /* Outbox.swift in Sources */,
+				802B1721CF8D48B7DF72A12F /* OutboxSheet.swift in Sources */,
 				656D9209B4D4CCB3CC14F1F7 /* PairingLink.swift in Sources */,
 				B6642ACEF5C7EA82E6CFA27F /* PairingStore.swift in Sources */,
 				F175E0A05CBB0A7433D534A5 /* PairingView.swift in Sources */,
@@ -519,6 +532,7 @@
 			files = (
 				BF7F42EB13E252E34C1812B1 /* CompanionTests.swift in Sources */,
 				A905455D985AF33F8E9A16DF /* ContractTests.swift in Sources */,
+				03B4E9901CB2854CCC30AF88 /* OutboxTests.swift in Sources */,
 				5A3B37D3C088803F8ADC4A36 /* PinningTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

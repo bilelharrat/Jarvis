@@ -53,6 +53,15 @@ enum JSONValue: Codable, Equatable, Hashable, Sendable {
         return nil
     }
 
+    /// A number, whole or not (a whole double comes back from disk as an int).
+    var doubleValue: Double? {
+        switch self {
+        case .int(let value): Double(value)
+        case .double(let value): value
+        default: nil
+        }
+    }
+
     /// An object without its null members (optional fields left out rather than sent as null).
     static func object(dropping pairs: [String: JSONValue?]) -> JSONValue {
         .object(pairs.compactMapValues { $0 })

@@ -75,6 +75,13 @@ struct TranscriptRow: View {
                         .controlSize(.mini)
                         .tint(Palette.muted)
                 }
+                if line.waiting {
+                    Label("Waiting for your Mac", systemImage: "clock")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(Palette.amber)
+                        .labelStyle(.titleAndIcon)
+                        .imageScale(.small)
+                }
             }
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -164,7 +171,7 @@ struct TranscriptRow: View {
 
     private var accessibilityText: String {
         switch line.kind {
-        case .user: "You said: \(line.text)"
+        case .user: line.waiting ? "Waiting for your Mac: \(line.text)" : "You said: \(line.text)"
         case .problem: line.text
         case .jarvis: line.text.isEmpty ? (line.onHold ? "Jarvis is waiting for your OK." : "Jarvis is thinking.") : "Jarvis: \(line.text)"
         }

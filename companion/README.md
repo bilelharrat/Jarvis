@@ -88,6 +88,19 @@ same address itself (through the iPhone, or over Wi-Fi/cellular). watchOS has no
 app, so a 100.x address on the Watch depends on its traffic going through an iPhone that
 has Tailscale on; at home the Mac's LAN address or `.local` name is the safer choice.
 
+## When the Mac can't be reached
+
+Requests that still mean something later wait in an outbox on the iPhone (the App Group
+container, so Siri and the share sheet add to the same queue): questions, the briefing,
+running a routine, a share, a message to a Jarvis Code session, location and health. They
+show in the conversation as "Waiting for your Mac" and in **Waiting to send** (from the
+connection banner, or the hub), where one can be dropped. When the Mac answers again they
+go oldest first — questions through the conversation, one at a time, so their replies show
+and are spoken like any other — and anything still waiting after an hour is let go (and
+the app says so). Stop, meeting notes and approvals are about the moment they're made, so
+they fail plainly instead. Only requests that never reached the Mac are kept, so nothing
+is sent twice.
+
 ## What the Mac needs
 
 - **Let my phone connect** on: the companion server on port 8765, speaking TLS with its
@@ -141,6 +154,7 @@ Shared/                     both apps
   PairingLink.swift         the Mac's jarvis-pair:// QR code
   Models.swift, CompanionModels.swift, Decoding.swift   lenient Codable models for the API's JSON
   JSONValue.swift           JSON request bodies
+  Outbox.swift              requests kept while the Mac can't be reached, and sending them
   PendingRequest.swift      follows one request until the Mac has answered it
   MacAddress.swift          "mac.local:8766" → https://mac.local:8766
   PairingStore.swift        Pairing + Keychain

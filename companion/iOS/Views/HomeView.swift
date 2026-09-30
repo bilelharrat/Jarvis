@@ -7,6 +7,7 @@ struct HomeView: View {
     @FocusState private var typing: Bool
     @State private var showSettings = false
     @State private var showRoutines = false
+    @State private var showOutbox = false
 
     var body: some View {
         @Bindable var model = model
@@ -24,8 +25,12 @@ struct HomeView: View {
                 )
                 .padding(.horizontal, -Self.margin)  // a shelf, edge to edge
                 if case .unreachable(let reason) = model.link {
-                    ConnectionBanner(reason: reason) { Task { await model.refresh() } }
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    ConnectionBanner(reason: reason, waiting: model.queued.count) {
+                        Task { await model.refresh() }
+                    } onShowWaiting: {
+                        showOutbox = true
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 reactor(height: geometry.size.height)
                 if !model.visibleApprovals.isEmpty {
@@ -73,6 +78,9 @@ struct HomeView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: model.toast)
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showOutbox) {
+            OutboxSheet()
         }
         .sheet(isPresented: $showRoutines) {
             RoutinesSheet(routines: model.remote?.routines ?? []) { routine in
