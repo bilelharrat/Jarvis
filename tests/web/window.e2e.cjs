@@ -5361,6 +5361,36 @@ test('@ suggests the terminal, folders, where names are defined and, after the f
   assert(await js('document.body.textContent.includes("Reading https://example.com/x for your message…")'), 'no notice');
 });
 
+test('A late answer about names never reopens an @ list closed with Escape, and one that couldn’t be asked is asked again', async () => {
+  await featureScript('code-mentions.js');
+  await open(1);
+  await deliver({ type: 'project_files', directory: 'alpha', files: ['src/retry.py', 'README.md'] });
+  const shown = () => js('$("cc-slash").hidden ? [] : [...document.querySelectorAll("#cc-slash button")].map((b) => b.textContent)');
+  await js('$("deck-input").value = ""; $("deck-input").focus(); __sent.length = 0; true');
+  await typeText('fix @retr');
+  assert((await shown()).some((x) => x.startsWith('src/retry.py')), JSON.stringify(await shown()));
+  let asked = [];
+  for (let i = 0; i < 40 && !asked.length; i++) { await sleep(25); asked = await sentOf('cw_symbols'); }
+  assert(asked.length === 1 && asked[0].query === 'retr', JSON.stringify(await js('__sent')));
+  await press('Escape');
+  assert(await js('$("cc-slash").hidden'), 'Escape did not close the list');
+  await deliver({ type: 'cw_symbols', ref: asked[0].ref, items: [{ name: 'retry', path: 'src/app.py', line: 12 }] });
+  await frames(2);
+  assert(await js('$("cc-slash").hidden'), `a late answer reopened the list: ${JSON.stringify(await shown())}`);
+  await js('__sent.length = 0; true');
+  await press('Enter');
+  const [msg] = await sentOf('task_send');
+  assert(msg && msg.text === 'fix @retr', `Enter didn't send the message: ${JSON.stringify(await js('__sent'))}, composer: "${await js('$("deck-input").value')}"`);
+  // Not connected when a name was to be asked about: typed on, it's asked then.
+  await js('window.__send = send; send = () => false; $("deck-input").value = ""; true');
+  await typeText('see @parse');
+  await sleep(300);
+  await js('send = __send; __sent.length = 0; $("deck-input").dispatchEvent(new Event("input")); true');
+  let again = [];
+  for (let i = 0; i < 40 && !again.length; i++) { await sleep(25); again = await sentOf('cw_symbols'); }
+  assert(again.length === 1 && again[0].query === 'parse', `a name that couldn't be asked about is never asked again: ${JSON.stringify(await js('__sent'))}`);
+});
+
 const MEMORY_CHOICES = [{ target: 'project', path: 'CLAUDE.md', exists: true }, { target: 'local', path: 'CLAUDE.local.md', exists: false }, { target: 'user', path: '~/.claude/CLAUDE.md', exists: false }];
 
 test('A "#" note asks where it goes, the last place first; not saved, it goes back in the composer', async () => {

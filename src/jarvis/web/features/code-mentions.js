@@ -72,8 +72,8 @@
     if (known !== 'asking') {
       clearTimeout(symbolTimer);
       symbolTimer = setTimeout(() => {
-        symbolAnswers.set(key, 'asking');
-        F.send({ type: 'cw_symbols', ...where(), query, ref: key });
+        // (asking only once it went: one that couldn't go is asked as it's typed again)
+        if (F.send({ type: 'cw_symbols', ...where(), query, ref: key })) symbolAnswers.set(key, 'asking');
       }, 150);
     }
     return [];
@@ -83,8 +83,11 @@
     if (!ev.ref) return;
     symbolAnswers.set(ev.ref, ev.items || []);
     while (symbolAnswers.size > 200) symbolAnswers.delete(symbolAnswers.keys().next().value);
-    // (still typing there: the suggestions are drawn again, these with them)
-    if (typeof renderSuggestions === 'function' && document.activeElement === F.$('deck-input')) renderSuggestions();
+    // (still typing there: the suggestions are drawn again, these with them. A list hidden
+    // with rows in it was closed, by Escape, a pick or a send, and stays closed: Enter sends
+    // then; a hidden empty one just had nothing to show till now.)
+    const box = F.$('cc-slash');
+    if (typeof renderSuggestions === 'function' && document.activeElement === F.$('deck-input') && box && (!box.hidden || !box.children.length)) renderSuggestions();
   });
 
   // Files and folders change: the answers made from them go.
