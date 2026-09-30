@@ -107,9 +107,14 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// A push with content-available woke the app in the background.
+    /// A push with content-available woke the app in the background: bring the widgets
+    /// (and anything waiting to be sent) up to date.
     func receivedInBackground(_ push: JarvisPush?) async {
-        onChange?()
+        if let onChange {
+            onChange()  // the app is up: its own refresh does the rest
+        } else {
+            await BackgroundRefresh.run()
+        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate

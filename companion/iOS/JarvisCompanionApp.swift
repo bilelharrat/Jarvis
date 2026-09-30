@@ -18,6 +18,9 @@ struct JarvisCompanionApp: App {
                 Palette.space.ignoresSafeArea()
             }
         }
+        .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
+            await BackgroundRefresh.run()
+        }
     }
 }
 

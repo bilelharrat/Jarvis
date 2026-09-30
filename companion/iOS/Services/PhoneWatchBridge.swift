@@ -34,6 +34,17 @@ final class PhoneWatchBridge: NSObject, WCSessionDelegate {
         send()
     }
 
+    /// What the complications show, when one is on the Watch face (the system allows a
+    /// few dozen of these a day, so only when it changed).
+    func send(snapshot: WidgetSnapshot) {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isPaired, session.isWatchAppInstalled,
+              session.isComplicationEnabled, session.remainingComplicationUserInfoTransfers > 0,
+              let info = WatchLink.userInfo(for: snapshot) else { return }
+        session.transferCurrentComplicationUserInfo(info)
+    }
+
     private func send() {
         guard WCSession.isSupported() else { return report() }
         let session = WCSession.default

@@ -6,6 +6,8 @@ import WatchConnectivity
 final class WatchSessionBridge: NSObject, WCSessionDelegate {
     /// Called on the main actor with what the iPhone sent.
     var onUpdate: (@MainActor (WatchLink.Update) -> Void)?
+    /// The iPhone's widget snapshot, for the complications.
+    var onSnapshot: (@MainActor (WidgetSnapshot) -> Void)?
 
     func activate() {
         guard WCSession.isSupported() else { return }
@@ -39,5 +41,11 @@ final class WatchSessionBridge: NSObject, WCSessionDelegate {
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         deliver(WatchLink.update(from: applicationContext))
+    }
+
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        guard let snapshot = WatchLink.snapshot(from: userInfo) else { return }
+        let onSnapshot = onSnapshot
+        Task { @MainActor in onSnapshot?(snapshot) }
     }
 }

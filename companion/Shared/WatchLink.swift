@@ -12,6 +12,8 @@ enum WatchLink {
     }
 
     static let requestKey = "request"
+    /// The widget snapshot, passed to the Watch for its complications.
+    static let snapshotKey = "snapshot"
     static let pairingRequest = "pairing"
     private static let baseURLKey = "baseURL"
     private static let tokenKey = "token"
@@ -44,5 +46,15 @@ enum WatchLink {
         return .paired(Pairing(
             baseURL: url, token: token, macName: name, deviceName: "Apple Watch", pairedAt: sent, fingerprint: fingerprint
         ))
+    }
+}
+
+extension WatchLink {
+    static func userInfo(for snapshot: WidgetSnapshot) -> [String: Any]? {
+        (try? SnapshotStore.encoder.encode(snapshot)).map { [snapshotKey: $0] }
+    }
+
+    static func snapshot(from userInfo: [String: Any]) -> WidgetSnapshot? {
+        (userInfo[snapshotKey] as? Data).flatMap { try? SnapshotStore.decoder.decode(WidgetSnapshot.self, from: $0) }
     }
 }

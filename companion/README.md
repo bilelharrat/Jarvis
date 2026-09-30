@@ -133,6 +133,23 @@ On the Watch, iPhone notifications appear by themselves with the same actions (N
 because… by dictation or Scribble). The Watch app registers the same categories and, when
 an action is delivered to it, answers the Mac itself with the pairing the iPhone gave it.
 
+## Widgets and complications
+
+- **Jarvis** (small, medium; Lock Screen circular, rectangular, inline): whether the Mac
+  is there, what needs your OK (the question itself only when unlocked), what's next.
+- **Jarvis Code** (small, medium; Lock Screen circular, rectangular): sessions that need
+  you and the ones working; a session opens where it is.
+- **Apple Watch complications** (circular, rectangular, inline, corner): the same glance.
+
+The widgets never talk to the Mac. The app writes a small snapshot into the App Group
+container (`WidgetSnapshot`) whenever the Mac answers — in front, on background app
+refresh (about every twenty minutes, as iOS allows), and when a push wakes it — and
+reloads the widgets only when what they show changed (the Mac thinking or speaking isn't
+news for a widget, and reloads are budgeted). When the Mac can't be reached they say so,
+with when it was last heard. The Watch keeps its own snapshot: from its own visits to the
+Mac, its own background refresh (about every half hour), and what the iPhone passes on
+when a complication is on the face. No model calls anywhere: `/api/state` only.
+
 ## When the Mac can't be reached
 
 Requests that still mean something later wait in an outbox on the iPhone (the App Group
@@ -202,6 +219,7 @@ Shared/                     both apps
   Outbox.swift              requests kept while the Mac can't be reached, and sending them
   ApprovalResponse.swift    an answer (Allow, Not now, No because…) to the choice the Mac gets
   NotificationActions.swift the categories, and answering from a notification (iPhone and Watch)
+  WidgetSnapshot.swift, SnapshotPublisher.swift   what the widgets show, kept in the App Group
   Destination.swift         places in the app and their jarvis-companion:// links
   PendingRequest.swift      follows one request until the Mac has answered it
   MacAddress.swift          "mac.local:8766" → https://mac.local:8766
@@ -211,6 +229,9 @@ Shared/                     both apps
 iOS/                        AppModel (state, polling), Transcript, Services/ (speech,
                             voice, Bonjour, Watch bridge, haptics), Views/, Views/Screens/
                             (the hub: Jarvis Code, conversations, routines, digest, spending)
-Watch/                      WatchModel, WatchSessionBridge, Views/
+Watch/                      WatchModel, WatchSessionBridge, WatchRefresh, Views/
+Widgets/                    the iPhone widget extension (Home Screen, Lock Screen)
+WatchWidgets/               the Watch complications extension
+WidgetsCommon/              the timeline provider and the glances both extensions show
 Tests/, UITests/            unit tests; the end-to-end UI test
 ```

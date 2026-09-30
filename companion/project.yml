@@ -27,6 +27,8 @@ targets:
     dependencies:
       - target: JarvisCompanionWatch
         embed: true
+      - target: JarvisWidgets
+        embed: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion
       INFOPLIST_FILE: iOS/Info.plist
@@ -67,6 +69,9 @@ targets:
           - UIInterfaceOrientationPortrait
         UIBackgroundModes:
           - remote-notification
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.bshventures.jarvis.companion.refresh
     entitlements:
       path: iOS/JarvisCompanion.entitlements
       properties:
@@ -81,6 +86,14 @@ targets:
     sources:
       - path: Shared
       - path: Watch
+    dependencies:
+      - target: JarvisWatchWidgets
+        embed: true
+    entitlements:
+      path: Watch/JarvisCompanionWatch.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.bshventures.jarvis.companion
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.watchkitapp
       INFOPLIST_FILE: Watch/Info.plist
@@ -101,6 +114,65 @@ targets:
         WKRunsIndependentlyOfCompanionApp: true
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: JARVIS talks to Jarvis on your Mac over your network.
+
+  # Home Screen and Lock Screen widgets (and the Live Activities' views).
+  JarvisWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: WidgetsCommon
+      - path: Widgets
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.widgets
+      INFOPLIST_FILE: Widgets/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      TARGETED_DEVICE_FAMILY: "1"
+      APPLICATION_EXTENSION_API_ONLY: true
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: J.A.R.V.I.S.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widgets/JarvisWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.bshventures.jarvis.companion
+
+  # Watch complications.
+  JarvisWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: Shared
+      - path: WidgetsCommon
+      - path: WatchWidgets
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.watchkitapp.widgets
+      INFOPLIST_FILE: WatchWidgets/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      WATCHOS_DEPLOYMENT_TARGET: "10.0"
+      TARGETED_DEVICE_FAMILY: "4"
+      SDKROOT: watchos
+      APPLICATION_EXTENSION_API_ONLY: true
+    info:
+      path: WatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: JARVIS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: WatchWidgets/JarvisWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.bshventures.jarvis.companion
 
   JarvisCompanionTests:
     type: bundle.unit-test

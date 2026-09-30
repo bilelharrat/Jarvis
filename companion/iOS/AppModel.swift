@@ -89,6 +89,7 @@ final class AppModel {
         #endif
         voice.onProblem = { [weak self] message in self?.show(message, style: .problem) }
         PushCoordinator.shared.onOpen = { [weak self] destination in self?.destination = destination }
+        SnapshotPublisher.shared.onChange = { [weak self] snapshot in self?.watch.send(snapshot: snapshot) }
         PushCoordinator.shared.onChange = { [weak self] in
             Task { await self?.refresh() }
         }
@@ -167,6 +168,7 @@ final class AppModel {
             stopPolling()
             speech.cancel()
             voice.stop()  // no background audio: iOS would cut it off anyway
+            if pairing != nil { BackgroundRefresh.schedule() }
         }
     }
 
@@ -598,6 +600,7 @@ final class AppModel {
             applied = ticket
             if link != .online { link = .online }
             apply(state)
+            if let pairing { SnapshotPublisher.shared.publish(state, macName: pairing.macLabel) }
             if !queued.isEmpty { startDrain() }
         } catch JarvisError.unpaired {
             if pairing?.token == api.token { lost() }
@@ -607,6 +610,7 @@ final class AppModel {
             applied = ticket
             let reason = (error as? JarvisError)?.message ?? error.localizedDescription
             if link != .unreachable(reason) { link = .unreachable(reason) }
+            SnapshotPublisher.shared.markOffline()
         }
     }
 
@@ -655,6 +659,7 @@ final class AppModel {
         voice.stop()
         PairingStore.clear()
         outbox.removeAll()  // nothing kept for this Mac goes to another
+        SnapshotPublisher.shared.clear()
         queued = []
         pairing = nil
         remote = nil

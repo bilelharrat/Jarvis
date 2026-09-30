@@ -39,6 +39,12 @@ final class WatchModel {
             }
         }
         bridge.onUpdate = { [weak self] update in self?.receive(update) }
+        bridge.onSnapshot = { snapshot in
+            // The iPhone's view of the Mac, when it's newer than the Watch's own.
+            if (SnapshotStore.shared.read()?.updatedAt ?? .distantPast) < snapshot.updatedAt {
+                SnapshotPublisher.shared.adopt(snapshot)
+            }
+        }
         bridge.activate()
     }
 
@@ -97,6 +103,7 @@ final class WatchModel {
         } else {
             poller?.cancel()
             poller = nil
+            if pairing != nil { WatchRefresh.schedule() }
         }
     }
 
@@ -132,6 +139,7 @@ final class WatchModel {
 
     private func forget() {
         PairingStore.clear()
+        SnapshotPublisher.shared.clear()
         pairing = nil
         remote = nil
         pending = nil
@@ -234,6 +242,7 @@ final class WatchModel {
             applied = ticket
             if offline { offline = false }
             apply(state)
+            if let pairing { SnapshotPublisher.shared.publish(state, macName: pairing.macLabel) }
         } catch JarvisError.unpaired {
             if pairing?.token == api.token { forget() }
         } catch is CancellationError {
@@ -241,6 +250,7 @@ final class WatchModel {
             guard ticket > applied else { return }
             applied = ticket
             if !offline { offline = true }
+            SnapshotPublisher.shared.markOffline()
         }
     }
 
