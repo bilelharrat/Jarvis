@@ -2322,8 +2322,6 @@ ZH_TEXTS: dict[str, str] = {
     "Battery's down to {pct} percent.": "电量降到百分之{pct}了。",
     "Rain on the way": "快下雨了",
     "Rain's likely around {time}, {rain} percent chance. Might want an umbrella.": "{time}左右可能下雨，降雨概率百分之{rain}。最好带把伞。",
-    "Email from {sender}": "{sender}的邮件",
-    "Email from {sender}: {subject}.": "{sender}发来邮件：{subject}。",
     # Instant Mac commands (last: the specific phrases above win over these patterns)
     "Opening {app}.": "正在打开{app}。",
     "Quitting {app}.": "正在退出{app}。",

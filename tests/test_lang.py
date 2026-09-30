@@ -1438,7 +1438,6 @@ def test_every_tool_label_and_window_name_is_covered():
         ),
         ("Press “Generate memo” in the Research Center?", "要在研究中心里按“Generate memo”吗？"),
         ("Something went wrong: timeout", "出了点问题：timeout"),
-        ("Email from Ann Lee: Urgent: contract.", "Ann Lee发来邮件：Urgent: contract。"),
         ("Quit Safari?", "要退出 Safari 吗？"),
         (
             "Add “Lunch” to your calendar at 2026-09-30 12:00 for 60 minutes at Café Rouge?",

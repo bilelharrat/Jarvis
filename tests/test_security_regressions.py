@@ -976,3 +976,83 @@ def test_the_hub_gives_the_purchase_guard_its_rates(settings, quiet_speaker, iso
     assert hub.transactions._convert == hub.fx.convert
     assert hub.fx.path == hub.feature_path("fx_rates.json")
     assert hub.fx.enabled is False  # poll off: never the network
+
+
+# ── 7. someone you told JARVIS about counts like a contact ──
+
+
+def test_people_in_memory_are_matched_by_address_number_or_full_name():
+    from jarvis.interrupts import Remembered
+
+    facts = Remembered.of(
+        [
+            "Ann Lee is the user's co-founder.",
+            "Dad's number is (415) 555-0142; his email is dad@family.example",
+            "王小明是我的合伙人",
+            "I support Arsenal on weekends; Ed likes Li's cooking.",
+        ]
+    )
+    assert facts.match("Ann Lee", "")
+    assert facts.match("Dr. Ann Lee", "")
+    assert facts.match("", "+1 415 555 0142") and facts.match("", "DAD@family.example")
+    assert facts.match("王小明", "")
+    # Whole words only, names of two letters don't count, and neither does a word the
+    # facts only use as a word ("support").
+    for name in ("Annabel Leeds", "Li Ed", "Support", "Ann Leeds", "李娜", "王", ""):
+        assert not facts.match(name, ""), name
+    assert not Remembered().match("Ann Lee", "ann@x.example")
+
+
+def test_a_remembered_sender_gets_a_contacts_point_never_a_vips():
+    from test_interrupts import NOW
+
+    from jarvis.interrupts import Item, Remembered, VipList, assess
+
+    def mail(display, address, subject="Lunch next week?"):
+        return Item("mail", 1, address, display, subject, NOW, display=display)
+
+    facts = Remembered.of(["Priya Raman is my co-founder", "Ann Lee runs the fund"])
+    priya = mail("Priya Raman", "priya@newco.example")
+    assert assess(priya, [], None, facts) and priya.remembered
+    assert priya.score == 1 and "someone you told me about" in priya.reasons
+    stranger = mail("Joe Bloggs", "joe@spam.example")
+    assert assess(stranger, [], None, facts) and stranger.score == 0
+    # A known contact is one point, not two; a VIP stays a VIP.
+    known = Item("mail", 2, "priya@newco.example", "Priya", "Hi", NOW, contact="Priya Raman")
+    assert assess(known, [], None, facts) and known.score == 1 and not known.remembered
+    # A display name borrowing a contact's name from another address is an impostor,
+    # and memory doesn't vouch for it.
+    contacts = VipList.of(["Ann Lee", "ann@zainar.com"])
+    fake = mail("Ann Lee", "ann.lee@evil.example", "URGENT: wire the funds")
+    assert assess(fake, [], contacts, facts) and fake.impostor and not fake.remembered
+
+
+async def test_the_interrupter_hears_what_memory_holds(tmp_path):
+    from test_interrupts import Env
+
+    env = Env(tmp_path)
+    facts = ["Priya Raman is my co-founder"]
+    watch = await env.started(remembered=lambda: facts)
+    env.mail.receive("priya@newco.example", "Priya Raman", "Board deck for Thursday")
+    await watch.poll()
+    [waiting] = await watch.digest()
+    assert waiting.remembered and "someone you told me about" in waiting.reasons
+
+
+def test_the_hub_gives_the_interrupter_memorys_facts_and_the_watcher_no_mail(
+    settings, quiet_speaker, isolated
+):
+    import inspect
+
+    from jarvis import proactive
+    from jarvis.hub import Hub
+    from jarvis.memory import MemoryStore
+
+    own = {k: v for k, v in isolated.items() if k != "interrupter"}
+    hub = Hub(settings, client_factory=lambda **k: None, speaker=quiet_speaker, poll=False, **own)
+    assert isinstance(hub.memory, MemoryStore)
+    hub.memory.add("Priya Raman is my co-founder")
+    assert hub.interrupts._remembered().match("Priya Raman", "")
+    params = inspect.signature(proactive.Watcher).parameters
+    assert "mail" not in params and "vip_text" not in params
+    assert not hasattr(proactive, "urgent_mail")

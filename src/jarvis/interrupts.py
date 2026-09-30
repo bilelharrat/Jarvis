@@ -3,8 +3,9 @@ JARVIS says so at once; everything else waits until they ask "what did I miss?".
 
 JARVIS asked for "the power to interrupt and prioritize in real time". This watches new
 texts (Messages' chat.db) and new mail (Mail's Envelope Index), both read-only, and
-scores each arrival: a VIP, urgent words in English or Chinese ("not urgent" doesn't
-count), three messages from one person in ten minutes (the same words sent again count;
+scores each arrival: a VIP, someone in Contacts or someone the user told JARVIS about
+(memory), urgent words in English or Chinese ("not urgent" doesn't count), three
+messages from one person in ten minutes (the same words sent again count;
 the same message arriving twice, by SMS and iMessage or in two inboxes, doesn't), a
 flagged email, and, for borderline ones only, a quick rate-limited triage by a model.
 Then it decides: interrupt now, keep it for "what did I miss?", or ignore it
@@ -571,6 +572,51 @@ def vip_match(name: str, handle: str, vips: Iterable[Any] | VipList) -> bool:
     return listed.match(name, handle)
 
 
+_CJK_NAME = re.compile(r"[\u3400-\u9fff]{2,4}")
+_NUMBERS = re.compile(r"\+?\d[\d\s().-]{5,}\d")
+
+
+@dataclass(frozen=True)
+class Remembered:
+    """The people the user told JARVIS about, from memory's facts ("Ann Lee is my
+    co-founder", "Dad's number is 415 555 0100"): addresses and numbers said in a fact,
+    and the names in them, as words written with a capital. A sender who is one of them
+    counts like someone in Contacts: a point more, never a VIP's two."""
+
+    emails: frozenset[str] = frozenset()
+    phones: frozenset[str] = frozenset()
+    names: frozenset[str] = frozenset()
+    text: str = ""  # for names in Chinese, which aren't split into words
+
+    @classmethod
+    def of(cls, facts: Iterable[Any]) -> Remembered:
+        text = "\n".join(str(f or "")[:500] for f in facts)
+        emails = {e.lower() for e in _EMAILS.findall(text)}
+        phones = {
+            digits[-10:]
+            for found in _NUMBERS.findall(text)
+            if len(digits := re.sub(r"\D", "", found)) >= 7
+        }
+        names = {w.lower() for w in re.findall(r"[^\W\d_]+", text) if w[:1].isupper()}
+        return cls(frozenset(emails), frozenset(phones), frozenset(names), text)
+
+    def match(self, name: str, handle: str) -> bool:
+        """The sender's address or number is in a fact, or their name is: its first two
+        words longer than two letters, each written with a capital there ("Ann Lee",
+        never "Annabel Leeds" or a word like "support"), or a Chinese name word for word."""
+        handle = (handle or "").strip().lower().removeprefix("mailto:")
+        if handle and handle in self.emails:
+            return True
+        digits = re.sub(r"\D", "", handle)
+        if len(digits) >= 7 and digits[-10:] in self.phones:
+            return True
+        chinese = _CJK_NAME.fullmatch((name or "").strip())
+        if chinese:
+            return chinese.group() in self.text
+        parts = [t for t in _tokens(name)[:2] if len(t) > 2 and t not in _HONORIFICS]
+        return bool(parts) and all(p in self.names for p in parts)
+
+
 # ── one new text or email ──
 
 
@@ -597,6 +643,7 @@ class Item:
     bulk: bool = False  # mailing-list or unsubscribe headers
     burst: int = 1  # messages from this sender in the last BURST_MINUTES, this one included
     vip: bool = False
+    remembered: bool = False  # someone memory's facts name (Remembered)
     words: list[str] = field(default_factory=list)
     score: int = 0
     reasons: list[str] = field(default_factory=list)
@@ -642,9 +689,16 @@ def automated(item: Item) -> bool:
 IMPOSTOR = "its display name is one of your contacts', but the address isn't theirs"
 
 
-def assess(item: Item, vips: Iterable[Any] | VipList, people: VipList | None = None) -> bool:
+def assess(
+    item: Item,
+    vips: Iterable[Any] | VipList,
+    people: VipList | None = None,
+    remembered: Remembered | None = None,
+) -> bool:
     """Score an item in place. False when it's automated and should be ignored (a VIP's
-    message never is). people: the user's Contacts, to spot an email borrowing a name."""
+    message never is). people: the user's Contacts, to spot an email borrowing a name.
+    remembered: the people memory's facts name, who count like a contact (a point more);
+    an email's own display name counts for that only when it borrows no contact's."""
     listed = vips if isinstance(vips, VipList) else VipList.of(vips)
     item.vip = listed.match(item.contact, item.handle)
     if not item.vip and automated(item):
@@ -658,6 +712,11 @@ def assess(item: Item, vips: Iterable[Any] | VipList, people: VipList | None = N
         and bool(item.display.strip())
         and any(p.borrowed(item.display, item.handle) for p in (listed, people) if p)
     )
+    item.remembered = (
+        remembered is not None
+        and not (item.known or item.vip or item.impostor)
+        and remembered.match(item.display if item.source == "mail" else "", item.handle)
+    )
     weight, item.words = urgency(f"{item.text}\n{item.preview}")
     if not item.known and not item.vip:
         weight = min(weight, STRANGER_WORDS)
@@ -668,6 +727,9 @@ def assess(item: Item, vips: Iterable[Any] | VipList, people: VipList | None = N
         reasons.append("VIP")
     elif item.known:
         score += 1
+    elif item.remembered:
+        score += 1
+        reasons.append("someone you told me about")
     if STRONG & set(item.words):
         reasons.append("says it's urgent")
     elif item.words:
@@ -1341,6 +1403,7 @@ def _weigh(
     skip: Container[int],
     vips: VipList,
     people: VipList,
+    remembered: Remembered | None = None,
 ) -> list[Item]:
     """Bursts counted and each item scored; automated ones dropped. Touches nothing but
     the items, so it can run in a thread."""
@@ -1348,7 +1411,7 @@ def _weigh(
     for item in items:
         try:
             item.burst = count_burst(history.get(item.person[1], []), item, skip)
-            if assess(item, vips, people):
+            if assess(item, vips, people, remembered):
                 kept.append(item)
         except Exception:  # one odd message never stops the rest
             log.exception("interruptions: couldn't weigh a message")
@@ -1362,7 +1425,8 @@ class Interrupter:
     notify(alert): hub.notify. chat_db / mail_db: the databases, or callables returning
     them (such as sources.mail_index); None: not watched. vips(): names, numbers and
     addresses. contacts(): {last ten digits or email: name}, e.g. sources.contact_names
-    (slow: read in the background every few hours). mode() / set_mode(mode): the user's
+    (slow: read in the background every few hours). remembered(): memory's facts, whose
+    people count like contacts (Remembered). mode() / set_mode(mode): the user's
     setting. quiet_hours: "22:00-07:00" or a callable returning it. busy(): a meeting in
     progress (may be async). classify(text): optional async triage returning urgent,
     normal or ignore. lang(): "en" or "zh". enabled(): the whole feature on or off.
@@ -1379,6 +1443,7 @@ class Interrupter:
         mail_db: Path | Callable[[], Path | None] | None = None,
         vips: Callable[[], Iterable[str]] = lambda: (),
         contacts: Callable[[], dict[str, str]] | None = None,
+        remembered: Callable[[], Iterable[str]] = lambda: (),
         mode: Callable[[], str] | None = None,
         set_mode: Callable[[str], Any] | None = None,
         quiet_hours: Callable[[], str] | str = "",
@@ -1402,6 +1467,7 @@ class Interrupter:
         self.interval = interval
         self._chat_db, self._mail_db = chat_db, mail_db
         self._vips_fn, self._contacts = vips, contacts
+        self._remembered_fn = remembered
         self._mode_fn, self._set_mode = mode, set_mode
         self._quiet_fn, self._busy_fn = quiet_hours, busy
         self._classify, self._lang_fn = classify, lang
@@ -1533,6 +1599,13 @@ class Interrupter:
         except Exception:
             log.info("interruptions: couldn't read the VIP list")
             return VipList()
+
+    def _remembered(self) -> Remembered:
+        try:
+            return Remembered.of(list(self._remembered_fn() or ())[:500])
+        except Exception:
+            log.info("interruptions: couldn't read what memory holds")
+            return Remembered()
 
     def _people_list(self) -> VipList:
         """The user's Contacts as names, addresses and numbers, to spot an email that
@@ -1746,7 +1819,8 @@ class Interrupter:
         if not fresh:
             return []
         skip = frozenset(self._copies[source])
-        return await asyncio.to_thread(_weigh, fresh, batch.history, skip, vips, people)
+        remembered = self._remembered()
+        return await asyncio.to_thread(_weigh, fresh, batch.history, skip, vips, people, remembered)
 
     def _copy(self, item: Item, now: datetime) -> bool:
         """The same words from the same person arriving again within COPY_SECONDS another

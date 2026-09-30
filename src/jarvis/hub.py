@@ -834,7 +834,6 @@ class Hub:
             eta=self._eta_minutes,
             battery=battery,
             weather=lambda: self.weather,
-            vip_text=lambda: " ".join(f.text for f in self.memory.facts),
             enabled=lambda: self.prefs.proactive,
             files=self._meeting_files,
         )  # urgent email is the interrupter's now: announced once, with texts
@@ -863,6 +862,7 @@ class Hub:
             mail_db=mail_index,
             vips=lambda: self.prefs.vips,
             contacts=contact_names,
+            remembered=lambda: [f.text for f in self.memory.facts],  # people told about
             mode=lambda: self.prefs.interruptions if self.prefs.proactive else "off",
             set_mode=lambda m: self.set_prefs({"interruptions": m}),
             quiet_hours=lambda: self.prefs.quiet_hours,

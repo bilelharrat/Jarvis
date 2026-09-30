@@ -1,6 +1,5 @@
 import asyncio
 from datetime import datetime, timedelta
-from types import SimpleNamespace
 
 from jarvis import proactive
 from jarvis.proactive import Watcher
@@ -80,30 +79,6 @@ def test_battery_and_rain():
     assert proactive.rain_alerts(soon, NOW)  # the very next hour counts
 
 
-def test_urgent_or_known_senders_only():
-    mail = [
-        SimpleNamespace(id="1", group="Newsletter Co", title="This week in AI — Newsletter Co"),
-        SimpleNamespace(id="2", group="Bob Smith", title="URGENT: wire cutoff — Bob Smith"),
-        SimpleNamespace(id="3", group="Ann Lee", title="Lunch? — Ann Lee"),
-    ]
-    alerts = proactive.urgent_mail(mail, set(), vip_text="Ann Lee is the user's co-founder.")
-    assert [a.text for a in alerts] == [
-        "Email from Bob Smith: URGENT: wire cutoff.",
-        "Email from Ann Lee: Lunch?.",
-    ]
-    # Name parts match whole words only, and two-letter ones don't count.
-    others = [
-        SimpleNamespace(id="4", group="Annabel Leeds", title="Hi — Annabel Leeds"),
-        SimpleNamespace(id="5", group="Li Ed", title="Hi — Li Ed"),
-        SimpleNamespace(id="6", group="Promo", title="Important update to our terms — Promo"),
-    ]
-    vip = "Ann Lee is the user's co-founder; Ed likes Li's cooking."
-    assert proactive.urgent_mail(others, set(), vip_text=vip) == []
-    # Mail from before the watcher started is never news.
-    old = SimpleNamespace(id="7", group="Bob", title="URGENT — Bob", modified="2026-09-29T09:00:00")
-    assert proactive.urgent_mail([old], set(), since=datetime(2026, 9, 29, 10, 0)) == []
-
-
 def test_quiet_hours_wrap_midnight():
     assert proactive.in_quiet_hours(datetime(2026, 9, 29, 23, 30), "22:00-07:00")
     assert proactive.in_quiet_hours(datetime(2026, 9, 29, 6, 59), "22:00-07:00")
@@ -111,9 +86,10 @@ def test_quiet_hours_wrap_midnight():
     assert proactive.in_quiet_hours(datetime(2026, 9, 29, 13, 0), "12:00-14:00")
 
 
-async def test_watcher_announces_each_thing_once_and_skips_old_mail():
+async def test_watcher_announces_each_thing_once():
+    """Email isn't the watcher's: the interrupter announces the mail and texts that
+    matter (interrupts.py), people the user told JARVIS about included."""
     said = []
-    inbox = [SimpleNamespace(id="old", group="Bob", title="URGENT old — Bob")]
     power = {"percent": 50, "plugged": False}
 
     async def events():
@@ -122,25 +98,20 @@ async def test_watcher_announces_each_thing_once_and_skips_old_mail():
     async def eta(_where):
         return None
 
-    async def mail():
-        return list(inbox)
-
     w = Watcher(
         said.append,
         events=events,
         eta=eta,
         battery=lambda: power,
         weather=lambda: None,
-        mail=mail,
     )
     await w.tick(NOW)
-    assert [a.kind for a in said] == ["soon"]  # the old urgent email isn't news
+    assert [a.kind for a in said] == ["soon"]
     await w.tick(NOW + timedelta(minutes=1))
     assert len(said) == 1  # nothing twice
-    inbox.append(SimpleNamespace(id="new", group="Bob", title="URGENT new — Bob"))
     power["percent"] = 8
     await w.tick(NOW + timedelta(minutes=3))
-    assert [a.kind for a in said[1:]] == ["battery", "mail"]
+    assert [a.kind for a in said[1:]] == ["battery"]
     power.update(percent=60, plugged=True)
     await w.tick(NOW + timedelta(minutes=4))
     power.update(percent=9, plugged=False)
