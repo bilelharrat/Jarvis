@@ -4757,6 +4757,30 @@ test('Conversation: incognito shows a banner with Leave, and past ones wait till
   assert(await js(`$('convo-incognito').hidden && !document.body.hasAttribute('data-incognito') && $('convo-settings-incognito').textContent === 'Start an incognito conversation'`), 'the banner stayed');
 });
 
+test('Conversation: what Jarvis heard is fixed with a click, and hearing says what it learned', async () => {
+  await loadFeatures('conversation_heard.js', 'conversation.css');
+  await js(`__ev({ type: 'hearing', corrections: [], words: [] }); __ev({ type: 'turn', rid: 'r1', user: 'What time is it?' }); true`);
+  assert(await js(`!$('heard').classList.contains('heard-fixable') && !$('heard').hasAttribute('role')`), 'a typed request could be fixed');
+  await js(`__ev({ type: 'heard', text: 'Jarvis call oaken' }); __ev({ type: 'turn', rid: 'r2', user: 'call oaken' }); __sent.length = 0; true`);
+  const offered = await js(`({ fixable: $('heard').classList.contains('heard-fixable'), role: $('heard').getAttribute('role'), title: $('heard').title, text: $('heard').textContent })`);
+  assert(offered.fixable && offered.role === 'button' && offered.title === 'Click to fix what I heard' && offered.text === '“call oaken”', JSON.stringify(offered));
+  await js(`$('heard').click(); true`);
+  const editing = await js(`({ open: !$('heard-fix').hidden, heard: $('heard').hidden, value: $('heard-fix-input').value, focused: document.activeElement === $('heard-fix-input'), after: $('heard').nextElementSibling.id })`);
+  assert(editing.open && editing.heard && editing.value === 'call oaken' && editing.focused && editing.after === 'heard-fix', JSON.stringify(editing));
+  await js(`$('heard-fix-input').value = 'call  Okin '; $('heard-fix').requestSubmit(); true`);
+  assert(JSON.stringify(await sentOf('heard_edit')) === '[{"type":"heard_edit","original":"call oaken","edited":"call Okin"}]', 'the fix was not sent');
+  assert(await js(`$('heard-fix').hidden && !$('heard').hidden && $('heard').textContent === '“call Okin”'`), 'the fixed words were not shown');
+  await js(`__ev({ type: 'hearing', corrections: [{ heard: 'oaken', meant: 'Okin', count: 1, at: '' }], words: [] }); true`);
+  assert(await js(`!$('heard-learned').hidden && $('heard-learned').textContent === "Got it: I'll hear “Okin” from now on."`), 'what hearing learned was not said');
+  await js(`__sent.length = 0; $('heard').click(); $('heard-fix-input').value = 'call Okin at noon'; $('heard-fix-again').click(); true`);
+  const again = await js('__sent.map((m) => m.type + ":" + (m.edited || m.text || ""))');
+  assert(JSON.stringify(again) === '["heard_edit:call Okin at noon","ask:call Okin at noon"]', JSON.stringify(again));
+  await js(`__sent.length = 0; $('heard').click(); $('heard-fix-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+  assert(await js(`$('heard-fix').hidden && !$('heard').hidden && __sent.length === 0`), 'Escape did not put it back');
+  await js(`__ev({ type: 'turn', rid: 'r3', user: 'Thanks' }); true`);
+  assert(await js(`!$('heard').classList.contains('heard-fixable') && $('heard-learned').hidden`), 'a typed request after it could still be fixed');
+});
+
 test('Conversations: the past ones are listed, searched, read back and carried on', async () => {
   await loadFeatures(...CONVO);
   const dock = await js(`({ after: $('activity-btn').nextElementSibling.id, label: $('convo-btn').getAttribute('aria-label') })`);

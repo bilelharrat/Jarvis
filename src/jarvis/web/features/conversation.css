@@ -160,3 +160,17 @@ body[data-look="orb"] .convo-pop {
 .convo-cx-legend i { width: 8px; height: 8px; border-radius: 2px; }
 .convo-cx-legend b { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
 .convo-cx-note { margin: 0; font-size: 12px; color: var(--muted); }
+
+/* Click to fix what Jarvis heard (features/conversation_heard.js): the transcript under the
+   orb is a quiet button after a spoken request, and becomes a small field when clicked. */
+.heard.heard-fixable { cursor: text; border-radius: 8px; padding: 2px 6px; margin: -2px -6px; }
+.heard.heard-fixable:hover, .heard.heard-fixable:focus-visible { background: var(--chip-hover); color: var(--ink-2); outline: none; }
+.heard[hidden] { display: none; }
+.heard-fix { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; width: min(620px, 100%); }
+.heard-fix[hidden] { display: none; }
+.heard-fix-input {
+  flex: 1 1 260px; min-width: 0; font: inherit; font-size: 15px; padding: 7px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+}
+.heard-learned { margin: 0; font-size: 13px; color: var(--muted); }
+.heard-learned[hidden] { display: none; }

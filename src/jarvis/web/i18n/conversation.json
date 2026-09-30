@@ -42,7 +42,13 @@
     "Back to the conversation from before": "回到之前的对话",
     "A conversation nothing is kept of": "一段什么都不保留的对话",
     "Leave incognito to carry on a past conversation.": "先退出无痕模式，才能接着过去的对话。",
-    "Incognito conversation": "无痕对话"
+    "Incognito conversation": "无痕对话",
+    "Click to fix what I heard": "点击修改我听到的内容",
+    "Fix what I heard": "修改我听到的内容",
+    "What you said": "你说的话",
+    "Fix": "修改",
+    "Fix and ask again": "修改并重新提问",
+    "Cancel": "取消"
   },
   "patterns": [
     [
@@ -60,6 +66,10 @@
     [
       "^Conversations · (\\d+)% of the context used$",
       "对话 · 已用上下文的 $1%"
+    ],
+    [
+      "^Got it: I'll hear “(.+)” from now on\\.$",
+      "知道了：以后我会听成“$1”。"
     ]
   ]
 }
