@@ -98,6 +98,15 @@ function serve() {
         res.end(PDF);
         return;
       }
+      if (where === '/huge.pdf') { // a PDF bigger than any read, its size unsaid (chunked)
+        res.writeHead(200, { 'content-type': 'application/pdf' });
+        const chunk = Buffer.alloc(1024 * 1024, 48);
+        let sent = 0;
+        const more = () => { while (sent < 26) { sent += 1; if (!res.write(chunk)) { res.once('drain', more); return; } } res.end(); };
+        res.on('error', () => {});
+        more();
+        return;
+      }
       if (where === '/signin') {
         res.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'signed=in; Path=/' });
         res.end('<title>Signed in</title>ok');
@@ -647,6 +656,11 @@ test('A PDF shows in Chromium’s viewer; JARVIS reads it through the tab’s ow
   const html = newTab();
   await html.webContents.loadURL(`${base}/other`);
   assert((await parity.pdfRead(html, { pdfKnown: [] })) === null, 'a web page read as a PDF');
+  const huge = newTab();
+  await huge.webContents.loadURL(`${base}/huge.pdf`).catch(() => {});
+  await until(async () => (await page(huge, 'document.contentType').catch(() => '')) === 'application/pdf', 10000);
+  const big = await parity.pdfRead(huge, { pdfKnown: [] });
+  assert(big && big.ok === false && big.message === 'This PDF is over 25 MB; I read PDFs up to 25 MB.', JSON.stringify(big && { ...big, pdf: undefined }));
 });
 
 test('A PDF on this Mac reads from its file; one too big says so', async () => {
@@ -850,6 +864,17 @@ test('A tab popped out into a window of its own: the dock shows another, its bar
   again.close();
   await until(() => again.isDestroyed());
   assert(!b.popout && active === b, 'closing the window lost the page');
+  // Popped out, its prompts come in its own window's box (the dock's strip never shows it).
+  parity.popOut(b);
+  const own = b.popout;
+  own.isVisible = () => true; // as a window on screen is (the test shows none)
+  boxes.length = 0;
+  boxAnswer = 0; // Allow
+  parity.setSite({ origin: base, kind: 'camera', value: 'ask' });
+  const camera = await page(b, 'navigator.mediaDevices.getUserMedia({ video: true }).then(() => "ok", (e) => e.name)');
+  assert(camera === 'ok' && boxes.length === 1 && boxes[0].owner === own, `the prompt didn’t ask in its window: ${camera} ${boxes.map((x) => x.owner === own)}`);
+  assert(parity.ownerOf(b.webContents) === own && !parity.inDock(b.webContents), 'its window isn’t its owner');
+  parity.popIn(b);
   // Popped, and ⌘W in its page: back. Popped, and its tab closed: the window goes.
   parity.popOut(b);
   const third = b.popout;

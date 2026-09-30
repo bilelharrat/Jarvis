@@ -164,10 +164,6 @@ class BrowserParity {
     return String(this.labels[key] || LABELS[key] || key).replace(/\{(\w+)\}/g, (_m, k) => (k in vars ? vars[k] : ''));
   }
 
-  isTab(wc) {
-    return Boolean(wc) && this.hooks.tabs().some((v) => v.webContents === wc);
-  }
-
   // The tab on show's page, while it's there (a closed view has no webContents at all).
   activeWc() {
     const view = this.hooks.active();
@@ -176,14 +172,22 @@ class BrowserParity {
   }
 
   viewOf(wc) {
-    return this.hooks.tabs().find((v) => v.webContents === wc) || null;
+    return (wc && this.hooks.tabs().find((v) => v.webContents === wc)) || null;
   }
 
-  // The window a page is in: the J.A.R.V.I.S. window for a tab, its own for a popup.
+  // The window a page is in: the J.A.R.V.I.S. window for a tab, its own for a popup or a tab
+  // popped out of the dock.
   ownerOf(wc) {
-    if (this.isTab(wc)) return this.hooks.window();
+    const view = this.viewOf(wc);
+    if (view) return this.poppedOut(view) ? view.popout : this.hooks.window();
     const owner = BrowserWindow.fromWebContents(wc);
     return owner && !owner.isDestroyed() ? owner : null;
+  }
+
+  // A tab in the dock, where the window's prompts and warnings show (a popped-out one isn't).
+  inDock(wc) {
+    const view = this.viewOf(wc);
+    return Boolean(view) && !this.poppedOut(view);
   }
 
   // ── sessions: what every browser session gets once ──
@@ -226,13 +230,13 @@ class BrowserParity {
   }
 
   // A page asking: a tab of the dock waits for the window's prompt; a page in a window of its
-  // own (a sign-in popup) asks in a box on that window, and one in a window nobody sees (Jarvis
-  // Code's check of a dev server) is refused.
+  // own (a sign-in popup, a tab popped out) asks in a box on that window, and one in a window
+  // nobody sees (Jarvis Code's check of a dev server) is refused.
   request(perms, wc, permission, details) {
     if (!wc || wc.isDestroyed()) return Promise.resolve(false);
     const origin = originOf(details.isMainFrame === false ? wc.getURL() : details.requestingUrl || wc.getURL()) || originOf(wc.getURL());
     const asked = perms.request({ tab: wc.id, origin, permission, details });
-    if (!this.isTab(wc)) {
+    if (!this.inDock(wc)) {
       const waiting = perms.waiting(wc.id);
       if (waiting && !waiting.boxed) {
         waiting.boxed = true; // one box for it, however often the page asks meanwhile
@@ -243,7 +247,7 @@ class BrowserParity {
   }
 
   askInBox(perms, wc, prompt) {
-    const owner = BrowserWindow.fromWebContents(wc);
+    const owner = this.ownerOf(wc);
     if (!owner || owner.isDestroyed() || !owner.isVisible()) { perms.answer(prompt.id, 'dismiss'); return; }
     const what = this.kindsText(prompt.kinds);
     const options = {
@@ -430,11 +434,12 @@ class BrowserParity {
   // ── HTTP sign-in: a site's user name and password prompt ──
 
   // A tab's waits for the window's prompt (the tab on show's first); a request from another
-  // site inside the page, or from a popup, is cancelled (the page shows its "unauthorized").
+  // site inside the page, or from a page in a window of its own, is cancelled (the page shows
+  // its "unauthorized").
   login(wc, details, authInfo, callback) {
     const id = wc.id;
     const url = String(details.url || '');
-    const allowed = this.isTab(wc)
+    const allowed = this.inDock(wc)
       && lib.authAllowed({ url, page: wc.getURL(), going: this.going.get(id), proxy: Boolean(authInfo.isProxy) });
     if (!allowed) { callback(); return; }
     const list = this.auths.get(id) || [];
@@ -485,7 +490,7 @@ class BrowserParity {
     callback(false);
     if (!isMainFrame || !host) return;
     const warning = { id: `c${++this.seq}`, tab: wc.id, url: String(url), host, problem: lib.certProblem(error), print };
-    if (this.isTab(wc)) {
+    if (this.inDock(wc)) {
       this.certs.set(wc.id, warning);
       this.applyCovers();
       this.refreshAsk();
@@ -637,7 +642,7 @@ class BrowserParity {
     if (this.split) { this.endSplit(); return true; }
     const active = this.hooks.active();
     if (!active) return false;
-    const other = [...this.recent].reverse().find((v) => v !== active && this.hooks.tabs().includes(v) && v.webContents && !v.webContents.isDestroyed());
+    const other = [...this.recent].reverse().find((v) => v !== active && !this.poppedOut(v) && this.hooks.tabs().includes(v) && v.webContents && !v.webContents.isDestroyed());
     if (other) return this.splitWith(other);
     if (!this.hooks.openTab) return false;
     this.hooks.openTab(); // a new tab, on show: it goes right, the one before back on the left
@@ -650,7 +655,7 @@ class BrowserParity {
 
   splitWith(view) {
     const active = this.hooks.active();
-    if (!view || view === active || !view.webContents || view.webContents.isDestroyed()) return false;
+    if (!view || view === active || this.poppedOut(view) || !view.webContents || view.webContents.isDestroyed()) return false;
     if (this.split && this.split !== view) this.unplace(this.split);
     this.split = view;
     if (view.lazy) this.wake(view);
@@ -767,7 +772,7 @@ class BrowserParity {
     const url = this.urlOf(view);
     const items = [
       { label: this.label('reload'), click: () => (view.lazy ? this.wake(view) : wc.reload()) },
-      { label: this.label('duplicate'), enabled: /^https?:/i.test(url) && Boolean(this.hooks.openTab), click: () => this.hooks.openTab(url) },
+      { label: this.label('duplicate'), enabled: /^https?:/i.test(url) && Boolean(this.hooks.openTab), click: () => this.hooks.openTab(url, this.profileOf(wc)) },
       { label: this.label(view.pinned ? 'unpinTab' : 'pinTab'), click: () => this.tabAction({ action: view.pinned ? 'unpin' : 'pin', id }) },
       { label: this.label(wc.isAudioMuted() ? 'unmuteTab' : 'muteTab'), click: () => this.tabAction({ action: wc.isAudioMuted() ? 'unmute' : 'mute', id }) },
       { label: this.label('besideThis'), enabled: view !== this.hooks.active() && view !== this.split && !view.popout, click: () => this.splitWith(view) },
@@ -1146,9 +1151,11 @@ class BrowserParity {
   async clearAll({ labels } = {}) {
     this.setLabels(labels);
     if (!(await this.confirm(this.label('clearAllTitle'), this.label('clearAllDetail')))) return { cleared: false };
-    const ses = session.fromPartition(PARTITION);
-    await ses.clearData().catch(() => {});
-    await ses.clearAuthCache().catch(() => {});
+    for (const partition of this.partitions()) { // the owner's, JARVIS's signed-out one, private tabs'
+      const ses = session.fromPartition(partition);
+      await ses.clearData().catch(() => {});
+      await ses.clearAuthCache().catch(() => {});
+    }
     return { cleared: true };
   }
 
@@ -1228,8 +1235,18 @@ class BrowserParity {
         if (!res.ok) return { error: `The PDF couldn't be fetched (HTTP ${res.status}).` };
         const size = Number(res.headers.get('content-length') || 0);
         if (size > PDF_MAX) return tooBig(size);
-        bytes = Buffer.from(await res.arrayBuffer());
-        if (bytes.length > PDF_MAX) return tooBig(bytes.length);
+        // Read as it comes, and no further than the most a PDF may be (a server may not say).
+        const reader = res.body.getReader();
+        const chunks = [];
+        let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          got += value.length;
+          if (got > PDF_MAX) { reader.cancel().catch(() => {}); return { error: `This PDF is over ${PDF_MAX / 1048576} MB; I read PDFs up to ${PDF_MAX / 1048576} MB.` }; }
+          chunks.push(value);
+        }
+        bytes = Buffer.concat(chunks);
       }
     } catch (err) {
       return { error: `The PDF couldn't be fetched (${err && err.message ? err.message : err}).` };
