@@ -501,6 +501,9 @@ async def test_the_store_keeps_each_phone_apart_and_reads_defensively(tmp_path):
     assert again.known("d1")["live"] == {"code:3": {"token": "cd" * 32, "at": 100.0}}
     again.prune({"d2"})
     assert again.known("d1") is None
+    # The file is edited by hand below: the store's own save of the prune (a thread of its
+    # own) must be done first, or it can land after the edit and replace it.
+    await again.saver.flush()
     path.write_text(
         json.dumps(
             {
