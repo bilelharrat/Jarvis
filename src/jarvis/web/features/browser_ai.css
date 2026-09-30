@@ -123,3 +123,10 @@
 .bai-note-icon.bai-translate-icon::after { content: "文"; font-size: 9.5px; }
 .bai-copy { flex: none; height: 24px; padding: 0 10px; border: 0; border-radius: 7px; cursor: pointer; background: rgb(var(--c-ink) / 0.08); color: inherit; font: 500 12px/1 var(--sans); }
 .bai-copy:hover { background: rgb(var(--c-ink) / 0.13); }
+
+/* The hand back's Open Passwords: quieter than Carry on, beside it. */
+.bai-passwords {
+  flex: none; height: 28px; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer;
+  background: rgb(var(--c-ink) / 0.08); color: rgb(var(--c-ink)); font: 500 12.5px/1 var(--sans);
+}
+.bai-passwords:hover { background: rgb(var(--c-ink) / 0.13); }

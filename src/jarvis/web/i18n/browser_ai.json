@@ -100,7 +100,9 @@
   "In English": "英文译文",
   "In Chinese": "中文译文",
   "Jarvis has translated as much as it can today. Ask Jarvis › Translate still works.": "Jarvis 今天的翻译次数已用完。“问 Jarvis › 翻译”仍然可以用。",
-  "The translation didn’t come back. Try again in a moment.": "翻译没有返回。请稍后再试。"
+  "The translation didn’t come back. Try again in a moment.": "翻译没有返回。请稍后再试。",
+  "Open Passwords": "打开“密码”App",
+  "Opens the Passwords app. Jarvis never sees your passwords.": "打开“密码”App。Jarvis 永远看不到你的密码。"
  },
  "patterns": [
   [

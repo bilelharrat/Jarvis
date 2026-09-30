@@ -6776,6 +6776,9 @@ test('Browser AI hands a page back: “Your turn” over it, its tab brought for
   await js(`__state({ url: 'https://accounts.example/login', title: 'Sign in', tabs: [{ id: 5, active: false }, { id: 6, active: true }] }); true`);
   const words = await js('document.querySelector(".bai-turn") && document.querySelector(".bai-turn").innerText');
   assert(/Your turn/.test(words) && /wants your password/.test(words) && /carry on/.test(words), words);
+  // The Passwords app, for the owner to look it up: it only opens the app.
+  await js('__calls.length = 0; document.querySelector(".bai-turn .bai-passwords").click(); true');
+  assert(JSON.stringify(await js('__calls')) === JSON.stringify([['feature:browser-ai:passwords', 'open']]), JSON.stringify(await js('__calls')));
   await js('__sent.length = 0; document.querySelector(".bai-turn-go").click(); true');
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_carry_on' }]), JSON.stringify(await js('__sent')));
   await js('__sent.length = 0; document.querySelector(".bai-turn .bai-x").click(); true');
@@ -6783,6 +6786,7 @@ test('Browser AI hands a page back: “Your turn” over it, its tab brought for
   // The hub lets go (carry on said): the banner goes. Its tab closed: the window lets go.
   await deliver({ type: 'browser_ai_handback', tab: 6, url: 'https://accounts.example/login', host: 'accounts.example', need: 'captcha', what: 'a captcha' });
   assert(/prove you’re human/.test(await js('document.querySelector(".bai-turn").innerText')), 'the captcha words');
+  assert(!(await js('!!document.querySelector(".bai-turn .bai-passwords")')), 'Passwords offered at a captcha');
   await deliver({ type: 'browser_ai_handback', tab: null });
   assert(!(await js('!!document.querySelector(".bai-turn")')), 'still shown after the hub let go');
   await deliver({ type: 'browser_ai_handback', tab: 6, url: 'https://accounts.example/login', host: 'accounts.example', need: 'login', what: 'signing in' });

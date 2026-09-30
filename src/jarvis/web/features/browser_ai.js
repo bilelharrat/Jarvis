@@ -46,6 +46,8 @@
       if (flag.hidden) words.push('The page also hides such text from view; Jarvis left it out.');
       return words;
     },
+    // The hand backs where the Passwords app helps: a password, or a sign-in wall.
+    wantsPasswords(kind) { return kind === 'password' || kind === 'login'; },
     // Translate's line over the page: working, done (which language) or why it failed.
     translationWords(t) {
       if (t.state === 'working') return t.to === 'en' ? 'Translating into English…' : 'Translating into Chinese…';
@@ -133,8 +135,27 @@
     const go = button('Carry on', 'bai-turn-go', () => F.send({ type: 'browser_ai_carry_on' }));
     const close = button('', 'bai-x', () => { turn = null; renderTurn(); F.send({ type: 'browser_ai_handback_cancel' }); }, 'Close');
     close.textContent = '×';
-    note.append(el('span', 'bai-note-icon bai-turn-icon'), words, go, close);
+    note.append(el('span', 'bai-note-icon bai-turn-icon'), words);
+    // At a password or a sign-in: the Passwords app, for the owner to look it up themselves
+    // (it opens the app; Jarvis never reads, fills or sees a password).
+    if (B.wantsPasswords(turn.kind) && passwordsApp === null) checkPasswords();
+    if (B.wantsPasswords(turn.kind) && passwordsApp) {
+      const pw = button('Open Passwords', 'bai-passwords', () => {
+        app.feature.invoke('feature:browser-ai:passwords', 'open').catch(() => {});
+      });
+      pw.title = F.t('Opens the Passwords app. Jarvis never sees your passwords.');
+      note.append(pw);
+    }
+    note.append(go, close);
     if (old) old.replaceWith(note); else box.prepend(note);
+  }
+  // Whether this Mac has the Passwords app (macOS 15 and later): asked the first time it
+  // could be offered.
+  let passwordsApp = null;
+  function checkPasswords() {
+    passwordsApp = false;
+    if (!app || !app.feature || !app.feature.invoke) return;
+    app.feature.invoke('feature:browser-ai:passwords', 'check').then((r) => { passwordsApp = !!(r && r.ok); renderTurn(); }).catch(() => {});
   }
   F.on('browser_ai_handback', (ev) => {
     if (ev.tab === null || ev.tab === undefined) { turn = null; renderTurn(); return; }

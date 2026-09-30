@@ -16,16 +16,22 @@
 //   the selection as it shows (read in the page, hidden text left out) and a picture of the
 //   picture. The window gives the menu its words in the owner's language
 //   ('feature:browser-ai:labels').
+// - The Passwords app, from the hand back's "Your turn" at a password or sign-in
+//   ('feature:browser-ai:passwords': check, open). macOS has no address for Passwords at a
+//   given site (its only URL schemes are otpauth's), so it just opens the app: the owner
+//   finds the password there. Nothing is read, filled or seen by Jarvis.
 // Only the window's own page may call; only the browser's tabs may answer.
 'use strict';
 
 const path = require('path');
 const crypto = require('crypto');
-const { nativeImage, session } = require('electron');
+const fs = require('fs');
+const { nativeImage, session, shell } = require('electron');
 
 const PRELOAD = path.join(__dirname, '..', 'page-ai-preload.js');
 const SHORTCUTS = new Set(['find', 'bookmark', 'close']); // the dock's ⌘F, ⌘D and ⌘W
 const SHOT_WIDTH = 1280; // the widest picture Claude gets
+const PASSWORDS_APP = '/System/Applications/Passwords.app'; // macOS 15 and later
 
 function install(ctx) {
   const browser = ctx.browser;
@@ -257,6 +263,14 @@ function install(ctx) {
       items.push({ label: labels.ask, submenu });
     });
   }
+
+  ipcMain.handle('feature:browser-ai:passwords', async (event, action) => {
+    if (!ctx.fromWindow(event)) return { ok: false };
+    const there = fs.existsSync(PASSWORDS_APP);
+    if (action !== 'open' || !there) return { ok: there };
+    const problem = await shell.openPath(PASSWORDS_APP); // the owner's own click: opened in front
+    return { ok: !problem };
+  });
 
   ipcMain.handle('feature:browser-ai:call', async (event, message) => {
     if (!ctx.fromWindow(event)) return { ok: false, message: 'not allowed' };
