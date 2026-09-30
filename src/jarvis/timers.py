@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 import subprocess
 import uuid
@@ -110,6 +111,14 @@ def _iso(when: datetime) -> str:
     return when.replace(microsecond=0).isoformat()
 
 
+def _counted(now: datetime, seconds: float) -> tuple[str, float]:
+    """The time `seconds` of real time after now, as this Mac's wall clock will show it
+    (ISO) and as an instant (epoch seconds): the night the clocks go back or forward, a
+    countdown's hour on the wall isn't an hour of real time."""
+    at = now.timestamp() + seconds
+    return _iso(datetime.fromtimestamp(at)), at
+
+
 def _when(value: Any) -> datetime | None:
     try:
         when = datetime.fromisoformat(str(value))
@@ -149,15 +158,24 @@ class Timer:
     until: str = ""  # … and the time it stops repeating (ISO)
     phone: bool = False  # an alarm that may ring the owner's phone
     snoozed: int = 0
+    # When one that counts real time goes off (a timer, a snooze, "in 20 minutes", "every
+    # 20 minutes"), as an instant (epoch seconds); 0 for a time of day (an alarm, "at 9"),
+    # which keeps to the wall clock. An older build ignores it and goes by due.
+    at: float = 0.0
 
     @property
     def due_at(self) -> datetime:
         return datetime.fromisoformat(self.due)
 
+    def instant(self) -> float:
+        """When it goes off, as an instant: its own when it counts real time, else its time
+        on the wall clock."""
+        return self.at or self.due_at.timestamp()
+
     def public(self, now: datetime) -> dict[str, Any]:
         return {
             **asdict(self),
-            "left": max(0, round((self.due_at - now).total_seconds())),
+            "left": max(0, round(self.instant() - now.timestamp())),
             "when": self.summary(now),
             "when_zh": self.summary(now, "zh"),
         }
@@ -200,7 +218,7 @@ class Timer:
 
     def describe(self, now: datetime, language: str = "en") -> str:
         """One line for list_timers: what, and when."""
-        left = span((self.due_at - now).total_seconds(), language)
+        left = span(self.instant() - now.timestamp(), language)
         if lang.is_zh(language):
             at = _clock_zh(self.due_at)
             if self.kind == "timer":
@@ -252,6 +270,11 @@ def _timer_from(raw: Any) -> Timer | None:
         setattr(timer, name, value if type(value) is int and value >= 0 else 0)
     timer.until = timer.until if isinstance(timer.until, str) and _when(timer.until) else ""
     timer.phone = timer.phone is True
+    at = timer.at
+    at = float(at) if type(at) in (int, float) and math.isfinite(at) and at > 0 else 0.0
+    # An instant far from its time on the wall (due changed by hand, or by a build that
+    # doesn't keep it): the wall's time decides.
+    timer.at = at if at and abs(at - timer.due_at.timestamp()) <= 7200 else 0.0
     return timer
 
 
@@ -315,8 +338,9 @@ class TimerStore:
         words = re.sub(r"\s*\b(?:timers?|alarms?|reminders?)\b\s*", " ", key).strip()
         return [t for t in self.items if words and words in t.label.lower()]
 
-    def next_due(self) -> datetime | None:
-        return min((t.due_at for t in self.items), default=None)
+    def next_due(self) -> float | None:
+        """When the next one goes off, as an instant (epoch seconds)."""
+        return min((t.instant() for t in self.items), default=None)
 
 
 # ── what the owner asks for, as a Timer ──
@@ -330,14 +354,8 @@ def new_timer(seconds: Any, label: str, now: datetime) -> Timer:
     if not 1 <= seconds <= MAX_TIMER:
         raise ValueError("a timer runs from 1 second to 24 hours")
     label = clean_text(label or "").strip()[:120]
-    return Timer(
-        uuid.uuid4().hex[:6],
-        "timer",
-        label,
-        _iso(now + timedelta(seconds=seconds)),
-        _iso(now),
-        seconds=seconds,
-    )
+    due, at = _counted(now, seconds)
+    return Timer(uuid.uuid4().hex[:6], "timer", label, due, _iso(now), seconds=seconds, at=at)
 
 
 def time_of_day(value: Any, now: datetime, day: str = "") -> datetime:
@@ -386,17 +404,21 @@ def new_reminder(
             raise ValueError("every_minutes must be a number") from None
         if not MIN_EVERY <= every <= MAX_EVERY:
             raise ValueError("a reminder repeats every 1 minute to 24 hours")
+    instant = 0.0  # a time of day keeps to the wall clock; a count of minutes to real time
     if at not in (None, ""):
         first = time_of_day(at, now)
     elif in_minutes not in (None, ""):
         try:
-            first = now + timedelta(seconds=round(float(in_minutes) * 60))
-        except (TypeError, ValueError):
+            seconds = round(float(in_minutes) * 60)
+        except (TypeError, ValueError, OverflowError):
             raise ValueError("in_minutes must be a number") from None
-        if not now < first <= now + timedelta(days=366):
+        if not 0 < seconds <= 366 * 24 * 3600:
             raise ValueError("a reminder is at most a year ahead")
+        due, instant = _counted(now, seconds)
+        first = datetime.fromisoformat(due)
     elif every:
-        first = now + timedelta(seconds=every)
+        due, instant = _counted(now, every)
+        first = datetime.fromisoformat(due)
     else:
         raise ValueError("say when: in_minutes, at (HH:MM), or every_minutes")
     end = ""
@@ -408,7 +430,14 @@ def new_reminder(
             raise ValueError("it would stop before it first reminds you")
         end = _iso(stop)
     return Timer(
-        uuid.uuid4().hex[:6], "reminder", label, _iso(first), _iso(now), every=every, until=end
+        uuid.uuid4().hex[:6],
+        "reminder",
+        label,
+        _iso(first),
+        _iso(now),
+        every=every,
+        until=end,
+        at=instant,
     )
 
 
@@ -534,7 +563,7 @@ class Timers:
         for timer in chosen:
             self._silence(timer.id)
             self.recent.pop(timer.id, None)
-            timer.due = _iso(now + timedelta(minutes=minutes))
+            timer.due, timer.at = _counted(now, minutes * 60)
             timer.snoozed += 1
             if timer not in self.store.items:
                 self.store.items.append(timer)
@@ -563,7 +592,7 @@ class Timers:
                 upcoming = None
             wait = LONGEST_WAIT
             if upcoming is not None:
-                wait = max(0.0, min(LONGEST_WAIT, (upcoming - self.now()).total_seconds()))
+                wait = max(0.0, min(LONGEST_WAIT, upcoming - self.now().timestamp()))
             self._wake.clear()
             try:
                 await asyncio.wait_for(self._wake.wait(), wait)
@@ -573,14 +602,14 @@ class Timers:
     def fire_due(self, now: datetime) -> list[Timer]:
         """Every one due by now goes off: said, shown, rung; a repeating reminder moves on
         to its next time, the rest are done."""
+        stamp = now.timestamp()
         due = sorted(
-            (t for t in self.store.items if t.due_at <= now + timedelta(milliseconds=50)),
-            key=lambda t: t.due_at,
+            (t for t in self.store.items if t.instant() <= stamp + 0.05), key=Timer.instant
         )
         if not due:
             return []
         for timer in due:
-            late = (now - timer.due_at).total_seconds() > MISSED_SECONDS
+            late = stamp - timer.instant() > MISSED_SECONDS
             if timer.kind == "reminder" and timer.every:
                 self._advance(timer, now)
                 if late:
@@ -596,15 +625,16 @@ class Timers:
         return due
 
     def _advance(self, timer: Timer, now: datetime) -> None:
-        step = timedelta(seconds=timer.every)
-        nxt = timer.due_at + step
-        if nxt <= now:  # skip what was missed: one reminder now, not a burst
-            nxt += ((now - nxt) // step + 1) * step
-        until = _when(timer.until)
-        if until is not None and nxt > until:
+        step, stamp = timer.every, now.timestamp()
+        nxt = timer.instant() + step  # every N minutes of real time
+        if nxt <= stamp:  # skip what was missed: one reminder now, not a burst
+            nxt += ((stamp - nxt) // step + 1) * step
+        wall = datetime.fromtimestamp(nxt)
+        until = _when(timer.until)  # its end is a time on the wall
+        if until is not None and wall.replace(microsecond=0) > until:
             self.store.items.remove(timer)
         else:
-            timer.due = _iso(nxt)
+            timer.due, timer.at = _iso(wall), nxt
 
     def _fire(self, timer: Timer, now: datetime, late: bool) -> None:
         language = self.language()
@@ -726,7 +756,7 @@ class Timers:
         return {
             "items": [
                 {**t.public(now), "ringing": t.id in self.ringing}
-                for t in sorted(items, key=lambda t: t.due_at)
+                for t in sorted(items, key=Timer.instant)
             ],
             "ringing": [t.id for t in ringing],
             "unreadable": self.store.unreadable,
@@ -735,7 +765,7 @@ class Timers:
     def describe(self) -> str:
         now = self.now()
         language = self.language()
-        items = sorted(self.store.items, key=lambda t: t.due_at)
+        items = sorted(self.store.items, key=Timer.instant)
         lines = [t.describe(now, language) for t in items]
         ringing = [t for t, _task in self.ringing.values()]
         if ringing:

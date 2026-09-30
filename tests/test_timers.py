@@ -92,6 +92,30 @@ def test_the_store_keeps_them_across_a_restart_and_rows_it_cant_use(tmp_path):
     assert len(json.loads(path.read_text())) == 3  # nothing another build wrote is lost
 
 
+def test_a_countdowns_instant_that_cant_be_right_leaves_the_wall_clock_to_decide(tmp_path):
+    """Its instant of the wrong type, or far from its time on the wall (due changed by hand,
+    or by an older build that doesn't keep it): due decides, as it did before."""
+    path = tmp_path / "timers.json"
+    store = tk.TimerStore(path)
+    store.add(tk.new_timer(600, "pasta", NOW))
+    [row] = json.loads(path.read_text())
+    assert row["at"] == (NOW + timedelta(minutes=10)).timestamp()
+    rows = [
+        {**row, "id": "a", "at": "soon"},
+        {**row, "id": "b", "at": float("inf")},
+        {**row, "id": "c", "due": "2026-09-30T09:00:00"},  # moved by hand to tomorrow
+        {**row, "id": "d", "at": -5},
+    ]
+    path.write_text(json.dumps(rows))
+    due = {t.id: t.instant() for t in tk.TimerStore(path).items}
+    assert due == {
+        "a": row["at"],
+        "b": row["at"],
+        "c": datetime(2026, 9, 30, 9, 0).timestamp(),
+        "d": row["at"],
+    }
+
+
 def test_a_file_that_cant_be_read_is_never_saved_over(tmp_path):
     path = tmp_path / "timers.json"
     path.mkdir()  # a folder where the file should be
@@ -232,6 +256,49 @@ def test_a_repeating_reminder_moves_on_and_stops_at_its_end(tmp_path):
     clock.tick(minutes=20)
     timers.fire_due(clock())
     assert timers.store.items == [] and len(heard) == 3
+
+
+@pytest.fixture
+def pacific(monkeypatch):
+    """This Mac's clock in a zone with daylight saving time (and back after the test)."""
+    import time
+
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize(
+    "night, shows",
+    [
+        (datetime(2026, 11, 1, 1, 50), "2026-11-01T01:20:00"),  # 2:00 PDT is 1:00 PST again
+        (datetime(2026, 3, 8, 1, 50), "2026-03-08T03:20:00"),  # 2:00 PST is 3:00 PDT
+    ],
+)
+def test_a_countdown_counts_real_time_the_night_the_clocks_change(tmp_path, pacific, night, shows):
+    """A 30-minute timer is 30 minutes of real time, and "in 45 minutes" is 45, even when
+    the wall clock goes back an hour (it rang after 90) or forward one (it rang after 10)."""
+    wall = [night.timestamp()]
+
+    def now():
+        return datetime.fromtimestamp(wall[0])  # the wall clock, as datetime.now() reads it
+
+    timers, heard, _played = make(tmp_path, now)
+    timers.add(tk.new_timer(30 * 60, "tea", now()))
+    timers.add(tk.new_reminder("stretch", now(), in_minutes=45))
+    assert timers.store.items[0].due == shows  # the time on the wall when it rings
+    assert [i["left"] for i in timers.public()["items"]] == [1800, 2700]
+    again = tk.TimerStore(tmp_path / "timers.json")  # as a restart reads them
+    assert [t.instant() for t in again.items] == [t.instant() for t in timers.store.items]
+    rang = []
+    for minute in range(1, 121):
+        wall[0] += 60
+        timers.fire_due(now())
+        rang += [minute] * (len(heard) - len(rang))
+    assert rang == [30, 45]
+    timers.stop()
 
 
 def test_missed_while_closed_is_said_as_missed_never_rung(tmp_path):
