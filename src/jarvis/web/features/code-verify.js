@@ -581,6 +581,7 @@
     output: [],  // the run's output shown, [[n, text], ...]
     follow: true,  // the output keeps to its newest line, unless scrolled up
     openFiles: new Set(),  // result files unfolded
+    filesOpen: false,  // "Run one file" unfolded
     filter: '',
   };
 
@@ -663,6 +664,8 @@
     const files = (tests.info.files || {})[suite.key] || [];
     if (!files.length) return null;
     const det = el('details', 'cv-files');
+    det.open = tests.filesOpen;
+    det.addEventListener('toggle', () => { tests.filesOpen = det.open; });
     det.append(el('summary', 'jc-label', 'Run one file'));
     const filter = el('input', 'jc-field cv-filter');
     filter.placeholder = t('Filter test files…');
@@ -748,7 +751,12 @@
     }
     const files = suite.ready ? filesList(suite) : null;
     if (files) parts.push(files);
+    // Drawn again (a run starting, say) while the file filter is being typed in: the new one
+    // takes its place, with the focus and the caret.
+    const typing = body.contains(document.activeElement) && document.activeElement.matches('.cv-filter') ? document.activeElement : null;
     body.replaceChildren(...parts);
+    const field = typing && body.querySelector('.cv-filter');
+    if (field) { field.focus(); field.setSelectionRange(typing.selectionStart, typing.selectionEnd); }
   }
 
   F.registerPane('cv-tests', {

@@ -3120,6 +3120,25 @@ test('In Chinese a dev server suggestion’s reason reads in Chinese; its name a
   assert(rows.map((r) => r[0]).join() === 'web dev,api,django,rails,static' && rows[0][2] === 'npm run dev', JSON.stringify(rows));
 });
 
+test('The Tests pane drawn again while its file filter is being typed in keeps it open, focused and typed in', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-tests"); true');
+  const dir = '/Users/x/Projects/alpha';
+  const run = { project: dir, suite: 'pytest', label: 'pytest', target: {}, status: 'passed', started: 1, seconds: 2, message: '', summary: '2 passed',
+    counts: { passed: 2, failed: 0, skipped: 0 }, complete: true, lines: 2, watch: true, tree: [] };
+  await deliver({ type: 'cv_tests', project: 'alpha', path: dir, id: 1, files: { 'pytest::': ['tests/test_login.py', 'tests/test_cart.py'] }, watch: { suite: 'pytest::', target: {} }, run,
+    suites: [{ key: 'pytest::', id: 'pytest', label: 'pytest', command: 'pytest', cwd: '', ready: true, why: '', files: true }] });
+  await js('document.querySelector("#jc-pane-body .cv-files summary").click(); document.querySelector("#jc-pane-body .cv-filter").focus(); true');
+  await typeText('log');
+  // The watch runs again (the session changed a file): the pane is drawn again mid-word.
+  await deliver({ type: 'cv_tests_run', run: { ...run, status: 'running', started: 2 } });
+  await typeText('in');
+  const r = await js(`(() => { const f = document.querySelector('#jc-pane-body .cv-filter'); return { value: f.value, focused: document.activeElement === f,
+    open: f.closest('details').open, files: [...document.querySelectorAll('#jc-pane-body .jc-files-list button')].map((b) => b.textContent) }; })()`);
+  assert(r.value === 'login' && r.focused && r.open && r.files.join() === 'tests/test_login.py', JSON.stringify(r));
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this
