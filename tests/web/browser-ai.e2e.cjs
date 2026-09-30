@@ -1,12 +1,13 @@
 // The browser-ai feature's page side in a real Chromium, against local test pages: reads and
 // snapshots leave out text no one can see (app/page-preload.js sightJudge, the agent's
-// invisibleText); app/page-ai-preload.js finds a page's article and what's selected. No
-// window is ever shown; nothing leaves 127.0.0.1.
+// invisibleText); app/page-ai-preload.js finds a page's article and what's selected; and
+// app/features/browser-ai.js (installed with the browser hooks main.js gives it) puts Ask
+// Jarvis in the page's menu. No window is ever shown; nothing leaves 127.0.0.1.
 //
 //   app/node_modules/.bin/electron tests/web/browser-ai.e2e.cjs      (about 15 s; exit 1 on a failure)
 'use strict';
 
-const { app, BrowserWindow, WebContentsView, ipcMain, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, nativeImage } = require('electron');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
@@ -64,9 +65,19 @@ const PAGES = {
 <div class="result"><a href="/b">Lentil soup</a> <span>4.8 stars</span></div></main></body>`,
 };
 
+PAGES['/pictures.html'] = `<!doctype html><title>Charts</title><body style="margin:0"><main>
+<p>Sales went up in winter.</p><img id="chart" src="/chart.png" alt="A small chart" width="120" height="80" style="display:block;margin:40px">
+<p><a id="more" href="/results.html">More results</a></p></main></body>`;
+let CHART = null; // a PNG, made when the app is ready
+
 function serve() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      if (new URL(req.url, 'http://x').pathname === '/chart.png') {
+        res.writeHead(200, { 'content-type': 'image/png' });
+        res.end(CHART);
+        return;
+      }
       const page = PAGES[new URL(req.url, 'http://x').pathname];
       if (!page) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -78,7 +89,6 @@ function serve() {
 
 let win;
 let base;
-const PAGE_AI = path.join(ROOT, 'page-ai-preload.js');
 let agent;
 const tabs = [];
 let shown = null;
@@ -112,6 +122,33 @@ const pageAi = (view, action, args = {}) => new Promise((resolve) => {
   setTimeout(() => { if (aiAnswers.delete(id)) resolve({ timeout: true }); }, 8000);
 });
 const page = (view, code) => view.webContents.executeJavaScript(code, true);
+
+// The app feature, as main.js installs it: the browser's hooks, the window's channel.
+const menus = [];
+const toWindow = [];
+const featureContext = {
+  ipcMain,
+  send: (channel, message) => toWindow.push([channel, message]),
+  fromWindow: () => true,
+  getWindow: () => win,
+  browser: {
+    partition: 'browser-ai-test', tabs: () => tabs.slice(), shown: () => shown, byId: (id) => tabs.find((v) => v.webContents.id === Number(id)) || null,
+    focused: () => false, menu: (fn) => menus.push(fn),
+  },
+};
+// The page's menu as main.js builds it: its own items, then the features'.
+function menuFor(view, params) {
+  const items = [{ label: 'Copy' }];
+  for (const fn of menus) fn(items, view, { isEditable: false, selectionText: '', linkURL: '', linkText: '', mediaType: 'none', srcURL: '', x: 0, y: 0, ...params });
+  return items;
+}
+async function asked(click) {
+  toWindow.length = 0;
+  click();
+  for (let i = 0; i < 80 && !toWindow.some(([c]) => c === 'feature:browser-ai:ask'); i++) await sleep(50);
+  const found = toWindow.find(([c]) => c === 'feature:browser-ai:ask');
+  return found ? found[1] : null;
+}
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -184,9 +221,58 @@ test('The context says what is selected, without the hidden text inside it, and 
   assert(pageEvents[pageEvents.length - 1].length === 0, JSON.stringify(pageEvents));
 });
 
+test('Ask Jarvis is in the page’s menu for a selection: what’s selected as it shows goes to the window', async () => {
+  await load(shown, '/article.html');
+  await page(shown, `(() => { const r = document.createRange(); const ps = document.querySelectorAll('article p');
+    r.setStart(ps[2].firstChild, 0); r.setEnd(document.querySelector('article li').firstChild, 8);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true; })()`);
+  const items = menuFor(shown, { selectionText: 'Nutritionists say … Spoon Pro … Keep the' });
+  const ask = items[items.length - 1];
+  assert(items[1].type === 'separator' && ask.label === 'Ask Jarvis', JSON.stringify(items.map((i) => i.label || i.type)));
+  const labels = ask.submenu.map((i) => i.label || i.type);
+  assert(JSON.stringify(labels) === JSON.stringify(['Explain', 'Summarize', 'Translate', 'Draft a Reply', 'separator', 'Save to Second Brain']), JSON.stringify(labels));
+  const msg = await asked(() => ask.submenu[0].click());
+  assert(msg && msg.action === 'explain' && msg.url.endsWith('/article.html') && msg.title.startsWith('Why soup'), JSON.stringify(msg).slice(0, 300));
+  assert(/Nutritionists say/.test(msg.selection) && !/Spoon Pro/.test(msg.selection), `the selection: ${msg && msg.selection}`);
+  const saved = await asked(() => ask.submenu[5].click());
+  assert(saved.action === 'save' && saved.save === 'selection' && /Nutritionists/.test(saved.selection), JSON.stringify(saved).slice(0, 200));
+  // In the owner's language: the window gives the menu its words.
+  ipcMain.emit('feature:browser-ai:labels', { sender: null }, { ask: '问 Jarvis', explain: '解释', nope: 'x' });
+  const zh = menuFor(shown, { selectionText: 'x' }).pop();
+  assert(zh.label === '问 Jarvis' && zh.submenu[0].label === '解释' && zh.submenu[1].label === 'Summarize', JSON.stringify(zh.submenu.map((i) => i.label)));
+  ipcMain.emit('feature:browser-ai:labels', { sender: null }, { ask: 'Ask Jarvis', explain: 'Explain' });
+  // Typing in a box, or nothing picked: no Ask Jarvis.
+  assert(menuFor(shown, { selectionText: 'my words', isEditable: true }).length === 1, 'offered in a text box');
+  assert(menuFor(shown, {}).length === 1, 'offered with nothing picked');
+});
+
+test('Ask Jarvis for a picture sends a picture of it with its words; for a link, its address', async () => {
+  await load(shown, '/pictures.html');
+  const box = await page(shown, `(() => { const r = document.getElementById('chart').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+  const src = `${base}/chart.png`;
+  const items = menuFor(shown, { mediaType: 'image', srcURL: src, x: box.x, y: box.y });
+  const ask = items.pop();
+  assert(JSON.stringify(ask.submenu.map((i) => i.label || i.type)) === JSON.stringify(['Explain This Picture', 'separator', 'Save to Second Brain']), JSON.stringify(ask.submenu.map((i) => i.label)));
+  const msg = await asked(() => ask.submenu[0].click());
+  assert(msg && msg.action === 'image' && msg.image.src === src && msg.image.alt === 'A small chart', JSON.stringify(msg && { ...msg, png: (msg.png || '').length }));
+  const png = nativeImage.createFromBuffer(Buffer.from(msg.png, 'base64'));
+  assert(!png.isEmpty() && png.getSize().width >= 100 && png.getSize().width <= 1280, `the picture: ${JSON.stringify(png.getSize())}`);
+  const saved = await asked(() => ask.submenu[2].click());
+  assert(saved.action === 'save' && saved.save === 'image' && !saved.png && saved.image.alt === 'A small chart', JSON.stringify(saved).slice(0, 200));
+  const link = `${base}/results.html`;
+  const onLink = menuFor(shown, { linkURL: link, linkText: 'More results' }).pop();
+  assert(onLink.submenu[0].label === 'Summarize the Linked Page', JSON.stringify(onLink.submenu.map((i) => i.label)));
+  const linkMsg = await asked(() => onLink.submenu[0].click());
+  assert(linkMsg.action === 'link' && linkMsg.link === link && linkMsg.link_text === 'More results', JSON.stringify(linkMsg));
+  assert(menuFor(shown, { linkURL: 'javascript:alert(1)' }).length === 1, 'offered for a script link');
+});
+
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
-  session.fromPartition('browser-ai-test').registerPreloadScript({ type: 'frame', filePath: PAGE_AI });
+  const bitmap = Buffer.alloc(120 * 80 * 4, 0);
+  for (let i = 0; i < bitmap.length; i += 4) { bitmap[i] = 30; bitmap[i + 1] = 144; bitmap[i + 2] = 255; bitmap[i + 3] = 255; }
+  CHART = nativeImage.createFromBitmap(bitmap, { width: 120, height: 80 }).toPNG();
+  require(path.join(ROOT, 'features', 'browser-ai.js')).install(featureContext); // registers page-ai-preload.js
   const server = await serve();
   base = `http://127.0.0.1:${server.address().port}`;
   win = new BrowserWindow({ show: false, width: 1000, height: 700 });

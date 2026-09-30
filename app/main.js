@@ -484,7 +484,8 @@ function retitleVisit(url, title) {
   if (last && last.url === url && title) { last.title = title; saveBrowserStore(); }
 }
 
-// The page's own menu, as in Chrome.
+// The page's own menu, as in Chrome. App features add to it (menu(fn): fn(items, view, p)).
+const pageMenuExtras = [];
 function pageMenu(view, p) {
   const wc = view.webContents;
   const items = [];
@@ -518,6 +519,10 @@ function pageMenu(view, p) {
     items.push({ label: 'Print…', click: () => wc.print() });
     sep();
   }
+  for (const extra of pageMenuExtras) {
+    try { extra(items, view, p); } catch (err) { console.error('page menu:', err && err.message); }
+  }
+  sep();
   items.push({ label: 'Inspect', click: () => { wc.inspectElement(p.x, p.y); } });
   Menu.buildFromTemplate(items).popup({ window: parity.windowOf(view) || win }); // a popped-out tab's in its own window
 }
@@ -1207,13 +1212,14 @@ const featureContext = {
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
   backend: () => backend, // the running `jarvis serve` (shell.js waits for it to stop when quitting)
   // The built-in browser's tabs, for features that work with them (browser-ai.js): the
-  // tabs and the one on show while the dock is open.
+  // tabs, the one on show while the dock is open, and the page's own menu.
   browser: {
     partition: 'persist:jarvis-browser',
     tabs: () => tabs.slice(),
     shown: () => (browserShown && browserView ? browserView : null),
     byId: (id) => tabById(id) || null,
     focused: () => Boolean(win && !win.isDestroyed() && win.isFocused()),
+    menu: (fn) => { pageMenuExtras.push(fn); },
   },
 };
 function loadAppFeatures() {

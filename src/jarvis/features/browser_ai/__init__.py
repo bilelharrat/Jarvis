@@ -21,10 +21,16 @@
 - Browser memories (memories.py), opt-in: a page on show for a minute is kept as text for
   the second brain's Browsing source (brain_sources reads it; never a sensitive site or
   this Mac's own pages), listed and forgotten in Settings › Browser.
+- Ask Jarvis in the page's own menu (menuask.py; the app's browser-ai.js adds it): explain,
+  summarize, translate between English and Chinese or draft a reply to a selection,
+  summarize a link's page, explain a picture, and save any of them to the second brain.
+- Questions across the open tabs (tabsread.py): the read_tabs tool on the browser_ai
+  server reads up to six open tabs at once, as the page's words.
 
 Window commands: browser_ai_page, browser_ai_result, browser_ai_sites, browser_ai_site,
-browser_ai_dwell, browser_ai_memories, browser_ai_memory_forget, whats_this (before Jarvis
-Code's).
+browser_ai_dwell, browser_ai_memories, browser_ai_memory_forget, browser_ai_ask, whats_this
+(before Jarvis Code's).
+Tool server: browser_ai (read_tabs).
 Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites, browser_ai_memories.
 Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules,
 browser_memories (the brain's browsing source).
@@ -32,8 +38,9 @@ browser_memories (the brain's browsing source).
 Everything here is registered through the feature kit; install() only registers.
 
 Cost policy (Claude): nothing here calls a model on its own. A page's text rides along only
-inside a request the owner made (at most 12,000 characters of it), and ⌥⇧Space asks one
-ordinary turn, as the What's-this key always has.
+inside a request the owner made (at most 12,000 characters of it); ⌥⇧Space and each Ask
+Jarvis question from the page's menu are one ordinary turn, asked by the owner's own key
+press or click; read_tabs is read in the turn that called it.
 """
 
 from __future__ import annotations

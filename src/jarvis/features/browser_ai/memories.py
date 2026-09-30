@@ -14,6 +14,9 @@ and asked about later.
   switch is its "browsing" source) a few minutes after new pages come, with the rest of
   the recent sources every four hours, and after a full rebuild. What's kept has
   passwords, keys and card numbers blanked out, as every source's has.
+- What the owner saves on purpose from the page's menu (Ask Jarvis › Save to Second Brain:
+  a selection, a link, an image's address and words) is kept beside them as a clip, and
+  the brain reads clips whether or not memories are on.
 - The owner sees the latest in Settings › Browser, and forgets one or all there
   (browser_ai_memories, browser_ai_memory_forget); a page forgotten leaves no copy.
 
@@ -35,7 +38,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ... import jsonstore
 from ... import prefs as prefs_module
-from ...browser_agent import loopback
 from ...knowledge import Note
 from ...textclean import clean_text
 from .sites import Sites, host_of
@@ -44,6 +46,8 @@ log = logging.getLogger("jarvis")
 
 PREF = "browser_memories"  # the Browsing source's switch (brain_sources.SWITCHES)
 SOURCE = "browsing"
+CLIPS = "clips"  # the folder, inside the pages', of what the owner saved on purpose
+_ID = re.compile(r"^[0-9a-f]{24}$")
 TEXT_MAX = 12_000  # of a page's text kept
 MIN_TEXT = 200  # less than this is no page worth remembering (a search box, a login)
 MAX_PAGES = 500  # the oldest go first
@@ -83,8 +87,20 @@ def clean_url(url: Any) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))[:2000]
 
 
+def _id(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()[:24]
+
+
 def _file(folder: Path, url: str) -> Path:
-    return folder / f"{hashlib.sha256(url.encode()).hexdigest()[:24]}.json"
+    return folder / f"{_id(url)}.json"
+
+
+def clips_kept(folder: Path) -> bool:
+    """Whether the owner has saved any clip (the brain then reads them, memories on or not)."""
+    try:
+        return any((folder / CLIPS).glob("*.json"))
+    except OSError:
+        return False
 
 
 def _page(raw: Any) -> dict[str, Any] | None:
@@ -105,45 +121,60 @@ def _page(raw: Any) -> dict[str, Any] | None:
         "first": first,
         "last": last,
         "visits": visits,
+        "kind": "clip" if raw.get("kind") == "clip" else "page",
+        "page": str(raw.get("page") or "")[:2000],  # a clip's: the page it was saved from
     }
 
 
-def read_pages(folder: Path) -> list[dict[str, Any]]:
-    """Every kept page, the latest first. A damaged file is skipped, never fatal."""
-    pages = []
+def _read(folder: Path) -> list[dict[str, Any]]:
+    out = []
     try:
         files = list(folder.glob("*.json"))
     except OSError:
         return []
     for path in files:
         try:
-            page = _page(json.loads(path.read_text(encoding="utf-8")))
+            item = _page(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             continue
-        if page is not None:
-            pages.append(page)
-    pages.sort(key=lambda p: p["last"], reverse=True)
-    return pages
+        if item is not None:
+            out.append({**item, "id": path.stem})
+    out.sort(key=lambda p: p["last"], reverse=True)
+    return out
 
 
-def collect_browsing(folder: Path) -> list[Note]:
-    """The Browsing source's notes, for the brain's rebuild (brain_sources.extra_sources)."""
+def read_pages(folder: Path) -> list[dict[str, Any]]:
+    """Every kept page, the latest first. A damaged file is skipped, never fatal."""
+    return [p for p in _read(folder) if p["kind"] == "page"]
+
+
+def read_clips(folder: Path) -> list[dict[str, Any]]:
+    """Everything the owner saved on purpose, the latest first."""
+    return [c for c in _read(folder / CLIPS) if c["kind"] == "clip"]
+
+
+def collect_browsing(folder: Path, pages: bool = True) -> list[Note]:
+    """The Browsing source's notes, for the brain's rebuild (brain_sources.extra_sources):
+    the pages while memories are on (pages), and the owner's clips always."""
     notes = []
-    for page in read_pages(folder):
-        title = page["title"] or page["url"]
+    items = [*(read_pages(folder) if pages else []), *read_clips(folder)]
+    for item in items:
+        title = item["title"] or item["url"]
+        site = item["site"] or host_of(item["url"])
         stamp = (
-            datetime.fromtimestamp(page["last"]).isoformat(timespec="seconds")
-            if page["last"]
+            datetime.fromtimestamp(item["last"]).isoformat(timespec="seconds")
+            if item["last"]
             else ""
         )
+        where = f"\nSaved from {item['page']}" if item["kind"] == "clip" and item["page"] else ""
         notes.append(
             Note(
-                id=f"{SOURCE}:{hashlib.sha256(page['url'].encode()).hexdigest()[:24]}",
+                id=f"{SOURCE}:{'clip:' if item['kind'] == 'clip' else ''}{item['id']}",
                 source=SOURCE,
                 title=title,
-                text=f"{title}\n{page['site'] or host_of(page['url'])}\n{page['url']}\n\n{page['text']}",
-                ref=page["url"],
-                group=page["site"] or host_of(page["url"]),
+                text=f"{title}\n{site}\n{item['url']}{where}\n\n{item['text']}",
+                ref=item["url"],
+                group=site,
                 modified=stamp,
             )
         )
@@ -166,6 +197,9 @@ class Memories:
 
     def keeps(self, url: str) -> bool:
         """Whether a page may be kept: a web page that isn't sensitive or this Mac's."""
+        # Imported here, not with the module: the brain's rebuild reads this module too.
+        from ...browser_agent import loopback
+
         host = host_of(url)
         return bool(host) and not loopback(url) and self.sites.sensitive(host) is None
 
@@ -218,6 +252,36 @@ class Memories:
         for old in pages[MAX_PAGES:]:  # the oldest past the cap
             _file(folder, old["url"]).unlink(missing_ok=True)
 
+    async def clip(self, item: dict[str, Any]) -> None:
+        """Keep what the owner saved on purpose (the page's menu): {url (what it points at:
+        the page, a link, an image), page (where it was saved from), title, site, text};
+        the brain reads it at once, memories on or not."""
+        await asyncio.to_thread(self._keep_clip, item)
+        self.hub._spawn(self.refresh())
+        self.emit()
+
+    def _keep_clip(self, item: dict[str, Any]) -> None:
+        now = time.time()
+        text = str(item.get("text") or "")[:TEXT_MAX]
+        url = str(item.get("url") or "")[:2000]
+        clip = {
+            "kind": "clip",
+            "url": url,
+            "page": str(item.get("page") or "")[:2000],
+            "title": str(item.get("title") or "")[:300],
+            "site": str(item.get("site") or "")[:120],
+            "text": text,
+            "first": now,
+            "last": now,
+            "visits": 1,
+        }
+        folder = self.folder / CLIPS
+        jsonstore.save_json(
+            folder / f"{_id(f'{url}\n{text}')}.json", clip, indent=None, backup=False
+        )
+        for old in read_clips(self.folder)[MAX_PAGES:]:
+            (folder / f"{old['id']}.json").unlink(missing_ok=True)
+
     def _refresh_soon(self) -> None:
         """The brain reads the new pages a few minutes from now (one refresh for a run of
         pages, not one each)."""
@@ -237,11 +301,14 @@ class Memories:
 
     def payload(self) -> dict[str, Any]:
         pages = read_pages(self.folder)
+        clips = read_clips(self.folder)
+        latest = sorted([*pages, *clips], key=lambda p: p["last"], reverse=True)[:LIST_MAX]
         return {
             "on": self.on(),
             "count": len(pages),
+            "clips": len(clips),
             "recent": [
-                {k: p[k] for k in ("url", "title", "site", "last")} for p in pages[:LIST_MAX]
+                {k: p[k] for k in ("id", "kind", "url", "title", "site", "last")} for p in latest
             ],
         }
 
@@ -252,24 +319,26 @@ class Memories:
         self.hub.emit("browser_ai_memories", **await asyncio.to_thread(self.payload))
 
     async def on_forget(self, msg: dict[str, Any]) -> None:
-        """browser_ai_memory_forget: one page (url), or all of them (all: true); gone from
-        the brain at once."""
+        """browser_ai_memory_forget: one page or clip (id, kind), or everything (all:
+        true); gone from the brain at once."""
         folder = self.folder
         if msg.get("all") is True:
             await asyncio.to_thread(self._forget_all, folder)
         else:
-            url = clean_url(msg.get("url"))
-            if not url:
+            item = str(msg.get("id") or "")
+            if not _ID.match(item):
                 return
-            await asyncio.to_thread(lambda: _file(folder, url).unlink(missing_ok=True))
+            where = folder / CLIPS if msg.get("kind") == "clip" else folder
+            await asyncio.to_thread(lambda: (where / f"{item}.json").unlink(missing_ok=True))
         self.hub._spawn(self.refresh())
         self.hub.emit("browser_ai_memories", **await asyncio.to_thread(self.payload))
 
     @staticmethod
     def _forget_all(folder: Path) -> None:
-        try:
-            files = list(folder.glob("*.json"))
-        except OSError:
-            return
-        for path in files:
-            path.unlink(missing_ok=True)
+        for where in (folder, folder / CLIPS):
+            try:
+                files = list(where.glob("*.json"))
+            except OSError:
+                continue
+            for path in files:
+                path.unlink(missing_ok=True)

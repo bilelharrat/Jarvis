@@ -29,7 +29,18 @@
   "A page you keep on show for a minute is kept as text in your second brain (Browsing), to find and ask about later. Never banks, email or health sites; nothing leaves your Mac.": "你在浏览器里停留满一分钟的页面，会以文字形式保存在你的第二大脑（浏览记录）里，方便以后查找和提问。银行、邮箱和医疗网站从不保存；所有内容都不会离开你的 Mac。",
   "Forget all": "全部忘记",
   "Forget": "忘记",
-  "Browsing": "浏览记录"
+  "Browsing": "浏览记录",
+  "Ask Jarvis": "问 Jarvis",
+  "Explain": "解释",
+  "Summarize": "总结",
+  "Translate": "翻译",
+  "Draft a Reply": "起草回复",
+  "Save to Second Brain": "保存到第二大脑",
+  "Summarize the Linked Page": "总结链接指向的页面",
+  "Explain This Picture": "解释这张图片",
+  "Saved to your second brain.": "已保存到你的第二大脑。",
+  "Second brain": "第二大脑",
+  "Saved": "已保存"
  },
  "patterns": [
   [
@@ -63,6 +74,10 @@
   [
    "^Forget (.+)$",
    "忘记 $1"
+  ],
+  [
+   "^(\\d+) saved from the page menu$",
+   "从页面菜单保存了 $1 项"
   ]
  ]
 }

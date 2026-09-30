@@ -44,3 +44,6 @@
 .bai-memory b, .bai-memory small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bai-memory b { font-weight: 500; }
 .bai-memory small { font-size: 11.5px; color: rgb(var(--c-ink-2)); }
+.bai-memory-counts { display: flex; flex-direction: column; gap: 1px; }
+.bai-memory-kind { color: rgb(var(--c-ink-2)); }
+.bai-memory-kind::before { content: " · "; }

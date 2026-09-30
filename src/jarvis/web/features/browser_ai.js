@@ -211,7 +211,7 @@
   sitesGroup();
 
   // Browser memories: the switch is the second brain's Browsing source (brain_source).
-  let memories = { on: false, count: 0, recent: [] };
+  let memories = { on: false, count: 0, clips: 0, recent: [] };
   function memoriesRows() {
     const group = F.$('bai-settings');
     if (!group || F.$('sw-bai-memories')) return;
@@ -244,23 +244,31 @@
     const box = F.$('bai-memories');
     if (!sw || !box) return;
     sw.setAttribute('aria-checked', String(memories.on));
-    if (!memories.count) { box.replaceChildren(); box.hidden = true; return; }
+    if (!memories.count && !memories.clips) { box.replaceChildren(); box.hidden = true; return; }
     box.hidden = false;
     const head = el('div', 'bai-memories-head');
-    head.append(el('span', 'small-status', `${memories.count} ${memories.count === 1 ? 'page' : 'pages'} remembered`),
-      button('Forget all', 'btn', () => F.send({ type: 'browser_ai_memory_forget', all: true })));
+    const counts = el('span', 'bai-memory-counts');
+    if (memories.count) counts.append(el('span', 'small-status', `${memories.count} ${memories.count === 1 ? 'page' : 'pages'} remembered`));
+    if (memories.clips) counts.append(el('span', 'small-status', `${memories.clips} saved from the page menu`));
+    head.append(counts, button('Forget all', 'btn', () => F.send({ type: 'browser_ai_memory_forget', all: true })));
     const list = el('ul', 'folders bai-memory-list');
     for (const m of memories.recent) {
       const li = el('li');
       const words = el('span', 'bai-memory');
-      words.append(mine(el('b', '', m.title || m.url)), mine(el('small', '', m.site || '')));
-      li.append(words, button('Forget', 'btn', () => F.send({ type: 'browser_ai_memory_forget', url: m.url }), `Forget ${m.title || m.url}`));
+      const where = el('small');
+      where.append(mine(el('span', '', m.site || '')));
+      if (m.kind === 'clip') where.append(el('span', 'bai-memory-kind', 'Saved'));
+      words.append(mine(el('b', '', m.title || m.url)), where);
+      li.append(words, button('Forget', 'btn', () => F.send({ type: 'browser_ai_memory_forget', id: m.id, kind: m.kind }), `Forget ${m.title || m.url}`));
       list.append(li);
     }
     box.replaceChildren(head, list);
   }
   F.on('browser_ai_memories', (ev) => {
-    memories = { on: !!ev.on, count: Math.max(0, Number(ev.count) || 0), recent: Array.isArray(ev.recent) ? ev.recent.slice(0, 12) : [] };
+    memories = {
+      on: !!ev.on, count: Math.max(0, Number(ev.count) || 0), clips: Math.max(0, Number(ev.clips) || 0),
+      recent: Array.isArray(ev.recent) ? ev.recent.slice(0, 12) : [],
+    };
     renderMemories();
   });
   const memoriesPref = (p) => { if (p && p.features && 'browser_memories' in p.features) { memories.on = p.features.browser_memories === true; renderMemories(); } };
@@ -337,6 +345,31 @@
   }
   if (app && app.feature && app.feature.on) app.feature.on('feature:browser-ai:event', onPageEvent);
   B.onPageEvent = onPageEvent;
+
+  // ── Ask Jarvis in the page's own menu (app/features/browser-ai.js puts it there) ──
+  // What the owner picked goes to the hub (menuask.py); the menu gets its words in the
+  // owner's language.
+  const ASK_KEYS = ['action', 'save', 'url', 'title', 'tab', 'selection', 'link', 'link_text', 'image', 'png'];
+  if (app && app.feature && app.feature.on) {
+    app.feature.on('feature:browser-ai:ask', (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      const out = { type: 'browser_ai_ask' };
+      for (const key of ASK_KEYS) if (key in msg) out[key] = msg[key];
+      F.send(out);
+    });
+  }
+  const MENU_WORDS = {
+    ask: 'Ask Jarvis', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
+    save: 'Save to Second Brain', link: 'Summarize the Linked Page', image: 'Explain This Picture',
+  };
+  function menuWords() {
+    if (!app || !app.feature || !app.feature.send) return;
+    const words = {};
+    for (const [key, text] of Object.entries(MENU_WORDS)) words[key] = F.t(text);
+    app.feature.send('feature:browser-ai:labels', words);
+  }
+  F.on('prefs', menuWords, { replay: true });
+  B.menuWords = menuWords;
 
   // ── the hub's calls into the browser ──
   const call = (action, args = {}) => app.feature.invoke('feature:browser-ai:call', { action, args });

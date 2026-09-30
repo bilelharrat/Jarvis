@@ -5294,10 +5294,11 @@ test('The browser’s settings aren’t offered where there’s no built-in brow
 // The app's side, stood in for: the browser's state as main.js sends it, and the feature's
 // calls (app/features/browser-ai.js).
 async function browserAi() {
-  await js(`window.__calls = []; window.__pageEvent = null; window.__state = null;
+  await js(`window.__calls = []; window.__pageEvent = null; window.__state = null; window.__on = {}; window.__toApp = [];
     window.jarvisApp = { browser: { onState: (fn) => { window.__state = fn; } },
       feature: { invoke: (channel, msg) => { __calls.push([channel, msg]); return Promise.resolve({ ok: true, echo: msg.action }); },
-        on: (channel, fn) => { if (channel === 'feature:browser-ai:event') window.__pageEvent = fn; }, send: () => {} } }; true`);
+        on: (channel, fn) => { __on[channel] = fn; if (channel === 'feature:browser-ai:event') window.__pageEvent = fn; },
+        send: (channel, msg) => __toApp.push([channel, msg]) } }; true`);
   await loadFeature('browser_ai.js');
 }
 
@@ -5433,16 +5434,29 @@ test('Settings › Browser remembers pages only when switched on, and forgets th
   assert(await js('$("sw-bai-memories").getAttribute("aria-checked")') === 'false' && await js('$("bai-memories").hidden'), 'on, or a list, before any');
   await js('__sent.length = 0; $("sw-bai-memories").click(); true');
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'brain_source', source: 'browsing', on: true }]), JSON.stringify(await js('__sent')));
-  await deliver({ type: 'browser_ai_memories', on: true, count: 2, recent: [
-    { url: 'https://news.example/b', title: 'Lentils', site: 'The Daily Spoon', last: 2 },
-    { url: 'https://news.example/a', title: '', site: 'news.example', last: 1 }] });
-  assert(await js('$("bai-memories").textContent.includes("2 pages remembered")'), await js('$("bai-memories").textContent'));
+  await deliver({ type: 'browser_ai_memories', on: true, count: 2, clips: 1, recent: [
+    { id: 'c1', kind: 'clip', url: 'https://news.example/c', title: 'A quote', site: 'news.example', last: 3 },
+    { id: 'p2', kind: 'page', url: 'https://news.example/b', title: 'Lentils', site: 'The Daily Spoon', last: 2 },
+    { id: 'p1', kind: 'page', url: 'https://news.example/a', title: '', site: 'news.example', last: 1 }] });
+  const counts = await js('$("bai-memories").textContent');
+  assert(counts.includes('2 pages remembered') && counts.includes('1 saved from the page menu'), counts);
   const rows = await js('[...document.querySelectorAll(".bai-memory-list .bai-memory b")].map((b) => b.textContent + (b.closest("[data-no-i18n]") || b.hasAttribute("data-no-i18n") ? "" : "!"))');
-  assert(JSON.stringify(rows) === JSON.stringify(['Lentils', 'https://news.example/a']), JSON.stringify(rows));
-  await js('__sent.length = 0; document.querySelector(".bai-memory-list .btn").click(); document.querySelector(".bai-memories-head .btn").click(); true');
-  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_memory_forget', url: 'https://news.example/b' }, { type: 'browser_ai_memory_forget', all: true }]), JSON.stringify(await js('__sent')));
+  assert(JSON.stringify(rows) === JSON.stringify(['A quote', 'Lentils', 'https://news.example/a']), JSON.stringify(rows));
+  assert(await js('document.querySelectorAll(".bai-memory-list .bai-memory-kind").length') === 1, 'the clip is not marked as saved');
+  await js('__sent.length = 0; document.querySelectorAll(".bai-memory-list .btn")[1].click(); document.querySelector(".bai-memories-head .btn").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_memory_forget', id: 'p2', kind: 'page' }, { type: 'browser_ai_memory_forget', all: true }]), JSON.stringify(await js('__sent')));
   await deliver({ type: 'browser_ai_memories', on: false, count: 0, recent: [] });
   assert(await js('$("bai-memories").hidden && $("sw-bai-memories").getAttribute("aria-checked") === "false"'), 'still shown when off and empty');
+});
+
+test('Ask Jarvis: what the owner picked in the page’s menu goes to the hub, and the menu gets its words', async () => {
+  await browserAi();
+  await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: {} });
+  const sentWords = await js('__toApp.filter(([c]) => c === "feature:browser-ai:labels").pop()[1]');
+  assert(sentWords.ask === 'Ask Jarvis' && sentWords.reply === 'Draft a Reply' && sentWords.image === 'Explain This Picture', JSON.stringify(sentWords));
+  await js(`__sent.length = 0; __on['feature:browser-ai:ask']({ action: 'explain', url: 'https://news.example/a', title: 'A', tab: 5, selection: 'Soup is good.', evil: 'x', type: 'ask' }); true`);
+  const asks = await js('__sent');
+  assert(JSON.stringify(asks) === JSON.stringify([{ type: 'browser_ai_ask', action: 'explain', url: 'https://news.example/a', title: 'A', tab: 5, selection: 'Soup is good.' }]), JSON.stringify(asks));
 });
 
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {

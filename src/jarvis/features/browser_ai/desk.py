@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from ... import lang
+from . import tabsread
 from .bridge import Bridge
 from .flags import Flags
 from .memories import Memories
+from .menuask import MenuAsk
 from .pagectx import PageContext
 from .pagevoice import PageVoice
 from .sites import Sites
@@ -27,6 +29,8 @@ class BrowserAi:
         self.watch = Watch(hub, self.sites, self.page)
         self.site_settings = SiteSettings(hub, self.sites)
         self.memories = Memories(hub, self.bridge, self.sites)
+        self.menu = MenuAsk(hub, self.page, self.memories, self.sites)
+        self.tabs = tabsread.TabsReader(hub, self.bridge, self.sites)
 
     def install(self) -> None:
         hub = self.hub
@@ -44,5 +48,13 @@ class BrowserAi:
         hub.register_command("browser_ai_dwell", memories.command(memories.on_dwell))
         hub.register_command("browser_ai_memories", memories.command(memories.on_list))
         hub.register_command("browser_ai_memory_forget", memories.command(memories.on_forget))
+        hub.register_command("browser_ai_ask", self.menu.command)
+        hub.register_server(
+            tabsread.SERVER,
+            self.tabs.build,
+            prompt=tabsread.PROMPT,
+            labels=tabsread.LABELS,
+            web=[tabsread.TOOL],
+        )
         # Before Jarvis Code's (code_voice), which takes the key for a session in front.
         hub.register_command("whats_this", self.page.on_whats_this)

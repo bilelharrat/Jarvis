@@ -33,6 +33,7 @@ SELECTION_CHARS = 4000
 SELECTION_FRESH = 180.0  # seconds a selection rides along with requests unasked about it
 CONTEXT_SECONDS = 3.0
 LOOK_FRESH = 120.0  # seconds a look waits for its request (one queued behind another)
+EXPECT_FRESH = 120.0  # ... and a question from the page's menu
 LOOK_DISPLAY = "What's this page?"
 LOOK_PROMPT = (
     "The user pressed the What's-this key while looking at a page in the built-in browser. "
@@ -139,6 +140,27 @@ def fenced(text: Any, limit: int) -> str:
     return re.sub(r"\n\s*\n+", "\n", words).strip()
 
 
+class Expected:
+    """Notes waiting for their request (the page's menu: menuask.py): matched by the
+    request's words, within EXPECT_FRESH seconds."""
+
+    def __init__(self) -> None:
+        self._items: list[tuple[float, str, dict[str, Any]]] = []
+
+    def add(self, text: str, extra: dict[str, Any]) -> None:
+        now = time.monotonic()
+        self._items = [i for i in self._items if now - i[0] < EXPECT_FRESH][-7:]
+        self._items.append((now, text.strip(), extra))
+
+    def take(self, text: str) -> dict[str, Any] | None:
+        now = time.monotonic()
+        for i, (at, said, extra) in enumerate(self._items):
+            if said == text.strip() and now - at < EXPECT_FRESH:
+                del self._items[i]
+                return extra
+        return None
+
+
 class PageContext:
     def __init__(self, hub: Any, bridge: Any, sites: Sites) -> None:
         self.hub = hub
@@ -148,6 +170,7 @@ class PageContext:
         self._selection_sent = 0.0  # the selected_at of the selection that last rode along
         # ⌥⇧Space's looks at the page, each waiting for its request: (when, what it adds).
         self._looks: collections.deque[tuple[float, dict[str, Any]]] = collections.deque(maxlen=4)
+        self._expected = Expected()
 
     def on_page(self, msg: dict[str, Any]) -> None:
         """browser_ai_page: the window's page on show."""
@@ -161,8 +184,14 @@ class PageContext:
             and time.monotonic() - p.selected_at < SELECTION_FRESH
         )
 
+    def expect(self, text: str, extra: dict[str, Any]) -> None:
+        """What a request with these words, about to be asked, carries (the page's menu)."""
+        self._expected.add(text, extra)
+
     async def context(self, text: str, display: str | None) -> dict[str, Any] | None:
         """hub.add_request_context: what the page adds to a request."""
+        if display is None and (asked := self._expected.take(text)) is not None:
+            return asked
         if display == lang.translate(LOOK_DISPLAY, self.hub.language) or display == LOOK_DISPLAY:
             while self._looks:  # one whose request was taken back is left behind
                 at, look = self._looks.popleft()

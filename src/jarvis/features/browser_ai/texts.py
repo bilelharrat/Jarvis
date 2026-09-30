@@ -14,4 +14,14 @@ TEXTS: dict[str, str] = {
     "The built-in browser is only in the J.A.R.V.I.S. app.": "内置浏览器只在 J.A.R.V.I.S. 应用里。",
     # watch mode (watch.py): the card before acting on a site set to "ask"
     "Can I act on {host}? You asked me to check first.": "我可以在 {host} 上操作吗？你让我先问你。",
+    # the page's menu, Ask Jarvis (menuask.py): the owner's question, as they'd say it
+    "Explain what I selected on this page.": "解释一下我在这个页面上选中的内容。",
+    "Summarize what I selected on this page.": "总结一下我在这个页面上选中的内容。",
+    "Translate what I selected into Chinese.": "把我选中的内容翻译成中文。",
+    "Translate what I selected into English.": "把我选中的内容翻译成英文。",
+    "Draft a reply to what I selected. Don't send anything.": "针对我选中的内容起草一条回复，先不要发送。",
+    "Summarize the page this link goes to ({host}).": "总结一下这个链接指向的页面（{host}）。",
+    "Explain this picture from the page.": "解释一下页面上的这张图片。",
+    "Saved to your second brain.": "已保存到你的第二大脑。",
+    "Second brain": "第二大脑",
 }

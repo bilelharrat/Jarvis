@@ -167,8 +167,10 @@ async def test_the_window_lists_and_forgets_them(settings, quiet_speaker, isolat
     listed = [e for e in events if e["type"] == "browser_ai_memories"][-1]
     assert listed["on"] is True and listed["count"] == 2
     assert [m["title"] for m in listed["recent"]] == ["Page 1", "Page 0"]
-    assert set(listed["recent"][0]) == {"url", "title", "site", "last"}  # never the text
-    await desk.memories.on_forget({"url": "https://news.example/0"})
+    assert set(listed["recent"][0]) == {"id", "kind", "url", "title", "site", "last"}  # no text
+    oldest = listed["recent"][1]
+    await desk.memories.on_forget({"id": "../../prefs", "kind": "page"})  # never a path
+    await desk.memories.on_forget({"id": oldest["id"], "kind": "page"})
     assert [p["url"] for p in read_pages(folder_for(hub.kb.store))] == ["https://news.example/1"]
     await desk.memories.on_forget({"all": True})
     await asyncio.sleep(0.01)
@@ -213,3 +215,38 @@ async def test_a_remembered_page_opens_in_the_built_in_browser(settings, quiet_s
     )
     await asyncio.sleep(0.01)
     assert len(opened) == 1
+
+
+async def test_what_the_owner_saves_is_kept_whether_or_not_memories_are_on(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    desk, _, refreshed = desk_with(hub, read(), on=False)
+    await desk.memories.clip(
+        {
+            "url": URL,
+            "page": URL,
+            "title": "Why soup is good",
+            "site": "news.example",
+            "text": "Soup has warmed people up.",
+        }  # fmt: skip
+    )
+    await asyncio.sleep(0.01)
+    folder = folder_for(hub.kb.store)
+    assert memories.clips_kept(folder) and read_pages(folder) == [] and refreshed
+    clip = memories.read_clips(folder)[0]
+    assert clip["kind"] == "clip" and clip["text"] == "Soup has warmed people up."
+    # The brain reads clips with memories off, and pages only with them on.
+    (folder / "p.json").write_text(json.dumps({"url": "https://a.example/", "title": "A page",
+                                               "text": ARTICLE, "last": 1}))  # fmt: skip
+    store = str(hub.kb.store)
+    off = brain_sources.extra_sources({"store": store, "more": {"browsing": False}})
+    assert [n.title for n in off["browsing"]()] == ["Why soup is good"]
+    on = brain_sources.extra_sources({"store": store, "more": {"browsing": True}})
+    assert sorted(n.title for n in on["browsing"]()) == ["A page", "Why soup is good"]
+    note = [n for n in on["browsing"]() if n.title == "Why soup is good"][0]
+    assert note.id.startswith("browsing:clip:") and f"Saved from {URL}" in note.text
+    payload = desk.memories.payload()
+    assert payload["clips"] == 1 and payload["count"] == 1
+    await desk.memories.on_forget({"id": clip["id"], "kind": "clip"})
+    assert not memories.clips_kept(folder)

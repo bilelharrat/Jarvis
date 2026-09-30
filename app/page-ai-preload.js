@@ -5,7 +5,8 @@
 // - context: the page's address, title and what the owner has selected, and its readable
 //   text when asked;
 // - extract: the page's article, the way a reader view finds it (Readability-like: the
-//   block with the most prose and the fewest links), as headings and paragraphs.
+//   block with the most prose and the fewest links), as headings and paragraphs;
+// - imageAt: the picture under the pointer (the page's menu), its box and its words.
 // Text no one can see is left out, weighed as page-preload.js weighs it for every read
 // (globalThis.jarvisSight). Nothing here changes the page.
 'use strict';
@@ -199,7 +200,20 @@
     return out;
   }
 
-  const COMMANDS = { context, extract };
+  // The picture under the owner's pointer (the page's menu: Ask Jarvis): its box on the page
+  // and its words, for the app to take a picture of it.
+  function imageAt(args = {}) {
+    const hit = document.elementFromPoint(Number(args.x) || 0, Number(args.y) || 0);
+    let el = hit && (hit.closest('img, picture, svg, canvas, video') || null);
+    if (el && el.tagName === 'PICTURE') el = el.querySelector('img') || el;
+    if (!el && hit && hit.querySelector) el = hit.querySelector('img');
+    if (!el) return { ok: false, message: 'There is no picture there.' };
+    const r = el.getBoundingClientRect();
+    const alt = squash(el.getAttribute('alt') || el.getAttribute('aria-label') || el.getAttribute('title') || '').slice(0, 300);
+    return { ok: true, box: { x: r.left, y: r.top, width: r.width, height: r.height }, scroll: { x: window.scrollX, y: window.scrollY }, alt };
+  }
+
+  const COMMANDS = { context, extract, imageAt };
 
   // How much the owner has selected (never what): a request right after a selection then
   // carries it (the hub asks for the words themselves only then).
