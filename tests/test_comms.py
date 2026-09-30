@@ -754,6 +754,13 @@ async def test_triage_asks_first_unless_the_owner_just_asked(
     assert out["content"][0]["text"] == "Archived 1 email." and not hub.approvals
     assert ran == [(mailkit.TRIAGE_SCRIPT, ("archive", first))]
 
+    hub.prefs.language = "zh"  # a question, in Chinese as in English, asks for nothing
+    hub._turn_text = "你把商店的邮件归档了吗？"
+    pending = asyncio.create_task(c.triage({"message_ids": [first], "action": "archive"}))
+    hub.resolve((await card_on(hub))["id"], "deny")
+    assert (await pending)["is_error"] and len(ran) == 1
+    hub.prefs.language = "en"
+
     hub._turn_text = "what's in my inbox?"
     pending = asyncio.create_task(c.triage({"message_ids": [first], "action": "mark_read"}))
     card = await card_on(hub)

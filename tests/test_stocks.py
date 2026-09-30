@@ -230,6 +230,14 @@ async def test_chinese_words_ask_for_it_too(hub):
     assert hub.cards == [] and not out.get("is_error")
 
 
+async def test_a_question_in_chinese_changes_nothing_unasked(hub):
+    hub.prefs.watchlist = []
+    hub._turn_text = "英伟达加到我的自选股了吗？"
+    out = await hub.stocks.tools["change_watchlist"]({"add": "NVDA"})
+    assert hub.cards == ["Add NVDA to your watchlist?"] and out["is_error"]
+    assert hub.prefs.watchlist == []
+
+
 async def test_a_price_alert_set_by_voice(hub):
     hub._turn_text = "tell me when Nvidia goes above 150"
     out = await hub.stocks.tools["set_price_alert"]({"symbol": "NVDA", "above": 150})

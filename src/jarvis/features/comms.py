@@ -384,8 +384,8 @@ class Comms:
         if user_asked(_asks(ASKED[action]), words):
             return True
         return lang.is_zh(self.hub.language) and lang.user_asked_zh(
-            lang._asks_zh(ASKED_ZH[action]), words
-        )
+            lang._asks_zh(lang._NOT_DONE_ZH + "(?:" + ASKED_ZH[action] + ")"), words
+        )  # "你把它归档了吗" is a question: asks for nothing
 
     def _headlines(self, ids: list[str]) -> list[str]:
         db = self.mail_db()

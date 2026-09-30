@@ -211,6 +211,23 @@ async def test_words_in_either_language(hub, said, switch, state):
     assert hub.cards == [] and not out.get("is_error"), _said(out)
 
 
+@pytest.mark.parametrize(
+    ("said", "switch", "state"),
+    [
+        ("你把蓝牙关了吗？", "bluetooth", "off"),
+        ("蓝牙关掉了吗", "bluetooth", "off"),
+        ("wifi打开了没有", "wifi", "on"),
+        ("你打开深色模式了吗", "dark_mode", "on"),
+    ],
+)
+async def test_a_question_in_chinese_asks_for_nothing(hub, said, switch, state):
+    """A question ("did you turn Bluetooth off?"), in Chinese as in English: a card."""
+    hub.prefs.control_always = False
+    hub._turn_text = said
+    out = await hub.mac_switches.tools["system_switch"]({"switch": switch, "state": state})
+    assert len(hub.cards) == 1 and out["is_error"], _said(out)
+
+
 async def test_a_focus_runs_the_owners_shortcut(hub, mac):
     hub.prefs.control_always = False
     hub._turn_text = "turn on work focus"

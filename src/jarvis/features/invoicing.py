@@ -166,7 +166,10 @@ class InvoiceDesk:
         return (
             action in ASKED_ZH
             and lang.is_zh(self.hub.language)
-            and lang.user_asked_zh(lang._asks_zh(ASKED_ZH[action]), words)
+            # "你把Acme从客户里删掉了吗" is a question: asks for nothing
+            and lang.user_asked_zh(
+                lang._asks_zh(lang._NOT_DONE_ZH + "(?:" + ASKED_ZH[action] + ")"), words
+            )
         )
 
     # Stripe

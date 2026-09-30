@@ -167,6 +167,22 @@ async def test_changing_the_client_list_unasked_shows_a_card(tmp_path):
     assert desk.clients.find("Acme") is not None
 
 
+async def test_a_question_in_chinese_asks_for_nothing(settings, quiet_speaker, isolated):
+    """A question ("did you take Acme off my clients?") asks for nothing: a card first."""
+    hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
+    desk = invoicing.InvoiceDesk(hub)
+    hub.prefs.language = "zh"
+    for action, question, request in (
+        ("remove_client", "你把Acme从客户里删掉了吗？", "把Acme从客户里删掉"),
+        ("save_client", "你把她加到客户里了没有", "把她加到客户里"),
+        ("stop_recurring", "你停止给Acme的每月发票了吗", "停止给Acme的每月发票"),
+    ):
+        hub._turn_text = question
+        assert not desk.asked(action), question
+        hub._turn_text = request
+        assert desk.asked(action), request
+
+
 async def test_a_recurring_invoice_is_shown_then_kept(tmp_path):
     desk = Desk(tmp_path, asked={"save_client"})
     _store, tools = tools_for(tmp_path, desk)

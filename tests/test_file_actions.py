@@ -556,6 +556,18 @@ async def test_the_undo_log_is_read_only_when_its_needed(
     assert read.count("file_actions.json") == 1
 
 
+def test_a_question_in_chinese_is_not_a_request():
+    from jarvis import lang
+
+    for action, question, request in (
+        ("trash", "你把购物清单删掉了吗？", "把购物清单删掉"),
+        ("move", "你把报告移到文稿了吗", "把报告移到文稿"),
+        ("rename", "你把 notes 改名为购物清单了没有", "把 notes 改名为购物清单"),
+    ):
+        assert not lang.user_asked_zh(feature.ASKED_ZH[action], question), question
+        assert lang.user_asked_zh(feature.ASKED_ZH[action], request), request
+
+
 def test_what_the_owner_names():
     from jarvis.mac_gate import names_file
 

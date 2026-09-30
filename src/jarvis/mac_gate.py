@@ -141,4 +141,6 @@ def asks(pattern: str) -> re.Pattern[str]:
 
 
 def asks_zh(pattern: str) -> re.Pattern[str]:
-    return lang._asks_zh(pattern)
+    # A clause that ends as a question or a report ("你把蓝牙关了吗", "…了没有") asks for
+    # nothing, as in the core's own Chinese words.
+    return lang._asks_zh(lang._NOT_DONE_ZH + "(?:" + pattern + ")")
