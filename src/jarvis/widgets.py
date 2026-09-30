@@ -11,7 +11,11 @@ write. So it never runs in the window itself:
   (default-src 'none': no fetch, no pictures or fonts but data: ones, no forms, no frames),
   scripts only when the widget asked for them, and the same sandbox again;
 - the iframe sends no referrer, so the window's address (and its token) never reaches it;
-- only the window may load it (Sec-Fetch-Dest iframe, this Mac's own address).
+- only the window may load it (Sec-Fetch-Dest iframe, this Mac's own address);
+- a sandboxed frame may still navigate itself (a script setting location, a link), but the
+  window's own policy (index.html: default-src 'self') lets its frames show only the
+  window's own address, so a widget can't carry what it shows off to another one (the window
+  suite has a widget that tries). Keep that policy's frame-src at 'self'.
 
 Pinned widgets are kept in widgets.json beside the settings (MAX_PINNED of them); the rest
 live while the app runs (the latest MAX_SHOWN).

