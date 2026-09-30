@@ -167,3 +167,15 @@ body.browser-slim .bd-ask-text { flex-basis: calc(100% - 80px); }
 
 /* ── Settings › Browser: clearing what sites keep ── */
 .bp-clear .btn { flex: none; min-height: 34px; font-size: 13px; }
+
+/* ── a private tab, and JARVIS's own signed-out profile ── */
+.bp-tab-mark { flex: none; display: inline-flex; align-items: center; color: rgb(var(--c-muted)); }
+.bd-tab.bp-private { color: rgb(var(--c-ink)); background: rgb(88 70 160 / 0.14); }
+.bd-tab.bp-private .bp-tab-mark { color: rgb(120 96 210); }
+.bd-tab.bp-private.active { background: rgb(88 70 160 / 0.22); }
+.bd-tab.bp-agent .bp-tab-mark { color: rgb(var(--c-accent-ink)); }
+.bp-private-pill {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; margin-right: 2px;
+  border-radius: 10px; font-size: 11px; font-weight: 600; color: rgb(120 96 210); background: rgb(88 70 160 / 0.14);
+}
+.bp-private-pill[hidden] { display: none; }

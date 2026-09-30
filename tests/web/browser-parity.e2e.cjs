@@ -21,7 +21,7 @@ app.setPath('userData', fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost');
 app.commandLine.appendSwitch('use-fake-device-for-media-stream'); // Chromium's own test camera and microphone
 app.commandLine.appendSwitch('mute-audio');
-const { createParity, PARTITION } = require('../../app/browser-parity');
+const { createParity, PARTITION, PRIVATE_PARTITION, AGENT_PARTITION } = require('../../app/browser-parity');
 
 // An exception in the app's code fails the run (Electron would otherwise stop on its error box).
 let uncaught = 0;
@@ -157,9 +157,9 @@ let savePick = { canceled: true }; // where the Save box says to save
 const openedOutside = []; // pages opened in the Mac's default browser
 let parity;
 
-function newTab() {
+function newTab(opts = {}) {
   // As main.js's createTab makes them.
-  const view = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, disableBlinkFeatures: 'WebBluetooth', plugins: true } });
+  const view = new WebContentsView({ webPreferences: { partition: opts.partition || PARTITION, sandbox: true, contextIsolation: true, disableBlinkFeatures: 'WebBluetooth', plugins: true } });
   view.setBounds({ x: 0, y: 0, width: 900, height: 700 });
   win.contentView.addChildView(view);
   tabs.push(view);
@@ -678,12 +678,14 @@ test('Save as PDF: a page printed where the owner says; a PDF saved as the very 
   savePick = { canceled: false, filePath: path.join(dir, 'statement.pdf') };
   assert((await parity.savePage(view.webContents)) === true && fs.readFileSync(path.join(dir, 'statement.pdf')).equals(PDF), 'the PDF was not saved as it is');
   const items = parity.moreItems(view.webContents);
-  assert(items.length === 2 && items[0].label === 'Save as PDF…' && items[0].enabled && items[1].enabled, JSON.stringify(items.map((i) => [i.label, i.enabled])));
-  items[1].click();
+  const save = items.find((i) => i.label === 'Save as PDF…');
+  const outside = items.find((i) => /^Open in /.test(i.label || ''));
+  assert(save && save.enabled && outside && outside.enabled && items[0].label === 'New private tab', JSON.stringify(items.map((i) => [i.label, i.enabled])));
+  outside.click();
   assert(openedOutside.at(-1) === `${base}/statement.pdf`, 'not opened in the default browser');
   const blank = newTab();
-  const none = parity.moreItems(blank.webContents);
-  assert(!none[0].enabled && !none[1].enabled, 'an empty tab offered to save or open');
+  const none = parity.moreItems(blank.webContents).filter((i) => i.label === 'Save as PDF…' || /^Open in /.test(i.label || ''));
+  assert(none.length === 2 && none.every((i) => i.enabled === false), 'an empty tab offered to save or open');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -713,6 +715,55 @@ test('Clearing one site’s data leaves the others’; clearing all takes everyt
   assert(!(await cookies(base2)).includes('kept'), 'a cookie outlived clearing all');
 });
 
+test('A private tab keeps nothing: its own cookies, no visits, no session, no zoom; all gone when the last one closes', async () => {
+  opened.length = 0;
+  assert(parity.newPrivate() === true, 'no private tab');
+  const priv = active;
+  assert(priv.private === true && parity.tabInfo(priv).private === true && parity.isPrivate(priv.webContents), 'not marked private');
+  assert(priv.webContents.session === session.fromPartition(PRIVATE_PARTITION) && !priv.webContents.session.isPersistent(), 'a private tab in a profile that’s kept');
+  const normal = newTab();
+  await normal.webContents.loadURL(`${base}/other`);
+  await priv.webContents.loadURL(`${base}/other?private-only`);
+  await page(priv, `document.cookie = 'secret=private; path=/'; 1`);
+  const inProfile = async (ses) => (await ses.cookies.get({ url: base })).map((c) => c.name);
+  assert((await inProfile(session.fromPartition(PRIVATE_PARTITION))).includes('secret'), 'the private cookie wasn’t set');
+  assert(!(await inProfile(session.fromPartition(PARTITION))).includes('secret'), 'a private cookie reached the owner’s profile');
+  parity.zoomed(priv.webContents, 1.8);
+  assert(!(new URL(base).host in parity.state().zoom), 'a private tab’s zoom was kept');
+  parity.sessionNow();
+  const kept = JSON.stringify(parity.state().session);
+  assert(!kept.includes('private-only') && kept.includes(`${base}/other`), `the private tab was kept for next time: ${kept}`);
+  // Its permission answers are asked afresh and kept nowhere.
+  const privPerms = parity.permissionsFor(priv.webContents.session);
+  assert(privPerms.remember === false && privPerms !== parity.permissionsFor(session.fromPartition(PARTITION)), 'a private tab shares the owner’s permissions');
+  // The last private tab closes: what it kept goes.
+  tabs.splice(tabs.indexOf(priv), 1);
+  priv.webContents.close();
+  await until(async () => !(await inProfile(session.fromPartition(PRIVATE_PARTITION))).includes('secret'), 6000);
+  assert(!(await inProfile(session.fromPartition(PRIVATE_PARTITION))).includes('secret'), 'the private cookie outlived the last private tab');
+});
+
+test('JARVIS browses signed out when the owner says: its own tabs in a profile of their own', async () => {
+  assert(JSON.stringify(parity.agentTab('jarvis')) === '{}', 'signed out without the owner choosing it');
+  parity.settings({ agentProfile: true });
+  assert(parity.hello().agentProfile === true, 'the setting did not stick');
+  assert(parity.agentTab('jarvis').partition === AGENT_PARTITION && JSON.stringify(parity.agentTab('code:7')) === '{}' && JSON.stringify(parity.agentTab('')) === '{}', 'the wrong tabs go signed out');
+  const own = newTab();
+  await own.webContents.loadURL(`${base}/other`);
+  await page(own, `document.cookie = 'owner=signed-in; path=/'; 1`);
+  const agent = newTab(parity.agentTab('jarvis'));
+  agent.agentOwner = 'jarvis';
+  assert(agent.agentProfile === true && parity.tabInfo(agent).agentProfile === true, 'not marked as JARVIS’s profile');
+  await agent.webContents.loadURL(`${base}/other`);
+  const owners = await session.fromPartition(PARTITION).cookies.get({ url: base });
+  const mine = await session.fromPartition(AGENT_PARTITION).cookies.get({ url: base });
+  assert(owners.some((c) => c.name === 'owner') && mine.length === 0, `the owner’s cookies reached JARVIS’s profile: ${mine.map((c) => c.name)} (owner’s: ${owners.map((c) => c.name)})`);
+  assert((await page(agent, 'navigator.userAgent')).includes('Chrome/') && !(await page(agent, 'navigator.userAgent')).includes('Electron'), 'its user agent');
+  parity.sessionNow();
+  assert(!parity.state().session.tabs.some((t) => t === agent), 'kept');
+  parity.settings({ agentProfile: false });
+});
+
 let failed = 0;
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
@@ -731,7 +782,7 @@ app.whenReady().then(async () => {
     box: (owner, options) => { boxes.push({ owner, options }); return Promise.resolve({ response: boxAnswer }); },
     boxSync: (owner, options) => { syncBoxes.push({ owner, options }); return syncAnswer; },
     showPopup: () => {}, // no window is shown here
-    openTab: (url) => opened.push(url),
+    openTab: (url, opts) => { opened.push(url); if (opts) { const view = newTab(opts); active = view; } },
     restoreTab: () => newTab(),
     select: (view) => { active = view; parity.selected(view); },
     closeTab: (view) => { tabs.splice(tabs.indexOf(view), 1); view.webContents.close(); },

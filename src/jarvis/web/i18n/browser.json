@@ -82,7 +82,14 @@
     "Cookies and site data": "Cookie 和网站数据",
     "What sites keep on this Mac: cookies, cache and stored data. One site’s goes from the button at the start of its address.": "网站在这台 Mac 上保存的内容：Cookie、缓存和存储的数据。要清除单个网站的数据，请使用其地址开头的按钮。",
     "Clear all…": "全部清除…",
-    "Cleared. You’re signed out of sites.": "已清除。你已从各网站退出登录。"
+    "Cleared. You’re signed out of sites.": "已清除。你已从各网站退出登录。",
+    "New private tab": "新建无痕标签页",
+    "Private": "无痕",
+    "Private: nothing it visits or keeps stays after it closes": "无痕：关闭后不会保留它访问过的内容或存储的数据",
+    "JARVIS’s own profile": "JARVIS 自己的配置文件",
+    "JARVIS’s own profile, signed out of your sites": "JARVIS 自己的配置文件，未登录你的网站",
+    "JARVIS browses signed out": "JARVIS 以未登录状态浏览",
+    "The tabs JARVIS opens for itself use a profile of their own, with none of your sign-ins or cookies": "JARVIS 为自己打开的标签页使用单独的配置文件，不含你的任何登录信息或 Cookie"
   },
   "patterns": [
     ["^Camera: ([\\w.:\\[\\]-]+)$", "摄像头：$1"],

@@ -11,13 +11,13 @@ const { BrowserStore, clean } = require('../../app/browser-store.js');
 
 test('a missing, damaged or hand-edited file gives what’s valid in it', () => {
   const dir = mkdtempSync(join(tmpdir(), 'browser-store-'));
-  assert.deepEqual(new BrowserStore(join(dir, 'none.json')).data, { engine: 'google', restore: true, sites: {}, zoom: {}, session: { tabs: [], active: 0 } });
+  assert.deepEqual(new BrowserStore(join(dir, 'none.json')).data, { engine: 'google', restore: true, agentProfile: false, sites: {}, zoom: {}, session: { tabs: [], active: 0 } });
   writeFileSync(join(dir, 'bad.json'), '{"engine": "kagi", "sites": {');
-  assert.deepEqual(new BrowserStore(join(dir, 'bad.json')).data, { engine: 'google', restore: true, sites: {}, zoom: {}, session: { tabs: [], active: 0 } });
+  assert.deepEqual(new BrowserStore(join(dir, 'bad.json')).data, { engine: 'google', restore: true, agentProfile: false, sites: {}, zoom: {}, session: { tabs: [], active: 0 } });
   const empty = { tabs: [], active: 0 };
   assert.deepEqual(clean({ engine: 'altavista', sites: { 'https://a.example': { camera: 'allow', midi: 'allow' }, nope: 1 } }),
-    { engine: 'google', restore: true, sites: { 'https://a.example': { camera: 'allow' } }, zoom: {}, session: empty });
-  assert.deepEqual(clean([1, 2]), { engine: 'google', restore: true, sites: {}, zoom: {}, session: empty });
+    { engine: 'google', restore: true, agentProfile: false, sites: { 'https://a.example': { camera: 'allow' } }, zoom: {}, session: empty });
+  assert.deepEqual(clean([1, 2]), { engine: 'google', restore: true, agentProfile: false, sites: {}, zoom: {}, session: empty });
   assert.equal(clean({ engine: 'duckduckgo' }).engine, 'duckduckgo');
   assert.equal(clean({ engine: 'constructor' }).engine, 'google', 'only an engine of its own');
 });
@@ -54,6 +54,8 @@ test('the session and zoom kept are read defensively; reopening tabs is on unles
   assert.equal(clean({}).restore, true);
   assert.equal(clean({ restore: false }).restore, false);
   assert.equal(clean({ restore: 'no' }).restore, true);
+  assert.equal(clean({ agentProfile: true }).agentProfile, true);
+  assert.equal(clean({ agentProfile: 'yes' }).agentProfile, false, 'JARVIS browses signed out only when turned on');
   assert.deepEqual(cleanZoom({ 'a.example': 1.25, 'b.example': 1, 'c.example': 99, 'd.example': 'big', '': 2 }), { 'a.example': 1.25 });
   assert.deepEqual(cleanSession({ tabs: [
     { url: 'https://a.example/', title: 'A', pinned: true, entries: [{ url: 'https://a.example/', title: 'A' }], index: 7 },

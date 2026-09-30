@@ -3,9 +3,10 @@
 // location, notifications or the clipboard; a site's sign-in; a certificate warning), the
 // site's own menu at the start of the address, pinned and muted tabs dragged into order, tab
 // search, the address bar's list (open tabs, bookmarks, history), the library's bookmarks in
-// folders, the page's ⋯ menu (save as PDF, open in the default browser), and Settings ›
-// Browser (the search engine, reopening tabs, importing from another browser, clearing site
-// data, each site's permissions). Only in the J.A.R.V.I.S. app, where the built-in browser is.
+// folders, the page's ⋯ menu (a private tab, save as PDF, open in the default browser), and
+// Settings › Browser (the search engine, reopening tabs, importing from another browser,
+// clearing site data, JARVIS browsing signed out, each site's permissions). Only in the
+// J.A.R.V.I.S. app, where the built-in browser is.
 (() => {
   // ── pure helpers (tests/web/browser-window.test.mjs requires this file for them) ──
 
@@ -118,6 +119,8 @@
     chevron: '<path d="M6 4l4 4-4 4"/>',
     pencil: '<path d="M10.8 2.8l2.4 2.4L6 12.4 3 13l.6-3z"/>',
     more: '<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>',
+    private: '<path d="M1.8 6.6c1.9-.8 3.9-1.1 6.2-1.1s4.3.3 6.2 1.1"/><path d="M2.6 7l.6 2.9a1.9 1.9 0 001.9 1.5h.4a1.9 1.9 0 001.9-1.6M13.4 7l-.6 2.9a1.9 1.9 0 01-1.9 1.5h-.4a1.9 1.9 0 01-1.9-1.6M7 9.6h2"/>',
+    agent: '<path d="M8 1.8l1.4 3.9 3.9 1.4-3.9 1.4L8 12.4 6.6 8.5 2.7 7.1l3.9-1.4z"/>',
   };
   const button = (label, cls, onClick) => {
     const b = F.el('button', cls, label);
@@ -144,6 +147,7 @@
       clearSite: t('Clear this site’s data…'), clear: t('Clear'), cancel: t('Cancel'),
       clearSiteTitle: t('Clear the data {host} keeps?'), clearSiteDetail: t('Its cookies, cache and stored data go, and you’re signed out of it.'),
       clearAllTitle: t('Clear all cookies and site data?'), clearAllDetail: t('Every site’s cookies, cache and stored data go, and you’re signed out of sites, the Research Center too.'),
+      newPrivate: t('New private tab'),
     };
   }
   const sendLabels = () => invoke('labels', labels());
@@ -302,6 +306,16 @@
   function decorateTab(tab, t) {
     tab.classList.toggle('pinned', Boolean(t.pinned));
     if (t.pinned) tab.prepend(tabIcon(t));
+    // A private tab, and JARVIS's own signed-out profile, each look their part.
+    if (t.private || t.agentProfile) {
+      const kind = t.private ? 'private' : 'agent';
+      tab.classList.add(`bp-${kind}`);
+      const mark = F.el('span', 'bp-tab-mark');
+      mark.append(svg(ICONS[kind], 13));
+      mark.title = t.private ? 'Private: nothing it visits or keeps stays after it closes' : 'JARVIS’s own profile, signed out of your sites';
+      mark.setAttribute('aria-label', t.private ? 'Private' : 'JARVIS’s own profile');
+      tab.insertBefore(mark, tab.querySelector('.bd-tab-title'));
+    }
     if (t.audible || t.muted) {
       const sound = F.el('button', `bd-tab-sound${t.muted ? ' muted' : ''}`);
       sound.type = 'button';
@@ -735,6 +749,26 @@
     return row;
   }
 
+  function agentRow() {
+    const row = F.el('div', 'row');
+    const words = F.el('span');
+    words.append(F.el('strong', '', 'JARVIS browses signed out'), F.el('small', '', 'The tabs JARVIS opens for itself use a profile of their own, with none of your sign-ins or cookies'));
+    const sw = F.el('button', 'switch');
+    sw.id = 'sw-bp-agent';
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', 'false');
+    sw.setAttribute('aria-label', 'JARVIS browses signed out');
+    sw.addEventListener('click', async () => {
+      const on = sw.getAttribute('aria-checked') !== 'true';
+      sw.setAttribute('aria-checked', String(on));
+      const next = await invoke('settings', { agentProfile: on });
+      if (next) { hello = next; renderGroup(); }
+    });
+    row.append(words, sw);
+    return row;
+  }
+
   function restoreRow() {
     const row = F.el('div', 'row');
     const words = F.el('span');
@@ -880,13 +914,15 @@
     }
     const sw = F.$('sw-bp-restore');
     if (sw) sw.setAttribute('aria-checked', String(hello.restore !== false));
+    const agent = F.$('sw-bp-agent');
+    if (agent) agent.setAttribute('aria-checked', String(hello.agentProfile === true));
     renderSites();
   }
 
   function buildGroup() {
     const list = F.el('ul', 'bp-sites');
     list.id = 'bp-sites';
-    group.append(F.el('h3', '', 'Browser'), engineRow(), restoreRow(), importRow(), clearRow(), F.el('p', 'bp-sub', 'Site permissions'), list);
+    group.append(F.el('h3', '', 'Browser'), engineRow(), restoreRow(), importRow(), clearRow(), agentRow(), F.el('p', 'bp-sub', 'Site permissions'), list);
     const settings = F.$('settings');
     const accounts = F.$('open-accounts');
     const last = accounts ? accounts.closest('section.group') : null;
@@ -930,13 +966,24 @@
     url.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== url) closeOmni(); }, 120));
   }
   if (typeof F.registerTab === 'function') F.registerTab(decorateTab);
-  if (typeof B.onShortcut === 'function') B.onShortcut((action) => { if (action === 'tab-search') openTabSearch(); });
+  if (typeof B.onShortcut === 'function') {
+    B.onShortcut((action) => {
+      if (action === 'tab-search') openTabSearch();
+      if (action === 'private-tab') invoke('private-tab');
+    });
+  }
+  // ⌘⇧A: tab search; ⌘⇧N: a private tab (the page has them from the app, the same keys).
   window.addEventListener('keydown', (e) => {
-    if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'KeyA' && !F.$('browser').hidden) {
-      e.preventDefault();
-      openTabSearch();
-    }
+    if (!e.metaKey || !e.shiftKey || e.altKey || e.ctrlKey || F.$('browser').hidden) return;
+    if (e.code === 'KeyA') { e.preventDefault(); openTabSearch(); }
+    if (e.code === 'KeyN') { e.preventDefault(); invoke('private-tab'); }
   });
+  // "Private" in the address while the tab on show is private.
+  const privatePill = F.el('span', 'bp-private-pill', 'Private');
+  privatePill.id = 'bp-private';
+  privatePill.hidden = true;
+  privatePill.prepend(svg(ICONS.private, 12));
+  if (url) url.parentElement.insertBefore(privatePill, url);
   // The dock closing: its panels go, and every video and sound in the tabs stops.
   new MutationObserver(() => {
     if (!F.$('browser').hidden) return;
@@ -955,6 +1002,8 @@
   B.onState((st) => {
     lastState = st || {};
     siteBtn.hidden = !/^(https?|file):/.test((st && st.url) || '') || Boolean(st && st.research);
+    const shown = ((st && st.tabs) || []).find((t) => t.active);
+    privatePill.hidden = !(shown && shown.private);
     if (!tabsPanel.hidden) renderTabSearch();
   });
   // Settings opening reads the list afresh (a site may have asked meanwhile), and which

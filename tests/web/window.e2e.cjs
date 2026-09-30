@@ -5240,6 +5240,31 @@ test('The ⋯ button asks for the page’s menu where it is; Settings › Browse
   assert(await js('$("bp-clear-status").textContent === "Cleared. You’re signed out of sites."'), await js('$("bp-clear-status").textContent'));
 });
 
+test('A private tab and JARVIS’s signed-out tabs look their part; ⌘⇧N opens a private tab; Settings sets JARVIS’s profile', async () => {
+  await loadBrowser(`__b.answer = (channel, msg) => channel === 'feature:browser:hello' ? __b.hello : channel === 'feature:browser:settings' ? { ...__b.hello, ...msg } : null;`);
+  await js(`$("browser").hidden = false; tabsShown = ''; renderTabs([
+    { id: 1, title: 'Mail', url: 'https://mail.example/', active: false },
+    { id: 2, title: 'Secret gift', url: 'https://shop.example/', active: true, private: true },
+    { id: 3, title: 'Flights', url: 'https://flights.example/', active: false, agentProfile: true },
+  ]); __state({ url: 'https://shop.example/', tabs: [
+    { id: 1, title: 'Mail', url: 'https://mail.example/', active: false },
+    { id: 2, title: 'Secret gift', url: 'https://shop.example/', active: true, private: true },
+  ] }); true`);
+  const looks = await js(`[...document.querySelectorAll('#bd-tabs .bd-tab')].map((t) => [t.classList.contains('bp-private'), t.classList.contains('bp-agent'), (t.querySelector('.bp-tab-mark') || {}).title || ''].join('|'))`);
+  assert(JSON.stringify(looks) === '["false|false|","true|false|Private: nothing it visits or keeps stays after it closes","false|true|JARVIS’s own profile, signed out of your sites"]', JSON.stringify(looks));
+  assert(await js('!$("bp-private").hidden && $("bp-private").textContent === "Private" && $("bp-private").nextElementSibling === $("br-url")'), 'no Private in the address');
+  await js(`__state({ url: 'https://mail.example/', tabs: [{ id: 1, title: 'Mail', url: 'https://mail.example/', active: true }] }); true`);
+  assert(await js('$("bp-private").hidden'), 'Private stayed on a normal tab');
+  await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", code: "KeyN", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })); true`);
+  await js('__b.shortcut("private-tab"); true'); // the same keys with the page focused
+  await settle();
+  assert((await invokedOn('feature:browser:private-tab')).length === 2, 'no private tab asked for');
+  assert(await js('$("sw-bp-agent").getAttribute("aria-checked") === "false" && $("sw-bp-agent").closest("section") === $("browser-group")'), 'the switch is missing or on');
+  await js('$("sw-bp-agent").click(); true');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:settings')) === '[{"agentProfile":true}]' && await js('$("sw-bp-agent").getAttribute("aria-checked") === "true"'), 'the switch did not change it');
+});
+
 test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {
   await js(`window.jarvisApp = undefined; ${fs.readFileSync(path.join(WEB, 'features', 'browser.js'), 'utf8')}\n;true`);
   assert(await js('!$("browser-group") && !$("bd-ask") && !$("br-site")'), 'the browser feature loaded without a browser');

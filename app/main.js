@@ -347,8 +347,8 @@ function selectTab(view) {
   updateLock();
 }
 
-function newTab(url) {
-  const view = createTab();
+function newTab(url, opts) {
+  const view = createTab(opts); // opts.partition: a private tab's (browser-parity.js)
   tabs.push(view);
   selectTab(view);
   browserAsked = true;
@@ -362,7 +362,7 @@ function closeTab(view) {
   if (at < 0 || tabs.length < 2) return false;
   tabs.splice(at, 1);
   const url = view.webContents.getURL();
-  if (/^https?:/.test(url)) closedTabs.push(url);
+  if (/^https?:/.test(url) && !view.private) closedTabs.push(url); // a private tab's page isn't kept
   if (closedTabs.length > 25) closedTabs.shift();
   if (view === browserView) selectTab(tabs[Math.min(at, tabs.length - 1)]);
   view.webContents.close();
@@ -397,6 +397,7 @@ function browserShortcut(input) {
   if (shift) {
     if (key === 't') { reopenTab(); return true; }
     if (key === 'a') return ui('tab-search'); // search the open tabs (browser.js)
+    if (key === 'n') return ui('private-tab'); // a new private tab (browser.js)
     if (key === '[' || key === '{') return stepTab(-1);
     if (key === ']' || key === '}') return stepTab(1);
     return false;
@@ -468,6 +469,7 @@ function saveBrowserStore() {
 }
 function rememberVisit(url, wc) {
   if (!/^https?:/.test(url) || (onResearch(url) && RESEARCH_AUTH.test(researchPath(url)))) return;
+  if (parity.isPrivate(wc)) return; // a private tab's visits are kept nowhere
   const store = browserStore();
   const last = store.history[store.history.length - 1];
   if (last && last.url === url) return;
@@ -689,10 +691,10 @@ function readyAdblock() {
 
 function tabById(id) { return tabs.find((view) => view.webContents.id === Number(id)); }
 
-function createTab() {
+function createTab(opts = {}) {
   const view = new WebContentsView({
     webPreferences: {
-      partition: 'persist:jarvis-browser',
+      partition: opts.partition || 'persist:jarvis-browser', // or a private tab's, or JARVIS's signed-out one (browser-parity.js)
       disableBlinkFeatures: 'WebBluetooth', // a page asking for a device would have macOS ask about Bluetooth
       plugins: true, // Chromium's PDF viewer
       preload: path.join(__dirname, 'page-preload.js'),
@@ -863,7 +865,7 @@ const browserAgent = createAgent({
   isShown: (view) => Boolean(view && view === browserView && browserShown),
   setSynthetic: (on) => { agentInput = on; },
   addTab: ({ select, owner }) => {
-    const view = createTab();
+    const view = createTab(parity.agentTab(owner)); // JARVIS's own profile, when it browses signed out
     view.agentOwner = owner || ''; // who opened it: 'jarvis', 'code:<session>'
     tabs.push(view);
     view.setBounds(lastBounds || { x: 0, y: 0, width: 1280, height: 800 }); // its page lays out at the dock's size
@@ -907,8 +909,8 @@ const parity = createParity({
   send: (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); },
   fromWindow,
   dev: Boolean(DEV_URL),
-  // A popup's link for a new window: a tab in the dock.
-  openTab: (url) => { newTab(url); sendBrowserState(); if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
+  // A popup's link for a new window, or a new private tab: a tab in the dock.
+  openTab: (url, opts) => { newTab(url, opts); sendBrowserState(); if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
   // The tabs put back from last time: each an empty tab its page is loaded into.
   restoreTab: () => { const view = createTab(); tabs.push(view); browserAsked = true; return view; },
   select: (view) => { selectTab(view); sendBrowserState(); },

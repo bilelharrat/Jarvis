@@ -3,7 +3,8 @@
 // the leave-page question, HTTP sign-in, certificate warnings, pinned and muted tabs and their
 // order, the tabs reopened next time, each site's zoom, the address bar's suggestions,
 // bookmark folders and what's imported from another browser, PDFs (read for JARVIS, saved),
-// clearing a site's data, the user agent Google's sign-in accepts, and Settings › Browser. main.js hands it what it needs
+// clearing a site's data, private tabs and JARVIS's own signed-out profile, the user agent
+// Google's sign-in accepts, and Settings › Browser. main.js hands it what it needs
 // as hooks (createParity) and calls it where a tab or a session is made.
 //
 // What the window shows comes over the app feature channels ('feature:browser:…', which
@@ -24,6 +25,8 @@ const lib = require('./browser-lib');
 const { ENGINES, setSearchEngine, searchEngine, homeUrl, toUrl } = require('./url-input');
 
 const PARTITION = 'persist:jarvis-browser';
+const PRIVATE_PARTITION = 'jarvis-private'; // in memory only, and emptied when the last private tab closes
+const AGENT_PARTITION = 'persist:jarvis-agent'; // JARVIS's own tabs, when it browses signed out
 const CH = 'feature:browser:';
 const GESTURE_MS = 5000; // a click or key this recent opened it (Chrome's user activation)
 const POPUPS_MAX = 6; // popup windows open at once
@@ -52,6 +55,7 @@ const LABELS = {
   clearSite: 'Clear this site’s data…', clear: 'Clear', cancel: 'Cancel',
   clearSiteTitle: 'Clear the data {host} keeps?', clearSiteDetail: 'Its cookies, cache and stored data go, and you’re signed out of it.',
   clearAllTitle: 'Clear all cookies and site data?', clearAllDetail: 'Every site’s cookies, cache and stored data go, and you’re signed out of sites, the Research Center too.',
+  newPrivate: 'New private tab',
 };
 
 class BrowserParity {
@@ -98,10 +102,13 @@ class BrowserParity {
     this.handle('import', (msg) => this.importData(msg || {}));
     this.handle('more-menu', (msg) => this.moreMenu(msg || {}));
     this.handle('clear-data', (msg) => this.clearAll(msg || {}));
+    this.handle('private-tab', () => this.newPrivate());
     this.saveDialog = hooks.saveDialog || ((owner, options) => (owner ? dialog.showSaveDialog(owner, options) : dialog.showSaveDialog(options)));
     this.openExternal = hooks.openExternal || ((url) => shell.openExternal(url));
     this.pdfCache = null; // the last PDF read: { tab, url, bytes }
-    app.whenReady().then(() => this.setupSession(session.fromPartition(PARTITION)));
+    // Every profile a tab can be in, set up before its first tab (a session's user agent
+    // reaches only the pages made after it's set).
+    app.whenReady().then(() => { for (const p of [PARTITION, PRIVATE_PARTITION, AGENT_PARTITION]) this.setupSession(session.fromPartition(p)); });
     // Quitting: the tabs as they are now are the ones to reopen (not the none left as windows
     // close), and a change a moment ago is kept.
     app.on('before-quit', () => { if (!this.quitting && this.restored) this.sessionNow(); this.quitting = true; });
@@ -191,11 +198,11 @@ class BrowserParity {
     let perms = this.permissions.get(ses);
     if (!perms) {
       const data = this.state();
-      perms = new SitePermissions({
-        sites: data.sites,
-        onSave: (sites) => { this.state().sites = sites; this.save(); },
-        onChange: () => this.refreshAsk(),
-      });
+      // The owner's own profile keeps each site's answer; a private tab's and JARVIS's
+      // signed-out profile's are asked afresh and kept nowhere.
+      perms = ses === session.fromPartition(PARTITION)
+        ? new SitePermissions({ sites: data.sites, onSave: (sites) => { this.state().sites = sites; this.save(); }, onChange: () => this.refreshAsk() })
+        : new SitePermissions({ remember: false, onChange: () => this.refreshAsk() });
       this.permissions.set(ses, perms);
     }
     return perms;
@@ -240,6 +247,10 @@ class BrowserParity {
 
   wireTab(view) {
     const wc = view.webContents;
+    // Which profile the tab is in: the owner's, a private one, or JARVIS's signed-out one.
+    if (wc.session === session.fromPartition(PRIVATE_PARTITION)) view.private = true;
+    else if (wc.session === session.fromPartition(AGENT_PARTITION)) view.agentProfile = true;
+    if (view.private) wc.once('destroyed', () => this.privateClosed(view));
     this.wire(wc);
     // A tab's sound shows on it; what it's on is written down for next time.
     wc.on('audio-state-changed', () => this.changed());
@@ -255,6 +266,8 @@ class BrowserParity {
   wire(wc) {
     const id = wc.id;
     this.setupSession(wc.session);
+    const agent = lib.cleanUserAgent(wc.getUserAgent(), app.getName());
+    if (agent !== wc.getUserAgent()) wc.setUserAgent(agent); // a page made before its session was set up
     const perms = this.permissionsFor(wc.session);
     // A new page on the way: what the old one waited on goes (a sign-in, a certificate warning).
     wc.on('did-start-navigation', (e, url, inPlace, isMainFrame) => {
@@ -580,12 +593,16 @@ class BrowserParity {
     return view.lazy ? view.lazy.url : view.webContents.getURL();
   }
 
-  // What main.js's tab list adds for each tab: pinned, playing sound, muted; a tab not loaded
-  // yet (put back from last time) shows the page it will load.
+  // What main.js's tab list adds for each tab: pinned, playing sound, muted, private, in
+  // JARVIS's signed-out profile; a tab not loaded yet (put back from last time) shows the page
+  // it will load.
   tabInfo(view) {
     const wc = view.webContents;
     const live = Boolean(wc) && !wc.isDestroyed();
-    const info = { pinned: Boolean(view.pinned), audible: live && wc.isCurrentlyAudible(), muted: live && wc.isAudioMuted() };
+    const info = {
+      pinned: Boolean(view.pinned), audible: live && wc.isCurrentlyAudible(), muted: live && wc.isAudioMuted(),
+      private: Boolean(view.private), agentProfile: Boolean(view.agentProfile),
+    };
     return view.lazy ? { ...info, url: view.lazy.url, title: view.lazy.title } : info;
   }
 
@@ -672,7 +689,7 @@ class BrowserParity {
   // never what was typed in the page). A private tab and a Jarvis Code session's aren't kept.
   sessionTab(view) {
     const wc = view.webContents;
-    if (!wc || wc.isDestroyed() || view.private || String(view.agentOwner || '').startsWith('code:')) return { skip: true };
+    if (!wc || wc.isDestroyed() || view.private || view.agentProfile || String(view.agentOwner || '').startsWith('code:')) return { skip: true };
     if (view.lazy) return { ...view.lazy, pinned: Boolean(view.pinned) };
     const history = wc.navigationHistory;
     return {
@@ -712,6 +729,36 @@ class BrowserParity {
     if (!t) return;
     view.lazy = null;
     this.load(view, t);
+  }
+
+  // ── private tabs, and JARVIS's own signed-out profile ──
+
+  // A private tab: a profile in memory only, its visits never kept; everything it held goes
+  // when the last private tab closes (as in Chrome).
+  newPrivate() {
+    if (!this.hooks.openTab) return false;
+    this.hooks.openTab(undefined, { partition: PRIVATE_PARTITION });
+    return true;
+  }
+
+  privateClosed(view) {
+    if (this.hooks.tabs().some((v) => v !== view && v.private && v.webContents && !v.webContents.isDestroyed())) return;
+    const ses = session.fromPartition(PRIVATE_PARTITION);
+    ses.clearData().catch(() => {});
+    ses.clearAuthCache().catch(() => {});
+    const perms = this.permissions.get(ses); // (the session's handlers hold this one)
+    if (perms) { perms.sites = {}; perms.grants.clear(); }
+  }
+
+  isPrivate(wc) {
+    const view = this.viewOf(wc);
+    return Boolean(view && view.private);
+  }
+
+  // A tab JARVIS opens for itself: in its own profile, signed out of the owner's sites, when
+  // the owner chose that (Settings › Browser); Jarvis Code's session tabs stay as they are.
+  agentTab(owner) {
+    return owner === 'jarvis' && this.state().agentProfile ? { partition: AGENT_PARTITION } : {};
   }
 
   // ── each site's zoom, kept (never a private tab's) ──
@@ -858,6 +905,8 @@ class BrowserParity {
     try { other = web ? app.getApplicationNameForProtocol(url) : ''; } catch { /* no default browser */ }
     if (/J\.?A\.?R\.?V\.?I\.?S/i.test(other) || other === app.getName()) other = ''; // this app itself
     const items = [
+      { label: this.label('newPrivate'), accelerator: 'Shift+Command+N', registerAccelerator: false, click: () => this.newPrivate() },
+      { type: 'separator' },
       { label: this.label('savePdf'), enabled: /^(https?|file):/i.test(url), click: () => this.savePage(wc) },
       { label: other ? this.label('openIn', { app: other.replace(/\.app$/, '') }) : this.label('openInBrowser'), enabled: web, click: () => this.openExternal(url) },
     ];
@@ -970,6 +1019,10 @@ class BrowserParity {
       data.restore = changes.restore;
       this.save();
     }
+    if (typeof changes.agentProfile === 'boolean') {
+      data.agentProfile = changes.agentProfile;
+      this.save();
+    }
     return this.hello();
   }
 
@@ -979,6 +1032,7 @@ class BrowserParity {
       engine: searchEngine().id,
       engines: Object.entries(ENGINES).map(([id, e]) => ({ id, name: e.name })),
       restore: this.state().restore,
+      agentProfile: this.state().agentProfile,
       sites: this.sitesList(),
       ask: this.currentAsk(),
       site: this.siteState(),
@@ -990,4 +1044,4 @@ function createParity(hooks) {
   return new BrowserParity(hooks);
 }
 
-module.exports = { createParity, BrowserParity, PARTITION, LABELS };
+module.exports = { createParity, BrowserParity, PARTITION, PRIVATE_PARTITION, AGENT_PARTITION, LABELS };
