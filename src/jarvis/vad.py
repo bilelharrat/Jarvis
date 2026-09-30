@@ -19,9 +19,11 @@ loudness detector.
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import threading
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,32 @@ def model_path() -> Path:
 _session: Any = None
 _failure = ""  # why the model couldn't load (tried once per run)
 _lock = threading.Lock()
+_streams: weakref.WeakSet[SileroStream] = weakref.WeakSet()
+
+
+def quiet_onnxruntime() -> None:
+    """Switch off onnxruntime's telemetry for this process, before any session exists.
+    Its macOS build sends usage events to Microsoft (mobile.events.data.microsoft.com)
+    from a thread of its own once a session is made, and that thread crashed the app on
+    quitting (1 run in 4: "recursive_mutex lock failed" in its HTTP client). Nothing about
+    the owner's audio leaves the Mac this way, and now nothing at all does. Also covers
+    faster-whisper's own use of onnxruntime (video summaries)."""
+    try:
+        import onnxruntime
+
+        onnxruntime.disable_telemetry_events()
+    except Exception:  # not installed, or an older build without the switch
+        pass
+
+
+@atexit.register
+def _release() -> None:
+    """Let the model go while Python is still whole, not in the interpreter's teardown."""
+    global _session
+    with _lock:
+        for stream in list(_streams):
+            stream.session = None  # a stream still fed after this reads as broken: loudness
+        _session = None
 
 
 def load_session() -> Any:
@@ -69,6 +97,7 @@ def load_session() -> Any:
         try:
             import onnxruntime
 
+            quiet_onnxruntime()
             path = model_path()
             if not path.is_file():
                 raise Unavailable(f"{MODEL_FILE} isn't in faster-whisper's package")
@@ -99,6 +128,7 @@ class SileroStream:
 
     def __init__(self, session: Any) -> None:
         self.session = session
+        _streams.add(self)
         self.reset()
 
     def reset(self) -> None:

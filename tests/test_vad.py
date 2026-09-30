@@ -198,3 +198,29 @@ def test_a_detector_factory_that_fails_leaves_loudness(monkeypatch):
 
     listener.voice_factory = broken
     assert listener._voice() is None
+
+
+def test_onnxruntime_is_kept_off_the_network_before_the_model_loads(fresh_vad, monkeypatch):
+    """Its macOS build sends telemetry to Microsoft from a thread of its own once a session
+    exists (and that thread crashed the app on quitting): switched off first."""
+    import onnxruntime
+
+    order = []
+    monkeypatch.setattr(onnxruntime, "disable_telemetry_events", lambda: order.append("quiet"))
+    real = onnxruntime.InferenceSession
+
+    def session(*args, **kwargs):
+        order.append("session")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(onnxruntime, "InferenceSession", session)
+    vad.load_session()
+    assert order == ["quiet", "session"]
+
+
+def test_the_model_is_let_go_before_python_tears_down(fresh_vad):
+    stream = vad.SileroStream(vad.load_session())
+    vad._release()
+    assert vad._session is None and stream.session is None
+    gate = vad.VoiceGate(stream)
+    assert gate(np.zeros(800, np.float32)) is None and gate.broken  # loudness from then on
