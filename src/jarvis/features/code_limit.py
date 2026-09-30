@@ -39,6 +39,9 @@ prefs.register_feature_pref(PREF, False)
 RETRY = 30 * 60.0  # Claude Code gave no reset time: try again this much later
 LONGEST = 7 * 24 * 3600.0  # a weekly limit, at most
 EARLY = 1.0  # the wait ends this much before the hold, so the note goes first
+# The longest the wait sleeps at once: asyncio's clock stops while the Mac sleeps, so a
+# wait slept whole would carry on as late as the Mac slept. It looks at the clock again.
+LOOK_AGAIN = 60.0
 RESET = "Claude's limit has reset: carrying on."
 NOW = "Trying Claude again now."
 
@@ -151,7 +154,8 @@ class LimitWait:
             )
 
     async def _wait(self, task: Any, until: float) -> None:
-        await asyncio.sleep(max(0.0, until - time.time() - EARLY))
+        while (left := until - time.time() - EARLY) > 0:
+            await asyncio.sleep(min(left, LOOK_AGAIN))
         if task.hold_until == until:
             self.waits.pop(task.id, None)
             self.release(task)

@@ -90,6 +90,31 @@ async def test_the_wait_ends_by_itself_when_the_limit_resets(
     hub.tasks.cancel(task.id)
 
 
+async def test_a_wait_the_mac_sleeps_through_ends_by_the_wall_clock(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """asyncio's clock (mach_absolute_time) stops while the Mac sleeps: a wait slept in one
+    piece would carry on as many hours late as the Mac slept. It looks at the clock again."""
+    from types import SimpleNamespace
+
+    from jarvis.features import code_limit
+
+    hub = waiting_hub(settings, quiet_speaker, isolated, monkeypatch)
+    task = hub.tasks.start("fix it", "p", model="claude-opus-5-5")
+    assert await until(lambda: task.hold_until > 0 and not task.busy)
+    Limited.limited = False
+    slept = [0.0]
+    monkeypatch.setattr(code_limit, "time", SimpleNamespace(time=lambda: time.time() + slept[0]))
+    monkeypatch.setattr(code_limit, "LOOK_AGAIN", 0.05)
+    hub.code_limit.hold(task, time.time() + 3600)  # the reset, an hour off
+    await asyncio.sleep(0.2)
+    assert len(queries()) == 1  # (still waiting)
+    slept[0] = 3600.0  # the lid was closed for that hour: the wall clock moved on, asyncio's not
+    assert await until(lambda: len(queries()) == 2 and not task.busy, seconds=20)
+    assert queries()[1].startswith("[Note from the app: Claude's usage limit stopped")
+    hub.tasks.cancel(task.id)
+
+
 async def test_a_waiting_session_may_still_close_to_make_room_and_opens_after_the_wait(
     settings, quiet_speaker, isolated, monkeypatch
 ):
