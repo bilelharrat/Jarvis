@@ -510,6 +510,10 @@ async def test_open_a_file_by_voice(settings, quiet_speaker, isolated, tmp_path)
     sent = recording_sends(hub)
     await hub.voicecode.handle("open the src folder")  # no such file: a request for Claude
     assert sent == [(task.id, "open the src folder")]
+    root = tmp_path / "proj"
+    assert code_voice.find_file(root, "hub", False) == "src/hub.py"  # its name without .py
+    for outside in ("/etc/hosts.txt", "~/notes.md", "../proj/README.md", "src/../../x.md"):
+        assert code_voice.find_file(root, outside, True) is None, outside
     close_all(hub)
 
 

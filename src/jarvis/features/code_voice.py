@@ -719,8 +719,8 @@ def find_file(root: Path, spoken: str, need_extension: bool) -> str | None:
     from ..code_vocab import vocab_for
 
     spoken = spoken.strip().removeprefix("./").strip()
-    if not spoken or len(spoken) > 200 or ".." in spoken.split("/"):
-        return None
+    if not spoken or len(spoken) > 200 or spoken[0] in "/~" or ".." in spoken.split("/"):
+        return None  # only a file inside the project, named from it
     has_extension = bool(re.search(r"\.[A-Za-z0-9]{1,8}$", spoken))
     if need_extension and not has_extension:
         return None
