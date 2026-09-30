@@ -84,7 +84,10 @@
     "Click × again to close it anyway.": "再点一次 × 仍然关闭。",
     "Stop this command": "停止这个命令",
     "Stopping…": "正在停止…",
-    "That's the most terminals at once: close one first.": "终端已经开到上限了：先关掉一个。"
+    "That's the most terminals at once: close one first.": "终端已经开到上限了：先关掉一个。",
+    "Its last lines go with the message": "它最后几行会随消息一起发送",
+    "its latest reply goes with the message": "它最新的回复会随消息一起发送",
+    "Folder": "文件夹"
   },
   "patterns": [
     [

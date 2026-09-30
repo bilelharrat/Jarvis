@@ -4201,6 +4201,40 @@ test('A "!" command streams its output as it comes, can be cancelled, and ends a
   assert(msg && msg.text.includes('$ npm test') && msg.text.includes('(exit 130)') && msg.text.endsWith('fix it'), JSON.stringify(msg));
 });
 
+test('@ suggests the terminal, folders, where names are defined and, after the first words, other sessions', async () => {
+  await featureScript('code-mentions.js');
+  await open(1);
+  await deliver({ type: 'tasks', items: [await js('__task(1)'), await js('__task(2, { title: "API work", busy: false, status: "idle" })')] });
+  await deliver({ type: 'project_files', directory: 'alpha', files: ['src/app.py', 'src/web/a.js', 'README.md'] });
+  const shown = () => js('[...document.querySelectorAll("#cc-slash button")].map((b) => b.textContent)');
+  await js('$("deck-input").value = ""; $("deck-input").focus(); true');
+  await typeText('@ter');
+  assert((await shown()).some((x) => x.startsWith('@terminal') && x.includes('Its last lines go with the message')), JSON.stringify(await shown()));
+  await js('$("deck-input").value = ""; true');
+  await typeText('@web');
+  assert((await shown()).some((x) => x.startsWith('src/web/') && x.includes('Folder')), JSON.stringify(await shown()));
+  // Names: asked as they're typed, shown when they come, put in as their file and line.
+  await js('$("deck-input").value = ""; __sent.length = 0; true');
+  await typeText('fix @retr');
+  let asked = [];
+  for (let i = 0; i < 40 && !asked.length; i++) { await sleep(25); asked = await sentOf('cw_symbols'); }
+  assert(asked.length === 1 && asked[0].query === 'retr' && asked[0].id === 1, JSON.stringify(asked));
+  await deliver({ type: 'cw_symbols', ref: asked[0].ref, items: [{ name: 'retry', path: 'src/app.py', line: 12 }] });
+  await frames(2);
+  const withName = await shown();
+  assert(withName.some((x) => x.startsWith('retry') && x.includes('src/app.py:12')), JSON.stringify(withName));
+  await js('[...document.querySelectorAll("#cc-slash button")].find((b) => b.textContent.startsWith("retry")).dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); true');
+  assert(await js('$("deck-input").value') === 'fix @src/app.py (retry, line 12) ', await js('$("deck-input").value'));
+  // Other sessions: after the first words only (at the start, @session-2 sends it there).
+  await js('$("deck-input").value = ""; true');
+  await typeText('ask @ses');
+  assert((await shown()).some((x) => x.startsWith('@session-2') && x.includes('API work')), JSON.stringify(await shown()));
+  assert(!(await shown()).some((x) => x.startsWith('@session-1')), 'offered this session itself');
+  // A word about a page being read comes as a notice.
+  await deliver({ type: 'cw_mentions', id: 1, text: 'Reading https://example.com/x for your message…' });
+  assert(await js('document.body.textContent.includes("Reading https://example.com/x for your message…")'), 'no notice');
+});
+
 // ──
 
 let base;

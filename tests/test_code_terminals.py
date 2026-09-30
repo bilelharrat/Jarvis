@@ -220,3 +220,15 @@ async def test_terminals_through_the_window_asking_before_closing_a_busy_one(hub
     assert await until(lambda: hub.code_terminal.shells.get(term) is None)
     last = (await settle(seen, "cw_terms", 2))[-1]
     assert last["items"] == []
+
+
+def test_the_terminal_that_printed_last_is_the_one_mentioned(tmp_path):
+    shells = Shells(lambda *a, **k: None)
+    one, two = Shell("t1", tmp_path, "zsh 1", None), Shell("t2", tmp_path, "zsh 2", None)
+    elsewhere = Shell("t3", tmp_path / "other", "zsh 1", None)
+    shells.items = {"t1": one, "t2": two, "t3": elsewhere}
+    assert shells.latest(tmp_path) is two  # (none printed yet: the newest)
+    one.keep(b"$ make\n")
+    assert shells.latest(tmp_path) is one
+    elsewhere.keep(b"later, elsewhere\n")
+    assert shells.latest(tmp_path) is one and shells.latest(tmp_path / "none") is None

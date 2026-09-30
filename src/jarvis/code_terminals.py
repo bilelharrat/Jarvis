@@ -108,8 +108,10 @@ class Shell:
     created: float = field(default_factory=time.time)
     scrollback: bytearray = field(default_factory=bytearray)
     exited: bool = False
+    printed_at: float = 0.0  # when it last printed (monotonic): the one @terminal means
 
     def keep(self, data: bytes) -> None:
+        self.printed_at = time.monotonic()
         self.scrollback += data
         over = len(self.scrollback) - SCROLLBACK
         if over > 0:
@@ -187,6 +189,11 @@ class Shells:
 
     def get(self, term_id: str) -> Shell | None:
         return self.items.get(str(term_id))
+
+    def latest(self, cwd: Path) -> Shell | None:
+        """The folder's terminal that printed most lately (the one "@terminal" means)."""
+        shells = self.of(cwd)
+        return max(shells, key=lambda s: (s.printed_at, s.created), default=None)
 
     def close(self, term_id: str) -> bool:
         shell = self.items.pop(str(term_id), None)

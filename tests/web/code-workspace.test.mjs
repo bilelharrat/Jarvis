@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const WEB = path.join(ROOT, 'src/jarvis/web');
-const SCRIPTS = ['code-markdown.js', 'code-editor.js', 'code-search.js', 'code-terminal.js'];
+const SCRIPTS = ['code-markdown.js', 'code-editor.js', 'code-search.js', 'code-terminal.js', 'code-mentions.js'];
 // Words that stay as they are in Chinese too.
 const AS_IS = new Set(['CRLF', 'LF', 'UTF-8', 'Aa', '.*']);
 
