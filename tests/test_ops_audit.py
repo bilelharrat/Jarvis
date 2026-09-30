@@ -198,3 +198,21 @@ async def test_every_tighten_only_narrows(hub, tmp_path):
     assert p.remote_enabled is False
     with pytest.raises(audit.Refused):
         await audit.tighten(hub, tmp_path, "control_always_on")
+
+
+def test_the_scan_reaches_jarvis_own_folders_before_a_deep_cache_uses_its_budget(
+    tmp_path, monkeypatch
+):
+    data = tmp_path / "data"
+    cache = data / "Cache" / "Cache_Data"
+    cache.mkdir(parents=True)
+    for n in range(40):
+        (cache / f"f{n}").write_text("x")
+        os.chmod(cache / f"f{n}", 0o600)  # the browser keeps its own private
+    (data / "bin").mkdir()
+    (data / "bin" / "helper").write_text("x")
+    os.chmod(data / "bin" / "helper", 0o755)
+    for folder in (data, data / "Cache", cache, data / "bin"):
+        os.chmod(folder, 0o700)
+    monkeypatch.setattr(audit, "MAX_SCANNED", 10)
+    assert [name for name, _m, _d in audit.loose_entries(data)] == ["bin/helper"]

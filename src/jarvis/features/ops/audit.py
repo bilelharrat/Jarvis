@@ -16,6 +16,7 @@ import contextlib
 import os
 import re
 import stat
+from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -363,29 +364,32 @@ def loose_entries(folder: Path) -> list[tuple[str, int, bool]]:
         return found
     if mode & 0o077:
         found.append((".", mode, True))
+    # Breadth first: Jarvis's own folders (bin, brain, models) are looked at before the
+    # budget goes on the depths of the browser's caches, which share the folder.
     seen = 0
-    stack = [(folder, 0)]
-    while stack and seen < MAX_SCANNED:
-        current, depth = stack.pop()
+    waiting: deque[tuple[Path, int]] = deque([(folder, 0)])
+    while waiting and seen < MAX_SCANNED:
+        current, depth = waiting.popleft()
         try:
-            entries = list(os.scandir(current))
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    seen += 1
+                    if seen > MAX_SCANNED:
+                        break
+                    try:
+                        info = entry.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if stat.S_ISLNK(info.st_mode):
+                        continue
+                    is_dir = stat.S_ISDIR(info.st_mode)
+                    mode = stat.S_IMODE(info.st_mode)
+                    if mode & 0o077:
+                        found.append((os.path.relpath(entry.path, folder), mode, is_dir))
+                    if is_dir and depth + 1 < MAX_DEPTH:
+                        waiting.append((Path(entry.path), depth + 1))
         except OSError:
             continue
-        for entry in entries:
-            seen += 1
-            try:
-                info = entry.stat(follow_symlinks=False)
-            except OSError:
-                continue
-            if stat.S_ISLNK(info.st_mode):
-                continue
-            is_dir = stat.S_ISDIR(info.st_mode)
-            if stat.S_IMODE(info.st_mode) & 0o077:
-                found.append(
-                    (os.path.relpath(entry.path, folder), stat.S_IMODE(info.st_mode), is_dir)
-                )
-            if is_dir and depth + 1 < MAX_DEPTH:
-                stack.append((Path(entry.path), depth + 1))
     return sorted(found)
 
 
