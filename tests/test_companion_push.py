@@ -530,3 +530,23 @@ async def test_the_store_keeps_each_phone_apart_and_reads_defensively(tmp_path):
     assert odd.known("bad")["push"] is None and odd.known("bad")["settings"]["approvals"] is True
     assert odd.known("7") is None
     assert odd.extra("health") == {"2026-09-28": {"steps": 5}}  # the rest of the file is kept
+
+
+def test_a_heads_up_heard_with_no_event_loop_leaves_nothing_unrun(
+    settings, quiet_speaker, isolated, caplog
+):
+    """hub.notify is plain code, which a test (or any caller) may use with no event loop
+    running. The app always calls it on its loop; here nothing can be pushed, so the
+    notifier drops it quietly: no coroutine left never awaited, no failed sink logged."""
+    import gc
+    import warnings
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.prefs.proactive = True
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        hub.notify(Alert("rain:1", "rain", "Rain", "Rain in an hour."), speak=False)
+        hub.notify(Alert("call:1", "call", "Call", "Ann called."), speak=False)
+        gc.collect()
+    assert not [w for w in caught if "never awaited" in str(w.message)]
+    assert "sink failed" not in caplog.text

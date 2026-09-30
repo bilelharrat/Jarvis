@@ -214,6 +214,11 @@ class Notifier:
                 self._spawn(self.deliver(note))
 
     def _spawn(self, coro: Any) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:  # heard with no event loop (a test's plain call; the app calls
+            coro.close()  # on its loop): nothing can be pushed from here, so it never starts
+            return
         spawn = getattr(self.hub, "_spawn", None)
         if spawn is not None:
             spawn(coro)
