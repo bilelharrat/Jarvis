@@ -161,7 +161,9 @@ def test_the_data_folder_scan_never_follows_a_link(tmp_path):
 
 
 async def test_other_features_channels_are_found_and_only_switched_off(hub, tmp_path, monkeypatch):
-    monkeypatch.setattr(prefs, "FEATURE_PREFS", dict(prefs.FEATURE_PREFS))
+    # Only this test's settings: other installed features (WhatsApp's, say) aren't looked at.
+    monkeypatch.setattr(prefs, "FEATURE_PREFS", {})
+    monkeypatch.setattr(hub.prefs, "features", {})
     assert audit.extras(hub) is None  # no such feature installed: not reported
     prefs.register_feature_pref("channels_telegram_enabled", False)
     prefs.register_feature_pref("channels_require_approval", True)

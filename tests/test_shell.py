@@ -171,7 +171,7 @@ async def wake(hub, action):
     """One of Settings' wake commands, carried out; the shell_wake events it sent."""
     queue = hub.subscribe()
     await hub._handle({"type": "shell_wake", "action": action})
-    desk = hub._commands["shell_wake"].__self__
+    desk = hub._commands["shell_wake"][0].__self__
     await asyncio.gather(*desk._tasks)
     events = []
     while not queue.empty():
@@ -240,7 +240,7 @@ async def test_cancel_failure_and_a_mac_without_pmset(hub, mac):
 
 
 async def test_one_change_at_a_time_and_only_the_known_actions(hub, mac):
-    desk = hub._commands["shell_wake"].__self__
+    desk = hub._commands["shell_wake"][0].__self__
     await hub._handle({"type": "shell_wake", "action": "set"})
     await hub._handle({"type": "shell_wake", "action": "set"})  # a second click meanwhile
     await hub._handle({"type": "shell_wake", "action": "clear"})
