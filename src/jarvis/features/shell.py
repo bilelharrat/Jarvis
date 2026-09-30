@@ -39,7 +39,17 @@ ASK_SHORTCUT_KEY = "shell_shortcut_ask"
 WHATS_THIS_SHORTCUT_KEY = "shell_shortcut_whats_this"
 PAUSE_MAX_MINUTES = 12 * 60
 # What shows even with heads-ups off (Hub.notify): a pause holds back what the switch would.
-ALWAYS_SHOWN = ("meeting", "delegate", "call", "voicemail")
+# (Hub.notify's own list: a timer, an alarm or a reminder the owner set, their routines.)
+ALWAYS_SHOWN = (
+    "meeting",
+    "delegate",
+    "call",
+    "voicemail",
+    "timer",
+    "alarm",
+    "reminder",
+    "routine",
+)
 
 
 def _clean_until(value: Any) -> float | None:
@@ -323,6 +333,14 @@ class WakeDesk:
 
 
 def install(hub: Any) -> None:
-    hub.add_notify_gate(lambda alert: alert.kind in ALWAYS_SHOWN or not paused(hub))
+    # What breaks through quiet hours (a VIP's urgent message, a severe weather warning)
+    # breaks through a pause too: a pause is quiet hours.
+    hub.add_notify_gate(
+        lambda alert: (
+            alert.kind in ALWAYS_SHOWN
+            or getattr(alert, "breakthrough", False) is True
+            or not paused(hub)
+        )
+    )
     hub.register_command("shell_pause", lambda msg: pause_heads_ups(hub, msg))
     hub.register_command("shell_wake", WakeDesk(hub).command)

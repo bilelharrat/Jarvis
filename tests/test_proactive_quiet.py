@@ -224,6 +224,33 @@ async def test_the_morning_briefing_keeps_a_focus_modes_quiet(settings, quiet_sp
     assert asked == [True, False]
 
 
+async def test_a_snooze_still_lets_through_what_the_owner_set_and_what_breaks_through(
+    settings, quiet_speaker, isolated
+):
+    """ "Snooze everything for an hour" holds heads-ups back, but not a timer, an alarm or
+    a reminder the owner set, their routines' results (all of which show even with
+    heads-ups off), or what breaks through quiet hours (a VIP's urgent message, a severe
+    weather warning): those show, as cards without a sound (a snooze is quiet hours)."""
+    from jarvis.timers import Ring
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.prefs.quiet_hours = "00:00-00:00"
+    said, shown = [], []
+    hub._announce_later = said.append
+    hub.add_notify_sink(shown.append)
+    feature_of(hub).quiet.snooze(60)
+    for kind in ("timer", "alarm", "reminder", "routine"):
+        hub.notify(Alert(f"{kind}:1", kind, kind.title(), f"The {kind}."))
+    hub.notify(
+        Ring("weather:tornado", "weather", "Tornado Warning", "Take shelter.", breakthrough=True)
+    )
+    hub.notify(Alert("rain:1", "rain", "Rain", "Rain at 5."))  # held back
+    assert [a.key for a in shown] == [
+        "timer:1", "alarm:1", "reminder:1", "routine:1", "weather:tornado"
+    ]  # fmt: skip
+    assert said == ["Take shelter."]  # what breaks through quiet hours is still said
+
+
 async def test_the_kits_hear_the_hubs_say(settings, quiet_speaker, isolated, tmp_path):
     from jarvis.interrupts import Interrupter
     from jarvis.suggestions import Suggester
