@@ -59,7 +59,18 @@
     "That's one of git's own files: change it through git.": "那是 git 自己的文件：请通过 git 修改。",
     "That's too big to save from here.": "太大了，无法从这里保存。",
     "What's on disk can't be compared here.": "磁盘上的内容无法在这里比较。",
-    "Indent: tabs": "缩进：制表符"
+    "Indent: tabs": "缩进：制表符",
+    "Search the project": "搜索项目",
+    "Whole words": "全字匹配",
+    "Files to search: *.py, src/, !tests/": "要搜索的文件：*.py、src/、!tests/",
+    "Files to search": "要搜索的文件",
+    "Mention all": "全部提及",
+    "Put these files in the message, as @-mentions": "把这些文件以 @ 提及放进消息",
+    "Mention this file in the message": "在消息里提及这个文件",
+    "Searching…": "正在搜索…",
+    "Stopped before anything matched.": "还没找到匹配就停止了。",
+    "Type something to search for.": "输入要搜索的内容。",
+    "That's too long to search for.": "这太长了，无法搜索。"
   },
   "patterns": [
     [
@@ -93,6 +104,26 @@
     [
       "^Indent: (\\d+) spaces$",
       "缩进：$1 个空格"
+    ],
+    [
+      "^1 match in 1 file$",
+      "1 个文件中有 1 处匹配"
+    ],
+    [
+      "^(\\d+) matches in (\\d+) files?$",
+      "$2 个文件中有 $1 处匹配"
+    ],
+    [
+      "^(\\d+) matches in (\\d+) files? \\(the first ones only\\)$",
+      "$2 个文件中有 $1 处匹配（只显示前面的）"
+    ],
+    [
+      "^That isn't a regular expression here: (.+)$",
+      "这里不能用这个正则表达式：$1"
+    ],
+    [
+      "^git grep didn't start: (.+)$",
+      "git grep 没能启动：$1"
     ]
   ]
 }

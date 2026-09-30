@@ -4040,6 +4040,52 @@ test('/memory opens the project’s CLAUDE.md in the editor', async () => {
   assert(await editorText() === '# Notes\n', 'CLAUDE.md is not in the editor');
 });
 
+test('Search finds text across the project: matches by file, a match opens at its line, files become @-mentions', async () => {
+  await js('localStorage.removeItem("jarvis.editor.drafts"); true');
+  await featureScript('code-editor.js');
+  await featureScript('code-search.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); true');
+  await deliver({ type: 'project_files', directory: 'alpha', files: ['src/app.py', 'README.md'] });
+  await frames(2);
+  assert(await clickText('#jc-pane-body .ce-seg', 'Search'), 'no Search beside Files');
+  await js('(() => { const i = document.querySelector("#jc-pane-body .cs-input"); i.value = "retry"; i.dispatchEvent(new Event("input")); return true; })()');
+  let asked = [];
+  for (let i = 0; i < 40 && !asked.length; i++) { await sleep(50); asked = await sentOf('cw_search'); }
+  assert(asked.length === 1 && asked[0].text === 'retry' && asked[0].id === 1 && asked[0].regex === false && asked[0].case === false, JSON.stringify(asked));
+  // A match as the owner types a longer word: only the newest answer is shown.
+  await js('(() => { const i = document.querySelector("#jc-pane-body .cs-input"); i.focus(); i.value = "retry("; i.dispatchEvent(new Event("input")); return true; })()');
+  await press('Enter');
+  const newest = (await sentOf('cw_search')).pop();
+  assert(newest.text === 'retry(' && newest.ref !== asked[0].ref, JSON.stringify(newest));
+  await deliver({ type: 'cw_search', ref: asked[0].ref, total: 1, files: [{ path: 'old.py', matches: [{ line: 1, text: 'retry', spans: [[0, 5]] }] }] });
+  await deliver({ type: 'cw_search', ref: newest.ref, total: 3, truncated: false, stopped: false, engine: 'git', files: [
+    { path: 'src/app.py', matches: [{ line: 1, text: 'def retry(n):', spans: [[4, 10]] }, { line: 2, text: '    <b>retry(</b>', spans: [[7, 13]] }] },
+    { path: 'README.md', matches: [{ line: 3, text: 'Call retry()', spans: [[5, 11]] }] }] });
+  await frames(2);
+  const r = await js(`({ status: document.querySelector('#jc-pane-body .cs-status').textContent,
+    files: [...document.querySelectorAll('#jc-pane-body .cs-path')].map((n) => n.title),
+    marks: [...document.querySelectorAll('#jc-pane-body .cs-text mark')].map((n) => n.textContent),
+    b: document.querySelectorAll('#jc-pane-body .cs-text b').length,
+    second: document.querySelectorAll('#jc-pane-body .cs-text')[1].textContent,
+    noI18n: document.querySelector('#jc-pane-body .cs-text').closest('[data-no-i18n]') !== null })`);
+  assert(r.status === '3 matches in 2 files' && r.files.join() === 'src/app.py,README.md', JSON.stringify(r));
+  assert(r.marks.join() === 'retry(,retry(,retry(' && r.b === 0 && r.second === '    <b>retry(</b>' && r.noI18n, JSON.stringify(r));
+  // A file mentioned in the composer; all of them.
+  await js('document.querySelectorAll("#jc-pane-body .cs-mention")[1].click(); true');
+  assert(await js('$("deck-input").value') === '@README.md ', await js('$("deck-input").value'));
+  assert(await clickText('#jc-pane-body .cs-bar', 'Mention all'), 'no Mention all');
+  assert(await js('$("deck-input").value') === '@README.md @src/app.py @README.md ', await js('$("deck-input").value'));
+  // A match opens its file at its line.
+  await js('__sent.length = 0; document.querySelectorAll("#jc-pane-body .cs-match")[1].click(); true');
+  const [read] = await sentOf('cw_file_read');
+  assert(read && read.path === 'src/app.py', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'def retry(n):\n    retry(n)\n', version: { mtime_ns: 1, size: 26, sha: 'x' }, crlf: false, editable: true });
+  let sel = [];
+  for (let i = 0; i < 20 && sel[0] !== 14; i++) { await frames(2); sel = await js('[document.querySelector("#jc-pane-body .ce-text").selectionStart, document.querySelector("#jc-pane-body .ce-text").selectionEnd]'); }
+  assert(sel[0] === 14 && sel[1] === 26, JSON.stringify(sel));
+});
+
 // ──
 
 let base;

@@ -7,6 +7,9 @@
   version they were edited from (a conflict otherwise, with the differences), checked for
   changes on disk; "Open in" the editors on this Mac (cw_editors, cw_open_in). The window
   is web/features/code-editor.js, in place of the core's read-only viewer.
+- Search (cw_search; code_search): the project's files by text or regular expression, a
+  newer search stopping the one before; web/features/code-search.js shows the matches in
+  the Files pane, opens them at their line and mentions their files in the composer.
 
 Window commands are cw_*; each answers with an event of the same name. Work that reads
 files or runs something happens off the event loop, in the background, so a slow one
@@ -20,10 +23,11 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
-from .. import code_editor, lang, mac_tools
+from .. import code_editor, code_search, lang, mac_tools
 from ..code_editor import Editors
 from ..code_records import RecordMedia
 
@@ -46,6 +50,7 @@ class Workspace:
         self.media = RecordMedia()
         self.editors = Editors()
         self._tasks: set[asyncio.Task] = set()
+        self._search: code_search.Stop | None = None  # the search running, to stop for a newer one
 
     # ── helpers ──
 
@@ -172,6 +177,34 @@ class Workspace:
         found = await asyncio.to_thread(hunks, disk["disk_text"], mine)
         self._answer("cw_file_compare", msg, hunks=found)
 
+    # ── search ──
+
+    async def cmd_search(self, msg: dict[str, Any]) -> None:
+        """{id | directory, text, regex, case, word, include, ref}: the project's matches.
+        A newer search stops this one (its answer then says stopped)."""
+        ref = str(msg.get("ref") or "")[:40]
+        if self._search is not None:
+            self._search.set()
+        stop = self._search = code_search.Stop()
+        started = time.monotonic()
+        try:
+            root = self.folder(msg)
+            query = code_search.Query(
+                text=str(msg.get("text") or ""),
+                regex=msg.get("regex") is True,
+                case=msg.get("case") is True,
+                word=msg.get("word") is True,
+                include=str(msg.get("include") or "")[:300],
+            )
+            found = await asyncio.to_thread(code_search.search, root, query, stop)
+        except ValueError as exc:  # a query that can't run, or not a project
+            self.hub.emit("cw_search", ref=ref, error=str(exc), files=[], total=0)
+            return
+        finally:
+            if self._search is stop:
+                self._search = None
+        self.hub.emit("cw_search", ref=ref, seconds=round(time.monotonic() - started, 2), **found)
+
     async def cmd_editors(self, _msg: dict[str, Any]) -> None:
         found = await asyncio.to_thread(self.editors.list)
         self.hub.emit("cw_editors", items=[{"id": e["id"], "name": e["name"]} for e in found])
@@ -255,4 +288,5 @@ def install(hub: Any) -> None:
     hub.register_command("cw_file_save", lambda msg: ws.spawn(ws.cmd_file_save(msg)))
     hub.register_command("cw_file_compare", lambda msg: ws.spawn(ws.cmd_file_compare(msg)))
     hub.register_command("cw_editors", lambda msg: ws.spawn(ws.cmd_editors(msg)))
+    hub.register_command("cw_search", lambda msg: ws.spawn(ws.cmd_search(msg)))
     hub.register_command("cw_open_in", lambda msg: ws.spawn(ws.cmd_open_in(msg)))

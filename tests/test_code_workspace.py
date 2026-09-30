@@ -240,3 +240,53 @@ async def test_what_the_caption_says_is_in_the_owner_s_language(hub, tmp_path, m
     assert captions == sorted(
         ["这台 Mac 上没有那个编辑器。", "那在项目之外。", "没能打开：no such app"]
     )
+
+
+# ── search ──
+
+
+async def test_a_search_answers_by_ref_and_says_why_it_cant_run(hub, tmp_path):
+    demo(tmp_path)
+    seen = record(hub)
+    await hub.handle({"type": "cw_search", "directory": "demo", "text": "b", "ref": "s1"})
+    (got,) = await settle(seen, "cw_search")
+    assert got["ref"] == "s1" and got["total"] == 1 and got["engine"] == "walk"
+    assert got["files"] == [
+        {"path": "src/app.py", "matches": [{"line": 2, "text": "b", "spans": [[0, 1]]}]}
+    ]
+    await hub.handle(
+        {"type": "cw_search", "directory": "demo", "text": "(", "regex": True, "ref": "s2"}
+    )
+    bad = (await settle(seen, "cw_search", 2))[-1]
+    assert bad["ref"] == "s2" and "regular expression" in bad["error"] and bad["files"] == []
+    await hub.handle({"type": "cw_search", "directory": "/etc", "text": "root", "ref": "s3"})
+    outside = (await settle(seen, "cw_search", 3))[-1]
+    assert outside["ref"] == "s3" and outside["error"] and outside["total"] == 0
+
+
+async def test_a_newer_search_stops_the_one_before(hub, tmp_path, monkeypatch):
+    import threading
+
+    from jarvis import code_search
+
+    demo(tmp_path)
+    started = threading.Event()
+
+    def slow(root, query, stop):
+        if query.text == "first":
+            started.set()
+            while not stop:  # until the newer search stops it
+                stop.event.wait(0.01)
+            return {"files": [], "total": 0, "truncated": False, "stopped": True, "engine": "walk"}
+        return {"files": [], "total": 0, "truncated": False, "stopped": False, "engine": "walk"}
+
+    monkeypatch.setattr(code_search, "search", slow)
+    seen = record(hub)
+    await hub.handle({"type": "cw_search", "directory": "demo", "text": "first", "ref": "s1"})
+    for _ in range(400):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.005)
+    await hub.handle({"type": "cw_search", "directory": "demo", "text": "second", "ref": "s2"})
+    got = {d["ref"]: d for d in await settle(seen, "cw_search", 2)}
+    assert got["s1"]["stopped"] and not got["s2"]["stopped"]
