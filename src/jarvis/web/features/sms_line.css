@@ -1,0 +1,3 @@
+/* Settings › Texts to the Jarvis number (features/sms_line.js): each text under who sent it */
+.sms-texts li { align-items: flex-start; }
+.sms-texts .sms-body { overflow-wrap: anywhere; line-height: 1.4; }

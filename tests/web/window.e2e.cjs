@@ -2638,6 +2638,27 @@ test('Conversations for you: the nudge delay shows what is saved, and changing i
   assert(JSON.stringify(r) === JSON.stringify([{ type: 'feature_prefs', changes: { delegate_nudge_hours: 12 } }]), JSON.stringify(r));
 });
 
+test('Texts to the Jarvis number: under Phone, the switches save, and a text shows as it was written', async () => {
+  await loadFeatures('sms_line.js', 'sms_line.css');
+  await js('featureEvent({ type: "hello", prefs: { features: {} } }); true');  // as the socket gives it
+  assert((await sentOf('sms_line')).length === 1, 'the texts were not asked for');
+  await js('toggleSettings(true); __ev({ type: "prefs", phone_from: "+14155550100", phone_me: "", features: { sms_line_on: true, sms_approvals: true } }); true');
+  await sleep(250);  // the sheet slides in
+  const group = await js('({ afterPhone: $("phone-sid").closest("section.group").nextElementSibling === $("sms-line-group"), on: $("sw-sms-line").getAttribute("aria-checked"), status: $("sms-line-status").textContent })');
+  assert(group.afterPhone && group.on === 'true', JSON.stringify(group));
+  assert(group.status === 'Add your own number under Phone so cards can reach you.', group.status);
+  await js('__ev({ type: "sms_line", on: true, approvals: false, number: "+14155550100", me: true, paused: false, error: "", texts: [{ from: "+14155550199", who: "Ann Lee", body: "Running late <b>10 min</b>", at: "2026-09-29T14:05:00" }] }); true');
+  const shown = await js('[...document.querySelectorAll("#sms-line-texts li")].map((li) => ({ who: li.querySelector("strong").textContent, body: li.querySelector(".sms-body").textContent, mine: li.querySelector(".sms-body").hasAttribute("data-no-i18n"), bold: !!li.querySelector("b") }))');
+  assert(JSON.stringify(shown) === JSON.stringify([{ who: 'Ann Lee', body: 'Running late <b>10 min</b>', mine: true, bold: false }]), JSON.stringify(shown));
+  assert(await js('$("sms-line-status").hidden'), 'an empty status line shows');
+  await clickIn('#sw-sms-approvals');
+  const r = await sentOf('feature_prefs');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'feature_prefs', changes: { sms_approvals: true } }]), JSON.stringify(r));
+  await js('__ev({ type: "sms_line", on: false, approvals: true, number: "+14155550100", me: true, paused: true, error: "", texts: [{ from: "+1", body: "x", at: "" }] }); true');
+  assert(await js('$("sms-line-texts").children.length') === 0, 'texts listed while telling is off');
+  assert((await js('$("sms-line-status").textContent')).startsWith('Answering by text is off for an hour'), 'the pause is not said');
+});
+
 // ──
 
 let base;

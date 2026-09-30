@@ -1,0 +1,24 @@
+{
+  "strings": {
+    "Texts to the Jarvis number": "发给 Jarvis 号码的短信",
+    "Tell me about texts": "有短信时告诉我",
+    "A heads-up when someone texts your Twilio number, with who it’s from": "有人给你的 Twilio 号码发短信时提醒你，并说明是谁发的",
+    "Answer cards by text": "用短信回复卡片",
+    "When a card waits a minute on the Mac, Jarvis texts it to your own number with a code: reply YES and the code, or NO and the code. Never for purchases, never in quiet hours. About 1¢ a text.": "卡片在 Mac 上等了一分钟还没回复时，Jarvis 会把它连同一个验证码发到你自己的号码：回复“是”加验证码允许，回复“否”加验证码拒绝。购物不会这样确认，免打扰时段也不会发。每条短信约1美分。",
+    "Add your Twilio number under Phone first.": "请先在“电话”里填写你的 Twilio 号码。",
+    "Add your own number under Phone so cards can reach you.": "请在“电话”里填写你自己的号码，卡片才能发给你。",
+    "Answering by text is off for an hour: someone sent wrong codes. Answer cards on the Mac.": "短信回复暂停一小时：有人发来了错误的验证码。请在 Mac 上处理卡片。",
+    "Read texts to the Jarvis number": "读了发给你 Twilio 号码的短信",
+    "Jarvis number": "Jarvis 号码"
+  },
+  "patterns": [
+    [
+      "^Text to the Jarvis number from (.+?): (.+)$",
+      "有人给你的 Twilio 号码发了短信，来自$1：$2"
+    ],
+    [
+      "^Someone texted the Jarvis number (\\d+) wrong codes, so answering cards by text is off for an hour\\. Answer them on the Mac\\.$",
+      "有人向你的 Twilio 号码发了$1个错误的验证码，所以短信回复卡片暂停一小时。请在 Mac 上处理。"
+    ]
+  ]
+}
