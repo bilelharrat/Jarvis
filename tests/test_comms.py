@@ -466,6 +466,14 @@ def test_unsubscribe_options_prefer_safe_ways():
         "https://10.0.0.5/u",
         "https://router.local/u",
         "https://nas.lan/u",
+        # The same addresses as the system's resolver also reads them: one number, hex,
+        # octal, or with parts left out (each of these is 127.0.0.1 or 192.168.1.1).
+        "https://2130706433/u",
+        "https://0x7f000001/u",
+        "https://0177.0.0.1/u",
+        "https://127.1/u",
+        "https://3232235777/admin",
+        "https://0/u",
     ):  # never this Mac or the local network, one-click or not
         assert mailkit.unsubscribe_options(f"<{local}>", "List-Unsubscribe=One-Click") == {}
     assert mailkit.unsubscribe_options("<https://93.184.216.34/u>") == {

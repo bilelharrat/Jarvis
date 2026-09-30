@@ -16,6 +16,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import sqlite3
 import time
 from datetime import datetime, timedelta
@@ -360,7 +361,12 @@ def _on_the_internet(host: str) -> bool:
     try:
         return ipaddress.ip_address(name).is_global
     except ValueError:
-        return True
+        pass
+    try:  # an address as the system's resolver also reads one: "2130706433", "0x7f000001",
+        # "0177.0.0.1" and "127.1" are all 127.0.0.1 to it
+        return ipaddress.ip_address(socket.inet_aton(name)).is_global
+    except OSError:
+        return True  # a name
 
 
 def unsubscribe_options(header: str, post: str = "") -> dict[str, str]:
