@@ -111,6 +111,28 @@ it; links only ever navigate):
 
 Every approval card (on Home too) has **No, because…**.
 
+## Notifications
+
+Right after pairing the iPhone asks to send notifications (Settings › Notifications can ask
+again or open the system settings), registers for remote notifications, and gives the Mac
+its device token (`POST /api/push/register`, `sandbox` from Debug builds, `production`
+from Release/TestFlight, with the bundle id) — again whenever the token or the Mac
+changes, or `/api/state` says `push.registered` is false. Unpairing unregisters.
+
+The app registers the contract's categories at launch: `JARVIS_APPROVAL` (Allow / Not now
+/ No, because…), `JARVIS_CODE_APPROVAL` (Yes / No / No, because…) and `JARVIS_HEADSUP`.
+An action goes to `POST /api/approve` from the background — the app isn't opened — with
+the answer mapped from the push's own `choices` (see ApprovalResponse), inside a
+background task and a 20-second limit. Allow needs an unlocked phone (or a Watch on the
+wrist); Not now and No, because… don't. If the Mac can't be reached and the card may still
+be open (the Mac waits five minutes), the notification comes back to try again. Tapping a
+notification opens where it leads (a Jarvis Code session, conversations, Home). The badge
+counts approvals waiting.
+
+On the Watch, iPhone notifications appear by themselves with the same actions (No,
+because… by dictation or Scribble). The Watch app registers the same categories and, when
+an action is delivered to it, answers the Mac itself with the pairing the iPhone gave it.
+
 ## When the Mac can't be reached
 
 Requests that still mean something later wait in an outbox on the iPhone (the App Group
@@ -179,6 +201,7 @@ Shared/                     both apps
   JSONValue.swift           JSON request bodies
   Outbox.swift              requests kept while the Mac can't be reached, and sending them
   ApprovalResponse.swift    an answer (Allow, Not now, No because…) to the choice the Mac gets
+  NotificationActions.swift the categories, and answering from a notification (iPhone and Watch)
   Destination.swift         places in the app and their jarvis-companion:// links
   PendingRequest.swift      follows one request until the Mac has answered it
   MacAddress.swift          "mac.local:8766" → https://mac.local:8766

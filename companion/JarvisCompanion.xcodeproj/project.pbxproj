@@ -34,20 +34,24 @@
 		561C5F498DCD259077F7D5C9 /* SpaceBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AA66376AEED5EBFC8C18E40 /* SpaceBackground.swift */; };
 		58C4DCCDF0213D92F235D379 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C69252B5A2CBAB50D02793 /* WatchLink.swift */; };
 		5A3B37D3C088803F8ADC4A36 /* PinningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3460FECA5A8F277DF87280 /* PinningTests.swift */; };
+		5AD99594B7214E63138CD7EC /* NotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */; };
 		5C8645AF8264D77FE0D1BF8D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A06774F347CB2BC376C7207 /* Theme.swift */; };
 		6143196FAF0E6E4C0BD5B9DC /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
 		623AA6FAC1C1DB4DC2A271FC /* WatchApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A32E208AF7AE083703E1E3 /* WatchApprovalCard.swift */; };
 		62DEE0851C6E14AEDCBE5642 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D083BC6390ED9CA1FAF28851 /* Destination.swift */; };
 		63BDA91B74E316B8311773BA /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6465A8EA614143D01D94BA /* JSONValue.swift */; };
 		656D9209B4D4CCB3CC14F1F7 /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
+		67761C35440508ABAF75F4A6 /* WatchNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F02F794B7B82868AC93F0E /* WatchNotifications.swift */; };
 		6DC32968E49879504159FDBA /* WatchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2D5B4892F9C5013D6940AD /* WatchModel.swift */; };
 		717A2F60E5294CB35F698E08 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		72046399198327668EFBE4D1 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D083BC6390ED9CA1FAF28851 /* Destination.swift */; };
 		7471CA5FC9DC6FD40370C2C7 /* CodeSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88FE4D0B4F21CBD7AEC47625 /* CodeSessionView.swift */; };
 		748E241B0AF41C4D88CB73AF /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
+		792BE40F20E259259940DCBA /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
 		7A87977425D352C74CCB318E /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A5BA93B90B959C3CD804B40 /* Haptics.swift */; };
 		7B7B594D58F10411F91D8E5C /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
 		7E6F5B5FE55A496888E7A21C /* ScanPairingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBBAC77255D80E6992DBAE6 /* ScanPairingSheet.swift */; };
+		7FD21510A56D3FCE01BCB210 /* PushCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95A98DD2F394C6BC77B42ADA /* PushCoordinator.swift */; };
 		802B1721CF8D48B7DF72A12F /* OutboxSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */; };
 		8846E71BA9567B56B8004B11 /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
 		8C7DFDCE8DFF1317469D3022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6BE5DE502A3F52A1E60A6509 /* Assets.xcassets */; };
@@ -66,6 +70,7 @@
 		BCBE371AA14B472D675A3BBD /* ApprovalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4811A961DDE187BE9FD8A1 /* ApprovalTests.swift */; };
 		BD6E0666E7801FAE18CAAEEA /* CodeDiffView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC55007EFFD1A9FA46C89953 /* CodeDiffView.swift */; };
 		BE269CC2D3149D43C0785120 /* WatchSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018CC05399B5B59EEBF17DFD /* WatchSessionBridge.swift */; };
+		BED3476AF4C62D76C3E3F852 /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
 		BF7F42EB13E252E34C1812B1 /* CompanionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A2333A360287AAA2927BBE /* CompanionTests.swift */; };
 		C222BCBE15D834A0B9F8FA39 /* RoutinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9650589EDEFBCB81F05856 /* RoutinesView.swift */; };
 		C4C0454C97C437C1C9516DE8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B044E543CF5359056ABF45C /* Assets.xcassets */; };
@@ -127,6 +132,7 @@
 /* Begin PBXFileReference section */
 		018CC05399B5B59EEBF17DFD /* WatchSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionBridge.swift; sourceTree = "<group>"; };
 		021836FD1AFEFD2A87E303DE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		02F02F794B7B82868AC93F0E /* WatchNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchNotifications.swift; sourceTree = "<group>"; };
 		05C69252B5A2CBAB50D02793 /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
 		0F9D5708789DADE23BD3F36D /* Pinning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pinning.swift; sourceTree = "<group>"; };
 		1026D031A91343564AB99990 /* ContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContractTests.swift; sourceTree = "<group>"; };
@@ -150,10 +156,12 @@
 		566EE4877D185AFA856CBD13 /* JarvisCompanionWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisCompanionWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A06774F347CB2BC376C7207 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		5C10CAA1099883096BB500EA /* ReactorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactorView.swift; sourceTree = "<group>"; };
+		5F4E4A91528D6974EDB4343E /* NotificationActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActions.swift; sourceTree = "<group>"; };
 		68CF94AC99D45B225819C75C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6BE5DE502A3F52A1E60A6509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		72E5DFCDF4EE110D6769E1F6 /* VoicePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePlayer.swift; sourceTree = "<group>"; };
 		773F088B2A5977AF075B38BB /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTests.swift; sourceTree = "<group>"; };
 		88FE4D0B4F21CBD7AEC47625 /* CodeSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeSessionView.swift; sourceTree = "<group>"; };
 		8C3460FECA5A8F277DF87280 /* PinningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinningTests.swift; sourceTree = "<group>"; };
 		8C620E39CE7778E786E23849 /* DebugLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLaunch.swift; sourceTree = "<group>"; };
@@ -161,6 +169,8 @@
 		8E4FDF01C107350849AA76BC /* QuickActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActions.swift; sourceTree = "<group>"; };
 		8F2051AB9FDE17BFB000C42A /* MoreSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreSheet.swift; sourceTree = "<group>"; };
 		9550D8815339BFA94123EAFA /* ConversationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationsView.swift; sourceTree = "<group>"; };
+		95A98DD2F394C6BC77B42ADA /* PushCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushCoordinator.swift; sourceTree = "<group>"; };
+		A20B36A4ACFE5161694B7EF8 /* JarvisCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisCompanion.entitlements; sourceTree = "<group>"; };
 		A3A2333A360287AAA2927BBE /* CompanionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionTests.swift; sourceTree = "<group>"; };
 		A649152CDC719B11909C1BBC /* Outbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Outbox.swift; sourceTree = "<group>"; };
 		A8545DCC87751DD4885468A8 /* StatusStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusStrip.swift; sourceTree = "<group>"; };
@@ -219,6 +229,7 @@
 				F43E3B2A670E93A54FE1B823 /* BonjourBrowser.swift */,
 				2A5BA93B90B959C3CD804B40 /* Haptics.swift */,
 				C9350356CCD0A6C3FA4A3865 /* PhoneWatchBridge.swift */,
+				95A98DD2F394C6BC77B42ADA /* PushCoordinator.swift */,
 				FA82EB1B93672E76AFD046C9 /* SpeechController.swift */,
 				72E5DFCDF4EE110D6769E1F6 /* VoicePlayer.swift */,
 			);
@@ -243,6 +254,7 @@
 				773F088B2A5977AF075B38BB /* AppModel.swift */,
 				2B044E543CF5359056ABF45C /* Assets.xcassets */,
 				021836FD1AFEFD2A87E303DE /* Info.plist */,
+				A20B36A4ACFE5161694B7EF8 /* JarvisCompanion.entitlements */,
 				B478E423B94A7981AC6C870A /* JarvisCompanionApp.swift */,
 				BEB9E5E6712964B7972DDEB5 /* Transcript.swift */,
 				377C5FCABDB6D1AD49BC056D /* Services */,
@@ -281,6 +293,7 @@
 				DB4811A961DDE187BE9FD8A1 /* ApprovalTests.swift */,
 				A3A2333A360287AAA2927BBE /* CompanionTests.swift */,
 				1026D031A91343564AB99990 /* ContractTests.swift */,
+				7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */,
 				3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */,
 				8C3460FECA5A8F277DF87280 /* PinningTests.swift */,
 			);
@@ -319,6 +332,7 @@
 				AE6465A8EA614143D01D94BA /* JSONValue.swift */,
 				1A36D13F368B90884D9B34D7 /* MacAddress.swift */,
 				24D271D5774776815961B42C /* Models.swift */,
+				5F4E4A91528D6974EDB4343E /* NotificationActions.swift */,
 				A649152CDC719B11909C1BBC /* Outbox.swift */,
 				E828C88E6726C861CCEDF1B1 /* PairingLink.swift */,
 				ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */,
@@ -338,6 +352,7 @@
 				68CF94AC99D45B225819C75C /* Info.plist */,
 				4329AC90D4506354C450578A /* JarvisWatchApp.swift */,
 				3E2D5B4892F9C5013D6940AD /* WatchModel.swift */,
+				02F02F794B7B82868AC93F0E /* WatchNotifications.swift */,
 				018CC05399B5B59EEBF17DFD /* WatchSessionBridge.swift */,
 				CB48C7B7F4F1773779167CE9 /* Views */,
 			);
@@ -505,6 +520,7 @@
 				B7722CE807343C959211C100 /* JarvisWatchApp.swift in Sources */,
 				37A26AC60B4992FB1385403E /* MacAddress.swift in Sources */,
 				7B7B594D58F10411F91D8E5C /* Models.swift in Sources */,
+				792BE40F20E259259940DCBA /* NotificationActions.swift in Sources */,
 				18218B78E51630B5E3322D78 /* Outbox.swift in Sources */,
 				748E241B0AF41C4D88CB73AF /* PairingLink.swift in Sources */,
 				8846E71BA9567B56B8004B11 /* PairingStore.swift in Sources */,
@@ -516,6 +532,7 @@
 				1C7AE5CBE826C1176AC9F4BA /* WatchHomeView.swift in Sources */,
 				5224760E437E7A08CF8D16CE /* WatchLink.swift in Sources */,
 				6DC32968E49879504159FDBA /* WatchModel.swift in Sources */,
+				67761C35440508ABAF75F4A6 /* WatchNotifications.swift in Sources */,
 				BE269CC2D3149D43C0785120 /* WatchSessionBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -555,6 +572,7 @@
 				AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */,
 				B71FEA2D9172CE2A3D59B5FF /* Models.swift in Sources */,
 				465114EAD2ECFAABC8B8EE03 /* MoreSheet.swift in Sources */,
+				BED3476AF4C62D76C3E3F852 /* NotificationActions.swift in Sources */,
 				1A408249BA46C3330C48ADAF /* Outbox.swift in Sources */,
 				802B1721CF8D48B7DF72A12F /* OutboxSheet.swift in Sources */,
 				656D9209B4D4CCB3CC14F1F7 /* PairingLink.swift in Sources */,
@@ -563,6 +581,7 @@
 				E30D76C166260989B449508D /* PendingRequest.swift in Sources */,
 				8D0D513FF9B76B06F6B17A87 /* PhoneWatchBridge.swift in Sources */,
 				EE4E823655E8E4B275A249F6 /* Pinning.swift in Sources */,
+				7FD21510A56D3FCE01BCB210 /* PushCoordinator.swift in Sources */,
 				04545E5A6C158C444584178D /* QuickActions.swift in Sources */,
 				E005477017623036ADD6AF45 /* ReactorView.swift in Sources */,
 				C222BCBE15D834A0B9F8FA39 /* RoutinesView.swift in Sources */,
@@ -588,6 +607,7 @@
 				BCBE371AA14B472D675A3BBD /* ApprovalTests.swift in Sources */,
 				BF7F42EB13E252E34C1812B1 /* CompanionTests.swift in Sources */,
 				A905455D985AF33F8E9A16DF /* ContractTests.swift in Sources */,
+				5AD99594B7214E63138CD7EC /* NotificationTests.swift in Sources */,
 				03B4E9901CB2854CCC30AF88 /* OutboxTests.swift in Sources */,
 				5A3B37D3C088803F8ADC4A36 /* PinningTests.swift in Sources */,
 			);
@@ -619,6 +639,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iOS/JarvisCompanion.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/Info.plist;
@@ -656,6 +677,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iOS/JarvisCompanion.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/Info.plist;

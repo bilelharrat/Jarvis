@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct JarvisWatchApp: App {
+    @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var appDelegate
     @State private var model = WatchModel()
 
     var body: some Scene {

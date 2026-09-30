@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 /// The Mac's address, spoken replies, the Watch, and unpairing: inset grouped, like the
 /// Settings app, on glass.
@@ -8,6 +9,7 @@ struct SettingsView: View {
     @State private var address = ""
     @State private var addressError: String?
     @State private var confirmUnpair = false
+    @State private var notifications: UNAuthorizationStatus?
 
     var body: some View {
         @Bindable var model = model
@@ -58,6 +60,41 @@ struct SettingsView: View {
                     header("Your Mac")
                 } footer: {
                     footer("Shown in Jarvis on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address.")
+                }
+                .listRowBackground(rowGlass)
+                .listRowSeparatorTint(Palette.hairline)
+
+                Section {
+                    LabeledContent {
+                        Text(notificationText)
+                            .foregroundStyle(Palette.ink2)
+                    } label: {
+                        HStack(spacing: Space.s) {
+                            IconTile(symbol: "bell.badge.fill")
+                            Text("Notifications")
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    if notifications == .notDetermined {
+                        Button("Turn on notifications") {
+                            Task {
+                                await PushCoordinator.shared.enable()
+                                notifications = await PushCoordinator.shared.authorization()
+                            }
+                        }
+                        .foregroundStyle(Palette.cyan)
+                    } else if notifications == .denied {
+                        Button("Open Settings") {
+                            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .foregroundStyle(Palette.cyan)
+                    }
+                } header: {
+                    header("Notifications")
+                } footer: {
+                    footer("Approvals, Jarvis Code and heads-ups from your Mac, with Allow, Not now and No, because… right on the notification, here and on your Apple Watch. Allowing needs your iPhone unlocked.")
                 }
                 .listRowBackground(rowGlass)
                 .listRowSeparatorTint(Palette.hairline)
@@ -150,6 +187,7 @@ struct SettingsView: View {
             }
         }
         .onAppear { address = model.pairing?.address ?? "" }
+        .task { notifications = await PushCoordinator.shared.authorization() }
     }
 
     /// The Mac this iPhone belongs to, like the account card at the top of Settings.
@@ -219,6 +257,16 @@ struct SettingsView: View {
         case .online: model.remote.map { "Connected · \($0.state.label)" } ?? "Connected"
         case .connecting: "Connecting…"
         case .unreachable: "Can’t reach the Mac"
+        }
+    }
+
+    private var notificationText: String {
+        switch notifications {
+        case .authorized, .provisional, .ephemeral:
+            model.remote?.push?.registered == false ? "On · connecting" : "On"
+        case .denied: "Off"
+        case .notDetermined: "Not set up"
+        default: "—"
         }
     }
 

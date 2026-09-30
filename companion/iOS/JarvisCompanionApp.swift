@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct JarvisCompanionApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     /// Hosting unit tests, the app stays still: no pairing, no network, no Watch.
     @State private var model: AppModel? = TestHost.isRunningUnitTests ? nil : AppModel()
 

@@ -52,6 +52,9 @@ final class AppModel {
     @ObservationIgnored private let watch = PhoneWatchBridge()
     @ObservationIgnored private let outbox = Outbox.shared
     @ObservationIgnored private var draining = false
+    /// The Mac said it has no push token for this device: sent again once per launch.
+    @ObservationIgnored private var pushNudged = false
+    @ObservationIgnored private var badge = -1
 
     @ObservationIgnored private var poller: Task<Void, Never>?
     @ObservationIgnored private var toastTimer: Task<Void, Never>?
@@ -85,6 +88,10 @@ final class AppModel {
         if let speak = DebugLaunch.speak { speakSetting = speak }
         #endif
         voice.onProblem = { [weak self] message in self?.show(message, style: .problem) }
+        PushCoordinator.shared.onOpen = { [weak self] destination in self?.destination = destination }
+        PushCoordinator.shared.onChange = { [weak self] in
+            Task { await self?.refresh() }
+        }
         watch.onStatus = { [weak self] status in
             if self?.watchStatus != status { self?.watchStatus = status }
         }
@@ -188,6 +195,9 @@ final class AppModel {
         self.pairing = pairing
         watch.push(pairing)
         restartPolling()
+        pushNudged = false
+        // Approvals and heads-ups as notifications: ask now, the moment it makes sense.
+        Task { await PushCoordinator.shared.enable() }
     }
 
     /// A URL the app was opened with: a pairing link from the Mac's QR code (asked about
@@ -601,6 +611,14 @@ final class AppModel {
     }
 
     private func apply(_ state: RemoteState) {
+        if state.push?.registered == false, !pushNudged {
+            pushNudged = true  // the Mac lost this device's token (or never had it)
+            Task { await PushCoordinator.shared.sendToken(force: true) }
+        }
+        if state.pendingApprovals != badge {
+            badge = state.pendingApprovals
+            PushCoordinator.shared.setBadge(badge)
+        }
         let known = Set((remote?.approvals ?? []).map(\.id))
         if remote != state { remote = state }
         let open = Set(state.approvals.map(\.id))
@@ -627,6 +645,11 @@ final class AppModel {
     }
 
     private func forget(notice: String?) {
+        if let api = pairing?.api {  // the Mac stops pushing here (if it still knows this phone)
+            Task { await PushCoordinator.shared.unregister(using: api) }
+        }
+        PushCoordinator.shared.setBadge(0)
+        badge = -1
         stopPolling()
         speech.cancel()
         voice.stop()

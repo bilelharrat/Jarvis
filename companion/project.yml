@@ -65,6 +65,15 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        UIBackgroundModes:
+          - remote-notification
+    entitlements:
+      path: iOS/JarvisCompanion.entitlements
+      properties:
+        # Xcode signs Release/TestFlight builds with "production" from the profile.
+        aps-environment: development
+        com.apple.security.application-groups:
+          - group.com.bshventures.jarvis.companion
 
   JarvisCompanionWatch:
     type: application
