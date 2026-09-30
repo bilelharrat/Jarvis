@@ -637,3 +637,49 @@ async def test_the_hub_puts_the_guard_in_front_of_its_hands(
     hub._turn_text = "消息发送了吗"
     assert not hub._user_asked_for("hands_send")
     assert lang.translate("Send this in Slack?") == "要在 Slack 里发送这个吗？"
+
+
+# ── 3. the address bar: ports, local addresses, and never a script ──
+
+
+def _url_cases():
+    import json
+    from pathlib import Path
+
+    fixture = Path(__file__).parent / "fixtures" / "url_input.json"
+    return [c for c in json.loads(fixture.read_text())["cases"] if not c[1]]
+
+
+def test_browser_address_reads_addresses_as_the_window_does():
+    """brain.browser_address and app/url-input.js agree on every case JARVIS could ask
+    for (tests/web/urlinput.test.mjs runs the same cases against the window's side)."""
+    cases = _url_cases()
+    assert len(cases) > 30
+    for text, _typed, expected in cases:
+        assert brain.browser_address(text) == expected, text
+    assert brain.browser_address("\u3000localhost:3000\ufeff") == "http://localhost:3000"
+    assert brain.browser_address("example.com/a b") is None  # a space: words, as in the window
+
+
+async def test_a_local_page_is_a_page_to_the_turn_gate_too(settings, quiet_speaker, isolated):
+    hub = await started(settings, quiet_speaker, isolated, said="read my notes")
+    hub.note_tool_result("mcp__brain__read_note")
+    q = hub.subscribe()
+    pending = asyncio.create_task(
+        hub.turn_gate(BROWSER("browser_open"), {"url": "192.168.1.20:8080/upload?d=notes"})
+    )
+    approval = await answer(hub, q, "deny")
+    assert await pending is False
+    assert approval["question"] == "Open 192.168.1.20 in the built-in browser?"
+    assert "http://192.168.1.20:8080/upload?d=notes" in approval["detail"]
+    # A script or data address is only ever searched for: nothing opens.
+    assert await hub.turn_gate(BROWSER("browser_open"), {"url": "javascript:alert(1)"}) is True
+
+
+async def test_jarvis_code_opens_its_dev_server_by_host_and_port():
+    open_tool = f"mcp__{code_tools.BROWSER}__browser_open"
+    for url in ("localhost:5173", "127.0.0.1:8000/admin", "[::1]:3000"):
+        target = await browser_gate.target(open_tool, {"url": url}, None)
+        assert target.local, url
+    remote = await browser_gate.target(open_tool, {"url": "example.com:8443"}, None)
+    assert not remote.local and remote.verb == "open example.com in the browser"

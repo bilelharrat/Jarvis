@@ -211,12 +211,14 @@ def test_web_addresses_are_read_the_way_browsers_read_them():
         "",
     ):
         assert brain.url_host(unclear) is None, unclear
-    # browser_open's input, exactly as the window's toUrl (app/main.js) reads it.
+    # browser_open's input, exactly as the window's toUrl (app/url-input.js) reads it.
     assert brain.browser_address("evil.example/?d=secret") == "https://evil.example/?d=secret"
     assert brain.browser_address("  nytimes.com ") == "https://nytimes.com"
     assert brain.browser_address("HTTP://x.example") == "HTTP://x.example"
     assert brain.browser_address("weather in paris") is None  # a Google search
-    assert brain.browser_address("evil.example?d=secret") is None  # toUrl searches that too
+    # A query or fragment right after the host is that site's page, as in a browser (it was
+    # searched for before): the turn gate weighs the site, never less than a search.
+    assert brain.browser_address("evil.example?d=secret") == "https://evil.example?d=secret"
     assert brain.host_said("www.nytimes.com", "summarize nytimes.com's front page")
     assert brain.host_said("cooking.nytimes.com", "open nytimes dot com")
     assert brain.host_said("www.bbc.co.uk", "go to https://www.bbc.co.uk/news")

@@ -221,9 +221,14 @@ _JS_SPACES = "".join(
     for c in (9, 10, 11, 12, 13, 32, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x2028, 0x2029)
     + (0x202F, 0x205F, 0x3000, 0xFEFF)
 )
-_JS_HOSTLIKE = re.compile(
-    r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+(?:/[^" + re.escape(_JS_SPACES) + r"]*)?"
+# app/url-input.js's HOST and IPV4: a host (an IPv6 one in brackets), a port, the rest.
+_JS_HOST = re.compile(
+    r"(\[[0-9A-Fa-f:.]+\]|[\w-]+(?:\.[\w-]+)*)(?::(\d{1,5}))?([/?#][^"
+    + re.escape(_JS_SPACES)
+    + r"]*)?",
+    re.ASCII,
 )
+_JS_IPV4 = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}", re.ASCII)
 _HOSTNAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*")
 # A host the user said: "nytimes.com", "the verge dot com", a pasted link. Not an email's.
 _SAID_HOST = re.compile(
@@ -254,14 +259,35 @@ def url_host(url: str) -> str | None:
     return host
 
 
+def _js_local_host(host: str) -> bool:
+    name = host.lower().removesuffix(".")
+    return (
+        name == "localhost"
+        or name.endswith((".localhost", ".local"))
+        or bool(_JS_IPV4.fullmatch(name))
+        or bool(re.fullmatch(r"\[[0-9a-f:.]+\]", name))
+    )
+
+
 def browser_address(text: str) -> str | None:
-    """Where browser_open goes, read exactly as the window reads it (app/main.js toUrl):
-    a web address, or None for words it hands to a Google search."""
+    """Where browser_open goes, read exactly as the window reads it (app/url-input.js
+    toUrl, for an address JARVIS asks for rather than one the user typed): a web address
+    (http for this Mac and the local network: "localhost:3000", "[::1]:5173"), about:blank,
+    or None for words it hands to a Google search (javascript:, data: and file: too)."""
     text = str(text or "").strip(_JS_SPACES)
     if re.match(r"https?://", text, re.IGNORECASE | re.ASCII):
         return text
-    if _JS_HOSTLIKE.fullmatch(text):
-        return f"https://{text}"
+    if re.fullmatch(r"about:blank", text, re.IGNORECASE):
+        return "about:blank"
+    m = _JS_HOST.fullmatch(text)
+    if m:
+        host, port = m.group(1), m.group(2)
+        top = host.split(".")[-1]
+        if not port or int(port) <= 65535:
+            if _js_local_host(host) or (port and "." not in host):
+                return f"http://{text}"
+            if "." in host and re.search(r"[a-z]", top, re.IGNORECASE):
+                return f"https://{text}"
     return None
 
 

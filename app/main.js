@@ -8,6 +8,7 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const path = require('path');
+const { toUrl } = require('./url-input'); // what the address bar makes of what's typed
 
 app.setName('J.A.R.V.I.S.');
 
@@ -732,13 +733,6 @@ function createTab() {
   return view;
 }
 
-function toUrl(input) {
-  const text = String(input || '').trim();
-  if (/^https?:\/\//i.test(text)) return text;
-  if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(text)) return `https://${text}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
-}
-
 function waitForLoad(wc, ms = 20000) {
   return new Promise((resolve) => {
     if (!wc.isLoading()) return setTimeout(resolve, 300);
@@ -985,7 +979,7 @@ ipcMain.handle('browser:bounds', (event, bounds) => {
 ipcMain.handle('browser:nav', async (event, { action, url }) => {
   if (!fromWindow(event)) return;
   const wc = ensureBrowser().webContents;
-  if (action === 'go') { browserAsked = true; wc.loadURL(toUrl(url)).catch(() => {}); }
+  if (action === 'go') { browserAsked = true; wc.loadURL(toUrl(url, { typed: true })).catch(() => {}); }
   if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
   if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   if (action === 'reload') wc.reload();
