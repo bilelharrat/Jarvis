@@ -10,6 +10,9 @@
   .card.shell-flash { animation: none; outline: 2px solid var(--action); outline-offset: 2px; }
 }
 
+/* Settings › This Mac: a row the app can't offer here (a build from source) stays out of sight. */
+#shell-group .row[hidden] { display: none; }
+
 /* Settings › This Mac: a global shortcut's keys, and Change… beside them. */
 .row span.shell-key { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; flex: none; }
 .shell-key kbd { min-width: 64px; text-align: center; background: var(--card); transition: box-shadow 150ms ease; }

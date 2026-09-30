@@ -18,8 +18,8 @@ const windowSide = require('../../src/jarvis/web/features/shell.js');
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
-// Waits for what a timer does (the machine may be busy): up to a few seconds, then fails.
-async function until(done, what = 'the condition', ms = 4000) {
+// Waits for what a timer does (the machine may be busy): up to ten seconds, then fails.
+async function until(done, what = 'the condition', ms = 10_000) {
   const started = Date.now();
   while (!done()) {
     if (Date.now() - started > ms) throw new Error(`timed out waiting for ${what}`);
@@ -870,6 +870,9 @@ test('quitting waits for the backend to stop, out of sight, so opening again fin
   t.app.emit('before-quit', again);
   assert.equal(again.prevented, true);
   assert.equal(t.app.quits, 0);
+  // The page, still up behind the scenes, reports once more: the icon stays gone.
+  t.report({ state: 'idle', online: false });
+  assert.equal(t.electron.made.trays.length, 1);
   proc.exitCode = 0;
   proc.emit('exit', 0);
   assert.equal(t.app.quits, 1);

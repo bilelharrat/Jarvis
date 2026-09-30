@@ -142,7 +142,7 @@ function install(ctx) {
   }
 
   function refreshTray() {
-    const want = state.menuBar && !ctx.dev;
+    const want = state.menuBar && !ctx.dev && !quitting; // gone for good once quitting
     if (!want) {
       if (tray) { tray.destroy(); tray = null; trayShown = ''; }
       return;
@@ -417,7 +417,8 @@ function install(ctx) {
 
   function loginStatus(error = '') {
     if (!installed) return { available: false, on: false, status: '', error };
-    const settings = app.getLoginItemSettings();
+    let settings = {};
+    try { settings = app.getLoginItemSettings() || {}; } catch { error = error || 'failed'; }
     return { available: true, on: Boolean(settings.openAtLogin), status: String(settings.status || ''), error };
   }
 

@@ -64,7 +64,7 @@ test('the Quick Action is written exactly as its golden copy', () => {
   // The Services registry's own reader (it reads the bundle; it registers nothing).
   const pbs = '/System/Library/CoreServices/pbs';
   if (existsSync(pbs)) {
-    const read = spawnSync(pbs, ['-read_bundle', dir], { encoding: 'utf8', timeout: 20000 });
+    const read = spawnSync(pbs, ['-read_bundle', dir], { encoding: 'utf8', timeout: 60_000 });
     const entries = `${read.stdout}${read.stderr}`;
     assert.match(entries, /default = "Ask JARVIS";/);
     assert.match(entries, /NSMessage = runWorkflowAsService;/);

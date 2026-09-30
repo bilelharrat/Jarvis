@@ -640,10 +640,16 @@ test('“@” at the start of a Jarvis Code message offers the other sessions to
 
 // ── the Mac app's shell (web/features/shell.js), with a stand-in for the app's side ──
 
+// What the page queued runs before this returns (its zero-delay timers, promise callbacks
+// and observers): two timer hops in the page itself, however busy the machine is.
+const settle = () => js('new Promise((r) => setTimeout(() => setTimeout(r, 0), 0))');
+
 // Loaded as features.js would load it, after app.js, with window.jarvisApp.feature recording
 // what goes to the app and keeping the handler for what the app sends.
 async function loadShell(hello = { dev: false, notify: true, recovered: false }, answers = '') {
   const source = fs.readFileSync(path.join(WEB, 'features', 'shell.js'), 'utf8');
+  const style = fs.readFileSync(path.join(WEB, 'features', 'shell.css'), 'utf8');
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(style)}; document.head.append(s); })(); true`);
   await js(`
     window.__app = { sent: [], on: {}, invoked: [], hello: ${JSON.stringify(hello)} };
     ${answers}
@@ -657,7 +663,7 @@ async function loadShell(hello = { dev: false, notify: true, recovered: false },
   await js(`${source}\ntrue`);
   await js(`__event({ type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, status: {}, activity: [], tasks: [],
     prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: false, features: {} }, brain: {}, approvals: [], history: [] }); true`);
-  await sleep(20);
+  await settle();
 }
 const reports = () => js('__app.sent.filter(([c]) => c === "feature:shell:state").map(([, m]) => m)');
 
@@ -669,12 +675,12 @@ test('The shell tells the app what JARVIS is doing, and adds This Mac to Setting
   assert(first.labels.idle === 'Ready' && first.labels.pausedUntil === '', JSON.stringify(first.labels));
   const before = r.length;
   await js('__event({ type: "state", value: "listening" }); __event({ type: "muted", value: false }); true');
-  await sleep(20);
+  await settle();
   r = await reports();
   assert(r.length === before + 1 && r[before].state === 'listening' && r[before].muted === false, JSON.stringify(r));
   const soon = Date.now() / 1000 + 3600;
   await js(`__event({ type: 'prefs', language: 'en', hands_free: true, features: { shell_pause_until: ${soon}, shell_menu_bar: false } }); true`);
-  await sleep(20);
+  await settle();
   r = await reports();
   const last = r[r.length - 1];
   assert(last.handsFree === true && last.menuBar === false && Math.abs(last.pausedUntil - soon * 1000) < 1, JSON.stringify(last));
@@ -687,7 +693,7 @@ test('The shell tells the app what JARVIS is doing, and adds This Mac to Setting
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { shell_menu_bar: true } }]), JSON.stringify(s));
   // The connection drops: offline for the menu bar.
   await js('$("offline").hidden = false; true');
-  await sleep(20);
+  await settle();
   r = await reports();
   assert(r[r.length - 1].online === false, 'still online after the connection dropped');
 });
@@ -817,7 +823,7 @@ test('Settings records a new shortcut; its keys never reach the rest of the wind
   // ⌥⌘J: kept in the settings, and the hint and the idle line say it.
   await js('$("shell-rec-ask").click(); true');
   await keyEvent('KeyJ', 'j', 74, 1 | 4);
-  await sleep(20);
+  await settle();
   r = await js(`({ sent: __sent.filter((m) => m.type === 'feature_prefs'), cap: $('shell-key-ask').textContent, hint: $('hint').querySelector('kbd').textContent,
     line: $('state-line').textContent, note: $('shell-key-note').hidden })`);
   assert(JSON.stringify(r.sent) === JSON.stringify([{ type: 'feature_prefs', changes: { shell_shortcut_ask: 'Command+Alt+J' } }]), JSON.stringify(r.sent));
@@ -831,7 +837,7 @@ test('A shortcut another app holds is said in Settings; Change… waits for the 
   const r = await js('({ note: $("shell-key-note").textContent, warn: $("shell-key-note").classList.contains("warn-line"), hidden: $("shell-key-note").hidden })');
   assert(r.note === '⌥⇧ Space is taken by another app. Pick another.' && r.warn && !r.hidden, JSON.stringify(r));
   await js('$("offline").hidden = false; true');
-  await sleep(20);
+  await settle();
   assert(await js('$("shell-rec-ask").disabled && $("shell-rec-whatsThis").disabled'), 'Change… works offline');
 });
 
@@ -875,29 +881,30 @@ test('Settings adds “Ask JARVIS” to the Services menu and takes it away; nev
       if (req.action === 'remove') __service.installed = false;
       return { ...__service };
     };`);
-  await sleep(30);
+  await settle();
   const row = () => js('({ hidden: $("shell-service-row").hidden, label: $("shell-service").textContent, disabled: $("shell-service").disabled, note: $("shell-service-note").hidden ? "" : $("shell-service-note").textContent })');
   let r = await row();
   assert(!r.hidden && r.label === 'Add' && !r.note, JSON.stringify(r));
   await js('$("shell-service").click(); true');
-  await sleep(30);
+  await settle();
   r = await row();
   assert(r.label === 'Remove', JSON.stringify(r));
   await js('$("shell-service").click(); true');
-  await sleep(30);
+  await settle();
   assert((await row()).label === 'Add', 'not removed');
   const calls = await js('__app.invoked.filter(([c]) => c === "feature:shell:service").map(([, m]) => m.action)');
   assert(JSON.stringify(calls) === JSON.stringify(['status', 'add', 'remove']), JSON.stringify(calls));
   // One of the owner's own by that name: said, and the button can't write over it.
   await js(`__service = { available: true, installed: false, taken: true, error: 'taken' }; $('shell-service').click(); true`);
-  await sleep(30);
+  await settle();
   r = await row();
   assert(r.disabled && /already a Quick Action named “Ask JARVIS”/.test(r.note), JSON.stringify(r));
   // The test window, or a build from source: no row at all.
   await js(`__service = { available: false, installed: false, taken: false, error: '' }; $('shell-service').disabled = false; $('shell-service').click(); true`);
-  await sleep(30);
+  await settle();
   r = await row();
   assert(r.hidden && !r.note, JSON.stringify(r));
+  assert(await js('getComputedStyle($("shell-service-row")).display') === 'none', 'hidden, but still on show');
 });
 
 test('Open at login: offered by the installed app, switched there, and macOS’s wait for an OK said', async () => {
@@ -913,18 +920,18 @@ test('Open at login: offered by the installed app, switched there, and macOS’s
       }
       return { ...__login };
     };`);
-  await sleep(30);
+  await settle();
   const row = () => js('({ hidden: $("sw-shell-login").closest(".row").hidden, on: $("sw-shell-login").getAttribute("aria-checked"), note: $("shell-login-note").hidden ? "" : $("shell-login-note").textContent })');
   let r = await row();
   assert(!r.hidden && r.on === 'false' && !r.note, JSON.stringify(r));
   await js('$("sw-shell-login").click(); true');
-  await sleep(30);
+  await settle();
   assert((await row()).on === 'true', 'not switched on');
   await js('$("sw-shell-login").click(); true');
-  await sleep(30);
+  await settle();
   assert((await row()).on === 'false', 'not switched off');
   await js('__approval = true; $("sw-shell-login").click(); true');
-  await sleep(30);
+  await settle();
   r = await row();
   assert(r.on === 'false' && r.note === 'macOS is waiting for your OK: System Settings › General › Login Items.', JSON.stringify(r));
   const asked = await js('__app.invoked.filter(([c]) => c === "feature:shell:login").map(([, m]) => m)');
@@ -936,8 +943,9 @@ test('Open at login: offered by the installed app, switched there, and macOS’s
 test('Open at login isn’t offered where it can’t work (the test window, a build from source)', async () => {
   await loadShell(undefined, `__app.answer = (channel) => channel === 'feature:shell:hello' ? __app.hello
     : channel === 'feature:shell:login' ? { available: false, on: false, status: '', error: '' } : null;`);
-  await sleep(30);
+  await settle();
   assert(await js('$("sw-shell-login").closest(".row").hidden && $("shell-login-note").hidden'), 'the row shows where it can’t work');
+  assert(await js('getComputedStyle($("sw-shell-login").closest(".row")).display') === 'none', 'hidden, but still on show');
 });
 
 // ──
