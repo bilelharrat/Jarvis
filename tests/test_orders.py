@@ -262,6 +262,35 @@ async def test_the_first_read_is_quiet_then_deliveries_are_told(
     assert await desk.look() == 0  # nothing new
 
 
+async def test_a_backlog_longer_than_one_look_stays_quiet_until_its_read(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """The quiet first read takes the last two weeks a look at a time (PER_LOOK emails
+    each): every look of it stays quiet (no heads-ups for last week's deliveries, no model
+    for old mail), and what comes after is told."""
+    alerts = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.notify = lambda alert, **_kw: alerts.append(alert)
+    inbox = Inbox(tmp_path / "Envelope Index")
+    old = datetime.now() - timedelta(days=9)
+    inbox.add(
+        "ship@acme.com", "Acme", "Your Acme order A-100 has shipped", "UPS 1Z999AA10123456784",
+        at=old,
+    )  # fmt: skip
+    for n in range(orders_feature.PER_LOOK):
+        inbox.add("news@shop.com", "Shop", f"Weekly deals {n}", at=old)
+    inbox.add("ship@globex.com", "Globex", "Your Globex order G-7 was delivered", at=old)
+    inbox.add("x@shop.com", "Shop", "About your order", "details", at=old)
+    desk = desk_for(hub, inbox)
+    await desk.look()
+    await desk.look()
+    assert len(desk.book.orders) == 2
+    assert alerts == [] and desk.asked == []  # last week's delivery, and old mail for Haiku
+    inbox.add("ship@acme.com", "Acme", "Out for delivery: your Acme order A-100", "")
+    assert await desk.look() == 1
+    assert [a.text for a in alerts] == ["Your Acme order is out for delivery."]
+
+
 async def test_haiku_reads_what_the_rules_cant_and_is_capped(
     settings, quiet_speaker, isolated, tmp_path, monkeypatch
 ):

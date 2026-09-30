@@ -188,8 +188,10 @@ class Orders:
             self.book.load()
             ident = await asyncio.to_thread(_identity, Path(db))
             mark = self.book.mark
-            quiet = mark.get("ident") != ident or not isinstance(mark.get("seen"), int)
-            after = 0 if quiet else int(mark["seen"])
+            fresh = mark.get("ident") != ident or not isinstance(mark.get("seen"), int)
+            # A backlog longer than one look is read a look at a time, all of it quietly.
+            quiet = fresh or mark.get("backlog") is True
+            after = 0 if fresh else int(mark["seen"])
             since = self.now() - timedelta(days=BACKLOG_DAYS)
             rows, newest = await asyncio.to_thread(read_rows, Path(db), after, since)
             if after > newest:  # rows went back: a rebuilt index
@@ -198,10 +200,10 @@ class Orders:
             changed = 0
             for row in rows:
                 changed += await self._read(row, quiet)
-            self.book.mark = {
-                "ident": ident,
-                "seen": rows[-1]["rowid"] if rows and len(rows) >= PER_LOOK else newest,
-            }
+            full = bool(rows) and len(rows) >= PER_LOOK
+            self.book.mark = {"ident": ident, "seen": rows[-1]["rowid"] if full else newest}
+            if quiet and full:
+                self.book.mark["backlog"] = True  # more of it waits: the next look is quiet too
             self.book.tidy(self.now())
             await asyncio.to_thread(self.book.save)
         if changed:
