@@ -1,0 +1,22 @@
+/* The phone companion in Settings › iPhone & Watch (features/companion.js). */
+.companion-qr { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.companion-qr[hidden] { display: none; }
+/* Dark on white whatever the theme: a camera reads the code by its contrast. */
+.companion-qr svg { flex: none; width: 196px; height: 196px; border-radius: 10px; background: #fff; }
+.companion-qr-text { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; font-size: 14px; line-height: 1.4; }
+.companion-qr-text strong { font-weight: 600; }
+.companion-qr-text small { color: var(--muted); font-size: 12.5px; }
+.companion-typed { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 6px; }
+.companion-mono { font: 600 13px/1.4 var(--mono); letter-spacing: 1px; color: var(--ink); }
+.companion-typed .companion-mono { font-size: 16px; color: var(--action); }
+.companion-date { font-weight: 500; color: var(--ink); }
+.companion-fingerprint { display: block; font: 11px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; user-select: text; }
+.companion-note { font-size: 12.5px; }
+.companion-security > *:not(summary), .companion-activity > *:not(summary) { margin-top: 10px; }
+.companion-security[hidden], .companion-activity[hidden] { display: none; }
+.companion-security .btn { align-self: flex-start; }
+.companion-confirm { display: flex; flex-direction: column; gap: 8px; }
+.companion-confirm[hidden] { display: none; }
+.companion-log { max-height: 220px; }
+.companion-log li { align-items: flex-start; }
+.companion-devices .fact small span + span { margin-left: 0; }

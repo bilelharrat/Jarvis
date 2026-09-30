@@ -9,11 +9,13 @@ A device gets in only by pairing: the Mac shows a one-time six-digit code (five 
 five wrong tries and pairing locks for five minutes), which the phone trades for its own
 long random token. Only a hash of the token is stored, and each device can be removed.
 The API is a short allowlist: ask, stop, answer a pending approval, a few app commands
-and the current state. Requests from the phone run as silent turns, so the Mac doesn't
-talk to an empty room.
+and the current state (jarvis.companion adds Jarvis Code, push and the rest). Requests from
+the phone run as silent turns, so the Mac doesn't talk to an empty room. Every call is
+rate-limited per device, and every body capped.
 
-Traffic is plain HTTP, so on shared Wi-Fi prefer Tailscale (encrypted), which also works
-away from home.
+Traffic is HTTPS, with the Mac's own certificate (companion_tls): the phone pins its
+fingerprint when it pairs. Plain HTTP, for the web page and app of old, is refused unless
+the owner turns it back on in Settings (off by default, with a warning).
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import logging
 import re
 import secrets
 import socket
+import ssl
 import subprocess
 import time
 import uuid
@@ -39,12 +42,14 @@ from pathlib import Path
 from typing import Any
 
 import h11
+import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
+from . import companion_tls
 from .prefs import APP_SUPPORT
 
 log = logging.getLogger("jarvis")
@@ -66,6 +71,24 @@ MAX_CONNECTIONS = 64  # open at once, every address together
 PER_ADDRESS = 16  # open at once from one address (Safari and URLSession use about 6)
 REQUEST_SECONDS = 10.0  # to send one whole request, headers and body
 SERVICE_TYPE = "_jarvis._tcp"  # what the iPhone and Watch apps browse for (Info.plist too)
+HANDSHAKE_SECONDS = 10.0  # to finish a TLS handshake once the connection is open
+OPENING_AT_ONCE = 64  # connections still being told apart or shaking hands, all together
+OPENING_PER_ADDRESS = 8  # ... from one address
+# Uploads (a shared file, a photo) take longer to send than a request of a few kilobytes:
+# these paths get this long, once their token checks out (the rest are refused at once).
+UPLOAD_PATHS = frozenset({"/api/share", "/api/photo"})
+UPLOAD_SECONDS = 180.0
+PLAIN_PREF = "companion_plain_http"  # Settings: plain HTTP for the old app and web page too
+# Calls a device may make: (a minute's worth, the most at once). A device over its budget
+# gets 429 with Retry-After; one phone's runaway loop never slows the others.
+RATES = {
+    "read": (240, 60),  # state, sessions, lists: the app polls while it's open
+    "ask": (20, 5),  # requests that start a turn (ask, a photo, a shared note)
+    "act": (60, 20),  # approvals, commands, Jarvis Code messages, routines
+    "say": (30, 10),  # voice clips
+    "report": (60, 20),  # push and Live Activity tokens, location, health
+    "upload": (10, 3),  # shared files and photos
+}
 
 
 @dataclass
@@ -244,49 +267,126 @@ class Devices:
         return [d.public() for d in self.items]
 
 
-def addresses(port: int = PORT) -> list[str]:
+def lan_address() -> str:
+    """This Mac's address on the local network ("" when it has none)."""
+    with contextlib.suppress(OSError):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("10.255.255.255", 1))  # picks the LAN interface; sends nothing
+            return str(probe.getsockname()[0])
+        finally:
+            probe.close()
+    return ""
+
+
+def addresses(port: int = PORT, scheme: str = "https") -> list[str]:
     """URLs a phone on the same network (or tailnet) can use."""
     urls = []
     host = socket.gethostname()
     if host:
         host = host if host.endswith(".local") else f"{host}.local"
-        urls.append(f"http://{host}:{port}")
-    with contextlib.suppress(OSError):
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        probe.connect(("10.255.255.255", 1))  # picks the LAN interface; sends nothing
-        urls.append(f"http://{probe.getsockname()[0]}:{port}")
-        probe.close()
+        urls.append(f"{scheme}://{host}:{port}")
+    if ip := lan_address():
+        urls.append(f"{scheme}://{ip}:{port}")
     return urls
 
 
-def create_remote_app(hub: Any, devices: Devices) -> Starlette:
-    def device_for(request: Request) -> Device | None:
+class Limiter:
+    """Each device's budget of calls, per kind (RATES): a bucket that refills steadily."""
+
+    def __init__(self, rates: dict[str, tuple[int, int]] | None = None, clock=time.monotonic):
+        self.rates = rates or RATES
+        self.clock = clock
+        self._buckets: dict[tuple[str, str], tuple[float, float]] = {}
+
+    def wait(self, device_id: str, kind: str) -> float:
+        """0 when the call may go ahead (and it's counted); else seconds until it may."""
+        per_minute, most = self.rates.get(kind, self.rates["act"])
+        now = self.clock()
+        tokens, at = self._buckets.get((device_id, kind), (float(most), now))
+        tokens = min(float(most), tokens + (now - at) * per_minute / 60)
+        if tokens >= 1:
+            self._buckets[(device_id, kind)] = (tokens - 1, now)
+            if len(self._buckets) > 1000:  # devices long removed: their buckets go
+                self._buckets = {k: v for k, v in self._buckets.items() if now - v[1] < 600}
+            return 0.0
+        self._buckets[(device_id, kind)] = (tokens, now)
+        return (1 - tokens) * 60 / per_minute
+
+
+class Gate:
+    """What every /api call goes through: the device's own token (401 otherwise), its
+    rate limit for this kind of call (429), and a cap on its body (413), read only after
+    the token checks out, except for pairing, whose small body is read first."""
+
+    def __init__(self, devices: Devices, limiter: Limiter | None = None) -> None:
+        self.devices = devices
+        self.limiter = limiter or Limiter()
+
+    def device(self, request: Request) -> Device | None:
         auth = request.headers.get("authorization", "")
         token = auth[7:] if auth.lower().startswith("bearer ") else ""
-        device = devices.check(token)
+        device = self.devices.check(token)
         if device is not None:
-            devices.seen(device)
+            self.devices.seen(device)
         return device
 
-    def denied() -> JSONResponse:
-        return JSONResponse({"error": "Pair this device first."}, status_code=401)
+    def admit(self, request: Request, kind: str) -> tuple[Device | None, Response | None]:
+        """(the device, None) when the call may go ahead; else (None, the refusal)."""
+        device = self.device(request)
+        if device is None:
+            return None, self.denied(request)
+        wait = self.limiter.wait(device.id, kind)
+        if wait:
+            return None, JSONResponse(
+                {"error": "Too many requests. Try again in a moment."},
+                status_code=429,
+                headers={"Retry-After": str(max(1, round(wait)))},
+            )
+        return device, None
 
-    async def read_capped(request: Request) -> bytes | None:
+    @staticmethod
+    def denied(request: Request | None = None) -> JSONResponse:
+        # A refused upload's body isn't read: the connection closes instead.
+        close = request is not None and request.method == "POST"
+        return JSONResponse(
+            {"error": "Pair this device first."},
+            status_code=401,
+            headers={"Connection": "close"} if close else None,
+        )
+
+    @staticmethod
+    def too_big() -> JSONResponse:
+        # Connection: close, or uvicorn keeps reading (and dropping) the rest of a body
+        # we refused, for as long as the sender keeps it coming.
+        return JSONResponse(
+            {"error": "That request is too big or too slow."},
+            status_code=413,
+            headers={"Connection": "close"},
+        )
+
+    @staticmethod
+    def busy() -> JSONResponse:
+        return JSONResponse({"error": "Jarvis is busy. Try again in a moment."}, status_code=429)
+
+    @staticmethod
+    async def _read_capped(request: Request, cap: int) -> bytes | None:
         raw = bytearray()
         async for chunk in request.stream():
             raw += chunk
-            if len(raw) > MAX_BODY:
+            if len(raw) > cap:
                 return None
         return bytes(raw)
 
-    async def body(request: Request) -> dict[str, Any] | None:
-        """The request's JSON object, read at most MAX_BODY bytes and BODY_SECONDS long
-        (before any token check, so no one on the network can make it hold more).
-        None: too big or too slow; {} for anything that isn't a JSON object."""
+    async def json(
+        self, request: Request, cap: int = MAX_BODY, seconds: float = BODY_SECONDS
+    ) -> dict[str, Any] | None:
+        """The request's JSON object, read at most cap bytes and seconds long. None: too
+        big or too slow; {} for anything that isn't a JSON object."""
         try:
-            if int(request.headers.get("content-length") or 0) > MAX_BODY:
+            if int(request.headers.get("content-length") or 0) > cap:
                 return None
-            raw = await asyncio.wait_for(read_capped(request), BODY_SECONDS)
+            raw = await asyncio.wait_for(self._read_capped(request, cap), seconds)
         except (ValueError, TimeoutError, ClientDisconnect):
             return None
         if raw is None:
@@ -297,20 +397,27 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
             return {}
         return data if isinstance(data, dict) else {}
 
-    def too_big() -> JSONResponse:
-        # Connection: close, or uvicorn keeps reading (and dropping) the rest of a body
-        # we refused, for as long as the sender keeps it coming.
-        return JSONResponse(
-            {"error": "That request is too big or too slow."},
-            status_code=413,
-            headers={"Connection": "close"},
-        )
 
-    def busy() -> JSONResponse:
-        return JSONResponse({"error": "Jarvis is busy. Try again in a moment."}, status_code=429)
-
+def create_remote_app(
+    hub: Any,
+    devices: Devices,
+    *,
+    identity: companion_tls.Identity | None = None,
+    mac_name: str = "",
+    extension: Any = None,
+    gate: Gate | None = None,
+) -> Starlette:
+    """The companion's routes. identity: the certificate the server presents (pairing
+    checks the phone pinned it). extension (jarvis.companion.Companion): more routes, more
+    in the state, and a record of what each phone did."""
+    gate = gate or Gate(devices)
     asking: dict[str, int] = {}  # device id -> its request still being answered
     saying = asyncio.Semaphore(SAY_AT_ONCE)
+
+    def record(device: Device, action: str, detail: str = "") -> None:
+        if extension is not None:
+            with contextlib.suppress(Exception):  # a record that fails never fails the call
+                extension.record(device, action, detail)
 
     def asset(name: str, media_type: str):
         """Only the companion's own files are served here, nothing else from the app."""
@@ -347,74 +454,107 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
         return Response(status_code=404)
 
     async def pair(request: Request):
-        data = await body(request)
+        data = await gate.json(request)
         if data is None:
-            return too_big()
+            return gate.too_big()
+        # The certificate the phone pinned must be this server's: otherwise something in
+        # between answered for it. Checked before the code, which stays unspent.
+        pinned = str(data.get("fingerprint") or "")
+        if (
+            identity is not None
+            and pinned
+            and not companion_tls.matches(pinned, identity.fingerprint)
+        ):
+            return JSONResponse({"error": "fingerprint"}, status_code=409)
         host = request.client.host if request.client else ""
+        name = str(data.get("device_name") or data.get("name") or "")
         try:
-            token = devices.pair(str(data.get("code", "")), str(data.get("name", "")), host)
+            token = devices.pair(str(data.get("code", "")), name, host)
         except PermissionError as exc:
             return JSONResponse({"error": str(exc)}, status_code=403)
         hub.emit("devices", items=devices.public(), paired=True)
-        return JSONResponse({"token": token})
+        device = devices.check(token)
+        if device is not None:
+            record(device, "paired")
+        reply: dict[str, Any] = {"token": token}
+        if identity is not None:
+            reply.update(fingerprint=identity.fingerprint, mac_name=mac_name)
+        return JSONResponse(reply)
 
     async def state(request: Request):
-        if device_for(request) is None:
-            return denied()
-        return JSONResponse(hub.remote_state())
+        device, refused = gate.admit(request, "read")
+        if device is None:
+            return refused
+        data = hub.remote_state()
+        data["tls"] = request.url.scheme == "https"
+        if extension is not None:
+            data.update(extension.state(device))
+        return JSONResponse(data)
 
     async def ask(request: Request):
-        device = device_for(request)
+        device, refused = gate.admit(request, "ask")
         if device is None:
-            return denied()
-        data = await body(request)
+            return refused
+        data = await gate.json(request)
         if data is None:
-            return too_big()
+            return gate.too_big()
         text = str(data.get("text", "")).strip()[:4000]
         if not text:
             return JSONResponse({"error": "Say something."}, status_code=400)
         if asking.get(device.id):
             return JSONResponse({"error": "Still on your last request."}, status_code=429)
         asking[device.id] = 1
+        record(device, "asked")
         try:
             reply = await hub.remote_ask(text, ASK_TIMEOUT)
         finally:
             asking.pop(device.id, None)
         if reply.pop("busy", False):  # the phones already have REMOTE_TURNS going
-            return busy()
+            return gate.busy()
         return JSONResponse(reply)
 
     async def approve(request: Request):
-        if device_for(request) is None:
-            return denied()
-        data = await body(request)
+        device, refused = gate.admit(request, "act")
+        if device is None:
+            return refused
+        data = await gate.json(request)
         if data is None:
-            return too_big()
-        ok = hub.resolve(str(data.get("id", "")), str(data.get("choice", "")))
+            return gate.too_big()
+        choice = str(data.get("choice", ""))
+        feedback = " ".join(str(data.get("feedback") or "").split())[:2000]
+        ok = hub.resolve(str(data.get("id", "")), choice, feedback)
+        if ok:
+            if choice == "deny":
+                record(device, "said_no_because" if feedback else "said_no")
+            else:
+                record(device, "said_yes" if choice in ("allow", "yes") else "answered")
         return JSONResponse({"ok": ok})
 
     async def command(request: Request):
-        if device_for(request) is None:
-            return denied()
-        data = await body(request)
+        device, refused = gate.admit(request, "act")
+        if device is None:
+            return refused
+        data = await gate.json(request)
         if data is None:
-            return too_big()
+            return gate.too_big()
         kind = str(data.get("type", ""))
         if kind not in COMMANDS:
             return JSONResponse({"error": "Not available from the phone."}, status_code=400)
         if not await hub.remote_command(
             {k: v for k, v in data.items() if isinstance(v, (str, int, bool))}
         ):
-            return busy()
+            return gate.busy()
+        record(device, kind)
         return JSONResponse({"ok": True})
 
     async def say(request: Request):
         """The reply in JARVIS's own voice, for the phone to play."""
-        if device_for(request) is None:
-            return denied()
-        data = await body(request)
+        device, refused = gate.admit(request, "say")
+        if device is None:
+            return refused
+        data = await gate.json(request)
         if data is None:
-            return too_big()
+            return gate.too_big()
         text = str(data.get("text", "")).strip()[:1500]
         if not text:
             return Response(status_code=400)
@@ -426,21 +566,22 @@ def create_remote_app(hub: Any, devices: Devices) -> Starlette:
             return Response(status_code=503)
         return Response(wav_bytes(*clip), media_type="audio/wav")
 
-    return Starlette(
-        routes=[
-            Route("/", page),
-            Route("/manifest.webmanifest", manifest),
-            Route("/icon.png", icon),
-            Route("/api/pair", pair, methods=["POST"]),
-            Route("/api/state", state),
-            Route("/api/ask", ask, methods=["POST"]),
-            Route("/api/approve", approve, methods=["POST"]),
-            Route("/api/command", command, methods=["POST"]),
-            Route("/api/say", say, methods=["POST"]),
-            Route("/remote.js", asset("remote.js", "text/javascript")),
-            Route("/remote.css", asset("remote.css", "text/css")),
-        ]
-    )
+    routes = [
+        Route("/", page),
+        Route("/manifest.webmanifest", manifest),
+        Route("/icon.png", icon),
+        Route("/api/pair", pair, methods=["POST"]),
+        Route("/api/state", state),
+        Route("/api/ask", ask, methods=["POST"]),
+        Route("/api/approve", approve, methods=["POST"]),
+        Route("/api/command", command, methods=["POST"]),
+        Route("/api/say", say, methods=["POST"]),
+        Route("/remote.js", asset("remote.js", "text/javascript")),
+        Route("/remote.css", asset("remote.css", "text/css")),
+    ]
+    if extension is not None:
+        routes += extension.routes(gate)
+    return Starlette(routes=routes)
 
 
 class GuardedH11(H11Protocol):
@@ -462,10 +603,19 @@ class GuardedH11(H11Protocol):
             return
         self._arm()
 
-    def _arm(self) -> None:
+    def _arm(self, seconds: float | None = None) -> None:
         if self._deadline is not None:
             self._deadline.cancel()
-        self._deadline = self.loop.call_later(REQUEST_SECONDS, self._too_slow)
+        self._deadline = self.loop.call_later(seconds or REQUEST_SECONDS, self._too_slow)
+
+    def handle_events(self) -> None:
+        scope = self.scope
+        super().handle_events()
+        # A new request for an upload: the time to send its body is longer. (A device
+        # whose token doesn't check out is answered, and cut off, before that matters.)
+        if self.scope is not scope and self.scope and self.scope.get("path") in UPLOAD_PATHS:
+            if not self.transport.is_closing():
+                self._arm(UPLOAD_SECONDS)
 
     def _too_slow(self) -> None:
         self._deadline = None
@@ -498,6 +648,19 @@ def local_host_name() -> str:
     return out if re.fullmatch(r"[A-Za-z0-9-]{1,63}", out) else ""
 
 
+def computer_name() -> str:
+    """The Mac's name as the owner set it ("Bilel's MacBook Pro"), for the phone to show."""
+    try:
+        out = subprocess.run(
+            ["scutil", "--get", "ComputerName"], capture_output=True, text=True, timeout=3
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    from .textclean import clean_text
+
+    return " ".join(clean_text(out or socket.gethostname()).split())[:63]
+
+
 def txt_record(pairs: dict[str, str]) -> bytes:
     """A DNS TXT record: each key=value as a length-prefixed string."""
     out = b""
@@ -518,12 +681,16 @@ class Advertiser:
         self._ref: Any = None
         self._lib: Any = None
 
-    def start(self, port: int) -> bool:
+    def start(
+        self, port: int, host: str | None = None, extra: dict[str, str] | None = None
+    ) -> bool:
+        """extra: more of the TXT record (tls=1, fp=<short fingerprint>: hints for the
+        pairing list, never trusted by the app)."""
         if self._ref is not None:
             return True
-        host = local_host_name()
+        host = local_host_name() if host is None else host
         name = f"J.A.R.V.I.S. on {host}" if host else "J.A.R.V.I.S."
-        txt = txt_record({"host": f"{host}.local"} if host else {})
+        txt = txt_record({**({"host": f"{host}.local"} if host else {}), **(extra or {})})
         try:
             if self._register is not None:
                 self._ref = self._register(name, SERVICE_TYPE, port, txt)
@@ -585,13 +752,216 @@ def wav_bytes(audio: Any, rate: int) -> bytes:
     return buf.getvalue()
 
 
+class Doorway:
+    """The companion's socket, answered here rather than by asyncio's server: each new
+    connection's first byte says what it speaks (a TLS handshake starts with 0x16). TLS
+    goes on to the handshake, with a deadline; plain HTTP only while the owner has turned
+    it back on (PLAIN_PREF), else the connection is closed unanswered. Connections still
+    being told apart or shaking hands are capped, per address and in all."""
+
+    def __init__(
+        self,
+        sock: socket.socket,
+        factory: Callable[[], asyncio.Protocol],
+        context: ssl.SSLContext,
+        plain_allowed: Callable[[], bool],
+    ) -> None:
+        self.sock = sock
+        self.factory = factory
+        self.context = context
+        self.plain_allowed = plain_allowed
+        self._accepting: asyncio.Task | None = None
+        self._opening: set[asyncio.Task] = set()
+        self._per_address: dict[str, int] = {}
+
+    def start(self) -> None:
+        self._accepting = asyncio.get_running_loop().create_task(self._accept())
+
+    async def _accept(self) -> None:
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                conn, address = await loop.sock_accept(self.sock)
+            except OSError as exc:  # out of file descriptors; one reset while it waited
+                log.warning("companion server: accept failed (%s)", exc)
+                await asyncio.sleep(0.2)
+                continue
+            host = str(address[0]) if isinstance(address, tuple) and address else ""
+            if (
+                len(self._opening) >= OPENING_AT_ONCE
+                or self._per_address.get(host, 0) >= OPENING_PER_ADDRESS
+            ):
+                conn.close()
+                continue
+            self._per_address[host] = self._per_address.get(host, 0) + 1
+            task = loop.create_task(self._open(conn, host))
+            self._opening.add(task)
+            task.add_done_callback(self._opening.discard)
+
+    async def _open(self, conn: socket.socket, host: str) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            first = await self._first_byte(loop, conn)
+            if first == b"\x16":
+                context: ssl.SSLContext | None = self.context
+            elif first and self._plain():
+                context = None
+            else:
+                if first:
+                    await self._refuse_plain(loop, conn)
+                conn.close()
+                return
+            await loop.connect_accepted_socket(
+                self.factory,
+                sock=conn,
+                ssl=context,
+                ssl_handshake_timeout=HANDSHAKE_SECONDS if context else None,
+            )
+        except OSError:  # a failed handshake, a reset: that connection is done
+            conn.close()
+        except asyncio.CancelledError:
+            conn.close()
+            raise
+        finally:
+            left = self._per_address.get(host, 1) - 1
+            if left > 0:
+                self._per_address[host] = left
+            else:
+                self._per_address.pop(host, None)
+
+    @staticmethod
+    async def _refuse_plain(loop: asyncio.AbstractEventLoop, conn: socket.socket) -> None:
+        """Plain HTTP with the switch off gets a short answer, never the API: the web page
+        moves to https (its address, as the browser gave it), and anything else is told
+        to update the app or turn plain HTTP on in Settings."""
+        head = b""
+        with contextlib.suppress(OSError, TimeoutError):
+            deadline = loop.time() + 2
+            while b"\r\n\r\n" not in head and len(head) < 8192:
+                chunk = await asyncio.wait_for(
+                    loop.sock_recv(conn, 8192), max(0.0, deadline - loop.time())
+                )
+                if not chunk:
+                    break
+                head += chunk
+        lines = head.split(b"\r\n")
+        parts = lines[0].split(b" ") if lines else []
+        method, path = (parts[0], parts[1]) if len(parts) >= 2 else (b"", b"")
+        host = next((line[5:].strip() for line in lines[1:] if line[:5].lower() == b"host:"), b"")
+        page = method == b"GET" and not path.startswith(b"/api/")
+        if page and re.fullmatch(rb"[A-Za-z0-9.\-]{1,253}(:\d{1,5})?", host) and path[:1] == b"/":
+            location = (
+                b"https://" + host + (path if re.fullmatch(rb"/[\x21-\x7e]*", path) else b"/")
+            )
+            reply = (
+                b"HTTP/1.1 308 Permanent Redirect\r\nLocation: " + location
+                + b"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )  # fmt: skip
+        else:
+            body = json.dumps(
+                {
+                    "error": "Jarvis on the Mac now needs a secure connection. Update the app, "
+                    "or turn on plain HTTP in Jarvis's Settings."
+                }
+            ).encode()
+            reply = (
+                b"HTTP/1.1 426 Upgrade Required\r\nContent-Type: application/json\r\n"
+                b"Content-Length: " + str(len(body)).encode()
+                + b"\r\nConnection: close\r\n\r\n" + body
+            )  # fmt: skip
+        with contextlib.suppress(OSError, TimeoutError):
+            await asyncio.wait_for(loop.sock_sendall(conn, reply), 2)
+            # Closed with a body still unread, the socket would reset and the reply could
+            # be lost: say we're done, then let what's left of the request drain away.
+            conn.shutdown(socket.SHUT_WR)
+            drained, deadline = 0, loop.time() + 1
+            while drained < 65536:
+                chunk = await asyncio.wait_for(
+                    loop.sock_recv(conn, 16384), max(0.0, deadline - loop.time())
+                )
+                if not chunk:
+                    break
+                drained += len(chunk)
+
+    def _plain(self) -> bool:
+        try:
+            return bool(self.plain_allowed())
+        except Exception:  # can't tell: TLS only
+            return False
+
+    @staticmethod
+    async def _first_byte(loop: asyncio.AbstractEventLoop, conn: socket.socket) -> bytes:
+        """The connection's first byte, left in place for whoever reads it next. b"" when
+        it closes, or says nothing within REQUEST_SECONDS."""
+        deadline = loop.time() + REQUEST_SECONDS
+        fd = conn.fileno()
+        while True:
+            ready = loop.create_future()
+            loop.add_reader(fd, lambda f=ready: f.done() or f.set_result(None))
+            try:
+                await asyncio.wait_for(ready, max(0.0, deadline - loop.time()))
+            except TimeoutError:
+                return b""
+            finally:
+                loop.remove_reader(fd)
+            try:
+                return conn.recv(1, socket.MSG_PEEK)
+            except (BlockingIOError, InterruptedError):
+                continue  # woken with nothing to read after all
+
+    def close(self) -> None:
+        for task in [self._accepting, *self._opening]:
+            if task is not None:
+                task.cancel()
+
+    async def wait_closed(self) -> None:
+        tasks = [t for t in [self._accepting, *self._opening] if t is not None]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+class _Uvicorn(uvicorn.Server):
+    """uvicorn, taking its connections from a Doorway. The main server owns Ctrl-C and
+    SIGTERM."""
+
+    def __init__(
+        self, config: Any, context: ssl.SSLContext, plain_allowed: Callable[[], bool]
+    ) -> None:
+        super().__init__(config)
+        self._context = context
+        self._plain_allowed = plain_allowed
+
+    @contextlib.contextmanager
+    def capture_signals(self):
+        yield
+
+    async def startup(self, sockets: list[socket.socket] | None = None) -> None:
+        await self.lifespan.startup()
+        config = self.config
+
+        def protocol() -> asyncio.Protocol:
+            return config.http_protocol_class(
+                config=config, server_state=self.server_state, app_state=self.lifespan.state
+            )
+
+        self.servers = []  # type: ignore[assignment]  # doorways: close() and wait_closed()
+        for sock in sockets or []:
+            doorway = Doorway(sock, protocol, self._context, self._plain_allowed)
+            doorway.start()
+            self.servers.append(doorway)  # type: ignore[arg-type]
+        self.started = True
+
+
 class RemoteServer:
     """Starts and stops the companion server inside the app's event loop.
 
     It binds its own socket and hands it to uvicorn: left to itself, uvicorn meets a busy
     port with sys.exit(), and that SystemExit, escaping the event loop, took the whole app
     down, at every launch once the companion had been switched on. Now a busy port (or
-    any other failure to start) switches the companion back off and says why."""
+    any other failure to start) switches the companion back off and says why.
+
+    It serves HTTPS with the certificate kept beside devices.json (and prefs.json):
+    made the first time, kept until the owner asks for a new one."""
 
     def __init__(
         self,
@@ -607,6 +977,10 @@ class RemoteServer:
         self.host = host
         # Only a server the phone can reach is worth announcing (tests listen on loopback).
         self.advertiser = advertiser or (Advertiser() if host == HOST else None)
+        self.extension: Any = None  # jarvis.companion.Companion, when its feature installed
+        self.identity: companion_tls.Identity | None = None
+        self.host_name = ""  # the Mac's Bonjour name, for the pairing QR code
+        self.mac_name = ""  # its name as the owner set it
         self._server: Any = None
         self._task: asyncio.Task | None = None
         self.error = ""
@@ -615,18 +989,33 @@ class RemoteServer:
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
 
+    @property
+    def folder(self) -> Path:
+        """Where the certificate is kept: beside devices.json (and prefs.json)."""
+        return self.devices.path.parent
+
+    def plain_allowed(self) -> bool:
+        """Whether plain HTTP is let in too (Settings; off unless the owner turned it on)."""
+        prefs = getattr(self.hub, "prefs", None)
+        feature = getattr(prefs, "feature", None)
+        try:
+            return callable(feature) and feature(PLAIN_PREF) is True
+        except Exception:
+            return False
+
+    def _names(self) -> None:
+        """The Mac's names, and its certificate (made the first time). Blocking."""
+        self.host_name = local_host_name()
+        self.mac_name = computer_name()
+        hosts = [f"{self.host_name}.local"] if self.host_name else []
+        hosts += [ip for ip in (lan_address(),) if ip]
+        self.identity = companion_tls.load_or_create(self.folder, hosts)
+
     async def start(self) -> bool:
         """True once it's listening. On failure it's off: error says why, the setting is
         switched back off and the window hears of it."""
         if self.running:
             return True
-        import uvicorn
-
-        class Quiet(uvicorn.Server):
-            @contextlib.contextmanager
-            def capture_signals(self):  # the main server owns Ctrl-C and SIGTERM
-                yield
-
         try:
             sock = self._bind()
         except OSError as exc:
@@ -636,15 +1025,33 @@ class RemoteServer:
                 "Quit that app, then turn the companion on again."
             )
             return False
+        try:
+            await asyncio.to_thread(self._names)
+            assert self.identity is not None
+            context = companion_tls.server_context(self.identity)
+        except (OSError, ValueError, ssl.SSLError) as exc:
+            sock.close()
+            log.warning("companion server has no certificate: %s", exc)
+            self._failed(
+                "The phone companion couldn't set up its secure connection, so it's off. "
+                "Try turning it on again."
+            )
+            return False
         config = uvicorn.Config(
-            create_remote_app(self.hub, self.devices),
+            create_remote_app(
+                self.hub,
+                self.devices,
+                identity=self.identity,
+                mac_name=self.mac_name,
+                extension=self.extension,
+            ),
             log_level="warning",
             lifespan="off",
             http=GuardedH11,
             timeout_keep_alive=5,
             h11_max_incomplete_event_size=16 * 1024,
         )
-        self._server = Quiet(config)
+        self._server = _Uvicorn(config, context, self.plain_allowed)
         self._task = asyncio.create_task(self._serve(self._server, sock))
         await asyncio.sleep(0.3)
         if self._task.done():
@@ -656,9 +1063,11 @@ class RemoteServer:
             )
             return False
         self.error = ""
-        log.info("companion server listening on port %d", self.port)
+        log.info("companion server listening on port %d (https)", self.port)
         if self.advertiser is not None:
-            self.advertiser.start(self.port)
+            self.advertiser.start(
+                self.port, self.host_name, {"tls": "1", "fp": self.identity.short}
+            )
         return True
 
     def _bind(self) -> socket.socket:
@@ -702,10 +1111,33 @@ class RemoteServer:
                 await asyncio.wait_for(self._task, 5)
         self._server = self._task = None
 
+    async def new_identity(self) -> None:
+        """A new certificate (Settings): every phone pinned the old one, so each is
+        unpaired and pairs again. The server, if it's on, restarts with it."""
+        was_running = self.running
+        await self.stop()
+        await asyncio.to_thread(companion_tls.remove, self.folder)
+        self.identity = None
+        for device in list(self.devices.items):
+            self.devices.remove(device.id)
+        if was_running:
+            await self.start()
+        else:
+            await asyncio.to_thread(self._names)
+
     def public(self) -> dict[str, Any]:
+        identity = self.identity
         return {
             "running": self.running,
             "error": self.error,
             "urls": addresses(self.port) if self.running else [],
             "devices": self.devices.public(),
+            "tls": {
+                "fingerprint": identity.fingerprint,
+                "short": identity.short,
+                "expires": identity.not_after.isoformat(timespec="seconds"),
+            }
+            if identity is not None
+            else None,
+            "plain_http": self.plain_allowed(),
         }

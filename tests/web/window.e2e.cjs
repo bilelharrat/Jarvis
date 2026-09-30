@@ -1526,6 +1526,45 @@ test('A research report’s note offers a follow-up question and a PDF; other no
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'report_open', path: '/Users/x/Documents/Jarvis/Research/x.pdf' }]), JSON.stringify(s));
 });
 
+// ── the phone companion (web/features/companion.js, loaded as features.js loads it) ──
+
+const COMPANION = fs.readFileSync(path.join(WEB, 'features', 'companion.js'), 'utf8');
+const feature = (ev) => js(`(() => { const ev = ${JSON.stringify(ev)}; onEvent(ev); featureEvent(ev); return true; })()`);
+const clickSel = async (selector) => {
+  await js(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: 'center' }); true`);
+  await clickAt(selector);
+};
+
+test('Settings shows the pairing QR code and security code, and a new certificate is asked twice', async () => {
+  await js(`${COMPANION}; toggleSettings(true); true`);
+  const tls = { fingerprint: 'ab'.repeat(32), short: 'abab abab abab abab', expires: '2028-01-01T00:00:00+00:00' };
+  await feature({ type: 'remote', running: true, error: '', urls: ['https://mac.local:8765'], devices: [], tls, plain_http: false });
+  await feature({ type: 'companion', running: true, tls, plain_http: false, host: 'mac.local',
+    devices: [{ id: 'd1', name: 'Bilel’s iPhone', paired: '2026-09-01T09:00:00', last_seen: '2026-09-29T10:00' }],
+    audit: [{ at: '2026-09-29T10:00:00', device: 'd1', name: 'Bilel’s iPhone', action: 'paired', label: 'Paired', detail: '' }] });
+  await js('__sent.length = 0; true');
+  await feature({ type: 'remote_code', code: '123456', seconds: 300, urls: [] });
+  assert((await sent()).includes('companion_pairing'), `a new code should ask for its QR code: ${await sent()}`);
+  await feature({ type: 'companion_pairing', qr: ['1111111', '1000001', '1011101', '1011101', '1011101', '1000001', '1111111'], short: tls.short, seconds: 300 });
+  const qr = await js(`(() => { const box = document.querySelector('.companion-qr'); const svg = box.querySelector('svg');
+    return { shown: !box.hidden && box.getBoundingClientRect().height > 100, d: svg.querySelector('path').getAttribute('d'), code: box.textContent.includes('abab abab abab abab') }; })()`);
+  assert(qr.shown && qr.d.startsWith('M4 4h7v1h-7z') && qr.code, JSON.stringify(qr));
+  const devices = await js(`({ old: getComputedStyle($('remote-devices')).display === 'none', names: [...document.querySelectorAll('.companion-devices strong')].map((n) => n.textContent) })`);
+  assert(devices.old && JSON.stringify(devices.names) === '["Bilel’s iPhone"]', JSON.stringify(devices));
+
+  await js('__sent.length = 0; document.querySelector(".companion-security").open = true; true');
+  await clickSel('.companion-security .switch');
+  const plain = await js('__sent[0]');
+  assert(plain && plain.type === 'feature_prefs' && plain.changes.companion_plain_http === true, JSON.stringify(plain));
+  await js('__sent.length = 0; true');
+  await clickSel('.companion-security > .btn');
+  assert((await sent()).length === 0, 'the first click must only ask');
+  assert(await js('!document.querySelector(".companion-confirm").hidden'), 'no confirmation shown');
+  await clickText('.companion-confirm', 'Make a new certificate');
+  assert(JSON.stringify(await sent()) === '["companion_new_certificate"]', `${await sent()}`);
+  assert(await js('document.querySelector(".companion-qr").hidden'), 'the old QR code should go with the old certificate');
+});
+
 // ──
 
 let base;

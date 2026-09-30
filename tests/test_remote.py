@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from companion_support import exchange, get, open_pinned
 from starlette.testclient import TestClient
 
 from jarvis import remote
@@ -47,8 +48,8 @@ class FakeHub:
         self.asked.append(text)
         return {"reply": "Two meetings tomorrow.", "done": True, "approvals": []}
 
-    def resolve(self, approval_id, choice):
-        self.resolved.append((approval_id, choice))
+    def resolve(self, approval_id, choice, feedback=""):
+        self.resolved.append((approval_id, choice, feedback))
         return True
 
     async def handle(self, msg):
@@ -73,7 +74,7 @@ def test_the_api_needs_a_paired_token_and_allows_only_a_few_commands(tmp_path):
         "/api/pair", json={"code": devices.start_pairing(), "name": "iPhone"}
     ).json()["token"]
     auth = {"Authorization": f"Bearer {token}"}
-    assert client.get("/api/state", headers=auth).json() == {"state": "idle"}
+    assert client.get("/api/state", headers=auth).json() == {"state": "idle", "tls": False}
     assert (
         client.post("/api/ask", json={"text": "what's on tomorrow"}, headers=auth).json()["reply"]
         == "Two meetings tomorrow."
@@ -160,12 +161,8 @@ async def test_the_companion_serves_on_the_socket_it_bound(tmp_path):
     assert await server.start() is True
     try:
         assert server.running and server.port and server.error == ""
-        reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
-        writer.write(b"GET /api/state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        await writer.drain()
-        status = await asyncio.wait_for(reader.readline(), 5)
-        writer.close()
-        assert b" 401 " in status  # up, and still wants a paired device
+        reply = await exchange(server.port, server.identity.fingerprint, get("/api/state"))
+        assert b" 401 " in reply.split(b"\r\n")[0]  # up, over TLS, and wants a paired device
     finally:
         await server.stop()
     assert not server.running
@@ -193,13 +190,14 @@ async def test_the_companion_is_announced_while_it_listens(tmp_path, monkeypatch
         FakeHub(), Devices(tmp_path / "devices.json"), 0, "127.0.0.1", advertiser=advertiser
     )
     assert await server.start()
+    short = server.identity.short  # "a1b2 c3d4 e5f6 0718": a hint for the pairing list
     assert calls == [
         (
             "start",
             "J.A.R.V.I.S. on Test-Mac",
             "_jarvis._tcp",
             server.port,
-            b"\x13host=Test-Mac.local",
+            b"\x13host=Test-Mac.local\x05tls=1" + bytes([3 + len(short)]) + f"fp={short}".encode(),
         )
     ]
     assert advertiser.active
@@ -323,7 +321,7 @@ async def test_a_request_that_never_finishes_is_dropped(tmp_path, monkeypatch):
     server = remote.RemoteServer(FakeHub(), Devices(tmp_path / "devices.json"), 0, "127.0.0.1")
     assert await server.start()
     try:
-        reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+        reader, writer = await open_pinned(server.port, server.identity.fingerprint)
         writer.write(b"GET /api/state HTTP/1.1\r\nHost: x\r\n")  # headers never finished
         await writer.drain()
         assert await asyncio.wait_for(reader.read(), 3) == b""  # the server hung up
@@ -336,17 +334,16 @@ async def test_one_address_gets_a_few_connections(tmp_path, monkeypatch):
     monkeypatch.setattr(remote, "PER_ADDRESS", 2)
     server = remote.RemoteServer(FakeHub(), Devices(tmp_path / "devices.json"), 0, "127.0.0.1")
     assert await server.start()
+    fingerprint = server.identity.fingerprint
     try:
-        held = [await asyncio.open_connection("127.0.0.1", server.port) for _ in range(2)]
-        reader, _w = await asyncio.open_connection("127.0.0.1", server.port)
+        held = [await open_pinned(server.port, fingerprint) for _ in range(2)]
+        reader, _w = await open_pinned(server.port, fingerprint)
         assert await asyncio.wait_for(reader.read(), 2) == b""  # the third is turned away
         for _, w in held:
             w.close()
         await asyncio.sleep(0.1)
-        r2, w2 = await asyncio.open_connection("127.0.0.1", server.port)
-        w2.write(b"GET /api/state HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-        await w2.drain()
-        assert b" 401 " in await asyncio.wait_for(r2.readline(), 3)
+        reply = await exchange(server.port, fingerprint, get("/api/state"))
+        assert b" 401 " in reply.split(b"\r\n")[0]
     finally:
         await server.stop()
 

@@ -1,0 +1,36 @@
+{
+  "strings": {
+    "The first time, Safari warns about this Mac’s certificate: tap Show Details, then visit this website. The J.A.R.V.I.S. app checks it for you.": "第一次打开时，Safari 会对这台 Mac 的证书发出警告：轻点“显示详细信息”，然后选择“访问此网站”。J.A.R.V.I.S. App 会替你检查证书。",
+    "Pairing QR code": "配对二维码",
+    "Scan with the J.A.R.V.I.S. app": "用 J.A.R.V.I.S. App 扫描",
+    "It pairs and checks this Mac’s certificate in one go.": "一步完成配对，并核对这台 Mac 的证书。",
+    "Typing the code instead? The app should show this security code:": "改为手动输入配对码？App 上应显示这个安全码：",
+    "Recent phone activity": "手机最近的操作",
+    "Security": "安全",
+    "Security code": "安全码",
+    "Certificate valid until": "证书有效期至",
+    "Certificate expired": "证书已过期",
+    "Also allow plain HTTP": "同时允许未加密的 HTTP",
+    "Only for the older app and web page. Anyone on your Wi-Fi could read what your phone and Mac send, and take over a paired phone’s access. Leave it off unless you need it.": "仅供旧版 App 和网页使用。开启后，同一 Wi-Fi 上的任何人都可能读到手机与 Mac 之间传送的内容，并冒用已配对手机的访问权限。除非确有需要，请保持关闭。",
+    "Plain HTTP is on: turn it off once your phone has the new app.": "未加密的 HTTP 已开启：手机装好新版 App 后请关闭它。",
+    "New certificate…": "新证书…",
+    "Make a new certificate": "生成新证书",
+    "Every paired phone is unpaired and pairs again with the new one.": "所有已配对的手机都会解除配对，需要用新证书重新配对。",
+    "Last used": "上次使用",
+    "Not used yet": "尚未使用",
+    "Paired": "已配对",
+    "Asked Jarvis": "向 Jarvis 提问",
+    "Said yes": "同意了",
+    "Said no": "拒绝了",
+    "Said no, with a reason": "拒绝了，并说明了原因",
+    "Answered a question": "回答了一个问题",
+    "Stopped Jarvis": "让 Jarvis 停下",
+    "Asked for the briefing": "请求简报",
+    "Started meeting notes": "开始会议记录",
+    "Stopped meeting notes": "结束会议记录",
+    "Ran a routine": "运行了一个例行任务"
+  },
+  "patterns": [
+    ["^Unpair (.+)$", "取消配对 $1"]
+  ]
+}
