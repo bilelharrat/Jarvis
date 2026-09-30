@@ -1711,6 +1711,24 @@ test('Esc on the agent board closes what’s over it first: a name asked for, th
   assert(!(await state()).board, 'Esc did not close the board after the picture');
 });
 
+test('A click on the agent board survives the task list the hub resends in the middle of it', async () => {
+  await sessions([1, 2], { 1: { busy: true, status: 'running', last_action: 'Editing app.py' } });
+  await js('document.querySelector(".cs-board-btn").click(); true');
+  await frames(2);
+  const stop = '.cs-card[data-task="1"] .jc-btn.danger';
+  const tasks = (action) => `__ev({ type: 'tasks', items: [__task(1, { busy: true, status: 'running', last_action: '${action}' }), __task(2, { busy: false, status: 'waiting' })] })`;
+  // The same list again: nothing on the board is drawn anew.
+  await js(`window.__stop = document.querySelector('${stop}'); ${tasks('Editing app.py')}; true`);
+  await frames(2);
+  assert(await js(`document.querySelector('${stop}') === __stop`), 'the board was drawn anew for the same list');
+  // Stop held down while the list changes: the click lands, and then the card follows.
+  await clickAt(stop, `${tasks('Editing b.py')}; new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
+  assert(JSON.stringify(await sentOf('task_interrupt')) === JSON.stringify([{ type: 'task_interrupt', id: 1 }]), `Stop was lost: ${JSON.stringify(await js('__sent'))}`);
+  await frames(2);
+  const doing = await js('document.querySelector(\'.cs-card[data-task="1"] .cs-card-doing\').textContent');
+  assert(doing === 'Editing b.py', `the card after the click: ${doing}`);
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

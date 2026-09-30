@@ -114,9 +114,14 @@
   for (const type of ['tasks', 'approval', 'approval_resolved', 'code_meta', 'task_finished']) F.on(type, () => { schedule(); badge(); });
 
   let frame = 0;
+  // A card or button held down is never replaced under the pointer (its click would be lost):
+  // the board is drawn once it's let go.
+  let pressing = false;
+  board.addEventListener('pointerdown', (e) => { if (e.button === 0 && e.target.closest('button, .cs-card')) pressing = true; });
+  for (const type of ['pointerup', 'pointercancel']) document.addEventListener(type, () => { if (pressing) { pressing = false; schedule(); } }, true);
   function schedule() {
     if (frame || !isOpen()) return;
-    frame = requestAnimationFrame(() => { frame = 0; render(); });
+    frame = requestAnimationFrame(() => { frame = 0; if (!pressing) render(); });
   }
 
   // The Dock's badge: sessions waiting on an answer from you.
@@ -127,8 +132,21 @@
     if (app && app.feature) app.feature.send('feature:code-sessions:badge', count);
   }
 
+  let drawn = '';  // what the board showed when last drawn
   function render() {
     const tasks = ccTasks;
+    // Drawn anew only when what it shows has changed: the hub resends the task list up to ten
+    // times a second while sessions work.
+    const shows = JSON.stringify([B.showArchived, uiLocale(), tasks.map((task) => {
+      const meta = metaOf(task.id);
+      const asks = asksOf(task.id);
+      const figures = B.figures[String(task.id)] || {};
+      const at = figures.updated || meta.updated;
+      return [task.id, task.title, task.prompt, task.folder, task.status, task.busy, doing(task, asks[0]), (task.files_changed || []).length, task.cost_usd,
+        meta.archived, meta.pinned, meta.group, asks.map((a) => [a.id, a.detail, a.choices]), figures.branch, figures.added, figures.removed, at, ago(at), shared().unread.has(task.id)];
+    })]);
+    if (shows === drawn) return;
+    drawn = shows;
     const columns = arrange(tasks, metaOf, (id) => asksOf(id).length, B.showArchived);
     const archived = tasks.filter((x) => metaOf(x.id).archived).length;
     const head = el('header', 'cs-board-head');
