@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import lang, voices
+from . import lang, personas, voices
 from .providers import clean_key, mask
 from .speech import EFFECT_RATE, CloudVoice, Speaker, read_wav
 
@@ -117,6 +117,29 @@ def clean_hints(value: Any) -> dict[str, str] | None:
 
 def clean_muted(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
+
+
+def clean_persona_voice(value: Any) -> dict[str, str] | None:
+    """A custom persona's own voice (personas.register_field "voice"): {"provider": "say",
+    "name": a Mac voice} or {"provider": "elevenlabs" | "fish", "id", "name"}; {} for the
+    usual voice (kept, so choosing it undoes an earlier pick)."""
+    if value in ("", None) or value == {}:
+        return {}
+    if not isinstance(value, dict):
+        return None
+    provider = value.get("provider")
+    if provider == "say":
+        name = value.get("name")
+        if isinstance(name, str) and _MAC_NAME.fullmatch(name.strip()):
+            return {"provider": "say", "name": name.strip()}
+        return None
+    if provider in CLOUD:
+        voice = _clean_voice(value)
+        return {"provider": provider, **voice} if voice is not None else None
+    return None
+
+
+personas.register_field("voice", clean_persona_voice)
 
 
 PREFS = {
@@ -214,7 +237,10 @@ class Speaking:
         """The Mac voice picked for a language ("" for the default), while it's installed.
         The hub asks as it sets the voice for a language (at start and when the language
         changes), so the fallback voice moves to that language's best one here too."""
-        name = (self._pref("voice_mac") or {}).get("zh" if lang.is_zh(language) else "en", "")
+        name = self.persona_mac(language)  # the persona in use speaks with its own
+        name = name or (self._pref("voice_mac") or {}).get(
+            "zh" if lang.is_zh(language) else "en", ""
+        )
         if name and self.mac_voices is not None and voices.find(self.mac_voices, name) is None:
             name = ""  # uninstalled since: the default speaks
         speaker = self.hub.speaker
@@ -222,6 +248,24 @@ class Speaking:
             speaking = name or lang.mac_voice(language, self.hub.settings.voice)
             speaker.fallback_voice = voices.best_fallback(self.mac_voices, language, speaking)
         return name
+
+    # ── the persona in use, when it has a voice of its own ──
+
+    def persona_voice(self) -> dict[str, str] | None:
+        """The voice the owner gave the persona in use (one of their own), None for the
+        usual voice."""
+        persona = personas.KNOWN.get(getattr(self.hub.prefs, "persona", ""))
+        own = persona.extra.get("voice") if persona is not None else None
+        return own if isinstance(own, dict) and own.get("provider") in PROVIDERS else None
+
+    def persona_mac(self, language: str) -> str:
+        """The persona's Mac voice, while it's installed and speaks this language ("" when
+        not: the usual voice speaks, never an English voice reading Chinese)."""
+        own = self.persona_voice()
+        if not own or own["provider"] != "say" or not self.mac_voices:
+            return ""
+        found = voices.find(voices.for_language(self.mac_voices, language), own["name"])
+        return found.name if found is not None else ""
 
     # ── the Keychain ──
 
@@ -281,12 +325,22 @@ class Speaking:
         provider, speed = self.provider(), self.speed() / 100
         speaker.rate = max(80, min(400, round(self.hub.settings.speech_rate * speed)))
         cloud = None
+        own = self.persona_voice()
+        if own is not None and own["provider"] in CLOUD:  # the persona's cloud voice
+            key = await self._key(own["provider"])
+            if key:
+                cloud = CloudVoice(
+                    own["provider"], key, own["id"], self.model(own["provider"]), speed
+                )
+                provider = ""  # (without a key: the usual voice)
+        elif own is not None and self.persona_mac(self.language):
+            provider = ""  # the persona's Mac voice: no cloud voice over it
         if provider in CLOUD:
             key, voice = await self._key(provider), self.cloud_voice(provider)["id"]
             if key and voice:
                 cloud = CloudVoice(provider, key, voice, self.model(provider), speed)
-                if _same(speaker.cloud, cloud):
-                    cloud = speaker.cloud  # nothing changed: its warm connection stays
+        if cloud is not None and _same(speaker.cloud, cloud):
+            cloud = speaker.cloud  # nothing changed: its warm connection stays
         changed = speaker.cloud is not cloud
         if changed:
             old, speaker.cloud, speaker.cloud_error = speaker.cloud, cloud, ""

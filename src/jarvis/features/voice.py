@@ -194,6 +194,14 @@ class Voice:
         await self.status()
         self.wake_error = ""
 
+    def persona_changed(self) -> None:
+        """The persona in use changed, or its voice did: speak as it says from now on."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # (no loop: the next apply picks it up)
+        self.hub._spawn(self.speaking.apply())
+
     async def list_voices(self, msg: dict[str, Any]) -> None:
         self.emit_busy("list")
         try:
@@ -268,6 +276,16 @@ def install(hub: Any) -> None:
     hub.heard_live = voice.ears.heard_live  # None from it: Whisper, as before
     hub.talk_over = voice.duplex.active
     hub.register_loop("voice_setup", voice.speaking.setup)
+    # A persona of the owner's with a voice of its own speaks with it while it's in use.
+    set_prefs = hub.set_prefs
+
+    def set_prefs_then_voice(changes: dict[str, Any], from_tool: bool = False) -> list[str]:
+        changed = set_prefs(changes, from_tool=from_tool)
+        if "persona" in changed:
+            voice.persona_changed()
+        return changed
+
+    hub.set_prefs = set_prefs_then_voice
     hub.register_loop("voice_ears", voice.start_ears)
     hub.register_command("voice_status", voice.status)
     hub.register_command("voice_settings", voice.settings)

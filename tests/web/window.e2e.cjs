@@ -5995,7 +5995,7 @@ test('Settings: personas of your own are made, changed and removed under the per
   assert(await js(`!$('persona-form').hidden && $('persona-new').hidden && $('persona-humor').value === '60' && $('persona-humor-out').textContent === '60%'`), 'the editor did not open empty');
   await js(`$('persona-name').value = 'Alfred'; $('persona-about').value = 'A gentle old butler.'; $('persona-humor').value = '30'; $('persona-humor').dispatchEvent(new Event('input')); __sent.length = 0; $('persona-form').requestSubmit(); true`);
   const made = await sentOf('persona_save');
-  assert(JSON.stringify(made) === JSON.stringify([{ type: 'persona_save', persona: { name: 'Alfred', description: 'A gentle old butler.', zh_name: '', zh_description: '', humor: 30 } }]), JSON.stringify(made));
+  assert(JSON.stringify(made) === JSON.stringify([{ type: 'persona_save', persona: { name: 'Alfred', description: 'A gentle old butler.', zh_name: '', zh_description: '', humor: 30, extra: { voice: {} } } }]), JSON.stringify(made));
   await js(`__ev({ type: 'personas_custom', items: [], max: 8, error: 'Give the persona a name.' }); true`);
   assert(await js(`!$('persona-form').hidden && !$('persona-error').hidden && $('persona-error').textContent === 'Give the persona a name.' && !$('persona-save').disabled`), 'an error closed the editor');
   const alfred = `{ id: 'alfred', name: 'Alfred <i>x</i>', description: 'A gentle old butler.', zh_name: '', zh_description: '', humor: 30, extra: {} }`;

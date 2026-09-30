@@ -11,7 +11,7 @@ Personality beside JARVIS, TARS and FRIDAY, and chosen like them. personas.py ke
 - Claude knows them: the prompt names them at each connect, list_personas describes them,
   and set_personality switches to any of them. Changing the one in use tells Claude at once.
 - A voice and wake words per persona belong to the voice feature: personas.register_field
-  and personas.add_listener are its seams.
+  and personas.add_listener are its seams (speaking.clean_persona_voice keeps "voice").
 
 Claude cost policy: no model is called here.
 """
@@ -95,6 +95,9 @@ class PersonaDesk:
                 f"the user changed your persona. From now on you are {persona.name}: "
                 f"{persona.description}"
             )
+            voice = getattr(hub, "voice_feature", None)
+            if voice is not None:  # ... and its voice, if that changed, speaks at once
+                voice.persona_changed()
         hub.emit("prefs", **hub.prefs_payload())
         await self.listing()
 

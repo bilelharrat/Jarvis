@@ -19,7 +19,13 @@
     "Describe the persona: how it talks and what it's like.": "描述一下这个角色：它怎么说话、是什么样的。",
     "That persona isn't there any more.": "那个角色已经不在了。",
     "That persona can't be kept.": "这个角色没法保存。",
-    "Looked at the personas": "查看了角色"
+    "Looked at the personas": "查看了角色",
+    "Voice": "语音",
+    "The usual voice": "平常的声音",
+    "Mac voices": "Mac 声音",
+    "It speaks with this while it’s in use. More voices are in Settings › Speaking.": "使用这个角色时，用这个声音说话。更多声音在“设置 › 朗读”里。",
+    "ElevenLabs voices": "ElevenLabs 声音",
+    "Fish Audio voices": "Fish Audio 声音"
   },
   "patterns": [
     [

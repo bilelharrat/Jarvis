@@ -9,7 +9,34 @@
   const { el, $, send } = F;
   const T = (text) => F.t(text);
 
-  const S = { items: [], max: 8, editing: null, saving: false, confirm: '', confirmTimer: 0 };
+  const S = { items: [], max: 8, editing: null, saving: false, confirm: '', confirmTimer: 0, voice: null, macAsked: false };
+  const PV = window.jarvisPersonaVoices;  // (personas-voices.js)
+
+  // The persona's own voice: the choices Settings › Speaking offers, drawn again as they're
+  // listed; the one picked stays picked.
+  function drawVoices(current) {
+    const pick = $('persona-voice');
+    if (!pick || !PV) return;
+    const chosen = current !== undefined ? PV.valueOf(current) : pick.value;
+    const groups = new Map();
+    const nodes = [];
+    for (const o of PV.options(S.voice, current !== undefined ? current : PV.fromValue(pick.value))) {
+      const opt = el('option', '', o.label);
+      opt.value = o.value;
+      if (!o.group) { nodes.push(opt); continue; }
+      mine(opt);
+      if (!groups.has(o.group)) {
+        const g = el('optgroup');
+        g.label = o.group === 'mac' ? T('Mac voices') : T(PV.CLOUD_NAMES[o.group]);
+        groups.set(o.group, g);
+        nodes.push(g);
+      }
+      groups.get(o.group).append(opt);
+    }
+    pick.replaceChildren(...nodes);
+    pick.value = chosen;
+    if (pick.value !== chosen) pick.value = '';
+  }
 
   function mine(node) {
     node.setAttribute('data-no-i18n', '');
@@ -68,6 +95,9 @@
     humorOut.id = 'persona-humor-out';
     humor.addEventListener('input', () => { humorOut.textContent = `${humor.value}%`; });
     const humorRow = field('persona-humor', 'Humor it starts with', humor);
+    const voice = el('select');
+    const voiceRow = field('persona-voice', 'Voice', voice);
+    voiceRow.append(el('small', 'persona-note', 'It speaks with this while it’s in use. More voices are in Settings › Speaking.'));
     humorRow.querySelector('span').append(' ', humorOut);
     const error = el('p', 'persona-error');
     error.id = 'persona-error';
@@ -82,7 +112,7 @@
       field('persona-about', 'What it’s like', about),
       field('persona-zh-name', 'Name in Chinese (optional)', zhName),
       field('persona-zh-about', 'What it’s like, in Chinese (optional)', zhAbout),
-      humorRow, error, actions,
+      humorRow, voiceRow, error, actions,
     );
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -92,6 +122,7 @@
         zh_name: zhName.value.trim(),
         zh_description: zhAbout.value.trim(),
         humor: Number(humor.value),
+        extra: { voice: PV ? PV.fromValue(voice.value) : {} },
       };
       if (S.editing && S.editing.id) persona.id = S.editing.id;
       save.disabled = true;
@@ -113,6 +144,9 @@
     $('persona-zh-about').value = p.zh_description || '';
     $('persona-humor').value = String(p.humor);
     $('persona-humor-out').textContent = `${p.humor}%`;
+    drawVoices((p.extra && p.extra.voice) || {});
+    if (S.voice === null) send({ type: 'voice_status' });
+    else if (S.voice.mac_voices === null && !S.macAsked) { S.macAsked = true; send({ type: 'voice_list', provider: 'say' }); }
     $('persona-error').hidden = true;
     $('persona-save').disabled = false;
     $('persona-form').hidden = false;
@@ -179,6 +213,13 @@
     else render();
   });
   F.on('hello', () => send({ type: 'personas_list' }), { replay: true });
+  F.on('voice', (ev) => {
+    S.voice = ev;
+    const form = $('persona-form');
+    if (!form || form.hidden) return;
+    if (ev.mac_voices === null && !S.macAsked) { S.macAsked = true; send({ type: 'voice_list', provider: 'say' }); }
+    drawVoices();
+  }, { replay: true });
 
   render();
 })();

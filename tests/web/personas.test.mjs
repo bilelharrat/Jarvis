@@ -51,3 +51,22 @@ test('the fragment is well formed', () => {
   }
   for (const [re, rep] of fragment.patterns) assert.doesNotThrow(() => new RegExp(re), rep);
 });
+
+test('a persona’s voice: the choices Speaking offers, and its own kept', async () => {
+  const { createRequire } = await import('node:module');
+  const pv = createRequire(import.meta.url)(`${WEB}/features/personas-voices.js`);
+  const state = {
+    mac_voices: [{ name: 'Daniel (Enhanced)' }, { name: 'Ava (Premium)' }],
+    clouds: {
+      elevenlabs: { key: '', env_key: false, voice: { id: 'r1', name: 'Rachel' }, voices: null },
+      fish: { key: '…1234', voice: { id: 'abc', name: 'Ann' }, voices: [{ id: 'abc', name: 'Ann' }, { id: 'def', name: 'Bo' }] },
+    },
+  };
+  const opts = pv.options(state, {});
+  assert.deepEqual(opts.map((o) => [o.group, o.label]), [['', 'The usual voice'], ['mac', 'Daniel (Enhanced)'], ['mac', 'Ava (Premium)'], ['fish', 'Ann'], ['fish', 'Bo']]);
+  assert.deepEqual(pv.fromValue(opts[3].value), { provider: 'fish', id: 'abc', name: 'Ann' });
+  const kept = pv.options(null, { provider: 'say', name: 'Zoe (Enhanced)' });  // not listed yet
+  assert.deepEqual(kept.map((o) => o.label), ['The usual voice', 'Zoe (Enhanced)']);
+  assert.deepEqual(pv.fromValue(''), {});
+  assert.deepEqual(pv.fromValue('{junk'), {});
+});

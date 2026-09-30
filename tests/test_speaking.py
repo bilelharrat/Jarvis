@@ -353,3 +353,69 @@ async def test_listing_the_macs_voices_ends_busy(settings, real_speaker, isolate
         "Ava (Premium)",
         "Daniel (Enhanced)",
     ]
+
+
+# ── a persona of the owner's with its own voice ──
+
+
+def test_a_personas_voice_is_one_speaking_offers():
+    clean = speaking.clean_persona_voice
+    assert clean({"provider": "say", "name": " Daniel (Enhanced) "}) == {
+        "provider": "say",
+        "name": "Daniel (Enhanced)",
+    }
+    assert clean({"provider": "fish", "id": "abc123", "name": "Ann"}) == {
+        "provider": "fish",
+        "id": "abc123",
+        "name": "Ann",
+    }
+    assert clean({}) == {} and clean("") == {}  # the usual voice (undoes an earlier pick)
+    assert clean({"provider": "fish", "id": "../x"}) is None
+    assert clean({"provider": "say", "name": "a\nb"}) is None
+    assert clean({"provider": "openai", "id": "x"}) is None
+    assert clean("Daniel") is None
+    assert speaking.personas.FIELDS["voice"] is clean
+
+
+@pytest.fixture
+def alfred(monkeypatch):
+    from jarvis import personas
+
+    def give(voice):
+        persona = personas.Persona(id="alfred", name="Alfred", description="A butler.")
+        persona.extra["voice"] = voice
+        monkeypatch.setitem(personas.KNOWN, "alfred", persona)
+        return persona
+
+    return give
+
+
+async def test_the_persona_in_use_speaks_with_its_own_voice(
+    settings, real_speaker, isolated, mac, alfred, monkeypatch
+):
+    from jarvis import prefs
+
+    monkeypatch.setitem(prefs.PERSONAS, "alfred", ("Alfred", "A butler."))
+    hub = make_hub(settings, real_speaker, isolated)
+    feature = voice_feature.feature_for(hub)
+    await feature.speaking.setup()
+    usual = real_speaker.voice
+    persona = alfred({"provider": "say", "name": "Daniel (Enhanced)"})
+    hub.set_prefs({"persona": "alfred"})
+    await asyncio.sleep(0.01)  # (the switch re-voices in the background)
+    assert real_speaker.voice == "Daniel (Enhanced)"
+    # Chinese: an English voice never reads it; the usual Chinese voice does.
+    hub.set_prefs({"language": "zh"})
+    await feature.speaking.apply()
+    assert real_speaker.voice != "Daniel (Enhanced)"
+    hub.set_prefs({"language": "en"})
+    # A cloud voice needs its service's key; without one the usual voice speaks.
+    persona.extra["voice"] = {"provider": "fish", "id": "abc123", "name": "Ann"}
+    await feature.speaking.apply()
+    assert real_speaker.cloud is None and real_speaker.voice == usual
+    vault(hub).set("voice:fish", "api_key", "fish-test-key-1234")
+    await feature.speaking.apply()
+    assert (real_speaker.cloud.provider, real_speaker.cloud.voice_id) == ("fish", "abc123")
+    hub.set_prefs({"persona": "jarvis"})  # back to JARVIS: the usual voice
+    await asyncio.sleep(0.01)
+    assert real_speaker.cloud is None and real_speaker.voice == usual
