@@ -3658,6 +3658,72 @@ test('The MCP servers pane shows each server and how it’s doing, and adds, sig
   assert(await js('!!document.querySelector("#jc-pane-body .cm-server[data-name=docs] .cm-signing") && document.querySelector("#jc-pane-body .cm-intro").textContent.includes("isn’t running")'), 'no word of the sign-in or of the session not running');
 });
 
+// ── Plugins (web/features/code-plugins.js) ──
+
+const pluginState = (extra = {}) => ({ type: 'cx_state', id: 1, folder: '/x/alpha', name: 'alpha',
+  installed: [{ id: 'hello@local-mkt', version: '1.0.0', scope: 'user', enabled: true }],
+  available: [{ id: 'lint@tools', name: 'lint', description: 'Lints <img src=x onerror="window.__pwned=1">', marketplace: 'tools', version: '2.1' },
+    { id: 'pdf@docs', name: 'pdf', description: 'Reads PDF files', marketplace: 'docs', version: '' }],
+  marketplaces: [{ name: 'tools', source: 'github', where: 'acme/tools' }],
+  files: [{ kind: 'agents', scope: 'project', name: 'reviewer' }, { kind: 'commands', scope: 'user', name: 'git/ship' }], ...extra });
+
+test('The Plugins pane installs, switches and removes plugins, adds marketplaces, and edits .claude files', async () => {
+  await featureScript('code-plugins.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(await clickItem('#jc-menu', 'Plugins and skills'), 'no Plugins item in the More menu');
+  assert(await js('$("jc-pane-title").textContent') === 'Plugins', 'the pane did not open');
+  assert((await sentOf('cx_state')).length === 1, JSON.stringify(await js('__sent')));
+  await deliver(pluginState());
+  const r = await js(`({ installed: [...document.querySelectorAll('#jc-pane-body .cx-list:not(.cx-available) .cx-plugin')].map((li) => li.dataset.plugin),
+    available: [...document.querySelectorAll('#jc-pane-body .cx-available .cx-plugin')].map((li) => li.dataset.plugin),
+    imgs: document.querySelectorAll('#jc-pane-body img').length, pwned: !!window.__pwned, files: [...document.querySelectorAll('#jc-pane-body .cx-file')].map((li) => li.dataset.file) })`);
+  assert(r.installed.join() === 'hello@local-mkt' && r.available.join() === 'lint@tools,pdf@docs' && r.imgs === 0 && !r.pwned, JSON.stringify(r));
+  assert(r.files.join() === 'agents:project:reviewer,commands:user:git/ship', JSON.stringify(r));
+  // A search narrows the list, and what's typed stays through a redraw.
+  await js('window.__q = document.querySelector("#jc-pane-body .cx-search"); __q.focus(); true');
+  await typeText('pdf');
+  await js('__q.dispatchEvent(new Event("input")); true');
+  assert(JSON.stringify(await js('[...document.querySelectorAll("#jc-pane-body .cx-available .cx-plugin")].map((li) => li.dataset.plugin)')) === '["pdf@docs"]', 'the search didn’t narrow the list');
+  await deliver(pluginState());
+  assert(await js('document.activeElement.classList.contains("cx-search") && document.activeElement.value === "pdf"'), 'the search was lost in a redraw');
+  await js(`__sent.length = 0; document.querySelector('#jc-pane-body .cx-plugin[data-plugin="pdf@docs"] .cx-install').click();
+    document.querySelector('#jc-pane-body .cx-plugin[data-plugin="hello@local-mkt"] .cx-enable').click();
+    document.querySelector('#jc-pane-body .cx-plugin[data-plugin="hello@local-mkt"] .cx-details').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cx_install', id: 1, plugin: 'pdf@docs' }, { type: 'cx_enable', id: 1, plugin: 'hello@local-mkt', on: false },
+    { type: 'cx_details', id: 1, plugin: 'hello@local-mkt' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cx_details', id: 1, plugin: 'hello@local-mkt', text: 'Component inventory\n  Skills (2)  greet, hi', tokens: 1200 });
+  assert(await js('document.querySelector("#jc-pane-body .cx-cost").textContent.includes("~1.2k") && document.querySelector("#jc-pane-body .cx-details-text").textContent.includes("Skills (2)")'), 'no inventory or cost');
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .cx-plugin[data-plugin=\'hello@local-mkt\'] .cx-remove").click(); true');
+  assert(!(await js('__sent')).length, 'removed on the first press');
+  await js('document.querySelector("#jc-pane-body .cx-plugin[data-plugin=\'hello@local-mkt\'] .cx-remove").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cx_uninstall', id: 1, plugin: 'hello@local-mkt' }]), JSON.stringify(await js('__sent')));
+  // A marketplace added (the card is the backend's).
+  await js('__sent.length = 0; window.__m = document.querySelector("#jc-pane-body .cx-market-input"); __m.value = "acme/more"; __m.dispatchEvent(new Event("input")); document.querySelector("#jc-pane-body .cx-market-go").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cx_market', id: 1, add: 'acme/more' }]), JSON.stringify(await js('__sent')));
+  // A file opened, edited and saved over the version opened; a conflict says so.
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .cx-file[data-file=\'agents:project:reviewer\'] .cx-open").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cx_read', id: 1, kind: 'agents', scope: 'project', name: 'reviewer' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cx_file', id: 1, file_kind: 'agents', scope: 'project', name: 'reviewer', text: '---\nname: reviewer\n---\n<b>Review.</b>\n', stamp: 's1', exists: true });
+  assert(await js('document.querySelector("#jc-pane-body .cx-text-area").value.includes("<b>Review.</b>") && !document.querySelector("#jc-pane-body b")'), 'the file isn’t shown as text');
+  await js('__sent.length = 0; window.__a = document.querySelector("#jc-pane-body .cx-text-area"); __a.value += "More.\\n"; __a.dispatchEvent(new Event("input")); document.querySelector("#jc-pane-body .cx-save").click(); true');
+  const saved = (await sentOf('cx_write'))[0];
+  assert(saved && saved.stamp === 's1' && saved.text.endsWith('More.\n') && saved.kind === 'agents', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cx_file', id: 1, file_kind: 'agents', scope: 'project', name: 'reviewer', conflict: 's2', error: 'It changed on disk since you opened it.' });
+  assert(await js('!!document.querySelector("#jc-pane-body .cx-conflict") && document.querySelector("#jc-pane-body .cx-text-area").value.endsWith("More.\\n")'), 'no conflict shown, or the edit was lost');
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .cx-force").click(); true');
+  assert((await sentOf('cx_write'))[0].stamp === 's2', JSON.stringify(await js('__sent')));
+  // A new one from a template, and the context check.
+  await js(`__sent.length = 0; const k = document.querySelector('#jc-pane-body .cx-new-kind'); k.value = 'skills'; const n = document.querySelector('#jc-pane-body .cx-new-name');
+    n.value = 'bad name'; document.querySelector('#jc-pane-body .cx-make').click(); true`);
+  assert(!(await js('__sent')).length && (await js('document.querySelector("#jc-pane-body .cx-new-note").textContent')).includes('letters'), 'a bad name went');
+  await js(`document.querySelector('#jc-pane-body .cx-new-name').value = 'pdf'; document.querySelector('#jc-pane-body .cx-make').click();
+    document.querySelector('#jc-pane-body .cx-context').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cx_read', id: 1, kind: 'skills', scope: 'project', name: 'pdf' }, { type: 'cx_context', id: 1 }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cx_context', id: 1, live: true, total: 4200, max: 200000, rows: [{ group: 'MCP servers', name: 'github', source: '', tokens: 1000 }] });
+  assert(await js('document.querySelector("#jc-pane-body .cx-total").textContent.includes("4.2k") && document.querySelector("#jc-pane-body .cx-context-list").textContent.includes("github")'), 'no context shown');
+});
+
 // ──
 
 let base;

@@ -1,0 +1,148 @@
+{
+  "strings": {
+    "Plugins": "插件",
+    "Plugins and skills": "插件和技能",
+    "Plugins, agents, skills, commands and hooks": "插件、代理、技能、命令和钩子",
+    "Plugins, agents, skills and hooks": "插件、代理、技能和钩子",
+    "Agent": "代理",
+    "Skill": "技能",
+    "Command": "命令",
+    "Hooks": "钩子",
+    "This project, shared": "这个项目（共享）",
+    "This project, just me": "这个项目（仅我）",
+    "All my projects": "我的所有项目",
+    "This project": "这个项目",
+    "On": "开",
+    "What’s in it": "里面有什么",
+    "Hide what’s in it": "收起",
+    "Remove": "移除",
+    "Press again to remove": "再按一次移除",
+    "Adds to every session:": "为每个会话增加：",
+    "tokens": "token",
+    "Install": "安装",
+    "Close": "关闭",
+    "It changed on disk since you opened it.": "打开之后，它在磁盘上被改动过。",
+    "Load theirs": "载入磁盘上的版本",
+    "Save mine anyway": "仍然保存我的版本",
+    "The file": "文件",
+    "Save": "保存",
+    "Delete": "删除",
+    "Press again to delete": "再按一次删除",
+    "Saved.": "已保存。",
+    "No agents, skills or commands of your own yet.": "还没有你自己的代理、技能或命令。",
+    "What to make": "要新建什么",
+    "For": "用于",
+    "A name, like reviewer": "名称，例如 reviewer",
+    "Its name": "它的名称",
+    "A name is letters, digits, dots, dashes or underscores.": "名称只能包含字母、数字、点、连字符或下划线。",
+    "New": "新建",
+    "Hooks:": "钩子：",
+    "Check": "检查",
+    "Check again": "再检查一次",
+    "The session isn’t running: what fills its context shows once it is.": "会话没有在运行：运行后会显示它的上下文里有什么。",
+    "In its context now:": "它现在的上下文：",
+    "No skills, agents, MCP tools or memory files in it.": "里面没有技能、代理、MCP 工具或记忆文件。",
+    "Open a session to see its plugins.": "打开一个会话来查看它的插件。",
+    "Reading plugins…": "正在读取插件…",
+    "Installed": "已安装",
+    "No plugins installed.": "没有安装插件。",
+    "Search the marketplaces’ plugins": "搜索市场里的插件",
+    "Search plugins": "搜索插件",
+    "Available": "可安装",
+    "Add a marketplace to see its plugins.": "添加一个市场来查看它的插件。",
+    "Installing asks first, with what the plugin brings: its hooks and MCP servers run on this Mac.": "安装前会先询问，并说明插件带来的内容：它的钩子和 MCP 服务器会在这台 Mac 上运行。",
+    "Update": "更新",
+    "owner/repo, an address or a folder": "owner/repo、一个地址或一个文件夹",
+    "A marketplace to add": "要添加的市场",
+    "Add": "添加",
+    "Marketplaces": "市场",
+    "Agents, skills, commands and hooks": "代理、技能、命令和钩子",
+    "What fills this session’s context": "这个会话的上下文里有什么",
+    "Agents": "代理",
+    "Skills": "技能",
+    "MCP servers": "MCP 服务器",
+    "Memory files": "记忆文件",
+    "Saved the hooks: the session has them from its next step.": "钩子已保存：会话从下一步开始使用它们。",
+    "That isn't a marketplace: give a GitHub repo, an address or a folder.": "这不是一个市场：请给出 GitHub 仓库、地址或文件夹。",
+    "That isn't something this can edit.": "这里不能编辑它。",
+    "A name is letters, digits, dots, dashes or underscores, up to 64.": "名称只能包含字母、数字、点、连字符或下划线，最多 64 个字符。",
+    "That's too long for one file.": "对一个文件来说太长了。",
+    "That isn't a settings file.": "这不是一个设置文件。",
+    "Hooks are an object: each event, with its matchers.": "钩子是一个对象：每个事件以及它的匹配器。",
+    "Hooks are emptied, not deleted.": "钩子只能清空，不能删除。"
+  },
+  "patterns": [
+    [
+      "^Installed the plugin (.+): the session has it from its next step\\.$",
+      "已安装插件 $1：会话从下一步开始就能用它。"
+    ],
+    [
+      "^Removed the plugin (.+)\\.$",
+      "已移除插件 $1。"
+    ],
+    [
+      "^The plugin (.+) is on: the session has it from its next step\\.$",
+      "插件 $1 已开启：会话从下一步开始就能用它。"
+    ],
+    [
+      "^The plugin (.+) is off\\.$",
+      "插件 $1 已关闭。"
+    ],
+    [
+      "^Saved the (agent|skill|command) (.+): the session has it from its next step\\.$",
+      "已保存$1 $2：会话从下一步开始就能用它。"
+    ],
+    [
+      "^Deleted the (agent|skill|command) (.+)\\.$",
+      "已删除$1 $2。"
+    ],
+    [
+      "^Installed (.+)\\.$",
+      "已安装 $1。"
+    ],
+    [
+      "^It wasn't installed: (.+)$",
+      "没有安装：$1"
+    ],
+    [
+      "^It wasn't removed: (.+)$",
+      "没有移除：$1"
+    ],
+    [
+      "^It wasn't added: (.+)$",
+      "没有添加：$1"
+    ],
+    [
+      "^Claude Code said: (.+)$",
+      "Claude Code 说：$1"
+    ],
+    [
+      "^That isn't JSON: (.+)$",
+      "这不是 JSON：$1"
+    ],
+    [
+      "^“(.+)” isn't one of Claude Code's hook events\\.$",
+      "“$1”不是 Claude Code 的钩子事件。"
+    ],
+    [
+      "^(\\w+) holds a list of matchers\\.$",
+      "$1 里应该是匹配器列表。"
+    ],
+    [
+      "^Each of (\\w+)'s matchers has a list of hooks\\.$",
+      "$1 的每个匹配器都要有一个钩子列表。"
+    ],
+    [
+      "^A matcher in (\\w+) is text, like Bash or Edit\\|Write\\.$",
+      "$1 里的匹配器是文本，例如 Bash 或 Edit|Write。"
+    ],
+    [
+      "^Each hook in (\\w+) is a command \\(or a prompt\\)\\.$",
+      "$1 里的每个钩子都是一条命令（或一个提示）。"
+    ],
+    [
+      "^A hook in (\\w+) has no command\\.$",
+      "$1 里有一个钩子没有命令。"
+    ]
+  ]
+}

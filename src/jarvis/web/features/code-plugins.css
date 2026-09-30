@@ -1,0 +1,41 @@
+/* Claude Code's plugins in Jarvis Code (features/code-plugins.js): the Plugins pane's lists,
+   its editor for .claude files and the context breakdown, in the workbench's own cards. */
+
+.cx-section { margin-bottom: 14px; }
+.cx-list li.cx-plugin { display: block; padding: 8px 12px; }
+.cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cx-list .cx-head .cx-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.cx-list .cx-head span, .cx-head small { flex: none; }
+.cx-version { color: rgb(var(--c-muted)); font-variant-numeric: tabular-nums; }
+.cx-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; }
+.cx-remove.armed, .cx-delete.armed, .cx-market-remove.armed { background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); box-shadow: none; }
+.cx-cost { margin: 7px 0 0; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.cx-details-text { margin: 6px 0 0; padding: 8px 10px; border-radius: 9px; background: rgb(var(--c-ink) / 0.04); font: 11.5px/1.45 var(--mono); white-space: pre-wrap; max-height: 220px; overflow: auto; }
+.cx-available li.cx-plugin { display: flex; align-items: center; gap: 10px; }
+.cx-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cx-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.cx-title strong { font-size: 13px; }
+.cx-market { color: rgb(var(--c-muted)); }
+.cx-desc { color: rgb(var(--c-muted)); font-size: 12px; line-height: 1.4; }
+.cx-search { width: 100%; box-sizing: border-box; margin-bottom: 7px; }
+.cx-market-row > span { display: flex; flex-direction: column; gap: 1px; }
+.cx-market-add { margin-top: 7px; }
+.cx-market-input, .cx-new-name { flex: 1; min-width: 0; }
+.cx-files li.cx-file { padding: 0; }
+.cx-open { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border: 0; background: transparent; font: inherit; font-size: 12.5px; color: inherit; text-align: left; cursor: pointer; border-radius: 11px; }
+.cx-open:hover { background: rgb(var(--c-ink) / 0.04); }
+.cx-open code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono); }
+.cx-kind { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgb(var(--c-accent) / 0.12); color: rgb(var(--c-accent-ink)); }
+.cx-new { margin-top: 8px; }
+.cx-new select { flex: none; width: auto; }
+.cx-hooks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.cx-editor { margin-top: 10px; padding: 10px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.cx-editor .cx-head strong { font-size: 13px; }
+.cx-file-name { font: 12px var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cx-scope { color: rgb(var(--c-muted)); flex: 1; }
+.cx-text-area { display: block; width: 100%; box-sizing: border-box; min-height: 220px; margin-top: 8px; resize: vertical; font: 12px/1.5 var(--mono); tab-size: 2; }
+.cx-conflict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding: 7px 10px; border-radius: 9px; background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); font-size: 12px; }
+.cx-total { margin: 7px 4px; }
+.cx-context-list li { padding: 6px 12px; }
+.cx-group { flex: none; width: 92px; color: rgb(var(--c-muted)); }
+.cx-tokens { flex: none; font-variant-numeric: tabular-nums; }
