@@ -22,6 +22,56 @@ Under the hood, Electron starts `uv run jarvis serve` on a random local port wit
 fresh token. The window's WebSocket must present that token from the server's own
 origin, so other pages in your browser can't drive your Mac through it.
 
+## New in this release
+
+A short map of what was added; each feature's own Settings group or pane explains it.
+
+- **Jarvis Code:** a session per isolated copy (land or discard), Changes by hunk with
+  line comments and reviews, a Git panel, best-of-N, dev servers with a check of each
+  turn's work (per project too), Tests and Problems panes, pull requests with CI watching
+  and capped auto-fixes, runs without you inside a scope you approve, GitHub issues that
+  start sessions, waiting out Claude's usage limit, usage meters and spending caps,
+  permission rules (deny beats ask beats allow, in every mode), a sandbox, Touch ID before
+  Bypass and risky steps, MCP servers and plugins, other agents over ACP, subagent lanes,
+  an editor, project search, terminal tabs, richer @-mentions, full Markdown, a Health
+  pane, export, and voice: a supervisor, "catch me up", point
+  and speak, reviews by voice.
+- **Conversation:** it carries on after a restart; past conversations; a context meter
+  and Compact now; thinking harder when asked; incognito; a searchable action log;
+  "undo that"; click-to-fix what Jarvis heard; your own personas with their own voice
+  and wake word.
+- **Voice:** echo cancellation so you can talk over it (off until you try it), a neural
+  voice detector, Apple's on-device recognition, your own wake words, Voice and Speaking
+  settings, and **Recognise my voice** (Settings › Listening: teach it your voice; it then
+  ignores others, for everything or only risky actions, with no added delay).
+- **Memory and knowledge:** facts with categories and sources, suggestions, About me, a
+  daily journal and dreams, imports, standing intents, person cards and promises; search
+  by meaning, OCR, more sources, Research v2.
+- **Automation and heads-ups:** heartbeat, schedules and triggers, jobs, standing orders,
+  webhooks, email rules, script hooks, timers and alarms; quiet hours that follow Focus,
+  a briefing laid out your way and an evening wrap-up, weather and leave-time heads-ups,
+  meeting notes and follow-ups, invitation clashes, Reminders by voice.
+- **Actions:** email and texts in full, calendar invitations, orders and subscriptions,
+  invoicing with Stripe links, places and weather anywhere, markets and price alerts,
+  music by name, the Mac's switches, files and the clipboard with undo, reading the Mac,
+  defense status, more connectors, background tasks, pictures, widgets, skills, local
+  models, and JARVIS as an MCP server for other apps.
+- **Built-in browser:** per-site permissions, real sign-in and payment popups, certificate
+  warnings, tabs that come back, import from other browsers, PDFs, private tabs, a
+  signed-out profile for JARVIS, split view and pop-out tabs; and page-aware requests, Ask
+  Jarvis and Translate in the page's menu, questions across tabs, reader mode, page
+  watchers, record and replay, a hand back at passwords and captchas (JARVIS never solves
+  them), watch mode on bank, email and health sites, and hidden page text filtered out.
+- **Reach:** Telegram, iMessage, Slack, Discord and WhatsApp (owner only, approvals in
+  chat); the Jarvis number's texts and voicemail summaries; the menu bar, notifications
+  with actions and `jarvis://` links; the iPhone and Watch app (TLS pinned, QR pairing,
+  push approvals, widgets, Live Activities, Siri, share sheet; see `companion/README.md`,
+  which also covers TestFlight).
+- **Ops and distribution:** first-run setup, a checkup, a security review, verified
+  backups, diagnostics; `cd app && npm run dist` builds a self-contained, signed and
+  notarized disk image for other Apple-silicon Macs on macOS 14 or later, with signed
+  updates (see `docs/distribution.md`). Testers use their own Anthropic API key.
+
 ## What's new in the app
 
 - **Hands-free (on by default):** say "Jarvis" anywhere in a sentence ("Jarvis, what's
@@ -147,7 +197,8 @@ Some things are checked in code whatever the prompt says and however free the ha
   then, once the conversation has read your data or a page, unless you named the
   conversation in full.
 - **The built-in browser's pages** may go full screen; the camera, microphone, location,
-  notifications and every other permission stay refused. Its address bar opens
+  notifications and clipboard reading ask per site (Settings › Browser › Site permissions),
+  and every other device permission stays refused. Its address bar opens
   `localhost:3000`, IP addresses and `[::1]` over http, opens `file:` only when you typed
   it yourself, and never opens `javascript:` or `data:`.
 - **Passwords, card numbers and one-time codes:** the built-in browser never types a card
