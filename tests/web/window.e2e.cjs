@@ -272,9 +272,13 @@ test('The answer streaming in changes its own line of the history, not the list'
 
 test('Notices never cover the Settings sheet, Tools & Accounts or Jarvis Code’s Changes pane', async () => {
   const covered = (root) => js(`[...document.querySelectorAll(${JSON.stringify(root)})].filter((e) => { const b = e.getBoundingClientRect(); if (!b.width || !e.checkVisibility()) return false; const h = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return h && h.closest('.cards'); }).length`);
-  await js('for (let i = 0; i < 6; i++) onEvent({ type: "error", text: "Connector " + i + " failed" })');
+  // Six notices that stay up for the whole test (an error's own go after ten seconds): with
+  // none up, nothing could be covered and every check below would pass for nothing.
+  await js('for (let i = 0; i < 6; i++) notice("Heads up", "Something went wrong", "Connector " + i + " failed", 0)');
+  const up = () => js('$("cards").querySelectorAll(".card.plain").length');
   await js('toggleSettings(true); $("settings").scrollTop = 0');
   await frames(2);
+  assert(await up() === 6, `${await up()} notices up`);
   assert(await covered('#settings [role="switch"], #settings select, #settings input, #settings .btn') === 0, 'a Settings control is under a notice');
   await js('toggleSettings(false); toggleAccounts(true)');
   await frames(2);
@@ -283,6 +287,7 @@ test('Notices never cover the Settings sheet, Tools & Accounts or Jarvis Code’
   await open(1);
   await js('openPane("diff"); diffFiles = [{ path: "src/a.py", added: 2, removed: 1, hunks: [{ line: 3, where: "parse", removed: ["x"], added: ["y", "z"] }] }]; renderPaneBody()');
   await frames(2);
+  assert(await js('document.querySelectorAll("#jc-pane summary").length') === 1 && await up() === 6, 'the Changes pane or the notices are not up');
   assert(await covered('#jc-pane summary, #jc-pane pre, #jc-pane button, #cc-scroll li') === 0, 'Jarvis Code is under a notice');
 });
 
