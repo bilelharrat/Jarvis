@@ -414,3 +414,101 @@ def calls_tool(live):
         calls.create_sdk_mcp_server = original
     [tool] = captured["tools"]
     return tool.handler
+
+
+# ── 5. afterwards ──
+
+
+async def finished(tmp_path, outcome, agreed=None, answers=(True,)):
+    d = talking(Desk(tmp_path, answers=[True]))
+    hub = FakeHub(d.desk)
+    live = calls.LiveCalls(hub)
+    added = []
+
+    async def add_reminder(spec):
+        added.append(spec)
+        return {"added": {"title": spec["title"]}}
+
+    live.add_reminder = add_reminder
+    d.desk.agreed = live.agreed
+    await d.desk.errand(
+        "+14155550188", "Move my dentist appointment to next week.", limits={"commit": True}
+    )
+    call = d.desk.log.calls[0]
+    mission = d.twilio.talks[call.talk]
+    mission["outcome"] = outcome
+    if agreed is not None:
+        mission["agreed"] = agreed
+    d.twilio.statuses[call.id] = "completed"
+    [done] = await d.desk.check()
+    return d, hub, done, added
+
+
+async def answer_cards(hub, *choices):
+    for choice in choices:
+        await settle()
+        [card] = hub.approvals.values()
+        hub.resolve(card["id"], choice)
+    await settle()
+
+
+async def test_the_heads_up_says_what_came_of_it_and_what_is_left(tmp_path):
+    d, hub, done, _added = await finished(
+        tmp_path,
+        {
+            "status": "done",
+            "start": "",
+            "details": "Moved to Tuesday October 6th at 3 PM with Dr. Lee.",
+            "next": "Bring the new insurance card",
+        },
+        agreed=[{"what": "Dentist with Dr. Lee", "amount": 0, "start": "2026-10-06T15:00:00"}],
+    )
+    assert d.heard[-1][1] == (
+        "The call to (415) 555-0188 is done: Moved to Tuesday October 6th at 3 PM with Dr. "
+        "Lee. Next: Bring the new insurance card."
+    )
+    assert done.next == "Bring the new insurance card"
+
+
+async def test_a_time_agreed_goes_in_the_calendar_and_what_is_left_in_reminders_each_on_a_yes(
+    tmp_path,
+):
+    d, hub, _done, added = await finished(
+        tmp_path,
+        {"status": "done", "start": "", "details": "Moved.", "next": "Bring the insurance card"},
+        agreed=[{"what": "Dentist with Dr. Lee", "amount": 0, "start": "2026-10-06T15:00:00"}],
+    )
+    await settle()
+    [card] = hub.approvals.values()
+    assert card["question"] == "Add “Dentist with Dr. Lee” to your calendar?"
+    assert "Tuesday, October 6th, at 3 PM" in card["detail"]
+    await answer_cards(hub, "allow")
+    assert "Dentist with Dr. Lee" in d.scripts[-1]
+    [card] = hub.approvals.values()
+    assert card["question"] == "Add a reminder for what's left?"
+    await answer_cards(hub, "allow")
+    assert added[0]["title"] == "Bring the insurance card"
+    assert [a.text for a in hub.alerts] == [
+        "Added “Dentist with Dr. Lee” to your Work calendar.",
+        "Added it to Reminders.",
+    ]
+
+
+async def test_nothing_goes_anywhere_on_a_no(tmp_path):
+    d, hub, _done, added = await finished(
+        tmp_path,
+        {"status": "done", "start": "", "details": "Moved.", "next": "Call the office Friday"},
+        agreed=[{"what": "Dentist", "amount": 0, "start": "2026-10-06T15:00:00"}],
+    )
+    await answer_cards(hub, "deny", "deny")
+    assert d.scripts == [] and added == [] and hub.approvals == {}
+
+
+async def test_an_untimed_agreement_or_none_puts_up_no_calendar_card(tmp_path):
+    _d, hub, _done, _added = await finished(
+        tmp_path,
+        {"status": "done", "start": "", "details": "Cancelled the plan.", "next": ""},
+        agreed=[{"what": "Cancel the plan", "amount": 0, "start": ""}],
+    )
+    await settle()
+    assert hub.approvals == {}

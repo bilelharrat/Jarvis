@@ -27,12 +27,48 @@
     "Say what to tell them.": "请说要转告对方什么。",
     "Something went wrong there. Try again.": "出了点问题，请再试一次。",
     "Call for you": "替你打的电话",
-    "Passed your words to the call": "把你的话转告了电话那头"
+    "Passed your words to the call": "把你的话转告了电话那头",
+    "Add": "添加",
+    "Don't add": "不加",
+    "Add a reminder for what's left?": "要为剩下的事加一个提醒吗？",
+    "Added it to Reminders.": "已加到提醒事项。"
   },
   "patterns": [
-    ["^The call to (.+) needs you$", "打给$1的电话需要你"],
-    ["^Putting you through to (.+)\\. Your phone will ring\\.$", "正在把你接到和$1的通话，你的手机马上会响。"],
-    ["^Hung up the call to (.+)\\.$", "挂断了打给$1的电话。"],
-    ["^Calling (.+) now\\.$", "正在打给$1。"]
+    [
+      "^The call to (.+) needs you$",
+      "打给$1的电话需要你"
+    ],
+    [
+      "^Putting you through to (.+)\\. Your phone will ring\\.$",
+      "正在把你接到和$1的通话，你的手机马上会响。"
+    ],
+    [
+      "^Hung up the call to (.+)\\.$",
+      "挂断了打给$1的电话。"
+    ],
+    [
+      "^Calling (.+) now\\.$",
+      "正在打给$1。"
+    ],
+    [
+      "^Add “(.+)” to your calendar\\?$",
+      "要把“$1”加到你的日历吗？"
+    ],
+    [
+      "^Added “(.+)” to your (.+) calendar\\.$",
+      "已把“$1”加到你的$2日历。"
+    ],
+    [
+      "^The call to (.+?) is done: (.+)$",
+      "打给$1的电话办好了：$2"
+    ],
+    [
+      "^The call to (.+?) got partway: (.+)$",
+      "打给$1的电话办了一部分：$2"
+    ],
+    [
+      "^The call to (.+?) didn't get it done: (.+)$",
+      "打给$1的电话没办成：$2"
+    ]
   ]
 }

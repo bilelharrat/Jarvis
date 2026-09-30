@@ -402,6 +402,7 @@ class Call:
     goal: str = ""  # errand: what the owner asked Jarvis to get done
     talk: str = ""  # the conversation's Sync document (talk-<this>) while it's on Twilio
     summary: str = ""  # a long message's gist, for the heads-up (Answering.summarize)
+    next: str = ""  # errand: what the owner still has to do, as the call ended
 
     def who(self) -> str:
         return self.name or shown_number(self.number) or "Someone who withheld their number"
@@ -929,11 +930,13 @@ def heads_up(call: Call) -> tuple[str, bool]:
     if call.kind == "errand":
         how = _clip(call.words) or "I couldn't tell how it went."
         after = f" {call.note}" if call.note else ""
+        if call.next:  # what's left for the owner
+            after += f" Next: {_sentence(_clip(call.next, 200))}"
         if call.status == "done":
             return f"The call to {who} is done: {how}{after}", True
         if call.status == "partial":
             return f"The call to {who} got partway: {how}{after}", True
-        return f"The call to {who} didn't get it done: {how}", True
+        return f"The call to {who} didn't get it done: {how}{after}", True
     if call.kind == "talk":
         return (
             f"{who} called and talked with me: {_clip(call.words) or 'nothing much was said.'}",
@@ -1049,6 +1052,10 @@ class Answering:
         # A call JARVIS placed has gone out (features/calls.py: the phone's Live Activity).
         self.placed: Callable[[Call], Any] | None = None
         self.hung_up: set[str] = set()  # calls the owner hung up from the Mac
+        # A call JARVIS placed is over with something agreed (checked by the Function against
+        # its card) or left for the owner to do: features/calls.py offers them for the
+        # calendar and Reminders, each on a card.
+        self.agreed: Callable[[Call, list[dict]], Any] | None = None
         self.busy = ""  # "on" | "off" while it's being turned on or off
         self.note = ""  # the latest word on it, for Settings
         self._lock: asyncio.Lock | None = None
@@ -1785,8 +1792,12 @@ class Answering:
                         else "Someone picked up, but no one spoke."
                     )
                 )
+            call.next = _clip(str(outcome.get("next") or ""), 300)
             if call.status == "done" and call.title and outcome.get("start"):
                 await self._file_errand(call, str(outcome["start"]))
+            agreed = [a for a in (talk or {}).get("agreed") or [] if isinstance(a, dict)]
+            if self.agreed is not None and (agreed or call.next):
+                self.agreed(call, agreed[-3:])
             if call.talk:
                 with contextlib.suppress(PhoneError):
                     await asyncio.to_thread(self.line.forget_talk, state, call.talk, sid, token)

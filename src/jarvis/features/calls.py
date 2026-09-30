@@ -19,6 +19,9 @@ reachable from outside: the Function and the Mac only meet in the owner's own Sy
   them; if they don't pick up, Jarvis says they'll call back. JARVIS itself can pass on what
   the owner says (tell_call). The phone's call Live Activity shows the call's state (who, and
   whether it needs the owner), never what was said.
+- Afterwards: the heads-up says how it went, what was agreed and what's left for the owner
+  (next steps). Each time agreed on the call (only ones the Function let through the card's
+  limits) is offered for the calendar, and the next step for Reminders, each on its own card.
 - What the other side says is their words: shown and said to the owner, never instructions.
   A full card number, a Social Security number or a password with its value is never passed
   on, even when the owner types it.
@@ -81,6 +84,16 @@ lang.add_texts(
         "Say what to tell them.": "请说要转告对方什么。",
         "Calling {who} now.": "正在打给{who}。",
         "Call for you": "替你打的电话",
+        "Add “{what}” to your calendar?": "要把“{what}”加到你的日历吗？",
+        "Add a reminder for what's left?": "要为剩下的事加一个提醒吗？",
+        "Added “{what}” to your {where} calendar.": "已把“{what}”加到你的{where}日历。",
+        "Added it to Reminders.": "已加到提醒事项。",
+        "Couldn't add the reminder: {error}": "没能加提醒：{error}",
+        "Add": "添加",
+        "Don't add": "不加",
+        "The call to {who} is done: {how}": "打给{who}的电话办好了：{how}",
+        "The call to {who} got partway: {how}": "打给{who}的电话办了一部分：{how}",
+        "The call to {who} didn't get it done: {how}": "打给{who}的电话没办成：{how}",
         "I didn't pass that on: {what} never goes on a call I make. Take over the call to give it yourself.": "我没有转达：{what}绝不会在我拨打的电话里说出。请接管通话亲自告诉对方。",
     }
 )
@@ -252,6 +265,78 @@ class LiveCalls:
         notes.append({"n": n, "kind": kind, "text": text})
         await asyncio.to_thread(self.desk.line.tell, state, call.talk, notes, *creds)
         return "Passed on."
+
+    # ── afterwards ──
+
+    def agreed(self, call: answering.Call, agreed: list[dict[str, Any]]) -> None:
+        self._spawn(self.follow_up(call, agreed))
+
+    async def follow_up(self, call: answering.Call, agreed: list[dict[str, Any]]) -> None:
+        """What was agreed on the call, for the calendar, and what's left, for Reminders:
+        each only after the owner's yes on a card."""
+        who = call.who()
+        for item in agreed:
+            try:
+                start = answering._local(str(item.get("start") or ""))
+            except ValueError:
+                continue  # nothing timed: it's in the heads-up
+            if call.start and start.isoformat(timespec="minutes") == call.start:
+                continue  # a reservation's table, already filed
+            what = _line(item.get("what") or call.title or call.goal, 100) or f"Call with {who}"
+            said = answering.spoken_time(start)
+            if not await self._yes(
+                f"Add “{what}” to your calendar?",
+                f"{said}, agreed on the call to {who}.",
+                ("Add", "Don't add"),
+            ):
+                continue
+            notes = [f"Agreed by phone through Jarvis with {who}.", call.words]
+            try:
+                where = await self.desk._add_event(call, what, start, call.minutes or 60, notes)
+            except PhoneError as exc:
+                self._tell(f"call-cal:{call.id[-8:]}", str(exc))
+                continue
+            self._tell(f"call-cal:{call.id[-8:]}", f"Added “{what}” to your {where} calendar.")
+        if call.next:
+            step = _line(call.next, 200)
+            if await self._yes(
+                "Add a reminder for what's left?",
+                f"“{step}”\n\nFrom the call to {who}.",
+                ("Add", "Don't add"),
+            ):
+                from .. import reminders_desk
+
+                try:
+                    spec = reminders_desk.clean_new(
+                        {"title": step, "notes": f"From Jarvis's call to {who}: {call.goal}"}
+                    )
+                    done = await self.add_reminder(spec)
+                except (ValueError, OSError) as exc:
+                    done = {"error": str(exc)}
+                said = (
+                    f"Couldn't add the reminder: {done['error']}"
+                    if done.get("error")
+                    else "Added it to Reminders."
+                )
+                self._tell(f"call-rem:{call.id[-8:]}", said)
+
+    async def _yes(self, question: str, detail: str, labels: tuple[str, str]) -> bool:
+        if lang.is_zh(self.hub.language):
+            question = lang.translate(question, self.hub.language)
+        choice = await self.hub.request_approval(
+            question, detail, [("allow", labels[0]), ("deny", labels[1])]
+        )
+        return choice == "allow"
+
+    def _tell(self, key: str, text: str) -> None:
+        if lang.is_zh(self.hub.language):
+            text = lang.translate(text, self.hub.language)
+        self.hub.notify(_alert(key, "Call for you", text), speak=False)
+
+    async def add_reminder(self, spec: dict[str, Any]) -> dict[str, Any]:
+        from .. import reminders_desk
+
+        return await reminders_desk.add_reminder(spec)
 
     def placed(self, call: answering.Call) -> None:
         """A call just went out: a quiet heads-up, which also starts the call's Live
@@ -501,6 +586,7 @@ def install(hub: Any) -> None:
     live = LiveCalls(hub)
     hub.live_calls = live
     hub.answering.placed = live.placed
+    hub.answering.agreed = live.agreed
     hub.register_loop("calls_live", live.run)
     for kind in ("call_tell", "call_answer", "call_hangup", "call_takeover"):
         hub.register_command(kind, live.command, slow=True)
