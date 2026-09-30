@@ -315,7 +315,10 @@ CONTROL_TOOLS = ["click", "press_button", "type_text", "press_keys", "scroll"]
 READ_TOOLS = ["see_screen", "find_files", "read_file", "browser_page"]
 
 
-def build_server(screen: Screen | None = None):
+def build_server(screen: Screen | None = None, guard: Any = None):
+    """guard (hands_guard.HandsGuard): a click, a named button, Return or typed text that
+    would pay or send is checked there first; its answer, when it has one, goes back to
+    Claude instead of the press."""
     screen = screen or Screen()
 
     @tool(
@@ -355,7 +358,10 @@ def build_server(screen: Screen | None = None):
     async def click(args):
         x, y = screen.to_points(float(args["x"]), float(args["y"]))
         clicks = max(1, min(3, int(args.get("clicks") or 1)))
-        await asyncio.to_thread(_post_mouse, "click", x, y, args.get("button") or "left", clicks)
+        button = args.get("button") or "left"
+        if guard is not None and button != "right" and (why := await guard.click(x, y)):
+            return _error(why)
+        await asyncio.to_thread(_post_mouse, "click", x, y, button, clicks)
         await asyncio.sleep(SETTLE)
         return _text(f"Clicked at {float(args['x']):.0f},{float(args['y']):.0f}.")
 
@@ -381,10 +387,25 @@ def build_server(screen: Screen | None = None):
         if not name:
             return _error("Say which button to press.")
         try:
-            raw = await run_command(
-                "osascript", "-l", "JavaScript", "-e", CLICK_JXA, name, how, timeout=8
-            )
-            found = json.loads(raw.strip().splitlines()[-1])
+            found: dict[str, Any] = {"found": True}
+            exact: tuple[str, ...] = ()
+            if guard is not None and how != "right click":
+                # What those words would press, pressed only once it's checked, and then
+                # only a control named exactly so ("Place" must not become "Place order").
+                raw = await run_command(
+                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, name, "find", timeout=8
+                )
+                found = json.loads(raw.strip().splitlines()[-1])
+                if found.get("found"):
+                    labels = [found.get("name", ""), *(found.get("labels") or [])]
+                    if why := await guard.press(labels, app=str(found.get("app") or "")):
+                        return _error(why)
+                    name, exact = str(found.get("name") or name), ("exact",)
+            if found.get("found"):
+                raw = await run_command(
+                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, name, how, *exact, timeout=8
+                )
+                found = json.loads(raw.strip().splitlines()[-1])
         except (ToolFailure, ValueError, IndexError):
             return _error(
                 "I couldn't read the app's buttons. Allow Accessibility (and Automation for "
@@ -407,7 +428,10 @@ def build_server(screen: Screen | None = None):
 
     @tool("type_text", "Type text at the current keyboard focus.", {"text": str})
     async def type_text(args):
-        await asyncio.to_thread(_post_text, str(args["text"])[:2000])
+        text = str(args["text"])[:2000]
+        if guard is not None and (why := await guard.typing(text)):
+            return _error(why)
+        await asyncio.to_thread(_post_text, text)
         await asyncio.sleep(SETTLE)
         return _text("Typed it.")
 
@@ -417,6 +441,8 @@ def build_server(screen: Screen | None = None):
         {"keys": str},
     )
     async def press_keys(args):
+        if guard is not None and (why := await guard.keys(str(args["keys"]))):
+            return _error(why)
         try:
             await asyncio.to_thread(_post_keys, args["keys"])
         except ValueError as exc:

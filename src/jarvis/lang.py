@@ -2137,6 +2137,16 @@ ZH_TEXTS: dict[str, str] = {
     "Clicked.": "已点击。",
     "Typed.": "已输入。",
     "“{label}” is one I leave for you to press.": "“{label}”这个要你自己来按。",
+    # hands_guard: the Mac's own mouse and keyboard, before a press that pays or sends
+    "“{label}” buys, books or pays for something. I only do that in the built-in browser, where you confirm it first, so press this one yourself.": "“{label}”会买东西、预订或付款。这种事我只在内置浏览器里做，而且要你先确认，所以这个请你自己按。",
+    "Okay, I left it.": "好的，我没有按。",
+    "Send this in {app}?": "要在 {app} 里发送这个吗？",
+    "Post this in {app}?": "要在 {app} 里发布这个吗？",
+    "Publish this in {app}?": "要在 {app} 里发表这个吗？",
+    "Delete this in {app}?": "要在 {app} 里删除这个吗？",
+    "Submit this in {app}?": "要在 {app} 里提交这个吗？",
+    "Can I press {verb} in {app}?": "我可以在 {app} 里按“{verb}”吗？",
+    "Here's your message in {app}: {text} Do you want it sent?": "这是你在 {app} 里的消息：{text} 要发送吗？",
     "I don't see “{label}” in {app}.": "我在{app}里没看到“{label}”。",
     "I couldn't look for “{label}” on the screen. Is Accessibility allowed?": "我没法在屏幕上查找“{label}”。辅助功能权限打开了吗？",
     "Controlled the Mac": "操控了 Mac",
@@ -2466,6 +2476,23 @@ FEATURE_ASKED_ZH = {
         r"|把?[^，,。]{0,8}?(?:例行任务|定时任务|提醒|简报)先?(?:暂停|停一下|关掉|关闭|打开|开启|恢复)"
         r")"
     ),
+}
+# hands_guard: a send, post, delete or submit pressed with the mouse and keyboard, in a
+# messaging or mail app (hub.FEATURE_ASKED's hands_* in English). 发出去, 回复她, 跟安说…,
+# 把那条删掉; never 发送了吗.
+SEND_ASKED_ZH = {
+    "hands_send": _asks_zh(
+        rf"{_NOT_DONE_ZH}(?:按|点|点击|按下)?(?:一下)?(?:发送|发出去|发过去|发给|回复|回一下|回个"
+        r"|发(?:个|条|一条)?(?:消息|信息|微信|短信|邮件)|告诉(?!我)|跟[^，,。]{1,10}?说"
+        r"|给[^，,。]{1,10}?发)"
+    ),
+    "hands_post": _asks_zh(rf"{_NOT_DONE_ZH}(?:按|点|点击)?(?:一下)?(?:发布|发帖|发表|发到)"),
+    "hands_publish": _asks_zh(rf"{_NOT_DONE_ZH}(?:按|点|点击)?(?:一下)?(?:发布|发表)"),
+    "hands_delete": _asks_zh(
+        rf"{_NOT_DONE_ZH}(?:按|点|点击)?(?:一下)?(?:删除|删掉|撤回"
+        r"|把[^，,。]{1,12}?(?:删掉|删除|删了|撤回))"
+    ),
+    "hands_submit": _asks_zh(rf"{_NOT_DONE_ZH}(?:按|点|点击)?(?:一下)?(?:提交|发送)"),
 }
 # Coding as something to do now, not a noun: "编程语言哪个最好学" asks for nothing.
 _CODING_ZH = r"(?:写代码|编程|写程序|敲代码|改代码)(?!语言|课|题|书|的|是|能力|水平|经验|工作|比赛|很|太|真|比|吗|么)"

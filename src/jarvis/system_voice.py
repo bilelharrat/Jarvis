@@ -4,8 +4,12 @@ round trip to Claude. Anything else (and anything this can't do) goes to Claude 
 where the see-the-screen, click and type tools handle the rest.
 
 These are the user's own spoken words, so with Settings › Control my Mac without asking on
-(the default) "click Send" presses Send. With it off, buttons that send, pay, buy, delete or
-sign out are left for the user to press.
+(the default) "click Send" presses Send: in a messaging or mail app only while the
+conversation hasn't read private data or a web page (then the send's card comes first, as
+hands_guard has it). A button that buys, books or pays is never pressed outside the
+built-in browser. With the setting off, buttons that send, pay, buy, delete or sign out
+are left for the user to press. A button is found first and pressed only once its name is
+checked.
 
 Posting keys and clicks needs the Accessibility permission of the app running JARVIS;
 clicking a button by its name also needs Automation for System Events.
@@ -215,9 +219,12 @@ async def _app_name(run: Runner, spoken: str) -> str | None:
     return None
 
 
+# argv: the name, how (click, double click, right click; or find, which presses nothing
+# and says what it would press, with all its labels), and "exact" to take only a control
+# named exactly that (the one a find just reported).
 CLICK_JXA = r"""
 function run(argv) {
-  const want = argv[0].toLowerCase(), how = argv[1];
+  const want = argv[0].toLowerCase(), how = argv[1], exact = argv[2] === 'exact';
   const se = Application('System Events');
   const proc = se.processes.whose({ frontmost: true })[0];
   const label = (el) => {
@@ -234,7 +241,7 @@ function run(argv) {
     try { role = el.role(); } catch (e) { return; }
     if (!pressable.test(role)) return;
     for (const name of label(el)) {
-      const score = name === want ? 3 : name.startsWith(want) ? 2 : name.includes(want) ? 1 : 0;
+      const score = name === want ? 3 : exact ? 0 : name.startsWith(want) ? 2 : name.includes(want) ? 1 : 0;
       if (score > bestScore) { best = el; bestScore = score; bestName = name; }
     }
   };
@@ -244,6 +251,7 @@ function run(argv) {
     for (const el of wins[0].entireContents()) { consider(el); if (bestScore === 3) break; }
   }
   if (!best) return JSON.stringify({ found: false, app: proc.name() });
+  if (how === 'find') return JSON.stringify({ found: true, name: bestName, labels: label(best), app: proc.name() });
   if (how === 'click') {
     try { best.actions.byName('AXPress').perform(); return JSON.stringify({ found: true, name: bestName, app: proc.name() }); } catch (e) {}
   }
@@ -258,10 +266,14 @@ async def carry_out(
     run: Runner = run_command,
     post: Any = computer,
     free: bool = False,
+    guard: Any = None,
 ) -> str | None:
     """Does it and says what happened; None when it isn't one after all (an app name that
-    isn't an installed app), so the request goes to Claude instead."""
+    isn't an installed app), so the request goes to Claude instead. guard
+    (hands_guard.HandsGuard): a press that would pay or send a message is checked there
+    first, and its answer is the reply."""
     kind, arg = command.kind, command.arg
+    said = str(command.extra.get("name") or arg)  # the user's own words for this press
     if kind in ("open", "focus", "quit", "hide"):
         name = await _app_name(run, arg)
         if name is None:
@@ -281,6 +293,8 @@ async def carry_out(
         )
         return f"Hid {name}."
     if kind == "keys":
+        if guard is not None and (why := await guard.keys(arg, said=said)):
+            return why
         post._post_keys(arg)
         return "Done."
     if kind == "mission":
@@ -309,6 +323,13 @@ async def carry_out(
         }.get(arg, f"Volume {command.extra.get('level')}%.")
     if kind == "point":
         x, y = post.mouse_position()
+        # "Click" alone doesn't say what's under the pointer: a send there still asks.
+        if (
+            guard is not None
+            and arg != "right click"
+            and (why := await guard.click(x, y, own=True))
+        ):
+            return why
         clicks = 2 if arg == "double click" else 1
         post._post_mouse(
             "click", x, y, button="right" if arg == "right click" else "left", clicks=clicks
@@ -318,8 +339,30 @@ async def carry_out(
         if not free and RISKY.search(arg):
             return f"“{arg}” is one I leave for you to press."
         how = command.extra.get("how", "click")
+        target, exact = arg, ()
         try:
-            raw = await run("osascript", "-l", "JavaScript", "-e", CLICK_JXA, arg, how, timeout=6)
+            if guard is not None or not free:
+                # Found first, pressing nothing, and pressed only once its name is checked
+                # ("click sen" must not press Send before anyone looks), then only a
+                # control named exactly that.
+                raw = await run(
+                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, arg, "find", timeout=6
+                )
+                found = json.loads(raw.strip().splitlines()[-1])
+                if not found.get("found"):
+                    return f"I don't see “{arg}” in {found.get('app') or 'the app in front'}."
+                target = str(found.get("name") or arg)
+                if not free and RISKY.search(target):
+                    return f"“{target}” is one I leave for you to press."
+                if guard is not None and how != "right click":
+                    labels = [target, *(found.get("labels") or [])]
+                    app = str(found.get("app") or "")
+                    if why := await guard.press(labels, app=app, said=f"click {arg}"):
+                        return why
+                exact = ("exact",)
+            raw = await run(
+                "osascript", "-l", "JavaScript", "-e", CLICK_JXA, target, how, *exact, timeout=6
+            )
             found = json.loads(raw.strip().splitlines()[-1])
         except (ToolFailure, ValueError, IndexError):
             return f"I couldn't look for “{arg}” on the screen. Is Accessibility allowed?"
@@ -335,6 +378,8 @@ async def carry_out(
             )
         return "Done."
     if kind == "type":
+        if guard is not None and (why := await guard.typing(arg, said=said)):
+            return why
         post._post_text(arg)
         return "Typed."
     return None

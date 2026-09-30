@@ -133,10 +133,13 @@ async def test_keys_scroll_type_and_clicks_where_the_pointer_is():
 async def test_a_button_is_pressed_by_its_name():
     mac = Fake()
     assert await real_carry_out(Command("click", "save", {"how": "click"}), mac.run, mac) == "Done."
-    assert mac.ran[-1][:3] == ("osascript", "-l", "JavaScript") and mac.ran[-1][-2:] == (
+    # Found first (a find presses nothing), then pressed by exactly the name it found: the
+    # name is checked before anything is pressed, never after.
+    assert mac.ran[-2][:3] == ("osascript", "-l", "JavaScript") and mac.ran[-2][-2:] == (
         "save",
-        "click",
+        "find",
     )
+    assert mac.ran[-1][-3:] == ("save", "click", "exact")
     missing = Fake(click='{"found": false, "app": "TextEdit"}')
     reply = await real_carry_out(
         Command("click", "frobnicate", {"how": "click"}), missing.run, missing

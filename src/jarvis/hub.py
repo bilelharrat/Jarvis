@@ -53,6 +53,7 @@ from . import (
     features,
     fileindex,
     goals,
+    hands_guard,
     hearing,
     interrupts,
     invoices,
@@ -499,7 +500,7 @@ FEATURE_ASKED.update({action: _asks(pattern) for action, pattern in goals.ASKED.
 FEATURE_ASKED["set_interruptions"] = _asks(interrupts.ASKED_PATTERN)
 FEATURE_ASKED["reset_interruption_learning"] = _asks(interrupts.LEARNING_ASKED_PATTERN)
 FEATURE_ASKED["summarize_video"] = _asks(video.ASKED_PATTERN)
-for _kit in (hearing, documents, suggestions):
+for _kit in (hearing, documents, suggestions, hands_guard):
     FEATURE_ASKED.update({action: _asks(p) for action, p in _kit.ASKED.items()})
 # Goals and rules ride into every future request: a turn that read someone else's words
 # (an email, a web page) never changes them unasked, whatever the user's own words were.
@@ -771,6 +772,15 @@ class Hub:
             self.browser_call, self.workbench, lambda: cwd
         )
         self.tasks.page_url = lambda: browser_gate.read_url(self._browser_raw)
+        # The Mac's own mouse and keyboard: never a press that pays outside the built-in
+        # browser, and a send in a messaging app shows its card unless the user asked.
+        self.hands_guard = hands_guard.HandsGuard(
+            reads=self._gate_reads,
+            words=lambda: self._turn_text,
+            asked=lambda kind: self._user_asked_for(f"hands_{kind}"),
+            send=self.send_gate,
+            probe=hands_guard.AXProbe(enabled=poll),
+        )
         # Settings › Queue Jarvis Code follow-ups off: they steer the running step.
         self.tasks.steer_now = lambda: not self.prefs.code_queue
         # The fallback model (Settings › Brain; Automatic picks Gemini): Claude down (its
@@ -1073,6 +1083,7 @@ class Hub:
             self._spawn(self._vitals_loop())
             self._spawn(self._prepare_player())
             self._spawn(self._prepare_fillers())
+            self._spawn(self.hands_guard.probe.prepare())  # the accessibility probe, built once
             self._spawn(self._location_loop())
             self._spawn(self.shortcuts.refresh())
             self._spawn(self.watcher.run())
@@ -1114,7 +1125,7 @@ class Hub:
             brain_server=self._brain_server(),
             app_server=self._app_server(),
             browser_server=self._browser_server(),
-            computer_server=computer.build_server(self.screen),
+            computer_server=computer.build_server(self.screen, guard=self.hands_guard),
             control_gate=self.control_gate,
             account_servers=account_servers,
             account_allowed=account_allowed,
@@ -1272,6 +1283,16 @@ class Hub:
         if asked and not tainted:
             return True
         return await self._ask_user(question)
+
+    def _user_asked_for(self, action: str) -> bool:
+        """The user's own words this turn plainly asked for this kind of thing (FEATURE_ASKED,
+        and its Chinese twin when the language is Chinese)."""
+        pattern = FEATURE_ASKED.get(action)
+        zh = lang.FEATURE_ASKED_ZH.get(action) or lang.SEND_ASKED_ZH.get(action)
+        pattern_zh = zh if lang.is_zh(self.language) else None
+        return (pattern is not None and user_asked(pattern, self._turn_text)) or (
+            pattern_zh is not None and lang.user_asked_zh(pattern_zh, self._turn_text)
+        )
 
     # ── what a turn has read, and what may leave the Mac ──
 
@@ -2349,7 +2370,9 @@ class Hub:
         if command is None:
             return False
         try:
-            reply = await system_voice.carry_out(command, free=self.prefs.control_always)
+            reply = await system_voice.carry_out(
+                command, free=self.prefs.control_always, guard=self.hands_guard
+            )
         except (mac_tools.ToolFailure, ValueError, OSError) as exc:
             reply = f"That didn't work: {exc}"
         except Exception as exc:  # Quartz without the Accessibility permission, say

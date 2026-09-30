@@ -8,6 +8,7 @@ from test_turn_gate import answer, started
 
 from jarvis import brain, browser_gate, code_tools
 from jarvis.hub import tool_label
+from jarvis.system_voice import carry_out as real_carry_out  # conftest swaps it in each test
 from jarvis.tasks import DENY, ClaudeTask
 
 BROWSER = brain.browser_tool
@@ -349,3 +350,290 @@ def test_the_new_cards_read_in_chinese():
     assert lang.translate("Jarvis Code in web wants to type into x.com") == (
         "web 中的 Jarvis Code 想要在 x.com 里输入内容"
     )
+
+
+# ── 2. the Mac's mouse and keyboard: never a purchase, and a send asks ──
+
+SLACK = {
+    "trusted": True,
+    "app": "Slack",
+    "bundle": "com.tinyspeck.slackmacgap",
+    "window": "Ann Lee (DM) - BSH Ventures - Slack",
+    "focused": {"role": "AXTextArea", "value": "The Q3 numbers are attached", "editable": True},
+}
+
+
+class Hands:
+    """A HandsGuard with the Mac faked: what the helper would report, what the turn has
+    read, what the user asked for, and the cards it put up."""
+
+    def __init__(self, scene=None, reads=(), asked=(), words="", answer=False):
+        from jarvis import hands_guard
+
+        self.scene, self.cards, self.probed = dict(scene or {}), [], []
+        self.answer = answer
+        self.reads = {"private": "private" in reads, "web": "web" in reads, "what": list(reads)}
+
+        async def probe(*argv):
+            self.probed.append(argv)
+            return dict(self.scene)
+
+        async def send(question, detail, spoken, choices):
+            self.cards.append({"question": question, "detail": detail, "spoken": spoken,
+                               "choices": choices})  # fmt: skip
+            return self.answer
+
+        self.guard = hands_guard.HandsGuard(
+            reads=lambda: self.reads,
+            words=lambda: words,
+            asked=lambda kind: kind in asked,
+            send=send,
+            probe=probe,
+        )
+
+
+def test_what_buys_and_what_sends_by_its_words():
+    from jarvis.hands_guard import purchase_word, send_kind
+
+    for label in ("Buy", "Buy Now", "Pay", "Place order", "Book", "Subscribe",
+                  "Confirm purchase", "Transfer", "Send money", "立即支付", "提交订单", "预订",
+                  "转账", "$4.99", "Buy for $4.99", "Plаce оrder", "P1ace 0rder"):  # fmt: skip
+        assert purchase_word([label]) == label, label
+    for label in ("Send", "Save", "Continue", "Add to cart", "Get", "Reply", "Page 2", ""):
+        assert purchase_word([label]) is None, label
+    assert send_kind(["Send"]) == send_kind(["send later"]) == send_kind(["发送"]) == "send"
+    assert send_kind(["Delete for Everyone"]) == send_kind(["撤回"]) == "delete"
+    assert send_kind(["Post"]) == "post" and send_kind(["Publish"]) == "publish"
+    assert send_kind(["Submit"]) == "submit"
+    for label in ("Sender", "Sent", "Reply", "Forward", "Archive", "Search"):
+        assert send_kind([label]) is None, label
+
+
+async def test_a_purchase_button_outside_the_built_in_browser_is_refused():
+    hands = Hands({"trusted": True, "app": "App Store", "bundle": "com.apple.AppStore"})
+    why = await hands.guard.press(["buy now"], app="App Store")
+    assert "built-in browser" in why and hands.probed == []  # refused before looking further
+    hands.scene = {**hands.scene, "at_app": "App Store", "press": {"role": "AXButton",
+                   "title": "", "description": "$4.99"}}  # fmt: skip
+    assert "“$4.99” buys" in await hands.guard.click(640, 300)
+    # The user's own instant command hears it said to them, not to Claude.
+    own = await hands.guard.press(["place order"], said="click place order")
+    assert own.endswith("so press this one yourself.")
+    assert hands.cards == []
+
+
+async def test_a_send_in_a_messaging_app_shows_its_card_unless_the_user_asked():
+    hands = Hands(SLACK)
+    why = await hands.guard.press(["send now"], app="Slack")
+    assert why.startswith("The user said no")
+    [card] = hands.cards
+    assert card["question"] == "Send this in Slack?"
+    assert "Ann Lee (DM) - BSH Ventures - Slack" in card["detail"]
+    assert "The Q3 numbers are attached" in card["detail"]
+    assert card["spoken"].endswith("Do you want it sent?") and card["choices"] == (
+        "Send",
+        "Don't send",
+    )
+    hands.answer = True
+    assert await hands.guard.press(["send now"]) is None  # a yes: it goes
+    # Asked for in so many words, with nothing read: no card.
+    asked = Hands(SLACK, asked=("send",))
+    assert await asked.guard.press(["send now"]) is None and asked.cards == []
+    # Other buttons in the app are nobody's business.
+    assert await Hands(SLACK).guard.press(["mark as unread"]) is None
+
+
+async def test_after_a_read_even_an_asked_send_asks_unless_they_named_the_conversation():
+    web = Hands(SLACK, reads=("web",), asked=("send",), words="reply to ann saying yes")
+    await web.guard.press(["send"])
+    assert len(web.cards) == 1 and "didn't name this conversation" in web.cards[0]["detail"]
+    named = Hands(SLACK, reads=("private",), asked=("send",), words="send ann lee the numbers")
+    assert await named.guard.press(["send"]) is None and named.cards == []
+
+
+async def test_return_and_newlines_in_a_message_box_send():
+    hands = Hands({**SLACK, "window": "general | BSH - Slack"})
+    assert await hands.guard.keys("cmd+t") is None and hands.probed == []  # nothing to check
+    assert await hands.guard.typing("no line breaks here") is None and hands.probed == []
+    assert (await hands.guard.keys("return")).startswith("The user said no")
+    assert hands.cards[-1]["question"] == "Send this in Slack?"
+    assert "Key: return" in hands.cards[-1]["detail"]
+    await hands.guard.typing("see you there\n")
+    assert "see you there" in hands.cards[-1]["detail"]
+    # Mail: Return is a new line; ⌘⇧D sends. The Delete key deletes a selected message.
+    mail = Hands({"trusted": True, "app": "Mail", "bundle": "com.apple.mail", "window": "Re: Lunch",
+                  "focused": {"role": "AXTextArea", "value": "Sounds good", "editable": True}})  # fmt: skip
+    assert await mail.guard.keys("return") is None
+    assert await mail.guard.typing("line one\nline two") is None
+    await mail.guard.keys("cmd+shift+d")
+    assert mail.cards[-1]["question"] == "Send this in Mail?"
+    assert await mail.guard.keys("delete") is None  # a character, in the message box
+    mail.scene["focused"] = {"role": "AXTable", "title": "Messages"}
+    await mail.guard.keys("delete")
+    assert mail.cards[-1]["question"] == "Delete this in Mail?"
+    assert mail.cards[-1]["choices"] == ("Delete", "Don't delete")
+
+
+async def test_without_the_helper_a_messaging_app_asks_for_any_click():
+    hands = Hands({"app": "Messages", "bundle": "com.apple.MobileSMS", "fallback": True})
+    await hands.guard.click(100, 200)
+    assert hands.cards[-1]["question"] == "Send this in Messages?"
+    finder = Hands({"app": "Finder", "bundle": "com.apple.finder", "fallback": True})
+    assert await finder.guard.click(100, 200) is None and finder.cards == []
+    # A web app in a browser counts by its tab's title.
+    gmail = Hands({"trusted": True, "app": "Safari", "bundle": "com.apple.Safari",
+                   "window": "Inbox (3) - ann@example.com - Gmail"})  # fmt: skip
+    await gmail.guard.press(["Send"])
+    assert gmail.cards[-1]["question"] == "Send this in Gmail?"
+
+
+def test_a_conversation_is_named_only_in_full():
+    from jarvis.hands_guard import conversation_named
+
+    title = "Ann Lee (DM) - BSH Ventures - Slack"
+    assert conversation_named(title, "reply to Ann Lee saying yes")
+    assert not conversation_named(title, "reply to Ann saying yes")
+    assert not conversation_named("Ann Evans", "reply to Ann saying yes")
+    assert conversation_named("general | BSH - Slack", "post it in general")
+    assert conversation_named("王小明", "回复王小明说好的")
+    assert not conversation_named("", "anything")
+
+
+async def test_computer_tools_check_before_they_press(monkeypatch):
+    """press_button finds first and presses only a control named exactly what was checked
+    ("Place" must not become "Place order"); click, keys and typing go past the guard."""
+    import json
+
+    from jarvis import computer
+
+    hands = Hands(SLACK, asked=())
+    calls, mouse, keys, typed = [], [], [], []
+    found = {"found": True, "name": "place order", "labels": ["place order"], "app": "Amazon"}
+
+    async def run(*cmd, **_k):
+        calls.append(cmd)
+        return json.dumps(found)
+
+    monkeypatch.setattr(computer, "run_command", run)
+    monkeypatch.setattr(computer, "SETTLE", 0)
+    monkeypatch.setattr(computer, "_post_mouse", lambda *a: mouse.append(a))
+    monkeypatch.setattr(computer, "_post_keys", keys.append)
+    monkeypatch.setattr(computer, "_post_text", typed.append)
+    monkeypatch.setattr(computer, "create_sdk_mcp_server", lambda **k: k["tools"])
+    tools = {t.name: t.handler for t in computer.build_server(computer.Screen(), hands.guard)}
+    out = await tools["press_button"]({"name": "Place"})
+    assert out.get("is_error") and "built-in browser" in out["content"][0]["text"]
+    assert [c[-2:] for c in calls] == [("Place", "find")]  # never pressed
+    found.update(name="save", labels=["save"], app="TextEdit")
+    hands.scene = {"trusted": True, "app": "TextEdit", "bundle": "com.apple.TextEdit"}
+    await tools["press_button"]({"name": "Sav"})
+    assert calls[-1][-3:] == ("save", "click", "exact")  # exactly the one it checked
+    hands.scene = SLACK
+    out = await tools["press_keys"]({"keys": "return"})
+    assert out.get("is_error") and keys == []
+    out = await tools["type_text"]({"text": "the numbers\n"})
+    assert out.get("is_error") and typed == []
+    await tools["type_text"]({"text": "the numbers"})
+    assert typed == ["the numbers"]
+    hands.scene = {**SLACK, "at_app": "Slack", "at_bundle": "com.tinyspeck.slackmacgap",
+                   "press": {"role": "AXButton", "description": "Send now"}}  # fmt: skip
+    out = await tools["click"]({"x": 10, "y": 10})
+    assert out.get("is_error") and mouse == []
+    await tools["click"]({"x": 10, "y": 10, "button": "right"})  # a menu, not a press
+    assert len(mouse) == 1
+
+
+async def test_instant_commands_are_the_users_words_but_still_checked():
+    import json
+
+    from test_system_voice import Fake
+
+    from jarvis import system_voice
+    from jarvis.system_voice import Command
+
+    assert system_voice.carry_out is not real_carry_out  # conftest's stand-in elsewhere
+    clean = Hands(SLACK)
+    mac = Fake(
+        click=json.dumps({"found": True, "name": "send", "labels": ["send"], "app": "Slack"})
+    )
+    said = Command("click", "send", {"how": "click"})
+    assert await real_carry_out(said, mac.run, mac, free=True, guard=clean.guard) == "Done."
+    assert clean.cards == [] and mac.ran[-1][-3:] == ("send", "click", "exact")
+    # Once the conversation has read something, "click send" still shows the card.
+    read = Hands(SLACK, reads=("web",))
+    mac = Fake(click=json.dumps({"found": True, "name": "send", "app": "Slack"}))
+    assert await real_carry_out(said, mac.run, mac, free=True, guard=read.guard) == (
+        "Okay, I left it."
+    )
+    assert read.cards[-1]["question"] == "Send this in Slack?"
+    assert [r[-1] for r in mac.ran] == ["find"]  # found, never pressed
+    # A purchase, whatever was said and however free the hands are.
+    mac = Fake(click=json.dumps({"found": True, "name": "buy now", "app": "App Store"}))
+    reply = await real_carry_out(
+        Command("click", "buy now", {"how": "click"}), mac.run, mac, free=True, guard=clean.guard
+    )
+    assert reply.endswith("so press this one yourself.") and not mac.mouse
+    # "Click" where the pointer is doesn't say it's a send.
+    pointed = Hands({**SLACK, "at_app": "Slack", "at_bundle": "com.tinyspeck.slackmacgap",
+                     "press": {"role": "AXButton", "description": "Send"}})  # fmt: skip
+    mac = Fake()
+    reply = await real_carry_out(Command("point", "click"), mac.run, mac, True, pointed.guard)
+    assert reply == "Okay, I left it." and not mac.mouse
+    # "Press return" in a chat is asked for; after a read it shows the card.
+    keyed = Hands(SLACK, reads=("private",))
+    mac = Fake()
+    reply = await real_carry_out(Command("keys", "return", {"name": "return"}), mac.run, mac,
+                                 True, keyed.guard)  # fmt: skip
+    assert reply == "Okay, I left it." and mac.keys == []
+
+
+async def test_a_risky_button_found_by_part_of_its_name_is_never_pressed_first():
+    """The old path pressed first and checked the name after: "click sen" with control off
+    pressed Send, then said it was the user's to press."""
+    import json
+
+    from test_system_voice import Fake
+
+    from jarvis.system_voice import Command
+
+    mac = Fake(click=json.dumps({"found": True, "name": "send", "app": "Messages"}))
+    reply = await real_carry_out(Command("click", "sen", {"how": "click"}), mac.run, mac)
+    assert reply == "“send” is one I leave for you to press."
+    assert [r[-1] for r in mac.ran] == ["find"]
+
+
+async def test_the_hub_puts_the_guard_in_front_of_its_hands(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from jarvis import computer, lang, system_voice
+
+    guards = []
+    real = computer.build_server
+
+    def build_server(screen, guard=None):
+        guards.append(guard)
+        return real(screen, guard)
+
+    monkeypatch.setattr(computer, "build_server", build_server)
+    hub = await started(settings, quiet_speaker, isolated, said="open slack")
+    assert guards == [hub.hands_guard]  # the brain's computer tools get it
+    seen = {}
+
+    async def carry_out(command, **kwargs):
+        seen.update(kwargs)
+        return "Done."
+
+    monkeypatch.setattr(system_voice, "carry_out", carry_out)
+    assert await hub._instant_system("r1", "press return")
+    assert seen["guard"] is hub.hands_guard
+    assert hub.hands_guard.probe.enabled is False  # tests never look at the real Mac
+    hub._turn_text = "reply to Ann saying I'm in and send it"
+    assert hub._user_asked_for("hands_send")
+    hub._turn_text = "what did Ann say?"
+    assert not hub._user_asked_for("hands_send")
+    hub.set_prefs({"language": "zh"})
+    hub._turn_text = "回复安说我到了，然后发送"
+    assert hub._user_asked_for("hands_send")
+    hub._turn_text = "消息发送了吗"
+    assert not hub._user_asked_for("hands_send")
+    assert lang.translate("Send this in Slack?") == "要在 Slack 里发送这个吗？"
