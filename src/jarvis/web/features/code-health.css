@@ -1,0 +1,19 @@
+/* Jarvis Code's Health pane (features/code-health.js): short rows, the sign-in command to
+   copy, and a session's error as text. */
+
+.ch-head { margin: 10px 2px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: rgb(var(--c-muted)); }
+.ch-head:first-child { margin-top: 2px; }
+.ch-list li.ch-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ch-label { min-width: 96px; color: rgb(var(--c-ink-2)); }
+.ch-value { font-weight: 550; }
+.ch-path { font-family: var(--mono); word-break: break-all; }
+.ch-bad { color: rgb(var(--c-danger-ink)); }
+.ch-state.ok { color: rgb(var(--c-success-ink)); }
+.ch-state.problem { color: rgb(var(--c-danger-ink)); }
+.ch-state.unknown { color: rgb(var(--c-warning-ink)); }
+.ch-hint { margin: 4px 2px; }
+.ch-command { display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin: 4px 0; border-radius: 9px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.ch-command code { flex: 1; min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
+.ch-error { margin: 6px 0; padding: 8px 10px; border-radius: 9px; max-height: 160px; overflow: auto; white-space: pre-wrap; font: 11.5px/1.5 var(--mono); background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.ch-reconnect { margin-top: 6px; }
+.ch-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; }

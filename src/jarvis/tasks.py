@@ -2127,6 +2127,21 @@ class TaskManager:
             self._changed()
         return True
 
+    def reconnect(self, task_id: int) -> str:
+        """The owner's Reconnect (Jarvis Code's Health pane): a session that ended (closed,
+        or it failed to start or crashed) starts again on the same conversation; a live one
+        gets a new connection between steps. "started", "reopened", or "" for no session."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return ""
+        if task.handle is None or task.handle.done():
+            task.status, task.restarts = "running", 0
+            task.handle = asyncio.create_task(self._session(task))
+            self._changed()
+            return "started"
+        self._reopen_soon(task, "Reconnecting.")
+        return "reopened"
+
     def add_entry(self, task_id: int, role: str, text: str, **extra: Any) -> bool:
         """A feature's own entry in a session's transcript (a preview check and its proof)."""
         task = self.tasks.get(task_id)

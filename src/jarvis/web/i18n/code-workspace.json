@@ -103,7 +103,23 @@
     "Yours: ~/.claude/CLAUDE.md": "你的：~/.claude/CLAUDE.md",
     "Shared with whoever works on it": "和在这个项目上工作的人共享",
     "Just yours, this project": "只是你的，这个项目",
-    "Just yours, every project": "只是你的，所有项目"
+    "Just yours, every project": "只是你的，所有项目",
+    "It stopped with an error": "它因出错而停止",
+    "Closed: it opens again with your next message": "已关闭：你发下一条消息时会再打开",
+    "Built into Jarvis": "内置于 Jarvis",
+    "Not found": "没有找到",
+    "Engine": "引擎",
+    "Couldn’t tell": "无法判断",
+    "Claude sign-in": "Claude 登录",
+    "State": "状态",
+    "Connection": "连接",
+    "Not connected": "未连接",
+    "Note": "备注",
+    "On the fallback model since Claude couldn’t answer": "因为 Claude 无法回答，正在使用后备模型",
+    "Start it again on the same conversation": "在同一个对话上重新启动它",
+    "A new connection, between steps": "在两步之间换一个新连接",
+    "Open a session to see how its connection is doing.": "打开一个会话，查看它的连接情况。",
+    "Check again": "再检查一次"
   },
   "patterns": [
     [

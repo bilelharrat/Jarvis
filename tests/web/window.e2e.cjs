@@ -4286,6 +4286,34 @@ test('The Files pane’s Memory menu opens the three CLAUDE.md files, the owner�
   assert(save && save.memory === 'user' && save.path === 'CLAUDE.md' && save.create === true && save.base === null && save.text === '# Me\n', JSON.stringify(save));
 });
 
+test('The Health pane shows the engine, the sign-in with the command that signs in, and reconnects a failed session', async () => {
+  await featureScript('code-health.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(await clickText('#jc-menu', 'Health'), 'no Health in the More menu');
+  const [asked] = await sentOf('cw_health');
+  assert(asked && asked.id === 1 && !asked.fresh, JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_health', id: 1, sdk: '0.9.1',
+    engine: { version: '2.1.3', path: '/app/_bundled/claude', bundled: true },
+    signin: { state: 'problem', summary: 'Not signed in', hint: 'Sign in once in Terminal with the command below, then check again.', plan: '', command: 'claude auth <b>login</b>' },
+    session: { id: 1, status: 'failed', connected: false, busy: false, model: 'Fable', error: 'Claude Code exited: <i>boom</i>', fell_back: false } });
+  await frames(2);
+  const r = await js(`({ title: $('jc-pane-title').textContent, text: $('jc-pane-body').textContent,
+    command: (document.querySelector('#jc-pane-body .ch-command code') || {}).textContent,
+    error: (document.querySelector('#jc-pane-body .ch-error') || {}).textContent,
+    markup: document.querySelectorAll('#jc-pane-body b, #jc-pane-body i').length })`);
+  assert(r.title === 'Health' && r.text.includes('2.1.3') && r.text.includes('Built into Jarvis') && r.text.includes('Not signed in'), JSON.stringify(r));
+  assert(r.command === 'claude auth <b>login</b>' && r.error === 'Claude Code exited: <i>boom</i>' && r.markup === 0, JSON.stringify(r));
+  assert(r.text.includes('It stopped with an error') && r.text.includes('Not connected'), r.text);
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body', 'Reconnect'), 'no Reconnect');
+  assert(JSON.stringify(await sentOf('cw_reconnect')) === JSON.stringify([{ type: 'cw_reconnect', id: 1 }]), JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body', 'Check again'), 'no Check again');
+  const [fresh] = await sentOf('cw_health');
+  assert(fresh && fresh.fresh === true, JSON.stringify(await js('__sent')));
+});
+
 // ──
 
 let base;
