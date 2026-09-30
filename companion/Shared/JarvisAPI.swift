@@ -217,9 +217,13 @@ struct JarvisAPI: Sendable {
         _ = try await post("api/push/unregister", [:], timeout: 6)
     }
 
-    /// `activity` is "<kind>:<id>" (code, delegation, call, video).
-    func registerLiveActivity(_ activity: String, token: String) async throws {
-        _ = try await post("api/live/register", ["activity": .string(activity), "token": .string(token)], timeout: 10)
+    /// `activity` is "<kind>:<id>" (code, delegation, call, video). The environment and bundle
+    /// id say which APNs the token belongs to (sandbox for Debug builds).
+    func registerLiveActivity(_ activity: String, token: String, environment: String, bundleID: String) async throws {
+        _ = try await post("api/live/register", [
+            "activity": .string(activity), "token": .string(token),
+            "environment": .string(environment), "bundle_id": .string(bundleID),
+        ], timeout: 10)
     }
 
     // MARK: - Jarvis Code

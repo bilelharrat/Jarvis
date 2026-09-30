@@ -59,6 +59,8 @@
 	<string>Listens after you tap the reactor, so you can talk to Jarvis.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Turns what you say into a request for Jarvis, on your iPhone when it can.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

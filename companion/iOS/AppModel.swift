@@ -90,6 +90,7 @@ final class AppModel {
         voice.onProblem = { [weak self] message in self?.show(message, style: .problem) }
         PushCoordinator.shared.onOpen = { [weak self] destination in self?.destination = destination }
         SnapshotPublisher.shared.onChange = { [weak self] snapshot in self?.watch.send(snapshot: snapshot) }
+        LiveActivities.shared.resume()
         PushCoordinator.shared.onChange = { [weak self] in
             Task { await self?.refresh() }
         }
@@ -601,6 +602,7 @@ final class AppModel {
             if link != .online { link = .online }
             apply(state)
             if let pairing { SnapshotPublisher.shared.publish(state, macName: pairing.macLabel) }
+            if foreground { Task { await LiveActivities.shared.sync(state, api: api, inForeground: true) } }
             if !queued.isEmpty { startDrain() }
         } catch JarvisError.unpaired {
             if pairing?.token == api.token { lost() }
@@ -660,6 +662,7 @@ final class AppModel {
         PairingStore.clear()
         outbox.removeAll()  // nothing kept for this Mac goes to another
         SnapshotPublisher.shared.clear()
+        Task { await LiveActivities.shared.endAll() }
         queued = []
         pairing = nil
         remote = nil

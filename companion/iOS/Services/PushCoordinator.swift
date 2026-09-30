@@ -123,6 +123,7 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
     /// under a sheet); anything else as usual.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let push = JarvisPush(userInfo: notification.request.content.userInfo)
+        if let push { await LiveActivities.shared.handle(push) }  // a call or a video summary starts here
         await MainActor.run { self.onChange?() }
         if push?.isApproval == true { return [.banner, .list] }
         return [.banner, .list, .sound]
@@ -137,6 +138,7 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
         case UNNotificationDefaultActionIdentifier:
             guard let push = JarvisPush(userInfo: userInfo) else { return }
             await MainActor.run { self.open(Destination(push: push)) }
+            await LiveActivities.shared.handle(push)
         case UNNotificationDismissActionIdentifier:
             return
         default:

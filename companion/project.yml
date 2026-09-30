@@ -23,6 +23,7 @@ targets:
     platform: iOS
     sources:
       - path: Shared
+      - path: Activity
       - path: iOS
     dependencies:
       - target: JarvisCompanionWatch
@@ -72,6 +73,7 @@ targets:
           - fetch
         BGTaskSchedulerPermittedIdentifiers:
           - com.bshventures.jarvis.companion.refresh
+        NSSupportsLiveActivities: true
     entitlements:
       path: iOS/JarvisCompanion.entitlements
       properties:
@@ -121,6 +123,7 @@ targets:
     platform: iOS
     sources:
       - path: Shared
+      - path: Activity
       - path: WidgetsCommon
       - path: Widgets
     settings:

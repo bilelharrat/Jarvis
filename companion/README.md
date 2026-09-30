@@ -150,6 +150,20 @@ with when it was last heard. The Watch keeps its own snapshot: from its own visi
 Mac, its own background refresh (about every half hour), and what the iPhone passes on
 when a complication is on the face. No model calls anywhere: `/api/state` only.
 
+## Live Activities
+
+On the Lock Screen and in the Dynamic Island (compact, minimal and expanded): a Jarvis
+Code session working or waiting on you, a conversation held for you, a call, a video
+summary. The app starts them in front, from `/api/state` (sessions working or needing
+you; conversations, from `/api/delegations`, while the Mac says some are active) and from
+a call or video-summary push that arrives while it's open; what needs you goes first, at
+most three at once. Each activity's push token goes to the Mac (`POST /api/live/register`
+with `"<kind>:<id>"`, the APNs environment and the bundle id), and the Mac updates it by
+push with the contract's content state (`{title, status, detail, progress?, needsYou,
+updatedAt}`) and ends it with `event: "end"`. The app updates and ends them too, from
+every state it gets (also on background refresh): a finished session shows its last word
+for ten minutes; a call ends when its outcome push comes. Unpairing ends them all.
+
 ## When the Mac can't be reached
 
 Requests that still mean something later wait in an outbox on the iPhone (the App Group
@@ -233,5 +247,6 @@ Watch/                      WatchModel, WatchSessionBridge, WatchRefresh, Views/
 Widgets/                    the iPhone widget extension (Home Screen, Lock Screen)
 WatchWidgets/               the Watch complications extension
 WidgetsCommon/              the timeline provider and the glances both extensions show
+Activity/                   the Live Activity attributes and plan (app and widget extension)
 Tests/, UITests/            unit tests; the end-to-end UI test
 ```

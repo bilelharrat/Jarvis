@@ -21,6 +21,7 @@ enum BackgroundRefresh {
         do {
             let state = try await pairing.api.state()
             SnapshotPublisher.shared.publish(state, macName: pairing.macLabel)
+            await LiveActivities.shared.sync(state, api: pairing.api, inForeground: false)
             _ = await OutboxSender.drain(.shared, send: OutboxSender.sender(for: pairing.api))
         } catch {
             SnapshotPublisher.shared.markOffline()

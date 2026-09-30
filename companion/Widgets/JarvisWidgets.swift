@@ -6,6 +6,7 @@ struct JarvisWidgetBundle: WidgetBundle {
     var body: some Widget {
         JarvisStatusWidget()
         JarvisCodeWidget()
+        JarvisLiveActivityWidget()
     }
 }
 
