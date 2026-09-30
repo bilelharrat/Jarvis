@@ -45,9 +45,10 @@ _FILE_KEYS = frozenset({"path", "paths", "file", "files", "file_path", "filepath
 _SCRIPT_KEYS = frozenset({"script", "code", "expression", "js", "javascript", "function"})
 _TAB_KEYS = frozenset({"tab", "tabs", "tab_id", "tabid", "tab_index"})
 # Where and how to act, not what goes in: a selector, an element's ref or id, a position,
-# a verb.
+# a verb (browser_tabs' op: list, switch, open, close).
 _WHERE_KEYS = frozenset(
     {
+        "op",
         "selector",
         "ref",
         "id",

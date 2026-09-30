@@ -6,7 +6,7 @@ from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPe
 from test_tasks import manager
 from test_turn_gate import answer, started
 
-from jarvis import brain, code_tools
+from jarvis import brain, browser_gate, code_tools
 from jarvis.tasks import DENY, ClaudeTask
 
 BROWSER = brain.browser_tool
@@ -90,3 +90,29 @@ async def test_a_code_session_s_press_in_a_tab_it_names_weighs_that_tab(settings
     out = await policy(act, {"action": "press", "key": "Enter", "tab": 9}, CTX)
     assert isinstance(out, PermissionResultDeny)
     assert asked[-1][0].endswith("mail.example.com")
+
+
+# ── browser_tabs: what op says is where, not words typed into a page ──
+
+
+def test_a_tabs_call_s_op_carries_no_words():
+    for args in ({"op": "list"}, {"op": "switch", "id": 3}, {"op": "close", "id": 3},
+                 {"op": "switch", "id": 3, "background": True}):  # fmt: skip
+        what = browser_gate.carried(BROWSER("browser_tabs"), args)
+        assert what.words == "" and not what.urls and not what.submit, args
+    opened = browser_gate.carried(BROWSER("browser_tabs"), {"op": "open", "url": "x.com/a"})
+    assert opened.words == "" and opened.urls == ["x.com/a"]
+
+
+async def test_listing_tabs_after_private_reads_types_nothing(settings, quiet_speaker, isolated):
+    """browser_tabs takes op (list, switch, open, close): a list after private reads is no
+    typing of the word "list" into the page on show."""
+    hub = await started(settings, quiet_speaker, isolated, said="read my notes, then my tabs")
+    tabs_at(hub, {None: "https://forms.evil.example/contact"})
+    hub.note_tool_result("mcp__brain__read_note")
+    q = hub.subscribe()
+    pending = asyncio.create_task(hub.turn_gate(BROWSER("browser_tabs"), {"op": "list"}))
+    approval = await answer(hub, q, "allow")
+    assert await pending is True
+    assert not approval["question"].startswith("Type into"), approval["question"]
+    assert "What I'd type" not in approval["detail"]
