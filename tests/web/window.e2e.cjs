@@ -19,12 +19,21 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/ja
 app.setPath('userData', fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jarvis-window-test-')));
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1');
 
+// Widget documents, as the backend serves them on /f/widgets/<id> (features.widgets): the
+// widget tests put theirs here.
+const WIDGET_DOCS = new Map();
+
 function serve() {
   const server = http.createServer((req, res) => {
     const { pathname } = new URL(req.url, 'http://127.0.0.1');
     // A feature module's window files (loaded by a test that wants one: featureScript).
     const feature = pathname.startsWith('/static/features/') ? `features/${path.basename(pathname)}` : '';
     const name = pathname === '/' ? 'index.html' : feature || (pathname.startsWith('/static/') ? path.basename(pathname) : '');
+    if (WIDGET_DOCS.has(pathname)) {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(WIDGET_DOCS.get(pathname));
+      return;
+    }
     fs.readFile(path.join(WEB, name || '-'), (err, data) => {
       if (err || !name) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { 'content-type': TYPES[path.extname(name)] || 'application/octet-stream' });
@@ -3154,6 +3163,55 @@ test('A picture on a card, opened only by its id; Settings › Pictures', async 
   assert(JSON.stringify(await sentOf('feature_prefs')) === '[{"type":"feature_prefs","changes":{"image_model":"gemini-3-pro-image-preview"}}]', 'the model was not set');
   await js('__sent.length = 0');
   assert(await clickText('#pictures-group', 'Show the Images folder') && (await sentOf('pictures_folder')).length === 1, 'the folder was not asked for');
+});
+
+// A widget document that tries to reach the window from its sandbox, and says what it got.
+const PROBE = `<!doctype html><p>probe</p><script>
+  const got = { origin: self.origin, referrer: document.referrer };
+  try { got.parent = parent.document.title; } catch (e) { got.parent = 'blocked'; }
+  try { got.address = parent.location.href; } catch (e) { got.address = 'blocked'; }
+  try { localStorage.setItem('x', '1'); got.storage = 'open'; } catch (e) { got.storage = 'blocked'; }
+  try { got.cookie = document.cookie; } catch (e) { got.cookie = 'blocked'; }
+  parent.postMessage(got, '*');
+</script>`;
+const WID = 'Wd9_-Abcdefghijklmnopqrs';
+
+test('A widget: on a card and the dashboard, sealed in its sandbox, pinned and taken off', async () => {
+  WIDGET_DOCS.set(`/f/widgets/${WID}`, PROBE);
+  WIDGET_DOCS.set('/f/widgets/Quiet-Abcdefghijklmnopq', '<!doctype html><svg width="10" height="10"></svg>');
+  await loadFeatures('widgets.js', 'widgets.css');
+  await js('window.__probes = []; window.addEventListener("message", (e) => __probes.push(e.data)); true');  // the test's ears, not the window's
+  await js(`__ev(${JSON.stringify(HELLO)})`);
+  assert((await sentOf('widgets_state')).length === 1, 'the pinned ones were not asked for');
+  const widget = { type: 'widget', rid: 'r1', id: WID, title: 'The <b>week</b>', url: `/f/widgets/${WID}`, scripts: true, height: 300, made: '', pinned: false };
+  await js(`__ev(${JSON.stringify(widget)})`);
+  const frame = await js(`(() => { const f = document.querySelector('#cards .wg-card iframe'); return { sandbox: f.getAttribute('sandbox'), ref: f.getAttribute('referrerpolicy'), src: f.getAttribute('src'),
+    height: f.height, title: document.querySelector('#cards .wg-card .card-title').textContent, bold: document.querySelectorAll('#cards b').length }; })()`);
+  assert(frame.sandbox === 'allow-scripts' && frame.ref === 'no-referrer' && frame.src === widget.url && frame.height === '300', JSON.stringify(frame));
+  assert(frame.title === 'The <b>week</b>' && frame.bold === 0, JSON.stringify(frame));
+  for (let i = 0; i < 300 && !(await js('__probes.length')); i++) await sleep(50);  // a busy Mac: up to 15 s
+  const [probe] = await js('__probes');
+  assert(probe, 'the widget never loaded');
+  assert(probe.origin === 'null' && probe.parent === 'blocked' && probe.address === 'blocked' && probe.storage === 'blocked' && probe.referrer === '', JSON.stringify(probe));
+  // One without scripts gets no scripts at all (sandbox=""); an address not its own never loads.
+  await js(`__ev(${JSON.stringify({ ...widget, id: 'Quiet-Abcdefghijklmnopq', url: '/f/widgets/Quiet-Abcdefghijklmnopq', scripts: false })})`);
+  await js(`__ev(${JSON.stringify({ ...widget, id: 'Far-Abcdefghijklmnopqrs', url: 'https://example.com/w' })})`);
+  const others = await js('[...document.querySelectorAll("#cards .wg-card iframe")].slice(1).map((f) => [f.getAttribute("sandbox"), f.getAttribute("src")])');
+  assert(JSON.stringify(others) === '[["","/f/widgets/Quiet-Abcdefghijklmnopq"],["allow-scripts",null]]', JSON.stringify(others));
+  await js('__sent.length = 0');
+  assert(await clickText('#cards .wg-card', 'Pin to dashboard'), 'no Pin to dashboard');
+  assert(JSON.stringify(await sentOf('widget_pin')) === `[{"type":"widget_pin","id":"${WID}"}]`, 'the pin was not asked for');
+  const listed = { id: WID, title: widget.title, url: widget.url, scripts: true, height: 300, made: '', pinned: true };
+  await js(`__ev(${JSON.stringify({ type: 'widgets', pinned: [listed], error: '' })})`);
+  const board = await js(`({ hidden: $('p-widgets').hidden, titles: [...document.querySelectorAll('#wg-list .wg-title')].map((n) => n.textContent),
+    sandbox: document.querySelector('#wg-list iframe').getAttribute('sandbox'), pin: document.querySelector('#cards .wg-card .btn.primary').disabled })`);
+  assert(!board.hidden && JSON.stringify(board.titles) === '["The <b>week</b>"]' && board.sandbox === 'allow-scripts' && board.pin, JSON.stringify(board));
+  await js('__sent.length = 0; document.querySelector("#wg-list .wg-remove").click()');
+  assert(JSON.stringify(await sentOf('widget_remove')) === `[{"type":"widget_remove","id":"${WID}"}]`, 'the remove was not asked for');
+  await js(`__ev({ type: 'widgets', pinned: [], error: 'The dashboard holds 12 widgets; remove one first.' })`);
+  const after = await js(`({ hidden: $('p-widgets').hidden, pin: document.querySelector('#cards .wg-card .btn.primary').disabled, notice: [...document.querySelectorAll('#cards .card')].some((c) => c.textContent.includes('holds 12 widgets')) })`);
+  assert(after.hidden && !after.pin && after.notice, JSON.stringify(after));
+  WIDGET_DOCS.clear();
 });
 
 // ──

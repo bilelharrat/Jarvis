@@ -1007,6 +1007,7 @@ class Hub:
         self._notify_gates: list[Callable[[Alert], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
         self._webhook: Callable[[str, Any], Any] | None = None
+        self.routes: list[Any] = []  # feature modules' own addresses on the window's server
         self.features = features.install_all(self)
 
     # ── features: what jarvis.features modules register ──
@@ -1082,6 +1083,16 @@ class Hub:
         self._approval_sinks.append(sink)
         if resolved is not None:
             self._approval_done_sinks.append(resolved)
+
+    def register_route(
+        self, path: str, endpoint: Callable[..., Any], methods: tuple[str, ...] = ("GET",)
+    ) -> None:
+        """An address of the feature's own on the window's server (a Starlette endpoint;
+        by convention under /f/<feature>/). It gets no token check of its own: the route
+        decides what it serves and to whom (a widget by an id nobody could guess)."""
+        from starlette.routing import Route
+
+        self.routes.append(Route(path, endpoint, methods=list(methods)))
 
     def add_notify_gate(self, gate: Callable[[Alert], Any]) -> None:
         """Hold heads-ups back: one its gate returns False for doesn't show at all (the menu

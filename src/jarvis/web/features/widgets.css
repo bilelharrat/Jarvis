@@ -1,0 +1,10 @@
+/* Widgets on cards and on the dashboard (widgets.js) */
+.wg-frame { display: block; width: 100%; border: 0; border-radius: 10px; background: transparent; margin-top: 8px; }
+.wg-card .wg-frame { background: var(--card); border: 1px solid var(--line); }
+.wg-list { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; }
+.wg-item { display: flex; flex-direction: column; }
+.wg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wg-title { font-size: 12.5px; font-weight: 600; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wg-remove { width: 22px; height: 22px; font-size: 15px; line-height: 1; opacity: 0.6; }
+.wg-remove:hover, .wg-remove:focus-visible { opacity: 1; }
+.wg-item .wg-frame { margin-top: 4px; }

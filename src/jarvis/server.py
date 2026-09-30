@@ -215,6 +215,7 @@ def create_app(hub: Hub, token: str) -> Starlette:
             Route("/features.json", features_json),
             Route("/hooks/{name}", inbound_hook, methods=["POST"]),
             Route("/models/hand_landmarker.task", hand_model),
+            *getattr(hub, "routes", ()),  # the feature modules' own (hub.register_route)
             WebSocketRoute("/ws", socket),
             Mount("/static", FreshStaticFiles(directory=WEB_DIR)),
             Mount("/vision", StaticFiles(directory=VISION_DIR, check_dir=False)),

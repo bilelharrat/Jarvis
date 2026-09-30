@@ -1,0 +1,17 @@
+{
+  "strings": {
+    "Widget": "小组件",
+    "Widgets": "小组件",
+    "Pinned": "已固定",
+    "Pin to dashboard": "固定到仪表板",
+    "Take this widget off the dashboard": "把这个小组件从仪表板上拿掉",
+    "Showed a widget": "显示了一个小组件",
+    "Pinned a widget": "固定了一个小组件",
+    "Listed the widgets": "列出了小组件",
+    "Removed a widget": "移除了一个小组件",
+    "The dashboard holds 12 widgets; remove one first.": "仪表板最多放 12 个小组件；请先移除一个。",
+    "That widget isn't there any more.": "那个小组件已经不在了。",
+    "That widget isn't on the dashboard.": "那个小组件不在仪表板上。"
+  },
+  "patterns": []
+}

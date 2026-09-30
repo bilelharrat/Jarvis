@@ -29,6 +29,8 @@ A feature registers what it adds through the hub instead of editing its core tab
   show at all (the menu bar's "Pause heads-ups for an hour").
 - hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
   in tests, never the user's real data there).
+- hub.register_route(path, endpoint, methods): an address of the feature's own on the window's
+  server, under /f/<feature>/ by convention (no token check: the route decides what it serves).
 - prefs.register_feature_pref(key, default, clean): a setting kept in prefs.features; read
   it with hub.prefs.feature(key), change it from the window with {"type": "feature_prefs",
   "changes": {key: value}}.
