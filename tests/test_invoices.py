@@ -62,6 +62,9 @@ def test_totals_tax_and_due_date(store):
         [{"description": "x", "quantity": 0, "unit_price": 5}],
         [{"description": "x", "unit_price": "lots"}],
         [{"description": "x", "unit_price": -3}],
+        [{"description": "x", "unit_price": "nan"}],
+        [{"description": "x", "quantity": "inf", "unit_price": 5}],
+        [{"description": "x", "unit_price": "1e309"}],
     ],
 )
 def test_lines_that_do_not_add_up_are_refused(items):

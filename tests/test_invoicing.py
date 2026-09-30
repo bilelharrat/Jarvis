@@ -80,6 +80,25 @@ def test_a_schedule_keeps_its_day_of_the_month(tmp_path):
     assert again.stop("acme") is not None and again.public() == []
 
 
+def test_a_hand_edited_schedule_day_that_cant_be_is_left_out(tmp_path):
+    """A month's day 0, 32 or -3, or a weekday 9, can't be advanced: such a row (a hand edit, a
+    damaged file) is kept aside and never issues, rather than issuing an invoice at every
+    look because its next day can't be worked out once the invoice is made."""
+    path = tmp_path / "recurring.json"
+    good = {"id": "s1", "client": "Acme", "lines": [{"description": "Retainer",
+            "quantity": 1, "unit_price": 100}], "every": "monthly", "next": "2026-10-01",
+            "anchor": 1}  # fmt: skip
+    rows = [good] + [
+        {**good, "id": f"b{n}", "every": every, "anchor": anchor}
+        for n, (every, anchor) in enumerate(
+            [("monthly", 0), ("quarterly", 32), ("yearly", -3), ("weekly", 9)]
+        )
+    ]
+    path.write_text(json.dumps(rows))
+    recurring = invoices.Recurring(path)
+    assert [x.id for x in recurring.due(date(2026, 10, 1))] == ["s1"]
+
+
 # ── the tools ──
 
 
@@ -461,6 +480,17 @@ async def test_a_recurring_invoice_for_a_client_no_longer_listed_takes_no_one_el
     assert await desk.issue_due() == ["INV-2026-001"]
     invoice = hub.invoices.invoices[-1]
     assert (invoice.client, invoice.client_email, invoice.client_address) == ("Acme", "", "")
+
+
+def test_a_hand_edited_date_on_an_invoice_never_stops_the_overdue_list(tmp_path):
+    path = tmp_path / "invoices.json"
+    row = {"number": "INV-2026-001", "issued": "2026-08-01T09:30", "due": "2026-09-01T00:00",
+           "client": "Acme", "lines": [{"description": "x", "quantity": 1, "unit_price": 5}],
+           "reminded": ["someday", "2026-09-20"]}  # fmt: skip
+    path.write_text(json.dumps({"invoices": [row]}))
+    store = invoices.InvoiceStore(path, tmp_path / "Invoices")
+    [late] = invoices.overdue(store, date(2026, 10, 1))
+    assert (late.number, late.due, late.reminded) == ("INV-2026-001", "2026-09-01", ["2026-09-20"])
 
 
 async def test_a_recurring_invoice_goes_out_on_its_day(settings, quiet_speaker, isolated):

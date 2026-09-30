@@ -117,7 +117,12 @@ def clean_lines(items: Any) -> list[Line]:
             raise ValueError(
                 f"I couldn't read the numbers on “{description or 'a line'}”."
             ) from exc
-        if not description or quantity <= 0 or unit_price < 0:
+        if (
+            not description
+            or not (math.isfinite(quantity) and math.isfinite(unit_price))
+            or quantity <= 0
+            or unit_price < 0
+        ):
             raise ValueError(
                 f"The line “{description or '?'}” needs a quantity above zero and a price."
             )
@@ -158,9 +163,11 @@ def _invoice_from(item: Any) -> Invoice | None:
             return None
         if not isinstance(invoice.reminded, list):
             return None
-        invoice.reminded = [d for d in invoice.reminded if isinstance(d, str)][-20:]
-        datetime.fromisoformat(invoice.issued)
-        datetime.fromisoformat(invoice.due)
+        # Days as the rest reads them ("2026-09-01"), whatever time a hand edit gave them;
+        # a reminder's day that isn't one is dropped.
+        invoice.reminded = [d for d in invoice.reminded if isinstance(d, str) and _day(d)][-20:]
+        invoice.issued = datetime.fromisoformat(invoice.issued).date().isoformat()
+        invoice.due = datetime.fromisoformat(invoice.due).date().isoformat()
         invoice.tax_percent = float(invoice.tax_percent)
     except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
         return None
@@ -173,6 +180,14 @@ def _invoice_from(item: Any) -> Invoice | None:
     for name in _CLEANED:
         setattr(invoice, name, clean_text(getattr(invoice, name)))
     return invoice
+
+
+def _day(text: str) -> bool:
+    try:
+        date.fromisoformat(text[:10])
+    except ValueError:
+        return False
+    return True
 
 
 def _write_new(path: Path, data: bytes) -> Path:
@@ -655,6 +670,11 @@ def _schedule_from(raw: Any) -> Schedule | None:
         date.fromisoformat(schedule.next)
         schedule.lines = [asdict(line) for line in clean_lines(schedule.lines)]
         schedule.anchor = int(schedule.anchor)
+        # A day its next one can be worked out from: a weekday, or a day of the month.
+        if not (
+            0 <= schedule.anchor <= 6 if schedule.every == "weekly" else 1 <= schedule.anchor <= 31
+        ):
+            return None
         schedule.due_days = max(0, min(365, int(schedule.due_days)))
         schedule.tax_percent = max(0.0, min(50.0, float(schedule.tax_percent)))
         if not math.isfinite(schedule.tax_percent):
