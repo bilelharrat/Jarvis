@@ -22,7 +22,7 @@ from jarvis.brain_sources import (
     extra_sources,
     finisher,
 )
-from jarvis.knowledge import Collector, KnowledgeBase
+from jarvis.knowledge import Collector, KnowledgeBase, _redacted
 
 # ── conversations ──
 
@@ -85,6 +85,26 @@ def test_a_conversation_keeps_both_sides_words_and_nothing_else(tmp_path):
     for hidden in ("Note from the app", "18°C", "Dentist at 3pm", "internal", "hmm", "task"):
         assert hidden not in n.text
     assert n.modified.startswith("2026-")
+
+
+def test_a_key_in_a_conversations_first_words_never_reaches_its_group(tmp_path):
+    """A conversation's group (the galaxy's cluster, the line search_notes gives Claude) is
+    its title cut short: made from the redacted title, so a key said in the first words is
+    blanked there too, and never cut to a piece too short to be recognised."""
+    folder = tmp_path / "workspace"
+    folder.mkdir()
+    key = "sk-" + "proj-" + "Abcdefghij" * 3 + "123456"  # made up, and built at runtime
+    chat = [said("user", f"my openai key {key} set it up please"), said("assistant", "Done.")]
+    list_sessions, get_messages, _ = fake_sdk([session("s1", chat)])
+    found = collect_conversations(
+        folder, tmp_path / "saved", list_sessions=list_sessions, get_messages=get_messages
+    )
+    kb = KnowledgeBase(tmp_path / "brain" / "index.json")
+    kb.build({"conversations": [_redacted(n) for n in found]})  # as Collector.run keeps them
+    [n] = kb.notes
+    assert "Abcdefghij" not in n.group and n.group.startswith("my")
+    assert "Abcdefghij" not in json.dumps(kb.galaxy()) and "Abcdefghij" not in n.title
+    assert all("Abcdefghij" not in json.dumps(hit) for hit in kb.search("openai key"))
 
 
 def test_a_blank_title_never_loses_every_conversation(tmp_path):

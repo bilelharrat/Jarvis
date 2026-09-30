@@ -140,6 +140,7 @@ def _redacted(note: Note) -> Note:
 
     note.title = redact(note.title)
     note.text = redact(note.text)
+    note.group = redact(note.group)  # shown in the galaxy and given to Claude with each hit
     return note
 
 

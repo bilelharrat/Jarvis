@@ -190,6 +190,8 @@ def collect_conversations(
 
 
 def _session_notes(info: Any, messages: list[Any]) -> list[Note]:
+    from .fileindex import redact
+
     lines = conversation_lines(messages)
     first = next((line[5:] for line in lines if line.startswith("You: ")), "")
     replied = any(line.startswith("Jarvis: ") for line in lines)
@@ -209,7 +211,9 @@ def _session_notes(info: Any, messages: list[Any]) -> list[Note]:
                 title=(opener.splitlines()[0] if len(parts) > 1 else title)[:100],
                 text=f"A conversation with Jarvis, {when:%A %d %B %Y}.\n\n" + "\n\n".join(part),
                 ref=str(info.session_id),
-                group=title[:60],
+                # Cut from the title with its secrets blanked: cut first, a key's end could
+                # be too short to be recognised as one.
+                group=redact(title)[:60],
                 modified=_iso(when),
             )
         )
