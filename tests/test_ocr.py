@@ -150,6 +150,23 @@ def test_a_reader_that_stalls_or_cant_be_built_stops_reading_not_the_rebuild(tmp
     assert len(collect_images([desk], cache, lambda: later, home=home)) == 2
 
 
+def test_an_image_the_helper_keeps_failing_on_is_set_aside_not_asked_forever(tmp_path):
+    """One picture that stalls or crashes the reader twice is kept as having no text, so
+    every later rebuild reads the older ones instead of stopping at it again."""
+    home = tmp_path / "home"
+    desk = home / "Desktop"
+    image(desk / "a.png", stamp=1_790_000_002)
+    image(desk / "b.png", stamp=1_790_000_001)
+    cache = tmp_path / "images.db"
+    for _ in range(2):
+        stuck = FakeReader(fail_on="a.png")
+        assert collect_images([desk], cache, lambda s=stuck: s, home=home) == []
+        assert stuck.read == ["a.png"]
+    later = FakeReader(fail_on="a.png")
+    found = collect_images([desk], cache, lambda: later, home=home)
+    assert later.read == ["b.png"] and [n.title for n in found] == ["b"]
+
+
 def test_a_cache_damaged_past_its_first_table_starts_afresh(tmp_path):
     """Damage the open-time look doesn't see (the texts table's pages) is found when it's
     opened, and the cache starts afresh: never a rebuild that fails on it every time."""

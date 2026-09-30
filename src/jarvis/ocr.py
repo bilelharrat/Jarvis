@@ -51,6 +51,7 @@ CONSIDERED = 3000  # the newest images looked at in a rebuild
 OCR_PER_BUILD = 300  # new ones read in a rebuild...
 OCR_SECONDS = 200.0  # ...within this long (all sources share five minutes)
 IMAGE_SECONDS = 30.0  # one image
+STRIKES = 2  # an image the reader failed on this often is kept as having no text
 MIN_TEXT = 12  # characters: less is a logo or a button, not text worth finding
 MAX_TEXT = 20_000
 SF_DATALESS = 0x40000000  # an iCloud file whose contents aren't on this Mac
@@ -80,6 +81,8 @@ class TextCache:
             "(path TEXT PRIMARY KEY, size INTEGER, mtime REAL, key TEXT)"
         )
         conn.execute("CREATE TABLE IF NOT EXISTS texts (key TEXT PRIMARY KEY, text TEXT, at REAL)")
+        # Reads the reader failed on (a stall, a crash), so one picture can't hold up the rest.
+        conn.execute("CREATE TABLE IF NOT EXISTS strikes (key TEXT PRIMARY KEY, n INTEGER)")
         # Damage anywhere shows here (a count of one table sees only that table's pages).
         found = conn.execute("PRAGMA quick_check").fetchone()
         if not found or found[0] != "ok":
@@ -109,6 +112,14 @@ class TextCache:
             (key, text, time.time()),
         )
 
+    def strike(self, key: str) -> int:
+        """One more failed read of this file's contents; how many so far."""
+        row = self.conn.execute("SELECT n FROM strikes WHERE key = ?", (key,)).fetchone()
+        n = (row[0] if row and isinstance(row[0], int) else 0) + 1
+        self.conn.execute("INSERT OR REPLACE INTO strikes (key, n) VALUES (?, ?)", (key, n))
+        self.conn.commit()
+        return n
+
     def forget_missing(self, seen: set[str], roots: Iterable[Path]) -> None:
         """Paths under these roots that weren't found this time, and texts no path has."""
         prefixes = [f"{root}{os.sep}" for root in roots]
@@ -119,6 +130,7 @@ class TextCache:
         ]
         self.conn.executemany("DELETE FROM files WHERE path = ?", gone)
         self.conn.execute("DELETE FROM texts WHERE key NOT IN (SELECT key FROM files)")
+        self.conn.execute("DELETE FROM strikes WHERE key NOT IN (SELECT key FROM files)")
 
     def commit(self) -> None:
         self.conn.commit()
@@ -279,6 +291,8 @@ def collect_images(
                     except Exception as exc:  # stalled or died: the rest wait a rebuild
                         log.info("second brain: reading text in images stopped (%s)", exc)
                         broken = True
+                        if cache.strike(key) >= STRIKES:  # never read: set aside for good
+                            cache.store(key, "")
                         continue
                     read += 1
                     if got is None:
