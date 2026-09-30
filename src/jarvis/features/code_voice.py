@@ -61,6 +61,7 @@ from typing import Any
 
 from .. import codelook, codepeers, lang
 from .. import codesupervisor as cs
+from ..code_vocab import normalize
 from ..prefs import MODELS
 from ..voicecode import parse as voice_command
 from ..voicecode import speakable
@@ -281,8 +282,12 @@ class CodeVoice:
             return self.say("Switched to {session}.", session=name) if focus is not None else reply
         if ask.kind == "message":
             text = ask.text
-            if not lang.has_cjk(text):  # spoken names back into code ("hub dot py")
+            if focus is not None and not lang.has_cjk(text):
+                # Said while voice coding: spoken code into code, the project's names as hints.
                 text = await self.hub.with_code_hints_for(task.cwd, text)
+            elif not lang.has_cjk(text):
+                # Said or typed to JARVIS: only spoken code into code ("hub dot py").
+                text = normalize(text)
             if not self.hub.tasks.send(task.id, text):
                 return self.say("{session} has too many messages waiting.", session=cs.cap(name))
             return self.say("Told {session}.", session=name)
@@ -455,7 +460,6 @@ class CodeVoice:
         """A project file in Jarvis Code's Files viewer ("open hub.py"), or some of its lines
         marked there and described in a sentence ("read lines 10 to 20 of hub.py"). The
         code itself is never read aloud."""
-        from ..code_vocab import normalize
         from ..computer import is_sensitive
         from ..workbench import Workbench
 

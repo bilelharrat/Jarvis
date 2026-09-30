@@ -172,8 +172,10 @@ async def test_a_message_goes_to_the_session_named(settings, quiet_speaker, isol
     await hub.voicecode.handle("tell the user session manager to refresh tokens")
     assert sent[-1] == (focused.id, "tell the user session manager to refresh tokens")  # Claude's
     reply = await hub.ask("ask the docs session what it changed")  # not voice coding: the same
-    close_all(hub)
     assert sent[-1] == (docs.id, "What you changed?") and reply.startswith("Told")
+    await hub.ask("tell the docs session to link readme dot md")  # typed or said to JARVIS
+    assert sent[-1] == (docs.id, "link readme.md")  # no "dictated by voice" hint then
+    close_all(hub)
 
 
 async def test_a_name_that_fits_two_sessions_is_asked_about(

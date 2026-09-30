@@ -2567,8 +2567,7 @@ function renderSuggestions() {
     if (s.kind === 'at') {
       b.append(el('code', '', item.label));
       if (item.help) { const help = el('span', '', item.help); help.setAttribute('data-no-i18n', ''); b.append(help); }
-    }
-    else b.append(el('strong', '', item.label), el('span', '', item.help));
+    } else b.append(el('strong', '', item.label), el('span', '', item.help));
     b.addEventListener('mousedown', (e) => { e.preventDefault(); pick(s, item); });
     return b;
   }));
