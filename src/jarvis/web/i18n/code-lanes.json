@@ -1,0 +1,34 @@
+{
+  "strings": {
+    "Subagents": "子代理",
+    "Each subagent’s steps, tokens and cost": "每个子代理的步骤、token 和花费",
+    "What each subagent is doing, and what it cost": "每个子代理在做什么，花了多少",
+    "Working": "正在工作",
+    "Stopping…": "正在停止…",
+    "Done": "完成",
+    "Failed": "失败",
+    "Stopped": "已停止",
+    "Background": "后台",
+    "Stop": "停止",
+    "Stop this subagent; the session goes on": "停止这个子代理；会话会继续",
+    "step": "步",
+    "steps": "步",
+    "tokens": "token",
+    "An estimate: its tokens at what Claude Code says each model cost": "估算：按 Claude Code 报告的各模型花费，给它的 token 计价",
+    "Open a session to see its subagents.": "打开一个会话来查看它的子代理。",
+    "No subagents in this session yet. When Claude hands part of the work to one, it shows here.": "这个会话还没有子代理。Claude 把部分工作交给子代理时，会显示在这里。",
+    "Working now:": "正在工作：",
+    "All finished.": "全部完成。",
+    "Stopped that subagent.": "已停止那个子代理。"
+  },
+  "patterns": [
+    [
+      "^(\\d+) working$",
+      "$1 个正在工作"
+    ],
+    [
+      "^Couldn't stop that subagent: (.+)$",
+      "没能停止那个子代理：$1"
+    ]
+  ]
+}

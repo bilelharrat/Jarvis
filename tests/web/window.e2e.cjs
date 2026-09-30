@@ -3405,6 +3405,29 @@ test('Jarvis Code settings has a Limits tab with the default limits and the head
   assert(await js('$("jcs-limits").hidden && !$("jcs-general").hidden'), 'the Limits tab stayed over General');
 });
 
+// ── Subagent lanes (web/features/code-lanes.js) ──
+
+test('The Subagents pane shows each subagent as a tree, and Stop stops just that one', async () => {
+  await featureScript('code-lanes.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(!(await clickItem('#jc-menu', 'Subagents')), 'a Subagents item before there are any');
+  await js('closeMenu(); true');
+  const lane = (id, extra) => ({ id, parent: '', agent: 'Explore', description: 'Find the <img src=x onerror="window.__pwned=1"> code', status: 'running', background: false, steps: 3, last: 'Reading auth.py', tokens: 45200, seconds: 63, cost: 0.083, models: [], can_stop: true, ...extra });
+  await deliver({ type: 'cl_lanes', id: 1, lanes: [lane('a1'), lane('a2', { parent: 'a1', agent: 'test-runner', status: 'done', can_stop: false, cost: null }), lane('a3', { background: true })] });
+  await clickAt('#jc-more');
+  assert(await clickItem('#jc-menu', 'Subagents'), 'no Subagents item once there are some');
+  assert(await js('$("jc-pane-title").textContent') === 'Subagents', 'the pane did not open');
+  const r = await js(`({ rows: [...document.querySelectorAll('#jc-pane-body .cl-lane')].map((li) => li.dataset.lane + (li.classList.contains('nested') ? '>' : '')),
+    text: $('jc-pane-body').textContent, imgs: document.querySelectorAll('#jc-pane-body img').length, pwned: !!window.__pwned,
+    stops: document.querySelectorAll('#jc-pane-body .cl-stop').length, data: !!document.querySelector('#jc-pane-body .cl-desc[data-no-i18n]') })`);
+  assert(r.rows.join() === 'a1,a2>,a3', JSON.stringify(r));
+  assert(r.text.includes('45.2k') && r.text.includes('1m 3s') && r.text.includes('≈ $0.08') && r.text.includes('Background'), r.text);
+  assert(r.imgs === 0 && !r.pwned && r.data && r.stops === 2, JSON.stringify(r));
+  await js('__sent.length = 0; document.querySelector(\'#jc-pane-body [data-lane="a3"] .cl-stop\').click(); true');
+  assert(JSON.stringify(await sentOf('cl_stop')) === JSON.stringify([{ type: 'cl_stop', id: 1, lane: 'a3' }]), JSON.stringify(await js('__sent')));
+});
+
 // ──
 
 let base;

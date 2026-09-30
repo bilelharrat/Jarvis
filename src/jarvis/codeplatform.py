@@ -33,3 +33,14 @@ def code_task(hub: Any, msg: dict[str, Any]) -> Any:
     except (TypeError, ValueError):
         return None
     return task if task is not None and task.kind == "code" else None
+
+
+def background(hub: Any, handler: Any) -> Any:
+    """A window command that can take a while (Claude Code's CLI, a card waiting for the
+    owner): run in the background, so it never holds up the window's next command (the
+    card's own answer among them)."""
+
+    def start(msg: dict[str, Any]) -> None:
+        hub._spawn(handler(msg))
+
+    return start

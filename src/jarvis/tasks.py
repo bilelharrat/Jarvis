@@ -917,6 +917,10 @@ class TaskManager:
         # hook's apply(task, options) adds to them (MCP servers, allowed tools, hooks), and
         # its key(task) is what of that only a new connection can change (_options_key).
         self.option_hooks: list[Any] = []
+        # Feature modules that hear everything Claude Code says, as each session takes it in
+        # (jarvis.features: a subagent's steps and tokens, a turn's cost): sink(task,
+        # message). One that fails is logged; the session and the other sinks carry on.
+        self.message_sinks: list[Callable[[ClaudeTask, Any], None]] = []
         # Whether a session's next waiting message may start a turn (jarvis.features: a
         # spending cap reached): "" when it may, else why not, said once in its transcript
         # while the message waits. release(task_id) looks again (a cap raised).
@@ -2217,6 +2221,13 @@ class TaskManager:
                 self._on_task_message(task, message)
             except Exception:  # one odd message mustn't end the session; the CLI dying does
                 log.exception("Jarvis Code: couldn't take in a %s", type(message).__name__)
+            for sink in self.message_sinks:
+                try:
+                    sink(task, message)
+                except Exception:
+                    log.exception(
+                        "Jarvis Code: a feature couldn't take in a %s", type(message).__name__
+                    )
 
     async def _next_message(self, task: ClaudeTask, reader: asyncio.Task) -> Any:
         """The next message to send, once Claude Code is between turns; or how the
