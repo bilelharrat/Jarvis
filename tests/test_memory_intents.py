@@ -303,6 +303,33 @@ def test_a_damaged_intents_file_keeps_what_it_can(tmp_path):
     assert intent.people == ["Ann", "Bob"] and intent.watch == ["mail"] and intent.cooldown == 720
 
 
+@pytest.mark.parametrize(
+    "fired, cooldown",
+    [
+        ("2026-09-29T08:00:00Z", 12),  # another build's zoned time
+        ("2026-09-29T08:00:00+02:00", 12),
+        ("2027-03-01T08:00:00", 12),  # from a clock set a year ahead, since put back
+        ("", "1e999"),  # a hand edit past what a number can be
+        ("", float("nan")),
+    ],
+)
+def test_an_intents_times_as_kept_never_stop_it(tmp_path, fired, cooldown):
+    """Its last firing with a zone or far in the future, a cooldown past reason: the intent
+    loads, rests as long as it should (never for good), and is checked like the others."""
+    path = tmp_path / "intents.json"
+    row = {"id": "a", "when": "Ann emails", "then": "tell me", "people": ["Ann"]}
+    path.write_text(json.dumps([{**row, "fired": fired, "cooldown": cooldown}]))
+    store = IntentStore(path)
+    [intent] = store.items
+    now = datetime(2026, 9, 30, 10, 0)
+    assert intents.live(intent, now)  # a day after, or a year "ahead": either way not resting
+    fired_now, _maybe = store.check(
+        {"kind": "mail", "who": "Ann", "text": "the lease", "key": "m1"}, now
+    )
+    assert [i.id for i in fired_now] == ["a"]
+    assert 1 <= intent.cooldown <= 720
+
+
 def test_matching_needs_a_word_unless_only_people_are_named():
     intent = intents.Intent(
         "a", "Ann texts", "tell me", people=["Ann"], words=[], watch=["message"]

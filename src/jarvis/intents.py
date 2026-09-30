@@ -157,7 +157,7 @@ def clean_watch(value: Any) -> list[str]:
 def clean_cooldown(value: Any) -> int:
     try:
         hours = int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # not a number, NaN, past what one can be
         return DEFAULT_COOLDOWN
     return max(1, min(720, hours))
 
@@ -238,14 +238,20 @@ def expired(intent: Intent, today: date | None = None) -> bool:
 
 
 def resting(intent: Intent, now: datetime | None = None) -> bool:
-    """Within its cooldown after the last firing."""
+    """Within its cooldown after the last firing. A last firing with a zone (another
+    build's) is this Mac's clock; one more than a cooldown ahead is from a clock set wrong
+    since put right, and holds nothing back."""
     if not intent.fired:
         return False
     try:
         last = datetime.fromisoformat(intent.fired)
     except ValueError:
         return False
-    return (now or datetime.now()) - last < timedelta(hours=intent.cooldown)
+    if last.tzinfo is not None:
+        last = last.astimezone().replace(tzinfo=None)
+    now = now or datetime.now()
+    rest = timedelta(hours=intent.cooldown)
+    return last - rest <= now < last + rest
 
 
 def live(intent: Intent, now: datetime | None = None) -> bool:
