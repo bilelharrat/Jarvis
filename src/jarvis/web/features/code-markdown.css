@@ -1,0 +1,55 @@
+/* Jarvis Code's transcript in full Markdown (features/code-markdown.js): Claude's words in
+   the transcript's own type, calm headings, lists, tables and quotes; code in colour. */
+
+.cw-md > :first-child { margin-top: 0; }
+.cw-md > :last-child { margin-bottom: 0; }
+.cw-md h1, .cw-md h2, .cw-md h3, .cw-md h4, .cw-md h5, .cw-md h6 { margin: 16px 0 6px; line-height: 1.3; font-weight: 650; letter-spacing: -0.01em; color: rgb(var(--c-ink)); }
+.cw-md h1 { font-size: 1.28em; }
+.cw-md h2 { font-size: 1.16em; }
+.cw-md h3 { font-size: 1.05em; }
+.cw-md h4, .cw-md h5, .cw-md h6 { font-size: 1em; color: rgb(var(--c-ink-2)); }
+.cw-md ul, .cw-md ol { margin: 0 0 10px; padding-left: 1.45em; }
+.cw-md ul { list-style: disc; }
+.cw-md ul ul, .cw-md ol ul { list-style: circle; }
+.cw-md li { margin: 2px 0; }
+.cw-md li > ul, .cw-md li > ol { margin: 2px 0 4px; }
+.cw-md li > p { margin: 0 0 6px; }
+.cw-md ul.cw-tasks { list-style: none; padding-left: 0.3em; }
+.cw-md li.cw-task { display: block; }
+.cw-check { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; margin-right: 7px; vertical-align: -2px; border-radius: 4px; box-shadow: inset 0 0 0 1.2px rgb(var(--c-ink) / 0.28); font-size: 10px; font-weight: 700; color: #fff; }
+.cw-check.done { background: rgb(var(--c-accent)); box-shadow: none; }
+.cw-md blockquote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-left: 3px solid rgb(var(--c-accent) / 0.35); color: rgb(var(--c-ink-2)); }
+.cw-md blockquote > :last-child { margin-bottom: 0; }
+.cw-md hr { border: 0; height: 0.5px; background: rgb(var(--c-border-strong)); margin: 14px 0; }
+.cw-md a { color: rgb(var(--c-accent-ink)); text-decoration: none; }
+.cw-md a:hover { text-decoration: underline; }
+.cw-md a.cw-md-path { font-family: var(--mono); font-size: 0.92em; }
+.cw-md del { color: rgb(var(--c-muted)); }
+.cw-md .cw-table { overflow-x: auto; margin: 4px 0 12px; border-radius: 10px; box-shadow: var(--shadow-card); background: rgb(var(--c-surface)); }
+.cw-md table { border-collapse: collapse; font-size: 12.5px; min-width: 100%; }
+.cw-md th, .cw-md td { padding: 6px 11px; text-align: left; vertical-align: top; border-bottom: 0.5px solid rgb(var(--c-border)); }
+.cw-md th { font-weight: 600; background: rgb(var(--c-surface-muted)); white-space: nowrap; }
+.cw-md tr:last-child td { border-bottom: 0; }
+.cw-md pre.cw-pre { white-space: pre; tab-size: 4; }
+.cw-md pre.cw-pre code { font: inherit; background: none; padding: 0; border-radius: 0; }
+.cw-md pre.cw-pre[data-lang="diff"] code { display: inline-block; min-width: 100%; }
+.cw-md pre.cw-pre .cw-line { display: block; margin: 0 -14px; padding: 0 14px; }
+.cw-md pre.cw-pre .cw-add { background: rgb(var(--c-success-soft)); color: rgb(var(--c-success-ink)); }
+.cw-md pre.cw-pre .cw-del { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.cw-md pre.cw-pre .cw-hunk { color: rgb(var(--c-accent-ink)); }
+.cw-md pre .jc-copy { opacity: 0; transition: opacity 120ms; }
+.cw-md pre:hover .jc-copy, .cw-md pre .jc-copy:focus-visible { opacity: 1; }
+
+/* pictures with an entry: the owner's attachments, a step's screenshot */
+.cw-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.jc-user .cw-thumbs { justify-content: flex-end; }
+.cw-tool-thumbs { margin: 4px 0 2px 26px; }
+.cw-thumb { flex: none; display: inline-flex; align-items: center; justify-content: center; width: auto; height: 64px; min-width: 64px; max-width: 150px; padding: 0; border: 0; border-radius: 9px; overflow: hidden; background: rgb(var(--c-fill-3)); box-shadow: 0 0 0 0.5px rgb(var(--c-ink) / 0.14); cursor: zoom-in; }
+.cw-thumb img { display: block; height: 100%; width: auto; max-width: 150px; object-fit: cover; }
+.cw-thumb.loading { width: 86px; cursor: default; animation: cw-pulse 1.4s ease-in-out infinite; }
+.cw-thumbs .cw-thumb.none { cursor: default; padding: 0 8px; font-size: 11px; color: rgb(var(--c-muted)); }
+@keyframes cw-pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .cw-thumb.loading { animation: none; } }
+.cw-lightbox { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 48px; background: rgb(0 0 0 / 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); cursor: zoom-out; }
+.cw-lightbox img { max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.6); background: #fff; }
+.cw-lightbox-close { position: absolute; top: 16px; right: 16px; color: #fff; background: rgb(255 255 255 / 0.16); }

@@ -109,6 +109,8 @@ function confirmBypass(kind, text, then, otherwise) {
   if (check) { check.then((ok) => { if (ok) then(); else if (otherwise) otherwise(); }); return; }
   if (confirm(tr(text))) then(); else if (otherwise) otherwise();
 }
+const featureDecorators = [];  // (entry, li) -> add to a transcript entry as it's drawn (pictures)
+let featureRichText = null;  // (text) -> an element: a feature's fuller Markdown for Claude's words
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -136,6 +138,8 @@ window.jarvisFeatures = {
   registerEntry(role, render) { featureEntries.set(role, render); },
   registerApprovalView(view) { featureApprovalViews.push(view); },
   registerCheck(check) { featureChecks.push(check); },
+  registerEntryDecorator(fn) { featureDecorators.push(fn); },
+  registerRichText(render) { featureRichText = render; },
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
@@ -2573,7 +2577,11 @@ function copyButton(getText) {
 }
 
 // Markdown-lite: code fences become <pre> (with Copy), `code` and **bold** inline. DOM only.
+// A feature's fuller Markdown (registerRichText) draws it instead, when there is one.
 function richText(text) {
+  if (featureRichText) {
+    try { const drawn = featureRichText(text); if (drawn) return drawn; } catch (err) { console.error('feature rich text', err); }
+  }
   const box = mine(el('div', 'jc-md'));
   String(text || '').split('```').forEach((part, i) => {
     if (i % 2) {
@@ -2742,6 +2750,9 @@ function appendEntry(e, replaying = false) {
   } else {
     li = el('li', 'jc-note');
     li.append(el('span', '', e.role === 'note' ? '⎿' : 'ⓘ'), el('span', '', e.text));
+  }
+  for (const decorate of featureDecorators) {
+    try { decorate(e, li); } catch (err) { console.error('feature entry decorator', err); }
   }
   tl.insertBefore(li, tl.querySelector(':scope > .jc-ask'));
   $('cc-welcome').hidden = true;

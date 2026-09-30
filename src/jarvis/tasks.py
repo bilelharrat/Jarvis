@@ -1709,6 +1709,7 @@ class TaskManager:
                 task.checkpoint_files.setdefault(task.checkpoints[-1], set()).add(path)
             code_changes.remember(task, path, mark)
         content = block.content
+        images = image_count(content)  # pictures it returned (a screenshot): the window shows them
         if isinstance(content, list):
             content = "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
         output = str(content or "")[:2000]
@@ -1717,6 +1718,8 @@ class TaskManager:
         for entry in reversed(task.transcript):
             if entry.get("tool_id") == block.tool_use_id:
                 entry["status"], entry["output"] = status, output
+                if images:
+                    entry["images"] = images
                 shown = True
                 break
         if shown:  # (a window still shows a step the kept 400 entries have let go)
@@ -1726,6 +1729,7 @@ class TaskManager:
                 tool_id=block.tool_use_id,
                 status=status,
                 output=output,
+                **({"images": images} if images else {}),
             )
 
     def start_research(self, topic: str) -> ClaudeTask:
@@ -3180,6 +3184,13 @@ def _is_text(media_type: str) -> bool:
     return media_type.startswith("text/") or media_type in TEXT_TYPES
 
 
+def image_count(content: Any) -> int:
+    """How many pictures a tool's result holds (a screenshot tool's, Read of an image)."""
+    if not isinstance(content, list):
+        return 0
+    return sum(1 for c in content if isinstance(c, dict) and c.get("type") == "image")
+
+
 def attachment_counts(items: list[dict[str, str]]) -> dict[str, Any]:
     """What a transcript line says was attached: how many pictures, which files."""
     pictures = sum(1 for i in items if str(i.get("media_type", "")).startswith("image/"))
@@ -3376,6 +3387,8 @@ def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, An
                     step = steps.get(str(block.get("tool_use_id") or ""))
                     if step is not None:
                         out = block.get("content")
+                        if image_count(out):
+                            step["images"] = image_count(out)
                         if isinstance(out, list):
                             out = "\n".join(
                                 str(c.get("text", "")) for c in out if isinstance(c, dict)

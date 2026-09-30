@@ -3752,6 +3752,95 @@ test('The Other agents pane adds an agent, starts a session with it in the proje
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'acp_remove', agent: 'codex' }]), JSON.stringify(await js('__sent')));
 });
 
+// ── Jarvis Code's workspace (web/features/code-*.js of the code-workspace feature) ──
+
+const TRANSCRIPT_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==';
+
+test('Claude’s words are Markdown: headings, lists, tables, links and code in colour, never markup', async () => {
+  await featureScript('code_diff.js');
+  await featureScript('code-markdown.js');
+  await open(1);
+  const text = [
+    '## The plan', '', 'Steps:', '1. Read **hub.py**', '2. Fix `retry()`', '   - [x] tests', '   - [ ] docs', '',
+    '| File | Lines |', '|:--|--:|', '| a.py | 12 |', '',
+    '> a <b>quote</b>', '', 'See [docs](https://example.com/d) or [bad](javascript:window.__pwned=1) and [hub](src/hub.py:7).',
+    '<img src=x onerror="window.__pwned=1">', '', '```python', 'def run(x=1):  # go', '    return x', '```', '', '```diff', '-old', '+new', '+more', '```',
+  ].join('\n');
+  await deliver({ type: 'task_log', id: 1, entry: { n: 1, role: 'assistant', text } });
+  await frames(2);
+  const r = await js(`(() => {
+    const md = document.querySelector('#deck-timeline .jc-say .cw-md');
+    const links = [...md.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href'), a.target]);
+    return {
+      h2: (md.querySelector('h2') || {}).textContent, ol: md.querySelectorAll('ol > li').length,
+      nested: md.querySelectorAll('ol ul.cw-tasks .cw-check').length, done: md.querySelectorAll('.cw-check.done').length,
+      cells: [...md.querySelectorAll('td')].map((c) => [c.textContent, c.style.textAlign]),
+      quote: (md.querySelector('blockquote') || {}).textContent, links,
+      imgs: md.querySelectorAll('img, script').length, pwned: !!window.__pwned,
+      keywords: [...md.querySelectorAll('pre .jcx-k')].map((n) => n.textContent), copy: !!md.querySelector('pre .jc-copy'),
+      code: (md.querySelector('pre code') || {}).textContent, noI18n: md.hasAttribute('data-no-i18n'),
+      diff: [...md.querySelectorAll('pre[data-lang="diff"] .cw-line')].map((n) => n.className + ':' + n.textContent),
+    };
+  })()`);
+  assert(r.h2 === 'The plan' && r.ol === 2 && r.nested === 2 && r.done === 1, JSON.stringify(r));
+  assert(JSON.stringify(r.cells) === JSON.stringify([['a.py', 'left'], ['12', 'right']]), JSON.stringify(r.cells));
+  assert(r.quote === 'a <b>quote</b>' && r.imgs === 0 && !r.pwned, JSON.stringify(r));
+  const hrefs = r.links.map((l) => l[1]);
+  assert(JSON.stringify(r.links[0]) === JSON.stringify(['docs', 'https://example.com/d', '_blank']), JSON.stringify(r.links));
+  assert(!hrefs.some((h) => /javascript/i.test(h || '')) && r.links.some((l) => l[0] === 'hub'), JSON.stringify(r.links));
+  assert(r.keywords.join() === 'def,return' && r.copy && r.code === 'def run(x=1):  # go\n    return x' && r.noI18n, JSON.stringify(r));
+  assert(r.diff.join('|') === 'cw-line cw-del:-old|cw-line cw-add:+new|cw-line cw-add:+more', JSON.stringify(r.diff));
+});
+
+test('A reply streams as Markdown, and a finished one replaces it', async () => {
+  await featureScript('code-markdown.js');
+  await open(1);
+  await deliver({ type: 'task_stream', id: 1, part: 'text', text: '# Head\n\n- one\n- tw' });
+  await frames(3);
+  assert(await js('!!document.querySelector("#deck-timeline .jc-say.live .cw-md h1") && document.querySelectorAll("#deck-timeline .jc-say.live li").length === 2'), 'the live reply is not Markdown');
+  await deliver({ type: 'task_log', id: 1, entry: { n: 2, role: 'assistant', text: '# Head\n\n- one\n- two' } });
+  await frames(2);
+  assert(await js('document.querySelectorAll("#deck-timeline .jc-say").length === 1 && !document.querySelector(".jc-say.live")'), 'the live reply stayed');
+});
+
+test('Pictures with a message and a step are asked for when shown, drawn small, and larger on a click', async () => {
+  await featureScript('code-markdown.js');
+  await open(1);
+  await deliver({ type: 'task_transcript', id: 1, entries: [
+    { n: 1, role: 'user', text: 'what is this?', images: 1, uuid: 'u-1', past: true },
+    { n: 2, role: 'tool', tool: 'mcp__x__screenshot', text: 'Screenshot', tool_id: 't-1', status: 'done', images: 2, past: true },
+  ] });
+  let asked = [];
+  for (let i = 0; i < 40 && !asked.length; i++) { await frames(2); asked = await sentOf('cw_media'); }
+  assert(asked.length === 1 && JSON.stringify(asked[0].keys.sort()) === JSON.stringify(['t-1', 'u-1']) && asked[0].id === 1, JSON.stringify(asked));
+  await deliver({ type: 'cw_media', id: 1, keys: ['u-1', 't-1'], items: {
+    'u-1': [{ media_type: 'image/png', data: TRANSCRIPT_PNG }],
+    't-1': [{ media_type: 'image/png', data: TRANSCRIPT_PNG }, { media_type: 'image/png', too_big: true }],
+  } });
+  let r = {};
+  for (let i = 0; i < 40 && !(r.user && r.tool === 1); i++) {
+    await frames(2);
+    r = await js(`({ user: document.querySelectorAll('#deck-timeline .jc-user .cw-thumbs img').length,
+      tool: document.querySelectorAll('#deck-timeline [data-tool-id="t-1"] .cw-thumbs img').length,
+      big: document.querySelectorAll('#deck-timeline [data-tool-id="t-1"] .cw-thumb.none').length,
+      src: (document.querySelector('#deck-timeline .cw-thumbs img') || {}).src || '',
+      said: (document.querySelector('#deck-timeline .jc-user .jc-pics') || {}).hidden })`);
+  }
+  assert(r.user === 1 && r.tool === 1 && r.big === 1 && r.src.startsWith('data:image/jpeg') && r.said === true, JSON.stringify(r));
+  await js('__sent.length = 0; document.querySelector("#deck-timeline .jc-user .cw-thumb").click(); true');
+  const big = await sentOf('cw_media');
+  assert(big.length === 1 && big[0].keys[0] === 'u-1' && /^big-/.test(big[0].ref) && await js('!!document.querySelector(".cw-lightbox img")'), JSON.stringify(big));
+  await deliver({ type: 'cw_media', id: 1, keys: ['u-1'], ref: big[0].ref, items: { 'u-1': [{ media_type: 'image/png', data: TRANSCRIPT_PNG }] } });
+  assert((await js('document.querySelector(".cw-lightbox img").src')).startsWith('data:image/png'), 'the full picture did not come');
+  await press('Escape');
+  assert(await js('!document.querySelector(".cw-lightbox") && !__sent.some((m) => m.type === "stop" || m.type === "task_interrupt")'), 'Escape did not close it, or went on');
+  // Something that isn't a picture is never drawn.
+  await deliver({ type: 'task_log', id: 1, entry: { n: 3, role: 'user', text: 'x', images: 1, uuid: 'u-2' } });
+  await deliver({ type: 'cw_media', id: 1, keys: ['u-2'], items: { 'u-2': [{ media_type: 'text/html', data: 'PHNjcmlwdD4=' }] } });
+  await frames(4);
+  assert(await js('!document.querySelector("#deck-timeline .jc-user:last-of-type .cw-thumbs img")'), 'drew a non-picture');
+});
+
 // ──
 
 let base;
