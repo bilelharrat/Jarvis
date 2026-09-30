@@ -1593,6 +1593,21 @@ test('Words typed with no session open stay when a session with a draft is opene
   assert(text === 'half a thought\nand the tests now', `the composer: ${JSON.stringify(text)}`);
 });
 
+test('The goal being edited closes when another session is opened, whose banner acts on its own goal', async () => {
+  await sessions([1, 2]);
+  await js(`__ev({ type: 'code_meta', items: { 1: { goal: { text: 'all tests pass', state: 'active', native: false, note: '' } }, 2: { goal: { text: 'ship the docs', state: 'active', native: false, note: '' } } } }); true`);
+  await frames(2);
+  await js('[...document.querySelectorAll(".cs-goal-acts button")].find((b) => b.textContent === "Edit").click()');
+  assert(await js('!!document.querySelector(".cs-goal-edit")'), 'no edit form');
+  await js('selectTask(2)');
+  await frames(2);
+  const r = await js('({ editing: !!document.querySelector(".cs-goal-edit"), text: (document.querySelector(".cs-goal-text") || {}).textContent || "" })');
+  assert(!r.editing && r.text === 'ship the docs', `session 2’s banner: ${JSON.stringify(r)}`);
+  await js('__sent.length = 0; [...document.querySelectorAll(".cs-goal-acts button")].find((b) => b.textContent === "Remove").click()');
+  const s = await sentOf('code_goal');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'code_goal', id: 2, action: 'clear' }]), JSON.stringify(s));
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

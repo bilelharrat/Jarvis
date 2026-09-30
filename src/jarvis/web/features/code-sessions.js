@@ -581,8 +581,10 @@
     goalBox.hidden = !goal;
     if (!goal) { goalBox.dataset.key = ''; return; }
     const key = JSON.stringify([now.id, goal]);
-    if (goalBox.dataset.key === key || goalBox.querySelector('.cs-goal-edit')) return;
+    // A goal being edited stays as its goal changes, but never under another session's banner.
+    if (goalBox.dataset.key === key || (goalBox.querySelector('.cs-goal-edit') && goalBox.dataset.id === String(now.id))) return;
     goalBox.dataset.key = key;
+    goalBox.dataset.id = now.id;
     goalBox.className = `cs-goal ${goal.state}`;
     const head = el('div', 'cs-goal-head');
     head.append(el('span', 'cs-goal-mark', goal.state === 'met' ? '✓' : '◎'), el('span', 'cs-goal-kicker', 'Goal'), el('span', `cs-goal-state ${goal.state}`, GOAL_STATE[goal.state] || goal.state));
