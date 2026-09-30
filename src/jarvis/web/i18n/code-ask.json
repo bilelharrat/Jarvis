@@ -1,0 +1,13 @@
+{
+  "strings": {
+    "Answer": "回答",
+    "Send": "发送",
+    "Skip": "跳过",
+    "Something else too (optional)": "再补充一个（可选）",
+    "Or answer in your own words": "或者用你自己的话回答",
+    "Your own answer": "你自己的回答",
+    "Tick with a number key, then press Answer. Or write your own answer.": "用数字键勾选，然后按“回答”。也可以写下你自己的回答。",
+    "Press a number, say “option two”, or write your own answer.": "按数字键、说“选项二”，或者写下你自己的回答。"
+  },
+  "patterns": []
+}

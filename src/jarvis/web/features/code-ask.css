@@ -1,0 +1,21 @@
+/* Claude Code's questions in Jarvis Code (features/code-ask.js): options with what they
+   mean, ticks when several may be chosen, and an answer of the owner's own. */
+
+.cq-title { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
+.cq-header { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: rgb(var(--c-accent) / 0.12); color: rgb(var(--c-accent-ink)); }
+.cq-options { display: flex; flex-direction: column; gap: 6px; }
+.cq-options.jc-choices { flex-direction: column; align-items: stretch; }
+.cq-choice { display: flex; align-items: flex-start; gap: 8px; text-align: left; padding: 8px 12px; border-radius: 12px; }
+.cq-option { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); cursor: pointer; }
+.cq-option:has(.cq-tick:checked) { box-shadow: var(--shadow-card), inset 0 0 0 1.5px rgb(var(--c-accent) / 0.6); }
+.cq-tick { margin: 2px 0 0; accent-color: rgb(var(--c-accent)); flex: none; }
+.cq-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cq-label { font-size: 13px; font-weight: 500; }
+.cq-text small { font-size: 12px; color: rgb(var(--c-muted)); line-height: 1.4; }
+.cq-choice kbd, .cq-option kbd { flex: none; margin-top: 1px; }
+.cq-other { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.cq-other-input { flex: 1; min-width: 0; }
+.cq-send[disabled] { opacity: 0.45; cursor: default; }
+/* On a card outside Jarvis Code: the card's own title says the question. */
+.card .cq-card { margin-top: 10px; }
+.card .cq-option { background: var(--card); }

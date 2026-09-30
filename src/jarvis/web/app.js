@@ -80,6 +80,15 @@ function featureSessionFields() {
   return fields;
 }
 const featureEntries = new Map();  // transcript entry role -> render(entry): an <li>, or null for none
+// An approval drawn by a feature: view(approval, 'sheet' | 'card', answer(choice, feedback)) gives
+// its element (an <li> for a sheet), or null for the usual buttons.
+const featureApprovalViews = [];
+function featureApproval(a, where, answer) {
+  for (const view of featureApprovalViews) {
+    try { const node = view(a, where, answer); if (node) return node; } catch (err) { console.error('feature approval view', err); }
+  }
+  return null;
+}
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -105,6 +114,7 @@ window.jarvisFeatures = {
   registerMentions(suggest) { featureMentions.push(suggest); },
   registerSessionOption(fn) { featureSessionOptions.push(fn); },
   registerEntry(role, render) { featureEntries.set(role, render); },
+  registerApprovalView(view) { featureApprovalViews.push(view); },
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
@@ -2855,6 +2865,8 @@ function renderInlineApprovals() {
 }
 
 function approvalSheet(a) {
+  const custom = featureApproval(a, 'sheet', (choice, feedback) => answerApproval(a, choice, feedback));
+  if (custom) { custom.classList.add('jc-ask'); custom.dataset.approval = a.id; return custom; }
   const li = el('li', 'jc-ask');
   li.dataset.approval = a.id;
   const title = a.ask_kind === 'plan' ? 'Ready to code?' : a.ask_kind === 'question' ? a.question : a.tool === 'Bash' ? 'Run this command?' : a.tool === 'Write' ? 'Create this file?' : ['Edit', 'MultiEdit'].includes(a.tool) ? 'Make this edit?' : a.question;
@@ -3486,7 +3498,7 @@ document.addEventListener('keydown', (e) => {
   const n = Number(e.key);
   const inDeck = !(e.target instanceof Element) || e.target === document.body || $('cc').contains(e.target);
   const writingReason = !!document.querySelector('#deck-timeline .jc-feedback:not([hidden])');
-  if (a && n >= 1 && n <= a.choices.length && inDeck && !e.repeat && !writingReason) {
+  if (a && !a.multi && n >= 1 && n <= a.choices.length && inDeck && !e.repeat && !writingReason) {  // (several at once: its sheet's own keys)
     e.preventDefault();
     const c = a.choices[n - 1];
     if (c.id === 'deny') { const box = document.querySelector(`[data-approval="${CSS.escape(a.id)}"] .jc-feedback`); if (box) { box.hidden = false; box.querySelector('input').focus(); } } else answerApproval(a, c.id);
@@ -5723,6 +5735,8 @@ function showApproval(a) {
   const card = el('div', 'card needs-ok');
   card.dataset.approval = a.id;
   card.append(el('div', 'card-kicker', 'Needs your OK'), el('div', 'card-title', a.question));
+  const custom = featureApproval(a, 'card', (choice, feedback) => { send({ type: 'approve', id: a.id, choice, feedback: feedback || '' }); card.remove(); });
+  if (custom) { card.append(custom); $('cards').prepend(card); if (app) app.attention(); return; }
   if (a.detail) card.append(el('pre', '', a.detail));
   const actions = el('div', 'card-actions');
   a.choices.forEach((c, i) => {

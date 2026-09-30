@@ -3428,6 +3428,62 @@ test('The Subagents pane shows each subagent as a tree, and Stop stops just that
   assert(JSON.stringify(await sentOf('cl_stop')) === JSON.stringify([{ type: 'cl_stop', id: 1, lane: 'a3' }]), JSON.stringify(await js('__sent')));
 });
 
+// ── Claude Code's questions (web/features/code-ask.js) ──
+
+const askCard = (id, multi, extra = {}) => ({ type: 'approval', id, task_id: 1, tool: 'AskUserQuestion', ask_kind: 'question', question: 'What should run in <b>CI</b>?', detail: '',
+  header: 'CI', multi, free_choices: ['pick', 'other'],
+  options: [{ label: 'Unit tests', description: 'fast' }, { label: '<img src=x onerror="window.__pwned=1">', description: '' }, { label: 'Linting', description: '' }],
+  choices: [{ id: 'opt0', label: 'Unit tests' }, { id: 'opt1', label: 'x' }, { id: 'opt2', label: 'Linting' }, { id: 'skip', label: 'Skip' }], ...extra });
+const approves = () => js('__sent.filter((m) => m.type === "approve").map((m) => [m.id, m.choice, m.feedback])');
+
+test('A question that takes several answers: number keys tick them, Answer sends them all', async () => {
+  await featureScript('code-ask.js');
+  await open(1);
+  await deliver(askCard('q1', true));
+  const r = await js(`({ sheet: !!document.querySelector('#deck-timeline > .jc-ask.cq-multi[data-approval="q1"]'), ticks: document.querySelectorAll('#deck-timeline .cq-tick').length,
+    imgs: document.querySelectorAll('#deck-timeline .jc-ask img, #cards img').length, pwned: !!window.__pwned, bold: document.querySelectorAll('#deck-timeline b').length,
+    send: document.querySelector('#deck-timeline .cq-send').disabled })`);
+  assert(r.sheet && r.ticks === 3 && r.imgs === 0 && !r.pwned && r.bold === 0 && r.send, JSON.stringify(r));
+  await js('document.activeElement.blur(); true');
+  await key('1');
+  await key('3');
+  assert((await approves()).length === 0, 'a number key answered a question that takes several');
+  const ticked = await js('[...document.querySelectorAll("#deck-timeline .cq-tick")].map((x) => x.checked)');
+  assert(ticked.join() === 'true,false,true', JSON.stringify(ticked));
+  await js('window.__o = document.querySelector("#deck-timeline .cq-other-input"); __o.value = "and a smoke test"; __o.dispatchEvent(new Event("input")); true');
+  await js('document.querySelector("#deck-timeline .cq-send").click(); true');
+  assert(JSON.stringify(await approves()) === JSON.stringify([['q1', 'pick', '{"picked":[0,2],"other":"and a smoke test"}']]), JSON.stringify(await approves()));
+  assert(await js('!document.querySelector("[data-approval=q1]")'), 'the sheet and card stayed');
+});
+
+test('A question with one answer: a number picks it, or the owner’s own words go instead', async () => {
+  await featureScript('code-ask.js');
+  await open(1);
+  await deliver(askCard('q2', false));
+  assert(await js('!!document.querySelector("#deck-timeline > .jc-ask.cq-sheet .cq-choice") && !document.querySelector("#deck-timeline .cq-tick")'), 'no option buttons');
+  await js('document.activeElement.blur(); true');
+  await key('3');
+  assert(JSON.stringify(await approves()) === JSON.stringify([['q2', 'opt2', '']]), JSON.stringify(await approves()));
+  await deliver({ type: 'approval_resolved', id: 'q2' });  // (as the hub says once it's answered)
+  await js('__sent.length = 0; true');
+  await deliver(askCard('q3', false));
+  await js('window.__o = document.querySelector("#deck-timeline .cq-other-input"); __o.focus(); true');
+  await type('only lint');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  assert(JSON.stringify(await approves()) === JSON.stringify([['q3', 'other', 'only lint']]), JSON.stringify(await approves()));
+  await deliver({ type: 'approval_resolved', id: 'q3' });
+  // Outside Jarvis Code, its card has the same options.
+  await js('__sent.length = 0; toggleCC(false); true');
+  await deliver(askCard('q4', false, { task_id: 2 }));
+  assert(await js('!!document.querySelector("#cards [data-approval=q4] .cq-card .cq-choice")'), 'the card has no options');
+  await js('[...document.querySelectorAll("#cards [data-approval=q4] .cq-skip")][0].click(); true');
+  assert(JSON.stringify(await approves()) === JSON.stringify([['q4', 'skip', '']]), JSON.stringify(await approves()));
+  // An approval that isn't such a question keeps the usual buttons.
+  await deliver({ type: 'approval', id: 'b1', task_id: 2, tool: 'Bash', question: 'Run this command?', detail: '$ npm test', choices: [{ id: 'allow', label: 'Yes' }, { id: 'deny', label: 'No' }] });
+  assert(await js('!document.querySelector("#cards [data-approval=b1] .cq") && document.querySelectorAll("#cards [data-approval=b1] .card-actions button").length === 2'), 'an ordinary card changed');
+});
+
 // ──
 
 let base;

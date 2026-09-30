@@ -2320,11 +2320,16 @@ class Hub:
     def resolve(self, approval_id: str, choice: str, feedback: str = "") -> bool:
         """Answer an approval. A 'no' can carry what to do instead ('deny:<feedback>')."""
         future = self._futures.get(approval_id)
-        valid = {c["id"] for c in self.approvals.get(approval_id, {}).get("choices", [])}
+        approval = self.approvals.get(approval_id, {})
+        # A card's answers in words of the user's own, beside its buttons (a Jarvis Code
+        # question's several options at once, or an answer of their own): valid too.
+        free = {c for c in approval.get("free_choices") or () if isinstance(c, str)}
+        valid = {c["id"] for c in approval.get("choices", [])} | free
         if future is None or future.done() or choice not in valid:
             return False
         feedback = " ".join(str(feedback).split())[:2000]
-        carries = choice in ("deny", "plan_keep")  # "keep planning: split step two"
+        # "keep planning: split step two"; a question's own answer
+        carries = choice in ("deny", "plan_keep") or choice in free
         future.set_result(f"{choice}:{feedback}" if feedback and carries else choice)
         return True
 

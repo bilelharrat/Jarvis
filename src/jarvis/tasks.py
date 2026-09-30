@@ -2906,16 +2906,22 @@ class TaskManager:
 
     async def _ask_user(self, task: ClaudeTask, tool_input: dict[str, Any]):
         """Claude Code asked the user a multiple-choice question: put each one to them
-        and hand back the answers."""
+        and hand back the answers. A question may take several of its options (multiSelect:
+        they're joined with ", ", as Claude Code joins them), and any question an answer of
+        the user's own in place of the options (Claude Code's "Other")."""
         answers: dict[str, str] = {}
-        for q in tool_input.get("questions", [])[:4]:
+        questions = tool_input.get("questions")
+        for q in (questions if isinstance(questions, list) else [])[:4]:
+            if not isinstance(q, dict):
+                continue
             question = str(q.get("question", "")).strip()
-            options = [str(o.get("label", "")).strip() for o in q.get("options", [])][:6]
+            raw = [o for o in (q.get("options") or []) if isinstance(o, dict)][:6]
+            options = [str(o.get("label", "")).strip() for o in raw]
             if not question or not options:
                 continue
             details = "\n".join(
                 f"{i + 1}. {o.get('label', '')}: {o.get('description', '')}".rstrip(": ")
-                for i, o in enumerate(q.get("options", [])[:6])
+                for i, o in enumerate(raw)
             )
             task.last_action = "Asking you"
             self._changed_soon()
@@ -2925,14 +2931,28 @@ class TaskManager:
                 details,
                 # "Skip" last: an unanswered question times out to it, never to an option.
                 [(f"opt{i}", label) for i, label in enumerate(options)] + [("skip", "Skip")],
-                context={"task_id": task.id, "tool": "AskUserQuestion", "ask_kind": "question"},
+                context={
+                    "task_id": task.id,
+                    "tool": "AskUserQuestion",
+                    "ask_kind": "question",
+                    "header": str(q.get("header") or "")[:40],
+                    "multi": bool(q.get("multiSelect")),
+                    "options": [
+                        {"label": label, "description": str(o.get("description") or "")[:300]}
+                        for label, o in zip(options, raw, strict=True)
+                    ],
+                    # Answers the window gives with words of their own (hub.resolve carries
+                    # them): several options at once ("pick"), or the user's own ("other").
+                    "free_choices": ["pick", "other"],
+                },
             )
-            if not choice.startswith("opt"):
+            answer = _question_answer(choice, options)
+            if not answer:
                 if time.monotonic() - asked_at >= UNANSWERED_SECONDS:
                     return self._unanswered(task)
                 return PermissionResultDeny(message="The user didn't answer.")
-            answers[question] = options[int(choice[3:])]
-            self._log(task, "user", f"{question} → {answers[question]}")
+            answers[question] = answer
+            self._log(task, "user", f"{question} → {answer}")
         return PermissionResultAllow(updated_input={**tool_input, "answers": answers})
 
     # ── JARVIS's tools for driving tasks ──
@@ -3357,6 +3377,31 @@ def _ended(message: ResultMessage) -> str:
     said = _ENDED.get(message.subtype, "It stopped with an error.")
     errors = "; ".join(str(e).strip() for e in (message.errors or []) if str(e).strip())
     return f"{said} {errors[:300]}" if errors else said
+
+
+def _question_answer(choice: str, options: list[str]) -> str:
+    """A question's answer as Claude Code takes it: an option's label ("opt2"), several of
+    them joined with ", " ('pick:{"picked": [0, 2], "other": "…"}', the user's own words
+    last), or the user's own words alone ("other:…"); "" for none (skipped, unanswered)."""
+    kind, _, text = choice.partition(":")
+    if kind.startswith("opt") and kind[3:].isdigit():
+        n = int(kind[3:])
+        return options[n] if n < len(options) else ""
+    if kind == "other":
+        return " ".join(text.split())[:2000]
+    if kind != "pick":
+        return ""
+    try:
+        data = json.loads(text) if text else {}
+    except ValueError:
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    picked = data.get("picked") if isinstance(data.get("picked"), list) else []
+    chosen = sorted(
+        {n for n in picked if type(n) is int and 0 <= n < len(options)}  # (never a bool)
+    )
+    own = " ".join(str(data.get("other") or "").split())[:2000]
+    return ", ".join([options[n] for n in chosen] + ([own] if own else []))
 
 
 def _session_title(text: str) -> str:
