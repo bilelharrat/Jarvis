@@ -106,22 +106,27 @@ def _when(value: Any) -> str:
 
 # ── answers by text ──
 
-_YES = r"yes|y|yep|ok|okay|allow|approve|go|sure|是|好|可以|同意|允许|确认"
-_NO = r"no|n|nope|deny|decline|don['’]?t|cancel|不|否|拒绝|不要|取消"
-# A code is four ASCII digits: \d would take any script's (٤٨٢١), which no code is.
+_YES = r"yes|y|yep|ok|okay|allow|approved?|confirm(?:ed)?|go|sure|是的?|好的?|行|可以|同意|允许|确认|确定"
+_NO = r"no|n|nope|deny|decline|don'?t|cancel|不是|不行|不用|不要|不|否|拒绝|取消"
 _ANSWER = re.compile(
     rf"^\W*(?:(?P<a>{_YES}|{_NO})\W*(?P<c>[0-9]{{4}})|(?P<c2>[0-9]{{4}})\W*(?P<a2>{_YES}|{_NO}))\W*$",
     re.IGNORECASE,
 )
+_CODE = re.compile(r"(?<![0-9])[0-9]{4}(?![0-9])")
+
+
+def _plain(text: str) -> str:
+    """A text as typed on any phone read the one way: full-width letters and digits as
+    ASCII (NFKC), the iPhone's curly apostrophe straight, spacing collapsed."""
+    text = unicodedata.normalize("NFKC", str(text or "")).replace("\u2019", "'")
+    return " ".join(text.split())
 
 
 def answer(text: str) -> tuple[str, str] | None:
     """("allow" or "deny", the code) for a text that answers a card: a yes or no word and
-    the four-digit code, either way round ("YES 4821", "4821 no", "是 4821", and in a Chinese
-    keyboard's full-width digits, "是 ４８２１"). None for anything else: a message, a code
-    alone, a yes alone."""
-    text = unicodedata.normalize("NFKC", str(text or ""))  # ４８２１ is 4821
-    m = _ANSWER.match(" ".join(text.split()))
+    the four-digit code, either way round ("YES 4821", "4821 no", "是 4821", "好的 ４８２１").
+    None for anything else: a message, a code alone, a yes alone, digits of another script."""
+    m = _ANSWER.match(_plain(text))
     if m is None:
         return None
     word = (m.group("a") or m.group("a2")).lower()
@@ -142,6 +147,7 @@ class Challenge:
         self.code = code
         self.labels = labels  # choice id -> the card's label ("Send", "Don't send")
         self.wrong = 0
+        self.told_how = False  # a reply it couldn't read got how to answer, once
 
 
 class Codes:
@@ -168,6 +174,16 @@ class Codes:
     def drop(self, approval_id: str) -> None:
         self.open.pop(approval_id, None)
 
+    def mentioned(self, text: str) -> Challenge | None:
+        """The open card whose code is in this text, as four digits of its own."""
+        for code in _CODE.findall(_plain(text)):
+            hit = next(
+                (c for c in self.open.values() if secrets.compare_digest(c.code, code)), None
+            )
+            if hit is not None:
+                return hit
+        return None
+
     @property
     def paused(self) -> bool:
         return self.clock() < self.paused_until
@@ -176,10 +192,7 @@ class Codes:
         """The challenge this code answers; else why not ("paused", "wrong", "spent")."""
         if self.paused:
             return "paused"
-        given = str(code).encode(errors="replace")  # compare_digest takes no text but ASCII
-        hit = next(
-            (c for c in self.open.values() if secrets.compare_digest(c.code.encode(), given)), None
-        )
+        hit = next((c for c in self.open.values() if secrets.compare_digest(c.code, code)), None)
         if hit is not None:
             del self.open[hit.approval_id]
             return hit
@@ -224,13 +237,18 @@ def card_text(card: dict[str, Any], code: str, language: str = "en") -> str:
     detail = " ".join(str(card.get("detail") or "").split())
     if len(detail) > MAX_DETAIL:
         detail = detail[: MAX_DETAIL - 1].rstrip() + "…"
+    head = (
+        f"Jarvis 需要你确认：{question}"
+        if language == "zh"
+        else f"Jarvis needs your OK: {question}"
+    )
+    return "\n".join(part for part in (head, detail, how_to_answer(code, language)) if part)
+
+
+def how_to_answer(code: str, language: str = "en") -> str:
     if language == "zh":
-        head = f"Jarvis 需要你确认：{question}"
-        tail = f"回复“是 {code}”允许，“否 {code}”拒绝。"
-    else:
-        head = f"Jarvis needs your OK: {question}"
-        tail = f"Reply YES {code} to allow or NO {code} to decline."
-    return "\n".join(part for part in (head, detail, tail) if part)
+        return f"回复“是 {code}”允许，“否 {code}”拒绝。"
+    return f"Reply YES {code} to allow or NO {code} to decline."
 
 
 def eligible(card: dict[str, Any]) -> bool:

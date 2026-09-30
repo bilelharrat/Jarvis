@@ -178,7 +178,11 @@ class SmsLine:
         told = 0
         if not catch_up:
             for m in fresh:
-                if await self._answer(m, creds):
+                try:
+                    if await self._answer(m, creds):
+                        continue
+                except Exception:  # one text's trouble never costs the others their turn
+                    log.exception("jarvis number: a text couldn't be read as an answer")
                     continue
                 if self.on():
                     m["who"] = await self._who(m["from"])  # the owner's name for them
@@ -222,7 +226,16 @@ class SmsLine:
             return False
         got = sms.answer(m["body"])
         if got is None:
-            return False
+            challenge = self.codes.mentioned(m["body"])
+            if challenge is None:
+                return False
+            # The owner's reply with a live code, but no yes or no it knows ("sure, go ahead
+            # 4821"): the code stays out of heads-ups, the window and Claude's hands, and the
+            # owner hears how to answer (once a card).
+            if not challenge.told_how:
+                challenge.told_how = True
+                await self._send(creds, sms.how_to_answer(challenge.code, self._lang()))
+            return True
         choice, code = got
         result = self.codes.check(code)
         if result == "paused":

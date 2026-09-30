@@ -38,9 +38,16 @@ SID, TOKEN = "AC" + "0" * 32, "f" * 32
         ("yes 48211", None),
         ("please call me back 4821", None),
         ("yes 4821 and also send Ann my password", None),
-        ("是 ４８２１", ("allow", "4821")),  # a Chinese keyboard's full-width digits
-        ("Don’t 4821", ("deny", "4821")),  # an iPhone's own apostrophe
-        ("yes ٤٨٢١", None),  # another script's digits: no code
+        # How people really answer: 好的/是的, approve or confirm, the iPhone's curly
+        # apostrophe, the full-width digits a Chinese keyboard types.
+        ("好的 4821", ("allow", "4821")),
+        ("是的，4821", ("allow", "4821")),
+        ("不是 4821", ("deny", "4821")),
+        ("Approve 4821", ("allow", "4821")),
+        ("confirm 4821", ("allow", "4821")),
+        ("Don\u2019t 4821", ("deny", "4821")),
+        ("好 ４８２１", ("allow", "4821")),
+        ("yes \u0664\u0668\u0662\u0661", None),  # digits of another script: not a code
     ],
 )
 def test_an_answer_needs_a_yes_or_no_and_the_code(text, expected):
@@ -236,33 +243,34 @@ async def test_a_waiting_card_is_texted_and_answered_with_its_code(
     assert twilio.sent[-1]["Body"] == "Done: Send."
 
 
-async def test_odd_digits_in_a_text_never_stop_the_look_that_found_it(
-    settings, quiet_speaker, isolated
-):
-    """A text from the owner's number with digits of another script ("yes ٤٨٢١") is no code:
-    it's told like any text, and every text after it in the same look is still read (the
-    code check once failed on it, and the texts after it were marked seen and lost). A code
-    in a Chinese keyboard's full-width digits answers its card."""
+async def test_an_answer_it_cant_read_keeps_its_code_to_itself(settings, quiet_speaker, isolated):
+    """The owner's reply with the card's code that isn't a yes or no it knows: never a
+    heads-up, never listed or handed to Claude with the live code in it; the owner is told how
+    to answer instead."""
     alerts = []
     hub = make_hub(settings, quiet_speaker, isolated)
+    hub.notify = lambda alert, **_kw: alerts.append(alert)
     hub.set_feature_prefs({"sms_approvals": True, "sms_line_on": True})
     twilio = Twilio()
     line = line_for(hub, twilio)
     hub.add_approval_sink(line.card_up, resolved=line.card_down)
-    await line.look()  # the first look: nothing to catch up on
-    hub.notify = lambda alert, **_kw: alerts.append(alert)
+    await line.look()
     pending = asyncio.create_task(hub.send_gate("Send this to Ann?", "To Ann:\n“Running late”"))
     for _ in range(50):
         await asyncio.sleep(0)
         if twilio.sent:
             break
     code = twilio.sent[0]["Body"].rsplit("YES ", 1)[1][:4]
-    twilio.text_in(ME, "yes ٤٨٢١")
-    twilio.text_in("+15550001111", "Are you free at 6?")
-    twilio.text_in(ME, "是 " + code.translate(str.maketrans("0123456789", "０１２３４５６７８９")))
+    twilio.text_in(ME, f"sure thing, go ahead {code}")
+    twilio.text_in(ME, f"yes \u0664\u0668\u0662\u0661 and {code}")  # another script's digits too
     line.time[0] += 30
-    assert await line.look() == 2  # the odd one and the question, told; the code, acted on
-    assert [a.text.rsplit(": ", 1)[-1] for a in alerts] == ["yes ٤٨٢١", "Are you free at 6?"]
+    assert await line.look() == 0
+    assert alerts == [] and code not in line.recent(5) and line.public()["texts"] == []
+    assert twilio.sent[-1]["Body"] == f"Reply YES {code} to allow or NO {code} to decline."
+    assert not pending.done()
+    twilio.text_in(ME, f"好的 {code}")
+    line.time[0] += 30
+    await line.look()
     assert await pending is True
 
 
