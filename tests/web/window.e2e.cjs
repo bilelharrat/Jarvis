@@ -22,7 +22,9 @@ app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 12
 function serve() {
   const server = http.createServer((req, res) => {
     const { pathname } = new URL(req.url, 'http://127.0.0.1');
-    const name = pathname === '/' ? 'index.html' : pathname.startsWith('/static/') ? path.basename(pathname) : '';
+    // A feature module's window files (loaded by a test that wants one: featureScript).
+    const feature = pathname.startsWith('/static/features/') ? `features/${path.basename(pathname)}` : '';
+    const name = pathname === '/' ? 'index.html' : feature || (pathname.startsWith('/static/') ? path.basename(pathname) : '');
     fs.readFile(path.join(WEB, name || '-'), (err, data) => {
       if (err || !name) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { 'content-type': TYPES[path.extname(name)] || 'application/octet-stream' });
@@ -2216,6 +2218,71 @@ test('Script hooks: what was found and each one’s say, the folder, the last ru
     { type: 'automation_scripts', action: 'open' },
     { type: 'automation_scripts', action: 'scan' },
   ]), JSON.stringify(s));
+});
+
+// ── Jarvis Code checks (web/features/code-verify.js) ──
+
+// A feature module's script, loaded into this test's page (features.js has no backend to ask).
+const featureScript = (name) => js(`new Promise((resolve, reject) => {
+  const s = document.createElement('script');
+  s.src = '/static/features/${name}';
+  s.onload = () => resolve(true);
+  s.onerror = () => reject(new Error('no ${name}'));
+  document.body.append(s);
+})`);
+
+test('The Preview pane lists dev servers and suggestions as text, and its buttons say what to do', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(await clickText('#jc-menu', 'Preview and dev servers'), 'no Preview item in the More menu');
+  assert(await js('$("jc-pane-title").textContent') === 'Preview', 'the pane did not open');
+  let s = await js('__sent');
+  assert(s.some((m) => m.type === 'cv_state' && m.id === 1), JSON.stringify(s));
+  const path = '/Users/x/Projects/alpha';
+  await deliver({ type: 'cv_state', project: 'alpha', path, id: 1, session: { verify: false },
+    configs: [{ name: 'web', command: 'npm run dev', port: 5173, url: 'http://localhost:5173/', cwd: '', source: '.claude/launch.json', why: '' },
+      { name: '<img src=x onerror="window.__pwned=1">', command: 'uv run app.py', port: null, url: '', cwd: 'api', source: '.claude/launch.json', why: '' }],
+    suggestions: [{ name: 'static', command: 'python3 -m http.server 8000 --bind 127.0.0.1', port: 8000, url: 'http://localhost:8000/', cwd: '', source: '', why: 'index.html: a static site' }],
+    problems: ['.jarvis/launch.json isn’t valid JSON (line 3).'], servers: [] });
+  await deliver({ type: 'devservers', items: [{ key: `${path}::web`, project: path, name: 'web', command: 'npm run dev', status: 'ready', port: 5173, url: 'http://localhost:5173/', message: '', started_by: null, lines: 4 }] });
+  const r = await js(`({
+    rows: [...document.querySelectorAll('#jc-pane-body .cv-server:not(.cv-suggestion) strong')].map((n) => n.textContent),
+    link: (document.querySelector('#jc-pane-body .cv-link') || {}).textContent,
+    chips: [...document.querySelectorAll('#jc-pane-body .cv-chip')].map((n) => n.textContent),
+    imgs: document.querySelectorAll('#jc-pane-body img').length, pwned: !!window.__pwned,
+    text: $('jc-pane-body').textContent })`);
+  assert(r.rows.length === 2 && r.rows[1].includes('<img') && r.imgs === 0 && !r.pwned, JSON.stringify(r));
+  assert(r.link === 'localhost:5173' && r.chips.join() === 'Running,Not running', JSON.stringify(r));
+  assert(r.text.includes('isn’t valid JSON') && r.text.includes('index.html: a static site'), r.text);
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .cv-server:nth-child(2)', 'Start'), 'no Start on a stopped server');
+  assert(await clickText('#jc-pane-body .cv-server:nth-child(1)', 'Stop'), 'no Stop on a running server');
+  assert(await clickText('#jc-pane-body .cv-suggestion', 'Save'), 'no Save on a suggestion');
+  s = await js('__sent');
+  const want = [{ type: 'cv_server', action: 'start', name: '<img src=x onerror="window.__pwned=1">', id: 1 },
+    { type: 'cv_server', action: 'stop', key: `${path}::web` }, { type: 'cv_save', name: 'static', id: 1 }];
+  assert(JSON.stringify(s) === JSON.stringify(want), JSON.stringify(s));
+});
+
+test('A dev server’s logs show its output as it comes, once each line', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-preview"); true');
+  const path = '/Users/x/Projects/alpha';
+  const key = `${path}::web`;
+  await deliver({ type: 'cv_state', project: 'alpha', path, id: 1, session: null, problems: [], suggestions: [],
+    configs: [{ name: 'web', command: 'npm run dev', port: 5173, url: '', cwd: '', source: '.claude/launch.json', why: '' }], servers: [] });
+  await deliver({ type: 'devservers', items: [{ key, project: path, name: 'web', command: 'npm run dev', status: 'exited', port: null, url: '', message: 'It exited with code 1.', started_by: null, lines: 2 }] });
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .cv-server', 'Logs'), 'no Logs button');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_logs', key, since: 0 }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cv_logs', key, lines: [[1, '$ npm run dev'], [2, 'Error: port 5173 is in use']] });
+  await deliver({ type: 'devserver_log', key, lines: [[2, 'Error: port 5173 is in use'], [3, '<b>bold?</b>']] });
+  await frames(2);
+  const text = await js('$("cv-log").textContent');
+  assert(text === '$ npm run dev\nError: port 5173 is in use\n<b>bold?</b>', JSON.stringify(text));
+  assert(await js('$("jc-pane-body").textContent.includes("It exited with code 1.")'), 'no exit message');
 });
 
 // ──

@@ -762,7 +762,17 @@ def describe_tool(name: str, tool_input: dict[str, Any]) -> str:
     return name
 
 
+# Feature modules' session tools (jarvis.features), as approval cards and Activity show them:
+# the full tool name -> (what it wants to do, e.g. "start a dev server"; and what a call does,
+# from its input and the session's folder, or None for the name and input).
+FEATURE_TOOLS: dict[str, tuple[str, Callable[[dict[str, Any], Path], str] | None]] = {}
+
+
 def approval_detail(name: str, tool_input: dict[str, Any], cwd: Path) -> str:
+    feature = FEATURE_TOOLS.get(name)
+    if feature is not None and feature[1] is not None:
+        with contextlib.suppress(Exception):  # a feature's wording never keeps a card from showing
+            return feature[1](tool_input, cwd)
     if name == "Bash":
         return f"$ {tool_input.get('command', '')}"
     if name == "WebFetch":
@@ -890,6 +900,10 @@ class TaskManager:
         # names a copy folder a session may run in, which resolve_dir then accepts.
         self.prepare: Callable[[ClaudeTask], Awaitable[None]] | None = None
         self.isolated_dir: Callable[[str], Path | None] | None = None
+        # Feature modules' additions to a code session's options (jarvis.features): each
+        # hook's apply(task, options) adds to them (MCP servers, allowed tools, hooks), and
+        # its key(task) is what of that only a new connection can change (_options_key).
+        self.option_hooks: list[Any] = []
         self._spawns: deque[float] = deque()  # when the latest Claude Codes were started
         self._open: set[int] = set()  # sessions connecting or connected
         self._changed_at = 0.0
@@ -1854,6 +1868,11 @@ class TaskManager:
             options.model = cfg["model"] or options.model
             options.env = {**options.env, **cfg["env"]}
             options.settings = cfg["settings"]
+        for hook in self.option_hooks:
+            try:
+                hook.apply(task, options)
+            except Exception:  # a feature's additions never keep a session from opening
+                log.exception("Jarvis Code: a feature's session options failed")
         if task.session_id:
             options.resume = task.session_id
             if task.fork:
@@ -2022,6 +2041,7 @@ class TaskManager:
             tuple(sorted(task.env.items())),
             task.provider_settings,
             task.model if other else "",
+            tuple(_hook_key(hook, task) for hook in self.option_hooks),
         )
 
     def _make_room(self) -> None:
@@ -2609,6 +2629,8 @@ class TaskManager:
                 verb = page.verb if page is not None else "use the browser"
             elif tool_name.startswith(f"mcp__{code_tools.SIMULATOR}__"):
                 verb = "use the iOS Simulator"
+            elif tool_name in FEATURE_TOOLS:
+                verb = FEATURE_TOOLS[tool_name][0]
             if tool_name in EDIT_TOOLS:
                 verb = "edit a file" if editable else "edit a file outside the project"
             elif tool_name in READ_TOOLS:
@@ -3037,6 +3059,14 @@ async def _with_images(text: str, images: list[dict[str, str]]):
         "parent_tool_use_id": None,
         "session_id": "default",
     }
+
+
+def _hook_key(hook: Any, task: ClaudeTask) -> Any:
+    """A feature's part of a session's options key; one that fails counts as unchanged."""
+    try:
+        return hook.key(task)
+    except Exception:
+        return None
 
 
 async def _deny_everything(tool_name: str, _input: dict[str, Any], _ctx: ToolPermissionContext):

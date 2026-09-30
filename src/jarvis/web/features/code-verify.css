@@ -1,0 +1,20 @@
+/* Jarvis Code checks (features/code-verify.js): the Preview pane, in the workbench's own
+   cards, chips and mono type. */
+
+.cv-head { margin: 12px 4px 6px; }
+.cv-head:first-child { margin-top: 2px; }
+.cv-intro { margin: 0 4px 8px; line-height: 1.45; }
+.cv-servers li.cv-server { display: block; padding: 9px 12px; }
+.cv-server-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cv-server-head strong { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.cv-chip { font-size: 11px; color: rgb(var(--c-muted)); white-space: nowrap; }
+.cv-link { border: 0; background: rgb(var(--c-accent) / 0.1); color: rgb(var(--c-accent-ink)); border-radius: 999px; padding: 2px 9px; font: 11.5px var(--mono); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.cv-link:hover { background: rgb(var(--c-accent) / 0.18); }
+.cv-actions { display: inline-flex; gap: 5px; flex: none; }
+.cv-cmd { display: block; margin-top: 5px; font: 11.5px/1.45 var(--mono); color: rgb(var(--c-ink-2)); white-space: pre-wrap; word-break: break-all; background: transparent; padding: 0; }
+.cv-note { display: block; margin-top: 3px; font-size: 11.5px; color: rgb(var(--c-muted)); line-height: 1.4; }
+.cv-suggestion { box-shadow: inset 0 0 0 1px rgb(var(--c-ink) / 0.08) !important; background: rgb(var(--c-surface) / 0.6) !important; }
+.cv-problems-list { list-style: none; margin: 8px 4px; padding: 0; font-size: 12px; color: rgb(var(--c-warning-ink)); display: flex; flex-direction: column; gap: 3px; }
+.cv-logs { margin-top: 12px; background: rgb(var(--c-surface)); border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; }
+.cv-logs-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12.5px; border-bottom: 0.5px solid rgb(var(--c-border)); }
+.cv-log { max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 11.5px; }

@@ -1,0 +1,39 @@
+{
+  "strings": {
+    "Preview": "预览",
+    "Preview and dev servers": "预览和开发服务器",
+    "Dev servers": "开发服务器",
+    "Suggested": "建议",
+    "Read from the project. Nothing runs until you save one and start it.": "根据项目读出。保存并启动之前不会运行任何东西。",
+    "No dev servers yet. Save a suggestion below, or add one to .claude/launch.json.": "还没有开发服务器。保存下面的建议，或在 .claude/launch.json 中添加一个。",
+    "Looking at the project…": "正在查看项目…",
+    "Starting…": "正在启动…",
+    "Running": "运行中",
+    "Exited": "已退出",
+    "Stopped": "已停止",
+    "Didn’t start": "未能启动",
+    "Not running": "未运行",
+    "Start": "启动",
+    "Stop": "停止",
+    "Restart": "重启",
+    "Save": "保存",
+    "Logs": "日志",
+    "Hide logs": "隐藏日志",
+    "Output": "输出",
+    "Clear view": "清空显示",
+    "Nothing yet.": "还没有内容。",
+    "Open in the browser": "在浏览器中打开",
+    "Stopping…": "正在停止…",
+    "Stopped with the session that started it.": "已随启动它的会话一起停止。",
+    "Running; it hasn't said its address.": "运行中；它还没有给出地址。"
+  },
+  "patterns": [
+    ["^It exited with code (\\d+)\\.$", "它已退出，代码 $1。"],
+    ["^It exited\\.$", "它已退出。"],
+    ["^It was (killed|terminated|interrupted|hung up)\\.$", "它已被终止。"],
+    ["^It was ended by signal (\\d+)\\.$", "它已被信号 $1 终止。"],
+    ["^(.+) isn't installed, or isn't on your PATH\\.$", "$1 未安装，或不在你的 PATH 中。"],
+    ["^No dev server called (.+) in (.+)'s launch\\.json\\.$", "$2 的 launch.json 中没有名为 $1 的开发服务器。"],
+    ["^There's already a config called (.+)\\.$", "已经有一个名为 $1 的配置。"]
+  ]
+}
