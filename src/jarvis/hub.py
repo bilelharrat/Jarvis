@@ -743,7 +743,7 @@ class Hub:
             reads=self._gate_reads,
             words=lambda: self._turn_text,
             turn=lambda: self._rid,
-            page=lambda: browser_gate.read_where(self._browser_raw),
+            page=lambda: browser_gate.read_where(self._browser_routed),  # where it'll act
             ask=self._ask_user,
             asked=lambda kind: self._user_asked_for(f"hands_{kind}"),
             send=self.send_gate,
@@ -801,7 +801,7 @@ class Hub:
             lambda: cwd,
             session=browser_agent.CodeSession(self.tasks, task_id, self.browser_tabs),
         )
-        self.tasks.page_url = lambda: browser_gate.read_url(self._browser_raw)
+        self.tasks.page_url = self._session_page_url
         # The Mac's own mouse and keyboard: never a press that pays outside the built-in
         # browser, and a send in a messaging app shows its card unless the user asked.
         self.hands_guard = hands_guard.HandsGuard(
@@ -4222,6 +4222,25 @@ class Hub:
         if browser_agent.closed_tab(result) and args.get("tab"):
             self.browser_tabs.forget(args["tab"])
         return result
+
+    async def _browser_routed(
+        self, action: str, args: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """A browser call as JARVIS's own tools make it: to the tab this request works in
+        (its own, once it opened one), so the turn gate weighs the page it will act on,
+        not the one on show."""
+        return await self._browser_raw(action, self.browser_tabs.route(dict(args or {}), self._rid))
+
+    async def _session_page_url(self, task_id: int) -> str | None:
+        """The address a Jarvis Code session's next browser action lands on: its own tab's
+        page, or the tab on show while it has none (where such a session acts)."""
+        tab = self.browser_tabs.session_tab(task_id)
+        where = {"tab": tab} if tab else {}
+
+        async def read(action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+            return await self._browser_raw(action, {**(args or {}), **where})
+
+        return await browser_gate.read_url(read)
 
     async def _browser_raw(self, action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         """Ask the J.A.R.V.I.S. window to run a browser action; its answer comes back over

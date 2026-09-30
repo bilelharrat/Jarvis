@@ -326,7 +326,7 @@ async def test_jarvis_code_types_into_localhost_unasked_in_accept_edits_and_auto
     tm.tasks[1] = task
     shown = ["http://localhost:5173/login"]
 
-    async def page_url():
+    async def page_url(_task_id):
         return shown[0]
 
     tm.page_url = page_url
@@ -403,6 +403,56 @@ def test_the_new_cards_read_in_chinese():
     assert lang.translate("Jarvis Code in web wants to type into x.com") == (
         "web 中的 Jarvis Code 想要在 x.com 里输入内容"
     )
+
+
+# ── 1c. the page weighed is the tab the action lands in, not the tab on show ──
+
+
+async def test_the_gate_weighs_jarvis_s_own_tab_not_the_one_on_show(
+    settings, quiet_speaker, isolated
+):
+    """JARVIS works in a tab of its own for the rest of a request. With the owner looking
+    at a site they named in the tab on show, typing private data into JARVIS's own tab on
+    another site must still ask: the gate reads the tab the typing lands in."""
+    hub = await started(
+        settings, quiet_speaker, isolated, said="summarize my inbox and check docs.example.com"
+    )
+    pages = {None: "https://docs.example.com/", 7: "https://forms.evil.example/contact"}
+    reads = []
+
+    async def raw(action, args=None):
+        tab = (args or {}).get("tab")
+        reads.append((action, tab))
+        return {"url": pages[tab], "title": "A page", "text": ""} if action == "read" else {}
+
+    hub._browser_raw = raw
+    hub.browser_tabs.set_jarvis(hub._rid, 7)  # this request's own tab
+    hub.note_tool_result("mcp__mac__list_emails")
+    q = hub.subscribe()
+    typing = {"text": "Ann: the merger closes Friday", "field": "message"}
+    pending = asyncio.create_task(hub.turn_gate(BROWSER("browser_type"), typing))
+    approval = await answer(hub, q, "deny")
+    assert await pending is False
+    assert approval["question"] == "Type into forms.evil.example in the built-in browser?"
+    assert ("read", 7) in reads and ("read", None) not in reads
+
+
+async def test_a_code_session_s_localhost_check_reads_its_own_tab(
+    settings, quiet_speaker, isolated
+):
+    """A Jarvis Code session types freely only on a page on this Mac: the page in its own
+    tab once it has one, never the localhost page the owner happens to have on show."""
+    hub = await started(settings, quiet_speaker, isolated, said="hello")
+    pages = {None: "http://localhost:5173/", 3: "https://forms.evil.example/contact"}
+
+    async def raw(action, args=None):
+        tab = (args or {}).get("tab")
+        return {"url": pages[tab], "title": "A page", "text": ""} if action == "read" else {}
+
+    hub._browser_raw = raw
+    assert await hub._session_page_url(1) == "http://localhost:5173/"  # no tab of its own
+    hub.browser_tabs.set_session(1, 3)
+    assert await hub._session_page_url(1) == "https://forms.evil.example/contact"
 
 
 # ── 2. the Mac's mouse and keyboard: never a purchase, and a send asks ──

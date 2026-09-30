@@ -865,7 +865,8 @@ class TaskManager:
         self.session_extras: list[Callable[[ClaudeTask, ClaudeAgentOptions], None]] = []
         # The address on show in that browser, set by the hub: a page on this Mac
         # (localhost) is a session's own work, typed into unasked in Accept edits and Auto.
-        self.page_url: Callable[[], Awaitable[str | None]] | None = None
+        # (by the session's id: its own tab's page, or the tab on show while it has none).
+        self.page_url: Callable[[int], Awaitable[str | None]] | None = None
         # A finished research report with the owner's own material folded in, by a second
         # session that has no web access (jarvis.features.brain): the revised report, or
         # None to keep the web one.
@@ -2624,7 +2625,7 @@ class TaskManager:
 
             if free := self._goes_ahead(task, tool_name, tool_input):
                 return allow(*free)
-            page = await self._browser_target(tool_name, tool_input)
+            page = await self._browser_target(task, tool_name, tool_input)
             if page is not None and page.local and task.mode in ("edits", "smart"):
                 return allow("auto", "a page on this Mac")
             editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
@@ -2714,14 +2715,17 @@ class TaskManager:
         return can_use_tool
 
     async def _browser_target(
-        self, tool_name: str, tool_input: dict[str, Any]
+        self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
     ) -> browser_gate.Target | None:
         """Where a session's browser call that acts (not only looks) lands: the address it
-        opens or the page on show. None for any other tool."""
+        opens, or the page in the session's own tab (the tab on show while it has none).
+        None for any other tool."""
         prefix = f"mcp__{code_tools.BROWSER}__"
         if not tool_name.startswith(prefix) or tool_name in code_tools.READ_ONLY:
             return None
-        return await browser_gate.target(tool_name, tool_input, self.page_url)
+        page_url = self.page_url
+        page = (lambda: page_url(task.id)) if page_url is not None else None
+        return await browser_gate.target(tool_name, tool_input, page)
 
     def _goes_ahead(
         self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
