@@ -22,8 +22,8 @@ Native SwiftUI companion apps for Jarvis on the Mac. They replace the phone web 
   (`WatchWidgets/`), the share sheet (`Share/`).
 
 Bundle IDs: `com.bshventures.jarvis.companion` and
-`com.bshventures.jarvis.companion.watchkitapp` (team 9ZSY5R8A5C, automatic signing).
-iOS 17+, watchOS 10+.
+`com.bshventures.jarvis.companion.watchkitapp`, plus three extensions (see On a device
+and TestFlight); team 9ZSY5R8A5C, automatic signing. iOS 17+, watchOS 10+.
 
 ## Build and run
 
@@ -48,6 +48,42 @@ xcodebuild -project JarvisCompanion.xcodeproj -scheme JarvisCompanion \
 
 On a device, run the JarvisCompanion scheme from Xcode with your iPhone selected; the
 Watch app installs with it (or from the Watch app on the iPhone).
+
+On a Mac under heavy load, `test` can fail with "The test runner hung before establishing
+connection" (Xcode's launch of the test host loses a race); `build-for-testing` followed
+by `test-without-building` avoids it.
+
+## On a device and TestFlight
+
+Simulator builds need nothing. For a device or TestFlight, open the project in Xcode
+signed in with team 9ZSY5R8A5C; automatic signing registers each target's bundle ID and
+capabilities on the first device build (or add them under Identifiers in the developer
+portal):
+
+| Target | Bundle ID | Capabilities |
+|---|---|---|
+| JarvisCompanion (iPhone) | `com.bshventures.jarvis.companion` | Push Notifications, App Groups, HealthKit |
+| JarvisCompanionWatch | `com.bshventures.jarvis.companion.watchkitapp` | App Groups |
+| JarvisWidgets | `com.bshventures.jarvis.companion.widgets` | App Groups |
+| JarvisWatchWidgets | `com.bshventures.jarvis.companion.watchkitapp.widgets` | App Groups |
+| JarvisShare | `com.bshventures.jarvis.companion.share` | App Groups |
+
+- The App Group is `group.com.bshventures.jarvis.companion`: the shared container and the
+  Keychain access group for the pairing (no Keychain Sharing capability needed).
+- `aps-environment` is `development` in the entitlements; a TestFlight or App Store export
+  signs it as `production`, and the app tells the Mac which (`sandbox` from Debug builds,
+  `production` from Release).
+- Pushes also need an APNs key on the Mac: in the developer portal, Keys › + › Apple Push
+  Notifications service; paste the `.p8`'s contents, its Key ID, the team and the iPhone
+  app's bundle ID into the Mac's Settings (iPhone & Watch).
+- Background Modes (remote notifications, background fetch), Live Activities and the App
+  Shortcuts need nothing from the portal: they're Info.plist keys, and App Intents don't
+  use the Siri capability.
+- HealthKit asks for read access only when the daily health summary is turned on. App
+  Review (the App Store, or TestFlight beyond internal testers) will want a privacy
+  policy URL, since the app reads Health data and location.
+- CarPlay isn't built: a CarPlay app needs an entitlement Apple grants on request, for
+  certain kinds of app only.
 
 ## Pairing
 
