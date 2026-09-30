@@ -176,17 +176,26 @@ class RuleDesk:
         found = await asyncio.to_thread(coderules.read_claude, Path(project))
         have = self.book.rules(project)
         added = skipped = 0
+        # Every file's rules weighed together, as Claude Code does: a deny beats an ask beats
+        # an allow, whichever file says it. (BEHAVIORS runs strictest first.)
+        wanted: dict[str, int] = {}  # rule -> the strictest behavior any file gives it
+        for rules in found.values():
+            for strictness, behavior in enumerate(BEHAVIORS):
+                for text in rules.get(behavior, []):
+                    rule = coderules.valid(text)
+                    if rule is None:
+                        skipped += 1
+                    else:
+                        wanted[rule.text] = min(wanted.get(rule.text, strictness), strictness)
         try:
-            for rules in found.values():
-                for behavior in BEHAVIORS:
-                    for text in rules.get(behavior, []):
-                        rule = coderules.valid(text)
-                        if rule is None:
-                            skipped += 1
-                        elif rule.text not in have[behavior]:
-                            self.book.add(project, behavior, rule.text)
-                            have[behavior].append(rule.text)
-                            added += 1
+            for text, strictness in wanted.items():
+                # The files are the project's words, not the owner's: a rule the owner keeps
+                # as strictly or more (their deny, say) is never loosened by one.
+                kept = next((i for i, b in enumerate(BEHAVIORS) if text in have[b]), None)
+                if kept is not None and kept <= strictness:
+                    continue
+                self.book.add(project, BEHAVIORS[strictness], text)
+                added += 1
         except (RuleError, OSError) as exc:
             await self.state(task, error=f"Stopped importing: {exc}")
             return

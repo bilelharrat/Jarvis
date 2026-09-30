@@ -406,6 +406,50 @@ async def test_the_pane_s_commands_edit_import_and_export(
     await end_all(hub)
 
 
+async def test_an_import_never_weakens_a_rule_and_weighs_the_files_as_claude_code_does(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """A project's .claude files are the project's words, not the owner's: importing them
+    never turns the owner's deny (or ask) into something looser, and across the files a deny
+    beats an ask beats an allow, as in Claude Code, whatever order they're read in."""
+    from code_session_fakes import events_of
+
+    hub, task = await _session(settings, quiet_speaker, isolated, tmp_path)
+    seen = events_of(hub)
+    last = lambda: [e for e in seen() if e["type"] == "cr_state"][-1]  # noqa: E731
+    for behavior, rule in [("deny", "Bash(git push:*)"), ("ask", "WebFetch(domain:example.com)")]:
+        await hub._handle({"type": "cr_add", "id": task.id, "behavior": behavior, "rule": rule})
+    claude = tmp_path / "proj" / ".claude"
+    claude.mkdir()
+    (claude / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": [
+                        "Bash(git push:*)",
+                        "WebFetch(domain:example.com)",
+                        "Bash(rm -rf:*)",
+                        "Bash(npm test:*)",
+                    ],
+                    "ask": ["Bash(npm publish)"],
+                }
+            }
+        )
+    )
+    (claude / "settings.local.json").write_text(
+        json.dumps({"permissions": {"deny": ["Bash(rm -rf:*)"], "allow": ["Bash(npm publish)"]}})
+    )
+    await hub._handle({"type": "cr_import", "id": task.id})
+    rules = last()["rules"]
+    assert rules["deny"] == ["Bash(git push:*)", "Bash(rm -rf:*)"]
+    assert rules["ask"] == ["WebFetch(domain:example.com)", "Bash(npm publish)"]
+    assert rules["allow"] == ["Bash(npm test:*)"]
+    decide = hub.tasks.rule_check
+    assert decide(task, "Bash", {"command": "git push"})[0] == "deny"
+    assert decide(task, "Bash", {"command": "rm -rf build"})[0] == "deny"
+    await end_all(hub)
+
+
 def test_the_rules_never_break_a_session_when_their_check_fails(settings, tmp_path, monkeypatch):
     from jarvis.tasks import ClaudeTask, TaskManager
 
