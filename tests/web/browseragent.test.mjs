@@ -179,6 +179,16 @@ test('marks sit by their elements, inside the viewport, without piling up', () =
   assert.equal(core.layoutMarks(items, { width: 800, height: 600 }, { max: 1 }).length, 1);
 });
 
+test('a mark goes inside its own box rather than over a neighbour', () => {
+  const row = [
+    { ref: 'e15', x: 250, y: 100, width: 160, height: 30 },
+    { ref: 'e18', x: 350, y: 140, width: 200, height: 30 }, // right under e15: above it is e15's box
+  ];
+  const [, second] = core.layoutMarks(row, { width: 800, height: 600 });
+  assert.ok(!core.intersects(second.label, { x: 250, y: 100, width: 160, height: 30 }), JSON.stringify(second.label));
+  assert.ok(core.intersects(second.label, { x: 350, y: 140, width: 200, height: 30 }), 'it sits on its own box');
+});
+
 test('key names become CDP key events, shortcuts type nothing', () => {
   assert.deepEqual(
     (({ key, code, keyCode, text, modifiers }) => ({ key, code, keyCode, text, modifiers }))(core.parseKey('Enter')),

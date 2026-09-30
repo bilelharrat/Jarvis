@@ -132,17 +132,10 @@ def browser_tools(call: BrowserCall, session: browser_agent.CodeSession | None =
             "Typed",
         )
 
-    @tool("browser_screenshot", "See the built-in browser's page as an image.", {})
-    async def browser_screenshot(_args):
-        r = await call("screenshot", session.route({}))
-        if r.get("error") or not r.get("png"):
-            return _page(r if r.get("error") else {"error": "No picture."})
-        return {
-            "content": [
-                {"type": "text", "text": f"{r.get('title')} — {r.get('url')}"},
-                {"type": "image", "data": r["png"], "mimeType": "image/png"},
-            ]
-        }
+    @tool("browser_screenshot", browser_agent.SCREENSHOT_DESC, browser_agent.SCREENSHOT_SCHEMA)
+    async def browser_screenshot(args):
+        r = await call("screenshot", session.route(browser_agent.screenshot_request(args or {})))
+        return browser_agent.screenshot_content(r)
 
     return [
         browser_open,

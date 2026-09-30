@@ -966,12 +966,6 @@ async function runBrowserCommand({ action, args = {} }) {
       const scaled = image.getSize().width > 800 ? image.resize({ width: 800 }) : image;
       return { ...found, ...where(), png: image.isEmpty() ? '' : scaled.toPNG().toString('base64') };
     }
-    case 'screenshot': {
-      const image = await wc.capturePage();
-      const size = image.getSize();
-      const scaled = size.width > 1280 ? image.resize({ width: 1280 }) : image;
-      return { png: scaled.toPNG().toString('base64'), ...where() };
-    }
     default:
       return { error: `Unknown browser action ${action}` };
   }

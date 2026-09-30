@@ -236,6 +236,23 @@ test('The fuller read has dialogs, alerts, banners and sidebars, real labels, va
   assert(JSON.stringify(r.regions.map((x) => x.kind)) === JSON.stringify(['Dialog', 'Alert', 'Sidebar', 'Banner']), JSON.stringify(r.regions));
 });
 
+test('Screenshots: plain, with marks on the refs in view (then gone), and the whole page', async () => {
+  const snap = await fresh();
+  const plain = await run('screenshot', {});
+  assert(plain.ok && plain.pngs.length === 1 && plain.pngs[0].length > 1000, JSON.stringify(plain).slice(0, 200));
+  const marked = await run('screenshot', { marks: true });
+  assert(marked.ok && marked.legend.length > 5, JSON.stringify(marked.legend));
+  const count = refOf(snap, /button "Count me"/);
+  assert(marked.legend.some((m) => m.ref === count && m.name === 'Count me'), `no mark for ${count}: ${JSON.stringify(marked.legend)}`);
+  assert(marked.pngs[0] !== plain.pngs[0], 'the marks are not in the picture');
+  assert((await page(shown, 'document.querySelector("jarvis-marks") === null')) === true, 'the marks stayed on the page');
+  const act = await run('act', { kind: 'click', ref: count }); // a mark's ref works
+  assert(act.ok, act.message);
+  await shown.webContents.loadURL(`${base}/form.html`);
+  const full = await run('screenshot', { fullPage: true });
+  assert(full.ok && full.fullPage && full.pngs.length >= 2 && !full.cut, JSON.stringify({ n: full.pngs.length, cut: full.cut }));
+});
+
 test('Opening in a new tab keeps the page on show; tabs list, switch and close', async () => {
   await fresh();
   const before = tabs.length;

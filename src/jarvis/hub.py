@@ -4350,17 +4350,10 @@ class Hub:
         async def browser_back(_args):
             return done(await hub.browser_call("back"), "Went back")
 
-        @tool("browser_screenshot", "See the built-in browser's page as an image.", {})
-        async def browser_screenshot(_args):
-            r = await hub.browser_call("screenshot")
-            if r.get("error"):
-                return done(r)
-            return {
-                "content": [
-                    {"type": "text", "text": f"{r.get('title')} — {r.get('url')}"},
-                    {"type": "image", "data": r["png"], "mimeType": "image/png"},
-                ]
-            }
+        @tool("browser_screenshot", browser_agent.SCREENSHOT_DESC, browser_agent.SCREENSHOT_SCHEMA)
+        async def browser_screenshot(args):
+            r = await hub.browser_call("screenshot", browser_agent.screenshot_request(args or {}))
+            return browser_agent.screenshot_content(r)
 
         return create_sdk_mcp_server(
             name="browser",

@@ -359,13 +359,15 @@ const MARK_H = 15;
 const MARK_CHAR = 6.4;
 
 // Boxes (in the viewport's CSS pixels) and a label for each, placed where it covers the fewest
-// other labels: above the element's top-left corner, else inside it, else below it.
+// other labels and other elements: above the element's top-left corner, else inside it, else
+// below it (a label over a neighbour's words would hide them).
 function layoutMarks(items, viewport, { max = 150 } = {}) {
   const placed = [];
   const view = { x: 0, y: 0, width: viewport.width, height: viewport.height };
-  for (const item of items) {
+  const boxes = items.map((i) => ({ x: i.x, y: i.y, width: i.width, height: i.height }));
+  for (const [n, item] of items.entries()) {
     if (placed.length >= max) break;
-    const box = { x: item.x, y: item.y, width: item.width, height: item.height };
+    const box = boxes[n];
     if (!(box.width >= 2 && box.height >= 2) || !intersects(box, view)) continue;
     const w = Math.ceil(String(item.ref).length * MARK_CHAR + 6);
     const clampX = (x) => Math.max(0, Math.min(viewport.width - w, x));
@@ -381,7 +383,8 @@ function layoutMarks(items, viewport, { max = 150 } = {}) {
     let bestHits = Infinity;
     for (const t of tries) {
       const label = { x: t.x, y: t.y, width: w, height: MARK_H };
-      const hits = placed.filter((p) => intersects(label, p.label)).length;
+      const hits = 2 * placed.filter((p) => intersects(label, p.label)).length
+        + boxes.filter((b, j) => j !== n && b.width >= 2 && intersects(label, b)).length;
       if (hits < bestHits) { best = t; bestHits = hits; }
       if (!hits) break;
     }

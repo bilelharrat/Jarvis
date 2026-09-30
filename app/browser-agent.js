@@ -12,6 +12,7 @@
 // the page drawing, so on a page that isn't they ask for the tab to be shown first.
 'use strict';
 
+const { nativeImage } = require('electron');
 const { TabCdp, CdpError } = require('./browser-cdp');
 const core = require('./browser-agent-core');
 
@@ -24,6 +25,12 @@ const FIELD_MAX = 20;
 const WAIT_MAX = 30000;
 const IDLE_MS = 10 * 60 * 1000; // a tab the agent hasn't used this long goes back to normal
 const TABS_MAX = 30;
+const SHOT_WIDTH = 1280; // the widest picture Claude gets
+const PIECE_CSS = 1600; // a full page comes as pictures this tall (CSS pixels)
+const FULL_MAX = 9600; // and no taller than this in all
+// Numbered marks on what can be acted on, drawn over the page for a screenshot and removed.
+const MARKS_STYLE = `.b{position:fixed;box-sizing:border-box;border:2px solid #ff3b30;border-radius:3px}
+.t{position:fixed;box-sizing:border-box;height:15px;padding:0 3px;font:600 11px/15px -apple-system,Helvetica,sans-serif;color:#fff;background:#ff3b30;border-radius:3px;white-space:nowrap}`;
 const NOT_DRAWING = 'needs the page drawing on screen: its tab on show in the browser, with the J.A.R.V.I.S. window not covered by other apps. Click instead, or ask the user to bring the window forward.';
 
 // What a ref points at, as the purchase guard and the risky-press check need it.
@@ -131,6 +138,12 @@ function modifierBits(list) {
 function describeEntry(entry) {
   const role = core.clip(entry.role, 40);
   return `${entry.ref} (${role}${entry.name ? ` “${core.clip(entry.name, 60)}”` : ''})`;
+}
+
+// A picture no wider than Claude takes, as PNG base64.
+function fit(image) {
+  const { width } = image.getSize();
+  return (width > SHOT_WIDTH ? image.resize({ width: SHOT_WIDTH }) : image).toPNG().toString('base64');
 }
 
 function createAgent(hooks) {
@@ -932,6 +945,115 @@ class BrowserAgent {
     return `The page is showing a ${d.type} on screen: “${core.clip(d.message, 300)}”. The user has to answer it there.`;
   }
 
+  // ── screenshots ──
+
+  // What can be acted on and is in view, with its box in the viewport (CSS pixels): the refs a
+  // screenshot's marks show, the same ones browser_snapshot gives.
+  async markable(tab) {
+    const collected = await this.frames(tab);
+    if (!collected.frames[collected.main]) return [];
+    let inView = () => false;
+    try { inView = await this.viewports(tab, collected); } catch { /* none marked */ }
+    tab.frames = collected.frames;
+    const built = core.buildSnapshot({
+      frames: collected.frames, main: collected.main, childFrame: (k, b) => collected.owners.get(`${k}:${b}`) || '',
+      inView, table: tab.refs, interactive: true,
+    });
+    const lines = built.lines.filter((l) => l.ref && l.kind === 'control' && l.states.includes('in view')).slice(0, 150);
+    const out = [];
+    await Promise.all(lines.map(async (line) => {
+      try {
+        const entry = this.entry(tab, line.ref);
+        const quad = core.clickPoint(await this.quads(tab, entry.session, entry.backendNodeId));
+        if (!quad) return;
+        const off = entry.session ? await this.frameOffset(tab, entry.session) : { x: 0, y: 0 };
+        out.push({ ref: line.ref, role: line.role, name: line.name, x: quad.left + off.x, y: quad.top + off.y, width: quad.w, height: quad.h });
+      } catch { /* gone meanwhile */ }
+    }));
+    const order = new Map(lines.map((l, i) => [l.ref, i]));
+    return out.sort((a, b) => order.get(a.ref) - order.get(b.ref));
+  }
+
+  async drawMarks(tab, placed) {
+    const ctx = await tab.cdp.world('', tab.cdp.mainFrameId);
+    const html = placed.map((m) => `<div class="b" style="left:${m.box.x}px;top:${m.box.y}px;width:${m.box.width}px;height:${m.box.height}px"></div>`
+      + `<div class="t" style="left:${m.label.x}px;top:${m.label.y}px">${m.ref}</div>`).join('');
+    await tab.cdp.send('Runtime.evaluate', {
+      contextId: ctx,
+      expression: `(() => {
+        if (window.__marks) window.__marks.remove();
+        const host = document.createElement('jarvis-marks');
+        host.style.cssText = 'all: initial; position: fixed; inset: 0; pointer-events: none; z-index: 2147483647;';
+        const root = host.attachShadow({ mode: 'closed' });
+        root.innerHTML = ${JSON.stringify(`<style>${MARKS_STYLE}</style>`)} + ${JSON.stringify(html)};
+        document.documentElement.appendChild(host);
+        window.__marks = host;
+        return true;
+      })()`,
+    });
+  }
+
+  async clearMarks(tab) {
+    try {
+      const ctx = await tab.cdp.world('', tab.cdp.mainFrameId);
+      await tab.cdp.send('Runtime.evaluate', { contextId: ctx, expression: 'if (window.__marks) { window.__marks.remove(); window.__marks = null; } true' }, { timeout: 3000 });
+    } catch { /* the page went: so did the marks */ }
+  }
+
+  // A picture of the page as it is, over the DevTools protocol (it works for a tab behind the
+  // one on show too): what's in view, or the whole page in pieces; with marks, each thing that
+  // can be acted on carries its ref.
+  async screenshot(view, args = {}) {
+    const tab = this.tab(view);
+    try {
+      await tab.cdp.ensure();
+    } catch (err) { // the page's developer tools are open: a plain picture of the tab on show still works
+      if (args.marks || args.fullPage || !this.hooks.isShown(view)) throw err;
+      const image = await view.webContents.capturePage();
+      return { ok: true, ...this.where(view), pngs: [fit(image)], png: fit(image), legend: [], fullPage: false, cut: false };
+    }
+    this.sync(tab);
+    const { cdp } = tab;
+    const metrics = await cdp.send('Page.getLayoutMetrics', {}, { timeout: 4000 });
+    const vp = metrics.cssLayoutViewport || { clientWidth: 1280, clientHeight: 800 };
+    let legend = [];
+    let drawn = false;
+    if (args.marks) {
+      const items = await this.markable(tab);
+      const placed = core.layoutMarks(items, { width: vp.clientWidth, height: vp.clientHeight });
+      if (placed.length) {
+        await this.drawMarks(tab, placed);
+        drawn = true;
+      }
+      const byRef = new Map(items.map((i) => [i.ref, i]));
+      legend = placed.map((p) => ({ ref: p.ref, role: byRef.get(p.ref).role, name: byRef.get(p.ref).name }));
+    }
+    const pngs = [];
+    let cut = false;
+    try {
+      if (args.fullPage) {
+        const size = metrics.cssContentSize || { width: vp.clientWidth, height: vp.clientHeight };
+        const height = Math.min(Math.ceil(size.height), FULL_MAX);
+        cut = size.height > FULL_MAX;
+        const width = Math.ceil(Math.min(size.width, vp.clientWidth));
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } }, { timeout: 30000 });
+        const image = nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64'));
+        const px = image.getSize();
+        const ratio = px.height / height || 1;
+        for (let top = 0; top < px.height; top += Math.round(PIECE_CSS * ratio)) {
+          const piece = image.crop({ x: 0, y: top, width: px.width, height: Math.min(Math.round(PIECE_CSS * ratio), px.height - top) });
+          pngs.push(fit(piece));
+        }
+      } else {
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'png' }, { timeout: 15000 });
+        pngs.push(fit(nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64'))));
+      }
+    } finally {
+      if (drawn) await this.clearMarks(tab);
+    }
+    return { ok: true, ...this.where(view), pngs, png: pngs[0], legend, fullPage: Boolean(args.fullPage), cut };
+  }
+
   // ── tabs ──
 
   // Open a page: in a new tab of the agent's own (on show, or behind the one on show with
@@ -1005,7 +1127,7 @@ class BrowserAgent {
   // ── the command switch ──
 
   handles(action) {
-    return ['snapshot', 'describe', 'act', 'wait', 'open', 'tabs'].includes(action);
+    return ['snapshot', 'describe', 'act', 'wait', 'open', 'tabs', 'screenshot'].includes(action);
   }
 
   async run(action, args = {}) {
@@ -1023,6 +1145,7 @@ class BrowserAgent {
         case 'wait': return await this.wait(view, args);
         case 'open': return await this.open(args);
         case 'tabs': return this.tabs(args);
+        case 'screenshot': return await this.screenshot(view, args);
         default: return { error: `Unknown browser action ${action}` };
       }
     } catch (err) {

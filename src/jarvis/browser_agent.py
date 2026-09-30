@@ -364,6 +364,52 @@ def tabs_tool(
     return browser_tabs
 
 
+SCREENSHOT_DESC = (
+    "See the built-in browser's page as a picture (it works for a tab behind the one on show "
+    "too). marks: true draws each thing in view that can be acted on with its ref (e12), the "
+    "refs browser_act takes, and lists them; full_page: true shows the whole page, top to "
+    "bottom, in several pictures; tab: another tab's id."
+)
+SCREENSHOT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "marks": {"type": "boolean"},
+        "full_page": {"type": "boolean"},
+        "tab": {"type": "integer"},
+    },
+}
+
+
+def screenshot_request(args: dict[str, Any]) -> dict[str, Any]:
+    return {"marks": bool(args.get("marks")), "fullPage": bool(args.get("full_page")), **_tab(args)}
+
+
+def screenshot_content(r: dict[str, Any]) -> dict[str, Any]:
+    """The pictures, with where they're from and, for marks, which ref is which."""
+    if (bad := error_result(r)) is not None:
+        return bad
+    pngs = [p for p in (r.get("pngs") or ([r["png"]] if r.get("png") else [])) if p]
+    if not pngs:
+        return _text("The picture came back empty.", error=True)
+    text = where(r)
+    if r.get("fullPage"):
+        text += f"\nThe whole page, top to bottom, in {len(pngs)} picture{'s' if len(pngs) != 1 else ''}"
+        text += " (cut short: it's very long)." if r.get("cut") else "."
+    legend = [x for x in r.get("legend") or [] if isinstance(x, dict)]
+    if legend:
+        lines = "\n".join(
+            f"{x.get('ref')} {x.get('role')}" + (f" “{x.get('name')}”" if x.get("name") else "")
+            for x in legend
+        )
+        text += "\nMarked in the picture (act on them with browser_act):\n" + untrusted(lines)
+    return {
+        "content": [
+            {"type": "text", "text": text},
+            *({"type": "image", "data": p, "mimeType": "image/png"} for p in pngs),
+        ]
+    }
+
+
 def act_args(args: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
     """browser_act's input as the window takes it, or why it can't be."""
     kind = str(args.get("action") or "click").strip().lower()
