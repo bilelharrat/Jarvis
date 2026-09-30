@@ -1,0 +1,8 @@
+/* Settings › Orders and subscriptions (features/orders.js) */
+.sheet .group > h4.orders-subhead {
+  margin: 0; padding: 12px 1px 6px; font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.sheet .group > h4.orders-subhead[hidden] { display: none; }
+.sheet .group > h4.orders-subhead + .itemlist { border-top: 0; padding-top: 0; }
+.orders-group .itemlist li { align-items: flex-start; }
+.orders-group .itemlist .fact small { overflow-wrap: anywhere; }

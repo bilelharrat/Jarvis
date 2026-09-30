@@ -2659,6 +2659,31 @@ test('Texts to the Jarvis number: under Phone, the switches save, and a text sho
   assert((await js('$("sms-line-status").textContent')).startsWith('Answering by text is off for an hour'), 'the pause is not said');
 });
 
+test('Orders and subscriptions: listed after Conversations, a Remove takes one off, the reminder days save', async () => {
+  await loadFeatures('orders.js', 'orders.css');
+  await js('featureEvent({ type: "hello", prefs: { features: {} } }); true');
+  assert((await sentOf('orders')).length === 1, 'the list was not asked for');
+  await js(`toggleSettings(true); __ev({ type: 'orders', on: true, error: '', orders: [
+      { id: 'a1', merchant: 'Acme', status: 'shipped', number: 'A-100', expected: '2026-10-02', carrier: 'UPS', tracking: '1Z999AA10123456784', amount: 20, currency: 'USD', items: '' },
+      { id: 'a2', merchant: 'Globex', status: 'delivered', number: '', expected: '2026-09-20', carrier: '', tracking: '', amount: null, currency: '', items: 'Desk lamp' }],
+    subscriptions: [{ id: 's1', merchant: 'Netflix', amount: 15.49, currency: 'USD', period: 'monthly', renews: '2026-10-05' }] }); true`);
+  await sleep(250);  // the sheet slides in
+  const placed = await js('$("delegation-list").closest("section.group").nextElementSibling === $("orders-group")');
+  assert(placed, 'not after the Conversations group');
+  const rows = await js('[...document.querySelectorAll("#orders-list li .fact")].map((f) => f.textContent)');
+  assert(rows[0].startsWith('AcmeShipped · #A-100 · Due ') && rows[0].endsWith(' · UPS 1Z999AA10123456784 · $20.00'), rows[0]);
+  assert(rows[1] === 'GlobexDeliveredDesk lamp', rows[1]);  // delivered: no due date
+  const sub = await js('document.querySelector("#orders-subs li .fact").textContent');
+  assert(sub.startsWith('Netflix$15.49 a month · Renews '), sub);
+  assert(!(await js('document.querySelector("#orders-subs").previousElementSibling.hidden')), 'no Subscriptions heading');
+  assert(await js('document.querySelector("#orders-list strong").hasAttribute("data-no-i18n")'), 'a shop name would be translated');
+  assert(await js('$("orders-status").hidden'), 'an empty status shows');
+  await clickIn('#orders-list li:nth-child(2) .btn');
+  await js('const s = $("orders-renewal"); s.value = "7"; s.dispatchEvent(new Event("change")); true');
+  const r = await js('__sent.filter((m) => ["orders_forget", "feature_prefs"].includes(m.type))');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'orders_forget', id: 'a2' }, { type: 'feature_prefs', changes: { orders_renewal_days: 7 } }]), JSON.stringify(r));
+});
+
 // ──
 
 let base;

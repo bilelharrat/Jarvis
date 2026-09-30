@@ -1,0 +1,53 @@
+{
+  "strings": {
+    "Orders and subscriptions": "订单和订阅",
+    "Find orders in my email": "从邮件里找订单",
+    "Order and shipping emails become a list here, with a heads-up when a delivery is on its way or has arrived. Rules read most of them; the rest go to Haiku, at most 30 a day. Needs Full Disk Access.": "订单和发货邮件会整理成这里的列表，快递在派送或已送达时会提醒你。大部分邮件由规则读取，其余交给 Haiku，每天最多30封。需要“完全磁盘访问权限”。",
+    "Remind me before a renewal": "续费前提醒我",
+    "For subscriptions found in your email": "针对从邮件里找到的订阅",
+    "Off": "关闭",
+    "A day before": "提前一天",
+    "3 days before": "提前三天",
+    "A week before": "提前一周",
+    "Subscriptions": "订阅",
+    "No orders found yet.": "还没有找到订单。",
+    "Ordered": "已下单",
+    "Shipped": "已发货",
+    "Out for delivery": "派送中",
+    "Delivered": "已送达",
+    "Cancelled": "已取消",
+    "Returned": "已退货",
+    "Remove from the list": "从列表中移除",
+    "Checked your orders": "查看了你的订单",
+    "Checked your subscriptions": "查看了你的订阅",
+    "Orders need Full Disk Access to read Mail's index.": "订单功能需要“完全磁盘访问权限”才能读取邮件索引。",
+    "Orders": "订单",
+    "Due": "预计送达",
+    "Renews": "续费日",
+    "a week": "每周",
+    "a month": "每月",
+    "a year": "每年"
+  },
+  "patterns": [
+    [
+      "^Your (.+) order is out for delivery\\.$",
+      "你在$1的订单正在派送。"
+    ],
+    [
+      "^Your (.+) order was delivered\\.$",
+      "你在$1的订单已送达。"
+    ],
+    [
+      "^(.+) renews (.+) for ([$€£¥]?[\\d.,]+.*)\\.$",
+      "$1将于$2续费，金额$3。"
+    ],
+    [
+      "^(.+) renews (.+)\\.$",
+      "$1将于$2续费。"
+    ],
+    [
+      "^Couldn't save the list \\((.+)\\)\\.$",
+      "没能保存列表（$1）。"
+    ]
+  ]
+}
