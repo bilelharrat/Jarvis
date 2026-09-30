@@ -592,7 +592,7 @@
   const THUMB = 240;  // px: the longer side of a thumbnail
   const KEPT = 300;  // thumbnails kept in memory (the oldest go)
   const thumbs = new Map();  // entry key -> [thumbnail data URL | null (too big)]
-  const waiting = new Map();  // entry key -> { task, rows: Set, tries }
+  const waiting = new Map();  // entry key -> { task, rows: Set, tries, out, alone }
   let asking = 0;
   const RETRIES = [1500, 3000, 6000];  // the record can lag the live entry by a moment
 
@@ -661,7 +661,11 @@
   function askNow() {
     asking = 0;
     const task = taskId();
-    const keys = [...waiting.entries()].filter(([, w]) => w.task === task && !w.out).map(([k]) => k).slice(0, 24);
+    const ready = [...waiting.entries()].filter(([, w]) => w.task === task && !w.out);
+    // (24 at most in one ask; an entry whose pictures didn't all fit in an answer beside others'
+    // is asked for alone, with a whole answer's room)
+    const alone = ready.find(([, w]) => w.alone);
+    const keys = (alone ? [alone] : ready.slice(0, 24)).map(([k]) => k);
     if (!keys.length) return;
     keys.forEach((k) => { waiting.get(k).out = true; });
     F.send({ type: 'cw_media', id: task, keys });
@@ -734,23 +738,32 @@
   F.on('cw_media', async (ev) => {
     if (ev.ref) { onLarger(ev); return; }
     const items = ev.items || {};
+    const shared = (ev.keys || []).length > 1;
     for (const key of ev.keys || []) {
       const w = waiting.get(key);
       if (!w) continue;
       w.out = false;
-      if (items[key]) {
+      if (items[key] && shared && items[key].some((p) => p && p.too_big)) {
+        // An answer holds only so much, and what doesn't fit is marked too big, as a picture
+        // too big on its own is (code_records): asked for again alone, what's too big then is.
+        w.alone = true;
+      } else if (items[key]) {
         waiting.delete(key);
         const list = await Promise.all(items[key].map(shrink));
         keep(key, list);
         for (const row of w.rows) if (row.isConnected) fill(row, key);
       } else if (w.tries < RETRIES.length) {
-        setTimeout(() => { if (waiting.get(key) === w && !asking) asking = setTimeout(askNow, 0); }, RETRIES[w.tries]);
+        w.out = true;  // (asked again in its time, not with the next ones)
+        setTimeout(() => { w.out = false; if (waiting.get(key) === w && !asking) asking = setTimeout(askNow, 0); }, RETRIES[w.tries]);
         w.tries += 1;
       } else {
         waiting.delete(key);
         for (const row of w.rows) row.remove();  // not in the record: the count still says it
       }
     }
+    // More were waiting than one ask takes: the next ones (rows already seen aren't watched
+    // any more, so nothing else would ask for them).
+    if (!asking && [...waiting.values()].some((w) => w.task === taskId() && !w.out)) asking = setTimeout(askNow, 0);
   });
 
   // Another session shown: what was waiting for this one isn't asked for.

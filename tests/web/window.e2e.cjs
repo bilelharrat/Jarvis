@@ -4538,8 +4538,17 @@ test('Pictures with a message and a step are asked for when shown, drawn small, 
   let asked = [];
   for (let i = 0; i < 40 && !asked.length; i++) { await frames(2); asked = await sentOf('cw_media'); }
   assert(asked.length === 1 && JSON.stringify(asked[0].keys.sort()) === JSON.stringify(['t-1', 'u-1']) && asked[0].id === 1, JSON.stringify(asked));
+  await js('__sent.length = 0; true');
   await deliver({ type: 'cw_media', id: 1, keys: ['u-1', 't-1'], items: {
     'u-1': [{ media_type: 'image/png', data: TRANSCRIPT_PNG }],
+    't-1': [{ media_type: 'image/png', data: TRANSCRIPT_PNG }, { media_type: 'image/png', too_big: true }],
+  } });
+  // (a picture marked too big beside another entry's may only not have fitted in that answer:
+  // the step is asked for alone, and what's too big then is)
+  let alone = [];
+  for (let i = 0; i < 40 && !alone.length; i++) { await frames(2); alone = await sentOf('cw_media'); }
+  assert(alone.length === 1 && JSON.stringify(alone[0].keys) === '["t-1"]', JSON.stringify(alone));
+  await deliver({ type: 'cw_media', id: 1, keys: ['t-1'], items: {
     't-1': [{ media_type: 'image/png', data: TRANSCRIPT_PNG }, { media_type: 'image/png', too_big: true }],
   } });
   let r = {};
@@ -4564,6 +4573,38 @@ test('Pictures with a message and a step are asked for when shown, drawn small, 
   await deliver({ type: 'cw_media', id: 1, keys: ['u-2'], items: { 'u-2': [{ media_type: 'text/html', data: 'PHNjcmlwdD4=' }] } });
   await frames(4);
   assert(await js('!document.querySelector("#deck-timeline .jc-user:last-of-type .cw-thumbs img")'), 'drew a non-picture');
+});
+
+test('Pictures past what one answer takes are asked for next, and a step’s that didn’t fit beside others’ are asked for alone', async () => {
+  // Every row in view at once, as in a tall window of screenshots.
+  await js('window.IntersectionObserver = class { constructor(cb) { this.cb = cb; } observe(target) { setTimeout(() => this.cb([{ isIntersecting: true, target }])); } unobserve() {} disconnect() {} }; true');
+  await featureScript('code-markdown.js');
+  await open(1);
+  await deliver({ type: 'task_transcript', id: 1, entries: Array.from({ length: 30 }, (_, i) => ({ n: i + 1, role: 'tool', tool: 'mcp__x__screenshot', text: 'Screenshot', tool_id: `t-${i}`, status: 'done', images: 1, past: true })) });
+  let asked = [];
+  for (let i = 0; i < 40 && !asked.length; i++) { await frames(2); asked = await js('__sent.splice(0).filter((m) => m.type === "cw_media")'); }
+  assert(asked.length === 1 && asked[0].keys.length === 24, JSON.stringify(asked.map((m) => m.keys)));
+  const png = { media_type: 'image/png', data: TRANSCRIPT_PNG };
+  // The first answer's room ran out at its first step's second picture (the backend marks
+  // what doesn't fit as too big, like a picture too big on its own).
+  const first = asked[0].keys;
+  await deliver({ type: 'cw_media', id: 1, keys: first, items: Object.fromEntries(first.map((k, i) => [k, i ? [png] : [png, { media_type: 'image/png', too_big: true }]])) });
+  const later = [];
+  for (let i = 0; i < 80 && later.flatMap((m) => m.keys).length < 7; i++) {
+    await frames(2);
+    for (const m of await js('__sent.splice(0).filter((m) => m.type === "cw_media")')) {
+      later.push(m);
+      await deliver({ type: 'cw_media', id: 1, keys: m.keys, items: Object.fromEntries(m.keys.map((k) => [k, k === first[0] ? [png, png] : [png]])) });
+    }
+  }
+  let r = {};
+  for (let i = 0; i < 40 && r.drawn !== 31; i++) {
+    await frames(2);
+    r = await js(`({ drawn: document.querySelectorAll('#deck-timeline .cw-thumbs img').length, grey: document.querySelectorAll('#deck-timeline .cw-thumb.loading').length,
+      big: document.querySelectorAll('#deck-timeline .cw-thumb.none').length, firstOnes: document.querySelectorAll('#deck-timeline [data-tool-id="${first[0]}"] .cw-thumbs img').length })`);
+  }
+  assert(r.drawn === 31 && r.grey === 0 && r.big === 0 && r.firstOnes === 2, `${JSON.stringify(r)}; asked later: ${JSON.stringify(later.map((m) => m.keys))}`);
+  assert(later.some((m) => JSON.stringify(m.keys) === JSON.stringify([first[0]])), `the step cut short wasn't asked for alone: ${JSON.stringify(later.map((m) => m.keys))}`);
 });
 
 // A key with ⌘ (or others) held, by its code: ⌘S, ⌘F, ⌘G.
