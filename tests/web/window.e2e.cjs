@@ -4550,6 +4550,29 @@ test('Search finds text across the project: matches by file, a match opens at it
   assert(sel[0] === 14 && sel[1] === 26, JSON.stringify(sel));
 });
 
+test('A save keeps what was typed while it was saving: still unsaved, kept, and never read over', async () => {
+  const read = await editorWith();
+  await typeAtEnd('c = 3');
+  await js('__sent.length = 0; true');
+  await chord('s');
+  const [save] = await sentOf('cw_file_save');
+  assert(save && save.text === 'a = 1\nb = 2\nc = 3', JSON.stringify(save));
+  await typeAtEnd('\nd = 4');  // (before the save's answer)
+  await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: read.ref, ok: true, version: { mtime_ns: 2, size: 17, sha: 'bbb' } });
+  await frames(2);
+  const r = await js(`({ text: document.querySelector('#jc-pane-body .ce-text').value, dirty: !!document.querySelector('#jc-pane-body .ce-tab.on.dirty'),
+    chip: $('jc-pane-body').textContent.includes('Unsaved'), kept: JSON.parse(localStorage.getItem('jarvis.editor.drafts') || '{}')[${JSON.stringify(read.ref)}] || null })`);
+  assert(r.text === 'a = 1\nb = 2\nc = 3\nd = 4' && r.dirty && r.chip && r.kept && r.kept.text === r.text && r.kept.base.sha === 'bbb', JSON.stringify(r));
+  // Claude changing the file now doesn't read it over what was typed.
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'cw_file_stat', path: 'src/app.py', ref: read.ref, changed: true, missing: false });
+  assert(!(await sentOf('cw_file_read')).length && (await editorText()).endsWith('d = 4'), JSON.stringify(await js('__sent')));
+  // The next save sends it, over the version the first one made.
+  await chord('s');
+  const [again] = await sentOf('cw_file_save');
+  assert(again && again.text === 'a = 1\nb = 2\nc = 3\nd = 4' && again.base.sha === 'bbb', JSON.stringify(again));
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {

@@ -607,8 +607,9 @@
   function save(doc, force) {
     if (!doc.ui || !doc.editable || doc.saving) return;
     doc.saving = true;
+    doc.sent = doc.ui.ta.value;  // (what's on disk once it's saved: typing may go on meanwhile)
     drawDocBar(doc);
-    F.send({ type: 'cw_file_save', ...doc.where, path: doc.rel, text: doc.ui.ta.value, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
+    F.send({ type: 'cw_file_save', ...doc.where, path: doc.rel, text: doc.sent, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
   }
 
   function reload(doc) {
@@ -1012,11 +1013,12 @@
     doc.saving = false;
     if (ev.ok) {
       doc.version = ev.version;
-      doc.text = doc.ui ? doc.ui.ta.value : doc.text;
+      // What was sent is on disk now: anything typed since is still unsaved, and kept.
+      doc.text = doc.sent;
       doc.dirty = doc.ui ? doc.ui.ta.value !== doc.text : false;
       doc.create = false;
       clearTimeout(doc.stashTimer);
-      dropDraft(doc.key);
+      stashDraft(doc);
       doc.banner = { kind: 'saved', text: 'Saved.' };
       setTimeout(() => { if (doc.banner && doc.banner.kind === 'saved') { doc.banner = null; drawBanner(doc); } }, 1800);
     } else if (ev.conflict) {
