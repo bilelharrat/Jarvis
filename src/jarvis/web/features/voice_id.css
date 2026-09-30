@@ -1,0 +1,16 @@
+/* Settings › Listening › Recognise my voice (features/voice_id.js). */
+.voice-id { display: contents; }
+.voice-id [hidden] { display: none !important; }
+.voice-id .btn:disabled { opacity: 0.45; cursor: default; }
+.voice-id progress { width: 100%; height: 6px; accent-color: var(--accent, #0a84ff); }
+.voice-id-actions { gap: 8px; justify-content: flex-start; }
+/* the sentence to read: large, calm, easy to read from a step back */
+.voice-id-sentence {
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.1);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.voice-id-error { color: var(--danger, #ff453a); }

@@ -3295,6 +3295,49 @@ test('Talk over Jarvis: the switch, why it can’t run, and the hands-free row s
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_settings', changes: { voice_talk_over: false } }]), 'no switch');
 });
 
+test('Recognise my voice: in Listening, the size before the download, then five sentences to read', async () => {
+  await loadVoiceFeature('voice');
+  await loadVoiceFeature('voice_id');
+  await js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'], engine: 'whisper', apple: { state: 'off' } }); true`);
+  const base = { on: false, scope: 'risky', configured: true, size: 26500000, model: false, enrolled: false, clips: 0, downloading: null, enrolling: null, sentences: 5, why: '', error: '' };
+  const deliverId = (over) => js(`featureEvent(${JSON.stringify({ type: 'voice_id', ...base, ...over })}); true`);
+  // Shown by the pane (Settings itself may be closed in this harness).
+  const shown = (id) => `(() => { const e = $('${id}'); for (let n = e; n && n.id !== 'voice-id'; n = n.parentElement) if (n.hidden) return false; return getComputedStyle(e).display !== 'none'; })()`;
+  await deliverId({});
+  let r = await js(`({ inside: !!$('voice-id').closest('#voice-listening'), checked: $('voice-id-switch').getAttribute('aria-checked'), scope: ${shown('voice-id-scope')}, download: ${shown('voice-id-download')} })`);
+  assert(r.inside && r.checked === 'false' && !r.scope && !r.download, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await js(`$('voice-id-switch').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_id_settings', changes: { voice_id_on: true } }]), 'the switch sent nothing');
+  // On, no model yet: its size first, and nothing downloads until Download is pressed.
+  await deliverId({ on: true, why: 'Download the voice model to turn this on. Until then, voices aren’t checked.' });
+  r = await js(`({ size: $('voice-id-size').textContent, download: ${shown('voice-id-download')}, why: $('voice-id-why').textContent, teach: ${shown('voice-id-start')},
+    scope: $('voice-id-scope').querySelector('[aria-checked="true"]').textContent })`);
+  assert(r.size === 'The voice model is 26.5 MB and stays on this Mac.' && r.download && /Download the voice model/.test(r.why) && !r.teach && r.scope === 'Only risky actions', JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await js(`$('voice-id-download').click(); true`);
+  await clickText('#voice-id-scope', 'Everything');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_id_download' }, { type: 'voice_id_settings', changes: { voice_id_scope: 'all' } }]), JSON.stringify(await js('__sent')));
+  await deliverId({ on: true, scope: 'all', downloading: { done: 13250000, total: 26500000 } });
+  r = await js(`({ progress: $('voice-id-progress').value, shown: ${shown('voice-id-progress')}, download: ${shown('voice-id-download')}, note: $('voice-id-scope-note').textContent })`);
+  assert(r.progress === 0.5 && r.shown && !r.download && /Anyone else is ignored/.test(r.note), JSON.stringify(r));
+  // The model is here: teach it, one sentence at a time.
+  await deliverId({ on: true, model: true, why: 'Teach Jarvis your voice to turn this on. Until then, voices aren’t checked.' });
+  await js('__sent.length = 0; true');
+  await js(`$('voice-id-start').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_id_enroll', action: 'start' }]), 'start sent nothing');
+  await deliverId({ on: true, model: true, enrolling: { index: 1, again: true } });
+  r = await js(`({ note: $('voice-id-teach-note').textContent, sentence: $('voice-id-sentence').textContent, cancel: ${shown('voice-id-cancel')}, start: ${shown('voice-id-start')} })`);
+  assert(r.note === 'I didn’t catch that. Read sentence 2 of 5 again:' && /calendar tomorrow morning/.test(r.sentence) && r.cancel && !r.start, JSON.stringify(r));
+  // Enrolled: Retrain and Forget my voice.
+  await deliverId({ on: true, model: true, enrolled: true, clips: 5 });
+  r = await js(`({ start: $('voice-id-start').textContent, forget: ${shown('voice-id-forget')}, note: $('voice-id-teach-note').textContent, sentence: ${shown('voice-id-sentence')} })`);
+  assert(r.start === 'Retrain' && r.forget && r.note === 'Jarvis knows your voice.' && !r.sentence, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await js(`$('voice-id-forget').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_id_forget' }]), 'forget sent nothing');
+});
+
 // ── actions and comms: the conversations' nudge delay ──
 
 test('Conversations for you: the nudge delay shows what is saved, and changing it saves it', async () => {

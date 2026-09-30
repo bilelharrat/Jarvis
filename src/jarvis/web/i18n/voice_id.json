@@ -1,0 +1,52 @@
+{
+  "strings": {
+    "Recognise my voice": "识别我的声音",
+    "Jarvis learns your voice and checks it in hands-free": "Jarvis 学习你的声音，并在免提模式中核对",
+    "Whose voice Jarvis answers": "Jarvis 回应谁的声音",
+    "Everything": "全部",
+    "Only risky actions": "仅限有风险的操作",
+    "Anyone else is ignored. Tapping the orb, ⌥Space and typing are never checked.": "其他人的声音一律忽略。点按光球、⌥空格和打字输入从不核对。",
+    "Anyone can ask questions; approvals, sends, purchases, deletes and Jarvis Code approvals by voice need yours.": "任何人都可以提问；语音批准、发送、购买、删除以及 Jarvis Code 的批准需要你的声音。",
+    "Download": "下载",
+    "Teach Jarvis your voice": "教 Jarvis 认识你的声音",
+    "Retrain": "重新训练",
+    "Cancel": "取消",
+    "Forget my voice": "忘记我的声音",
+    "Jarvis knows your voice.": "Jarvis 已认识你的声音。",
+    "Read five short sentences aloud, in a quiet room. Your voiceprint stays on this Mac.": "在安静的房间里朗读五个短句。你的声纹只保存在这台 Mac 上。",
+    "The quick brown fox jumps over the lazy dog.": "敏捷的棕色狐狸跳过了那只懒狗。",
+    "Jarvis, what’s on my calendar tomorrow morning?": "Jarvis，我明天上午有什么安排？",
+    "Please remind me to call the office at half past four.": "请提醒我四点半给办公室打电话。",
+    "Seven sunny summer days are better than one rainy week.": "七个晴朗的夏日胜过一个下雨的星期。",
+    "Open the report and read me the first paragraph.": "打开报告，给我读第一段。",
+    "The voice model isn’t set up in this build, so voices aren’t checked.": "此版本未配置语音模型，因此不会核对声音。",
+    "The voice model couldn’t load, so voices aren’t checked.": "语音模型无法加载，因此不会核对声音。",
+    "Download the voice model to turn this on. Until then, voices aren’t checked.": "下载语音模型后即可开启。在此之前不会核对声音。",
+    "Teach Jarvis your voice to turn this on. Until then, voices aren’t checked.": "教 Jarvis 认识你的声音后即可开启。在此之前不会核对声音。",
+    "The voice model isn’t set up in this build.": "此版本未配置语音模型。",
+    "Download the voice model first.": "请先下载语音模型。",
+    "I couldn’t hear that clearly. Try again somewhere quieter.": "我没听清楚。请换个更安静的地方再试一次。"
+  },
+  "patterns": [
+    [
+      "^The voice model is ([\\d.]+) MB and stays on this Mac\\.$",
+      "语音模型大小为 $1 MB，只保存在这台 Mac 上。"
+    ],
+    [
+      "^Read sentence (\\d+) of (\\d+) aloud:$",
+      "请朗读第 $1 句（共 $2 句）："
+    ],
+    [
+      "^I didn’t catch that\\. Read sentence (\\d+) of (\\d+) again:$",
+      "我没听清。请再读一遍第 $1 句（共 $2 句）："
+    ],
+    [
+      "^The voice model didn’t download: (.+)$",
+      "语音模型没有下载成功：$1"
+    ],
+    [
+      "^I couldn’t record: (.+)$",
+      "无法录音：$1"
+    ]
+  ]
+}
