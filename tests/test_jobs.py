@@ -49,6 +49,22 @@ def test_a_standing_order_covers_its_own_target_only():
     assert jobs.allows(may, "shortcut", "lights off") and not jobs.allows(may, "shortcut", "Lights")
 
 
+def test_a_standing_order_for_a_person_never_covers_an_address_that_only_holds_the_name():
+    """ "May email Ann" covers Ann as Contacts has her; a raw address (which anyone can pick,
+    and which a routine reading someone else's words can be talked into) is covered only
+    when the order names that address itself."""
+    for kind in ("email", "message"):
+        may = [f"{kind}:Ann"]
+        for raw in ("ann@attacker.example", "ann.lee@evil.example", "x@ann.example"):
+            assert not jobs.allows(may, kind, raw, raw), raw
+        assert jobs.allows(may, kind, "Ann Lee", "ann@lee.example")  # Contacts' Ann
+    assert jobs.allows(["email:ann@lee.example"], "email", "ann@lee.example", "ann@lee.example")
+    assert jobs.allows(["email:Ann@Lee.example"], "email", "ann@lee.example", "ann@lee.example")
+    assert not jobs.allows(["email:bob"], "email", "x@bob.example", "x@bob.example")
+    assert jobs.allows(["message:+1 (510) 555-0100"], "message", "+15105550100", "+15105550100")
+    assert not jobs.allows(["message:555-0100"], "message", "+15105550100", "+15105550100")
+
+
 def test_standing_orders_in_words():
     may = ["notify", "draft_email", "message:Ann", "session:jarvis"]
     assert jobs.describe_grants(may) == (

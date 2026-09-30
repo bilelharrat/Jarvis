@@ -154,22 +154,45 @@ def describe_grants(grants: list[str], language: str = "en") -> str:
     return sep.join(describe_grant(g, language) for g in grants)
 
 
+def _handle(text: str) -> str | None:
+    """An address or a phone number as it's compared (a number by its last ten digits);
+    None for a name."""
+    text = text.strip()
+    if "@" in text:
+        return text.casefold()
+    digits = re.sub(r"\D", "", text)
+    if len(digits) >= 7 and re.fullmatch(r"[\d\s()+.\-]+", text):
+        return digits[-10:]
+    return None
+
+
 def allows(grants: list[str], kind: str, target: str = "", also: str = "") -> bool:
     """Whether a standing order covers this: a plain grant, or a targeted one whose target
-    names the person, session or Shortcut (a contact's name, their number or address)."""
+    names the person, session or Shortcut (a contact's name, their number or address). A
+    name covers the contact of that name; an address or a number (anyone can choose one
+    that holds a name) is covered only by an order that names that very one."""
     if kind in GRANTS:
         return kind in grants
-    wanted = [w.casefold() for w in (target, also) if w]
+    wanted = [w for w in (target, also) if w]
     for grant in grants:
         gkind, _, gtarget = grant.partition(":")
         if gkind != kind or not gtarget:
             continue
         g = gtarget.casefold()
         if kind in ("session", "shortcut"):
-            if any(g == w for w in wanted):
+            if any(g == w.casefold() for w in wanted):
                 return True
-        elif any(g == w or (len(g) >= 3 and re.search(rf"\b{re.escape(g)}\b", w)) for w in wanted):
-            return True  # "Ann" covers "Ann Lee"; never "Anna"
+            continue
+        own = _handle(gtarget)
+        for w in wanted:
+            theirs = _handle(w)
+            if theirs is not None:
+                if own is not None and own == theirs:
+                    return True
+            elif g == w.casefold() or (
+                len(g) >= 3 and re.search(rf"\b{re.escape(g)}\b", w.casefold())
+            ):
+                return True  # "Ann" covers "Ann Lee"; never "Anna"
     return False
 
 
