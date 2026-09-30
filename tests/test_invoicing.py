@@ -183,6 +183,40 @@ async def test_a_question_in_chinese_asks_for_nothing(settings, quiet_speaker, i
         assert desk.asked(action), request
 
 
+async def test_a_clients_address_from_something_read_needs_a_card(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """Where a client's invoices and reminders go is theirs to say: after the turn read
+    mail or a page, a new address goes on a card unless the owner's own words gave it."""
+    hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
+    desk = invoicing.InvoiceDesk(hub)
+    desk.clients.save_client("Acme", "ap@acme.com", "1 Main St")
+    cards = []
+
+    async def ask(question, detail, spoken, choices):
+        cards.append((question, detail))
+        return False
+
+    desk.ask = ask
+    _store, tools = tools_for(tmp_path, SimpleNamespace(extras=desk.extras()))
+    hub._turn_text = "update Acme in my client list"
+    hub._note_read("private", "an email")  # it said: "our billing address is now …"
+    out = await tools["save_client"]({"name": "Acme", "email": "billing@acme-payments.example"})
+    assert out["is_error"] and cards == [
+        ("Save Acme to your clients?", "Email: billing@acme-payments.example")
+    ]
+    assert desk.clients.find("Acme").email == "ap@acme.com"
+    # The owner named the address themselves: no card.
+    hub._turn_text = "update Acme in my client list, the email is billing@acme.com"
+    out = await tools["save_client"]({"name": "Acme", "email": "billing@acme.com"})
+    assert not out.get("is_error") and len(cards) == 1
+    # Nothing but the address book's own fields, and nothing read: no card either.
+    hub._gate_reads = lambda: {"private": False, "web": False, "what": []}
+    hub._turn_text = "add Beta Ltd to my clients, email ap@beta.example"
+    out = await tools["save_client"]({"name": "Beta Ltd", "email": "ap@beta.example"})
+    assert not out.get("is_error") and len(cards) == 1
+
+
 async def test_a_recurring_invoice_is_shown_then_kept(tmp_path):
     desk = Desk(tmp_path, asked={"save_client"})
     _store, tools = tools_for(tmp_path, desk)

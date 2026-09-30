@@ -793,6 +793,8 @@ class InvoiceExtras:
 
     ask(question, detail, spoken, (yes, no)) -> the owner's yes on a card.
     asked(action) -> the owner's own words this request asked for exactly that change.
+    named(text) -> the owner's own words gave this (an address), or the request has read
+      nothing someone else wrote that could have.
     stripe_ready() -> "" when Stripe's connector can make payment links, else why not.
     payment_link(invoice) -> the link Stripe made (ValueError says why it couldn't).
     send(to, subject, body, file) -> Mail sends it with the file (after its card).
@@ -806,6 +808,7 @@ class InvoiceExtras:
     payment_link: Callable[[Invoice], Awaitable[str]]
     send: Callable[[str, str, str, str], Awaitable[None]]
     changed: Callable[[], None] = lambda: None
+    named: Callable[[str], bool] = lambda _text: True
     today: Callable[[], date] = date.today
     language: Callable[[], str] = lambda: "en"  # what the cards are said in: "en" or "zh"
 
@@ -1003,7 +1006,11 @@ def extra_tools(store: InvoiceStore, prefs: Callable[[], Any], extras: InvoiceEx
             for key, label in (("email", "Email"), ("address", "Address"), ("currency", "Currency"))
             if _plain(args.get(key), 300)
         )
-        if not extras.asked("save_client") and not await extras.ask(
+        # Where the client's invoices and reminders will go: after something someone else
+        # wrote was read, an address the owner's words didn't give goes on the card.
+        email = _plain(args.get("email"), 300)
+        asked = extras.asked("save_client") and (not email or extras.named(email))
+        if not asked and not await extras.ask(
             f"Save {name} to your clients?",
             shown,
             f"Save {name} to your clients?",

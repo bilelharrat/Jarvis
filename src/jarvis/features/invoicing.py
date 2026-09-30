@@ -150,12 +150,22 @@ class InvoiceDesk:
             payment_link=self.payment_link,
             send=self.send,
             changed=self.publish,
+            named=self.named,
             today=self.today,
             language=lambda: self.hub.language,
         )
 
     async def ask(self, question: str, detail: str, spoken: str, choices: tuple[str, str]) -> bool:
         return await self.hub.send_gate(question, detail, spoken, choices)
+
+    def named(self, text: str) -> bool:
+        """The owner's own words this request gave this text, or the request has read
+        nothing (mail, a page, a file) that could have put it in Claude's mouth."""
+        reads = self.hub._gate_reads()
+        if not (reads.get("private") or reads.get("web")):
+            return True
+        said = " ".join(str(getattr(self.hub, "_turn_text", "") or "").lower().split())
+        return bool(text) and text.lower() in said
 
     def asked(self, action: str) -> bool:
         from ..hub import _asks, user_asked
