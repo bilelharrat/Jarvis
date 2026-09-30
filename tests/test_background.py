@@ -199,11 +199,29 @@ async def test_limits_on_how_many_run_and_start_a_day(
         desk.start("one more")
     hold.set()
     await asyncio.gather(*(t.handle for t in started))
-    desk.started_today = background.PER_DAY
+    for n in range(background.PER_DAY - background.MAX_RUNNING):
+        await desk.start(f"later {n}").handle
     with pytest.raises(ValueError, match="background tasks today"):
         desk.start("another")
     with pytest.raises(ValueError, match="should do"):
         BackgroundDesk(hub).start("   ")
+
+
+async def test_the_days_count_outlasts_a_restart(settings, quiet_speaker, isolated, monkeypatch):
+    """Twenty a day means twenty a day: a restart (a crash, an update, a .py edit) doesn't
+    start the count over, as it doesn't for pictures."""
+    hub = make_hub(settings, quiet_speaker, isolated)
+
+    async def done(_desk, task, job):
+        task.status = "done"
+
+    monkeypatch.setattr(BackgroundDesk, "_run", done)
+    for n in range(background.PER_DAY):
+        await hub.background.start(f"task {n}").handle
+    again = make_hub(settings, quiet_speaker, isolated)  # the app started again, same folder
+    with pytest.raises(ValueError, match=f"That's {background.PER_DAY} background tasks today"):
+        again.background.start("one more")
+    assert not again.background.running()
 
 
 async def test_a_stopped_task_says_nothing_and_a_failed_one_says_why(

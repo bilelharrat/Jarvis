@@ -25,7 +25,8 @@ and nothing is sent). The purposes this module knows:
 
 Other features count their own capped calls here too (register_purpose), each with its cost
 policy in its own module: picture (Google Gemini on the owner's key, not Claude:
-features.pictures, 50 a day).
+features.pictures, 50 a day) and background_task (a Claude session each: jarvis.background,
+20 a day).
 
 Nothing here runs at import or install: a call happens only when a caller makes one. Tests
 never reach a model: conftest refuses run_turn unless a test fakes it.

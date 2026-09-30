@@ -28,7 +28,9 @@ Safety:
 Cost policy: each task is one Claude session on the model the owner picked for background
 tasks (Sonnet 5.5 unless they choose Haiku or Opus), at most MAX_TURNS turns and
 MAX_BUDGET_USD dollars (Claude Code stops it there), at most MAX_RUNNING at once and PER_DAY
-a day. Only the owner (or JARVIS at their request) starts one; nothing starts by itself.
+a day (counted with utility_model's daily counts, kept beside the settings, so a restart
+doesn't start the day over). Only the owner (or JARVIS at their request) starts one; nothing
+starts by itself.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +59,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import lang
+from . import lang, utility_model
 from .brain import host_said, url_host
 from .claude_signin import signed_in
 from .config import MAX_BUFFER
@@ -75,6 +77,9 @@ MAX_RUNNING = 3
 PER_DAY = 20
 NOTES_PER_TASK = 3
 REQUEST_LIMIT = 4000
+PURPOSE = "background_task"  # its day's count, in utility_model's daily counts
+
+utility_model.register_purpose(PURPOSE, PER_DAY)
 
 PROMPT = """You are JARVIS's background desk, doing one task for the owner while they get on \
 with their day. Do it thoroughly with your tools, then end with your report: first one or two \
@@ -159,8 +164,6 @@ class BackgroundDesk:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.jobs: dict[int, Job] = {}
-        self.day = date.today().isoformat()
-        self.started_today = 0
         # Documents › Jarvis › Background in the app; a test's own folder otherwise.
         self.reports = (
             default_reports()
@@ -199,15 +202,16 @@ class BackgroundDesk:
         request = " ".join(str(request or "").split())[:REQUEST_LIMIT]
         if not request:
             raise ValueError("Say what the background task should do.")
-        today = date.today().isoformat()
-        if today != self.day:
-            self.day, self.started_today = today, 0
         if len(self.running()) >= MAX_RUNNING:
             raise ValueError(
                 f"{MAX_RUNNING} background tasks are running already; wait for one to finish."
             )
-        if self.started_today >= PER_DAY:
-            raise ValueError(f"That's {PER_DAY} background tasks today; try again tomorrow.")
+        try:
+            utility_model.usage_for(self.hub).take(PURPOSE)
+        except utility_model.OverBudget:
+            raise ValueError(
+                f"That's {PER_DAY} background tasks today; try again tomorrow."
+            ) from None
         self.workspace.mkdir(parents=True, exist_ok=True)
         tm = self.hub.tasks
         task = ClaudeTask(
@@ -222,7 +226,6 @@ class BackgroundDesk:
         job = Job(task.id, words=words, private=private, what=list(what or []))
         self.jobs[task.id] = job
         tm.tasks[task.id] = task
-        self.started_today += 1
         task.handle = asyncio.get_running_loop().create_task(self._run(task, job))
         tm._changed()
         return task
