@@ -233,7 +233,7 @@ test('the parts of Python that never run in the app are left out', () => {
   }
 });
 
-test("scripts with the build Mac's paths, pip and test folders are left out; packages stay whole", () => {
+test("scripts with the build Mac's paths, pip, test folders and static libraries are left out; packages stay whole", () => {
   const root = temp();
   const site = path.join(root, 'lib', 'python3.12', 'site-packages');
   for (const rel of ['bin/python3.12', 'bin/python3', 'bin/python', 'bin/uvicorn', 'bin/jarvis', 'bin/pip']) touch(path.join(root, rel), '#!/Users/me/build/python3\n');
@@ -242,6 +242,7 @@ test("scripts with the build Mac's paths, pip and test folders are left out; pac
   touch(path.join(site, 'numpy', 'testing', '__init__.py'));
   touch(path.join(site, 'numpy', 'linalg', '__init__.py'));
   touch(path.join(site, 'numpy', 'linalg', 'tests', 'test_b.py'));
+  touch(path.join(site, 'numpy', '_core', 'lib', 'libnpymath.a'), '!<arch>\n');
   touch(path.join(site, 'tests', 'something.py')); // not inside a package: left alone
   touch(path.join(site, 'pip', '__init__.py'));
   touch(path.join(site, 'pip-26.2.1.dist-info', 'METADATA'));
@@ -251,7 +252,7 @@ test("scripts with the build Mac's paths, pip and test folders are left out; pac
   backend.pruneInstalled(root);
   assert.deepEqual(['python', 'python3', 'python3.12'].map((n) => existsSync(path.join(root, 'bin', n))), [true, true, true]);
   for (const gone of ['bin/uvicorn', 'bin/jarvis', 'bin/pip']) assert.equal(existsSync(path.join(root, gone)), false, gone);
-  for (const gone of ['numpy/tests', 'numpy/linalg/tests', 'pip', 'pip-26.2.1.dist-info', 'PyObjCTest', 'jarvis-0.1.0.dist-info/direct_url.json']) {
+  for (const gone of ['numpy/tests', 'numpy/linalg/tests', 'numpy/_core/lib/libnpymath.a', 'pip', 'pip-26.2.1.dist-info', 'PyObjCTest', 'jarvis-0.1.0.dist-info/direct_url.json']) {
     assert.equal(existsSync(path.join(site, gone)), false, gone);
   }
   for (const kept of ['numpy/testing/__init__.py', 'numpy/linalg/__init__.py', 'tests/something.py', 'jarvis-0.1.0.dist-info/RECORD']) {

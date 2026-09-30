@@ -123,8 +123,14 @@ function pruneInstalled(root) {
   }
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
       const full = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name.endsWith('.a')) {
+        // A static library is for compiling against a package (numpy's npymath), never
+        // loaded; its object code can't be signed, and the notary service looks inside.
+        drop(full);
+        dropped.push(path.relative(site, full));
+      }
+      if (!entry.isDirectory()) continue;
       if (TEST_DIRS.has(entry.name) && fs.existsSync(path.join(dir, '__init__.py'))) {
         drop(full);
         dropped.push(path.relative(site, full));

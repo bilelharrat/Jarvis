@@ -3,9 +3,14 @@
 //      repo path baked in: no jarvis-home.json);
 //   2. add the bundled backend (backend.js) and the prebuilt Swift helpers (helpers.js);
 //   3. sign it inside-out (sign.js) with the Developer ID named in JARVIS_SIGN_IDENTITY;
-//   4. verify it (verify.js).
-// `npm run dist -- --adhoc` signs ad hoc instead (no credentials), for checking the build on
-// this Mac, never for giving to anyone. Logs go to app/dist/logs, the app to app/dist/release.
+//   4. verify it (verify.js);
+//   5. zip it, have Apple notarize it (JARVIS_NOTARY_PROFILE) and staple the ticket to it;
+//   6. build the disk image with an Applications link (dmg.js);
+//   7. sign, notarize and staple the disk image;
+//   8. write their SHA-256s (SHA256SUMS.txt), and check both with Gatekeeper (spctl).
+// `npm run dist -- --adhoc` does 1-4 and 6 (and the checksum) signed ad hoc, with no
+// credentials: for checking the build on this Mac, never for giving to anyone; its disk image
+// says so in its name. Logs go to app/dist/logs, everything else to app/dist/release.
 'use strict';
 
 const fs = require('fs');
@@ -16,6 +21,8 @@ const { buildBackend } = require('./backend');
 const { buildHelpers } = require('./helpers');
 const { signApp } = require('./sign');
 const { verifyApp, buildMacStrings } = require('./verify');
+const { notarize, staple, zipApp } = require('./notarize');
+const { makeDmg, signDmg, writeChecksums } = require('./dmg');
 
 const APP_DIR = path.resolve(__dirname, '..', '..');
 const REPO = path.resolve(APP_DIR, '..');
@@ -55,6 +62,24 @@ function checkIdentity(identity) {
   const line = listed.split('\n').find((l) => l.includes(`"${identity}"`) || l.includes(` ${identity.toUpperCase()} `));
   if (!line) throw new BuildError(`No signing identity "${identity}" in the keychain (security find-identity -v -p codesigning)`);
   if (!/"Developer ID Application: /.test(line)) throw new BuildError(`"${identity}" isn't a Developer ID Application certificate: ${line.trim()}`);
+}
+
+// What the build writes, by name (the ad hoc one can't be mistaken for a release).
+function dmgName(version, adhoc) {
+  return `${DISPLAY}-${version}${adhoc ? '-adhoc' : ''}.dmg`;
+}
+
+// Gatekeeper's verdict on the notarized app and disk image, as a Mac that downloads them sees it.
+function gatekeeper(app, dmg) {
+  const problems = [];
+  const onApp = run('/usr/sbin/spctl', ['-a', '-vvv', '-t', 'install', app], { allowFail: true });
+  const saidApp = `${onApp.stderr}${onApp.stdout}`.trim();
+  if (onApp.status !== 0 || !/Notarized Developer ID/.test(saidApp)) problems.push(`the app: ${saidApp}`);
+  const onDmg = run('/usr/sbin/spctl', ['-a', '-vvv', '-t', 'open', '--context', 'context:primary-signature', dmg], { allowFail: true });
+  const saidDmg = `${onDmg.stderr}${onDmg.stdout}`.trim();
+  if (onDmg.status !== 0 || !/Notarized Developer ID/.test(saidDmg)) problems.push(`the disk image: ${saidDmg}`);
+  if (problems.length) throw new BuildError(`Gatekeeper doesn't accept:\n  ${problems.join('\n  ')}`);
+  say(`  Gatekeeper: ${saidApp.split('\n').find((l) => /source=/.test(l)) || 'accepted'}`);
 }
 
 // The Electron release zip packager unpacks: the one @electron/get cached when npm installed
@@ -119,7 +144,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   setLog(path.join(DIST, 'logs', `dist-${stamp}.log`));
   if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new BuildError('The app is built on an Apple-silicon Mac');
-  const { identity } = credentials(env, args);
+  const { identity, profile } = credentials(env, args);
   if (!args.adhoc) checkIdentity(identity);
   say(`J.A.R.V.I.S. ${PKG.version}${args.adhoc ? ' (ad hoc: this Mac only)' : ''}`);
 
@@ -150,14 +175,37 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   const checked = verifyApp(app, { adhoc: args.adhoc, helpers: helpers.helpers, forbidden: buildMacStrings(REPO) });
   if (checked.problems.length) throw new BuildError(`The signed app didn't verify:\n  ${checked.problems.join('\n  ')}`);
   say(`  ${checked.machos} Mach-O files signed and verified; needs macOS ${checked.needed}, declares ${checked.declared}`);
-  return { app, minimum, helpers, backend };
+
+  if (!args.adhoc) {
+    say('5. notarizing the app');
+    const zip = zipApp(app, path.join(STAGE, `${NAME}.zip`));
+    notarize(zip, profile);
+    fs.rmSync(zip, { force: true });
+    staple(app);
+  }
+
+  say('6. the disk image');
+  const dmg = makeDmg(app, path.join(OUT, dmgName(PKG.version, args.adhoc)), DISPLAY);
+
+  if (!args.adhoc) {
+    say('7. signing and notarizing the disk image');
+    signDmg(dmg, identity);
+    notarize(dmg, profile);
+    staple(dmg);
+  }
+
+  say('8. checksums');
+  const sums = writeChecksums([dmg], path.join(OUT, 'SHA256SUMS.txt'));
+  for (const line of sums) say(`  ${line}`);
+  if (!args.adhoc) gatekeeper(app, dmg);
+  return { app, dmg, minimum, helpers, backend };
 }
 
-module.exports = { main, credentials, parseArgs, electronZipDir, minimumFor };
+module.exports = { main, credentials, parseArgs, electronZipDir, minimumFor, dmgName };
 
 if (require.main === module) {
-  main().then(({ app }) => {
-    say(`Done: ${app}`);
+  main().then(({ app, dmg }) => {
+    say(`Done: ${dmg}\n      ${app}`);
   }).catch((err) => {
     console.error(`\n${err instanceof BuildError ? err.message : err.stack}`);
     process.exit(1);
