@@ -545,9 +545,10 @@ def test_routines_are_listed_changed_run_and_deleted(api, monkeypatch):
     assert [r.id for r in store.items] == [brief.id]
 
 
-def test_next_run_for_each_kind_of_schedule():
+def test_next_run_for_each_kind_of_schedule(api):
     now = datetime(2026, 9, 30, 12, 0)  # a Wednesday
-    routine = SimpleNamespace(enabled=True, time="09:00", kind="daily", days=[], date="")
+    store = api.hub.routines
+    routine = store.add("Brief", "Give me my briefing", "daily", "09:00")
     assert companion_api.next_run(routine, now) == datetime(2026, 10, 1, 9, 0)
     routine.kind = "weekdays"
     assert companion_api.next_run(routine, datetime(2026, 10, 2, 10, 0)) == datetime(
@@ -560,6 +561,8 @@ def test_next_run_for_each_kind_of_schedule():
     routine.date = "2026-10-10"
     assert companion_api.next_run(routine, now) == datetime(2026, 10, 10, 9, 0)
     routine.enabled = False
+    assert companion_api.next_run(routine, now) is None
+    routine.enabled, routine.time = True, "nine"  # a hand edit: no time to show, no error
     assert companion_api.next_run(routine, now) is None
 
 
@@ -577,3 +580,45 @@ def test_numbers_json_can_carry_and_python_cant_hold_are_refused_never_a_500(api
         body = b'{"id": "' + brief.id.encode() + b'", "days": ' + days + b"}"
         reply = api.client.post("/api/routines/update", content=body, headers=raw)
         assert reply.status_code == 400 and reply.json() == {"error": "days"}, days
+
+
+def test_routines_on_the_other_schedules_show_their_own_next_run_and_keep_their_schedule(api):
+    """An interval, monthly, cron or event routine (not a time of day on some days) is
+    listed with the next time its own schedule gives, and the phone can pause it; the days
+    and times the phone edits don't fit it, so a change to them is refused: never taken
+    as a daily or weekly routine at midnight in its place."""
+    store = api.hub.routines
+    water = store.add("Water", "Remind me to drink water", "interval", "", spec={"every": 120})
+    standup = store.add(
+        "Standup",
+        "Brief me for standup",
+        "event",
+        "",
+        spec={"trigger": {"type": "calendar", "title": "Standup", "minutes": -10}},
+    )
+    rent = store.add("Rent", "Remind me to pay rent", "monthly", "09:00", spec={"day": 1})
+    before = water.next_run(datetime.now())
+    items = {i["id"]: i for i in api.get("/api/routines").json()["items"]}
+    after = water.next_run(datetime.now())
+    assert items[water.id]["next_run"] in {
+        t.isoformat(timespec="minutes") for t in (before, after)
+    }  # every two hours: not "tomorrow at midnight"
+    assert items[standup.id]["next_run"] is None  # whenever the trigger happens
+    assert items[rent.id]["next_run"] == rent.next_run(datetime.now()).isoformat(timespec="minutes")
+    for routine in (water, standup):
+        for change in ({"days": [0, 1, 2, 3, 4]}, {"time": "07:30"}):
+            reply = api.post("/api/routines/update", {"id": routine.id, **change})
+            assert reply.status_code == 400, (routine.kind, change)
+    reply = api.post("/api/routines/update", {"id": rent.id, "days": [0]})
+    assert reply.status_code == 400  # a monthly routine's day is the month's
+    assert api.post("/api/routines/update", {"id": rent.id, "time": "08:15"}).json() == {"ok": True}
+    assert (rent.kind, rent.time, rent.spec) == ("monthly", "08:15", {"day": 1})
+    assert api.post("/api/routines/update", {"id": standup.id, "enabled": False}).json() == {
+        "ok": True
+    }
+    assert (water.kind, water.spec["every"], standup.kind, standup.enabled) == (
+        "interval",
+        120,
+        "event",
+        False,
+    )

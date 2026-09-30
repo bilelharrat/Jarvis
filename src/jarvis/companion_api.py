@@ -269,28 +269,19 @@ def collect_diff(cwd: Path) -> list[dict[str, Any]]:
 
 
 def next_run(routine: Any, now: datetime) -> datetime | None:
-    """When a routine next runs; None when it's paused, or a one-off already past."""
-    if not routine.enabled:
+    """When a routine next runs, as its own schedule says (every kind: a time on some days,
+    once, an interval, a day of the month, cron; a trigger has none); None when it's paused,
+    a one-off already past, or a hand-edited routine whose schedule can't be read."""
+    try:
+        return routine.next_run(now)
+    except (TypeError, ValueError, KeyError):
         return None
-    hour, minute = map(int, routine.time.split(":"))
-    if routine.kind == "once":
-        try:
-            when = datetime.fromisoformat(routine.date).replace(hour=hour, minute=minute)
-        except ValueError:
-            return None
-        return when if when > now else None
-    for ahead in range(8):
-        day = (now + timedelta(days=ahead)).replace(
-            hour=hour, minute=minute, second=0, microsecond=0
-        )
-        if day <= now:
-            continue
-        if routine.kind == "weekdays" and day.weekday() >= 5:
-            continue
-        if routine.kind == "weekly" and day.weekday() not in routine.days:
-            continue
-        return day
-    return None
+
+
+# The schedules the phone edits: a time of day (and, for the first three, the days). An
+# interval, a cron line or a trigger has neither, and a monthly one's day is the month's.
+TIME_KINDS = ("daily", "weekdays", "weekly", "once", "monthly")
+DAY_KINDS = ("daily", "weekdays", "weekly")
 
 
 def _days(value: Any) -> list[int] | None:
@@ -879,9 +870,11 @@ class Api:
         if routine is None:
             return _bad("no such routine", 404)
         kind, when, days = routine.kind, routine.time, list(routine.days)
+        if "time" in data and routine.kind not in TIME_KINDS:
+            return _bad("time")  # its schedule is set on the Mac
         if "days" in data:
             picked = _days(data.get("days"))
-            if picked is None or routine.kind == "once":
+            if picked is None or routine.kind not in DAY_KINDS:
                 return _bad("days")
             days = picked
             kind = (
