@@ -143,7 +143,9 @@ def install(hub: Any) -> None:
         lambda: build_server(music),
         prompt=PROMPT,
         labels=LABELS,
-        # What's playing and where: JARVIS's own words about what the owner asked for.
-        # The speakers' names are the owner's own things (list_speakers stays private).
-        quiet=("play_music", "queue_music", "play_spotify", "set_speakers"),
+        # What's playing: JARVIS's own words about what the owner asked for. The speakers'
+        # names are whoever set each one up (on a shared network, anyone), so what
+        # set_speakers answers ("Playing on …", "Available: …") counts as data, like
+        # list_speakers.
+        quiet=("play_music", "queue_music", "play_spotify"),
     )

@@ -165,6 +165,17 @@ def tools(settings, quiet_speaker, isolated, monkeypatch, mac):
     return {t.name: t.handler for t in feature.build_server(hub.music)}
 
 
+def test_what_other_devices_are_called_counts_as_data(tools):
+    """Speakers are named by whoever set each one up (on a shared network, anyone), and
+    set_speakers answers with those names ("Playing on …", "Available: …"): like
+    list_speakers, its answer is the owner's data to the turn gate, not JARVIS's own words."""
+    from jarvis import hub as hub_module
+
+    quiet = hub_module.EXTRA_QUIET_RESULTS
+    assert "mcp__music__play_music" in quiet
+    assert "mcp__music__set_speakers" not in quiet and "mcp__music__list_speakers" not in quiet
+
+
 async def test_the_tools_say_what_happened(tools, mac):
     out = await tools["play_music"]({"what": "OK Computer", "kind": "album"})
     assert out["content"][0]["text"].startswith("Playing the album")
