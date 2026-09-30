@@ -622,6 +622,9 @@ class ClaudeTask:
     background: dict[str, dict[str, Any]] = field(default_factory=dict)
     resume_at: str = ""  # fork from this message
     fork: bool = False
+    # The conversation was rewound in place (features.code_sessions): the next connection
+    # resumes it at resume_at, whatever else changed or didn't.
+    rewound: bool = False
     seq: int = 0  # numbers transcript entries
     checkpoints: list[str] = field(default_factory=list)  # user-message ids, for undo
     # The files each checkpoint's round changed: a rewind forgets only what it put back.
@@ -859,6 +862,13 @@ class TaskManager:
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
         # connection re-derives the session's settings, re-checking the key's Keychain seal.
         self.providers: Any = None
+        # Set by features.code_sessions: projects beyond the projects folder's children (() ->
+        # ({name: path}, [roots]); a root itself is too broad to be one), a new session's own
+        # defaults ((project, resumed session id) -> {mode, model, effort, ultracode, ...}) and
+        # a note that goes with each of the user's messages (a goal to keep working toward).
+        self.more_projects: Callable[[], tuple[dict[str, Path], list[Path]]] | None = None
+        self.start_defaults: Callable[[Path, str], dict[str, Any]] | None = None
+        self.turn_note: Callable[[ClaudeTask], str] | None = None
         self.closing = False  # the app is quitting: nothing opens again by itself
         self._spawns: deque[float] = deque()  # when the latest Claude Codes were started
         self._open: set[int] = set()  # sessions connecting or connected
@@ -871,10 +881,13 @@ class TaskManager:
     def resolve_dir(self, directory: str) -> Path:
         raw = Path(directory.strip()).expanduser()
         candidates = [raw] if raw.is_absolute() else [self.settings.projects_dir / raw]
+        extra, more_roots = self._more_projects()
+        if not raw.is_absolute() and directory.strip() in extra:
+            candidates.append(extra[directory.strip()])  # one from Settings › Projects
         home = Path.home().resolve()
         roots = {home, self.settings.projects_dir.resolve()}
         # Folders too broad to be a project: a session there could read and edit anything.
-        broad = roots | {Path("/")} | {home / n for n in _HOME_FOLDERS}
+        broad = roots | {Path("/")} | {home / n for n in _HOME_FOLDERS} | set(more_roots)
         for candidate in candidates:
             path = candidate.resolve()
             if path in broad or (home / "Library") in path.parents or is_sensitive(path):
@@ -889,9 +902,43 @@ class TaskManager:
 
     def projects(self) -> list[str]:
         root = self.settings.projects_dir
+        extra = set(self._more_projects()[0])
         if not root.is_dir():
-            return []
-        return sorted(p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+            return sorted(extra)
+        own = {p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")}
+        return sorted(own | extra)
+
+    def _more_projects(self) -> tuple[dict[str, Path], list[Path]]:
+        """Projects from Settings › Projects (more roots' folders, folders added one by one)
+        and those roots; none when there are none, or the setting can't be read."""
+        if self.more_projects is None:
+            return {}, []
+        try:
+            return self.more_projects()
+        except Exception:  # a broken setting never takes the project list with it
+            log.warning("Couldn't list the projects from Settings", exc_info=True)
+            return {}, []
+
+    def project_path(self, name: str) -> Path:
+        """Where a project on the list lives: the projects folder's, or one from Settings."""
+        own = self.settings.projects_dir / name
+        return own if own.is_dir() else self._more_projects()[0].get(name, own)
+
+    def defaults_for(self, directory: str, session_id: str = "") -> dict[str, Any]:
+        """What a new session in this project starts with, where the project (or, resumed, the
+        session itself when it last ran) says: {} when nothing does."""
+        if self.start_defaults is None:
+            return {}
+        try:
+            path = self.resolve_dir(directory)
+        except (ValueError, OSError):
+            return {}  # start() says what's wrong with the folder
+        try:
+            found = self.start_defaults(path, session_id)
+        except Exception:  # a damaged setting: the usual defaults
+            log.warning("Couldn't read a project's session defaults", exc_info=True)
+            return {}
+        return dict(found) if isinstance(found, dict) else {}
 
     # ── lifecycle ──
 
@@ -1624,7 +1671,14 @@ class TaskManager:
         """End a session. A second press while it's ending does nothing: cancelling again
         would cut short the SDK's shutdown and leave Claude Code running."""
         task = self.tasks.get(task_id)
-        if task is None or task.handle is None or task.handle.done():
+        idle = task is None or task.handle is None or task.handle.done()
+        if idle and task is not None and task.status == "resting":
+            # Brought back after a restart and not reopened since: nothing runs to stop.
+            task.status, task.last_action = "stopped", "Stopped"
+            self._changed()
+            self._prune()
+            return True
+        if idle:
             return False
         if task.ending:
             return True
@@ -1838,7 +1892,8 @@ class TaskManager:
         task.history_read = True
         if task.kind != "code" or not task.session_id:
             return
-        until = task.resume_at if task.fork else ""
+        # A fork's point, or where the conversation was rewound to in place.
+        until = task.resume_at
         past = await asyncio.to_thread(session_history, task.session_id, task.cwd, until)
         if not past["entries"]:
             return
@@ -1871,6 +1926,7 @@ class TaskManager:
         long as it runs, and the user's messages sent a turn at a time. Says how it ended:
         _REOPEN (a new effort), _IDLE or _GONE."""
         task.reopen = task.reopen_now = False  # these options have every change made so far
+        task.rewound = False  # ... a rewind in place too: this connection starts there
         task.turns_pending, task.steered = 0, 0  # a new connection has nothing in flight
         task.close_idle = False
         options = self.options_for(task)
@@ -1892,7 +1948,13 @@ class TaskManager:
                         if item in (_IDLE, _GONE):
                             break
                         if item == _REOPEN:
-                            self._log(task, "system", "Reopening with the new settings.")
+                            self._log(
+                                task,
+                                "system",
+                                "Reopening where you went back to."
+                                if task.rewound
+                                else "Reopening with the new settings.",
+                            )
                             return _REOPEN
                         await self._send_turn(task, client, item)
                 finally:
@@ -2042,7 +2104,7 @@ class TaskManager:
                     and (task.reopen_now or not task.background)
                     and not task.steered
                 ):
-                    if not effort and self._options_key(task) == task.live_key:
+                    if not effort and not task.rewound and self._options_key(task) == task.live_key:
                         task.reopen = False  # the changes cancelled out: nothing to reopen for
                     else:
                         hold = REOPEN_QUIET - (time.monotonic() - task.reopen_at)
@@ -2092,6 +2154,14 @@ class TaskManager:
             and not text.startswith("/")
         ):
             sent = f"{text}\n\nultracode"  # the keyword that turns on workflow orchestration
+        if self.turn_note is not None and text and not plain and not text.startswith("/"):
+            try:
+                note = self.turn_note(task)  # a goal it keeps working toward, say
+            except Exception:
+                log.warning("Couldn't add the session's note to a message", exc_info=True)
+                note = ""
+            if note:  # (the transcript and its history show the message without it)
+                sent = f"[Note from the app: {note}]\n\n{sent}"
         task.turns_pending += 1
         task.busy = True
         task.handover = False  # a turn of its own, whatever the last one ended in
@@ -2166,6 +2236,9 @@ class TaskManager:
         """A turn ended: whose it was, what it cost, and it's the user's turn again."""
         if task.fork and message.session_id and message.session_id != task.session_id:
             task.fork, task.resume_at = False, ""  # the fork has its own session now
+        elif not task.fork and not task.rewound:
+            # Rewound in place: this turn went on from that point, where later ones carry on.
+            task.resume_at = ""
         task.session_id = message.session_id or task.session_id
         turn_cost = self._count_cost(task, message.total_cost_usd)
         # Claude couldn't answer and the fallback is taking over: no failure to report.

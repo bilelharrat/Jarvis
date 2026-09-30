@@ -1,0 +1,83 @@
+{
+ "strings": {
+  "resting · Plan": "休眠中 · 计划",
+  "resting · Manual": "休眠中 · 手动",
+  "resting · Accept edits": "休眠中 · 自动接受编辑",
+  "resting · Auto": "休眠中 · 自动",
+  "resting · Bypass permissions": "休眠中 · 跳过权限确认",
+  "It's still working. Stop it first, then rewind.": "它还在工作。请先停止，再回退。",
+  "There's no conversation to rewind yet.": "还没有可以回退的对话。",
+  "Couldn't rewind to that message: it's too far back.": "无法回退到那条消息：太久远了。",
+  "Couldn't put the files back to before that message: it's too far back, or they already are.": "无法把文件恢复到那条消息之前：太久远了，或者已经是那样了。",
+  "The files are back as they were, but it started working again, so the conversation wasn't rewound.": "文件已经恢复，但它又开始工作了，所以对话没有回退。",
+  "Reopening where you went back to.": "正在从你回退到的地方重新打开。",
+  "The model it was on isn't available any more: it uses the default.": "它原来用的模型已不可用：现改用默认模型。",
+  "Pictures and files attached to a waiting message didn't outlast the restart.": "排队消息附带的图片和文件没能在重启后保留。",
+  "JARVIS restarted while this session was working. Send a message to carry on.": "JARVIS 在这个会话工作时重启了。发一条消息让它继续。",
+  "Goal met.": "目标已达成。",
+  "Goal paused: that's as many checks as it gets for now. Resume it to go on.": "目标已暂停：检查次数已到上限。继续目标即可接着做。",
+  "Paused.": "已暂停。",
+  "Paused by the restart.": "因重启而暂停。",
+  "You marked it done.": "你已标为完成。",
+  "Paused: you stopped it.": "已暂停：你停止了它。",
+  "Paused: it stopped with an error.": "已暂停：它因出错而停止。",
+  "Paused: that's as many checks as a goal gets for now.": "已暂停：这个目标的检查次数已到上限。",
+  "Couldn't check the goal just now.": "暂时无法检查目标。",
+  "Jarvis Code kept at it until it held.": "Jarvis Code 一直坚持到目标达成。",
+  "Jarvis Code couldn't keep this goal itself here, so JARVIS checks it.": "Jarvis Code 在这里无法自己跟进这个目标，所以由 JARVIS 来检查。",
+  "That isn't a folder.": "那不是一个文件夹。",
+  "That folder can't be found.": "找不到那个文件夹。",
+  "Pick a folder in your home folder.": "请选择个人文件夹中的文件夹。",
+  "That folder holds private settings or keys, so it can't be a project.": "那个文件夹存放着私密设置或密钥，不能作为项目。",
+  "That folder can't be looked at just now.": "暂时无法查看那个文件夹。",
+  "That folder is already where projects are listed from.": "那个文件夹已经是列出项目的地方了。",
+  "That's as many folders of projects as Jarvis Code lists.": "Jarvis Code 能列出的项目文件夹已到上限。",
+  "That folder holds your projects: open one of the folders in it.": "那个文件夹里放着你的项目：请打开其中的一个文件夹。",
+  "That's as many folders as Jarvis Code keeps: remove one in Settings.": "Jarvis Code 能保存的文件夹已到上限：请在设置中移除一个。",
+  "That's as many groups as the sidebar keeps.": "侧边栏能保存的分组已到上限。",
+  "One side question at a time, please: one is still being answered.": "请一次只问一个顺便的问题：上一个还在回答中。",
+  "That's the most side questions for now (30 an hour, 150 a day).": "顺便一问的次数暂时用完了（每小时 30 次，每天 150 次）。",
+  "That took too long to answer.": "回答用时太长了。",
+  "Couldn't answer that just now.": "暂时无法回答。",
+  "No answer came back.": "没有收到回答。",
+  "Back after the restart: it picks up where it left off with your next message.": "重启后已恢复：你发送下一条消息时，它会从上次停下的地方继续。"
+ },
+ "patterns": [
+  [
+   "^Rewound to before (“.*”|that message): the conversation and the files are as they were then\\.$",
+   "已回到 $1 之前：对话和文件都恢复到了当时的样子。"
+  ],
+  [
+   "^Rewound the conversation to before (“.*”|that message)\\. The files are as they are now\\.$",
+   "对话已回到 $1 之前。文件保持现状。"
+  ],
+  [
+   "^Goal met: (.+)$",
+   "目标已达成：$1"
+  ],
+  [
+   "^Goal not met yet: (.+)\\. Carrying on \\((\\d+) of (\\d+)\\)\\.$",
+   "目标尚未达成：$1。继续努力（第 $2 次，共 $3 次）。"
+  ],
+  [
+   "^Goal not met yet\\. Carrying on \\((\\d+) of (\\d+)\\)\\.$",
+   "目标尚未达成。继续努力（第 $1 次，共 $2 次）。"
+  ],
+  [
+   "^Goal not met yet: (.+)\\. Paused after (\\d+) tries: say what to do next, or resume the goal\\.$",
+   "目标尚未达成：$1。尝试 $2 次后已暂停：说说接下来做什么，或继续这个目标。"
+  ],
+  [
+   "^Goal not met yet\\. Paused after (\\d+) tries: say what to do next, or resume the goal\\.$",
+   "目标尚未达成。尝试 $1 次后已暂停：说说接下来做什么，或继续这个目标。"
+  ],
+  [
+   "^(.+) is too broad for a project: pick a folder inside it\\.$",
+   "$1 范围太大，不能作为项目：请选择其中的一个文件夹。"
+  ],
+  [
+   "^There's already a project called “(.+)”\\. Rename one of the folders to have both\\.$",
+   "已经有一个叫“$1”的项目。请重命名其中一个文件夹，才能同时保留两者。"
+  ]
+ ]
+}

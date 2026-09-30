@@ -3843,14 +3843,22 @@ class Hub:
     async def _projects_overview(self) -> list[dict[str, Any]]:
         items = []
         for name in self.tasks.projects():
-            path = self.settings.projects_dir / name
+            path = self.tasks.project_path(name)  # (one from Settings › Projects too)
             branch = await self._git(path, "rev-parse", "--abbrev-ref", "HEAD")
             running = sum(
                 1
                 for t in self.tasks.tasks.values()
                 if t.kind == "code" and t.cwd.name == name and t.busy
             )
-            items.append({"name": name, "branch": branch, "git": bool(branch), "running": running})
+            items.append(
+                {
+                    "name": name,
+                    "branch": branch,
+                    "git": bool(branch),
+                    "running": running,
+                    "path": str(path),
+                }
+            )
         return items
 
     async def _git_status(self, directory: str) -> dict[str, Any]:
@@ -5596,25 +5604,35 @@ class Hub:
         elif kind == "task_new":
             known = set(self.tasks.tasks)
             try:
-                # A new session starts as the composer was set (Settings › Jarvis Code).
-                ref = str(msg.get("model") or self.prefs.code_model or "")
+                # A new session starts as the composer was set (Settings › Jarvis Code), or as
+                # its project's own defaults say (a resumed one: as it last ran).
+                own = self.tasks.defaults_for(
+                    str(msg.get("directory", "")), str(msg.get("session_id", ""))
+                )
+                ref = str(msg.get("model") or own.get("model") or self.prefs.code_model or "")
                 cfg = self._model_config(ref)
                 task = self.tasks.start(
                     str(msg.get("prompt", "")),
                     str(msg.get("directory", "")),
-                    mode=str(msg.get("mode") or self.prefs.code_mode or "ask"),
+                    mode=str(msg.get("mode") or own.get("mode") or self.prefs.code_mode or "ask"),
                     resume=str(msg.get("session_id", "")),
                     title=str(msg.get("title", "")),
                     model=cfg["model"] or "",
                     model_label=cfg["label"] if cfg["model"] else "",
                     model_ref=cfg["ref"],
-                    effort=str(msg.get("effort") or self.prefs.code_effort or ""),
+                    effort=str(
+                        msg.get("effort") or own.get("effort") or self.prefs.code_effort or ""
+                    ),
                     env=cfg["env"],
                     provider_settings=cfg.get("settings") or "",
-                    ultracode=bool(msg.get("ultracode", self.prefs.code_ultracode)),
+                    ultracode=bool(
+                        msg.get("ultracode", own.get("ultracode", self.prefs.code_ultracode))
+                    ),
                     images=self._attachments(msg),
-                    add_dirs=[str(d) for d in (msg.get("add_dirs") or [])[:10]],
-                    plugins=[str(d) for d in (msg.get("plugins") or [])[:10]],
+                    add_dirs=[
+                        str(d) for d in (msg.get("add_dirs") or own.get("add_dirs") or [])[:10]
+                    ],
+                    plugins=[str(d) for d in (msg.get("plugins") or own.get("plugins") or [])[:10]],
                 )
             except ValueError as exc:
                 self.emit("error", text=str(exc))
