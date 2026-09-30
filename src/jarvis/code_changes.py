@@ -258,6 +258,10 @@ def parse_patch(text: str) -> list[FileDiff]:
     files: list[FileDiff] = []
     current: FileDiff | None = None
     hunk: Hunk | None = None
+    # The current hunk's lines so far on each side, to tell when it has all its header
+    # counts: kept as it's read (counting them again at each line was quadratic, minutes for
+    # a deleted SQL dump, whose "-- " comments each asked).
+    old_seen = new_seen = 0
     for line in text.split("\n"):
         if line.startswith("diff --git "):
             current = FileDiff(_path_from_header(line[11:]))
@@ -268,14 +272,19 @@ def parse_patch(text: str) -> list[FileDiff]:
             continue
         if hunk is not None:
             tag = line[:1]
+            full = old_seen >= hunk.old_count and new_seen >= hunk.new_count
             if tag in (" ", "+", "-", "\\") and not (tag == "-" and line.startswith("--- ")
-                                                      and _hunk_full(hunk)):  # fmt: skip
+                                                      and full):  # fmt: skip
                 hunk.lines.append((tag, line[1:]))
+                if tag != "\\":
+                    old_seen += tag != "+"
+                    new_seen += tag != "-"
                 continue
-            if line == "" and _hunk_full(hunk):
+            if line == "" and full:
                 continue
             if line == "":  # an empty context line whose space an editor stripped
                 hunk.lines.append((" ", ""))
+                old_seen, new_seen = old_seen + 1, new_seen + 1
                 continue
             hunk = None
         if line.startswith("@@"):
@@ -289,6 +298,7 @@ def parse_patch(text: str) -> list[FileDiff]:
                 int(m.group(4)) if m.group(4) is not None else 1,
                 m.group(5).strip(),
             )
+            old_seen = new_seen = 0
             current.hunks.append(hunk)
         elif line.startswith("new file mode "):
             current.status, current.new_mode = "A", line[14:].strip()
@@ -317,13 +327,6 @@ def parse_patch(text: str) -> list[FileDiff]:
             f.old_path = ""
         _stamp(f)
     return files
-
-
-def _hunk_full(hunk: Hunk) -> bool:
-    """Whether a hunk already has all the lines its header counts."""
-    old = sum(1 for tag, _ in hunk.lines if tag in " -")
-    new = sum(1 for tag, _ in hunk.lines if tag in " +")
-    return old >= hunk.old_count and new >= hunk.new_count
 
 
 def _path_from_header(rest: str) -> str:

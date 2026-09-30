@@ -129,6 +129,25 @@ def test_a_patch_parses_with_context_renames_odd_names_and_missing_newlines():
     assert len({h.id for f in files for h in f.hunks}) == 4
 
 
+def test_a_huge_deleted_file_full_of_dash_dash_comments_parses_in_linear_time():
+    """A deleted SQL dump: each removed "-- comment" line reads "--- comment", which once made
+    the parser count the whole hunk again (minutes for tens of thousands of lines)."""
+    import time
+
+    n = 30_000
+    body = "".join(f"--- comment {i}\n-SELECT {i};\n" for i in range(n))
+    patch = (
+        "diff --git a/dump.sql b/dump.sql\ndeleted file mode 100644\n--- a/dump.sql\n"
+        f"+++ /dev/null\n@@ -1,{2 * n} +0,0 @@\n{body}"
+    )
+    started = time.perf_counter()
+    [dump] = cc.parse_patch(patch)
+    assert dump.status == "D" and len(dump.hunks) == 1
+    assert dump.removed == 2 * n and dump.hunks[0].removed[0] == "-- comment 0"
+    # About 0.05 s here, and a second or two on a busy Mac; the quadratic count took minutes.
+    assert time.perf_counter() - started < 10.0
+
+
 def test_quoting_round_trips_the_way_git_writes_names():
     for name in ["plain.py", "my file.txt", 'quote"d', "tab\there", "back\\slash", "ünïcode.txt"]:
         quoted = cc._quote(f"a/{name}")
