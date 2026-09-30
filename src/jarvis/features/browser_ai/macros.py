@@ -21,7 +21,10 @@ and saved under a name, then done again by name ("run my soup order").
   captcha, a code). from_step picks up from there.
 
 A snapshot's refs (e12) don't outlive the page, so steps keep selectors, words and
-addresses; a choice in a list finds its list's ref in a snapshot as it's replayed.
+addresses, and a ref is found as each step is replayed: a press takes the ref a snapshot
+gives the thing with its words (the nth of them, as the page counted), else goes by its
+words, never by a selector on a page with prices (the purchase guard's rule); a choice
+takes its list's ref.
 
 Cost policy: no model calls of its own; run_macro is a tool call in a turn the owner asked
 for (Settings' Run asks for one ordinary turn).
