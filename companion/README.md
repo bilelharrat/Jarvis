@@ -223,10 +223,12 @@ question for later (the outbox); stop and meeting notes are never kept.
 (`POST /api/share`), with an optional line for Jarvis ("Summarize this", or anything).
 Files and photos land in `~/Documents/Jarvis/Inbox/` on the Mac; with a line, the Mac runs
 it as a silent request about the item, and the answer lands in the app. Shared content is
-data to Jarvis, never instructions. Files go up to 18 MB (a photo too big is scaled down
-as JPEG to fit), so the base64 body stays under the Mac's 25 MB. When the Mac can't be
-reached it waits in the outbox (the data in a file beside it) and the app sends it within
-the hour. The extension uses the pairing from the App Group's keychain group.
+data to Jarvis, never instructions. Files go up to the Mac's 25 MB; a photo too big for
+that, or of a kind the Mac doesn't read as a picture (TIFF, RAW, BMP), goes as a JPEG. The
+preview is a thumbnail and the upload's base64 is written a slice at a time, since a share
+extension has little memory. When the Mac can't be reached it waits in the outbox (the data
+in a file beside it) and the app sends it within the hour. The extension uses the pairing
+from the App Group's keychain group.
 
 ## Sensors (all off until turned on in Settings)
 

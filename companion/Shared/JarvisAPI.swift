@@ -79,7 +79,7 @@ enum JarvisError: LocalizedError, Equatable {
         case .busy(let message):
             message.isEmpty ? "Try again in a moment." : message
         case .tooBig:
-            "Your Mac takes files up to 18 MB from here."
+            "Your Mac takes files up to 25 MB from here."
         case .timedOut:
             "Jarvis is taking a while. The reply will show up here when it’s ready."
         case .notJarvis:

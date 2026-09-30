@@ -844,8 +844,11 @@ struct ShareItem: Equatable, Sendable {
     /// What to do with it ("summarize this"), run on the Mac as a silent request.
     var note: String?
 
-    /// The most the Mac takes, as the file itself.
-    static let maxBytes = 18 * 1024 * 1024
+    /// The most the Mac takes, as the file itself (companion_api.SHARE_BYTES: 25 MB). Its
+    /// body cap (SHARE_BODY) leaves room for the base64 and the other fields.
+    static let maxBytes = 25 * 1024 * 1024
+    /// The Mac reads this much of a note.
+    static let maxNote = 2000
 
     /// The small fields as JSON; the data (base64) is spliced in by `body()` without
     /// copying it through an encoder.
@@ -855,17 +858,35 @@ struct ShareItem: Equatable, Sendable {
             "url": url.map { .string($0) },
             "text": text.map { .string($0) },
             "name": name.map { .string($0) },
-            "note": note.flatMap { $0.trimmed.isEmpty ? nil : .string($0.trimmed) },
+            "note": note.flatMap { $0.trimmed.isEmpty ? nil : .string(String($0.trimmed.prefix(Self.maxNote))) },
         ])
     }
 
     func body() throws -> Data {
-        var json = try fields.encoded()
+        let json = try fields.encoded()
         guard let data else { return json }
-        // {"kind":"file",…} → {"kind":"file",…,"data_base64":"…"}
-        json.removeLast()
-        json.append(Data(#","data_base64":""#.utf8))
-        json.append(data.base64EncodedData())
+        return Base64Body.splice(data, into: json)
+    }
+}
+
+/// A JSON body with a file in it as `data_base64`, written a slice at a time: a 25 MB file
+/// never has a whole second copy of itself as base64 beside the body (the share extension
+/// has little memory).
+enum Base64Body {
+    /// {"kind":"file",…} → {"kind":"file",…,"data_base64":"…"}
+    static func splice(_ data: Data, into object: Data) -> Data {
+        var json = object
+        json.removeLast()  // }
+        let key = Data((json.count > 1 ? #","data_base64":""# : #""data_base64":""#).utf8)
+        json.reserveCapacity(json.count + key.count + (data.count + 2) / 3 * 4 + 2)
+        json.append(key)
+        let slice = 3 * 256 * 1024  // a multiple of 3: no padding before the end
+        var start = data.startIndex
+        while start < data.endIndex {
+            let end = data.index(start, offsetBy: slice, limitedBy: data.endIndex) ?? data.endIndex
+            json.append(data[start..<end].base64EncodedData())
+            start = end
+        }
         json.append(Data(#""}"#.utf8))
         return json
     }

@@ -173,12 +173,7 @@ final class Outbox: @unchecked Sendable {
     func body(for item: OutboxItem) throws -> Data {
         guard let name = item.payloadFile else { return try item.body.encoded() }
         let data = try Data(contentsOf: directory.appending(path: name))
-        var json = try item.body.encoded()
-        json.removeLast()
-        json.append(Data(#","data_base64":""#.utf8))
-        json.append(data.base64EncodedData())
-        json.append(Data(#""}"#.utf8))
-        return json
+        return Base64Body.splice(data, into: try item.body.encoded())
     }
 
     // MARK: - Disk

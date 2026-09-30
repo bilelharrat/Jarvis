@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UIKit
 import UniformTypeIdentifiers
 
@@ -75,10 +76,9 @@ final class ShareModel {
         }
         if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }) {
             let data = try await provider.data(for: .image)
-            let image = UIImage(data: data)
-            let fitted = try ShareSizing.fit(image: data, decoded: image)
+            let fitted = try ShareSizing.fit(image: data)
             let name = ShareSizing.name(provider.suggestedName, fallback: "Photo", ext: fitted.ext ?? ShareSizing.imageExtension(of: fitted.data))
-            return Loaded(item: ShareItem(kind: .image, name: name, data: fitted.data), title: name, preview: image)
+            return Loaded(item: ShareItem(kind: .image, name: name, data: fitted.data), title: name, preview: ShareSizing.thumbnail(of: fitted.data))
         }
         // Text before files: plain text is data too.
         if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) }),
@@ -100,7 +100,7 @@ final class ShareModel {
                 (data, loadedName) = try await provider.file()
             }
             guard data.count <= ShareItem.maxBytes else {
-                throw ShareProblem(message: "That file is \(ShareSizing.megabytes(data.count)). Your Mac takes files up to 18 MB from here.")
+                throw ShareProblem(message: ShareSizing.tooBig(data.count))
             }
             let name = ShareSizing.name(ShareSizing.fileName(suggested: provider.suggestedName, loaded: loadedName), fallback: "File", ext: nil)
             return Loaded(item: ShareItem(kind: .file, name: name, data: data), title: name)
@@ -167,18 +167,67 @@ final class ShareModel {
 
 /// Keeping what's shared within what the Mac takes.
 enum ShareSizing {
-    /// An image as it came when it fits; otherwise scaled down as JPEG until it does.
-    static func fit(image data: Data, decoded: UIImage?) throws -> (data: Data, ext: String?) {
-        if data.count <= ShareItem.maxBytes { return (data, nil) }
-        guard let decoded else { throw ShareModel.ShareProblem(message: "That image is too big to send.") }
-        var side: CGFloat = 4096
+    static func tooBig(_ bytes: Int) -> String {
+        "That file is \(megabytes(bytes)). Your Mac takes files up to 25 MB from here."
+    }
+
+    /// An image as it came when the Mac reads its kind and it fits; otherwise a JPEG (a TIFF,
+    /// a RAW photo, a BMP; or one too big, scaled down until it fits). ImageIO makes it at
+    /// the size wanted, so a big photo is never decoded whole in the share extension.
+    static func fit(image data: Data) throws -> (data: Data, ext: String?) {
+        if data.count <= ShareItem.maxBytes, macReadsPicture(data) { return (data, nil) }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0 else {
+            if data.count <= ShareItem.maxBytes { return (data, nil) }  // not a picture this iPhone reads either
+            throw ShareModel.ShareProblem(message: "That image is too big to send.")
+        }
+        var side = 4096
         while side >= 1024 {
-            if let jpeg = scaled(decoded, longest: side)?.jpegData(compressionQuality: 0.85), jpeg.count <= ShareItem.maxBytes {
+            if let jpeg = jpeg(from: source, longest: side), jpeg.count <= ShareItem.maxBytes {
                 return (jpeg, "jpg")
             }
             side /= 2
         }
         throw ShareModel.ShareProblem(message: "That image is too big to send.")
+    }
+
+    /// The pictures the Mac takes as such (companion_api._picture_type): JPEG, PNG, GIF,
+    /// HEIC and WebP.
+    static func macReadsPicture(_ data: Data) -> Bool {
+        let head = [UInt8](data.prefix(12))
+        if head.starts(with: [0xFF, 0xD8, 0xFF]) || head.starts(with: [0x89, 0x50, 0x4E, 0x47]) || head.starts(with: Array("GIF8".utf8)) {
+            return true
+        }
+        guard head.count == 12 else { return false }
+        let box = String(decoding: head[4..<8], as: UTF8.self)
+        let brand = String(decoding: head[8..<12], as: UTF8.self)
+        if box == "ftyp" { return ["heic", "heix", "mif1", "heim"].contains(brand) }
+        return head.starts(with: Array("RIFF".utf8)) && brand == "WEBP"
+    }
+
+    /// A JPEG of the picture at most `longest` pixels on its long side, the right way up.
+    static func jpeg(from source: CGImageSource, longest: Int, quality: CGFloat = 0.85) -> Data? {
+        guard let image = downsampled(source, longest: longest) else { return nil }
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? out as Data : nil
+    }
+
+    /// What the share sheet shows: a thumbnail, never the whole picture decoded (a
+    /// 24-megapixel photo is about 100 MB, and a share extension has little memory).
+    static func thumbnail(of data: Data, longest: Int = 256) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = downsampled(source, longest: longest) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
+    private static func downsampled(_ source: CGImageSource, longest: Int) -> CGImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: longest,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     static func scaled(_ image: UIImage, longest: CGFloat) -> UIImage? {
@@ -232,7 +281,7 @@ enum ShareSizing {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         guard size <= ShareItem.maxBytes else {
-            throw ShareModel.ShareProblem(message: "That file is \(megabytes(size)). Your Mac takes files up to 18 MB from here.")
+            throw ShareModel.ShareProblem(message: tooBig(size))
         }
         return try Data(contentsOf: url)
     }
@@ -289,8 +338,8 @@ private extension NSItemProvider {
                 }
                 do {
                     let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                    guard size <= ShareItem.maxBytes * 2 else {  // don't read a huge file into memory to refuse it
-                        continuation.resume(throwing: ShareModel.ShareProblem(message: "That file is \(ShareSizing.megabytes(size)). Your Mac takes files up to 18 MB from here."))
+                    guard size <= ShareItem.maxBytes else {  // don't read a file into memory to refuse it
+                        continuation.resume(throwing: ShareModel.ShareProblem(message: ShareSizing.tooBig(size)))
                         return
                     }
                     continuation.resume(returning: (try Data(contentsOf: url), url.lastPathComponent))

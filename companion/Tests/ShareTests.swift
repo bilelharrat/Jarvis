@@ -1,3 +1,4 @@
+import ImageIO
 import UIKit
 import UniformTypeIdentifiers
 import XCTest
@@ -80,13 +81,73 @@ final class ShareTests: XCTestCase {
 
     func testImagesFitWhatTheMacTakes() throws {
         let small = Data(repeating: 1, count: 1000)
-        XCTAssertEqual(try ShareSizing.fit(image: small, decoded: nil).data, small)  // fits as it came
+        XCTAssertEqual(try ShareSizing.fit(image: small).data, small)  // fits as it came
         let tooBig = Data(count: ShareItem.maxBytes + 1)
-        XCTAssertThrowsError(try ShareSizing.fit(image: tooBig, decoded: nil))  // and can't be scaled
+        XCTAssertThrowsError(try ShareSizing.fit(image: tooBig))  // and can't be scaled
         let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 50)).image { _ in }
         let scaled = try XCTUnwrap(ShareSizing.scaled(image, longest: 20))
         XCTAssertEqual(scaled.size.width * scaled.scale, 20, accuracy: 1)
         XCTAssertEqual(scaled.size.height * scaled.scale, 10, accuracy: 1)
+    }
+
+    /// The Mac takes JPEG, PNG, GIF, HEIC and WebP pictures and refuses the rest as "not a
+    /// picture": a TIFF, a RAW photo or a BMP goes as a JPEG instead.
+    func testAPictureTheMacCantReadGoesAsJPEG() throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 48)).image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 64, height: 48))
+        }
+        for type in [UTType.tiff, .bmp] {
+            let data = try XCTUnwrap(Self.encode(image, as: type), "\(type)")
+            let fitted = try ShareSizing.fit(image: data)
+            XCTAssertEqual(Array(fitted.data.prefix(3)), [0xFF, 0xD8, 0xFF], "\(type)")
+            XCTAssertEqual(fitted.ext, "jpg", "\(type)")
+        }
+        let png = try XCTUnwrap(image.pngData())
+        XCTAssertEqual(try ShareSizing.fit(image: png).data, png)  // as it came
+    }
+
+    /// The preview is a thumbnail. A share extension has little memory, and a photo decoded
+    /// whole (24 megapixels: about 100 MB) could get it closed mid-share.
+    func testThePreviewIsAThumbnailNotTheWholePhoto() async throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let big = UIGraphicsImageRenderer(size: CGSize(width: 4000, height: 3000), format: format).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4000, height: 3000))
+        }
+        let jpeg = try XCTUnwrap(big.jpegData(compressionQuality: 0.5))
+        let provider = NSItemProvider(item: jpeg as NSData, typeIdentifier: UTType.jpeg.identifier)
+        let read = try await ShareModel.read([provider])
+        let loaded = try XCTUnwrap(read)
+        XCTAssertEqual(loaded.item.data, jpeg)  // the photo itself goes whole
+        let preview = try XCTUnwrap(loaded.preview)
+        XCTAssertLessThanOrEqual(max(preview.size.width, preview.size.height) * preview.scale, 400)
+    }
+
+    /// The Mac takes a shared file of up to 25 MB (companion_api.SHARE_BYTES) in a body of at
+    /// most SHARE_BODY; the note is kept to the 2,000 characters the Mac reads.
+    func testFilesUpToTheMacs25MBGo() throws {
+        XCTAssertEqual(ShareItem.maxBytes, 25 * 1024 * 1024)
+        let pattern = Data((0..<3001).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
+        var data = Data(capacity: ShareItem.maxBytes + pattern.count)
+        while data.count < ShareItem.maxBytes { data.append(pattern) }
+        data = data.prefix(ShareItem.maxBytes)
+        let item = ShareItem(kind: .file, name: "Board deck.key", data: data, note: String(repeating: "é", count: 5000))
+        let body = try item.body()
+        XCTAssertLessThanOrEqual(body.count, 25 * 1024 * 1024 * 4 / 3 + 64 * 1024)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["kind"] as? String, "file")
+        XCTAssertEqual((json["note"] as? String)?.count, 2000)
+        XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(json["data_base64"] as? String)), data)
+    }
+
+    private static func encode(_ image: UIImage, as type: UTType) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 
     func testTheMacSaysWhatItDid() throws {
