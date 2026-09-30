@@ -90,7 +90,10 @@ class Prefs:
     phone_from: str = ""  # their Twilio number, that calls come from
     wake_call: bool = False  # a wake-up call with the morning brief
     wake_call_time: str = "07:00"
-    fallback_model: str = ""  # a model ref ("custom:…") JARVIS turns to when Claude can't answer
+    # The model JARVIS turns to when Claude can't answer (its usage limit, an outage): a
+    # model ref ("custom:…"); "" is Automatic (a Gemini model added with a key, else any
+    # added one), "off" is none.
+    fallback_model: str = ""
     fallback_code: bool = True  # … Jarvis Code sessions too
     fallback_always: bool = False  # run JARVIS on it all the time, not only when Claude is down
     code_read_only: bool = True  # Jarvis Code runs read-only shell commands without asking

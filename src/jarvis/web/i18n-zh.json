@@ -184,7 +184,7 @@
   "Takes over when Claude can’t answer (its usage limit, an outage), with every tool": "Claude 无法回答时（用量上限、服务中断）接手，所有工具照常可用",
   "None": "无",
   "Jarvis Code too": "Jarvis Code 也用",
-  "A session Claude can’t answer moves to it and sends your message again": "Claude 无法回答的会话会切换到它，并重新发送你的消息",
+  "A session Claude can’t answer moves to it and carries on where Claude stopped, then goes back to Claude once its limit resets": "Claude 无法回答的会话会切换到它，从 Claude 停下的地方继续；等 Claude 的用量上限重置后再切回 Claude",
   "Always use it": "始终使用",
   "Run Jarvis on it all the time, not only when Claude is down (Gemini Flash answers quickly)": "始终用它运行 Jarvis，而不只是在 Claude 不可用时（Gemini Flash 回答很快）",
   "Add a Gemini key…": "添加 Gemini 密钥…",

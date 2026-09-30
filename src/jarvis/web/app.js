@@ -963,12 +963,17 @@ $('sw-wake-call').addEventListener('click', () => setPrefs({ wake_call: !prefs.w
 // Pro, and picks Flash when none is set).
 function renderFallback() {
   if (!prefs) return;
-  const added = ((typeof providerInfo !== 'undefined' && providerInfo && providerInfo.models) || []).filter((m) => !m.builtin);
+  const info = (typeof providerInfo !== 'undefined' && providerInfo) || {};
+  const added = (info.models || []).filter((m) => !m.builtin);
   const sel = $('fallback-select');
-  const none = el('option', '', tr('None'));
-  none.value = '';
-  sel.replaceChildren(none, ...added.map((m) => { const o = el('option', '', m.name || m.label || m.model); o.value = m.ref; return o; }));
-  sel.value = added.some((m) => m.ref === prefs.fallback_model) ? prefs.fallback_model : '';
+  // Automatic (the default) picks a Gemini model you've added, else any: named here when there is one.
+  const auto = added.find((m) => m.ref === info.fallback_auto);
+  const automatic = el('option', '', auto ? `${tr('Automatic')} · ${auto.name || auto.label || auto.model}` : tr('Automatic'));
+  automatic.value = '';
+  const off = el('option', '', tr('Off'));
+  off.value = 'off';
+  sel.replaceChildren(automatic, off, ...added.map((m) => { const o = el('option', '', m.name || m.label || m.model); o.value = m.ref; return o; }));
+  sel.value = prefs.fallback_model === 'off' ? 'off' : added.some((m) => m.ref === prefs.fallback_model) ? prefs.fallback_model : '';
   setSwitch('sw-fallback-code', prefs.fallback_code !== false);
   setSwitch('sw-fallback-always', !!prefs.fallback_always);
   $('fallback-add').hidden = added.some((m) => /gemini/i.test(m.model || ''));
@@ -3587,7 +3592,7 @@ $('jcs-queue').addEventListener('click', () => setPrefs({ code_queue: !(prefs &&
 $('jcs-awake').addEventListener('click', () => send({ type: 'awake', on: !awake }));
 
 function onProviders(ev) {
-  providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '' };
+  providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '', fallback_auto: ev.fallback_auto || '' };
   renderFallback();
   $('jcs-advice').textContent = providerInfo.advice;
   $('jcs-advice').hidden = !providerInfo.advice;

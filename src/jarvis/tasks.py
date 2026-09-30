@@ -36,6 +36,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     PermissionResultAllow,
     PermissionResultDeny,
+    RateLimitEvent,
     ResultMessage,
     StreamEvent,
     TaskNotificationMessage,
@@ -505,9 +506,27 @@ def shape_context(usage: dict[str, Any], model: str | None) -> dict[str, Any]:
 REOPEN_POLLS = 100  # 20 s for a closed session to reopen (for a rewind)
 
 
-# An answer that says Claude itself couldn't: its usage limit, a rate limit, an outage, a
-# sign-in or billing problem. These send a session to the fallback model when one is set.
-CLAUDE_DOWN = frozenset({"rate_limit", "billing_error", "server_error", "authentication_failed"})
+# An answer that says Claude itself couldn't: its usage limit, a rate limit, an outage or
+# overload, a sign-in, account or billing problem (the error kinds Claude Code puts on the
+# message it answers with instead). These send a session to the fallback model.
+CLAUDE_DOWN = frozenset(
+    {
+        "rate_limit",
+        "billing_error",
+        "server_error",
+        "overloaded",
+        "authentication_failed",
+        "oauth_org_not_allowed",
+        "account_on_hold",
+        "verification_required",
+    }
+)
+# How a turn that ended in an error ended, for the transcript.
+_ENDED = {
+    "error_max_turns": "It stopped: that's the most steps one turn may take.",
+    "error_max_budget_usd": "It stopped: that's the spending limit for this session.",
+    "error_during_execution": "It stopped with an error.",
+}
 
 
 AUDIT_KEPT = 2000  # permission decisions kept per session
@@ -528,10 +547,18 @@ class Inbox:
         *,
         front: bool = False,
         plain: bool = False,
+        note: bool = False,
     ) -> int:
         """plain: sent as it is (a git command's wording), never with the ultracode
-        keyword."""
-        item = {"id": next(self._ids), "text": text, "images": list(images or []), "plain": plain}
+        keyword. note: the app's own words to Claude Code (carrying on after a move to the
+        fallback model), sent as they are and never shown as the user's."""
+        item = {
+            "id": next(self._ids),
+            "text": text,
+            "images": list(images or []),
+            "plain": plain or note,
+            "note": note,
+        }
         if front:
             self._items.appendleft(item)
         else:
@@ -564,6 +591,7 @@ class Inbox:
         return [
             {"id": i["id"], "text": i["text"][:500], **attachment_counts(i["images"])}
             for i in itertools.islice(self._items, QUEUE_SHOWN)
+            if not i.get("note")  # the app's own, not a message of theirs to take back
         ]
 
 
@@ -608,6 +636,11 @@ class ClaudeTask:
     injected: bool = False  # Claude Code is on a turn it started itself
     current: str = ""  # whose turn Claude Code is on: "user", "claude" or ""
     falling_back: bool = False  # moving to the fallback model after Claude couldn't answer
+    # The turn Claude couldn't answer ends in a handover to the fallback, not a failure.
+    handover: bool = False
+    # What the session ran on before the fallback took it over (model, label, ref, env,
+    # provider_settings, mode): it goes back there once Claude's limit has reset.
+    fell_back_from: dict[str, Any] = field(default_factory=dict)
     audit: list[dict[str, Any]] = field(default_factory=list)  # every permission decision
     turn_started: float = 0.0
     turn_files: set[str] = field(default_factory=set)  # what this turn changed
@@ -631,6 +664,9 @@ class ClaudeTask:
     model_label: str = ""
     model_ref: str = ""  # the model as the picker knows it ("sonnet", "custom:…")
     reopen: bool = False  # reopen the same conversation between turns (new folders…)
+    # ... without waiting for background tasks to end: Claude can't answer on this
+    # connection at all (a move to the fallback model)
+    reopen_now: bool = False
     steered: int = 0  # messages sent into the running step, not yet taken up
     # ... and those messages, so a connection that closes first gives them back to the queue
     steered_items: list[dict[str, Any]] = field(default_factory=list)
@@ -798,9 +834,16 @@ class TaskManager:
         self.session_servers: Callable[[Path], dict[str, Any]] | None = None
         # True when follow-ups should steer the running step (the owner's setting).
         self.steer_now: Callable[[], bool] | None = None
-        # Claude couldn't answer a session (its limit, an outage): the hub's fallback, which
-        # moves the session to the fallback model and sends the message again.
-        self.on_claude_down: Callable[[ClaudeTask, str], Awaitable[None]] | None = None
+        # Claude couldn't answer a session (its limit, an outage): the hub's fallback, told
+        # the session, the error kind and Claude's words. It says straight away whether it
+        # takes the session over (moves it to the fallback model, where it carries on).
+        self.on_claude_down: Callable[[ClaudeTask, str, str], bool] | None = None
+        # Claude's usage-limit status changed (a RateLimitEvent's info): the hub keeps when
+        # it resets.
+        self.on_rate_limit: Callable[[Any], None] | None = None
+        # Whether Claude is known to be back (its limit has reset): a session the fallback
+        # took over goes back to its own model at the next message.
+        self.claude_back: Callable[[], bool] | None = None
         # Settings: read-only shell commands (ls, git status, grep…) run without asking.
         self.read_only_free: Callable[[], bool] = lambda: True
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
@@ -945,19 +988,21 @@ class TaskManager:
         *,
         plain: bool = False,
         steer: bool | None = None,
+        note: bool = False,
     ) -> bool:
         """A follow-up message; queued if the session is mid-step, and it reopens a
         finished session by resuming it. images: [{media_type, data (base64)}]; plain:
         exactly this wording (a git command), never with the ultracode keyword. steer:
         True sends it into the running step without stopping it (Claude Code takes it up
-        after the tool it's on), False queues it; None follows the owner's setting."""
+        after the tool it's on), False queues it; None follows the owner's setting. note:
+        the app's own words (see Inbox.put), always queued."""
         task = self.tasks.get(task_id)
         text = text.strip()
         if task is None or task.kind != "code" or not (text or images):
             return False
         if steer is None:
             steer = self.steer_now is not None and self.steer_now()
-        if steer and not plain and task.steerable:
+        if steer and not plain and not note and task.steerable:
             # Into the running step: Claude Code takes it up after the tool it's on.
             asyncio.create_task(self._steer(task, text, (images or [])[:6]))
             return True
@@ -965,7 +1010,11 @@ class TaskManager:
             self._log(task, "system", f"Not queued: {MAX_QUEUED} messages are already waiting.")
             self._changed()
             return False
-        task.inbox.put(text, (images or [])[:6], plain=plain)
+        if task.fell_back_from and not note and self.claude_back is not None and self.claude_back():
+            self._back_from_fallback(task)  # the message goes to Claude again
+        # The app's note goes first: what it says (a move to the fallback) comes before
+        # anything the user queued meanwhile.
+        task.inbox.put(text, (images or [])[:6], plain=plain, note=note, front=note)
         task.stirred.set()
         if task.handle is None or task.handle.done():
             task.status, task.restarts = "running", 0
@@ -1065,6 +1114,7 @@ class TaskManager:
             return False
         if task.env or task.provider_settings:  # leaving another provider's model
             return self.set_env(task_id, model, {}, label, ref)
+        task.fell_back_from = {}  # a model picked since the fallback's move: it stays
         before = (task.model, task.model_label, task.model_ref)
         task.model, task.model_label, task.model_ref = model, label, ref
         client = task.client
@@ -1307,12 +1357,26 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code":
             return False
+        task.fell_back_from = {}  # a model picked since the fallback's move: it stays
         task.model, task.env, task.model_label, task.model_ref = model, dict(env), label, ref
         task.provider_settings = provider_settings or ""
         self._reopen_soon(task, f"Model: {label or model}.")
         if task.mode == "smart" and not auto_capable(model):
             self.set_mode(task.id, "ask")  # Auto is Claude's: Manual until they pick again
         return True
+
+    def _back_from_fallback(self, task: ClaudeTask) -> None:
+        """Claude's limit has reset: a session the fallback took over goes back to the model
+        (and permission mode) it was on, reopening between turns, same conversation."""
+        was, task.fell_back_from = task.fell_back_from, {}
+        task.model, task.model_label = str(was.get("model") or ""), str(was.get("label") or "")
+        task.model_ref, task.env = str(was.get("ref") or ""), dict(was.get("env") or {})
+        task.provider_settings = str(was.get("provider_settings") or "")
+        name = task.model_label or task.model or "Claude"
+        self._reopen_soon(task, f"Claude's limit has reset, so this session is back on {name}.")
+        mode = was.get("mode")
+        if mode in MODES and mode != task.mode:
+            self.set_mode(task.id, mode)
 
     def _effort_pending(self, task: ClaudeTask) -> bool:
         wanted = task.effort or self.settings.task_effort
@@ -1738,7 +1802,7 @@ class TaskManager:
         """One connection to Claude Code: a reader that takes in everything it says for as
         long as it runs, and the user's messages sent a turn at a time. Says how it ended:
         _REOPEN (a new effort), _IDLE or _GONE."""
-        task.reopen = False  # these options have every change made so far
+        task.reopen = task.reopen_now = False  # these options have every change made so far
         task.turns_pending, task.steered = 0, 0  # a new connection has nothing in flight
         task.close_idle = False
         options = self.options_for(task)
@@ -1871,7 +1935,13 @@ class TaskManager:
             again.append(task.in_flight)
             task.in_flight = None
         for item in reversed(again):
-            task.inbox.put(item["text"], item["images"], front=True, plain=item.get("plain", False))
+            task.inbox.put(
+                item["text"],
+                item["images"],
+                front=True,
+                plain=item.get("plain", False),
+                note=item.get("note", False),
+            )
         if again:
             task.stirred.set()
         task.steered_items.clear()
@@ -1899,7 +1969,11 @@ class TaskManager:
                 idle_since = time.monotonic()  # working, or a dev server running: stay
             if not task.busy:
                 effort = self._effort_pending(task)
-                if (effort or task.reopen) and not task.background and not task.steered:
+                if (
+                    (effort or task.reopen)
+                    and (task.reopen_now or not task.background)
+                    and not task.steered
+                ):
                     if not effort and self._options_key(task) == task.live_key:
                         task.reopen = False  # the changes cancelled out: nothing to reopen for
                     else:
@@ -1952,12 +2026,15 @@ class TaskManager:
             sent = f"{text}\n\nultracode"  # the keyword that turns on workflow orchestration
         task.turns_pending += 1
         task.busy = True
+        task.handover = False  # a turn of its own, whatever the last one ended in
         task.status, task.last_action = "running", "Working"
         task.turn_started = task.last_active = time.monotonic()
         self._new_turn(task)
-        self._log(task, "user", text, **attachment_counts(images))
-        if not task.title and not task.prompt and text and not text.startswith("/"):
-            task.title = _session_title(text)  # named after its first request, as Claude Code does
+        if not item.get("note"):  # the app's own words aren't shown as the user's
+            self._log(task, "user", text, **attachment_counts(images))
+            # Named after its first request, as Claude Code does.
+            if not task.title and not task.prompt and text and not text.startswith("/"):
+                task.title = _session_title(text)
         self._changed()
         task.in_flight = item  # until its turn begins; if the connection ends first, it goes again
         await client.query(_with_images(sent, images) if images else sent)
@@ -2023,8 +2100,10 @@ class TaskManager:
             task.fork, task.resume_at = False, ""  # the fork has its own session now
         task.session_id = message.session_id or task.session_id
         turn_cost = self._count_cost(task, message.total_cost_usd)
-        if message.is_error:
-            self._log(task, "system", f"Ended with an error: {message.subtype}")
+        # Claude couldn't answer and the fallback is taking over: no failure to report.
+        handover, task.handover = task.handover, False
+        if message.is_error and not handover and (why := _ended(message)):
+            self._log(task, "system", why)
         usage = message.usage or {}
         tokens = sum(
             int(usage.get(k) or 0)
@@ -2056,7 +2135,10 @@ class TaskManager:
         status = "stopped" if stopped else "failed" if message.is_error else "done"
         origin = getattr(message, "origin", None)
         self._turn_finished(
-            task, status, (origin or {}).get("kind", "claude") if claudes else "user"
+            task,
+            status,
+            (origin or {}).get("kind", "claude") if claudes else "user",
+            quiet=handover,  # the fallback carries on: its turn says when it's done
         )
         task.stirred.set()
 
@@ -2075,8 +2157,14 @@ class TaskManager:
         return turn
 
     def _turn_finished(
-        self, task: ClaudeTask, status: str, origin: str = "user", always: bool = False
+        self,
+        task: ClaudeTask,
+        status: str,
+        origin: str = "user",
+        always: bool = False,
+        quiet: bool = False,
     ) -> None:
+        """quiet: the turn's over, but it isn't news (a handover to the fallback model)."""
         if task.stream_buf:
             self._flush_stream(task)
         idle = not task.busy and task.inbox.empty()
@@ -2084,9 +2172,9 @@ class TaskManager:
             task.status = "waiting" if task.inbox.empty() else "running"
             task.last_action = "Waiting for you" if task.inbox.empty() else "Next message"
             self._changed_soon()
-            if idle:
+            if idle and not quiet:
                 self._make_room()  # one more idle: past the cap, the longest idle closes
-        if not (idle or always or origin != "user"):
+        if quiet or not (idle or always or origin != "user"):
             return  # more of the user's messages to go: the last one says it's done
         self.emit(
             "task_finished",
@@ -2107,6 +2195,15 @@ class TaskManager:
         if block.name in EDIT_TOOLS and path:
             task.pending_edits[block.id] = str(path)
 
+    def _claude_down(self, task: ClaudeTask, why: str, said: str) -> None:
+        """Claude couldn't answer this session (its usage limit, an outage). When the hub
+        has a model to move it to, it takes the session over, and the turn's end is a
+        handover rather than a failure. Once per move: Claude Code may say it twice."""
+        if task.falling_back or self.on_claude_down is None:
+            return
+        if self.on_claude_down(task, why, said):
+            task.falling_back = task.handover = True
+
     def _on_task_message(self, task: ClaudeTask, message: Any) -> None:
         if isinstance(message, StreamEvent):
             if not getattr(message, "parent_tool_use_id", None):
@@ -2119,13 +2216,28 @@ class TaskManager:
         ):
             self._on_background(task, message)
             return
+        if isinstance(message, RateLimitEvent):
+            if self.on_rate_limit is not None:
+                self.on_rate_limit(message.rate_limit_info)
+            return
         if isinstance(message, AssistantMessage):
             parent = getattr(message, "parent_tool_use_id", None) or None
             error = getattr(message, "error", None)
-            if error in CLAUDE_DOWN and not parent and self.on_claude_down is not None:
-                if not task.falling_back:
-                    task.falling_back = True
-                    asyncio.create_task(self.on_claude_down(task, error))
+            if error in CLAUDE_DOWN and not parent:
+                # Claude Code's words for it ("You've hit your weekly limit · resets 5pm"),
+                # then what happens next: the move to the fallback, or how to get one.
+                self._claude_turn(task)
+                task.last_uuid = getattr(message, "uuid", None) or task.last_uuid
+                said = " ".join(
+                    b.text.strip()
+                    for b in message.content
+                    if isinstance(b, TextBlock) and b.text.strip()
+                )
+                if said:
+                    task.result = said
+                    self._log(task, "assistant", said)
+                self._claude_down(task, error, said)
+                return
             if not parent:
                 self._claude_turn(task)
                 task.last_uuid = getattr(message, "uuid", None) or task.last_uuid
@@ -2712,6 +2824,17 @@ async def _with_images(text: str, images: list[dict[str, str]]):
 
 async def _deny_everything(tool_name: str, _input: dict[str, Any], _ctx: ToolPermissionContext):
     return PermissionResultDeny(message=f"{tool_name} isn't available to the research desk.")
+
+
+def _ended(message: ResultMessage) -> str:
+    """Why a turn ended in an error, for the transcript. "" when its reply already said it:
+    an API error (the usage limit, an outage) ends with subtype "success", and Claude Code
+    answers with the error's own words ("You've hit your weekly limit · resets 5pm")."""
+    if message.subtype == "success":
+        return ""
+    said = _ENDED.get(message.subtype, "It stopped with an error.")
+    errors = "; ".join(str(e).strip() for e in (message.errors or []) if str(e).strip())
+    return f"{said} {errors[:300]}" if errors else said
 
 
 def _session_title(text: str) -> str:

@@ -1071,6 +1071,27 @@ class ProviderStore:
         ref = str(ref or "").strip()
         return ref in MODELS or (ref.startswith(CUSTOM) and self._entry(ref) is not None)
 
+    def pick_fallback(self) -> str:
+        """The added model to turn to when Claude can't answer and none was picked (the
+        fallback's Automatic), as a ref: a Gemini model, Flash first (it answers quickly),
+        from a Google Gemini key before one reached through another provider; else the
+        first model added. A provider whose key failed its last check comes last. "" when
+        no model is added."""
+
+        def rank(entry: ModelEntry) -> tuple[bool, int, int]:
+            provider = self.providers[entry.provider]
+            model = entry.model.lower()
+            gemini = "gemini" in model
+            return (
+                (self.status.get(provider.id) or {}).get("ok") is False,
+                0 if gemini and provider.kind == "gemini" else 1 if gemini else 2,
+                0 if gemini and "flash" in model and "lite" not in model else 1,
+            )
+
+        entries = [e for e in self.entries.values() if e.provider in self.providers]
+        # min keeps the first of equals: the one added first
+        return CUSTOM + min(entries, key=rank).id if entries else ""
+
     # sessions
 
     def session_config(
@@ -1179,6 +1200,7 @@ class ProviderStore:
             "models": self.models(),
             "limits": {"providers": MAX_PROVIDERS, "models": MAX_MODELS},
             "advice": KEY_ADVICE,
+            "fallback_auto": self.pick_fallback(),  # what the fallback's Automatic would use
         }
 
     def _public_provider(self, provider: Provider) -> dict[str, Any]:

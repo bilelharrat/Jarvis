@@ -31,6 +31,7 @@ from urllib.parse import quote
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeSDKClient,
+    RateLimitEvent,
     ResultMessage,
     StreamEvent,
     TextBlock,
@@ -94,13 +95,43 @@ from .speech import Speaker, SpeechQueue, cloud_voice_from
 from .tasks import CLAUDE_DOWN, ClaudeTask, TaskManager
 from .wake import find_wake, is_homecoming
 
-FALLBACK_SECONDS = 30 * 60  # on the fallback model this long after Claude couldn't answer
+# After Claude couldn't answer, JARVIS stays on the fallback model till Claude's usage limit
+# resets when Claude Code said when (at most FALLBACK_LONGEST at a time), else this long.
+FALLBACK_SECONDS = 30 * 60
+FALLBACK_LONGEST = 24 * 3600
+FALLBACK_OFF = "off"  # prefs.fallback_model: no fallback ("" is Automatic)
 CLAUDE_WHY = {
     "rate_limit": "its usage limit or a rate limit",
     "billing_error": "a billing problem",
     "server_error": "an outage",
+    "overloaded": "it's overloaded",
     "authentication_failed": "a sign-in problem",
+    "oauth_org_not_allowed": "a sign-in problem",
+    "account_on_hold": "the account is on hold",
+    "verification_required": "the account needs verifying",
 }
+NO_FALLBACK = (
+    "There's no model to fall back on. Add a Gemini key (Settings › Brain › Fallback model) "
+    "and when Claude can't answer, sessions move to Gemini and carry on by themselves."
+)
+NO_FALLBACK_TALK = (
+    "Claude can't answer right now. Add a Gemini key (Settings › Brain › Fallback model) and "
+    "I'll switch to Gemini by myself when that happens."
+)
+# What a Jarvis Code session, or JARVIS's conversation, is told when the fallback takes over
+# from Claude: the conversation so far is there (the same session, resumed), so it goes on
+# from where Claude stopped instead of starting the request over. After the note, the
+# words the history shows for it.
+CARRY_ON = (
+    "[Note from the app: Claude couldn't answer ({why}), so you're taking over this session "
+    "as {name}. Whatever the conversation above already did is done: don't redo it.]\n\n"
+    "Carry on with my last request from where it was left."
+)
+CARRY_ON_TALK = (
+    "[Note from the app: Claude couldn't finish this answer ({why}), so you're taking over "
+    "as {name}. Whatever was already done or said above is done: don't repeat it.]\n\n"
+    "Carry on with my last request from where it was left."
+)
 
 TOOL_LABELS = {
     "open_app": "Opened an app",
@@ -705,13 +736,23 @@ class Hub:
         )
         # Settings › Queue Jarvis Code follow-ups off: they steer the running step.
         self.tasks.steer_now = lambda: not self.prefs.code_queue
-        # The fallback model (Settings › Brain): Claude down (its limit, an outage) means the
-        # turn runs again on it, and JARVIS stays on it half an hour before trying Claude.
-        self.tasks.on_claude_down = self._code_fallback
+        # The fallback model (Settings › Brain; Automatic picks Gemini): Claude down (its
+        # limit, an outage) means the turn carries on there, and JARVIS stays on it until
+        # Claude's limit resets (half an hour when Claude Code doesn't say) before trying
+        # Claude again. Jarvis Code sessions move to it and carry on too, and go back to
+        # their own model at the first message once the limit has reset.
+        self.tasks.on_claude_down = self._code_claude_down
+        self.tasks.on_rate_limit = self._rate_limit
+        self.tasks.claude_back = self._claude_back
         self.tasks.read_only_free = lambda: self.prefs.code_read_only
         self._fallback_until = 0.0
         self._connected_ref = ""  # the added model the conversation runs on ("": Claude)
         self._claude_down = ""  # why Claude couldn't answer this turn
+        self._claude_said = ""  # ... in Claude Code's words ("You've hit your weekly limit…")
+        # When Claude's usage limit resets (epoch seconds), as Claude Code said when it was
+        # hit, and when Claude last couldn't answer. 0: never heard.
+        self._claude_back_at = 0.0
+        self._claude_down_at = 0.0
         self.models, self.model_names = MODELS, MODEL_NAMES
         from .remote import RemoteServer
 
@@ -2273,14 +2314,14 @@ class Hub:
                         query = f"[Note from the app: {' '.join(notes)}]\n\n{text}"
                         self._style_note, self._style_notes, self._style_dropped = "", [], False
                         self._alert_notes.clear()
-                    self._claude_down = ""
+                    self._claude_down, self._claude_said = "", ""
                     if (
                         self._main_ref() != self._connected_ref
                     ):  # the fallback's time is up (or began)
                         await self._reconnect()
                     await self._run_query(rid, query, images)
-                    if self._claude_down and not self._turn_progress and await self._fall_back():
-                        await self._run_query(rid, query, images)
+                    if self._claude_down:
+                        await self._carry_on(rid, query, images)
             except Exception as exc:  # the Claude Code process died: reconnect and retry once
                 # Once a tool ran, a card went up or words came out, the same request again
                 # would do it all twice: reconnect, and say it was cut off instead.
@@ -2410,11 +2451,25 @@ class Hub:
         if isinstance(message, StreamEvent):
             self._on_stream(rid, message.event)
             return
+        if isinstance(message, RateLimitEvent):
+            self._rate_limit(message.rate_limit_info)
+            return
         if isinstance(message, AssistantMessage):
             error = getattr(message, "error", None)
-            if error in CLAUDE_DOWN and not self._connected_ref and self._fallback_ref():
-                self._claude_down = error  # not said: the turn runs again on the fallback
-                return
+            if error in CLAUDE_DOWN and not self._connected_ref:
+                self._claude_couldnt()
+                if self._fallback_ref():
+                    # Not said: the turn carries on on the fallback (Claude's words are kept
+                    # in case it can't).
+                    self._claude_down = error
+                    self._claude_said = " ".join(
+                        b.text.strip()
+                        for b in message.content
+                        if isinstance(b, TextBlock) and b.text.strip()
+                    )
+                    return
+                if self.prefs.fallback_model != FALLBACK_OFF:
+                    self.emit("notice", title="Fallback", text=NO_FALLBACK_TALK)
             streamed, self._streamed = self._streamed, False
             for block in message.content:
                 if isinstance(block, TextBlock) and block.text.strip() and not streamed:
@@ -2432,14 +2487,19 @@ class Hub:
             for block in message.content:
                 if isinstance(block, ToolResultBlock):
                     self._tool_finished(block.tool_use_id, ok=not block.is_error)
-        elif isinstance(message, ResultMessage) and message.session_id:
-            self._session_id = message.session_id
-            if message.is_error and not self._stopping and not self._claude_down:
+        elif isinstance(message, ResultMessage):
+            if message.session_id:
+                self._session_id = message.session_id
+            # An API error (its usage limit, say) ends with subtype "success": the reply
+            # itself was Claude Code's words for it, already on screen and said.
+            if (
+                message.is_error
+                and not self._stopping
+                and not self._claude_down
+                and message.subtype != "success"
+            ):
                 detail = "; ".join(message.errors or []) or message.subtype
                 self.emit("error", text=f"Claude stopped: {detail}")
-        elif isinstance(message, ResultMessage) and message.is_error and not self._stopping:
-            detail = "; ".join(message.errors or []) or message.subtype
-            self.emit("error", text=f"Claude stopped: {detail}")
 
     def _on_stream(self, rid: str, event: dict[str, Any]) -> None:
         kind = event.get("type")
@@ -4556,16 +4616,58 @@ class Hub:
     # ── the fallback model ──
 
     def _fallback_ref(self) -> str:
+        """The model to turn to when Claude can't answer: the one picked in Settings › Brain;
+        with Automatic (or a pick since removed), a Gemini model added with a key, else any
+        added model. "" when the fallback is off or no model is added."""
         ref = self.prefs.fallback_model
-        return ref if ref and self.providers.known(ref) else ""
+        if ref == FALLBACK_OFF:
+            return ""
+        if ref and self.providers.known(ref):
+            return ref
+        return self.providers.pick_fallback()
 
     def _main_ref(self) -> str:
         """The added model the conversation should run on now: the fallback when it's set to
-        always, or for half an hour after Claude couldn't answer; "" means Claude."""
+        always, or for a while after Claude couldn't answer (see _fall_back); "" means
+        Claude."""
         ref = self._fallback_ref()
         if ref and (self.prefs.fallback_always or time.monotonic() < self._fallback_until):
             return ref
         return ""
+
+    def _rate_limit(self, info: Any) -> None:
+        """Claude's usage limit as Claude Code reports it, from either conversation: when
+        it's used up, when it resets. Extra usage still allowed past the limit isn't Claude
+        being down. (Its "allowed" isn't taken as Claude being back: one model's weekly
+        limit, Opus's say, can be used up while the others still answer.)"""
+        if getattr(info, "status", "") != "rejected":
+            return
+        if getattr(info, "overage_status", None) == "allowed":
+            return
+        at = _epoch(getattr(info, "resets_at", None))
+        if at > time.time():
+            self._claude_back_at = at
+
+    def _claude_back(self) -> bool:
+        """Whether Claude should answer again since it last couldn't: the reset time its
+        limit gave then has come, or, with none given (an outage), half an hour has
+        passed. A session the fallback took over goes back to Claude after that."""
+        now = time.time()
+        if not self._claude_down_at:
+            return True
+        if self._claude_back_at > self._claude_down_at:  # a reset time came with it
+            return now >= self._claude_back_at
+        return now - self._claude_down_at >= FALLBACK_SECONDS
+
+    def _claude_couldnt(self) -> None:
+        """Claude itself couldn't answer (not a fallback model): when, for _claude_back."""
+        self._claude_down_at = time.time()
+
+    def _claude_why(self, why: str) -> str:
+        """Why Claude couldn't answer, in words, with when it's back when that's known."""
+        if why == "rate_limit" and self._claude_back_at > time.time():
+            return f"its usage limit, until {_clock(self._claude_back_at)}"
+        return CLAUDE_WHY.get(why, why)
 
     async def _relay_if_needed(self) -> None:
         """The Gemini relay runs whenever a Gemini provider is added (sessions are set up
@@ -4579,19 +4681,17 @@ class Hub:
                 log.warning("gemini relay didn't start: %s", exc)
 
     async def _gemini_added(self, provider_id: str) -> None:
-        """One paste is enough: a Gemini key brings Gemini Flash (fast; the fallback when none
-        is set) and Gemini Pro to the model lists, each the newest of its family."""
-        refs = []
+        """One paste is enough: a Gemini key brings Gemini Flash (fast: the fallback's
+        Automatic picks it) and Gemini Pro to the model lists, each the newest of its
+        family. A fallback picked by hand, or turned off, stays as it is."""
         for model, label in (
             ("gemini-flash-latest", "Gemini Flash"),
             ("gemini-pro-latest", "Gemini Pro"),
         ):
             try:
-                refs.append(self.providers.add_model(provider_id, model, label)["ref"])
+                self.providers.add_model(provider_id, model, label)
             except ValueError:  # already there, or the list is full
                 pass
-        if refs and not self._fallback_ref():
-            self.set_prefs({"fallback_model": refs[0]})
 
     async def _gemini_ready(self, ref: str) -> None:
         """A Gemini model needs JARVIS's relay listening before a session points at it."""
@@ -4606,50 +4706,129 @@ class Hub:
         await self._connect(resume=self._session_id)
 
     async def _fall_back(self) -> bool:
-        """Claude couldn't answer: on to the fallback model for half an hour. False when there
-        isn't one (the turn keeps Claude's error)."""
+        """Claude couldn't answer: on to the fallback model until Claude's limit resets (at
+        most FALLBACK_LONGEST at a time), or for half an hour when Claude Code didn't say
+        when. False when there's none, or it can't be used (the turn keeps Claude's
+        error)."""
         ref, why = self._fallback_ref(), self._claude_down
         self._claude_down = ""
         if not ref:
             return False
-        self._fallback_until = time.monotonic() + FALLBACK_SECONDS
+        # How long till the limit resets (an outage says nothing about when it's over).
+        left = self._claude_back_at - time.time() if why == "rate_limit" else 0.0
+        self._fallback_until = time.monotonic() + (
+            min(left, FALLBACK_LONGEST) if left > 0 else FALLBACK_SECONDS
+        )
         name = self.providers.describe(ref)
         log.info("claude down (%s): falling back to %s", why, name)
+        until = (
+            f"until {_clock(self._claude_back_at)}, when Claude's limit resets"
+            if left > 0
+            else "for the next half hour"
+        )
         self.emit(
             "notice",
             title="Fallback",
-            text=f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}). Using {name} for the next half hour.",
+            text=f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}). Using {name} {until}.",
         )
         await self._reconnect()
-        return self._connected_ref == ref
+        if self._connected_ref != ref:  # gone, or its key (_connect said why): not again
+            self._fallback_until = 0.0
+            return False
+        return True
 
-    async def _code_fallback(self, task: Any, why: str) -> None:
-        """A Jarvis Code session Claude couldn't answer: on to the fallback model, and the
-        message it was on goes again."""
+    async def _carry_on(
+        self, rid: str, query: str, images: list[dict[str, str]] | None = None
+    ) -> None:
+        """Claude couldn't answer this turn: the fallback takes it over. With nothing done
+        yet, the request goes again; part done (a tool ran, a card went up, words came
+        out), it carries on from there rather than do it all twice. When the fallback
+        can't be used, the user gets Claude's own words for what happened."""
+        why, said, progressed = self._claude_down, self._claude_said, self._turn_progress
+        if not await self._fall_back():
+            self.emit("error", text=said or f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}).")
+            return
+        if not progressed:
+            await self._run_query(rid, query, images)
+            return
+        name = self.providers.describe(self._connected_ref)
+        await self._run_query(rid, CARRY_ON_TALK.format(why=self._claude_why(why), name=name))
+
+    def _code_claude_down(self, task: Any, why: str, said: str = "") -> bool:
+        """Claude couldn't answer a Jarvis Code session (its limit, an outage). With a
+        fallback model to go to, the session moves there and carries on from where Claude
+        stopped: True, the move is under way. Otherwise Claude's error stands, with how to
+        get a fallback when there's none."""
+        if not str(task.model_ref).startswith("custom:"):  # on Claude, not another provider
+            self._claude_couldnt()
+        if task.kind != "code" or not self.prefs.fallback_code:
+            return False
+        ref = self._fallback_ref()
+        if not ref:
+            if self.prefs.fallback_model != FALLBACK_OFF:
+                self.tasks._log(task, "system", NO_FALLBACK)
+                self.tasks._changed()
+            return False
+        if task.model_ref == ref:
+            return False  # the fallback itself couldn't answer: nowhere else to go
+        self._spawn(self._code_fallback(task, ref, why))
+        return True
+
+    async def _code_fallback(self, task: Any, ref: str, why: str) -> None:
+        """Moves a Jarvis Code session Claude couldn't answer to the fallback model (the
+        same conversation, reopened between turns even with background tasks running: the
+        old connection can't answer), then has it carry on from where Claude stopped. A
+        session that was on Claude goes back to its own model at its first message once
+        Claude's limit has reset."""
+        name = self.providers.describe(ref)
+        was = {
+            "model": task.model,
+            "label": task.model_label,
+            "ref": task.model_ref,
+            "env": dict(task.env),
+            "provider_settings": task.provider_settings,
+            "mode": task.mode,
+        }
         try:
-            ref = self._fallback_ref()
-            if not ref or not self.prefs.fallback_code or task.model_ref == ref:
-                return
-            last = next(
-                (
-                    e.get("text", "")
-                    for e in reversed(task.transcript)
-                    if e.get("role") == "user" and e.get("text")
-                ),
-                "",
-            )
+            if task.mode == "smart":
+                # Claude Code's Auto is Claude's own: edits in the project go ahead, the
+                # rest asks, rather than every step waiting on a yes.
+                self.tasks.set_mode(task.id, "edits")
             await self._gemini_ready(ref)
             await self._task_model(task.id, ref)
-            self.tasks._log(
-                task,
-                "system",
-                f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}); this session is on {self.providers.describe(ref)} now.",
+            if task.model_ref != ref:  # its key, or the relay (the error is on screen)
+                if task.mode != was["mode"]:
+                    self.tasks.set_mode(task.id, was["mode"])
+                self.tasks._log(task, "system", f"Couldn't move this session to {name}.")
+                return
+            task.reopen_now = True
+            moved = f"so this session moved to {name} to carry on"
+            said = f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}), {moved}."
+            if not str(was["ref"]).startswith("custom:"):  # it was on Claude: back there later
+                task.fell_back_from = was
+                own = was["label"] or self.providers.describe(was["model"]) or "Claude"
+                if self._claude_back_at > time.time():  # used up till then (_claude_back)
+                    at = _clock(self._claude_back_at)
+                    said = (
+                        f"Claude can't answer until {at} (its usage limit), {moved}. Your "
+                        f"first message after {at} takes it back to {own}."
+                    )
+                else:  # no word on when: it tries Claude again after half an hour
+                    at = _clock(time.time() + FALLBACK_SECONDS)
+                    said += f" Your first message after {at} tries {own} again."
+            self.tasks._log(task, "system", said)
+            self.tasks.send(
+                task.id,
+                CARRY_ON.format(why=self._claude_why(why), name=name),
+                steer=False,
+                note=True,
             )
-            self.tasks._changed()
-            if last:
-                self.tasks.send(task.id, last)
+        except Exception:
+            log.exception("Jarvis Code: couldn't move a session to the fallback")
+            self.tasks._log(task, "system", f"Couldn't move this session to {name}.")
         finally:
             task.falling_back = False
+            self.tasks._changed()
 
     async def _phone_command(self, kind: str, msg: dict[str, Any]) -> None:
         """Settings › Phone. The token only ever goes one way: into the Keychain."""
@@ -5566,6 +5745,28 @@ def frontmost_app() -> str:
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _epoch(value: Any) -> float:
+    """A reset time as Claude Code gives it (epoch seconds, or milliseconds) in seconds; 0
+    when there's none."""
+    try:
+        at = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return at / 1000 if at > 1e12 else max(at, 0.0)
+
+
+def _clock(at: float) -> str:
+    """A moment for people: "5:00 PM" today, "Thu 5:00 PM" this week, "Oct 3, 5:00 PM"."""
+    when, today = datetime.fromtimestamp(at), datetime.now().date()
+    hour = f"{when.hour % 12 or 12}:{when.minute:02d} {'AM' if when.hour < 12 else 'PM'}"
+    days = (when.date() - today).days
+    if days == 0:
+        return hour
+    if 0 < days < 7:
+        return f"{when:%a} {hour}"
+    return f"{when:%b} {when.day}, {hour}"
 
 
 def _audio_seconds(audio: Any) -> float:
