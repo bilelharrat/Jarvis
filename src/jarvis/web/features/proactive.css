@@ -11,3 +11,7 @@
 .commute-add input[type="text"] { flex: 1; min-width: 0; }
 .commute-add select { flex: none; }
 .commute-places .fact bdi { font-weight: 600; overflow-wrap: anywhere; }
+/* Rows and lines shown only sometimes: .row and .itemlist set their own display, which the
+   hidden attribute alone doesn't override. */
+#quiet-weekend-row[hidden], #quiet-focus-status[hidden], #weather-status[hidden],
+.commute-places[hidden] { display: none; }
