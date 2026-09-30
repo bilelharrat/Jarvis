@@ -163,7 +163,8 @@ def _error(text: str) -> dict[str, Any]:
 
 
 class Screen:
-    """Remembers the last screenshot's scale so clicks land where Claude saw them."""
+    """Remembers the last screenshot's display and scale so clicks land where Claude saw
+    them: on the main display, or on the one see_screen was asked for."""
 
     def __init__(self) -> None:
         self.scale = 1.0  # screen points per screenshot pixel
@@ -171,6 +172,7 @@ class Screen:
         # locating), not in the image's pixels; the hub sets this while Gemini is answering.
         self.grid = False
         self.size = (0, 0)  # the latest screenshot's pixels
+        self.origin = (0.0, 0.0)  # its display's top-left corner, in global points
 
     def points(self) -> tuple[float, float]:
         import Quartz
@@ -178,10 +180,24 @@ class Screen:
         bounds = Quartz.CGDisplayBounds(Quartz.CGMainDisplayID())
         return float(bounds.size.width), float(bounds.size.height)
 
-    async def capture(self) -> tuple[str, int, int]:
+    def display(self, number: int) -> tuple[float, float, float, float] | None:
+        """Display number (1 is the main one, as screencapture counts): its x, y, width and
+        height in global points; None when there's no such display."""
+        from .mac_reading import displays
+
+        found = [d for d in displays(visible=dict) if d["index"] == number]  # bounds alone
+        return (found[0]["x"], found[0]["y"], found[0]["w"], found[0]["h"]) if found else None
+
+    async def capture(self, display: int = 1) -> tuple[str, int, int]:
+        where = None
+        if display != 1:
+            where = await asyncio.to_thread(self.display, display)
+            if where is None:
+                raise ToolFailure(f"There's no display {display}. list_windows shows the displays.")
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "screen.png"
-            await run_command("screencapture", "-x", "-m", "-t", "png", str(path))
+            which = ["-D", str(display)] if where is not None else ["-m"]
+            await run_command("screencapture", "-x", *which, "-t", "png", str(path))
             if not path.exists() or path.stat().st_size == 0:
                 raise ToolFailure(
                     "The screenshot came back empty. Allow Screen Recording for the app running "
@@ -191,7 +207,12 @@ class Screen:
             size = await run_command("sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path))
             width, height = parse_sips_size(size)
             data = base64.b64encode(path.read_bytes()).decode()
-        points_w, _ = self.points()
+        if where is None:
+            points_w, _ = self.points()
+            self.origin = (0.0, 0.0)
+        else:
+            points_w = where[2]
+            self.origin = (where[0], where[1])
         self.scale = points_w / width
         self.size = (width, height)
         return data, width, height
@@ -200,7 +221,7 @@ class Screen:
         if self.grid and self.size[0]:
             width, height = self.size
             x, y = min(max(x, 0), GRID) * width / GRID, min(max(y, 0), GRID) * height / GRID
-        return x * self.scale, y * self.scale
+        return self.origin[0] + x * self.scale, self.origin[1] + y * self.scale
 
     def how_to_point(self, width: int, height: int) -> str:
         if self.grid:
@@ -323,13 +344,18 @@ def build_server(screen: Screen | None = None, guard: Any = None):
 
     @tool(
         "see_screen",
-        "Take a screenshot of the main display to see what's on it. Its result says how to give "
-        "positions for click and scroll.",
-        {},
+        "Take a screenshot of a display to see what's on it: the main one, or display (2, 3…) "
+        "for another. Its result says how to give positions for click and scroll, which then "
+        "land on that display.",
+        {"type": "object", "properties": {"display": {"type": "integer"}}},
     )
-    async def see_screen(_args):
+    async def see_screen(args):
         try:
-            data, width, height = await screen.capture()
+            display = int((args or {}).get("display") or 1)
+        except (TypeError, ValueError):
+            display = 1
+        try:
+            data, width, height = await screen.capture(display)
         except ToolFailure as exc:
             return _error(str(exc))
         return {

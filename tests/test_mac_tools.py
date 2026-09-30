@@ -137,9 +137,35 @@ def test_parse_events_structured():
     ]
 
 
-async def test_snap_window_validates_position(calls):
+TWO_DISPLAYS = [
+    {"index": 1, "x": 0, "y": 0, "w": 1512, "h": 982, "main": True, "visible": (0, 38, 1512, 944)},
+    {"index": 2, "x": 1512, "y": -200, "w": 2560, "h": 1440, "main": False,
+     "visible": (1512, -175, 2560, 1415)},
+]  # fmt: skip
+
+
+async def test_snap_window_validates_position(calls, monkeypatch):
+    from jarvis import mac_reading
+
+    monkeypatch.setattr(mac_reading, "displays", lambda: TWO_DISPLAYS[:1])
     bad = await mac_tools.snap_window.handler({"app": "Safari", "position": "diagonal"})
     assert bad["is_error"] and calls == []
+    calls.fake.result = "100,80,900,700"
     ok = await mac_tools.snap_window.handler({"app": "Safari", "position": "left"})
     assert not ok.get("is_error")
-    assert calls[0][0][2:] == ("Safari", "left")
+    assert calls[0][0][2:] == ("Safari",)  # where its window is
+    assert calls[1][0][2:] == ("0", "38", "756", "944")  # the left half, under the menu bar
+
+
+async def test_snap_window_keeps_a_window_on_its_own_display(calls, monkeypatch):
+    from jarvis import mac_reading
+
+    monkeypatch.setattr(mac_reading, "displays", lambda: TWO_DISPLAYS)
+    calls.fake.result = "1600,100,800,600"  # on the second display
+    out = await mac_tools.snap_window.handler({"app": "Safari", "position": "right"})
+    assert calls[-1][0][2:] == ("2792", "-175", "1280", "1415")
+    assert out["content"][0]["text"] == "Safari is on the right on display 2."
+    await mac_tools.snap_window.handler({"app": "Safari", "position": "full", "display": 1})
+    assert calls[-1][0][2:] == ("0", "38", "1512", "944")
+    bad = await mac_tools.snap_window.handler({"app": "Safari", "position": "full", "display": 3})
+    assert bad["is_error"] and "no display 3" in bad["content"][0]["text"]

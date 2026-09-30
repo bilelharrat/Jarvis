@@ -116,26 +116,26 @@ async def open_url(args):
 
 # ── Windows ──────────────────────────────────────────────────────────────────
 
-SNAP_SCRIPT = """on run argv
-    set pos to item 2 of argv
-    tell application "Finder" to set b to bounds of window of desktop
-    set W to item 3 of b
-    set H to item 4 of b
+# Bring the app forward, and say where its front window is: x, y, width, height.
+SNAP_FRAME_SCRIPT = """on run argv
     tell application (item 1 of argv) to activate
     delay 0.4
     tell application "System Events"
         tell (first application process whose frontmost is true)
             set f to front window
-            if pos is "left" then
-                set position of f to {0, 0}
-                set size of f to {W div 2, H}
-            else if pos is "right" then
-                set position of f to {W div 2, 0}
-                set size of f to {W div 2, H}
-            else
-                set position of f to {0, 0}
-                set size of f to {W, H}
-            end if
+            set {x, y} to position of f
+            set {w, h} to size of f
+        end tell
+    end tell
+    return (x as text) & "," & (y as text) & "," & (w as text) & "," & (h as text)
+end run"""
+# Put the front window there: x, y, width, height.
+SNAP_MOVE_SCRIPT = """on run argv
+    tell application "System Events"
+        tell (first application process whose frontmost is true)
+            set f to front window
+            set position of f to {(item 1 of argv) as integer, (item 2 of argv) as integer}
+            set size of f to {(item 3 of argv) as integer, (item 4 of argv) as integer}
         end tell
     end tell
 end run"""
@@ -143,22 +143,65 @@ end run"""
 SNAP_POSITIONS = ("left", "right", "full")
 
 
+def _frame(raw: str) -> tuple[float, float, float, float] | None:
+    try:
+        x, y, w, h = (float(v) for v in raw.strip().split(","))
+    except ValueError:
+        return None
+    return x, y, w, h
+
+
 @tool(
     "snap_window",
-    "Bring an app forward and snap its front window to the left half, right half, or full "
-    "screen. position: left, right or full.",
-    {"app": str, "position": str},
+    "Bring an app forward and snap its front window to the left half, right half, or all of "
+    "a display (the one it's on, or display: 1 for the main one, 2, 3… for the others). "
+    "position: left, right or full.",
+    {
+        "type": "object",
+        "properties": {
+            "app": {"type": "string"},
+            "position": {"type": "string"},
+            "display": {"type": "integer"},
+        },
+        "required": ["app", "position"],
+    },
 )
 @_guarded
 async def snap_window(args):
+    from .mac_reading import display_at, displays, snap_rect
+
     name = args["app"].strip()
     position = args["position"].strip().lower()
     if not name or "/" in name:
         raise ValueError("Give an application name, not a path.")
     if position not in SNAP_POSITIONS:
         raise ValueError(f"position must be one of {', '.join(SNAP_POSITIONS)}")
-    await run_applescript(SNAP_SCRIPT, name, position)
-    return f"{name} is on the {position}." if position != "full" else f"{name} fills the screen."
+    wanted = args.get("display")
+    if wanted is not None:
+        try:
+            wanted = int(wanted)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "display is a number: 1 for the main display, 2, 3… for others."
+            ) from None
+    screens = await asyncio.to_thread(displays)
+    if wanted is not None and not any(s["index"] == wanted for s in screens):
+        raise ValueError(f"There's no display {wanted}; this Mac has {len(screens)}.")
+    frame = _frame(await run_applescript(SNAP_FRAME_SCRIPT, name))
+    if wanted is not None:
+        screen = next(s for s in screens if s["index"] == wanted)
+    elif frame is not None:
+        screen = display_at(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2, screens)
+    else:
+        screen = screens[0] if screens else None
+    if screen is None:
+        raise ValueError("I couldn't find the displays.")
+    x, y, w, h = snap_rect(position, screen["visible"])
+    await run_applescript(SNAP_MOVE_SCRIPT, str(x), str(y), str(w), str(h))
+    where = f" on display {screen['index']}" if len(screens) > 1 else ""
+    if position == "full":
+        return f"{name} fills the screen{where}."
+    return f"{name} is on the {position}{where}."
 
 
 @tool("quit_app", "Quit a running Mac application by name. Asks the user first.", {"name": str})

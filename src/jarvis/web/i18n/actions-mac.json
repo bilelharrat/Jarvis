@@ -56,7 +56,11 @@
     "Move to Trash": "移到废纸篓",
     "Keep": "保留",
     "Put this on the clipboard?": "要把这段文字放到剪贴板吗？",
-    "Don't copy": "不复制"
+    "Don't copy": "不复制",
+    "Read the app's controls": "读取了当前 app 的控件",
+    "Looked at all your screens": "查看了你所有的屏幕",
+    "Listed your windows": "列出了你的窗口",
+    "Read your browser tab": "读取了你的浏览器标签页"
   },
   "patterns": [
     [
