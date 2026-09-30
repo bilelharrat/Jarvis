@@ -102,6 +102,9 @@ ZH = {
     "Undo this: {label}?": "要撤销这一步吗：{label}？",
     "Undid: {label}": "撤销了：{label}",
     "Undo": "撤销",
+    # The tools' labels, as a card lists what a turn has read.
+    "Looked back at what I did": "回顾了我做过的事",
+    "Undid something I did": "撤销了我做过的一步",
 }
 lang.add_texts(ZH)
 

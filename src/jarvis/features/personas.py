@@ -25,13 +25,15 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from .. import personas
+from .. import lang, personas
 from ..personas import MAX_PERSONAS, PersonaStore
 
 log = logging.getLogger("jarvis")
 
 FILE = "personas.json"
 SERVER = "personas"
+LABELS = {"list_personas": "Looked at the personas"}
+lang.add_texts({"Looked at the personas": "查看了角色"})
 
 
 def prepare(folder: Path) -> None:
@@ -161,7 +163,7 @@ class PersonaDesk:
             SERVER,
             self.build_server,
             prompt=prompt,
-            labels={"list_personas": "Looked at the personas"},
+            labels=LABELS,
             quiet=["list_personas"],
         )
 
