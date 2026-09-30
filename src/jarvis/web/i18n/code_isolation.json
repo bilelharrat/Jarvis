@@ -29,9 +29,72 @@
     "Isolated copies": "独立副本",
     "Isolated copy for new sessions": "新会话使用独立副本",
     "Each new session works on a branch of its own, in a copy of the project, until you land it. The composer’s switch still decides for each one.": "每个新会话都在项目副本里、自己的分支上工作，直到你合并它。输入框里的开关仍可以逐个决定。",
+    "This turn": "这一轮",
+    "This session": "这个会话",
+    "Whole branch": "整个分支",
+    "Unified": "合并视图",
+    "Side by side": "并排",
+    "Show the old and new lines one under the other, or side by side": "旧行和新行上下排列，或并排显示",
+    "Refresh": "刷新",
+    "Comment on this line (sent to the session with the others)": "给这一行写评论（和其他评论一起发给会话）",
+    "Add comment": "添加评论",
+    "Show them": "显示出来",
+    "✓ Kept": "✓ 已保留",
+    "Keep": "保留",
+    "Unkeep": "取消保留",
+    "Show it with the changes still to review": "把它放回待审查的改动里",
+    "Mark it reviewed and fold it away": "标记为已审查并折叠",
+    "Click to undo": "再点一下以撤销",
+    "Put just this change back as it was": "只把这一处改动恢复原样",
+    "Comment": "评论",
+    "Comment on this change": "评论这处改动",
+    "new": "新文件",
+    "deleted": "已删除",
+    "renamed": "已重命名",
+    "Credentials: changed, but its lines aren’t shown.": "凭据文件：有改动，但不显示内容。",
+    "A binary file changed.": "一个二进制文件有改动。",
+    "Show its changes": "显示它的改动",
+    "Merge this copy back and remove it (asks first)": "把这个副本合并回去并删除它（会先问你）",
+    "Throw this copy away, kept 30 days (asks first)": "丢弃这个副本，保留 30 天（会先问你）",
+    "Send to the session": "发给会话",
+    "Open a session to see its changes.": "打开一个会话来查看它的改动。",
+    "Loading the changes…": "正在加载改动…",
+    "This session’s isolated copy was landed or discarded.": "这个会话的独立副本已经合并或丢弃了。",
+    "This folder isn’t a git repository, so its changes can’t be shown line by line.": "这个文件夹不是 git 仓库，所以没法逐行显示改动。",
+    "Files it changed:": "它改动的文件：",
+    "Nothing changed in its latest turn.": "它最近一轮没有改动。",
+    "Nothing changed in this copy yet.": "这个副本还没有改动。",
+    "Nothing from this session yet: its own edits show here.": "这个会话还没有改动：它自己的编辑会显示在这里。",
+    "No changes on this branch.": "这个分支上没有改动。",
+    "Show the whole branch": "显示整个分支",
+    "Changes": "改动",
     "just now": "刚刚"
   },
   "patterns": [
+    [
+      "^⋯ (\\d+) unchanged lines?$",
+      "⋯ $1 行未改动"
+    ],
+    [
+      "^Show (\\d+) more lines$",
+      "再显示 $1 行"
+    ],
+    [
+      "^(\\d+) more lines aren’t shown\\.$",
+      "还有 $1 行没有显示。"
+    ],
+    [
+      "^(\\d+) comments?$",
+      "$1 条评论"
+    ],
+    [
+      "^line (\\d+)( · .+)?$",
+      "第 $1 行$2"
+    ],
+    [
+      "^Showing (\\d+) of (\\d+) files\\.$",
+      "正在显示 $1 / $2 个文件。"
+    ],
     [
       "^Landing hit conflicts in (.+?)(…|\\.)$",
       "合并时这些文件有冲突：$1$2"

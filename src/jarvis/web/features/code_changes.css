@@ -1,0 +1,94 @@
+/* Jarvis Code's Changes pane: the diff view (code_diff.js) and its controls. */
+
+/* Side by side needs the room: the pane widens while it shows it. */
+.jc-pane:has(.jcx-changes.split) { width: min(74%, 1080px); }
+
+.jcx-changes { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+/* (The deck gives every button its parent's color: these keep their own.) */
+.deck.jc .jcx-changes .jc-btn { font-size: 12px; }
+.deck.jc .jcx-changes .jc-btn.filled { color: #fff; }
+.deck.jc .jcx-changes .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-changes .jc-btn:not(.filled):not(.danger) { color: rgb(var(--c-ink)); }
+.jcx-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; position: sticky; top: 0; z-index: 2; padding: 4px 0 6px; background: linear-gradient(var(--glass-fill-strong) 70%, transparent); }
+.jcx-bar .jc-mini, .jcx-hunk-head .jc-mini { white-space: nowrap; }
+.jcx-bar .jcx-refresh { width: 26px; height: 26px; }
+.jcx-seg { display: inline-flex; padding: 2px; border-radius: 9px; background: rgb(var(--c-ink) / 0.06); }
+.jcx-seg-btn { border: 0; border-radius: 7px; padding: 4px 10px; font-size: 12px; font-weight: 500; color: rgb(var(--c-ink-2)); background: transparent; cursor: pointer; white-space: nowrap; }
+.jcx-seg-btn.on { color: rgb(var(--c-ink)); background: var(--glass-pill); box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.12); }
+.jcx-center { align-self: center; }
+
+.jcx-strip, .jcx-sendbar, .jcx-conflicts { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 11px; font-size: 12.5px; }
+.jcx-strip { background: rgb(var(--c-accent) / 0.08); color: rgb(var(--c-accent-ink)); }
+.jcx-strip-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.jcx-strip .jc-btn { flex: none; }
+.jcx-strip-label code { font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-sendbar { background: rgb(var(--c-purple-soft)); color: rgb(var(--c-purple-ink)); }
+.jcx-conflicts { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); justify-content: space-between; }
+
+.jcx-files { display: flex; flex-direction: column; gap: 8px; }
+.jcx-file { background: rgb(var(--c-surface)); border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; }
+.jcx-file > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; list-style: none; font: 12.5px var(--mono); }
+.jcx-file > summary::-webkit-details-marker { display: none; }
+.jcx-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-chip.new { color: rgb(var(--c-success-ink)); background: rgb(var(--c-success-soft)); }
+.jcx-chip.deleted { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger-soft)); }
+.jcx-chip.renamed { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); }
+.jcx-hunks { border-top: 0.5px solid rgb(var(--c-border)); }
+
+.jcx-hunk + .jcx-hunk, .jcx-gap + .jcx-hunk, .jcx-opened + .jcx-hunk { border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-hunk-head { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 11.5px; color: rgb(var(--c-muted)); background: rgb(var(--c-surface-muted)); }
+.jcx-num { font-weight: 700; color: rgb(var(--c-accent-ink)); }
+.jcx-where { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-kept { color: rgb(var(--c-success-ink)); font-weight: 600; }
+.jcx-hunk.kept .jcx-hunk-head { background: rgb(var(--c-success-soft) / 0.6); }
+.jcx-undo.armed { color: #fff; background: rgb(var(--c-danger)); }
+
+.jcx-gap { display: block; width: 100%; border: 0; padding: 3px 10px; text-align: left; font: 11.5px var(--mono); color: rgb(var(--c-muted)); background: rgb(var(--c-accent) / 0.05); cursor: pointer; }
+.jcx-gap:hover { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.1); }
+.jcx-more { display: block; margin: 0 auto 8px; border: 0; background: transparent; color: rgb(var(--c-accent-ink)); font-size: 12px; cursor: pointer; }
+.jcx-cut { margin: 6px 10px 8px; font-size: 12px; color: rgb(var(--c-muted)); }
+
+/* The lines: one scroller per hunk; unified scrolls sideways, side by side wraps. */
+.jcx-scroll { overflow-x: auto; }
+.jcx-lines { display: inline-block; min-width: 100%; font: 12px/1.55 var(--mono); color: rgb(var(--c-ink-2)); }
+.jcx-row { display: flex; }
+.jcx-ln { flex: none; width: 3.4em; padding: 0 6px; text-align: right; color: rgb(var(--c-subtle)); user-select: none; cursor: pointer; }
+.jcx-ln:hover { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.08); }
+.jcx-ln:empty { cursor: default; }
+.jcx-ln:empty:hover { background: transparent; }
+.jcx-sg { flex: none; width: 1.3em; text-align: center; color: rgb(var(--c-subtle)); user-select: none; }
+.jcx-code { flex: 1; padding-right: 12px; white-space: pre; }
+.jcx-row.add { background: rgb(var(--c-success-soft)); }
+.jcx-row.add .jcx-sg, .jcx-row.add .jcx-code { color: rgb(var(--c-success-ink)); }
+.jcx-row.del { background: rgb(var(--c-danger-soft)); }
+.jcx-row.del .jcx-sg, .jcx-row.del .jcx-code { color: rgb(var(--c-danger-ink)); }
+.jcx-lines.split { display: block; }
+.jcx-lines.split .jcx-row { background: none; }
+.jcx-lines.split .jcx-code { flex: 1 1 50%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jcx-lines.split .jcx-code.del { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.jcx-lines.split .jcx-code.add { background: rgb(var(--c-success-soft)); color: rgb(var(--c-success-ink)); }
+.jcx-lines.split .jcx-code.none { background: rgb(var(--c-ink) / 0.03); }
+.jcx-lines.split .jcx-ln.n { border-left: 0.5px solid rgb(var(--c-border)); }
+
+/* The words that changed inside a changed line. */
+.jcx-code mark.jcx-w { color: inherit; border-radius: 3px; }
+.jcx-row.add mark.jcx-w, .jcx-code.add mark.jcx-w { background: rgb(var(--c-success) / 0.3); }
+.jcx-row.del mark.jcx-w, .jcx-code.del mark.jcx-w { background: rgb(var(--c-danger) / 0.28); }
+
+/* The highlighter's colors (on changed lines they give way to the line's own). */
+.jcx-k { color: rgb(var(--c-purple-ink)); }
+.jcx-s { color: rgb(var(--c-success-ink)); }
+.jcx-c { color: rgb(var(--c-muted)); font-style: italic; }
+.jcx-n { color: rgb(var(--c-warning-ink)); }
+.jcx-t { color: rgb(var(--c-accent-ink)); }
+.jcx-row.add .jcx-k, .jcx-row.del .jcx-k, .jcx-code.add .jcx-k, .jcx-code.del .jcx-k { font-weight: 600; color: inherit; }
+.jcx-row.add :is(.jcx-s, .jcx-n, .jcx-t, .jcx-c), .jcx-row.del :is(.jcx-s, .jcx-n, .jcx-t, .jcx-c),
+.jcx-code.add :is(.jcx-s, .jcx-n, .jcx-t, .jcx-c), .jcx-code.del :is(.jcx-s, .jcx-n, .jcx-t, .jcx-c) { color: inherit; }
+
+/* Comments on lines. */
+.jcx-comment { display: flex; align-items: flex-start; gap: 8px; margin: 3px 10px 3px 4.2em; padding: 6px 9px; border-radius: 9px; font: 12.5px/1.45 var(--sans); color: rgb(var(--c-ink)); background: rgb(var(--c-purple-soft)); white-space: normal; }
+.jcx-comment-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.jcx-comment-mark { flex: none; font-size: 11px; line-height: 1.6; }
+.jcx-comment.edit { flex-direction: column; align-items: stretch; }
+.jcx-comment.edit textarea { resize: vertical; min-height: 44px; font: 12.5px/1.45 var(--sans); }
+.jcx-comment-actions { display: flex; justify-content: flex-end; gap: 6px; }

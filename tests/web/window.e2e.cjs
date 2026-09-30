@@ -1680,9 +1680,10 @@ test('Settings › Chats: iMessage picks a conversation, how Messages is signed 
 // loads them, their styles too ──
 
 // __ev(event): an event as the socket delivers it, to app.js and to the features' listeners.
+// Loaded in name order, as features.js loads them (code_changes.js before code_diff.js).
 async function loadFeatures(...names) {
   await js('window.__ev = (ev) => { onEvent(ev); featureEvent(ev); }; true');
-  for (const name of names) {
+  for (const name of [...names].sort()) {
     const file = path.join(WEB, 'features', name);
     if (name.endsWith('.css')) await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(fs.readFileSync(file, 'utf8'))}; document.head.append(s); })()`);
     else await js(fs.readFileSync(file, 'utf8'));
@@ -1760,6 +1761,109 @@ test('Isolated copy: the default is a Jarvis Code setting', async () => {
   assert(JSON.stringify(changes) === JSON.stringify([{ code_isolate_default: true }]), JSON.stringify(changes));
   await js('__ev({ type: "prefs", features: { code_isolate_default: true } })');
   assert(await js('$("jcx-iso-default").getAttribute("aria-checked")') === 'true', 'the setting didn’t show');
+});
+
+const HUNK_VIEW = (extra = {}) => JSON.stringify({ type: 'code_changes', id: 1, view: 'session', git: true, workspace: {}, conflicts: [],
+  totals: { files: 1, added: 1, removed: 1, hunks: 2 },
+  files: [{ path: 'src/app.py', old_path: '', status: 'M', binary: false, sensitive: false, added: 2, removed: 2, omitted: false,
+    hunks: [
+      { id: 'h1', n: 1, old_start: 1, old_count: 4, new_start: 1, new_count: 4, header: 'def run():', where: 'run', line: 2, cut: 0, kept: false,
+        lines: [[' ', 'def run():'], ['-', '    return total * count'], ['+', '    return total * quantity'], [' ', ''], [' ', '# done']] },
+      { id: 'h2', n: 2, old_start: 40, old_count: 3, new_start: 40, new_count: 3, header: '', where: '', line: 41, cut: 0, kept: false,
+        lines: [[' ', 'a = 1'], ['-', 'b = "<b>old</b>"'], ['+', 'b = "<b>new</b>"'], [' ', 'c = 3']] },
+    ] }], ...extra });
+
+test('Changes: the session’s hunks, numbered and highlighted, with the words that changed', async () => {
+  await open(1);
+  await loadFeatures('code_diff.js', 'code_changes.js', 'code_changes.css');
+  await js('openPane("diff")');
+  const asked = await js('__sent.filter((m) => m.type === "code_changes").map((m) => m.view)');
+  assert(JSON.stringify(asked) === JSON.stringify(['session']), JSON.stringify(asked));
+  await js(`__ev(${HUNK_VIEW()})`);
+  const r = await js(`({
+    nums: [...document.querySelectorAll('.jcx-num')].map((n) => n.textContent),
+    where: document.querySelector('.jcx-where').textContent,
+    kw: [...document.querySelectorAll('.jcx-lines .jcx-k')].map((n) => n.textContent).slice(0, 2),
+    marks: [...document.querySelectorAll('mark.jcx-w')].map((n) => n.textContent),
+    gap: document.querySelector('.jcx-gap').textContent,
+    bold: document.querySelectorAll('#jc-pane-body b').length,
+    extra: $('jc-pane-extra').textContent,
+  })`);
+  assert(JSON.stringify(r.nums) === '["#1","#2"]' && r.where === 'line 2 · run', JSON.stringify(r));
+  assert(r.kw[0] === 'def' && r.marks.includes('count') && r.marks.includes('quantity'), JSON.stringify(r));
+  assert(r.gap === '⋯ 35 unchanged lines' && r.bold === 0 && r.extra === '+1 −1', JSON.stringify(r));
+  // The folded lines, fetched and shown in their place.
+  await js('__sent.length = 0');
+  await clickAt('.jcx-gap');
+  const lines = await js('__sent.filter((m) => m.type === "code_lines")');
+  assert(lines.length === 1 && lines[0].start === 5 && lines[0].end === 39 && lines[0].path === 'src/app.py', JSON.stringify(lines));
+  await js(`__ev({ type: 'code_lines', id: 1, path: 'src/app.py', start: 5, lines: Array.from({ length: 35 }, (_, i) => 'x' + (i + 5)) })`);
+  assert(await js('!document.querySelector(".jcx-gap") && document.querySelectorAll(".jcx-opened .jcx-row").length === 35'), 'the folded lines didn’t open');
+});
+
+test('Changes: Keep folds a hunk away, Undo takes two clicks, and the views are asked for', async () => {
+  await open(1);
+  await loadFeatures('code_diff.js', 'code_changes.js');
+  await js(`openPane("diff"); __ev(${HUNK_VIEW()}); __sent.length = 0`);
+  await clickText('[data-hunk="h1"]', 'Keep');
+  let s = await js('__sent.filter((m) => m.type === "code_hunk").map((m) => m.action + " " + m.hunk)');
+  assert(JSON.stringify(s) === '["keep h1"]', JSON.stringify(s));
+  assert(await js('document.querySelector(".jcx-hunk").classList.contains("kept") && !document.querySelector(".jcx-hunk").querySelector(".jcx-lines")'), 'a kept hunk still shows its lines');
+  const undo = '[data-hunk="h2"] .jcx-undo';
+  await clickAt(undo);
+  s = await js('__sent.filter((m) => m.type === "code_hunk" && m.action === "undo")');
+  assert(!s.length, 'one click undid');
+  await clickAt(undo);
+  s = await js('__sent.filter((m) => m.type === "code_hunk" && m.action === "undo").map((m) => m.hunk + " " + m.view)');
+  assert(JSON.stringify(s) === '["h2 session"]', JSON.stringify(s));
+  await js('__sent.length = 0');
+  await clickText('.jcx-seg', 'This turn');
+  await clickText('.jcx-seg', 'Whole branch');
+  s = await js('__sent.filter((m) => m.type === "code_changes").map((m) => m.view)');
+  assert(JSON.stringify(s) === '["turn","branch"]', JSON.stringify(s));
+  await js(`__ev(${HUNK_VIEW({ view: 'branch', files: [] })})`);
+  assert(await js('document.querySelector(".jcx-changes .jc-empty").textContent') === 'No changes on this branch.', 'no empty note');
+});
+
+test('Changes: comments on lines go to the session together, and a refresh keeps a draft', async () => {
+  await open(1);
+  await loadFeatures('code_diff.js', 'code_changes.js');
+  await js(`openPane("diff"); __ev(${HUNK_VIEW()}); __sent.length = 0`);
+  await clickAt('[data-hunk="h1"] .jcx-row.add .jcx-ln.n');
+  await frames(2);
+  await typeText('rename it to');
+  await js(`__ev(${HUNK_VIEW()})`);  // a refresh while writing
+  await frames(2);
+  assert(await js('document.querySelector(".jcx-comment.edit textarea").value') === 'rename it to', 'the draft was lost');
+  await typeText(' units');
+  await press('Enter', ['meta']);
+  await clickAt('[data-hunk="h2"] .jcx-row.del .jcx-ln.o');
+  await frames(2);
+  await typeText('why remove this?');
+  await press('Enter', ['meta']);
+  const bar = await js('({ bar: document.querySelector(".jcx-sendbar") && document.querySelector(".jcx-sendbar span").textContent, notes: [...document.querySelectorAll(".jcx-comment")].map((n) => n.textContent), editing: !!document.querySelector(".jcx-comment.edit"), active: document.activeElement && document.activeElement.className })');
+  assert(bar.bar === '2 comments', `no count: ${JSON.stringify(bar)}`);
+  await clickText('.jcx-sendbar', 'Send to the session');
+  const msgs = await js('__sent.filter((m) => m.type === "task_send")');
+  const want = 'Review comments:\n- src/app.py:2 (`return total * quantity`) — rename it to units\n- src/app.py (removed line 41) (`b = "<b>old</b>"`) — why remove this?';
+  assert(msgs.length === 1 && msgs[0].id === 1 && msgs[0].text === want, JSON.stringify(msgs));
+  assert(await js('!document.querySelector(".jcx-sendbar") && !document.querySelector(".jcx-comment")'), 'the comments stayed after sending');
+});
+
+test('Changes: side by side, an isolated session’s Land, and a folder that isn’t in git', async () => {
+  await open(1);
+  await loadFeatures('code_diff.js', 'code_changes.js', 'code_changes.css');
+  await js(`openPane("diff"); __ev(${HUNK_VIEW({ workspace: { slug: 's-1', branch: 'jarvis/s-1', into: 'main' }, conflicts: ['src/app.py'] })}); __sent.length = 0`);
+  await clickText('.jcx-bar', 'Side by side');
+  const split = await js('({ on: document.querySelector(".jcx-changes").classList.contains("split"), cells: document.querySelector(".jcx-lines.split .jcx-row.chg").querySelectorAll(".jcx-code").length, wide: $("jc-pane").getBoundingClientRect().width })');
+  assert(split.on && split.cells === 2 && split.wide > 600, JSON.stringify(split));
+  await clickText('.jcx-strip', 'Land');
+  await clickText('.jcx-conflicts', 'Resolve in session');
+  const acts = await js('__sent.filter((m) => m.type === "code_copy").map((m) => m.action + " " + m.slug)');
+  assert(JSON.stringify(acts) === '["land s-1","resolve s-1"]', JSON.stringify(acts));
+  await js(`__ev({ type: 'code_changes', id: 1, view: 'session', git: false, gone: false, workspace: {}, conflicts: [], files: [], touched: ['/p/alpha/a.py'], totals: {} })`);
+  assert((await js('document.querySelector(".jcx-changes").textContent')).includes('isn’t a git repository'), 'no note');
+  await clickText('.jcx-bar', 'Unified');
 });
 
 // ──
