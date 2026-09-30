@@ -178,16 +178,20 @@ class AcpConnection:
                     break
                 try:
                     message = json.loads(line)
-                except ValueError:
-                    continue  # (a log line on stdout)
+                except (ValueError, RecursionError):
+                    continue  # (a log line on stdout, or JSON nested too deep to read)
                 if isinstance(message, dict):
-                    self._take(message)
+                    try:
+                        self._take(message)
+                    except Exception:  # one message it can't use never ends the session
+                        log.warning("ACP agent: a message that couldn't be used was skipped")
         finally:
             self._closed()
 
     def _take(self, message: dict[str, Any]) -> None:
         if "method" not in message:  # a response to one of ours
-            future = self.pending.get(message.get("id"))  # type: ignore[arg-type]
+            request_id = message.get("id")
+            future = self.pending.get(request_id) if isinstance(request_id, int | str) else None
             if future is None or future.done():
                 return
             error = message.get("error")

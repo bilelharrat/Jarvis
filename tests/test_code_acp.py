@@ -5,6 +5,7 @@ ordinary Jarvis Code session, the agent's permission requests answered by JARVIS
 session, and the agents kept."""
 
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 import pytest
 from code_session_fakes import Stream, end_all, events_of, make_hub, until
 
+from jarvis import acp
 from jarvis.acp import AcpConnection, AcpError, tool_of
 from jarvis.features.code_acp import AgentBook
 
@@ -280,3 +282,29 @@ async def test_claude_s_spending_limits_and_sandbox_leave_another_agent_alone(
     assert not hub.code_sandbox.wanted(task)  # Claude Code's sandbox can't reach it
     assert hub.tasks.rule_check(task, "Bash", {"command": "npm install"}) is None
     await end_all(hub)
+
+
+async def test_lines_no_client_can_use_are_passed_over_and_the_turn_still_ends(
+    tmp_path, monkeypatch
+):
+    """A misbehaving agent's garbled output (a response whose id is a list, JSON nested too
+    deep to read, a line past the limit) is skipped like a log line: the session goes on."""
+    monkeypatch.setattr(acp, "LINE_LIMIT", 64 * 1024)
+    heard = []
+
+    async def answer(method, params):
+        raise AcpError("not here", -32601)
+
+    env = {**os.environ, "FAKE_ACP_LONG": str(200 * 1024)}
+    conn = AcpConnection(FAKE, tmp_path, lambda m, p: heard.append(m), answer, env=env)
+    await conn.start()
+    await conn.request("initialize", {"protocolVersion": 1}, 30)
+    await conn.request("session/new", {"cwd": str(tmp_path), "mcpServers": []}, 30)
+    done = await conn.request(
+        "session/prompt",
+        {"sessionId": "sess-1", "prompt": [{"type": "text", "text": "garbled hello"}]},
+        30,
+    )
+    assert done == {"stopReason": "end_turn"} and not conn.closed
+    assert heard.count("session/update") == 3  # its words all came through
+    await conn.close()

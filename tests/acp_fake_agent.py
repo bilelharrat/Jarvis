@@ -7,6 +7,8 @@ stdout, a message a line, as a real agent speaks it. What it does depends on the
   wait   works until the client cancels (session/cancel), then stops "cancelled"
   crash  exits at once, saying why on stderr
   noisy  prints a line that isn't JSON first, then answers
+  garbled  first prints lines no client can use (a response whose id is a list, JSON
+         nested too deep to read, a line past FAKE_ACP_LONG bytes), then answers
 
 It never touches the network or any file. FAKE_ACP_AUTH=1 makes session/new ask for a
 sign-in; FAKE_ACP_LOG=<path> keeps every message it got there.
@@ -150,6 +152,11 @@ def main():
             )
             if "noisy" in text:
                 sys.stdout.write("this line is a log, not a message\n")
+            if "garbled" in text:
+                send({"jsonrpc": "2.0", "id": [1], "result": {}})
+                sys.stdout.write("[" * 200_000 + "]" * 200_000 + "\n")
+                sys.stdout.write("x" * int(os.environ.get("FAKE_ACP_LONG") or 0) + "\n")
+                sys.stdout.flush()
             result = {"stopReason": prompt(text)}
         elif method == "session/cancel":
             continue
