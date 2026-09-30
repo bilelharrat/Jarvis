@@ -40,7 +40,8 @@ A feature registers what it adds through the hub instead of editing its core tab
   hub.add_query_hook(hook) hears each request just before Claude gets it (hook(text, rid),
   may be async and may reconnect); hub.add_message_sink(sink) hears every message of its
   stream; hub.first_connect, when set, makes the first connect at startup (True: it
-  connected).
+  connected). hub.incognito is True while the conversation is incognito: a feature that
+  keeps or learns from what's said in it (memory, notes, logs, indexes) keeps nothing then.
 - hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
   in tests, never the user's real data there).
 - hub.register_route(path, endpoint, methods): an address of the feature's own on the window's

@@ -2,8 +2,9 @@
 // Settings › Conversation; the note under the reply when a conversation carries on (after a
 // restart, or one reopened); and Conversations (a dock app): this conversation (how full its
 // context is, what it has cost, Compact now), and the past ones, searched, read back and
-// carried on after a card. What the conversations hold (titles, what was said) is the
-// owner's data: shown as text, with data-no-i18n.
+// carried on after a card; and incognito (a banner at the top while nothing is kept, with
+// Leave; the switch in Conversations and Settings). What the conversations hold (titles,
+// what was said) is the owner's data: shown as text, with data-no-i18n.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
@@ -11,7 +12,7 @@
   const T = (text) => F.t(text);
 
   const S = {
-    convo: { resume: true, resumed: null, session_id: '', title: '', cost: 0 },
+    convo: { resume: true, resumed: null, session_id: '', title: '', cost: 0, incognito: false },
     features: {},
     list: null, // the past conversations shown ({ q, items }), once asked for
     seq: 0, // the newest search sent: an older answer never replaces a newer one
@@ -94,6 +95,12 @@
     group.append(thinkingRow());
     const actions = el('div', 'row-actions');
     actions.append(button('Past conversations…', 'btn', () => { if (typeof toggleSettings === 'function') toggleSettings(false); openSheet(); }));
+    const secret = button('Start an incognito conversation', 'btn', () => {
+      if (typeof toggleSettings === 'function') toggleSettings(false);
+      incognito(!S.convo.incognito);
+    });
+    secret.id = 'convo-settings-incognito';
+    actions.append(secret);
     group.append(actions);
     const before = $('open-accounts') && $('open-accounts').closest('section.group');
     if (before) before.before(group); else settings.append(group);
@@ -121,6 +128,8 @@
 
   function renderSettings() {
     if (!settingsGroup()) return;
+    const secret = $('convo-settings-incognito');
+    if (secret) secret.textContent = S.convo.incognito ? 'Leave incognito' : 'Start an incognito conversation';
     $('sw-convo-resume').setAttribute('aria-checked', String(!!featurePref('conversation_resume', true)));
     const select = $('convo-thinking');
     if (select && document.activeElement !== select) select.value = featurePref('conversation_thinking', 'off');
@@ -155,6 +164,36 @@
     const resumed = S.convo.resumed;
     note.hidden = !resumed;
     $('convo-note-title').textContent = resumed && resumed.title ? `“${resumed.title}”` : '';
+  }
+
+  // ── incognito: a banner at the top while nothing is kept ──
+
+  function incognito(on) {
+    send({ type: 'conversation_incognito', on });
+  }
+
+  function renderIncognito() {
+    let banner = $('convo-incognito');
+    if (!banner) {
+      const greeting = $('greeting');
+      if (!greeting) return;
+      banner = el('div', 'convo-incognito');
+      banner.id = 'convo-incognito';
+      banner.setAttribute('role', 'status');
+      banner.hidden = true;
+      const mark = el('span', 'convo-incognito-mark');
+      mark.setAttribute('aria-hidden', 'true');
+      mark.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h18"/><path d="M5.5 10l1.6-5.2a1 1 0 011.3-.6L12 5.5l3.6-1.3a1 1 0 011.3.6L18.5 10"/><circle cx="7.5" cy="15.5" r="2.7"/><circle cx="16.5" cy="15.5" r="2.7"/><path d="M10.2 15.2c1.1-.7 2.5-.7 3.6 0"/></svg>';
+      const words = el('span', 'convo-incognito-text');
+      words.append(el('strong', '', 'Incognito'), el('span', '', 'Nothing from this conversation is kept'));
+      const leave = button('Leave', 'convo-incognito-btn', () => incognito(false));
+      leave.id = 'convo-incognito-leave';
+      leave.setAttribute('aria-label', 'Leave incognito');
+      banner.append(mark, words, leave);
+      greeting.before(banner);
+    }
+    banner.hidden = !S.convo.incognito;
+    document.body.toggleAttribute('data-incognito', !!S.convo.incognito);
   }
 
   // ── under the reply: a request being thought through ──
@@ -267,7 +306,7 @@
     box.append(el('div', 'convo-kicker', 'This conversation'));
     const c = S.convo;
     const title = mine(el('div', 'convo-now-title', c.title ? `“${c.title}”` : ''));
-    if (!c.title) { title.removeAttribute('data-no-i18n'); title.textContent = c.session_id ? 'Untitled' : 'Nothing said yet'; }
+    if (!c.title) { title.removeAttribute('data-no-i18n'); title.textContent = c.incognito ? 'Incognito conversation' : c.session_id ? 'Untitled' : 'Nothing said yet'; }
     box.append(title);
     const meter = meterBlock();
     if (meter) box.append(meter);
@@ -285,7 +324,10 @@
     compact.id = 'convo-compact';
     compact.disabled = !ctx.available || !!ctx.compacting || !c.session_id;
     compact.title = 'Sum the conversation up now, to make room';
-    actions.append(compact, button('New conversation', 'btn', () => { send({ type: 'reset' }); closeSheet(); }));
+    const secret = button(c.incognito ? 'Leave incognito' : 'Go incognito', 'btn', () => { incognito(!c.incognito); closeSheet(); });
+    secret.id = 'convo-incognito-switch';
+    secret.title = c.incognito ? 'Back to the conversation from before' : 'A conversation nothing is kept of';
+    actions.append(compact, button('New conversation', 'btn', () => { send({ type: 'reset' }); closeSheet(); }), secret);
     box.append(actions);
     return box;
   }
@@ -419,7 +461,9 @@
         closeSheet();
       });
       go.id = 'convo-resume';
+      go.disabled = !!S.convo.incognito;
       actions.append(go);
+      if (S.convo.incognito) actions.append(el('span', 'convo-now-meta', 'Leave incognito to carry on a past conversation.'));
     }
     box.append(actions);
     const lines = el('ol', 'convo-lines');
@@ -455,9 +499,13 @@
   // ── events ──
 
   F.on('conversation', (ev) => {
+    const wasIncognito = !!S.convo.incognito;
     S.convo = { ...S.convo, ...ev };
+    if (sheetOpen() && S.reading && wasIncognito !== !!S.convo.incognito) renderSheet();
     renderCaption();
     renderThink();
+    renderIncognito();
+    renderSettings();
     if (sheetOpen() && !S.reading) {
       const box = document.querySelector('#convo-body .convo-now');
       if (box) box.replaceWith(currentBlock());
@@ -494,4 +542,5 @@
   renderSettings();
   renderCaption();
   renderThink();
+  renderIncognito();
 })();

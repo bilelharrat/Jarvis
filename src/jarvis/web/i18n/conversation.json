@@ -32,7 +32,17 @@
     "Skills": "技能",
     "Think before answering": "回答前先思考",
     "Off answers fastest. Say “think hard about…” or “take your time” to have one request thought through.": "关闭时回答最快。说“好好想想……”或“慢慢来”，那一次请求就会想得更周全。",
-    "Thinking it through…": "正在仔细思考…"
+    "Thinking it through…": "正在仔细思考…",
+    "Incognito": "无痕",
+    "Nothing from this conversation is kept": "这段对话的内容一概不保留",
+    "Leave": "退出",
+    "Leave incognito": "退出无痕模式",
+    "Go incognito": "进入无痕模式",
+    "Start an incognito conversation": "开始一段无痕对话",
+    "Back to the conversation from before": "回到之前的对话",
+    "A conversation nothing is kept of": "一段什么都不保留的对话",
+    "Leave incognito to carry on a past conversation.": "先退出无痕模式，才能接着过去的对话。",
+    "Incognito conversation": "无痕对话"
   },
   "patterns": [
     [

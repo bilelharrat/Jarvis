@@ -4682,6 +4682,29 @@ test('Conversation: Settings says how much Jarvis thinks, and a request thought 
   assert(await js(`$('convo-think').hidden`), 'the thinking line stayed after the answer');
 });
 
+test('Conversation: incognito shows a banner with Leave, and past ones wait till it ends', async () => {
+  await loadFeatures(...CONVO);
+  await js(`__ev({ type: 'conversation', resume: true, resumed: null, session_id: 'a', title: 'Plan', cost: 0, incognito: false }); __sent.length = 0; true`);
+  assert(await js(`$('convo-incognito').hidden && !document.body.hasAttribute('data-incognito') && $('convo-incognito').nextElementSibling === $('greeting')`), 'the banner showed, or not above the greeting');
+  await js(`$('convo-btn').click(); true`);
+  assert(await js(`$('convo-incognito-switch').textContent === 'Go incognito'`), 'no Go incognito in Conversations');
+  await js(`__sent.length = 0; $('convo-incognito-switch').click(); true`);
+  assert(JSON.stringify(await sentOf('conversation_incognito')) === '[{"type":"conversation_incognito","on":true}]', 'Go incognito sent nothing');
+  assert(await js(`$('convo-layer').hidden`), 'the sheet stayed open');
+  await js(`__ev({ type: 'conversation', session_id: '', title: '', cost: 0, incognito: true }); true`);
+  const banner = await js(`({ hidden: $('convo-incognito').hidden, text: $('convo-incognito').textContent, marked: document.body.hasAttribute('data-incognito'), settings: $('convo-settings-incognito').textContent })`);
+  assert(!banner.hidden && banner.marked && banner.text === 'IncognitoNothing from this conversation is keptLeave' && banner.settings === 'Leave incognito', JSON.stringify(banner));
+  // A past conversation can be read while incognito, not carried on.
+  await js(`$('convo-btn').click(); __ev({ type: 'conversation_list', q: '', seq: '', items: [{ session_id: 'b', title: 'Lisbon', preview: '', at: 1700000000000, current: false, cost: 0 }] }); true`);
+  await js(`document.querySelector('#convo-list .convo-row').click(); true`);
+  const reading = await js(`({ disabled: $('convo-resume').disabled, why: $('convo-body').textContent.includes('Leave incognito to carry on a past conversation.') })`);
+  assert(reading.disabled && reading.why, JSON.stringify(reading));
+  await js(`$('convo-close').click(); __sent.length = 0; $('convo-incognito-leave').click(); true`);
+  assert(JSON.stringify(await sentOf('conversation_incognito')) === '[{"type":"conversation_incognito","on":false}]', 'Leave sent nothing');
+  await js(`__ev({ type: 'conversation', session_id: 'a', title: 'Plan', cost: 0, incognito: false }); true`);
+  assert(await js(`$('convo-incognito').hidden && !document.body.hasAttribute('data-incognito') && $('convo-settings-incognito').textContent === 'Start an incognito conversation'`), 'the banner stayed');
+});
+
 test('Conversations: the past ones are listed, searched, read back and carried on', async () => {
   await loadFeatures(...CONVO);
   const dock = await js(`({ after: $('activity-btn').nextElementSibling.id, label: $('convo-btn').getAttribute('aria-label') })`);

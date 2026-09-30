@@ -18,7 +18,13 @@ owner's view of it.
   Chinese) for one request. The Python SDK has no way to turn thinking on for one query, so
   that request's connection is made again with thinking and a higher effort, keeping the
   conversation (the same session, resumed), and made again without them after it. Not on
-  the fallback model.
+  the fallback model, nor while incognito (a connection made again would lose it).
+- Incognito (jarvis.incognito): a conversation nothing is kept of. Claude Code writes no
+  record of it, it can't remember or forget, the hub learns nothing from its words and none
+  of it goes into conversation.json; the conversation from before stays the one carried on,
+  after a restart and when the owner leaves ("go incognito", "leave incognito", 开启无痕模式,
+  退出无痕模式; the window's banner and Conversations). Past conversations can be read in it,
+  not carried on.
 
 Hooks it uses: hub.first_connect, hub.add_connect_hook (a new conversation), hub.add_query_hook
 (its title, the note put away), hub.add_message_sink (each turn's end: its session id, what
@@ -28,7 +34,8 @@ Window commands: conversation_state (-> conversation), conversation_list {q, seq
 conversation_list), conversation_open {session_id} (-> conversation_transcript),
 conversation_resume {session_id} (a card, then the conversation it carries on),
 conversation_context (-> conversation_context), conversation_compact,
-conversation_thinking {level}.
+conversation_thinking {level}, conversation_incognito {on}. heard_edit is taken while
+incognito (a transcript fixed then teaches nothing); otherwise it goes on to the hub.
 
 Claude cost policy: nothing here calls a model on its own. "Compact now" is one call of the
 conversation's own model, only when the owner presses it; the automatic summing-up is Claude
@@ -50,7 +57,7 @@ from typing import Any
 from claude_agent_sdk import ResultMessage, SystemMessage
 
 from .. import conversation_past as past
-from .. import lang, prefs
+from .. import incognito, lang, prefs
 from ..conversation_state import ConversationState, clean_reads, valid_id
 from ..hub import _asks, user_asked
 from ..tasks import shape_context
@@ -112,8 +119,26 @@ ZH = {
     "Summed up the conversation to make room, as you asked.": "已按你的要求，把对话做成摘要腾出空间。",
     "Couldn't make room just now; try again in a moment.": "现在没能腾出空间，稍后再试。",
     "Let me think that through.": "让我好好想想。",
+    "Incognito: nothing from this conversation is kept.": "无痕模式：这段对话的内容一概不保留。",
+    "Incognito: nothing from here on is kept.": "无痕模式：从这里开始的内容都不保留。",
+    "We're already incognito.": "已经在无痕模式里了。",
+    "We weren't incognito.": "现在不在无痕模式里。",
+    "Back to your conversation. Nothing from the incognito one was kept.": (
+        "回到你原来的对话了。无痕对话的内容一概没有保留。"
+    ),
+    "Nothing from the incognito conversation was kept.": "无痕对话的内容一概没有保留。",
+    "Leave incognito to carry on a past conversation.": "先退出无痕模式，才能接着过去的对话。",
+    "Couldn't go incognito just now; try again in a moment.": "现在没能进入无痕模式，稍后再试。",
+    "Incognito is over, but the conversation couldn't start again just now; try again in a "
+    "moment.": "无痕模式已结束，但对话暂时没能重新开始，稍后再试。",
 }
 lang.add_texts(ZH)
+# What's said when going in (True) or out (False) of incognito fails.
+FAILED = {
+    True: "Couldn't go incognito just now; try again in a moment.",
+    False: "Incognito is over, but the conversation couldn't start again just now; try again "
+    "in a moment.",
+}
 
 
 def _now() -> str:
@@ -158,6 +183,10 @@ class Conversation:
         self._hard_connected = False  # ... and the connection made last does
         self._hard_turn = False  # the turn under way asked for thought
         self._reconnecting = False  # a connect of this feature's own, not a new conversation
+        # While incognito: the conversation from before it (to go back to), and what the
+        # incognito one has cost (kept in memory only).
+        self._before: dict[str, Any] | None = None
+        self._incognito_cost = 0.0
         self._dirty = False
         self._saver: asyncio.Task | None = None
         self._tasks: set[asyncio.Task] = set()
@@ -279,6 +308,9 @@ class Conversation:
         sid = valid_id(session_id)
         if not sid:
             return
+        if hub.incognito:  # carrying one on would end it: the owner leaves it first
+            self._toast(self._say("Leave incognito to carry on a past conversation."))
+            return
         if sid == hub._session_id:
             self._toast(self._say("That's the conversation you're in."))
             return
@@ -377,6 +409,14 @@ class Conversation:
 
     def on_connect(self, options: Any, resume: str) -> None:
         self._conn_total = None  # a new connection reports its own running total
+        hub = self.hub
+        if hub.incognito:
+            # No record, no memory writes; a reconnect has nothing to resume, and Claude
+            # hears that what came before is gone. Nothing of it touches the record.
+            if incognito.apply(options):
+                hub._add_style_note(incognito.LOST)
+            self._apply_thinking(options)
+            return
         self._apply_thinking(options)
         if resume or self._reconnecting:
             return
@@ -436,7 +476,12 @@ class Conversation:
         again to suit it. Never on the fallback model. text is "" for a routine's or the
         briefing's request: only the owner's own words ask for this."""
         hub = self.hub
-        want = bool(text) and asks_for_thought(text, hub.language) and not hub._connected_ref
+        want = (
+            bool(text)
+            and asks_for_thought(text, hub.language)
+            and not hub._connected_ref
+            and not hub.incognito
+        )
         self._hard = want
         if want != self._hard_connected and hub.client is not None:
             await self._reconnect()
@@ -461,12 +506,14 @@ class Conversation:
 
     async def set_thinking(self, msg: dict[str, Any]) -> None:
         """Settings' thinking level: kept, and the connection made again with it, between
-        requests."""
+        requests (while incognito, from its next conversation: a connection made again
+        would lose it)."""
         hub = self.hub
         level = str(msg.get("level") or "")
         if level not in THINKING_LEVELS:
             return
-        if hub.set_feature_prefs({THINKING_PREF: level}) and hub.client is not None:
+        changed = hub.set_feature_prefs({THINKING_PREF: level})
+        if changed and hub.client is not None and not hub.incognito:
             async with hub._lock:
                 try:
                     await self._reconnect()
@@ -519,8 +566,7 @@ class Conversation:
             if isinstance(usage, dict):
                 model = getattr(getattr(client, "options", None), "model", None)
                 payload = {"available": True, **shape_context(usage, model)}
-        sid = hub._session_id
-        payload["cost"] = round(self.state.cost_of(sid), 4) if sid else 0.0
+        payload["cost"] = round(self._cost(), 4)
         payload["compacting"] = self.compacting
         hub.emit("conversation_context", **payload)
 
@@ -548,6 +594,131 @@ class Conversation:
             self.compacting = False
         await self.context()
 
+    # ── incognito ──
+
+    async def set_incognito(self, msg: dict[str, Any]) -> None:
+        """The window's switch (between requests)."""
+        hub = self.hub
+        wanted = msg.get("on") is True
+        async with hub._lock:
+            if wanted == hub.incognito:
+                return
+            try:
+                await (self._go_incognito() if wanted else self._leave_incognito())
+            except Exception:
+                log.warning("conversation: couldn't change incognito", exc_info=True)
+                self._toast(self._say(FAILED[wanted]))
+            hub.turn = {}
+        hub.emit("turn", rid="", user="")
+        self._show_changed()
+
+    async def instant(self, text: str) -> str | None:
+        """ "Go incognito", "leave incognito" (and the Chinese), done at once without Claude.
+        It runs inside the request's turn: the hub's lock is held."""
+        hub = self.hub
+        wanted = incognito.asked(text, hub.language)
+        if wanted is None:
+            return None
+        if wanted == hub.incognito:
+            return self._say("We're already incognito." if wanted else "We weren't incognito.")
+        try:
+            said = await (self._go_incognito() if wanted else self._leave_incognito())
+        except Exception:
+            log.warning("conversation: couldn't change incognito", exc_info=True)
+            said = self._say(FAILED[wanted])
+        self._spawn(self._show_after_turn())
+        return said
+
+    async def _go_incognito(self) -> str:
+        """A new conversation nothing is kept of (the caller holds the hub's lock). The one
+        before is left as it is: still the one to carry on, after this or a restart."""
+        hub = self.hub
+        before = {
+            "session_id": hub._session_id,
+            "reads": hub._session_reads,
+            "history": list(hub.history),
+            "title": self._title,
+        }
+        hub.incognito, self._before, self._incognito_cost = True, before, 0.0
+        self.resumed = None
+        with contextlib.suppress(Exception):
+            await hub.client.disconnect()
+        try:
+            await hub._connect()  # on_connect makes it incognito
+        except Exception:  # Claude Code wouldn't start it: back to the one before
+            hub.incognito, self._before = False, None
+            with contextlib.suppress(Exception):
+                await hub.client.disconnect()
+            with contextlib.suppress(Exception):
+                await self._back_to(before)
+            raise
+        hub._session_id, self._title = "", ""
+        hub.history.clear()
+        note = self._say("Incognito: nothing from here on is kept.")
+        hub.history.append({"role": "note", "text": note, "at": _now()})
+        self.emit()
+        return self._say("Incognito: nothing from this conversation is kept.")
+
+    async def _leave_incognito(self) -> str:
+        """Back to the conversation from before (the caller holds the hub's lock), or a new
+        one when it can't be carried on. Nothing of the incognito one is kept, on screen
+        either."""
+        hub = self.hub
+        before = self._before or {}
+        hub.incognito, self._before, self._incognito_cost = False, None, 0.0
+        with contextlib.suppress(Exception):
+            await hub.client.disconnect()
+        back = await self._back_to(before)
+        hub.history.clear()
+        if back:
+            hub.history.extend(before.get("history") or [])
+            said = self._say("Back to your conversation. Nothing from the incognito one was kept.")
+        else:
+            said = self._say("Nothing from the incognito conversation was kept.")
+        hub.history.append({"role": "note", "text": said, "at": _now()})
+        self.emit()
+        return said
+
+    async def _back_to(self, before: dict[str, Any]) -> bool:
+        """Connect to the conversation from before incognito: True when it carried on; a
+        new conversation when there was none, or its record is gone."""
+        hub = self.hub
+        sid = valid_id(before.get("session_id"))
+        info = None
+        if sid:
+            info = await asyncio.to_thread(past.exists, sid, None, get_info=self.get_info)
+        if info is not None:
+            try:
+                await hub._connect(resume=sid)
+            except Exception:
+                log.warning("conversation: couldn't go back after incognito", exc_info=True)
+                with contextlib.suppress(Exception):
+                    await hub.client.disconnect()
+            else:
+                hub._session_id = sid
+                hub._session_reads = before.get("reads") or self.state.reads_of(sid)
+                self._title = before.get("title") or self.state.titles().get(sid, "")
+                return True
+        await hub._connect()  # a new conversation: on_connect forgets the one to carry on
+        hub._session_id = ""
+        return False
+
+    def _heard_edit(self, _msg: dict[str, Any]) -> Any:
+        """A transcript fixed in the window: while incognito it teaches nothing (taken
+        here); otherwise the hub's own heard_edit learns from it."""
+        return None if self.hub.incognito else False
+
+    async def _show_after_turn(self) -> None:
+        async with self.hub._lock:
+            pass
+        self._show_changed()
+
+    def _show_changed(self) -> None:
+        """Incognito came or went: the window's conversation list, the banner, the meter."""
+        self.hub.emit("history", items=list(self.hub.history))
+        self.emit()
+        self._spawn(self.context())
+
     def _turn_cost(self, sid: str, total: float | None) -> float:
         """This turn's cost. Claude Code reports a running total per connection (after a
         resume, one that starts from the session's earlier total)."""
@@ -567,12 +738,22 @@ class Conversation:
         if not sid:
             return
         cost = self._turn_cost(sid, message.total_cost_usd)
+        if hub.incognito:  # nothing of it is kept: what it cost is shown, from memory
+            self._incognito_cost += cost
+            return
         reads = clean_reads(hub._session_reads) or {}
         self.state.turn_over(sid, reads, cost, title=self._title)
         self._title = self.state.titles().get(sid, "") or self._title
         self._save_soon()
 
     # ── the window ──
+
+    def _cost(self) -> float:
+        """What the conversation has cost so far."""
+        if self.hub.incognito:
+            return self._incognito_cost
+        sid = self.hub._session_id
+        return self.state.cost_of(sid) if sid else 0.0
 
     def public(self) -> dict[str, Any]:
         hub = self.hub
@@ -582,9 +763,10 @@ class Conversation:
             "resumed": self.resumed,
             "thinking": hub.prefs.feature(THINKING_PREF),
             "thinking_hard": self._hard_turn,
+            "incognito": hub.incognito,
             "session_id": sid,
-            "title": self.state.titles().get(sid, "") if sid else "",
-            "cost": self.state.cost_of(sid) if sid else 0.0,
+            "title": self.state.titles().get(sid, "") if sid and not hub.incognito else "",
+            "cost": self._cost(),
         }
 
     def emit(self) -> None:
@@ -612,6 +794,9 @@ class Conversation:
         hub.register_command(
             "conversation_resume", later(lambda msg: self.reopen(str(msg.get("session_id") or "")))
         )
+        hub.register_command("conversation_incognito", later(self.set_incognito))
+        hub.register_command("heard_edit", self._heard_edit)
+        hub.register_instant(self.instant)
 
 
 def install(hub: Any) -> None:

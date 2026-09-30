@@ -955,6 +955,9 @@ class Hub:
             lang=lambda: self.prefs.language,
         )
         self._session_id = ""
+        # An incognito conversation (the conversation feature): nothing from it is kept, so
+        # nothing that learns from the owner's words (hearing, suggestions, memory) may.
+        self.incognito = False
         self._reload_pending = False
         self.speech = SpeechQueue(self.speaker, self._on_speaking)
         self.started_at = time.monotonic()
@@ -2710,7 +2713,9 @@ class Hub:
             self._silent = silent
             self._turn_text = text if display is None else ""
             heard_note = ""
-            if display is None:  # the owner's own words, typed or said: never a routine's
+            # The owner's own words, typed or said: never a routine's, and never learned
+            # from while incognito.
+            if display is None and not self.incognito:
                 correction = self.hearing.owner_said(text)
                 if correction is not None:  # "no, I said Okin": Claude hears what it fixed
                     heard_note = correction.note()

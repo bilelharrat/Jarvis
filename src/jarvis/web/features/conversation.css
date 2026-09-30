@@ -19,6 +19,28 @@
 }
 .convo-note-btn:hover { filter: brightness(0.97); }
 
+/* Incognito: a dark pill at the top while nothing from the conversation is kept. */
+.convo-incognito {
+  display: inline-flex; align-items: center; gap: 10px; max-width: min(620px, 100%);
+  margin: 0 auto 6px; padding: 5px 5px 5px 12px; border-radius: 18px; font-size: 13px;
+  color: #f5f5f7; background: rgba(29, 29, 31, 0.88); border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 8px 24px -12px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%);
+}
+.convo-incognito[hidden] { display: none; }
+.convo-incognito-mark { display: grid; place-items: center; color: #f5f5f7; opacity: 0.9; }
+.convo-incognito-text { display: inline-flex; gap: 8px; min-width: 0; }
+.convo-incognito-text strong { font-weight: 600; }
+.convo-incognito-text span { color: rgba(245, 245, 247, 0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.convo-incognito-btn {
+  flex: none; font: inherit; font-size: 12px; border: 0; border-radius: 14px; padding: 5px 12px;
+  min-height: 26px; color: #1d1d1f; background: #f5f5f7; cursor: pointer;
+}
+.convo-incognito-btn:hover { background: #fff; }
+@media (prefers-color-scheme: dark) {
+  .convo-incognito { background: rgba(58, 58, 60, 0.82); border-color: rgba(255, 255, 255, 0.12); }
+}
+
 /* A request being thought through ("think hard about…"): a quiet line above the reply. */
 .convo-think { margin: 4px 0 0; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
 .convo-think[hidden] { display: none; }
