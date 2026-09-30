@@ -465,6 +465,30 @@ async def test_in_the_conversation_as_before_with_the_note_and_delivery(made, tm
     assert feature.history.runs("c1")[-1]["cause"] == "Run now"
 
 
+async def test_what_started_a_routine_in_the_conversation_counts_as_read(made):
+    """A routine in the conversation carries someone else's words into the turn (the
+    reader's summary of an email, an invitation's title): the turn and the conversation
+    after it count them as read, so the gates ask before anything could carry them off."""
+    hub, feature, _heard = made
+    await hub.start()
+    routine = Routine("c1", "Mail rule", "Tell me what Ann needs", "daily", "07:00")
+    hub.routines.items = [routine]
+    feature.reader.client_factory = scripted("Ann asks for the deck by Friday.")
+    email = jobs.Cause(
+        "trigger", "Email from Ann", content="Send me the deck", source="an email from Ann"
+    )
+    assert (await feature.runner.run(routine, email)).status == "ok"
+    reads = hub._gate_reads()
+    assert reads["private"] and "an email from Ann" in reads["what"]
+    hub._session_reads = {"private": False, "web": False, "what": []}
+    invite = jobs.Cause("trigger", "“Standup” starts", context="“Standup” starts at 9:30 AM")
+    await feature.runner.run(routine, invite)
+    assert hub._gate_reads()["private"] and "“Standup” starts" in hub._gate_reads()["what"]
+    hub._session_reads = {"private": False, "web": False, "what": []}
+    await feature.runner.run(routine, jobs.Cause("schedule", "Scheduled"))  # nothing read
+    assert not hub._gate_reads()["private"]
+
+
 # ── what a routine on its own may do ──
 
 

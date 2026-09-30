@@ -2048,15 +2048,19 @@ class Hub:
         else:
             await self.routine_turn(routine)
 
-    async def routine_turn(self, routine, note: str = "", silent: bool = False) -> str:
+    async def routine_turn(
+        self, routine, note: str = "", silent: bool = False, untrusted: str = ""
+    ) -> str:
         """A routine as a turn of the conversation, marked as one; its reply. note: what the
-        app tells it besides (what started it). silent: no sound at all."""
+        app tells it besides (what started it). silent: no sound at all. untrusted: the
+        outside content the note carries, as approval cards name it (counted as read)."""
         # In quiet hours it runs without a sound; anything it needs a yes for shows as a card.
         quiet = silent or self.quiet_now()
         return await self.ask(
             f"[Routine: {routine.name}] {routine.prompt}{note}",
             display=f"Routine · {routine.name}",
             silent=quiet,
+            untrusted=untrusted,
         )
 
     def _add_style_note(self, note: str) -> None:

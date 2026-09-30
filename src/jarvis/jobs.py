@@ -774,8 +774,17 @@ class JobRunner:
             run.output = text
             await self._deliver(routine, text, run)
             return
+        # What started it (an invitation's title, a session's last words) and the reader's
+        # summary are someone else's words: the turn, and the conversation after it, count
+        # them as read.
+        carries = (cause.source or cause.label or "what started the routine") * bool(
+            summary or cause.context
+        )
         reply = await self.hub.routine_turn(
-            routine, note=_input_note(cause, summary), silent=routine_deliver(routine) != "speak"
+            routine,
+            note=_input_note(cause, summary),
+            silent=routine_deliver(routine) != "speak",
+            untrusted=carries,
         )
         run.model = "conversation"
         run.output = (reply or "").strip()
