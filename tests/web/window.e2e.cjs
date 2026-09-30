@@ -607,6 +607,19 @@ test('In the smallest window (760 × 620), Jarvis Code uses the whole width and 
   }
 });
 
+test('Esc in a pane’s text box leaves the box, and never interrupts the session at work', async () => {
+  await open(1);  // (a session at work: busy)
+  await js('openPane("audit"); document.querySelector("#jc-pane-body input").focus()');
+  await press('Escape');
+  let r = await js('({ sent: __sent.map((m) => m.type), pane: currentPane, focus: document.activeElement.tagName })');
+  assert(!r.sent.includes('task_interrupt') && r.pane === 'audit' && r.focus !== 'INPUT', JSON.stringify(r));
+  // In the composer, Esc still interrupts the step, as in Claude Code.
+  await js('$("deck-input").focus()');
+  await press('Escape');
+  r = await js('__sent.map((m) => m.type)');
+  assert(r.includes('task_interrupt'), JSON.stringify(r));
+});
+
 test('/rename with nothing after it names the session in place', async () => {
   await open(1, '$("deck-input").focus()');
   await typeText('/rename');

@@ -3591,6 +3591,12 @@ function jcEscape(e) {
   if (!$('cc-slash').hidden) { $('cc-slash').hidden = true; return true; }
   if (!$('jc-find').hidden) { closeJcFind(true); return true; }
   if ($('jc-title').isContentEditable) return true;
+  // Esc in a pane's text box (a search, a rule being typed) only leaves the box: stopping
+  // the step at work is what it means in the composer, not there.
+  if (e.target instanceof HTMLElement && $('jc-pane').contains(e.target) && (e.target.matches('input, textarea, select') || e.target.isContentEditable)) {
+    e.target.blur();
+    return true;
+  }
   const t = currentTask();
   if (t && t.busy) { send({ type: 'task_interrupt', id: t.id }); return true; }
   if (currentPane) { closePane(); return true; }
