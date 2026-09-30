@@ -278,7 +278,8 @@ class BrowserAgent {
     const docs = new Map(); // frame key -> { bounds: Map(backend -> [x,y,w,h]), scroll: [x,y], owner?: {key, backend} }
     const sessions = new Set(Object.values(collected.frames).map((f) => f.session));
     await Promise.all([...sessions].map(async (session) => {
-      const snap = await cdp.send('DOMSnapshot.captureSnapshot', { computedStyles: [] }, { session: session || undefined, timeout: 10000 }).catch(() => null);
+      // The styles say which text no one can see (core.invisibleText), left out like a read's.
+      const snap = await cdp.send('DOMSnapshot.captureSnapshot', { computedStyles: core.SIGHT_STYLES }, { session: session || undefined, timeout: 10000 }).catch(() => null);
       if (!snap || !Array.isArray(snap.documents)) return;
       const keys = snap.documents.map((d) => `${session}|${snap.strings[d.frameId]}`);
       snap.documents.forEach((d, i) => {
@@ -287,7 +288,7 @@ class BrowserAgent {
         const layout = d.layout || { nodeIndex: [], bounds: [] };
         layout.nodeIndex.forEach((ni, li) => bounds.set(backend[ni], layout.bounds[li]));
         const entry = docs.get(keys[i]) || {};
-        Object.assign(entry, { bounds, scroll: [d.scrollOffsetX || 0, d.scrollOffsetY || 0] });
+        Object.assign(entry, { bounds, scroll: [d.scrollOffsetX || 0, d.scrollOffsetY || 0], doc: d, strings: snap.strings });
         docs.set(keys[i], entry);
         const rare = d.nodes && d.nodes.contentDocumentIndex;
         if (rare && Array.isArray(rare.index)) {
@@ -343,12 +344,21 @@ class BrowserAgent {
       viewOf.set(key, view);
       return view;
     };
-    return (frameKey, backend) => {
+    const inView = (frameKey, backend) => {
       const d = docs.get(frameKey);
       const box = d && d.bounds && d.bounds.get(backend);
       const view = visible(frameKey);
       return Boolean(box && view && box[2] > 0 && box[3] > 0 && core.intersects({ x: box[0], y: box[1], width: box[2], height: box[3] }, view));
     };
+    // Text no one can see, per document, weighed once when first asked.
+    const ratio = metrics && metrics.contentSize && metrics.cssContentSize && metrics.cssContentSize.width ? metrics.contentSize.width / metrics.cssContentSize.width : 1;
+    inView.unseen = (frameKey, backend) => {
+      const d = docs.get(frameKey);
+      if (!d || !d.doc) return false;
+      if (!d.unseen) d.unseen = core.invisibleText(d.doc, d.strings, { ratio });
+      return d.unseen.has(backend);
+    };
+    return inView;
   }
 
   async snapshot(view, args = {}) {
@@ -370,6 +380,7 @@ class BrowserAgent {
       main: collected.main,
       childFrame: (k, b) => collected.owners.get(`${k}:${b}`) || '',
       inView,
+      unseen: inView.unseen || (() => false),
       table: tab.refs,
       interactive: Boolean(args.interactive),
       within,
@@ -379,6 +390,7 @@ class BrowserAgent {
       ok: true, ...this.where(view), text: page.text, next: page.next, total: page.total, start: page.start,
       refs: built.refCount, changes: built.counts, first: built.first, snapshot: tab.refs.snapshots,
       frames: Object.keys(collected.frames).length, dialog: this.dialogNote(tab),
+      ...(built.hiddenText ? { hidden: built.hiddenText } : {}),
     };
   }
 

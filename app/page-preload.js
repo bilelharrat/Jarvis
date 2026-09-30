@@ -324,6 +324,161 @@ function find(text) {
   return best;
 }
 
+// ── what a person can see: reads leave out text no one can ──
+// A page hides instructions for an AI in text a person never sees: opacity 0, pushed off
+// the page, 1px or clipped away, the colour of its background, aria-hidden, display:none.
+// A read gives the page as it shows, so that text is left out (and counted, and a sample
+// kept for the app to check, never for Claude). One judge per read weighs each element
+// once, with what it inherits from the ones around it.
+const SIGHT_SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'HEAD', 'TITLE', 'META', 'LINK', 'JARVIS-HAND', 'JARVIS-MARKS', 'JARVIS-READER']);
+const SIGHT_BLOCK = /^(block|flex|grid|list-item|table|table-row|table-caption|flow-root|table-row-group|table-header-group|table-footer-group)$/;
+const SIGHT_NODES = 60000; // nodes weighed in one read, at most
+const HIDDEN_SAMPLE = 2000; // characters of left-out text kept for the app's own check
+
+function rgbaOf(value) {
+  const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/.exec(String(value || '').trim());
+  if (!m) return null;
+  const alpha = m[4] === undefined ? 1 : Number(m[4]) / (m[5] ? 100 : 1);
+  return [Number(m[1]), Number(m[2]), Number(m[3]), alpha];
+}
+
+// Text in a colour a person can't tell from what's behind it.
+function sameColour(a, b) {
+  return Boolean(a && b) && Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2])) <= 8;
+}
+
+function sightJudge() {
+  const memo = new Map(); // element -> what it shows
+  const canvas = (() => {
+    for (const el of [document.body, document.documentElement]) {
+      const c = el ? rgbaOf(getComputedStyle(el).backgroundColor) : null;
+      if (c && c[3] >= 0.9) return c;
+    }
+    return [255, 255, 255, 1];
+  })();
+  const top = { gone: false, hidden: false, opacity: 1, bg: canvas };
+  const judge = { hiddenChars: 0, hiddenSample: '' };
+
+  const clipped = (el, style) => {
+    if (/rect\(\s*0(px)?[,\s]+0(px)?[,\s]+0(px)?[,\s]+0(px)?\s*\)/.test(style.clip || '')) return true;
+    if (/inset\(\s*(50|100)%|circle\(\s*0/.test(style.clipPath || '')) return true;
+    if (/hidden|clip/.test(`${style.overflowX} ${style.overflowY}`)) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 2 || r.height <= 2) return true;
+    }
+    return false;
+  };
+
+  const weigh = (el, up) => {
+    const style = getComputedStyle(el);
+    if (style.display === 'none') return { gone: true, hidden: true, textHidden: true, opacity: 0, bg: up.bg };
+    const own = Number.parseFloat(style.opacity);
+    const opacity = up.opacity * (Number.isFinite(own) ? own : 1);
+    const hidden = up.hidden || opacity < 0.1 || el.getAttribute('aria-hidden') === 'true' || clipped(el, style);
+    let bg = up.bg;
+    const fill = rgbaOf(style.backgroundColor);
+    if (style.backgroundImage && style.backgroundImage !== 'none') bg = null; // a picture behind: can't tell
+    else if (fill && fill[3] >= 0.9) bg = fill;
+    const colour = rgbaOf(style.color);
+    const size = Number.parseFloat(style.fontSize);
+    const textHidden = hidden || style.visibility === 'hidden' || style.visibility === 'collapse'
+      || (Number.isFinite(size) && size < 3) || Boolean(colour && (colour[3] < 0.1 || sameColour(colour, bg)));
+    return {
+      gone: false, hidden, textHidden, opacity, bg,
+      block: SIGHT_BLOCK.test(style.display), cell: style.display === 'table-cell',
+      pre: /^(pre|break-spaces)/.test(style.whiteSpace || ''),
+    };
+  };
+
+  // What an element shows, weighed from the nearest one already known down to it.
+  const verdict = (el) => {
+    if (!el || el.nodeType !== 1) return top;
+    if (memo.has(el)) return memo.get(el);
+    const chain = [];
+    for (let node = el; node && node.nodeType === 1 && !memo.has(node); node = node.parentElement) chain.push(node);
+    const last = chain[chain.length - 1];
+    let up = last.parentElement && memo.has(last.parentElement) ? memo.get(last.parentElement) : top;
+    for (let i = chain.length - 1; i >= 0; i -= 1) {
+      const v = up.gone ? up : weigh(chain[i], up);
+      memo.set(chain[i], v);
+      up = v;
+    }
+    return memo.get(el);
+  };
+
+  const keepHidden = (text) => {
+    const words = text.replace(/\s+/g, ' ').trim();
+    if (!words) return;
+    judge.hiddenChars += words.length;
+    if (judge.hiddenSample.length < HIDDEN_SAMPLE) judge.hiddenSample = `${judge.hiddenSample} ${words}`.trim().slice(0, HIDDEN_SAMPLE);
+  };
+
+  // A text node shows when its element's text does and some of it is laid out on the page
+  // (not all of it above or left of the page's edge, nor a sliver).
+  const textShows = (node, v) => {
+    if (v.textHidden) return false;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const r of range.getClientRects()) {
+      if (r.width >= 1 && r.height >= 3 && r.right + window.scrollX > 0 && r.bottom + window.scrollY > 0) return true;
+    }
+    return false;
+  };
+
+  judge.shows = (el) => {
+    const v = verdict(el);
+    return !v.gone && !v.hidden;
+  };
+  judge.textShows = (node) => {
+    const v = verdict(node.parentElement);
+    return !v.gone && textShows(node, v);
+  };
+
+  // The words under root as they show, blocks on lines of their own (innerText, less what
+  // no one can see).
+  judge.text = (root, max = 2_000_000) => {
+    const out = [];
+    let length = 0;
+    let fresh = true; // at the start of a line
+    const put = (s) => {
+      if (!s) return;
+      out.push(s);
+      length += s.length;
+      fresh = s.endsWith('\n');
+    };
+    const stack = [root];
+    let weighed = 0;
+    while (stack.length && length < max && weighed < SIGHT_NODES) {
+      const node = stack.pop();
+      if (typeof node === 'string') { put(node); continue; }
+      weighed += 1;
+      if (node.nodeType === 3) {
+        const v = verdict(node.parentElement);
+        if (v.gone) continue;
+        const raw = node.data;
+        if (!raw.trim()) { if (!fresh && raw.length) put(' '); continue; }
+        if (!textShows(node, v)) { keepHidden(raw); continue; }
+        let words = v.pre ? raw : raw.replace(/\s+/g, ' ');
+        if (fresh && !v.pre) words = words.replace(/^ /, '');
+        put(words);
+        continue;
+      }
+      if (node.nodeType !== 1 || SIGHT_SKIP.has(node.tagName)) continue;
+      if (node.tagName === 'BR') { put('\n'); continue; }
+      const v = verdict(node);
+      if (v.gone) continue;
+      if (v.block) { if (!fresh) put('\n'); stack.push('\n'); }
+      if (v.cell) stack.push('\t');
+      for (let kid = node.lastChild; kid; kid = kid.previousSibling) stack.push(kid);
+    }
+    return out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+(?=\n)/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, max);
+  };
+  return judge;
+}
+// The app's own reads (jarvis page-ai-preload.js: the reader, page context) weigh text the
+// same way; the page's scripts can't see this world.
+globalThis.jarvisSight = sightJudge;
+
 // ── the fuller read JARVIS's and Jarvis Code's browser_read ask for (rich) ──
 // What <main> leaves out: an open dialog, an alert or toast, a fixed banner or drawer, a
 // sidebar (an order summary with the total). Each goes ahead of <main>'s text, labelled.
@@ -360,12 +515,12 @@ function pinnedBoxes() {
   return found;
 }
 
-function regionsOutside(main) {
+function regionsOutside(main, sight) {
   const picked = [];
   const add = (kind, el) => {
-    if (!el || el === main || main.contains(el) || el.closest('jarvis-hand') || !visible(el)) return;
+    if (!el || el === main || main.contains(el) || el.closest('jarvis-hand') || !visible(el) || !sight.shows(el)) return;
     if (picked.some((p) => p.el.contains(el) || el.contains(p.el))) return;
-    const text = squash(el.innerText, REGION_MAX);
+    const text = squash(sight.text(el, REGION_MAX * 2), REGION_MAX);
     if (text) picked.push({ kind, el, text, name: regionName(el) });
   };
   for (const [kind, selector] of REGIONS) {
@@ -424,58 +579,68 @@ function richField(f) {
 
 function readPage(args = {}) {
   const main = document.querySelector('main') || mainScroller() || document.body;
-  const links = [...document.querySelectorAll('a[href]')].filter(visible).slice(0, 40)
+  const sight = sightJudge(); // text no one can see stays out of the read
+  const shown = (el) => visible(el) && sight.shows(el);
+  const links = [...document.querySelectorAll('a[href]')].filter(shown).slice(0, 40)
     .map((a) => ({ text: labelOf(a), href: a.href })).filter((l) => l.text);
   const fields = args.rich
     ? [...document.querySelectorAll('input:not([type="hidden"]), textarea, select')].filter(visible).slice(0, 40).map(richField)
     : [...document.querySelectorAll('input, textarea, select')].filter(visible).slice(0, 30)
       .map((f) => ({ tag: f.tagName.toLowerCase(), type: f.type || '', name: f.name || '', label: labelOf(f) }));
-  const headings = [...document.querySelectorAll('h1, h2, h3')].filter(visible)
-    .map((h) => h.innerText.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 30);
+  const headings = [...document.querySelectorAll('h1, h2, h3')].filter(shown)
+    .map((h) => sight.text(h, 400).replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 30);
   const seen = new Set();
   const actions = [];
   for (const el of document.querySelectorAll(CLICKABLE)) {
-    if (!visible(el) || !inView(el) || !usable(el)) continue;
+    if (!visible(el) || !inView(el) || !usable(el) || !sight.shows(el)) continue;
     const label = labelOf(el);
     if (seen.has(label)) continue;
     seen.add(label);
     actions.push(label);
     if (actions.length >= 60) break;
   }
+  const body = sight.text(main, args.rich ? 2_000_000 : 14000);
   const page = {
     title: document.title,
     url: location.href,
     path: location.pathname,
     headings,
-    text: (main.innerText || '').slice(0, 14000),
+    text: body.slice(0, 14000),
     actions,
     links,
     fields,
     hovered: hover ? labelOf(hover) : '',
   };
-  if (!args.rich) return page;
+  if (!args.rich) return withHidden(page, sight);
   // Dialogs, alerts, banners and sidebars first (a sidebar's total counts for the purchase
   // guard), then <main>; read on from offset past the limit.
   let budget = REGIONS_MAX;
   const regions = [];
-  for (const r of regionsOutside(main)) {
+  for (const r of regionsOutside(main, sight)) {
     if (budget <= 0) break;
     const text = r.text.slice(0, budget);
     budget -= text.length;
     regions.push({ kind: r.kind, name: r.name, text });
   }
   const head = regions.map((r) => `[${r.kind}${r.name ? `: ${r.name}` : ''}]\n${r.text}`).join('\n\n');
-  const full = `${head}${head ? '\n\n[Main content]\n' : ''}${main.innerText || ''}`.slice(0, 2_000_000);
+  const full = `${head}${head ? '\n\n[Main content]\n' : ''}${body}`.slice(0, 2_000_000);
   const offset = Math.max(0, Math.min(full.length, Number(args.offset) || 0));
   const limit = Math.max(1000, Math.min(120000, Number(args.limit) || 20000));
-  return {
+  return withHidden({
     ...page,
     text: full.slice(offset, offset + limit),
     offset,
     total: full.length,
     more: offset + limit < full.length,
     regions: regions.map((r) => ({ kind: r.kind, name: r.name })),
-  };
+  }, sight);
+}
+
+// How much text no one could see a read left out, and a sample of it for the app's own
+// check for words aimed at an AI (never shown to Claude).
+function withHidden(page, sight) {
+  if (!sight.hiddenChars) return page;
+  return { ...page, hidden: sight.hiddenChars, hiddenSample: sight.hiddenSample };
 }
 
 function scrollPage({ direction = 'down', amount = 1 }) {

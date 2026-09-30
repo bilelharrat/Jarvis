@@ -191,19 +191,110 @@ class RefTable {
   }
 }
 
+// ── text no one can see ──
+
+// The computed styles DOMSnapshot.captureSnapshot is asked for, in this order.
+const SIGHT_STYLES = ['opacity', 'visibility', 'color', 'background-color', 'background-image', 'font-size', 'clip', 'clip-path', 'overflow-x', 'overflow-y'];
+
+function rgbaOf(value) {
+  const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/.exec(String(value || '').trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4]) / (m[5] ? 100 : 1)];
+}
+
+function sameColour(a, b) {
+  return Boolean(a && b) && Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2])) <= 8;
+}
+
+// The text nodes of one DOMSnapshot document that no one can see: in an element faded to
+// (nearly) nothing, hidden, clipped away or squeezed into a pixel, 1–2px type, the colour
+// of what's behind it, or laid out wholly above or left of the page. Their backend node ids,
+// so a snapshot leaves them out as a read does (app/page-preload.js sightJudge); aria-hidden
+// and display:none never reach the accessibility tree in the first place.
+// ratio: device pixels per CSS pixel (DOMSnapshot measures in device pixels).
+function invisibleText(doc, strings, { ratio = 1, styles = SIGHT_STYLES } = {}) {
+  const out = new Set();
+  const nodes = (doc && doc.nodes) || {};
+  const layout = (doc && doc.layout) || {};
+  const parents = nodes.parentIndex || [];
+  const types = nodes.nodeType || [];
+  const backend = nodes.backendNodeId || [];
+  const index = layout.nodeIndex || [];
+  const at = new Map(); // node index -> its layout index
+  index.forEach((ni, li) => { if (!at.has(ni)) at.set(ni, li); });
+  const slot = Object.fromEntries(styles.map((name, i) => [name, i]));
+  const style = (li, name) => {
+    const row = layout.styles && layout.styles[li];
+    const i = row ? row[slot[name]] : -1;
+    return i >= 0 && i !== undefined ? String(strings[i] || '') : '';
+  };
+  const px = Math.max(0.01, Number(ratio) || 1);
+  const top = { hidden: false, opacity: 1, bg: [255, 255, 255, 1] };
+  const memo = new Map();
+  const weigh = (ni, up) => {
+    const li = at.get(ni);
+    if (li === undefined) return up; // no box of its own (display: contents): as its parent
+    const own = Number.parseFloat(style(li, 'opacity'));
+    const opacity = up.opacity * (Number.isFinite(own) ? own : 1);
+    let hidden = up.hidden || opacity < 0.1;
+    if (!hidden && /rect\(\s*0(px)?[,\s]+0(px)?[,\s]+0(px)?[,\s]+0(px)?\s*\)/.test(style(li, 'clip'))) hidden = true;
+    if (!hidden && /inset\(\s*(50|100)%|circle\(\s*0/.test(style(li, 'clip-path'))) hidden = true;
+    if (!hidden && /hidden|clip/.test(`${style(li, 'overflow-x')} ${style(li, 'overflow-y')}`)) {
+      const b = layout.bounds && layout.bounds[li];
+      if (b && (b[2] / px <= 2 || b[3] / px <= 2)) hidden = true;
+    }
+    let bg = up.bg;
+    const fill = rgbaOf(style(li, 'background-color'));
+    const image = style(li, 'background-image');
+    if (image && image !== 'none') bg = null;
+    else if (fill && fill[3] >= 0.9) bg = fill;
+    return { hidden, opacity, bg };
+  };
+  const verdict = (ni) => {
+    if (ni === undefined || ni < 0 || types[ni] !== 1) return top;
+    if (memo.has(ni)) return memo.get(ni);
+    const chain = [];
+    for (let n = ni; n !== undefined && n >= 0 && types[n] === 1 && !memo.has(n); n = parents[n]) chain.push(n);
+    const last = chain[chain.length - 1];
+    let up = parents[last] >= 0 && memo.has(parents[last]) ? memo.get(parents[last]) : top;
+    for (let i = chain.length - 1; i >= 0; i -= 1) {
+      up = weigh(chain[i], up);
+      memo.set(chain[i], up);
+    }
+    return memo.get(ni);
+  };
+  index.forEach((ni, li) => {
+    if (types[ni] !== 3) return;
+    const words = layout.text && layout.text[li] >= 0 ? String(strings[layout.text[li]] || '') : '';
+    if (!words.trim()) return;
+    const up = verdict(parents[ni]);
+    const colour = rgbaOf(style(li, 'color')); // a text box has its element's styles
+    const size = Number.parseFloat(style(li, 'font-size'));
+    const b = layout.bounds && layout.bounds[li];
+    const away = b && (b[0] + b[2] <= 0 || b[1] + b[3] <= 0);
+    const sliver = b && (b[2] / px < 1 || b[3] / px < 3); // no one reads type under 3px
+    const faint = Boolean(colour && (colour[3] < 0.1 || sameColour(colour, up.bg)));
+    const invisible = /^(hidden|collapse)$/.test(style(li, 'visibility'));
+    if (up.hidden || invisible || faint || away || sliver || (Number.isFinite(size) && size < 3)) out.add(backend[ni]);
+  });
+  return out;
+}
+
 // ── the snapshot ──
 
 // frames: { [frameKey]: { nodes: AXNode[], sessionId, frameId } }, main: the main frame's key.
 // childFrame(frameKey, backendNodeId): the frame key an <iframe> element shows, or ''.
 // inView(frameKey, backendNodeId): whether that element is in the viewport.
-// Returns { lines, refs, signatures, counts }: lines as { mark, depth, text, ref }.
-function buildSnapshot({ frames, main, childFrame = () => '', inView = () => false, table, interactive = false, within = '', maxFrames = 20 }) {
+// unseen(frameKey, backendNodeId): whether that text node is one no one can see (left out).
+// Returns { lines, refs, signatures, counts, hiddenText }: lines as { mark, depth, text, ref }.
+function buildSnapshot({ frames, main, childFrame = () => '', inView = () => false, unseen = () => false, table, interactive = false, within = '', maxFrames = 20 }) {
   const lines = [];
   const signatures = new Map();
   const previous = table && table.previous;
   const seenFrames = new Set();
   let refCount = 0;
   let textChars = 0;
+  let hiddenText = 0;
   const counts = { added: 0, changed: 0, removed: 0 };
   let scopeDepth = -1; // while inside `within`: the depth it starts at
   let scopeDone = false;
@@ -237,6 +328,7 @@ function buildSnapshot({ frames, main, childFrame = () => '', inView = () => fal
     if (role === 'StaticText') {
       const text = clip(node.name && node.name.value, TEXT_MAX);
       if (!text || interactive || text === parentName || textChars > LINE_BUDGET * 4) return;
+      if (backend !== undefined && unseen(frameKey, backend)) { hiddenText += text.length; return; }
       textChars += text.length;
       emit({ mark: '', depth, text: quote(text), kind: 'text' });
       return;
@@ -308,7 +400,7 @@ function buildSnapshot({ frames, main, childFrame = () => '', inView = () => fal
     table.previous = signatures;
     table.snapshots += 1;
   }
-  return { lines, refCount, counts, first: !previous };
+  return { lines, refCount, counts, first: !previous, hiddenText };
 }
 
 // The snapshot's lines as text, from line `offset`, within the budget; and where the next
@@ -512,4 +604,5 @@ function risky(name, { role = '', submits = false } = {}) {
 module.exports = {
   INTERACTIVE, RISKY, SECRET, RefRegistry, RefTable, buildSnapshot, renderLines, clickPoint, quadCenter,
   intersects, layoutMarks, parseKey, globToRegExp, urlMatches, isLoopback, risky, clip, LINE_BUDGET,
+  SIGHT_STYLES, invisibleText,
 };

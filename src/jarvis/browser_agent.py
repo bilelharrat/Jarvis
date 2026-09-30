@@ -118,6 +118,27 @@ def untrusted(body: str) -> str:
     return f"{UNTRUSTED}\n{body}\n{UNTRUSTED_END}"
 
 
+def flag_lines(r: dict[str, Any]) -> list[str]:
+    """What the app says about a page's words beyond the page itself: how much text hidden
+    from view was left out (app/page-preload.js, browser-agent-core.invisibleText), and
+    the app's notes on words written to an AI (browser_ai), with those words quoted as the
+    page's own."""
+    lines = []
+    try:
+        hidden = int(r.get("hidden") or 0)
+    except (TypeError, ValueError):
+        hidden = 0
+    if hidden > 0:
+        lines.append(
+            f"({hidden:,} characters of text hidden from view on this page were left out.)"
+        )
+    lines += [str(n) for n in r.get("notices") or [] if isinstance(n, str)][:4]
+    flagged = [str(x) for x in r.get("flagged") or [] if isinstance(x, str)][:3]
+    if flagged:
+        lines.append(untrusted("\n".join(f"- {x}" for x in flagged)))
+    return lines
+
+
 def snapshot_text(r: dict[str, Any]) -> str:
     lines = [where(r)]
     changes = r.get("changes") or {}
@@ -136,6 +157,7 @@ def snapshot_text(r: dict[str, Any]) -> str:
         )
     if r.get("dialog"):
         lines.append(str(r["dialog"]))
+    lines += flag_lines(r)
     body = str(r.get("text") or "")
     if r.get("start"):
         body = f"(from line {r['start']})\n{body}"
@@ -222,6 +244,7 @@ def read_text(r: dict[str, Any]) -> str:
             for x in regions
         ]
         head.append(f"Also on the page, outside its main content: {', '.join(named)}.")
+    head += flag_lines(r)
     return "\n".join(head) + "\n" + untrusted("\n\n".join(parts))
 
 

@@ -241,6 +241,7 @@ BRAIN_BUILD_SECONDS = 15 * 60  # a whole rebuild: sources get 5 min, layout and 
 BRAIN_DONE_GRACE = 30  # a rebuild that has said it's done must be gone by then
 
 APPROVAL_TIMEOUT = 300
+REQUEST_CONTEXT_SECONDS = 4.0  # a feature's context for a request (hub.add_request_context)
 ARMED_SECONDS = 8.0
 FOLLOW_UP_SECONDS = 7.0  # after a reply, answer back without saying "Jarvis"
 # Seconds of quiet that surely end an utterance. A request that already sounds finished is
@@ -1012,6 +1013,9 @@ class Hub:
         self._briefing_composer: Callable[[list[tuple[str, str]]], Any] | None = None
         self._notify_gates: list[Callable[[Alert], Any]] = []
         self._quiet_checks: list[Callable[[datetime], Any]] = []
+        self._browser_checks: list[Callable[[str, dict[str, Any]], Any]] = []
+        self._browser_results: list[Callable[[str, dict[str, Any], dict[str, Any]], Any]] = []
+        self._request_contexts: list[Callable[[str, str | None], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
         self._webhook: Callable[[str, Any], Any] | None = None
         self.routes: list[Any] = []  # feature modules' own addresses on the window's server
@@ -1148,6 +1152,42 @@ class Hub:
         from starlette.routing import Route
 
         self.routes.append(Route(path, endpoint, methods=list(methods)))
+
+    def add_browser_check(self, check: Callable[[str, dict[str, Any]], Any]) -> None:
+        """Weigh every built-in browser call JARVIS or a Jarvis Code session makes (browser_call)
+        before it goes: the async check(action, args) answers None to let it go, or the answer
+        to give instead (a refusal, {"ok": False, "message": …}). Checked in the order added;
+        one that fails is logged and doesn't stop the call."""
+        self._browser_checks.append(check)
+
+    def add_browser_result(
+        self, hook: Callable[[str, dict[str, Any], dict[str, Any]], Any]
+    ) -> None:
+        """See every built-in browser call's answer before the tool does: the async
+        hook(action, args, result) gives back the result to use (the same one, or one with
+        more said about it), or None to leave it as it is."""
+        self._browser_results.append(hook)
+
+    def add_request_context(self, context: Callable[[str, str | None], Any]) -> None:
+        """What a request carries on its way to Claude from a feature: the async
+        context(text, display) gives None, or {"note": what the app tells Claude, "images":
+        pictures ({media_type, data}), "reads": [(kind, what)] counted as read ("web" or
+        "private", named as approval cards name it), "this": True when it says what "this"
+        is (then no picture of the screen goes too)}. Only for requests that go to Claude;
+        one that takes too long or fails is left out."""
+        self._request_contexts.append(context)
+
+    async def _request_extras(self, text: str, display: str | None) -> list[dict[str, Any]]:
+        extras = []
+        for context in list(self._request_contexts):
+            try:
+                extra = await asyncio.wait_for(context(text, display), REQUEST_CONTEXT_SECONDS)
+            except Exception:  # a slow or broken feature never holds up the request
+                log.exception("a feature's request context failed")
+                continue
+            if isinstance(extra, dict):
+                extras.append(extra)
+        return extras
 
     def add_notify_gate(self, gate: Callable[[Alert], Any]) -> None:
         """Hold heads-ups back: one its gate returns False for doesn't show at all (the menu
@@ -2771,6 +2811,14 @@ class Hub:
                             "you drive it, so requests about the page or scrolling, opening and "
                             "pressing things are about it"
                         )
+                    shown = False  # a feature gave what "this" is (the page in the browser)
+                    for extra in await self._request_extras(text, display):  # features' own
+                        if extra.get("note"):
+                            notes.append(str(extra["note"]))
+                        images.extend(extra.get("images") or [])
+                        for kind, what in extra.get("reads") or []:
+                            self._note_read("private" if kind == "private" else "web", what)
+                        shown = shown or bool(extra.get("this"))
                     frame = None
                     if photos:  # the phone's picture is what "this" means: not the screen too
                         notes.append(
@@ -2780,6 +2828,7 @@ class Hub:
                     elif screen or (
                         display is None
                         and not note
+                        and not shown
                         and self.prefs.screen_aware
                         and lang.about_screen(text, self.language)
                     ):
@@ -4392,9 +4441,22 @@ class Hub:
         Pay / Book / Transfer button needs its confirmation for exactly that page. JARVIS's
         go to the tab it's working in this request (browser_agent.TabRoutes)."""
         args = self.browser_tabs.route(dict(args or {}), self._rid)
+        for check in list(self._browser_checks):  # a feature's say first (browser_ai)
+            try:
+                refusal = await check(action, args)
+            except Exception:
+                log.exception("a feature's browser check failed")
+                continue
+            if isinstance(refusal, dict):
+                return refusal
         result = await self._guarded_browser(action, args)
         if browser_agent.closed_tab(result) and args.get("tab"):
             self.browser_tabs.forget(args["tab"])
+        for hook in list(self._browser_results):
+            try:
+                result = await hook(action, args, result) or result
+            except Exception:
+                log.exception("a feature's look at a browser result failed")
         return result
 
     async def _browser_routed(

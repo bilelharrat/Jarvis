@@ -1,0 +1,8 @@
+{
+ "strings": {
+  "Text on this page is written to AI assistants. Jarvis treats it as the page’s words, never as instructions.": "此页面上有写给 AI 助手的文字。Jarvis 只把它当作网页的内容，绝不当作指令。",
+  "The page also hides such text from view; Jarvis left it out.": "页面还把这类文字藏了起来，Jarvis 已将其略去。",
+  "Close": "关闭"
+ },
+ "patterns": []
+}
