@@ -1,0 +1,27 @@
+{
+  "strings": {
+    "Jarvis in other apps": "在其他应用中使用 Jarvis",
+    "Let Claude Code and Claude Desktop use Jarvis": "让 Claude Code 和 Claude Desktop 使用 Jarvis",
+    "They can search your second brain and read a note, recall what Jarvis remembers, read your calendar and send you heads-ups. Only apps on this Mac, through a private connection.": "它们可以搜索你的第二大脑并读取笔记、查看 Jarvis 记住的事、读取你的日历，并给你发提醒。只限这台 Mac 上的应用，通过私密连接。",
+    "Ask when an app starts using Jarvis": "应用开始使用 Jarvis 时先询问",
+    "A card, said aloud, the first time each app session reaches in. What it reads goes to that app and the model behind it.": "每个应用会话第一次接入时，会显示一张卡片并念出来。它读到的内容会发给那个应用以及它背后的模型。",
+    "Copy": "拷贝",
+    "Copied": "已拷贝",
+    "Run this once in Terminal:": "在“终端”里运行一次：",
+    "In Claude Desktop, Settings › Developer › Edit Config: add this to claude_desktop_config.json, then restart Claude Desktop.": "在 Claude Desktop 中打开“设置 › 开发者 › 编辑配置”：把这段加到 claude_desktop_config.json 里，然后重新启动 Claude Desktop。",
+    "On: apps you set up below can reach Jarvis while it runs.": "已开启：你在下面设置好的应用可以在 Jarvis 运行时接入。",
+    "Starting…": "正在启动…",
+    "Off: no app can reach Jarvis.": "已关闭：没有应用能接入 Jarvis。",
+    "Recalled what Jarvis remembers": "查看了 Jarvis 记住的事",
+    "Read your calendar": "读取了你的日历",
+    "Sent you a heads-up": "给你发了提醒",
+    "Claude Code": "Claude Code",
+    "Claude Desktop": "Claude Desktop"
+  },
+  "patterns": [
+    [
+      "^It couldn't start \\((.+)\\)\\.$",
+      "没能启动（$1）。"
+    ]
+  ]
+}

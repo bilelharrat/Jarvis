@@ -124,12 +124,18 @@ def main() -> None:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["serve", "say"],
-        help="serve: run the backend for the app. say: speak a line in JARVIS's voice",
+        choices=["serve", "say", "mcp"],
+        help="serve: run the backend for the app. say: speak a line in JARVIS's voice. mcp: "
+        "JARVIS's tools for Claude Code or Claude Desktop, over stdio (the app must be running)",
     )
     parser.add_argument("words", nargs="*", help="what to say (with the say command)")
     parser.add_argument("--port", type=int, default=8765, help="port for serve")
     args = parser.parse_args()
+    if args.command == "mcp":
+        from .mcp_bridge import main as mcp_main
+
+        mcp_main()  # stdout is the protocol's alone from here
+        return
     if args.command == "say":
         asyncio.run(say_line(" ".join(args.words) or "Good evening. All systems are online."))
         return

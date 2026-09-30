@@ -3089,6 +3089,35 @@ test('Settings › Skills: switches, previews, installs and the Workshop’s dra
   assert(await js('$("skills-status").textContent === "That isn’t a folder." && $("skills-status").classList.contains("bad")'), 'the error is not shown');
 });
 
+test('Settings › Jarvis in other apps: on and off, asking first, the lines to paste and what apps did', async () => {
+  await loadFeatures('jarvis-mcp.js', 'jarvis-mcp.css');
+  await js(`__ev(${JSON.stringify(HELLO)})`);
+  assert((await sentOf('mcp_state')).length === 1, 'the state was not asked for');
+  const off = { type: 'jarvis_mcp', enabled: false, ask: true, running: false, error: '', sessions: [], recent: [], tools: ['search_notes', 'read_note', 'recall', 'calendar', 'notify_me'],
+    code_command: "claude mcp add --scope user jarvis -- '/Users/o/Investment agent/jarvis/.venv/bin/jarvis' mcp",
+    desktop_json: '{\n  "mcpServers": {\n    "jarvis": {\n      "command": "/Users/o/Investment agent/jarvis/.venv/bin/jarvis",\n      "args": ["mcp"]\n    }\n  }\n}' };
+  await js(`__ev(${JSON.stringify(off)})`);
+  let shown = await js('({ on: $("sw-mcp").getAttribute("aria-checked"), ask: $("sw-mcp-ask").disabled, setup: $("mcp-setup").hidden, status: $("mcp-status").textContent })');
+  assert(shown.on === 'false' && shown.ask && shown.setup && shown.status === 'Off: no app can reach Jarvis.', JSON.stringify(shown));
+  await js('__sent.length = 0; $("sw-mcp").click()');
+  assert(JSON.stringify(await sentOf('mcp_enable')) === '[{"type":"mcp_enable","on":true}]', 'the switch did not ask');
+  const recent = [
+    { at: '2026-09-30T09:15:00', app: 'Claude <b>Code</b>', tool: 'search_notes', ok: true },
+    { at: '2026-09-30T09:16:00', app: 'Claude Desktop', tool: 'notify_me', ok: false },
+  ];
+  await js(`__ev(${JSON.stringify({ ...off, enabled: true, running: true, recent })})`);
+  shown = await js(`({ on: $("sw-mcp").getAttribute("aria-checked"), setup: $("mcp-setup").hidden, status: $("mcp-status").textContent,
+    cli: $("mcp-code-cli").textContent, desktop: JSON.parse($("mcp-code-desktop").textContent).mcpServers.jarvis.args[0],
+    data: !!$("mcp-code-cli").closest("[data-no-i18n]"), bold: document.querySelectorAll("#mcp-group b").length,
+    rows: [...document.querySelectorAll("#mcp-recent li")].map((li) => [li.querySelector(".mcp-app").textContent, li.lastChild.textContent, li.className]) })`);
+  assert(shown.on === 'true' && !shown.setup && shown.status.startsWith('On: ') && shown.cli === off.code_command && shown.desktop === 'mcp' && shown.data, JSON.stringify(shown));
+  assert(shown.bold === 0 && JSON.stringify(shown.rows) === JSON.stringify([['Claude <b>Code</b>', 'Searched your second brain', ''], ['Claude Desktop', 'Sent you a heads-up', 'mcp-failed']]), JSON.stringify(shown));
+  await js('__sent.length = 0; $("sw-mcp-ask").click()');
+  assert(JSON.stringify(await sentOf('mcp_ask')) === '[{"type":"mcp_ask","on":false}]', 'the ask switch did not ask');
+  await js(`__ev(${JSON.stringify({ ...off, enabled: true, error: 'It couldn’t start (the socket didn’t open).' })})`);
+  assert(await js('$("mcp-status").classList.contains("bad") && $("mcp-status").textContent.includes("couldn’t start")'), 'the error is not shown');
+});
+
 // ──
 
 let base;
