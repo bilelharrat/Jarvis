@@ -225,6 +225,14 @@
   function project() { return typeof deckProject !== 'undefined' ? deckProject : ''; }
   function scopeOf(task) { return task ? `task:${task.path || task.id}` : `project:${project()}`; }
   function where(task) { return task ? { id: task.id, directory: project() } : { directory: project() }; }
+  // Where a file opened in a session is, for the backend: through the session on show when it
+  // works in that folder. The one it was opened in may be gone, and a restarted backend
+  // numbers sessions from 1 again: that number may name another session, in another project.
+  function whereOf(doc) {
+    const task = F.currentTask();
+    if (doc.where.id !== undefined && task && scopeOf(task) === doc.scope) doc.where = where(task);
+    return doc.where;
+  }
   function keyOf(scope, path) { return `${scope}\n${path}`; }
   function scopeState(scope) {
     if (!scopes.has(scope)) scopes.set(scope, { open: [], active: '', view: 'list', filter: '' });
@@ -307,7 +315,7 @@
   // Its text, asked for. Not out when there was no connection, or once a reconnect lost its
   // answer: asked again when it shows (drawDoc).
   function ask(doc) {
-    doc.asked = F.send({ type: 'cw_file_read', ...doc.where, path: doc.rel, ref: doc.key });
+    doc.asked = F.send({ type: 'cw_file_read', ...whereOf(doc), path: doc.rel, ref: doc.key });
   }
 
   // ── the editor for one file ──
@@ -627,7 +635,7 @@
     if (!doc.ui || !doc.editable || doc.saving) return;
     doc.sent = doc.ui.ta.value;  // (what's on disk once it's saved: typing may go on meanwhile)
     // No connection (a restart, a reconnect): nothing went, and nothing waits for an answer.
-    doc.saving = F.send({ type: 'cw_file_save', ...doc.where, path: doc.rel, text: doc.sent, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
+    doc.saving = F.send({ type: 'cw_file_save', ...whereOf(doc), path: doc.rel, text: doc.sent, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
     if (!doc.saving) { doc.banner = { kind: 'error', text: 'Not connected yet: nothing was saved. Save again in a moment.' }; drawBanner(doc); }
     drawDocBar(doc);
   }
@@ -637,12 +645,12 @@
     doc.reloading = true;
     clearTimeout(doc.stashTimer);
     dropDraft(doc.key);  // (what's on disk now, in place of the unsaved changes)
-    F.send({ type: 'cw_file_read', ...doc.where, path: doc.rel, ref: doc.key });
+    F.send({ type: 'cw_file_read', ...whereOf(doc), path: doc.rel, ref: doc.key });
     drawBanner(doc);
   }
 
   function compare(doc) {
-    F.send({ type: 'cw_file_compare', ...doc.where, path: doc.rel, text: doc.ui.ta.value, ref: doc.key });
+    F.send({ type: 'cw_file_compare', ...whereOf(doc), path: doc.rel, text: doc.ui.ta.value, ref: doc.key });
     doc.banner = { ...(doc.banner || {}), comparing: true };
     drawBanner(doc);
   }
@@ -655,7 +663,7 @@
       const { scope, state } = current();
       for (const path of state.open) {
         const doc = docs.get(keyOf(scope, path));
-        if (doc && doc.version && !doc.saving && !doc.loading) F.send({ type: 'cw_file_stat', ...doc.where, path: doc.rel, base: doc.version, ref: doc.key });
+        if (doc && doc.version && !doc.saving && !doc.loading) F.send({ type: 'cw_file_stat', ...whereOf(doc), path: doc.rel, base: doc.version, ref: doc.key });
       }
     }, 400);
   }
@@ -906,7 +914,7 @@
     const line = doc && doc.ui ? lineCol(doc.ui.ta.value, doc.ui.ta.selectionStart).line : 0;
     const task = F.currentTask();
     const open = (editor, path, at = 0, w = where(task)) => F.send({ type: 'cw_open_in', ...w, editor, path, line: at });
-    const file = (editor, at = 0) => open(editor, doc.rel, at, doc.where);
+    const file = (editor, at = 0) => open(editor, doc.rel, at, whereOf(doc));
     const items = [];
     if (editors.length && doc) {
       items.push({ heading: 'Open this file in' });

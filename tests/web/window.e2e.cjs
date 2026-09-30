@@ -4726,6 +4726,34 @@ test('Reopening more files with unsaved changes than the tabs hold never drops o
   assert(tabs.length === 10 && tabs[0] === 'f0.py' && await kept9(), JSON.stringify(tabs));
 });
 
+test('A file left open across a backend restart goes through the session on show, never the old session’s number', async () => {
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await open(1);
+  // (sessions name their folder, as the backend sends them: the Files pane keeps files by it)
+  await js('onEvent({ type: "tasks", items: [__task(1, { path: "/Users/x/alpha" })] }); jarvisFeatures.openPane("files"); true');
+  await deliver({ type: 'project_files', directory: 'alpha', files: ['src/app.py'] });
+  await frames(2);
+  await js('__sent.length = 0; [...document.querySelectorAll("#jc-pane-body .ce-files button")].find((b) => b.title === "src/app.py").click(); true');
+  const [read] = await sentOf('cw_file_read');
+  assert(read && read.id === 1, JSON.stringify(read));
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'a = 1\n', version: VERSION, crlf: false, editable: true });
+  await frames(2);
+  await typeAtEnd('b = 2');
+  // The backend restarts: its session 1 works in beta now, and alpha's is session 2.
+  await helloAgain('hub-b', '[__task(1, { folder: "beta", path: "/Users/x/beta" }), __task(2, { path: "/Users/x/alpha" })]');
+  assert(await js('document.querySelector("#jc-pane-body .ce-editor-view").hidden'), 'the file stayed on show with no session');
+  await js('__sent.length = 0; selectTask(2); true');
+  let stat = [];
+  for (let i = 0; i < 40 && !stat.length; i++) { await sleep(50); stat = await sentOf('cw_file_stat'); }  // (on show: changed meanwhile?)
+  assert(stat.length === 1 && stat[0].id === 2, JSON.stringify(stat));
+  assert(await editorText() === 'a = 1\nb = 2', JSON.stringify(await editorText()));
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .ce-text").focus(); true');
+  await chord('s');
+  const [save] = await sentOf('cw_file_save');
+  assert(save && save.id === 2 && save.text === 'a = 1\nb = 2', JSON.stringify(save));
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {
