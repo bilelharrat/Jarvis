@@ -1,5 +1,7 @@
 """Jarvis Code checks its own work: the project's dev servers (a Preview pane, and tools for
-a session), and the Tests and Problems panes (the project's own test runners and checkers).
+a session), the check after each turn that changed files (the page, the server's output,
+the checkers, a watch run of the tests; its proof in the transcript), and the Tests and
+Problems panes.
 
 What it adds, and where:
 - Window commands (cv_*): each pane's state and actions. Long work runs in the background:
@@ -7,10 +9,17 @@ What it adds, and where:
 - A session's options (TaskManager.option_hooks): its extra MCP servers and the tools of
   them that only look (allowed outright); every other tool follows the session's
   permission mode through TaskManager.policy_for, as Claude Code's own do.
-- Hub events it hears (TaskManager.emit, wrapped): an edit (a watch of the tests runs
-  again), a session's end (the dev servers it started stop with it).
+- Hub events it hears (TaskManager.emit, wrapped): a turn's end (the check after it), an
+  edit (where "since the edit" begins in a server's output), the owner's own message (the
+  follow-ups' streak starts over), a session's end (the dev servers it started stop).
+- Its transcript entries (TaskManager.add_entry, role "verify"): each check, its thumbnail
+  and what it found; the window draws them (jarvisFeatures.registerEntry).
 
-Cost policy (Claude): this feature never calls a model itself.
+Cost policy (Claude): this feature never calls a model itself. A check after a turn that
+finds problems sends the session one short follow-up (the session's own model then works on
+it): at most previewcheck.FOLLOW_UPS_IN_A_ROW in a row without the owner writing in between
+or a check passing, and FOLLOW_UPS_PER_HOUR an hour per session. A check that passes, and
+one the owner starts from the pane, sends nothing.
 """
 
 from __future__ import annotations
@@ -27,10 +36,11 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from .. import codetests, devservers, diagnostics, runproc, tasks
+from .. import codetests, devservers, diagnostics, prefs, previewcheck, runproc, tasks
 from ..codetests import SuiteRunner
 from ..devservers import DevServers
 from ..diagnostics import Diagnostics
+from ..previewcheck import Finding, FollowUps, PageChecks, ProofStore
 
 log = logging.getLogger("jarvis")
 
@@ -40,6 +50,11 @@ START_WAIT = 30.0  # seconds dev_server_start waits for the server to answer
 TOOL_LINES = 200  # lines of output a tool returns at most
 TOOL_CHARS = 16_000
 SCHEMES_FRESH = 300.0  # seconds a project's Xcode schemes are kept before asking again
+TESTS_START = 3.0  # after a turn, seconds for the watch's run to begin
+TESTS_WAIT = 180.0  # ... and for it to end, before the check goes on without it
+
+PREF_VERIFY = "code_verify_new_sessions"  # new sessions check the preview after each turn
+prefs.register_feature_pref(PREF_VERIFY, False)
 
 _ALL: weakref.WeakSet[CodeVerify] = weakref.WeakSet()  # for the exit handler
 
@@ -66,6 +81,15 @@ class SessionChecks:
 
     verify: bool = False  # the Preview check after each turn that changed files
     problems: bool = False  # the Problems check after each turn that changed files
+    follow_ups: FollowUps = field(default_factory=FollowUps)
+    # Each running dev server's latest line at the turn's start, and at its first edit:
+    # where "since the edit" begins in its output.
+    turn_marks: dict[str, int] = field(default_factory=dict)
+    edit_marks: dict[str, int] = field(default_factory=dict)
+    turn_started: float = 0.0
+    checking: bool = False
+    said_nothing_to_check: bool = False
+    last: dict[str, Any] | None = None  # the latest check, for the Preview pane
 
 
 @dataclass(eq=False)
@@ -78,12 +102,21 @@ class CodeVerify:
     _tasks: set[asyncio.Task] = field(default_factory=set)
     _ended: set[int] = field(default_factory=set)  # sessions whose end has been handled
     _schemes: dict[str, tuple[float, Any]] = field(default_factory=dict)  # project -> Xcode's
+    # Where a page's errors come from besides the app's own check (add_error_source).
+    error_sources: list[previewcheck.ErrorSource] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.servers = DevServers(self.hub.emit)
         self.tests = SuiteRunner(self.hub.emit)
         self.diags = Diagnostics(self.hub.emit)
+        self.pages = PageChecks(self.hub.emit, lambda: bool(self.hub.browser_available))
+        self.proofs = ProofStore(self.hub.feature_path("code-verify-proofs"))
         _ALL.add(self)
+
+    def add_error_source(self, source: previewcheck.ErrorSource) -> None:
+        """Another feature's view of a page's errors (the browser's console and network
+        tools, say): given the session and the page's address, it says what it saw."""
+        self.error_sources.append(source)
 
     def shutdown(self) -> None:
         """At exit (or the app quitting): every process this feature started stops."""
@@ -92,6 +125,7 @@ class CodeVerify:
         self.diags.shutdown()
 
     async def close(self) -> None:
+        self.pages.cancel_all()
         await self.servers.close()
         await self.tests.close()
         await self.diags.close()
@@ -110,7 +144,10 @@ class CodeVerify:
     def session(self, task_id: int) -> SessionChecks:
         checks = self.sessions.get(task_id)
         if checks is None:
-            checks = self.sessions[task_id] = SessionChecks()
+            # A new session checks after each turn if the owner chose that for all of them.
+            checks = self.sessions[task_id] = SessionChecks(
+                verify=bool(self.hub.prefs.feature(PREF_VERIFY))
+            )
         return checks
 
     def project_of(self, msg: dict[str, Any]) -> tuple[Path, Any]:
@@ -141,7 +178,9 @@ class CodeVerify:
             project=project.name,
             path=str(project),
             id=task.id if task is not None else None,
-            session={"verify": checks.verify} if checks is not None else None,
+            session={"verify": checks.verify, "checking": checks.checking, "last": checks.last}
+            if checks is not None
+            else None,
             servers=self.servers.public(project),
             **found,
         )
@@ -205,7 +244,202 @@ class CodeVerify:
         for name in ("verify", "problems"):
             if isinstance(msg.get(name), bool):
                 setattr(checks, name, msg[name])
+                if msg[name]:
+                    checks.said_nothing_to_check = False
         self.hub.emit("cv_session", id=task.id, verify=checks.verify, problems=checks.problems)
+
+    def cmd_check(self, msg: dict[str, Any]) -> None:
+        """Check now (the Preview pane's button): the same check, sending nothing."""
+        task = self.hub.tasks.tasks.get(_int(msg.get("id")))
+        if task is None or task.kind != "code":
+            self.error("Open a session to check its work.")
+            return
+        self.spawn(self.check_turn(task, by_owner=True))
+
+    def cmd_page_result(self, msg: dict[str, Any]) -> None:
+        self.pages.answer(str(msg.get("id") or ""), msg.get("result"))
+
+    def cmd_proof(self, msg: dict[str, Any]) -> None:
+        proof = str(msg.get("proof") or "")
+        jpeg = self.proofs.read(proof)
+        self.hub.emit("cv_proof", proof=proof, jpeg=jpeg or "", missing=jpeg is None)
+
+    def cmd_fix_check(self, msg: dict[str, Any]) -> None:
+        """ "Ask Jarvis Code to fix these" on a check's entry: its findings as the owner's
+        own message."""
+        task = self.hub.tasks.tasks.get(_int(msg.get("id")))
+        if task is None or task.kind != "code":
+            return
+        entry = next(
+            (
+                e
+                for e in reversed(task.transcript)
+                if e.get("role") == "verify" and e.get("n") == msg.get("n")
+            ),
+            None,
+        )
+        if entry is None or not entry.get("findings"):
+            self.error("That check has nothing to fix.")
+            return
+        findings = [
+            Finding(str(f.get("kind", "")), str(f.get("text", "")), str(f.get("where", "")))
+            for f in entry["findings"]
+        ]
+        if not self.hub.tasks.send(task.id, previewcheck.note_text(findings, entry.get("url", ""))):
+            self.error("The session couldn't take another message just now.")
+
+    # ── the check after a turn ──
+
+    def preview_server(self, task: Any) -> Any:
+        """The dev server a session's check looks at: one it started, else the project's
+        running one with an address."""
+        running = [s for s in self.servers.running(task.cwd) if s.address()]
+        mine = [s for s in running if s.started_by == task.id]
+        return (mine or running or [None])[0]
+
+    async def _turn_tests(self, task: Any, since: float) -> Any:
+        """The tests a watch ran for this turn's changes: waited for a while, else none."""
+        key = str(task.cwd)
+        if key not in self.tests.watching:
+            return None
+        end = time.monotonic() + TESTS_START
+        while time.monotonic() < end:
+            current = self.tests.latest(task.cwd)
+            if current is not None and current.started >= since:
+                break
+            await asyncio.sleep(0.2)
+        current = self.tests.latest(task.cwd)
+        if current is None or current.started < since:
+            return None
+        end = time.monotonic() + TESTS_WAIT
+        while current.status == "running" and time.monotonic() < end:
+            await asyncio.sleep(0.25)
+        return current if current.status != "running" else None
+
+    async def check_turn(self, task: Any, by_owner: bool = False) -> None:
+        """Check a session's work: the page (and what else sees it), the dev server's output
+        since the turn's first edit, the checkers when asked for, a watch run of the tests.
+        Then its entry in the transcript, and when something's wrong (and it's the check
+        after a turn, within the caps), a short note to the session."""
+        checks = self.session(task.id)
+        if checks.checking:
+            return
+        checks.checking = True
+        self.hub.emit("cv_verify", id=task.id, state="checking")
+        try:
+            await self._check(task, checks, by_owner)
+        finally:
+            checks.checking = False
+            self.hub.emit("cv_verify", id=task.id, state="done", last=checks.last)
+
+    async def _check(self, task: Any, checks: SessionChecks, by_owner: bool) -> None:
+        since = checks.turn_started or time.time()
+        findings: list[Finding] = []
+        extra: dict[str, Any] = {}
+        server = self.preview_server(task) if (checks.verify or by_owner) else None
+        page: dict[str, Any] = {}
+        if server is not None:
+            await self.servers.settled(server)
+            mark = checks.edit_marks.get(server.key, checks.turn_marks.get(server.key, 0))
+            findings += [Finding("server", line) for line in server.errors_since(mark, 8)]
+            url = server.address()
+            extra["url"], extra["server"] = url, server.config.name
+            page = await self.pages.check(url)
+            if page.get("error"):
+                extra["page_error"] = str(page["error"])[:300]
+            else:
+                findings[:0] = previewcheck.page_findings(page)
+                extra["title"] = str(page.get("title") or "")[:200]
+            for source in list(self.error_sources):
+                try:
+                    lines = await source(task, url)
+                except Exception:
+                    log.exception("a page error source failed")
+                    continue
+                findings += [Finding("source", str(line)[:500]) for line in (lines or [])[:10]]
+        elif checks.verify or by_owner:
+            configs, _ = await asyncio.to_thread(devservers.read_launch, task.cwd)
+            extra["page_error"] = (
+                "No dev server is running: start one in the Preview pane."
+                if configs
+                else "The project has no dev server set up: add one in the Preview pane."
+            )
+        if checks.problems:
+            check = await self._problems_run(task.cwd, slow=False, after_turn=True)
+            if check is not None:
+                errors = [p for p in check.problems if p.severity == "error"]
+                extra["problems"] = {
+                    "errors": len(errors),
+                    "warnings": len(check.problems) - len(errors),
+                }
+                findings += [
+                    Finding(
+                        "problem", f"{p.message} [{p.code or p.source}]", f"{p.file}:{p.line or ''}"
+                    )
+                    for p in errors[:10]
+                ]
+        run = await self._turn_tests(task, since)
+        if run is not None and run.results is not None:
+            extra["tests"] = {
+                "label": run.suite.label,
+                "summary": run.results.summary(),
+                "failed": len(run.results.failures()),
+            }
+            findings += [
+                Finding(
+                    "test",
+                    f"{c.name} failed"
+                    + (f": {c.message.splitlines()[0][:200]}" if c.message else ""),
+                    f"{c.file}:{c.line or ''}",
+                )
+                for c in run.results.failures()[:8]
+            ]
+        nothing_checked = server is None and "problems" not in extra and "tests" not in extra
+        if nothing_checked and not by_owner:
+            if checks.said_nothing_to_check:
+                return  # said once in this session: not after every turn
+            checks.said_nothing_to_check = True
+        proof = self.proofs.save(page.get("shot")) if page.get("shot") else ""
+        status = "problems" if findings else "skipped" if nothing_checked else "ok"
+        sent, why_not = False, ""
+        if findings and not by_owner:
+            ok, why_not = checks.follow_ups.may_send()
+            if ok and (task.busy or not task.inbox.empty()):
+                ok, why_not = False, "Not sent: the session had moved on to your next message."
+            if ok:
+                note = previewcheck.note_text(findings, extra.get("url", ""))
+                sent = self.hub.tasks.send(task.id, note, note=True)
+                if sent:
+                    checks.follow_ups.sent()
+                    # The fix is a turn of its own: its check reads the output from here.
+                    checks.turn_started = time.time()
+                    checks.turn_marks = {s.key: s.ring.seq for s in self.servers.running(task.cwd)}
+                    checks.edit_marks = {}
+                else:
+                    why_not = "Not sent: the session couldn't take another message."
+        elif not findings and not nothing_checked:
+            checks.follow_ups.reset()  # a check passed: the streak starts over
+        entry = {
+            "status": status,
+            "thumb": previewcheck.thumb(page.get("thumb")),
+            "proof": proof,
+            "findings": [f.public() for f in findings[: previewcheck.FINDINGS_KEPT]],
+            "more": max(0, len(findings) - previewcheck.FINDINGS_KEPT),
+            "sent": sent,
+            "why_not": why_not,
+            "by_owner": by_owner,
+            **extra,
+        }
+        text = previewcheck.summary(findings, server is not None, not nothing_checked)
+        self.hub.tasks.add_entry(task.id, "verify", text, **entry)
+        checks.last = {
+            "status": status,
+            "at": time.time(),
+            "text": text,
+            "url": extra.get("url", ""),
+            "proof": proof,
+            "thumb": entry["thumb"],
+        }
 
     # ── Xcode, for the tests and checks of an Xcode project ──
 
@@ -392,11 +626,38 @@ class CodeVerify:
         if kind == "tasks":
             self._sessions_changed(data.get("items") or [])
         elif kind == "task_log":
-            entry = data.get("entry") or {}
-            if entry.get("role") == "tool" and entry.get("tool") in tasks.EDIT_TOOLS:
-                task = self.hub.tasks.tasks.get(data.get("id"))
-                if task is not None:
-                    self.tests.changed(task.cwd)  # a watch runs again, without waiting to look
+            self._logged(data.get("id"), data.get("entry") or {})
+        elif kind == "task_finished" and data.get("task_kind") == "code":
+            self._turn_ended(data)
+
+    def _logged(self, task_id: Any, entry: dict[str, Any]) -> None:
+        task = self.hub.tasks.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return
+        role = entry.get("role")
+        if role == "user":  # the owner wrote: a turn begins, and the streak starts over
+            checks = self.session(task.id)
+            checks.follow_ups.reset()
+            checks.turn_started = time.time()
+            checks.turn_marks = {s.key: s.ring.seq for s in self.servers.running(task.cwd)}
+            checks.edit_marks = {}
+        elif role == "tool" and entry.get("tool") in tasks.EDIT_TOOLS:
+            checks = self.sessions.get(task.id)
+            if checks is not None:
+                for server in self.servers.running(task.cwd):
+                    checks.edit_marks.setdefault(server.key, server.ring.seq)
+            self.tests.changed(task.cwd)  # a watch runs again, without waiting to look
+
+    def _turn_ended(self, data: dict[str, Any]) -> None:
+        task = self.hub.tasks.tasks.get(data.get("id"))
+        if task is None or task.kind != "code":
+            return
+        checks = self.session(task.id)  # (a new session's switch follows the owner's setting)
+        if not (checks.verify or checks.problems):
+            return
+        if data.get("status") != "done" or not data.get("files"):
+            return  # stopped, failed, or nothing changed: nothing to check
+        self.spawn(self.check_turn(task))
 
     def _sessions_changed(self, items: list[dict[str, Any]]) -> None:
         """A session that ended (End session, a crash) or was let go: the dev servers it
@@ -598,6 +859,10 @@ def install(hub: Any) -> None:
     hub.register_command("cv_logs", cv.cmd_logs)
     hub.register_command("cv_save", cv.cmd_save)
     hub.register_command("cv_session", cv.cmd_session)
+    hub.register_command("cv_check", cv.cmd_check)
+    hub.register_command("cv_page_result", cv.cmd_page_result)
+    hub.register_command("cv_proof", cv.cmd_proof)
+    hub.register_command("cv_fix_check", cv.cmd_fix_check)
     hub.register_command("cv_tests", cv.cmd_tests)
     hub.register_command("cv_problems", cv.cmd_problems)
     hub.register_loop("code_verify", cv.forever)

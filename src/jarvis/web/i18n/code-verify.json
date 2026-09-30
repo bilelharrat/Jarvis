@@ -63,7 +63,40 @@
     "That suggestion isn't there anymore.": "那个建议已经不在了。",
     "Stopped.": "已停止。",
     "Stopped: it ran for an hour.": "已停止：它运行了一个小时。",
-    "It took too long and was stopped.": "它用时太长，已被停止。"
+    "It took too long and was stopped.": "它用时太长，已被停止。",
+    "When this session changes files: the dev server’s page is reloaded and pictured, and its errors and the server’s are collected. What’s wrong goes back to Jarvis Code, twice in a row at most.": "当这个会话修改了文件时：重新加载开发服务器的页面并截图，收集页面和服务器的错误。发现的问题会发回给 Jarvis Code，最多连续两次。",
+    "Check now": "立即检查",
+    "See the picture": "查看截图",
+    "The page as the check saw it": "检查时看到的页面",
+    "Preview check": "预览检查",
+    "Checks": "检查",
+    "Nothing to check": "没有可检查的内容",
+    "Page console": "页面控制台",
+    "Network": "网络",
+    "Page": "页面",
+    "Dev server": "开发服务器",
+    "Checker": "检查工具",
+    "Test": "测试",
+    "Checkers": "检查工具",
+    "Sent to Jarvis Code to fix.": "已发给 Jarvis Code 修复。",
+    "You asked for this check: nothing was sent.": "这次检查是你发起的：没有发送任何内容。",
+    "Ask Jarvis Code to fix these": "让 Jarvis Code 修复这些",
+    "Close": "关闭",
+    "The full picture isn’t kept anymore.": "完整截图已不再保留。",
+    "Jarvis Code checks": "Jarvis Code 检查",
+    "Check new sessions’ work": "检查新会话的工作",
+    "After each turn that changes files: the dev server’s page, reloaded and pictured, and its errors. What’s wrong goes back to the session, twice in a row at most. Each session has its own switch in its Preview pane.": "每一轮修改文件之后：重新加载并截图开发服务器的页面，收集它的错误。发现的问题会发回给会话，最多连续两次。每个会话在它的预览面板里都有自己的开关。",
+    "No dev server is running: start one in the Preview pane.": "没有正在运行的开发服务器：请在预览面板中启动一个。",
+    "The project has no dev server set up: add one in the Preview pane.": "这个项目没有设置开发服务器：请在预览面板中添加一个。",
+    "The page is checked in the J.A.R.V.I.S. app window, and it isn't open.": "页面要在 J.A.R.V.I.S. 应用窗口中检查，而它没有打开。",
+    "The app window didn't answer the page check in time.": "应用窗口没有及时回应页面检查。",
+    "Not sent: the session had moved on to your next message.": "未发送：会话已经在处理你的下一条消息。",
+    "Not sent: the session couldn't take another message.": "未发送：会话无法接收新消息。",
+    "Open a session to check its work.": "打开一个会话来检查它的工作。",
+    "That check has nothing to fix.": "那次检查没有需要修复的内容。",
+    "Only a dev server on this Mac is checked.": "只检查这台 Mac 上的开发服务器。",
+    "The page didn’t finish loading in time.": "页面没有及时加载完成。",
+    "Nothing to check yet.": "暂时没有可检查的内容。"
   },
   "patterns": [
     [
@@ -121,6 +154,42 @@
     [
       "^(\\d+) warnings?$",
       "$1 个警告"
+    ],
+    [
+      "^(\\d+) problems?$",
+      "$1 个问题"
+    ],
+    [
+      "^Not sent: the last (\\d+) checks already asked for fixes\\. Your next message starts over\\.$",
+      "未发送：前 $1 次检查已经要求修复。你的下一条消息会重新开始。"
+    ],
+    [
+      "^Not sent: (\\d+) fixes were asked for in the last hour\\.$",
+      "未发送：过去一小时已经要求修复 $1 次。"
+    ],
+    [
+      "^Preview check: no problems\\.$",
+      "预览检查：没有问题。"
+    ],
+    [
+      "^Preview check: (\\d+) problems?\\.$",
+      "预览检查：$1 个问题。"
+    ],
+    [
+      "^Checks: no problems\\.$",
+      "检查：没有问题。"
+    ],
+    [
+      "^Checks: (\\d+) problems?\\.$",
+      "检查：$1 个问题。"
+    ],
+    [
+      "^…and (\\d+) more$",
+      "…还有 $1 个"
+    ],
+    [
+      "^The check didn’t work: (.*)$",
+      "检查没有成功：$1"
     ]
   ]
 }

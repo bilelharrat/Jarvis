@@ -53,3 +53,24 @@ test('a test run’s line comes in pieces, each translated on its own', () => {
     ['The run exited with code 2 before it reported results.']);
   assert.deepEqual(cv.runLine(null), []);
 });
+
+test('a picture from the backend is shown only when it is plain base64', () => {
+  assert.equal(cv.jpegSrc('QUJD'), 'data:image/jpeg;base64,QUJD');
+  assert.equal(cv.jpegSrc('"><script>alert(1)</script>'), '');
+  assert.equal(cv.jpegSrc(''), '');
+  assert.equal(cv.jpegSrc(null), '');
+});
+
+test('a check’s headline says what was checked and how it went', () => {
+  assert.deepEqual(cv.checkHead({ url: 'http://localhost:5173/', status: 'ok', findings: [] }), ['Preview check', 'No problems']);
+  assert.deepEqual(cv.checkHead({ url: '', status: 'problems', findings: [{}], more: 2 }), ['Checks', '3 problems']);
+  assert.deepEqual(cv.checkHead({ url: '', status: 'problems', findings: [{}] }), ['Checks', '1 problem']);
+  assert.deepEqual(cv.checkHead({ status: 'skipped', findings: [] }), ['Checks', 'Nothing to check']);
+});
+
+test('a finding reads without the page’s own address', () => {
+  assert.equal(cv.withoutOrigin('GET http://127.0.0.1:5173/api/items → 500', 'http://127.0.0.1:5173/'), 'GET /api/items → 500');
+  assert.equal(cv.withoutOrigin('http://127.0.0.1:5173/src/App.tsx:12', 'http://127.0.0.1:5173/'), '/src/App.tsx:12');
+  assert.equal(cv.withoutOrigin('https://cdn.example.com/x.js:1', 'http://127.0.0.1:5173/'), 'https://cdn.example.com/x.js:1');
+  assert.equal(cv.withoutOrigin('TypeError', ''), 'TypeError');
+});

@@ -2343,6 +2343,105 @@ test('The Problems pane lists problems by file; one clicked is mentioned in the 
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_problems', action: 'fix', id: 1 }, { type: 'cv_session', id: 1, problems: true }]), JSON.stringify(s));
 });
 
+test('The app’s page check reloads the dev server’s page, collects what went wrong and pictures it', async () => {
+  const cvApp = require(path.join(__dirname, '..', '..', 'app', 'features', 'code-verify.js'));
+  const page = '<!doctype html><title>Shop</title><h1>Shop</h1><script>console.error("TypeError: cart is undefined"); fetch("/api/items");</script>';
+  const site = http.createServer((req, res) => {
+    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
+    if (req.url === '/api/items') { res.writeHead(500); res.end('boom'); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => site.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${site.address().port}/`;
+  let tab = null;
+  try {
+    const r = await cvApp.check({ url, settle: 600 });
+    const seen = (r.errors || []).map((e) => `${e.kind}: ${e.text}`);
+    assert(r.ok && r.source === 'preview' && r.title === 'Shop', JSON.stringify({ ...r, shot: undefined, thumb: undefined }));
+    assert(seen.some((x) => x.startsWith('console: TypeError: cart is undefined')), seen.join(' | '));
+    assert(seen.some((x) => x === `network: GET ${url}api/items → 500`), seen.join(' | '));
+    assert(!seen.some((x) => x.includes('favicon')), 'the favicon’s 404 is noise');
+    assert(Buffer.from(r.shot, 'base64').subarray(0, 2).toString('hex') === 'ffd8' && r.thumb, 'no JPEG picture');
+    // Off this Mac: never opened.
+    assert((await cvApp.check({ url: 'https://example.com/' })).error, 'a page off this Mac was checked');
+    // The built-in browser's tab on the dev server: that's the one reloaded.
+    tab = new BrowserWindow({ show: false, webPreferences: { partition: 'persist:jarvis-browser', sandbox: true } });
+    await tab.loadURL(url);
+    const again = await cvApp.check({ url, settle: 600 });
+    const inTab = (again.errors || []).map((e) => `${e.kind}: ${e.text}`);
+    assert(again.ok && again.source === 'tab', JSON.stringify({ ...again, shot: undefined, thumb: undefined }));
+    assert(inTab.some((x) => x.startsWith('console: TypeError: cart is undefined')), inTab.join(' | '));
+    assert(again.shot, 'no picture of the tab (or the preview in its place)');
+  } finally {
+    if (tab) tab.destroy();
+    cvApp.closeAll();
+    site.close();
+  }
+});
+
+test('A check in the transcript shows its picture and what it found as text, and opens larger', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  const thumb = 'QUJDRA==';
+  await deliver({ type: 'task_log', id: 1, entry: { n: 7, role: 'verify', text: 'Preview check: 2 problems.', status: 'problems', url: 'http://localhost:5173/', title: 'Shop',
+    thumb, proof: '0123456789abcdef', sent: true, why_not: '', by_owner: false, more: 0,
+    findings: [{ kind: 'console', label: 'Page console', text: 'TypeError: <img src=x onerror="window.__pwned=1">', where: 'App.tsx:12' },
+      { kind: 'server', label: 'Dev server', text: '[vite] Internal server error', where: '' }],
+    tests: { label: 'vitest', summary: '12 passed · 1 failed', failed: 1 } } });
+  await frames(2);
+  const r = await js(`(() => { const li = document.querySelector('#deck-timeline .cv-check');
+    return li && { text: li.textContent, imgs: li.querySelectorAll('img').length, src: li.querySelector('img').getAttribute('src'), pwned: !!window.__pwned, fix: !!li.querySelector('.cv-fix') }; })()`);
+  assert(r && r.text.includes('Preview check') && r.text.includes('2 problems') && r.text.includes('<img src=x'), JSON.stringify(r));
+  assert(r.imgs === 1 && r.src === `data:image/jpeg;base64,${thumb}` && !r.pwned, JSON.stringify(r));
+  assert(r.text.includes('Sent to Jarvis Code to fix.') && r.text.includes('12 passed · 1 failed') && !r.fix, JSON.stringify(r));
+  await js('__sent.length = 0; document.querySelector("#deck-timeline .cv-thumb").click(); true');
+  assert(await js('!!document.querySelector(".cv-lightbox img")'), 'the picture did not open larger');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_proof', proof: '0123456789abcdef' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cv_proof', proof: '0123456789abcdef', jpeg: 'RUZHSA==', missing: false });
+  assert(await js('document.querySelector(".cv-lightbox img").getAttribute("src")') === 'data:image/jpeg;base64,RUZHSA==', 'the full picture did not replace the thumbnail');
+  await js('__sent.length = 0; true');
+  await press('Escape');
+  assert(await js('!document.querySelector(".cv-lightbox")'), 'Esc did not close the picture');
+  assert(!(await sent()).includes('task_interrupt'), 'Esc on the picture interrupted the session');
+  // One not sent (a cap, or asked by the owner) offers to ask for the fix; a picture that isn't base64 is never shown.
+  await deliver({ type: 'task_log', id: 1, entry: { n: 8, role: 'verify', text: 'Checks: 1 problem.', status: 'problems', url: '', thumb: '"><script>', proof: '',
+    sent: false, why_not: 'Not sent: the last 2 checks already asked for fixes. Your next message starts over.', by_owner: false, more: 0,
+    findings: [{ kind: 'problem', label: 'Checker', text: 'Type is wrong [TS2322]', where: 'src/a.ts:3' }] } });
+  await frames(2);
+  const last = await js(`(() => { const li = [...document.querySelectorAll('#deck-timeline .cv-check')].pop(); return { imgs: li.querySelectorAll('img').length, text: li.textContent }; })()`);
+  assert(last.imgs === 0 && last.text.includes('Not sent: the last 2 checks') && last.text.includes('Checks'), JSON.stringify(last));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#deck-timeline .cv-check:last-of-type', 'Ask Jarvis Code to fix these'), 'no Ask to fix');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_fix_check', id: 1, n: 8 }]), JSON.stringify(await js('__sent')));
+});
+
+test('The Preview pane has the session’s check: its switch, Check now, and how the last one went', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-preview"); __sent.length = 0; true');
+  const path = '/Users/x/Projects/alpha';
+  await deliver({ type: 'cv_state', project: 'alpha', path, id: 1, problems: [], suggestions: [], servers: [], configs: [],
+    session: { verify: false, checking: false, last: { status: 'ok', at: 1, text: 'Preview check: no problems.', url: 'http://localhost:5173/', proof: '', thumb: '' } } });
+  const text = await js('$("jc-pane-body").textContent');
+  assert(text.includes('Check after each turn') && text.includes('Preview check: no problems.'), text);
+  await js('document.querySelector("#jc-pane-body .cv-session .sw").click(); true');
+  assert(await clickText('#jc-pane-body .cv-session', 'Check now'), 'no Check now');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_session', id: 1, verify: true }, { type: 'cv_check', id: 1 }]), JSON.stringify(s));
+  assert(await js('document.querySelector("#jc-pane-body .cv-session button.jc-btn").disabled'), 'Check now is not held while checking');
+  await deliver({ type: 'cv_verify', id: 1, state: 'done', last: { status: 'problems', at: 2, text: 'Preview check: 1 problem.', url: '', proof: '', thumb: '' } });
+  assert(await js('$("jc-pane-body").textContent.includes("Preview check: 1 problem.")'), 'the last check did not update');
+});
+
+test('Settings has the switch for new sessions’ checks, kept as a feature setting', async () => {
+  await featureScript('code-verify.js');
+  await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_verify_new_sessions: true } });
+  assert(await js('$("sw-cv-new-sessions").getAttribute("aria-checked")') === 'true', 'the setting is not shown');
+  await js('toggleSettings(true); __sent.length = 0; $("sw-cv-new-sessions").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'feature_prefs', changes: { code_verify_new_sessions: false } }]), JSON.stringify(await js('__sent')));
+  assert(await js('$("sw-cv-new-sessions").closest("section").previousElementSibling.contains($("sw-code-narrate"))'), 'not beside Voice coding');
+});
+
 // ──
 
 let base;

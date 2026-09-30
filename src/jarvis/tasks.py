@@ -2044,6 +2044,14 @@ class TaskManager:
             tuple(_hook_key(hook, task) for hook in self.option_hooks),
         )
 
+    def add_entry(self, task_id: int, role: str, text: str, **extra: Any) -> bool:
+        """A feature's own entry in a session's transcript (a preview check and its proof)."""
+        task = self.tasks.get(task_id)
+        if task is None or task.kind != "code":
+            return False
+        self._log(task, role, text, **extra)
+        return True
+
     def _make_room(self) -> None:
         """More than MAX_CONNECTED Claude Codes open: the ones idle longest close (they
         resume on their next message), once idle ROOM_IDLE; sooner would close a session

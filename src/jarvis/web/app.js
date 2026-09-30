@@ -79,6 +79,7 @@ function featureSessionFields() {
   }
   return fields;
 }
+const featureEntries = new Map();  // transcript entry role -> render(entry): an <li>, or null for none
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -103,6 +104,7 @@ window.jarvisFeatures = {
   registerMoreItem(item) { featureMoreItems.push(item); },
   registerMentions(suggest) { featureMentions.push(suggest); },
   registerSessionOption(fn) { featureSessionOptions.push(fn); },
+  registerEntry(role, render) { featureEntries.set(role, render); },
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
@@ -2301,6 +2303,9 @@ function appendEntry(e, replaying = false) {
     const parts = [e.seconds ? `${e.seconds}s` : '', e.tokens ? `${(e.tokens / 1000).toFixed(1)}k tokens` : '', e.cost ? `$${e.cost.toFixed(2)}` : ''].filter(Boolean);
     if (!parts.length) return;
     li = el('li', 'jc-turn', parts.join(' · '));
+  } else if (featureEntries.has(e.role)) {
+    try { li = featureEntries.get(e.role)(e); } catch (err) { console.error('feature entry', e.role, err); }
+    if (!li) return;
   } else {
     li = el('li', 'jc-note');
     li.append(el('span', '', e.role === 'note' ? '⎿' : 'ⓘ'), el('span', '', e.text));

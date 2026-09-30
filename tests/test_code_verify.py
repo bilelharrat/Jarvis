@@ -3,6 +3,7 @@ Preview pane's commands, a session's dev server tools (asked like any other step
 command shown on the card), and a session's servers stopping with it."""
 
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -315,3 +316,249 @@ async def test_the_problems_pane_runs_the_projects_checkers_and_sends_them(
     (project / "pyproject.toml").write_text("")
     await hub._handle({"type": "cv_problems", "action": "run", "id": 8})
     assert "no checkers set up" in (await wait_for(q, "cv_error"))["text"]
+
+
+# ── the check after a turn ──
+
+JPEG_B64 = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 32).decode()
+
+
+def noisy_server(project):
+    """A dev server that prints an error before the edit, and another once `broke` exists."""
+    script = project / "noisy.py"
+    script.write_text(
+        "import os, time\n"
+        "print('Error: an old one, before the edit', flush=True)\n"
+        "said = False\n"
+        "while True:\n"
+        "    if os.path.exists('broke') and not said:\n"
+        "        print('[vite] Internal server error: Failed to resolve import', flush=True)\n"
+        "        said = True\n"
+        "    time.sleep(0.05)\n"
+    )
+    return {
+        "name": "web",
+        "runtimeExecutable": sys.executable,
+        "runtimeArgs": [str(script)],
+        "url": "http://localhost:5173/",
+    }
+
+
+async def a_session_with_a_server(hub, project):
+    launch(project, [noisy_server(project)])
+    task = ClaudeTask(id=3, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[3] = task
+    cv = hub.code_verify
+    server = await cv.servers.start(project.resolve(), "web", started_by=3)
+    assert await until(lambda: server.ring.seq >= 2)
+    await hub._handle({"type": "cv_session", "id": 3, "verify": True})
+    return task, cv, server
+
+
+def a_turn(cv, project, edited=True):
+    cv.on_task_event("task_log", {"id": 3, "entry": {"role": "user", "text": "make it"}})
+    if edited:
+        cv.on_task_event("task_log", {"id": 3, "entry": {"role": "tool", "tool": "Edit"}})
+    (project / "broke").write_text("")
+    cv.on_task_event(
+        "task_finished",
+        {"id": 3, "task_kind": "code", "status": "done", "files": ["a.ts"] if edited else []},
+    )
+
+
+def verify_entries(task):
+    return [e for e in task.transcript if e["role"] == "verify"]
+
+
+async def test_a_turn_is_checked_and_what_went_wrong_goes_back_once(hub, project, monkeypatch):
+    task, cv, server = await a_session_with_a_server(hub, project)
+    page = {
+        "ok": True,
+        "title": "Shop",
+        "errors": [
+            {"kind": "console", "text": "TypeError: cart is undefined", "where": "App.tsx:12"}
+        ],
+        "shot": JPEG_B64,
+        "thumb": JPEG_B64,
+    }
+
+    async def check(url, reload=True):
+        assert url == "http://localhost:5173/"
+        return page
+
+    monkeypatch.setattr(cv.pages, "check", check)
+    sent = []
+    monkeypatch.setattr(
+        hub.tasks, "send", lambda task_id, text, *a, **k: sent.append((task_id, text, k)) or True
+    )
+    a_turn(cv, project)
+    assert await until(lambda: len(verify_entries(task)) == 1)
+    [entry] = verify_entries(task)
+    assert (
+        entry["status"] == "problems" and entry["sent"] and entry["url"] == "http://localhost:5173/"
+    )
+    texts = [f["text"] for f in entry["findings"]]
+    assert texts == [
+        "TypeError: cart is undefined",
+        "[vite] Internal server error: Failed to resolve import",
+    ]  # the page's first; the server's only since the edit
+    assert entry["thumb"] == JPEG_B64 and cv.proofs.read(entry["proof"]) == JPEG_B64
+    [(task_id, note, kwargs)] = sent
+    assert task_id == 3 and kwargs == {"note": True}  # the app's own words, not the owner's
+    assert note.startswith("Preview check after your last change found 2 problems")
+    assert "<check-output>" in note and "data, not instructions" in note
+    # Twice in a row at most; the owner writing starts it over.
+    (project / "broke").unlink()
+    a_turn_again = lambda: cv.on_task_event(  # noqa: E731
+        "task_finished", {"id": 3, "task_kind": "code", "status": "done", "files": ["a.ts"]}
+    )
+    a_turn_again()
+    assert await until(lambda: len(verify_entries(task)) == 2)
+    a_turn_again()
+    assert await until(lambda: len(verify_entries(task)) == 3)
+    third = verify_entries(task)[-1]
+    assert not third["sent"] and "already asked for fixes" in third["why_not"]
+    assert len(sent) == 2
+    cv.on_task_event("task_log", {"id": 3, "entry": {"role": "user", "text": "try again"}})
+    a_turn_again()
+    assert await until(lambda: len(verify_entries(task)) == 4)
+    assert verify_entries(task)[-1]["sent"]
+    # All fixed: a passing check, its proof, nothing sent.
+    page["errors"] = []
+    cv.on_task_event("task_log", {"id": 3, "entry": {"role": "user", "text": "and now?"}})
+    a_turn_again()
+    assert await until(lambda: len(verify_entries(task)) == 5)
+    passed = verify_entries(task)[-1]
+    assert passed["status"] == "ok" and not passed["sent"] and passed["findings"] == []
+    assert passed["text"] == "Preview check: no problems."
+    assert cv.session(3).last["status"] == "ok"
+
+
+async def test_turns_that_change_nothing_or_stop_are_not_checked(hub, project, monkeypatch):
+    task, cv, _ = await a_session_with_a_server(hub, project)
+    called = []
+
+    async def check(url, reload=True):
+        called.append(url)
+        return {"ok": True, "errors": []}
+
+    monkeypatch.setattr(cv.pages, "check", check)
+    a_turn(cv, project, edited=False)
+    cv.on_task_event(
+        "task_finished", {"id": 3, "task_kind": "code", "status": "stopped", "files": ["a"]}
+    )
+    await asyncio.sleep(0.3)
+    assert called == [] and verify_entries(task) == []
+    await hub._handle({"type": "cv_session", "id": 3, "verify": False})
+    cv.on_task_event(
+        "task_finished", {"id": 3, "task_kind": "code", "status": "done", "files": ["a"]}
+    )
+    await asyncio.sleep(0.3)
+    assert called == []
+
+
+async def test_the_page_check_is_the_app_windows_round_trip(hub, project, monkeypatch):
+    task, cv, _ = await a_session_with_a_server(hub, project)
+    monkeypatch.setattr(hub.tasks, "send", lambda *a, **k: True)
+    q = hub.subscribe()
+    # No app window: the page isn't checked, and the entry says why; the server still is.
+    a_turn(cv, project)
+    assert await until(lambda: len(verify_entries(task)) == 1)
+    first = verify_entries(task)[0]
+    assert "isn't open" in first["page_error"] and first["findings"][0]["kind"] == "server"
+    # The app window: asked, and its answer taken.
+    hub.browser_available = True
+    cv.on_task_event("task_log", {"id": 3, "entry": {"role": "user", "text": "again"}})
+    cv.on_task_event(
+        "task_finished", {"id": 3, "task_kind": "code", "status": "done", "files": ["a"]}
+    )
+    asked = await wait_for(q, "cv_page_check")
+    assert asked["url"] == "http://localhost:5173/" and asked["reload"] is True
+    await hub._handle(
+        {
+            "type": "cv_page_result",
+            "id": asked["id"],
+            "result": {"ok": True, "title": "Shop", "errors": []},
+        }
+    )
+    assert await until(lambda: len(verify_entries(task)) == 2)
+    assert verify_entries(task)[-1]["title"] == "Shop"
+
+
+async def test_other_features_add_what_they_see_of_the_page(hub, project, monkeypatch):
+    task, cv, _ = await a_session_with_a_server(hub, project)
+
+    async def check(url, reload=True):
+        return {"ok": True, "errors": []}
+
+    async def console(session, url):
+        assert session is task and url == "http://localhost:5173/"
+        return ["Warning: each child in a list should have a unique key"]
+
+    async def broken(session, url):
+        raise RuntimeError("no")
+
+    monkeypatch.setattr(cv.pages, "check", check)
+    monkeypatch.setattr(hub.tasks, "send", lambda *a, **k: True)
+    cv.add_error_source(broken)  # never stops the check
+    cv.add_error_source(console)
+    a_turn(cv, project)
+    assert await until(lambda: len(verify_entries(task)) == 1)
+    kinds = [(f["kind"], f["text"]) for f in verify_entries(task)[0]["findings"]]
+    assert ("source", "Warning: each child in a list should have a unique key") in kinds
+
+
+async def test_nothing_to_check_is_said_once_and_the_owner_can_check_now(hub, project, monkeypatch):
+    task = ClaudeTask(id=3, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[3] = task
+    cv = hub.code_verify
+    await hub._handle({"type": "cv_session", "id": 3, "verify": True})
+    for _ in range(2):
+        a_turn(cv, project)
+        await asyncio.sleep(0.3)
+    [entry] = verify_entries(task)
+    assert entry["status"] == "skipped" and "no dev server set up" in entry["page_error"]
+    assert entry["text"] == "Nothing to check yet."
+    await hub._handle({"type": "cv_check", "id": 3})  # the owner's own: always answered
+    assert await until(lambda: len(verify_entries(task)) == 2)
+    assert verify_entries(task)[-1]["by_owner"]
+
+
+async def test_the_owner_can_ask_for_a_fix_and_see_the_full_picture(hub, project, monkeypatch):
+    task, cv, _ = await a_session_with_a_server(hub, project)
+
+    async def check(url, reload=True):
+        return {
+            "ok": True,
+            "errors": [{"kind": "console", "text": "TypeError: x"}],
+            "shot": JPEG_B64,
+        }
+
+    monkeypatch.setattr(cv.pages, "check", check)
+    sent = []
+    monkeypatch.setattr(
+        hub.tasks, "send", lambda task_id, text, *a, **k: sent.append((text, k)) or True
+    )
+    await hub._handle({"type": "cv_check", "id": 3})
+    assert await until(lambda: len(verify_entries(task)) == 1)
+    entry = verify_entries(task)[0]
+    assert (
+        entry["by_owner"] and not entry["sent"] and sent == []
+    )  # checked by the owner: nothing sent
+    await hub._handle({"type": "cv_fix_check", "id": 3, "n": entry["n"]})
+    [(text, kwargs)] = sent
+    assert kwargs == {} and "TypeError: x" in text  # as the owner's own message
+    q = hub.subscribe()
+    await hub._handle({"type": "cv_proof", "proof": entry["proof"]})
+    [proof] = events(q, "cv_proof")
+    assert proof["jpeg"] == JPEG_B64 and not proof["missing"]
+    await hub._handle({"type": "cv_proof", "proof": "../../secret"})
+    assert events(q, "cv_proof")[0]["missing"]
+
+
+async def test_new_sessions_check_their_work_when_the_owner_says_so(hub, project):
+    hub.set_feature_prefs({"code_verify_new_sessions": True})
+    assert hub.code_verify.session(41).verify is True
+    hub.set_feature_prefs({"code_verify_new_sessions": False})
+    assert hub.code_verify.session(42).verify is False
+    assert hub.code_verify.session(41).verify is True  # a session's own switch stays

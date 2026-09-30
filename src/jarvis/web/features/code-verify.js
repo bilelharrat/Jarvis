@@ -1,6 +1,9 @@
 // Jarvis Code checks its work (features/code_verify.py): the Preview pane (the project's
-// dev servers, their logs), the Tests pane (runs, the failures as a tree, watch mode) and
-// the Problems pane (the project's own checkers), with the More menu's ways in.
+// dev servers, their logs, the session's check after each turn), each check in the
+// transcript (its picture, larger on a click, and what it found), the Tests pane (runs, the
+// failures as a tree, watch mode), the Problems pane (the project's own checkers), and the
+// Settings switch for new sessions. The page itself is checked by the app
+// (app/features/code-verify.js), asked from here.
 //
 // Everything shown from the backend is data: text only (textContent), user data marked
 // data-no-i18n. Pure helpers are exported for node --test (tests/web/code-verify.test.mjs).
@@ -84,7 +87,28 @@
     return [...(run.summary ? run.summary.split(' · ') : ['No results']), secs];
   }
 
-  const api = { serverState, shortUrl, isLocal, mergeLines, mentionFor, countProblems, byFile, runLine };
+  // A picture the backend sent, as an image address: plain base64 only.
+  function jpegSrc(data) {
+    return typeof data === 'string' && data && /^[A-Za-z0-9+/]+={0,2}$/.test(data) ? `data:image/jpeg;base64,${data}` : '';
+  }
+
+  // A check's headline: [what, how it went].
+  function checkHead(e) {
+    const what = e.url ? 'Preview check' : 'Checks';
+    const n = (e.findings || []).length + (e.more || 0);
+    if (e.status === 'skipped') return [what, 'Nothing to check'];
+    return [what, n ? `${n} problem${n === 1 ? '' : 's'}` : 'No problems'];
+  }
+
+  // The page's own address out of a finding, for reading ("GET /api/items → 500"); what the
+  // session is sent keeps it whole.
+  function withoutOrigin(text, url) {
+    let origin = '';
+    try { origin = new URL(url).origin; } catch (_) { return String(text || ''); }
+    return String(text || '').split(origin).join('');
+  }
+
+  const api = { serverState, shortUrl, isLocal, mergeLines, mentionFor, countProblems, byFile, runLine, jpegSrc, checkHead, withoutOrigin };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -97,7 +121,14 @@
     servers: [],  // every dev server, across projects
     logKey: '',  // the server whose output the logs view shows
     logs: new Map(),  // key -> [[n, text], ...]
+    follow: true,  // the logs view keeps to the newest line, unless scrolled up
   };
+
+  // A log view that keeps to its newest line while the owner hasn't scrolled up from it.
+  function followed(pre, owner) {
+    pre.addEventListener('scroll', () => { owner.follow = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40; });
+    return pre;
+  }
 
   function paneShown(id) {
     return typeof currentPane !== 'undefined' && currentPane === id && !F.$('jc-pane').hidden;
@@ -184,6 +215,7 @@
 
   function showLogs(key) {
     state.logKey = key;
+    state.follow = true;
     if (key) F.send({ type: 'cv_logs', key, since: 0 });
     renderPreview();
   }
@@ -195,7 +227,7 @@
     const head = el('div', 'cv-logs-head');
     head.append(el('strong', '', 'Output'), mine(el('span', 'jc-dim', server.name)), el('span', 'jc-spacer'),
       button('Clear view', 'jc-mini', () => { state.logs.set(server.key, []); drawLog(); }));
-    const pre = mine(el('pre', 'jc-code cv-log'));
+    const pre = followed(mine(el('pre', 'jc-code cv-log')), state);
     pre.id = 'cv-log';
     box.append(head, pre);
     requestAnimationFrame(drawLog);
@@ -206,9 +238,59 @@
     const pre = F.$('cv-log');
     if (!pre) return;
     const lines = state.logs.get(state.logKey) || [];
-    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
     pre.textContent = lines.map(([, text]) => text).join('\n') || t('Nothing yet.');
-    if (atBottom) pre.scrollTop = pre.scrollHeight;
+    if (state.follow) pre.scrollTop = pre.scrollHeight;
+  }
+
+  // The session's own part of the Preview pane: its check after each turn, Check now, and
+  // how the latest check went.
+  function sessionPart(info) {
+    const checks = info.session;
+    const box = el('div', 'cv-session');
+    const sw = el('div', 'jc-audit-switch cv-switch');
+    const label = el('span');
+    label.append(el('strong', '', 'Check after each turn'),
+      el('small', '', 'When this session changes files: the dev server’s page is reloaded and pictured, and its errors and the server’s are collected. What’s wrong goes back to Jarvis Code, twice in a row at most.'));
+    const toggle = el('button', `sw${checks.verify ? ' on' : ''}`);
+    toggle.type = 'button';
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', String(!!checks.verify));
+    toggle.setAttribute('aria-label', t('Check after each turn'));
+    toggle.addEventListener('click', () => {
+      checks.verify = !checks.verify;
+      F.send({ type: 'cv_session', id: info.id, verify: checks.verify });
+      renderPreview();
+    });
+    sw.append(label, toggle);
+    box.append(sw);
+    const row = el('div', 'cv-bar');
+    const now = button(checks.checking ? 'Checking…' : 'Check now', 'jc-btn small', () => {
+      if (checks.checking) return;
+      checks.checking = true;
+      F.send({ type: 'cv_check', id: info.id });
+      renderPreview();
+    });
+    now.disabled = !!checks.checking;
+    row.append(now);
+    const last = checks.last;
+    if (last) {
+      const src = jpegSrc(last.thumb);
+      if (src) {
+        const pic = el('button', 'cv-mini-thumb');
+        pic.type = 'button';
+        pic.title = t('See the picture');
+        const img = el('img');
+        img.src = src;
+        img.alt = t('The page as the check saw it');
+        pic.append(img);
+        pic.addEventListener('click', () => openProof(last.proof, last.thumb));
+        row.append(pic);
+      }
+      const mark = last.status === 'ok' ? 'passed' : last.status === 'problems' ? 'failed' : 'skipped';
+      row.append(el('span', `cv-mark ${mark}`, mark === 'passed' ? '✓' : mark === 'failed' ? '✕' : '–'), el('span', 'cv-last', last.text));
+    }
+    box.append(row);
+    return box;
   }
 
   function renderPreview(body = F.$('jc-pane-body')) {
@@ -216,6 +298,7 @@
     const info = state.info;
     if (!info) { body.replaceChildren(el('p', 'jc-empty', 'Looking at the project…')); return; }
     const parts = [];
+    if (info.session && info.id) parts.push(sessionPart(info));
     const ours = state.servers.filter((s) => s.project === info.path);
     const list = el('ul', 'jc-list cv-servers');
     for (const config of info.configs) list.append(serverRow(config, ours.find((s) => s.name === config.name)));
@@ -273,6 +356,167 @@
   F.on('cv_error', (ev) => {
     if (typeof jcNote === 'function') jcNote(ev.text);
   });
+  F.on('cv_session', (ev) => {
+    if (state.info && state.info.id === ev.id && state.info.session) {
+      Object.assign(state.info.session, { verify: ev.verify });
+      renderPreview();
+    }
+  });
+  F.on('cv_verify', (ev) => {
+    if (!state.info || state.info.id !== ev.id || !state.info.session) return;
+    state.info.session.checking = ev.state === 'checking';
+    if (ev.last) state.info.session.last = ev.last;
+    renderPreview();
+  });
+
+  // ── the page check: the app does it, asked through this window ──
+
+  F.on('cv_page_check', async (ev) => {
+    const app = root.jarvisApp;
+    if (!app || !app.feature) return;  // a window without the app: the app window answers
+    let result;
+    try {
+      result = await app.feature.invoke('feature:code-verify:check', { url: ev.url, reload: ev.reload, width: ev.width, height: ev.height });
+    } catch (err) {
+      result = { error: String(err && err.message ? err.message : err) };
+    }
+    F.send({ type: 'cv_page_result', id: ev.id, result });
+  });
+
+  // ── a check in the transcript ──
+
+  function verifyEntry(e) {
+    const li = el('li', `cv-check ${e.status || ''}`);
+    const src = jpegSrc(e.thumb);
+    if (src) {
+      const pic = el('button', 'cv-thumb');
+      pic.type = 'button';
+      pic.title = t('See the picture');
+      const img = el('img');
+      img.src = src;
+      img.alt = t('The page as the check saw it');
+      pic.append(img);
+      pic.addEventListener('click', () => openProof(e.proof, e.thumb));
+      li.append(pic);
+    }
+    const body = el('div', 'cv-check-body');
+    const [what, how] = checkHead(e);
+    const head = el('div', 'cv-check-head');
+    const mark = e.status === 'ok' ? 'passed' : e.status === 'problems' ? 'failed' : 'skipped';
+    head.append(el('span', `cv-mark ${mark}`, mark === 'passed' ? '✓' : mark === 'failed' ? '✕' : '–'), el('strong', '', what), el('span', 'cv-chip', how));
+    body.append(head);
+    const where = [e.url ? shortUrl(e.url) : '', e.title || ''].filter(Boolean).join(' · ');
+    if (where) body.append(mine(el('small', 'cv-check-where', where)));
+    if (e.page_error) body.append(el('small', 'cv-check-note', e.page_error));
+    if (e.findings && e.findings.length) {
+      const ul = el('ul', 'cv-findings');
+      for (const f of e.findings) {
+        const item = el('li');
+        item.append(el('span', 'cv-kind', f.label || 'Check'), mine(el('span', 'cv-finding', withoutOrigin(f.text, e.url))));
+        if (f.where && !String(f.text).includes(f.where)) item.append(mine(el('small', 'jc-dim', withoutOrigin(f.where, e.url))));
+        ul.append(item);
+      }
+      if (e.more) ul.append(el('li', 'jc-dim', `…and ${e.more} more`));
+      body.append(ul);
+    }
+    if (e.tests) {
+      const line = el('div', 'cv-check-line');
+      line.append(el('span', 'cv-kind', 'Tests'), mine(el('span', '', e.tests.label)), pieces('', String(e.tests.summary || '').split(' · ')));
+      body.append(line);
+    }
+    if (e.problems) {
+      const line = el('div', 'cv-check-line');
+      line.append(el('span', 'cv-kind', 'Checkers'), pieces('', [`${e.problems.errors} error${e.problems.errors === 1 ? '' : 's'}`, `${e.problems.warnings} warning${e.problems.warnings === 1 ? '' : 's'}`]));
+      body.append(line);
+    }
+    if (e.sent) body.append(el('small', 'cv-check-note sent', 'Sent to Jarvis Code to fix.'));
+    else if (e.why_not) body.append(el('small', 'cv-check-note', e.why_not));
+    else if (e.by_owner && e.findings && e.findings.length) body.append(el('small', 'cv-check-note', 'You asked for this check: nothing was sent.'));
+    if (!e.sent && e.findings && e.findings.length) {
+      body.append(button('Ask Jarvis Code to fix these', 'jc-mini cv-fix', () => {
+        const task = F.currentTask();
+        if (task) F.send({ type: 'cv_fix_check', id: task.id, n: e.n });
+      }));
+    }
+    li.append(body);
+    return li;
+  }
+  F.registerEntry('verify', verifyEntry);
+
+  // A check's picture, larger: the thumbnail at once, the full one when it comes.
+  let lightbox = null;
+  function closeProof() {
+    if (!lightbox) return;
+    lightbox.remove();
+    lightbox = null;
+    document.removeEventListener('keydown', escProof, true);
+  }
+  function escProof(ev) {
+    if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); closeProof(); }
+  }
+  function openProof(proof, thumb) {
+    closeProof();
+    lightbox = el('div', 'cv-lightbox');
+    lightbox.setAttribute('role', 'dialog');
+    lightbox.setAttribute('aria-modal', 'true');
+    lightbox.setAttribute('aria-label', t('The page as the check saw it'));
+    lightbox.dataset.proof = proof || '';
+    const img = el('img');
+    img.src = jpegSrc(thumb);
+    img.alt = t('The page as the check saw it');
+    const close = el('button', 'jc-icon cv-lightbox-close', '✕');
+    close.type = 'button';
+    close.setAttribute('aria-label', t('Close'));
+    const note = el('p', 'cv-lightbox-note');
+    lightbox.append(img, close, note);
+    lightbox.addEventListener('click', closeProof);
+    document.body.append(lightbox);
+    document.addEventListener('keydown', escProof, true);
+    close.focus();
+    if (proof) F.send({ type: 'cv_proof', proof });
+  }
+  F.on('cv_proof', (ev) => {
+    if (!lightbox || lightbox.dataset.proof !== ev.proof) return;
+    const src = jpegSrc(ev.jpeg);
+    if (src) lightbox.querySelector('img').src = src;
+    else lightbox.querySelector('.cv-lightbox-note').textContent = t('The full picture isn’t kept anymore.');
+  });
+
+  // ── Settings: new sessions' switch ──
+
+  function settingsGroup() {
+    const settings = F.$('settings');
+    if (!settings || F.$('cv-settings')) return;
+    const group = el('section', 'group');
+    group.id = 'cv-settings';
+    group.append(el('h3', '', 'Jarvis Code checks'));
+    const row = el('div', 'row');
+    const text = el('span');
+    text.append(el('strong', '', 'Check new sessions’ work'),
+      el('small', '', 'After each turn that changes files: the dev server’s page, reloaded and pictured, and its errors. What’s wrong goes back to the session, twice in a row at most. Each session has its own switch in its Preview pane.'));
+    const sw = el('button', 'switch');
+    sw.type = 'button';
+    sw.id = 'sw-cv-new-sessions';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', 'false');
+    sw.setAttribute('aria-label', t('Check new sessions’ work'));
+    sw.addEventListener('click', () => {
+      const on = sw.getAttribute('aria-checked') !== 'true';
+      sw.setAttribute('aria-checked', String(on));
+      F.send({ type: 'feature_prefs', changes: { code_verify_new_sessions: on } });
+    });
+    row.append(text, sw);
+    group.append(row);
+    const after = F.$('sw-code-narrate') && F.$('sw-code-narrate').closest('section');
+    if (after) after.after(group); else settings.append(group);
+  }
+  function showSetting(features) {
+    const sw = F.$('sw-cv-new-sessions');
+    if (sw && features) sw.setAttribute('aria-checked', String(!!features.code_verify_new_sessions));
+  }
+  settingsGroup();
+  F.on('prefs', (ev) => showSetting(ev.features));
+  F.on('hello', (ev) => showSetting(ev.prefs && ev.prefs.features), { replay: true });
 
   // ── the Tests pane ──
 
@@ -280,6 +524,7 @@
     info: null,  // the latest cv_tests: suites, their files, the latest run, the watch
     suite: '',  // the suite chosen (its key)
     output: [],  // the run's output shown, [[n, text], ...]
+    follow: true,  // the output keeps to its newest line, unless scrolled up
     openFiles: new Set(),  // result files unfolded
     filter: '',
   };
@@ -339,7 +584,7 @@
     const sum = el('summary', 'cv-logs-head');
     sum.append(el('strong', '', 'Output'));
     det.append(sum);
-    const pre = mine(el('pre', 'jc-code cv-log'));
+    const pre = followed(mine(el('pre', 'jc-code cv-log')), tests);
     pre.id = 'cv-test-log';
     det.append(pre);
     requestAnimationFrame(drawTestLog);
@@ -349,9 +594,8 @@
   function drawTestLog() {
     const pre = F.$('cv-test-log');
     if (!pre) return;
-    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
     pre.textContent = tests.output.map(([, text]) => text).join('\n') || t('Nothing yet.');
-    if (atBottom) pre.scrollTop = pre.scrollHeight;
+    if (tests.follow) pre.scrollTop = pre.scrollHeight;
   }
 
   function filesList(suite) {
@@ -466,7 +710,7 @@
     const info = tests.info;
     if (!info || ev.run.project !== info.path) return;
     const fresh = !info.run || info.run.started !== ev.run.started;
-    if (fresh) tests.output = [];
+    if (fresh) { tests.output = []; tests.follow = true; }
     info.run = ev.run;
     renderTests();
   });
