@@ -126,6 +126,16 @@ function certProblem(error) {
 // or a page whose address must not be kept), each with its back and forward list ──
 const PAGE = /^(https?:|file:)/i;
 const TITLE_MAX = 300;
+const ENTRIES_MAX = 25; // a tab's back and forward list, as kept
+
+// At most max entries of a back and forward list, always with the page on show among them
+// (its pages before it first, then after it); index: where the page on show is in them.
+function historyWindow(entries, index, max = ENTRIES_MAX) {
+  if (!entries.length || index < 0) return { entries: [], index: -1 };
+  const at = Math.min(index, entries.length - 1);
+  const start = Math.max(0, Math.min(at - (max - 1), entries.length - max));
+  return { entries: entries.slice(start, start + max), index: at - start };
+}
 
 function sessionOf(tabs, { active = 0, keep = () => true } = {}) {
   const out = [];
@@ -144,7 +154,8 @@ function sessionOf(tabs, { active = 0, keep = () => true } = {}) {
       entries.push({ url: e.url, title: String(e.title || '').slice(0, TITLE_MAX) });
     });
     if (i === active) activeAt = out.length;
-    out.push({ url, title: String(t.title || '').slice(0, TITLE_MAX), pinned: Boolean(t.pinned), entries: index >= 0 ? entries : [], index: index >= 0 ? index : -1 });
+    const kept = historyWindow(entries, index);
+    out.push({ url, title: String(t.title || '').slice(0, TITLE_MAX), pinned: Boolean(t.pinned), entries: kept.entries, index: kept.index });
   });
   return { tabs: out, active: activeAt };
 }
@@ -366,4 +377,5 @@ module.exports = {
   authAllowed, authInsecure, isCertError, certProblem,
   sessionOf, pinnedFirst, moveTab, suggest, pagesOf, PAUSE_MEDIA, zoomKey,
   cleanFolder, folders, editBookmark, renameFolder, mergeImport, BOOKMARKS_MAX, HISTORY_MAX,
+  historyWindow, ENTRIES_MAX,
 };

@@ -4914,7 +4914,7 @@ async function openResearch(path = '/markets') {
 let tabsShown = '';
 let tabOnShow = null; // the pill lifts only when the tab on show changes
 function renderTabs(list) {
-  const key = JSON.stringify(list.map((t) => [t.id, t.title, t.url, t.active, t.loading, t.pinned, t.audible, t.muted]));
+  const key = JSON.stringify(list.map((t) => [t.id, t.title, t.url, t.active, t.loading, t.pinned, t.audible, t.muted, t.split, t.popout, t.private, t.agentProfile, (t.favicon || '').length]));
   if (key === tabsShown) return;
   tabsShown = key;
   const strip = $('bd-tabs');

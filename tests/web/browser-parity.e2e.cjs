@@ -45,6 +45,7 @@ const PAGES = {
   // A sound playing in the page and in a frame of it.
   '/music': '<!doctype html><title>Music</title><body><audio id="a" src="/tone.wav" loop></audio><iframe id="f" src="/music-frame"></iframe></body>',
   '/music-frame': '<!doctype html><title>Frame</title><body><audio id="a" src="/tone.wav" loop></audio></body>',
+  '/research-center/markets': '<!doctype html><title>Markets</title><body>markets</body>',
 };
 
 // A small real PDF: a page per text.
@@ -917,6 +918,76 @@ test('Quitting with a split on and a tab popped out: nothing calls back into the
   }
 });
 
+test('A private tab’s prompt and the owner’s have ids of their own; each answer goes to its own', async () => {
+  for (const view of tabs.splice(0)) view.webContents.close();
+  const owner = newTab();
+  await owner.webContents.loadURL(`${base}/other?o`);
+  const priv = newTab({ partition: PRIVATE_PARTITION });
+  await priv.webContents.loadURL(`${base}/other?x`);
+  active = owner;
+  const ownerAsk = page(owner, 'Notification.requestPermission()');
+  active = priv;
+  parity.selected(priv);
+  const privAsk = page(priv, 'navigator.mediaDevices.getUserMedia({ video: true }).then(() => "ok", (e) => e.name)');
+  const shown = await until(() => { const a = asking(); return a && a.tab === priv.webContents.id ? a : null; });
+  const ownerPrompt = parity.permissionsFor(owner.webContents.session).waiting(owner.webContents.id);
+  assert(shown && ownerPrompt && shown.id !== ownerPrompt.id && /^x/.test(shown.id) && /^o/.test(ownerPrompt.id), `ids: ${shown && shown.id} / ${ownerPrompt && ownerPrompt.id}`);
+  assert(!parity.answer({ id: ownerPrompt.id, choice: 'allow' }), 'the private tab on show answered the owner tab’s prompt');
+  assert(parity.answer({ id: shown.id, choice: 'allow' }) && (await privAsk) === 'ok', 'the private prompt went unanswered');
+  active = owner;
+  parity.selected(owner);
+  assert(parity.answer({ id: ownerPrompt.id, choice: 'dismiss' }) && (await ownerAsk) === 'denied', 'the owner’s prompt went unanswered');
+});
+
+test('Split and pop-out keep to the dock: popping out the left ends the split; closing the dock’s tab never lands on a popped-out one; a popped-out window asks each prompt in turn and plays on; the Research Center stays in the dock', async () => {
+  for (const view of tabs.splice(0)) view.webContents.close();
+  const [a, b, c] = [newTab(), newTab(), newTab()];
+  await Promise.all([a, b, c].map((v, i) => v.webContents.loadURL(`${base}/other?k${i}`)));
+  active = a;
+  parity.selected(a);
+  parity.dock({ open: true });
+  parity.setSplitBounds({ x: 600, y: 100, width: 400, height: 500 });
+  assert(parity.splitWith(b), 'no split');
+  assert(parity.popOut(a) && parity.split === null && active === b && !b.inSplit, `popping out the left: split ${parity.split === a ? 'is the popped tab' : parity.split ? 'on' : 'off'}, on show ${tabs.indexOf(active)}`);
+  // The next tab the dock shows is never one popped out.
+  assert(parity.nextDocked(0) === b && parity.nextDocked(2) === c, 'the neighbor');
+  const outIdx = tabs.indexOf(a);
+  const docked = tabs.filter((v) => v !== a);
+  assert(docked.every((v) => parity.nextDocked(outIdx) !== a), 'a popped-out tab picked');
+  // Closing the dock: a popped-out window’s sound plays on.
+  await a.webContents.loadURL(`${base}/music`);
+  assert((await page(a, 'document.getElementById("a").play().then(() => true, (e) => e.name)')) === true, 'the test page could not play');
+  parity.dock({ open: false });
+  await sleep(400);
+  assert((await page(a, 'document.getElementById("a").paused')) === false, 'closing the dock paused a popped-out window');
+  parity.dock({ open: true });
+  // Two prompts in a popped-out window: a box for each, one after the other.
+  a.popout.isVisible = () => true;
+  parity.setSite({ origin: base, forget: true }); // (an earlier check allowed its camera for good)
+  boxes.length = 0;
+  boxAnswer = 1; // Don't allow
+  const first = page(a, 'navigator.mediaDevices.getUserMedia({ video: true }).then(() => "ok", (e) => e.name)');
+  const second = page(a, 'new Promise((r) => navigator.geolocation.getCurrentPosition(() => r("position"), (e) => r("error " + e.code)))');
+  const answers = [await first, await second];
+  assert(JSON.stringify(answers) === '["NotAllowedError","error 1"]', `a prompt went unanswered: ${answers}`);
+  assert(boxes.length === 2 && boxes.every((x) => x.owner === a.popout), `boxes: ${boxes.length}`);
+  parity.popIn(a);
+  // The Research Center is never split off or popped out, and a tab that goes there comes back.
+  const rc = newTab();
+  await rc.webContents.loadURL(`${base}/research-center/markets`);
+  assert(!parity.splitWith(rc) && !parity.popOut(rc), 'the Research Center left the dock');
+  active = a;
+  parity.selected(a);
+  assert(parity.splitWith(c), 'no split');
+  await c.webContents.loadURL(`${base}/research-center/markets`);
+  await until(() => parity.split === null);
+  assert(parity.split === null, 'the split stayed on the Research Center');
+  parity.popOut(b);
+  await b.webContents.loadURL(`${base}/research-center/markets`);
+  await until(() => !b.popout);
+  assert(!parity.poppedOut(b), 'a popped-out tab stayed out on the Research Center');
+});
+
 let failed = 0;
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
@@ -944,6 +1015,7 @@ app.whenReady().then(async () => {
     browserData: () => browserData,
     saveBrowserData: () => { saves += 1; },
     saveDialog: () => Promise.resolve(savePick),
+    isResearch: (view) => /\/research-center\//.test(view.webContents.getURL()), // the test's stand-in
     openExternal: (url) => { openedOutside.push(url); },
   });
   await sleep(50);

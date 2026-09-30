@@ -9,9 +9,9 @@
 const fs = require('fs');
 const { cleanSites } = require('./site-permissions');
 const { ENGINES } = require('./url-input');
+const { historyWindow, ENTRIES_MAX } = require('./browser-lib');
 
 const TABS_MAX = 60;
-const ENTRIES_MAX = 25;
 const ZOOM_SITES_MAX = 1000;
 const TEXT_MAX = 300;
 
@@ -32,14 +32,21 @@ function cleanZoom(raw) {
 
 function cleanTab(t) {
   if (!t || typeof t !== 'object') return null;
-  const entries = (Array.isArray(t.entries) ? t.entries : [])
-    .filter((e) => e && pageUrl(e.url)).slice(-ENTRIES_MAX).map((e) => ({ url: e.url, title: text(e.title) }));
-  const url = pageUrl(t.url) ? t.url : entries.length ? entries[entries.length - 1].url : '';
+  // The pages that are pages, the one on show found among them, then at most ENTRIES_MAX of
+  // them with it (a list cut from its end would lose where the tab was).
+  const raw = Array.isArray(t.entries) ? t.entries : [];
+  const at = Number.isInteger(t.index) ? t.index : raw.length - 1;
+  const pages = [];
+  let index = -1;
+  raw.forEach((e, n) => {
+    if (!e || !pageUrl(e.url)) return;
+    if (n <= at) index = pages.length;
+    pages.push({ url: e.url, title: text(e.title) });
+  });
+  const kept = historyWindow(pages, index === -1 && pages.length ? 0 : index);
+  const url = pageUrl(t.url) ? t.url : kept.entries.length ? kept.entries[kept.index].url : '';
   if (!url) return null;
-  let index = Number.isInteger(t.index) ? t.index : entries.length - 1;
-  if (!entries.length) index = -1;
-  else index = Math.min(Math.max(0, index), entries.length - 1);
-  return { url, title: text(t.title), pinned: t.pinned === true, entries, index };
+  return { url, title: text(t.title), pinned: t.pinned === true, entries: kept.entries, index: kept.index };
 }
 
 function cleanSession(raw) {

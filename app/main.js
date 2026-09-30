@@ -365,7 +365,7 @@ function closeTab(view) {
   const url = view.webContents.getURL();
   if (/^https?:/.test(url) && !view.private) closedTabs.push(url); // a private tab's page isn't kept
   if (closedTabs.length > 25) closedTabs.shift();
-  if (view === browserView) selectTab(tabs[Math.min(at, tabs.length - 1)]);
+  if (view === browserView) { const next = parity.nextDocked(at); if (next) selectTab(next); else newTab(); } // (never one popped out)
   view.webContents.close();
   sendBrowserState();
   return true;
@@ -713,7 +713,8 @@ function createTab(opts = {}) {
     if (popup) return popup;
     const { url } = details;
     // a link that wants a new window: a new tab (behind, when it came from a tab behind)
-    if (/^https?:\/\//.test(url)) { if (view === browserView) newTab(url, parity.profileOf(wc)); else browserAgent.popup(view, url); }
+    // (a private page's, or one shown beside the dock's or in a window of its own: a tab in front, in its profile)
+    if (/^https?:\/\//.test(url)) { if (view === browserView || view.private || parity.shownElsewhere(view)) newTab(url, parity.profileOf(wc)); else browserAgent.popup(view, url); }
     return { action: 'deny' };
   });
   parity.wireTab(view); // per-site permission prompts (browser-parity.js)
@@ -923,6 +924,7 @@ const parity = createParity({
   keep: (url) => !(onResearch(url) && RESEARCH_AUTH.test(researchPath(url))),
   browserData: () => browserStore(), // history and bookmarks: the address bar's suggestions, folders, imports
   saveBrowserData: () => saveBrowserStore(),
+  isResearch: (view) => onResearch(view.webContents.getURL()), // it stays in the dock (only JARVIS drives it)
 });
 
 async function runBrowserCommand({ action, args = {} }) {

@@ -67,7 +67,8 @@ function cleanSites(raw) {
 
 class SitePermissions {
   // store: { sites } (kept by the caller, saved through onSave); a private window's has none.
-  constructor({ sites = {}, onSave = () => {}, onChange = () => {}, remember = true } = {}) {
+  // prefix: its prompts' ids begin with it, so each profile's are told apart.
+  constructor({ sites = {}, onSave = () => {}, onChange = () => {}, remember = true, prefix = 'p' } = {}) {
     this.sites = cleanSites(sites);
     this.onSave = onSave;
     this.onChange = onChange; // the prompts waiting changed
@@ -75,6 +76,7 @@ class SitePermissions {
     this.grants = new Map(); // tab id -> { origin, kinds: Set } (Allow this time)
     this.pending = []; // { id, tab, origin, kinds, at, resolvers }
     this.seq = 0;
+    this.prefix = String(prefix);
   }
 
   decision(origin, kind) {
@@ -116,7 +118,7 @@ class SitePermissions {
       const same = this.pending.find((p) => p.tab === tab && p.origin === origin && sameKinds(p.kinds, open));
       if (same) { same.resolvers.push(resolve); return; }
       if (this.pending.filter((p) => p.tab === tab).length >= PENDING_MAX) { resolve(false); return; }
-      this.pending.push({ id: `p${++this.seq}`, tab, origin, kinds: open, at: this.seq, resolvers: [resolve] });
+      this.pending.push({ id: `${this.prefix}${++this.seq}`, tab, origin, kinds: open, at: this.seq, resolvers: [resolve] });
       this.onChange();
     });
   }

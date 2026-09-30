@@ -144,6 +144,16 @@ test('Settings: change, forget, list; bad input changes nothing', () => {
   assert.equal(quiet.decision(MEET, 'camera'), 'allow');
 });
 
+test('each profile’s prompts have ids of their own', () => {
+  const owner = new SitePermissions({ prefix: 'o' });
+  const priv = new SitePermissions({ prefix: 'x', remember: false });
+  owner.request({ tab: 1, origin: MEET, permission: 'notifications' });
+  priv.request({ tab: 2, origin: MEET, permission: 'geolocation' });
+  assert.equal(owner.waiting(1).id, 'o1');
+  assert.equal(priv.waiting(2).id, 'x1');
+  assert.equal(owner.answer('x1', 'allow'), false, 'one profile answered another’s prompt');
+});
+
 test('a saved file is read defensively', () => {
   const sites = cleanSites({
     [MEET]: { camera: 'allow', microphone: 'sure', midi: 'allow' },

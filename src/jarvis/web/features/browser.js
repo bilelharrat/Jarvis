@@ -172,7 +172,7 @@
   function renderAsk(next) {
     const type = next && next.type;
     const shown = ask || cert;
-    if (next && shown && next.id === shown.id && type === shown.type) return; // the same ask: what's typed stays
+    if (next && shown && next.id === shown.id && type === shown.type && next.tab === shown.tab) return; // the same ask: what's typed stays
     cert = type === 'cert' ? next : null;
     renderCert();
     ask = type === 'permission' || type === 'auth' ? next : null;
@@ -804,6 +804,7 @@
   // ── Settings › Browser ──
 
   let hello = { engine: 'google', engines: [], sites: [] };
+  let engineSent = false;
   const group = F.el('section', 'group bp-group');
   group.id = 'browser-group';
 
@@ -816,7 +817,7 @@
     select.id = 'bp-engine';
     select.addEventListener('change', async () => {
       const next = await invoke('settings', { engine: select.value });
-      if (next) { hello = next; renderGroup(); }
+      if (next) { hello = next; renderGroup(); F.send({ type: 'browser_engine', engine: next.engine }); }
     });
     row.append(words, select);
     return row;
@@ -1005,6 +1006,7 @@
   async function refresh() {
     const next = await invoke('hello');
     if (!next) return;
+    if (next.engine !== hello.engine || !engineSent) { engineSent = true; F.send({ type: 'browser_engine', engine: next.engine }); } // (the backend weighs searches as going there)
     hello = next;
     renderGroup();
     renderAsk(next.ask);
@@ -1092,6 +1094,7 @@
   F.on('browser_import', (ev) => imported(ev));
   if (typeof F.registerBookmarks === 'function') F.registerBookmarks(renderBookmarks);
   F.on('prefs', () => setTimeout(sendLabels, 300), { replay: true });
+  F.on('hello', () => { engineSent = false; refresh(); }); // a backend (re)started: it hears the engine again
   refresh();
   sendLabels();
 })();

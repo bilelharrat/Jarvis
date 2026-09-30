@@ -221,9 +221,13 @@ class BrowserParity {
       const data = this.state();
       // The owner's own profile keeps each site's answer; a private tab's and JARVIS's
       // signed-out profile's are asked afresh and kept nowhere.
-      perms = ses === session.fromPartition(PARTITION)
-        ? new SitePermissions({ sites: data.sites, onSave: (sites) => { this.state().sites = sites; this.save(); }, onChange: () => this.refreshAsk() })
-        : new SitePermissions({ remember: false, onChange: () => this.refreshAsk() });
+      // Each profile's prompts have ids of their own (o1, x1, j1…), so an answer finds its own.
+      const onChange = () => this.refreshAsk();
+      if (ses === session.fromPartition(PARTITION)) {
+        perms = new SitePermissions({ sites: data.sites, onSave: (sites) => { this.state().sites = sites; this.save(); }, onChange, prefix: 'o' });
+      } else {
+        perms = new SitePermissions({ remember: false, onChange, prefix: ses === session.fromPartition(PRIVATE_PARTITION) ? 'x' : 'j' });
+      }
       this.permissions.set(ses, perms);
     }
     return perms;
@@ -236,19 +240,24 @@ class BrowserParity {
     if (!wc || wc.isDestroyed()) return Promise.resolve(false);
     const origin = originOf(details.isMainFrame === false ? wc.getURL() : details.requestingUrl || wc.getURL()) || originOf(wc.getURL());
     const asked = perms.request({ tab: wc.id, origin, permission, details });
-    if (!this.inDock(wc)) {
-      const waiting = perms.waiting(wc.id);
-      if (waiting && !waiting.boxed) {
-        waiting.boxed = true; // one box for it, however often the page asks meanwhile
-        this.askInBox(perms, wc, waiting);
-      }
-    }
+    if (!this.inDock(wc)) this.boxNext(perms, wc);
     return asked;
+  }
+
+  // The first prompt a page in a window of its own waits on, in the Mac's box on that window
+  // (one box at a time, however often the page asks; the next when it's answered).
+  boxNext(perms, wc) {
+    if (!wc || wc.isDestroyed()) return;
+    const waiting = perms.waiting(wc.id);
+    if (!waiting || waiting.boxed) return;
+    waiting.boxed = true;
+    this.askInBox(perms, wc, waiting);
   }
 
   askInBox(perms, wc, prompt) {
     const owner = this.ownerOf(wc);
-    if (!owner || owner.isDestroyed() || !owner.isVisible()) { perms.answer(prompt.id, 'dismiss'); return; }
+    const next = () => this.boxNext(perms, wc);
+    if (!owner || owner.isDestroyed() || !owner.isVisible()) { perms.answer(prompt.id, 'dismiss'); next(); return; }
     const what = this.kindsText(prompt.kinds);
     const options = {
       type: 'question', buttons: [this.label('allow'), this.label('dontAllow')], defaultId: 1, cancelId: 1,
@@ -256,7 +265,8 @@ class BrowserParity {
     };
     this.box(owner, options)
       .then((r) => perms.answer(prompt.id, r.response === 0 ? 'allow' : 'dismiss'))
-      .catch(() => perms.answer(prompt.id, 'dismiss'));
+      .catch(() => perms.answer(prompt.id, 'dismiss'))
+      .then(next);
   }
 
   kindsText(kinds) {
@@ -278,6 +288,13 @@ class BrowserParity {
     }
     wc.on('before-input-event', (event, input) => { if (view.popout && this.popoutKey(view, input)) event.preventDefault(); });
     for (const event of ['page-title-updated', 'did-navigate']) wc.on(event, () => { if (this.split === view) this.sendSplit(); });
+    // The Research Center takes only JARVIS's input, which reaches the tab on show in the
+    // dock: a tab beside it or in a window of its own that goes there comes back first.
+    wc.on('did-navigate', () => {
+      if (!this.research(view)) return;
+      if (this.split === view) this.endSplit();
+      if (this.poppedOut(view)) this.popIn(view);
+    });
     this.wire(wc);
     // A tab's sound shows on it; what it's on is written down for next time.
     wc.on('audio-state-changed', () => this.changed());
@@ -596,16 +613,14 @@ class BrowserParity {
     return { unsafe: Boolean(host) && [...this.certOk].some((k) => k.startsWith(`${host}|`)) };
   }
 
+  // Only the prompt the window was showing: the tab on show's, in its own profile.
   answer({ id, choice }) {
     const wc = this.activeWc();
-    for (const perms of this.permissions.values()) {
-      const p = perms.pending.find((x) => x.id === id);
-      if (!p) continue;
-      // Only the prompt the window was showing: the tab on show's.
-      if (!wc || wc.id !== p.tab) return false;
-      return perms.answer(id, ['allow', 'once', 'block', 'dismiss'].includes(choice) ? choice : 'dismiss');
-    }
-    return false;
+    if (!wc) return false;
+    const perms = this.permissionsFor(wc.session);
+    const p = perms.pending.find((x) => x.id === id && x.tab === wc.id);
+    if (!p) return false;
+    return perms.answer(id, ['allow', 'once', 'block', 'dismiss'].includes(choice) ? choice : 'dismiss');
   }
 
   // The tab on show changed (main.js's selectTab): what it waits on is what's shown, and a
@@ -619,7 +634,7 @@ class BrowserParity {
     // the left now); another tab picked takes the left.
     if (view && this.split === view) {
       view.inSplit = false;
-      const alive = before && before !== view && before.webContents && !before.webContents.isDestroyed() && this.hooks.tabs().includes(before);
+      const alive = before && before !== view && before.webContents && !before.webContents.isDestroyed() && this.hooks.tabs().includes(before) && !this.poppedOut(before);
       if (alive) { this.split = before; before.inSplit = false; } else this.endSplit();
     }
     this.placeSplit();
@@ -655,9 +670,19 @@ class BrowserParity {
     return true;
   }
 
+  research(view) {
+    return Boolean(this.hooks.isResearch && view && view.webContents && !view.webContents.isDestroyed() && this.hooks.isResearch(view));
+  }
+
+  // The tab on the right of the split, or one in a window of its own: shown, though not the
+  // dock's tab on show.
+  shownElsewhere(view) {
+    return Boolean(view) && (view === this.split || this.poppedOut(view));
+  }
+
   splitWith(view) {
     const active = this.hooks.active();
-    if (!view || view === active || this.poppedOut(view) || !view.webContents || view.webContents.isDestroyed()) return false;
+    if (!view || view === active || this.poppedOut(view) || this.research(view) || !view.webContents || view.webContents.isDestroyed()) return false;
     if (this.split && this.split !== view) this.unplace(this.split);
     this.split = view;
     if (view.lazy) this.wake(view);
@@ -786,14 +811,15 @@ class BrowserParity {
     this.popupAt(items, x, y);
   }
 
-  // The dock closed: every video and sound in the tabs stops (JARVIS's own tabs too).
+  // The dock closed: every video and sound in its tabs stops (JARVIS's own tabs too; one
+  // popped out into a window of its own plays on).
   dock({ open }) {
     this.dockOpen = Boolean(open);
     this.placeSplit();
     if (open) return true;
     for (const view of this.hooks.tabs()) {
       const wc = view.webContents;
-      if (!wc || wc.isDestroyed() || view.lazy) continue;
+      if (!wc || wc.isDestroyed() || view.lazy || this.poppedOut(view)) continue; // a popped-out one plays on
       try {
         for (const frame of wc.mainFrame.framesInSubtree) frame.executeJavaScript(lib.PAUSE_MEDIA).catch(() => {});
       } catch { /* the page is going */ }
@@ -807,8 +833,8 @@ class BrowserParity {
 
   popOut(view) {
     const wc = view && view.webContents;
-    if (!wc || wc.isDestroyed() || view.popout) return false;
-    if (this.split === view) this.endSplit();
+    if (!wc || wc.isDestroyed() || view.popout || this.research(view)) return false;
+    if (this.split === view || (this.split && view === this.hooks.active())) this.endSplit(); // either side of a split
     const main = this.hooks.window();
     const near = main ? main.getBounds() : null;
     const area = (near ? screen.getDisplayMatching(near) : screen.getPrimaryDisplay()).workArea;
@@ -842,6 +868,7 @@ class BrowserParity {
     popWin.on('close', () => this.popIn(view, { closing: true })); // closing it puts the page back in the dock
     popWin.loadFile(path.join(__dirname, 'popout.html')).catch(() => {});
     this.showPopup(popWin);
+    this.boxNext(this.permissionsFor(wc.session), wc); // a prompt it was waiting on in the dock asks here now
     this.changed();
     return true;
   }
@@ -909,6 +936,19 @@ class BrowserParity {
 
   poppedOut(view) {
     return Boolean(view && view.popout && !view.popout.isDestroyed());
+  }
+
+  // The tab the dock shows when its tab on show closes (main.js's closeTab): the nearest one
+  // to where it was that's in the dock, not in a window of its own; none, a new one's needed.
+  nextDocked(at) {
+    const tabs = this.hooks.tabs();
+    const from = Math.min(at, tabs.length - 1);
+    for (let d = 0; d < tabs.length; d++) {
+      for (const i of [from + d, from - d]) {
+        if (i >= 0 && i < tabs.length && !this.poppedOut(tabs[i])) return tabs[i];
+      }
+    }
+    return null;
   }
 
   // A popped-out tab picked in the dock's strip: its window comes forward instead.

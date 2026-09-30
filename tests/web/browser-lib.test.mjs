@@ -95,6 +95,20 @@ test('the tabs kept for next time: pages only, each with its back and forward li
   assert.deepEqual(lib.sessionOf([], { active: 4 }), { tabs: [], active: 0 });
 });
 
+test('a long back and forward list is kept around the page on show', () => {
+  const list = Array.from({ length: 40 }, (_, i) => i);
+  const early = lib.historyWindow(list, 10, 25);
+  assert.equal(early.entries.length, 25);
+  assert.equal(early.entries[early.index], 10);
+  const late = lib.historyWindow(list, 38, 25);
+  assert.equal(late.entries[late.index], 38);
+  assert.deepEqual(lib.historyWindow([1, 2, 3], 1), { entries: [1, 2, 3], index: 1 });
+  assert.deepEqual(lib.historyWindow([], 0), { entries: [], index: -1 });
+  const kept = lib.sessionOf([{ url: 'https://a.example/7', index: 7, entries: Array.from({ length: 45 }, (_, i) => ({ url: `https://a.example/${i}` })) }]).tabs[0];
+  assert.equal(kept.entries.length, lib.ENTRIES_MAX);
+  assert.equal(kept.entries[kept.index].url, 'https://a.example/7', 'saved without the page on show');
+});
+
 test('pinned tabs go first; a dragged tab stays within its own group', () => {
   const [a, b, c, d] = [{ n: 'a' }, { n: 'b', pinned: true }, { n: 'c' }, { n: 'd', pinned: true }];
   const names = (list) => list.map((t) => t.n).join('');

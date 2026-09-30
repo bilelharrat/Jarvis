@@ -66,12 +66,16 @@ test('the session and zoom kept are read defensively; reopening tabs is on unles
   ], active: 9 }), {
     tabs: [
       { url: 'https://a.example/', title: 'A', pinned: true, entries: [{ url: 'https://a.example/', title: 'A' }], index: 0 },
-      { url: 'https://b.example/2', title: '', pinned: false, entries: [{ url: 'https://b.example/1', title: '' }, { url: 'https://b.example/2', title: 'B2' }], index: 0 },
+      { url: 'https://b.example/1', title: '', pinned: false, entries: [{ url: 'https://b.example/1', title: '' }, { url: 'https://b.example/2', title: 'B2' }], index: 0 },
     ],
     active: 0,
   });
   const many = cleanSession({ tabs: Array.from({ length: 100 }, (_, i) => ({ url: `https://t${i}.example/`, entries: Array.from({ length: 40 }, (_, j) => ({ url: `https://t${i}.example/${j}` })) })) });
   assert.equal(many.tabs.length, TABS_MAX);
   assert.equal(many.tabs[0].entries.length, ENTRIES_MAX, 'the latest pages of a long back list');
+  // A tab that had gone back a long way keeps the page it was on, and the pages around it.
+  const back = cleanSession({ tabs: [{ url: 'https://t.example/5', index: 5, entries: Array.from({ length: 40 }, (_, j) => ({ url: `https://t.example/${j}` })) }] }).tabs[0];
+  assert.equal(back.entries.length, ENTRIES_MAX);
+  assert.equal(back.entries[back.index].url, 'https://t.example/5', 'the page on show was cut off');
   assert.deepEqual(cleanSession('nonsense'), { tabs: [], active: 0 });
 });
