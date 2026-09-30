@@ -57,6 +57,18 @@ def test_only_images_outside_packages_links_and_secrets_are_walked(tmp_path):
     assert list(walk_images(home / "Library", home)) == []  # ~/Library, even when added
 
 
+def test_the_home_folder_as_a_brain_folder_never_walks_into_library(tmp_path):
+    """Settings take the home folder itself as a brain folder: its images are read, never
+    another app's inside ~/Library (Mail's downloads, an app's container)."""
+    home = tmp_path / "home"
+    image(home / "Desktop" / "Screenshot 1.png")
+    mail = home / "Library" / "Containers" / "com.apple.mail" / "Data" / "Library"
+    image(mail / "Mail Downloads" / "scan.jpg")
+    image(home / "Library" / "Application Support" / "SomeApp" / "cache.png")
+    found = sorted(p.relative_to(home).as_posix() for p, _ in walk_images(home, home))
+    assert found == ["Desktop/Screenshot 1.png"]
+
+
 def test_images_are_read_newest_first_once_by_their_contents(tmp_path):
     home = tmp_path / "home"
     desk = home / "Desktop"

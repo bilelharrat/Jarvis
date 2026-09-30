@@ -177,7 +177,8 @@ def walk_images(folder: Path, home: Path | None = None) -> Iterator[tuple[Path, 
             except OSError:
                 continue
             if is_dir:
-                if name not in SKIP_DIRS and suffix not in packages:
+                # ~/Library on the way down too: the home folder can be a brain folder.
+                if name not in SKIP_DIRS and suffix not in packages and entry.path != str(library):
                     stack.append(entry.path)
                 continue
             if suffix not in IMAGE_SUFFIXES:
