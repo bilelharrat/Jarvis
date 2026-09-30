@@ -30,7 +30,9 @@ def zh():
     return translate
 
 
-_BRANDS = {"Mac", "ElevenLabs", "Fish Audio", "Premium", "Enhanced"}
+_BRANDS = {"Mac", "ElevenLabs", "Fish Audio", "Premium", "Enhanced", "Whisper"}
+# Words only ever put inside a sentence that has its own translation.
+_INSIDE = {"English", "Chinese"}
 
 
 def _js_literals(source):
@@ -72,7 +74,7 @@ def window_strings():
     """What voice.js writes as words: literals that start like a sentence or a label."""
     source = (WEB / "features" / "voice.js").read_text(encoding="utf-8")
     shown = {s for s in _js_literals(source) if re.match(r"[A-Z“]", s) and "_" not in s}
-    return sorted(shown - _BRANDS)
+    return sorted(shown - _BRANDS - _INSIDE)
 
 
 def test_the_window_strings_are_found():
@@ -102,6 +104,9 @@ def test_each_window_string_has_chinese(zh, text):
         "ElevenLabs needs an API key and a voice first.",
         "The Mac couldn't speak with Ava (Premium).",
         "The provider answered 502; try again later.",
+        "About 123 MB.",
+        "Downloading from Apple… 42%",
+        "Apple’s recognizer couldn’t start (no audio format), so Whisper listens.",
         f"That's {wakewords.MAX_WORDS} wake words already; remove one first.",
     ],
 )

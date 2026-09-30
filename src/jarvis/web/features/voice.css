@@ -3,3 +3,5 @@
 .voice-group [hidden] { display: none !important; }
 .voice-group .btn:disabled { opacity: 0.45; cursor: default; }
 .voice-group .voice-pick select { flex: 1 1 0; min-width: 0; max-width: none; }
+/* a live caption (Apple's recognizer): the words so far, a touch quieter than the request */
+#heard.live { opacity: 0.75; }

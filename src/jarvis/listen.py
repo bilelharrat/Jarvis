@@ -489,6 +489,9 @@ class ContinuousListener:
         # A neural voice detector for each stream opened (features/voice.py sets it; None
         # or a factory giving None: loudness decides).
         self.voice_factory: Callable[[], Callable[[np.ndarray], bool | None] | None] | None = None
+        # Each block, and whether an utterance is in progress, before the segmenter takes it
+        # (features/voice.py: Apple's live recognizer hears the utterances as they're said).
+        self.on_block: Callable[[np.ndarray, bool], None] | None = None
         self.segmenter: Segmenter | None = None
         self._stop = threading.Event()
         self._reopen = threading.Event()
@@ -600,6 +603,12 @@ class ContinuousListener:
                         ):
                             segmenter.drop()  # the claps, not words: nothing to transcribe
                             self.on_double_clap()
+                        if self.on_block is not None:
+                            try:
+                                self.on_block(block, segmenter.in_speech)
+                            except Exception:  # a listener on the side never costs the mic
+                                log.exception("a microphone tap failed; it's off")
+                                self.on_block = None
                         utterance = segmenter.feed(block, rms)
                         if utterance is not None:
                             self.on_utterance(utterance)

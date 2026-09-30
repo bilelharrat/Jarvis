@@ -626,9 +626,11 @@ class Hub:
             effect=self.prefs.voice_effect,
             cloud=cloud_voice_from(settings),
         )
-        # The Mac voice picked for a language in Settings › Speaking ("": the default);
-        # the voice feature (features/voice.py) sets it.
+        # The Mac voice picked for a language in Settings › Speaking ("": the default),
+        # and the words Apple's live recognizer heard for an utterance (None: Whisper
+        # transcribes it); the voice feature (features/voice.py) sets them.
         self.mac_voice_for: Callable[[str], str] = lambda _language: ""
+        self.heard_live: Callable[[Any], str | None] | None = None
         self._speak_language()
         self.transcriber = transcriber
         self.recorder = recorder
@@ -1916,7 +1918,12 @@ class Hub:
 
     def _transcribe(self, stt: Any, audio: Any) -> str:
         """Whisper with the owner's learned words as hints (nothing learned: exactly as
-        before). Runs in a thread; hearing.fix() then applies corrections on the loop."""
+        before). Runs in a thread; hearing.fix() then applies corrections on the loop.
+        With Apple's recognizer on (Settings › Listening), the words it already heard."""
+        if self.heard_live is not None and stt is self.transcriber:
+            heard = self.heard_live(audio)
+            if heard is not None:
+                return heard
         base = lang.WAKE_HINT_ZH if lang.is_zh(self.language) else "Jarvis"
         hints = self.hearing.hotwords(base)
         return stt.transcribe(audio, hints) if hints != base else stt.transcribe(audio)
@@ -3290,10 +3297,12 @@ class Hub:
 
         began = (at or heard_at) - _audio_seconds(audio)
         armed = self._armed(began)
-        for_me = (
-            lang.find_wake(text, self.language)[0] or armed or self._voice_question() is not None
-        )
-        if not (for_me and lang.sounds_finished(text, self.language)):
+        woke, command = lang.find_wake(text, self.language)
+        for_me = woke or armed or self._voice_question() is not None
+        # Just the name, then a pause ("Jarvis."): listening starts now, not after the full
+        # quiet, and what they say next is heard in the listening window.
+        bare = woke and not command
+        if not (for_me and (lang.sounds_finished(text, self.language) or bare)):
             return
         if self._listener is None or not self._listener.commit(number):
             return  # they kept talking: the full utterance will come instead

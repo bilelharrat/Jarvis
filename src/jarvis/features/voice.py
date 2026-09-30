@@ -8,6 +8,10 @@ Listening
   threshold. If the model can't load, loudness decides and Settings says why.
 - Wake words (wakewords.py): "Jarvis", the persona's own name, and any the owner adds;
   wake.py hears them (configured here), "Jarvis" anywhere, the others when called.
+- Speech recognition: Whisper (the default), or Apple's on-device recognizer (stt_apple.py),
+  which hears utterances as they're said: live captions, the wake word spotted before you
+  finish, and the words ready about 0.2 s after you stop (hub.heard_live), on the Neural
+  Engine. Its model downloads (from Apple, by macOS) only when the owner presses Download.
 
 Speaking (speaking.py): the provider (Mac, ElevenLabs, Fish Audio; .env's until picked
 here), the voice, API keys (Keychain), model, speed and a preview; mute is remembered
@@ -18,7 +22,8 @@ The window side is web/features/voice.js (+ .css), its Chinese web/i18n/voice.js
 Commands: voice_status (the pane's state, as a "voice" event), voice_settings ({"changes":
 {...}}: the pane's settings, checked here, kept in prefs.features), voice_list
 ({"provider"}), voice_preview ({"provider", "voice"}), voice_key ({"provider", "key"}: to
-the Keychain) and voice_key_forget ({"provider"}).
+the Keychain), voice_key_forget ({"provider"}) and voice_engine_download. Live captions go
+to the window as "voice_live" events ({"text", "final"}).
 
 Cost policy: no Claude model is called here. The voice detector is local (onnxruntime,
 about 0.2 ms of CPU per 32 ms of audio while hands-free listens). Listing cloud voices
@@ -36,10 +41,12 @@ from .. import prefs as prefs_module
 from .. import vad, wake, wakewords
 from ..speaking import PREFS as SPEAKING_PREFS
 from ..speaking import Speaking
+from ..stt_apple import LiveEars
 
 log = logging.getLogger("jarvis")
 
 DETECTORS = ("neural", "energy")
+ENGINES = ("whisper", "apple")
 
 
 def _clean_detector(value: Any) -> str | None:
@@ -51,11 +58,12 @@ prefs_module.register_feature_pref(
     "voice_vad_threshold", vad.DEFAULT_THRESHOLD, vad.clean_threshold
 )
 prefs_module.register_feature_pref("wake_words", wakewords.EMPTY, wakewords.clean_pref)
+prefs_module.register_feature_pref("voice_engine", "whisper", lambda v: v if v in ENGINES else None)
 for _key, (_default, _clean) in SPEAKING_PREFS.items():
     prefs_module.register_feature_pref(_key, _default, _clean)
 
 # The settings voice_settings may change (and nothing else of prefs.features).
-SETTINGS = ("voice_detector", "voice_vad_threshold")
+SETTINGS = ("voice_detector", "voice_vad_threshold", "voice_engine")
 
 _FEATURES: weakref.WeakKeyDictionary[Any, Voice] = weakref.WeakKeyDictionary()
 
@@ -72,6 +80,7 @@ class Voice:
         self.model_checked = False
         self.wake_error = ""  # why the last wake word change didn't happen (shown once)
         self.speaking = Speaking(hub)
+        self.ears = LiveEars(hub, on_change=self.emit)
 
     # ── hands-free listening ──
 
@@ -84,6 +93,7 @@ class Voice:
             on_utterance, on_level, silence_seconds, getattr(self.hub.prefs, "mic", "builtin")
         )
         listener.voice_factory = self.voice_detector
+        listener.on_block = self.ears.tap  # Apple's recognizer, when it's the one chosen
         self.listener = listener
         return listener
 
@@ -112,6 +122,8 @@ class Voice:
             "neural_why": why,
             "wake_words": wakewords.of(self.hub.prefs),
             "wake_error": self.wake_error,
+            "engine": self.hub.prefs.feature("voice_engine"),
+            "apple": self.ears.public(),
             "muted": bool(getattr(self.hub.speaker, "muted", False)),
             "effect": bool(getattr(self.hub.prefs, "voice_effect", False)),
             **self.speaking.public(),
@@ -140,6 +152,9 @@ class Voice:
         if before["voice_detector"] != after["voice_detector"]:
             log.info("voice detection: %s", after["voice_detector"])
             self._reopen_listener()  # the new detector from the next block on
+        if before["voice_engine"] != after["voice_engine"]:
+            log.info("speech recognition: %s", after["voice_engine"])
+            self.hub._spawn(self.ears.refresh())  # seconds the first time: in the background
         self.wake_error = ""
         for key, change in (("wake_add", wakewords.add), ("wake_remove", wakewords.remove)):
             if key in changes:
@@ -174,6 +189,16 @@ class Voice:
     async def forget_key(self, msg: dict[str, Any]) -> None:
         await self.speaking.forget_key(str(msg.get("provider") or ""))
         await self.status()
+
+    async def download_engine(self, _msg: dict[str, Any]) -> None:
+        self.hub._spawn(self.ears.download())
+
+    async def start_ears(self) -> None:
+        """At startup (the app only): onnxruntime kept off the network before anything
+        loads it (vad.quiet_onnxruntime), then Apple's recognizer if it's the one chosen."""
+        await asyncio.to_thread(vad.quiet_onnxruntime)
+        if self.ears.wanted():
+            await self.ears.refresh()
 
     def emit_busy(self, what: str) -> None:
         self.speaking.busy = what
@@ -210,10 +235,13 @@ def install(hub: Any) -> None:
     hub._speak_language()
     if hub.prefs.feature("voice_muted"):  # muted when the app last quit
         hub.speaker.muted = True
+    hub.heard_live = voice.ears.heard_live  # None from it: Whisper, as before
     hub.register_loop("voice_setup", voice.speaking.setup)
+    hub.register_loop("voice_ears", voice.start_ears)
     hub.register_command("voice_status", voice.status)
     hub.register_command("voice_settings", voice.settings)
     hub.register_command("voice_list", voice.list_voices)
     hub.register_command("voice_preview", voice.preview)
     hub.register_command("voice_key", voice.set_key)
     hub.register_command("voice_key_forget", voice.forget_key)
+    hub.register_command("voice_engine_download", voice.download_engine)

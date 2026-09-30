@@ -2580,6 +2580,35 @@ test('Speaking: .env is the default, a key goes once and never stays, voices are
     { type: 'voice_preview', provider: 'say', voice: 'Ava (Premium)' }, { type: 'voice_settings', changes: { voice_provider: '' } }]), JSON.stringify(s));
 });
 
+test('Speech recognition: Apple offers its download only on a press, and captions come and go', async () => {
+  await loadVoiceFeature('voice');
+  const voice = (apple, engine = 'apple') => js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'],
+    engine: ${JSON.stringify(engine)}, apple: ${JSON.stringify(apple)}, provider: 'say', clouds: {}, mac_voices: [], speed: 100 }); true`);
+  await voice({ state: 'off' }, 'whisper');
+  let r = await js(`({ checked: $('voice-engine').querySelector('[aria-checked="true"]').textContent, note: $('voice-engine-note').textContent, dl: $('voice-engine-download').hidden })`);
+  assert(r.checked === 'Whisper' && /once you stop talking/.test(r.note) && r.dl, JSON.stringify(r));
+  await voice({ state: 'needs_model', locale: 'zh-CN', bytes: 123000000, progress: 0 });
+  r = await js(`({ note: $('voice-engine-note').textContent, size: $('voice-engine-size').textContent, dl: $('voice-engine-download').hidden })`);
+  assert(/for Chinese isn’t on this Mac yet/.test(r.note) && r.size === 'About 123 MB.' && !r.dl, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await clickText('#voice-listening', 'Download');
+  assert(JSON.stringify(await sent()) === '["voice_engine_download"]', JSON.stringify(await sent()));
+  await voice({ state: 'downloading', locale: 'zh-CN', bytes: 123000000, progress: 0.42 });
+  assert(await js(`$('voice-engine-note').textContent === 'Downloading from Apple… 42%' && $('voice-engine-download').hidden`), 'no progress');
+  await voice({ state: 'on', locale: 'en-US' });
+  await js(`__sent.length = 0; true`);
+  await clickText('#voice-engine', 'Whisper');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_settings', changes: { voice_engine: 'whisper' } }]), 'no switch');
+
+  await js(`featureEvent({ type: 'voice_live', text: 'Jarvis, what’s the', final: false }); true`);
+  r = await js(`({ heard: $('heard').textContent, live: $('heard').classList.contains('live') })`);
+  assert(r.heard === '“Jarvis, what’s the…”' && r.live, JSON.stringify(r));
+  // The request takes the caption's place (and isn't cleared by it later).
+  await js(`onEvent({ type: 'turn', rid: 'r1', user: 'what’s the weather' }); featureEvent({ type: 'turn', rid: 'r1', user: 'what’s the weather' }); true`);
+  r = await js(`({ heard: $('heard').textContent, live: $('heard').classList.contains('live') })`);
+  assert(r.heard === '“what’s the weather”' && !r.live, JSON.stringify(r));
+});
+
 // ──
 
 let base;

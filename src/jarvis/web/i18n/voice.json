@@ -47,7 +47,16 @@
     "The provider's answer wasn't a voice list.": "服务提供方返回的不是声音列表。",
     "Paste the API key first.": "请先粘贴 API 密钥。",
     "That's far too long for an API key; paste just the key.": "这对 API 密钥来说太长了；只粘贴密钥本身。",
-    "That key has spaces or unusual characters in it; paste just the key.": "这个密钥里有空格或不寻常的字符；只粘贴密钥本身。"
+    "That key has spaces or unusual characters in it; paste just the key.": "这个密钥里有空格或不寻常的字符；只粘贴密钥本身。",
+    "Speech recognition": "语音识别",
+    "Turns what you say into words, all on this Mac.": "把你说的话转成文字，全部在这台 Mac 上完成。",
+    "Apple (streaming)": "Apple（流式）",
+    "Whisper, on this Mac: your words are read once you stop talking.": "Whisper，在这台 Mac 上运行：等你说完再识别。",
+    "Apple’s recognizer, on this Mac: captions as you speak, on the Neural Engine so a busy Mac doesn’t slow it; its words run about a second behind you.": "Apple 的识别器，在这台 Mac 上运行：边说边出字幕，用的是神经网络引擎，Mac 再忙也不会拖慢它；字幕比你说话大约慢一秒。",
+    "Getting Apple’s recognizer ready…": "正在准备 Apple 的识别器…",
+    "Apple’s speech model for English isn’t on this Mac yet. macOS downloads it from Apple when you press Download.": "这台 Mac 上还没有 Apple 的英语语音模型。按“下载”后，macOS 会从 Apple 下载。",
+    "Apple’s speech model for Chinese isn’t on this Mac yet. macOS downloads it from Apple when you press Download.": "这台 Mac 上还没有 Apple 的中文语音模型。按“下载”后，macOS 会从 Apple 下载。",
+    "Starts when hands-free listens.": "免提开始聆听时启动。"
   },
   "patterns": [
     [
@@ -101,6 +110,18 @@
     [
       "^The provider answered (\\d+); try again later\\.$",
       "服务提供方返回了 $1；请稍后再试。"
+    ],
+    [
+      "^About (\\d+) MB\\.$",
+      "约 $1 MB。"
+    ],
+    [
+      "^Downloading from Apple… (\\d+)%$",
+      "正在从 Apple 下载… $1%"
+    ],
+    [
+      "^Apple’s recognizer couldn’t start \\((.+)\\), so Whisper listens\\.$",
+      "Apple 的识别器无法启动（$1），所以由 Whisper 来听。"
     ]
   ]
 }

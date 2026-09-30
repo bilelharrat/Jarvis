@@ -311,7 +311,53 @@
   wakeError.id = 'voice-wake-error';
   wakeError.hidden = true;
 
-  listening.append(detectorRow, detector, detectorNote, sensitivity, wakeRow, wakeList, wakeForm, wakeError);
+  // Speech recognition: Whisper, or Apple's on-device recognizer (with its model's download).
+  const engineRow = row('Speech recognition', 'Turns what you say into words, all on this Mac.', null);
+  const engine = el('div', 'segmented');
+  engine.id = 'voice-engine';
+  engine.setAttribute('role', 'radiogroup');
+  engine.setAttribute('aria-label', 'Speech recognition');
+  engine.append(
+    radio('Whisper', 'whisper', 'engine', (v) => change({ voice_engine: v })),
+    radio('Apple (streaming)', 'apple', 'engine', (v) => change({ voice_engine: v })),
+  );
+  engine.firstChild.setAttribute('data-no-i18n', '');
+  const engineNote = el('p', 'small-status');
+  engineNote.id = 'voice-engine-note';
+  const engineSize = el('p', 'small-status');
+  engineSize.id = 'voice-engine-size';
+  const download = el('button', 'btn', 'Download');
+  download.type = 'button';
+  download.id = 'voice-engine-download';
+  download.addEventListener('click', () => { download.disabled = true; send({ type: 'voice_engine_download' }); });
+
+  listening.append(detectorRow, detector, detectorNote, sensitivity, engineRow, engine, engineNote, engineSize, download,
+    wakeRow, wakeList, wakeForm, wakeError);
+
+  function renderEngine() {
+    const kind = state.engine === 'apple' ? 'apple' : 'whisper';
+    engine.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.engine === kind)));
+    const apple = state.apple || {};
+    const language = (apple.locale || '').startsWith('zh') ? 'Chinese' : 'English';
+    let note = 'Whisper, on this Mac: your words are read once you stop talking.';
+    let size = '';
+    if (kind === 'apple') {
+      if (apple.state === 'on') note = 'Apple’s recognizer, on this Mac: captions as you speak, on the Neural Engine so a busy Mac doesn’t slow it; its words run about a second behind you.';
+      else if (apple.state === 'preparing') note = 'Getting Apple’s recognizer ready…';
+      else if (apple.state === 'needs_model') {
+        note = `Apple’s speech model for ${language} isn’t on this Mac yet. macOS downloads it from Apple when you press Download.`;
+        if (apple.bytes > 0) size = `About ${Math.max(1, Math.round(apple.bytes / 1e6))} MB.`;
+      } else if (apple.state === 'downloading') note = `Downloading from Apple… ${Math.round((apple.progress || 0) * 100)}%`;
+      else if (apple.state === 'failed') note = `Apple’s recognizer couldn’t start (${apple.why || 'unknown'}), so Whisper listens.`;
+      else note = 'Starts when hands-free listens.';
+    }
+    engineNote.textContent = note;
+    engineSize.textContent = size;
+    engineSize.hidden = !size;
+    download.hidden = !(kind === 'apple' && apple.state === 'needs_model');
+    download.disabled = false;
+    if (apple.state === 'needs_model' && apple.why) engineNote.title = apple.why;
+  }
 
   function renderWakeWords() {
     const words = state.wake_words || [];
@@ -383,7 +429,25 @@
   }
 
   place();
-  F.on('voice', (ev) => { state = ev; place(); render(); renderWakeWords(); renderSpeaking(); }, { replay: true });
+  F.on('voice', (ev) => { state = ev; place(); render(); renderEngine(); renderWakeWords(); renderSpeaking(); }, { replay: true });
+
+  // Live captions under the orb while you talk to Jarvis (Apple's recognizer): the words so
+  // far, then gone a few seconds after the last unless the request took their place.
+  let caption = '';
+  let captionTimer = null;
+  F.on('voice_live', (ev) => {
+    const heard = F.$('heard');
+    if (!heard || !ev.text) return;
+    caption = ev.final ? `“${ev.text}”` : `“${ev.text}…”`;
+    heard.textContent = caption;
+    heard.classList.add('live');
+    clearTimeout(captionTimer);
+    captionTimer = setTimeout(() => {
+      if (heard.textContent === caption) heard.textContent = '';
+      heard.classList.remove('live');
+    }, 4000);
+  });
+  F.on('turn', () => { clearTimeout(captionTimer); const heard = F.$('heard'); if (heard) heard.classList.remove('live'); });
   F.on('prefs', () => hint());  // app.js writes the hint afresh with each settings change
   // A new connection (or backend) sends its own hello: ask for the pane's state again.
   F.on('hello', () => send({ type: 'voice_status' }), { replay: true });
