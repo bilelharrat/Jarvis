@@ -42,8 +42,8 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>J.A.R.V.I.S. listens for its name and when you tap the orb or press Option-Space. A website in its built-in browser gets the microphone only after you allow that site.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>J.A.R.V.I.S. reads your open reminders into your second brain when you turn Reminders on. It never changes them.</string>
+	<string>J.A.R.V.I.S. reads your open reminders into your second brain when you turn Reminders on, and adds, ticks off or deletes one when you ask it to (deleting asks first).</string>
 	<key>NSRemindersUsageDescription</key>
-	<string>J.A.R.V.I.S. reads your open reminders into your second brain when you turn Reminders on. It never changes them.</string>
+	<string>J.A.R.V.I.S. reads your open reminders into your second brain when you turn Reminders on, and adds, ticks off or deletes one when you ask it to (deleting asks first).</string>
 </dict>
 </plist>
