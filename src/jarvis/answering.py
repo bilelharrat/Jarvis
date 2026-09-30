@@ -104,7 +104,9 @@ MINUTES = (15, 30, 45, 60)
 HOURS = "09:00-17:00"
 WHISPER_RATE = 16_000
 BUILD_WAIT = 180
-MODEL = "claude-opus-5-5"  # what the Function talks with (its CLAUDE_MODEL variable)
+# What the Function talks with (its CLAUDE_MODEL variable): the fastest model that holds a
+# phone call to its rules; line.js has the cost policy (one request a turn, on the owner's key).
+MODEL = "claude-sonnet-5-5"
 KEY_VARIABLE, MODEL_VARIABLE = "ANTHROPIC_API_KEY", "CLAUDE_MODEL"
 # The cloud voice the Mac speaks with, as the Function's variables (line.js "JARVIS's voice").
 VOICE_VARIABLES = {
@@ -1749,6 +1751,14 @@ class Answering:
             outcome = (talk or {}).get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
             call.transcript = transcript(talk, call.name or "They")
+            timing = [t for t in (talk or {}).get("timing") or [] if isinstance(t, int)]
+            if timing:  # how long Claude took each turn, as the Function measured it
+                log.info(
+                    "answering: a call's %d turns took Claude %d ms on average (slowest %d ms)",
+                    len(timing),
+                    sum(timing) // len(timing),
+                    max(timing),
+                )
             if status != "completed":
                 call.status = "failed"
                 call.words = {

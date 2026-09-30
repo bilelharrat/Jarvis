@@ -58,8 +58,10 @@ const { handler } = mod.exports;
 mod.exports.wait = async () => {}; // the hold step's looks, without the waits
 
 // Claude: each create() answers with the next reply queued (an object: its JSON; an Error:
-// thrown; 'refusal': a decline), and keeps what it was asked.
-const claude = { replies: [], requests: [], key: '' };
+// thrown; 'refusal': a decline; {fallback: [first, second]}: the first model's start, then
+// the second's whole reply), streamed a few characters at a time as the API streams, and
+// keeps what it was asked and how much of the reply was read before the stream was stopped.
+const claude = { replies: [], requests: [], key: '', read: [], stopped: [] };
 mod.exports.claude = (key) => {
   claude.key = key;
   return {
@@ -69,8 +71,29 @@ mod.exports.claude = (key) => {
           claude.requests.push({ params, options });
           const next = claude.replies.shift();
           if (next instanceof Error) throw next;
-          if (next === 'refusal') return { stop_reason: 'refusal', content: [] };
-          return { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify(next) }] };
+          const order = Object.keys(params.output_config.format.schema.properties);
+          const json = (r) => JSON.stringify(Object.fromEntries(order.map((k) => [k, r[k]])));
+          const turn = claude.read.push(0) - 1;
+          claude.stopped[turn] = false;
+          const events = (async function* () {
+            yield { type: 'message_start', message: {} };
+            if (next === 'refusal') {
+              yield { type: 'message_delta', delta: { stop_reason: 'refusal' } };
+              return;
+            }
+            const parts = next && next.fallback ? [json(next.fallback[0]).slice(0, 30), json(next.fallback[1])] : [json(next)];
+            for (const [index, text] of parts.entries()) {
+              if (index) yield { type: 'content_block_start', index: 2 * index, content_block: { type: 'fallback' } };
+              yield { type: 'content_block_start', index: 2 * index + 1, content_block: { type: 'text', text: '' } };
+              for (let i = 0; i < text.length; i += 5) {
+                claude.read[turn] += Math.min(5, text.length - i);
+                yield { type: 'content_block_delta', index: 2 * index + 1, delta: { type: 'text_delta', text: text.slice(i, i + 5) } };
+              }
+            }
+            yield { type: 'message_delta', delta: { stop_reason: 'end_turn' } };
+          })();
+          events.controller = { abort() { claude.stopped[turn] = true; } };
+          return events;
         },
       },
     },
@@ -94,7 +117,7 @@ const open = [
 
 function reset(doc) {
   Object.assign(sync, { doc, items: [], talks: {}, down: false, requests: [] });
-  Object.assign(claude, { replies: [], requests: [], key: '' });
+  Object.assign(claude, { replies: [], requests: [], key: '', read: [], stopped: [] });
 }
 
 function call(event, context = TALKING) {
@@ -145,13 +168,17 @@ test("each turn sends Claude the conversation and speaks its reply, listening ag
   assert.match(xml, /<Gather input="speech"[^>]*><Say voice="Polly\.Brian-Neural">Of course\. May I have your name\?<\/Say><\/Gather>/);
   const { params, options } = claude.requests[0];
   assert.equal(claude.key, 'sk-ant-test');
-  assert.equal(params.model, 'claude-opus-5-5');
+  assert.equal(params.model, 'claude-sonnet-5-5');
+  assert.deepEqual(params.thinking, { type: 'between_tools' });
+  assert.equal(params.stream, true);
+  assert.ok(params.max_tokens <= 1000);
   assert.deepEqual(params.betas, ['server-side-fallback-2026-07-01']);
   assert.equal(params.fallbacks, 'default');
   assert.equal(params.output_config.effort, 'low');
+  assert.deepEqual(Object.keys(params.output_config.format.schema.properties).slice(0, 2), ['action', 'say']);
   assert.equal(params.output_config.format.type, 'json_schema');
   assert.equal(params.output_config.format.schema.additionalProperties, false);
-  assert.ok(options.timeout <= 8000);
+  assert.ok(options.timeout <= 6000);
   assert.match(params.system, /You are Jarvis \(J\.A\.R\.V\.I\.S\.\), Bilel's AI assistant, answering a phone call/);
   assert.match(params.system, new RegExp(`${open[0].start} = Thursday at 10 AM`));
   assert.match(params.system, /Bilel confirms it, and Jarvis calls them back/);
@@ -449,7 +476,7 @@ test('when the card does not cover it, Jarvis says it will check and holds the c
   wellFormed(xml);
   assert.match(xml, /One moment, let me check\.<\/Say><Redirect method="POST">[^<]*step=hold&amp;t=m1<\/Redirect><\/Response>$/);
   assert.equal(talkOf('m1').ask.q, 'Can we do Tuesday instead?');
-  assert.match(claude.requests[0].params.system, /use action "ask_owner" with question/);
+  assert.match(claude.requests[0].params.system, /action "ask_owner" with question/);
   xml = await placed({ step: 'hold' }); // no answer yet: a short pause and another look
   assert.match(xml, /<Response><Pause length="1"\/><Redirect method="POST">[^<]*step=hold/);
   assert.equal(claude.requests.length, 1);
@@ -527,4 +554,45 @@ test('after the owner takes a call over, it ends as theirs; if they do not pick 
   xml = await placed({ step: 'back', DialCallStatus: 'no-answer' });
   assert.match(xml, /Bilel couldn't come to the phone just now, so Bilel will call you back\. Thank you\. Goodbye\.<\/Say><Hangup\/>/);
   assert.equal(talkOf('m1').outcome.status, 'partial');
+});
+
+// ── a turn's speed ──
+
+test("a placed call's turn goes back to Twilio as soon as its line is written", async () => {
+  reset({ owner: 'Bilel' });
+  errand({ commit: true });
+  await placed({ step: 'dial', AnsweredBy: 'human' });
+  claude.replies.push(reply({ say: 'Hi, this is Jarvis, an AI assistant calling for Bilel. I\'d like to cancel a plan.', note_for_owner: 'x'.repeat(300) }));
+  const xml = await placed({ step: 'talk', SpeechResult: 'Comcast, how can I help?' });
+  assert.match(xml, /I'd like to cancel a plan\.<\/Say>/);
+  assert.equal(claude.stopped[0], true);
+  assert.ok(claude.read[0] < 160, `read ${claude.read[0]} characters`); // not the 300-character gist
+  assert.equal(talkOf('m1').timing.length, 1);
+  // An action that needs the rest of the reply reads all of it.
+  claude.replies.push(reply({ say: 'Thanks, goodbye.', action: 'end', outcome: 'done', outcome_details: 'Cancelled.' }));
+  await placed({ step: 'talk', SpeechResult: "It's cancelled." });
+  assert.equal(claude.stopped[1], false);
+  assert.equal(talkOf('m1').outcome.details, 'Cancelled.');
+});
+
+test("a caller's conversation reads the whole reply, for the gist the owner hears", async () => {
+  reset({ owner: 'Bilel', talk: true });
+  await call({});
+  claude.replies.push(reply({ say: 'Of course.', note_for_owner: 'Sam wants a call back.' }));
+  await call({ step: 'talk', t: 'CA1', SpeechResult: 'Can Bilel call me back?' });
+  assert.equal(claude.stopped[0], false);
+  assert.equal(talkOf().note, 'Sam wants a call back.');
+});
+
+test('a reply another model took over is read from its own start; a decline mid-stream is polite', async () => {
+  reset({ owner: 'Bilel' });
+  errand({ commit: true });
+  await placed({ step: 'dial', AnsweredBy: 'human' });
+  claude.replies.push({ fallback: [reply({ say: 'Something the first model started' }), reply({ say: 'Hi, this is Jarvis, an AI assistant calling for Bilel.' })] });
+  let xml = await placed({ step: 'talk', SpeechResult: 'Hello?' });
+  assert.match(xml, /<Say[^>]*>Hi, this is Jarvis, an AI assistant calling for Bilel\.<\/Say>/);
+  assert.doesNotMatch(xml, /first model/);
+  claude.replies.push('refusal');
+  xml = await placed({ step: 'talk', SpeechResult: 'Something odd.' });
+  assert.match(xml, /I can't help with that/);
 });
