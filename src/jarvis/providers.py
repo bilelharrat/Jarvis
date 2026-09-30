@@ -786,6 +786,16 @@ class ProviderStore:
     def _key(self, provider: Provider) -> str:
         return self._saved(provider)["key"]
 
+    def anthropic_key(self) -> str:
+        """The key of the first Anthropic provider added ("" when there's none): what the
+        Jarvis number talks with on Twilio."""
+        for provider in self.providers.values():
+            if provider.kind == "anthropic":
+                key = self._read_vault(provider.id)
+                if key:
+                    return key
+        return ""
+
     def _bump(self, provider_id: str) -> None:
         self._versions[provider_id] = self._versions.get(provider_id, 0) + 1
 

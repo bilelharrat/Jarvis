@@ -777,6 +777,8 @@ function renderPrefs(p) {
   if (document.activeElement !== $('phone-from')) $('phone-from').value = p.phone_from || '';
   if (document.activeElement !== $('phone-me')) $('phone-me').value = p.phone_me || '';
   setSwitch('sw-wake-call', p.wake_call);
+  setSwitch('sw-line-talk', p.line_talk !== false);
+  if (document.activeElement !== $('line-about')) $('line-about').value = p.line_about || '';
   setSwitch('sw-line-booking', p.line_booking !== false);
   setSwitch('sw-line-autobook', !!p.line_autobook);
   $('line-minutes').value = String(p.line_minutes || 30);
@@ -1005,6 +1007,8 @@ $('sw-line').addEventListener('click', () => {
   $('line-note').textContent = tr(lineOn ? 'Turning answering off…' : 'Setting up answering on your Twilio account (about a minute)…');
   send({ type: 'line_set', on: !lineOn });
 });
+$('sw-line-talk').addEventListener('click', () => setPrefs({ line_talk: prefs.line_talk === false }));
+$('line-about').addEventListener('change', (e) => setPrefs({ line_about: e.target.value }));
 $('sw-line-booking').addEventListener('click', () => setPrefs({ line_booking: prefs.line_booking === false }));
 $('sw-line-autobook').addEventListener('click', () => setPrefs({ line_autobook: !prefs.line_autobook }));
 $('line-minutes').addEventListener('change', (e) => setPrefs({ line_minutes: Number(e.target.value) }));
@@ -4958,8 +4962,14 @@ function renderRoutines(items) {
 
 // The calls to the Jarvis number, newest first: who, when, what they said (theirs, never
 // translated), and for a time a caller asked for, Book and Let go.
-const LINE_KINDS = { message: 'Left a message', booking: 'Wants to meet', schedule: 'Wants a time', missed: 'Missed call' };
-const LINE_STATUS = { booked: 'Booked', declined: 'Let go', replaced: 'Asked again' };
+const LINE_KINDS = {
+  message: 'Left a message', booking: 'Wants to meet', schedule: 'Wants a time', missed: 'Missed call',
+  talk: 'Talked with Jarvis', errand: 'Called for you',
+};
+const LINE_STATUS = {
+  booked: 'Booked', declined: 'Let go', replaced: 'Asked again',
+  calling: 'On the call', done: 'Done', failed: "Didn't work out", partial: 'Partly done',
+};
 function renderLine(line) {
   lineOn = !!line.on;
   setSwitch('sw-line', lineOn);
@@ -4977,7 +4987,7 @@ function renderLine(line) {
     // and the clock, so each is translated as it appears.
     const about = el('small');
     about.append(el('bdi', '', LINE_KINDS[c.kind] || ''));
-    if (c.kind === 'booking') about.append(' · ', mine(el('bdi', '', c.said)));
+    if (c.kind === 'booking' || (c.kind === 'errand' && c.said)) about.append(' · ', mine(el('bdi', '', c.said)));
     if (LINE_STATUS[c.status]) about.append(' · ', el('bdi', '', LINE_STATUS[c.status]));
     if (when) about.append(' · ', mine(el('bdi', '', when)));
     text.append(mine(el('strong', '', c.who)), about);

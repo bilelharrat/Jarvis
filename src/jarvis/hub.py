@@ -674,6 +674,8 @@ class Hub:
             after_call=self._follow_call,
             changed=self._line_changed,
             calendar=settings.calendar,
+            # Settings › Models' Anthropic key: what callers talk with (set up below).
+            claude_key=lambda: self.providers.anthropic_key(),
         )
         from .prefs import APP_SUPPORT
         from .tasks import RuleStore
@@ -4401,9 +4403,16 @@ class Hub:
             )
         if "weather_city" in changed:
             self._spawn(self._refresh_weather())
-        if {"line_booking", "line_minutes", "line_hours", "line_autobook", "owner_name"} & set(
-            changed
-        ):
+        if {
+            "line_booking",
+            "line_minutes",
+            "line_hours",
+            "line_autobook",
+            "line_talk",
+            "line_about",
+            "owner_name",
+            "phone_me",
+        } & set(changed):
             self._spawn(self._republish_line())  # what callers hear and are offered
         if "watchlist" in changed:
             self._spawn(self.refresh_markets())
@@ -5050,10 +5059,17 @@ class Hub:
     def _call_heard(self, call: answering.Call, text: str, speak: bool) -> None:
         """A call to the Jarvis number, collected: a heads-up, even with heads-ups off (the
         owner turned answering on to hear of them)."""
-        titles = {"missed": "Missed call", "booking": "Booking request"}
+        titles = {
+            "missed": "Missed call",
+            "booking": "Booking request",
+            "talk": "Phone call",
+            "errand": "Call for you",
+        }
         title = titles.get(call.kind, "Voicemail")
         if call.kind == "booking" and call.status == "booked":
             title = "Booked by phone"
+        if call.kind == "errand" and call.title and call.status == "done":
+            title = "Booked for you"
         alert = Alert(f"voicemail:{call.id[-8:]}", "voicemail", title, text)
         alert.note = answering.alert_note(call)
         self.notify(alert, speak=speak)
