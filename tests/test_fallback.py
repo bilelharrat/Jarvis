@@ -20,6 +20,7 @@ from test_hub import drain, make_hub
 
 from jarvis import tasks as tasks_module
 from jarvis.hub import FALLBACK_SECONDS
+from jarvis.providers import ProviderStore
 
 GEMINI_REF = "custom:gem1"
 
@@ -177,19 +178,63 @@ async def test_without_a_fallback_a_session_says_how_to_get_one(
 
 
 async def test_a_gemini_key_brings_flash_and_pro_and_automatic_picks_flash(
-    settings, quiet_speaker, isolated
+    settings, quiet_speaker, isolated, monkeypatch
 ):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    # Google's list, as ProviderStore.newest_gemini reads it (tests never ask Google).
+    listed = {
+        "flash": ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        "pro": ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+    }
+
+    async def newest(_store, _provider_id, _client=None):
+        return dict(listed)
+
+    monkeypatch.setattr(ProviderStore, "newest_gemini", newest)
     google = hub.providers.add_provider("gemini", "", "AIza" + "b" * 35)
     await hub._gemini_added(google["id"])
-    models = {m["model"]: m["ref"] for m in hub.providers.models() if not m["builtin"]}
-    assert list(models) == ["gemini-flash-latest", "gemini-pro-latest"]
+    models = {m["model"]: m for m in hub.providers.models() if not m["builtin"]}
+    # By number, as Google names them
+    assert [(model, m["label"]) for model, m in models.items()] == [
+        ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+    ]
     assert hub.prefs.fallback_model == ""  # left on Automatic, which picks Flash
-    assert hub._fallback_ref() == models["gemini-flash-latest"]
+    assert hub._fallback_ref() == models["gemini-3.8-flash"]["ref"]
+    # A key Google won't list gets the undated names.
+    listed.clear()
+    work = hub.providers.add_provider("gemini", "Work", "AIza" + "c" * 35)["id"]
+    await hub._gemini_added(work)
+    assert [(e.model, e.label) for e in hub.providers.models_of(work)] == [
+        ("gemini-flash-latest", "Gemini Flash"),
+        ("gemini-pro-latest", "Gemini Pro"),
+    ]
     # A fallback turned off stays off when a key is added.
     hub.prefs.fallback_model = "off"
-    await hub._gemini_added(hub.providers.add_provider("gemini", "Work", "AIza" + "c" * 35)["id"])
+    await hub._gemini_added(hub.providers.add_provider("gemini", "Home", "AIza" + "d" * 35)["id"])
     assert hub.prefs.fallback_model == "off" and hub._fallback_ref() == ""
+
+
+async def test_gemini_models_added_before_the_numbers_are_numbered_at_start(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+
+    async def newest(_store, _provider_id, _client=None):
+        return {"flash": ("gemini-3.8-flash", "Gemini 3.8 Flash")}
+
+    monkeypatch.setattr(ProviderStore, "newest_gemini", newest)
+    google = hub.providers.add_provider("gemini", "", "AIza" + "b" * 35)["id"]
+    ref = hub.providers.add_model(google, "gemini-flash-latest", "Gemini Flash")["ref"]
+    hub.prefs.code_model = ref
+    await hub._number_gemini_starters()
+    (flash,) = [m for m in hub.providers.models() if not m["builtin"]]
+    assert (flash["ref"], flash["model"], flash["label"]) == (
+        ref,  # Jarvis Code's default is still this one
+        "gemini-3.8-flash",
+        "Gemini 3.8 Flash",
+    )
+    assert hub.providers.describe(hub.prefs.code_model) == "Gemini 3.8 Flash · Google Gemini"
 
 
 async def test_gemini_sessions_point_at_the_relay(monkeypatch):

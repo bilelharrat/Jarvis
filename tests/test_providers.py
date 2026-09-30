@@ -1342,6 +1342,85 @@ async def test_a_gemini_key_google_wont_list_for_offers_the_usual_models(tmp_pat
     assert [m["id"] for m in result["models"]] == list(providers.KINDS["gemini"].suggested)
 
 
+NUMBERED = {
+    "models": [
+        google_model("gemini-flash-latest", "Gemini Flash Latest"),
+        google_model("gemini-pro-latest", "Gemini Pro Latest"),
+        google_model("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        google_model("gemini-3.1-pro-preview-customtools", "Gemini 3.1 Pro Preview Custom Tools"),
+        google_model("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+        google_model("gemini-3.7-flash", "Gemini 3.7 Flash"),
+        google_model("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        google_model("gemini-3.8-flash-lite", "Gemini 3.8 Flash Lite"),
+        google_model("gemini-3.8-flash-tts", "Gemini 3.8 Flash TTS"),
+        google_model("gemini-omni-1.1-flash", "Gemini Omni 1.1 Flash"),
+    ]
+}
+
+
+async def test_a_gemini_keys_newest_flash_and_pro_are_found_by_number(tmp_path):
+    store = make_store(tmp_path)
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    seen = []
+    async with router_client({f"{GEMINI}?": answer(json=NUMBERED)}, seen) as client:
+        newest = await store.newest_gemini(pid, client)
+    # Not the undated names (Google doesn't say which model they are), nor Flash-Lite,
+    # speech, an unnumbered one or a variant: the newest numbered Flash and Pro.
+    assert newest == {
+        "flash": ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        "pro": ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+    }
+    assert [r.method for r in seen] == ["GET"]  # the list only: nothing is generated
+    # Google won't list (a Vertex AI express key can't): nothing is guessed.
+    async with router_client({f"{GEMINI}?": answer(403, json={})}, []) as client:
+        assert await store.newest_gemini(pid, client) == {}
+
+
+async def test_gemini_starters_added_before_the_numbers_get_them_in_place(tmp_path):
+    store = make_store(tmp_path)
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    flash = store.add_model(pid, "gemini-flash-latest", "Gemini Flash")["ref"]
+    pro = store.add_model(pid, "gemini-pro-latest", "Gemini Pro")["ref"]
+    lite = store.add_model(pid, "gemini-flash-lite-latest", "Gemini Flash Lite")["ref"]
+    seen = []
+    routes = {f"{GEMINI}?": answer(json=NUMBERED)}
+    async with router_client(routes, seen) as client:
+        assert await store.number_gemini_starters(pid, client)
+    # The same refs (whatever picked them keeps them), now numbered; one that isn't a
+    # starter stays as it is.
+    want = {
+        flash: ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        pro: ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+        lite: ("gemini-flash-lite-latest", "Gemini Flash Lite"),
+    }
+
+    def shown(s):
+        return {m["ref"]: (m["model"], m["label"]) for m in s.models() if not m["builtin"]}
+
+    assert shown(store) == want
+    assert shown(make_store(tmp_path)) == want  # saved
+    # Nothing left to number: Google isn't asked again.
+    seen.clear()
+    async with router_client(routes, seen) as client:
+        assert not await store.number_gemini_starters(pid, client)
+    assert seen == []
+
+
+async def test_a_renamed_starter_or_one_whose_number_is_there_already_stays(tmp_path):
+    store = make_store(tmp_path)
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    store.add_model(pid, "gemini-flash-latest", "Quick")  # renamed by hand
+    store.add_model(pid, "gemini-pro-latest", "Gemini Pro")
+    store.add_model(pid, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview")  # added already
+    async with router_client({f"{GEMINI}?": answer(json=NUMBERED)}, []) as client:
+        assert not await store.number_gemini_starters(pid, client)
+    assert [(m["model"], m["label"]) for m in store.models() if not m["builtin"]] == [
+        ("gemini-flash-latest", "Quick"),
+        ("gemini-pro-latest", "Gemini Pro"),
+        ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+    ]
+
+
 def test_adding_all_of_a_keys_models_at_once(tmp_path):
     store = make_store(tmp_path)
     pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]

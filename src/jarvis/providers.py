@@ -1143,6 +1143,63 @@ class ProviderStore:
             raise
         return True
 
+    async def newest_gemini(
+        self, provider_id: str, client: httpx.AsyncClient | None = None
+    ) -> dict[str, tuple[str, str]]:
+        """newest_gemini on a Gemini provider's key, from Google's list; {} when that can't
+        be read (no key, no network, a key that can't list, too slow)."""
+        provider = self.providers.get(str(provider_id or ""))
+        if provider is None or provider.kind != "gemini":
+            return {}
+        try:
+            key = self._key(provider)
+            async with asyncio.timeout(CHECK_DEADLINE):
+                if client is None:
+                    async with _default_client() as own:
+                        listed = await _gemini_models(own, key, provider)
+                else:
+                    listed = await _gemini_models(client, key, provider)
+        except Exception:  # the undated names stay: nothing is lost by not knowing
+            return {}
+        return newest_gemini(listed or [])
+
+    async def number_gemini_starters(
+        self, provider_id: str, client: httpx.AsyncClient | None = None
+    ) -> bool:
+        """The starters a Gemini key brought before the numbers showed (still "Gemini
+        Flash" on gemini-flash-latest) become the numbered models Google lists, in place:
+        the same entry, so whatever picked it (a session, the fallback, Jarvis Code's
+        default) keeps it. One renamed by hand, or whose numbered model is on the list
+        already, stays as it is. Google is asked only while there's one to number. True
+        when one changed (and the list was saved)."""
+        undated = {(model, label) for _, model, label in GEMINI_STARTERS}
+        if not any((e.model, e.label) in undated for e in self.models_of(provider_id)):
+            return False
+        newest = await self.newest_gemini(provider_id, client)
+        before = self._snapshot()
+        changed = False
+        for family, undated_id, undated_label in GEMINI_STARTERS:
+            if family not in newest:
+                continue
+            model, name = newest[family]
+            for entry in self.models_of(provider_id):
+                if (entry.model, entry.label) != (undated_id, undated_label):
+                    continue
+                if self._offers(provider_id, model):
+                    break  # the numbered one is there already
+                shown = clean_name(name, LABEL_LIMIT) or model
+                if self._passes_off(provider_id, model, shown, entry.id):
+                    shown = model
+                self.entries[entry.id] = ModelEntry(entry.id, entry.provider, model, shown)
+                changed = True
+        if changed:
+            try:
+                self._persist()
+            except ValueError:
+                self._restore(before)
+                raise
+        return changed
+
     def provider_of(self, ref: str | None) -> Provider | None:
         """The provider behind an added model's ref; None for Claude's own models."""
         entry = self._entry(str(ref or "")) if str(ref or "").startswith(CUSTOM) else None
@@ -1760,6 +1817,40 @@ def _gemini_rank(model_id: str) -> tuple[int, tuple[int, ...], int, bool, str]:
         family = 3  # neither Pro nor Flash: after them
     stable = "preview" not in model_id and "exp" not in model_id
     return (group, version, family, not stable, model_id)
+
+
+# The two models a Gemini key brings (hub._gemini_added), as (family, undated id, label).
+# Google doesn't say which model an undated "-latest" id is, so the numbered ones on its list
+# go on instead ("Gemini 3.8 Flash"); these are for a key that can't list (Vertex AI express
+# keys can't), and what keys added before the numbers showed still have.
+GEMINI_STARTERS = (
+    ("flash", "gemini-flash-latest", "Gemini Flash"),
+    ("pro", "gemini-pro-latest", "Gemini Pro"),
+)
+
+
+def _gemini_family(model_id: str) -> str:
+    """ "flash" or "pro" for a numbered Gemini Flash or Pro model, else "" (Flash-Lite too)."""
+    if not re.match(r"gemini-\d+(?:\.\d+)*-", model_id):
+        return ""
+    if re.search(r"-pro(?:-|$)", model_id):
+        return "pro"
+    if re.search(r"-flash(?:-|$)", model_id) and "-flash-lite" not in model_id:
+        return "flash"
+    return ""
+
+
+def newest_gemini(listed: list[dict[str, Any]]) -> dict[str, tuple[str, str]]:
+    """The newest numbered Flash and Pro on a key's list (as _gemini_models gives it: newest
+    first, a stable one before a preview of the same number), with Google's names:
+    {"flash": ("gemini-3.8-flash", "Gemini 3.8 Flash"), "pro": (…)}."""
+    out: dict[str, tuple[str, str]] = {}
+    for model in listed:
+        model_id = str(model.get("id") or "")
+        family = _gemini_family(model_id)
+        if family and family not in out:
+            out[family] = (model_id, str(model.get("name") or model_id))
+    return out
 
 
 def _offered(model: str, listed: set[str]) -> bool:

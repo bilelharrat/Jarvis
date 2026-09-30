@@ -101,8 +101,8 @@ from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
 from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore, clean_feature_values
 from .proactive import Alert, Watcher, in_quiet_hours
+from .providers import GEMINI_STARTERS, MAX_MODELS, ProviderStore
 from .providers import KINDS as PROVIDER_KINDS
-from .providers import MAX_MODELS, ProviderStore
 from .providers import PROMPT as MODELS_PROMPT
 from .providers import SERVER_NAME as MODELS_SERVER
 from .providers import build_server as models_server
@@ -1357,6 +1357,7 @@ class Hub:
             self._spawn(self._plan_loop())
             self._spawn(self._sysmon_loop())
             self._spawn(self._awake_loop())
+            self._spawn(self._number_gemini_starters())
             for name, factory in self._loops:
                 self._spawn(self._feature_loop(name, factory))
         await self._relay_if_needed()
@@ -5609,16 +5610,30 @@ class Hub:
 
     async def _gemini_added(self, provider_id: str) -> None:
         """One paste is enough: a Gemini key brings Gemini Flash (fast: the fallback's
-        Automatic picks it) and Gemini Pro to the model lists, each the newest of its
-        family. A fallback picked by hand, or turned off, stays as it is."""
-        for model, label in (
-            ("gemini-flash-latest", "Gemini Flash"),
-            ("gemini-pro-latest", "Gemini Pro"),
-        ):
+        Automatic picks it) and Gemini Pro to the model lists, each the newest numbered one
+        on Google's list and shown by its number ("Gemini 3.8 Flash"); the undated
+        -latest names when Google won't list them. A fallback picked by hand, or turned
+        off, stays as it is."""
+        newest = await self.providers.newest_gemini(provider_id)
+        for family, undated, undated_label in GEMINI_STARTERS:
+            model, label = newest.get(family, (undated, undated_label))
             try:
                 self.providers.add_model(provider_id, model, label)
             except ValueError:  # already there, or the list is full
                 pass
+
+    async def _number_gemini_starters(self) -> None:
+        """A Gemini key added before the lists showed numbers still has "Gemini Flash" and
+        "Gemini Pro" on it: they become the numbered models Google lists, keeping their
+        places in whatever picked them."""
+        for provider in list(self.providers.providers.values()):
+            if provider.kind != "gemini":
+                continue
+            try:
+                if await self.providers.number_gemini_starters(provider.id):
+                    self._providers_changed()
+            except ValueError as exc:  # the list couldn't be saved: they stay as they are
+                log.warning("couldn't number %s's Gemini models: %s", provider.name, exc)
 
     async def _gemini_ready(self, ref: str) -> None:
         """A Gemini model needs JARVIS's relay listening before a session points at it."""
