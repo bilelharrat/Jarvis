@@ -1669,20 +1669,15 @@ function limitLevel(l) {
 
 function renderUsage(u) {
   lastUsage = u;
-  const five = (u.limits || []).find((l) => l.type === 'five_hour' && l.utilization != null);
+  // Always the plan's 5-hour window: "–" until Anthropic has said how much of it is used.
+  const five = (u.limits || []).find((l) => l.type === 'five_hour');
   const meter = document.querySelector('#p-uptime .usage-meter');
-  if (five) {
-    const pct = Math.round(five.utilization * 100);
-    $('v-usage-label').textContent = '5-hour limit';
-    $('v-usage').textContent = `${pct}% used`;
-    $('v-usage-bar').style.width = `${Math.min(100, pct)}%`;
-    meter.className = `usage-meter ${limitLevel(five)}`;
-    meter.hidden = false;
-  } else {
-    $('v-usage-label').textContent = 'Claude today';
-    $('v-usage').textContent = `${usd(u.today.cost)} · ${tokensText(u.today.tokens)}`;
-    meter.hidden = true;
-  }
+  const pct = five && five.utilization != null ? Math.round(five.utilization * 100) : null;
+  $('v-usage-label').textContent = '5-hour limit';
+  $('v-usage').textContent = five && five.status === 'rejected' ? 'Used up' : pct == null ? '–' : `${pct}% used`;
+  $('v-usage-bar').style.width = `${Math.min(100, pct == null ? 0 : pct)}%`;
+  meter.className = `usage-meter ${five ? limitLevel(five) : ''}`;
+  meter.title = five && five.resets_at ? resetText(five.resets_at) : '';
   if (usageIsOpen()) renderUsagePop(u);
 }
 

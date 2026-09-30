@@ -116,3 +116,74 @@ def _drain(q):
     while not q.empty():
         out.append(q.get_nowait())
     return out
+
+
+def test_the_usage_endpoints_answer_becomes_limits(tmp_path):
+    from jarvis.claude_usage import parse_plan
+
+    plan = parse_plan(
+        {
+            "five_hour": {"utilization": 77.0, "resets_at": "2026-09-30T09:59:59.9+00:00"},
+            "seven_day": {"utilization": 47, "resets_at": "2026-10-06T23:59:59+00:00"},
+            "seven_day_opus": None,
+            "extra_usage": {"is_enabled": False, "utilization": None},
+        }
+    )
+    assert set(plan) == {"five_hour", "seven_day"}
+    assert plan["five_hour"]["utilization"] == 0.77
+    assert (
+        plan["five_hour"]["resets_at"]
+        == datetime.fromisoformat("2026-09-30T09:59:59.9+00:00").timestamp()
+    )
+    book = UsageBook(tmp_path / "usage.json", clock=lambda: NOON)
+    book.plan({"five_hour": {"utilization": 0.85, "resets_at": NOON + 60}})
+    five = book.summary()["limits"][0]
+    assert five["utilization"] == 0.85 and five["status"] == "allowed_warning"
+    book.plan({"five_hour": {"utilization": 1.0, "resets_at": NOON + 60}})
+    assert book.summary()["limits"][0]["status"] == "rejected"
+    assert parse_plan("nonsense") == {} and parse_plan({"five_hour": {"utilization": "x"}}) == {}
+
+
+def test_the_login_is_read_and_an_expired_one_skipped():
+    from jarvis.claude_usage import login_token
+
+    def keychain(token, expires_ms):
+        def run(cmd, **_k):
+            assert cmd[:2] == ["security", "find-generic-password"] and "-w" in cmd
+            body = {"claudeAiOauth": {"accessToken": token, "expiresAt": expires_ms}}
+            return SimpleNamespace(stdout=__import__("json").dumps(body))
+
+        return run
+
+    assert login_token(keychain("tok", (NOON + 3600) * 1000), now=NOON) == "tok"
+    assert login_token(keychain("tok", (NOON + 10) * 1000), now=NOON) is None  # about to lapse
+    assert login_token(lambda *a, **k: SimpleNamespace(stdout=""), now=NOON) is None
+
+    def missing(*_a, **_k):
+        raise OSError("no security tool")
+
+    assert login_token(missing) is None
+
+
+async def test_the_plan_is_asked_with_the_login_and_nothing_else():
+    import httpx
+
+    from jarvis.claude_usage import USAGE_URL, fetch_plan
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"five_hour": {"utilization": 12, "resets_at": None}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        plan = await fetch_plan(client, token="tok")
+        assert plan == {"five_hour": {"utilization": 0.12, "resets_at": None}}
+        assert str(seen[0].url) == USAGE_URL and seen[0].method == "GET"
+        assert seen[0].headers["authorization"] == "Bearer tok"
+
+    def refused(_request):
+        return httpx.Response(401, json={"error": "expired"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(refused)) as client:
+        assert await fetch_plan(client, token="tok") is None

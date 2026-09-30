@@ -2445,6 +2445,7 @@ body[data-look="orb"] .wx-pop {
 #p-uptime .wx-more { opacity: 0.55; }
 #p-uptime:hover .wx-more, #p-uptime:focus-visible .wx-more { opacity: 1; }
 .usage-cell { position: relative; }
+.usage-meter[hidden] { display: none; }
 .usage-meter { display: block; height: 3px; margin-top: 2px; border-radius: 2px; background: var(--panel-line, var(--line)); overflow: hidden; }
 .usage-meter span { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--action); transition: width 400ms ease; }
 .usage-meter.warn span, .usage-row.warn .usage-bar span { background: #f0a458; }

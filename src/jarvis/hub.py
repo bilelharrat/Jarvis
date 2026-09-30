@@ -275,6 +275,8 @@ REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they
 WINDOW_QUEUE = 3000  # events waiting for one window; one that stops reading is cut off
 WINDOW_BYTES = 32 * 1024 * 1024  # and at most this much of their text (terminal output,
 # simulator pictures, file views): 3000 terminal chunks alone would be 260 MB
+PLAN_EVERY = 180.0  # s: the plan's usage windows, while a window is open
+PLAN_AFTER_ANSWER = 45.0  # s: after answers, look again this soon (not after each one)
 REPLY_EVERY = 0.05  # s: a streaming reply goes to the windows at most 20 times a second
 COALESCE_AT = 200  # past this many waiting, only the newest copy of LATEST_ONLY kinds stays
 # Events where a window needs only the newest copy (the whole state, not a change).
@@ -827,6 +829,7 @@ class Hub:
         self._conn_cost: float | None = None  # this conversation's running cost so far
         self._usage_sent = 0.0
         self._usage_timer = False
+        self._plan_soon = asyncio.Event()  # an answer came: the plan's windows moved
         self.tasks.on_usage = self._code_usage
         self.tasks.claude_back = self._claude_back
         self.tasks.read_only_free = lambda: self.prefs.code_read_only
@@ -1178,6 +1181,7 @@ class Hub:
             self._spawn(self._routine_clock())
             self._spawn(self._markets_loop())
             self._spawn(self._defense_loop())
+            self._spawn(self._plan_loop())
             self._spawn(self._awake_loop())
             for name, factory in self._loops:
                 self._spawn(self._feature_loop(name, factory))
@@ -5125,6 +5129,7 @@ class Hub:
         )
         self.usage.record("jarvis", cost, getattr(message, "usage", None), model or "")
         self._usage_changed()
+        self._plan_soon.set()
 
     def _code_usage(self, task: Any, cost: float, message: Any) -> None:
         """A Jarvis Code turn ended (tasks._turn_over): its share of the usage."""
@@ -5132,6 +5137,23 @@ class Hub:
         model = next(iter(models), "") or getattr(task, "model", "") or ""
         self.usage.record("code", cost, getattr(message, "usage", None), model)
         self._usage_changed()
+        self._plan_soon.set()
+
+    async def _plan_loop(self) -> None:
+        """The plan's windows for the Session card (claude_usage.fetch_plan): every few
+        minutes while a window is open, and soon after answers (at most once a minute)."""
+        last = -1e9  # a window that opens gets the numbers straight away
+        while True:
+            since = time.monotonic() - last
+            due = since >= PLAN_EVERY or (self._plan_soon.is_set() and since >= PLAN_AFTER_ANSWER)
+            if self._subscribers and due:
+                last = time.monotonic()
+                self._plan_soon.clear()
+                plan = await claude_usage.fetch_plan()
+                if plan:
+                    self.usage.plan(plan)
+                    self._usage_changed()
+            await asyncio.sleep(2)
 
     def _usage_changed(self) -> None:
         """The windows' Session card, at most once a second (a burst of answers is one)."""
