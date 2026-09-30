@@ -479,7 +479,7 @@ class Suggester:
                     {
                         "k": str(entry.get("k") or "")[:120],
                         "t": str(entry.get("t") or "")[:MAX_REQUEST_CHARS],
-                        "at": entry["at"][:25],
+                        "at": _local(entry["at"])[:25],
                     }
                 )
         for topic, raw in list(mapping("topics").items())[-MAX_TOPICS:]:
@@ -487,7 +487,7 @@ class Suggester:
                 self.topics[str(topic)[:40]] = {
                     "no": _int(raw.get("no")),
                     "yes": _int(raw.get("yes")),
-                    "until": str(raw.get("until") or "")[:25],
+                    "until": _local(str(raw.get("until") or ""))[:25],
                     "never": bool(raw.get("never")),
                     "label": str(raw.get("label") or "")[:MAX_REQUEST_CHARS],
                 }
@@ -495,10 +495,10 @@ class Suggester:
             if kind in KINDS and isinstance(raw, dict):
                 said = raw.get("log") if isinstance(raw.get("log"), list) else []
                 log_ = [x for x in said if x in ("no", "yes")][-10:]
-                self.kinds[kind] = {"log": log_, "until": str(raw.get("until") or "")[:25]}
+                self.kinds[kind] = {"log": log_, "until": _local(str(raw.get("until") or ""))[:25]}
         shown = data.get("shown")
         if isinstance(shown, dict):
-            self.shown = {str(k)[:120]: str(v)[:25] for k, v in list(shown.items())[-200:]}
+            self.shown = {str(k)[:120]: _local(str(v))[:25] for k, v in list(shown.items())[-200:]}
 
     def _save(self) -> None:
         if self.unreadable:
@@ -904,6 +904,18 @@ class Suggester:
         """Every remembered request gone (the habits with them)."""
         self.history = []
         self._save()
+
+
+def _local(stamp: str) -> str:
+    """A time as kept: one with a zone (another build's, or a hand edit) as this Mac's clock,
+    like every time here; anything else as it is."""
+    try:
+        when = datetime.fromisoformat(stamp)
+    except ValueError:
+        return stamp
+    if when.tzinfo is None:
+        return stamp
+    return when.astimezone().replace(tzinfo=None).isoformat(timespec="minutes")
 
 
 def _int(value: Any) -> int:

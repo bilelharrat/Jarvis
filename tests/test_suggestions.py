@@ -352,6 +352,20 @@ def test_a_hand_edited_file_never_stops_jarvis_starting(tmp_path, edited):
     assert [h["t"] for h in s.history] == ["what's the weather"]
 
 
+async def test_zoned_times_in_the_file_never_stop_the_suggestions(tmp_path):
+    """Times with a zone in suggestions.json (another build's, or a hand edit) are read as
+    this Mac's clock: the look every five minutes still works, and still finds the habit."""
+    history = habit_history()
+    for entry in history:
+        entry["at"] = datetime.fromisoformat(entry["at"]).astimezone().isoformat()
+    path = tmp_path / "suggestions.json"
+    earlier = (NOW - timedelta(hours=3)).astimezone().isoformat()
+    path.write_text(json.dumps({"history": history, "shown": {"old": earlier}}))
+    s, shown = make(tmp_path)
+    await s.tick()
+    assert [x.suggestion for x in shown] == ["habit"]
+
+
 def test_tools(tmp_path):
     s, _ = make(tmp_path)
     s.history = habit_history()
