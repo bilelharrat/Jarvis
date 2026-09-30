@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The Watch's one screen: approvals first, then the reactor (tap to dictate), the latest
-/// reply (Digital Crown scrolls), and Brief me / Stop.
+/// reply (Digital Crown scrolls, spoken too), Brief me / Stop, and Speak replies.
 struct WatchHomeView: View {
     @Environment(WatchModel.self) private var model
 
@@ -15,6 +15,8 @@ struct WatchHomeView: View {
                         ForEach(model.approvals) { approval in
                             WatchApprovalCard(approval: approval) { choice in
                                 Task { await model.answer(approval, with: choice) }
+                            } onReason: { reason in
+                                Task { await model.answer(approval, because: reason) }
                             }
                             .id(approval.id)
                             .transition(.scale(scale: 0.9).combined(with: .opacity))
@@ -25,6 +27,8 @@ struct WatchHomeView: View {
                                 .id(Self.exchange)
                         }
                         actions
+                        SpeakRepliesToggle(voice: model.voice)
+                            .padding(.top, 4)
                     }
                     .padding(.horizontal, 2)
                     .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.approvals.map(\.id))
@@ -108,6 +112,19 @@ struct WatchHomeView: View {
         }
         .buttonStyle(.bordered)
         .labelStyle(.titleAndIcon)
+    }
+}
+
+/// Speak replies, on the Watch: its own switch, remembered.
+private struct SpeakRepliesToggle: View {
+    @Bindable var voice: WatchVoice
+
+    var body: some View {
+        Toggle(isOn: $voice.enabled) {
+            Label("Speak replies", systemImage: voice.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                .font(.footnote)
+        }
+        .tint(Palette.cyan)
     }
 }
 

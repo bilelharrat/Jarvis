@@ -3,17 +3,23 @@
 Native SwiftUI companion apps for Jarvis on the Mac. They replace the phone web page
 (`/` on the companion server) and the hand-made Watch shortcut, using the same small API.
 
-- **iPhone** (`iOS/`): pair with the Mac (Bonjour or typed address + six-digit code), the
-  reactor as tap-to-talk (on-device speech recognition, ends on ~1.2 s of silence or a
-  second tap), a live You / JARVIS transcript, approval cards, quick actions (Brief me,
-  What's next?, Take notes / Stop notes, Routines, Stop), a status strip (Mac state,
-  next event, weather, background tasks, model), spoken replies in Jarvis's own voice
-  (`/api/say`), and Settings (Mac address, Speak replies, send to Watch, Unpair).
-- **Watch** (`Watch/`): gets the Mac's address and token from the iPhone over
-  WatchConnectivity, then talks to the Mac on its own. Reactor → dictation → reply
-  (Digital Crown scrolls, haptic on reply), big Allow / Deny approvals, Brief me, Stop.
-- **Shared** (`Shared/`): API client, lenient Codable models, address parsing, Keychain,
-  the reactor view, theme.
+- **iPhone** (`iOS/`): pair with the Mac (its QR code, or Bonjour / typed address +
+  six-digit code), the reactor as tap-to-talk (on-device speech recognition, ends on
+  ~1.2 s of silence or a second tap), a live You / JARVIS transcript, approval cards, quick
+  actions (Brief me, What's next?, Take notes / Stop notes, Routines, Stop), a status strip
+  (Mac state, next event, weather, background tasks, model), spoken replies in Jarvis's
+  own voice (`/api/say`), the Jarvis hub (Jarvis Code, conversations, routines, what you
+  missed, spending), and Settings (Mac address, Speak replies, notifications, sensors,
+  send to Watch, Unpair). Around the app: notifications you can answer, widgets, Live
+  Activities, Siri and Shortcuts, the share sheet.
+- **Watch** (`Watch/`): gets the Mac's address, token and certificate fingerprint from the
+  iPhone over WatchConnectivity, then talks to the Mac on its own. Reactor → dictation →
+  reply, spoken (Digital Crown scrolls, haptic on reply), big Allow / Deny approvals and
+  No, because…, Brief me, Stop, complications.
+- **Shared** (`Shared/`): API client with certificate pinning, lenient Codable models,
+  address parsing, Keychain, the outbox, the reactor view, theme.
+- **Extensions**: widgets and the Live Activities' views (`Widgets/`), complications
+  (`WatchWidgets/`), the share sheet (`Share/`).
 
 Bundle IDs: `com.bshventures.jarvis.companion` and
 `com.bshventures.jarvis.companion.watchkitapp` (team 9ZSY5R8A5C, automatic signing).
@@ -110,6 +116,28 @@ it; links only ever navigate):
 - **Spending**: today against the day's limit, the limits, and what was spent lately.
 
 Every approval card (on Home too) has **No, because…**.
+
+## Apple Watch
+
+The Watch app gets its pairing from the iPhone and then talks to the Mac by itself, over
+the same pinned connection, polling only while it's in front (wrist raised).
+
+- **Talk**: tap the reactor, then dictate or scribble. The reply shows (the Digital Crown
+  scrolls) and is spoken: in Jarvis's own voice when the Mac can make it
+  (`POST /api/say`, a WAV), else in the Watch's own voice, in the reply's language
+  (Chinese or English). Only replies to what was asked on the Watch are spoken, and only
+  while the app is frontmost: a reply finishes with the wrist down, and stops when the
+  app leaves, on Stop, or with **Speak replies** (at the bottom) off.
+- **Approvals**: Allow, Deny and any choices between, plus **No, because…**, dictated or
+  scribbled, which sends `deny` with the reason as `feedback` (a plan's own no when the
+  card has no `deny`), as on the iPhone.
+- **Brief me** and **Stop**, complications (see Widgets and complications), and the
+  iPhone's notifications with their actions (see Notifications).
+
+No model calls on the Watch. Each spoken reply is one `/api/say` clip, which uses the
+voice set up on the Mac (a paid voice there costs what one clip costs; the Mac caps a clip
+at 1,500 characters and makes a few at a time, and the Watch uses its own voice when the
+Mac is busy).
 
 ## Notifications
 
@@ -248,6 +276,7 @@ compiled into Release):
 | `-JARVISTestCode 123456` | type this code and pair |
 | `-JARVISTestAsk "What's next today?"` | send this as a typed request once connected |
 | `-JARVISTestApprove allow` | answer the first approval card with this choice after 5 s |
+| `-JARVISTestReason "Use the draft"` | (Watch) answer the first approval card with No, because… and this reason |
 | `-JARVISTestSpeak NO` | don't play spoken replies |
 
 ```sh
@@ -285,6 +314,7 @@ Shared/                     both apps
   WidgetSnapshot.swift, SnapshotPublisher.swift   what the widgets show, kept in the App Group
   Destination.swift         places in the app and their jarvis-companion:// links
   PendingRequest.swift      follows one request until the Mac has answered it
+  Speakable.swift           a reply as it should sound, and the language to say it in
   MacAddress.swift          "mac.local:8766" → https://mac.local:8766
   PairingStore.swift        Pairing + Keychain
   WatchLink.swift           what the iPhone hands the Watch
@@ -292,7 +322,8 @@ Shared/                     both apps
 iOS/                        AppModel (state, polling), Transcript, Intents/, Services/ (speech,
                             voice, Bonjour, Watch bridge, haptics), Views/, Views/Screens/
                             (the hub: Jarvis Code, conversations, routines, digest, spending)
-Watch/                      WatchModel, WatchSessionBridge, WatchRefresh, Views/
+Watch/                      WatchModel, WatchVoice (spoken replies), WatchSessionBridge,
+                            WatchNotifications, WatchRefresh, Views/
 Widgets/                    the iPhone widget extension (Home Screen, Lock Screen)
 WatchWidgets/               the Watch complications extension
 WidgetsCommon/              the timeline provider and the glances both extensions show

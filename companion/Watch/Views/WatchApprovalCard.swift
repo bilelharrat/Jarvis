@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// An approval on the wrist: big Allow (first choice) and Deny (last choice), with any
-/// other choices between them.
+/// other choices between them, and No, because… (a no with what to do instead).
 struct WatchApprovalCard: View {
     let approval: Approval
     let onChoose: (ApprovalChoice) -> Void
+    /// "No, because…": dictated or scribbled.
+    var onReason: ((String) -> Void)?
 
     @State private var chosen: String?
     @State private var expanded = false
@@ -35,6 +37,20 @@ struct WatchApprovalCard: View {
             ForEach(middleChoices) { button($0, prominent: false) }
             if approval.negative != approval.primary {
                 button(approval.negative, prominent: false)
+            }
+            if let onReason, chosen == nil {
+                TextFieldLink(prompt: Text("Why not?")) {
+                    Label("No, because…", systemImage: "text.bubble")
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(Palette.ink2)
+                } onSubmit: { reason in
+                    guard !reason.trimmed.isEmpty else { return }
+                    chosen = ApprovalResponse.negative(in: approval.choices)
+                    onReason(reason)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Dictate or scribble why, or what to do instead")
             }
         }
         .padding(10)

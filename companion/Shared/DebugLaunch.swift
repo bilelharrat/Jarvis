@@ -22,6 +22,8 @@ enum DebugLaunch {
     static var ask: String? { defaults.string(forKey: "JARVISTestAsk") }
     /// Answers the first approval card with this choice id a few seconds after it shows.
     static var approve: String? { defaults.string(forKey: "JARVISTestApprove") }
+    /// The Watch answers the first approval card with No, because… and this reason.
+    static var reason: String? { defaults.string(forKey: "JARVISTestReason") }
     /// "NO" turns spoken replies off for this launch.
     static var speak: Bool? { defaults.object(forKey: "JARVISTestSpeak") == nil ? nil : defaults.bool(forKey: "JARVISTestSpeak") }
 

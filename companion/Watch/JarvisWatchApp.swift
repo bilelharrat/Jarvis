@@ -27,7 +27,7 @@ struct WatchRootView: View {
             }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
-            model.setActive(phase == .active)
+            model.setPhase(phase)
         }
     }
 }

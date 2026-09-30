@@ -24,8 +24,11 @@ final class WatchModel {
     private(set) var lastAsked: String?
 
     @ObservationIgnored private let bridge = WatchSessionBridge()
+    /// Spoken replies to what was asked here.
+    let voice = WatchVoice()
     @ObservationIgnored private var poller: Task<Void, Never>?
     @ObservationIgnored private var active = false
+    @ObservationIgnored private var frontmost = false
     @ObservationIgnored private var refreshes = 0
     @ObservationIgnored private var applied = 0
     @ObservationIgnored private var buzzed: Set<String> = []
@@ -92,7 +95,15 @@ final class WatchModel {
 
     // MARK: - Lifecycle
 
-    func setActive(_ isActive: Bool) {
+    /// Polls only while active (wrist raised). A reply still finishes speaking with the
+    /// wrist down, while the app is frontmost, and stops when the app leaves.
+    func setPhase(_ phase: ScenePhase) {
+        frontmost = phase != .background
+        if !frontmost { voice.stop() }
+        setActive(phase == .active)
+    }
+
+    private func setActive(_ isActive: Bool) {
         active = isActive
         if isActive {
             if pairing == nil { bridge.requestPairing() }
@@ -138,6 +149,7 @@ final class WatchModel {
     }
 
     private func forget() {
+        voice.stop()
         PairingStore.clear()
         SnapshotPublisher.shared.clear()
         pairing = nil
@@ -164,6 +176,7 @@ final class WatchModel {
             if result.done {
                 pending?.phase = .answered(result.reply)
                 WKInterfaceDevice.current().play(.success)
+                speak(result.reply)
             } else {
                 pending?.phase = .waiting
             }
@@ -182,12 +195,30 @@ final class WatchModel {
         await refresh()
     }
 
+    /// A reply to something asked here.
+    private func speak(_ reply: String) {
+        guard frontmost, let api = pairing?.api else { return }
+        voice.speak(reply, using: api)
+    }
+
+    // MARK: - Approvals
+
     func answer(_ approval: Approval, with choice: ApprovalChoice) async {
+        await send(approval, choice: choice.id, feedback: nil, haptic: choice.isNegative ? .directionDown : .success)
+    }
+
+    /// "No, because…", dictated or scribbled on the wrist: the card's no, with the reason.
+    func answer(_ approval: Approval, because reason: String) async {
+        let sent = ApprovalResponse.choice(for: .denyBecause(reason), choices: approval.choices)
+        await send(approval, choice: sent.choice, feedback: sent.feedback, haptic: .directionDown)
+    }
+
+    private func send(_ approval: Approval, choice: String, feedback: String?, haptic: WKHapticType) async {
         guard let api = pairing?.api, !answering.contains(approval.id) else { return }
         answering.insert(approval.id)
-        WKInterfaceDevice.current().play(choice.isNegative ? .directionDown : .success)
+        WKInterfaceDevice.current().play(haptic)
         do {
-            _ = try await api.approve(id: approval.id, choice: choice.id)
+            _ = try await api.approve(id: approval.id, choice: choice, feedback: feedback)
         } catch JarvisError.unpaired {
             return forget()
         } catch {
@@ -197,9 +228,12 @@ final class WatchModel {
         restartPolling()
     }
 
+    // MARK: - Commands
+
     func run(_ command: MacCommand) async {
         guard let api = pairing?.api else { return }
         WKInterfaceDevice.current().play(.click)
+        if command == .stop { voice.stop() }
         do {
             try await api.command(command)
         } catch JarvisError.unpaired {
@@ -270,7 +304,10 @@ final class WatchModel {
             } else if request != pending {
                 pending = request
             }
-            if finished != nil { WKInterfaceDevice.current().play(.success) }
+            if let finished {
+                WKInterfaceDevice.current().play(.success)
+                if !finished.trimmed.isEmpty { speak(finished) }
+            }
         }
         #if DEBUG
         runDebugHooks()
@@ -316,6 +353,13 @@ final class WatchModel {
             Task {
                 try? await Task.sleep(for: .seconds(6))
                 await answer(approval, with: approval.choices.first { $0.id == choiceID } ?? approval.primary)
+            }
+        }
+        if let reason = DebugLaunch.reason, let approval = approvals.first, !debugAnswered.contains(approval.id) {
+            debugAnswered.insert(approval.id)
+            Task {
+                try? await Task.sleep(for: .seconds(6))
+                await answer(approval, because: reason)
             }
         }
     }

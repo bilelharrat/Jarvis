@@ -92,22 +92,3 @@ private final class FinishWatcher: NSObject, AVAudioPlayerDelegate {
         Task { @MainActor in onFinish?() }
     }
 }
-
-/// Reply text as it should sound: markdown marks and links dropped, capped at what the
-/// Mac will voice (1,500 characters), ending on a sentence where possible.
-enum Speakable {
-    static func clean(_ text: String) -> String {
-        var out = text
-        out = out.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
-        out = out.replacingOccurrences(of: #"(?m)^\s{0,3}(#{1,6}|[-*+]|\d+[.)])\s+"#, with: "", options: .regularExpression)
-        out = out.replacingOccurrences(of: #"[*_`~]+"#, with: "", options: .regularExpression)
-        out = out.replacingOccurrences(of: #"https?://\S+"#, with: "", options: .regularExpression)
-        out = out.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmed
-        guard out.count > 1500 else { return out }
-        let head = String(out.prefix(1500))
-        if let end = head.lastIndex(where: { ".!?".contains($0) }), head.distance(from: head.startIndex, to: end) > 400 {
-            return String(head[...end])
-        }
-        return head
-    }
-}
