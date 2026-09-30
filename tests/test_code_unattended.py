@@ -225,6 +225,39 @@ async def test_what_the_scope_doesnt_cover_is_refused_never_asked(hub, projects)
     assert asked == ["Bash"]
 
 
+async def test_the_owners_deny_and_ask_rules_win_over_a_runs_scope(hub, projects):
+    runs = hub.code_runs
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    task = ClaudeTask(id=5, prompt="x", cwd=repo, mode="edits", allow_edits=True)
+    hub.tasks.tasks[5] = task
+    run = Run(
+        "r1", "t", "p", "proj", "edits", ["npm test", "npm publish", "uv run pytest"], 5.0, 2.0
+    )
+    runs.active[5] = run
+    rules = {"npm publish": ("deny", "Bash(npm publish:*)"), "npm test": ("ask", "Bash(npm test)")}
+
+    def rule_check(_task, name, tool_input):
+        command = str(tool_input.get("command", "")) if name == "Bash" else ""
+        return next((found for start, found in rules.items() if command.startswith(start)), None)
+
+    hub.tasks.rule_check = rule_check
+    asked = []
+
+    async def inner(name, tool_input, context):
+        asked.append(name)
+        return PermissionResultAllow()
+
+    guard = runs.guard(task, inner)
+    denied = await guard("Bash", {"command": "npm publish"}, None)
+    assert isinstance(denied, PermissionResultDeny) and "Bash(npm publish:*)" in denied.message
+    held = await guard("Bash", {"command": "npm test"}, None)  # an ask rule: nobody's here
+    assert isinstance(held, PermissionResultDeny) and "nobody's here to ask" in held.message
+    fine = await guard("Bash", {"command": "uv run pytest -q"}, None)  # no rule: its scope
+    assert isinstance(fine, PermissionResultAllow)
+    assert asked == [] and hub.cards == []
+    assert [a["decision"] for a in task.audit].count("denied") == 2 and len(run.denied) == 2
+
+
 async def test_the_session_is_capped_and_an_issues_run_gets_fewer_tools(hub, projects):
     runs = hub.code_runs
     task = ClaudeTask(id=4, prompt="x", cwd=projects, cost_usd=1.25)

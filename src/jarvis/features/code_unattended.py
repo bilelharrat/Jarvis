@@ -784,6 +784,21 @@ class Runs:
                     message="It's an unattended run: there's no plan to approve. Carry on with "
                     "the work itself."
                 )
+            # The owner's own permission rules win over the run's scope: a deny rule refuses,
+            # and an ask rule refuses too, since nobody's here to ask.
+            ruled = self.hub.tasks._ruled(task, tool_name, tool_input)
+            if ruled is not None and ruled[0] != "allow":
+                run.denied = [*run.denied, tasks.describe_tool(tool_name, tool_input)[:160]][
+                    -DENIED_KEPT:
+                ]
+                self.hub.tasks._audit(
+                    task, tool_name, tool_input, "denied", f"unattended: your rule {ruled[1]}"
+                )
+                return PermissionResultDeny(
+                    message=f"The user's permission rule {ruled[1]} doesn't allow this without "
+                    "them, and nobody's here to ask. Don't try to get it done another way: carry "
+                    "on without it if you can, otherwise stop and say what you'd need."
+                )
             free = self.hub.tasks._goes_ahead(task, tool_name, tool_input)
             if free is None and tool_name == "Bash":
                 command = str(tool_input.get("command", ""))
