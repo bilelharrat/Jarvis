@@ -462,7 +462,18 @@ class Suggester:
             return
         if not data:
             return
-        for entry in (data.get("history") or [])[-MAX_HISTORY:]:
+
+        # A field of the wrong type (a hand edit) is left out: the hub makes this while
+        # the app starts, so nothing here may raise.
+        def listed(key: str) -> list[Any]:
+            value = data.get(key)
+            return value if isinstance(value, list) else []
+
+        def mapping(key: str) -> dict[Any, Any]:
+            value = data.get(key)
+            return value if isinstance(value, dict) else {}
+
+        for entry in listed("history")[-MAX_HISTORY:]:
             if isinstance(entry, dict) and isinstance(entry.get("at"), str):
                 self.history.append(
                     {
@@ -471,7 +482,7 @@ class Suggester:
                         "at": entry["at"][:25],
                     }
                 )
-        for topic, raw in list((data.get("topics") or {}).items())[-MAX_TOPICS:]:
+        for topic, raw in list(mapping("topics").items())[-MAX_TOPICS:]:
             if isinstance(raw, dict):
                 self.topics[str(topic)[:40]] = {
                     "no": _int(raw.get("no")),
@@ -480,9 +491,10 @@ class Suggester:
                     "never": bool(raw.get("never")),
                     "label": str(raw.get("label") or "")[:MAX_REQUEST_CHARS],
                 }
-        for kind, raw in (data.get("kinds") or {}).items():
+        for kind, raw in mapping("kinds").items():
             if kind in KINDS and isinstance(raw, dict):
-                log_ = [x for x in raw.get("log") or [] if x in ("no", "yes")][-10:]
+                said = raw.get("log") if isinstance(raw.get("log"), list) else []
+                log_ = [x for x in said if x in ("no", "yes")][-10:]
                 self.kinds[kind] = {"log": log_, "until": str(raw.get("until") or "")[:25]}
         shown = data.get("shown")
         if isinstance(shown, dict):

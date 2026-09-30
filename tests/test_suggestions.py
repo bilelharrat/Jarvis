@@ -329,6 +329,29 @@ def test_damaged_file_is_kept_aside(tmp_path):
     assert list(tmp_path.glob("suggestions.json.bad-*"))
 
 
+@pytest.mark.parametrize(
+    "edited",
+    [
+        {"history": 7, "topics": "weather", "kinds": ["habit"], "shown": 3},
+        {"history": "x", "topics": [1], "kinds": {"habit": {"log": 5}}, "shown": None},
+        {"history": {"k": "a"}, "topics": 2.5, "kinds": "habit"},
+    ],
+)
+def test_a_hand_edited_file_never_stops_jarvis_starting(tmp_path, edited):
+    """The hub makes the suggester while it starts: a field of the wrong type in the file
+    (a hand edit) is left out, never an error that keeps the whole app from opening."""
+    good = {"k": request_key("what's the weather"), "t": "what's the weather", "at": "2026-09-28"}
+    edited = {**edited, "version": 1}
+    if isinstance(edited.get("history"), list):
+        edited["history"].append(good)
+    (tmp_path / "suggestions.json").write_text(json.dumps(edited))
+    s, _ = make(tmp_path)
+    assert s.history == [] and s.topics == {}
+    assert s.kinds == {k: {"log": [], "until": ""} for k in sg.KINDS}
+    s.note_request("what's the weather")
+    assert [h["t"] for h in s.history] == ["what's the weather"]
+
+
 def test_tools(tmp_path):
     s, _ = make(tmp_path)
     s.history = habit_history()
