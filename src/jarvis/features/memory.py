@@ -561,9 +561,10 @@ class MemoryDesk:
         return bool(logged["requests"] or logged["actions"])
 
     def actions_for(self, day: date) -> list[list[str]]:
-        """What JARVIS did that day: the conversation's action log when there is one
+        """What JARVIS did that day: the conversation's action log when it has that day
         (hub.action_log with a day(date) or for_day(date) giving {at, label, status}),
-        else JARVIS's own Activity as the day's log kept it."""
+        else JARVIS's own Activity as the day's log kept it (a day from before the action
+        log, or one it has nothing for)."""
         action_log = getattr(self.hub, "action_log", None)
         for name in ("for_day", "day"):
             fn = getattr(action_log, name, None)
@@ -585,7 +586,9 @@ class MemoryDesk:
                 clock = at[11:19] if "T" in at else at[:8]
                 ok = "failed" if row.get("status") in ("failed", "error", "denied") else "done"
                 out.append([clock, label, ok])
-            return out
+            if out:
+                return out
+            break
         return self.daylog.day(day.isoformat())["actions"]
 
     async def write_note(self, day: date, at: datetime | None = None) -> Path | None:

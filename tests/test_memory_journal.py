@@ -225,6 +225,23 @@ async def test_the_conversations_action_log_is_used_when_there_is_one(hub, desk)
     assert seen == [today]
 
 
+async def test_the_days_actions_come_from_the_conversations_own_action_log(hub, desk):
+    today = date.today()
+    assert hub.action_log is hub.actions  # the conversation feature's log, as memory reads it
+    hub.actions.log.add(
+        [
+            {"t": at(today, 9, 30).isoformat(), "tool": "mcp__mac__create_event",
+             "label": "Added lunch with Ann", "summary": "Calendar", "outcome": "done"},
+            {"t": at(today, 9, 31).isoformat(), "tool": "mcp__mail__send",
+             "label": "Sending an email", "summary": "", "outcome": "failed"},
+        ]
+    )  # fmt: skip
+    assert desk.actions_for(today) == [
+        ["09:30:00", "Added lunch with Ann", "done"],
+        ["09:31:00", "Sending an email", "failed"],
+    ]
+
+
 async def test_a_note_in_chinese_has_chinese_headings(hub, desk):
     hub.prefs.language = "zh"  # not set_prefs: that readies the Mac's voice for real
     desk.daylog.request("今天的日程是什么", when=at(date.today(), 9))

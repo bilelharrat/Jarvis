@@ -198,6 +198,15 @@ class Actions:
             self._log = ActionLog(self.hub.feature_path(LOG_FOLDER))
         return self._log
 
+    def for_day(self, day: date) -> list[dict[str, str]]:
+        """A day's actions as other features read them (hub.action_log: the memory
+        feature's daily note): {at, label, summary, status}, oldest first. Nothing that ran
+        while incognito was on is in the log to begin with."""
+        return [
+            {"at": e["t"], "label": e["label"], "summary": e["summary"], "status": e["outcome"]}
+            for e in self.log.day(day)
+        ]
+
     def _spawn(self, coro: Any) -> asyncio.Task:
         task = self.hub._spawn(coro)
         self._tasks.add(task)
@@ -444,6 +453,7 @@ class Actions:
     def install(self) -> None:
         hub = self.hub
         hub.actions = self
+        hub.action_log = self  # what other features read of it (for_day)
         hub.add_message_sink(self.on_message)
         hub.register_server(SERVER, self.build_server, prompt=PROMPT, labels=LABELS)
         hub.register_command("action_log", lambda msg: self._spawn(self.search(msg)) and None)
