@@ -17,7 +17,37 @@
     "Add a name, like Friday": "添加一个名字，例如 Friday",
     "Add a wake word": "添加唤醒词",
     "A wake word is one word (2 to 20 letters) or 2 to 8 Chinese characters, and not one I already answer to, like “stop” or “yes”.": "唤醒词是一个单词（2 到 20 个字母）或 2 到 8 个汉字，而且不能是我已经会回应的词，比如“stop”或“yes”。",
-    "Keep at least one wake word, or hands-free can’t be woken.": "至少保留一个唤醒词，否则免提模式就无法唤醒了。"
+    "Keep at least one wake word, or hands-free can’t be woken.": "至少保留一个唤醒词，否则免提模式就无法唤醒了。",
+    "Speaking": "朗读",
+    "Voice provider": "声音提供方",
+    "Use my .env settings": "改用 .env 里的设置",
+    "From your .env file (never changed here).": "来自你的 .env 文件（这里不会改动它）。",
+    "Enhanced and Premium voices sound most natural. Add them in System Settings › Accessibility › Spoken Content.": "增强版和高品质的声音听起来最自然。可以在“系统设置 › 辅助功能 › 朗读内容”中添加。",
+    "List my voices": "列出我的声音",
+    "Listing…": "正在列出…",
+    "Or paste a voice ID": "或粘贴一个声音 ID",
+    "Voice ID": "声音 ID",
+    "Use": "使用",
+    "Remove key": "移除密钥",
+    "Speed": "语速",
+    "Playing…": "正在播放…",
+    "No voice picked yet": "还没有选择声音",
+    "Using the key from your .env file.": "正在使用 .env 文件里的密钥。",
+    "Kept in the Keychain; only its last four characters show here.": "保存在钥匙串中；这里只显示最后四个字符。",
+    "I couldn't read the voice key from the Keychain. Unlock it and try again.": "我无法从钥匙串读取语音密钥。请解锁钥匙串后再试。",
+    "I couldn't save the key in the Keychain, so nothing changed.": "我无法把密钥保存到钥匙串，所以什么都没有改动。",
+    "I couldn't take the key out of the Keychain. Try again.": "我无法从钥匙串中移除这个密钥。请再试一次。",
+    "That doesn't look like a voice id (letters, digits, - and _).": "这看起来不像声音 ID（只能包含字母、数字、- 和 _）。",
+    "That doesn't look like a model id.": "这看起来不像模型 ID。",
+    "Spoken replies are off: turn them on to hear a preview.": "语音回复已关闭：打开后才能试听。",
+    "That voice isn't installed on this Mac.": "这台 Mac 上没有安装这个声音。",
+    "The preview didn't play: the voice service turned it down or is unreachable.": "试听没有播放：语音服务拒绝了请求，或者无法连接。",
+    "Pick ElevenLabs or Fish Audio first.": "请先选择 ElevenLabs 或 Fish Audio。",
+    "The provider didn't accept that key.": "服务提供方不接受这个密钥。",
+    "The provider's answer wasn't a voice list.": "服务提供方返回的不是声音列表。",
+    "Paste the API key first.": "请先粘贴 API 密钥。",
+    "That's far too long for an API key; paste just the key.": "这对 API 密钥来说太长了；只粘贴密钥本身。",
+    "That key has spaces or unusual characters in it; paste just the key.": "这个密钥里有空格或不寻常的字符；只粘贴密钥本身。"
   },
   "patterns": [
     [
@@ -31,6 +61,46 @@
     [
       "^That's (\\d+) wake words already; remove one first\\.$",
       "已经有 $1 个唤醒词了，请先移除一个。"
+    ],
+    [
+      "^Picked here; your \\.env says (.+)\\.$",
+      "在这里选择的；你的 .env 文件里是 $1。"
+    ],
+    [
+      "^Saved in the Keychain \\((.+)\\)\\.$",
+      "已保存在钥匙串中（$1）。"
+    ],
+    [
+      "^(ElevenLabs|Fish Audio) needs an API key and a voice; the Mac voice speaks until then\\.$",
+      "$1 需要 API 密钥和一个声音；在那之前由 Mac 的声音朗读。"
+    ],
+    [
+      "^(ElevenLabs|Fish Audio) failed last time; (.+) spoke instead\\.$",
+      "$1 上次出错了，改由 $2 朗读。"
+    ],
+    [
+      "^If (ElevenLabs|Fish Audio) fails, (.+) speaks instead\\.$",
+      "如果 $1 出错，就改由 $2 朗读。"
+    ],
+    [
+      "^Paste your (ElevenLabs|Fish Audio) API key first\\.$",
+      "请先粘贴你的 $1 API 密钥。"
+    ],
+    [
+      "^I couldn't reach (ElevenLabs|Fish Audio)\\. Check the connection\\.$",
+      "我无法连接 $1。请检查网络连接。"
+    ],
+    [
+      "^(ElevenLabs|Fish Audio) needs an API key and a voice first\\.$",
+      "$1 需要先设置 API 密钥和声音。"
+    ],
+    [
+      "^The Mac couldn't speak with (.+)\\.$",
+      "Mac 无法用 $1 朗读。"
+    ],
+    [
+      "^The provider answered (\\d+); try again later\\.$",
+      "服务提供方返回了 $1；请稍后再试。"
     ]
   ]
 }

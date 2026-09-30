@@ -168,8 +168,17 @@ class CloudVoice:
     api_key: str
     voice_id: str
     model: str = ""
+    speed: float = 1.0  # Settings › Speaking › Speed (1.0 sends nothing: the voice's own)
 
     _client: Any = None
+
+    def _options(self) -> dict[str, Any]:
+        """Request fields beyond the text: a speed other than the voice's own."""
+        if abs(self.speed - 1.0) < 0.01:
+            return {}
+        if self.provider == "elevenlabs":
+            return {"voice_settings": {"speed": round(min(1.2, max(0.7, self.speed)), 2)}}
+        return {"prosody": {"speed": round(min(2.0, max(0.5, self.speed)), 2)}}
 
     def _http(self):
         """One long-lived connection: a fresh TLS handshake per sentence cost ~0.3s each."""
@@ -200,7 +209,11 @@ class CloudVoice:
                 f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}",
                 params={"output_format": "wav_22050"},
                 headers={"xi-api-key": self.api_key},
-                json={"text": text, "model_id": self.model or "eleven_flash_v2_5"},
+                json={
+                    "text": text,
+                    "model_id": self.model or "eleven_flash_v2_5",
+                    **self._options(),
+                },
             )
         else:
             response = await client.post(
@@ -215,6 +228,7 @@ class CloudVoice:
                     "format": "wav",
                     "sample_rate": 24000,
                     "latency": "low",
+                    **self._options(),
                 },
             )
         response.raise_for_status()
@@ -234,7 +248,11 @@ class CloudVoice:
                 f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream",
                 params={"output_format": "pcm_22050"},
                 headers={"xi-api-key": self.api_key},
-                json={"text": text, "model_id": self.model or "eleven_flash_v2_5"},
+                json={
+                    "text": text,
+                    "model_id": self.model or "eleven_flash_v2_5",
+                    **self._options(),
+                },
             )
         else:
             request = client.stream(
@@ -250,6 +268,7 @@ class CloudVoice:
                     "format": "pcm",
                     "sample_rate": 24000,
                     "latency": "low",
+                    **self._options(),
                 },
             )
         async with request as response:
@@ -463,6 +482,9 @@ class Speaker:
         self.effect = effect
         self.cloud = cloud
         self.cloud_error = ""
+        # The Mac voice to use when the cloud voice fails ("": the voice above). The voice
+        # feature picks the best Enhanced or Premium one installed for the language.
+        self.fallback_voice = ""
         self._procs: set[asyncio.subprocess.Process] = set()  # every `say` running
         self._player: asyncio.subprocess.Process | None = None
         self._playing = False
@@ -517,10 +539,12 @@ class Speaker:
         if self._live is not None:
             self._live.stop_now()
 
-    def _say_args(self) -> list[str]:
+    def _say_args(self, fallback: bool = False) -> list[str]:
+        """`say`'s arguments; fallback: the cloud voice failed, so the fallback voice."""
         args = ["say", "-r", str(self.rate)]
-        if self.voice:
-            args += ["-v", self.voice]
+        voice = (getattr(self, "fallback_voice", "") if fallback else "") or self.voice
+        if voice:
+            args += ["-v", voice]
         return args
 
     async def say(self, text: str) -> None:
@@ -559,16 +583,20 @@ class Speaker:
                         log.warning("cloud voice failed (%s)", self.cloud_error)
                         if sent:
                             return
-                audio, rate = await self._mac_voice(spoken)
+                audio, rate = await self._mac_voice(spoken, fallback=self.cloud is not None)
                 src.rate = rate
                 src.chunks.put_nowait(to_pcm(audio))
         finally:
             src.chunks.put_nowait(None)
 
-    async def _mac_voice(self, spoken: str) -> tuple[np.ndarray, int]:
+    async def _mac_voice(self, spoken: str, fallback: bool = False) -> tuple[np.ndarray, int]:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "reply.wav"
-            args = self._say_args() + [f"--data-format=LEI16@{EFFECT_RATE}", "-o", str(path)]
+            args = self._say_args(fallback) + [
+                f"--data-format=LEI16@{EFFECT_RATE}",
+                "-o",
+                str(path),
+            ]
             await self._run(args, spoken)
             return read_wav(path) if path.exists() else (np.zeros(0, np.float32), EFFECT_RATE)
 
@@ -660,7 +688,12 @@ class Speaker:
                 self.cloud_error = str(exc)[:200]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "reply.wav"
-            args = self._say_args() + [f"--data-format=LEI16@{EFFECT_RATE}", "-o", str(path)]
+            fallback = self.cloud is not None
+            args = self._say_args(fallback) + [
+                f"--data-format=LEI16@{EFFECT_RATE}",
+                "-o",
+                str(path),
+            ]
             await self._run(args, spoken)
             if not path.exists():
                 return None

@@ -626,6 +626,9 @@ class Hub:
             effect=self.prefs.voice_effect,
             cloud=cloud_voice_from(settings),
         )
+        # The Mac voice picked for a language in Settings › Speaking ("": the default);
+        # the voice feature (features/voice.py) sets it.
+        self.mac_voice_for: Callable[[str], str] = lambda _language: ""
         self._speak_language()
         self.transcriber = transcriber
         self.recorder = recorder
@@ -4871,7 +4874,9 @@ class Hub:
         cloud voices speak both), and speech cleaned the way that language reads."""
         self.speaker.clean = lambda text: lang.clean_for_speech(text, self.language)
         if isinstance(self.speaker, Speaker):
-            self.speaker.voice = lang.mac_voice(self.language, self.settings.voice)
+            self.speaker.voice = self.mac_voice_for(self.language) or lang.mac_voice(
+                self.language, self.settings.voice
+            )
 
     async def _switch_language(self) -> None:
         """Settings › Language changed: the voice, the fillers, the ears and Claude's
@@ -5801,6 +5806,7 @@ class Hub:
             self.speaker.muted = bool(msg.get("value"))
             if self.speaker.muted:  # silence the reply in progress too, and what's queued
                 self.speech.clear()
+            self.set_feature_prefs({"voice_muted": self.speaker.muted})  # kept for next time
             self.emit("muted", value=self.speaker.muted)
         elif kind == "reset":
             self._spawn(self.reset())

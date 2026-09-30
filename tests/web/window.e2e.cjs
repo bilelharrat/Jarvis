@@ -2493,7 +2493,7 @@ async function loadVoiceFeature(name) {
 
 test('Listening sits after Voice, asks for its state and switches the detector', async () => {
   await loadVoiceFeature('voice');
-  const place = await js(`(() => { const g = $('voice-listening'); return { after: g.previousElementSibling === $('sw-voice').closest('section.group') }; })()`);
+  const place = await js(`(() => { const g = $('voice-listening'); return { after: g.previousElementSibling === $('mic-select').closest('section.group') }; })()`);
   assert(place.after, 'the Listening group is not right after Voice');
   await js('__sent.length = 0; featureEvent({ type: "hello" }); true');
   assert(JSON.stringify(await sent()) === '["voice_status"]', JSON.stringify(await sent()));
@@ -2511,7 +2511,7 @@ test('Listening sits after Voice, asks for its state and switches the detector',
 });
 
 test('Wake words: each has Remove (not the last), a name is added, the hint follows', async () => {
-  await loadFeature('voice');
+  await loadVoiceFeature('voice');
   await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); true`);
   await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, wake_words: ["Jarvis", "Friday"], wake_error: "" }); true`);
   let r = await js(`({ names: [...$('voice-wake-list').querySelectorAll('.fact')].map((n) => n.textContent),
@@ -2531,6 +2531,53 @@ test('Wake words: each has Remove (not the last), a name is added, the hint foll
   // app.js writes the hint afresh on a settings change: it's named again straight after.
   await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); featureEvent({ type: 'prefs' }); true`);
   assert(await js(`$('hint').firstChild.nodeValue === 'Say “Hey Friday” · '`), 'the hint went back to Jarvis');
+});
+
+test('Speaking: .env is the default, a key goes once and never stays, voices are picked and previewed', async () => {
+  await loadVoiceFeature('voice');
+  const cloud = (extra = {}) => ({ voice: { id: 'Rachel1', name: 'Rachel1' }, voice_from_env: true, model: 'eleven_flash_v2_5',
+    models: ['eleven_flash_v2_5', 'eleven_v3'], key: '', env_key: true, voices: null, ...extra });
+  const base = { detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'], provider: 'elevenlabs', provider_set: false,
+    env_provider: 'elevenlabs', mac_voice: 'Daniel', mac_voices: [{ name: 'Ava (Premium)', family: 'Ava', locale: 'en_US', quality: 'premium' },
+    { name: 'Daniel', family: 'Daniel', locale: 'en_GB', quality: 'standard' }], fallback_voice: 'Ava (Premium)', speed: 100, cloud_on: true,
+    cloud_error: '', speaking_error: '', busy: '', clouds: { elevenlabs: cloud(), fish: cloud({ voice: { id: '', name: '' }, env_key: false }) } };
+  await js(`window.__voice = ${JSON.stringify(base)}; featureEvent({ type: 'voice', ...__voice }); true`);
+  let r = await js(`({ before: $('voice-speaking').nextElementSibling === $('sw-clap').closest('section.group'),
+    moved: $('sw-voice').closest('section') === $('voice-speaking') && $('sw-effect').closest('section') === $('voice-speaking'),
+    checked: $('voice-provider').querySelector('[aria-checked="true"]').textContent, env: $('voice-provider-note').textContent,
+    mac: $('voice-mac-select').closest('.row').hidden, key: $('voice-key-note').textContent, note: $('voice-speaking-note').textContent,
+    forget: $('voice-key-forget').hidden, model: $('voice-model').value })`);
+  assert(r.before && r.moved && r.checked === 'ElevenLabs' && /From your \.env file/.test(r.env) && r.mac, JSON.stringify(r));
+  assert(r.key === 'Using the key from your .env file.' && r.forget && r.model === 'eleven_flash_v2_5', JSON.stringify(r));
+  assert(r.note === 'If ElevenLabs fails, Ava (Premium) speaks instead.', r.note);
+
+  await js(`__sent.length = 0; $('voice-key-input').value = 'sk-test-12345678'; $('voice-key-form').requestSubmit(); true`);
+  assert(await js(`$('voice-key-input').value === ''`), 'the key stayed in the field');
+  await clickText('#voice-speaking', 'List my voices');
+  let s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'voice_key', provider: 'elevenlabs', key: 'sk-test-12345678' }, { type: 'voice_list', provider: 'elevenlabs' }]), JSON.stringify(s));
+
+  await js(`featureEvent({ type: 'voice', ...__voice, busy: 'list', clouds: { ...__voice.clouds, elevenlabs: { ...__voice.clouds.elevenlabs, key: 'sk-…5678' } } }); true`);
+  r = await js(`({ list: $('voice-list').textContent, disabled: $('voice-list').disabled, key: $('voice-key-note').textContent, forget: $('voice-key-forget').hidden })`);
+  assert(r.list === 'Listing…' && r.disabled && r.key === 'Saved in the Keychain (sk-…5678).' && !r.forget, JSON.stringify(r));
+  await js(`featureEvent({ type: 'voice', ...__voice, clouds: { ...__voice.clouds, elevenlabs: { ...__voice.clouds.elevenlabs,
+    voices: [{ id: 'Rachel1', name: 'Rachel', about: 'premade' }, { id: 'Adam2', name: 'Adam', about: 'premade' }] } } }); true`);
+  await js(`__sent.length = 0; const c = $('voice-cloud-select'); c.value = 'Adam2'; c.dispatchEvent(new Event('change')); true`);
+  await clickText('#voice-provider', 'Mac');
+  s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'voice_settings', changes: { voice_cloud: { id: 'Adam2', name: 'Adam' } } },
+    { type: 'voice_settings', changes: { voice_provider: 'say' } }]), JSON.stringify(s));
+
+  await js(`featureEvent({ type: 'voice', ...__voice, provider: 'say', provider_set: true, speaking_error: 'That voice isn’t installed on this Mac.' }); true`);
+  r = await js(`({ mac: $('voice-mac-select').closest('.row').hidden, key: $('voice-key-form').hidden, options: [...$('voice-mac-select').options].map((o) => o.textContent),
+    env: $('voice-provider-note').textContent, error: $('voice-speaking-error').hidden ? '' : $('voice-speaking-error').textContent })`);
+  assert(!r.mac && r.key && JSON.stringify(r.options) === '["Ava (Premium) · Premium","Daniel"]' && /your \.env says ElevenLabs/.test(r.env) && /isn’t installed/.test(r.error), JSON.stringify(r));
+  await js(`__sent.length = 0; const m = $('voice-mac-select'); m.value = 'Ava (Premium)'; m.dispatchEvent(new Event('change')); true`);
+  await clickText('#voice-speaking', 'Preview');
+  await clickText('#voice-provider-note', 'Use my .env settings');
+  s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'voice_settings', changes: { voice_mac: 'Ava (Premium)' } },
+    { type: 'voice_preview', provider: 'say', voice: 'Ava (Premium)' }, { type: 'voice_settings', changes: { voice_provider: '' } }]), JSON.stringify(s));
 });
 
 // ──
