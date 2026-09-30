@@ -267,9 +267,10 @@
       doc = { key, scope, path, rel, where: opts.where || where(task), loading: true, dirty: false, text: '', version: null, crlf: false, editable: false, error: '', banner: null };
       docs.set(key, doc);
       state.open.push(path);
-      // Too many open: the oldest with nothing unsaved goes.
+      // Too many open: the oldest with nothing unsaved goes. Never one with changes kept that
+      // aren't back yet (still opening, or it couldn't be read): closing drops them.
       while (state.open.length > OPEN_MAX) {
-        const old = state.open.find((p) => p !== path && !(docs.get(keyOf(scope, p)) || {}).dirty);
+        const old = state.open.find((p) => p !== path && !(docs.get(keyOf(scope, p)) || {}).dirty && !draftOf(keyOf(scope, p)));
         if (!old) break;
         closeDoc(scope, old, true);
       }

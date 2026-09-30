@@ -4703,6 +4703,29 @@ test('A file that couldn’t be read is read again when it’s opened again', as
   assert(await editorText() === 'a = 1\n' && await js('!$("jc-pane-body").textContent.includes("Resource busy")'), JSON.stringify(await editorText()));
 });
 
+test('Reopening more files with unsaved changes than the tabs hold never drops one’s changes', async () => {
+  const kept = {};
+  for (let i = 0; i < 9; i++) kept[`task:1\nf${i}.py`] = { text: `changed ${i}\n`, base: VERSION, crlf: false, create: false, at: 1000 + i };
+  await js(`localStorage.setItem('jarvis.editor.drafts', ${JSON.stringify(JSON.stringify(kept))}); true`);
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); true');
+  const reads = await sentOf('cw_file_read');
+  assert(reads.length === 9, JSON.stringify(reads.map((m) => m.path)));
+  const kept9 = () => js('Object.keys(JSON.parse(localStorage.getItem("jarvis.editor.drafts") || "{}")).length === 9');
+  assert(await kept9(), await js('localStorage.getItem("jarvis.editor.drafts")'));
+  // Their changes are back, but for f0.py, deleted meanwhile: its changes stay kept.
+  for (const m of reads) {
+    await deliver(m.path === 'f0.py' ? { type: 'cw_file', path: m.path, ref: m.ref, error: 'There\'s no such file.', missing: true }
+      : { type: 'cw_file', path: m.path, ref: m.ref, text: 'on disk\n', version: VERSION, crlf: false, editable: true });
+  }
+  await js('JarvisEditor.open("f9.py"); true');  // (one more: none of them makes room for it)
+  await frames(2);
+  const tabs = await js('[...document.querySelectorAll("#jc-pane-body .ce-tab-name")].map((b) => b.title)');
+  assert(tabs.length === 10 && tabs[0] === 'f0.py' && await kept9(), JSON.stringify(tabs));
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {
