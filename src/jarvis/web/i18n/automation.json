@@ -1,7 +1,38 @@
 {
   "strings": {
     "paused": "已暂停",
-    "Next run": "下次运行"
+    "Next run": "下次运行",
+    "Timers & reminders": "计时器与提醒",
+    "Say “Jarvis, set a timer for 12 minutes”, “wake me at 6:30” or “remind me every 20 minutes to stretch until 6”.": "说“贾维斯，设一个12分钟的计时器”“6点半叫醒我”或“每20分钟提醒我伸展一下，到6点为止”。",
+    "No timers, alarms or reminders.": "没有计时器、闹钟或提醒。",
+    "Ring my phone for alarms": "闹钟也打我手机",
+    "An alarm you ask to call you also rings your phone (set it up under Phone).": "你要求打电话叫你的闹钟，也会拨打你的手机（在“电话”里设置）。",
+    "left": "剩余",
+    "Ringing": "正在响",
+    "Snooze": "稍后再响",
+    "Timer": "计时器",
+    "Alarm": "闹钟",
+    "Reminder": "提醒",
+    "Set a timer": "设了计时器",
+    "Set an alarm": "设了闹钟",
+    "Set a reminder": "设了提醒",
+    "Checked your timers": "查看了计时器",
+    "Cancelled a timer": "取消了计时器",
+    "Snoozed": "推迟了响铃",
+    "Stopped the ringing": "停止了响铃"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^Delete routine: (.+)$",
+      "删除例行任务：$1"
+    ],
+    [
+      "^Routine on: (.+)$",
+      "例行任务开关：$1"
+    ],
+    [
+      "^Cancel: (.+)$",
+      "取消：$1"
+    ]
+  ]
 }

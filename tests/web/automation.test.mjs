@@ -28,3 +28,22 @@ test('the next run reads as a time today, a weekday this week, else a date', () 
   assert.equal(A.when('', 'en', now), '');
   assert.equal(A.when('not a time', 'en', now), '');
 });
+
+test('a countdown reads 4:12 or 1:05:00, and never goes below zero', () => {
+  assert.equal(A.left(252), '4:12');
+  assert.equal(A.left(3900), '1:05:00');
+  assert.equal(A.left(59.6), '1:00');
+  assert.equal(A.left(-3), '0:00');
+  const now = new Date(2026, 8, 29, 15, 30, 0).getTime();
+  assert.equal(A.until('2026-09-29T15:34:12', now), 252); // the backend's local time, no zone
+  assert.equal(A.until('2026-09-29T15:00:00', now), 0);
+  assert.equal(A.until('junk', now), 0);
+});
+
+test('a ringing alert names its timer; other heads-ups name none', () => {
+  assert.equal(A.ringId('alarm:ab12cd:063000'), 'ab12cd');
+  assert.equal(A.ringId('timer:x1:153000'), 'x1');
+  assert.equal(A.ringId('reminder:rm1:155000'), '');
+  assert.equal(A.ringId('interrupt:mail:4'), '');
+  assert.equal(A.ringId(undefined), '');
+});

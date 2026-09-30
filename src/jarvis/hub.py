@@ -4678,12 +4678,15 @@ class Hub:
         off means none at all (Claude Code and research still get their own cards)."""
         # A conversation held for them that needs them, how a call they asked for went, or a
         # call to the Jarvis number (answering is on to hear of them) shows even with
-        # heads-ups off.
+        # heads-ups off; so does a timer, an alarm or a reminder they set.
         if not self.prefs.proactive and alert.kind not in (
             "meeting",
             "delegate",
             "call",
             "voicemail",
+            "timer",
+            "alarm",
+            "reminder",
         ):
             return
         if self._held_back(alert):

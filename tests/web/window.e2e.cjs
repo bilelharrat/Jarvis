@@ -2028,6 +2028,53 @@ test('Routines show their schedule in the window’s language and their next run
   assert((await sentOf('automation_state')).length === 2, 'the hello asked for no state');
 });
 
+test('Timers & reminders list what’s set with live countdowns; ringing ones stop or snooze', async () => {
+  await withAutomation();
+  await js('toggleSettings(true)');
+  const at = (seconds) => `new Date(Date.now() + ${seconds} * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19)`;
+  await js(`featureEvent({ type: 'automation', timers: { ringing: ['al1'], items: [
+    { id: 'al1', kind: 'alarm', label: 'wake <i>up</i>', due: ${at(-5)}, ringing: true, when: 'Alarm · 6:30 AM', when_zh: '闹钟 · 早上6:30' },
+    { id: 'tm1', kind: 'timer', label: 'pasta', due: ${at(299.5)}, ringing: false, when: '5-minute timer', when_zh: '5分钟计时器' },
+    { id: 'rm1', kind: 'reminder', label: 'stretch', due: ${at(1200)}, ringing: false, when: 'Every 20 minutes until 6 PM · next 3:50 PM', when_zh: '' },
+  ] } })`);
+  const group = await js('!!$("auto-timers") && $("auto-timers").previousElementSibling === $("routine-list").closest("section")');
+  assert(group, 'the Timers group is not right after Routines');
+  const rows = await js('[...$("auto-timer-list").children].map((li) => li.textContent)');
+  assert(rows[0].includes('wake <i>up</i>') && rows[0].includes('Ringing') && rows[0].includes('Snooze') && rows[0].includes('Stop'), rows[0]);
+  assert(/5:00|4:59/.test(rows[1]) && rows[1].includes('left') && rows[1].includes('Cancel'), rows[1]);
+  assert(rows[2].includes('Every 20 minutes until 6 PM'), rows[2]);
+  assert(await js('!$("auto-timer-list").querySelector("i")'), 'a label became markup');
+  await sleep(1100);
+  assert(/4:5\d/.test(await js('$("auto-timer-list").querySelector(".auto-left").textContent')), 'the countdown did not tick');
+  assert(await clickText('#auto-timer-list li[data-id="al1"]', 'Stop'), 'no Stop');
+  assert(await clickText('#auto-timer-list li[data-id="tm1"]', 'Cancel'), 'no Cancel');
+  await js('$("sw-auto-alarm-phone").click()');
+  const s = await js('__sent.filter((m) => m.type === "automation_timer" || m.type === "feature_prefs")');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'automation_timer', action: 'stop', id: 'al1' },
+    { type: 'automation_timer', action: 'cancel', id: 'tm1' },
+    { type: 'feature_prefs', changes: { alarm_phone: true } },
+  ]), JSON.stringify(s));
+  await js(`featureEvent({ type: 'prefs', features: { alarm_phone: true } })`);
+  assert(await js('$("sw-auto-alarm-phone").getAttribute("aria-checked")') === 'true', 'the switch did not follow the setting');
+});
+
+test('A ringing alarm’s card has Stop and Snooze; a reminder’s card has neither', async () => {
+  await withAutomation();
+  const ring = `{ type: 'alert', key: 'alarm:ab12cd:063000', alert_kind: 'alarm', title: 'Alarm', text: 'It’s 6:30 AM.' }`;
+  await js(`onEvent(${ring}); featureEvent(${ring})`);
+  const card = await js('(() => { const c = $("cards").lastElementChild; return { kicker: c.querySelector(".card-kicker").textContent, buttons: [...c.querySelectorAll("button")].map((b) => b.textContent) }; })()');
+  assert(card.kicker === 'Alarm' && JSON.stringify(card.buttons) === JSON.stringify(['Snooze', 'Stop', 'Dismiss']), JSON.stringify(card));
+  await clickText('#cards [data-ring="ab12cd"]', 'Stop');
+  assert(await js('!$("cards").querySelector("[data-ring]")'), 'the card stayed');
+  const note = `{ type: 'alert', key: 'reminder:rm1:155000', alert_kind: 'reminder', title: 'Reminder', text: 'Reminder: stretch.' }`;
+  await js(`onEvent(${note}); featureEvent(${note})`);
+  const buttons = await js('[...$("cards").lastElementChild.querySelectorAll("button")].map((b) => b.textContent)');
+  assert(JSON.stringify(buttons) === JSON.stringify(['Dismiss']), JSON.stringify(buttons));
+  const s = await js('__sent.filter((m) => m.type === "automation_timer")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'automation_timer', action: 'stop', id: 'ab12cd' }]), JSON.stringify(s));
+});
+
 // ──
 
 let base;
