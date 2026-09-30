@@ -8,6 +8,10 @@ Listening
   threshold. If the model can't load, loudness decides and Settings says why.
 - Wake words (wakewords.py): "Jarvis", the persona's own name, and any the owner adds;
   wake.py hears them (configured here), "Jarvis" anywhere, the others when called.
+- Talk over Jarvis (duplex.py, on by default): while hands-free listens, JARVIS's voice and
+  the microphone go through the Mac's echo cancellation, so talking over a reply
+  interrupts it without the wake word. Anything in the way (AirPods as the Mac's input, no
+  voice processing) falls back to the usual microphone, and the pane says why.
 - Speech recognition: Whisper (the default), or Apple's on-device recognizer (stt_apple.py),
   which hears utterances as they're said: live captions, the wake word spotted before you
   finish, and the words ready about 0.2 s after you stop (hub.heard_live), on the Neural
@@ -39,6 +43,7 @@ from typing import Any
 
 from .. import prefs as prefs_module
 from .. import vad, wake, wakewords
+from ..duplex import Duplex
 from ..speaking import PREFS as SPEAKING_PREFS
 from ..speaking import Speaking
 from ..stt_apple import LiveEars
@@ -59,11 +64,12 @@ prefs_module.register_feature_pref(
 )
 prefs_module.register_feature_pref("wake_words", wakewords.EMPTY, wakewords.clean_pref)
 prefs_module.register_feature_pref("voice_engine", "whisper", lambda v: v if v in ENGINES else None)
+prefs_module.register_feature_pref("voice_talk_over", True)
 for _key, (_default, _clean) in SPEAKING_PREFS.items():
     prefs_module.register_feature_pref(_key, _default, _clean)
 
 # The settings voice_settings may change (and nothing else of prefs.features).
-SETTINGS = ("voice_detector", "voice_vad_threshold", "voice_engine")
+SETTINGS = ("voice_detector", "voice_vad_threshold", "voice_engine", "voice_talk_over")
 
 _FEATURES: weakref.WeakKeyDictionary[Any, Voice] = weakref.WeakKeyDictionary()
 
@@ -81,6 +87,7 @@ class Voice:
         self.wake_error = ""  # why the last wake word change didn't happen (shown once)
         self.speaking = Speaking(hub)
         self.ears = LiveEars(hub, on_change=self.emit)
+        self.duplex = Duplex(hub, on_change=self.emit)
 
     # ── hands-free listening ──
 
@@ -93,9 +100,21 @@ class Voice:
             on_utterance, on_level, silence_seconds, getattr(self.hub.prefs, "mic", "builtin")
         )
         listener.voice_factory = self.voice_detector
-        listener.on_block = self.ears.tap  # Apple's recognizer, when it's the one chosen
+        listener.on_block = self._tap
+        listener.source = self.duplex.source  # the echo-cancelled microphone, when it's on
         self.listener = listener
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return listener  # made outside the app's loop (a test): nothing to start
+        self.hub._spawn(self.duplex.refresh())  # hands-free is starting: talk-over too
         return listener
+
+    def _tap(self, block: Any, speaking: bool) -> None:
+        """Each hands-free block: to Apple's recognizer (when it's the one chosen), and
+        whether someone's talking to talk-over (JARVIS's voice ducks for them)."""
+        self.ears.tap(block, speaking)
+        self.duplex.heard(speaking)
 
     def voice_detector(self) -> vad.VoiceGate | None:
         """A detector for a stream about to open (on the microphone's thread): the neural
@@ -124,6 +143,8 @@ class Voice:
             "wake_error": self.wake_error,
             "engine": self.hub.prefs.feature("voice_engine"),
             "apple": self.ears.public(),
+            "talk_over": bool(self.hub.prefs.feature("voice_talk_over")),
+            "talk_over_state": self.duplex.public(),
             "muted": bool(getattr(self.hub.speaker, "muted", False)),
             "effect": bool(getattr(self.hub.prefs, "voice_effect", False)),
             **self.speaking.public(),
@@ -155,6 +176,10 @@ class Voice:
         if before["voice_engine"] != after["voice_engine"]:
             log.info("speech recognition: %s", after["voice_engine"])
             self.hub._spawn(self.ears.refresh())  # seconds the first time: in the background
+        if before["voice_talk_over"] != after["voice_talk_over"]:
+            log.info("talk over Jarvis: %s", "on" if after["voice_talk_over"] else "off")
+            self.duplex.reset()  # switched on again: one that failed is tried again
+            self.hub._spawn(self.duplex.refresh())
         self.wake_error = ""
         for key, change in (("wake_add", wakewords.add), ("wake_remove", wakewords.remove)):
             if key in changes:
@@ -236,6 +261,7 @@ def install(hub: Any) -> None:
     if hub.prefs.feature("voice_muted"):  # muted when the app last quit
         hub.speaker.muted = True
     hub.heard_live = voice.ears.heard_live  # None from it: Whisper, as before
+    hub.talk_over = voice.duplex.active
     hub.register_loop("voice_setup", voice.speaking.setup)
     hub.register_loop("voice_ears", voice.start_ears)
     hub.register_command("voice_status", voice.status)

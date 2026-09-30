@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import logging
 import queue
@@ -9,6 +10,7 @@ import re
 import threading
 from collections import deque
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -492,6 +494,10 @@ class ContinuousListener:
         # Each block, and whether an utterance is in progress, before the segmenter takes it
         # (features/voice.py: Apple's live recognizer hears the utterances as they're said).
         self.on_block: Callable[[np.ndarray, bool], None] | None = None
+        # Another source of the microphone's blocks (duplex.py's echo-cancelled microphone):
+        # given the queue, a context manager that fills it while open, or None (then
+        # PortAudio's stream, as always). It puts None in the queue when it ends.
+        self.source: Callable[[queue.Queue], Any] | None = None
         self.segmenter: Segmenter | None = None
         self._stop = threading.Event()
         self._reopen = threading.Event()
@@ -536,6 +542,35 @@ class ContinuousListener:
             log.warning("voice detector unavailable (%s); using loudness", exc)
             return None
 
+    @contextlib.contextmanager
+    def _stream(self, blocks: queue.Queue):
+        """The microphone's blocks onto `blocks` while open: from the other source when it
+        has one ready, else PortAudio's stream of the chosen microphone."""
+        other = None
+        if self.source is not None:
+            try:
+                other = self.source(blocks)
+            except Exception as exc:  # never costs the microphone: PortAudio then
+                log.warning("the other microphone source failed (%s)", exc)
+        if other is not None:
+            with other:
+                yield
+            return
+        import sounddevice as sd
+
+        device = pick_input_device(self.device_preference)
+        with sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+            blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+            callback=lambda data, *_, q=blocks: q.put(data[:, 0].copy()),
+            device=device,
+        ):
+            name = sd.query_devices(device if device is not None else sd.default.device[0])["name"]
+            log.info("hands-free microphone open: %s", name)
+            yield
+
     def _run(self) -> None:
         owned = _HANDS_FREE.acquire(timeout=STALL_SECONDS + 3)
         if not owned:
@@ -552,7 +587,6 @@ class ContinuousListener:
         Reopens the microphone when the stream errors or stalls (AirPods connecting,
         the default input changing, the Mac waking from sleep) instead of going deaf.
         """
-        import sounddevice as sd
 
         failures = 0
         while not self._stop.is_set():
@@ -570,19 +604,7 @@ class ContinuousListener:
                 if failures >= RESET_AFTER_FAILURES:
                     log.info("resetting the audio system to find the microphone again")
                     reset_portaudio()
-                device = pick_input_device(self.device_preference)
-                with sd.InputStream(
-                    samplerate=SAMPLE_RATE,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
-                    callback=lambda data, *_, q=blocks: q.put(data[:, 0].copy()),
-                    device=device,
-                ):
-                    name = sd.query_devices(device if device is not None else sd.default.device[0])[
-                        "name"
-                    ]
-                    log.info("hands-free microphone open: %s", name)
+                with self._stream(blocks):
                     while not self._stop.is_set():
                         try:
                             block = blocks.get(timeout=STALL_SECONDS)
@@ -592,8 +614,8 @@ class ContinuousListener:
                             failures += 1
                             log.warning("microphone went quiet; reopening it")
                             break
-                        if self._reopen.is_set():
-                            break  # opened again with the new settings, straight away
+                        if block is None or self._reopen.is_set():
+                            break  # opened again (new settings, or the other source ended)
                         failures = 0  # sound is arriving: this microphone works
                         rms = float(np.sqrt(np.mean(block**2)))
                         if self.on_level is not None:

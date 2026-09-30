@@ -331,8 +331,45 @@
   download.id = 'voice-engine-download';
   download.addEventListener('click', () => { download.disabled = true; send({ type: 'voice_engine_download' }); });
 
-  listening.append(detectorRow, detector, detectorNote, sensitivity, engineRow, engine, engineNote, engineSize, download,
-    wakeRow, wakeList, wakeForm, wakeError);
+  // Talk over Jarvis: its voice and the microphone through the Mac's echo cancellation.
+  const talkRow = el('div', 'row');
+  const talkLabel = el('span');
+  talkLabel.append(el('strong', '', 'Talk over Jarvis'), el('small', '', 'Interrupt a reply just by speaking, no wake word'));
+  const talkSwitch = el('button', 'switch');
+  talkSwitch.type = 'button';
+  talkSwitch.id = 'voice-talk-over';
+  talkSwitch.setAttribute('role', 'switch');
+  talkSwitch.setAttribute('aria-label', 'Talk over Jarvis');
+  talkSwitch.addEventListener('click', () => change({ voice_talk_over: !(state && state.talk_over) }));
+  talkRow.append(talkLabel, talkSwitch);
+  const talkNote = el('p', 'small-status');
+  talkNote.id = 'voice-talk-over-note';
+
+  listening.append(detectorRow, detector, detectorNote, sensitivity, talkRow, talkNote, engineRow, engine, engineNote,
+    engineSize, download, wakeRow, wakeList, wakeForm, wakeError);
+
+  // What the hands-free row says about interrupting: true either way.
+  const TALK_OVER_COPY = 'Say “Jarvis” to talk; talk over me to interrupt. Keeps the mic on.';
+  const WAKE_WORD_COPY = 'Say “Jarvis” to talk, and “Jarvis, stop” to interrupt me. Keeps the mic on.';
+
+  function renderTalkOver() {
+    const on = !!state.talk_over;
+    const talk = state.talk_over_state || {};
+    talkSwitch.setAttribute('aria-checked', String(on));
+    let note;
+    if (!on) note = 'Off: say “Jarvis, stop” to interrupt me.';
+    else if (talk.state === 'on') note = 'On: talk over me to interrupt (any voice near the Mac does). The Mac’s echo cancellation keeps my own voice out of the microphone.';
+    else if (talk.state === 'preparing') note = 'Starting the Mac’s echo cancellation…';
+    else if (talk.state === 'unavailable') note = `Talking over me needs the Mac’s echo cancellation, which couldn’t start (${talk.why || 'unknown'}). Say “Jarvis, stop” to interrupt.`;
+    else note = 'Works while hands-free listens.';
+    talkNote.textContent = note;
+    const handsFree = F.$('sw-handsfree') && F.$('sw-handsfree').closest('.row');
+    const small = handsFree && handsFree.querySelector('small');
+    if (small) {
+      const wanted = on && talk.state === 'on' ? TALK_OVER_COPY : WAKE_WORD_COPY;
+      if (small.textContent !== wanted && F.t(wanted) !== small.textContent) small.textContent = wanted;
+    }
+  }
 
   function renderEngine() {
     const kind = state.engine === 'apple' ? 'apple' : 'whisper';
@@ -429,7 +466,7 @@
   }
 
   place();
-  F.on('voice', (ev) => { state = ev; place(); render(); renderEngine(); renderWakeWords(); renderSpeaking(); }, { replay: true });
+  F.on('voice', (ev) => { state = ev; place(); render(); renderTalkOver(); renderEngine(); renderWakeWords(); renderSpeaking(); }, { replay: true });
 
   // Live captions under the orb while you talk to Jarvis (Apple's recognizer): the words so
   // far, then gone a few seconds after the last unless the request took their place.

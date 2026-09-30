@@ -56,7 +56,14 @@
     "Getting Apple’s recognizer ready…": "正在准备 Apple 的识别器…",
     "Apple’s speech model for English isn’t on this Mac yet. macOS downloads it from Apple when you press Download.": "这台 Mac 上还没有 Apple 的英语语音模型。按“下载”后，macOS 会从 Apple 下载。",
     "Apple’s speech model for Chinese isn’t on this Mac yet. macOS downloads it from Apple when you press Download.": "这台 Mac 上还没有 Apple 的中文语音模型。按“下载”后，macOS 会从 Apple 下载。",
-    "Starts when hands-free listens.": "免提开始聆听时启动。"
+    "Starts when hands-free listens.": "免提开始聆听时启动。",
+    "Say “Jarvis” to talk, and “Jarvis, stop” to interrupt me. Keeps the mic on.": "说“贾维斯”即可对话，说“贾维斯，停”可以打断我。麦克风会保持开启。",
+    "Talk over Jarvis": "开口即可打断",
+    "Interrupt a reply just by speaking, no wake word": "我回答时你直接说话就能打断，不用说唤醒词",
+    "Off: say “Jarvis, stop” to interrupt me.": "已关闭：说“贾维斯，停”来打断我。",
+    "Starting the Mac’s echo cancellation…": "正在启动 Mac 的回声消除…",
+    "Works while hands-free listens.": "免提聆听时可用。",
+    "On: talk over me to interrupt (any voice near the Mac does). The Mac’s echo cancellation keeps my own voice out of the microphone.": "已开启：我说话时你直接开口就能打断我（Mac 附近任何人说话都会）。Mac 的回声消除会把我自己的声音挡在麦克风之外。"
   },
   "patterns": [
     [
@@ -122,6 +129,10 @@
     [
       "^Apple’s recognizer couldn’t start \\((.+)\\), so Whisper listens\\.$",
       "Apple 的识别器无法启动（$1），所以由 Whisper 来听。"
+    ],
+    [
+      "^Talking over me needs the Mac’s echo cancellation, which couldn’t start \\((.+)\\)\\. Say “Jarvis, stop” to interrupt\\.$",
+      "打断我需要 Mac 的回声消除，但它无法启动（$1）。请说“贾维斯，停”来打断。"
     ]
   ]
 }

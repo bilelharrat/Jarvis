@@ -2609,6 +2609,23 @@ test('Speech recognition: Apple offers its download only on a press, and caption
   assert(r.heard === '“what’s the weather”' && !r.live, JSON.stringify(r));
 });
 
+test('Talk over Jarvis: the switch, why it can’t run, and the hands-free row says what’s true', async () => {
+  await loadVoiceFeature('voice');
+  await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); true`);
+  const voice = (on, talk) => js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'],
+    engine: 'whisper', apple: { state: 'off' }, talk_over: ${on}, talk_over_state: ${JSON.stringify(talk)}, provider: 'say', clouds: {}, mac_voices: [], speed: 100 }); true`);
+  const handsFree = `$('sw-handsfree').closest('.row').querySelector('small').textContent`;
+  await voice(true, { state: 'on', device: 'MacBook Pro Microphone' });
+  let r = await js(`({ checked: $('voice-talk-over').getAttribute('aria-checked'), note: $('voice-talk-over-note').textContent, row: ${handsFree} })`);
+  assert(r.checked === 'true' && /echo cancellation keeps my own voice out/.test(r.note) && /talk over me to interrupt/.test(r.row), JSON.stringify(r));
+  await voice(true, { state: 'unavailable', why: 'the Mac’s input is AirPods Pro, not its own microphone' });
+  r = await js(`({ note: $('voice-talk-over-note').textContent, row: ${handsFree} })`);
+  assert(/couldn’t start \(the Mac’s input is AirPods Pro/.test(r.note) && /“Jarvis, stop” to interrupt me/.test(r.row), JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await js(`$('voice-talk-over').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_settings', changes: { voice_talk_over: false } }]), 'no switch');
+});
+
 // ──
 
 let base;

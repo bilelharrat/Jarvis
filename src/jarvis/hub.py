@@ -627,10 +627,12 @@ class Hub:
             cloud=cloud_voice_from(settings),
         )
         # The Mac voice picked for a language in Settings › Speaking ("": the default),
-        # and the words Apple's live recognizer heard for an utterance (None: Whisper
-        # transcribes it); the voice feature (features/voice.py) sets them.
+        # the words Apple's live recognizer heard for an utterance (None: Whisper
+        # transcribes it), and whether JARVIS can be talked over (its echo-cancelled
+        # microphone is on); the voice feature (features/voice.py) sets them.
         self.mac_voice_for: Callable[[str], str] = lambda _language: ""
         self.heard_live: Callable[[Any], str | None] | None = None
+        self.talk_over: Callable[[], bool] = lambda: False
         self._speak_language()
         self.transcriber = transcriber
         self.recorder = recorder
@@ -3388,6 +3390,11 @@ class Hub:
                 self.set_state("idle")
             self.emit("dictation", text=text, done=True)
             return
+        if not woke and self.talk_over() and self._overlapped():
+            # Said over JARVIS, heard through echo cancellation (Settings › Listening › Talk
+            # over Jarvis): taken as if "Jarvis" came first. It stops the reply, and what
+            # was said is a request, a stop, or the answer to the question being read.
+            woke, command = True, text
         question = self._voice_question()
         if self.answer_by_voice(text, woke=woke):
             if stop and question is not None:  # "stop" says no, and stops what was asking

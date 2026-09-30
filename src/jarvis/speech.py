@@ -369,8 +369,13 @@ class LivePlayer:
                 elif parts[:1] == ["R"]:  # output device changed: queued audio is gone
                     self._ends_at = 0.0
                     self._settle_all()
+                else:
+                    self._line(parts)
         finally:
             self._settle_all()  # it exited: nobody waits forever
+
+    def _line(self, parts: list[str]) -> None:
+        """A line of the player's this class doesn't know (duplex.DuplexPlayer's)."""
 
     def _settle(self, marker: int) -> None:
         for key in [k for k in self._markers if k <= marker]:
@@ -492,6 +497,8 @@ class Speaker:
         self._streams = asyncio.Semaphore(3)
         self._live: LivePlayer | None = None
         self._live_lock: asyncio.Lock | None = None
+        # What makes the live player (duplex.Duplex's while JARVIS can be talked over).
+        self.player_factory: Callable[[Path, int, bool], LivePlayer] = LivePlayer
 
     @property
     def live_rate(self) -> int:
@@ -510,7 +517,8 @@ class Speaker:
                 return current
             if current is not None:
                 current.close()
-            fresh = LivePlayer(self.player_path, self.live_rate, self.effect)
+            factory = getattr(self, "player_factory", LivePlayer)
+            fresh = factory(self.player_path, self.live_rate, self.effect)
             try:
                 await fresh.start()
             except OSError as exc:

@@ -253,7 +253,11 @@ async def test_captions_show_only_what_is_for_jarvis(settings, quiet_speaker, is
 async def test_the_listener_hands_its_blocks_to_apple(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated)
     listener = hub.listener_factory(lambda _a: None, None, 1.1)
-    assert listener.on_block == voice_feature.feature_for(hub).ears.tap
+    voice = voice_feature.feature_for(hub)
+    tapped = []
+    voice.ears.tap = lambda block, speaking: tapped.append((block.size, speaking))
+    listener.on_block(np.zeros(800, np.float32), True)
+    assert tapped == [(800, True)]
 
 
 async def test_just_the_name_listens_without_the_full_pause(settings, quiet_speaker, isolated):

@@ -107,6 +107,8 @@ def test_each_window_string_has_chinese(zh, text):
         "About 123 MB.",
         "Downloading from Apple… 42%",
         "Apple’s recognizer couldn’t start (no audio format), so Whisper listens.",
+        "Talking over me needs the Mac’s echo cancellation, which couldn’t start (the Mac's "
+        "input is AirPods Pro, not its own microphone). Say “Jarvis, stop” to interrupt.",
         f"That's {wakewords.MAX_WORDS} wake words already; remove one first.",
     ],
 )
