@@ -53,6 +53,10 @@ targets:
           - CFBundleURLName: com.bshventures.jarvis.companion.pairing
             CFBundleURLSchemes:
               - jarvis-pair
+          # Places in the app (widgets, Live Activities); links only ever navigate.
+          - CFBundleURLName: com.bshventures.jarvis.companion.open
+            CFBundleURLSchemes:
+              - jarvis-companion
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark

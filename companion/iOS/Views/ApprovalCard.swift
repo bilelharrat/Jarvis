@@ -5,8 +5,13 @@ import SwiftUI
 struct ApprovalCard: View {
     let approval: Approval
     let onChoose: (ApprovalChoice) -> Void
+    /// "No, because…": a no that says what to do instead.
+    var onReason: ((String) -> Void)?
 
     @State private var chosen: String?
+    @State private var explaining = false
+    @State private var reason = ""
+    @FocusState private var reasonFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -19,7 +24,7 @@ struct ApprovalCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Palette.well, Palette.champagneFoil)
                     .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion && chosen == nil)
-                Eyebrow("Needs your OK", color: Palette.champagne)
+                Eyebrow(approval.source == .code ? "Jarvis Code needs your OK" : "Needs your OK", color: Palette.champagne)
                 Spacer()
             }
             .accessibilityHidden(true)
@@ -52,12 +57,70 @@ struct ApprovalCard: View {
 
             choices
                 .padding(.top, Space.xxs)
+
+            if onReason != nil {
+                reasonRow
+            }
         }
         .padding(Space.m + 2)
         .glassCard(cornerRadius: Radius.card + 2, tint: Palette.champagne, strength: 0.7)
         .overlay(shape.strokeBorder(Palette.champagneFoil, lineWidth: 0.75).opacity(0.5))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Jarvis needs your OK")
+    }
+
+    /// A quiet "No, because…" that opens into a line to say why (or what to do instead).
+    @ViewBuilder
+    private var reasonRow: some View {
+        if explaining {
+            let well = RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+            HStack(alignment: .bottom, spacing: Space.xs) {
+                TextField("", text: $reason, prompt: Text("No, because…").foregroundStyle(Palette.muted), axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($reasonFocused)
+                    .submitLabel(.send)
+                    .onSubmit(sendReason)
+                    .foregroundStyle(Palette.ink)
+                    .padding(.vertical, Space.s)
+                    .padding(.leading, Space.s + 2)
+                    .accessibilityLabel("Why not")
+                Button(action: sendReason) {
+                    Image(systemName: "arrow.up")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(reason.trimmed.isEmpty ? Palette.muted : Palette.onAction)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(reason.trimmed.isEmpty ? AnyShapeStyle(Color.white.opacity(0.07)) : AnyShapeStyle(Palette.action)))
+                }
+                .buttonStyle(PressableStyle())
+                .disabled(reason.trimmed.isEmpty || chosen != nil)
+                .padding(.trailing, 6)
+                .padding(.bottom, 6)
+                .accessibilityLabel("Send no, with the reason")
+            }
+            .background(well.fill(Palette.well.opacity(0.55)))
+            .overlay(well.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.75))
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        } else {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) { explaining = true }
+                reasonFocused = true
+            } label: {
+                Label("No, because…", systemImage: "text.bubble")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink2)
+            }
+            .buttonStyle(.plain)
+            .disabled(chosen != nil)
+            .accessibilityHint("Say no, and tell Jarvis why or what to do instead")
+        }
+    }
+
+    private func sendReason() {
+        let text = reason.trimmed
+        guard !text.isEmpty, chosen == nil, let onReason else { return }
+        chosen = ApprovalResponse.negative(in: approval.choices)
+        reasonFocused = false
+        onReason(text)
     }
 
     @ViewBuilder

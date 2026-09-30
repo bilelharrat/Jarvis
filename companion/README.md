@@ -88,6 +88,29 @@ same address itself (through the iPhone, or over Wi-Fi/cellular). watchOS has no
 app, so a 100.x address on the Watch depends on its traffic going through an iPhone that
 has Tailscale on; at home the Mac's LAN address or `.local` name is the safer choice.
 
+## Beyond the conversation
+
+The grid button in the top bar opens **Jarvis**, a hub like the Settings app (the Routines
+quick action and the Jarvis Code module in the status strip open it at their place, and
+`jarvis-companion://…` links from widgets, Live Activities and notifications open any of
+it; links only ever navigate):
+
+- **Jarvis Code**: sessions that need you, working, and earlier. A session shows its
+  transcript's tail (fetched incrementally with `after`, bounded on the phone), its plan,
+  the question it's waiting on — the card's own choices and **No, because…**, which sends
+  `deny` with the reason (a plan's own no, keep planning, when it has no `deny`) — its
+  changes (files, counts, hunks; files that may hold secrets listed without lines), a line
+  to send it, and Stop (after a confirmation).
+- **Conversations for you** (delegations): who with, the goal, where it stands; Stop after
+  a confirmation.
+- **Routines**: on/off, run now, change the time and days (0 = Monday, the Mac's way), and
+  delete after a confirmation. A Mac without `/api/routines` gets the run-only list.
+- **What did I miss**: the last day's texts, emails, calls and voicemails as the Mac
+  summarized them, urgent first.
+- **Spending**: today against the day's limit, the limits, and what was spent lately.
+
+Every approval card (on Home too) has **No, because…**.
+
 ## When the Mac can't be reached
 
 Requests that still mean something later wait in an outbox on the iPhone (the App Group
@@ -155,13 +178,16 @@ Shared/                     both apps
   Models.swift, CompanionModels.swift, Decoding.swift   lenient Codable models for the API's JSON
   JSONValue.swift           JSON request bodies
   Outbox.swift              requests kept while the Mac can't be reached, and sending them
+  ApprovalResponse.swift    an answer (Allow, Not now, No because…) to the choice the Mac gets
+  Destination.swift         places in the app and their jarvis-companion:// links
   PendingRequest.swift      follows one request until the Mac has answered it
   MacAddress.swift          "mac.local:8766" → https://mac.local:8766
   PairingStore.swift        Pairing + Keychain
   WatchLink.swift           what the iPhone hands the Watch
   ReactorView.swift, Theme.swift, DebugLaunch.swift
 iOS/                        AppModel (state, polling), Transcript, Services/ (speech,
-                            voice, Bonjour, Watch bridge, haptics), Views/
+                            voice, Bonjour, Watch bridge, haptics), Views/, Views/Screens/
+                            (the hub: Jarvis Code, conversations, routines, digest, spending)
 Watch/                      WatchModel, WatchSessionBridge, Views/
 Tests/, UITests/            unit tests; the end-to-end UI test
 ```

@@ -6,8 +6,14 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @FocusState private var typing: Bool
     @State private var showSettings = false
-    @State private var showRoutines = false
     @State private var showOutbox = false
+    /// The hub (Jarvis Code, conversations, routines…), opened at a place or at its top.
+    @State private var more: MoreRequest?
+
+    struct MoreRequest: Identifiable {
+        let id = UUID()
+        var start: Destination?
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -21,8 +27,11 @@ struct HomeView: View {
                     next: model.remote?.nextEvent,
                     weather: model.remote?.weather,
                     taskCount: model.remote?.activeTasks.count ?? 0,
-                    meeting: model.remote?.meeting
-                )
+                    meeting: model.remote?.meeting,
+                    code: model.remote?.liveCodeSessions ?? []
+                ) {
+                    more = MoreRequest(start: .code)
+                }
                 .padding(.horizontal, -Self.margin)  // a shelf, edge to edge
                 if case .unreachable(let reason) = model.link {
                     ConnectionBanner(reason: reason, waiting: model.queued.count) {
@@ -39,6 +48,8 @@ struct HomeView: View {
                             ForEach(model.visibleApprovals) { approval in
                                 ApprovalCard(approval: approval) { choice in
                                     Task { await model.answer(approval, with: choice) }
+                                } onReason: { reason in
+                                    Task { await model.answer(approvalID: approval.id, choices: approval.choices, with: .denyBecause(reason)) }
                                 }
                                 .transition(.asymmetric(insertion: .scale(scale: 0.94).combined(with: .opacity), removal: .opacity))
                             }
@@ -82,9 +93,18 @@ struct HomeView: View {
         .sheet(isPresented: $showOutbox) {
             OutboxSheet()
         }
-        .sheet(isPresented: $showRoutines) {
-            RoutinesSheet(routines: model.remote?.routines ?? []) { routine in
-                Task { await model.run(.runRoutine(id: routine.id)) }
+        .sheet(item: $more) { request in
+            MoreSheet(start: request.start)
+        }
+        .onChange(of: model.destination, initial: true) { _, destination in
+            guard let destination else { return }
+            model.destination = nil
+            showSettings = false
+            showOutbox = false
+            switch destination {
+            case .home: more = nil
+            case .outbox: showOutbox = true
+            default: more = MoreRequest(start: destination)
             }
         }
     }
@@ -119,6 +139,7 @@ struct HomeView: View {
                 model.speakReplies.toggle()
                 Haptics.tap()
             }
+            roundButton("square.grid.2x2.fill", label: "More") { more = MoreRequest() }
             roundButton("gearshape.fill", label: "Settings") { showSettings = true }
         }
         .padding(.top, Space.xxs)
@@ -197,7 +218,7 @@ struct HomeView: View {
         case .whatsNext: Task { await model.send(AppModel.whatsNext) }
         case .notesStart: Task { await model.run(.meetingStart(title: "Meeting")) }
         case .notesStop: Task { await model.run(.meetingStop) }
-        case .routines: showRoutines = true
+        case .routines: more = MoreRequest(start: .routines)
         case .stop: Task { await model.run(.stop) }
         }
     }

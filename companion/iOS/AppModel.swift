@@ -42,6 +42,8 @@ final class AppModel {
     /// A pairing link opened from outside the app (the Camera app read the Mac's QR code),
     /// waiting for the owner to confirm it.
     var offeredLink: PairingLink?
+    /// A place to show (from a notification, a widget, a Live Activity); Home opens it.
+    var destination: Destination?
     var draft = ""
     private var speakSetting = true
 
@@ -193,6 +195,8 @@ final class AppModel {
     func open(_ url: URL) {
         if let link = PairingLink(url.absoluteString) {
             offeredLink = link
+        } else if let place = Destination(url: url), pairing != nil {
+            destination = place
         }
     }
 
@@ -325,6 +329,30 @@ final class AppModel {
 
     // MARK: - Approvals and commands
 
+    /// Answers an approval by what the answer means (from a Jarvis Code session, the Watch
+    /// or a notification): the choice id comes from the card's own choices.
+    @discardableResult
+    func answer(approvalID: String, choices: [ApprovalChoice], with answer: ApprovalAnswer) async -> Bool {
+        guard let api = pairing?.api, !answering.contains(approvalID) else { return false }
+        answering.insert(approvalID)
+        let sent = ApprovalResponse.choice(for: answer, choices: choices)
+        Haptics.answered(negative: answer != .allow)
+        do {
+            if try await api.approve(id: approvalID, choice: sent.choice, feedback: sent.feedback) == false {
+                show("That was already answered on the Mac.")
+            }
+            restartPolling()
+            return true
+        } catch {
+            answering.remove(approvalID)
+            if let problem = handle(error) {
+                Haptics.failure()
+                show(problem.errorDescription ?? problem.title, style: .problem)
+            }
+            return false
+        }
+    }
+
     func answer(_ approval: Approval, with choice: ApprovalChoice) async {
         guard let api = pairing?.api, !answering.contains(approval.id) else { return }
         answering.insert(approval.id)
@@ -379,6 +407,48 @@ final class AppModel {
             show((error as? JarvisError)?.errorDescription ?? error.localizedDescription, style: .problem)
         }
         restartPolling()
+    }
+
+    /// Runs a routine now: the contract's endpoint, or the command an older Mac knows.
+    func runRoutine(id: String, name: String) async {
+        guard let api = pairing?.api else { return }
+        Haptics.tap()
+        if isOffline {
+            return keep(.command(.runRoutine(id: id), label: "Routine · \(name)"))
+        }
+        do {
+            _ = try await api.runRoutine(id: id)
+            expectActivity()
+            show("\(name) started on your Mac.", style: .success)
+        } catch JarvisError.unsupported {
+            await run(.runRoutine(id: id))
+        } catch let error as JarvisError where error.neverDelivered {
+            keep(.command(.runRoutine(id: id), label: "Routine · \(name)"))
+        } catch {
+            if let problem = handle(error) {
+                Haptics.failure()
+                show(problem.errorDescription ?? problem.title, style: .problem)
+            }
+        }
+    }
+
+    /// Something was started on the Mac: poll quickly for a while to show it.
+    func expectActivity(for seconds: TimeInterval = 45) {
+        followUntil = Date().addingTimeInterval(seconds)
+        restartPolling()
+    }
+
+    /// A screen's request failed. A device the Mac no longer knows goes back to pairing
+    /// (nil: nothing more to show); anything else comes back to be shown.
+    @discardableResult
+    func handle(_ error: Error) -> JarvisError? {
+        if error is CancellationError { return nil }
+        let problem = (error as? JarvisError) ?? .unreachable(error.localizedDescription)
+        if problem == .unpaired {
+            lost()
+            return nil
+        }
+        return problem
     }
 
     private func label(for command: MacCommand) -> String {

@@ -11,6 +11,9 @@ struct StatusStrip: View {
     let weather: Weather?
     let taskCount: Int
     let meeting: String?
+    /// Jarvis Code sessions working or waiting on the owner.
+    var code: [CodeSessionSummary] = []
+    var onCode: () -> Void = {}
 
     /// The widest module (the next event), growing with Dynamic Type up to most of a screen.
     @ScaledMetric(relativeTo: .subheadline) private var wide: CGFloat = 240
@@ -20,6 +23,19 @@ struct StatusStrip: View {
             HStack(spacing: Space.xs) {
                 stat("Mac", value: stateLabel, color: stateColor) {
                     StateIndicator(state: offline ? nil : state)
+                }
+                if !code.isEmpty {
+                    let needsYou = code.filter { $0.status == .needsYou }.count
+                    Button(action: onCode) {
+                        stat("Jarvis Code", value: needsYou > 0 ? (needsYou == 1 ? "Needs you" : "\(needsYou) need you") : "\(code.count) working",
+                             color: needsYou > 0 ? Palette.champagne : Palette.ice, tint: needsYou > 0 ? Palette.champagne : .white) {
+                            Image(systemName: needsYou > 0 ? "hand.raised.fill" : "chevron.left.forwardslash.chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(needsYou > 0 ? Palette.champagne : Palette.ice)
+                        }
+                    }
+                    .buttonStyle(PressableStyle())
+                    .accessibilityHint("Opens Jarvis Code")
                 }
                 if let meeting {
                     stat("Notes", value: meeting, color: Palette.danger, tint: Palette.danger) {
@@ -36,7 +52,7 @@ struct StatusStrip: View {
                             .font(.footnote)
                     }
                 }
-                if taskCount > 0 {
+                if taskCount > 0, code.isEmpty {  // the same sessions, when the Mac lists them itself
                     stat("Tasks", value: "\(taskCount) running") {
                         Image(systemName: "gearshape.2.fill")
                             .symbolRenderingMode(.hierarchical)
