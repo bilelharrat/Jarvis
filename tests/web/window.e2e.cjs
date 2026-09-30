@@ -2806,6 +2806,58 @@ test('Pull request: without GitHub it says where to connect it', async () => {
   assert(!(await js('$("accounts").hidden')), 'Tools & Accounts didn’t open');
 });
 
+// ── Jarvis Code's runs without the owner (web/features/code_unattended.js) ──
+
+test('Without you: the scope goes to the backend, runs are listed, a running one’s session says so', async () => {
+  await open(1);
+  await loadFeatures('code_unattended.js', 'code_unattended.css');
+  await js('$("deck-input").value = "Run the tests and fix what fails"; __sent.length = 0; $("jc-more").click()');
+  assert(await clickText('#jc-menu', 'Run without me…'), 'no Run without me in the More menu');
+  assert((await js('__sent.map((m) => m.type)')).includes('code_runs'), 'the runs weren’t asked for');
+  const form = await js(`({ prompt: document.querySelector('.jcx-run-form textarea').value, project: document.querySelector('.jcx-run-form select').value,
+    go: document.querySelector('.jcx-run-form button[type=submit]').textContent })`);
+  assert(form.prompt === 'Run the tests and fix what fails' && form.project === 'alpha' && form.go === 'Start…', JSON.stringify(form));
+  await js(`(() => { const [, , , commands, spend, hours] = document.querySelectorAll('.jcx-run-form input, .jcx-run-form select');
+    const c = document.querySelector('.jcx-run-form input.jc-field:not([type])'); c.value = 'npm test, uv run pytest'; c.dispatchEvent(new Event('input'));
+    const n = document.querySelectorAll('.jcx-run-num'); n[0].value = '3'; n[0].dispatchEvent(new Event('input')); n[1].value = '1.5'; n[1].dispatchEvent(new Event('input'));
+    const mode = document.querySelectorAll('.jcx-run-form select')[1]; mode.value = 'smart'; mode.dispatchEvent(new Event('change')); })()`);
+  await js('__sent.length = 0');
+  await clickText('.jcx-run-form', 'Start…');
+  let s = await js('__sent.filter((m) => m.type === "code_run_start")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'code_run_start', prompt: 'Run the tests and fix what fails', project: 'alpha', mode: 'smart',
+    commands: ['npm test', 'uv run pytest'], spend_cap: 3, hours: 1.5 }]), JSON.stringify(s));
+  // On a schedule: the time goes with it, and the button says Schedule.
+  await js(`(() => { const when = [...document.querySelectorAll('.jcx-run-form select')].find((x) => x.getAttribute('aria-label') === 'When'); when.value = 'daily'; when.dispatchEvent(new Event('change')); })()`);
+  await js(`(() => { const t = document.querySelector('.jcx-run-form input[type=time]'); t.value = '01:30'; t.dispatchEvent(new Event('input')); })()`);
+  await js('__sent.length = 0');
+  await clickText('.jcx-run-form', 'Schedule…');
+  s = await js('__sent.filter((m) => m.type === "code_run_start").map((m) => m.schedule)');
+  assert(JSON.stringify(s) === JSON.stringify([{ kind: 'daily', time: '01:30', date: '' }]), JSON.stringify(s));
+  // Once: not before it has its date.
+  await js(`(() => { const when = [...document.querySelectorAll('.jcx-run-form select')].find((x) => x.getAttribute('aria-label') === 'When'); when.value = 'once'; when.dispatchEvent(new Event('change')); })()`);
+  assert(await js('document.querySelector(".jcx-run-form button[type=submit]").disabled'), 'a one-off offered without its date');
+  await js(`(() => { const d = document.querySelector('.jcx-run-form input[type=date]'); d.value = '2030-01-02'; d.dispatchEvent(new Event('input')); })()`);
+  assert(!(await js('document.querySelector(".jcx-run-form button[type=submit]").disabled')), 'a dated one-off can’t be scheduled');
+  // The runs, one running in session 1.
+  const now = Date.now() / 1000;
+  await js(`__ev({ type: 'code_runs', active: { '1': 'r1' }, jobs: [{ id: 'j1', routine_id: 'x', title: 'Nightly <b>tests</b>', prompt: 'p', project: 'alpha', mode: 'edits', commands: [], spend_cap: 5, hours: 2, created: 0, when: 'every day at 1 AM', on: true }],
+    runs: [{ id: 'r1', title: 'Run the tests', project: 'alpha', state: 'running', why: '', started: ${now}, ended: 0, hours: 2, spend_cap: 3, cost: 0, files: 0, denied: [], task_id: 1, origin: 'owner', issue: {} },
+      { id: 'r0', title: 'Old <i>one</i>', project: 'alpha', state: 'stopped', why: 'spend', started: ${now - 3600}, ended: ${now - 1800}, hours: 2, spend_cap: 5, cost: 5, files: 3,
+        denied: ['Running curl https://x'], task_id: 99, origin: 'owner', issue: {} }] })`);
+  const listed = await js(`({ chips: [...document.querySelectorAll('.jcx-run .jcx-chip')].map((c) => c.textContent), html: document.querySelectorAll('.jcx-runs b, .jcx-runs i').length,
+    badge: !$('jc-title').parentElement.querySelector('.jcx-run-badge').hidden, show: [...document.querySelectorAll('.jcx-run button')].map((b) => b.textContent) })`);
+  assert(JSON.stringify(listed.chips) === JSON.stringify(['Running', 'Stopped: spending cap', 'Scheduled']) && listed.html === 0, JSON.stringify(listed));
+  assert(listed.badge, 'the session’s header doesn’t say it runs without you');
+  assert(JSON.stringify(listed.show) === JSON.stringify(['Show session', 'Stop', '1 step refused', 'Remove']), JSON.stringify(listed.show));
+  await clickText('.jcx-run:nth-child(2)', '1 step refused');
+  assert(await js('document.querySelector(".jcx-run-denied li").textContent') === 'Running curl https://x', 'the refused step isn’t listed');
+  await js('__sent.length = 0');
+  await clickText('.jcx-run:nth-child(1)', 'Stop');
+  await clickText('.jcx-run-list:last-of-type', 'Remove');
+  s = await js('__sent.map((m) => m.type + " " + (m.run || m.job))');
+  assert(JSON.stringify(s) === JSON.stringify(['code_run_stop r1', 'code_run_forget j1']), JSON.stringify(s));
+});
+
 // ──
 
 let base;

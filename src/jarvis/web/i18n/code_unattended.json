@@ -1,0 +1,77 @@
+{
+  "strings": {
+    "Without you": "无人值守",
+    "Run without me…": "无人值守运行…",
+    "What should it do? (Run the tests and fix what fails)": "要它做什么？（运行测试，修好失败的地方）",
+    "Project": "项目",
+    "Auto": "自动",
+    "Mode": "模式",
+    "Now": "现在",
+    "Every day": "每天",
+    "Weekdays": "工作日",
+    "Once": "一次",
+    "When": "时间",
+    "At": "几点",
+    "Spending cap ($)": "花费上限（美元）",
+    "Time cap (hours)": "时间上限（小时）",
+    "Start…": "开始…",
+    "Schedule…": "安排…",
+    "Asks first, with the whole scope on the card": "会先问你，卡片上列出全部范围",
+    "What to do": "要做什么",
+    "Commands it may run": "它可以运行的命令",
+    "Beyond the read-only ones and the project’s own “don’t ask again” rules. Nothing that sends, deletes or changes the Mac.": "除只读命令和项目自己的“不再询问”规则之外。不能包含发送、删除或更改 Mac 的操作。",
+    "Always in an isolated copy; it never pushes.": "始终在独立副本里运行；不会推送。",
+    "Finished": "已完成",
+    "Stopped: spending cap": "已停下：达到花费上限",
+    "Stopped: time cap": "已停下：达到时间上限",
+    "Stopped: no isolated copy": "已停下：没有独立副本",
+    "Stopped by you": "被你停下",
+    "Stopped when the app quit": "应用退出时停下",
+    "Stopped with an error": "出错后停下",
+    "Running": "运行中",
+    "Show session": "显示会话",
+    "Hide what it was refused": "收起被拒绝的步骤",
+    "Scheduled": "已安排",
+    "Paused": "已暂停",
+    "Removes the schedule and its routine": "删除这个安排和它的例行任务",
+    "A session that works while you’re away, within a scope you approve now. Anything outside it is refused, never asked, and it reports back when it’s done.": "一个在你不在时工作的会话，范围由你现在批准。超出范围的操作一律拒绝、不会询问，完成后会向你汇报。",
+    "Runs": "运行记录",
+    "1 step refused": "1 个步骤被拒绝",
+    "1 file changed": "改动了 1 个文件",
+    "Date": "日期",
+    "Accept edits: edits in its copy go ahead, and the commands below. Auto: besides those, Claude’s own safety check lets through what it judges safe.": "接受编辑：在它的副本里的修改会直接进行，下面的命令也可以运行。自动：除此之外，由 Claude 自己的安全检查放行它认为安全的操作。",
+    "Started a run without you": "开始了一次无人值守运行",
+    "Scheduled a run without you": "安排了一次无人值守运行",
+    "Checked the runs without you": "查看了无人值守运行"
+  },
+  "patterns": [
+    [
+      "^(\\d+) steps refused$",
+      "$1 个步骤被拒绝"
+    ],
+    [
+      "^(\\d+) files changed$",
+      "改动了 $1 个文件"
+    ],
+    [
+      "^\\$([\\d.]+) of \\$([\\d.]+)$",
+      "$$$1 / $$$2"
+    ],
+    [
+      "^(\\d+) min$",
+      "$1 分钟"
+    ],
+    [
+      "^up to \\$([\\d.]+)$",
+      "最多 $$$1"
+    ],
+    [
+      "^until (.+)$",
+      "到 $1 为止"
+    ],
+    [
+      "^Running without you: it stops at \\$([\\d.]+) spent or at (.+)\\.$",
+      "正在无人值守运行：花费达到 $$$1 或到 $2 时会停下。"
+    ]
+  ]
+}

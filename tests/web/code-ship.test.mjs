@@ -4,18 +4,22 @@
 // fragment is well formed.
 // node --test tests/web/
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
-const SCRIPTS = ['code_pr', 'code_unattended', 'code_limit'].filter((name) => existsSync(`${WEB}/features/${name}.js`));
+const SCRIPTS = ['code_pr', 'code_unattended', 'code_issues', 'code_limit'].filter((name) => existsSync(`${WEB}/features/${name}.js`));
 const core = JSON.parse(readFileSync(`${WEB}/i18n-zh.json`, 'utf8'));
+
+// The window merges every fragment over the core (server.zh_strings): so does this.
+const every = readdirSync(`${WEB}/i18n`).filter((f) => f.endsWith('.json')).sort()
+  .map((f) => JSON.parse(readFileSync(`${WEB}/i18n/${f}`, 'utf8')));
 
 function dictionary(name) {
   const fragment = JSON.parse(readFileSync(`${WEB}/i18n/${name}.json`, 'utf8'));
-  const strings = { ...core.strings, ...fragment.strings };
-  const patterns = [...core.patterns, ...fragment.patterns].map(([re, rep]) => [new RegExp(re), rep]);
+  const strings = Object.assign({}, core.strings, ...every.map((f) => f.strings || {}));
+  const patterns = [...core.patterns, ...every.flatMap((f) => f.patterns || [])].map(([re, rep]) => [new RegExp(re), rep]);
   return {
     fragment,
     chinese(text) {

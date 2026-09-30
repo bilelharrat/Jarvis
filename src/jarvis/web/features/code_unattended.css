@@ -1,0 +1,41 @@
+/* Jarvis Code's runs without the owner: the Without you pane and the header's badge. */
+
+.jcx-runs { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.jcx-runs > .jc-dim { margin: 0 2px; }
+.deck.jc .jcx-runs .jc-btn { font-size: 12px; }
+.deck.jc .jcx-runs .jc-btn.filled { color: #fff; }
+.deck.jc .jcx-runs .jc-btn:not(.filled) { color: rgb(var(--c-ink)); }
+.deck.jc .jcx-runs .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-runs .jc-btn.plain { background: none; box-shadow: none; color: rgb(var(--c-muted)); padding-left: 0; }
+.jcx-runs .jc-btn:disabled { opacity: 0.45; cursor: default; }
+.jcx-runs .jcx-chip { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.07); white-space: nowrap; }
+.jcx-runs .jcx-chip.busy { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); }
+.jcx-runs .jcx-chip.good { color: rgb(var(--c-success-ink)); background: rgb(var(--c-success-soft)); }
+.jcx-runs .jcx-chip.warn { color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
+.jcx-runs .jcs-label { margin: 6px 2px 4px; }
+
+.jcx-run-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: rgb(var(--c-surface) / 0.55); box-shadow: var(--shadow-card); }
+.jcx-run-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; min-width: 0; }
+.jcx-run-label { font-weight: 600; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.jcx-run-field .jcs-select { max-width: 100%; align-self: flex-start; }
+.jcx-run-field textarea { resize: vertical; min-height: 60px; font: 12.5px/1.45 var(--sans, inherit); }
+.jcx-run-field small { font-size: 11.5px; line-height: 1.4; }
+.jcx-run-caps { display: flex; gap: 12px; flex-wrap: wrap; }
+.jcx-run-num { width: 90px; }
+.jcx-run-time { width: 140px; }
+.jcx-run-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jcx-run-actions .jc-dim { font-size: 11.5px; }
+
+.jcx-run-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jcx-run { padding: 8px 10px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 4px; }
+.jcx-run-head { display: flex; align-items: center; gap: 6px; }
+.jcx-run-title { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-run-head code { font: 11px var(--mono); color: rgb(var(--c-accent-ink)); }
+.jcx-run-facts { margin: 0; font-size: 12px; }
+.jcx-run-denied { margin: 2px 0 0; padding-left: 18px; font: 11.5px/1.5 var(--mono); color: rgb(var(--c-ink-2)); }
+
+.jcx-run-badge { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; padding: 1px 8px; border: 0; border-radius: 999px; font: 600 11px var(--sans, inherit); color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); cursor: pointer; }
+.jcx-run-badge[hidden] { display: none; }
+.jcx-run-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: jcx-run-pulse 1.8s ease-in-out infinite; }
+@keyframes jcx-run-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .jcx-run-dot { animation: none; } }
