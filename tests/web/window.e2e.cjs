@@ -1632,6 +1632,22 @@ test('A snippet never takes a command’s name: /usage stays itself, and /ask or
   assert(!(await sentOf('feature_prefs')).length, JSON.stringify(await sentOf('feature_prefs')));
 });
 
+test('Unarchiving the last archived session, seen under Archived, shows every session again', async () => {
+  await sessions([1, 2, 3]);
+  await js(`__ev({ type: 'code_meta', full: true, items: { 3: { archived: true } } }); true`);
+  await frames(2);
+  await js('[...document.querySelectorAll(".cs-filter .cs-chip")].pop().click()');  // Archived (1)
+  await frames(2);
+  const shown = () => js(`({ rows: [1, 2, 3].map((id) => !document.querySelector('#deck-project-list .jc-session[data-task="' + id + '"]').parentElement.hidden),
+    add: !document.querySelector('#deck-project-list .jc-session.add').parentElement.hidden })`);
+  let r = await shown();
+  assert(JSON.stringify(r) === JSON.stringify({ rows: [true, false, true], add: false }), `under Archived: ${JSON.stringify(r)}`);
+  await js(`__ev({ type: 'code_meta', items: { 3: { archived: false } } }); true`);  // Unarchive, as the hub says it
+  await frames(2);
+  r = await shown();
+  assert(JSON.stringify(r) === JSON.stringify({ rows: [true, true, true], add: true }), `after Unarchive: ${JSON.stringify(r)}`);
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

@@ -214,6 +214,9 @@
   function decorate() {
     const list = $('deck-project-list');
     if (ccSelected != null && seeing(ccSelected)) S.unread.delete(ccSelected);  // (back in view)
+    // The filter first: one with nothing left in it (the last archived session unarchived)
+    // goes back to All before the rows are shown by it.
+    renderFilter();
     for (const row of list.querySelectorAll('.jc-session[data-task]')) {
       const id = Number(row.dataset.task);
       const meta = metaOf(id);
@@ -251,7 +254,6 @@
       for (const r of rows) if (!r.classList.contains('cs-row')) r.hidden = filtered;
       li.hidden = filtered && !rows.some((r) => r.classList.contains('cs-row') && !r.hidden);
     }
-    renderFilter();
     renderPinned();
     if (typeof moveGlider === 'function') moveGlider();
     if (S.project !== deckProject) { S.project = deckProject; applyProjectDefaults(); }
