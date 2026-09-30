@@ -110,7 +110,7 @@ class Note:
     id: str
     # notes | files | computer | bsh | research | meetings | videos | photos | mail | messages,
     # and jarvis.brain_sources' conversations | images | safari | bookmarks | reminders |
-    # voicememos
+    # voicememos | journal
     source: str
     title: str
     text: str

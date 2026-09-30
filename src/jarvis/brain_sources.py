@@ -10,6 +10,7 @@
 - reminders: Apple Reminders, read only (reminders_kit, EventKit).
 - voicememos: Voice Memos, transcribed on this Mac by JARVIS's Whisper model, a few a
   rebuild, each transcript cached by the recording's hash.
+- journal: JARVIS's daily notes, Documents › Jarvis › Journal (jarvis.journal writes them).
 
 Each is a switch under Second brain (jarvis.features.brain keeps them, SWITCHES); the app
 passes them, and search by meaning's, to the rebuild as args["more"]. Everything is read in
@@ -50,6 +51,7 @@ SWITCHES: dict[str, tuple[str, bool]] = {
     "bookmarks": ("brain_bookmarks", False),
     "reminders": ("brain_reminders", False),
     "voicememos": ("brain_voicememos", False),
+    "journal": ("brain_journal", True),
 }
 SEMANTIC = ("brain_semantic", False)  # search by meaning: may download Apple's model files
 VECTORS = "vectors"  # rebuild_brain(only={VECTORS}): re-read nothing, make vectors
@@ -680,6 +682,12 @@ def extra_sources(args: dict[str, Any]) -> dict[str, Callable[[], list[Note]]]:
         sources["bookmarks"] = collect_bookmarks
     if more.get("reminders"):
         sources["reminders"] = collect_reminders
+    if more.get("journal"):
+        from .journal import JOURNAL_DIR
+
+        sources["journal"] = lambda: collect_folder(
+            JOURNAL_DIR, source="journal", limit=400, newest_first=True
+        )
     if more.get("voicememos"):
         whisper = more.get("whisper") if isinstance(more.get("whisper"), dict) else {}
         model = str(whisper.get("model") or "base.en")
