@@ -638,6 +638,77 @@ test('“@” at the start of a Jarvis Code message offers the other sessions to
   assert(!midway.some((t) => t.startsWith('@session')), JSON.stringify(midway));  // only at the start
 });
 
+// ── the Mac app's shell (web/features/shell.js), with a stand-in for the app's side ──
+
+// Loaded as features.js would load it, after app.js, with window.jarvisApp.feature recording
+// what goes to the app and keeping the handler for what the app sends.
+async function loadShell() {
+  const source = fs.readFileSync(path.join(WEB, 'features', 'shell.js'), 'utf8');
+  await js(`
+    window.__app = { sent: [], on: {}, invoked: [] };
+    window.jarvisApp = { feature: {
+      invoke: (channel, ...args) => { __app.invoked.push([channel, ...args]); return Promise.resolve(__app.answer ? __app.answer(channel, ...args) : { dev: false }); },
+      send: (channel, msg) => __app.sent.push([channel, msg]),
+      on: (channel, fn) => { __app.on[channel] = fn; },
+    } };
+    window.__event = (ev) => { onEvent(ev); featureEvent(ev); };
+    true`);
+  await js(`${source}\ntrue`);
+  await js(`__event({ type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, status: {}, activity: [], tasks: [],
+    prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: false, features: {} }, brain: {}, approvals: [], history: [] }); true`);
+  await sleep(20);
+}
+const reports = () => js('__app.sent.filter(([c]) => c === "feature:shell:state").map(([, m]) => m)');
+
+test('The shell tells the app what JARVIS is doing, and adds This Mac to Settings', async () => {
+  await loadShell();
+  let r = await reports();
+  const first = r[r.length - 1];
+  assert(first.state === 'idle' && first.muted === true && first.online === true && first.menuBar === true, JSON.stringify(r));
+  assert(first.labels.idle === 'Ready' && first.labels.pausedUntil === '', JSON.stringify(first.labels));
+  const before = r.length;
+  await js('__event({ type: "state", value: "listening" }); __event({ type: "muted", value: false }); true');
+  await sleep(20);
+  r = await reports();
+  assert(r.length === before + 1 && r[before].state === 'listening' && r[before].muted === false, JSON.stringify(r));
+  const soon = Date.now() / 1000 + 3600;
+  await js(`__event({ type: 'prefs', language: 'en', hands_free: true, features: { shell_pause_until: ${soon}, shell_menu_bar: false } }); true`);
+  await sleep(20);
+  r = await reports();
+  const last = r[r.length - 1];
+  assert(last.handsFree === true && last.menuBar === false && Math.abs(last.pausedUntil - soon * 1000) < 1, JSON.stringify(last));
+  assert(/^Heads-ups paused until \d/.test(last.labels.pausedUntil), last.labels.pausedUntil);
+  // Settings › This Mac, before the last group (Tools & Accounts…), its switch following the setting.
+  const g = await js('({ at: [...$("settings").children].indexOf($("shell-group")), accounts: [...$("settings").children].indexOf($("open-accounts").closest("section")), on: $("sw-shell-menubar").getAttribute("aria-checked") })');
+  assert(g.at > 0 && g.at === g.accounts - 1 && g.on === 'false', JSON.stringify(g));
+  await js('__sent.length = 0; $("sw-shell-menubar").click(); true');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { shell_menu_bar: true } }]), JSON.stringify(s));
+  // The connection drops: offline for the menu bar.
+  await js('$("offline").hidden = false; true');
+  await sleep(20);
+  r = await reports();
+  assert(r[r.length - 1].online === false, 'still online after the connection dropped');
+});
+
+test('The shell carries out the menu bar’s commands over the window’s connection', async () => {
+  await loadShell();
+  await js('__sent.length = 0; true');
+  for (const action of ['mute', 'unmute', 'hands-free', 'pause', 'resume']) await js(`__app.on['feature:shell:command']({ action: '${action}' }); true`);
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'mute', value: true }, { type: 'mute', value: false }, { type: 'set_prefs', changes: { hands_free: true } },
+    { type: 'shell_pause', minutes: 60 }, { type: 'shell_pause', minutes: 0 },
+  ]), JSON.stringify(s));
+  await js('__app.on["feature:shell:command"]({ action: "open", panel: "settings" }); true');
+  assert(await js('!$("settings").hidden'), 'Settings did not open');
+  await js('__app.on["feature:shell:command"]({ action: "open", panel: "code" }); true');
+  assert(await js('!$("cc").hidden'), 'Jarvis Code did not open');
+  await js('__app.on["feature:shell:command"]({ action: "open", panel: "brain" }); true');
+  assert(await js('galaxyMode') === 'open', 'the second brain did not open');
+  await js('__app.on["feature:shell:command"]({ action: "nonsense" }); __app.on["feature:shell:command"](null); true');
+});
+
 // ──
 
 let base;

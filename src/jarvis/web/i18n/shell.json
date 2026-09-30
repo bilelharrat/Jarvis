@@ -1,0 +1,21 @@
+{
+  "strings": {
+    "This Mac": "这台 Mac",
+    "Show in the menu bar": "在菜单栏中显示",
+    "What JARVIS is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.": "一眼看到 JARVIS 正在做什么，并可在任何应用中使用“提问”“静音”“免提唤醒”和“暂停提醒”。",
+    "Ready": "就绪",
+    "Speaking…": "正在说话…",
+    "Reconnecting…": "正在重新连接…",
+    "Ask…": "提问…",
+    "Mute": "静音",
+    "Unmute": "取消静音",
+    "Pause heads-ups for an hour": "暂停提醒一小时",
+    "Heads-ups paused": "提醒已暂停",
+    "Resume heads-ups": "恢复提醒",
+    "Open J.A.R.V.I.S.": "打开 J.A.R.V.I.S.",
+    "Quit J.A.R.V.I.S.": "退出 J.A.R.V.I.S."
+  },
+  "patterns": [
+    ["^Heads-ups paused until (.+)$", "提醒已暂停至 $1"]
+  ]
+}

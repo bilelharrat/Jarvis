@@ -1101,6 +1101,7 @@ const featureContext = {
   fromWindow: (event) => Boolean(win && !win.isDestroyed() && event && event.sender === win.webContents),
   dev: Boolean(DEV_URL),
   logDir: LOG_DIR,
+  summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
 };
 function loadAppFeatures() {
   const dir = path.join(__dirname, 'features');

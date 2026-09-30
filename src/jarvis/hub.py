@@ -918,6 +918,7 @@ class Hub:
         self._instants: list[Callable[[str], Any]] = []
         self._task_sinks: list[Callable[[str, dict[str, Any]], Any]] = []
         self._briefing_notes: list[Callable[[], str]] = []
+        self._notify_gates: list[Callable[[Alert], Any]] = []
         self.features = features.install_all(self)
 
     # ── features: what jarvis.features modules register ──
@@ -988,6 +989,20 @@ class Hub:
         self._approval_sinks.append(sink)
         if resolved is not None:
             self._approval_done_sinks.append(resolved)
+
+    def add_notify_gate(self, gate: Callable[[Alert], Any]) -> None:
+        """Hold heads-ups back: one its gate returns False for doesn't show at all (the menu
+        bar's "Pause heads-ups for an hour"). A gate that fails holds nothing back."""
+        self._notify_gates.append(gate)
+
+    def _held_back(self, alert: Alert) -> bool:
+        for gate in list(self._notify_gates):
+            try:
+                if gate(alert) is False:
+                    return True
+            except Exception:
+                log.exception("a feature's heads-up gate failed")
+        return False
 
     def _call_sinks(self, sinks: list[Callable[..., Any]], *args: Any) -> None:
         """Call each sink; a coroutine one runs in the background. One failing sink never
@@ -4568,6 +4583,8 @@ class Hub:
             "call",
             "voicemail",
         ):
+            return
+        if self._held_back(alert):
             return
         self.emit("alert", key=alert.key, alert_kind=alert.kind, title=alert.title, text=alert.text)
         self.history.append({"role": "assistant", "text": alert.text, "at": _now()})

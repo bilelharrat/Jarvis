@@ -23,6 +23,8 @@ A feature registers what it adds through the hub instead of editing its core tab
 - hub.voicecode.hooks: words said while voice coding, heard before its own commands.
 - hub.tasks.session_extras: add to a Jarvis Code session's options (tool servers, allowed
   tools) as they're made.
+- hub.add_notify_gate(gate): hold heads-ups back; one the gate returns False for doesn't
+  show at all (the menu bar's "Pause heads-ups for an hour").
 - hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
   in tests, never the user's real data there).
 - prefs.register_feature_pref(key, default, clean): a setting kept in prefs.features; read
