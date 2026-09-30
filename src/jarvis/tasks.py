@@ -20,9 +20,10 @@ import json
 import logging
 import re
 import shlex
+import threading
 import time
 import warnings
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -516,6 +517,7 @@ IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be 
 MAX_ENDED = 20  # ended sessions kept in the list; older ones are let go (still resumable)
 TRANSCRIPT_KEEP = 400  # a session's newest transcript entries, kept for the windows
 HISTORY_PER_PROJECT = 20  # past sessions per project in the history across projects
+HISTORY_CACHED = 8  # past sessions' histories kept as read (the ones reopened lately)
 # Claude Code processes open at once (each is 100-650 MB). Past this, the longest-idle open
 # session closes; it resumes, same conversation, on its next message.
 MAX_CONNECTED = 8
@@ -775,6 +777,8 @@ class ClaudeTask:
     stream_buf: list[tuple[str, list[str]]] = field(default_factory=list)  # (part, pieces)
     stream_timer: Any = None  # the batch of live words is due
     history_read: bool = False  # a reopened session's earlier conversation has been read in
+    # ... and while it's read whole, the windows' transcript: its newest entries, read first
+    history_preview: list[dict[str, Any]] | None = None
     # What each of its edits wrote and took out (code_changes.EditMark), so its changes can
     # be told from anyone else's in a shared folder; and those of edits not yet done.
     edit_marks: list[Any] = field(default_factory=list)
@@ -1662,7 +1666,9 @@ class TaskManager:
 
     def transcript(self, task_id: int) -> list[dict[str, Any]]:
         task = self.tasks.get(task_id)
-        return list(task.transcript) if task else []
+        if task is None:
+            return []
+        return list(task.transcript if task.history_preview is None else task.history_preview)
 
     def past_sessions(self, directory: str, limit: int = 15) -> list[dict[str, Any]]:
         path = self.resolve_dir(directory)
@@ -2069,11 +2075,34 @@ class TaskManager:
             return
         # A fork's point, or where the conversation was rewound to in place.
         until = task.resume_at
-        past = await asyncio.to_thread(session_history, task.session_id, task.cwd, until)
+        past = await asyncio.to_thread(cached_history, task.session_id, task.cwd, until)
+        preview = None
+        if past is None:
+            # A long session's record takes seconds to read whole: its newest entries are
+            # read from the end of it first and shown at once, as they'll be once it's read.
+            first = None
+            if not until:
+                first = await asyncio.to_thread(session_history_tail, task.session_id, task.cwd)
+            if first is not None and first["whole"]:
+                past = first  # (read back to its start: that was all of it)
+            else:
+                if first is not None and first["entries"]:
+                    preview = [*first["entries"], *task.transcript][-TRANSCRIPT_KEEP:]
+                    preview = [{**e, "n": n} for n, e in enumerate(preview, 1)]
+                    task.history_preview = preview
+                    self.emit("task_transcript", id=task.id, entries=list(preview))
+                try:
+                    past = await asyncio.to_thread(
+                        session_history, task.session_id, task.cwd, until
+                    )
+                finally:
+                    task.history_preview = None
         if not past["entries"]:
+            if preview is not None:  # (read whole, it had none to show after all)
+                self.emit("task_transcript", id=task.id, entries=list(task.transcript))
             return
         # Before anything said since (a note about a folder it couldn't add): renumbered,
-        # and the windows given the whole of it again.
+        # and the windows given the whole of it again (unless that's what they were shown).
         merged = [*past["entries"], *task.transcript][-TRANSCRIPT_KEEP:]
         for n, entry in enumerate(merged, 1):
             entry["n"] = n
@@ -2093,7 +2122,8 @@ class TaskManager:
                 if point in task.checkpoints:
                     task.checkpoint_files.setdefault(point, set()).update(files)
         task.last_uuid = task.last_uuid or past["last_uuid"]
-        self.emit("task_transcript", id=task.id, entries=list(task.transcript))
+        if task.transcript != preview:
+            self.emit("task_transcript", id=task.id, entries=list(task.transcript))
         self._changed()
 
     async def _connect(self, task: ClaudeTask) -> str:
@@ -3440,11 +3470,20 @@ def _history_step(block: dict[str, Any], cwd: Path) -> dict[str, Any] | None:
     }
 
 
+# Past sessions' histories as session_history read them, by their record as it was then.
+_history_cache: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
+_history_lock = threading.Lock()  # (read off the event loop, in more than one thread)
+
+
 def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, Any]:
     """A past session's conversation as Jarvis Code's transcript shows it, from Claude
     Code's own record: its entries (the newest TRANSCRIPT_KEEP, each marked past), a fork
     point for each of the user's messages (the message before it, as _user_turn keeps
-    them) and its last message's id. until: a fork's resume point, the last message kept."""
+    them) and its last message's id. until: a fork's resume point, the last message kept.
+    A record is read whole once while it stays as it is (HISTORY_CACHED of them are kept)."""
+    key = _record_key(session_id, cwd, until)
+    if key is not None and (kept := _cached_history(key)) is not None:
+        return kept
     empty: dict[str, Any] = {"entries": [], "fork_points": {}, "last_uuid": ""}
     try:
         messages = get_session_messages(session_id, directory=str(cwd))
@@ -3456,21 +3495,112 @@ def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, An
         if until not in ids:
             return empty  # a point not on this conversation's line: show nothing, not too much
         messages = messages[: ids.index(until) + 1]
+    return _keep_history(key, _history(messages, cwd))
+
+
+def cached_history(session_id: str, cwd: Path, until: str = "") -> dict[str, Any] | None:
+    """session_history's answer when it has one kept for the record as it is now."""
+    key = _record_key(session_id, cwd, until)
+    return _cached_history(key) if key is not None else None
+
+
+def session_history_tail(session_id: str, cwd: Path) -> dict[str, Any] | None:
+    """A past session's newest TRANSCRIPT_KEEP entries as session_history shows them, with
+    their fork points and its last message's id, read from the end of its record only
+    (code_records.newest_messages), so a long session's show at once; "whole" says whether
+    that was all of it. Not whole, its checkpoints are only those among the messages read,
+    and the record read whole (session_history) has the last word. None when it can't be
+    read that way."""
+    from .code_records import newest_messages
+
+    key = _record_key(session_id, cwd, "")
+    if key is None:
+        return None
+
+    def enough(messages: list[Any]) -> bool:  # those entries, and the message before them
+        if sum(len(_history_blocks(m)) for m in messages) < TRANSCRIPT_KEEP:
+            return False  # (fewer blocks than that can't make that many entries)
+        return len(_history(messages[1:], cwd)["entries"]) >= TRANSCRIPT_KEEP
+
+    try:
+        found = newest_messages(Path(key[0]), enough)
+        if found is None:
+            return None
+        messages, whole = found
+        if not whole:
+            return {**_history(messages[1:], cwd, messages[0].uuid), "whole": False}
+        # Read back to its start: all of it, as session_history would read it.
+        return {**_keep_history(key, _history(messages, cwd)), "whole": True}
+    except Exception:  # an odd record: read whole instead
+        log.warning("Couldn't read the end of session %s's record", session_id, exc_info=True)
+        return None
+
+
+def _record_key(session_id: str, cwd: Path, until: str) -> tuple | None:
+    """A session's record as it is now (where, which file, how long, when last written),
+    for session_history's cache; None when it has none."""
+    from .code_records import record_path
+
+    path = record_path(session_id, cwd)
+    try:
+        stat = path.stat() if path is not None else None
+    except OSError:
+        return None
+    if stat is None:
+        return None
+    return str(path), stat.st_ino, stat.st_size, stat.st_mtime_ns, until
+
+
+def _keep_history(key: tuple | None, past: dict[str, Any]) -> dict[str, Any]:
+    if key is not None:
+        with _history_lock:
+            _history_cache[key] = past
+            while len(_history_cache) > HISTORY_CACHED:
+                _history_cache.popitem(last=False)
+    return _history_copy(past)
+
+
+def _cached_history(key: tuple) -> dict[str, Any] | None:
+    with _history_lock:
+        past = _history_cache.get(key)
+        if past is not None:
+            _history_cache.move_to_end(key)
+    return _history_copy(past) if past is not None else None
+
+
+def _history_copy(past: dict[str, Any]) -> dict[str, Any]:
+    """A kept history, to be changed by its caller (its entries are numbered, its sets
+    merged) without changing what's kept."""
+    return {
+        **past,
+        "entries": [dict(e) for e in past["entries"]],
+        "fork_points": dict(past["fork_points"]),
+        "checkpoints": list(past.get("checkpoints", [])),
+        "checkpoint_files": {p: set(f) for p, f in past.get("checkpoint_files", {}).items()},
+    }
+
+
+def _history_blocks(message: Any) -> list[dict[str, Any]]:
+    body = message.message if isinstance(message.message, dict) else {}
+    content = body.get("content")
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return [b for b in content or [] if isinstance(b, dict)]
+
+
+def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]:
+    """session_history's reading of a conversation's messages. before: the message before
+    the first of them (the fork point of the first of the user's messages), when they're
+    only its newest."""
     entries: list[dict[str, Any]] = []
     steps: dict[str, dict[str, Any]] = {}  # tool id -> its entry, for its result
     fork_points: dict[str, str] = {}
     checkpoints: list[str] = []  # the user's messages in order: points to rewind files to
     changed: dict[str, set[str]] = {}  # ... and the files each of their rounds changed
     edits: dict[str, tuple[str, str]] = {}  # an edit's tool id -> (its round, its file)
-    last = ""
+    last = before
     for message in messages:
-        body = message.message if isinstance(message.message, dict) else {}
-        content = body.get("content")
-        blocks = (
-            [{"type": "text", "text": content}]
-            if isinstance(content, str)
-            else [b for b in content or [] if isinstance(b, dict)]
-        )
+        blocks = _history_blocks(message)
         if message.type == "assistant":
             for block in blocks:
                 if (entry := _history_step(block, cwd)) is not None:

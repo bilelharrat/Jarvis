@@ -11,6 +11,14 @@
 // disk image is up, so a half-uploaded release is never offered.
 
 const LATEST = 'latest.json';
+// Before the R2 bucket is bound (a deploy without it), the download is the same notarized
+// file from the GitHub release.
+const FALLBACK = {
+  version: '0.1.0',
+  size: 310650543,
+  file: 'J.A.R.V.I.S.-0.1.0.dmg',
+  url: 'https://github.com/bilelharrat/Jarvis/releases/latest/download/J.A.R.V.I.S.-0.1.0.dmg',
+};
 
 export default {
   async fetch(request, env) {
@@ -35,6 +43,7 @@ export default {
 };
 
 async function readLatest(env) {
+  if (!env.DOWNLOADS) return null;
   const object = await env.DOWNLOADS.get(LATEST);
   if (!object) return null;
   try {
@@ -46,13 +55,14 @@ async function readLatest(env) {
 }
 
 async function latestInfo(env) {
-  const latest = await readLatest(env);
+  const latest = env.DOWNLOADS ? await readLatest(env) : FALLBACK;
   if (!latest) return json({ error: 'No release yet.' }, 404);
   const { version = '', size = 0, file, published = '' } = latest;
   return json({ version, size, file, published }, 200, { 'cache-control': 'public, max-age=60' });
 }
 
 async function download(request, env) {
+  if (!env.DOWNLOADS) return Response.redirect(FALLBACK.url, 302);
   const latest = await readLatest(env);
   if (!latest) return new Response('No release yet.', { status: 404 });
   const range = parseRange(request.headers.get('range'));

@@ -1,3 +1,4 @@
 .wrangler/
 .latest.json
 node_modules/
+wrangler.nor2.toml

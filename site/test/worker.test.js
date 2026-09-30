@@ -89,3 +89,12 @@ test('ranges as browsers send them', () => {
   assert.equal(parseRange('bytes=0-1,5-6'), null);
   assert.equal(parseRange(null), null);
 });
+
+test('without the R2 bucket bound, the download is the GitHub release', async () => {
+  const e = env();
+  delete e.DOWNLOADS;
+  const r = await get('/download', e);
+  assert.equal(r.status, 302);
+  assert.match(r.headers.get('location'), /github\.com\/bilelharrat\/Jarvis\/releases\/latest\/download\/J\.A\.R\.V\.I\.S\.-0\.1\.0\.dmg$/);
+  assert.equal((await (await get('/latest.json', e)).json()).version, '0.1.0');
+});
