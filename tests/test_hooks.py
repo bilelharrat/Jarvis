@@ -134,6 +134,27 @@ async def test_settings_allow_ahead_of_time_and_list_what_it_found(tmp_path):
     assert state["runs"][0]["path"] == "timer/flash.sh" and state["runs"][0]["status"] == "ok"
 
 
+@pytest.mark.parametrize("runs", [5, 2.5, "ran", {"at": "x"}])
+async def test_a_hand_edited_file_keeps_what_it_can(tmp_path, runs):
+    """hooks.json with its run history of the wrong type (a hand edit): the yeses in it
+    still count, and Settings still lists the scripts."""
+    rig = Rig(tmp_path)
+    path = write(rig.folder, "timer", "flash.sh")
+    allowed = {"timer/flash.sh": hk.sha256(path)}
+    (tmp_path / "hooks.json").write_text(json.dumps({"allowed": allowed, "runs": runs}))
+    assert rig.hooks.public()["runs"] == []
+    assert await rig.hooks.fire("timer", {}) == ["timer/flash.sh"] and rig.asked == []
+    assert [r["path"] for r in rig.hooks.public()["runs"]] == ["timer/flash.sh"]
+
+
+def test_a_hand_edited_run_keeps_its_words_as_words(tmp_path):
+    rig = Rig(tmp_path)
+    runs = [{"at": 5, "path": ["x"], "status": None, "output": 7, "seconds": 1.5}, "row"]
+    (tmp_path / "hooks.json").write_text(json.dumps({"runs": runs}))
+    [run] = rig.hooks.public()["runs"]
+    assert run == {"at": "5", "path": "['x']", "status": "", "output": "7", "seconds": 1.5}
+
+
 async def test_a_storm_of_events_runs_a_script_at_most_so_often(tmp_path):
     rig = Rig(tmp_path)
     write(rig.folder, "heads-up", "log.sh")

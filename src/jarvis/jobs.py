@@ -288,6 +288,17 @@ class Run:
         }
 
 
+def _run_row(raw: dict[str, Any]) -> dict[str, Any]:
+    """A run as the file has it, each field as Settings shows it (a hand edit can put a
+    number where words go, or words where a list goes)."""
+    notes = raw.get("notes") if isinstance(raw.get("notes"), list) else []
+    return {
+        **raw,
+        **{k: str(raw.get(k) or "") for k in ("at", "cause", "status", "output", "note")},
+        "notes": [str(n) for n in notes if isinstance(n, str)][:4],
+    }
+
+
 class RunHistory:
     """automation_runs.json: each routine's last HISTORY_KEPT runs, newest last. Read on
     first use; one that can't be read is left alone (and kept only in memory meanwhile)."""
@@ -308,7 +319,11 @@ class RunHistory:
                 raw = None
             for key, runs in (raw or {}).items():
                 if isinstance(key, str) and isinstance(runs, list):
-                    kept = [r for r in runs if isinstance(r, dict) and isinstance(r.get("at"), str)]
+                    kept = [
+                        _run_row(r)
+                        for r in runs
+                        if isinstance(r, dict) and isinstance(r.get("at"), str)
+                    ]
                     self._data[key] = kept[-HISTORY_KEPT:]
         return self._data
 

@@ -186,6 +186,26 @@ def test_the_history_keeps_the_last_fifty_and_forgets_routines_that_are_gone(tmp
     assert jobs.RunHistory(tmp_path / "damaged.json").runs("a") == []  # set aside, not fatal
 
 
+def test_a_hand_edited_run_keeps_its_words_as_words(tmp_path):
+    """Settings draws each run's words and notes: a number where words go, or words where
+    the list of notes goes (a hand edit), comes back as words, never as something the
+    window can't draw."""
+    (tmp_path / "runs.json").write_text(
+        json.dumps(
+            {
+                "a": [
+                    {"at": "2026-09-29T10:00:00", "status": 5, "output": 7, "notes": "ran"},
+                    {"at": "2026-09-29T11:00:00", "cause": None, "notes": ["fine", 3]},
+                    {"at": 4, "output": "no time: left out"},
+                ]
+            }
+        )
+    )
+    first, second = jobs.RunHistory(tmp_path / "runs.json").runs("a")
+    assert (first["status"], first["output"], first["notes"]) == ("5", "7", [])
+    assert (second["cause"], second["notes"]) == ("", ["fine"])
+
+
 # ── one-shot sessions, and the reader ──
 
 

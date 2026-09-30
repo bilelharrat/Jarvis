@@ -164,7 +164,14 @@ class ScriptHooks:
                 raw = data.get(key) if isinstance(data.get(key), dict) else {}
                 return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
 
-            runs = [r for r in data.get("runs", []) if isinstance(r, dict)][-RUNS_KEPT:]
+            # A run history of the wrong type (a hand edit) is left out, and each run keeps
+            # its words as words: Settings shows them.
+            listed = data.get("runs") if isinstance(data.get("runs"), list) else []
+            runs = [
+                {**r, **{k: str(r.get(k) or "") for k in ("at", "path", "status", "output")}}
+                for r in listed
+                if isinstance(r, dict)
+            ][-RUNS_KEPT:]
             self._state = {"allowed": digests("allowed"), "denied": digests("denied"), "runs": runs}
         return self._state
 
