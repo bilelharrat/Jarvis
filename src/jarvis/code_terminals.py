@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .packaged import owner_env
 from .workbench import _WITH_TERMINAL, Terminal, _hang_up
 
 Emit = Callable[..., None]
@@ -234,7 +235,7 @@ class BangRun:
         """Start it (raises OSError when it can't)."""
         master, slave = pty.openpty()
         shell = os.environ.get("SHELL") or "/bin/zsh"
-        env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+        env = {**owner_env(os.environ), "TERM": "xterm-256color", "COLORTERM": "truecolor"}
         try:
             self.proc = subprocess.Popen(  # noqa: S603 - the owner's own command, typed as "!…"
                 [sys.executable, "-I", "-S", "-c", _WITH_TERMINAL, shell, "-lc", self.command],

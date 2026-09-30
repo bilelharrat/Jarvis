@@ -45,6 +45,8 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import StreamEvent
 
+from .packaged import owner_env
+
 log = logging.getLogger("jarvis")
 
 PROTOCOL_VERSION = 1
@@ -333,7 +335,11 @@ class AcpClient:
         self, command: list[str], name: str, options: Any, env: dict[str, str] | None = None
     ) -> None:
         self.command, self.name, self.options = command, name, options
-        self.env = {**os.environ, **(env or {}), **dict(getattr(options, "env", {}) or {})}
+        self.env = {
+            **owner_env(os.environ),
+            **(env or {}),
+            **dict(getattr(options, "env", {}) or {}),
+        }
         self.conn: AcpConnection | None = None
         self.session_id = ""
         self.caps: dict[str, Any] = {}

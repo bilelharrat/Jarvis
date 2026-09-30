@@ -30,6 +30,8 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from .packaged import owner_env
+
 log = logging.getLogger("jarvis")
 
 LINE_MAX = 1000  # characters kept of one line of output
@@ -159,8 +161,9 @@ ENV_FRESH = 15 * 60  # seconds a looked-up environment is used before asking the
 
 
 def fallback_env() -> dict[str, str]:
-    """The app's own environment with the usual tool folders added to its PATH."""
-    env = dict(os.environ)
+    """The app's own environment (without JARVIS's own settings) with the usual tool
+    folders added to its PATH."""
+    env = owner_env(os.environ)
     have = env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
     extra = [str(Path(p).expanduser()) for p in _COMMON_PATHS]
     env["PATH"] = ":".join(dict.fromkeys([*extra, *have]))
@@ -197,6 +200,7 @@ def shell_env(refresh: bool = False) -> dict[str, str]:
             timeout=ENV_TIMEOUT,
             check=False,
             start_new_session=True,  # its job control never touches the app's terminal
+            env=owner_env(os.environ),  # the owner's, never JARVIS's own settings
         ).stdout
         env = parse_env(out)
     except (OSError, subprocess.SubprocessError):

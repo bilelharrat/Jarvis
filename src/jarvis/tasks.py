@@ -60,6 +60,7 @@ from .claude_signin import signed_in
 from .computer import is_sensitive
 from .config import MAX_BUFFER, Settings
 from .knowledge import RESEARCH_DIR
+from .packaged import session_env
 
 # Always fine to use without asking. Reading goes through the policy instead, which lets
 # reads inside the project through and asks about anything outside it.
@@ -1876,7 +1877,8 @@ class TaskManager:
             add_dirs=list(task.add_dirs),
             plugins=[{"type": "local", "path": p} for p in task.plugins],
             disallowed_tools=[f"mcp__{name}" for name in sorted(task.disabled_mcp)],
-            env=dict(task.env),
+            # The owner's environment for its commands, not the app launcher's (packaged).
+            env={**session_env(), **task.env},
             settings=task.provider_settings or None,
             # Claude's words and (summarized) thinking arrive as they're written.
             include_partial_messages=True,

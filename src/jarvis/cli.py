@@ -140,13 +140,14 @@ def main() -> None:
         asyncio.run(say_line(" ".join(args.words) or "Good evening. All systems are online."))
         return
     if args.command == "serve":
-        import os
         import secrets
 
+        from .packaged import take_token
         from .server import serve
 
-        # The app passes its own token; a manual run gets a fresh one.
-        serve(args.port, os.environ.get("JARVIS_TOKEN") or secrets.token_urlsafe(24))
+        # The app passes its own token; a manual run gets a fresh one. It's taken out of the
+        # environment: nothing this backend starts (sessions, terminals, dev servers) gets it.
+        serve(args.port, take_token() or secrets.token_urlsafe(24))
         return
     try:
         asyncio.run(run(text_mode=args.text, muted=args.mute))

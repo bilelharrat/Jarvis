@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from . import computer
+from .packaged import owner_env
 
 Emit = Callable[..., None]
 MAX_FILE_BYTES = 300_000
@@ -64,7 +65,7 @@ class Terminal:
         master, slave = pty.openpty()
         try:
             shell = os.environ.get("SHELL") or "/bin/zsh"
-            env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+            env = {**owner_env(os.environ), "TERM": "xterm-256color", "COLORTERM": "truecolor"}
             self.proc = subprocess.Popen(  # noqa: S603 - the user's own shell, in their project
                 [sys.executable, "-I", "-S", "-c", _WITH_TERMINAL, shell, "-l"],
                 stdin=slave,
