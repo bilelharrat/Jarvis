@@ -459,6 +459,18 @@ def test_unsubscribe_options_prefer_safe_ways():
     assert mailkit.unsubscribe_options("<http://list.com/u>, <javascript:alert(1)>") == {}
     assert mailkit.unsubscribe_options("<https://user:pw@list.com/u>") == {}
     assert mailkit.unsubscribe_options("") == {}
+    for local in (
+        "https://localhost:8765/pair",
+        "https://127.0.0.1/u",
+        "https://192.168.1.1/admin",
+        "https://10.0.0.5/u",
+        "https://router.local/u",
+        "https://nas.lan/u",
+    ):  # never this Mac or the local network, one-click or not
+        assert mailkit.unsubscribe_options(f"<{local}>", "List-Unsubscribe=One-Click") == {}
+    assert mailkit.unsubscribe_options("<https://93.184.216.34/u>") == {
+        "web": "https://93.184.216.34/u"
+    }
 
 
 def test_accounts_are_picked_by_address_or_name():

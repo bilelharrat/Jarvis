@@ -12,6 +12,7 @@ owner a card first (messaging.py for sending, features/comms.py for the rest).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -347,11 +348,26 @@ def describe(found: list[dict[str, Any]], now: datetime | None = None) -> str:
 # ── List-Unsubscribe (RFC 2369, and RFC 8058's one-click) ──
 
 
+_LOCAL_NAMES = (".localhost", ".local", ".internal", ".lan", ".home.arpa")
+
+
+def _on_the_internet(host: str) -> bool:
+    """A host out on the internet: never this Mac or the local network (a link in an
+    email must not reach JARVIS's own ports, or the owner's router)."""
+    name = host.lower().rstrip(".")
+    if not name or name == "localhost" or name.endswith(_LOCAL_NAMES):
+        return False
+    try:
+        return ipaddress.ip_address(name).is_global
+    except ValueError:
+        return True
+
+
 def unsubscribe_options(header: str, post: str = "") -> dict[str, str]:
     """What an email's List-Unsubscribe offers: {"one_click": url} when its https address
     takes a one-click POST, {"mailto": address, "subject", "body"} and {"web": url} for a
     page to finish on. Anything else (http, javascript:, an address with a user name in
-    it) is left out."""
+    it, one on this Mac or the local network) is left out."""
     from .brain import url_host
 
     found: dict[str, str] = {}
@@ -365,7 +381,7 @@ def unsubscribe_options(header: str, post: str = "") -> dict[str, str]:
                 found["mailto"] = address.lower()
                 found["subject"] = (query.get("subject") or ["unsubscribe"])[0][:200]
                 found["body"] = (query.get("body") or [""])[0][:500]
-        elif target.lower().startswith("https://") and url_host(target):
+        elif target.lower().startswith("https://") and _on_the_internet(url_host(target) or ""):
             one_click = "list-unsubscribe=one-click" in " ".join(str(post or "").lower().split())
             key = "one_click" if one_click else "web"
             found.setdefault(key, target)
