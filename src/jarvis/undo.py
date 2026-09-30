@@ -92,7 +92,7 @@ OUTWARD = {
 
 ZH = {
     "There's nothing of mine to undo from the last half hour.": "最近半小时里，我没做过能撤销的事。",
-    "I can't undo the last thing I did ({label}).": "刚才那一步没法撤销。",
+    "I can't undo the last thing I did ({label}).": "刚才那一步（{label}）没法撤销。",
     "That message has already gone, so I can't take it back.": "那条消息已经发出去了，撤不回来。",
     "That email has already gone, so I can't take it back.": "那封邮件已经发出去了，撤不回来。",
     "That file has already gone, so I can't take it back.": "那个文件已经发出去了，撤不回来。",

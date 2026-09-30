@@ -46,7 +46,7 @@ from claude_agent_sdk import (
 
 from .. import action_log, lang
 from ..action_log import ActionLog, short_name, summary
-from ..hub import FEATURE_ASKED, _asks, tool_label
+from ..hub import _asks, tool_label, user_asked
 from ..undo import Undo
 
 log = logging.getLogger("jarvis")
@@ -74,11 +74,11 @@ LABELS = {
 }
 
 # The owner asking to undo, for undo_action's gate: "undo that", "take it back", 撤销.
-FEATURE_ASKED["undo"] = _asks(
+UNDO_ASKED = _asks(
     r"undo\b|take\s+(?:that|it|this)\s+back\b|reverse\s+(?:that|it|this|what\s+you)\b"
     r"|put\s+(?:it|that|things)\s+back\b"
 )
-lang.FEATURE_ASKED_ZH["undo"] = lang._asks_zh(r"(?:撤销|撤消|撤回|还原|恢复原样|改回去)")
+UNDO_ASKED_ZH = lang._asks_zh(r"(?:撤销|撤消|撤回|还原|恢复原样|改回去)")
 
 # "Undo that", "undo the last thing you did", "take that back": answered at once.
 UNDO_THAT = re.compile(
@@ -371,6 +371,17 @@ class Actions:
             return None
         return await self.undo_now(self.undo.last())
 
+    async def _undo_asked(self, question: str) -> bool:
+        """undo_action goes ahead unasked only when the owner's own words this turn asked
+        to undo ("undo the calendar change", 撤销刚才改的日历); otherwise a card asks."""
+        hub = self.hub
+        words = hub._turn_text
+        if user_asked(UNDO_ASKED, words) or (
+            lang.is_zh(hub.language) and lang.user_asked_zh(UNDO_ASKED_ZH, words)
+        ):
+            return True
+        return await hub._ask_user(question)
+
     async def undo_clicked(self, msg: dict[str, Any]) -> None:
         """The Undo button under the reply: the owner's own click, so no card. Between
         requests: never in the middle of one that may be changing the same things."""
@@ -424,7 +435,7 @@ class Actions:
                 return _text(self.undo.nothing(which))
             if action.kind == "undo" and not action.undone:
                 question = self._say("Undo this: {label}?", label=action.label)
-                if not await self.hub.feature_gate("undo", question):
+                if not await self._undo_asked(question):
                     return _text("The user didn't want that undone.", error=True)
             return _text(await self.undo_now(action))
 

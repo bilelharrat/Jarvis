@@ -423,6 +423,24 @@ async def test_undo_that_means_the_last_thing_and_claude_can_name_an_older_one(
     assert hub.memory.facts == []
     out = await undo_action.handler({"which": "the dentist"})
     assert out["content"][0]["text"] == "I haven't done anything like that in the last half hour."
+    # The owner's own words asked to undo it: no card.
+    await turn(
+        hub,
+        "Remember the spare key is under the mat",
+        ("mcp__memory__remember", {}, lambda: hub.memory.add("The spare key is under the mat.")),
+    )
+    hub._turn_text = "Please undo the spare key one"
+    out = await undo_action.handler({"which": "spare key"})
+    assert out["content"][0]["text"] == "Undone: I've forgotten that again." and not hub.approvals
+    hub.prefs.language = "zh"
+    await turn(
+        hub,
+        "记住备用钥匙在门垫下面",
+        ("mcp__memory__remember", {}, lambda: hub.memory.add("The spare key is under the mat.")),
+    )
+    hub._turn_text = "撤销刚才记住的那条"
+    out = await undo_action.handler({"which": ""})
+    assert out["content"][0]["text"] == "已撤销：我已经重新忘掉了那条。" and not hub.approvals
 
 
 async def test_looking_failing_and_half_an_hour_leave_nothing_to_undo(
