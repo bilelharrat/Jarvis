@@ -1,0 +1,31 @@
+/* Jarvis Code's MCP manager (features/code-mcp.js): the MCP servers pane's servers, the add
+   form and the shared connectors, in the workbench's own cards and type. */
+
+.cm-intro { margin: 0 4px 10px; line-height: 1.45; }
+.cm-list li.cm-server { display: block; padding: 9px 12px; }
+.cm-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cm-head .jc-dot { flex: none; width: 7px; height: 7px; }
+.cm-list .cm-head .cm-name { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.cm-list .cm-head span { flex: none; }
+.cm-scope { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgb(var(--c-ink) / 0.06); color: rgb(var(--c-ink-2)); }
+.cm-list .cm-head .cm-status { flex: 1; text-align: right; font-size: 12px; color: rgb(var(--c-muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-status.failed { color: rgb(var(--c-danger-ink)); }
+.cm-target { display: block; margin: 5px 0 0 15px; font: 11.5px var(--mono); color: rgb(var(--c-muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-error { margin: 4px 0 0 15px; font-size: 12px; color: rgb(var(--c-danger-ink)); line-height: 1.4; }
+.cm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 7px 0 0 15px; }
+.cm-actions .cm-switch { margin-left: auto; }
+.cm-remove.armed { background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); box-shadow: none; }
+.cm-signing { font-size: 12px; }
+
+.cm-add { margin: 10px 0 4px; padding: 8px 10px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.cm-add summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: rgb(var(--c-ink-2)); }
+.cm-add[open] summary { margin-bottom: 8px; }
+.cm-add-row { display: flex; gap: 8px; align-items: center; margin-bottom: 7px; }
+.cm-add-row .jc-field { flex: 1; min-width: 0; }
+.cm-target-input { font-family: var(--mono); font-size: 12px; }
+.cm-add-row .cm-transport { flex: none; width: 76px; }
+.cm-kind { margin-bottom: 0; flex: none; }
+.cm-help { margin: 2px 2px 0; line-height: 1.45; }
+.cm-connectors li { padding: 7px 10px 7px 12px; }
+.cm-connectors li > span { display: flex; flex-direction: column; gap: 1px; }
+.cm-share[disabled] { opacity: 0.4; cursor: default; }

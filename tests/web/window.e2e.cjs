@@ -3610,6 +3610,54 @@ test('Jarvis Code settings has the Touch ID switch; off, Bypass asks the usual q
   assert(JSON.stringify(await sentOf('task_mode')) === JSON.stringify([{ type: 'task_mode', id: 1, mode: 'auto' }]), JSON.stringify(await js('__sent')));
 });
 
+// ── The MCP manager (web/features/code-mcp.js) ──
+
+const mcpState = (extra = {}) => ({ type: 'cm_state', id: 1, folder: '/x/alpha', name: 'alpha', live: true, signing: [], servers: [
+  { name: 'github', scope: 'user', kind: 'stdio', target: "npx -y server-github --token 'ghp_…R8'", approved: null, status: 'connected', tools: 3, error: '', off: false, removable: true },
+  { name: 'docs', scope: 'local', kind: 'http', target: 'https://docs.example.com/mcp', approved: null, status: 'needs-auth', tools: null, error: '', off: false, removable: true },
+  { name: 'new', scope: 'project', kind: 'stdio', target: 'node <img src=x onerror="window.__pwned=1">', approved: null, off: false, removable: true },
+  { name: 'jarvis_browser', scope: 'other', kind: '', target: '', approved: null, status: 'connected', tools: 12, off: false, removable: false }],
+  connectors: [{ id: 'github', name: 'GitHub', status: 'connected', on: false }, { id: 'linear', name: 'Linear', status: 'error', on: false }], ...extra });
+
+test('The MCP servers pane shows each server and how it’s doing, and adds, signs in, approves, switches and removes', async () => {
+  await featureScript('code-mcp.js');
+  await open(1);
+  await js('openPane("mcp"); true');
+  assert(await js('$("jc-pane-title").textContent') === 'MCP servers', 'the pane did not open');
+  assert((await sentOf('cm_state')).length === 1, JSON.stringify(await js('__sent')));
+  await deliver(mcpState());
+  const r = await js(`({ rows: [...document.querySelectorAll('#jc-pane-body .cm-server')].map((li) => li.dataset.name + ':' + (li.querySelector('.cm-status') || {}).textContent),
+    imgs: document.querySelectorAll('#jc-pane-body img').length, pwned: !!window.__pwned, shares: [...document.querySelectorAll('#jc-pane-body .cm-share')].map((b) => b.disabled) })`);
+  assert(r.rows.join('|') === 'github:Connected · 3 tools|docs:Needs sign-in|new:Waiting for your OK|jarvis_browser:Connected · 12 tools', JSON.stringify(r));
+  assert(r.imgs === 0 && !r.pwned && r.shares.join() === 'false,true', JSON.stringify(r));
+  const click = (name, cls) => js(`document.querySelector('#jc-pane-body .cm-server[data-name="${name}"] .${cls}').click(); true`);
+  await js('__sent.length = 0; true');
+  await click('docs', 'cm-signin');
+  await click('new', 'cm-approve');
+  await click('github', 'cm-switch');
+  await click('github', 'cm-remove');
+  assert(!(await js('__sent')).some((m) => m.type === 'cm_remove'), 'removed on the first press');
+  await click('github', 'cm-remove');
+  const sent = (await js('__sent')).filter((m) => m.type !== 'cm_state');
+  assert(JSON.stringify(sent) === JSON.stringify([{ type: 'cm_login', id: 1, name: 'docs' }, { type: 'cm_approve', id: 1, name: 'new', approve: true },
+    { type: 'task_mcp_toggle', id: 1, name: 'github', enabled: false }, { type: 'cm_remove', id: 1, name: 'github', scope: 'user' }]), JSON.stringify(sent));
+  // A server added as an address, for everyone on the project.
+  await js(`__sent.length = 0; document.querySelector('#jc-pane-body .cm-add summary').click(); const f = document.querySelector('#jc-pane-body .cm-name-input');
+    f.value = 'sentry'; f.dispatchEvent(new Event('input')); document.querySelector('#jc-pane-body .cm-kind [data-kind=url]').click();
+    const t = document.querySelector('#jc-pane-body .cm-target-input'); t.value = 'https://mcp.sentry.dev/mcp'; t.dispatchEvent(new Event('input'));
+    const s = document.querySelector('#jc-pane-body .cm-scope-select'); s.value = 'project'; s.dispatchEvent(new Event('change'));
+    document.querySelector('#jc-pane-body .cm-add-btn').click(); true`);
+  assert(JSON.stringify(await sentOf('cm_add')) === JSON.stringify([{ type: 'cm_add', id: 1, name: 'sentry', kind: 'url', target: 'https://mcp.sentry.dev/mcp', transport: 'http', scope: 'project' }]), JSON.stringify(await js('__sent')));
+  await deliver(mcpState({ error: 'Claude Code didn’t add it: <b>exists</b>' }));
+  assert(await js('document.querySelector("#jc-pane-body .cm-add").open && document.querySelector("#jc-pane-body .cm-name-input").value === "sentry" && !document.querySelector("#jc-pane-body b")'), 'the form or its error changed');
+  await deliver(mcpState({ added: 'sentry' }));
+  assert(await js('!document.querySelector("#jc-pane-body .cm-add").open'), 'the form stayed open once added');
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .cm-connector[data-connector=github] .cm-share").click(); true');
+  assert(JSON.stringify(await sentOf('cm_share')) === JSON.stringify([{ type: 'cm_share', id: 1, connector: 'github', on: true }]), JSON.stringify(await js('__sent')));
+  await deliver(mcpState({ signing: ['docs'], live: false }));
+  assert(await js('!!document.querySelector("#jc-pane-body .cm-server[data-name=docs] .cm-signing") && document.querySelector("#jc-pane-body .cm-intro").textContent.includes("isn’t running")'), 'no word of the sign-in or of the session not running');
+});
+
 // ──
 
 let base;

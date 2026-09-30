@@ -1,0 +1,107 @@
+{
+  "strings": {
+    "MCP servers": "MCP 服务器",
+    "This project, shared": "这个项目（共享）",
+    "This project, just me": "这个项目（仅我）",
+    "All my projects": "我的所有项目",
+    "From Tools & Accounts": "来自工具与账户",
+    "From JARVIS or a plugin": "来自 JARVIS 或插件",
+    "Waiting for your OK": "等待你的同意",
+    "Refused here": "在这里已拒绝",
+    "Off in this session": "在这个会话中已关闭",
+    "Connected": "已连接",
+    "Connected · 1 tool": "已连接 · 1 个工具",
+    "Needs sign-in": "需要登录",
+    "Couldn’t start": "没能启动",
+    "Starting…": "正在启动…",
+    "Turned off": "已关闭",
+    "Signing in… finish in your browser": "正在登录……请在浏览器中完成",
+    "Sign in": "登录",
+    "Reconnect": "重新连接",
+    "Approve": "同意",
+    "Refuse": "拒绝",
+    "Remove": "移除",
+    "Press again to remove": "再按一次移除",
+    "On in this session": "在这个会话中开启",
+    "Add a server": "添加服务器",
+    "Name, like github": "名称，例如 github",
+    "Name": "名称",
+    "It runs as": "运行方式",
+    "A command": "一条命令",
+    "An address": "一个地址",
+    "Its address": "它的地址",
+    "The command that starts it": "启动它的命令",
+    "For": "用于",
+    "Add": "添加",
+    "A command runs on this Mac each time a session starts. For a server that needs a key, sign in to it, or connect it in Tools & Accounts and share it below.": "命令会在每次会话开始时在这台 Mac 上运行。需要密钥的服务器，请登录它，或在工具与账户中连接后在下面共享。",
+    "Open a session to see its MCP servers.": "打开一个会话来查看它的 MCP 服务器。",
+    "Checking MCP servers…": "正在检查 MCP 服务器…",
+    "The session isn’t running: how each server is doing shows once it is.": "会话没有在运行：运行后会显示每个服务器的状态。",
+    "No MCP servers for this project yet.": "这个项目还没有 MCP 服务器。",
+    "JARVIS’s connectors": "JARVIS 的连接器",
+    "Connect services in Tools & Accounts, then share them with a session here.": "在工具与账户中连接服务，然后在这里把它们共享给会话。",
+    "Shared with this session": "已共享给这个会话",
+    "Not shared": "未共享",
+    "Not connected": "未连接",
+    "Share with this session": "共享给这个会话",
+    "JARVIS keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.": "JARVIS 保管它们的登录；只读工具不询问直接运行，其他工具会像任何步骤一样先询问。",
+    "A name is letters, digits, dots, dashes or underscores, up to 64.": "名称只能包含字母、数字、点、连字符或下划线，最多 64 个字符。",
+    "An address starts with https:// (or http:// for one on this Mac).": "地址要以 https:// 开头（这台 Mac 上的可以用 http://）。",
+    "Leave the sign-in out of the address: the server asks for it.": "地址里不要包含登录信息：服务器会自己询问。",
+    "That command has a quote that isn't closed.": "这条命令有一个引号没有闭合。",
+    "Type the command that starts the server, like npx -y some-mcp-server.": "请输入启动服务器的命令，例如 npx -y some-mcp-server。",
+    "settings.local.json can't be read, so nothing was written to it.": "settings.local.json 无法读取，所以没有写入任何内容。",
+    "settings.local.json isn't a settings object, so nothing was written to it.": "settings.local.json 不是设置对象，所以没有写入任何内容。",
+    "settings.local.json has server lists of a kind this can't change.": "settings.local.json 里的服务器列表格式无法更改。"
+  },
+  "patterns": [
+    [
+      "^Connected · (\\d+) tools$",
+      "已连接 · $1 个工具"
+    ],
+    [
+      "^Added the MCP server (.+): the session has it from its next step\\.$",
+      "已添加 MCP 服务器 $1：会话从下一步开始就能用它。"
+    ],
+    [
+      "^Removed the MCP server (.+)\\.$",
+      "已移除 MCP 服务器 $1。"
+    ],
+    [
+      "^Approved the project's MCP server (.+): the session has it from its next step\\.$",
+      "已同意项目的 MCP 服务器 $1：会话从下一步开始就能用它。"
+    ],
+    [
+      "^The project's MCP server (.+) stays off here\\.$",
+      "项目的 MCP 服务器 $1 在这里保持关闭。"
+    ],
+    [
+      "^(.+) \\(from Tools & Accounts\\) is shared with this session now\\.$",
+      "$1（来自工具与账户）现在已共享给这个会话。"
+    ],
+    [
+      "^(.+) isn't shared with this session any more\\.$",
+      "$1 不再共享给这个会话。"
+    ],
+    [
+      "^Signed in to (.+)\\.$",
+      "已登录 $1。"
+    ],
+    [
+      "^Claude Code didn't add it: (.+)$",
+      "Claude Code 没有添加它：$1"
+    ],
+    [
+      "^Claude Code didn't remove it: (.+)$",
+      "Claude Code 没有移除它：$1"
+    ],
+    [
+      "^The sign-in didn't finish: (.+)$",
+      "登录没有完成：$1"
+    ],
+    [
+      "^It didn't reconnect: (.+)$",
+      "没能重新连接：$1"
+    ]
+  ]
+}
