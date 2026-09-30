@@ -92,6 +92,7 @@ window.jarvisFeatures = {
   registerMoreItem(item) { featureMoreItems.push(item); },
   registerMentions(suggest) { featureMentions.push(suggest); },
   currentTask: () => currentTask(),
+  selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
 };
 
 function onEvent(ev) {

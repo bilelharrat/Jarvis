@@ -1,0 +1,50 @@
+{
+ "strings": {
+  "Agent board": "智能体看板",
+  "Agent board: every session at a glance (⇧⌘B)": "智能体看板：一眼看清所有会话（⇧⌘B）",
+  "Every session at a glance": "一眼看清所有会话",
+  "All quiet": "一切安静",
+  "No sessions yet": "还没有会话",
+  "Hide archived": "隐藏已归档",
+  "Close the board": "关闭看板",
+  "Close the board (Esc)": "关闭看板（Esc）",
+  "Nothing waiting on you.": "没有等你处理的事。",
+  "Waiting for your answer": "等你回答",
+  "Resting: it picks up where it left off": "休眠中：会从上次停下的地方继续",
+  "just now": "刚刚",
+  "Resting": "休眠中",
+  "Pinned": "已置顶",
+  "New since you looked": "有你还没看过的新内容",
+  "Done": "完成"
+ },
+ "patterns": [
+  [
+   "^Show archived \\((\\d+)\\)$",
+   "显示已归档（$1）"
+  ],
+  [
+   "^(\\d+) need you$",
+   "$1 个需要你处理"
+  ],
+  [
+   "^(\\d+) done$",
+   "$1 个已完成"
+  ],
+  [
+   "^(\\d+) failed$",
+   "$1 个失败"
+  ],
+  [
+   "^(\\d+) min ago$",
+   "$1 分钟前"
+  ],
+  [
+   "^(\\d+) h ago$",
+   "$1 小时前"
+  ],
+  [
+   "^(\\d+) files?$",
+   "$1 个文件"
+  ]
+ ]
+}

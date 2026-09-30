@@ -1175,6 +1175,42 @@ test('In Chinese the sheet reads in Chinese, and a path or a log line stays as i
   assert(r.line === '2026-09-29 20:00:00,000 ERROR the backup folder is gone', `a log line was translated: ${r.line}`);
 });
 
+// ── Jarvis Code's agent board (web/features/code-board.js, put in as features.js would) ──
+
+const SESSION_FEATURES = ['code-board.js'].map((f) => fs.readFileSync(path.join(WEB, 'features', f), 'utf8'));
+// Jarvis Code open on alpha with these sessions (ids), the first selected, and the features in.
+// Events go to the window as its socket hands them over: app.js's onEvent, then the features'.
+async function sessions(ids, extra = {}, then = '') {
+  await js(`
+    window.__ev = (ev) => { onEvent(ev); featureEvent(ev); };
+    deckProjects = [{ name: 'alpha', branch: 'main', path: '/Users/x/alpha' }]; deckProject = 'alpha'; openProjects.add('alpha');
+    __ev({ type: 'tasks', items: ${JSON.stringify(ids)}.map((id) => __task(id, { busy: false, status: 'waiting', ...(${JSON.stringify(extra)}[id] || {}) })) });
+    toggleCC(true); true`);
+  for (const src of SESSION_FEATURES) await js(`${src}\ntrue`);
+  await js(`selectTask(${ids[0]}); ${then}; __sent.length = 0; true`);
+  await sleep(80);
+  await frames(2);
+}
+const sentTypes = () => js('__sent.map((m) => m.type)');
+
+test('The agent board: lanes by where each session stands, answering from a card, Esc to close', async () => {
+  await sessions([1, 2, 3, 4], { 1: { busy: true, status: 'running', last_action: 'Editing app.py' }, 3: { status: 'failed' }, 4: { status: 'resting' } });
+  await js('__ev({ ...__approval("a2"), task_id: 2 }); document.querySelector(".cs-board-btn").click()');
+  await frames(2);
+  let r = await js(`({ open: !document.querySelector('.cs-board').hidden, board: __sent.some((m) => m.type === 'code_board'),
+    lanes: [...document.querySelectorAll('.cs-lane')].map((l) => [...l.querySelectorAll('.cs-card')].map((c) => Number(c.dataset.task))) })`);
+  assert(r.open && r.board && JSON.stringify(r.lanes) === JSON.stringify([[2], [1], [], [3], [4]]), JSON.stringify(r));
+  await js('__ev({ type: "code_board", items: { 1: { added: 12, removed: 3, branch: "feature/x", updated: new Date().toISOString() } } })');
+  await frames(2);
+  r = await js('document.querySelector(\'.cs-card[data-task="1"]\').textContent');
+  assert(r.includes('+12') && r.includes('−3') && r.includes('feature/x') && r.includes('Editing app.py') && r.includes('just now'), r);
+  await js('[...document.querySelectorAll(\'.cs-card[data-task="2"] button\')].find((b) => b.textContent === "Yes").click()');
+  assert((await sent()).includes('approve a2 allow'), `sent ${await sent()}`);
+  await press('Escape');
+  r = await js('({ hidden: document.querySelector(".cs-board").hidden, cc: !$("cc").hidden })');
+  assert(r.hidden && r.cc, JSON.stringify(r));
+});
+
 // ──
 
 let base;
