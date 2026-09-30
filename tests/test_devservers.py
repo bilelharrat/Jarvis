@@ -3,6 +3,7 @@ never run by themselves, and servers in their own process groups that stop whole
 the session that started them, and never outlive the app."""
 
 import asyncio
+import contextlib
 import json
 import os
 import signal
@@ -469,3 +470,30 @@ async def test_what_a_finished_command_leaves_behind_goes_with_it(tmp_path):
     assert lines == ["started"] and ended == [0]
     left = int(marker.read_text())
     assert await until(lambda: not pid_alive(left), 20), "the sleep it left outlived it"
+
+
+async def test_one_that_slips_into_a_session_of_its_own_is_not_waited_for(tmp_path):
+    """A daemon that detaches (setsid) keeps the output open, out of reach of the group and
+    session: the run still ends a few seconds after its command did."""
+    marker = tmp_path / "daemon.pid"
+    daemon = tmp_path / "daemon.py"
+    daemon.write_text(
+        "import os, sys, time\nos.setsid()\nopen(sys.argv[1], 'w').write(str(os.getpid()))\ntime.sleep(600)\n"
+    )
+    script = tmp_path / "start.py"
+    script.write_text(
+        "import subprocess, sys\n"
+        f"subprocess.Popen([sys.executable, {str(daemon)!r}, {str(marker)!r}])\n"
+        "print('started', flush=True)\n"
+    )
+    ended = []
+    proc = runproc.Proc(
+        [sys.executable, str(script)], tmp_path, plain_env(), lambda _l: None, ended.append
+    )
+    await proc.start()
+    try:
+        assert await until(lambda: ended, 60), "the run waited on a detached daemon"
+        assert ended == [0] and proc.finished
+    finally:
+        with contextlib.suppress(Exception):
+            os.kill(int(marker.read_text()), signal.SIGKILL)

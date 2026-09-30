@@ -278,19 +278,27 @@ class Proc:
     async def _read(self) -> None:
         assert self.proc is not None and self.proc.stdout is not None
         splitter = LineSplitter()
-        ended_at = 0.0
+        ended_at = killed_at = 0.0
         try:
             while True:
                 try:
                     data = await asyncio.wait_for(self.proc.stdout.read(65536), 1.0)
                 except TimeoutError:
                     # Quiet. Once the command has ended, what it left behind that still holds
-                    # its output (a watcher it started in the background) goes too.
-                    if self.proc.returncode is not None:
-                        ended_at = ended_at or time.monotonic()
-                        if time.monotonic() - ended_at >= LINGER:
-                            await asyncio.to_thread(kill_leftovers, self.proc.pid)
-                            ended_at = float("inf")  # once
+                    # its output (a watcher it started in the background) goes too; and one
+                    # that slipped into a session of its own is no longer waited for.
+                    if self.proc.returncode is None:
+                        continue
+                    now = time.monotonic()
+                    ended_at = ended_at or now
+                    if not killed_at and now - ended_at >= LINGER:
+                        await asyncio.to_thread(kill_leftovers, self.proc.pid)
+                        killed_at = time.monotonic()
+                    elif killed_at and now - killed_at >= LINGER:
+                        transport = getattr(self.proc, "_transport", None)
+                        if transport is not None:
+                            transport.close()  # our end of the pipe: no one's output to read
+                        break
                     continue
                 if not data:
                     break
