@@ -15,6 +15,14 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_jarvis._tcp</string>
+	</array>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>J.A.R.V.I.S. controls Mail, Calendar, Notes, Photos, Music and your windows when you ask it to.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
@@ -25,11 +33,17 @@
 	<string>J.A.R.V.I.S. looks people up in your Contacts when you ask it to message, email or call someone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>J.A.R.V.I.S. shows your camera in the Command Center when you turn it on. Nothing is recorded or sent.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>J.A.R.V.I.S. lets your iPhone and Apple Watch find this Mac and talk to it on your network, once you turn the companion on.</string>
 	<key>NSLocationUsageDescription</key>
 	<string>J.A.R.V.I.S. uses your location for local weather and traffic-aware travel times.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>J.A.R.V.I.S. uses your location for local weather and traffic-aware travel times.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>J.A.R.V.I.S. listens for its name and when you tap the orb or press Option-Space.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>J.A.R.V.I.S. reads your open reminders into your second brain when you turn Reminders on. It never changes them.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>J.A.R.V.I.S. reads your open reminders into your second brain when you turn Reminders on. It never changes them.</string>
 </dict>
 </plist>

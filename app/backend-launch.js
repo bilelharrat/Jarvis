@@ -30,7 +30,9 @@ function bundledEnv(base, { resourcesPath, token, extraPath }) {
     PYTHONDONTWRITEBYTECODE: '1', // nothing is ever written inside the signed app
     PYTHONNOUSERSITE: '1', // packages the user installed for their own Python stay out
     JARVIS_HELPERS_DIR: path.join(resourcesPath, 'helpers'), // the prebuilt Swift helpers
-    JARVIS_APP_DIR: path.join(resourcesPath, 'app'), // node_modules (terminal, hands), icon
+    // Laid out like the repo's app/: node_modules for the terminal and hand tracking (kept out
+    // of app.asar, which Python can't read) and the companion's icon.
+    JARVIS_APP_DIR: path.join(resourcesPath, 'app.asar.unpacked'),
     DISABLE_AUTOUPDATER: '1', // the bundled Claude engine never replaces itself in the app
     // Apps opened from Finder don't get the shell's PATH: git and other tools are still
     // looked for where they usually live.

@@ -42,7 +42,7 @@ test('the downloadable app runs its bundled Python, never uv or a repo', () => {
   assert.equal(env.PYTHONNOUSERSITE, '1');
   assert.equal(env.PYTHONUNBUFFERED, '1');
   assert.equal(env.JARVIS_HELPERS_DIR, `${RES}/helpers`);
-  assert.equal(env.JARVIS_APP_DIR, `${RES}/app`);
+  assert.equal(env.JARVIS_APP_DIR, `${RES}/app.asar.unpacked`); // what Python can read of the app
   assert.equal(env.DISABLE_AUTOUPDATER, '1');
   assert.equal(env.PATH, '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin');
   assert.equal(env.HOME, '/Users/someone');

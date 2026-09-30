@@ -1,10 +1,11 @@
 """The backend inside the app people download, and where that app keeps its own pieces.
 
 The downloadable J.A.R.V.I.S.app carries its backend (Contents/Resources/backend/python, see
-app/scripts/release) and starts it with JARVIS_APP_DIR (Contents/Resources/app: node_modules
-for the terminal and hand tracking, build/ for the icon) and JARVIS_HELPERS_DIR (the
-prebuilt Swift helpers, swift_helper.prebuilt). Run from the repo with uv, as the owner's
-own install does, neither is set and everything is found in the repo, as before.
+app/scripts/release) and starts it with JARVIS_APP_DIR (Contents/Resources/app.asar.unpacked:
+the node_modules for the terminal and hand tracking, which Python can't read inside
+app.asar, and build/ for the icon) and JARVIS_HELPERS_DIR (the prebuilt Swift helpers,
+swift_helper.prebuilt). Run from the repo with uv, as the owner's own install does, neither
+is set and everything is found in the repo, as before.
 """
 
 from __future__ import annotations
