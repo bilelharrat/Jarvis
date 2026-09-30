@@ -7,6 +7,9 @@
 //   pagevoice.py) are worked here, as the dock's buttons and Chrome's shortcuts work them;
 // - a notice over a page whose text is written to AI assistants (browser_ai_flag), shown
 //   while that page is on show until the owner closes it;
+// - "Your turn" over a page that needs the owner (browser_ai_handback: a captcha, a
+//   password, card details, a code, a sign-in), its tab brought forward; Carry on asks
+//   JARVIS to pick up (browser_ai_carry_on), × lets it go (browser_ai_handback_cancel);
 // - Settings › Browser: the sensitive sites (banks, email, health: JARVIS acts there only
 //   while the owner can see the tab) and the owner's rule for any site (always, ask first,
 //   never), changed only here (browser_ai_sites, browser_ai_site); and browser memories,
@@ -84,6 +87,41 @@
     note.append(el('span', 'bai-note-icon'), words, close);
     if (old) old.replaceWith(note); else box.prepend(note);
   }
+
+  // ── the hand back: "Your turn" over a page that needs the owner ──
+  let turn = null; // { tab, url, host, kind }
+  const TURN_WORDS = {
+    captcha: 'This page wants you to prove you’re human. Jarvis never tries those.',
+    password: 'This page wants your password. Jarvis never types it.',
+    card: 'This page wants your card details. Jarvis never types them.',
+    code: 'This page wants a one-time code.',
+    login: 'This page wants you to sign in.',
+  };
+  B.turnWords = (kind) => TURN_WORDS[kind] || 'This page needs you.';
+  function renderTurn() {
+    const box = strip();
+    if (!box) return;
+    const old = box.querySelector('.bai-turn');
+    if (!turn || turn.tab !== page.tab) { if (old) old.remove(); return; }
+    const note = el('div', 'bai-note bai-turn');
+    note.setAttribute('role', 'status');
+    const words = el('div', 'bai-note-words');
+    words.append(el('strong', '', 'Your turn'), el('span', '', B.turnWords(turn.kind)),
+      el('span', 'bai-turn-hint', 'Say “carry on” when you’re done.'));
+    const go = button('Carry on', 'bai-turn-go', () => F.send({ type: 'browser_ai_carry_on' }));
+    const close = button('', 'bai-x', () => { turn = null; renderTurn(); F.send({ type: 'browser_ai_handback_cancel' }); }, 'Close');
+    close.textContent = '×';
+    note.append(el('span', 'bai-note-icon bai-turn-icon'), words, go, close);
+    if (old) old.replaceWith(note); else box.prepend(note);
+  }
+  F.on('browser_ai_handback', (ev) => {
+    if (ev.tab === null || ev.tab === undefined) { turn = null; renderTurn(); return; }
+    turn = { tab: ev.tab, url: String(ev.url || ''), host: String(ev.host || ''), kind: String(ev.need || '') };
+    const b = app && app.browser;
+    if (b && b.tab && ev.tab !== page.tab) b.tab('select', ev.tab); // the owner's turn is in that tab
+    if (!document.body.classList.contains('browser-open')) { const btn = F.$('browser-btn'); if (btn && !btn.hidden) btn.click(); }
+    renderTurn();
+  });
 
   F.on('browser_ai_flag', (ev) => {
     const key = B.pageKey(ev.url);
@@ -332,6 +370,11 @@
     page = next;
     nav = { canBack: !!(st && st.canBack), canForward: !!(st && st.canForward), tabs: tabs.length };
     if (moved) renderFlag();
+    if (turn && tabs.length && !tabs.some((x) => x.id === turn.tab)) { // its tab closed: let it go
+      turn = null;
+      F.send({ type: 'browser_ai_handback_cancel' });
+    }
+    renderTurn();
     report();
   }
   if (app && app.browser && app.browser.onState) app.browser.onState(onState);

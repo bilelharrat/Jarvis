@@ -4,6 +4,7 @@
 //   reader view does and says what the owner has selected;
 // - the window's calls ('feature:browser-ai:call'), answered from the tabs: what's in front
 //   (front), a page's address, title, selection and text (context), its article (extract),
+//   whether it needs the owner (handback: a captcha, a password, a code, a sign-in wall),
 //   and a look at the page on show (look: its context and a picture of it); and Chrome's
 //   shortcuts for the dock (shortcut: find, bookmark, close), sent to the window's own handler
 //   as main.js sends the page's;
@@ -95,6 +96,7 @@ function install(ctx) {
         return { ...r, ...where(view) };
       }
       case 'extract': return { ...(await pageAi(view, 'extract', { limit: Number(args.limit) || 0 }, 8000)), ...where(view) };
+      case 'handback': return { ...(await pageAi(view, 'handback', { codes: Boolean(args.codes) }, 3000)), ...where(view) };
       case 'look': { // ⌥⇧Space with the page in front: what it says, and a picture of it
         const r = await pageAi(view, 'context', { text: true, limit: Number(args.limit) || 0 });
         return { ...r, ...where(view), png: await picture(view) };

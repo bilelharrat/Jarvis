@@ -40,7 +40,16 @@
   "Explain This Picture": "解释这张图片",
   "Saved to your second brain.": "已保存到你的第二大脑。",
   "Second brain": "第二大脑",
-  "Saved": "已保存"
+  "Saved": "已保存",
+  "Your turn": "轮到你了",
+  "This page wants you to prove you’re human. Jarvis never tries those.": "这个页面要你证明自己是真人。Jarvis 从不尝试这类验证。",
+  "This page wants your password. Jarvis never types it.": "这个页面需要你的密码。Jarvis 从不输入密码。",
+  "This page wants your card details. Jarvis never types them.": "这个页面需要你的银行卡信息。Jarvis 从不输入这些。",
+  "This page wants a one-time code.": "这个页面需要一次性验证码。",
+  "This page wants you to sign in.": "这个页面需要你登录。",
+  "This page needs you.": "这个页面需要你来操作。",
+  "Say “carry on” when you’re done.": "完成后说“继续”。",
+  "Carry on": "继续"
  },
  "patterns": [
   [

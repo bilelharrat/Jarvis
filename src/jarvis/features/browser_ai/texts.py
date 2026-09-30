@@ -24,4 +24,6 @@ TEXTS: dict[str, str] = {
     "Explain this picture from the page.": "解释一下页面上的这张图片。",
     "Saved to your second brain.": "已保存到你的第二大脑。",
     "Second brain": "第二大脑",
+    # the hand back (handback.py): the banner's Carry on, in the owner's words
+    "Carry on.": "继续。",
 }

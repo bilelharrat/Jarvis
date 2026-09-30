@@ -6,7 +6,9 @@
 //   text when asked;
 // - extract: the page's article, the way a reader view finds it (Readability-like: the
 //   block with the most prose and the fewest links), as headings and paragraphs;
-// - imageAt: the picture under the pointer (the page's menu), its box and its words.
+// - imageAt: the picture under the pointer (the page's menu), its box and its words;
+// - handback: whether the page needs the owner (a captcha, a password, a one-time code, a
+//   sign-in wall).
 // Text no one can see is left out, weighed as page-preload.js weighs it for every read
 // (globalThis.jarvisSight). Nothing here changes the page.
 'use strict';
@@ -213,7 +215,43 @@
     return { ok: true, box: { x: r.left, y: r.top, width: r.width, height: r.height }, scroll: { x: window.scrollX, y: window.scrollY }, alt };
   }
 
-  const COMMANDS = { context, extract, imageAt };
+  // Where the page needs the owner, not JARVIS (hand back): a captcha (JARVIS never tries
+  // one), a password, card details, a one-time code (codes: whether JARVIS may type those),
+  // or a wall that asks to sign in first. Only what shows counts: a field hidden from view, a sliver,
+  // or an invisible reCAPTCHA's badge doesn't.
+  const CAPTCHA_FRAME = /(?:google\.com|recaptcha\.net)\/recaptcha\/|hcaptcha\.com\/|challenges\.cloudflare\.com\/|arkoselabs\.com\/|funcaptcha\.com\/|geetest\.com\/|captcha-delivery\.com\/|perimeterx\.net\//i;
+  const CAPTCHA_BOX = '.g-recaptcha:not(.grecaptcha-badge), .h-captcha, .cf-turnstile, #px-captcha, .geetest_holder, #FunCaptcha, #arkose-iframe, [data-hcaptcha-widget-id]';
+  const CHALLENGE = /verify (?:that )?you(?:'| a)re (?:a )?human|are you a robot|i'?m not a robot|checking if the site connection is secure|checking your browser before accessing|press (?:&|and) hold|complete the security check|solve (?:this|the) (?:puzzle|captcha)|人机验证|我不是机器人|请完成安全验证|验证您是真人|拖动滑块/i;
+  const CODE_WORDS = /\b(?:otp|2fa|mfa|totp|one[\s-]?time[\s-]?(?:pass)?code|verification[\s-]?code|security[\s-]?code|auth(?:entication|enticator)?[\s-]?code|sms[\s-]?code|6[\s-]?digit)\b|验证码|动态码|校验码/i;
+  const CARD_WORDS = /\bcard[\s-]?(?:number|no\b)|\bcardnumber\b|\bcvv2?\b|\bcvc\b|\bcsc\b|\bexpir(?:y|ation)\b|信用卡|银行卡号|卡号|安全码/i;
+  const LOGIN_WALL = /\b(?:sign|log)\s?in\b[^.!?\n]{0,40}?\bto (?:continue|view|see|read|access|keep reading|comment|proceed|watch|download)\b|\byou(?:'ll)? (?:need|have|must) (?:to )?(?:be )?(?:sign(?:ed)?|log(?:ged)?)\s?in\b|\bplease (?:sign|log)\s?in\b|\bsign in required\b|登录后(?:继续|查看|阅读|才能|可)|请先登录|需要登录|登录以继续/i;
+  const seenBox = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width >= 8 && r.height >= 8 && r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight * 3;
+  };
+  function handback(args = {}) {
+    const sight = judge();
+    const shows = (el) => sight.shows(el) && seenBox(el);
+    const none = { ok: true, kind: '' };
+    for (const frame of document.querySelectorAll('iframe')) {
+      const src = String(frame.src || frame.getAttribute('src') || '');
+      if (CAPTCHA_FRAME.test(src) && !/size=invisible/.test(src) && shows(frame)) return { ok: true, kind: 'captcha', what: 'a captcha' };
+    }
+    for (const el of document.querySelectorAll(CAPTCHA_BOX)) if (shows(el)) return { ok: true, kind: 'captcha', what: 'a captcha' };
+    const text = document.body ? String(sight.text(document.body, 30000)) : '';
+    if (CHALLENGE.test(text.slice(0, 6000))) return { ok: true, kind: 'captcha', what: 'a check that you are human' };
+    const fields = [...document.querySelectorAll('input')].filter((i) => !i.disabled && shows(i));
+    if (fields.some((i) => String(i.type).toLowerCase() === 'password')) return { ok: true, kind: 'password', what: 'a password' };
+    const words = (i) => [i.name, i.id, i.getAttribute('aria-label'), i.placeholder, i.labels ? [...i.labels].map((l) => l.innerText).join(' ') : ''].filter(Boolean).join(' ');
+    if (fields.some((i) => /^cc-/.test(String(i.autocomplete || '').toLowerCase()) || CARD_WORDS.test(words(i)))) return { ok: true, kind: 'card', what: 'your card details' };
+    const coded = fields.some((i) => String(i.autocomplete || '').toLowerCase() === 'one-time-code' || CODE_WORDS.test(words(i)));
+    const boxes = fields.filter((i) => String(i.getAttribute('maxlength')) === '1');
+    if (!args.codes && (coded || boxes.length >= 4)) return { ok: true, kind: 'code', what: 'a one-time code' };
+    if (text.length < 4000 && LOGIN_WALL.test(text)) return { ok: true, kind: 'login', what: 'signing in' };
+    return none;
+  }
+
+  const COMMANDS = { context, extract, imageAt, handback };
 
   // How much the owner has selected (never what): a request right after a selection then
   // carries it (the hub asks for the words themselves only then).

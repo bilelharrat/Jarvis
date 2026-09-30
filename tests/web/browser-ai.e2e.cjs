@@ -69,6 +69,20 @@ PAGES['/pictures.html'] = `<!doctype html><title>Charts</title><body style="marg
 <p>Sales went up in winter.</p><img id="chart" src="/chart.png" alt="A small chart" width="120" height="80" style="display:block;margin:40px">
 <p><a id="more" href="/results.html">More results</a></p></main></body>`;
 let CHART = null; // a PNG, made when the app is ready
+// Pages that need the owner (the hand back), and some that don't.
+const FORM = (inner) => `<!doctype html><title>Form</title><body><main><h1>Welcome back</h1>${inner}</main></body>`;
+Object.assign(PAGES, {
+  '/captcha.html': FORM('<iframe title="reCAPTCHA" width="304" height="78" src="https://www.google.com/recaptcha/api2/anchor?k=abc&size=normal"></iframe>'),
+  '/badge.html': `<!doctype html><title>Recipes</title><body><main><h1>Recipes</h1><p>${'Soup is good. '.repeat(40)}</p></main>
+<div class="grecaptcha-badge" style="position:fixed;right:0;bottom:14px;width:256px;height:60px"><iframe title="reCAPTCHA" width="256" height="60" src="https://www.google.com/recaptcha/api2/anchor?k=abc&size=invisible"></iframe></div></body>`,
+  '/challenge.html': '<!doctype html><title>Just a moment...</title><body><h1>example.com</h1><p>Checking if the site connection is secure</p></body>',
+  '/login.html': FORM('<form><label>Email <input type="email" name="email"></label><label>Password <input type="password" name="password"></label><button>Sign in</button></form>'),
+  '/hiddenpw.html': `<!doctype html><title>News</title><body><main><h1>News</h1><p>${'The council met on Tuesday. '.repeat(30)}</p></main>
+<div id="modal" style="display:none"><input type="password" name="password"></div><input type="password" style="opacity:0;position:absolute" name="trap"></body>`,
+  '/otp.html': FORM(`<p>Enter the code we sent</p>${'<input maxlength="1" inputmode="numeric" style="width:30px">'.repeat(6)}`),
+  '/card.html': FORM('<label>Card number <input autocomplete="cc-number" name="cardnumber"></label><label>Name <input name="name"></label>'),
+  '/wall.html': '<!doctype html><title>Members</title><body><main><h2>Sign in to continue reading</h2><button>Sign in</button> <button>Create account</button></main></body>',
+});
 
 function serve() {
   return new Promise((resolve) => {
@@ -265,6 +279,21 @@ test('Ask Jarvis for a picture sends a picture of it with its words; for a link,
   const linkMsg = await asked(() => onLink.submenu[0].click());
   assert(linkMsg.action === 'link' && linkMsg.link === link && linkMsg.link_text === 'More results', JSON.stringify(linkMsg));
   assert(menuFor(shown, { linkURL: 'javascript:alert(1)' }).length === 1, 'offered for a script link');
+});
+
+test('A page that needs the owner is told from one that doesn’t (the hand back), as it shows', async () => {
+  const cases = [
+    ['/captcha.html', {}, 'captcha'], ['/challenge.html', {}, 'captcha'], ['/login.html', {}, 'password'],
+    ['/otp.html', {}, 'code'], ['/otp.html', { codes: true }, ''], ['/card.html', { codes: true }, 'card'],
+    ['/wall.html', {}, 'login'], ['/badge.html', {}, ''], ['/hiddenpw.html', {}, ''], ['/article.html', {}, ''],
+  ];
+  const wrong = [];
+  for (const [where, args, want] of cases) {
+    await load(shown, where);
+    const r = await pageAi(shown, 'handback', args);
+    if (!r.ok || r.kind !== want || (want && !r.what)) wrong.push(`${where} ${JSON.stringify(args)}: ${JSON.stringify(r)}`);
+  }
+  assert(!wrong.length, wrong.join('\n'));
 });
 
 app.whenReady().then(async () => {

@@ -146,10 +146,11 @@ class PageVoice:
     in front; None for anything else. The reply is said only when it's news (a bookmark, or
     why it didn't work): the page itself shows the rest."""
 
-    def __init__(self, hub: Any, bridge: Any, page: Any) -> None:
+    def __init__(self, hub: Any, bridge: Any, page: Any, busy: Any = lambda: False) -> None:
         self.hub = hub
         self.bridge = bridge
         self.page = page  # pagectx.PageContext: the page on show, as the window said
+        self.busy = busy  # a hand back is open: a bare "continue" means carry on then
         self._scrolled_at = float("-inf")
 
     async def instant(self, text: str) -> str | None:
@@ -159,7 +160,7 @@ class PageVoice:
         state = self.page.page
         if not (state.web and state.visible):
             return None
-        if command.follow_up and time.monotonic() - self._scrolled_at > FOLLOW_UP:
+        if command.follow_up and (time.monotonic() - self._scrolled_at > FOLLOW_UP or self.busy()):
             return None
         front = await self.bridge.call("front", {}, timeout=FRONT_SECONDS)
         if not (front.get("ok") and front.get("focused") and front.get("shown")):

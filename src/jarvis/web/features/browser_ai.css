@@ -47,3 +47,18 @@
 .bai-memory-counts { display: flex; flex-direction: column; gap: 1px; }
 .bai-memory-kind { color: rgb(var(--c-ink-2)); }
 .bai-memory-kind::before { content: " · "; }
+
+/* The hand back: "Your turn" over a page that needs the owner (the app's action colour). */
+.bai-note.bai-turn {
+  align-items: center; color: rgb(var(--c-ink));
+  background: color-mix(in srgb, var(--action) 11%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--action) 35%, transparent);
+}
+.bai-turn .bai-note-words strong { font-weight: 600; }
+.bai-turn-hint { color: rgb(var(--c-ink-2)); }
+.bai-note-icon.bai-turn-icon { background: var(--action); }
+.bai-note-icon.bai-turn-icon::after { content: "›"; font-size: 13px; color: var(--action-ink, #fff); }
+.bai-turn-go {
+  flex: none; height: 28px; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--action); color: var(--action-ink, #fff); font: 600 12.5px/1 var(--sans);
+}
+.bai-turn-go:hover { filter: brightness(1.08); }

@@ -8,6 +8,7 @@ from ... import lang
 from . import tabsread
 from .bridge import Bridge
 from .flags import Flags
+from .handback import HandBack
 from .memories import Memories
 from .menuask import MenuAsk
 from .pagectx import PageContext
@@ -25,8 +26,10 @@ class BrowserAi:
         self.bridge = Bridge(hub)
         self.flags = Flags(hub)
         self.page = PageContext(hub, self.bridge, self.sites)
-        self.voice = PageVoice(hub, self.bridge, self.page)
+        self.handback = HandBack(hub, self.bridge)
+        self.voice = PageVoice(hub, self.bridge, self.page, busy=self.handback.busy)
         self.watch = Watch(hub, self.sites, self.page)
+        self.watch.then.append(self.handback.before)
         self.site_settings = SiteSettings(hub, self.sites)
         self.memories = Memories(hub, self.bridge, self.sites)
         self.menu = MenuAsk(hub, self.page, self.memories, self.sites)
@@ -38,7 +41,9 @@ class BrowserAi:
         hub.add_browser_check(self.watch.check)
         hub.add_browser_result(self.flags.on_result)
         hub.add_browser_result(self.watch.on_result)
+        hub.add_browser_result(self.handback.on_result)
         hub.add_request_context(self.page.context)
+        hub.add_request_context(self.handback.context)
         hub.register_instant(self.voice.instant)
         hub.register_command("browser_ai_result", self.bridge.on_result)
         hub.register_command("browser_ai_page", self.page.on_page)
@@ -49,6 +54,8 @@ class BrowserAi:
         hub.register_command("browser_ai_memories", memories.command(memories.on_list))
         hub.register_command("browser_ai_memory_forget", memories.command(memories.on_forget))
         hub.register_command("browser_ai_ask", self.menu.command)
+        hub.register_command("browser_ai_carry_on", self.handback.on_carry_on)
+        hub.register_command("browser_ai_handback_cancel", self.handback.on_cancel)
         hub.register_server(
             tabsread.SERVER,
             self.tabs.build,

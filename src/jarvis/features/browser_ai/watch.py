@@ -89,6 +89,9 @@ class Watch:
         # Jarvis Code session, owner -> {host: until}.
         self._asked: tuple[str, set[str]] = ("", set())
         self._session_yes: dict[str, dict[str, float]] = {}
+        # Checks that weigh the same tab after these (the hand back): (seen, action, args),
+        # each answering None or a refusal, with the tab looked up once.
+        self.then: list[Any] = []
 
     async def check(self, action: str, args: dict[str, Any]) -> dict[str, Any] | None:
         """hub.add_browser_check: None lets the call go; a refusal otherwise."""
@@ -115,6 +118,10 @@ class Watch:
             }
         if rule == "ask" and not await self._ask(host, action, args):
             return {"ok": False, "message": DECLINED.format(host=host)}
+        for more in self.then:
+            refusal = await more(seen, action, args)
+            if refusal is not None:
+                return refusal
         return None
 
     def _watched(self, url: Any) -> bool:

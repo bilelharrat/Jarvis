@@ -24,8 +24,12 @@ def desk_with(hub, tabs, on_show=4, window_seen=True):
             return {"ok": True, "tabs": tabs} if isinstance(tabs, list) else dict(tabs)
         return {"ok": True}
 
+    async def nothing_to_hand_back(action, args=None, timeout=None):
+        return {"ok": True, "kind": ""}
+
     hub._browser_raw = raw
     hub.browser_available = True
+    desk.bridge.call = nothing_to_hand_back
     desk.page.on_page({"open": True, "url": NEWS, "tab": on_show, "visible": window_seen})
     return desk, calls
 

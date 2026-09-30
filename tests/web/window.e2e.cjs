@@ -5459,6 +5459,30 @@ test('Ask Jarvis: what the owner picked in the page’s menu goes to the hub, an
   assert(JSON.stringify(asks) === JSON.stringify([{ type: 'browser_ai_ask', action: 'explain', url: 'https://news.example/a', title: 'A', tab: 5, selection: 'Soup is good.' }]), JSON.stringify(asks));
 });
 
+test('Browser AI hands a page back: “Your turn” over it, its tab brought forward, Carry on and × answer', async () => {
+  await browserAi();
+  await js(`window.__tabs = []; jarvisApp.browser.tab = (...args) => { __tabs.push(args); return Promise.resolve(); };
+    document.body.classList.add('browser-open'); __state({ url: 'https://news.example/a', title: 'A', tabs: [{ id: 5, active: true }, { id: 6, active: false }] }); true`);
+  await deliver({ type: 'browser_ai_handback', tab: 6, url: 'https://accounts.example/login', host: 'accounts.example', need: 'password', what: 'a password' });
+  assert(JSON.stringify(await js('__tabs')) === JSON.stringify([['select', 6]]), JSON.stringify(await js('__tabs')));
+  assert(!(await js('!!document.querySelector(".bai-turn")')), 'shown over another tab');
+  await js(`__state({ url: 'https://accounts.example/login', title: 'Sign in', tabs: [{ id: 5, active: false }, { id: 6, active: true }] }); true`);
+  const words = await js('document.querySelector(".bai-turn") && document.querySelector(".bai-turn").innerText');
+  assert(/Your turn/.test(words) && /wants your password/.test(words) && /carry on/.test(words), words);
+  await js('__sent.length = 0; document.querySelector(".bai-turn-go").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_carry_on' }]), JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; document.querySelector(".bai-turn .bai-x").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'browser_ai_handback_cancel' }]) && !(await js('!!document.querySelector(".bai-turn")')), 'the × didn’t let it go');
+  // The hub lets go (carry on said): the banner goes. Its tab closed: the window lets go.
+  await deliver({ type: 'browser_ai_handback', tab: 6, url: 'https://accounts.example/login', host: 'accounts.example', need: 'captcha', what: 'a captcha' });
+  assert(/prove you’re human/.test(await js('document.querySelector(".bai-turn").innerText')), 'the captcha words');
+  await deliver({ type: 'browser_ai_handback', tab: null });
+  assert(!(await js('!!document.querySelector(".bai-turn")')), 'still shown after the hub let go');
+  await deliver({ type: 'browser_ai_handback', tab: 6, url: 'https://accounts.example/login', host: 'accounts.example', need: 'login', what: 'signing in' });
+  await js(`__sent.length = 0; __state({ url: 'https://news.example/a', title: 'A', tabs: [{ id: 5, active: true }] }); true`);
+  assert(JSON.stringify(await sentOf('browser_ai_handback_cancel')) === JSON.stringify([{ type: 'browser_ai_handback_cancel' }]), JSON.stringify(await js('__sent')));
+});
+
 test('Browser AI shows a notice on a page whose text talks to an AI, as data, until closed', async () => {
   await browserAi();
   await js(`document.body.classList.add('browser-open'); __state({ url: 'https://recipes.example/soup#top', title: 'Soup', tabs: [{ id: 2, active: true }] }); true`);
