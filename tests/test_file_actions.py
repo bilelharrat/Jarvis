@@ -227,6 +227,75 @@ def test_a_link_is_moved_as_a_link(actions, home, tmp_path):
     assert (home / "Documents" / "shortcut.txt").is_symlink() and outside.exists()
 
 
+def _app_data(home):
+    """What the owner keeps for their apps: a shell's settings, a login agent's folder, the
+    keychains."""
+    (home / ".config" / "fish" / "conf.d").mkdir(parents=True)
+    (home / ".config" / "fish" / "config.fish").write_text("set x 1")
+    (home / "Library" / "LaunchAgents").mkdir(parents=True)
+    (home / "Library" / "Keychains").mkdir()
+    (home / "Library" / "Keychains" / "login.keychain-db").write_text("k")
+    (home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Work").mkdir(parents=True)
+    (home / ".ssh" / "config").write_text("Host *")
+
+
+@pytest.mark.parametrize(
+    ("raw", "why"),
+    [
+        # The Mac's disk ignores case (and Unicode's two ways of writing an accent): another
+        # spelling of a protected place is that place.
+        ("{home}/desktop", "home's own folders"),
+        ("{home}/DOCUMENTS", "home's own folders"),
+        ("{home}/library/Keychains/login.keychain-db", "app data"),
+        ("{home}/LIBRARY/Keychains", "app data"),
+        ("{home}/.SSH/config", "app data or credentials"),
+        # Inside the home's hidden settings folders, not only the folders themselves.
+        ("{home}/.config/fish/config.fish", "app data"),
+        ("{home}/.config/fish", "app data"),
+        # iCloud Drive itself is like a home folder: what's in it moves, it doesn't.
+        ("{home}/Library/Mobile Documents/com~apple~CloudDocs", "home's own folders"),
+    ],
+)
+def test_another_spelling_or_a_folder_inside_is_still_protected(actions, home, raw, why):
+    _app_data(home)
+    with pytest.raises(fa.Refused, match=why):
+        actions.check_item(raw.format(home=home))
+
+
+def test_nothing_goes_into_app_data_by_another_spelling_or_a_link(actions, home):
+    _app_data(home)
+    notes = str(home / "Desktop" / "notes.txt")
+    (home / "Desktop" / "settings").symlink_to(home / ".config")  # a link into app data
+    for folder in (
+        home / "library" / "LaunchAgents",  # where a login item would start itself
+        home / "Library" / "LaunchAgents",
+        home / ".config" / "fish" / "conf.d",  # what a shell runs as it starts
+        home / "Desktop" / "settings" / "fish",
+    ):
+        with pytest.raises(fa.Refused, match="isn't a folder in your home"):
+            actions.plan_move([notes], str(folder))
+    with pytest.raises(fa.Refused, match="app data"):
+        actions.check_item(str(home / "Desktop" / "settings" / "fish" / "config.fish"))
+    # What's in iCloud Drive and the Trash still moves, and things move into them.
+    work = home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Work"
+    assert actions.plan_move([notes], str(work))[0][1] == work / "notes.txt"
+    (home / ".Trash" / "old.txt").write_text("o")
+    assert actions.check_item(str(home / ".Trash" / "old.txt")) == home / ".Trash" / "old.txt"
+
+
+def test_one_file_by_two_spellings_is_one_file(actions, home):
+    if not (home / "DESKTOP").exists():
+        pytest.skip("this disk tells case apart: two spellings are two files")
+    q3 = home / "Desktop" / "Q3 report.pdf"
+    assert actions.plan_trash([str(q3), str(home / "Desktop" / "q3 REPORT.pdf")]) == [q3]
+    (home / "Downloads" / "notes.TXT").write_text("another")
+    with pytest.raises(fa.Refused, match="already a"):
+        actions.plan_move(
+            [str(home / "Desktop" / "notes.txt"), str(home / "Downloads" / "notes.TXT")],
+            str(home / "Documents"),
+        )
+
+
 @pytest.mark.parametrize(
     "name",
     ["x" * 256, "a\x00b", "bell\x07", "invoice\u202efdp.exe"],

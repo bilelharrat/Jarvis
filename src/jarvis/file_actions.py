@@ -2,9 +2,12 @@
 read and written (text only).
 
 - Only inside the home folder (and iCloud Drive), never a credentials file (computer's
-  is_sensitive), never the home's own folders themselves (Desktop, Documents…), never over
-  a file that's already there. Nothing is ever deleted: "delete" moves it to the Trash, the
-  way Finder does, and remembers where it went.
+  is_sensitive), never app data (Library, and the home's hidden settings folders and all
+  that's in them), never the home's own folders themselves (Desktop, Documents…), never
+  over a file that's already there. The disk ignores case and Unicode's two ways of writing
+  an accent, so these are checked the same way (~/library is Library), both where a path
+  says and where its links really lead. Nothing is ever deleted: "delete" moves it to the
+  Trash, the way Finder does, and remembers where it went.
 - Every change is written to the undo log (a JSON file beside prefs.json: what went where,
   when), so undo() puts things back: the last one, or one by its id. The conversation
   track's general undo can call FileActions.undo() too.
@@ -29,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from . import jsonstore
-from .computer import is_sensitive
+from .computer import SENSITIVE_PARTS, is_sensitive
 
 log = logging.getLogger("jarvis")
 
@@ -102,10 +105,29 @@ def _plain_path(raw: str | Path) -> Path:
     return Path(os.path.abspath(os.path.expanduser(str(raw).strip())))
 
 
+def _fold(text: str) -> str:
+    """A path as the Mac's disk compares it: case and the way an accent is written ignored."""
+    return unicodedata.normalize("NFD", text).casefold()
+
+
+_FOLDED_PARTS = tuple(_fold(part) for part in SENSITIVE_PARTS)
+_FOLDED_HOME_FOLDERS = frozenset(_fold(name) for name in HOME_FOLDERS)
+_FOLDED_ICLOUD = tuple(_fold(part) for part in ICLOUD.parts)
+
+
 def _credentials(path: Path) -> bool:
     """A credentials file, or a folder that keeps them (~/.ssh, a copy of one elsewhere):
-    what's inside it counts as credentials by its path."""
-    return is_sensitive(path) or is_sensitive(path / "_")
+    what's inside it counts as credentials by its path, however its name is spelled."""
+    if is_sensitive(path) or is_sensitive(path / "_"):
+        return True
+    text = _fold(str(path)) + "/"
+    return any(part in text for part in _FOLDED_PARTS)
+
+
+def _real(path: Path) -> Path:
+    """Where the item itself really is: its folder with every link in it followed, and its own
+    name (a link at the end is the link)."""
+    return Path(os.path.realpath(path.parent)) / path.name
 
 
 def _bad_name(name: str) -> bool:
@@ -188,23 +210,38 @@ class FileActions:
         home = self.home
         return path != home and home in path.parents
 
-    def _in_library(self, path: Path) -> bool:
-        library = self.home / "Library"
-        icloud = self.home / ICLOUD
-        return (path == library or library in path.parents) and not (
-            path == icloud or icloud in path.parents
-        )
+    def _under_home(self, path: Path) -> tuple[str, ...] | None:
+        """The path's parts below the home folder as the disk compares them (folded), or None
+        when it isn't in there."""
+        home, text = _fold(str(self.home)).rstrip("/"), _fold(str(path))
+        if text == home:
+            return ()
+        if not text.startswith(home + "/"):
+            return None
+        return tuple(text[len(home) + 1 :].split("/"))
+
+    def _home_folder(self, path: Path) -> bool:
+        """One of the home's own folders (Desktop, Documents, Library…), or iCloud Drive."""
+        parts = self._under_home(path)
+        if parts is None:
+            return False
+        return (len(parts) == 1 and parts[0] in _FOLDED_HOME_FOLDERS) or parts == _FOLDED_ICLOUD
 
     def _app_data(self, path: Path) -> bool:
-        """Library (iCloud Drive aside), the home's hidden settings folders and files (~/.ssh,
-        ~/.config, ~/.zshrc; the Trash aside), and credentials anywhere."""
-        hidden = path.parent == self.home and path.name.startswith(".") and path.name != ".Trash"
-        return (
-            self._in_library(path)
-            or hidden
-            or _credentials(path)
-            or _credentials(Path(os.path.realpath(path)))
-        )
+        """Library (iCloud Drive aside), the home's hidden settings folders and files and all
+        that's in them (~/.ssh, ~/.config, ~/.zshrc; the Trash aside), and credentials
+        anywhere: by the path, by where its links lead, whatever its case."""
+        for where in (path, _real(path)):
+            parts = self._under_home(where)
+            if parts:
+                top = parts[0]
+                if top.startswith(".") and top != ".trash":
+                    return True
+                if top == "library" and parts[1:3] != _FOLDED_ICLOUD[1:]:
+                    return True
+            if _credentials(where):
+                return True
+        return _credentials(Path(os.path.realpath(path)))
 
     def check_item(self, raw: str | Path) -> Path:
         """A file or folder the owner has that JARVIS may move, rename or trash."""
@@ -213,7 +250,7 @@ class FileActions:
         parent = _plain_path(path.parent.resolve())  # no way out of the home through a link
         if not self._inside(path) or not (parent == self.home or self._inside(parent)):
             raise Refused(f"“{name}” isn't in your home folder; I only move things in there.")
-        if path.parent == self.home and path.name in HOME_FOLDERS:
+        if self._home_folder(path) or self._home_folder(_real(path)):
             raise Refused(
                 f"“{name}” is one of your home's own folders; I leave those where they are."
             )
@@ -225,9 +262,12 @@ class FileActions:
 
     def check_folder(self, raw: str | Path) -> Path:
         path = _plain_path(raw)
-        if not (path == self.home or self._inside(path)) or self._app_data(path):
+        real = Path(os.path.realpath(path))  # where what's moved really lands
+        if not (path == self.home or self._inside(path)) or any(
+            self._app_data(p) for p in (path, real)
+        ):
             raise Refused(f"“{path.name or raw}” isn't a folder in your home folder.")
-        if not self._inside(Path(os.path.realpath(path))) and path != self.home:
+        if not self._inside(real) and path != self.home:
             raise Refused(f"“{path.name or raw}” isn't a folder in your home folder.")
         if not path.is_dir():
             raise Refused(f"There's no folder “{path.name or raw}”.")
@@ -250,7 +290,7 @@ class FileActions:
                 raise Refused(f"“{src.name}” is already in {target.name}.")
             if src.is_dir() and not src.is_symlink() and (target == src or src in target.parents):
                 raise Refused(f"“{src.name}” can't go inside itself.")
-            if os.path.lexists(dest) or any(d == dest for _, d in plan):
+            if os.path.lexists(dest) or any(_fold(str(d)) == _fold(str(dest)) for _, d in plan):
                 raise Refused(f"There's already a “{src.name}” in {target.name}.")
             plan.append((src, dest))
         return plan
@@ -303,8 +343,14 @@ class FileActions:
             raise Refused("Say which files.")
         if len(items) > MAX_FILES:
             raise Refused(f"That's more than {MAX_FILES} files at once.")
-        paths = [self.check_item(raw) for raw in items]
-        return list(dict.fromkeys(paths))
+        paths, seen = [], set()
+        for raw in items:
+            path = self.check_item(raw)
+            info = os.lstat(path)
+            if (info.st_dev, info.st_ino) not in seen:  # one file, however it's spelled
+                seen.add((info.st_dev, info.st_ino))
+                paths.append(path)
+        return paths
 
     def trash(self, paths: list[Path]) -> Record:
         done: list[dict[str, str]] = []
