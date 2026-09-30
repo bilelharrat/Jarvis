@@ -1679,6 +1679,13 @@ test('Settings › Chats: iMessage picks a conversation, how Messages is signed 
 // ── Jarvis Code's feature modules (web/features): loaded into the page as features.js
 // loads them, their styles too ──
 
+// A click on something in a pane that scrolls: brought into view first, and named if missing.
+async function clickIn(selector) {
+  const found = await js(`(() => { const n = document.querySelector(${JSON.stringify(selector)}); if (!n) return false; n.scrollIntoView({ block: 'center' }); return true; })()`);
+  if (!found) throw new Error(`nothing matches ${selector}`);
+  await clickAt(selector);
+}
+
 // __ev(event): an event as the socket delivers it, to app.js and to the features' listeners.
 // Loaded in name order, as features.js loads them (code_changes.js before code_diff.js).
 async function loadFeatures(...names) {
@@ -1708,7 +1715,7 @@ test('Isolated copy: the switch goes with a new session, and is on when another 
   assert(news.length === 1 && news[0].isolated === true, JSON.stringify(news));
   // The owner's own choice wins for the next session, then it's back to the default.
   await js('__sent.length = 0');
-  await clickAt('#jcx-iso-switch');
+  await clickIn('#jcx-iso-switch');
   await js('$("cc-start-typed").click()');
   news = await js('__sent.filter((m) => m.type === "task_new")');
   assert(news.length === 1 && news[0].isolated === false, JSON.stringify(news));
@@ -1726,7 +1733,7 @@ test('Isolated copy: the header names the branch, and the Copies pane lands, dis
   await sleep(40);
   const badge = await js('({ hidden: document.querySelector(".jcx-iso-badge").hidden, text: document.querySelector(".jcx-iso-badge").textContent })');
   assert(!badge.hidden && badge.text === 'jarvis/fix-login-1a2b → main', JSON.stringify(badge));
-  await clickAt('.jcx-iso-badge');
+  await clickIn('.jcx-iso-badge');
   assert((await sent()).includes('code_copies'), 'the pane never asked for the copies');
   await js(`__ev({ type: 'code_copies', root: '/tmp/worktrees', copies: [
       { slug: 'fix-login-1a2b', project: 'alpha', branch: 'jarvis/fix-login-1a2b', into: 'main', title: 'fix the <b>login</b>', created: Date.now() / 1000 - 300,
@@ -1748,7 +1755,7 @@ test('Isolated copy: the header names the branch, and the Copies pane lands, dis
   assert(JSON.stringify(acts) === JSON.stringify(['land fix-login-1a2b', 'resolve fix-login-1a2b', 'discard old-0000', 'restore gone-1111']), JSON.stringify(acts));
   // The project's own options: .env files and linked dependencies, as settings.
   await js('__sent.length = 0');
-  await clickAt('.jcx-copies .jcs-switch');
+  await clickIn('.jcx-copies .jcs-switch');
   const prefs = await js('__sent.filter((m) => m.type === "feature_prefs").map((m) => m.changes)');
   assert(JSON.stringify(prefs) === JSON.stringify([{ code_iso_env: ['alpha'] }]), JSON.stringify(prefs));
 });
@@ -1756,7 +1763,7 @@ test('Isolated copy: the header names the branch, and the Copies pane lands, dis
 test('Isolated copy: the default is a Jarvis Code setting', async () => {
   await loadFeatures('code_isolation.js');
   await js('toggleCC(true); openJcSettings("general"); __sent.length = 0');
-  await clickAt('#jcx-iso-default');
+  await clickIn('#jcx-iso-default');
   const changes = await js('__sent.filter((m) => m.type === "feature_prefs").map((m) => m.changes)');
   assert(JSON.stringify(changes) === JSON.stringify([{ code_isolate_default: true }]), JSON.stringify(changes));
   await js('__ev({ type: "prefs", features: { code_isolate_default: true } })');
@@ -1794,7 +1801,7 @@ test('Changes: the session’s hunks, numbered and highlighted, with the words t
   assert(r.gap === '⋯ 35 unchanged lines' && r.bold === 0 && r.extra === '+1 −1', JSON.stringify(r));
   // The folded lines, fetched and shown in their place.
   await js('__sent.length = 0');
-  await clickAt('.jcx-gap');
+  await clickIn('.jcx-gap');
   const lines = await js('__sent.filter((m) => m.type === "code_lines")');
   assert(lines.length === 1 && lines[0].start === 5 && lines[0].end === 39 && lines[0].path === 'src/app.py', JSON.stringify(lines));
   await js(`__ev({ type: 'code_lines', id: 1, path: 'src/app.py', start: 5, lines: Array.from({ length: 35 }, (_, i) => 'x' + (i + 5)) })`);
@@ -1810,10 +1817,10 @@ test('Changes: Keep folds a hunk away, Undo takes two clicks, and the views are 
   assert(JSON.stringify(s) === '["keep h1"]', JSON.stringify(s));
   assert(await js('document.querySelector(".jcx-hunk").classList.contains("kept") && !document.querySelector(".jcx-hunk").querySelector(".jcx-lines")'), 'a kept hunk still shows its lines');
   const undo = '[data-hunk="h2"] .jcx-undo';
-  await clickAt(undo);
+  await clickIn(undo);
   s = await js('__sent.filter((m) => m.type === "code_hunk" && m.action === "undo")');
   assert(!s.length, 'one click undid');
-  await clickAt(undo);
+  await clickIn(undo);
   s = await js('__sent.filter((m) => m.type === "code_hunk" && m.action === "undo").map((m) => m.hunk + " " + m.view)');
   assert(JSON.stringify(s) === '["h2 session"]', JSON.stringify(s));
   await js('__sent.length = 0');
@@ -1829,7 +1836,7 @@ test('Changes: comments on lines go to the session together, and a refresh keeps
   await open(1);
   await loadFeatures('code_diff.js', 'code_changes.js');
   await js(`openPane("diff"); __ev(${HUNK_VIEW()}); __sent.length = 0`);
-  await clickAt('[data-hunk="h1"] .jcx-row.add .jcx-ln.n');
+  await clickIn('[data-hunk="h1"] .jcx-row.add .jcx-ln.n');
   await frames(2);
   await typeText('rename it to');
   await js(`__ev(${HUNK_VIEW()})`);  // a refresh while writing
@@ -1837,7 +1844,7 @@ test('Changes: comments on lines go to the session together, and a refresh keeps
   assert(await js('document.querySelector(".jcx-comment.edit textarea").value') === 'rename it to', 'the draft was lost');
   await typeText(' units');
   await press('Enter', ['meta']);
-  await clickAt('[data-hunk="h2"] .jcx-row.del .jcx-ln.o');
+  await clickIn('[data-hunk="h2"] .jcx-row.del .jcx-ln.o');
   await frames(2);
   await typeText('why remove this?');
   await press('Enter', ['meta']);
@@ -1864,6 +1871,64 @@ test('Changes: side by side, an isolated session’s Land, and a folder that isn
   await js(`__ev({ type: 'code_changes', id: 1, view: 'session', git: false, gone: false, workspace: {}, conflicts: [], files: [], touched: ['/p/alpha/a.py'], totals: {} })`);
   assert((await js('document.querySelector(".jcx-changes").textContent')).includes('isn’t a git repository'), 'no note');
   await clickText('.jcx-bar', 'Unified');
+});
+
+const GIT_STATE = (extra = {}) => JSON.stringify({ type: 'code_git', key: 'id:1', repo: true, branch: 'main', detached: false, upstream: 'origin/main', ahead: 2, behind: 0,
+  staged: [{ path: 'src/a.py', code: 'M' }], unstaged: [{ path: 'b.py', code: 'M' }, { path: 'new <b>x</b>.py', code: '?' }],
+  log: [{ sha: 'abc1234', subject: 'Fix the <i>retry</i>', author: 'Ann', at: Date.now() / 1000 - 7200 }], branches: ['main', 'topic'], remotes: ['origin'], merging: false, empty: false, ...extra });
+
+test('Git: the panel stages, writes and commits, switches and makes branches, and pushes', async () => {
+  await open(1);
+  await loadFeatures('code_diff.js', 'code_git.js', 'code_git.css');
+  await clickIn('.jc-tool[data-pane="git"]');
+  let s = await js('__sent.filter((m) => m.type === "code_git")');
+  assert(s.length === 1 && s[0].id === 1, JSON.stringify(s));
+  await js(`__ev(${GIT_STATE()})`);
+  const r = await js(`({ labels: [...document.querySelectorAll('.jcx-git .jcs-label')].map((n) => n.textContent),
+    files: [...document.querySelectorAll('.jcx-gpath')].map((n) => n.textContent), html: document.querySelectorAll('.jcx-git b, .jcx-git i').length,
+    sync: document.querySelector('.jcx-gsync').textContent, pressed: document.querySelector('.jc-tool[data-pane="git"]').getAttribute('aria-pressed') })`);
+  assert(JSON.stringify(r.labels) === JSON.stringify(['Staged (1)', 'Changes (2)', 'History']), JSON.stringify(r));
+  assert(r.files.join('|') === 'src/a.py|b.py|new <b>x</b>.py' && r.html === 0 && r.sync === '↑2 ↓0' && r.pressed === 'true', JSON.stringify(r));
+  await js('__sent.length = 0');
+  await clickText('[data-list="staged"] .jcx-gfile:nth-child(1)', 'Unstage');
+  await clickText('[data-list="unstaged"] .jcx-gfile:nth-child(2)', 'Stage');
+  s = await js('__sent.filter((m) => m.type === "code_git_stage").map((m) => m.paths.join() + " " + m.unstage)');
+  assert(JSON.stringify(s) === JSON.stringify(['src/a.py true', 'new <b>x</b>.py false']), JSON.stringify(s));
+  // A file's hunks, one at a time.
+  await js('__sent.length = 0');
+  await clickIn('[data-list="unstaged"] .jcx-gfile:nth-child(1) .jcx-gfile-head');
+  s = await js('__sent.filter((m) => m.type === "code_git_file").map((m) => m.path + " " + m.staged)');
+  assert(JSON.stringify(s) === '["b.py false"]', JSON.stringify(s));
+  await js(`__ev({ type: 'code_git_file', key: 'id:1', path: 'b.py', staged: false, file: { path: 'b.py', hunks: [{ id: 'g1', n: 0, old_start: 1, old_count: 1, new_start: 1, new_count: 1, line: 1, where: '', header: '', lines: [['-', 'b'], ['+', 'b2']], cut: 0 }] } })`);
+  await clickText('.jcx-gfile', 'Stage this');
+  s = await js('__sent.filter((m) => m.type === "code_git_hunk").map((m) => m.path + " " + m.hunk + " " + m.staged)');
+  assert(JSON.stringify(s) === '["b.py g1 false"]', JSON.stringify(s));
+  // The message: Claude's, then the owner's edits; Commit sends what's in the box.
+  await js('__sent.length = 0');
+  await clickText('.jcx-gcommit', 'Write it');
+  assert((await js('__sent.map((m) => m.type)')).includes('code_git_message'), 'no message asked for');
+  assert(await js('document.querySelector(".jcx-gcommit button").textContent') === 'Writing…', 'no sign it’s writing');
+  await js(`__ev({ type: 'code_git_message', key: 'id:1', text: 'Make retries back off', note: '' })`);
+  assert(await js('document.querySelector(".jcx-gcommit textarea").value') === 'Make retries back off', 'the message wasn’t put in');
+  await js('document.querySelector(".jcx-gcommit textarea").focus()');
+  await typeText(' exponentially');
+  await clickText('.jcx-gcommit', 'Commit');
+  s = await js('__sent.filter((m) => m.type === "code_git_commit").map((m) => m.message)');
+  assert(JSON.stringify(s) === '["Make retries back off exponentially"]', JSON.stringify(s));
+  await js(`__ev({ type: 'code_git_committed', key: 'id:1', sha: 'def5678' })`);
+  assert(await js('document.querySelector(".jcx-gcommit textarea").value') === '', 'the message stayed after the commit');
+  // Branches and the push.
+  await js('__sent.length = 0; (() => { const menu = document.querySelector(".jcx-gbranch select"); menu.value = "topic"; menu.dispatchEvent(new Event("change")); })()');
+  await clickText('.jcx-gbranch', 'New branch…');
+  await frames(2);
+  await typeText('feature/x');
+  await press('Enter');
+  await clickText('.jcx-gbranch', 'Push');
+  s = await js('__sent.filter((m) => m.type.startsWith("code_git_")).map((m) => m.type + " " + (m.name || "") + " " + (m.create || false))');
+  assert(JSON.stringify(s) === JSON.stringify(['code_git_branch topic false', 'code_git_branch feature/x true', 'code_git_push  false']), JSON.stringify(s));
+  // A second click on the toolbar button closes the pane.
+  await clickIn('.jc-tool[data-pane="git"]');
+  assert(await js('$("jc-pane").hidden'), 'the Git button didn’t close its pane');
 });
 
 // ──

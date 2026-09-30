@@ -483,7 +483,7 @@ def _holder(repo: str, branch: str) -> str:
     return ""
 
 
-def _overwritten(err: str) -> list[str]:
+def overwritten_files(err: str) -> list[str]:
     """The files git names when a merge would overwrite local changes."""
     names: list[str] = []
     grab = False
@@ -567,7 +567,7 @@ def land(copy: Copy, message: str) -> Landed:
     if holder:
         moved = git(holder, "merge", "--ff-only", "--no-edit", new, timeout=120)
         if not moved.ok:
-            names = _overwritten(moved.err)
+            names = overwritten_files(moved.err)
             if names:
                 shown = ", ".join(names[:5]) + (
                     f" and {len(names) - 5} more" if len(names) > 5 else ""

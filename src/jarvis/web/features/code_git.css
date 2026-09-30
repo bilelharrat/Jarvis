@@ -1,0 +1,38 @@
+/* Jarvis Code's Git panel. */
+
+.jcx-git { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.deck.jc .jcx-git .jc-btn { font-size: 12px; }
+.deck.jc .jcx-git .jc-btn.filled { color: #fff; }
+.deck.jc .jcx-git .jc-btn:not(.filled) { color: rgb(var(--c-ink)); }
+.jcx-git .jc-btn:disabled { opacity: 0.45; cursor: default; }
+.jcx-gbranch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jcx-gbranch .jcs-select { max-width: 55%; font: 12.5px var(--mono); }
+.jcx-gsync { font: 12px var(--mono); }
+.jcx-gnew { display: flex; gap: 6px; margin-top: 8px; }
+.jcx-gnew .jc-field { flex: 1; min-width: 0; }
+.jcx-gmerge { margin: 0; padding: 7px 10px; border-radius: 10px; font-size: 12.5px; color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
+
+.jcx-gsection .jcs-label { margin: 4px 2px 6px; }
+.jcx-ghead { display: flex; align-items: center; justify-content: space-between; }
+.jcx-gnone { margin: 0 2px; }
+.jcx-glist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.jcx-gfile { background: rgb(var(--c-surface)); border-radius: 10px; box-shadow: var(--shadow-card); overflow: hidden; }
+.jcx-gfile-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; }
+.jcx-gfile-head:hover { background: rgb(var(--c-ink) / 0.03); }
+.jcx-gpath { flex: 1; min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-gcode { flex: none; width: 18px; text-align: center; border-radius: 5px; font: 700 10.5px/18px var(--mono); color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
+.jcx-gcode.c-a, .jcx-gcode.c-u { color: rgb(var(--c-success-ink)); background: rgb(var(--c-success-soft)); }
+.jcx-gcode.c-d { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger-soft)); }
+.jcx-gcode.c-r { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); }
+.jcx-gfile .jcx-hunk { border-top: 0.5px solid rgb(var(--c-border)); }
+
+.jcx-gcommit { display: flex; flex-direction: column; gap: 6px; }
+.jcx-gcommit textarea { resize: vertical; min-height: 58px; font: 12.5px/1.45 var(--mono); }
+.jcx-gcommit-actions { display: flex; align-items: center; gap: 6px; }
+.jcx-gcommit .jc-dim { margin: 0 2px; }
+
+.jcx-glog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.jcx-glog li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; padding: 5px 4px; border-bottom: 0.5px solid rgb(var(--c-border)); font-size: 12.5px; }
+.jcx-glog code { font: 11.5px var(--mono); color: rgb(var(--c-accent-ink)); }
+.jcx-gsubject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-glog small { grid-column: 2; font-size: 11px; color: rgb(var(--c-muted)); }

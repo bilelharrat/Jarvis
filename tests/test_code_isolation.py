@@ -61,7 +61,9 @@ async def until(condition, tries=600):
 
 async def isolated_session(hub, name="proj", prompt=""):
     task = hub.tasks.start(prompt, name, isolate=True, title="fix the login")
-    assert await until(lambda: task.workspace and task.client is not None), task.transcript
+    # (A real git worktree add: on a Mac busy with other test runs it can take seconds.)
+    made = await until(lambda: task.workspace and task.client is not None, tries=3000)
+    assert made, task.transcript
     return task
 
 

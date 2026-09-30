@@ -119,7 +119,6 @@
     const actions = el('div', 'jcx-comment-actions');
     actions.append(button('Add comment', 'jc-btn small filled', add), button('Cancel', 'jc-btn small', () => { editing = null; render(); }));
     row.append(box, actions);
-    setTimeout(() => { box.focus(); box.selectionStart = box.selectionEnd = box.value.length; });
     return row;
   }
 
@@ -297,6 +296,14 @@
     draw(body, F.currentTask());
   }
 
+  // The comment being written keeps the keyboard, its caret at the end, as soon as it's drawn.
+  function focusEditor(target) {
+    const box = target.querySelector('.jcx-comment.edit textarea');
+    if (!box || document.activeElement === box) return;
+    box.focus();
+    box.selectionStart = box.selectionEnd = box.value.length;
+  }
+
   function draw(target, task) {
     body = target;
     const wrap = el('div', 'jcx-changes');
@@ -378,6 +385,7 @@
       if (data.truncated) wrap.append(el('p', 'jcx-cut', `Showing ${files.length} of ${data.totals.files} files.`));
     }
     target.replaceChildren(wrap);
+    focusEditor(target);
     $extra(data.totals);
   }
 

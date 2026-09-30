@@ -1,0 +1,40 @@
+{
+  "strings": {
+    "Git": "Git",
+    "Stage": "暂存",
+    "Unstage": "取消暂存",
+    "Stage this": "暂存这处",
+    "Unstage this": "取消暂存这处",
+    "Stage all": "全部暂存",
+    "Unstage all": "全部取消暂存",
+    "Loading…": "正在加载…",
+    "Nothing to show line by line.": "没有可以逐行显示的内容。",
+    "Nothing staged.": "没有已暂存的内容。",
+    "No other changes.": "没有其他改动。",
+    "Detached HEAD": "游离的 HEAD",
+    "Branch": "分支",
+    "New branch…": "新建分支…",
+    "Push": "推送",
+    "Asks first: where it goes, which commits, and anything that looks like a secret": "会先问你：推送到哪里、哪些提交，以及看起来像密钥的内容",
+    "New branch name": "新分支名",
+    "Make it": "创建",
+    "Commit message": "提交信息",
+    "Writing…": "正在写…",
+    "Write it": "帮我写",
+    "Claude (Haiku) writes a message from what’s staged; you can edit it": "Claude（Haiku）根据已暂存的内容写一条信息，你可以再改",
+    "Commit": "提交",
+    "Commit the merge": "提交这次合并",
+    "Checks what’s staged for keys and tokens first": "会先检查已暂存的内容里有没有密钥和令牌",
+    "History": "历史",
+    "No commits yet.": "还没有提交。",
+    "This folder isn’t a git repository.": "这个文件夹不是 git 仓库。",
+    "This session’s isolated copy: its branch, not the main folder’s.": "这是这个会话的独立副本：它自己的分支，不是主文件夹的。",
+    "A merge is under way: resolve its conflicts, stage them, then commit to finish it.": "有一次合并正在进行：解决冲突、暂存，然后提交来完成它。",
+    "Staged": "已暂存"
+  },
+  "patterns": [
+    ["^Staged \\((\\d+)\\)$", "已暂存（$1）"],
+    ["^Changes \\((\\d+)\\)$", "改动（$1）"],
+    ["^Tracking (.+)$", "跟踪 $1"]
+  ]
+}
