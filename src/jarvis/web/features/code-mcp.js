@@ -109,7 +109,7 @@
         acts.append(b);
       }
       if (act === 'switch') {
-        const sw = el('button', `sw${s.off ? '' : ' on'} cm-switch`);
+        const sw = el('button', 'jcs-switch cm-switch');
         sw.type = 'button';
         sw.setAttribute('role', 'switch');
         sw.setAttribute('aria-checked', String(!s.off));
@@ -202,7 +202,7 @@
         li.dataset.connector = c.id;
         const text = el('span');
         text.append(mine(el('strong', '', c.name)), el('small', '', c.status === 'connected' ? (c.on ? 'Shared with this session' : 'Not shared') : 'Not connected'));
-        const sw = el('button', `sw${c.on ? ' on' : ''} cm-share`);
+        const sw = el('button', 'jcs-switch cm-share');
         sw.type = 'button';
         sw.setAttribute('role', 'switch');
         sw.setAttribute('aria-checked', String(!!c.on));

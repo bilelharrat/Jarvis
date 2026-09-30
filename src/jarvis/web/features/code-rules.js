@@ -120,7 +120,7 @@
       seg.append(b);
     }
     mineRow.append(seg);
-    const line = el('p', `jc-dim cs-line${s.on ? ' on' : ''}`, sandboxLine(s));
+    const line = el('p', `jc-dim cs-line${s.on ? (s.live ? ' on' : ' pending') : ''}`, sandboxLine(s));
     parts.push(row, mineRow, line);
     // The project's allowlist.
     const head = el('p', 'cr-group-head cs-domains-head');

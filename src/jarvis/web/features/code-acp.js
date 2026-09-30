@@ -98,8 +98,8 @@
     };
     add.addEventListener('click', go);
     for (const input of [name, command]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
-    const row = el('div', 'cm-add-row');
-    row.append(name, command, add);
+    const row = el('div', 'ca-row');
+    row.append(command, add);
     const examples = el('p', 'jc-dim ca-examples');
     examples.append(el('span', '', 'For example:'));
     for (const [n, c] of EXAMPLES) {
@@ -109,7 +109,7 @@
       b.addEventListener('click', () => { form = { name: n, command: c }; redraw(); });
       examples.append(document.createTextNode(' '), b);
     }
-    box.append(row, examples);
+    box.append(name, row, examples);
     const said = note ? t(note) : state.error;
     if (said) box.append(mine(el('p', 'cr-error', said)));
     parts.push(box, el('p', 'jc-dim ca-intro', 'An agent signs in by itself: run its command once in Terminal if it asks. It gets no MCP servers or files from JARVIS; it works with its own tools, as you, in the project’s folder.'));

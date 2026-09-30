@@ -97,7 +97,7 @@
     const head = el('div', 'cx-head');
     head.append(mine(el('strong', 'cx-name', p.id)));
     if (p.version) head.append(mine(el('small', 'cx-version', p.version)));
-    const sw = el('button', `sw${p.enabled ? ' on' : ''} cx-enable`);
+    const sw = el('button', 'jcs-switch cx-enable');
     sw.type = 'button';
     sw.setAttribute('role', 'switch');
     sw.setAttribute('aria-checked', String(!!p.enabled));
@@ -189,7 +189,7 @@
       parts.push(ul);
     }
     // A new one: its kind, where, and a name.
-    const row = el('div', 'cm-add-row cx-new');
+    const row = el('div', 'cx-row cx-new');
     const kind = el('select', 'jc-field cx-new-kind');
     kind.setAttribute('aria-label', 'What to make');
     for (const [k, label] of Object.entries(KINDS)) { const o = el('option', '', label); o.value = k; kind.append(o); }
@@ -208,8 +208,10 @@
       F.send({ type: 'cx_read', id: task.id, kind: kind.value, scope: scope.value, name: clean });
     });
     name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); make.click(); } });
-    row.append(kind, scope, name, make);
-    parts.push(row, note);
+    const named = el('div', 'cx-row cx-new-name-row');
+    row.append(kind, scope);
+    named.append(name, make);
+    parts.push(row, named, note);
     const hooks = el('div', 'cx-hooks');
     hooks.append(el('span', 'jc-dim', 'Hooks:'));
     for (const [s, label] of Object.entries(HOOK_SCOPES)) {
@@ -276,7 +278,7 @@
         twice(`mk:${m.name}`, 'Remove', 'Press again to remove', 'cx-market-remove', () => F.send({ type: 'cx_market', id: task.id, remove: m.name })));
       return li;
     }));
-    const add = el('div', 'cm-add-row cx-market-add');
+    const add = el('div', 'cx-row cx-market-add');
     const source = el('input', 'jc-field cx-market-input');
     source.placeholder = 'owner/repo, an address or a folder';
     source.setAttribute('aria-label', 'A marketplace to add');

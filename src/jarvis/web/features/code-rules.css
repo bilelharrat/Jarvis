@@ -42,6 +42,7 @@
 .cs-seg { margin-bottom: 0; }
 .cs-line { margin: 6px 4px 10px; line-height: 1.45; }
 .cs-line.on { color: rgb(var(--c-success-ink)); }
+.cs-line.pending { color: rgb(var(--c-warning-ink)); }
 .cs-domains-head { margin-top: 4px; }
 .cs-add { margin-top: 8px; }
 .cs-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 7px 2px 0; }

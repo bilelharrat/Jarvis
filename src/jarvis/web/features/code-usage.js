@@ -93,14 +93,17 @@
     const head = el('div', 'cu-row-head');
     head.append(el('strong', '', w.label.charAt(0).toUpperCase() + w.label.slice(1)));
     const status = w.status === 'rejected' ? 'Used up' : w.status === 'allowed_warning' ? 'Near the limit' : '';
-    if (w.percent !== null && w.percent !== undefined) {
+    const known = w.percent !== null && w.percent !== undefined;
+    if (known) {
       const pct = el('span', 'cu-num');
       pct.append(mine(el('span', '', `${w.percent}%`)), document.createTextNode(' '), el('span', '', 'used'));
       head.append(pct);
-    } else if (status) head.append(el('span', 'cu-num', status));
-    li.append(head, meter(w.status === 'rejected' ? 100 : (w.percent === undefined ? null : w.percent)));
+    } else head.append(el('span', 'cu-num', status || 'Within the limit'));
+    li.append(head);
+    // A meter only for a figure Claude Code gave (or a window used up): never an empty bar.
+    if (known || w.status === 'rejected') li.append(meter(known ? w.percent : 100));
     const foot = el('div', 'cu-row-foot jc-dim');
-    if (status && w.percent !== null && w.percent !== undefined) foot.append(el('span', '', status));
+    if (status && known) foot.append(el('span', '', status));
     const when = w.reset ? '' : resetText(w.resets_at, locale());
     if (w.reset) foot.append(el('span', '', 'Reset since it was reported'));
     else if (when) { const r = el('span'); r.append(el('span', '', 'Resets'), document.createTextNode(' '), mine(el('span', '', when))); foot.append(r); }

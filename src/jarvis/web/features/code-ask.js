@@ -56,11 +56,14 @@
       head.append(title);
       box.append(head);
     }
+    // (A card outside Jarvis Code is in the app's own look: its buttons and fields.)
+    const plain = where === 'card' ? 'btn' : 'jc-btn small';
     const ticked = new Set();
     const options = el('div', multi ? 'cq-options' : 'cq-options jc-choices');
-    const send = el('button', 'jc-btn small filled cq-send', multi ? 'Answer' : 'Send');
+    const send = el('button', `${where === 'card' ? 'btn primary' : 'jc-btn small filled'} cq-send`, multi ? 'Answer' : 'Send');
     send.type = 'button';
-    const other = el('input', 'jc-field cq-other-input');
+    const other = el('input', where === 'card' ? 'cq-other-input' : 'jc-field cq-other-input');
+    if (where === 'card') other.type = 'text';  // (the app's own field; in the sheet, the workbench's)
     other.placeholder = multi ? 'Something else too (optional)' : 'Or answer in your own words';
     other.setAttribute('aria-label', 'Your own answer');
     other.maxLength = 2000;
@@ -79,7 +82,7 @@
         row.append(tick, el('kbd', '', String(i + 1)), text);
         options.append(row);
       } else {
-        const b = el('button', 'jc-btn small cq-choice');
+        const b = el('button', `${plain} cq-choice`);
         b.type = 'button';
         const text = el('span', 'cq-text');
         text.append(mine(el('span', 'cq-label', o.label)));
@@ -98,7 +101,7 @@
     other.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
     const own = el('div', 'cq-other');
     own.append(other, send);
-    const skip = el('button', 'jc-btn small cq-skip', 'Skip');
+    const skip = el('button', `${plain} cq-skip`, 'Skip');
     skip.type = 'button';
     skip.addEventListener('click', () => answer('skip', ''));
     own.append(skip);

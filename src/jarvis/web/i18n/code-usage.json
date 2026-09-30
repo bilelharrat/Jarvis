@@ -49,7 +49,8 @@
     "Costs are Claude Code’s own estimates. Each session and project can have its own limit in its Usage pane.": "花费是 Claude Code 自己的估算。每个会话和项目都可以在它的用量面板里设自己的上限。",
     "On hold": "已暂停",
     "Spending limits changed; it goes on with the new ones.": "花费上限已更改；会话会按新的上限继续。",
-    "It stopped at its spending limit.": "它在花费上限处停下了。"
+    "It stopped at its spending limit.": "它在花费上限处停下了。",
+    "Within the limit": "在额度内"
   },
   "patterns": [
     [

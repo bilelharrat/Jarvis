@@ -16,6 +16,10 @@
 .cq-other { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
 .cq-other-input { flex: 1; min-width: 0; }
 .cq-send[disabled] { opacity: 0.45; cursor: default; }
-/* On a card outside Jarvis Code: the card's own title says the question. */
+/* On a card outside Jarvis Code: the card's own title says the question, and its own look:
+   the answer on a line of its own, the buttons under it. */
 .card .cq-card { margin-top: 10px; }
-.card .cq-option { background: var(--card); }
+.card .cq-option { background: var(--card); box-shadow: none; border: 1px solid var(--line); }
+.card .cq-choice { min-height: 0; padding: 9px 12px; }
+.card .cq-other { flex-wrap: wrap; }
+.card .cq-other-input { flex: 1 1 100%; }

@@ -1,5 +1,6 @@
 /* Jarvis Code's MCP manager (features/code-mcp.js): the MCP servers pane's servers, the add
-   form and the shared connectors, in the workbench's own cards and type. */
+   form and the shared connectors, in the workbench's own cards and type (its segmented
+   control, notes and errors in the Permissions pane's look: code-rules.css). */
 
 .cm-intro { margin: 0 4px 10px; line-height: 1.45; }
 .cm-list li.cm-server { display: block; padding: 9px 12px; }
@@ -29,3 +30,4 @@
 .cm-connectors li { padding: 7px 10px 7px 12px; }
 .cm-connectors li > span { display: flex; flex-direction: column; gap: 1px; }
 .cm-share[disabled] { opacity: 0.4; cursor: default; }
+.cm-list .jcs-switch { flex: none; }
