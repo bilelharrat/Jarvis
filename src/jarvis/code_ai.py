@@ -7,6 +7,13 @@ is told, and nothing is called):
   commit_message   Haiku 4.5   when the owner asks the Git panel to write a commit
                                message; one tool-less turn on at most 24,000 characters
                                of the staged diff                          60 a day
+  review           Sonnet 5.5  the Review button or "review this": one tool-less turn on
+                               at most 60,000 characters of the session's diff
+                                                                           20 a day
+  deep_review      Sonnet 5.5  the Deep review button or "deep review": three reviewers
+                               at once, each reading the project (read-only, up to 8
+                               turns), then one verifier (read-only, up to 10 turns);
+                               four calls, counted as one deep review       5 a day
 
 Every call is one tool-less turn unless its kind says otherwise, with none of the
 owner's settings, hooks or MCP servers loaded, and a timeout. What it's shown (a diff, a
@@ -29,6 +36,8 @@ log = logging.getLogger("jarvis")
 # kind -> (model key in prefs.MODELS, calls a day)
 POLICY: dict[str, tuple[str, int]] = {
     "commit_message": ("haiku", 60),
+    "review": ("sonnet", 20),
+    "deep_review": ("sonnet", 5),
 }
 CALL_SECONDS = 90.0
 
@@ -87,6 +96,16 @@ class Budget:
         day = (today or date.today()).isoformat()
         used = self.counts.get(kind, 0) if day == self.day else 0
         return max(0, POLICY[kind][1] - used)
+
+
+def budget_for(hub: Any) -> Budget:
+    """The one budget a hub's features share (two on one file would each save over the
+    other's counts)."""
+    found = getattr(hub, "code_ai_budget", None)
+    if found is None:
+        found = Budget(hub.feature_path("code_ai_usage.json"))
+        hub.code_ai_budget = found
+    return found
 
 
 def model_for(kind: str) -> str:

@@ -25,6 +25,9 @@
   };
   let mode = 'unified';
   try { mode = localStorage.getItem('jcx-diff-mode') === 'split' ? 'split' : 'unified'; } catch (_) { /* no storage */ }
+  // Other features' parts of the pane (code_review.js): top(task, data) adds a section under
+  // the bar; after(task, path, side, line) adds rows under a line.
+  const extensions = [];
   let body = null; // the pane's body while this pane shows
   let editing = null; // { path, line, side, excerpt, draft } of the comment being written
   let refreshTimer = 0;
@@ -122,13 +125,19 @@
     return row;
   }
 
-  // Comments (and the one being written) under their lines.
+  // Comments (and the one being written) under their lines, after what other features pin.
   function placeComments(task, path, lines) {
     const mine = comments(task).filter((c) => c.path === path);
     for (const row of lines.querySelectorAll('.jcx-row')) {
       const side = row.dataset.side, line = Number(row.dataset.line);
       const here = mine.filter((c) => c.side === side && c.line === line);
       let after = row;
+      for (const ext of extensions) {
+        if (!ext.after) continue;
+        try {
+          for (const node of ext.after(task, path, side, line) || []) { after.after(node); after = node; }
+        } catch (err) { console.error('changes extension', err); }
+      }
       for (const c of here) { const n = commentRow(task, c); after.after(n); after = n; }
       if (editing && editing.path === path && editing.side === side && editing.line === line) after.after(editorRow(task, editing));
     }
@@ -349,6 +358,10 @@
     }
     const sendBar = commentsBar(task);
     if (sendBar) wrap.append(sendBar);
+    for (const ext of extensions) {
+      if (!ext.top) continue;
+      try { const part = ext.top(task, data); if (part) wrap.append(part); } catch (err) { console.error('changes extension', err); }
+    }
     if (!data) {
       wrap.append(el('p', 'jc-empty', 'Loading the changes…'));
       target.replaceChildren(wrap);
@@ -436,5 +449,8 @@
   F.on('task_finished', (ev) => { const task = F.currentTask(); if (task && ev.id === task.id) refreshSoon(); });
   F.on('task_log_update', (ev) => { const task = F.currentTask(); if (task && ev.id === task.id && ev.status === 'done') refreshSoon(); });
 
-  window.JarvisChanges = { commentMessage, store, render, request };
+  window.JarvisChanges = {
+    commentMessage, store, render, request,
+    extend(ext) { extensions.push(ext); render(); },
+  };
 })();

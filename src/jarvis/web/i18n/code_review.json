@@ -1,0 +1,18 @@
+{
+  "strings": {
+    "Review": "审查",
+    "Deep review": "深度审查",
+    "Claude (Sonnet) reads these changes for real problems": "Claude（Sonnet）通读这些改动，找真正的问题",
+    "Three reviewers read the project at once, then every finding is checked before it shows": "三位审查者同时阅读项目，每个发现在显示前都会再核实一遍",
+    "Fix all": "全部修复",
+    "Hand every finding to the session at once": "把所有问题一次交给会话",
+    "Fix this": "修复这个",
+    "Hand it to the session to fix": "交给会话修复",
+    "Dismiss": "忽略",
+    "Suggested fix": "建议修复",
+    "high": "高",
+    "medium": "中",
+    "low": "低"
+  },
+  "patterns": []
+}

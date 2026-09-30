@@ -1931,6 +1931,36 @@ test('Git: the panel stages, writes and commits, switches and makes branches, an
   assert(await js('$("jc-pane").hidden'), 'the Git button didn’t close its pane');
 });
 
+test('Review: findings are listed, pinned under their lines, and handed to the session', async () => {
+  await open(1);
+  await loadFeatures('code_changes.js', 'code_diff.js', 'code_review.js', 'code_review.css');
+  await js(`openPane("diff"); __ev(${HUNK_VIEW()})`);
+  let s = await js('__sent.filter((m) => m.type === "code_review_state").map((m) => m.id)');
+  assert(JSON.stringify(s) === '[1]', JSON.stringify(s));
+  await js('__sent.length = 0');
+  await clickText('.jcx-rbar', 'Review');
+  await clickText('.jcx-rbar', 'Deep review');
+  s = await js('__sent.filter((m) => m.type === "code_review").map((m) => m.deep)');
+  assert(JSON.stringify(s) === '[false,true]', JSON.stringify(s));
+  await js(`__ev({ type: 'code_review', id: 1, status: 'running', deep: true, findings: [], note: 'Reviewing deeply…' })`);
+  assert(await js('[...document.querySelectorAll(".jcx-rbar button")].every((b) => b.disabled)'), 'Review stayed pressable while running');
+  await js(`__ev({ type: 'code_review', id: 1, status: 'done', deep: true, note: '2 findings.', findings: [
+    { id: 'f1', severity: 'high', file: 'src/app.py', line: 2, title: 'quantity can be <b>None</b>', detail: 'When the cart is empty.', fix: 'Default it to 0.' },
+    { id: 'f2', severity: 'low', file: 'src/app.py', line: 0, title: 'A whole-file note', detail: '', fix: '' } ] })`);
+  const r = await js(`({ listed: [...document.querySelectorAll('.jcx-flist li .jcx-ftitle')].map((n) => n.textContent),
+    pinned: [...document.querySelectorAll('.jcx-finding')].map((n) => n.dataset.finding),
+    under: (() => { const row = document.querySelector('[data-hunk="h1"] .jcx-row[data-side="n"][data-line="2"]'); return row && row.nextElementSibling && row.nextElementSibling.dataset.finding; })(),
+    html: document.querySelectorAll('.jcx-review b, .jcx-finding b').length, fix: document.querySelector('.jcx-ffix').textContent })`);
+  assert(JSON.stringify(r.listed) === JSON.stringify(['quantity can be <b>None</b>', 'A whole-file note']), JSON.stringify(r));
+  assert(JSON.stringify(r.pinned) === '["f1"]' && r.under === 'f1' && r.html === 0 && r.fix === 'Suggested fixDefault it to 0.', JSON.stringify(r));
+  await js('__sent.length = 0');
+  await clickText('.jcx-finding', 'Fix this');
+  await clickText('.jcx-rbar', 'Fix all');
+  await clickText('.jcx-flist li:nth-child(2)', 'Dismiss');
+  s = await js('__sent.filter((m) => m.type.startsWith("code_review_")).map((m) => m.type + " " + (m.finding || "") + " " + (m.all || false))');
+  assert(JSON.stringify(s) === JSON.stringify(['code_review_fix f1 false', 'code_review_fix  true', 'code_review_dismiss f2 false']), JSON.stringify(s));
+});
+
 // ──
 
 let base;

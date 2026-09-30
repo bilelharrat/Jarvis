@@ -197,11 +197,14 @@ def _inside(repo: code_changes.Repo, shown: str) -> str | None:
 class GitPanel:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
-        self.budget = code_ai.Budget(hub.feature_path("code_ai_usage.json"))
         self.ai = code_ai.complete  # (the tests put a fake here)
         self._locks: dict[str, asyncio.Lock] = {}
 
     # ── helpers ──
+
+    @property
+    def budget(self) -> code_ai.Budget:
+        return code_ai.budget_for(self.hub)
 
     def tr(self, text: str) -> str:
         return lang.translate(text, self.hub.language)

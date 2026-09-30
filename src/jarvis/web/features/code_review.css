@@ -1,0 +1,28 @@
+/* Jarvis Code's Review, in the Changes pane: the bar, the list, the pinned findings. */
+
+.jcx-review { display: flex; flex-direction: column; gap: 6px; }
+.jcx-rbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jcx-review .jc-btn:disabled { opacity: 0.45; cursor: default; }
+.jcx-rnote { font-size: 12px; }
+.jcx-flist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.jcx-flist li { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 9px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); cursor: pointer; font-size: 12.5px; }
+.jcx-flist li:hover { background: rgb(var(--c-surface-muted)); }
+.jcx-ftitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-flist code { flex: none; font: 11px var(--mono); color: rgb(var(--c-muted)); max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-factions { flex: none; display: inline-flex; gap: 4px; }
+.jcx-factions .jc-mini { white-space: nowrap; }
+
+.jcx-sev { flex: none; padding: 1px 6px; border-radius: 5px; font: 700 9.5px/1.5 var(--sans); text-transform: uppercase; letter-spacing: 0.03em; }
+.jcx-sev.high { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger-soft)); }
+.jcx-sev.medium { color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
+.jcx-sev.low { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); }
+
+.jcx-finding { margin: 4px 10px 4px 4.2em; padding: 7px 10px; border-radius: 10px; font: 12.5px/1.45 var(--sans); color: rgb(var(--c-ink)); background: rgb(var(--c-surface)); box-shadow: inset 3px 0 0 rgb(var(--c-warning)), var(--shadow-card); white-space: normal; transition: box-shadow 300ms ease; }
+.jcx-finding.sev-high { box-shadow: inset 3px 0 0 rgb(var(--c-danger)), var(--shadow-card); }
+.jcx-finding.sev-low { box-shadow: inset 3px 0 0 rgb(var(--c-accent)), var(--shadow-card); }
+.jcx-finding.flash { box-shadow: inset 3px 0 0 rgb(var(--c-accent)), 0 0 0 3px rgb(var(--c-glow) / 0.35); }
+.jcx-fhead { display: flex; align-items: center; gap: 7px; }
+.jcx-fhead strong { flex: 1; min-width: 0; font-weight: 600; }
+.jcx-fdetail, .jcx-ffix { margin: 5px 0 0; overflow-wrap: anywhere; }
+.jcx-ffix { color: rgb(var(--c-ink-2)); }
+.jcx-flabel { margin-right: 6px; font-weight: 600; color: rgb(var(--c-success-ink)); }
