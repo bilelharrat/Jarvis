@@ -133,9 +133,9 @@ MODIFIERS = {
 
 def is_sensitive(path: Path) -> bool:
     """Credentials and private data: never read or shown, however it's asked for."""
-    text = str(path)
+    text = str(path).lower()  # (APFS ignores case: ~/library/Keychains is ~/Library/Keychains)
     name = path.name.lower()
-    if any(part in text for part in SENSITIVE_PARTS) or name in SENSITIVE_NAMES:
+    if any(part.lower() in text for part in SENSITIVE_PARTS) or name in SENSITIVE_NAMES:
         return True
     if name.startswith(".env.") and name not in _ENV_TEMPLATES:  # .env.local, .env.production
         return True
@@ -419,7 +419,7 @@ def build_server(screen: Screen | None = None, guard: Any = None):
                 # What those words would press, pressed only once it's checked, and then
                 # only a control named exactly so ("Place" must not become "Place order").
                 raw = await run_command(
-                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, name, "find", timeout=8
+                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, "--", name, "find", timeout=8
                 )
                 found = json.loads(raw.strip().splitlines()[-1])
                 if found.get("found"):
@@ -429,7 +429,16 @@ def build_server(screen: Screen | None = None, guard: Any = None):
                     name, exact = str(found.get("name") or name), ("exact",)
             if found.get("found"):
                 raw = await run_command(
-                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, name, how, *exact, timeout=8
+                    "osascript",
+                    "-l",
+                    "JavaScript",
+                    "-e",
+                    CLICK_JXA,
+                    "--",
+                    name,
+                    how,
+                    *exact,
+                    timeout=8,
                 )
                 found = json.loads(raw.strip().splitlines()[-1])
         except (ToolFailure, ValueError, IndexError):

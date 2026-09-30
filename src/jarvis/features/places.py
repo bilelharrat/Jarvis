@@ -413,5 +413,5 @@ def install(hub: Any) -> None:
         # Directions opened, a message sent: JARVIS's own words. A forecast and the air:
         # public facts (as weather_report is). Places near the owner and when they should
         # leave say where they are: the owner's own data.
-        quiet=("open_directions", "share_eta", "weather_for", "air_quality"),
+        quiet=("open_directions", "weather_for", "air_quality"),
     )

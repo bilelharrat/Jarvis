@@ -793,7 +793,13 @@ class Channels:
             note += " (they sent " + ", ".join(f"“{n}”" for n in names) + " with it)"
         if msg.forwarded:
             quoted = FORWARD_TEXT.format(title=adapter.title, text=body)
-            return Prepared(quoted, say(words.FORWARDED, language), attachments, note)
+            return Prepared(
+                quoted,
+                say(words.FORWARDED, language),
+                attachments,
+                note,
+                untrusted="a message someone else wrote",
+            )
         return Prepared(body, None, attachments, note)
 
     async def _transcribe(self, adapter: Channel, chat: str, item: Any) -> str | None:

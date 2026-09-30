@@ -43,6 +43,8 @@ from jarvis.providers import (
     mask,
 )
 
+# A made-up key in Google's shape, built from parts so secret scanners don't take it for real.
+MADE_UP_GOOGLE_KEY = "AIza" + "SyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY"
 OR_KEY = "sk-or-v1-" + "0123456789abcdef" * 4
 ANT_KEY = "sk-ant-api03-" + "Zx9_Yw8-Vu7" * 8 + "AA"
 LITE_KEY = "sk-lite-7f3a9c2e4b1d"
@@ -330,7 +332,7 @@ def test_a_key_pasted_under_the_wrong_provider_is_refused(tmp_path):
     with pytest.raises(ValueError, match="shouldn't go to OpenRouter"):
         store.add_provider("openrouter", "", ANT_KEY)
     # Google's keys (Gemini API and Vertex AI express) belong under Google Gemini.
-    for google_key in ("AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY", "AQ." + "Ab8RN6" * 8):
+    for google_key in (MADE_UP_GOOGLE_KEY, "AQ." + "Ab8RN6" * 8):
         for kind in ("openrouter", "anthropic"):
             with pytest.raises(ValueError, match="add it as Google Gemini"):
                 store.add_provider(kind, "Gemini", google_key)
@@ -344,7 +346,7 @@ def test_a_key_pasted_under_the_wrong_provider_is_refused(tmp_path):
     [
         OR_KEY,
         ANT_KEY,
-        "AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY",
+        MADE_UP_GOOGLE_KEY,
         "ghp_" + "a1B2" * 9,
         "8f14e45fceea167a5a36dedd4bea2543",
     ],

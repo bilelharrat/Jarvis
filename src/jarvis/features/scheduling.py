@@ -635,7 +635,6 @@ def install(hub: Any) -> None:
         ),
         prompt=PROMPT,
         labels=LABELS,
-        quiet=("send_invite",),
     )
     engine = getattr(hub, "delegate", None)
     if engine is not None:

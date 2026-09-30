@@ -398,6 +398,8 @@ def install(hub: Any) -> None:
         "skills_discard": desk.discard,
         "skills_offer": desk.offer,
     }.items():
-        hub.register_command(kind, handler)
+        # (installs and accepts wait on git, a folder or a card: never inline on the socket)
+        slow = kind in ("skills_install_folder", "skills_install_git", "skills_accept")
+        hub.register_command(kind, handler, slow=slow)
     hub.register_instant(desk.instant)
     hub.add_turn_sink(desk.workshop.heard)

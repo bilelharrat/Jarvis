@@ -346,7 +346,7 @@ async def carry_out(
                 # ("click sen" must not press Send before anyone looks), then only a
                 # control named exactly that.
                 raw = await run(
-                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, arg, "find", timeout=6
+                    "osascript", "-l", "JavaScript", "-e", CLICK_JXA, "--", arg, "find", timeout=6
                 )
                 found = json.loads(raw.strip().splitlines()[-1])
                 if not found.get("found"):
@@ -361,7 +361,16 @@ async def carry_out(
                         return why
                 exact = ("exact",)
             raw = await run(
-                "osascript", "-l", "JavaScript", "-e", CLICK_JXA, target, how, *exact, timeout=6
+                "osascript",
+                "-l",
+                "JavaScript",
+                "-e",
+                CLICK_JXA,
+                "--",
+                target,
+                how,
+                *exact,
+                timeout=6,
             )
             found = json.loads(raw.strip().splitlines()[-1])
         except (ToolFailure, ValueError, IndexError):

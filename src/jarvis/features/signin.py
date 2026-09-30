@@ -141,7 +141,7 @@ def install(hub: Any) -> None:
     signin = SignIn(hub)
     _SIGNINS[hub] = signin
     hub.register_command("signin_state", signin.state)
-    hub.register_command("signin_key", signin.use_key)
+    hub.register_command("signin_key", signin.use_key, slow=True)  # checks the key online
     hub.register_command("signin_forget", signin.forget)
     # The real backend only (a test's hub never polls): its runs sign in from here on. Now,
     # as the hub is made, not in a loop: the hub connects to Claude before its loops start,

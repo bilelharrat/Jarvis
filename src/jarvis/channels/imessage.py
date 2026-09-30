@@ -188,9 +188,18 @@ def read_rows(db: Path, identifier: str, after: int, limit: int = MAX_ROWS) -> l
     conn = _open(db)
     try:
         cols = _columns(conn, "message")
+        # Never the conversation's SMS twin: a text can carry anyone's number as its sender,
+        # so only iMessage (Apple-ID-signed) rows can speak as the owner.
+        sms = (
+            " AND COALESCE(service_name, '') != 'SMS'"
+            if "service_name" in _columns(conn, "chat")
+            else ""
+        )
         chats = [
             r[0]
-            for r in conn.execute("SELECT ROWID FROM chat WHERE chat_identifier = ?", (identifier,))
+            for r in conn.execute(
+                f"SELECT ROWID FROM chat WHERE chat_identifier = ?{sms}", (identifier,)
+            )
         ]
         if not chats:
             return []

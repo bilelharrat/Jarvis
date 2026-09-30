@@ -172,8 +172,6 @@ QUIET_RESULTS = frozenset(
         ),
         *(computer_tool(n) for n in computer.CONTROL_TOOLS),
         f"mcp__{BRAIN_SERVER}__second_brain_status",
-        "mcp__messages__send_message",
-        "mcp__messages__send_email",
         "mcp__memory__remember",
         "mcp__routines__create_routine",
         "mcp__routines__delete_routine",

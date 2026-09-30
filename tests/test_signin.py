@@ -166,7 +166,7 @@ def test_the_running_app_signs_in_from_its_very_first_connection():
         def __init__(self, poll):
             self.poll = poll
 
-        def register_command(self, *_a):
+        def register_command(self, *_a, **_kw):
             pass
 
         def register_loop(self, *_a):
