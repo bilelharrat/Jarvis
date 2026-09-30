@@ -2159,6 +2159,36 @@ test('Check-ins: on or off, how often, active hours and the checklist go to the 
   assert(await js('!$("auto-checkin-list").querySelector("b")'), 'what it said became markup');
 });
 
+test('Webhooks: each one’s address, its token to copy, a new token, what it does; tokens never shown', async () => {
+  await withAutomation();
+  await js('toggleSettings(true)');
+  assert((await sentOf('automation_origin'))[0].origin === base, 'the window did not say its address');
+  await js(`featureEvent({ type: 'routines', items: [{ id: 'r1', name: 'Deploys', prompt: 'p', kind: 'daily', enabled: true, when: 'every day at 9 AM', spec: {} }] })`);
+  await js(`featureEvent({ type: 'automation', webhooks: { url_file: '/Users/x/Library/Application Support/Jarvis/webhooks-address.txt',
+    items: [{ name: 'ci', routine: '', note: '', per_hour: 30, calls: [{ at: new Date().toISOString(), status: 'accepted', bytes: 12 }] }] } })`);
+  const row = await js('$("auto-hook-list").querySelector("li").textContent');
+  assert(row.includes(`${base}/hooks/ci`) && row.includes('Accepted'), row);
+  assert((await js('$("auto-hook-where").textContent')).includes('webhooks-address.txt'), 'no address file');
+  await clickText('#auto-hook-list', 'Copy token');
+  await js(`featureEvent({ type: 'automation_webhook_token', name: 'ci', token: 'tok-123' })`);
+  await sleep(50);
+  const label = await js('$("auto-hook-list").querySelector("button[data-name=\\"ci\\"]").textContent');
+  assert(['Copied', 'Couldn’t copy'].includes(label), label);
+  assert(!(await js('document.body.textContent.includes("tok-123")')), 'the token was shown');
+  await js(`(() => { const s = $("auto-hook-list").querySelector("select"); s.value = 'r1'; s.dispatchEvent(new Event('change')); return true; })()`);
+  await clickText('#auto-hook-list', 'New token');
+  await clickText('#auto-hook-list', 'Delete');
+  await js(`(() => { const f = $("auto-webhooks").querySelector("form"); f.querySelector("input").value = 'CI builds'; f.requestSubmit(); f.querySelector("input").value = 'no/slash'; f.requestSubmit(); return true; })()`);
+  const s = await sentOf('automation_webhook');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'automation_webhook', action: 'token', name: 'ci' },
+    { type: 'automation_webhook', action: 'update', name: 'ci', routine: 'r1' },
+    { type: 'automation_webhook', action: 'regenerate', name: 'ci' },
+    { type: 'automation_webhook', action: 'delete', name: 'ci' },
+    { type: 'automation_webhook', action: 'add', name: 'ci-builds' },
+  ]), JSON.stringify(s));
+});
+
 // ──
 
 let base;

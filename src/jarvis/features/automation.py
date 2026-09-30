@@ -3,8 +3,9 @@ on events (triggers.py: the calendar, email and texts, the battery, places, the 
 waking or unlocking, Jarvis Code finishing; email rules are routines on the mail trigger),
 each run in the conversation or on its own with its own model, tools, delivery and
 standing orders (jobs.py), with a history of its runs; timers, alarms and reminders to
-the second; and the heartbeat (heartbeat.py), a check-in every 30 or 60 minutes that
-speaks up only when something needs the owner.
+the second; the heartbeat (heartbeat.py), a check-in every 30 or 60 minutes that speaks
+up only when something needs the owner; and webhooks (webhooks.py), POST /hooks/<name>
+on the window's local server for the owner's own scripts and apps.
 
 install(hub) only registers: nothing here reads a file, starts a thread or touches the
 network until a loop runs or a command arrives.
@@ -14,7 +15,10 @@ what's running, each routine's last run, the language); automation_timer {action
 stop|snooze|cancel, id}; automation_history {id} (-> "automation_history" {id, runs});
 automation_job {id, own?, model?, tools?, deliver?}; automation_unmay {id, grant};
 automation_email_rule {from, subject, then, deliver} (a new email rule);
-automation_checkin_now (a check-in now).
+automation_checkin_now (a check-in now); automation_webhook {action: add|delete|regenerate|
+update|token, name, routine?, note?, per_hour?} (-> "automation_webhook_token" {name, token}
+for token and regenerate); automation_origin {origin} (the window's own address, for the
+file that tells local scripts the port).
 Settings (prefs.features): alarm_phone (an alarm set to ring the phone may call it);
 heartbeat_on, heartbeat_minutes (30 or 60), heartbeat_hours ("09:00-21:00"),
 heartbeat_checklist (what to keep an eye on, the owner's own words).
@@ -27,13 +31,17 @@ phone_location, location and task_finished.
 Claude cost: timers never call a model. Routines: see jobs.py (the model each routine asks
 for, capped per run and per day; the reader of someone else's words is Haiku, capped).
 The heartbeat: see heartbeat.py (Haiku, one session a check-in, 24 a day at most).
+Webhooks: see webhooks.py (the reader's Haiku call per accepted call, within the hook's
+rate limit and the reader's caps).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import weakref
+from datetime import datetime
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
@@ -42,11 +50,14 @@ from .. import heartbeat as heartbeat_kit
 from .. import hub as hub_module
 from .. import jobs, lang, prefs, triggers
 from .. import timers as timer_kit
+from .. import webhooks as webhook_kit
+from ..proactive import Alert
 from ..textclean import clean_text
 
 log = logging.getLogger("jarvis")
 
 SERVER_NAME = "automation"
+URL_FILE = "webhooks-address.txt"  # the window server's address, for local scripts
 
 prefs.register_feature_pref("alarm_phone", False)
 prefs.register_feature_pref("heartbeat_on", False)
@@ -163,6 +174,8 @@ ZH = {
     "between {hours}": "在{hours}之间",
     "keep an eye on: {line}": "留意：{line}",
     "stop keeping an eye on: {line}": "不再留意：{line}",
+    "The webhook “{name}” was called, but I can't read what it sent just now.": "Webhook“{name}”被调用了，但我现在没法读它发来的内容。",
+    "Webhook · {name}": "Webhook · {name}",
 }
 for _english, _chinese in ZH.items():
     lang.ZH_TEXTS.setdefault(_english, _chinese)
@@ -216,6 +229,14 @@ class Automation:
             locked=triggers.screen_locked,
             busy=lambda: hub.meeting is not None,
         )
+        self.webhooks = webhook_kit.Webhooks(
+            hub.feature_path("webhooks.json"),
+            hub.connectors.vault,
+            self._webhook_call,
+            spawn=hub._spawn,
+            on_change=self.send_webhooks,
+        )
+        self.origin = ""  # the window's own address (http://127.0.0.1:<port>)
         self.heartbeat = heartbeat_kit.Heartbeat(
             hub,
             hub.feature_path("heartbeat.json"),
@@ -243,6 +264,24 @@ class Automation:
             except Exception:  # one bad look never ends the check-ins
                 log.exception("heartbeat: the look failed")
             await asyncio.sleep(30)
+
+    async def _webhook_call(self, hook: webhook_kit.Hook, text: str) -> None:
+        """A call a hook accepted: the routine it names runs with the reader's summary as
+        its input; otherwise the summary is a heads-up. Never the payload itself."""
+        source = f"what was sent to the webhook “{hook.name}”"
+        routine = next((r for r in self.hub.routines.items if r.id == hook.routine), None)
+        if hook.routine and routine is not None:
+            cause = jobs.Cause("webhook", f"Webhook “{hook.name}”", content=text, source=source)
+            await self.runner.run(routine, cause)
+            return
+        summary = await self.reader.read(hook.note or webhook_kit.NOTE, source, text)
+        words = summary or self.say(
+            "The webhook “{name}” was called, but I can't read what it sent just now.",
+            name=hook.name,
+        )
+        stamp = datetime.now().strftime("%H%M%S")
+        title = self.say("Webhook · {name}", name=hook.name)
+        self.hub.notify(Alert(f"webhook:{hook.name}:{stamp}", "webhook", title, words))
 
     async def _calendar_ahead(self, hours: float) -> list[dict[str, Any]]:
         from .. import calendar_kit
@@ -282,7 +321,15 @@ class Automation:
             "routines": self.hub.routines.public(),
             "timers": self.timers.public(),
             "checkins": self.heartbeat.public(),
+            "webhooks": self.webhooks_state(),
             **self.runs(),
+        }
+
+    def webhooks_state(self) -> dict[str, Any]:
+        return {
+            "items": self.webhooks.public(),
+            "url_file": str(self.hub.feature_path(URL_FILE)),
+            "unreadable": self.webhooks.unreadable,
         }
 
     def runs(self) -> dict[str, Any]:
@@ -303,6 +350,60 @@ class Automation:
 
     def send_checkins(self) -> None:
         self.hub.emit("automation", checkins=self.heartbeat.public())
+
+    def send_webhooks(self) -> None:
+        self.hub.emit("automation", webhooks=self.webhooks_state())
+
+    async def webhook_command(self, msg: dict[str, Any]) -> None:
+        """Settings › Webhooks: the owner's own taps. A token is sent to the windows only
+        when one asks for it (to copy it) or makes a new one, never with the state."""
+        action, name = msg.get("action"), str(msg.get("name") or "")
+        hooks = self.webhooks
+        try:
+            if action == "add":
+                await hooks.add(
+                    msg.get("name"),
+                    routine=str(msg.get("routine") or ""),
+                    note=str(msg.get("note") or ""),
+                )
+                self._write_url()
+            elif action == "delete":
+                await hooks.remove(name)
+            elif action in ("regenerate", "token"):
+                token = await (
+                    hooks.regenerate(name) if action == "regenerate" else hooks.token(name)
+                )
+                if token:
+                    self.hub.emit("automation_webhook_token", name=name, token=token)
+            elif action == "update":
+                changes = {k: msg[k] for k in ("routine", "note", "per_hour") if k in msg}
+                hooks.update(name, **changes)
+        except ValueError as exc:
+            self.hub.emit("error", text=f"That webhook can't be made: {exc}.")
+        except OSError as exc:
+            self.hub.emit("error", text=f"I couldn't save the webhooks ({exc.strerror or exc}).")
+        self.send_webhooks()
+
+    def origin_command(self, msg: dict[str, Any]) -> None:
+        """The window's own address: kept for local scripts in a file (the port changes when
+        JARVIS restarts), once there's a webhook to call."""
+        origin = str(msg.get("origin") or "")
+        if re.fullmatch(r"http://127\.0\.0\.1:\d{2,5}", origin):
+            self.origin = origin
+            if self.webhooks.hooks:
+                self._write_url()
+
+    def _write_url(self) -> None:
+        if not self.origin:
+            return
+        path = self.hub.feature_path(URL_FILE)
+        wanted = f"{self.origin}/hooks/\n"
+        try:
+            if not path.exists() or path.read_text() != wanted:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(wanted)
+        except OSError as exc:
+            log.info("webhooks: couldn't write the address file (%s)", exc)
 
     def checkin_now(self, _msg: dict[str, Any] | None = None) -> None:
         """Settings' "Check in now": the owner's own tap (only the day's cap stops it)."""
@@ -826,6 +927,9 @@ def install(hub: Any) -> None:
     hub.register_command("automation_unmay", feature.unmay_command)
     hub.register_command("automation_email_rule", feature.email_rule_command)
     hub.register_command("automation_checkin_now", feature.checkin_now)
+    hub.register_command("automation_webhook", feature.webhook_command)
+    hub.register_command("automation_origin", feature.origin_command)
+    hub.register_webhook(feature.webhooks.handle)
     hub.register_loop("timers", feature.timers.run)
     hub.register_loop("triggers", feature.engine.run)
     hub.register_loop("heartbeat", feature.heartbeat_loop)

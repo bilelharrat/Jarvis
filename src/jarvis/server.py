@@ -110,6 +110,12 @@ def create_app(hub: Hub, token: str) -> Starlette:
     async def features_json(_request):
         return JSONResponse(feature_assets(), headers={"Cache-Control": "no-store"})
 
+    async def inbound_hook(request):
+        """POST /hooks/<name>: the owner's local tools telling JARVIS something (the
+        automation feature checks the hook's token, size and rate; never a web page's)."""
+        status, body = await hub.inbound_hook(request.path_params["name"], request)
+        return JSONResponse(body, status_code=status, headers={"Cache-Control": "no-store"})
+
     async def hand_model(_request):
         """MediaPipe's hand model, fetched once from Google's model store and cached."""
         from .prefs import APP_SUPPORT
@@ -207,6 +213,7 @@ def create_app(hub: Hub, token: str) -> Starlette:
             Route("/health", health),
             Route("/static/i18n-zh.json", zh_json),
             Route("/features.json", features_json),
+            Route("/hooks/{name}", inbound_hook, methods=["POST"]),
             Route("/models/hand_landmarker.task", hand_model),
             WebSocketRoute("/ws", socket),
             Mount("/static", FreshStaticFiles(directory=WEB_DIR)),

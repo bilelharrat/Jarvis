@@ -4,6 +4,7 @@
 // & reminders (live countdowns, Stop, Snooze and Cancel), Settings › Check-ins (the
 // heartbeat: on or off, how often, active hours, the checklist, the last check-ins),
 // Settings › Email rules ("when an email from … arrives, …": routines on the mail trigger),
+// Settings › Webhooks (each hook's address, its token to copy, a new token, what it does),
 // and Stop and Snooze on the card of a timer or alarm ringing.
 //
 // Everything a routine or a timer carries (its name, its prompt, its label, when it runs) is
@@ -56,6 +57,14 @@
     hours(start, end) {
       const ok = /^([01]\d|2[0-3]):[0-5]\d$/;
       return ok.test(start) && ok.test(end) && start < end ? `${start}-${end}` : '';
+    },
+    // A webhook's address on this window's own server.
+    hookUrl(origin, name) {
+      return `${origin}/hooks/${encodeURIComponent(name)}`;
+    },
+    // How to call it from a script, with the token put in by the one who runs it.
+    hookExample(origin, name) {
+      return `curl -X POST -H "X-Jarvis-Token: $JARVIS_TOKEN" --data 'Build 42 failed' ${A.hookUrl(origin, name)}`;
     },
     // An email rule is a routine that runs when an email arrives.
     isEmailRule(r) {
@@ -229,9 +238,11 @@
     }));
   }
 
-  // Drawn after app.js's own list on every change, in its place (email rules too).
+  // Drawn after app.js's own list on every change, in its place (email rules, and the
+  // routines a webhook can run, too).
   function renderRoutines() {
     renderEmailRules();
+    renderHooks();
     const list = F.$('routine-list');
     if (!list) return;
     if (!routines.length) {
@@ -267,9 +278,11 @@
     else settings.append(timersGroup);
     buildCheckinGroup(timersGroup);
     buildEmailGroup(checkinGroup);
+    buildHooksGroup(emailGroup);
     renderTimers();
     renderCheckins();
     renderEmailRules();
+    renderHooks();
   }
 
   function timerRow(t) {
@@ -467,6 +480,114 @@
     }));
   }
 
+  // ── Settings › Webhooks ──
+
+  let hooksGroup = null;
+  let webhooks = { items: [], url_file: '' };
+  let copying = '';  // the hook whose token was asked for, to copy
+  const HOOK_STATUS = { accepted: 'Accepted', 'rate limited': 'Too many this hour', 'too big': 'Too big' };
+
+  function buildHooksGroup(after) {
+    hooksGroup = el('section', 'group auto-group');
+    hooksGroup.id = 'auto-webhooks';
+    const list = el('ul', 'itemlist auto-hook-list');
+    list.id = 'auto-hook-list';
+    const form = el('form', 'folder-form');
+    const name = el('input');
+    name.name = 'name';
+    name.maxLength = 40;
+    name.placeholder = 'A name, e.g. ci-builds';
+    name.setAttribute('aria-label', 'A name, e.g. ci-builds');
+    const add = el('button', 'btn', 'Add webhook');
+    add.type = 'submit';
+    form.append(name, add);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const wanted = name.value.trim().toLowerCase().replace(/\s+/g, '-');
+      if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(wanted)) { name.focus(); return; }
+      send({ type: 'automation_webhook', action: 'add', name: wanted });
+      name.value = '';
+    });
+    const where = el('p', 'small-status');
+    where.id = 'auto-hook-where';
+    hooksGroup.append(
+      el('h3', '', 'Webhooks'),
+      el('p', 'small-status', 'Scripts and apps on this Mac can tell me things: they send a POST to a webhook’s address with its token. What they send is read with no tools at hand, never obeyed, and told to you, or handed to a routine you pick. Only this Mac can reach them.'),
+      list,
+      form,
+      where,
+    );
+    after.after(hooksGroup);
+  }
+
+  function flash(buttonNode, words) {
+    const was = buttonNode.textContent;
+    buttonNode.textContent = words;
+    setTimeout(() => { buttonNode.textContent = was; }, 1600);
+  }
+
+  function copy(text, buttonNode) {
+    const done = () => flash(buttonNode, 'Copied');
+    try {
+      navigator.clipboard.writeText(text).then(done, () => flash(buttonNode, 'Couldn’t copy'));
+    } catch (_) { flash(buttonNode, 'Couldn’t copy'); }
+  }
+
+  function hookRow(h) {
+    const li = el('li', 'auto-hook');
+    li.dataset.name = h.name;
+    const url = A.hookUrl(location.origin, h.name);
+    const fact = el('span', 'fact');
+    const about = el('small');
+    about.append(mine(el('bdi', 'auto-url', url)));
+    const last = (h.calls || [])[0];
+    if (last) about.append(el('span', 'auto-sep', ' · '), el('span', '', HOOK_STATUS[last.status] || last.status), ' ', mine(el('bdi', '', A.when(last.at, lang))));
+    fact.append(mine(el('strong', '', h.name)), about);
+    const copyUrl = button('Copy address', 'btn', () => copy(url, copyUrl));
+    const copyToken = button('Copy token', 'btn', () => { copying = h.name; copyToken.dataset.waiting = '1'; send({ type: 'automation_webhook', action: 'token', name: h.name }); });
+    copyToken.dataset.name = h.name;
+    const renew = button('New token', 'btn', () => { copying = h.name; send({ type: 'automation_webhook', action: 'regenerate', name: h.name }); }, `New token: ${h.name}`);
+    const remove = button('Delete', 'btn danger', () => send({ type: 'automation_webhook', action: 'delete', name: h.name }), `Delete webhook: ${h.name}`);
+    const then = el('select');
+    then.setAttribute('aria-label', `Then: ${h.name}`);
+    const tell = el('option', '', 'Tell me what it says');
+    tell.value = '';
+    then.append(tell);
+    for (const r of routines) {
+      const o = el('option', '', `Run “${r.name}”`);  // the pattern keeps the name as it is
+      o.value = r.id;
+      then.append(o);
+    }
+    then.value = routines.some((r) => r.id === h.routine) ? h.routine : '';
+    then.addEventListener('change', () => send({ type: 'automation_webhook', action: 'update', name: h.name, routine: then.value }));
+    const example = el('details', 'auto-hook-example');
+    example.append(el('summary', '', 'How to call it'), mine(el('code', '', A.hookExample(location.origin, h.name))));
+    li.append(fact, copyUrl, copyToken, renew, remove, then, example);
+    return li;
+  }
+
+  function renderHooks() {
+    const list = F.$('auto-hook-list');
+    if (!list) return;
+    const items = webhooks.items || [];
+    if (!items.length) list.replaceChildren(el('li', 'muted', 'No webhooks yet.'));
+    else list.replaceChildren(...items.map(hookRow));
+    const where = F.$('auto-hook-where');
+    if (where) {
+      where.replaceChildren();
+      if (items.length && webhooks.url_file) {
+        where.append(el('span', '', 'The port changes when Jarvis restarts: scripts can read the current address from'), ' ', mine(el('code', '', webhooks.url_file)));
+      }
+    }
+  }
+
+  function onToken(ev) {
+    if (!ev.name || ev.name !== copying) return;
+    copying = '';
+    const buttonNode = document.querySelector(`#auto-hook-list button[data-name="${CSS.escape(ev.name)}"]`);
+    if (buttonNode && ev.token) copy(ev.token, buttonNode);
+  }
+
   function renderTimers() {
     const list = F.$('auto-timer-list');
     if (!list) return;
@@ -512,6 +633,7 @@
     routines = ev.routines || [];
     renderRoutines();
     send({ type: 'automation_state' });
+    send({ type: 'automation_origin', origin: location.origin });
   });
   F.on('automation', (ev) => {
     if (ev.language) lang = ev.language;
@@ -523,7 +645,9 @@
     if (ev.running && !ev.routines) opened.forEach((id) => send({ type: 'automation_history', id }));  // a run just ended
     if (ev.timers) { timers = ev.timers; renderTimers(); }
     if (ev.checkins) { checkins = ev.checkins; renderCheckins(); }
+    if (ev.webhooks) { webhooks = ev.webhooks; renderHooks(); }
   });
+  F.on('automation_webhook_token', onToken);
   F.on('automation_history', (ev) => {
     histories.set(ev.id, ev.runs || []);
     const list = document.querySelector(`#routine-list .auto-runs[data-id="${CSS.escape(String(ev.id))}"]`);
@@ -534,6 +658,7 @@
   F.on('alert', onRing);
   buildGroups();
   send({ type: 'automation_state' });
+  send({ type: 'automation_origin', origin: location.origin });
   // Countdowns tick each second while Settings is open; "Tue 3:30 PM" becomes "3:30 PM" at
   // midnight. Both are rewritten in place, so nothing open or focused in a list moves.
   setInterval(() => {

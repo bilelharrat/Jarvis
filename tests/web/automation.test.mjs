@@ -70,3 +70,10 @@ test('active hours must make a day, and each check-in outcome has words', () => 
   assert.equal(A.checkinOutcome('said'), 'Told you');
   assert.equal(A.checkinOutcome('mystery'), 'mystery');
 });
+
+test('a webhook’s address and how to call it', () => {
+  assert.equal(A.hookUrl('http://127.0.0.1:52011', 'ci'), 'http://127.0.0.1:52011/hooks/ci');
+  assert.equal(A.hookUrl('http://127.0.0.1:1', 'a b'), 'http://127.0.0.1:1/hooks/a%20b');
+  const example = A.hookExample('http://127.0.0.1:52011', 'ci');
+  assert.match(example, /^curl -X POST -H "X-Jarvis-Token: \$JARVIS_TOKEN" --data '.+' http:\/\/127\.0\.0\.1:52011\/hooks\/ci$/);
+});

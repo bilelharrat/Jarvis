@@ -84,7 +84,23 @@
     "Didn’t work": "没成功",
     "Check-in": "检查",
     "Checked the check-ins": "查看了定时检查",
-    "Changed the check-ins": "修改了定时检查"
+    "Changed the check-ins": "修改了定时检查",
+    "Webhooks": "Webhook",
+    "Scripts and apps on this Mac can tell me things: they send a POST to a webhook’s address with its token. What they send is read with no tools at hand, never obeyed, and told to you, or handed to a routine you pick. Only this Mac can reach them.": "这台 Mac 上的脚本和应用可以通过 Webhook 告诉我事情：带上令牌，向它的地址发送 POST。我会在不带任何工具的情况下读它们发来的内容（绝不照做），然后告诉你，或交给你选的例行任务。只有这台 Mac 能访问。",
+    "A name, e.g. ci-builds": "名称，比如 ci-builds",
+    "Add webhook": "添加 Webhook",
+    "No webhooks yet.": "还没有 Webhook。",
+    "Copy address": "拷贝地址",
+    "Copy token": "拷贝令牌",
+    "New token": "新令牌",
+    "Copied": "已拷贝",
+    "Couldn’t copy": "没能拷贝",
+    "Tell me what it says": "告诉我内容",
+    "How to call it": "如何调用",
+    "Accepted": "已收到",
+    "Too many this hour": "这小时次数太多",
+    "Too big": "太大",
+    "The port changes when Jarvis restarts: scripts can read the current address from": "Jarvis 重启后端口会变：脚本可以从这个文件读取当前地址"
   },
   "patterns": [
     [
@@ -106,6 +122,22 @@
     [
       "^Take back: (.+)$",
       "收回：$1"
+    ],
+    [
+      "^New token: (.+)$",
+      "新令牌：$1"
+    ],
+    [
+      "^Delete webhook: (.+)$",
+      "删除 Webhook：$1"
+    ],
+    [
+      "^Then: (.+)$",
+      "然后：$1"
+    ],
+    [
+      "^Run “(.+)”$",
+      "运行“$1”"
     ]
   ]
 }

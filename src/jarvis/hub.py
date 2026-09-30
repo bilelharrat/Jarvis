@@ -961,6 +961,7 @@ class Hub:
         self._briefing_notes: list[Callable[[], str]] = []
         self._notify_gates: list[Callable[[Alert], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
+        self._webhook: Callable[[str, Any], Any] | None = None
         self.features = features.install_all(self)
 
     # ── features: what jarvis.features modules register ──
@@ -1053,6 +1054,22 @@ class Hub:
         location, a Jarvis Code session finishing, this Mac's location)."""
         for kind in kinds:
             self._event_sinks.setdefault(kind, []).append(sink)
+
+    def register_webhook(self, handler: Callable[[str, Any], Any]) -> None:
+        """Answer POST /hooks/<name> on the window's local server: await handler(name,
+        request) gives (status, body). The handler checks its own tokens and limits."""
+        self._webhook = handler
+
+    async def inbound_hook(self, name: str, request: Any) -> tuple[int, dict[str, Any]]:
+        """server.py's /hooks/<name>: the registered handler's answer, or 404 without one."""
+        handler = self._webhook
+        if handler is None:
+            return 404, {"error": "not found"}
+        try:
+            return await handler(name, request)
+        except Exception:
+            log.exception("a webhook failed")
+            return 500, {"error": "failed"}
 
     def register_routine_runner(self, runner: Callable[[Any], Any]) -> None:
         """Run routines through a feature (its own session, model, tools and delivery, a run
