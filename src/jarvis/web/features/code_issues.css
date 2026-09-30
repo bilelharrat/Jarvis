@@ -7,7 +7,7 @@
 .jcx-issue-form { display: flex; flex-direction: column; border-top: 0.5px solid rgb(var(--c-border)); }
 .jcx-issue-where { margin: 0 0 4px; font-size: 12px; }
 .jcx-issue-where:empty { display: none; }
-.jcx-issue-num { width: 80px; }
+.jcx-issues .jcx-issue-num { flex: none; width: 80px; }
 .jcx-issue-actions { display: flex; align-items: center; padding: 6px 0 8px; }
 .jcx-issue-connect { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; font-size: 12.5px; color: rgb(var(--c-warning-ink)); border-top: 0.5px solid rgb(var(--c-border)); }
 .deck.jc .jcx-issues .jc-btn { font-size: 12px; }

@@ -1,4 +1,4 @@
-/* Jarvis Code: a session waiting out Claude's usage limit, in its header. */
+/* Jarvis Code: a session waiting out Claude's usage limit, in its header, and the setting's select. */
 
 .jcx-limit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px; padding: 2px 4px 2px 9px; border-radius: 999px; font-size: 11.5px; color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); width: fit-content; max-width: 100%; }
 .jcx-limit[hidden] { display: none; }
@@ -7,3 +7,4 @@
 .jcx-limit-left { font: 600 11.5px var(--mono); font-variant-numeric: tabular-nums; }
 .jcx-limit-btn { border: 0; border-radius: 999px; padding: 2px 8px; font: 600 11px var(--sans, inherit); color: rgb(var(--c-ink)); background: rgb(var(--c-surface) / 0.8); cursor: pointer; }
 .jcx-limit-btn:hover { background: rgb(var(--c-surface)); }
+#jcx-limit-wait { flex: none; }  /* its row's words wrap instead */
