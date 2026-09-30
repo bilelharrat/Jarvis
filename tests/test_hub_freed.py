@@ -63,3 +63,26 @@ def test_a_hub_nothing_holds_is_freed(settings, tmp_path, started):
     del alive
     assert not holders, f"module-level maps keep dropped hubs alive: {holders}"
     assert all(ref() is None for ref in refs)
+
+
+def test_a_hub_started_in_a_test_never_loads_whisper(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """A hub started without a transcriber of its own warms up Whisper: in a test that was
+    a real model per hub, loaded in a thread of its own (the process grew by gigabytes over
+    a few dozen hubs), after a check with Hugging Face over the network."""
+    import faster_whisper
+
+    made = []
+    monkeypatch.setattr(faster_whisper, "WhisperModel", lambda *a, **k: made.append(a))
+
+    async def run():
+        hub = Hub(
+            settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated
+        )
+        await hub.start()
+        await asyncio.sleep(0.3)  # the warm-up's thread, if one started, has asked by now
+        await hub.close()
+
+    asyncio.run(run())
+    assert made == []

@@ -381,3 +381,13 @@ def _no_real_maps(monkeypatch):
         return {"error": "Maps isn't reachable in tests."}
 
     monkeypatch.setattr(maps, "run_helper", not_here)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_whisper(monkeypatch):
+    """A hub a test starts without a transcriber of its own never warms up the real Whisper:
+    that loaded a model per hub, each in a thread of its own (a few dozen hubs grew the
+    process by gigabytes), after asking Hugging Face over the network for its revision."""
+    from jarvis import listen
+
+    monkeypatch.setattr(listen.Transcriber, "warm_up", lambda _self: None)
