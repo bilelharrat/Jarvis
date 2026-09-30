@@ -298,3 +298,51 @@ def test_the_admin_script_carries_only_its_own_command():
     ):
         with pytest.raises(ValueError):
             shell.admin_script(action, when, "x")
+
+
+async def test_a_request_a_link_wrote_is_never_the_owners_own_words(hub, monkeypatch):
+    """A jarvis:// link (any web page, or a selection sent from the Services menu) fills the
+    request box, and the window marks what's sent from there (from_link). The hub then never
+    takes those words for the owner's: no instant Mac command runs from them, nothing in them
+    counts as the owner asking (the gates ask), and the turn counts as having read outside
+    content. The same words typed by the owner are theirs."""
+    from jarvis import system_voice
+
+    await hub.start()
+    ran, during = [], []
+
+    async def carry_out(command, **_kw):
+        ran.append(command.kind)
+        return "Done."
+
+    monkeypatch.setattr(system_voice, "carry_out", carry_out)
+    query = hub.client.query
+
+    async def watch(text):
+        reads = hub._gate_reads()
+        during.append((hub._turn_text, reads["private"], list(reads["what"])))
+        await query(text)
+
+    monkeypatch.setattr(hub.client, "query", watch)
+
+    async def settled():
+        for _ in range(200):
+            if not [t for t in hub._background if not t.done()] and hub.state == "idle":
+                return
+            await asyncio.sleep(0.01)
+
+    await hub._handle({"type": "ask", "text": "press command Q", "from_link": True})
+    await settled()
+    assert ran == []  # never an instant command: Claude has it, with the gates
+    assert during == [("", True, ["a request a link wrote"])]
+    assert [h["text"] for h in hub.history if h["role"] == "user"] == ["press command Q"]
+    await hub._handle({"type": "ask", "text": "press command Q"})  # typed by the owner
+    await settled()
+    assert ran == ["keys"] and len(during) == 1
+
+
+def test_cards_name_a_links_words_in_chinese_too():
+    from jarvis import hub as hubmod
+    from jarvis import lang
+
+    assert lang.translate(hubmod.LINK_WORDS, "zh") == "链接写下的请求"

@@ -206,6 +206,11 @@
 
   // A jarvis:// link's request: in the box, in view, and never sent from here. Any page can
   // open a link, so the owner reads it and presses Return (the note under the box says so).
+  // Its words are the page's (or, from the Services menu, a selection's), never the owner's
+  // own: sent, the request goes marked as a link's (from_link), so the backend treats it as
+  // outside content, and no word in it counts as the owner asking for anything. The mark
+  // stays until the box is emptied: words typed after a link's don't make its words theirs.
+  let fromLink = false;
   function prefill(text) {
     if (!F.$('cc').hidden) toggleCC(false);
     if (!F.$('settings').hidden) toggleSettings(false);
@@ -213,6 +218,7 @@
     if (galaxyMode === 'open') setGalaxyMode('off');
     const input = F.$('ask-input');
     input.value = String(text || '').slice(0, 2000);
+    fromLink = Boolean(input.value);
     input.focus();
     let note = F.$('shell-link-note');
     if (!note) {
@@ -221,6 +227,26 @@
       F.$('ask-form').after(note);
     }
     note.hidden = !input.value;
+  }
+
+  // Return in the box while it holds a link's words: sent here, marked, instead of by the
+  // box's own handler (this one runs first: capture, on the document).
+  function sendLinkRequest(e) {
+    if (!fromLink || e.target !== F.$('ask-form')) return;
+    const input = F.$('ask-input');
+    const text = input.value.trim();
+    if (!text) { fromLink = false; return; }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (!F.send({ type: 'ask', text, from_link: true })) {
+      notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
+      return;
+    }
+    fromLink = false;
+    input.value = '';
+    input.blur();
+    const note = F.$('shell-link-note');
+    if (note) note.hidden = true;
   }
 
   // A jarvis:// link's project: Jarvis Code open on it, once the list of projects is in.
@@ -654,7 +680,13 @@
     bridge.on(`${CH}command`, run);
     // The note under the request box goes with the link's text: sent, or cleared.
     F.$('ask-form').addEventListener('submit', () => { const n = F.$('shell-link-note'); if (n) n.hidden = true; });
-    F.$('ask-input').addEventListener('input', (e) => { const n = F.$('shell-link-note'); if (n && !e.target.value) n.hidden = true; });
+    F.$('ask-input').addEventListener('input', (e) => {
+      if (e.target.value) return;
+      fromLink = false; // emptied: what's typed next is the owner's own
+      const n = F.$('shell-link-note');
+      if (n) n.hidden = true;
+    });
+    document.addEventListener('submit', sendLinkRequest, true);
     bridge.on(`${CH}shortcuts`, (status) => { keyStatus = status; renderShortcuts(); });
     bridge.invoke(`${CH}hello`).then((info) => {
       if (!info) return;

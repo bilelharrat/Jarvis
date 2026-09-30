@@ -10,14 +10,21 @@ const PANELS = ['settings', 'code', 'browser', 'brain'];
 const ASK_MAX = 2000; // characters a link can put in the request box
 const LINK_MAX = 40_000; // characters of the link itself (2,000 Chinese characters, encoded)
 
-// One line of plain text: line breaks become spaces, and controls, direction overrides and
-// invisible characters that could hide or reorder words in the box are dropped (joiners that
-// emoji and some scripts need stay).
+// Characters that show nothing: controls, direction overrides, zero-width and other format
+// characters, and Unicode's tag characters (letters no one sees, which a model still reads).
+// The joiners that emoji and some scripts need (U+200C, U+200D) and variation selectors stay.
+const INVISIBLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u00ad\u034f\u061c\u17b4\u17b5\u180b-\u180f\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]|\udb40[\udc00-\udc7f]/g;
+// ... and characters that show as blank space (every Unicode space, the Hangul fillers, the
+// blank Braille cell): one space, so a long run of them can't push words out of sight.
+const BLANK = /[\s\u115f\u1160\u2800\u3164\uffa0]+/g;
+
+// One line of plain text, every word of it visible: line breaks and runs of blank space
+// become one space, and characters that show nothing (that could hide or reorder words in
+// the box) are dropped.
 function cleanText(value) {
   return String(value)
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/[\u0000-\u001f\u007f-\u009f​‎‏‪-‮⁠-⁤⁦-⁩﻿]/g, '')
-    .replace(/ {2,}/g, ' ')
+    .replace(INVISIBLE, '')
+    .replace(BLANK, ' ')
     .trim();
 }
 

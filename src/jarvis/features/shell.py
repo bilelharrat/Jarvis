@@ -28,6 +28,7 @@ import string
 import time
 from typing import Any
 
+from .. import lang
 from ..prefs import register_feature_pref
 
 log = logging.getLogger(__name__)
@@ -98,6 +99,10 @@ def clean_accelerator(value: Any) -> str | None:
         return None
     return accelerator
 
+
+# How approval cards name the words of a jarvis:// link sent from the request box
+# (hub.LINK_WORDS): someone else's words, read like outside content.
+lang.add_texts({"a request a link wrote": "链接写下的请求"})
 
 register_feature_pref(PAUSE_KEY, 0.0, _clean_until)
 register_feature_pref(MENU_BAR_KEY, True)

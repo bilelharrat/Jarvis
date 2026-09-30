@@ -265,6 +265,7 @@ STALE_UTTERANCE = 10.0  # hands-free: speech that ended this long ago is never a
 # that request (a longer pause mid-sentence), not a new one that needs the wake word.
 CONTINUE_GAP = 1.5
 ASK_QUEUE_MAX = 20  # requests waiting behind the current one; past that, new ones are refused
+LINK_WORDS = "a request a link wrote"  # how cards name a jarvis:// link's words (from_link)
 STYLE_NOTES = 6  # notes for the next request kept word for word; older ones are summed up
 PART_WAY = (
     "The connection to Claude dropped part-way through this request. Some of it may already "
@@ -6056,7 +6057,15 @@ class Hub:
                 # Typed in the window: answered on screen, and read aloud only while
                 # voice coding. Spoken requests (the orb, the wake word) still get a voice.
                 silent = self.voicecode.focus is None
-                self._spawn(self.ask(text[:4000], silent=silent))
+                if msg.get("from_link") is True:
+                    # Words a jarvis:// link put in the box (any web page, or text selected
+                    # anywhere and sent from the Services menu): someone else's, sent on by
+                    # the owner. Never their own words to the gates (display: no instant Mac
+                    # command, nothing counts as them asking), and outside content read.
+                    words = text[:4000].strip()
+                    self._spawn(self.ask(words, display=words, silent=silent, untrusted=LINK_WORDS))
+                else:
+                    self._spawn(self.ask(text[:4000], silent=silent))
         elif kind == "listen":
             self._spawn(self.listen())
         elif kind == "dictate":

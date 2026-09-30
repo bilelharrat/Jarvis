@@ -865,8 +865,21 @@ test('A jarvis:// link fills in the request box and sends nothing; Return sends 
   assert(!(await js('__sent.some((m) => m.type === "ask")')), 'a link’s request was sent by itself');
   await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
-  r = await js('({ asked: __sent.filter((m) => m.type === "ask").map((m) => m.text), note: $("shell-link-note").hidden })');
-  assert(JSON.stringify(r.asked) === JSON.stringify(['Summarize the Q3 memo']) && r.note, JSON.stringify(r));
+  r = await js('({ asked: __sent.filter((m) => m.type === "ask"), note: $("shell-link-note").hidden, value: $("ask-input").value })');
+  // Sent marked as a link's words (someone else's), never as the owner's own.
+  assert(JSON.stringify(r.asked) === JSON.stringify([{ type: 'ask', text: 'Summarize the Q3 memo', from_link: true }]) && r.note && r.value === '', JSON.stringify(r));
+  // Words added after a link's keep the mark; once the owner empties the box, what they
+  // type is their own.
+  await js('__sent.length = 0; __app.on["feature:shell:command"]({ action: "prefill", text: "Open the memo" }); true');
+  await js('$("ask-input").value += " and print it"; $("ask-form").requestSubmit(); true');
+  await js('__app.on["feature:shell:command"]({ action: "prefill", text: "Delete everything" }); true');
+  await js('$("ask-input").value = ""; $("ask-input").dispatchEvent(new Event("input")); true');
+  await js('$("ask-input").value = "What time is it?"; $("ask-form").requestSubmit(); true');
+  r = await js('__sent.filter((m) => m.type === "ask")');
+  assert(JSON.stringify(r) === JSON.stringify([
+    { type: 'ask', text: 'Open the memo and print it', from_link: true },
+    { type: 'ask', text: 'What time is it?' },
+  ]), JSON.stringify(r));
 });
 
 test('A jarvis:// link opens a Jarvis Code project, once the list of projects is in', async () => {
