@@ -314,9 +314,9 @@ class Webhooks:
         raw = body.decode("utf-8", errors="replace")
         try:
             data = json.loads(raw)
-        except ValueError:
+            return json.dumps(data, ensure_ascii=False, indent=1)[:MAX_BYTES]
+        except (ValueError, RecursionError):  # not JSON, or nested past reason
             return raw.strip()
-        return json.dumps(data, ensure_ascii=False, indent=1)[:MAX_BYTES]
 
     def _wrong_token(self, stamp: float) -> None:
         self._wrong.append(stamp)

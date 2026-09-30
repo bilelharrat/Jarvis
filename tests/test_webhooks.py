@@ -104,6 +104,16 @@ async def test_too_big_is_refused_whether_it_says_so_or_not(door):
     assert door.calls == [] and door.hooks.find("ci").calls[-1]["status"] == "too big"
 
 
+async def test_json_nested_past_reason_is_read_as_its_characters(door):
+    """A body that's JSON nested thousands deep (inside the size cap) can't be parsed as
+    JSON: it's handed over as its characters, never a failed call the sender can't see."""
+    body = b"[" * 20_000 + b"]" * 20_000
+    assert await door.post("ci", body, door.token) == (202, {"ok": True})
+    [(name, text)] = door.calls
+    assert name == "ci" and text == body.decode()
+    assert door.hooks.find("ci").calls[-1]["status"] == "accepted"
+
+
 async def test_each_hook_has_a_rate_limit(door):
     door.hooks.update("ci", per_hour=2)
     assert (await door.post("ci", b"1", door.token))[0] == 202
