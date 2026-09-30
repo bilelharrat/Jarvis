@@ -41,6 +41,7 @@
     "Open files": "打开的文件",
     "It was deleted on disk since you opened it.": "你打开之后，它已在磁盘上被删除。",
     "It changed on disk since you opened it. Nothing was saved.": "你打开之后，它在磁盘上被修改了。什么都没保存。",
+    "Not connected yet: nothing was saved. Save again in a moment.": "还没连接上：什么都没保存。稍后再保存一次。",
     "It was deleted on disk. Save to put your version back.": "它已在磁盘上被删除。保存即可放回你的版本。",
     "It changed on disk while you were editing it.": "你编辑时，它在磁盘上被修改了。",
     "Your unsaved changes are back, but the file changed on disk since.": "你未保存的更改已恢复，但此后磁盘上的文件已被修改。",

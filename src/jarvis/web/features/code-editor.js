@@ -263,7 +263,7 @@
         if (!old) break;
         closeDoc(scope, old, true);
       }
-      F.send({ type: 'cw_file_read', ...doc.where, path: rel, ref: key });
+      ask(doc);
     }
     if (opts.line) doc.mark = { start: opts.line, end: opts.end || opts.line };
     if (opts.allowCreate) doc.allowCreate = true;
@@ -289,6 +289,12 @@
       if (!state.active && state.view === 'editor') state.view = 'list';
     }
     if (!quiet) draw();
+  }
+
+  // Its text, asked for. Not out when there was no connection, or once a reconnect lost its
+  // answer: asked again when it shows (drawDoc).
+  function ask(doc) {
+    doc.asked = F.send({ type: 'cw_file_read', ...doc.where, path: doc.rel, ref: doc.key });
   }
 
   // ── the editor for one file ──
@@ -606,10 +612,11 @@
 
   function save(doc, force) {
     if (!doc.ui || !doc.editable || doc.saving) return;
-    doc.saving = true;
     doc.sent = doc.ui.ta.value;  // (what's on disk once it's saved: typing may go on meanwhile)
+    // No connection (a restart, a reconnect): nothing went, and nothing waits for an answer.
+    doc.saving = F.send({ type: 'cw_file_save', ...doc.where, path: doc.rel, text: doc.sent, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
+    if (!doc.saving) { doc.banner = { kind: 'error', text: 'Not connected yet: nothing was saved. Save again in a moment.' }; drawBanner(doc); }
     drawDocBar(doc);
-    F.send({ type: 'cw_file_save', ...doc.where, path: doc.rel, text: doc.sent, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
   }
 
   function reload(doc) {
@@ -804,6 +811,7 @@
   }
 
   function drawDoc(doc) {
+    if (doc.loading && !doc.asked) ask(doc);
     const host = rootEl.querySelector('.ce-editor-view');
     if (!doc.ui) {
       const frame = el('div', 'ce-doc');
@@ -1053,6 +1061,16 @@
   });
 
   F.on('cw_editors', (ev) => { editors = ev.items || []; });
+
+  // A reconnect (the backend restarted, the Mac woke): answers to what went before it never
+  // come. A save waiting for one can go again, and a file still opening is asked for again.
+  F.on('hello', () => {
+    for (const doc of docs.values()) {
+      if (doc.saving) { doc.saving = false; drawDocBar(doc); }
+      if (doc.loading) doc.asked = false;
+    }
+    draw();
+  });
 
   // A "# note" went into a memory file: one open here comes back with it.
   F.on('task_memory', (ev) => { if (ev.ok && paneShown()) checkSoon(); });

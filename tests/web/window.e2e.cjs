@@ -4573,6 +4573,38 @@ test('A save keeps what was typed while it was saving: still unsaved, kept, and 
   assert(again && again.text === 'a = 1\nb = 2\nc = 3\nd = 4' && again.base.sha === 'bbb', JSON.stringify(again));
 });
 
+// The hub's hello again, as after a reconnect (hub: which backend; a restarted one is another).
+const helloAgain = (hub, tasks = '[__task(1)]') => js(`(() => { const ev = { type: 'hello', hub_id: ${JSON.stringify(hub)}, state: 'idle', muted: true, status: {},
+  activity: [], tasks: ${tasks}, prefs, brain: {}, approvals: [], history: [] }; onEvent(ev); featureEvent(ev); return true; })()`);
+
+test('A save or an open with no connection, or whose answer the connection lost, goes again: never stuck saving or opening', async () => {
+  await editorWith();
+  await typeAtEnd('c = 3');
+  // No connection: nothing goes, and nothing waits for an answer.
+  await js('window.__send = send; send = () => false; true');
+  await chord('s');
+  const bar = await js('({ save: document.querySelector("#jc-pane-body .ce-save").textContent, off: document.querySelector("#jc-pane-body .ce-save").disabled, banner: document.querySelector("#jc-pane-body .ce-banner").textContent })');
+  assert(bar.save === 'Save' && !bar.off && bar.banner.startsWith('Not connected yet: nothing was saved.'), JSON.stringify(bar));
+  await js('send = __send; __sent.length = 0; true');
+  await chord('s');
+  assert((await sentOf('cw_file_save')).length === 1, JSON.stringify(await js('__sent')));
+  // Sent, and the answer lost with the connection: once it's back, it can go again.
+  await helloAgain('hub-a');
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .ce-text").focus(); true');
+  await chord('s');
+  assert((await sentOf('cw_file_save')).length === 1, JSON.stringify(await js('__sent')));
+  // A file opened with no connection, or whose answer a reconnect lost, is asked for once it's back.
+  await js('send = () => false; JarvisEditor.open("README.md"); send = __send; __sent.length = 0; true');
+  assert(await js('$("jc-pane-body").textContent.includes("Opening…")'), 'README.md is not opening');
+  await helloAgain('hub-a');
+  let [read] = await sentOf('cw_file_read');
+  assert(read && read.path === 'README.md' && read.id === 1, JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; true');
+  await helloAgain('hub-a');
+  [read] = await sentOf('cw_file_read');
+  assert(read && read.path === 'README.md', JSON.stringify(await js('__sent')));
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {
