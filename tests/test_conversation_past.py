@@ -3,11 +3,11 @@ Code's own records of the brain's sessions with titles and dates, searched (titl
 second brain's passages), read back as the two sides' words, and carried on as the current
 conversation after a card. Claude Code's records are fakes: never the owner's ~/.claude."""
 
-import asyncio
 from types import SimpleNamespace
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 from conftest import FakeClient
+from conversation_support import answer_card, settle
 
 from jarvis import conversation_past as past
 from jarvis.conversation_state import UNKNOWN_READS
@@ -104,12 +104,6 @@ def emitted(hub, kind):
     return [data for k, data in hub.events if k == kind]
 
 
-async def settle(hub, rounds=20):
-    for _ in range(rounds):
-        await asyncio.sleep(0)
-    await hub.conversation.flush()
-
-
 def test_the_owners_words_come_without_the_apps_note():
     assert past.owner_words("[Note from the app: live data: 9 AM.]  What's on?") == "What's on?"
     assert past.owner_words("[Note from the app: cut short, the words never came") == ""
@@ -161,10 +155,14 @@ async def test_a_search_weighs_the_second_brains_passages_too(settings, quiet_sp
     await hub._handle({"type": "conversation_list", "q": "lisbon", "seq": "2"})
     await hub._handle({"type": "conversation_list", "q": "rent", "seq": "3"})
     await settle(hub)
-    lisbon, rent = emitted(hub, "conversation_list")
+    # The two searches run side by side: each answer carries its seq (the window keeps
+    # the newest), and they may finish in either order.
+    answers = {a["seq"]: a for a in emitted(hub, "conversation_list")}
+    lisbon, rent = answers["2"], answers["3"]
+    assert (lisbon["q"], rent["q"]) == ("lisbon", "rent")
     assert [i["session_id"] for i in lisbon["items"]] == [OLD, LEASE]
     assert [i["session_id"] for i in rent["items"]] == [LEASE]
-    assert asked == [("lisbon", ["conversations"]), ("rent", ["conversations"])]
+    assert sorted(asked) == [("lisbon", ["conversations"]), ("rent", ["conversations"])]
 
 
 async def test_a_past_conversation_reads_back_as_the_two_sides_words(
@@ -175,7 +173,10 @@ async def test_a_past_conversation_reads_back_as_the_two_sides_words(
     await hub._handle({"type": "conversation_open", "session_id": LEASE})  # unreadable
     await hub._handle({"type": "conversation_open", "session_id": "../../etc/passwd"})
     await settle(hub)
-    old, lease = emitted(hub, "conversation_transcript")
+    # Read side by side, so in either order; the bad id is never read at all.
+    read = {t["session_id"]: t for t in emitted(hub, "conversation_transcript")}
+    assert set(read) == {OLD, LEASE}
+    old, lease = read[OLD], read[LEASE]
     assert old["entries"] == [
         {"role": "user", "text": "Plan the trip to Lisbon"},
         {"role": "assistant", "text": "Three days: Alfama, Belém, and a day in Sintra."},
@@ -183,16 +184,6 @@ async def test_a_past_conversation_reads_back_as_the_two_sides_words(
     ]
     assert old["error"] == "" and old["current"] is False
     assert lease["entries"] == [] and lease["error"] == "unreadable"
-
-
-async def answer_card(hub, choice):
-    for _ in range(50):
-        await asyncio.sleep(0)
-        if hub.approvals:
-            (approval,) = hub.approvals.values()
-            hub.resolve(approval["id"], choice)
-            return approval
-    raise AssertionError("no card went up")
 
 
 async def test_carrying_on_a_past_conversation_asks_then_reopens_it(

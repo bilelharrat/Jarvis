@@ -4666,6 +4666,22 @@ test('Conversation: Settings carries on after a restart, and the note offers a n
   assert(await js(`$('convo-note').hidden`), 'the note stayed after a new turn');
 });
 
+test('Conversation: Settings says how much Jarvis thinks, and a request thought through says so', async () => {
+  await loadFeatures(...CONVO);
+  await js(`__ev({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { conversation_resume: true, conversation_thinking: 'medium' } }); __sent.length = 0; true`);
+  const row = await js(`(() => { const s = $('convo-thinking'); return { value: s.value, options: [...s.options].map((o) => o.value + ':' + o.textContent), group: s.closest('section.group').id }; })()`);
+  assert(row.value === 'medium' && row.group === 'convo-group', JSON.stringify(row));
+  assert(JSON.stringify(row.options) === '["off:Off","low:Low","medium:Medium","high:High"]', JSON.stringify(row.options));
+  await js(`(() => { const s = $('convo-thinking'); s.value = 'high'; s.dispatchEvent(new Event('change')); })(); true`);
+  const asked = await sentOf('conversation_thinking');
+  assert(JSON.stringify(asked) === '[{"type":"conversation_thinking","level":"high"}]', JSON.stringify(asked));
+  assert(await js(`$('convo-think').hidden && $('convo-think').nextElementSibling === $('reply')`), 'the thinking line was shown, or not above the reply');
+  await js(`__ev({ type: 'conversation', thinking: 'high', thinking_hard: true }); true`);
+  assert(await js(`!$('convo-think').hidden && $('convo-think').textContent === 'Thinking it through…'`), 'a request being thought through was not shown');
+  await js(`__ev({ type: 'conversation', thinking: 'high', thinking_hard: false }); true`);
+  assert(await js(`$('convo-think').hidden`), 'the thinking line stayed after the answer');
+});
+
 test('Conversations: the past ones are listed, searched, read back and carried on', async () => {
   await loadFeatures(...CONVO);
   const dock = await js(`({ after: $('activity-btn').nextElementSibling.id, label: $('convo-btn').getAttribute('aria-label') })`);
@@ -4711,6 +4727,33 @@ test('Conversations: the past ones are listed, searched, read back and carried o
   await js(`toggleSettings(true); true`);
   await clickText('#convo-group', 'Past conversations…');
   assert(await js(`!$('convo-layer').hidden && $('settings').hidden`), 'Settings did not open Conversations');
+});
+
+test('Conversations: how full this conversation is, what it cost, and Compact now', async () => {
+  await loadFeatures(...CONVO);
+  await js(`__ev({ type: 'conversation', resume: true, resumed: null, session_id: 'a', title: 'Plan', cost: 0.42 });
+    __ev({ type: 'conversation_context', available: true, percent: 72, tokens: 144000, max: 200000, autocompact: true, compact_at: 90, cost: 0.42, compacting: false,
+      categories: [{ name: 'System prompt', tokens: 20000 }, { name: 'MCP tools', tokens: 30000 }, { name: 'Messages', tokens: 94000 }] }); true`);
+  assert(await js(`$('convo-badge').textContent === '72%'`), 'no badge at 72%');
+  await js(`$('convo-btn').click(); true`);
+  const meter = await js(`({ ring: document.querySelector('.convo-ring b').textContent, high: document.querySelector('.convo-ring').classList.contains('high'),
+    lines: [...document.querySelectorAll('.convo-meter-words > div')].map((n) => n.textContent),
+    legend: [...document.querySelectorAll('.convo-cx-legend li')].map((li) => li.textContent),
+    mark: document.querySelector('.convo-cx-mark').style.left, note: document.querySelector('.convo-cx-note').textContent,
+    compact: { disabled: $('convo-compact').disabled, text: $('convo-compact').textContent } })`);
+  assert(meter.ring === '72%' && !meter.high, JSON.stringify(meter));
+  assert(JSON.stringify(meter.lines) === JSON.stringify(['72% of the context used', '144k of 200k tokens', '$0.42 so far']), JSON.stringify(meter.lines));
+  assert(JSON.stringify(meter.legend) === JSON.stringify(['System prompt20k', 'MCP tools30k', 'Messages94k']), JSON.stringify(meter.legend));
+  assert(meter.mark === '90%' && meter.note === 'Compacts on its own at 90% (the mark).', JSON.stringify(meter));
+  assert(!meter.compact.disabled && meter.compact.text === 'Compact now', JSON.stringify(meter.compact));
+  assert(JSON.stringify(await sentOf('conversation_context')) === '[{"type":"conversation_context"}]', 'opening did not ask how full it is');
+  await js(`__sent.length = 0; $('convo-compact').click(); true`);
+  assert(JSON.stringify(await sent()) === '["conversation_compact"]', 'Compact now sent nothing');
+  assert(await js(`$('convo-compact').disabled && $('convo-compact').textContent === 'Compacting…'`), 'Compact now stayed pressable');
+  await js(`__ev({ type: 'conversation_context', available: true, percent: 91, tokens: 182000, max: 200000, autocompact: true, compact_at: 90, cost: 0.5, compacting: true, categories: [] }); true`);
+  assert(await js(`document.querySelector('.convo-ring').classList.contains('high') && $('convo-compact').disabled && $('convo-badge').textContent === '91%'`), 'not shown as nearly full');
+  await js(`__ev({ type: 'conversation_context', available: true, percent: 18, tokens: 36000, max: 200000, autocompact: true, compact_at: 90, cost: 0.51, compacting: false, categories: [] }); true`);
+  assert(await js(`$('convo-badge').textContent === '' && !$('convo-compact').disabled`), 'the badge stayed at 18%');
 });
 
 // ──

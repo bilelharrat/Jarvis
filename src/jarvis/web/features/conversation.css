@@ -19,6 +19,16 @@
 }
 .convo-note-btn:hover { filter: brightness(0.97); }
 
+/* A request being thought through ("think hard about…"): a quiet line above the reply. */
+.convo-think { margin: 4px 0 0; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+.convo-think[hidden] { display: none; }
+.convo-think::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--action);
+  animation: convo-think 1.2s ease-in-out infinite;
+}
+@keyframes convo-think { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .convo-think::before { animation: none; } }
+
 /* The app's own notes in the conversation (carrying on, a summary made to make room). */
 .history li.note {
   align-self: center; max-width: 92%; padding: 2px 10px; border-radius: 10px; background: transparent;
@@ -95,3 +105,36 @@ body[data-look="orb"] .convo-pop {
 .convo-lines .user { align-self: flex-end; background: var(--action); color: var(--action-ink); }
 .convo-lines .assistant { align-self: flex-start; background: var(--convo-inset); box-shadow: inset 0 0 0 1px var(--convo-line); }
 .convo-lines .convo-wait { align-self: center; background: transparent; color: var(--muted); font-size: 13px; }
+
+/* ── this conversation: how full its context is ── */
+.convo-layer, .convo-group {
+  --convo-cx-1: var(--action); --convo-cx-2: #8e5bd0; --convo-cx-3: #2f9e5b;
+  --convo-cx-4: #d9822b; --convo-cx-5: #c9453b; --convo-cx-6: var(--muted);
+}
+@media (prefers-color-scheme: dark) {
+  .convo-layer, .convo-group { --convo-cx-2: #b58cf0; --convo-cx-3: #5fd08d; --convo-cx-4: #f0a458; --convo-cx-5: #ff6b61; }
+}
+.convo-meter-box { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.convo-meter { display: flex; align-items: center; gap: 12px; }
+.convo-ring { position: relative; flex: none; width: 44px; height: 44px; display: grid; place-items: center; }
+.convo-ring svg { position: absolute; inset: 0; width: 44px; height: 44px; transform: rotate(-90deg); }
+.convo-ring circle { fill: none; stroke-width: 3; }
+.convo-ring .track { stroke: var(--convo-line); }
+.convo-ring .fill { stroke: var(--action); stroke-linecap: round; stroke-dasharray: 94.25; stroke-dashoffset: 94.25; transition: stroke-dashoffset 400ms ease; }
+.convo-ring.high .fill { stroke: var(--warn); }
+.convo-ring b { font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.convo-meter-line { font-size: 13.5px; }
+.convo-cx-bar { position: relative; display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--convo-line); }
+.convo-cx-bar i { height: 100%; }
+.convo-cx-bar [data-cx="1"], .convo-cx-legend [data-cx="1"] { background: var(--convo-cx-1); }
+.convo-cx-bar [data-cx="2"], .convo-cx-legend [data-cx="2"] { background: var(--convo-cx-2); }
+.convo-cx-bar [data-cx="3"], .convo-cx-legend [data-cx="3"] { background: var(--convo-cx-3); }
+.convo-cx-bar [data-cx="4"], .convo-cx-legend [data-cx="4"] { background: var(--convo-cx-4); }
+.convo-cx-bar [data-cx="5"], .convo-cx-legend [data-cx="5"] { background: var(--convo-cx-5); }
+.convo-cx-bar [data-cx="6"], .convo-cx-legend [data-cx="6"] { background: var(--convo-cx-6); }
+.convo-cx-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink); opacity: 0.55; }
+.convo-cx-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-2); }
+.convo-cx-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.convo-cx-legend i { width: 8px; height: 8px; border-radius: 2px; }
+.convo-cx-legend b { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.convo-cx-note { margin: 0; font-size: 12px; color: var(--muted); }

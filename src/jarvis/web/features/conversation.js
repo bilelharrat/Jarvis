@@ -1,8 +1,9 @@
 // JARVIS's own conversation (the conversation feature, jarvis.features.conversation):
 // Settings › Conversation; the note under the reply when a conversation carries on (after a
-// restart, or one reopened); and Conversations (a dock app): this conversation, and the past
-// ones, searched, read back and carried on after a card. What the conversations hold (titles,
-// what was said) is the owner's data: shown as text, with data-no-i18n.
+// restart, or one reopened); and Conversations (a dock app): this conversation (how full its
+// context is, what it has cost, Compact now), and the past ones, searched, read back and
+// carried on after a card. What the conversations hold (titles, what was said) is the
+// owner's data: shown as text, with data-no-i18n.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
@@ -16,7 +17,9 @@
     seq: 0, // the newest search sent: an older answer never replaces a newer one
     reading: null, // the past conversation open read-only ({ session_id, title, at, cost, entries })
     searchTimer: 0,
+    context: null, // how full this conversation is, as the hub last said ({ percent, tokens, … })
   };
+  const CX = 6; // the context bar's colours (conversation.css: --convo-cx-1 … 6)
 
   function mine(node) {
     node.setAttribute('data-no-i18n', '');
@@ -69,6 +72,13 @@
     return usd >= 0.01 ? `$${usd.toFixed(2)}` : '';
   }
 
+  function tokenText(n) {
+    if (!n) return '0';
+    if (n >= 1e6) return `${+(n / 1e6).toFixed(n % 1e6 ? 2 : 0)}M`;
+    if (n >= 1e3) return `${+(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k`;
+    return String(n);
+  }
+
   // ── Settings › Conversation ──
 
   function settingsGroup() {
@@ -81,6 +91,7 @@
     group.append(switchRow('sw-convo-resume', 'Carry on after a restart',
       'When Jarvis starts again, pick up the conversation where it was. New conversation still starts afresh.',
       () => send({ type: 'feature_prefs', changes: { conversation_resume: !featurePref('conversation_resume', true) } })));
+    group.append(thinkingRow());
     const actions = el('div', 'row-actions');
     actions.append(button('Past conversations…', 'btn', () => { if (typeof toggleSettings === 'function') toggleSettings(false); openSheet(); }));
     group.append(actions);
@@ -89,9 +100,30 @@
     return group;
   }
 
+  // How much Jarvis thinks before an everyday answer (a request can still ask to think hard).
+  function thinkingRow() {
+    const row = el('label', 'row');
+    row.htmlFor = 'convo-thinking';
+    const words = el('span');
+    words.append(el('strong', '', 'Think before answering'),
+      el('small', '', 'Off answers fastest. Say “think hard about…” or “take your time” to have one request thought through.'));
+    const select = el('select');
+    select.id = 'convo-thinking';
+    [['off', 'Off'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']].forEach(([value, label]) => {
+      const option = el('option', '', label);
+      option.value = value;
+      select.append(option);
+    });
+    select.addEventListener('change', () => send({ type: 'conversation_thinking', level: select.value }));
+    row.append(words, select);
+    return row;
+  }
+
   function renderSettings() {
     if (!settingsGroup()) return;
     $('sw-convo-resume').setAttribute('aria-checked', String(!!featurePref('conversation_resume', true)));
+    const select = $('convo-thinking');
+    if (select && document.activeElement !== select) select.value = featurePref('conversation_thinking', 'off');
   }
 
   // ── the note under the reply: a conversation carried on ──
@@ -125,6 +157,21 @@
     $('convo-note-title').textContent = resumed && resumed.title ? `“${resumed.title}”` : '';
   }
 
+  // ── under the reply: a request being thought through ──
+
+  function renderThink() {
+    let line = $('convo-think');
+    if (!line) {
+      const reply = $('reply');
+      if (!reply) return;
+      line = el('p', 'convo-think', 'Thinking it through…');
+      line.id = 'convo-think';
+      line.hidden = true;
+      reply.before(line);
+    }
+    line.hidden = !S.convo.thinking_hard;
+  }
+
   // ── Conversations: a dock app and its sheet ──
 
   function dockButton() {
@@ -141,6 +188,7 @@
     const name = el('span', 'app-name', 'Conversations');
     const badge = el('span', 'app-badge');
     badge.id = 'convo-badge';
+    badge.setAttribute('aria-hidden', 'true');
     b.append(badge, name);
     b.addEventListener('click', () => (sheetOpen() ? closeSheet() : openSheet()));
     after.after(b);
@@ -194,6 +242,7 @@
     $('convo-btn') && $('convo-btn').setAttribute('aria-expanded', 'true');
     renderSheet();
     search(S.list ? S.list.q : '');
+    send({ type: 'conversation_context' });
     const box = $('convo-search');
     if (box) box.focus({ preventScroll: true });
   }
@@ -220,12 +269,85 @@
     const title = mine(el('div', 'convo-now-title', c.title ? `“${c.title}”` : ''));
     if (!c.title) { title.removeAttribute('data-no-i18n'); title.textContent = c.session_id ? 'Untitled' : 'Nothing said yet'; }
     box.append(title);
-    const cost = costText(c.cost || 0);
-    if (cost) box.append(mine(el('div', 'convo-now-meta', cost)));
+    const meter = meterBlock();
+    if (meter) box.append(meter);
+    else {
+      const cost = costText(c.cost || 0);
+      if (cost) box.append(mine(el('div', 'convo-now-meta', cost)));
+    }
     const actions = el('div', 'convo-actions');
-    actions.append(button('New conversation', 'btn', () => { send({ type: 'reset' }); closeSheet(); }));
+    const ctx = S.context || {};
+    const compact = button(ctx.compacting ? 'Compacting…' : 'Compact now', 'btn', () => {
+      compact.disabled = true;
+      compact.textContent = 'Compacting…';
+      send({ type: 'conversation_compact' });
+    });
+    compact.id = 'convo-compact';
+    compact.disabled = !ctx.available || !!ctx.compacting || !c.session_id;
+    compact.title = 'Sum the conversation up now, to make room';
+    actions.append(compact, button('New conversation', 'btn', () => { send({ type: 'reset' }); closeSheet(); }));
     box.append(actions);
     return box;
+  }
+
+  // How full the conversation's context is: a ring, the tokens, what fills it, the cost.
+  function meterBlock() {
+    const c = S.context;
+    if (!c || !c.available) return null;
+    const box = el('div', 'convo-meter');
+    const ring = el('span', 'convo-ring');
+    ring.innerHTML = '<svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" class="track"/><circle cx="18" cy="18" r="15" class="fill"/></svg>';
+    const fill = ring.querySelector('.fill');
+    const percent = Math.max(0, Math.min(100, Number(c.percent) || 0));
+    fill.style.strokeDashoffset = String(94.25 * (1 - percent / 100));
+    if (percent >= 80) ring.classList.add('high');
+    ring.append(el('b', '', `${percent}%`));
+    const words = el('div', 'convo-meter-words');
+    words.append(el('div', 'convo-meter-line', `${percent}% of the context used`));
+    if (c.max) words.append(el('div', 'convo-now-meta', `${tokenText(c.tokens)} of ${tokenText(c.max)} tokens`));
+    const cost = costText(c.cost || 0);
+    if (cost) words.append(el('div', 'convo-now-meta', `${cost} so far`));
+    box.append(ring, words);
+    const cats = (c.categories || []).filter((cat) => cat.tokens > 0);
+    const wrap = el('div', 'convo-cx');
+    if (c.max && cats.length) {
+      const bar = el('div', 'convo-cx-bar');
+      cats.forEach((cat, i) => {
+        const seg = el('i');
+        seg.style.width = `${(100 * cat.tokens) / c.max}%`;
+        seg.dataset.cx = String((i % CX) + 1);
+        bar.append(seg);
+      });
+      if (c.compact_at) {
+        const mark = el('b', 'convo-cx-mark');
+        mark.style.left = `${c.compact_at}%`;
+        bar.append(mark);
+      }
+      const legend = el('ul', 'convo-cx-legend');
+      cats.forEach((cat, i) => {
+        const li = el('li');
+        const dot = el('i');
+        dot.dataset.cx = String((i % CX) + 1);
+        li.append(dot, el('span', '', cat.name), el('b', '', tokenText(cat.tokens)));
+        legend.append(li);
+      });
+      wrap.append(bar, legend);
+    }
+    wrap.append(el('p', 'convo-cx-note', c.autocompact
+      ? (c.compact_at ? `Compacts on its own at ${c.compact_at}% (the mark).` : 'Compacts on its own when it fills up.')
+      : 'Auto-compact is off: compact or clear before it fills up.'));
+    const outer = el('div', 'convo-meter-box');
+    outer.append(box, wrap);
+    return outer;
+  }
+
+  function renderBadge() {
+    const badge = $('convo-badge');
+    if (!badge) return;
+    const percent = S.context && S.context.available ? Number(S.context.percent) || 0 : 0;
+    badge.textContent = percent >= 60 ? `${percent}%` : '';
+    const btn = $('convo-btn');
+    if (btn) btn.title = percent ? `Conversations · ${percent}% of the context used` : 'Conversations';
   }
 
   function listBlock() {
@@ -335,6 +457,15 @@
   F.on('conversation', (ev) => {
     S.convo = { ...S.convo, ...ev };
     renderCaption();
+    renderThink();
+    if (sheetOpen() && !S.reading) {
+      const box = document.querySelector('#convo-body .convo-now');
+      if (box) box.replaceWith(currentBlock());
+    }
+  }, { replay: true });
+  F.on('conversation_context', (ev) => {
+    S.context = ev;
+    renderBadge();
     if (sheetOpen() && !S.reading) {
       const box = document.querySelector('#convo-body .convo-now');
       if (box) box.replaceWith(currentBlock());
@@ -356,10 +487,11 @@
     S.features = ev.features || {};
     renderSettings();
   }, { replay: true });
-  F.on('hello', () => send({ type: 'conversation_state' }), { replay: true });
+  F.on('hello', () => { send({ type: 'conversation_state' }); send({ type: 'conversation_context' }); }, { replay: true });
   F.on('turn', (ev) => { if (ev.user && S.convo.resumed) { S.convo.resumed = null; renderCaption(); } });
 
   dockButton();
   renderSettings();
   renderCaption();
+  renderThink();
 })();

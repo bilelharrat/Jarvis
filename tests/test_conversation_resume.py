@@ -3,12 +3,12 @@ the session id, what the conversation has read and what it cost; the next start 
 on with a note (a setting, on by default), or starts afresh when it can't; "New conversation"
 still starts afresh. Claude Code's records are fakes: never the owner's ~/.claude."""
 
-import asyncio
 import json
 from types import SimpleNamespace
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 from conftest import FakeClient
+from conversation_support import settle
 
 from jarvis.conversation_state import UNKNOWN_READS, ConversationState
 from jarvis.hub import Hub
@@ -75,12 +75,6 @@ def make_hub(settings, speaker, isolated, script=None, client=None, records=None
         records if records is not None else RECORD
     )
     return hub
-
-
-async def settle(hub):
-    for _ in range(5):
-        await asyncio.sleep(0)
-    await hub.conversation.flush()
 
 
 async def test_the_feature_installs_and_carrying_on_is_on_by_default(

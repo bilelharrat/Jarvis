@@ -176,6 +176,21 @@ def _no_real_mac_commands(monkeypatch):
     monkeypatch.setattr(system_voice, "carry_out", not_here)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_claude_records(monkeypatch):
+    """JARVIS's past conversations (Claude Code's own session records) are never the
+    owner's ~/.claude in a test: a hub finds none, unless a test gives it fakes."""
+    from jarvis import conversation_past
+
+    def none_listed(*_args, **_kwargs):
+        return []
+
+    def none_found(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(conversation_past, "_sdk", lambda: (none_listed, none_listed, none_found))
+
+
 @pytest.fixture
 def isolated(tmp_path):
     """Prefs and second-brain index in a temp folder, never the user's real ones."""

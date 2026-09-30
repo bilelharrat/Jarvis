@@ -9,16 +9,33 @@ owner's view of it.
 - Past conversations: listed, searched and read back from Claude Code's own records of the
   brain's sessions (conversation_past), and carried on as the current conversation after a
   card. One reopened whose reads aren't on record counts as having read private data.
+- How full it is: the conversation's context (the SDK's context usage, as Jarvis Code's ring
+  shows a session's) and what it has cost, after every turn and when the window asks;
+  "Compact now" (Claude Code's /compact), and a note in the conversation when it's summed up,
+  by itself or when asked.
+- Thinking: a Settings level for everyday turns (conversation_thinking: off, low, medium,
+  high; off by default, for speed), and "think hard about…", "take your time" (and their
+  Chinese) for one request. The Python SDK has no way to turn thinking on for one query, so
+  that request's connection is made again with thinking and a higher effort, keeping the
+  conversation (the same session, resumed), and made again without them after it. Not on
+  the fallback model.
 
 Hooks it uses: hub.first_connect, hub.add_connect_hook (a new conversation), hub.add_query_hook
 (its title, the note put away), hub.add_message_sink (each turn's end: its session id, what
-it has read, its cost).
+it has read, its cost; a summary made to make room).
 
 Window commands: conversation_state (-> conversation), conversation_list {q, seq} (->
 conversation_list), conversation_open {session_id} (-> conversation_transcript),
-conversation_resume {session_id} (a card, then the conversation it carries on).
+conversation_resume {session_id} (a card, then the conversation it carries on),
+conversation_context (-> conversation_context), conversation_compact,
+conversation_thinking {level}.
 
-Claude cost policy: nothing here calls a model on its own.
+Claude cost policy: nothing here calls a model on its own. "Compact now" is one call of the
+conversation's own model, only when the owner presses it; the automatic summing-up is Claude
+Code's own, as before. Thinking is the conversation's own model thinking before it answers:
+for a "think hard" request (the owner's own words only), adaptive thinking at high effort (max
+when the everyday level is high); every turn at the Settings level when that's on. Off by
+default; no background calls.
 """
 
 from __future__ import annotations
@@ -30,16 +47,47 @@ import re
 from datetime import datetime
 from typing import Any
 
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import ResultMessage, SystemMessage
 
 from .. import conversation_past as past
 from .. import lang, prefs
 from ..conversation_state import ConversationState, clean_reads, valid_id
+from ..hub import _asks, user_asked
+from ..tasks import shape_context
 
 log = logging.getLogger("jarvis")
 
 RESUME_PREF = "conversation_resume"
 prefs.register_feature_pref(RESUME_PREF, True)
+THINKING_PREF = "conversation_thinking"
+THINKING_LEVELS = ("off", "low", "medium", "high")
+prefs.register_feature_pref(THINKING_PREF, "off", lambda v: v if v in THINKING_LEVELS else None)
+
+# "Think hard about…", "take your time and…", "think it through": that request gets thinking.
+THINK_HARD = _asks(
+    r"(?:really\s+)?think\s+(?:(?:long\s+and\s+)?hard(?:er)?|carefully|deeply|it\s+(?:all\s+)?through"
+    r"|this\s+through|that\s+through|things\s+through|step\s+by\s+step)\b"
+    r"|take\s+(?:your|some|all\s+the)\s+time\b"
+    r"|ultrathink\b"
+    r"|give\s+(?:it|this|that)\s+(?:some\s+)?(?:real\s+|careful\s+|serious\s+|proper\s+)?thought\b"
+    r"|(?:don'?t|do\s+not)\s+rush\b|no\s+rush\b(?!\s+hours?\b)"
+    r"|(?:reason|work)\s+(?:it|this|that)\s+(?:out\s+)?carefully\b"
+)
+# 好好想想, 仔细思考一下, 认真考虑, 慢慢来, 不着急, 深度思考. (The lead-in takes 好 as "okay",
+# so 好好 can be gone before the verb: the lookbehind finds it there.)
+THINK_HARD_ZH = lang._asks_zh(
+    r"(?:(?:好好|仔细|认真|深入|慢慢)地?|(?<=好好)地?)(?:想想|想一想|想一下|思考|考虑|琢磨)"
+    r"|多(?:想想|想一想|思考一下)"
+    r"|慢慢来|不着急|别着急|不用急|深度思考"
+)
+
+
+def asks_for_thought(text: str, language: str) -> bool:
+    """The owner's own words asked for a considered answer to this request."""
+    return user_asked(THINK_HARD, text) or (
+        lang.is_zh(language) and lang.user_asked_zh(THINK_HARD_ZH, text)
+    )
+
 
 STATE_FILE = "conversation.json"
 TAIL_SHOWN = 20  # a carried-on conversation's last lines, shown in the window again
@@ -60,6 +108,10 @@ ZH = {
     ),
     "That's the conversation you're in.": "这就是现在这段对话。",
     "Conversations": "对话",
+    "Summed up the earlier conversation to make room.": "为了腾出空间，前面的对话已做成摘要。",
+    "Summed up the conversation to make room, as you asked.": "已按你的要求，把对话做成摘要腾出空间。",
+    "Couldn't make room just now; try again in a moment.": "现在没能腾出空间，稍后再试。",
+    "Let me think that through.": "让我好好想想。",
 }
 lang.add_texts(ZH)
 
@@ -101,8 +153,14 @@ class Conversation:
         self.resumed: dict[str, Any] | None = None  # carried on, until the next request
         self._title = ""  # the first request of a conversation with no title yet
         self._conn_total: float | None = None  # this connection's running cost, as reported
+        self.compacting = False
+        self._hard = False  # the connection should think hard (a request asked it to)
+        self._hard_connected = False  # ... and the connection made last does
+        self._hard_turn = False  # the turn under way asked for thought
+        self._reconnecting = False  # a connect of this feature's own, not a new conversation
         self._dirty = False
         self._saver: asyncio.Task | None = None
+        self._tasks: set[asyncio.Task] = set()
 
     # ── the record ──
 
@@ -117,7 +175,7 @@ class Conversation:
         copy taken here, never what the loop is changing."""
         self._dirty = True
         if self._saver is None or self._saver.done():
-            self._saver = self.hub._spawn(self._save_all())
+            self._saver = self._spawn(self._save_all())
 
     async def _save_all(self) -> None:
         while self._dirty:
@@ -128,10 +186,18 @@ class Conversation:
             except OSError as exc:  # a full disk: kept in memory, saved with the next turn
                 log.warning("conversation: couldn't save (%s)", exc)
 
+    def _spawn(self, coro: Any) -> asyncio.Task:
+        """Work in the background (the hub's), known here so flush() can wait for it."""
+        task = self.hub._spawn(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
     async def flush(self) -> None:
-        """Wait for the saves under way (tests; closing)."""
-        while self._saver is not None and not self._saver.done():
-            await asyncio.shield(self._saver)
+        """Wait for everything this feature started in the background: saves, the context,
+        a card being answered (tests)."""
+        while self._tasks:
+            await asyncio.wait(list(self._tasks))
 
     def _say(self, text: str, **values: Any) -> str:
         return lang.tr(text, self.hub.language, **values)
@@ -309,9 +375,10 @@ class Conversation:
 
     # ── the conversation as it goes ──
 
-    def on_connect(self, _options: Any, resume: str) -> None:
+    def on_connect(self, options: Any, resume: str) -> None:
         self._conn_total = None  # a new connection reports its own running total
-        if resume:
+        self._apply_thinking(options)
+        if resume or self._reconnecting:
             return
         # A new conversation ("New conversation", or one that wouldn't carry on).
         self._title = ""
@@ -322,16 +389,164 @@ class Conversation:
             self.state.current = ""
             self._save_soon()
 
-    def on_query(self, text: str, _rid: str) -> None:
+    async def on_query(self, text: str, _rid: str) -> None:
         if not self._title:
             self._title = text or str(self.hub.turn.get("user") or "")
         if self.resumed is not None:  # a new turn: the note has done its work
             self.resumed = None
             self.emit()
+        await self._think(text)
+
+    # ── thinking ──
+
+    def _apply_thinking(self, options: Any) -> None:
+        """A connect's thinking: hard for a request that asked for it, else the Settings
+        level; as brain.build_options has it (off) when neither, or on the fallback model."""
+        hub = self.hub
+        self._hard_connected = False
+        if hub._connected_ref:
+            return
+        level = hub.prefs.feature(THINKING_PREF)
+        if self._hard:
+            options.thinking = {"type": "adaptive"}
+            options.effort = "max" if level == "high" else "high"
+            self._hard_connected = True
+        elif level in ("low", "medium", "high"):
+            options.thinking = {"type": "adaptive"}
+            options.effort = level
+
+    async def _reconnect(self) -> None:
+        """Make the conversation's connection again, carrying the conversation on (the
+        caller holds the hub's lock). What it has read stays weighed by the gates: before
+        its first reply a conversation has no session to resume, and a connect without one
+        would count as a new conversation that had read nothing."""
+        hub = self.hub
+        reads = hub._session_reads
+        self._reconnecting = True
+        try:
+            with contextlib.suppress(Exception):
+                await hub.client.disconnect()
+            await hub._connect(resume=hub._session_id)
+        finally:
+            self._reconnecting = False
+            hub._session_reads = reads
+
+    async def _think(self, text: str) -> None:
+        """This request asked to think hard (or the one before did): the connection made
+        again to suit it. Never on the fallback model. text is "" for a routine's or the
+        briefing's request: only the owner's own words ask for this."""
+        hub = self.hub
+        want = bool(text) and asks_for_thought(text, hub.language) and not hub._connected_ref
+        self._hard = want
+        if want != self._hard_connected and hub.client is not None:
+            await self._reconnect()
+        self._hard_turn = want and self._hard_connected
+        if self._hard_turn:
+            hub._speak(self._say("Let me think that through."))
+            self.emit()
+
+    async def _think_less(self) -> None:
+        """After a request that thought hard: the everyday connection again, between
+        requests (the next request checks too, should this not have run by then), and how
+        full the conversation is, asked of the new connection."""
+        hub = self.hub
+        async with hub._lock:
+            if self._hard_connected and not self._hard and hub.client is not None:
+                try:
+                    await self._reconnect()
+                except Exception:
+                    log.warning("conversation: couldn't switch thinking back", exc_info=True)
+        self.emit()
+        await self.context()
+
+    async def set_thinking(self, msg: dict[str, Any]) -> None:
+        """Settings' thinking level: kept, and the connection made again with it, between
+        requests."""
+        hub = self.hub
+        level = str(msg.get("level") or "")
+        if level not in THINKING_LEVELS:
+            return
+        if hub.set_feature_prefs({THINKING_PREF: level}) and hub.client is not None:
+            async with hub._lock:
+                try:
+                    await self._reconnect()
+                except Exception:
+                    log.warning("conversation: couldn't apply thinking", exc_info=True)
+        self.emit()
 
     def on_message(self, message: Any) -> None:
         if isinstance(message, ResultMessage):
             self._turn_over(message)
+            if self._hard_turn:  # back to everyday thinking, then how full it is
+                self._hard_turn = self._hard = False
+                self._spawn(self._think_less())
+            else:
+                self._spawn(self.context())
+        elif isinstance(message, SystemMessage) and message.subtype == "compact_boundary":
+            self._summed_up(message.data or {})
+
+    def _summed_up(self, data: dict[str, Any]) -> None:
+        """Claude Code summed up the conversation to make room (compact_boundary): a note in
+        it, shown once the turn is over (mid-turn, the window's list is the turn's own)."""
+        meta = (
+            data.get("compact_metadata") if isinstance(data.get("compact_metadata"), dict) else {}
+        )
+        note = self._say(
+            "Summed up the conversation to make room, as you asked."
+            if meta.get("trigger") == "manual"
+            else "Summed up the earlier conversation to make room."
+        )
+        self.hub.history.append({"role": "note", "text": note, "at": _now()})
+        self._spawn(self._history_after_turn())
+
+    async def _history_after_turn(self) -> None:
+        async with self.hub._lock:
+            pass
+        self.hub.emit("history", items=list(self.hub.history))
+
+    # ── how full it is ──
+
+    async def context(self, _msg: Any = None) -> None:
+        """How full the conversation's context is, and what it has cost, for the window."""
+        hub = self.hub
+        client = hub.client
+        payload: dict[str, Any] = {"available": False}
+        if client is not None and hasattr(client, "get_context_usage"):
+            try:
+                usage = await client.get_context_usage()
+            except Exception:  # between connects, or an older Claude Code
+                usage = None
+            if isinstance(usage, dict):
+                model = getattr(getattr(client, "options", None), "model", None)
+                payload = {"available": True, **shape_context(usage, model)}
+        sid = hub._session_id
+        payload["cost"] = round(self.state.cost_of(sid), 4) if sid else 0.0
+        payload["compacting"] = self.compacting
+        hub.emit("conversation_context", **payload)
+
+    async def compact(self, _msg: Any = None) -> None:
+        """Sum the conversation up now to make room (Claude Code's /compact), between
+        requests: nothing is said or shown but the note it leaves."""
+        hub = self.hub
+        if self.compacting or hub.client is None or not hub._session_id:
+            return  # already under way, not connected, or nothing said yet
+        self.compacting = True
+        await self.context()
+        try:
+            async with hub._lock:
+                hub.set_state("thinking")
+                try:
+                    await hub.client.query("/compact")
+                    async for message in hub.client.receive_response():
+                        self.on_message(message)
+                finally:
+                    hub.set_state("idle")
+        except Exception:
+            log.warning("conversation: /compact failed", exc_info=True)
+            self._toast(self._say("Couldn't make room just now; try again in a moment."))
+        finally:
+            self.compacting = False
+        await self.context()
 
     def _turn_cost(self, sid: str, total: float | None) -> float:
         """This turn's cost. Claude Code reports a running total per connection (after a
@@ -365,6 +580,8 @@ class Conversation:
         return {
             "resume": bool(hub.prefs.feature(RESUME_PREF)),
             "resumed": self.resumed,
+            "thinking": hub.prefs.feature(THINKING_PREF),
+            "thinking_hard": self._hard_turn,
             "session_id": sid,
             "title": self.state.titles().get(sid, "") if sid else "",
             "cost": self.state.cost_of(sid) if sid else 0.0,
@@ -384,9 +601,12 @@ class Conversation:
         def later(work: Any) -> Any:
             """A command whose work reads files or waits on a card runs in the background:
             the window's socket reads one command at a time."""
-            return lambda msg: hub._spawn(work(msg)) and None
+            return lambda msg: self._spawn(work(msg)) and None
 
         hub.register_command("conversation_state", lambda _msg: self.emit())
+        hub.register_command("conversation_context", later(self.context))
+        hub.register_command("conversation_compact", later(self.compact))
+        hub.register_command("conversation_thinking", later(self.set_thinking))
         hub.register_command("conversation_list", later(self.list_past))
         hub.register_command("conversation_open", later(self.open_past))
         hub.register_command(

@@ -19,7 +19,37 @@
     "Carry on this conversation": "接着这段对话继续",
     "Carry on": "继续",
     "Reading…": "正在读取…",
-    "This conversation can’t be read.": "这段对话读不出来。"
+    "This conversation can’t be read.": "这段对话读不出来。",
+    "Compact now": "立即压缩",
+    "Compacting…": "正在压缩…",
+    "Sum the conversation up now, to make room": "现在就把对话做成摘要，腾出空间",
+    "System prompt": "系统提示",
+    "System tools": "系统工具",
+    "MCP tools": "MCP 工具",
+    "Messages": "消息",
+    "Memory files": "记忆文件",
+    "Custom agents": "自定义代理",
+    "Skills": "技能",
+    "Think before answering": "回答前先思考",
+    "Off answers fastest. Say “think hard about…” or “take your time” to have one request thought through.": "关闭时回答最快。说“好好想想……”或“慢慢来”，那一次请求就会想得更周全。",
+    "Thinking it through…": "正在仔细思考…"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^(\\d+)% of the context used$",
+      "已用上下文的 $1%"
+    ],
+    [
+      "^([\\d.]+[kM]?) of ([\\d.]+[kM]?) tokens$",
+      "$1 / $2 个 token"
+    ],
+    [
+      "^\\$([\\d.]+) so far$",
+      "目前花费 $$$1"
+    ],
+    [
+      "^Conversations · (\\d+)% of the context used$",
+      "对话 · 已用上下文的 $1%"
+    ]
+  ]
 }
