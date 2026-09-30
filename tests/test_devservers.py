@@ -35,7 +35,7 @@ def plain_env():
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "")}
 
 
-async def until(condition, seconds=10.0):
+async def until(condition, seconds=25.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         if condition():

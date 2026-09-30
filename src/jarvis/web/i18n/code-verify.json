@@ -25,15 +25,102 @@
     "Open in the browser": "在浏览器中打开",
     "Stopping…": "正在停止…",
     "Stopped with the session that started it.": "已随启动它的会话一起停止。",
-    "Running; it hasn't said its address.": "运行中；它还没有给出地址。"
+    "Running; it hasn't said its address.": "运行中；它还没有给出地址。",
+    "Tests": "测试",
+    "Problems": "问题",
+    "Run": "运行",
+    "Run just this test": "只运行这个测试",
+    "Filter test files…": "筛选测试文件…",
+    "Run this file": "运行这个文件",
+    "Run one file": "运行单个文件",
+    "Looking for the project’s tests…": "正在查找项目的测试…",
+    "No tests found: pytest, vitest, jest, go test, cargo test, swift test and xcodebuild test are looked for.": "没有找到测试：会查找 pytest、vitest、jest、go test、cargo test、swift test 和 xcodebuild test。",
+    "Run all": "全部运行",
+    "Watch": "监视",
+    "Run again when the project’s files change.": "项目文件变化时重新运行。",
+    "Fix failures": "修复失败",
+    "Read from the output: some results may be missing.": "根据输出读取：部分结果可能缺失。",
+    "Running…": "正在运行…",
+    "No results": "没有结果",
+    "Looking for the project’s checkers…": "正在查找项目的检查工具…",
+    "No checkers found: TypeScript, ESLint, Ruff, Pyright, mypy and Swift builds are looked for.": "没有找到检查工具：会查找 TypeScript、ESLint、Ruff、Pyright、mypy 和 Swift 构建。",
+    "Checking…": "正在检查…",
+    "Check": "检查",
+    "Build": "构建",
+    "Check after each turn": "每轮之后检查",
+    "When this session changes files. Builds only run when you ask.": "当这个会话修改了文件时。构建只在你要求时运行。",
+    "No problems": "没有问题",
+    "Fix these": "修复这些",
+    "Mention this line in the message": "在消息中提及这一行",
+    "(no file)": "（无文件）",
+    "Open a session to send it the failures.": "打开一个会话，把失败发给它。",
+    "There are no failures to fix.": "没有需要修复的失败。",
+    "The session couldn't take another message just now.": "这个会话现在无法接收新消息。",
+    "Open a session to send it the problems.": "打开一个会话，把问题发给它。",
+    "There are no problems to fix.": "没有需要修复的问题。",
+    "This project has no checkers set up (TypeScript, ESLint, Ruff, Pyright, mypy).": "这个项目没有设置检查工具（TypeScript、ESLint、Ruff、Pyright、mypy）。",
+    "That test runner isn't in this project.": "这个项目里没有那个测试运行器。",
+    "That suggestion isn't there anymore.": "那个建议已经不在了。",
+    "Stopped.": "已停止。",
+    "Stopped: it ran for an hour.": "已停止：它运行了一个小时。",
+    "It took too long and was stopped.": "它用时太长，已被停止。"
   },
   "patterns": [
-    ["^It exited with code (\\d+)\\.$", "它已退出，代码 $1。"],
-    ["^It exited\\.$", "它已退出。"],
-    ["^It was (killed|terminated|interrupted|hung up)\\.$", "它已被终止。"],
-    ["^It was ended by signal (\\d+)\\.$", "它已被信号 $1 终止。"],
-    ["^(.+) isn't installed, or isn't on your PATH\\.$", "$1 未安装，或不在你的 PATH 中。"],
-    ["^No dev server called (.+) in (.+)'s launch\\.json\\.$", "$2 的 launch.json 中没有名为 $1 的开发服务器。"],
-    ["^There's already a config called (.+)\\.$", "已经有一个名为 $1 的配置。"]
+    [
+      "^It exited with code (\\d+)\\.$",
+      "它已退出，代码 $1。"
+    ],
+    [
+      "^It exited\\.$",
+      "它已退出。"
+    ],
+    [
+      "^It was (killed|terminated|interrupted|hung up)\\.$",
+      "它已被终止。"
+    ],
+    [
+      "^It was ended by signal (\\d+)\\.$",
+      "它已被信号 $1 终止。"
+    ],
+    [
+      "^(.+) isn't installed, or isn't on your PATH\\.$",
+      "$1 未安装，或不在你的 PATH 中。"
+    ],
+    [
+      "^No dev server called (.+) in (.+)'s launch\\.json\\.$",
+      "$2 的 launch.json 中没有名为 $1 的开发服务器。"
+    ],
+    [
+      "^There's already a config called (.+)\\.$",
+      "已经有一个名为 $1 的配置。"
+    ],
+    [
+      "^(\\d+) failed$",
+      "$1 个失败"
+    ],
+    [
+      "^(\\d+) passed$",
+      "$1 个通过"
+    ],
+    [
+      "^(\\d+) skipped$",
+      "$1 个跳过"
+    ],
+    [
+      "^(\\d+(?:\\.\\d)?) s$",
+      "$1 秒"
+    ],
+    [
+      "^line (\\d+)$",
+      "第 $1 行"
+    ],
+    [
+      "^(\\d+) errors?$",
+      "$1 个错误"
+    ],
+    [
+      "^(\\d+) warnings?$",
+      "$1 个警告"
+    ]
   ]
 }

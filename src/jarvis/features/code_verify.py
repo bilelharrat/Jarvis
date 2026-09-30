@@ -1,5 +1,5 @@
-"""Jarvis Code checks its own work: the project's dev servers, in a Preview pane and as a
-session's tools.
+"""Jarvis Code checks its own work: the project's dev servers (a Preview pane, and tools for
+a session), and the Tests and Problems panes (the project's own test runners and checkers).
 
 What it adds, and where:
 - Window commands (cv_*): each pane's state and actions. Long work runs in the background:
@@ -7,8 +7,8 @@ What it adds, and where:
 - A session's options (TaskManager.option_hooks): its extra MCP servers and the tools of
   them that only look (allowed outright); every other tool follows the session's
   permission mode through TaskManager.policy_for, as Claude Code's own do.
-- Hub events it hears (TaskManager.emit, wrapped): a session's end (the dev servers it
-  started stop with it).
+- Hub events it hears (TaskManager.emit, wrapped): an edit (a watch of the tests runs
+  again), a session's end (the dev servers it started stop with it).
 
 Cost policy (Claude): this feature never calls a model itself.
 """
@@ -27,8 +27,10 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from .. import devservers, tasks
+from .. import codetests, devservers, diagnostics, runproc, tasks
+from ..codetests import SuiteRunner
 from ..devservers import DevServers
+from ..diagnostics import Diagnostics
 
 log = logging.getLogger("jarvis")
 
@@ -37,14 +39,15 @@ READ_ONLY = [f"mcp__{DEV}__dev_servers", f"mcp__{DEV}__dev_server_logs"]
 START_WAIT = 30.0  # seconds dev_server_start waits for the server to answer
 TOOL_LINES = 200  # lines of output a tool returns at most
 TOOL_CHARS = 16_000
+SCHEMES_FRESH = 300.0  # seconds a project's Xcode schemes are kept before asking again
 
-_ALL: weakref.WeakSet[DevServers] = weakref.WeakSet()  # for the exit handler
+_ALL: weakref.WeakSet[CodeVerify] = weakref.WeakSet()  # for the exit handler
 
 
 def _stop_everything_at_exit() -> None:
-    for servers in list(_ALL):
+    for cv in list(_ALL):
         with contextlib.suppress(Exception):
-            servers.shutdown()
+            cv.shutdown()
 
 
 atexit.register(_stop_everything_at_exit)
@@ -62,19 +65,38 @@ class SessionChecks:
     """What the owner chose for one session, and what its checks have done so far."""
 
     verify: bool = False  # the Preview check after each turn that changed files
+    problems: bool = False  # the Problems check after each turn that changed files
 
 
-@dataclass
+@dataclass(eq=False)
 class CodeVerify:
     hub: Any
     servers: DevServers = field(init=False)
+    tests: SuiteRunner = field(init=False)
+    diags: Diagnostics = field(init=False)
     sessions: dict[int, SessionChecks] = field(default_factory=dict)
     _tasks: set[asyncio.Task] = field(default_factory=set)
     _ended: set[int] = field(default_factory=set)  # sessions whose end has been handled
+    _schemes: dict[str, tuple[float, Any]] = field(default_factory=dict)  # project -> Xcode's
 
     def __post_init__(self) -> None:
         self.servers = DevServers(self.hub.emit)
-        _ALL.add(self.servers)
+        self.tests = SuiteRunner(self.hub.emit)
+        self.diags = Diagnostics(self.hub.emit)
+        _ALL.add(self)
+
+    def shutdown(self) -> None:
+        """At exit (or the app quitting): every process this feature started stops."""
+        self.servers.shutdown()
+        self.tests.shutdown()
+        self.diags.shutdown()
+
+    async def close(self) -> None:
+        await self.servers.close()
+        await self.tests.close()
+        await self.diags.close()
+        for task in list(self._tasks):
+            task.cancel()
 
     # ── helpers ──
 
@@ -180,15 +202,201 @@ class CodeVerify:
         if task is None or task.kind != "code":
             return
         checks = self.session(task.id)
-        if isinstance(msg.get("verify"), bool):
-            checks.verify = msg["verify"]
-        self.hub.emit("cv_session", id=task.id, verify=checks.verify)
+        for name in ("verify", "problems"):
+            if isinstance(msg.get(name), bool):
+                setattr(checks, name, msg[name])
+        self.hub.emit("cv_session", id=task.id, verify=checks.verify, problems=checks.problems)
+
+    # ── Xcode, for the tests and checks of an Xcode project ──
+
+    async def xcode_info(self, project: Path) -> tuple[str, str, list[str]] | None:
+        """The project's workspace or project, and its schemes (xcodebuild -list, kept a
+        few minutes)."""
+        container = codetests.xcode_container(project)
+        if container is None:
+            return None
+        cached = self._schemes.get(str(project))
+        if cached is not None and time.monotonic() - cached[0] < SCHEMES_FRESH:
+            return cached[1]
+        env = await asyncio.to_thread(self.tests.env)
+        code, out = await runproc.run_quiet(
+            ["xcodebuild", "-list", "-json", *container], project, env, timeout=60
+        )
+        info = (*container, codetests.parse_schemes(out) if code == 0 else [])
+        self._schemes[str(project)] = (time.monotonic(), info)
+        return info
+
+    async def destination(self) -> str:
+        """Where an Xcode project's tests run: the booted simulator, else the first one."""
+        with contextlib.suppress(Exception):
+            devices = await self.hub.simulator.devices()
+            if devices:
+                return f"platform=iOS Simulator,id={devices[0]['udid']}"  # booted ones first
+        return "platform=macOS"
+
+    # ── the Tests pane ──
+
+    async def suites(self, project: Path) -> list[codetests.Suite]:
+        xcode = await self.xcode_info(project)
+        schemes = [(xcode[0], xcode[1], s) for s in xcode[2]] if xcode else []
+        return await asyncio.to_thread(codetests.discover, project, schemes)
+
+    async def cmd_tests(self, msg: dict[str, Any]) -> None:
+        try:
+            project, task = self.project_of(msg)
+        except ValueError as exc:
+            self.error(str(exc))
+            return
+        action = str(msg.get("action") or "state")
+        if action == "state":
+            self.spawn(self._tests_state(project, task))
+        elif action == "run":
+            self.spawn(self._tests_run(project, task, msg))
+        elif action == "stop":
+            self.spawn(self.tests.stop(project))
+        elif action == "watch":
+            self.spawn(self._tests_watch(project, task, msg))
+        elif action == "fix":
+            self._tests_fix(project, task)
+
+    async def _tests_state(self, project: Path, task: Any) -> None:
+        suites = await self.suites(project)
+        files = {}
+        for suite in suites:
+            if suite.public()["files"]:
+                files[suite_key(suite)] = await asyncio.to_thread(
+                    codetests.test_files, project, suite
+                )
+        run = self.tests.latest(project)
+        watch = self.tests.watching.get(str(project))
+        self.hub.emit(
+            "cv_tests",
+            project=project.name,
+            path=str(project),
+            id=task.id if task is not None else None,
+            suites=[{**s.public(), "key": suite_key(s)} for s in suites],
+            files=files,
+            run=run.public(with_output=True) if run is not None else None,
+            watch={"suite": suite_key(watch["suite"]), "target": watch.get("target") or {}}
+            if watch
+            else None,
+        )
+
+    async def _suite_for(self, project: Path, msg: dict[str, Any]) -> codetests.Suite:
+        suites = await self.suites(project)
+        wanted = str(msg.get("suite") or "")
+        suite = next((s for s in suites if suite_key(s) == wanted), None)
+        if suite is None and not wanted and suites:
+            suite = suites[0]
+        if suite is None:
+            raise ValueError("That test runner isn't in this project.")
+        return suite
+
+    @staticmethod
+    def _target(msg: dict[str, Any]) -> dict[str, str]:
+        return {
+            k: str(msg[k])[:1000]
+            for k in ("file", "test", "package")
+            if isinstance(msg.get(k), str) and msg[k]
+        }
+
+    async def _tests_run(self, project: Path, task: Any, msg: dict[str, Any]) -> None:
+        try:
+            suite = await self._suite_for(project, msg)
+            destination = await self.destination() if suite.id == "xcode" else ""
+            await self.tests.start(project, suite, self._target(msg), destination=destination)
+        except ValueError as exc:
+            self.error(str(exc))
+
+    async def _tests_watch(self, project: Path, task: Any, msg: dict[str, Any]) -> None:
+        if not msg.get("on"):
+            self.tests.set_watch(project, False)
+        else:
+            try:
+                suite = await self._suite_for(project, msg)
+            except ValueError as exc:
+                self.error(str(exc))
+                return
+            destination = await self.destination() if suite.id == "xcode" else ""
+            watch = {"suite": suite, "target": self._target(msg), "destination": destination}
+            self.tests.set_watch(project, True, watch)
+        await self._tests_state(project, task)
+
+    def _tests_fix(self, project: Path, task: Any) -> None:
+        run = self.tests.latest(project)
+        if task is None:
+            self.error("Open a session to send it the failures.")
+            return
+        if run is None or run.results is None or not run.results.failures():
+            self.error("There are no failures to fix.")
+            return
+        if not self.hub.tasks.send(task.id, codetests.fix_message(run.suite.label, run.results)):
+            self.error("The session couldn't take another message just now.")
+
+    # ── the Problems pane ──
+
+    async def checkers(self, project: Path) -> list[diagnostics.Checker]:
+        env = await asyncio.to_thread(self.diags.env)
+        xcode = await self.xcode_info(project)
+        chosen = None
+        if xcode is not None:
+            scheme = codetests.pick_scheme(xcode[2], xcode[1])
+            chosen = (xcode[0], xcode[1], scheme) if scheme else None
+        return await asyncio.to_thread(diagnostics.discover, project, env, chosen)
+
+    async def cmd_problems(self, msg: dict[str, Any]) -> None:
+        try:
+            project, task = self.project_of(msg)
+        except ValueError as exc:
+            self.error(str(exc))
+            return
+        action = str(msg.get("action") or "state")
+        if action == "state":
+            self.spawn(self._problems_state(project, task))
+        elif action == "run":
+            self.spawn(self._problems_run(project, bool(msg.get("slow"))))
+        elif action == "fix":
+            check = self.diags.latest(project)
+            if task is None:
+                self.error("Open a session to send it the problems.")
+            elif check is None or not check.problems:
+                self.error("There are no problems to fix.")
+            elif not self.hub.tasks.send(task.id, diagnostics.fix_message(check.problems)):
+                self.error("The session couldn't take another message just now.")
+
+    async def _problems_state(self, project: Path, task: Any) -> None:
+        checkers = await self.checkers(project)
+        check = self.diags.latest(project)
+        self.hub.emit(
+            "cv_problems_state",
+            project=project.name,
+            path=str(project),
+            id=task.id if task is not None else None,
+            checkers=[c.public() for c in checkers],
+            check=check.public() if check is not None else None,
+            after_turn=self.session(task.id).problems if task is not None else None,
+        )
+
+    async def _problems_run(self, project: Path, slow: bool, after_turn: bool = False) -> Any:
+        checkers = [c for c in await self.checkers(project) if slow or not c.slow]
+        if not checkers:
+            self.error(
+                "This project has no checkers set up (TypeScript, ESLint, Ruff, Pyright, mypy)."
+            )
+            return None
+        return await self.diags.run(project, checkers, after_turn=after_turn)
 
     # ── what the sessions do ──
 
     def on_task_event(self, kind: str, data: dict[str, Any]) -> None:
         if kind == "tasks":
             self._sessions_changed(data.get("items") or [])
+        elif kind == "task_log":
+            entry = data.get("entry") or {}
+            if entry.get("role") == "tool" and entry.get("tool") in tasks.EDIT_TOOLS:
+                task = self.hub.tasks.tasks.get(data.get("id"))
+                if task is not None:
+                    self.tests.changed(task.cwd)  # a watch runs again, without waiting to look
 
     def _sessions_changed(self, items: list[dict[str, Any]]) -> None:
         """A session that ended (End session, a crash) or was let go: the dev servers it
@@ -217,11 +425,16 @@ class CodeVerify:
         return {DEV: create_sdk_mcp_server(name=DEV, version="0.1.0", tools=dev_tools(self, task))}
 
     async def forever(self) -> None:
-        """Runs with the app: when it quits, every dev server stops with it."""
+        """Runs with the app: when it quits, every process this feature started stops."""
         try:
             await asyncio.Event().wait()
         finally:
-            self.servers.shutdown()
+            self.shutdown()
+
+
+def suite_key(suite: codetests.Suite) -> str:
+    """Which of a project's suites: its runner, folder and (Xcode) scheme."""
+    return f"{suite.id}:{suite.cwd}:{dict(suite.extra).get('scheme', '')}"
 
 
 def _int(value: Any) -> int:
@@ -385,4 +598,6 @@ def install(hub: Any) -> None:
     hub.register_command("cv_logs", cv.cmd_logs)
     hub.register_command("cv_save", cv.cmd_save)
     hub.register_command("cv_session", cv.cmd_session)
+    hub.register_command("cv_tests", cv.cmd_tests)
+    hub.register_command("cv_problems", cv.cmd_problems)
     hub.register_loop("code_verify", cv.forever)

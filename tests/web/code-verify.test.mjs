@@ -31,3 +31,25 @@ test('new log lines join what’s shown once each, and the oldest go past the li
   assert.deepEqual(shown, [[1, 'a'], [2, 'b'], [3, 'c']]);
   assert.deepEqual(cv.mergeLines(shown, [[4, 'd']], 2), [[3, 'c'], [4, 'd']]);
 });
+
+test('a problem becomes an @-mention of its file and line', () => {
+  assert.equal(cv.mentionFor({ file: 'src/App.tsx', line: 12, col: 5 }), '@src/App.tsx#L12 ');
+  assert.equal(cv.mentionFor({ file: 'README.md', line: null }), '@README.md ');
+  assert.equal(cv.mentionFor({ file: '' }), '');
+});
+
+test('problems are counted and grouped by file in the order they came', () => {
+  const list = [
+    { file: 'b.ts', severity: 'error' }, { file: 'a.ts', severity: 'warning' }, { file: 'b.ts', severity: 'warning' },
+  ];
+  assert.deepEqual(cv.countProblems(list), { errors: 1, warnings: 2 });
+  assert.deepEqual(cv.byFile(list).map(([f, items]) => [f, items.length]), [['b.ts', 2], ['a.ts', 1]]);
+});
+
+test('a test run’s line comes in pieces, each translated on its own', () => {
+  assert.deepEqual(cv.runLine({ status: 'running', seconds: 12.2 }), ['Running…', '12 s']);
+  assert.deepEqual(cv.runLine({ status: 'failed', seconds: 3.44, summary: '40 passed · 2 failed' }), ['40 passed', '2 failed', '3.4 s']);
+  assert.deepEqual(cv.runLine({ status: 'error', seconds: 1, summary: '', message: 'The run exited with code 2 before it reported results.' }),
+    ['The run exited with code 2 before it reported results.']);
+  assert.deepEqual(cv.runLine(null), []);
+});

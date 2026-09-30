@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from claude_agent_sdk import PermissionResultAllow, ToolPermissionContext
@@ -25,9 +26,11 @@ def plain_env():
 @pytest.fixture
 async def hub(settings, quiet_speaker, isolated):
     hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
-    hub.code_verify.servers.env = plain_env  # never the owner's login shell in a test
+    cv = hub.code_verify
+    # Never the owner's login shell in a test.
+    cv.servers.env = cv.tests.env = cv.diags.env = plain_env
     yield hub
-    await hub.code_verify.servers.close()
+    await cv.close()
 
 
 @pytest.fixture
@@ -52,7 +55,7 @@ def events(queue, kind=None):
     return out
 
 
-async def until(condition, seconds=10.0):
+async def until(condition, seconds=25.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         if condition():
@@ -223,3 +226,92 @@ def test_feature_tools_word_their_cards(tmp_path):
         assert tasks.approval_detail("mcp__x__y", {}, tmp_path) == "y {}"
     finally:
         del tasks.FEATURE_TOOLS["mcp__x__y"]
+
+
+def tool_wrapper(project, name, target):
+    """The project's own copy of a tool (its .venv/bin), running the one given."""
+    path = project / ".venv" / "bin" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n')
+    path.chmod(0o755)
+
+
+def sent_messages(hub, monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        hub.tasks, "send", lambda task_id, text, *a, **k: sent.append((task_id, text)) or True
+    )
+    return sent
+
+
+async def wait_for(q, kind, check=lambda ev: True, seconds=30.0):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        while not q.empty():
+            ev = q.get_nowait()
+            if ev["type"] == kind and check(ev):
+                return ev
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"no {kind}")
+
+
+async def test_the_tests_pane_runs_the_projects_tests_and_sends_the_failures(
+    hub, project, monkeypatch
+):
+    (project / "tests").mkdir()
+    (project / "tests" / "test_math.py").write_text(
+        "def test_add():\n    assert 1 + 1 == 2\n\n\ndef test_sub():\n    assert 3 - 1 == 1\n"
+    )
+    tool_wrapper(project, "python", sys.executable)
+    task = ClaudeTask(id=4, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[4] = task
+    sent = sent_messages(hub, monkeypatch)
+    q = hub.subscribe()
+    await hub._handle({"type": "cv_tests", "action": "state", "id": 4})
+    state = await wait_for(q, "cv_tests")
+    [suite] = state["suites"]
+    assert suite["id"] == "pytest" and suite["command"] == ".venv/bin/python -m pytest"
+    assert state["files"][suite["key"]] == ["tests/test_math.py"]
+    await hub._handle({"type": "cv_tests", "action": "fix", "id": 4})
+    assert (await wait_for(q, "cv_error"))["text"] == "There are no failures to fix."
+    await hub._handle({"type": "cv_tests", "action": "run", "id": 4, "suite": suite["key"]})
+    done = await wait_for(q, "cv_tests_run", lambda ev: ev["run"]["status"] != "running")
+    assert done["run"]["status"] == "failed" and done["run"]["summary"] == "1 passed · 1 failed"
+    await hub._handle({"type": "cv_tests", "action": "fix", "id": 4})
+    [(task_id, text)] = sent
+    assert task_id == 4 and "test_sub (tests/test_math.py:" in text and "<test-output>" in text
+    # One test again, by the node id its result gave.
+    target = done["run"]["tree"][0]["cases"][0]["target"]
+    await hub._handle(
+        {"type": "cv_tests", "action": "run", "id": 4, "suite": suite["key"], "test": target}
+    )
+    one = await wait_for(q, "cv_tests_run", lambda ev: ev["run"]["status"] != "running")
+    assert one["run"]["target"] == {"test": "tests/test_math.py::test_sub"}
+
+
+async def test_the_problems_pane_runs_the_projects_checkers_and_sends_them(
+    hub, project, monkeypatch
+):
+    (project / "pyproject.toml").write_text("[tool.ruff]\n")
+    (project / "app.py").write_text("import os\n")
+    tool_wrapper(project, "ruff", str(Path(sys.executable).parent / "ruff"))
+    task = ClaudeTask(id=8, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[8] = task
+    sent = sent_messages(hub, monkeypatch)
+    q = hub.subscribe()
+    await hub._handle({"type": "cv_problems", "action": "state", "id": 8})
+    state = await wait_for(q, "cv_problems_state")
+    assert [c["id"] for c in state["checkers"]] == ["ruff"] and state["after_turn"] is False
+    await hub._handle({"type": "cv_problems", "action": "run", "id": 8})
+    done = await wait_for(q, "cv_problems", lambda ev: ev["check"]["status"] == "done")
+    [problem] = done["check"]["problems"]
+    assert (problem["file"], problem["line"], problem["code"]) == ("app.py", 1, "F401")
+    await hub._handle({"type": "cv_problems", "action": "fix", "id": 8})
+    [(task_id, text)] = sent
+    assert task_id == 8 and "app.py:1:8 warning [F401] (ruff)" in text
+    await hub._handle({"type": "cv_session", "id": 8, "problems": True})
+    assert hub.code_verify.session(8).problems is True
+    # A project with nothing to check says so.
+    (project / "pyproject.toml").write_text("")
+    await hub._handle({"type": "cv_problems", "action": "run", "id": 8})
+    assert "no checkers set up" in (await wait_for(q, "cv_error"))["text"]

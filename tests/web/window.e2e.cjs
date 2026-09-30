@@ -2285,6 +2285,64 @@ test('A dev server’s logs show its output as it comes, once each line', async 
   assert(await js('$("jc-pane-body").textContent.includes("It exited with code 1.")'), 'no exit message');
 });
 
+test('The Tests pane shows failures as a tree, runs one test again, and sends the failures on', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(await clickText('#jc-menu', 'Tests'), 'no Tests item in the More menu');
+  const path = '/Users/x/Projects/alpha';
+  const run = { project: path, suite: 'pytest', label: 'pytest', target: {}, status: 'failed', started: 1, seconds: 3.4, message: '',
+    summary: '1 passed · 1 failed', counts: { passed: 1, failed: 1, skipped: 0 }, complete: true, lines: 3, watch: false,
+    tree: [{ file: 'tests/test_math.py', failed: 1, passed: 1, skipped: 0, cases: [
+      { file: 'tests/test_math.py', name: 'test_<b>sub</b>', status: 'failed', message: 'assert 2 == 1', line: 5, target: 'tests/test_math.py::test_sub' },
+      { file: 'tests/test_math.py', name: 'test_add', status: 'passed', message: '', line: 1, target: 'tests/test_math.py::test_add' }] }],
+    output: [[1, '$ python -m pytest'], [2, 'FAILED tests/test_math.py::test_sub']] };
+  await deliver({ type: 'cv_tests', project: 'alpha', path, id: 1, files: { 'pytest::': ['tests/test_math.py'] }, watch: null, run,
+    suites: [{ key: 'pytest::', id: 'pytest', label: 'pytest', command: 'uv run python -m pytest', cwd: '', ready: true, why: 'pyproject.toml', files: true }] });
+  const r = await js(`({ cases: [...document.querySelectorAll('#jc-pane-body .cv-case-name')].map((n) => n.textContent),
+    bolds: document.querySelectorAll('#jc-pane-body .cv-case-name b').length,
+    line: document.querySelector('#jc-pane-body .cv-runline').textContent, msg: document.querySelector('#jc-pane-body .cv-case-msg').textContent })`);
+  assert(r.cases.join() === 'test_<b>sub</b>,test_add' && r.bolds === 0, JSON.stringify(r));
+  assert(r.line.includes('1 passed · 1 failed · 3.4 s') && r.msg === 'assert 2 == 1', JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .cv-case.failed', 'Run'), 'no Run on a failed test');
+  assert(await clickText('#jc-pane-body .cv-runline', 'Fix failures'), 'no Fix failures');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_tests', action: 'run', suite: 'pytest::', test: 'tests/test_math.py::test_sub', file: 'tests/test_math.py', id: 1 },
+    { type: 'cv_tests', action: 'fix', id: 1 }]), JSON.stringify(s));
+  // A new run clears the output shown, which then fills as it comes.
+  await deliver({ type: 'cv_tests_run', run: { ...run, status: 'running', started: 2, summary: '', counts: null, tree: [], output: undefined } });
+  await deliver({ type: 'cv_tests_out', project: path, lines: [[1, '$ python -m pytest'], [2, 'collected 2 items']] });
+  await frames(2);
+  assert(await js('$("cv-test-log").textContent') === '$ python -m pytest\ncollected 2 items', await js('$("cv-test-log").textContent'));
+  assert(await js('!!document.querySelector("#jc-pane-body .cv-bar button") && document.querySelector("#jc-pane-body .cv-bar button").textContent') === 'Stop', 'no Stop while it runs');
+});
+
+test('The Problems pane lists problems by file; one clicked is mentioned in the message', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-problems"); $("deck-input").value = "look at"; true');
+  const path = '/Users/x/Projects/alpha';
+  await deliver({ type: 'cv_problems_state', project: 'alpha', path, id: 1, after_turn: false,
+    checkers: [{ id: 'tsc', label: 'TypeScript', command: 'tsc --noEmit', ready: true, why: '', slow: false },
+      { id: 'eslint', label: 'ESLint', command: 'eslint', ready: false, why: 'eslint isn’t installed', slow: false }],
+    check: { project: path, status: 'done', started: 1, seconds: 2, errors: 1, after_turn: false,
+      checkers: [{ id: 'tsc', label: 'TypeScript', count: 2, error: '' }],
+      problems: [{ file: 'src/App.tsx', line: 12, col: 5, severity: 'error', message: 'Type <x> is wrong', source: 'tsc', code: 'TS2322' },
+        { file: 'src/App.tsx', line: 30, col: 1, severity: 'warning', message: 'Unused', source: 'tsc', code: '' }] } });
+  const r = await js(`({ files: [...document.querySelectorAll('#jc-pane-body .cv-file-name')].map((n) => n.textContent),
+    rows: document.querySelectorAll('#jc-pane-body .cv-problem').length, line: document.querySelector('#jc-pane-body .cv-runline').textContent,
+    off: [...document.querySelectorAll('#jc-pane-body .cv-checker.off')].map((n) => n.textContent) })`);
+  assert(r.files.join() === 'src/App.tsx' && r.rows === 2 && r.line.includes('1 error · 1 warning') && r.off.join() === 'ESLint', JSON.stringify(r));
+  await js('document.querySelector("#jc-pane-body .cv-problem").click(); true');
+  assert(await js('$("deck-input").value') === 'look at @src/App.tsx#L12 ', await js('$("deck-input").value'));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .cv-runline', 'Fix these'), 'no Fix these');
+  await js('document.querySelector("#jc-pane-body .cv-switch .sw").click(); true');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_problems', action: 'fix', id: 1 }, { type: 'cv_session', id: 1, problems: true }]), JSON.stringify(s));
+});
+
 // ──
 
 let base;
