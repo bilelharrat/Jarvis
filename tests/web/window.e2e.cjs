@@ -1898,7 +1898,6 @@ test('Changes: side by side, an isolated session’s Land, and a folder that isn
   assert(JSON.stringify(acts) === '["land s-1","resolve s-1"]', JSON.stringify(acts));
   await js(`__ev({ type: 'code_changes', id: 1, view: 'session', git: false, gone: false, workspace: {}, conflicts: [], files: [], touched: ['/p/alpha/a.py'], totals: {} })`);
   assert((await js('document.querySelector(".jcx-changes").textContent')).includes('isn’t a git repository'), 'no note');
-  await clickText('.jcx-bar', 'Unified');
 });
 
 const GIT_STATE = (extra = {}) => JSON.stringify({ type: 'code_git', key: 'id:1', repo: true, branch: 'main', detached: false, upstream: 'origin/main', ahead: 2, behind: 0,
@@ -3938,7 +3937,6 @@ async function chord(key, mods = ['meta']) {
 const VERSION = { mtime_ns: 1, size: 12, sha: 'aaa' };
 // Jarvis Code open on session 1 with the editor's Files pane, and a file opened in it.
 async function editorWith(text = 'a = 1\nb = 2\n', extra = {}) {
-  await js('localStorage.removeItem("jarvis.editor.drafts"); true');  // (a test's kept changes are its own)
   await featureScript('code_diff.js');
   await featureScript('code-editor.js');
   await open(1);
@@ -4111,7 +4109,6 @@ test('Read-only files say why; Open in… lists the editors on this Mac and open
 });
 
 test('/memory opens the project’s CLAUDE.md in the editor', async () => {
-  await js('localStorage.removeItem("jarvis.editor.drafts"); true');
   await featureScript('code-editor.js');
   await open(1);
   await js('localSlash("/memory"); true');
@@ -4127,7 +4124,6 @@ test('/memory opens the project’s CLAUDE.md in the editor', async () => {
 });
 
 test('Search finds text across the project: matches by file, a match opens at its line, files become @-mentions', async () => {
-  await js('localStorage.removeItem("jarvis.editor.drafts"); true');
   await featureScript('code-editor.js');
   await featureScript('code-search.js');
   await open(1);
@@ -4349,7 +4345,6 @@ test('A "#" note asks where it goes, the last place first; not saved, it goes ba
 });
 
 test('The Files pane’s Memory menu opens the three CLAUDE.md files, the owner’s own outside the project', async () => {
-  await js('localStorage.removeItem("jarvis.editor.drafts"); true');
   await featureScript('code-editor.js');
   await open(1);
   await js('jarvisFeatures.openPane("files"); true');
@@ -5703,6 +5698,24 @@ test('Browser AI shows a notice on a page whose text talks to an AI, as data, un
 
 // ──
 
+// WINDOW_TESTS=<regex> runs only the tests whose names match (a failure, rerun alone);
+// WINDOW_ORDER=reverse or shuffle[:seed] runs them in another order: no test may lean on
+// what the one before it left behind.
+function chosenTests() {
+  const only = process.env.WINDOW_TESTS ? new RegExp(process.env.WINDOW_TESTS) : null;
+  const list = tests.filter((t) => !only || only.test(t.name));
+  const order = process.env.WINDOW_ORDER || '';
+  if (order === 'reverse') list.reverse();
+  else if (order.startsWith('shuffle')) {
+    const seed = Number(order.split(':')[1]) || Date.now() % 100000;
+    console.log(`order: shuffle:${seed}`);
+    let s = (seed % 2147483646) + 1;
+    const rand = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+    for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+  }
+  return list;
+}
+
 let base;
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
@@ -5713,10 +5726,14 @@ app.whenReady().then(async () => {
   const errors = [];
   win.webContents.on('console-message', (e) => { if (e.level === 'error' && !/Failed to load resource|WebSocket|ERR_NAME_NOT_RESOLVED|fonts\./.test(e.message) && !expectedErrors.some((r) => r.test(e.message))) errors.push(e.message); });
   let failed = 0;
-  for (const t of tests) {
+  const run = chosenTests();
+  for (const t of run) {
     errors.length = 0;
     expectedErrors = [];
     try {
+      // What the window keeps in localStorage (the Changes pane's side by side, the editor's
+      // unsaved copies, the folded sidebar) outlives a reload: each test starts without it.
+      await win.webContents.session.clearStorageData({ storages: ['localstorage'] });
       await fresh();
       await t.fn();
       if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`);
@@ -5726,7 +5743,7 @@ app.whenReady().then(async () => {
       console.log(`FAILED ${t.name}\n       ${err.message}`);
     }
   }
-  console.log(`\n${tests.length - failed} passed, ${failed} failed`);
+  console.log(`\n${run.length - failed} passed, ${failed} failed`);
   server.close();
   win.destroy();
   app.exit(failed ? 1 : 0);
