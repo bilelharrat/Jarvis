@@ -42,7 +42,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import weakref
 from datetime import datetime
 from typing import Any
 
@@ -1033,17 +1032,16 @@ class Automation:
         )
 
 
-_FEATURES: weakref.WeakKeyDictionary[Any, Automation] = weakref.WeakKeyDictionary()
-
-
 def feature_of(hub: Any) -> Automation | None:
     """This hub's automation (for the tests and the other automation modules)."""
-    return _FEATURES.get(hub)
+    return getattr(hub, "automation_feature", None)
 
 
 def install(hub: Any) -> None:
     feature = Automation(hub)
-    _FEATURES[hub] = feature
+    # Kept on the hub, never in a map of this module's: one keyed weakly by the hub still
+    # holds its feature, the feature holds the hub, and no hub would ever be freed.
+    hub.automation_feature = feature
     # The card that adds a routine asks in the language the owner speaks; "here" is where
     # the Mac is.
     hub.routines.language = lambda: hub.prefs.language

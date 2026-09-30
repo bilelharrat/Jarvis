@@ -73,12 +73,10 @@ for _key, (_default, _clean) in SPEAKING_PREFS.items():
 # The settings voice_settings may change (and nothing else of prefs.features).
 SETTINGS = ("voice_detector", "voice_vad_threshold", "voice_engine", "voice_talk_over")
 
-_FEATURES: weakref.WeakKeyDictionary[Any, Voice] = weakref.WeakKeyDictionary()
-
 
 def feature_for(hub: Any) -> Voice | None:
     """The voice feature installed on this hub (for tests and the other voice modules)."""
-    return _FEATURES.get(hub)
+    return getattr(hub, "voice_feature", None)
 
 
 class Voice:
@@ -253,7 +251,9 @@ def _wake_source(prefs: Any):
 
 def install(hub: Any) -> None:
     voice = Voice(hub)
-    _FEATURES[hub] = voice
+    # Kept on the hub, never in a map of this module's: one keyed weakly by the hub still
+    # holds its feature, the feature holds the hub, and no hub would ever be freed.
+    hub.voice_feature = voice
     wake.configure(_wake_source(hub.prefs))
     if hub.listener_factory is None:  # the app's own listener (a test's stays its own)
         hub.listener_factory = voice.make_listener

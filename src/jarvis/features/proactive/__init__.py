@@ -29,7 +29,6 @@ network until a loop runs or a command arrives.
 
 from __future__ import annotations
 
-import weakref
 from typing import Any
 
 from . import (
@@ -44,8 +43,6 @@ from . import (
     reminders,
     weather_watch,
 )
-
-_FEATURES: weakref.WeakKeyDictionary[Any, Proactive] = weakref.WeakKeyDictionary()
 
 
 class Proactive:
@@ -104,10 +101,12 @@ class Proactive:
 
 def feature_of(hub: Any) -> Proactive | None:
     """This hub's proactive parts (for the tests)."""
-    return _FEATURES.get(hub)
+    return getattr(hub, "proactive_feature", None)
 
 
 def install(hub: Any) -> None:
     feature = Proactive(hub)
-    _FEATURES[hub] = feature
+    # Kept on the hub, never in a map of this module's: one keyed weakly by the hub still
+    # holds its feature, the feature holds the hub, and no hub would ever be freed.
+    hub.proactive_feature = feature
     feature.install()

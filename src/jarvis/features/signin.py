@@ -20,7 +20,6 @@ and when the checkup asks.
 from __future__ import annotations
 
 import re
-import weakref
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -130,16 +129,15 @@ class SignIn:
             self._changed(error=str(exc))
 
 
-_SIGNINS: weakref.WeakKeyDictionary[Any, SignIn] = weakref.WeakKeyDictionary()
-
-
 def signin_for(hub: Any) -> SignIn | None:
-    return _SIGNINS.get(hub)
+    return getattr(hub, "signin_desk", None)
 
 
 def install(hub: Any) -> None:
     signin = SignIn(hub)
-    _SIGNINS[hub] = signin
+    # Kept on the hub, never in a map of this module's: one keyed weakly by the hub still
+    # holds its desk, the desk holds the hub, and no hub would ever be freed.
+    hub.signin_desk = signin
     hub.register_command("signin_state", signin.state)
     hub.register_command("signin_key", signin.use_key, slow=True)  # checks the key online
     hub.register_command("signin_forget", signin.forget)

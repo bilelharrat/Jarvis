@@ -26,14 +26,11 @@ fresh install.
 
 from __future__ import annotations
 
-import weakref
 from pathlib import Path
 from typing import Any
 
 from ... import prefs as prefs_module
 from ...textclean import clean_text
-
-_DESKS: weakref.WeakKeyDictionary[Any, Any] = weakref.WeakKeyDictionary()
 
 
 def _setup_state(value: Any) -> str | None:
@@ -62,7 +59,7 @@ prefs_module.register_feature_pref("ops_backup_folder", "", _folder)
 
 def desk_for(hub: Any):
     """The hub's ops desk (tests reach it here to point it at their own folders)."""
-    return _DESKS.get(hub)
+    return getattr(hub, "ops_desk", None)
 
 
 def prepare(folder: Path) -> None:
@@ -82,7 +79,9 @@ def install(hub: Any) -> None:
     from . import desk
 
     ops = desk.Ops(hub)
-    _DESKS[hub] = ops
+    # Kept on the hub, never in a map of this module's: one keyed weakly by the hub still
+    # holds its desk, the desk holds the hub, and no hub would ever be freed.
+    hub.ops_desk = ops
     for kind, handler in {
         "ops_state": ops.state,
         "ops_setup": ops.setup,

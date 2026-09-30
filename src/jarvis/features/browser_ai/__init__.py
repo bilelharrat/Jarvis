@@ -71,20 +71,19 @@ that called it (Settings' Run asks for one ordinary turn, in the owner's words).
 
 from __future__ import annotations
 
-import weakref
 from typing import Any
-
-_DESKS: weakref.WeakKeyDictionary[Any, Any] = weakref.WeakKeyDictionary()
 
 
 def desk_for(hub: Any) -> Any:
     """The hub's browser desk (tests reach it here)."""
-    return _DESKS.get(hub)
+    return getattr(hub, "browser_ai_desk", None)
 
 
 def install(hub: Any) -> None:
     from .desk import BrowserAi
 
     desk = BrowserAi(hub)
-    _DESKS[hub] = desk
+    # Kept on the hub, never in a map of this module's: one keyed weakly by the hub still
+    # holds its desk, the desk holds the hub, and no hub would ever be freed.
+    hub.browser_ai_desk = desk
     desk.install()
