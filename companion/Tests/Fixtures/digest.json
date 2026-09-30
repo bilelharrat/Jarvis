@@ -1,0 +1,42 @@
+{
+  "body": {
+    "items": [
+      {
+        "at": "2026-09-30T11:23:25",
+        "kind": "text",
+        "summary": "Running late",
+        "urgent": false,
+        "who": "+15550003"
+      },
+      {
+        "at": "2026-09-30T10:28:25",
+        "kind": "text",
+        "summary": "Dinner moved to 8, at the usual place.",
+        "urgent": true,
+        "who": "Pepper Potts"
+      },
+      {
+        "at": "2026-09-30T09:28:25",
+        "kind": "email",
+        "summary": "The car is ready · The shop closes at 6",
+        "urgent": false,
+        "who": "Happy Hogan"
+      },
+      {
+        "at": "2026-09-30T07:28:25",
+        "kind": "voicemail",
+        "summary": "Confirming Thursday's cleaning at 10",
+        "urgent": false,
+        "who": "Dr. Chen's office"
+      },
+      {
+        "at": "2026-09-30T06:28:25",
+        "kind": "call",
+        "summary": "Missed call",
+        "urgent": false,
+        "who": "+15550010"
+      }
+    ]
+  },
+  "status": 200
+}

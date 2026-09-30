@@ -1,0 +1,28 @@
+{
+  "body": {
+    "limits": {
+      "currency": "USD",
+      "day": 500.0,
+      "purchase": 250.0,
+      "transfer": 100.0
+    },
+    "recent": [
+      {
+        "amount": 40.0,
+        "at": "2026-09-30T11:28:25",
+        "currency": "USD",
+        "kind": "transfer",
+        "merchant": "Pepper Potts"
+      },
+      {
+        "amount": 6.5,
+        "at": "2026-09-30T11:28:25",
+        "currency": "USD",
+        "kind": "purchase",
+        "merchant": "Blue Bottle Coffee"
+      }
+    ],
+    "today_total": 46.5
+  },
+  "status": 200
+}

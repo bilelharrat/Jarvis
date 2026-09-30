@@ -1,0 +1,8 @@
+{
+  "body": {
+    "fingerprint": "b847e1d003cbcf17d8374c1d3cb5d77825982bd24a07c95474db5bea3f18a440",
+    "mac_name": "Studio",
+    "token": "test-token-not-a-secret"
+  },
+  "status": 200
+}

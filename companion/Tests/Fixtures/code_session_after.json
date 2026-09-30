@@ -1,0 +1,36 @@
+{
+  "body": {
+    "entries": [
+      {
+        "at": "2026-09-30T09:01:05",
+        "i": 5,
+        "role": "note",
+        "text": "1. Run the tests"
+      },
+      {
+        "at": "2026-09-30T09:01:10",
+        "i": 6,
+        "role": "note",
+        "text": "Interrupted."
+      }
+    ],
+    "id": 4,
+    "status": "needs_you",
+    "title": "Fix the login bug",
+    "todos": [
+      {
+        "done": true,
+        "text": "Fix the handler"
+      },
+      {
+        "done": false,
+        "text": "Run the tests"
+      }
+    ],
+    "waiting": {
+      "approval_id": "8bac3f79940e",
+      "question": "Jarvis Code in suit wants to run a command"
+    }
+  },
+  "status": 200
+}

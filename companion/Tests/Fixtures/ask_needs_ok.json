@@ -1,0 +1,25 @@
+{
+  "body": {
+    "approvals": [
+      {
+        "choices": [
+          {
+            "id": "allow",
+            "label": "Allow"
+          },
+          {
+            "id": "deny",
+            "label": "Not now"
+          }
+        ],
+        "detail": "Dinner at 8",
+        "id": "e789c6eab983",
+        "question": "Send the email to Pepper?",
+        "rid": ""
+      }
+    ],
+    "done": false,
+    "reply": ""
+  },
+  "status": 200
+}

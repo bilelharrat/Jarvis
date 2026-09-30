@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "Jarvis is busy. Try again in a moment."
+  },
+  "status": 429
+}

@@ -1,0 +1,23 @@
+{
+  "body": {
+    "items": [
+      {
+        "goal": "Quote for tires",
+        "id": "d2",
+        "messages": 0,
+        "status": "done",
+        "updated_at": "2026-09-01T09:00:00",
+        "with": "Garage"
+      },
+      {
+        "goal": "Book a cleaning next week",
+        "id": "d1",
+        "messages": 1,
+        "status": "active",
+        "updated_at": "2026-09-30T08:00:00",
+        "with": "Dr. Chen's office"
+      }
+    ]
+  },
+  "status": 200
+}

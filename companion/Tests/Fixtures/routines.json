@@ -1,0 +1,49 @@
+{
+  "body": {
+    "items": [
+      {
+        "enabled": true,
+        "id": "ec498415",
+        "name": "Morning brief",
+        "next_run": "2026-10-01T07:00",
+        "schedule_text": "weekdays at 7 AM"
+      },
+      {
+        "enabled": true,
+        "id": "244ee707",
+        "name": "Weekly review",
+        "next_run": "2026-10-02T16:00",
+        "schedule_text": "Fridays at 4 PM"
+      },
+      {
+        "enabled": false,
+        "id": "b99b3a2a",
+        "name": "Portfolio check",
+        "next_run": null,
+        "schedule_text": "Mondays, Fridays at 4 PM"
+      },
+      {
+        "enabled": true,
+        "id": "7e14f1e4",
+        "name": "Welcome home",
+        "next_run": "2026-10-01T00:00",
+        "schedule_text": "when you get home"
+      },
+      {
+        "enabled": true,
+        "id": "e05cc17b",
+        "name": "Stretch",
+        "next_run": "2026-10-01T00:00",
+        "schedule_text": "every hour, 9 AM to 5 PM"
+      },
+      {
+        "enabled": true,
+        "id": "cb967cac",
+        "name": "Dentist",
+        "next_run": "2026-10-02T09:00",
+        "schedule_text": "once, 2026-10-02 at 9 AM"
+      }
+    ]
+  },
+  "status": 200
+}

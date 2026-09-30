@@ -1,0 +1,44 @@
+{
+  "body": {
+    "sessions": [
+      {
+        "branch": "",
+        "cost_usd": null,
+        "id": 6,
+        "mode": "ask",
+        "model": "claude-opus-5-5",
+        "project": "tidy",
+        "status": "failed",
+        "title": "Tidy imports",
+        "updated_at": "2026-09-30T11:28:25"
+      },
+      {
+        "branch": "",
+        "cost_usd": null,
+        "id": 5,
+        "mode": "ask",
+        "model": "claude-opus-5-5",
+        "project": "arc",
+        "status": "working",
+        "title": "Write the docs",
+        "updated_at": "2026-09-30T11:28:25"
+      },
+      {
+        "branch": "jarvis/login",
+        "cost_usd": 0.42,
+        "id": 4,
+        "mode": "ask",
+        "model": "Sonnet",
+        "project": "suit",
+        "status": "needs_you",
+        "title": "Fix the login bug",
+        "updated_at": "2026-09-30T09:01:10",
+        "waiting": {
+          "approval_id": "8bac3f79940e",
+          "question": "Jarvis Code in suit wants to run a command"
+        }
+      }
+    ]
+  },
+  "status": 200
+}

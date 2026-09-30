@@ -1,0 +1,49 @@
+{
+  "body": {
+    "files": [
+      {
+        "added": 1,
+        "hunks": [],
+        "path": ".env",
+        "removed": 1,
+        "status": "M"
+      },
+      {
+        "added": 1,
+        "hunks": [
+          {
+            "header": "@@ -8,7 +8,7 @@ line 6",
+            "lines": [
+              " line 7",
+              " line 8",
+              " line 9",
+              "-line 10",
+              "+fixed",
+              " line 11",
+              " line 12",
+              " line 13"
+            ]
+          }
+        ],
+        "path": "login.js",
+        "removed": 1,
+        "status": "M"
+      },
+      {
+        "added": 1,
+        "hunks": [
+          {
+            "header": "@@ -0,0 +1,1 @@",
+            "lines": [
+              "+test('works', () => {});"
+            ]
+          }
+        ],
+        "path": "login.test.js",
+        "removed": 0,
+        "status": "A"
+      }
+    ]
+  },
+  "status": 200
+}

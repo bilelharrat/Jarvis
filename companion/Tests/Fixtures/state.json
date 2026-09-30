@@ -1,0 +1,161 @@
+{
+  "body": {
+    "approvals": [
+      {
+        "choices": [
+          {
+            "id": "allow",
+            "label": "Allow"
+          },
+          {
+            "id": "deny",
+            "label": "Not now"
+          }
+        ],
+        "detail": "Dinner at 8",
+        "id": "e789c6eab983",
+        "question": "Send the email to Pepper?",
+        "source": "jarvis"
+      },
+      {
+        "choices": [
+          {
+            "id": "allow",
+            "label": "Yes"
+          },
+          {
+            "id": "deny",
+            "label": "No"
+          }
+        ],
+        "detail": "$ npm test",
+        "id": "8bac3f79940e",
+        "question": "Jarvis Code in suit wants to run a command",
+        "source": "code",
+        "task_id": 4
+      }
+    ],
+    "code_sessions": [
+      {
+        "id": 6,
+        "project": "tidy",
+        "status": "failed",
+        "title": "Tidy imports"
+      },
+      {
+        "id": 5,
+        "project": "arc",
+        "status": "working",
+        "title": "Write the docs"
+      },
+      {
+        "id": 4,
+        "project": "suit",
+        "status": "needs_you",
+        "title": "Fix the login bug"
+      }
+    ],
+    "delegations_active": 1,
+    "history": [
+      {
+        "at": "2026-09-30T11:28:25",
+        "role": "user",
+        "text": "What's next on my calendar today?"
+      },
+      {
+        "at": "2026-09-30T11:28:25",
+        "role": "assistant",
+        "text": "Two meetings tomorrow."
+      }
+    ],
+    "meeting": null,
+    "model": "Opus 5.5",
+    "next_event": {
+      "begin": "2026-09-30T13:28",
+      "location": "Studio",
+      "title": "Design review"
+    },
+    "pending_approvals": 2,
+    "push": {
+      "enabled": false,
+      "registered": true
+    },
+    "routines": [
+      {
+        "id": "ec498415",
+        "name": "Morning brief"
+      },
+      {
+        "id": "244ee707",
+        "name": "Weekly review"
+      },
+      {
+        "id": "b99b3a2a",
+        "name": "Portfolio check"
+      },
+      {
+        "id": "7e14f1e4",
+        "name": "Welcome home"
+      },
+      {
+        "id": "e05cc17b",
+        "name": "Stretch"
+      },
+      {
+        "id": "cb967cac",
+        "name": "Dentist"
+      }
+    ],
+    "state": "idle",
+    "tasks": [
+      {
+        "id": 6,
+        "label": "Jarvis Code · tidy",
+        "last_action": "Starting",
+        "status": "failed",
+        "title": "Tidy imports"
+      },
+      {
+        "id": 5,
+        "label": "Jarvis Code · arc",
+        "last_action": "Starting",
+        "status": "running",
+        "title": "Write the docs"
+      },
+      {
+        "id": 4,
+        "label": "Jarvis Code · suit",
+        "last_action": "Starting",
+        "status": "waiting",
+        "title": "Fix the login bug"
+      }
+    ],
+    "tls": true,
+    "turn": {
+      "reply": "Two meetings tomorrow.",
+      "user": "What's next on my calendar today?"
+    },
+    "weather": {
+      "city": "Malibu",
+      "code": 1,
+      "feels": 20,
+      "high": 24,
+      "humidity": 60,
+      "low": 16,
+      "rain_chance": 10,
+      "region": "California, United States",
+      "summary": "mainly clear",
+      "temp": 21,
+      "tomorrow": {
+        "high": 23,
+        "low": 15,
+        "rain_chance": 20,
+        "summary": "partly cloudy"
+      },
+      "unit": "°C",
+      "wind": 12,
+      "wind_unit": "km/h"
+    }
+  },
+  "status": 200
+}
