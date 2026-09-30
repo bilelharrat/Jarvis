@@ -275,6 +275,13 @@ test('Ask Jarvis is in the page’s menu for a selection: what’s selected as i
   assert(/Nutritionists say/.test(msg.selection) && !/Spoon Pro/.test(msg.selection), `the selection: ${msg && msg.selection}`);
   const saved = await asked(() => ask.submenu[5].click());
   assert(saved.action === 'save' && saved.save === 'selection' && /Nutritionists/.test(saved.selection), JSON.stringify(saved).slice(0, 200));
+  // Translate, beside Ask Jarvis: English into Chinese, Chinese into English.
+  const translate = items[items.length - 2];
+  assert(translate.label === 'Translate to Chinese', JSON.stringify(items.map((i) => i.label || i.type)));
+  const quick = await asked(() => translate.click());
+  assert(quick.action === 'translate_quick' && /Nutritionists say/.test(quick.selection) && !/Spoon Pro/.test(quick.selection), JSON.stringify(quick).slice(0, 200));
+  const fromChinese = menuFor(shown, { selectionText: '汤对身体好，冬天尤其适合。' });
+  assert(fromChinese[fromChinese.length - 2].label === 'Translate to English', JSON.stringify(fromChinese.map((i) => i.label || i.type)));
   // In the owner's language: the window gives the menu its words.
   ipcMain.emit('feature:browser-ai:labels', { sender: null }, { ask: '问 Jarvis', explain: '解释', nope: 'x' });
   const zh = menuFor(shown, { selectionText: 'x' }).pop();

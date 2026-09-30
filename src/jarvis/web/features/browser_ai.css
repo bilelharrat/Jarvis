@@ -114,3 +114,12 @@
 .bai-step-detail { font-size: 12px; color: rgb(var(--c-ink-2)); }
 .bai-step-detail::before { content: "· "; }
 .bai-step .bai-step-text { flex: 1 1 160px; min-width: 120px; }
+
+/* Translate (the page's menu): the selection in the other language, over the page. */
+.bai-note.bai-translation { color: rgb(var(--c-ink)); }
+.bai-translation .bai-note-words strong { font-weight: 600; color: rgb(var(--c-ink-2)); }
+.bai-translated { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9.5em; overflow-y: auto; user-select: text; font-size: 13px; }
+.bai-note-icon.bai-translate-icon { background: rgb(var(--c-ink) / 0.35); }
+.bai-note-icon.bai-translate-icon::after { content: "文"; font-size: 9.5px; }
+.bai-copy { flex: none; height: 24px; padding: 0 10px; border: 0; border-radius: 7px; cursor: pointer; background: rgb(var(--c-ink) / 0.08); color: inherit; font: 500 12px/1 var(--sans); }
+.bai-copy:hover { background: rgb(var(--c-ink) / 0.13); }

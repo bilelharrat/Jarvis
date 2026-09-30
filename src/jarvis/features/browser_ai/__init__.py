@@ -24,6 +24,8 @@
 - Ask Jarvis in the page's own menu (menuask.py; the app's browser-ai.js adds it): explain,
   summarize, translate between English and Chinese or draft a reply to a selection,
   summarize a link's page, explain a picture, and save any of them to the second brain.
+  Beside it, Translate puts a selection into English or Chinese over the page at once
+  (translate.py: the utility model, no conversation turn; browser_ai_translation).
 - Questions across the open tabs (tabsread.py): the read_tabs tool on the browser_ai
   server reads up to six open tabs at once, as the page's words.
 - Reader mode (reader.py; the view is the window's): the page's article in place of the
@@ -56,13 +58,14 @@ list_macros). Loop: browser_watches. Files: browser_watches.json and browser_mac
 (hub.feature_path); the remembered pages in a browsing/ folder beside the brain's index.
 Events: browser_ai_flag, browser_ai_cmd, browser_ai_sites, browser_ai_memories,
 browser_ai_handback, browser_ai_reading, browser_ai_watches, browser_ai_recording,
-browser_ai_macros.
+browser_ai_macros, browser_ai_translation.
 Settings (prefs.features): browser_sites_added, browser_sites_removed, browser_site_rules,
 browser_memories (the brain's browsing source).
 
 Everything here is registered through the feature kit; install() only registers.
 
-Cost policy (Claude): nothing here calls a model on its own. A page's text rides along only
+Cost policy (Claude): nothing here calls a model on its own, but for the menu's Translate:
+one tool-less utility-model call per click (Haiku by default), at most 60 a day. A page's text rides along only
 inside a request the owner made (at most 12,000 characters of it); ⌥⇧Space and each Ask
 Jarvis question from the page's menu are one ordinary turn, asked by the owner's own key
 press or click; read_tabs is read in the turn that called it; run_macro runs in the turn

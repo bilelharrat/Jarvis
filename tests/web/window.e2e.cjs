@@ -6748,6 +6748,24 @@ test('Ask Jarvis: what the owner picked in the page’s menu goes to the hub, an
   assert(JSON.stringify(asks) === JSON.stringify([{ type: 'browser_ai_ask', action: 'explain', url: 'https://news.example/a', title: 'A', tab: 5, selection: 'Soup is good.' }]), JSON.stringify(asks));
 });
 
+test('Translate from the page’s menu: working, then the translation over its own tab’s page, with Copy and ×', async () => {
+  await browserAi();
+  await js(`document.body.classList.add('browser-open'); __state({ url: 'https://news.example/a', title: 'A', tabs: [{ id: 5, active: true }, { id: 6, active: false }] }); true`);
+  await deliver({ type: 'browser_ai_translation', tab: 5, url: 'https://news.example/a', state: 'working', to: 'zh' });
+  assert(/Translating into Chinese/.test(await js('document.querySelector(".bai-translation").innerText')), 'no working line');
+  await deliver({ type: 'browser_ai_translation', tab: 5, url: 'https://news.example/a', state: 'done', to: 'zh', text: '<b>汤</b>对你有好处。' });
+  const shown = await js('({ text: document.querySelector(".bai-translated").textContent, html: document.querySelector(".bai-translated").innerHTML, mine: document.querySelector(".bai-translated").hasAttribute("data-no-i18n"), copy: !!document.querySelector(".bai-translation .bai-copy") })');
+  assert(shown.text === '<b>汤</b>对你有好处。' && !/<b>/.test(shown.html) && shown.mine && shown.copy, JSON.stringify(shown));
+  await js(`__state({ url: 'https://other.example/', title: 'B', tabs: [{ id: 5, active: false }, { id: 6, active: true }] }); true`);
+  assert(!(await js('!!document.querySelector(".bai-translation")')), 'shown over another tab');
+  await js(`__state({ url: 'https://news.example/a', title: 'A', tabs: [{ id: 5, active: true }, { id: 6, active: false }] }); true`);
+  await js('document.querySelector(".bai-translation .bai-x").click(); true');
+  assert(!(await js('!!document.querySelector(".bai-translation")')), 'the × didn’t close it');
+  await deliver({ type: 'browser_ai_translation', tab: 5, url: 'https://news.example/a', state: 'failed', error: 'cap', to: 'zh' });
+  assert(/as much as it can today/.test(await js('document.querySelector(".bai-translation").innerText')), 'the cap');
+  await js('document.querySelector(".bai-translation .bai-x").click(); true');
+});
+
 test('Browser AI hands a page back: “Your turn” over it, its tab brought forward, Carry on and × answer', async () => {
   await browserAi();
   await js(`window.__tabs = []; jarvisApp.browser.tab = (...args) => { __tabs.push(args); return Promise.resolve(); };

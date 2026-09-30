@@ -92,7 +92,15 @@
   "Give it a name and keep at least one step.": "请起个名字，并至少保留一步。",
   "The task couldn't be saved.": "这个任务没能保存。",
   "Type in": "输入",
-  "Don’t save": "不保存"
+  "Don’t save": "不保存",
+  "Translate to Chinese": "翻译成中文",
+  "Translate to English": "翻译成英文",
+  "Translating into English…": "正在翻译成英文…",
+  "Translating into Chinese…": "正在翻译成中文…",
+  "In English": "英文译文",
+  "In Chinese": "中文译文",
+  "Jarvis has translated as much as it can today. Ask Jarvis › Translate still works.": "Jarvis 今天的翻译次数已用完。“问 Jarvis › 翻译”仍然可以用。",
+  "The translation didn’t come back. Try again in a moment.": "翻译没有返回。请稍后再试。"
  },
  "patterns": [
   [

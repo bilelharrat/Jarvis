@@ -46,6 +46,16 @@
       if (flag.hidden) words.push('The page also hides such text from view; Jarvis left it out.');
       return words;
     },
+    // Translate's line over the page: working, done (which language) or why it failed.
+    translationWords(t) {
+      if (t.state === 'working') return t.to === 'en' ? 'Translating into English…' : 'Translating into Chinese…';
+      if (t.state === 'failed') {
+        return t.error === 'cap'
+          ? 'Jarvis has translated as much as it can today. Ask Jarvis › Translate still works.'
+          : 'The translation didn’t come back. Try again in a moment.';
+      }
+      return t.to === 'en' ? 'In English' : 'In Chinese';
+    },
   };
   window.jarvisBrowserAi = B;
 
@@ -133,6 +143,37 @@
     if (b && b.tab && ev.tab !== page.tab) b.tab('select', ev.tab); // the owner's turn is in that tab
     if (!document.body.classList.contains('browser-open')) { const btn = F.$('browser-btn'); if (btn && !btn.hidden) btn.click(); }
     renderTurn();
+  });
+
+  // ── Translate (the page's menu, beside Ask Jarvis): the answer over the page it's for ──
+  let translation = null; // { tab, url, state, to, text, error }
+  function renderTranslation() {
+    const box = strip();
+    if (!box) return;
+    const old = box.querySelector('.bai-translation');
+    if (!translation || translation.tab !== page.tab || B.pageKey(translation.url) !== B.pageKey(page.url)) { if (old) old.remove(); return; }
+    const note = el('div', 'bai-note bai-translation');
+    note.setAttribute('role', 'status');
+    const words = el('div', 'bai-note-words');
+    words.append(el('strong', '', B.translationWords(translation)));
+    if (translation.state === 'done') words.append(mine(el('p', 'bai-translated', translation.text)));
+    note.append(el('span', 'bai-note-icon bai-translate-icon'), words);
+    if (translation.state === 'done') {
+      const text = translation.text;
+      const copy = button('Copy', 'bai-copy', async () => {
+        try { await navigator.clipboard.writeText(text); copy.textContent = F.t('Copied'); } catch (_) { copy.textContent = F.t('Couldn’t copy'); }
+      });
+      note.append(copy);
+    }
+    const close = button('', 'bai-x', () => { translation = null; renderTranslation(); }, 'Close');
+    close.textContent = '×';
+    note.append(close);
+    if (old) old.replaceWith(note); else box.append(note);
+  }
+  F.on('browser_ai_translation', (ev) => {
+    if (ev.tab === null || ev.tab === undefined) return;
+    translation = { tab: ev.tab, url: String(ev.url || ''), state: String(ev.state || ''), to: ev.to === 'en' ? 'en' : 'zh', text: String(ev.text || ''), error: String(ev.error || '') };
+    renderTranslation();
   });
 
   F.on('browser_ai_flag', (ev) => {
@@ -744,6 +785,7 @@
       F.send({ type: 'browser_ai_handback_cancel' });
     }
     renderTurn();
+    renderTranslation();
     report();
   }
   if (app && app.browser && app.browser.onState) app.browser.onState(onState);
@@ -778,6 +820,7 @@
   const MENU_WORDS = {
     ask: 'Ask Jarvis', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
     save: 'Save to Second Brain', link: 'Summarize the Linked Page', image: 'Explain This Picture',
+    translate_zh: 'Translate to Chinese', translate_en: 'Translate to English',
   };
   function menuWords() {
     if (!app || !app.feature || !app.feature.send) return;

@@ -160,3 +160,16 @@ test('main.js hands the browser-ai feature every profile a tab can be in, so eac
   const feature = readFileSync(fileURLToPath(new URL('../../app/features/browser-ai.js', import.meta.url)), 'utf8');
   assert.match(feature, /for \(const partition of browser\.partitions \? browser\.partitions\(\) : \[browser\.partition\]\)/);
 });
+
+test('Translate over the page: what it says while working, when done and when it fails', () => {
+  const B = helpers();
+  assert.equal(B.translationWords({ state: 'working', to: 'en' }), 'Translating into English…');
+  assert.equal(B.translationWords({ state: 'working', to: 'zh' }), 'Translating into Chinese…');
+  assert.equal(B.translationWords({ state: 'done', to: 'zh' }), 'In Chinese');
+  assert.match(B.translationWords({ state: 'failed', error: 'cap' }), /as much as it can today/);
+  assert.match(B.translationWords({ state: 'failed', error: 'other' }), /didn’t come back/);
+  const strings = { ...zh.strings, ...fragment.strings };
+  for (const t of [{ state: 'working', to: 'en' }, { state: 'working', to: 'zh' }, { state: 'done', to: 'en' }, { state: 'done', to: 'zh' }, { state: 'failed', error: 'cap' }, { state: 'failed' }]) {
+    assert.ok(B.translationWords(t) in strings, B.translationWords(t));
+  }
+});

@@ -12,6 +12,9 @@ The turn counts it as read, as a web page or, on a sensitive site, as the owner'
 data. A linked page is opened by Claude with browser_open like any other; its site is named
 in the request, so the turn gate knows the owner asked for it.
 
+Translate, beside Ask Jarvis, puts a selection into English or Chinese over the page at once
+(translate.py: the utility model, capped), with no conversation turn.
+
 Save keeps it in the second brain's Browsing source (memories.py, a clip), at once, with no
 model call.
 
@@ -28,6 +31,7 @@ from ... import lang
 from .memories import clean_url
 from .pagectx import SELECTION_CHARS, fenced
 from .sites import Sites, clean_host, host_of
+from .translate import Translate
 
 ASKS = {
     "explain": "Explain what I selected on this page.",
@@ -64,6 +68,7 @@ class MenuAsk:
         self.page = page  # pagectx.PageContext, which hands each question its note
         self.memories = memories
         self.sites = sites
+        self.translator = Translate(hub)  # the menu's own Translate, beside Ask Jarvis
 
     def command(self, msg: dict[str, Any]) -> Any:
         """browser_ai_ask, in the background (a save reads and writes files)."""
@@ -81,6 +86,9 @@ class MenuAsk:
         src = _web(image.get("src"))
         if action == "save":
             await self._save(msg, url, title, selection, link, src, image)
+            return
+        if action == "translate_quick":  # shown over the page, no conversation turn
+            await self.translator.run(msg.get("tab"), url, selection)
             return
         language = self.hub.language
         lines = [f"Address: {fenced(url, 500)}"]

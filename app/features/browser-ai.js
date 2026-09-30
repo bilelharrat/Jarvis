@@ -147,6 +147,7 @@ function install(ctx) {
   const labels = {
     ask: 'Ask Jarvis', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
     save: 'Save to Second Brain', link: 'Summarize the Linked Page', image: 'Explain This Picture',
+    translate_zh: 'Translate to Chinese', translate_en: 'Translate to English',
   };
   ipcMain.on('feature:browser-ai:labels', (event, words) => {
     if (!ctx.fromWindow(event) || !words || typeof words !== 'object') return;
@@ -200,6 +201,14 @@ function install(ctx) {
     return { png: small.toPNG().toString('base64'), alt };
   }
 
+  // Which way Translate goes: Chinese into English, anything else into Chinese (as the hub
+  // decides, translate.target_of).
+  function mostlyChinese(text) {
+    const letters = [...String(text)].filter((c) => /\p{L}/u.test(c));
+    const cjk = letters.filter((c) => /[\u3400-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u.test(c)).length;
+    return letters.length > 0 && cjk / letters.length > 0.5;
+  }
+
   async function askFromMenu(view, action, p, save = '') {
     const wc = view.webContents;
     if (wc.isDestroyed() || !/^https?:/.test(wc.getURL())) return;
@@ -243,6 +252,8 @@ function install(ctx) {
       }
       if (!submenu.length) return;
       if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' });
+      // Translate, beside Ask Jarvis: shown over the page (the hub's translate.py), no turn.
+      if (selected) items.push({ label: mostlyChinese(selected) ? labels.translate_en : labels.translate_zh, click: go('translate_quick') });
       items.push({ label: labels.ask, submenu });
     });
   }
