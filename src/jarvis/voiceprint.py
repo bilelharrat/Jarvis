@@ -38,9 +38,13 @@ SAMPLE_RATE = 16_000
 # and checksum have been verified: with no url, Settings says the voice model isn't set
 # up in this build and the feature stays off (everything behaves as before).
 SPEAKER_MODEL: dict[str, Any] = {
-    "url": "",
-    "sha256": "",
-    "size": 0,
+    # WeSpeaker's ResNet34 trained on VoxCeleb, as exported by the sherpa-onnx project
+    # (fbank [batch, frames, 80] in, a 256-number embedding out). "recongition" is their
+    # release's own spelling.
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
+    "speaker-recongition-models/wespeaker_en_voxceleb_resnet34.onnx",
+    "sha256": "5ef208a9da1453335308a6b6f4e6dfbd7e183a38b604de0a57664f45d257fe94",
+    "size": 26534365,
 }
 
 MODEL_FILE = "speaker.onnx"

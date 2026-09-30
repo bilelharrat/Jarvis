@@ -128,8 +128,8 @@ async def test_download_checks_the_checksum_before_the_model_is_kept(tmp_path):
     with pytest.raises(ValueError, match="checksum"):
         await voiceprint.download(dest, {**model, "sha256": "0" * 64}, None, fetch)
     assert not dest.exists() and not list(tmp_path.iterdir())  # no .part left behind
-    with pytest.raises(ValueError, match="set up"):
-        await voiceprint.download(dest, voiceprint.SPEAKER_MODEL, None, fetch)
+    with pytest.raises(ValueError, match="set up"):  # a build with no model named
+        await voiceprint.download(dest, {"url": "", "sha256": "", "size": 0}, None, fetch)
     assert len(urls) == 2  # an unconfigured model never fetches anything
 
 
@@ -137,8 +137,10 @@ async def test_download_checks_the_checksum_before_the_model_is_kept(tmp_path):
 
 
 async def test_turning_it_on_shows_why_its_off_until_it_can_check(
-    settings, quiet_speaker, isolated
+    settings, quiet_speaker, isolated, monkeypatch
 ):
+    # A build with no model named first (the shipped one names WeSpeaker's).
+    monkeypatch.setattr(voiceprint, "SPEAKER_MODEL", {"url": "", "sha256": "", "size": 0})
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     guard = voice_id.guard_for(hub)
     q = hub.subscribe()
