@@ -82,7 +82,6 @@
     if (!n) return '0 KB';
     return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
   }
-  function fileName(rel) { return FILE_NAMES[rel] || rel; }
   function isBusy(what) { return S.busy.has(what); }
 
   // ── the Settings group ──
