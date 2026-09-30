@@ -35,16 +35,24 @@ origin, so other pages in your browser can't drive your Mac through it.
   locally. Answers cite them (chips under the reply), and a 3D knowledge galaxy flies to
   the note being used. Open it any time from "Second brain".
 - **Files and screen:** Spotlight search, reading documents and PDFs, screenshots, and
-  mouse and keyboard control. One OK per request covers the mouse and keyboard.
+  mouse and keyboard control. With Settings › Control my Mac without asking on (the
+  default) JARVIS clicks, types, browses and runs Shortcuts unasked; with it off, one OK
+  per request covers the mouse and keyboard. Either way a few presses are checked in code
+  first (see [Safety](#safety)).
 - **Research:** "Jarvis, research…" runs in the background and files a Markdown report
   in ~/Documents/Jarvis/Research, which also joins the second brain.
 - **Model switching:** "use Sonnet" or the model chip. Opus, Sonnet, Haiku and Fable.
 - **Morning briefing:** at a set time or with "Brief me": calendar, unread mail, BSH alerts
   and finished tasks.
 - **Heads-ups:** JARVIS speaks up on its own: time to leave (live Apple Maps traffic to
-  the next event's location), a meeting starting, low battery, rain within two hours, an
-  urgent email or one from someone you told it about, Claude Code done or waiting. Cards
-  only during quiet hours or meeting notes (Settings › Speaking up).
+  the next event's location), a meeting starting, low battery, rain within two hours,
+  Jarvis Code done or waiting. Texts and email that matter interrupt at once (urgent
+  words, a burst of messages, a VIP's); someone in Contacts, or someone you told it about
+  ("remember Ann Lee is my co-founder"), counts for more, and the rest wait for "what did
+  I miss?". Cards only during quiet hours or meeting notes (Settings › Speaking up).
+- **Suggestions:** gentle cards, never acted on without your tap: what you usually ask
+  around now, a prep doc for tomorrow's meetings with other people in them, an email due
+  soon.
 - **Memory:** "Jarvis, remember Ann is my co-founder." Facts ride along in every
   conversation; review and delete them in Settings › Memory. Passwords, keys and card
   numbers are refused.
@@ -88,23 +96,62 @@ leave.
 
 ## What it can do
 
+"Control" below is Settings › Control my Mac without asking (on by default).
+
 | Area | Tools | Asks first? |
 | --- | --- | --- |
 | Mac | open apps and web pages, Spotify / Apple Music, volume, Apple Notes, time and battery, list Shortcuts | no |
-| Shortcuts | run a Shortcut by name | **yes** |
-| Mail | read the inbox, open a draft | no (it never sends; you press Send) |
+| Shortcuts | run a Shortcut by name | no with Control on; otherwise **yes** unless you made it instant ("Always") |
+| Apps | quit an app | no with Control on; otherwise **yes** |
+| Mouse and keyboard | see the screen, click, press buttons by name, type, press keys, scroll | no with Control on; otherwise one **yes** per request. The checks under [Safety](#safety) apply either way |
+| Built-in browser | open pages, read, click, type, scroll | no with Control on (otherwise the mouse-and-keyboard OK), until a request has read your private data: see [Safety](#safety) |
+| Purchases | buy, book or pay in the built-in browser | **yes**: one card with the merchant, amount and button, within your limits in Settings (another currency counts at today's exchange rate) |
+| Mail | read the inbox, open a draft | no |
+| Mail | send an email | **yes**: a card with the recipient and exact text, read aloud |
+| Messages | send an iMessage or text | **yes**: a card with the recipient and exact text, read aloud |
 | Calendar | read the schedule | no |
-| Calendar | add an event | **yes** |
-| Web | search, read pages | no |
+| Calendar | add, change or remove an event | **yes**: a card showing the event |
+| Web | search, read pages | no, until a request has read something: see [Safety](#safety) |
 | BSH | firm search, companies, profiles, decisions, portfolio, signal scores, transcripts, reference calls | no (read-only) |
 | Windows | snap an app left / right / full screen | no |
-| Apps | quit an app | **yes** |
-| Claude Code | start a coding agent in a project folder | **yes**, then every edit and shell command asks too ("Allow all edits" covers the rest of that task's edits) |
+| Jarvis Code | start a coding session (Claude Code) in a project folder | **yes** (voice coding goes ahead when you asked for it and named the project yourself), then each session asks as its mode says: Manual asks before every edit, command and browser action; Accept edits allows edits inside the project and pages on this Mac (localhost); Auto lets Claude Code's own classifier decide; Bypass never asks |
 
 JARVIS's own conversation has Claude Code's coding tools (shell, file edits and so on)
-switched off; coding happens only in the separate Claude Code tasks above. JARVIS
+switched off; coding happens only in the separate Jarvis Code sessions above. JARVIS
 only loads its own MCP servers and ignores `~/.claude` settings. Email and web content
 are treated as data, never as instructions.
+
+## Safety
+
+Some things are checked in code whatever the prompt says and however free the hands are:
+
+- **What a request has read.** Once a request, or the conversation it's part of, has read
+  your private data (mail, notes, files, texts, the calendar), anything that could carry
+  it off the Mac asks first: fetching or opening a web address, starting research, and in
+  the built-in browser typing into or pressing things on a site you didn't name in your
+  own words this request. Typing shows its words on the card every time; a press that
+  carries nothing asks once per site per request. A script run in a page, an address a
+  tab is opened at, and an upload always ask then, named site or not; an upload asks
+  even when nothing was read. After a web page (not private data), only sites you named
+  go unasked, except that with Control on the browser follows links freely.
+- **Purchases** happen only in the built-in browser, through one confirmation within your
+  limits. With the mouse and keyboard anywhere else on the Mac, a button that buys, books
+  or pays ("Buy", "Pay", "Place order", "Subscribe", "Transfer", a price like "$4.99",
+  立即支付…) is refused, and JARVIS points to the built-in browser. A button is found
+  first and pressed only once its name is checked.
+- **Sending.** In a messaging or mail app (Messages, Mail, Slack, WhatsApp, Telegram,
+  Discord, Outlook, WeChat and others, and their web versions), pressing Send, Post,
+  Publish, Delete or Submit, or Return in the message box, shows the same kind of card
+  as a message JARVIS sends for you: where it goes, the text, and a yes. Unless you asked for
+  exactly that in your own words this request; and even then, once the conversation has
+  read your data or a page, unless you named the conversation in full.
+- **The built-in browser's pages** may go full screen; the camera, microphone, location,
+  notifications and every other permission stay refused. Its address bar opens
+  `localhost:3000`, IP addresses and `[::1]` over http, opens `file:` only when you typed
+  it yourself, and never opens `javascript:` or `data:`.
+- **Passwords, card numbers and one-time codes:** the built-in browser never types a card
+  number, or anything into a card, code, password or bank-login box (the purchase guard
+  checks each field), and memory refuses them.
 
 ## First run
 
