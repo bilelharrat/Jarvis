@@ -172,7 +172,10 @@ class CommitmentStore:
             self.unreadable = exc.strerror or "it can't be read"
             return
         raw = data.get("items") if isinstance(data.get("items"), list) else []
-        self.items = [c for c in map(_item_from, raw[: MAX_ITEMS * 2]) if c is not None][:MAX_ITEMS]
+        # The newest (kept last) when a file holds more than it may.
+        self.items = [c for c in map(_item_from, raw[-MAX_ITEMS * 2 :]) if c is not None][
+            -MAX_ITEMS:
+        ]
         marks = data.get("marks") if isinstance(data.get("marks"), dict) else {}
         self.marks = {
             k: v
@@ -185,7 +188,10 @@ class CommitmentStore:
             raise jsonstore.refusal(self.path, self.unreadable)
         cutoff = (datetime.now() - timedelta(days=KEEP_CLOSED_DAYS)).isoformat()
         self.items = [c for c in self.items if c.status == "open" or c.closed >= cutoff]
-        keep = {c.id for c in sorted(self.items, key=lambda c: c.status != "open")[:MAX_ITEMS]}
+        # Past the most kept, closed ones go first, then the oldest open: never the newest
+        # (a promise just added, which add() says is kept).
+        newest_first = sorted(reversed(self.items), key=lambda c: c.status != "open")
+        keep = {c.id for c in newest_first[:MAX_ITEMS]}
         self.items = [c for c in self.items if c.id in keep]
         jsonstore.save_json(
             self.path, {"items": [asdict(c) for c in self.items], "marks": self.marks}

@@ -267,6 +267,28 @@ def test_a_promise_sent_at_a_zoned_time_still_gets_its_evening_reminder(tmp_path
     ]
 
 
+def test_a_new_promise_is_kept_when_the_list_is_full(tmp_path):
+    """At the most promises kept, the oldest open one makes room: a new promise is never
+    the one dropped (add() said it was kept), on disk or after a restart."""
+    path = tmp_path / "commitments.json"
+    rows = [
+        {
+            "id": f"p{i}",
+            "text": f"Send report {i}",
+            "to": f"Person {i}",
+            "sent": "2026-09-01T09:00:00",
+        }
+        for i in range(commitments.MAX_ITEMS)
+    ]
+    path.write_text(json.dumps({"items": rows}))
+    store = CommitmentStore(path)
+    made = store.add("Send Ann the signed lease", to="Ann")
+    assert made is not None and store.get(made.id) is not None
+    again = CommitmentStore(path)
+    assert again.get(made.id) is not None and len(again.items) == commitments.MAX_ITEMS
+    assert again.get("p0") is None  # the oldest made room
+
+
 def test_only_promise_like_words_go_anywhere():
     sent = [
         commitments.Sent("message", 1, "Ann", "", text, datetime.now())
