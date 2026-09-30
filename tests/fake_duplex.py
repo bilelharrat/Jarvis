@@ -4,7 +4,8 @@ stdout, and a scripted "microphone" on the capture pipe. No audio engine, no mic
     FAKE_DUPLEX_LOG     a file each command is written to ("args …", "A <bytes>", "M <id>",
                         "S", "V <permille>")
     FAKE_DUPLEX_REFUSE  a reason: it says "E <reason>" and exits (AirPods as the input…)
-    FAKE_DUPLEX_MIC     a file of 16 kHz 16-bit PCM it "hears", then quiet
+    FAKE_DUPLEX_MIC     a file of 16 kHz 16-bit PCM it "hears", over and over (a listener
+                        that starts late still hears it)
     FAKE_DUPLEX_QUIET   "1": it confirms the microphone, then sends nothing (a stall)
 """
 
@@ -44,8 +45,8 @@ def main():
             return  # open, and silent
         position = 0
         while True:
-            chunk = audio[position : position + 1600] if position < len(audio) else bytes(1600)
-            position += 1600
+            chunk = audio[position : position + 1600] if audio else bytes(1600)
+            position = position + 1600 if position + 1600 < len(audio) else 0
             try:
                 capture.write(chunk)
             except (BrokenPipeError, OSError):

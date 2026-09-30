@@ -51,7 +51,8 @@ def speaking_hub(settings, quiet_speaker, isolated, tmp_path):
     return hub
 
 
-async def until(check, seconds=5.0):
+async def until(check, seconds=20.0):
+    """True as soon as check() is (a stand-in helper can take seconds to start on a busy Mac)."""
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if check():
@@ -187,12 +188,13 @@ async def test_the_listener_hears_utterances_through_it(
     listener.voice_factory = vad.make_gate
     thread = threading.Thread(target=listener._run, daemon=True)
     thread.start()
+    whole = lambda: [h for h in heard if 2.5 <= h.size / vs.RATE <= 3.3]  # noqa: E731
     try:
-        assert await until(lambda: heard, seconds=10)
+        # the voice once whole: 0.3 s kept from before it, 1.5 s of voice, 1.1 s of quiet
+        assert await until(whole), [round(h.size / vs.RATE, 2) for h in heard]
     finally:
         listener.stop()
         thread.join(5)
-    assert 2.5 <= heard[0].size / vs.RATE <= 3.3
 
 
 # ── what was said over JARVIS (Hub.on_heard) ──

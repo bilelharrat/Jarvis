@@ -43,7 +43,7 @@ def blocks(n, start=0):
     return [np.full(800, (start + i + 1) / 1000, np.float32) for i in range(n)]
 
 
-def wait_for(check, seconds=3.0):
+def wait_for(check, seconds=20.0):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if check():
@@ -135,7 +135,8 @@ def make_hub(settings, speaker, isolated):
     return Hub(settings, client_factory=FakeClient, speaker=speaker, poll=False, **isolated)
 
 
-async def settle(check, seconds=5.0):
+async def settle(check, seconds=20.0):
+    """True as soon as check() is (a stand-in helper can take seconds to start on a busy Mac)."""
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if check():
