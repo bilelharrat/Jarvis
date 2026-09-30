@@ -61,6 +61,7 @@ log = logging.getLogger("jarvis")
 
 SERVER_NAME = "automation"
 URL_FILE = "webhooks-address.txt"  # the window server's address, for local scripts
+USAGE_FILE = "automation_usage.json"  # the day's model calls, counted across restarts
 
 prefs.register_feature_pref("alarm_phone", False)
 prefs.register_feature_pref("heartbeat_on", False)
@@ -231,6 +232,13 @@ class Automation:
             on_change=self.send_runs,
             on_finished=self._routine_finished,
         )
+        # The day's counts of the reader's calls and of runs on their own, kept beside the
+        # settings: a restart doesn't give the day its model calls again.
+        usage = hub.feature_path(USAGE_FILE)
+        self.reader.cap = jobs.DailyCap(
+            jobs.READER_PER_DAY, jobs.READER_PER_HOUR, path=usage, kind="reader"
+        )
+        self.runner.cap = jobs.DailyCap(jobs.OWN_RUNS_PER_DAY, path=usage, kind="own_runs")
         self.scripts = hooks_kit.ScriptHooks(
             hub.feature_path("hooks"),
             hub.feature_path("hooks.json"),

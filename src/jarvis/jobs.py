@@ -358,17 +358,39 @@ class RunHistory:
 
 
 class DailyCap:
-    """At most per_day in a calendar day (and per_hour in any hour, when given)."""
+    """At most per_day in a calendar day (and per_hour in any hour, when given).
 
-    def __init__(self, per_day: int, per_hour: int = 0) -> None:
+    With a path, the day's count is kept in that file ({"day", "counts": {kind: n}}, read
+    and written at each take, so caps of several kinds can share one file), and a restart
+    doesn't start the day over; the hour's is kept in memory, as memory_ai's is. A file
+    that can't be used starts the day's count over, never blocks for good."""
+
+    def __init__(
+        self, per_day: int, per_hour: int = 0, *, path: Path | None = None, kind: str = "calls"
+    ) -> None:
         self.per_day, self.per_hour = per_day, per_hour
+        self.path, self.kind = path, kind
         self.day = ""
         self.count = 0
         self.recent: deque[float] = deque()
 
+    def _kept(self, day: str) -> dict[str, int] | None:
+        """The file's counts for this day ({} for none); None when it can't be read now."""
+        try:
+            data = jsonstore.load_json(self.path, dict) or {}
+        except jsonstore.Unreadable:
+            return None
+        counts = data.get("counts")
+        if data.get("day") != day or not isinstance(counts, dict):
+            return {}
+        return {k: v for k, v in counts.items() if isinstance(k, str) and type(v) is int and v >= 0}
+
     def take(self, now: datetime) -> bool:
         day = now.date().isoformat()
-        if day != self.day:
+        kept = self._kept(day) if self.path is not None else None
+        if kept is not None:
+            self.day, self.count = day, max(kept.get(self.kind, 0), self.count * (self.day == day))
+        elif day != self.day:
             self.day, self.count = day, 0
         stamp = now.timestamp()
         while self.recent and stamp - self.recent[0] >= 3600:
@@ -377,6 +399,13 @@ class DailyCap:
             return False
         self.count += 1
         self.recent.append(stamp)
+        if kept is not None:
+            try:
+                jsonstore.save_json(
+                    self.path, {"day": day, "counts": {**kept, self.kind: self.count}}
+                )
+            except OSError as exc:  # counted in memory still
+                log.info("automation: couldn't keep the day's count (%s)", exc)
         return True
 
 

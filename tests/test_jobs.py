@@ -260,6 +260,38 @@ def test_daily_and_hourly_caps():
     assert cap.take(datetime(2026, 9, 30, 0, 1))  # a new day
 
 
+def test_a_days_count_kept_in_a_file_holds_across_a_restart(tmp_path):
+    """The reader's calls and the runs on their own each cost a model call: a restart must
+    not give the day its calls again. Two caps share the file, each under its own kind."""
+    path = tmp_path / "usage.json"
+    t = datetime(2026, 9, 29, 9, 0)
+    reader, runs = jobs.DailyCap(2, path=path, kind="reader"), jobs.DailyCap(3, path=path)
+    assert reader.take(t) and runs.take(t) and reader.take(t)
+    assert not reader.take(t)
+    reader, runs = jobs.DailyCap(2, path=path, kind="reader"), jobs.DailyCap(3, path=path)
+    assert not reader.take(t.replace(hour=15))  # the same day, after a restart
+    assert runs.take(t) and runs.take(t) and not runs.take(t)  # its own count went on
+    assert reader.take(datetime(2026, 9, 30, 0, 1))  # a new day
+    path.write_text("{nope")  # damaged: the day starts over, never blocked for good
+    assert jobs.DailyCap(2, path=path, kind="reader").take(t.replace(day=30))
+
+
+async def test_the_features_caps_hold_across_a_restart(settings, quiet_speaker, isolated):
+    """The automation feature's reader and runs on their own count the day in a file beside
+    the settings: a second hub on the same folder (the app restarted) still stops there."""
+    from test_hub import make_hub
+
+    first = automation.feature_of(make_hub(settings, quiet_speaker, isolated=isolated))
+    first.reader.cap.per_day = 1
+    first.reader.client_factory = scripted("Ann wants the deck.", "Again.")
+    assert await first.reader.read("x", "an email", "Send the deck") == "Ann wants the deck."
+    again = automation.feature_of(make_hub(settings, quiet_speaker, isolated=isolated))
+    again.reader.cap.per_day = 1
+    again.reader.client_factory = scripted("Again.")
+    assert await again.reader.read("x", "an email", "Send the deck") is None
+    assert again.reader.client_factory.made == []  # no model call at all
+
+
 # ── the runner, on a real hub ──
 
 
