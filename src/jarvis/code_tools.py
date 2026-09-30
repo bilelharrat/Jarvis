@@ -16,7 +16,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import browser_agent
+from . import browser_agent, browser_pdf
 
 BROWSER = "jarvis_browser"
 SIMULATOR = "jarvis_simulator"
@@ -87,7 +87,8 @@ def browser_tools(call: BrowserCall, session: browser_agent.CodeSession | None =
         },
     )
     async def browser_read(args):
-        r = await call("read", session.route(browser_agent.read_request(args or {})))
+        ask = browser_pdf.ask(browser_agent.read_request(args or {}))  # a PDF: its text
+        r = await browser_pdf.expand(await call("read", session.route(ask)))
         if r.get("error") or r.get("ok") is False:
             return _page(r)
         return _text(browser_agent.read_text(r))

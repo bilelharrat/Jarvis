@@ -46,6 +46,7 @@ from . import (
     answering,
     browser_agent,
     browser_gate,
+    browser_pdf,
     claude_usage,
     code_tools,
     computer,
@@ -4475,7 +4476,8 @@ class Hub:
             },
         )
         async def browser_read(args):
-            r = await hub.browser_call("read", browser_agent.read_request(args or {}))
+            ask = browser_pdf.ask(browser_agent.read_request(args or {}))  # a PDF: its text
+            r = await browser_pdf.expand(await hub.browser_call("read", ask))
             if r.get("error") or r.get("ok") is False:
                 return done(r)
             # What's in view to press, word for word: on a page with prices, a button is

@@ -47,6 +47,26 @@ const PAGES = {
   '/music-frame': '<!doctype html><title>Frame</title><body><audio id="a" src="/tone.wav" loop></audio></body>',
 };
 
+// A small real PDF: a page per text.
+function tinyPdf(pages) {
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', null, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+  const kids = [];
+  for (const text of pages) {
+    const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET`;
+    objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objs.length} 0 R >>`);
+    kids.push(objs.length);
+  }
+  objs[1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`;
+  let out = '%PDF-1.4\n';
+  const offsets = objs.map((obj, i) => { const at = out.length; out += `${i + 1} 0 obj\n${obj}\nendobj\n`; return at; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, 'latin1');
+}
+const PDF = tinyPdf(['Quarterly statement', 'Balance due']);
+
 // A second of silence, as a WAV file (nothing is heard: the test runs muted too).
 function silence() {
   const rate = 8000;
@@ -70,6 +90,17 @@ function serve() {
         if (!ok) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Staff only"', 'content-type': 'text/html' }); res.end('<title>Unauthorized</title>no'); return; }
         res.writeHead(200, { 'content-type': 'text/html' });
         res.end('<title>Welcome</title>in');
+        return;
+      }
+      if (where === '/statement.pdf') { // behind a sign-in: only with the session's cookie
+        if (!/(^|;\s*)signed=in/.test(req.headers.cookie || '')) { res.writeHead(403, { 'content-type': 'text/plain' }); res.end('sign in first'); return; }
+        res.writeHead(200, { 'content-type': 'application/pdf', 'content-length': PDF.length });
+        res.end(PDF);
+        return;
+      }
+      if (where === '/signin') {
+        res.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'signed=in; Path=/' });
+        res.end('<title>Signed in</title>ok');
         return;
       }
       if (where === '/tone.wav') {
@@ -122,11 +153,13 @@ let syncAnswer = 1;
 const opened = []; // new tabs main.js would have opened
 const browserData = { bookmarks: [], history: [] }; // main.js's browser.json
 let saves = 0; // its saves
+let savePick = { canceled: true }; // where the Save box says to save
+const openedOutside = []; // pages opened in the Mac's default browser
 let parity;
 
 function newTab() {
   // As main.js's createTab makes them.
-  const view = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, disableBlinkFeatures: 'WebBluetooth' } });
+  const view = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, disableBlinkFeatures: 'WebBluetooth', plugins: true } });
   view.setBounds({ x: 0, y: 0, width: 900, height: 700 });
   win.contentView.addChildView(view);
   tabs.push(view);
@@ -598,6 +631,88 @@ test('Bookmarks renamed and filed; a folder renamed; another browser’s brought
   assert(parity.importData({ label: '', bookmarks: [] }) === null && parity.importData({ label: 'x'.repeat(200) }) === null, 'an import without its folder’s name went through');
 });
 
+test('A PDF shows in Chromium’s viewer; JARVIS reads it through the tab’s own sign-in, and only its own reads carry the file', async () => {
+  const view = newTab();
+  active = view;
+  await view.webContents.loadURL(`${base}/signin`);
+  await view.webContents.loadURL(`${base}/statement.pdf`);
+  assert((await page(view, 'document.contentType')) === 'application/pdf', 'no PDF viewer');
+  assert((await parity.pdfRead(view, {})) === null, 'a gate’s read (no pdfKnown) carried the file');
+  const r = await parity.pdfRead(view, { offset: 20, pdfKnown: [] });
+  const sha1 = require('crypto').createHash('sha1').update(PDF).digest('hex');
+  assert(r && r.ok && r.offset === 20 && r.tab === view.webContents.id && r.url === `${base}/statement.pdf`, JSON.stringify({ ...r, pdf: undefined }));
+  assert(r.pdf.sha1 === sha1 && Buffer.from(r.pdf.data, 'base64').equals(PDF), 'the file was not the tab’s (its sign-in cookie?)');
+  const again = await parity.pdfRead(view, { pdfKnown: [sha1] });
+  assert(again.ok && again.pdf.sha1 === sha1 && !('data' in again.pdf), 'a PDF the backend has was sent again');
+  const html = newTab();
+  await html.webContents.loadURL(`${base}/other`);
+  assert((await parity.pdfRead(html, { pdfKnown: [] })) === null, 'a web page read as a PDF');
+});
+
+test('A PDF on this Mac reads from its file; one too big says so', async () => {
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jarvis-parity-pdf-'));
+  fs.writeFileSync(path.join(dir, 'notes.pdf'), PDF);
+  fs.closeSync(fs.openSync(path.join(dir, 'huge.pdf'), 'w'));
+  fs.truncateSync(path.join(dir, 'huge.pdf'), 26 * 1024 * 1024); // nothing written: a hole
+  const view = newTab();
+  await view.webContents.loadURL(`file://${dir}/notes.pdf`);
+  const r = await parity.pdfRead(view, { pdfKnown: [] });
+  assert(r && r.ok && Buffer.from(r.pdf.data, 'base64').equals(PDF), 'the local PDF was not read');
+  await view.webContents.loadURL(`file://${dir}/huge.pdf`).catch(() => {});
+  const big = await parity.pdfRead(view, { pdfKnown: [] });
+  assert(big && big.ok === false && big.message === 'This PDF is 26 MB; I read PDFs up to 25 MB.', JSON.stringify(big));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('Save as PDF: a page printed where the owner says; a PDF saved as the very file; nothing when the box is cancelled', async () => {
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jarvis-parity-save-'));
+  const view = newTab();
+  await view.webContents.loadURL(`${base}/other`);
+  savePick = { canceled: true };
+  assert((await parity.savePage(view.webContents)) === false, 'saved with the box cancelled');
+  savePick = { canceled: false, filePath: path.join(dir, 'page.pdf') };
+  assert((await parity.savePage(view.webContents)) === true, 'the page was not saved');
+  assert(fs.readFileSync(path.join(dir, 'page.pdf')).subarray(0, 5).toString() === '%PDF-', 'not a PDF');
+  await view.webContents.loadURL(`${base}/signin`);
+  await view.webContents.loadURL(`${base}/statement.pdf`);
+  savePick = { canceled: false, filePath: path.join(dir, 'statement.pdf') };
+  assert((await parity.savePage(view.webContents)) === true && fs.readFileSync(path.join(dir, 'statement.pdf')).equals(PDF), 'the PDF was not saved as it is');
+  const items = parity.moreItems(view.webContents);
+  assert(items.length === 2 && items[0].label === 'Save as PDF…' && items[0].enabled && items[1].enabled, JSON.stringify(items.map((i) => [i.label, i.enabled])));
+  items[1].click();
+  assert(openedOutside.at(-1) === `${base}/statement.pdf`, 'not opened in the default browser');
+  const blank = newTab();
+  const none = parity.moreItems(blank.webContents);
+  assert(!none[0].enabled && !none[1].enabled, 'an empty tab offered to save or open');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('Clearing one site’s data leaves the others’; clearing all takes everything, after a yes', async () => {
+  const ses = session.fromPartition(PARTITION);
+  const a = newTab();
+  await a.webContents.loadURL(`${base}/other`);
+  const b = newTab();
+  await b.webContents.loadURL(`${base2}/other`);
+  for (const [view, v] of [[a, 'a'], [b, 'b']]) await page(view, `document.cookie = 'kept=${v}; path=/'; localStorage.setItem('kept', '${v}'); 1`);
+  const cookies = async (url) => (await ses.cookies.get({ url })).map((c) => c.name).join();
+  assert((await cookies(base)).includes('kept') && (await cookies(base2)).includes('kept'), 'the test cookies were not set');
+  boxAnswer = 1; // Cancel
+  assert((await parity.clearSite(a.webContents, base)) === false && (await cookies(base)).includes('kept'), 'cleared without a yes');
+  boxAnswer = 0; // Clear
+  boxes.length = 0;
+  assert((await parity.clearSite(a.webContents, base)) === true, 'Clear was not taken');
+  assert(boxes[0].options.message === `Clear the data ${new URL(base).host} keeps?`, JSON.stringify(boxes[0].options));
+  await until(async () => !(await cookies(base)).includes('kept'));
+  assert(!(await cookies(base)).includes('kept') && (await cookies(base2)).includes('kept'), `one site’s: ${await cookies(base)} / ${await cookies(base2)}`);
+  await until(async () => (await page(a, 'localStorage.getItem("kept")')) === null);
+  assert((await page(a, 'localStorage.getItem("kept")')) === null && (await page(b, 'localStorage.getItem("kept")')) === 'b', 'storage');
+  boxAnswer = 1;
+  assert(JSON.stringify(await parity.clearAll({})) === '{"cleared":false}' && (await cookies(base2)).includes('kept'), 'cleared all without a yes');
+  boxAnswer = 0;
+  assert(JSON.stringify(await parity.clearAll({})) === '{"cleared":true}', 'Clear all was not taken');
+  assert(!(await cookies(base2)).includes('kept'), 'a cookie outlived clearing all');
+});
+
 let failed = 0;
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
@@ -624,6 +739,8 @@ app.whenReady().then(async () => {
     keep: (url) => !url.includes('/secret'),
     browserData: () => browserData,
     saveBrowserData: () => { saves += 1; },
+    saveDialog: () => Promise.resolve(savePick),
+    openExternal: (url) => { openedOutside.push(url); },
   });
   await sleep(50);
   for (const t of tests) {

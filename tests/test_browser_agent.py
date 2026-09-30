@@ -488,6 +488,7 @@ async def test_browser_read_asks_for_the_fuller_read_from_its_offset():
     await tools["browser_read"]({"offset": 20000})
     assert window.did("read")[0] == {
         "rich": True, "offset": 20000, "limit": browser_agent.READ_LIMIT, "owner": "code:7",
+        "pdfKnown": [],  # the PDFs whose text the backend keeps (browser_pdf.py)
     }  # fmt: skip
     hub = SimpleNamespace(browser_call=window)
     assert browser_agent.read_request({"offset": "x", "tab": 3}) == {

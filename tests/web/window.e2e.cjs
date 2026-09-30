@@ -5225,6 +5225,21 @@ test('Settings › Browser imports from another browser on this Mac: the browser
   assert(await js('$("bp-import-from").disabled && $("bp-import-go").disabled && $("bp-import-from").textContent === "No other browser here"'), 'importing from nothing');
 });
 
+test('The ⋯ button asks for the page’s menu where it is; Settings › Browser clears all site data after the app’s yes', async () => {
+  await loadBrowser(`__b.answer = (channel) => channel === 'feature:browser:hello' ? __b.hello : channel === 'feature:browser:clear-data' ? { cleared: true } : null;`);
+  assert(await js('$("br-more").nextElementSibling === $("br-full") && $("br-more").getAttribute("aria-label") === "More"'), 'the ⋯ button is missing or misplaced');
+  await js('$("browser").hidden = false; $("br-more").click(); true');
+  await settle();
+  const [asked] = await invokedOn('feature:browser:more-menu');
+  assert(asked && Number.isFinite(asked.x) && asked.labels.savePdf === 'Save as PDF…' && asked.labels.openIn === 'Open in {app}', JSON.stringify(asked));
+  assert(await js('$("bp-clear-go").closest("section") === $("browser-group") && $("bp-clear-go").classList.contains("btn")'), 'no Clear all in Settings › Browser');
+  await js('$("bp-clear-go").click(); true');
+  await settle();
+  const [cleared] = await invokedOn('feature:browser:clear-data');
+  assert(cleared && cleared.labels.clearAllTitle === 'Clear all cookies and site data?', JSON.stringify(cleared));
+  assert(await js('$("bp-clear-status").textContent === "Cleared. You’re signed out of sites."'), await js('$("bp-clear-status").textContent'));
+});
+
 test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {
   await js(`window.jarvisApp = undefined; ${fs.readFileSync(path.join(WEB, 'features', 'browser.js'), 'utf8')}\n;true`);
   assert(await js('!$("browser-group") && !$("bd-ask") && !$("br-site")'), 'the browser feature loaded without a browser');

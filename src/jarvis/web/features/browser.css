@@ -164,3 +164,6 @@ body.browser-slim .bd-ask-text { flex-basis: calc(100% - 80px); }
 .bp-import-pick .btn:disabled { opacity: 0.5; cursor: default; }
 .bp-import-status { margin: 2px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
 .bp-import-status:empty { display: none; }
+
+/* ── Settings › Browser: clearing what sites keep ── */
+.bp-clear .btn { flex: none; min-height: 34px; font-size: 13px; }

@@ -3,9 +3,9 @@
 // location, notifications or the clipboard; a site's sign-in; a certificate warning), the
 // site's own menu at the start of the address, pinned and muted tabs dragged into order, tab
 // search, the address bar's list (open tabs, bookmarks, history), the library's bookmarks in
-// folders, and Settings › Browser (the search engine, reopening tabs, importing from another
-// browser, each site's permissions). Only in the J.A.R.V.I.S. app, where the built-in browser
-// is.
+// folders, the page's ⋯ menu (save as PDF, open in the default browser), and Settings ›
+// Browser (the search engine, reopening tabs, importing from another browser, clearing site
+// data, each site's permissions). Only in the J.A.R.V.I.S. app, where the built-in browser is.
 (() => {
   // ── pure helpers (tests/web/browser-window.test.mjs requires this file for them) ──
 
@@ -117,6 +117,7 @@
     folder: '<path d="M2 4.6A1.6 1.6 0 013.6 3h2.6l1.5 1.6h4.7A1.6 1.6 0 0114 6.2v5.2A1.6 1.6 0 0112.4 13H3.6A1.6 1.6 0 012 11.4z"/>',
     chevron: '<path d="M6 4l4 4-4 4"/>',
     pencil: '<path d="M10.8 2.8l2.4 2.4L6 12.4 3 13l.6-3z"/>',
+    more: '<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>',
   };
   const button = (label, cls, onClick) => {
     const b = F.el('button', cls, label);
@@ -139,6 +140,10 @@
       ...Object.fromEntries(Object.entries(CERT_PROBLEMS).map(([k, v]) => [`cert_${k}`, t(v)])),
       reload: t('Reload'), duplicate: t('Duplicate'), pinTab: t('Pin tab'), unpinTab: t('Unpin tab'),
       muteTab: t('Mute tab'), unmuteTab: t('Unmute tab'), closeTab: t('Close tab'), closeOthers: t('Close other tabs'),
+      savePdf: t('Save as PDF…'), openIn: t('Open in {app}'), openInBrowser: t('Open in your browser'),
+      clearSite: t('Clear this site’s data…'), clear: t('Clear'), cancel: t('Cancel'),
+      clearSiteTitle: t('Clear the data {host} keeps?'), clearSiteDetail: t('Its cookies, cache and stored data go, and you’re signed out of it.'),
+      clearAllTitle: t('Clear all cookies and site data?'), clearAllDetail: t('Every site’s cookies, cache and stored data go, and you’re signed out of sites, the Research Center too.'),
     };
   }
   const sendLabels = () => invoke('labels', labels());
@@ -805,6 +810,25 @@
     reloadLibrary();
   }
 
+  // Clearing what every site keeps (one site's: its menu at the address's start).
+  function clearRow() {
+    const wrap = F.el('div', 'bp-clear');
+    const row = F.el('div', 'row');
+    const words = F.el('span');
+    words.append(F.el('strong', '', 'Cookies and site data'), F.el('small', '', 'What sites keep on this Mac: cookies, cache and stored data. One site’s goes from the button at the start of its address.'));
+    const status = F.el('p', 'bp-import-status');
+    status.id = 'bp-clear-status';
+    status.setAttribute('aria-live', 'polite');
+    const go = button('Clear all…', 'btn bp-clear-go', async () => {
+      const r = await invoke('clear-data', { labels: labels() });
+      status.textContent = r && r.cleared ? 'Cleared. You’re signed out of sites.' : '';
+    });
+    go.id = 'bp-clear-go';
+    row.append(words, go);
+    wrap.append(row, status);
+    return wrap;
+  }
+
   function siteRow(site) {
     const li = F.el('li', 'bp-site');
     const name = F.el('b', 'bp-site-host', site.host);
@@ -862,7 +886,7 @@
   function buildGroup() {
     const list = F.el('ul', 'bp-sites');
     list.id = 'bp-sites';
-    group.append(F.el('h3', '', 'Browser'), engineRow(), restoreRow(), importRow(), F.el('p', 'bp-sub', 'Site permissions'), list);
+    group.append(F.el('h3', '', 'Browser'), engineRow(), restoreRow(), importRow(), clearRow(), F.el('p', 'bp-sub', 'Site permissions'), list);
     const settings = F.$('settings');
     const accounts = F.$('open-accounts');
     const last = accounts ? accounts.closest('section.group') : null;
@@ -886,6 +910,19 @@
   if (slot) { slot.parentElement.insertBefore(strip, slot); slot.append(certPanel, tabsPanel, omniPanel); }
   const library = F.$('br-library');
   if (library) library.parentElement.insertBefore(tabsBtn, library);
+  // The menu of the page: save it as a PDF, or open it in the default browser of the Mac.
+  const moreBtn = F.el('button', 'bd-icon');
+  moreBtn.id = 'br-more';
+  moreBtn.type = 'button';
+  moreBtn.title = 'More';
+  moreBtn.setAttribute('aria-label', 'More');
+  moreBtn.append(svg(ICONS.more, 16));
+  moreBtn.addEventListener('click', () => {
+    const r = moreBtn.getBoundingClientRect();
+    invoke('more-menu', { x: r.left, y: r.bottom + 4, labels: labels() });
+  });
+  const full = F.$('br-full');
+  if (full) full.parentElement.insertBefore(moreBtn, full);
   if (url) {
     url.removeAttribute('list'); // this list in place of the plain one
     url.addEventListener('input', () => { clearTimeout(omni.timer); omni.timer = setTimeout(suggestNow, 60); });

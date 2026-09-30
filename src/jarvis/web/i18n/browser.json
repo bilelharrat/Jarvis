@@ -70,7 +70,19 @@
     "Import": "导入",
     "No other browser here": "这里没有其他浏览器",
     "Safari keeps its bookmarks and history private. Allow J.A.R.V.I.S. in System Settings › Privacy & Security › Full Disk Access, then import again.": "Safari 会将书签和历史记录设为私密。请在“系统设置 › 隐私与安全性 › 完全磁盘访问权限”中允许 J.A.R.V.I.S.，然后再次导入。",
-    "That browser can’t be imported from.": "无法从该浏览器导入。"
+    "That browser can’t be imported from.": "无法从该浏览器导入。",
+    "Save as PDF…": "存储为 PDF…",
+    "Open in {app}": "在 {app} 中打开",
+    "Open in your browser": "在你的浏览器中打开",
+    "Clear this site’s data…": "清除此网站的数据…",
+    "Clear the data {host} keeps?": "要清除 {host} 保存的数据吗？",
+    "Its cookies, cache and stored data go, and you’re signed out of it.": "它的 Cookie、缓存和存储的数据都会被清除，你也会从该网站退出登录。",
+    "Clear all cookies and site data?": "要清除所有 Cookie 和网站数据吗？",
+    "Every site’s cookies, cache and stored data go, and you’re signed out of sites, the Research Center too.": "所有网站的 Cookie、缓存和存储的数据都会被清除，你会从各网站退出登录，Research Center 也不例外。",
+    "Cookies and site data": "Cookie 和网站数据",
+    "What sites keep on this Mac: cookies, cache and stored data. One site’s goes from the button at the start of its address.": "网站在这台 Mac 上保存的内容：Cookie、缓存和存储的数据。要清除单个网站的数据，请使用其地址开头的按钮。",
+    "Clear all…": "全部清除…",
+    "Cleared. You’re signed out of sites.": "已清除。你已从各网站退出登录。"
   },
   "patterns": [
     ["^Camera: ([\\w.:\\[\\]-]+)$", "摄像头：$1"],

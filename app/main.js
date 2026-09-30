@@ -694,6 +694,7 @@ function createTab() {
     webPreferences: {
       partition: 'persist:jarvis-browser',
       disableBlinkFeatures: 'WebBluetooth', // a page asking for a device would have macOS ask about Bluetooth
+      plugins: true, // Chromium's PDF viewer
       preload: path.join(__dirname, 'page-preload.js'),
       sandbox: true,
       contextIsolation: true,
@@ -948,10 +949,13 @@ async function runBrowserCommand({ action, args = {} }) {
       if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
       await waitForLoad(wc);
       return { ok: true, ...where() };
-    case 'read':
+    case 'read': {
       if (!wc.getURL()) return { error: 'The browser is empty. Open a page first.' };
+      const pdf = await parity.pdfRead(view, args); // a PDF on show: the file, for the backend to read (browser-parity.js)
+      if (pdf) return { ...pdf, locked: lockedHere };
       // rich: dialogs, banners and sidebars too, real field labels and values, read on from offset
       return { ...(await pageCall('read', { rich: Boolean(args.rich), offset: Number(args.offset) || 0, limit: Number(args.limit) || 0 }, 6000, view)), locked: lockedHere, tab: wc.id };
+    }
     case 'click': {
       const found = await pageCall('locate', { text: String(args.text || ''), selector: String(args.selector || '') }, 6000, view);
       if (!found.ok) return found;

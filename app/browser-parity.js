@@ -2,8 +2,8 @@
 // dock and the page's own commands): per-site permission prompts, sign-in and payment popups,
 // the leave-page question, HTTP sign-in, certificate warnings, pinned and muted tabs and their
 // order, the tabs reopened next time, each site's zoom, the address bar's suggestions,
-// bookmark folders and what's imported from another browser, the user agent Google's sign-in
-// accepts, and Settings › Browser. main.js hands it what it needs
+// bookmark folders and what's imported from another browser, PDFs (read for JARVIS, saved),
+// clearing a site's data, the user agent Google's sign-in accepts, and Settings › Browser. main.js hands it what it needs
 // as hooks (createParity) and calls it where a tab or a session is made.
 //
 // What the window shows comes over the app feature channels ('feature:browser:…', which
@@ -13,8 +13,11 @@
 // tabs only, so a popup, a sign-in box or "Continue anyway" is always the user's to answer.
 'use strict';
 
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, screen, session } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, screen, session, shell } = require('electron');
+const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
+const { fileURLToPath } = require('url');
 const { SitePermissions, KINDS, originOf, hostOfOrigin } = require('./site-permissions');
 const { BrowserStore } = require('./browser-store');
 const lib = require('./browser-lib');
@@ -28,6 +31,7 @@ const POPUP_BURST = 3; // popups one page may open in POPUP_BURST_MS
 const POPUP_BURST_MS = 10000;
 const AUTH_MAX = 3; // sign-in requests one tab may have waiting; more are cancelled at once
 const SESSION_MS = 1000; // the tabs are written down a moment after they change
+const PDF_MAX = 25 * 1024 * 1024; // the biggest PDF read for JARVIS (browser_pdf.py takes the same)
 const ZOOM_SITES_MAX = 1000;
 
 // English; the window sends them in the owner's language (feature:browser:labels).
@@ -44,6 +48,10 @@ const LABELS = {
   cert_weak: 'Its certificate uses weak security.', cert_other: 'Its certificate has a problem.',
   reload: 'Reload', duplicate: 'Duplicate', pinTab: 'Pin tab', unpinTab: 'Unpin tab', muteTab: 'Mute tab',
   unmuteTab: 'Unmute tab', closeTab: 'Close tab', closeOthers: 'Close other tabs',
+  savePdf: 'Save as PDF…', openIn: 'Open in {app}', openInBrowser: 'Open in your browser',
+  clearSite: 'Clear this site’s data…', clear: 'Clear', cancel: 'Cancel',
+  clearSiteTitle: 'Clear the data {host} keeps?', clearSiteDetail: 'Its cookies, cache and stored data go, and you’re signed out of it.',
+  clearAllTitle: 'Clear all cookies and site data?', clearAllDetail: 'Every site’s cookies, cache and stored data go, and you’re signed out of sites, the Research Center too.',
 };
 
 class BrowserParity {
@@ -88,6 +96,11 @@ class BrowserParity {
     this.handle('bookmark', (msg) => this.bookmarkEdit(msg || {}));
     this.handle('folder', (msg) => this.folderRename(msg || {}));
     this.handle('import', (msg) => this.importData(msg || {}));
+    this.handle('more-menu', (msg) => this.moreMenu(msg || {}));
+    this.handle('clear-data', (msg) => this.clearAll(msg || {}));
+    this.saveDialog = hooks.saveDialog || ((owner, options) => (owner ? dialog.showSaveDialog(owner, options) : dialog.showSaveDialog(options)));
+    this.openExternal = hooks.openExternal || ((url) => shell.openExternal(url));
+    this.pdfCache = null; // the last PDF read: { tab, url, bytes }
     app.whenReady().then(() => this.setupSession(session.fromPartition(PARTITION)));
     // Quitting: the tabs as they are now are the ones to reopen (not the none left as windows
     // close), and a change a moment ago is kept.
@@ -269,6 +282,7 @@ class BrowserParity {
     wc.once('destroyed', () => {
       perms.closed(id);
       this.going.delete(id);
+      if (this.pdfCache && this.pdfCache.tab === id) this.pdfCache = null;
       this.certs.delete(id);
       for (const a of this.auths.get(id) || []) this.settleAuth(a);
       this.auths.delete(id);
@@ -316,7 +330,7 @@ class BrowserParity {
       fullscreenable: false,
       // The opener's session (Electron keeps it: the popup shares its sign-in); none of
       // JARVIS's hand in the page, no Bluetooth.
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, disableBlinkFeatures: 'WebBluetooth' },
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, disableBlinkFeatures: 'WebBluetooth', plugins: true },
     };
   }
 
@@ -795,9 +809,135 @@ class BrowserParity {
       });
     }
     items.push({ type: 'separator' });
+    if (origin !== 'file://') items.push({ label: this.label('clearSite'), click: () => this.clearSite(wc, origin) });
     items.push({ label: this.label('siteSettings'), click: () => this.send('open-settings', { origin }) });
     this.popupAt(items, x, y);
     return true;
+  }
+
+  // ── clearing what sites keep: one site's (its menu), or all (Settings), after a yes ──
+
+  async confirm(title, detail) {
+    const owner = this.hooks.window();
+    const options = { type: 'warning', message: title, detail, buttons: [this.label('clear'), this.label('cancel')], defaultId: 1, cancelId: 1 };
+    const r = await this.box(owner, options).catch(() => ({ response: 1 }));
+    return r.response === 0;
+  }
+
+  async clearSite(wc, origin) {
+    const host = hostOfOrigin(origin);
+    if (!(await this.confirm(this.label('clearSiteTitle', { host }), this.label('clearSiteDetail')))) return false;
+    await wc.session.clearData({ origins: [origin] }).catch(() => {});
+    if (!wc.isDestroyed()) wc.reload();
+    return true;
+  }
+
+  async clearAll({ labels } = {}) {
+    this.setLabels(labels);
+    if (!(await this.confirm(this.label('clearAllTitle'), this.label('clearAllDetail')))) return { cleared: false };
+    const ses = session.fromPartition(PARTITION);
+    await ses.clearData().catch(() => {});
+    await ses.clearAuthCache().catch(() => {});
+    return { cleared: true };
+  }
+
+  // ── the page's own menu (the ⋯ at the bar's end): save it as a PDF, open it elsewhere ──
+
+  moreMenu({ x, y, labels }) {
+    const wc = this.activeWc();
+    if (!wc) return false;
+    this.setLabels(labels);
+    this.popupAt(this.moreItems(wc), x, y);
+    return true;
+  }
+
+  moreItems(wc) {
+    const url = wc.getURL();
+    const web = /^https?:\/\//i.test(url);
+    let other = '';
+    try { other = web ? app.getApplicationNameForProtocol(url) : ''; } catch { /* no default browser */ }
+    if (/J\.?A\.?R\.?V\.?I\.?S/i.test(other) || other === app.getName()) other = ''; // this app itself
+    const items = [
+      { label: this.label('savePdf'), enabled: /^(https?|file):/i.test(url), click: () => this.savePage(wc) },
+      { label: other ? this.label('openIn', { app: other.replace(/\.app$/, '') }) : this.label('openInBrowser'), enabled: web, click: () => this.openExternal(url) },
+    ];
+    return items;
+  }
+
+  // The page as a PDF where the owner says (a PDF itself: a copy of the file).
+  async savePage(wc) {
+    const url = wc.getURL();
+    const pdf = await this.isPdf(wc);
+    const name = `${String(wc.getTitle() || lib.hostOf(url) || 'page').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/\.pdf$/i, '').trim().slice(0, 100) || 'page'}.pdf`;
+    const r = await this.saveDialog(this.hooks.window(), {
+      defaultPath: path.join(app.getPath('downloads'), name), filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (!r || r.canceled || !r.filePath) return false;
+    let bytes;
+    if (pdf) {
+      const got = await this.pdfBytes(wc, url);
+      if (got.error) return false;
+      bytes = got.bytes;
+    } else {
+      bytes = await wc.printToPDF({ printBackground: true, pageSize: 'Letter' });
+    }
+    await fs.promises.writeFile(r.filePath, bytes);
+    return true;
+  }
+
+  // ── a PDF on show, for JARVIS to read (browser_read): its bytes, which the backend reads
+  // with pypdf (browser_pdf.py), fetched through the tab's own session so a PDF behind a
+  // sign-in reads too; none sent again for one whose text the backend already has ──
+
+  async isPdf(wc) {
+    const type = await Promise.race([
+      wc.executeJavaScript('document.contentType').catch(() => ''),
+      new Promise((resolve) => setTimeout(() => resolve(''), 3000)),
+    ]);
+    return type === 'application/pdf';
+  }
+
+  async pdfBytes(wc, url) {
+    const cached = this.pdfCache;
+    if (cached && cached.tab === wc.id && cached.url === url) return cached;
+    const tooBig = (n) => ({ error: `This PDF is ${Math.round(n / 1048576)} MB; I read PDFs up to ${PDF_MAX / 1048576} MB.` });
+    let bytes;
+    try {
+      if (/^file:/i.test(url)) {
+        const file = fileURLToPath(url);
+        const size = (await fs.promises.stat(file)).size;
+        if (size > PDF_MAX) return tooBig(size);
+        bytes = await fs.promises.readFile(file);
+      } else {
+        const res = await wc.session.fetch(url, { credentials: 'include', signal: AbortSignal.timeout(20000) });
+        if (!res.ok) return { error: `The PDF couldn't be fetched (HTTP ${res.status}).` };
+        const size = Number(res.headers.get('content-length') || 0);
+        if (size > PDF_MAX) return tooBig(size);
+        bytes = Buffer.from(await res.arrayBuffer());
+        if (bytes.length > PDF_MAX) return tooBig(bytes.length);
+      }
+    } catch (err) {
+      return { error: `The PDF couldn't be fetched (${err && err.message ? err.message : err}).` };
+    }
+    this.pdfCache = { tab: wc.id, url, bytes };
+    return this.pdfCache;
+  }
+
+  // Only browser_read's own reads get the file (they say which PDFs the backend has): the
+  // gates' reads of where the tab is never carry megabytes along.
+  async pdfRead(view, { offset = 0, pdfKnown } = {}) {
+    const wc = view.webContents;
+    if (!Array.isArray(pdfKnown) || !wc || wc.isDestroyed() || !(await this.isPdf(wc))) return null;
+    const url = wc.getURL();
+    const where = { url, title: wc.getTitle(), tab: wc.id };
+    const got = await this.pdfBytes(wc, url);
+    if (got.error) return { ok: false, message: got.error, ...where };
+    const sha1 = crypto.createHash('sha1').update(got.bytes).digest('hex');
+    const known = pdfKnown.includes(sha1);
+    return {
+      ok: true, ...where, offset: Math.max(0, Number(offset) || 0),
+      pdf: { sha1, size: got.bytes.length, ...(known ? {} : { data: got.bytes.toString('base64') }) },
+    };
   }
 
   // A native menu at a point of the window's page (CSS pixels, as the window measures them).
