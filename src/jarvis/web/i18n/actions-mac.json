@@ -1,0 +1,11 @@
+{
+  "strings": {
+    "Found places nearby": "查找了附近的地点",
+    "Opened directions in Maps": "在地图中打开了路线",
+    "Worked out when to leave": "算好了出发时间",
+    "Shared your ETA": "发送了你的预计到达时间",
+    "Checked a forecast": "查看了天气预报",
+    "Checked the air quality": "查看了空气质量"
+  },
+  "patterns": []
+}
