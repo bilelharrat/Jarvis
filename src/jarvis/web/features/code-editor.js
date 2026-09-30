@@ -213,10 +213,12 @@
     if (restoredScopes.has(scope)) return;
     restoredScopes.add(scope);
     const prefix = `${scope}\n`;
-    for (const key of Object.keys(readDrafts())) {
+    const kept = readDrafts();
+    for (const key of Object.keys(kept)) {
       if (!key.startsWith(prefix) || docs.has(key)) continue;
       const path = key.slice(prefix.length);
-      openDoc(path, { background: true, ...(path === USER_MEMORY ? memoryOptions('user') : {}) });
+      // (a file that wasn't made yet is still made when saved)
+      openDoc(path, { background: true, allowCreate: !!(kept[key] || {}).create, ...(path === USER_MEMORY ? memoryOptions('user') : {}) });
     }
   }
 
@@ -275,6 +277,8 @@
     }
     if (opts.line) doc.mark = { start: opts.line, end: opts.end || opts.line };
     if (opts.allowCreate) doc.allowCreate = true;
+    // Couldn't be read (not made yet, not readable then): opened again, it's read again.
+    if (doc.error) { doc.error = ''; doc.loading = true; ask(doc); }
     if (opts.background) return;  // (reopened for its unsaved changes: a tab, not shown)
     state.active = path;
     state.view = 'editor';

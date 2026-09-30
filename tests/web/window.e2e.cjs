@@ -4663,6 +4663,46 @@ test('Preview shows a Markdown file as what it is, even after lines of a file we
   assert(await js('viewSource === true'), 'the core viewer’s own Source was changed');
 });
 
+test('Unsaved changes to a memory file not made yet come back after a reload, still made when saved', async () => {
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); __sent.length = 0; JarvisEditor.openMemory("local"); true');
+  let [read] = await sentOf('cw_file_read');
+  assert(read && read.path === 'CLAUDE.local.md', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'CLAUDE.local.md', ref: read.ref, error: 'There\'s no such file.', missing: true });
+  await frames(2);
+  await typeAtEnd('# Mine\n');
+  await sleep(700);  // (kept a moment after the typing stops)
+  await fresh();
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); true');
+  [read] = await sentOf('cw_file_read');
+  assert(read && read.path === 'CLAUDE.local.md', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'CLAUDE.local.md', ref: read.ref, error: 'There\'s no such file.', missing: true });
+  await js('[...document.querySelectorAll("#jc-pane-body .ce-tab-name")].find((b) => b.title === "CLAUDE.local.md").click(); true');
+  await frames(2);
+  const r = await js('({ text: document.querySelector("#jc-pane-body .ce-text").value, dirty: !!document.querySelector("#jc-pane-body .ce-tab.dirty"), error: !!document.querySelector("#jc-pane-body .ce-error:not([hidden])") })');
+  assert(r.text === '# Mine\n' && r.dirty && !r.error, JSON.stringify(r));
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .ce-text").focus(); true');
+  await chord('s');
+  const [save] = await sentOf('cw_file_save');
+  assert(save && save.create === true && save.base === null && save.text === '# Mine\n', JSON.stringify(save));
+});
+
+test('A file that couldn’t be read is read again when it’s opened again', async () => {
+  const read = await editorWith(undefined, { error: 'Couldn\'t read it: Resource busy' });
+  assert(await js('$("jc-pane-body").textContent.includes("Couldn\'t read it: Resource busy")'), 'the error is not shown');
+  await js('__sent.length = 0; JarvisEditor.open("src/app.py"); true');
+  const [again] = await sentOf('cw_file_read');
+  assert(again && again.ref === read.ref, JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'a = 1\n', version: VERSION, crlf: false, editable: true });
+  await frames(2);
+  assert(await editorText() === 'a = 1\n' && await js('!$("jc-pane-body").textContent.includes("Resource busy")'), JSON.stringify(await editorText()));
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {
