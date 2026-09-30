@@ -22,6 +22,14 @@ test('the QR path draws each run of dark modules once, inside the quiet zone', (
   assert.equal(qrPath(rows), 'M4 4h7v1h-7zM4 5h1v1h-1zM10 5h1v1h-1z');
 });
 
+test('a test push says what became of it in words', () => {
+  const { outcome } = helpers();
+  assert.equal(outcome('sent'), 'Sent.');
+  assert.match(outcome('gone'), /Open it to turn them back on/);
+  assert.match(outcome('not this app'), /bundle ID/);
+  assert.equal(outcome('BadDeviceToken'), 'Not delivered.');
+});
+
 test('with no Settings group to add to, the script does nothing', () => {
   assert.doesNotThrow(() => helpers());
 });

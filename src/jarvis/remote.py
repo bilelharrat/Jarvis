@@ -301,7 +301,7 @@ class Limiter:
 
     def wait(self, device_id: str, kind: str) -> float:
         """0 when the call may go ahead (and it's counted); else seconds until it may."""
-        per_minute, most = self.rates.get(kind, self.rates["act"])
+        per_minute, most = self.rates.get(kind) or self.rates.get("act") or RATES["act"]
         now = self.clock()
         tokens, at = self._buckets.get((device_id, kind), (float(most), now))
         tokens = min(float(most), tokens + (now - at) * per_minute / 60)
@@ -488,7 +488,7 @@ def create_remote_app(
         data = hub.remote_state()
         data["tls"] = request.url.scheme == "https"
         if extension is not None:
-            data.update(extension.state(device))
+            data.update(await extension.state(device))
         return JSONResponse(data)
 
     async def ask(request: Request):

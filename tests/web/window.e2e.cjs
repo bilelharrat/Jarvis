@@ -1565,6 +1565,44 @@ test('Settings shows the pairing QR code and security code, and a new certificat
   assert(await js('document.querySelector(".companion-qr").hidden'), 'the old QR code should go with the old certificate');
 });
 
+test('Notifications: the key is pasted once, each phone chooses what it is sent, and a test push reports back', async () => {
+  await js(`${COMPANION}; toggleSettings(true); true`);
+  const tls = { fingerprint: 'ab'.repeat(32), short: 'abab abab abab abab', expires: '2028-01-01T00:00:00+00:00' };
+  const phone = { id: 'd1', name: 'Bilel’s iPhone', paired: '2026-09-01T09:00:00', last_seen: '2026-09-29T10:00',
+    push: { registered: true, environment: 'production', since: '2026-09-29T09:00', error: '' },
+    settings: { approvals: true, headsups: 'urgent', code: true, delegations: true, calls: true } };
+  const status = (push) => ({ type: 'companion', running: true, tls, plain_http: false, host: 'mac.local', push, push_when: 'away', devices: [phone], audit: [] });
+  await feature({ type: 'remote', running: true, error: '', urls: ['https://mac.local:8765'], devices: [], tls, plain_http: false });
+  await feature(status({ known: true, configured: false, error: '' }));
+  await js('document.querySelector(".companion-push").open = true; true');
+  assert(await js('!document.querySelector(".companion-key-form").hidden'), 'with no key, the form should show');
+  await js(`(() => { const form = document.querySelector('.companion-key-form');
+    form.querySelector('textarea').value = '-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----';
+    form.querySelectorAll('input')[0].value = 'ABC123DEFG'; __sent.length = 0; })(); true`);
+  await clickText('.companion-key-form', 'Save in the Keychain');
+  const saved = await js('__sent[0]');
+  assert(saved && saved.type === 'companion_push_key' && saved.key_id === 'ABC123DEFG' && saved.team_id === '9ZSY5R8A5C'
+    && saved.bundle_id === 'com.bshventures.jarvis.companion' && saved.key.includes('BEGIN PRIVATE KEY'), JSON.stringify(saved));
+  await feature({ type: 'companion_push', saved: true });
+  await feature(status({ known: true, configured: true, key_id: 'ABC123DEFG', team_id: '9ZSY5R8A5C', bundle_id: 'com.bshventures.jarvis.companion', error: '' }));
+  const shown = await js(`({ form: document.querySelector('.companion-key-form').hidden, key: document.querySelector('.companion-key').value,
+    status: document.querySelector('.companion-push .small-status').textContent })`);
+  assert(shown.form && shown.key === '' && shown.status.includes('ABC123DEFG'), JSON.stringify(shown));
+
+  await js('__sent.length = 0; document.querySelector(".companion-device-push").open = true; true');
+  await clickSel('.companion-device-push .switch');  // Approvals off for this phone
+  const change = await js('__sent[0]');
+  assert(change && change.type === 'companion_device' && change.id === 'd1' && change.settings.approvals === false, JSON.stringify(change));
+  await js(`(() => { const s = document.querySelector('.companion-device-push select'); s.value = 'all'; s.dispatchEvent(new Event('change')); })(); true`);
+  assert(JSON.stringify(await js('__sent[1].settings')) === '{"headsups":"all"}', 'the heads-up choice did not go');
+  await js('__sent.length = 0; true');
+  await clickText('.companion-push', 'Send a test push');
+  assert(JSON.stringify(await sent()) === '["companion_push_test"]', `${await sent()}`);
+  await feature({ type: 'companion_push_test', results: { d1: 'gone' } });
+  const result = await js('document.querySelector(".companion-test").textContent');
+  assert(result.includes('Bilel’s iPhone') && result.includes('Open it to turn them back on'), result);
+});
+
 // ──
 
 let base;

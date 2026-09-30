@@ -1,17 +1,28 @@
 // The phone companion in Settings › iPhone & Watch (jarvis.companion): the pairing QR
-// code and the certificate's security code, the paired phones, what they did lately, and
-// the certificate itself with the switch for plain HTTP. The switch, the pairing code and
-// the list of phones stay app.js's; this adds to them.
+// code and the certificate's security code, the paired phones and what each is sent,
+// push notifications (the key, a test, when they go), what the phones did lately, and the
+// certificate itself with the switch for plain HTTP. The switch, the pairing code and the
+// list of phones stay app.js's; this adds to them.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, send } = F;
   const $ = (id) => document.getElementById(id);
   const PLAIN = 'companion_plain_http';
+  const WHEN = 'companion_push_when';
+  // What each phone can be sent (jarvis.companion DEFAULT_SETTINGS), in Settings' words.
+  const KINDS = [
+    ['approvals', 'Approvals', 'Cards waiting on your yes, with Allow and No on the Lock Screen'],
+    ['code', 'Jarvis Code', 'A session finished or stopped'],
+    ['delegations', 'Conversations', 'One Jarvis holds for you needs you'],
+    ['calls', 'Calls', 'How a call went, and calls to the Jarvis number'],
+  ];
+  const HEADSUPS = [['urgent', 'Urgent only'], ['all', 'All'], ['off', 'Off']];
 
   let status = null;  // the latest companion event
   let features = {};  // prefs.features, for the plain HTTP switch
   let qrTimer = null;
+  const openDevices = new Set();  // phones whose notification settings are open
 
   // ── pure helpers (tests/web/companion.test.mjs runs these) ──
 
@@ -43,7 +54,15 @@
     return Number.isNaN(at.getTime()) ? '' : at.toLocaleDateString(locale(), { dateStyle: 'medium' });
   }
 
-  if (typeof window.__companionTest === 'function') window.__companionTest({ qrPath });
+  // Why a test push didn't reach a phone, in words (the Mac's outcome codes).
+  function outcome(code) {
+    if (code === 'sent') return 'Sent.';
+    if (code === 'gone') return 'Its app stopped taking notifications. Open it to turn them back on.';
+    if (code === 'not this app') return 'Its app isn’t the one this key is for. Check the bundle ID.';
+    return 'Not delivered.';
+  }
+
+  if (typeof window.__companionTest === 'function') window.__companionTest({ qrPath, outcome });
 
   // ── where it goes ──
 
@@ -76,6 +95,62 @@
   const list = el('ul', 'itemlist companion-devices');
   $('remote-devices').after(list);
   $('remote-devices').style.display = 'none';  // (.folders would show it despite hidden)
+
+  // Push notifications: the key, a test, and when they go.
+  const pushBox = el('details', 'watch-help companion-push');
+  const pushStatus = el('p', 'small-status');
+  const keyForm = el('div', 'companion-key-form');
+  const keyText = el('textarea', 'companion-key');
+  keyText.rows = 4;
+  keyText.spellcheck = false;
+  keyText.placeholder = '-----BEGIN PRIVATE KEY-----';
+  keyText.setAttribute('aria-label', 'Push key (.p8)');
+  const field = (label, value) => {
+    const wrap = el('label', 'companion-field');
+    const input = el('input');
+    input.type = 'text';
+    input.spellcheck = false;
+    input.value = value;
+    wrap.append(el('span', '', label), input);
+    return [wrap, input];
+  };
+  const [keyIdField, keyId] = field('Key ID', '');
+  const [teamField, teamId] = field('Team ID', '9ZSY5R8A5C');
+  const [bundleField, bundleId] = field('Bundle ID', 'com.bshventures.jarvis.companion');
+  const fields = el('div', 'companion-fields');
+  fields.append(keyIdField, teamField, bundleField);
+  const keyError = el('p', 'warn-line small-status');
+  keyError.hidden = true;
+  const keySave = el('button', 'btn primary', 'Save in the Keychain');
+  keySave.type = 'button';
+  const keyCancel = el('button', 'btn', 'Cancel');
+  keyCancel.type = 'button';
+  const keyButtons = el('div', 'row-actions');
+  keyButtons.append(keySave, keyCancel);
+  const keyHelp = el('small', 'companion-key-help', 'From your Apple Developer account: Certificates, IDs & Profiles › Keys, a key with Apple Push Notifications. Paste everything in its .p8 file. It goes to the Keychain and never leaves this Mac.');
+  keyForm.append(el('strong', '', 'Apple push key'), keyHelp, keyText, fields, keyError, keyButtons);
+  const pushActions = el('div', 'row-actions');
+  const testAll = el('button', 'btn', 'Send a test push');
+  testAll.type = 'button';
+  const replaceKey = el('button', 'btn', 'Replace key…');
+  replaceKey.type = 'button';
+  const removeKey = el('button', 'btn', 'Remove key');
+  removeKey.type = 'button';
+  pushActions.append(testAll, replaceKey, removeKey);
+  const testResult = el('ul', 'itemlist companion-test');
+  const whenRow = el('div', 'row');
+  const whenText = el('span');
+  whenText.append(
+    el('strong', '', 'Only when I’m away from the Mac'),
+    el('small', '', 'No keyboard or mouse for two minutes, or the screen locked. In quiet hours only urgent heads-ups and VIPs make a sound.'),
+  );
+  const whenSwitch = el('button', 'switch');
+  whenSwitch.type = 'button';
+  whenSwitch.setAttribute('role', 'switch');
+  whenSwitch.setAttribute('aria-label', 'Only when I’m away from the Mac');
+  whenRow.append(whenText, whenSwitch);
+  pushBox.append(el('summary', '', 'Notifications'), pushStatus, keyForm, pushActions, testResult, whenRow);
+  let replacing = false;
 
   // What the phones did lately.
   const activity = el('details', 'watch-help companion-activity');
@@ -115,9 +190,56 @@
   renewAsk.append(el('p', 'small-status', 'Every paired phone is unpaired and pairs again with the new one.'), renewActions);
   security.append(el('summary', '', 'Security'), fpLine, fpFull, expires, plainRow, plainWarn, renew, renewAsk);
 
-  $('remote-on').querySelector('.watch-help').before(activity, security);
+  $('remote-on').querySelector('.watch-help').before(pushBox, activity, security);
 
   // ── rendering ──
+
+  function toggle(label, on, change) {
+    const button = el('button', 'switch');
+    button.type = 'button';
+    button.setAttribute('role', 'switch');
+    button.setAttribute('aria-label', label);
+    button.setAttribute('aria-checked', String(!!on));
+    button.addEventListener('click', () => change(!on));
+    return button;
+  }
+
+  // One phone's notification settings: what it's sent.
+  function deviceSettings(d) {
+    const box = el('details', 'companion-device-push');
+    box.open = openDevices.has(d.id);
+    box.addEventListener('toggle', () => { if (box.open) openDevices.add(d.id); else openDevices.delete(d.id); });
+    const settings = d.settings || {};
+    const set = (changes) => send({ type: 'companion_device', id: d.id, settings: changes });
+    box.append(el('summary', '', 'What this phone is sent'));
+    const heads = el('label', 'row');
+    const headsText = el('span');
+    headsText.append(el('strong', '', 'Heads-ups'), el('small', '', 'Rain, time to leave, messages that matter'));
+    const select = el('select');
+    select.setAttribute('aria-label', 'Heads-ups');
+    for (const [value, label] of HEADSUPS) {
+      const option = el('option', '', label);
+      option.value = value;
+      option.selected = settings.headsups === value;
+      select.append(option);
+    }
+    select.addEventListener('change', () => set({ headsups: select.value }));
+    heads.append(headsText, select);
+    box.append(heads);
+    for (const [key, label, note] of KINDS) {
+      const row = el('div', 'row');
+      const text = el('span');
+      text.append(el('strong', '', label), el('small', '', note));
+      row.append(text, toggle(label, settings[key] !== false, (on) => set({ [key]: on })));
+      box.append(row);
+    }
+    const test = el('button', 'btn', 'Send a test push');
+    test.type = 'button';
+    test.hidden = !(status && status.push && status.push.configured);  // no key: nothing to send with
+    test.addEventListener('click', () => send({ type: 'companion_push_test', id: d.id }));
+    box.append(test);
+    return box;
+  }
 
   function renderDevices() {
     const devices = (status && status.devices) || [];
@@ -126,7 +248,8 @@
       return;
     }
     list.replaceChildren(...devices.map((d) => {
-      const li = el('li');
+      const li = el('li', 'companion-device');
+      const head = el('div', 'companion-device-head');
       const fact = el('span', 'fact');
       const name = el('strong', '', d.name);
       name.dataset.noI18n = '';
@@ -138,14 +261,41 @@
       } else {
         seen.append(el('span', '', 'Not used yet'));
       }
-      fact.append(name, seen);
+      const push = d.push || {};
+      let pushNote = 'Notifications not turned on in its app';
+      if (push.registered) pushNote = push.environment === 'sandbox' ? 'Notifications on (development build)' : 'Notifications on';
+      else if (push.error === 'gone') pushNote = 'Notifications stopped: open its app to turn them back on';
+      const pushLine = el('small', push.error === 'gone' ? 'need' : '', pushNote);
+      fact.append(name, seen, pushLine);
       const remove = el('button', 'btn', 'Remove');
       remove.type = 'button';
       remove.setAttribute('aria-label', `Unpair ${d.name}`);
       remove.addEventListener('click', () => send({ type: 'remote_remove', id: d.id }));
-      li.append(fact, remove);
+      head.append(fact, remove);
+      li.append(head);
+      if (push.registered) li.append(deviceSettings(d));
       return li;
     }));
+  }
+
+  function renderPush() {
+    const info = (status && status.push) || {};
+    const configured = !!info.configured;
+    keyForm.hidden = configured && !replacing;
+    pushActions.hidden = !configured;
+    keyCancel.hidden = !configured;
+    if (!configured) {
+      pushStatus.replaceChildren(el('span', '', 'Not set up yet. With Apple’s push key, approvals and heads-ups reach your phone even when its app is closed.'));
+    } else if (info.error) {
+      const reason = el('code', 'companion-mono', info.error);
+      reason.dataset.noI18n = '';
+      pushStatus.replaceChildren(el('span', 'warn', 'Apple refused the push key. Check the Key ID, the Team ID and the bundle ID, or paste the key again.'), el('span', '', ' '), reason);
+    } else {
+      const ids = el('code', 'companion-mono', `${info.key_id} · ${info.team_id} · ${info.bundle_id}`);
+      ids.dataset.noI18n = '';
+      pushStatus.replaceChildren(el('span', '', 'Ready. '), ids);
+    }
+    whenSwitch.setAttribute('aria-checked', String(features[WHEN] !== 'always'));
   }
 
   function renderActivity(items) {
@@ -184,9 +334,29 @@
     const on = features[PLAIN] === true;
     plainSwitch.setAttribute('aria-checked', String(on));
     plainWarn.hidden = !on;
+    whenSwitch.setAttribute('aria-checked', String(features[WHEN] !== 'always'));
+  }
+
+  function renderTest(results) {
+    const names = new Map(((status && status.devices) || []).map((d) => [d.id, d.name]));
+    const entries = Object.entries(results || {});
+    if (!entries.length) {
+      testResult.replaceChildren(el('li', 'muted', 'No phone has notifications turned on yet. Open the J.A.R.V.I.S. app and allow them.'));
+      return;
+    }
+    testResult.replaceChildren(...entries.map(([id, code]) => {
+      const li = el('li');
+      const fact = el('span', 'fact');
+      const name = el('strong', '', names.get(id) || id);
+      name.dataset.noI18n = '';
+      fact.append(name, el('small', code === 'sent' ? '' : 'need', outcome(code)));
+      li.append(fact);
+      return li;
+    }));
   }
 
   function render() {
+    renderPush();
     renderDevices();
     renderActivity(status && status.audit);
     renderSecurity();
@@ -225,12 +395,33 @@
   F.on('companion', (ev) => { status = ev; render(); });
   F.on('companion_audit', (ev) => renderActivity(ev.items));
   F.on('companion_pairing', showQr);
+  F.on('companion_push', (ev) => {
+    keyError.hidden = !ev.error;
+    keyError.textContent = ev.error || '';
+    if (ev.saved) {
+      keyText.value = '';  // the key is in the Keychain now: not kept in the page
+      replacing = false;
+      renderPush();
+    }
+  });
+  F.on('companion_push_test', (ev) => renderTest(ev.results));
   F.on('remote_code', () => send({ type: 'companion_pairing' }));
   F.on('remote', (ev) => {
     if (!ev.running) { clearTimeout(qrTimer); qrBox.hidden = true; }
     send({ type: 'companion' });
   });
 
+  keySave.addEventListener('click', () => {
+    keyError.hidden = true;
+    send({ type: 'companion_push_key', key: keyText.value, key_id: keyId.value, team_id: teamId.value, bundle_id: bundleId.value });
+  });
+  keyCancel.addEventListener('click', () => { replacing = false; keyText.value = ''; keyError.hidden = true; renderPush(); });
+  replaceKey.addEventListener('click', () => { replacing = true; renderPush(); keyText.focus(); });
+  removeKey.addEventListener('click', () => send({ type: 'companion_push_forget' }));
+  testAll.addEventListener('click', () => { testResult.replaceChildren(); send({ type: 'companion_push_test' }); });
+  whenSwitch.addEventListener('click', () => {
+    send({ type: 'feature_prefs', changes: { [WHEN]: features[WHEN] === 'always' ? 'away' : 'always' } });
+  });
   plainSwitch.addEventListener('click', () => {
     send({ type: 'feature_prefs', changes: { [PLAIN]: features[PLAIN] !== true } });
   });
