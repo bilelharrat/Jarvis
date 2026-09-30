@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The main screen: status strip, the reactor (tap to talk), approvals, the conversation,
-/// quick actions and a text field.
+/// The main screen: the wordmark, a status strip, the reactor (tap to talk) as the
+/// centrepiece, approvals, the conversation, quick actions and a text field.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @FocusState private var typing: Bool
@@ -11,7 +11,7 @@ struct HomeView: View {
     var body: some View {
         @Bindable var model = model
         GeometryReader { geometry in
-            VStack(spacing: 12) {
+            VStack(spacing: Space.s) {
                 topBar
                 StatusStrip(
                     state: model.remote?.state,
@@ -22,19 +22,20 @@ struct HomeView: View {
                     taskCount: model.remote?.activeTasks.count ?? 0,
                     meeting: model.remote?.meeting
                 )
+                .padding(.horizontal, -Self.margin)  // a shelf, edge to edge
                 if case .unreachable(let reason) = model.link {
                     ConnectionBanner(reason: reason) { Task { await model.refresh() } }
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 reactor(height: geometry.size.height)
                 if !model.visibleApprovals.isEmpty {
-                    FittingScroll(maxHeight: geometry.size.height * 0.5) {
-                        VStack(spacing: 10) {
+                    FittingScroll(maxHeight: geometry.size.height * 0.52) {
+                        VStack(spacing: Space.s) {
                             ForEach(model.visibleApprovals) { approval in
                                 ApprovalCard(approval: approval) { choice in
                                     Task { await model.answer(approval, with: choice) }
                                 }
-                                .transition(.asymmetric(insertion: .scale(scale: 0.92).combined(with: .opacity), removal: .opacity))
+                                .transition(.asymmetric(insertion: .scale(scale: 0.94).combined(with: .opacity), removal: .opacity))
                             }
                         }
                     }
@@ -43,6 +44,7 @@ struct HomeView: View {
                 TranscriptView(lines: model.transcript) { suggestion in
                     Task { await model.send(suggestion) }
                 }
+                .padding(.horizontal, -Self.margin)  // it brings its own margins
                 if !typing {
                     QuickActions(meeting: model.remote?.meeting, busy: model.isBusy, perform: perform)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -52,21 +54,21 @@ struct HomeView: View {
                     model.sendDraft()
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 6)
+            .padding(.horizontal, Self.margin)
+            .padding(.bottom, Space.xxs)
         }
-        .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.26)))
+        .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.32)))
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 ToastView(toast: toast, onDismiss: model.dismissToast)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, typing ? 70 : 136)
+                    .padding(.horizontal, Space.l)
+                    .padding(.bottom, typing ? 72 : 150)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.82), value: model.visibleApprovals.map(\.id))
-        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: typing)
-        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.speech.isActive)
+        .animation(.spring(response: 0.5, dampingFraction: 0.84), value: model.visibleApprovals.map(\.id))
+        .animation(.spring(response: 0.45, dampingFraction: 0.86), value: typing)
+        .animation(.spring(response: 0.45, dampingFraction: 0.86), value: model.speech.isActive)
         .animation(.easeInOut(duration: 0.3), value: model.isOffline)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: model.toast)
         .sheet(isPresented: $showSettings) {
@@ -82,42 +84,53 @@ struct HomeView: View {
     // MARK: - Pieces
 
     private var topBar: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: Space.s) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text("J.A.R.V.I.S.")
-                    .font(.headline.weight(.semibold))
-                    .tracking(4)
+                    .font(.system(.title2, design: .serif).weight(.medium))
+                    .tracking(2.4)
                     .foregroundStyle(Palette.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 if let pairing = model.pairing {
-                    HUDText(pairing.macLabel)
+                    HStack(spacing: 6) {
+                        Image(systemName: "desktopcomputer")
+                            .font(.caption2.weight(.semibold))
+                        Text(pairing.macLabel)
+                            .font(.footnote.weight(.medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Palette.titanium)
                 }
             }
             .accessibilityElement(children: .combine)
-            Spacer()
+            Spacer(minLength: Space.xs)
             roundButton(model.speakReplies ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                        label: model.speakReplies ? "Spoken replies on" : "Spoken replies off") {
+                        label: model.speakReplies ? "Spoken replies on" : "Spoken replies off",
+                        dim: !model.speakReplies) {
                 model.speakReplies.toggle()
                 Haptics.tap()
             }
             roundButton("gearshape.fill", label: "Settings") { showSettings = true }
         }
-        .padding(.top, 4)
+        .padding(.top, Space.xxs)
     }
 
-    private func roundButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+    private func roundButton(_ symbol: String, label: String, dim: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Palette.ink2)
+                .symbolRenderingMode(.hierarchical)
+                .font(.body.weight(.medium))
+                .foregroundStyle(dim ? Palette.muted : Palette.ink)
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 40, height: 40)
+                .frame(width: 44, height: 44)
         }
-        .buttonStyle(GlassButtonStyle(cornerRadius: 20))
+        .buttonStyle(CircleGlassButtonStyle())
         .accessibilityLabel(label)
     }
 
     private func reactor(height: CGFloat) -> some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Space.xs) {
             Button(action: model.talk) {
                 ReactorView(mode: model.reactorMode, level: model.speech.level, size: orbSize(height))
             }
@@ -126,17 +139,24 @@ struct HomeView: View {
             .accessibilityValue(model.caption)
             .accessibilityHint(model.speech.status == .listening ? "" : "Starts listening. Stops by itself when you pause.")
 
-            HUDText(model.caption, color: captionColor, tracking: 2.6)
-                .contentTransition(.opacity)
-                .accessibilityHidden(true)
+            if model.visibleApprovals.isEmpty {  // the card below says it better
+                Text(model.caption)
+                    .font(.subheadline.weight(.medium))
+                    .tracking(0.4)
+                    .foregroundStyle(captionColor)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+                    .accessibilityHidden(true)
+            }
 
             if model.speech.isActive {
                 Text(model.speech.transcript.isEmpty ? "Go ahead, I’m listening…" : model.speech.transcript)
-                    .font(.title3.weight(.medium))
+                    .font(.system(.title3, design: .serif))
                     .foregroundStyle(model.speech.transcript.isEmpty ? Palette.muted : Palette.ink)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                     .frame(maxWidth: .infinity)
+                    .padding(.top, Space.xxs)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                     .accessibilityLabel("Heard: \(model.speech.transcript)")
             }
@@ -144,18 +164,22 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// The page margin; the status shelf and the conversation run edge to edge and bring their own.
+    static let margin: CGFloat = Space.m + 4
+
     private func orbSize(_ height: CGFloat) -> CGFloat {
-        if typing { return 72 }
-        if !model.visibleApprovals.isEmpty { return 92 }
-        if model.speech.isActive { return min(240, max(150, height * 0.3)) }
-        return min(210, max(128, height * 0.25))
+        if typing { return 76 }
+        if !model.visibleApprovals.isEmpty { return 96 }
+        if model.speech.isActive { return min(280, max(160, height * 0.34)) }
+        if model.isOffline { return min(190, max(112, height * 0.22)) }  // the banner above needs the room
+        return min(250, max(136, height * 0.3))
     }
 
     private var captionColor: Color {
         switch model.reactorMode {
         case .offline: Palette.amber
         case .idle: Palette.muted
-        default: Palette.cyan
+        default: Palette.ice
         }
     }
 
@@ -175,7 +199,7 @@ struct HomeView: View {
 private struct ReactorButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
@@ -194,6 +218,8 @@ private struct FittingScroll<Content: View>: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
-        .frame(height: min(max(contentHeight, 1), maxHeight))
+        // Up to its content (and the cap), but it gives way first when the screen is full
+        // (the largest text sizes), so the controls below always stay on screen.
+        .frame(maxHeight: min(max(contentHeight, 1), maxHeight))
     }
 }

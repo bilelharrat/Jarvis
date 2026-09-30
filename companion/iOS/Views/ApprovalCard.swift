@@ -1,48 +1,61 @@
 import SwiftUI
 
 /// Jarvis needs a yes: the question, what exactly (the detail), and one button per choice.
+/// Set apart from everything else by a champagne rim, like a document awaiting a signature.
 struct ApprovalCard: View {
     let approval: Approval
     let onChoose: (ApprovalChoice) -> Void
 
     @State private var chosen: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        let shape = RoundedRectangle(cornerRadius: Radius.card + 2, style: .continuous)
+        VStack(alignment: .leading, spacing: Space.s + 2) {
+            HStack(spacing: Space.xs) {
+                // A champagne seal: the shield in foil, the tick cut out of it.
                 Image(systemName: "checkmark.shield.fill")
-                    .foregroundStyle(Palette.amber)
-                    .symbolEffect(.pulse, options: .repeating)
-                HUDText("Needs your OK", color: Palette.amber)
+                    .symbolRenderingMode(.palette)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.well, Palette.champagneFoil)
+                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion && chosen == nil)
+                Eyebrow("Needs your OK", color: Palette.champagne)
                 Spacer()
             }
             .accessibilityHidden(true)
 
             Text(approval.question)
-                .font(.headline)
+                .font(.serifHeadline)
                 .foregroundStyle(Palette.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
 
             if !approval.detail.trimmed.isEmpty {
+                let well = RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 ScrollView {
                     Text(approval.detail)
                         .font(.system(.footnote, design: .monospaced))
                         .foregroundStyle(Palette.ink2)
+                        .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
-                        .padding(12)
+                        .padding(Space.s + 2)
                 }
                 .frame(maxHeight: 150)
                 .fixedSize(horizontal: false, vertical: true)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.28)))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.ring.opacity(0.12), lineWidth: 0.75))
+                .background(well.fill(Palette.well.opacity(0.55)))
+                .overlay(well.strokeBorder(
+                    LinearGradient(colors: [.black.opacity(0.5), .white.opacity(0.08)], startPoint: .top, endPoint: .bottom),
+                    lineWidth: 0.75
+                ))
             }
 
             choices
+                .padding(.top, Space.xxs)
         }
-        .padding(16)
-        .glassCard(cornerRadius: 22, tint: Palette.amber, strength: 1.2)
+        .padding(Space.m + 2)
+        .glassCard(cornerRadius: Radius.card + 2, tint: Palette.champagne, strength: 0.7)
+        .overlay(shape.strokeBorder(Palette.champagneFoil, lineWidth: 0.75).opacity(0.5))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Jarvis needs your OK")
     }
@@ -50,11 +63,11 @@ struct ApprovalCard: View {
     @ViewBuilder
     private var choices: some View {
         if approval.choices.count <= 3 {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.s - 2) {
                 ForEach(approval.choices) { choiceButton($0) }
             }
         } else {
-            VStack(spacing: 8) {
+            VStack(spacing: Space.xs) {
                 ForEach(approval.choices) { choiceButton($0) }
             }
         }
@@ -62,6 +75,7 @@ struct ApprovalCard: View {
 
     private func choiceButton(_ choice: ApprovalChoice) -> some View {
         let primary = choice == approval.primary && !choice.isNegative
+        let shape = RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
         return Button {
             guard chosen == nil else { return }
             chosen = choice.id
@@ -71,35 +85,48 @@ struct ApprovalCard: View {
                 if chosen == choice.id {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(primary ? Palette.space : Palette.ink)
+                        .tint(primary ? Palette.onAction : Palette.ink)
                 }
                 Text(choice.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 46)
-            .foregroundStyle(primary ? Palette.space : (choice.isNegative ? Palette.danger : Palette.ink))
+            .frame(minHeight: 50)
+            .padding(.horizontal, Space.xs)
+            .foregroundStyle(primary ? Palette.onAction : (choice.isNegative ? Palette.danger : Palette.ink))
             .background {
-                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
                 if primary {
                     shape.fill(Palette.action)
-                        .shadow(color: Palette.cyan.opacity(0.4), radius: 10)
-                } else if choice.isNegative {
-                    shape.fill(Palette.danger.opacity(0.10))
-                        .overlay(shape.strokeBorder(Palette.danger.opacity(0.55), lineWidth: 1))
-                } else {
-                    shape.fill(.ultraThinMaterial)
-                        .overlay(shape.strokeBorder(Palette.ring.opacity(0.35), lineWidth: 0.75))
+                        .overlay(shape.strokeBorder(
+                            LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.1)], startPoint: .top, endPoint: .center),
+                            lineWidth: 0.75
+                        ))
+                        .shadow(color: Palette.cyan.opacity(0.35), radius: 14, y: 4)
                 }
             }
+            .modifier(SecondaryChoice(active: !primary, shape: shape))
         }
         .buttonStyle(PressableStyle())
         .disabled(chosen != nil)
-        .opacity(chosen != nil && chosen != choice.id ? 0.45 : 1)
+        .opacity(chosen != nil && chosen != choice.id ? 0.4 : 1)
         .accessibilityLabel(choice.label)
         .accessibilityHint(approval.question)
+    }
+}
+
+/// The other choices: glass, so the one filled button is the obvious yes.
+private struct SecondaryChoice: ViewModifier {
+    let active: Bool
+    let shape: RoundedRectangle
+
+    func body(content: Content) -> some View {
+        if active {
+            content.glass(shape, strength: 1.1)
+        } else {
+            content
+        }
     }
 }
 

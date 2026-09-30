@@ -74,7 +74,15 @@ final class CompanionUITests: XCTestCase {
         let speak = app.switches["Speak replies"]
         XCTAssertTrue(speak.waitForExistence(timeout: 5))
         snapshot("settings")
-        app.buttons["Unpair this iPhone"].tap()
+        // Unpair sits at the foot of Settings, below the fold on most phones: scroll to it
+        // as a person would.
+        let unpair = app.buttons["Unpair this iPhone"]
+        var swipes = 0
+        while !(unpair.exists && unpair.isHittable) && swipes < 4 {
+            app.swipeUp()
+            swipes += 1
+        }
+        unpair.tap()
         app.buttons["Unpair"].tap()
         XCTAssertTrue(app.textFields["Mac address"].waitForExistence(timeout: 10), "didn't go back to pairing")
     }

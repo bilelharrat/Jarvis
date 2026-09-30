@@ -17,48 +17,79 @@ struct RoutinesSheet: View {
                     }
                 } else {
                     ScrollView {
-                        VStack(spacing: 10) {
-                            ForEach(routines) { routine in
-                                Button {
-                                    onRun(routine)
-                                    dismiss()
-                                } label: {
-                                    HStack(spacing: 14) {
-                                        Image(systemName: "bolt.fill")
-                                            .foregroundStyle(Palette.cyan)
-                                            .frame(width: 28)
-                                        Text(routine.name)
-                                            .font(.body.weight(.medium))
-                                            .foregroundStyle(Palette.ink)
-                                            .multilineTextAlignment(.leading)
-                                        Spacer()
-                                        Image(systemName: "play.fill")
-                                            .font(.footnote)
-                                            .foregroundStyle(Palette.space)
-                                            .frame(width: 30, height: 30)
-                                            .background(Circle().fill(Palette.action))
+                        VStack(alignment: .leading, spacing: Space.xs) {
+                            Text("Runs on your Mac, right away.")
+                                .font(.footnote)
+                                .foregroundStyle(Palette.muted)
+                                .padding(.horizontal, Space.m)
+                            VStack(spacing: 0) {
+                                ForEach(routines) { routine in
+                                    row(routine)
+                                    if routine.id != routines.last?.id {
+                                        Rectangle()
+                                            .fill(Palette.hairline)
+                                            .frame(height: 0.5)
+                                            .padding(.leading, 60)
                                     }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
                                 }
-                                .buttonStyle(GlassButtonStyle(cornerRadius: 16))
-                                .accessibilityLabel("Run \(routine.name)")
                             }
+                            .glassCard(cornerRadius: 20)
                         }
-                        .padding(20)
+                        .padding(.horizontal, Space.m + 4)
+                        .padding(.top, Space.xs)
+                        .padding(.bottom, Space.l)
                     }
                 }
             }
-            .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0)))
+            .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
             .navigationTitle("Routines")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .presentationCornerRadius(Radius.sheet + 4)
+    }
+
+    private func row(_ routine: Routine) -> some View {
+        Button {
+            onRun(routine)
+            dismiss()
+        } label: {
+            HStack(spacing: Space.s + 2) {
+                IconTile(symbol: "bolt.fill")
+                Text(routine.name)
+                    .font(.body)
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: Space.xs)
+                Image(systemName: "play.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Palette.onAction)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(Palette.action))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 0.5))
+            }
+            .padding(.horizontal, Space.m)
+            .padding(.vertical, Space.s)
+            .frame(minHeight: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(RowPressStyle())
+        .accessibilityLabel("Run \(routine.name)")
+    }
+}
+
+/// A row that lights up while pressed, like a Settings cell.
+private struct RowPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.white.opacity(configuration.isPressed ? 0.06 : 0))
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }

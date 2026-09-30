@@ -1,56 +1,75 @@
 import SwiftUI
 
-/// The bright, filled button (Pair, Send).
+/// The one filled button on a screen (Pair, an approval's yes): reactor blue, lit from
+/// above, with a specular top edge.
 struct PrimaryButtonStyle: ButtonStyle {
+    var cornerRadius: CGFloat = Radius.control + 2
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return configuration.label
             .font(.headline)
-            .foregroundStyle(isEnabled ? Palette.space : Palette.muted)
+            .foregroundStyle(isEnabled ? Palette.onAction : Palette.muted)
             .background {
                 if isEnabled {
                     shape.fill(Palette.action)
-                        .overlay(shape.strokeBorder(.white.opacity(0.35), lineWidth: 0.75))
-                        .shadow(color: Palette.cyan.opacity(0.45), radius: 14, y: 2)
+                        .overlay(shape.strokeBorder(
+                            LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.1)], startPoint: .top, endPoint: .center),
+                            lineWidth: 0.75
+                        ))
+                        .shadow(color: Palette.cyan.opacity(configuration.isPressed ? 0.2 : 0.35), radius: 18, y: 6)
                 } else {
-                    Color.clear.glassCard(cornerRadius: 16, strength: 0.6)
+                    Color.clear.glassCard(cornerRadius: cornerRadius, strength: 0.7)
                 }
             }
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .brightness(configuration.isPressed ? -0.04 : 0)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.25), value: isEnabled)
     }
 }
 
-/// Glass pill buttons (quick actions, secondary choices).
+/// Glass buttons (suggestions, secondary choices, rows that act).
 struct GlassButtonStyle: ButtonStyle {
-    var tint: Color = Palette.cyan
-    var cornerRadius: CGFloat = 14
+    var tint: Color = .white
+    var cornerRadius: CGFloat = Radius.control
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .glassCard(cornerRadius: cornerRadius, tint: tint, strength: configuration.isPressed ? 1.8 : 1)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .glassCard(cornerRadius: cornerRadius, tint: tint, strength: configuration.isPressed ? 1.9 : 1)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
-/// "01 · YOUR MAC"
+/// A round glass button (the top bar, quick actions).
+struct CircleGlassButtonStyle: ButtonStyle {
+    var tint: Color = .white
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .glass(Circle(), tint: tint, strength: configuration.isPressed ? 2 : 1)
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: configuration.isPressed)
+    }
+}
+
+/// A step heading: a small numbered medallion and the step's name.
 struct SectionLabel: View {
     let number: String
     let title: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(number)
-                .font(.hud)
-                .foregroundStyle(Palette.cyan)
-            Rectangle()
-                .fill(Palette.cyan.opacity(0.5))
-                .frame(width: 14, height: 1)
-            HUDText(title, color: Palette.ink2)
+        HStack(spacing: 10) {
+            Text(String(Int(number) ?? 0))
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Palette.ink)
+                .frame(minWidth: 22, minHeight: 22)
+                .glass(Circle(), strength: 1.2)
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(Palette.ink)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
@@ -65,11 +84,12 @@ struct ErrorCallout: View {
     var hint: String?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.s) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.hierarchical)
                 .font(.title3)
                 .foregroundStyle(Palette.amber)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(title)
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
@@ -82,11 +102,12 @@ struct ErrorCallout: View {
                         .font(.footnote)
                         .foregroundStyle(Palette.muted)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
+        .padding(Space.m)
         .glassCard(cornerRadius: 18, tint: Palette.amber)
         .accessibilityElement(children: .combine)
     }
@@ -102,7 +123,7 @@ struct ThinkingDots: View {
             let t = timeline.date.timeIntervalSinceReferenceDate
             HStack(spacing: 5) {
                 ForEach(0..<3, id: \.self) { index in
-                    let phase = (sin(t * 5 - Double(index) * 0.9) + 1) / 2
+                    let phase = (sin(t * 4.2 - Double(index) * 0.9) + 1) / 2
                     Circle()
                         .fill(color)
                         .frame(width: 6, height: 6)
@@ -113,5 +134,24 @@ struct ThinkingDots: View {
         }
         .frame(height: 12)
         .accessibilityLabel("Thinking")
+    }
+}
+
+/// An Apple-Settings-style icon: a small graphite tile with a white glyph.
+struct IconTile: View {
+    let symbol: String
+    var tint: Color = Palette.ink
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 30
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: side * 0.26, style: .continuous)
+        Image(systemName: symbol)
+            .symbolRenderingMode(.hierarchical)
+            .font(.system(size: side * 0.5, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: side, height: side)
+            .background(shape.fill(LinearGradient(colors: [Color(hex: 0x3A3F49), Color(hex: 0x1C2027)], startPoint: .top, endPoint: .bottom)))
+            .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.28), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 0.5))
+            .accessibilityHidden(true)
     }
 }

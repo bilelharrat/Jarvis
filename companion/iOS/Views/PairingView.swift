@@ -16,34 +16,39 @@ struct PairingView: View {
     @FocusState private var addressFocused: Bool
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 28) {
-                    header
-                    if let notice = model.pairingNotice {
-                        ErrorCallout(title: "Pair again", message: notice)
+        ZStack(alignment: .top) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: Space.xl) {
+                        header
+                        if let notice = model.pairingNotice {
+                            ErrorCallout(title: "Pair again", message: notice)
+                        }
+                        macSection
+                        codeSection
+                        VStack(spacing: Space.l) {
+                            pairButton
+                            footer
+                        }
                     }
-                    macSection
-                    codeSection
-                    pairButton
-                    footer
+                    .padding(.horizontal, Space.m + 4)
+                    .padding(.top, Space.xs)
+                    .padding(.bottom, Space.xxl)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.86), value: failure)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.86), value: browser.macs)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 40)
-                .animation(.spring(response: 0.4, dampingFraction: 0.85), value: failure)
-                .animation(.spring(response: 0.4, dampingFraction: 0.85), value: browser.macs)
-            }
-            .onChange(of: failure) { _, failure in
-                guard failure != nil else { return }
-                Task {  // after the keyboard has settled
-                    try? await Task.sleep(for: .milliseconds(350))
-                    withAnimation { proxy.scrollTo(Self.failureID, anchor: .bottom) }
+                .onChange(of: failure) { _, failure in
+                    guard failure != nil else { return }
+                    Task {  // after the keyboard has settled
+                        try? await Task.sleep(for: .milliseconds(350))
+                        withAnimation { proxy.scrollTo(Self.failureID, anchor: .bottom) }
+                    }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
+            TopScrim()
         }
-        .scrollDismissesKeyboard(.interactively)
-        .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.1)))
+        .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.12)))
         .onAppear { browser.start() }
         .onDisappear { browser.stop() }
         .task {
@@ -69,68 +74,83 @@ struct PairingView: View {
     // MARK: - Sections
 
     private var header: some View {
-        VStack(spacing: 12) {
-            ReactorView(mode: working ? .thinking : .idle, size: 136)
+        VStack(spacing: Space.s) {
+            ReactorView(mode: working ? .thinking : .idle, size: 176)
+                .padding(.bottom, Space.xxs)
             Text("J.A.R.V.I.S.")
-                .font(.system(.title, design: .default).weight(.semibold))
-                .tracking(7)
+                .font(.display)
+                .tracking(4)
                 .foregroundStyle(Palette.ink)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            HUDText("Companion · Pair with your Mac", color: Palette.cyan)
+                .minimumScaleFactor(0.6)
+            Text("Pair this iPhone with Jarvis on your Mac.")
+                .font(.body)
+                .foregroundStyle(Palette.ink2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.top, 8)
+        .padding(.top, Space.xs)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("J.A.R.V.I.S. companion. Pair with your Mac.")
     }
 
     private var macSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.s) {
             SectionLabel(number: "01", title: "Your Mac")
             VStack(spacing: 0) {
                 ForEach(browser.macs) { mac in
                     macRow(mac)
-                    if mac != browser.macs.last {
-                        Divider().overlay(Palette.hairline)
-                    }
+                    rowDivider
                 }
                 if browser.macs.isEmpty {
                     searchRow
+                    rowDivider
                 }
+                addressRow
             }
-            .glassCard(cornerRadius: 18)
+            .glassCard(cornerRadius: 20, tint: addressFocused ? Palette.cyan : .white, strength: addressFocused ? 0.7 : 1)
 
-            HStack(spacing: 12) {
-                Image(systemName: "network")
-                    .foregroundStyle(addressFocused ? Palette.cyan : Palette.muted)
-                    .accessibilityHidden(true)
-                TextField("", text: $address, prompt: Text("Or type its address, e.g. 192.168.1.20").foregroundStyle(Palette.muted))
-                    .keyboardType(.URL)
-                    .textContentType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.next)
-                    .focused($addressFocused)
-                    .onSubmit { codeFocused = true }
-                    .foregroundStyle(Palette.ink)
-                    .accessibilityLabel("Mac address")
-                    .accessibilityHint("Host name or IP address, with :port if it isn't 8765")
-                if !address.isEmpty {
-                    Button { address = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.muted)
-                    }
-                    .accessibilityLabel("Clear address")
-                }
-            }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 52)
-            .glassCard(cornerRadius: 16, strength: addressFocused ? 1.8 : 1)
-
-            Text("On your Mac, open Jarvis Settings › iPhone & Watch and turn on “Let my phone connect”. Its addresses are listed there.")
-                .font(.footnote)
-                .foregroundStyle(Palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            footnote("On your Mac, open Jarvis Settings › iPhone & Watch and turn on “Let my phone connect”. Its addresses are listed there.")
         }
+    }
+
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(Palette.hairline)
+            .frame(height: 0.5)
+            .padding(.leading, 60)
+    }
+
+    private var addressRow: some View {
+        HStack(spacing: Space.s + 2) {
+            Image(systemName: "network")
+                .symbolRenderingMode(.hierarchical)
+                .font(.body)
+                .foregroundStyle(addressFocused ? Palette.cyan : Palette.muted)
+                .frame(width: 30)
+                .accessibilityHidden(true)
+            TextField("", text: $address, prompt: Text("Or type its address, e.g. 192.168.1.20").foregroundStyle(Palette.muted))
+                .keyboardType(.URL)
+                .textContentType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.next)
+                .focused($addressFocused)
+                .onSubmit { codeFocused = true }
+                .foregroundStyle(Palette.ink)
+                .accessibilityLabel("Mac address")
+                .accessibilityHint("Host name or IP address, with :port if it isn't 8765")
+            if !address.isEmpty {
+                Button { address = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Palette.muted)
+                }
+                .accessibilityLabel("Clear address")
+            }
+        }
+        .padding(.horizontal, Space.m)
+        .frame(minHeight: 54)
     }
 
     private func macRow(_ mac: BonjourBrowser.Mac) -> some View {
@@ -141,24 +161,26 @@ struct PairingView: View {
             addressFocused = false
             codeFocused = code.count < 6
         } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "desktopcomputer")
-                    .font(.title3)
-                    .foregroundStyle(Palette.cyan)
-                    .frame(width: 30)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(mac.name)
+            HStack(spacing: Space.s + 2) {
+                IconTile(symbol: "desktopcomputer", tint: isSelected ? Palette.ice : Palette.ink)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.shortName(mac.name))
                         .font(.body.weight(.medium))
                         .foregroundStyle(Palette.ink)
-                    HUDText(mac.host ?? "Found on this network")
+                        .multilineTextAlignment(.leading)
+                    Text(mac.host ?? "Found on this network")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.muted)
                 }
-                Spacer()
+                Spacer(minLength: Space.xs)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(isSelected ? Palette.cyan : Palette.muted.opacity(0.6))
+                    .symbolRenderingMode(isSelected ? SymbolRenderingMode.palette : .monochrome)
+                    .foregroundStyle(isSelected ? Palette.onAction : Palette.muted.opacity(0.6), Palette.cyan)
+                    .contentTransition(.symbolEffect(.replace))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 13)
+            .padding(.horizontal, Space.m)
+            .padding(.vertical, Space.s)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -167,7 +189,7 @@ struct PairingView: View {
     }
 
     private var searchRow: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.s + 2) {
             if let problem = browser.problem {
                 Image(systemName: "wifi.exclamationmark")
                     .foregroundStyle(Palette.amber)
@@ -184,7 +206,7 @@ struct PairingView: View {
                     .foregroundStyle(Palette.ink2)
             } else {
                 ProgressView()
-                    .tint(Palette.cyan)
+                    .tint(Palette.ink2)
                     .frame(width: 30)
                 Text("Looking for Jarvis on your network…")
                     .font(.subheadline)
@@ -192,13 +214,13 @@ struct PairingView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Space.m)
+        .padding(.vertical, Space.m)
         .accessibilityElement(children: .combine)
     }
 
     private var codeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.s) {
             SectionLabel(number: "02", title: "Pairing code")
             CodeEntryField(code: $code, focused: $codeFocused, invalid: isWrongCode)
             if let failure {
@@ -206,57 +228,75 @@ struct PairingView: View {
                     .id(Self.failureID)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            Text("On the Mac, tap “Pair a phone” for a six-digit code. It works once, for five minutes.")
-                .font(.footnote)
-                .foregroundStyle(Palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                HUDText("This iPhone")
+            footnote("On the Mac, tap “Pair a phone” for a six-digit code. It works once, for five minutes.")
+            HStack(spacing: Space.s) {
+                Text("This iPhone")
+                    .font(.body)
+                    .foregroundStyle(Palette.ink)
                 TextField("iPhone", text: $deviceName)
                     .multilineTextAlignment(.trailing)
                     .foregroundStyle(Palette.ink2)
-                    .font(.subheadline)
+                    .font(.body)
                     .submitLabel(.done)
                     .accessibilityLabel("Name for this iPhone on the Mac")
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 46)
-            .glassCard(cornerRadius: 14, strength: 0.7)
+            .padding(.horizontal, Space.m)
+            .frame(minHeight: 50)
+            .glassCard(cornerRadius: 16)
+            .padding(.top, Space.xxs)
         }
+    }
+
+    private func footnote(_ text: String) -> some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(Palette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Space.m)
     }
 
     private var pairButton: some View {
         Button {
             Task { await pair() }
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.s - 2) {
                 if working {
-                    ProgressView().tint(Palette.space)
+                    ProgressView().tint(Palette.onAction)
                 } else {
                     Image(systemName: "link")
                 }
                 Text(working ? "Pairing…" : "Pair with Mac")
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 54)
+            .frame(minHeight: 56)
         }
-        .buttonStyle(PrimaryButtonStyle())
+        .buttonStyle(PrimaryButtonStyle(cornerRadius: 18))
         .disabled(!canPair || working)
     }
 
     private var footer: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Label("Same Wi‑Fi as the Mac, or Tailscale on both when you’re away.", systemImage: "wifi")
             Label("Your token stays in this iPhone’s Keychain.", systemImage: "lock.fill")
         }
-        .font(.caption)
+        .font(.footnote)
         .foregroundStyle(Palette.muted)
         .labelStyle(FooterLabelStyle())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Space.m)
     }
 
     // MARK: - Pairing
 
     private static let failureID = "pairing-failure"
+
+    /// "J.A.R.V.I.S. on Tony-MacBook-Pro" → "Tony-MacBook-Pro" (display only; the whole
+    /// name stays the row's VoiceOver label).
+    private static func shortName(_ name: String) -> String {
+        let prefix = "J.A.R.V.I.S. on "
+        guard name.hasPrefix(prefix), name.count > prefix.count else { return name }
+        return String(name.dropFirst(prefix.count))
+    }
 
     private var canPair: Bool {
         code.count == 6 && (selected != nil || MacAddress.normalize(address) != nil)
@@ -330,9 +370,12 @@ struct PairingView: View {
 
 private struct FooterLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.foregroundStyle(Palette.cyan.opacity(0.7))
+        HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+            configuration.icon
+                .foregroundStyle(Palette.titanium)
+                .frame(width: 18)
             configuration.title
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
