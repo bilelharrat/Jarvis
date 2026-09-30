@@ -562,6 +562,38 @@ test('A file dropped on the window never replaces it; a video dropped is sent to
   assert(JSON.stringify(r) === JSON.stringify([{ type: 'video_summarize', path: '/Users/x/Movies/talk.mov' }]), JSON.stringify(r));
 });
 
+// ── feature modules (web/features/*.js): loaded into the page as features.js would ──
+
+const loadFeature = (name) => js(`${fs.readFileSync(path.join(WEB, 'features', name), 'utf8')}\n;true`);
+// An event as the socket delivers it: to the window, then to the feature modules.
+const deliver = (ev) => js(`(() => { const ev = ${JSON.stringify(ev)}; onEvent(ev); featureEvent(ev); return true; })()`);
+
+test('Jarvis Code tells the backend which session the owner looked at, once in a while', async () => {
+  await loadFeature('code-voice.js');
+  await open(3);
+  await js('Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); document.hasFocus = () => true; true');
+  await deliver({ type: 'task_transcript', id: 3, entries: [] });
+  await deliver({ type: 'task_finished', id: 3, task_kind: 'code', status: 'done', result: 'ok', files: [] });  // within a moment: once
+  await deliver({ type: 'task_transcript', id: 4, entries: [] });  // not the one on screen
+  const seen = await js('__sent.filter((m) => m.type === "code_voice_seen").map((m) => m.id)');
+  assert(JSON.stringify(seen) === '[3]', JSON.stringify(seen));
+  await js('toggleCC(false); __sent.length = 0; true');
+  await deliver({ type: 'task_transcript', id: 3, entries: [] });
+  assert(!(await sentOf('code_voice_seen')).length, 'reported while Jarvis Code was closed');
+});
+
+test('“Read lines 3 to 4 of hub.py” opens it in the Files viewer with those lines marked', async () => {
+  await loadFeature('code-voice.js');
+  await open(3);
+  await deliver({ type: 'code_voice_file', id: 3, directory: '/Users/x/alpha', path: 'src/hub.py', start: 3, end: 4 });
+  const asked = await sentOf('file_read');
+  assert(JSON.stringify(asked) === JSON.stringify([{ type: 'file_read', directory: '/Users/x/alpha', path: 'src/hub.py' }]), JSON.stringify(asked));
+  assert(await js('currentPane === "files"'), 'the Files pane is not open');
+  await deliver({ type: 'file_content', directory: '/Users/x/alpha', path: 'src/hub.py', text: 'a\nb\nc\nd\ne', truncated: false });
+  const marked = await js('[...document.querySelectorAll("#jc-pane-body .jc-viewer .ln")].map((l) => l.classList.contains("cv-mark"))');
+  assert(JSON.stringify(marked) === '[false,false,true,true,false]', JSON.stringify(marked));
+});
+
 // ──
 
 let base;

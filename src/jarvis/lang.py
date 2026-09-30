@@ -2286,6 +2286,24 @@ def tr(template: str, lang: str = "zh", **values: Any) -> str:
     return template.format(**values) if values else template
 
 
+def add_texts(texts: dict[str, str]) -> None:
+    """A feature module's own sentences in Chinese (jarvis.features), added when it imports:
+    translate() and tr() know them from then on, as they know ZH_TEXTS's."""
+    ZH_TEXTS.update(texts)
+    _TEMPLATES[:] = sorted(
+        ((key, _template_pattern(key), *_ends(key)) for key in ZH_TEXTS if _SLOT.search(key)),
+        key=lambda item: len(_SLOT.sub("", item[0])),
+        reverse=True,
+    )
+    _TEMPLATE_ALIASES.update(
+        {
+            _OWN_NAMES.sub("{name}", key): (key, m.group(1))
+            for key in texts
+            if (m := _OWN_NAMES.search(key))
+        }
+    )
+
+
 # ── the system prompt ──
 
 # prefs.PERSONAS in Chinese: display names for Settings, and descriptions that set the

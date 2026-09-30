@@ -914,6 +914,9 @@ class Hub:
         self._notify_sinks: list[Callable[[Alert], Any]] = []
         self._approval_sinks: list[Callable[[dict[str, Any]], Any]] = []
         self._approval_done_sinks: list[Callable[[str], Any]] = []
+        self._instants: list[Callable[[str], Any]] = []
+        self._task_sinks: list[Callable[[str, dict[str, Any]], Any]] = []
+        self._briefing_notes: list[Callable[[], str]] = []
         self.features = features.install_all(self)
 
     # ── features: what jarvis.features modules register ──
@@ -946,8 +949,24 @@ class Hub:
 
     def register_command(self, kind: str, handler: Callable[[dict[str, Any]], Any]) -> None:
         """A window command, {"type": kind, ...}: the handler gets the message (and may be
-        async). Checked before the built-in commands, so a kind must be new."""
+        async). Checked before the built-in commands: a handler that returns False leaves
+        the message to the built-in command of that kind (it takes only some of them)."""
         self._commands[kind] = handler
+
+    def register_instant(self, handler: Callable[[str], Any]) -> None:
+        """Words the user said or typed to JARVIS, answered at once without asking Claude:
+        the async handler gets the request and gives back the reply ("" when it answered
+        some other way), or None when the words aren't for it."""
+        self._instants.append(handler)
+
+    def add_task_sink(self, sink: Callable[[str, dict[str, Any]], Any]) -> None:
+        """Hear every Jarvis Code and research event (kind, data): steps, turns ending,
+        the sessions list."""
+        self._task_sinks.append(sink)
+
+    def add_briefing_note(self, note: Callable[[], str]) -> None:
+        """A line of facts for the morning briefing's request ("" when there's nothing)."""
+        self._briefing_notes.append(note)
 
     def register_loop(self, name: str, factory: Callable[[], Any]) -> None:
         """A background loop (factory() gives the coroutine), started with the others."""
@@ -2311,6 +2330,25 @@ class Hub:
         self._speak(reply)
         return True
 
+    async def _instant_feature(self, rid: str, text: str) -> bool:
+        """A feature module's instant words (register_instant), answered without Claude."""
+        for instant in list(self._instants):
+            try:
+                reply = await instant(text)
+            except Exception:  # a broken feature never costs the user their request
+                log.exception("a feature's instant command failed")
+                continue
+            if reply is None:
+                continue
+            if reply:
+                if lang.is_zh(self.language):
+                    reply = lang.translate(reply, self.language)
+                self.turn["reply"] = reply
+                self.emit("reply", rid=rid, text=reply)
+                self._speak(reply)
+            return True
+        return False
+
     async def _instant_shortcut(self, rid: str, text: str) -> bool:
         """'Jarvis, movie mode': run an instant shortcut without asking Claude."""
         name = lang.match_shortcut(text, self.prefs.instant_shortcuts, self.language)
@@ -2404,6 +2442,7 @@ class Hub:
             try:
                 if display is None and (
                     await self._instant_research(rid, text)
+                    or await self._instant_feature(rid, text)
                     or await self._instant_window(rid, text)
                     or await self._instant_shortcut(rid, text)
                     or await self._instant_system(rid, text)
@@ -4467,6 +4506,7 @@ class Hub:
 
     def _task_event(self, kind: str, **data: Any) -> None:
         self.emit(kind, **data)
+        self._call_sinks(self._task_sinks, kind, data)
         if self.voicecode.focus is not None and data.get("id") == self.voicecode.focus:
             self.voicecode.on_event(kind, data)
             return  # the focused session speaks for itself
@@ -4789,7 +4829,20 @@ class Hub:
     # ── morning briefing ──
 
     async def briefing(self) -> None:
-        await self.ask(BRIEFING_PROMPT, display="Morning briefing")
+        await self.ask(BRIEFING_PROMPT + self._briefing_extra(), display="Morning briefing")
+
+    def _briefing_extra(self) -> str:
+        """The feature modules' lines for the briefing (add_briefing_note)."""
+        lines: list[str] = []
+        for note in list(self._briefing_notes):
+            try:
+                line = str(note() or "").strip()
+            except Exception:  # a broken note never costs the briefing
+                log.exception("a feature's briefing note failed")
+                continue
+            if line:
+                lines.append(line)
+        return "".join(f" {line}" for line in lines)
 
     # ── the fallback model ──
 
@@ -5341,8 +5394,9 @@ class Hub:
         if handler is not None:  # a feature module's command (register_command)
             result = handler(msg)
             if asyncio.iscoroutine(result):
-                await result
-            return
+                result = await result
+            if result is not False:  # False: not the feature's after all; the built-in's
+                return
         if kind in (
             "phone_status",
             "phone_credentials",

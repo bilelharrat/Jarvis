@@ -741,6 +741,9 @@ class VoiceCoder:
         self._last_reply_spoken = ""
         self._reply_said = 0
         self._clock = __import__("time").monotonic
+        # Feature modules' own words (jarvis.features): async hook(text, task) -> True when
+        # it took the utterance, heard before this module's commands.
+        self.hooks: list[Any] = []
 
     @property
     def task(self):
@@ -783,6 +786,10 @@ class VoiceCoder:
         if task is None:
             self.exit()
             return
+        if not typed and intent is None:
+            for hook in list(self.hooks):
+                if await hook(text, task):
+                    return
         intent = intent or parse(text)
         tasks = self.hub.tasks
         self._typed = typed
