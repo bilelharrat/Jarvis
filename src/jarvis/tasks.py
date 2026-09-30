@@ -925,6 +925,10 @@ class TaskManager:
         # spending cap reached): "" when it may, else why not, said once in its transcript
         # while the message waits. release(task_id) looks again (a cap raised).
         self.turn_gate: Callable[[ClaudeTask], str] | None = None
+        # The owner's permission rules (jarvis.features: by domain, MCP tool, path or
+        # command): (behavior, rule) for the rule that covers a step, "deny", "ask" or
+        # "allow", None when none does. A deny or an ask holds in every mode, Bypass too.
+        self.rule_check: Callable[[ClaudeTask, str, dict[str, Any]], Any] | None = None
         self._spawns: deque[float] = deque()  # when the latest Claude Codes were started
         self._open: set[int] = set()  # sessions connecting or connected
         self._changed_at = 0.0
@@ -2705,16 +2709,30 @@ class TaskManager:
                 self._audit(task, tool_name, tool_input, decision, why)
                 return PermissionResultAllow()
 
+            ruled = self._ruled(task, tool_name, tool_input)
+            if ruled is not None and ruled[0] == "deny":  # the owner's rule, in every mode
+                self._audit(task, tool_name, tool_input, "denied", f"your rule: {ruled[1]}")
+                return PermissionResultDeny(
+                    message=f"The user's permission rule {ruled[1]} doesn't allow this. Don't "
+                    "try to get it done another way; ask them if it's needed."
+                )
+            asked_by_rule = ruled is not None and ruled[0] == "ask"
             if free := self._goes_ahead(task, tool_name, tool_input):
                 return allow(*free)
             page = await self._browser_target(task, tool_name, tool_input)
-            if page is not None and page.local and task.mode in ("edits", "smart"):
+            if (
+                page is not None
+                and page.local
+                and task.mode in ("edits", "smart")
+                and not asked_by_rule
+            ):
                 return allow("auto", "a page on this Mac")
             editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
             command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
-            rule = command_rule(command, task.cwd) if command else ""
+            # (a step the owner's ask rule covers asks every time: nothing broader to offer)
+            rule = command_rule(command, task.cwd) if command and not asked_by_rule else ""
             choices = [(ALLOW, "Yes")]
-            if editable:
+            if editable and not asked_by_rule:
                 choices.append((ALLOW_EDITS, "Yes, allow all edits this session"))
             if rule:
                 choices.append(
@@ -2812,7 +2830,36 @@ class TaskManager:
     def _goes_ahead(
         self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
     ) -> tuple[str, str] | None:
-        """(decision, why) when a step runs without asking, as the session is set now."""
+        """(decision, why) when a step runs without asking, as the session is set now: never
+        one the owner's deny or ask rule covers; one their allow rule covers, always."""
+        ruled = self._ruled(task, tool_name, tool_input)
+        if ruled is not None and ruled[0] != "allow":
+            return None
+        found = self._unasked(task, tool_name, tool_input)
+        if found is None and ruled is not None:
+            return "auto", f"your rule: {ruled[1]}"
+        return found
+
+    def _ruled(
+        self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
+    ) -> tuple[str, str] | None:
+        """The owner's rule that covers this step (rule_check): (behavior, rule), or None.
+        Rules that can't be checked make it ask: never more let by than they'd allow."""
+        if self.rule_check is None:
+            return None
+        try:
+            found = self.rule_check(task, tool_name, tool_input)
+        except Exception:
+            log.exception("Jarvis Code: the permission rules couldn't be checked")
+            return "ask", "your permission rules (they couldn't be checked)"
+        if isinstance(found, tuple) and len(found) == 2 and found[0] in ("allow", "ask", "deny"):
+            return str(found[0]), str(found[1])
+        return None
+
+    def _unasked(
+        self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
+    ) -> tuple[str, str] | None:
+        """(decision, why) when the mode, the tool or a "don't ask again" lets a step by."""
         if task.mode == "auto":
             return "bypass", "Bypass permissions is on"
         if tool_name in FREE_TOOLS:

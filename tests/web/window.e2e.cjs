@@ -3484,6 +3484,51 @@ test('A question with one answer: a number picks it, or the owner’s own words 
   assert(await js('!document.querySelector("#cards [data-approval=b1] .cq") && document.querySelectorAll("#cards [data-approval=b1] .card-actions button").length === 2'), 'an ordinary card changed');
 });
 
+// ── Permission rules (web/features/code-rules.js) ──
+
+const rulesState = (extra = {}) => ({ type: 'cr_state', id: 1, project: '/Users/x/<b>alpha</b>', name: '<b>alpha</b>',
+  rules: { deny: ['WebFetch(domain:evil.com)'], ask: ['Bash(git push:*)'], allow: ['Read(src/<img src=x onerror="window.__pwned=1">)'] },
+  legacy: ['git commit'], claude: { 'settings.json': { allow: ['Bash(npm test:*)'] } }, ...extra });
+
+test('The Permissions pane lists the project’s rules, adds and removes them, and imports and exports them', async () => {
+  await featureScript('code-rules.js');
+  await open(1);
+  await js('openPane("rules"); true');
+  assert(await js('$("jc-pane-title").textContent') === 'Permissions', 'the pane did not open');
+  assert((await sentOf('cr_state')).length === 1, JSON.stringify(await js('__sent')));
+  await deliver(rulesState());
+  const r = await js(`({ groups: [...document.querySelectorAll('#jc-pane-body .cr-group')].map((g) => g.className), text: $('jc-pane-body').textContent,
+    rules: [...document.querySelectorAll('#jc-pane-body .cr-group code[data-no-i18n]')].map((c) => c.textContent),
+    imgs: document.querySelectorAll('#jc-pane-body img, #jc-pane-body b').length, pwned: !!window.__pwned,
+    ro: !!document.querySelector('#jc-pane-body .jc-audit-switch .sw') })`);
+  assert(r.groups.join() === 'cr-group deny,cr-group ask,cr-group allow', JSON.stringify(r));
+  assert(r.rules[0] === 'WebFetch(domain:evil.com)' && r.rules[1] === 'Bash(git push:*)' && r.imgs === 0 && !r.pwned, JSON.stringify(r));
+  assert(r.ro && r.text.includes('git commit …') && r.text.includes('Bash(npm test:*)'), r.text);
+  await js('__sent.length = 0; document.querySelectorAll("#jc-pane-body .cr-group.ask .cr-remove")[0].click(); true');
+  assert(JSON.stringify(await sentOf('cr_remove')) === JSON.stringify([{ type: 'cr_remove', id: 1, behavior: 'ask', rule: 'Bash(git push:*)' }]), JSON.stringify(await js('__sent')));
+  // A rule added: allow, typed, Enter.
+  await js('document.querySelector("#jc-pane-body .cr-seg-allow").click(); window.__f = document.querySelector("#jc-pane-body .cr-input"); __f.focus(); true');
+  await typeText('WebFetch(domain:python.org)');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  assert(JSON.stringify(await sentOf('cr_add')) === JSON.stringify([{ type: 'cr_add', id: 1, behavior: 'allow', rule: 'WebFetch(domain:python.org)' }]), JSON.stringify(await js('__sent')));
+  // Not a rule: the reason shows, and what was typed stays; added: the field starts over.
+  await deliver(rulesState({ error: 'A WebFetch rule names a domain: WebFetch(domain:example.com).' }));
+  assert(await js('document.querySelector("#jc-pane-body .cr-error").textContent.includes("names a domain") && document.querySelector("#jc-pane-body .cr-input").value === "WebFetch(domain:python.org)"'), 'the error or the draft is gone');
+  await deliver(rulesState({ added: 'WebFetch(domain:python.org)' }));
+  assert(await js('document.querySelector("#jc-pane-body .cr-input").value === "" && document.querySelector("#jc-pane-body .cr-seg-allow").getAttribute("aria-checked") === "true"'), 'the field kept the added rule');
+  // Import at once; export only on a second press.
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .cr-import").click(); document.querySelector("#jc-pane-body .cr-export[data-target=local]").click(); true');
+  assert(JSON.stringify((await js('__sent')).map((m) => m.type)) === JSON.stringify(['cr_import']), JSON.stringify(await js('__sent')));
+  assert(await js('document.querySelector("#jc-pane-body .cr-export[data-target=local]").classList.contains("armed")'), 'the export isn’t armed');
+  await js('document.querySelector("#jc-pane-body .cr-export[data-target=local]").click(); true');
+  assert(JSON.stringify(await sentOf('cr_export')) === JSON.stringify([{ type: 'cr_export', id: 1, target: 'local' }]), JSON.stringify(await js('__sent')));
+  // The "don't ask again" commands and the read-only switch, as before.
+  await js('__sent.length = 0; [...document.querySelectorAll("#jc-pane-body .cr-list li")].find((li) => li.textContent.includes("git commit")).querySelector("button").click(); document.querySelector("#jc-pane-body .jc-audit-switch .sw").click(); true');
+  const sent = await js('__sent');
+  assert(JSON.stringify(sent) === JSON.stringify([{ type: 'task_rules', id: 1, remove: 'git commit' }, { type: 'set_prefs', changes: { code_read_only: false } }]), JSON.stringify(sent));
+});
+
 // ──
 
 let base;

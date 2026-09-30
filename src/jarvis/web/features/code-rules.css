@@ -1,0 +1,37 @@
+/* Permission rules (features/code-rules.js): the Permissions pane's rules, grouped deny, ask
+   and allow, in the workbench's own cards and type. */
+
+.cr-head { margin-top: 16px; }
+.cr-intro { margin: 0 4px 10px; line-height: 1.45; }
+.cr-none { margin: 2px 4px 10px; }
+.cr-group { margin-bottom: 10px; }
+.cr-group-head { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 5px; font-size: 12px; }
+.cr-group-head small { color: rgb(var(--c-muted)); font-size: 11.5px; }
+.cr-group.deny .cr-group-head strong { color: rgb(var(--c-danger-ink)); }
+.cr-group.ask .cr-group-head strong { color: rgb(var(--c-warning-ink)); }
+.cr-group.allow .cr-group-head strong { color: rgb(var(--c-success-ink)); }
+.cr-list li { padding: 6px 8px 6px 12px; }
+.cr-list .cr-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); }
+.cr-rule { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-ink) / 0.12); }
+.cr-rule.deny { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-danger) / 0.75); }
+.cr-rule.ask { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-warning) / 0.8); }
+.cr-rule.allow { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-success) / 0.75); }
+.cr-kind { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgb(var(--c-ink) / 0.06); }
+.cr-file { flex: none; font-size: 11px; }
+
+.cr-add { margin: 8px 0 4px; padding: 10px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.cr-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: rgb(var(--c-ink) / 0.06); margin-bottom: 8px; }
+.cr-seg button { border: 0; border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12px; background: transparent; color: rgb(var(--c-ink-2)); cursor: pointer; }
+.cr-seg button[aria-checked="true"] { background: rgb(var(--c-surface)); color: rgb(var(--c-ink)); font-weight: 600; box-shadow: var(--shadow-control); }
+.cr-seg .cr-seg-deny[aria-checked="true"] { color: rgb(var(--c-danger-ink)); }
+.cr-seg .cr-seg-ask[aria-checked="true"] { color: rgb(var(--c-warning-ink)); }
+.cr-seg .cr-seg-allow[aria-checked="true"] { color: rgb(var(--c-success-ink)); }
+.cr-add-row { display: flex; gap: 8px; }
+.cr-input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
+.cr-help { margin: 7px 2px 0; line-height: 1.6; }
+.cr-help code { font: 11px var(--mono); padding: 0 4px; border-radius: 4px; background: rgb(var(--c-ink) / 0.05); }
+.cr-error { margin: 7px 2px 0; font-size: 12px; color: rgb(var(--c-danger-ink)); }
+.cr-note { margin: 4px 4px 0; font-size: 12px; color: rgb(var(--c-success-ink)); }
+.cr-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
+.cr-export.armed { background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); box-shadow: none; }
+.cr-import[disabled] { opacity: 0.45; cursor: default; }

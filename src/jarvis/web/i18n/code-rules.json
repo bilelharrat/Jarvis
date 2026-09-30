@@ -1,0 +1,107 @@
+{
+  "strings": {
+    "Permissions": "权限",
+    "Deny": "拒绝",
+    "Ask first": "先询问",
+    "Allow": "允许",
+    "Never, in any mode.": "任何模式下都不允许。",
+    "A card every time, even in Bypass.": "每次都弹出卡片，即使在绕过权限模式下。",
+    "Without asking.": "不询问直接进行。",
+    "Web": "网页",
+    "MCP": "MCP",
+    "Files": "文件",
+    "Command": "命令",
+    "Tool": "工具",
+    "Read-only commands without asking": "只读命令不询问",
+    "ls, cat, grep, git status, git log, git diff… Anything that writes, deletes, installs or chains commands still asks.": "ls、cat、grep、git status、git log、git diff…… 任何写入、删除、安装或串联命令的操作仍会询问。",
+    "Remove": "移除",
+    "Remove this rule": "移除这条规则",
+    "What the rule does": "这条规则做什么",
+    "A rule, in Claude Code’s syntax": "一条规则，使用 Claude Code 的语法",
+    "Add": "添加",
+    "For example:": "例如：",
+    "Export to settings.local.json": "导出到 settings.local.json",
+    "Export to settings.json": "导出到 settings.json",
+    "Press again to write settings.local.json": "再按一次写入 settings.local.json",
+    "Press again to write settings.json (shared with the project)": "再按一次写入 settings.json（与项目共享）",
+    "Adds these rules to .claude/settings.local.json, keeping what’s there": "把这些规则加到 .claude/settings.local.json，保留原有内容",
+    "Adds these rules to .claude/settings.json, keeping what’s there": "把这些规则加到 .claude/settings.json，保留原有内容",
+    "Open a session to see its permissions.": "打开一个会话来查看它的权限。",
+    "Reading the rules…": "正在读取规则…",
+    "Rules for": "规则：",
+    "Deny beats ask, and ask beats allow. They hold in every permission mode, Bypass too, for every session in this project.": "拒绝优先于询问，询问优先于允许。它们在每种权限模式下都生效（包括绕过权限），适用于这个项目的每个会话。",
+    "No rules yet.": "还没有规则。",
+    "Commands it runs here without asking": "在这里不询问就运行的命令",
+    "None yet. “Yes, and don’t ask again” on a command adds it here.": "还没有。对某条命令选择“是，并且不再询问”会把它加到这里。",
+    "Claude Code’s settings in this project": "这个项目里 Claude Code 的设置",
+    "No rules in .claude/settings.json or settings.local.json.": ".claude/settings.json 和 settings.local.json 里没有规则。",
+    "Import them": "导入它们",
+    "Export adds JARVIS’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.": "导出会把 JARVIS 的规则和“不再询问”的命令加到文件里，保留原有内容；settings.json 会与项目的所有协作者共享。",
+    "Nothing new to import.": "没有新的规则可导入。",
+    "Couldn't save that rule; try again.": "没能保存这条规则；请再试一次。",
+    "Couldn't save that; try again.": "没能保存；请再试一次。",
+    "A rule can't be empty.": "规则不能为空。",
+    "That rule is too long.": "这条规则太长了。",
+    "An MCP rule names a server or a tool, with nothing in brackets.": "MCP 规则只写服务器或工具的名字，括号里不写内容。",
+    "A WebFetch rule names a domain: WebFetch(domain:example.com).": "WebFetch 规则要写域名：WebFetch(domain:example.com)。",
+    "A command rule is one line.": "命令规则只能有一行。",
+    "That isn't a path.": "这不是一个路径。",
+    "A rule allows, asks or denies.": "规则只能是允许、询问或拒绝。",
+    "That's as many rules of that kind as a project can have.": "这个项目的这类规则已经达到上限。",
+    "Permission rules changed; it goes on with them.": "权限规则已更改；会话会按新规则继续。"
+  },
+  "patterns": [
+    [
+      "^Imported (\\d+) rules?\\.$",
+      "已导入 $1 条规则。"
+    ],
+    [
+      "^Imported (\\d+) rules?\\. Left out (\\d+) this can't read\\.$",
+      "已导入 $1 条规则。有 $2 条无法读取，已略过。"
+    ],
+    [
+      "^Nothing new to import\\. Left out (\\d+) this can't read\\.$",
+      "没有新的规则可导入。有 $1 条无法读取，已略过。"
+    ],
+    [
+      "^Added (\\d+) rules? to \\.claude/(settings(?:\\.local)?\\.json)\\.$",
+      "已把 $1 条规则加到 .claude/$2。"
+    ],
+    [
+      "^They're all in \\.claude/(settings(?:\\.local)?\\.json) already\\.$",
+      "它们都已经在 .claude/$1 里了。"
+    ],
+    [
+      "^Stopped importing: (.+)$",
+      "导入已停止：$1"
+    ],
+    [
+      "^“(.+)” isn't a rule: write it as Tool or Tool\\(what\\), like WebFetch\\(domain:example\\.com\\)\\.$",
+      "“$1”不是一条规则：请写成 工具 或 工具(内容)，例如 WebFetch(domain:example.com)。"
+    ],
+    [
+      "^“(.+)” isn't a tool name\\.$",
+      "“$1”不是工具名。"
+    ],
+    [
+      "^“(.+)” isn't a domain\\.$",
+      "“$1”不是域名。"
+    ],
+    [
+      "^(\\w+) rules name the whole tool: write just (\\w+)\\.$",
+      "$1 规则只能针对整个工具：只写 $2。"
+    ],
+    [
+      "^(settings(?:\\.local)?\\.json) can't be read, so nothing was written to it\\.$",
+      "$1 无法读取，所以没有写入任何内容。"
+    ],
+    [
+      "^(settings(?:\\.local)?\\.json) isn't a settings object, so nothing was written to it\\.$",
+      "$1 不是设置对象，所以没有写入任何内容。"
+    ],
+    [
+      "^(settings(?:\\.local)?\\.json) has permissions of a kind this can't add to, so nothing was written\\.$",
+      "$1 的权限格式无法添加，所以没有写入任何内容。"
+    ]
+  ]
+}
