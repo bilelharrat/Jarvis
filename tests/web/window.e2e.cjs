@@ -3040,6 +3040,32 @@ test('With no session open, the panes act on the project they show, and one draw
   assert(await js('$("jc-pane-body").textContent.includes("Ruff beta")'), await js('$("jc-pane-body").textContent'));
 });
 
+test('A dev server’s logs stay with its project: another project’s Preview pane doesn’t show them', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('onEvent({ type: "tasks", items: [__task(1), __task(2, { folder: "beta" })] }); jarvisFeatures.openPane("cv-preview"); true');
+  const dirs = { alpha: '/Users/x/Projects/alpha', beta: '/Users/x/Projects/beta' };
+  const server = (name) => ({ key: `${dirs[name]}::web`, project: dirs[name], name: 'web', command: 'npm run dev', status: 'ready', port: 5173, url: '',
+    message: '', started_by: null, started_at: 1, lines: 1 });
+  const stateOf = (name, id) => ({ type: 'cv_state', project: name, path: dirs[name], id, session: null, problems: [], suggestions: [], servers: [server(name)],
+    configs: [{ name: 'web', command: 'npm run dev', port: 5173, url: '', cwd: '', source: '.claude/launch.json', why: '' }] });
+  await deliver(stateOf('alpha', 1));
+  await deliver({ type: 'devservers', items: [server('alpha'), server('beta')] });
+  assert(await clickText('#jc-pane-body .cv-server', 'Logs'), 'no Logs button');
+  await deliver({ type: 'cv_logs', key: `${dirs.alpha}::web`, lines: [[1, 'alpha’s output']] });
+  // Session 2, in beta: its own pane, without alpha's logs (which it couldn't hide).
+  await js('selectTask(2); true');
+  await deliver(stateOf('beta', 2));
+  await frames(2);
+  const r = await js(`({ log: !!$('cv-log'), text: $('jc-pane-body').textContent, buttons: [...document.querySelectorAll('#jc-pane-body .cv-server button')].map((b) => b.textContent) })`);
+  assert(!r.log && !r.text.includes('alpha’s output') && r.buttons.includes('Logs') && !r.buttons.includes('Hide logs'), JSON.stringify(r));
+  // Back on session 1: alpha's logs are there again.
+  await js('selectTask(1); true');
+  await deliver(stateOf('alpha', 1));
+  await frames(2);
+  assert(await js('!!$("cv-log") && $("cv-log").textContent') === 'alpha’s output', await js('$("jc-pane-body").textContent'));
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this

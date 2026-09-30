@@ -264,7 +264,9 @@
   }
 
   function logView() {
-    const server = state.servers.find((s) => s.key === state.logKey);
+    // Only a server of the project on show: another's output never sits under this one (its
+    // Hide logs is in the other project's pane).
+    const server = state.servers.find((s) => s.key === state.logKey && s.project === state.info.path);
     if (!server) return null;
     // Not asked lately (just opened, or on show again after a while): asked now, so what came
     // meanwhile shows too.
