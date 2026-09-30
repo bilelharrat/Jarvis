@@ -304,6 +304,26 @@ async def test_claude_codes_own_goal_is_passed_through(settings, quiet_speaker, 
     await end_all(hub)
 
 
+async def test_a_goal_with_no_session_open_starts_one_working_on_it(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(
+        settings, quiet_speaker, isolated, client=scripted(['{"met": true, "why": "shipped"}'])
+    )
+    seen = events_of(hub)
+    await hub._handle({"type": "code_goal_new", "directory": "proj", "text": "ship the fix"})
+    [task] = hub.tasks.tasks.values()
+    goal = hub.code_sessions._meta_of(task)["goal"]
+    assert goal["text"] == "ship the fix" and not goal["native"]
+    assert any(e["type"] == "show_session" and e["id"] == task.id for e in seen())
+    assert await until(lambda: goal["state"] == "met", tries=800)
+    assert task.client.said == ["ship the fix"]
+    await hub._handle({"type": "code_goal_new", "directory": "nowhere", "text": "x"})
+    assert len(hub.tasks.tasks) == 1  # (task_new said why)
+    await end_all(hub)
+
+
 def test_goal_verdicts_and_commands_are_read_defensively():
     assert code_asides.verdict('Sure: {"met": true, "why": "done"}') == (True, "done")
     assert code_asides.verdict('{"met": "yes"}') is None and code_asides.verdict("no") is None

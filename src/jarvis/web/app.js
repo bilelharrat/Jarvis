@@ -68,6 +68,9 @@ const featureLast = new Map();  // the latest event of each type, for a listener
 const featurePanes = new Map();  // Jarvis Code pane id -> { title, render(body, task) }
 const featureMoreItems = [];  // Jarvis Code "More" menu items: { label, run, when?(task) }
 const featureMentions = [];  // Jarvis Code composer: (query, textBefore) -> more @ suggestions
+// Jarvis Code / commands: name -> { name, help, run?(arg, task), insert?, needsArg?, withoutSession? }
+// (insert: text the palette puts in the composer, a snippet; run: the command itself).
+const featureSlash = new Map();
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -93,6 +96,8 @@ window.jarvisFeatures = {
   registerMentions(suggest) { featureMentions.push(suggest); },
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
+  registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
+  unregisterSlash(name) { featureSlash.delete(String(name).toLowerCase()); },
 };
 
 function onEvent(ev) {
@@ -2080,7 +2085,9 @@ $('jc-title').addEventListener('blur', () => {
 });
 
 function selectTask(id) {
+  const previous = ccSelected;
   ccSelected = id;
+  featureEvent({ type: 'jc_select', id, previous });  // (the composer still holds previous's draft)
   const t = currentTask();
   if (t && t.folder !== deckProject) { openProjects.add(t.folder); selectProject(t.folder); }
   $('deck-timeline').replaceChildren();
@@ -2542,11 +2549,14 @@ function suggestions() {
     const q = v.slice(1).toLowerCase();
     if (deckProject && !customSlash[deckProject]) { customSlash[deckProject] = []; send({ type: 'slash_list', directory: deckProject }); }
     const ours = new Set(SLASH_COMMANDS.map(([name]) => name));
+    const features = [...featureSlash.values()].filter((c) => !ours.has(c.name));
+    features.forEach((c) => ours.add(c.name));
     const custom = (customSlash[deckProject] || []).filter((c) => !ours.has(c.name.toLowerCase()));
     return {
       kind: 'slash',
       items: [
         ...SLASH_COMMANDS.filter(([name]) => name.startsWith(q)).map(([name, help]) => ({ label: `/${name}`, help, value: name })),
+        ...features.filter((c) => c.name.startsWith(q)).map((c) => ({ label: `/${c.name}`, help: c.help || '', value: c.name, feature: c })),
         ...custom.filter((c) => c.name.toLowerCase().startsWith(q)).map((c) => ({ label: `/${c.name}`, help: `${c.help || ''}${c.help ? ' · ' : ''}${c.scope}`, value: c.name, custom: true })),
       ].slice(0, 60),
     };
@@ -2587,8 +2597,16 @@ function pick(s, item) {
     input.focus();
     return;
   }
+  if (s.kind === 'slash' && item.feature && item.feature.insert !== undefined) {  // a snippet: its words, to edit
+    input.value = item.feature.insert;
+    input.selectionStart = input.selectionEnd = input.value.length;
+    input.dispatchEvent(new Event('input'));  // (its height)
+    $('cc-slash').hidden = true;
+    input.focus();
+    return;
+  }
   if (s.kind === 'slash') {
-    const needsArg = item.custom || ['model', 'effort', 'rename'].includes(item.value);
+    const needsArg = item.custom || (item.feature && item.feature.needsArg) || ['model', 'effort', 'rename'].includes(item.value);
     input.value = `/${item.value}${needsArg ? ' ' : ''}`;
     $('cc-slash').hidden = true;
     if (!needsArg) $('deck-composer').requestSubmit();
@@ -2675,6 +2693,8 @@ function slashWithoutSession(text) {
   }
   if (name === 'model' && !arg) { modelMenu(); return true; }
   if (SLASH_WITHOUT_SESSION.has(name)) { localSlash(text); return true; }
+  const featured = featureSlash.get(name);
+  if (featured && (featured.insert !== undefined || featured.withoutSession)) return runFeatureSlash(featured, arg, null);
   return false;
 }
 
@@ -2721,8 +2741,25 @@ function localSlash(text) {
     case 'model': if (!arg) { modelMenu(); return true; } return false;
     case 'init': if (t) send({ type: 'task_send', id: t.id, plain: true, text: 'Look over this project and write (or update) a CLAUDE.md at its root that orients a new contributor: how to build, test and lint, the layout, and the conventions.' }); return true;
     case 'review': if (t) send({ type: 'task_send', id: t.id, plain: true, text: 'Review the uncommitted changes in this project for bugs, security problems and anything that breaks existing behavior. List findings by severity.' }); return true;
-    default: return false;
+    default: {
+      const command = featureSlash.get(name.toLowerCase());  // a feature's: /btw, /goal, a snippet
+      return command ? runFeatureSlash(command, arg, t) : false;
+    }
   }
+}
+
+// A feature's / command typed out in full: it runs, or a snippet puts its words in the
+// composer (once the command typed there has been cleared). False: not handled here.
+function runFeatureSlash(command, arg, t) {
+  if (command.insert === undefined) return command.run ? command.run(arg, t) !== false : false;
+  setTimeout(() => {
+    const input = $('deck-input');
+    input.value = command.insert;
+    input.dispatchEvent(new Event('input'));
+    $('cc-slash').hidden = true;
+    input.focus();
+  });
+  return true;
 }
 
 // A message that didn't go keeps its text and files in the composer, and says why.

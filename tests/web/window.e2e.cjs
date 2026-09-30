@@ -1176,8 +1176,10 @@ test('In Chinese the sheet reads in Chinese, and a path or a log line stays as i
 });
 
 // ── Jarvis Code's agent board (web/features/code-board.js, put in as features.js would) ──
+// ── Jarvis Code sessions: the board, drafts, the sidebar, edit and resend, /btw, /goal,
+// snippets (web/features/code-board.js and code-sessions.js, put in as features.js would) ──
 
-const SESSION_FEATURES = ['code-board.js'].map((f) => fs.readFileSync(path.join(WEB, 'features', f), 'utf8'));
+const SESSION_FEATURES = ['code-board.js', 'code-sessions.js'].map((f) => fs.readFileSync(path.join(WEB, 'features', f), 'utf8'));
 // Jarvis Code open on alpha with these sessions (ids), the first selected, and the features in.
 // Events go to the window as its socket hands them over: app.js's onEvent, then the features'.
 async function sessions(ids, extra = {}, then = '') {
@@ -1209,6 +1211,151 @@ test('The agent board: lanes by where each session stands, answering from a card
   await press('Escape');
   r = await js('({ hidden: document.querySelector(".cs-board").hidden, cc: !$("cc").hidden })');
   assert(r.hidden && r.cc, JSON.stringify(r));
+});
+
+test('Each session keeps its own draft and attachments; a sent one is forgotten', async () => {
+  await sessions([1, 2]);
+  await js('$("deck-input").focus()');
+  await typeText('draft one');
+  await js('attachments = [{ kind: "text", type: "text/plain", data: "x", name: "notes.txt", size: 1 }]; renderAttachments(); selectTask(2)');
+  let r = await js('({ text: $("deck-input").value, files: attachments.length, saved: __sent.filter((m) => m.type === "code_draft").map((m) => [m.id, m.text]) })');
+  assert(r.text === '' && r.files === 0 && JSON.stringify(r.saved) === JSON.stringify([[1, 'draft one']]), JSON.stringify(r));
+  await js('selectTask(1); $("deck-input").focus()');
+  r = await js('({ text: $("deck-input").value, files: attachments.map((a) => a.name) })');
+  assert(r.text === 'draft one' && r.files.join() === 'notes.txt', JSON.stringify(r));
+  await js('__sent.length = 0');
+  await press('Enter');
+  r = await js('({ sent: __sent.map((m) => [m.type, m.text]), text: $("deck-input").value })');
+  assert(r.text === '' && JSON.stringify(r.sent) === JSON.stringify([['task_send', 'draft one'], ['code_draft', '']]), JSON.stringify(r));
+});
+
+test('A draft kept over a restart comes back, and a resting session reads its history when opened', async () => {
+  await sessions([1, 2], { 2: { status: 'resting' } });
+  await js('__ev({ type: "code_meta", full: true, items: { 2: { key: "k2", history: false, resting: true, draft: "half a thought" } } }); selectTask(2)');
+  const r = await js('({ text: $("deck-input").value, sent: __sent.filter((m) => m.type === "code_session_open").map((m) => m.id) })');
+  assert(r.text === 'half a thought' && r.sent.join() === '2', JSON.stringify(r));
+});
+
+test('The sidebar: needs-you and unread badges, pinned on top, archived out of sight, a menu per row', async () => {
+  await sessions([1, 2, 3, 4]);
+  await js(`__ev({ type: 'code_meta', full: true, items: { 2: { pinned: true }, 3: { archived: true }, 4: {} } });
+    __ev({ ...__approval('a4'), task_id: 4 });
+    __ev({ type: 'task_log', id: 2, entry: { n: 3, role: 'assistant', text: 'Done.' } }); true`);
+  await frames(3);
+  const row = (id) => `#deck-project-list .jc-session[data-task="${id}"]`;
+  let r = await js(`({
+    needs: !!document.querySelector('${row(4)} .cs-needs'), unread: !!document.querySelector('${row(2)} .cs-unread'),
+    hidden3: document.querySelector('${row(3)}').parentElement.hidden,
+    pinned: [...document.querySelectorAll('.cs-pinned-row .cs-pinned-title')].map((n) => n.textContent),
+    chips: [...document.querySelectorAll('.cs-filter .cs-chip')].map((n) => n.textContent) })`);
+  assert(r.needs && r.unread && r.hidden3 && r.pinned.join() === 'Session 2' && r.chips.join('|') === 'All|Archived (1)', JSON.stringify(r));
+  await js('[...document.querySelectorAll(".cs-filter .cs-chip")].pop().click()');
+  await frames(2);
+  r = await js('[1, 2, 3, 4].map((id) => !document.querySelector(\'#deck-project-list .jc-session[data-task="\' + id + \'"]\').parentElement.hidden)');
+  assert(JSON.stringify(r) === JSON.stringify([true, false, true, false]), `archived filter: ${r}`);  // 1 is open: always shown
+  await js('document.querySelectorAll(".cs-filter .cs-chip")[0].click(); document.querySelector(\'#deck-project-list .jc-session[data-task="2"]\').parentElement.querySelector(".cs-row-menu").click()');
+  const items = await js('[...$("jc-menu").querySelectorAll(".mi-label")].map((n) => n.textContent)');
+  assert(items.includes('Unpin') && items.includes('Archive') && items.includes('Move to group'), `menu: ${items}`);
+  await js('[...$("jc-menu").querySelectorAll("button")].find((b) => b.textContent.startsWith("Archive")).click()');
+  const set = await js('__sent.filter((m) => m.type === "code_meta_set")');
+  assert(JSON.stringify(set) === JSON.stringify([{ type: 'code_meta_set', id: 2, archived: true }]), JSON.stringify(set));
+  await js('selectTask(2)');
+  assert(!(await js(`!!document.querySelector('${row(2)} .cs-unread')`)), 'opening it did not mark it read');
+});
+
+test('Edit and resend: back in place or in a fork, and the reason when it can’t', async () => {
+  await sessions([1], {}, said(1, 'u1', 'add a cache').replace('onEvent(', '__ev('));
+  await frames(2);
+  await js('document.querySelector("#deck-timeline .cs-edit-btn").click()');
+  let r = await js('({ open: !!document.querySelector(".cs-editor"), text: document.querySelector(".cs-editor-text").value, focus: document.activeElement.className })');
+  assert(r.open && r.text === 'add a cache' && r.focus.includes('cs-editor-text'), JSON.stringify(r));
+  await typeText(' with a TTL');
+  await js('[...document.querySelectorAll(".cs-editor-row button")][0].click()');
+  r = await js('__sent.filter((m) => m.type === "code_rewind")');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'code_rewind', id: 1, uuid: 'u1', text: 'add a cache with a TTL', files: false, fork: false }]), JSON.stringify(r));
+  await js('__ev({ type: "code_rewound", id: 1, uuid: "u1", ok: false, text: "It\'s still working. Stop it first, then rewind." })');
+  r = await js('({ err: document.querySelector(".cs-editor-err").textContent, enabled: [...document.querySelectorAll(".cs-editor-row button")].every((b) => !b.disabled) })');
+  assert(r.err.startsWith('It') && r.enabled, JSON.stringify(r));
+  await js('document.querySelector(".cs-editor-files input").click(); [...document.querySelectorAll(".cs-editor-row button")][2].click()');
+  await js('__ev({ type: "code_rewound", id: 1, uuid: "u1", ok: true, text: "Rewound." })');
+  r = await js('({ editor: !!document.querySelector(".cs-editor"), composer: $("deck-input").value, last: __sent.filter((m) => m.type === "code_rewind").pop() })');
+  assert(!r.editor && r.composer === 'add a cache with a TTL' && r.last.files === true && r.last.text === '', JSON.stringify(r));
+  await js('document.querySelector("#deck-timeline .cs-edit-btn").click(); [...document.querySelectorAll(".cs-editor-row button")][1].click()');
+  r = await js('({ fork: __sent.filter((m) => m.type === "code_rewind").pop().fork, editor: !!document.querySelector(".cs-editor") })');
+  assert(r.fork === true && !r.editor, JSON.stringify(r));
+});
+
+test('/btw asks on the side: its answer is a card, never a line of the transcript', async () => {
+  await sessions([1], {}, '$("deck-input").focus()');
+  await typeText('/btw how many retries?');
+  await js('$("cc-slash").hidden = true; $("deck-composer").requestSubmit()');
+  await frames(2);
+  let r = await js('({ sent: __sent.filter((m) => m.type !== "code_draft").map((m) => [m.type, m.question]), card: document.querySelector(".cs-aside") && document.querySelector(".cs-aside").textContent })');
+  assert(JSON.stringify(r.sent) === JSON.stringify([['code_btw', 'how many retries?']]) && r.card.includes('Looking into it'), JSON.stringify(r));
+  const ref = await js('__sent.find((m) => m.type === "code_btw").ref');
+  await js(`__ev({ type: 'code_btw', id: 1, ref: '${ref}', question: 'how many retries?', state: 'done', text: 'Three, in **net.py**.' })`);
+  await frames(2);
+  r = await js('({ card: document.querySelector(".cs-aside .jc-md").textContent, log: $("deck-timeline").textContent })');
+  assert(r.card === 'Three, in net.py.' && !r.log.includes('Three'), JSON.stringify(r));
+  await js('document.querySelector(".cs-aside-x").click()');
+  await frames(2);
+  assert(await js('!document.querySelector(".cs-aside")'), 'the card stayed');
+});
+
+test('/goal sets a goal, and its banner pauses, edits and removes it', async () => {
+  await sessions([1], {}, '$("deck-input").focus()');
+  await typeText('/goal all tests pass');
+  await js('$("cc-slash").hidden = true; $("deck-composer").requestSubmit()');
+  let r = await js('__sent.filter((m) => m.type === "code_goal")');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'code_goal', id: 1, action: 'set', text: 'all tests pass' }]), JSON.stringify(r));
+  await js('__ev({ type: "code_meta", items: { 1: { goal: { text: "all tests pass", state: "active", native: false, note: "" } } } })');
+  await frames(2);
+  r = await js('({ shown: !document.querySelector(".cs-goal").hidden, text: document.querySelector(".cs-goal-text").textContent })');
+  assert(r.shown && r.text === 'all tests pass', JSON.stringify(r));
+  const click = (label) => js(`[...document.querySelectorAll(".cs-goal-acts button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
+  await click('Pause');
+  await click('Edit');
+  await js('document.querySelector(".cs-goal-edit input").value = "all tests pass on CI"; document.querySelector(".cs-goal-edit").requestSubmit()');
+  await frames(2);
+  await click('Remove');
+  r = await js('__sent.filter((m) => m.type === "code_goal").map((m) => m.action + ":" + (m.text || ""))');
+  assert(r.join('|') === 'set:all tests pass|pause:|edit:all tests pass on CI|clear:', r.join('|'));
+});
+
+test('Snippets: saved prompts in the / palette put their words in the composer, sending nothing', async () => {
+  await sessions([1], {}, '$("deck-input").focus()');
+  await js('__ev({ type: "prefs", look: "orb", language: "en", models: [], personas: [], humor: 50, features: { code_snippets: [{ name: "review-pr", text: "Review this PR for bugs." }] } }); $("deck-input").focus()');
+  await typeText('/review');
+  const r = await js('[...$("cc-slash").querySelectorAll("strong")].map((n) => n.textContent)');
+  assert(r.includes('/review-pr'), `palette: ${r}`);
+  await js('[...$("cc-slash").querySelectorAll("button")].find((b) => b.textContent.startsWith("/review-pr")).dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))');
+  const after = await js('({ text: $("deck-input").value, sent: __sent.filter((m) => /task_send|code_command/.test(m.type)).length })');
+  assert(after.text === 'Review this PR for bugs.' && after.sent === 0, JSON.stringify(after));
+});
+
+test('Open folder… sends the folder picked, and the project added opens', async () => {
+  await sessions([1]);
+  await js('window.prompt = () => "/Users/x/code/tool"; document.querySelector(".cs-open-folder").click()');
+  await sleep(20);
+  let r = await js('__sent.filter((m) => m.type === "code_project_add")');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'code_project_add', path: '/Users/x/code/tool', root: false }]), JSON.stringify(r));
+  await js('deckProjects.push({ name: "tool", branch: "", path: "/Users/x/code/tool" }); __ev({ type: "code_project_added", name: "tool", path: "/Users/x/code/tool" })');
+  r = await js('deckProject');
+  assert(r === 'tool', `project ${r}`);
+});
+
+test('Settings › Snippets adds one, and a built-in name is refused', async () => {
+  await sessions([1]);
+  await js('openJcSettings("general"); [...document.querySelectorAll(".jcs-tabs button")].find((b) => b.dataset.tab === "snippets").click()');
+  await frames(2);
+  const visible = await js('({ mine: !document.querySelector(".cs-jcs .cs-snippet-form").closest(".jcs-body").hidden, general: $("jcs-general").hidden })');
+  assert(visible.mine && visible.general, JSON.stringify(visible));
+  const add = async (name) => js(`(() => { const f = document.querySelector('.cs-snippet-form'); const [n, t] = f.querySelectorAll('.jcs-input'); n.value = ${JSON.stringify(name)}; t.value = 'Run the tests and fix failures.'; f.requestSubmit(); return f.querySelector('.jcs-help').textContent; })()`);
+  const refused = await add('plan');
+  assert(refused.includes('built-in'), refused);
+  await add('fix-tests');
+  const r = await js('__sent.filter((m) => m.type === "feature_prefs").map((m) => m.changes.code_snippets)');
+  assert(JSON.stringify(r) === JSON.stringify([[{ name: 'fix-tests', text: 'Run the tests and fix failures.' }]]), JSON.stringify(r));
 });
 
 // ──
