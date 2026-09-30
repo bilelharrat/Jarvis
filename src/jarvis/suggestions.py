@@ -831,6 +831,23 @@ class Suggester:
         """A card that went away unanswered (it timed out): no reaction to learn from."""
         self.open.pop(key, None)
 
+    def covered(self, key: str) -> None:
+        """A habit card made into a routine: the routine asks it now, so it's never
+        suggested again. Counted as a yes, never as a "not now" for its kind."""
+        s = self.open.pop(key, None)
+        if s is None:
+            return
+        topic = self.topics.pop(s.topic, None) or {
+            "no": 0,
+            "yes": 0,
+            "until": "",
+            "never": False,
+            "label": "",
+        }
+        topic.update(never=True, yes=topic["yes"] + 1, label=s.request[:MAX_REQUEST_CHARS])
+        self.topics[s.topic] = topic
+        self._save()
+
     def explain(self) -> str:
         words = WORDS[self.lang()]
         now = self._now().isoformat(timespec="minutes")

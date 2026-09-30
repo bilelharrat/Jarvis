@@ -4,7 +4,7 @@
 // on or off, in the owner's order), news topics and the evening wrap-up; a new Settings ›
 // Weather and travel holds the weather heads-ups (severe weather, the air, big swings) and
 // how the owner gets around (the usual way, places reached another way, arriving early).
-// Weather heads-ups get their own kicker on cards.
+// Cards: a habit card gains "Make it a routine"; weather heads-ups get their own kicker.
 //
 // Everything the backend or the owner wrote (a Focus mode's name, a time) is shown with
 // textContent and marked data-no-i18n; the window's own words are translated by i18n.js as
@@ -457,6 +457,31 @@
     list.hidden = !places.length;
   }
 
+  // ── cards: habits into routines ──
+
+  const settle = () => { if (typeof syncDismissAll === 'function') syncDismissAll(); };
+
+  // A habit card gains "Make it a routine" (the backend puts up the routine's own card).
+  F.on('suggestion', (ev) => {
+    if (ev.category !== 'habit') return;
+    const card = document.querySelector(`#cards [data-suggestion="${CSS.escape(String(ev.key || ''))}"]`);
+    const actions = card && card.querySelector('.card-actions');
+    if (!actions || actions.querySelector('.habit-routine')) return;
+    const make = button('Make it a routine', 'btn habit-routine', () => {
+      make.disabled = true;
+      send({ type: 'habit_routine', key: ev.key });
+    });
+    actions.append(make);
+  });
+
+  function onHabit(habit) {
+    const card = document.querySelector(`#cards [data-suggestion="${CSS.escape(String(habit.key || ''))}"]`);
+    if (!card) return;
+    if (habit.done) { card.remove(); settle(); return; }
+    const make = card.querySelector('.habit-routine');
+    if (make) make.disabled = false;
+  }
+
   // ── events ──
 
   function onPrefs(p) {
@@ -478,6 +503,7 @@
     if (ev.briefing) { briefing = ev.briefing; renderBriefing(); }
     if (ev.weather) { weather = ev.weather; renderWeather(); }
     if (ev.commute) { commute = ev.commute; renderCommute(); }
+    if (ev.habit) onHabit(ev.habit);
   });
   buildQuiet();
   buildBriefing();

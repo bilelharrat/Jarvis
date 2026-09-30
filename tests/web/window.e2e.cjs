@@ -4488,6 +4488,20 @@ test('Getting around: the usual way, arriving early and places reached another w
   assert(JSON.stringify(s[0].changes) === JSON.stringify({ travel_places: [] }), JSON.stringify(s));
 });
 
+test('A habit card offers “Make it a routine”, and goes once the routine is added', async () => {
+  await featureScript('proactive.js');
+  await deliver({ type: 'suggestion', key: 'habit:abc:2026-09-30', category: 'habit', title: 'Your usual', text: 'You usually ask “what’s the weather” around 8 am on weekdays.', request: 'what’s the weather' });
+  await deliver({ type: 'suggestion', key: 'prep:x', category: 'prep', title: 'Prep for Board', text: 'Prep?', request: 'x' });
+  assert(await js('document.querySelectorAll("#cards .habit-routine").length') === 1, 'only the habit card has it');
+  await js('__sent.length = 0; document.querySelector("#cards .habit-routine").click(); true');
+  assert(JSON.stringify(await sentOf('habit_routine')) === '[{"type":"habit_routine","key":"habit:abc:2026-09-30"}]', 'not asked');
+  assert(await js('document.querySelector("#cards .habit-routine").disabled'), 'a second tap would ask again');
+  await deliver({ type: 'proactive', habit: { key: 'habit:abc:2026-09-30', done: false } });
+  assert(!(await js('document.querySelector("#cards .habit-routine").disabled')), 'a no leaves the card usable');
+  await deliver({ type: 'proactive', habit: { key: 'habit:abc:2026-09-30', done: true } });
+  assert(await js('!document.querySelector(`#cards [data-suggestion="habit:abc:2026-09-30"]`)'), 'the card stayed');
+});
+
 // ──
 
 let base;

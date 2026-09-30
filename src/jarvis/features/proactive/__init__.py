@@ -12,6 +12,7 @@ Its parts, each a module here with the details (settings, tools, commands, cost)
 - commute.py: how the owner gets places (by car, transit or on foot, arriving early), which
   the leave-time heads-ups and the briefing's first trip follow.
 - calendar_look.py: the calendar the parts share, read by one loop.
+- habits.py: "Make it a routine" on a habit card.
 
 Window: {"type": "proactive_state"} -> one "proactive" event with every part's state (each
 part sends its own piece again, as {"type": "proactive", <part>: {...}}, when it changes);
@@ -26,7 +27,15 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-from . import briefing, calendar_look, commute, quiet, reminders, weather_watch
+from . import (
+    briefing,
+    calendar_look,
+    commute,
+    habits,
+    quiet,
+    reminders,
+    weather_watch,
+)
 
 _FEATURES: weakref.WeakKeyDictionary[Any, Proactive] = weakref.WeakKeyDictionary()
 
@@ -42,6 +51,7 @@ class Proactive:
         self.weather = weather_watch.WeatherWatch(hub, self.briefing)
         self.look = calendar_look.CalendarLook(hub)
         self.commute = commute.Commute(hub, self.briefing, self.look)
+        self.habits = habits.Habits(hub)
 
     def install(self) -> None:
         self.quiet.install()
@@ -50,6 +60,7 @@ class Proactive:
         self.weather.install()
         self.look.install()
         self.commute.install()
+        self.habits.install()
         self.hub.register_command("proactive_state", self.send_state)
         self.hub.register_command("proactive_snooze", self.snooze_command)
 
