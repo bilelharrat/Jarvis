@@ -2,7 +2,97 @@
   "strings": {
     "Too big to show": "太大，无法显示",
     "Show larger": "放大显示",
-    "Picture": "图片"
+    "Picture": "图片",
+    "Unsaved": "未保存",
+    "Saved.": "已保存。",
+    "Opening…": "正在打开…",
+    "Comparing…": "正在比较…",
+    "No differences: what’s on disk is what’s here.": "没有差异：磁盘上的内容和这里的一样。",
+    "On disk (−) and here (+):": "磁盘上（−）与这里（+）：",
+    "No preview for this file.": "这个文件没有预览。",
+    "Find": "查找",
+    "Find (⌘F)": "查找（⌘F）",
+    "Find in this file": "在此文件中查找",
+    "Replace": "替换",
+    "Replace with": "替换为",
+    "Replace all": "全部替换",
+    "Match case": "区分大小写",
+    "Regular expression": "正则表达式",
+    "Previous match (⇧⌘G)": "上一个匹配（⇧⌘G）",
+    "Next match (⌘G)": "下一个匹配（⌘G）",
+    "Not a valid expression": "不是有效的表达式",
+    "Save (⌘S)": "保存（⌘S）",
+    "Open in…": "打开方式…",
+    "Open this file in": "用以下应用打开此文件",
+    "Open the project in": "用以下应用打开项目",
+    "Open the project in an editor, or in Finder": "在编辑器或访达中打开项目",
+    "Its own app": "它自己的应用",
+    "Compare": "比较",
+    "Use the disk’s": "用磁盘上的",
+    "Overwrite": "覆盖",
+    "Keep mine": "保留我的",
+    "Discard them": "丢弃它们",
+    "Keep them": "保留它们",
+    "Your unsaved changes here are dropped": "这里未保存的更改会被丢弃",
+    "Save yours over what’s on disk": "用你的版本覆盖磁盘上的",
+    "Back to what’s on disk": "回到磁盘上的版本",
+    "Unsaved changes: click again to close without saving": "有未保存的更改：再点一次即不保存关闭",
+    "Filter files": "筛选文件",
+    "Open files": "打开的文件",
+    "It was deleted on disk since you opened it.": "你打开之后，它已在磁盘上被删除。",
+    "It changed on disk since you opened it. Nothing was saved.": "你打开之后，它在磁盘上被修改了。什么都没保存。",
+    "It was deleted on disk. Save to put your version back.": "它已在磁盘上被删除。保存即可放回你的版本。",
+    "It changed on disk while you were editing it.": "你编辑时，它在磁盘上被修改了。",
+    "Your unsaved changes are back, but the file changed on disk since.": "你未保存的更改已恢复，但此后磁盘上的文件已被修改。",
+    "Your unsaved changes from before are back.": "你之前未保存的更改已恢复。",
+    "Too big to edit here: its first 300 KB, read-only. Open it in an editor to change it.": "文件太大，无法在这里编辑：只读显示前 300 KB。要修改请在编辑器中打开。",
+    "Not UTF-8 text, so it’s read-only here: saving would change its bytes.": "不是 UTF-8 文本，所以这里只读：保存会改变它的字节。",
+    "Its lines end in different ways, so it’s read-only here: saving would change them.": "它的换行符不统一，所以这里只读：保存会改变它们。",
+    "One of git’s own files: read-only here.": "这是 git 自己的文件：这里只读。",
+    "No file named.": "没有指定文件。",
+    "That's outside the project.": "那在项目之外。",
+    "That file holds credentials or private data.": "那个文件含有凭据或隐私数据。",
+    "There's no such file.": "没有这个文件。",
+    "Not a file.": "不是文件。",
+    "That's a binary file.": "那是二进制文件。",
+    "Nothing to save.": "没有要保存的内容。",
+    "That's one of git's own files: change it through git.": "那是 git 自己的文件：请通过 git 修改。",
+    "That's too big to save from here.": "太大了，无法从这里保存。",
+    "What's on disk can't be compared here.": "磁盘上的内容无法在这里比较。",
+    "Indent: tabs": "缩进：制表符"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^Ln (\\d+), Col (\\d+)$",
+      "第 $1 行，第 $2 列"
+    ],
+    [
+      "^Ln (\\d+), Col (\\d+) \\((\\d+) selected\\)$",
+      "第 $1 行，第 $2 列（选中 $3 个字符）"
+    ],
+    [
+      "^(\\d+) of (\\d+\\+?)$",
+      "第 $1 个，共 $2 个"
+    ],
+    [
+      "^Close (\\S+)$",
+      "关闭 $1"
+    ],
+    [
+      "^Contents of (.+)$",
+      "$1 的内容"
+    ],
+    [
+      "^Couldn't read it: (.+)$",
+      "无法读取：$1"
+    ],
+    [
+      "^Couldn't save it: (.+)$",
+      "无法保存：$1"
+    ],
+    [
+      "^Indent: (\\d+) spaces$",
+      "缩进：$1 个空格"
+    ]
+  ]
 }

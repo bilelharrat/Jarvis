@@ -1,0 +1,80 @@
+/* Jarvis Code's Files pane, editable (features/code-editor.js): the file list, tabs of open
+   files, and a plain editor in the workbench's own cards and mono type. */
+
+.jc-pane:has(.ce-root.editing) { width: min(60%, 820px); }
+.ce-root { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.ce-top { display: flex; align-items: center; gap: 8px; padding-top: 2px; }
+.ce-top:has(.ce-seg[hidden]):has(.ce-open-project[hidden]) { display: none; }
+.ce-seg[hidden], .ce-open-project[hidden] { display: none; }
+.ce-list-view, .ce-other-view { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: auto; }
+.ce-list-view[hidden], .ce-other-view[hidden], .ce-editor-view[hidden] { display: none; }
+.ce-filter { width: 100%; box-sizing: border-box; }
+.ce-files button { display: flex; }
+.ce-files button.open { color: rgb(var(--c-accent-ink)); }
+.ce-dir { color: rgb(var(--c-subtle)); }
+
+/* open files */
+.ce-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; flex: none; padding-bottom: 1px; }
+.ce-tabs[hidden] { display: none; }
+.ce-tab { display: inline-flex; align-items: center; flex: none; max-width: 190px; border-radius: 8px; background: rgb(var(--c-ink) / 0.05); }
+.ce-tab.on { background: var(--glass-pill); box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.1); }
+.ce-tab-name { border: 0; background: transparent; padding: 4px 2px 4px 10px; font: 12px var(--mono); color: rgb(var(--c-ink-2)); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ce-tab.on .ce-tab-name { color: rgb(var(--c-ink)); }
+.ce-tab.dirty .ce-tab-name::after { content: " ●"; color: rgb(var(--c-accent)); }
+.ce-tab-x { border: 0; background: transparent; width: 20px; height: 20px; margin-right: 3px; border-radius: 5px; color: rgb(var(--c-muted)); cursor: pointer; font-size: 13px; line-height: 1; flex: none; }
+.ce-tab-x:hover { background: rgb(var(--c-ink) / 0.08); color: rgb(var(--c-ink)); }
+.ce-tab-x.armed { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+
+/* one open file */
+.ce-editor-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.ce-doc { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 6px; }
+.ce-doc-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.ce-path { font: 12px var(--mono); color: rgb(var(--c-ink-2)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.ce-chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgb(var(--c-ink) / 0.06); color: rgb(var(--c-muted)); white-space: nowrap; }
+.ce-chip.warn { background: rgb(var(--c-accent) / 0.12); color: rgb(var(--c-accent-ink)); }
+.ce-doc-bar .jc-mini { white-space: nowrap; }
+.ce-save.ready { background: rgb(var(--c-accent)); color: #fff; box-shadow: none; }
+.ce-save:disabled { opacity: 0.5; cursor: default; }
+.ce-edit { position: relative; display: flex; flex: 1; min-height: 220px; border-radius: 11px; overflow: hidden; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.ce-edit[hidden] { display: none; }
+.ce-gutter { flex: none; margin: 0; padding: 10px 8px 24px 6px; overflow: hidden; text-align: right; font: 12px/1.6 var(--mono); color: rgb(var(--c-subtle)); background: rgb(var(--c-surface-muted)); border-right: 0.5px solid rgb(var(--c-border)); user-select: none; white-space: pre; }
+.ce-textwrap { position: relative; flex: 1; min-width: 0; display: flex; }
+.ce-text { flex: 1; min-width: 0; margin: 0; border: 0; outline: none; resize: none; padding: 10px 12px; font: 12px/1.6 var(--mono); color: rgb(var(--c-ink)); background: transparent; white-space: pre; overflow: auto; tab-size: 4; caret-color: rgb(var(--c-accent)); }
+.ce-text[readonly] { color: rgb(var(--c-ink-2)); }
+.ce-mark { position: absolute; left: 0; right: 0; background: rgb(var(--c-accent) / 0.1); box-shadow: inset 3px 0 0 rgb(var(--c-accent)); pointer-events: none; }
+.ce-status { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: rgb(var(--c-muted)); padding: 0 4px; font-variant-numeric: tabular-nums; }
+.ce-status[hidden] { display: none; }
+.ce-facts span + span::before { content: " · "; }
+.ce-preview { flex: 1; min-height: 0; overflow: auto; }
+.ce-preview[hidden] { display: none; }
+.ce-preview > .jc-preview, .ce-preview > pre { background: rgb(var(--c-surface)); border-radius: 11px; box-shadow: var(--shadow-card); }
+.ce-error { padding: 12px 4px; }
+
+/* find and replace */
+.ce-find { display: flex; flex-direction: column; gap: 5px; }
+.ce-find[hidden], .ce-find-row[hidden] { display: none; }
+.ce-find-row { display: flex; align-items: center; gap: 4px; }
+.ce-find-input { flex: 1; min-width: 0; padding: 5px 9px; font-size: 12.5px; }
+.ce-opt { border: 0; border-radius: 6px; padding: 3px 6px; font: 600 11.5px var(--mono); background: transparent; color: rgb(var(--c-muted)); cursor: pointer; }
+.ce-opt[aria-pressed="true"] { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent-ink)); }
+.ce-count { font-size: 11.5px; color: rgb(var(--c-muted)); white-space: nowrap; min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+.ce-count.bad { color: rgb(var(--c-danger-ink)); }
+.ce-step { width: 24px; height: 24px; font-size: 12px; }
+
+/* on disk: a conflict, a change, a note */
+.ce-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; background: rgb(var(--c-ink) / 0.05); color: rgb(var(--c-ink-2)); }
+.ce-banner[hidden] { display: none; }
+.ce-banner.conflict, .ce-banner.changed { background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); }
+.ce-banner.error { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.ce-banner.saved { background: rgb(var(--c-success-soft)); color: rgb(var(--c-success-ink)); }
+.ce-banner.restored { background: rgb(var(--c-accent) / 0.1); color: rgb(var(--c-accent-ink)); }
+.ce-banner-text { flex: 1; min-width: 160px; line-height: 1.4; }
+.ce-banner-actions { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+.ce-banner .jc-mini.danger { color: rgb(var(--c-danger-ink)); }
+.ce-compare { flex-basis: 100%; max-height: 260px; overflow: auto; border-radius: 9px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.ce-compare-note { flex-basis: 100%; margin: 4px 2px; }
+.ce-compare .ce-hunk { border-bottom: 0.5px solid rgb(var(--c-border)); }
+/* The deck's own `button { font: inherit }` outranks a class: the pane's buttons get their type here. */
+#jc-pane .ce-tab-name { font: 12px var(--mono); }
+#jc-pane .ce-tab-x { font-size: 13px; }
+#jc-pane .ce-opt { font: 600 11.5px var(--mono); }

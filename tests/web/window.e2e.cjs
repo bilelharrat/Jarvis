@@ -3841,6 +3841,205 @@ test('Pictures with a message and a step are asked for when shown, drawn small, 
   assert(await js('!document.querySelector("#deck-timeline .jc-user:last-of-type .cw-thumbs img")'), 'drew a non-picture');
 });
 
+// A key with ⌘ (or others) held, by its code: ⌘S, ⌘F, ⌘G.
+async function chord(key, mods = ['meta']) {
+  const code = /^[a-z]$/.test(key) ? `Key${key.toUpperCase()}` : key;
+  const vk = /^[a-z]$/.test(key) ? key.toUpperCase().charCodeAt(0) : 0;
+  const modifiers = mods.reduce((m, k) => m | MODS[k], 0);
+  await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code, windowsVirtualKeyCode: vk, modifiers });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers });
+}
+const VERSION = { mtime_ns: 1, size: 12, sha: 'aaa' };
+// Jarvis Code open on session 1 with the editor's Files pane, and a file opened in it.
+async function editorWith(text = 'a = 1\nb = 2\n', extra = {}) {
+  await js('localStorage.removeItem("jarvis.editor.drafts"); true');  // (a test's kept changes are its own)
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); true');
+  await deliver({ type: 'project_files', directory: 'alpha', files: ['src/app.py', 'README.md', 'src/<b>x</b>.py'] });
+  await frames(2);
+  await js('__sent.length = 0; [...document.querySelectorAll("#jc-pane-body .ce-files button")].find((b) => b.title === "src/app.py").click(); true');
+  const [read] = await sentOf('cw_file_read');
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text, version: VERSION, crlf: false, editable: true, ...extra });
+  await frames(2);
+  return read;
+}
+const editorText = () => js('document.querySelector("#jc-pane-body .ce-text").value');
+async function typeAtEnd(text) {
+  await js('(() => { const ta = document.querySelector("#jc-pane-body .ce-text"); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); return true; })()');
+  await typeText(text);
+  await frames(1);
+}
+
+test('Files open in an editor: typed changes are unsaved until ⌘S saves them over the version they came from', async () => {
+  const read = await editorWith();
+  assert(read.path === 'src/app.py' && read.id === 1 && read.directory === 'alpha', JSON.stringify(read));
+  const shown = await js(`({ names: [...document.querySelectorAll('#jc-pane-body .ce-files button')].map((b) => b.title),
+    imgs: document.querySelectorAll('#jc-pane-body img, #jc-pane-body b').length, text: document.querySelector('#jc-pane-body .ce-text').value,
+    gutter: document.querySelector('#jc-pane-body .ce-gutter').textContent, tab: document.querySelector('#jc-pane-body .ce-tab.on').textContent,
+    noI18n: document.querySelector('#jc-pane-body .ce-text').hasAttribute('data-no-i18n') })`);
+  assert(shown.names.includes('src/<b>x</b>.py') && shown.imgs === 0, JSON.stringify(shown));
+  assert(shown.text === 'a = 1\nb = 2\n' && shown.gutter === '1\n2\n3\n' && shown.tab.startsWith('app.py') && shown.noI18n, JSON.stringify(shown));
+  await typeAtEnd('c = 3');
+  assert(await js('!!document.querySelector("#jc-pane-body .ce-tab.on.dirty") && $("jc-pane-body").textContent.includes("Unsaved")'), 'not marked unsaved');
+  await js('__sent.length = 0; true');
+  await chord('s');
+  const [save] = await sentOf('cw_file_save');
+  assert(save && save.text === 'a = 1\nb = 2\nc = 3' && JSON.stringify(save.base) === JSON.stringify(VERSION) && save.ref === read.ref && save.force === false, JSON.stringify(save));
+  await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: read.ref, ok: true, version: { mtime_ns: 2, size: 17, sha: 'bbb' } });
+  await frames(2);
+  assert(await js('!document.querySelector("#jc-pane-body .ce-tab.dirty") && document.querySelector("#jc-pane-body .ce-banner.saved") !== null'), 'still unsaved after the save');
+  // The next save goes over the version that one made.
+  await typeAtEnd('\n');
+  await js('__sent.length = 0; true');
+  await chord('s');
+  const [again] = await sentOf('cw_file_save');
+  assert(again && again.base.sha === 'bbb', JSON.stringify(again));
+});
+
+test('A save over a file changed on disk since is a conflict: compare, overwrite, or take what’s on disk', async () => {
+  const read = await editorWith();
+  await typeAtEnd('mine');
+  await chord('s');
+  await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: read.ref, conflict: true, version: { mtime_ns: 3, size: 20, sha: 'ccc' } });
+  await frames(2);
+  const banner = await js('({ kind: document.querySelector("#jc-pane-body .ce-banner").className, buttons: [...document.querySelectorAll("#jc-pane-body .ce-banner button")].map((b) => b.textContent) })');
+  assert(/conflict/.test(banner.kind) && banner.buttons.join() === 'Compare,Use the disk’s,Overwrite', JSON.stringify(banner));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .ce-banner', 'Compare'), 'no Compare');
+  const [cmp] = await sentOf('cw_file_compare');
+  assert(cmp && cmp.text === 'a = 1\nb = 2\nmine' && cmp.ref === read.ref, JSON.stringify(cmp));
+  await deliver({ type: 'cw_file_compare', path: 'src/app.py', ref: read.ref, hunks: [
+    { old_start: 3, old_count: 1, new_start: 3, new_count: 1, lines: [['-', 'claude <i>was</i> here'], ['+', 'mine']] }] });
+  await frames(2);
+  const diff = await js('({ text: document.querySelector("#jc-pane-body .ce-compare").textContent, i: document.querySelectorAll("#jc-pane-body .ce-compare i").length })');
+  assert(diff.text.includes('claude <i>was</i> here') && diff.text.includes('mine') && diff.i === 0, JSON.stringify(diff));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .ce-banner', 'Overwrite'), 'no Overwrite');
+  const [forced] = await sentOf('cw_file_save');
+  assert(forced && forced.force === true && forced.text === 'a = 1\nb = 2\nmine', JSON.stringify(forced));
+  // Or what's on disk: the unsaved changes are dropped for it.
+  await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: read.ref, conflict: true });
+  await frames(1);
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .ce-banner', 'Use the disk’s'), 'no Use the disk’s');
+  const [reread] = await sentOf('cw_file_read');
+  assert(reread && reread.ref === read.ref, JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'from disk\n', version: { mtime_ns: 4, size: 10, sha: 'ddd' }, crlf: false, editable: true });
+  await frames(2);
+  assert(await editorText() === 'from disk\n' && await js('!document.querySelector("#jc-pane-body .ce-tab.dirty")'), 'the disk’s version is not shown');
+});
+
+test('A file Claude changes comes back by itself, and says so instead when it has unsaved changes', async () => {
+  const read = await editorWith();
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'task_log_update', id: 1, tool_id: 't-1', status: 'done', output: '' });
+  let stat = [];
+  for (let i = 0; i < 40 && !stat.length; i++) { await sleep(50); stat = await sentOf('cw_file_stat'); }
+  assert(stat.length === 1 && stat[0].base.sha === 'aaa' && stat[0].ref === read.ref, JSON.stringify(stat));
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'cw_file_stat', path: 'src/app.py', ref: read.ref, changed: true, missing: false });
+  const [reread] = await sentOf('cw_file_read');
+  assert(reread && reread.ref === read.ref, 'an unchanged file was not read again');
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'a = 1\nb = 2\nclaude = 3\n', version: { mtime_ns: 5, size: 22, sha: 'eee' }, crlf: false, editable: true });
+  await frames(2);
+  assert(await editorText() === 'a = 1\nb = 2\nclaude = 3\n', 'Claude’s change is not shown');
+  // With unsaved changes, it says so and leaves them.
+  await typeAtEnd('mine = 4');
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'cw_file_stat', path: 'src/app.py', ref: read.ref, changed: true, missing: false });
+  await frames(2);
+  const r = await js('({ sent: __sent.length, banner: document.querySelector("#jc-pane-body .ce-banner.changed") !== null, text: document.querySelector("#jc-pane-body .ce-text").value })');
+  assert(r.sent === 0 && r.banner && r.text.endsWith('mine = 4'), JSON.stringify(r));
+});
+
+test('Find and replace in a file: text or an expression, a count, and one step to undo', async () => {
+  await editorWith('retry = 1\nretry_max = 2\nprint(retry)\n');
+  await js('document.querySelector("#jc-pane-body .ce-text").focus(); true');
+  await chord('f');
+  assert(await js('document.activeElement.classList.contains("ce-find-input")'), 'find did not take the keys');
+  await typeText('retry');
+  await frames(1);
+  assert(await js('document.querySelector("#jc-pane-body .ce-count").textContent') === '1 of 3', await js('document.querySelector("#jc-pane-body .ce-count").textContent'));
+  await press('Enter');
+  assert(await js('document.querySelector("#jc-pane-body .ce-count").textContent') === '2 of 3', 'Enter did not go to the next');
+  // An expression: retry not followed by _ leaves retry_max alone.
+  await js('document.querySelector("#jc-pane-body .ce-opt[title=\'Regular expression\']").click(); true');
+  assert(await js('document.querySelector("#jc-pane-body .ce-opt[title=\'Regular expression\']").getAttribute("aria-pressed")') === 'true', 'the expression switch did not turn on');
+  await js('(() => { const i = document.querySelector("#jc-pane-body .ce-find-input"); i.value = "retry(?!_)"; i.dispatchEvent(new Event("input")); return true; })()');
+  await frames(1);
+  // (from the match it was on, the one after it: the second)
+  assert(await js('document.querySelector("#jc-pane-body .ce-count").textContent') === '2 of 2', 'the expression did not count 2');
+  await js('document.querySelector("#jc-pane-body .ce-find button[title=Replace]").click(); true');
+  await js('(() => { const r = document.querySelectorAll("#jc-pane-body .ce-find-input")[1]; r.value = "again"; return true; })()');
+  assert(await clickText('#jc-pane-body .ce-find', 'All'), 'no Replace all');
+  assert(await editorText() === 'again = 1\nretry_max = 2\nprint(again)\n', JSON.stringify(await editorText()));
+  assert(await js('!!document.querySelector("#jc-pane-body .ce-tab.dirty")'), 'a replace is not an unsaved change');
+  await js('document.querySelector("#jc-pane-body .ce-text").focus(); document.execCommand("undo"); true');
+  assert(await editorText() === 'retry = 1\nretry_max = 2\nprint(retry)\n', 'replace all is not one step to undo');
+  // A bad expression says so.
+  await js('(() => { const i = document.querySelector("#jc-pane-body .ce-find-input"); i.value = "retry("; i.dispatchEvent(new Event("input")); return true; })()');
+  assert(await js('document.querySelector("#jc-pane-body .ce-count").textContent') === 'Not a valid expression', 'a bad expression is not said');
+});
+
+test('Unsaved changes come back after a reload, still saved only over the version they were edited from', async () => {
+  const read = await editorWith();
+  await typeAtEnd('kept = 1');
+  await sleep(700);  // (kept a moment after the typing stops)
+  await fresh();
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); true');
+  const [again] = await sentOf('cw_file_read');
+  assert(again && again.path === 'src/app.py' && again.ref === read.ref, JSON.stringify(await js('__sent')));
+  // It changed on disk meanwhile: the changes are back, and the save is still checked.
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'a = 1\nb = 2\nclaude = 3\n', version: { mtime_ns: 9, size: 22, sha: 'zzz' }, crlf: false, editable: true });
+  await js('[...document.querySelectorAll("#jc-pane-body .ce-tab-name")].find((b) => b.title === "src/app.py").click(); true');
+  await frames(2);
+  const r = await js('({ text: document.querySelector("#jc-pane-body .ce-text").value, dirty: !!document.querySelector("#jc-pane-body .ce-tab.dirty"), banner: (document.querySelector("#jc-pane-body .ce-banner") || {}).className })');
+  assert(r.text === 'a = 1\nb = 2\nkept = 1' && r.dirty && /changed/.test(r.banner), JSON.stringify(r));
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .ce-text").focus(); true');
+  await chord('s');
+  const [save] = await sentOf('cw_file_save');
+  assert(save && save.base.sha === 'aaa', JSON.stringify(save));
+  // Saved: the kept copy goes.
+  await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: read.ref, ok: true, version: { mtime_ns: 10, size: 20, sha: 'yyy' } });
+  assert(await js('!localStorage.getItem("jarvis.editor.drafts") || !Object.keys(JSON.parse(localStorage.getItem("jarvis.editor.drafts"))).length'), 'the kept copy stayed');
+});
+
+test('Read-only files say why; Open in… lists the editors on this Mac and opens the file at its line', async () => {
+  const read = await editorWith('[core]\n', { editable: false, why: 'git' });
+  const r = await js('({ ro: document.querySelector("#jc-pane-body .ce-text").readOnly, text: $("jc-pane-body").textContent, save: !!document.querySelector("#jc-pane-body .ce-save") })');
+  assert(r.ro && r.text.includes('Read-only') && r.text.includes('One of git’s own files') && !r.save, JSON.stringify(r));
+  await deliver({ type: 'cw_editors', items: [{ id: 'vscode', name: 'VS Code' }, { id: 'xcode', name: 'Xcode' }] });
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .ce-doc-bar', 'Open in…'), 'no Open in…');
+  const items = await js('[...document.querySelectorAll("#jc-menu button")].map((b) => b.textContent)');
+  assert(items.filter((x) => x === 'VS Code').length === 2 && items.includes('Its own app') && items.includes('Show in Finder'), JSON.stringify(items));
+  assert(await clickText('#jc-menu', 'Xcode'), 'no Xcode');
+  const [opened] = await sentOf('cw_open_in');
+  assert(opened && opened.editor === 'xcode' && opened.path === 'src/app.py' && opened.line === 1 && opened.id === 1, JSON.stringify(opened));
+  assert(read.ref, 'no ref');
+});
+
+test('/memory opens the project’s CLAUDE.md in the editor', async () => {
+  await js('localStorage.removeItem("jarvis.editor.drafts"); true');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('localSlash("/memory"); true');
+  const asked = await sentOf('file_read');
+  assert(asked.length === 1 && asked[0].path === 'CLAUDE.md', JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'file_content', directory: 'alpha', path: 'CLAUDE.md', text: '# Notes\n', truncated: false });
+  const [read] = await sentOf('cw_file_read');
+  assert(read && read.path === 'CLAUDE.md', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'CLAUDE.md', ref: read.ref, text: '# Notes\n', version: VERSION, crlf: false, editable: true });
+  await frames(2);
+  assert(await editorText() === '# Notes\n', 'CLAUDE.md is not in the editor');
+});
+
 // ──
 
 let base;
