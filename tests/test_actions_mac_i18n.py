@@ -15,7 +15,7 @@ import pytest
 from jarvis import lang
 from jarvis.server import WEB_DIR, zh_strings
 
-FEATURES = ["places", "stocks"]
+FEATURES = ["places", "stocks", "mac_music"]
 SCRIPTS = ["stocks.js"]
 # What a {slot} or ${…} stands for when a sentence is tried against the window's patterns.
 SAMPLE = "2"

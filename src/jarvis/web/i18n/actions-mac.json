@@ -19,7 +19,12 @@
     "Price alerts: say “Jarvis, tell me when Nvidia goes above 150.”": "价格提醒：说“贾维斯，英伟达涨到 150 以上时告诉我。”",
     "Went off today": "今天已提醒",
     "Waits for the price to come back first": "等价格先回到另一边",
-    "Watching": "盯着中"
+    "Watching": "盯着中",
+    "Played music": "播放了音乐",
+    "Queued music": "加入了播放队列",
+    "Played Spotify": "用 Spotify 播放了",
+    "Checked your speakers": "查看了你的扬声器",
+    "Switched speakers": "切换了扬声器"
   },
   "patterns": [
     [
