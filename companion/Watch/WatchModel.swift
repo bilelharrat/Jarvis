@@ -31,7 +31,13 @@ final class WatchModel {
     @ObservationIgnored private var buzzed: Set<String> = []
 
     init() {
-        pairing = PairingStore.load()
+        if let stored = PairingStore.load() {
+            if stored.isPinned {
+                pairing = stored
+            } else {
+                PairingStore.clear()  // from before TLS: the iPhone sends a pinned one after it pairs again
+            }
+        }
         bridge.onUpdate = { [weak self] update in self?.receive(update) }
         bridge.activate()
     }
@@ -271,8 +277,12 @@ final class WatchModel {
         guard pairing == nil, let server = DebugLaunch.server, let code = DebugLaunch.code,
               let url = MacAddress.normalize(server) else { return }
         do {
-            let token = try await JarvisAPI(baseURL: url, token: nil).pair(code: code, name: "Apple Watch (test)")
-            let pairing = Pairing(baseURL: url, token: token, macName: "Test Mac", deviceName: "Apple Watch", pairedAt: Date())
+            let fingerprint = try await JarvisAPI.probeFingerprint(at: url)
+            let result = try await JarvisAPI(baseURL: url, token: nil, fingerprint: fingerprint).pair(code: code, deviceName: "Apple Watch (test)")
+            let pairing = Pairing(
+                baseURL: url, token: result.token, macName: result.macName ?? "Test Mac", deviceName: "Apple Watch",
+                pairedAt: Date(), fingerprint: fingerprint
+            )
             try? PairingStore.save(pairing)
             self.pairing = pairing
             restartPolling()

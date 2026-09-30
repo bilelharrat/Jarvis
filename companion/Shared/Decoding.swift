@@ -21,6 +21,22 @@ extension KeyedDecodingContainer {
         return nil
     }
 
+    /// A whole number, from an int, a float that is one, or a numeric string. Never traps on
+    /// a value too big for Int.
+    func integer(_ key: Key) -> Int? {
+        if let value = try? decodeIfPresent(Int.self, forKey: key) { return value }
+        guard let value = number(key), value.isFinite, abs(value) < 9e15 else { return nil }
+        return Int(value.rounded(.towardZero))
+    }
+
+    /// A moment: epoch seconds (or milliseconds) as a number or numeric string, or an ISO 8601
+    /// timestamp with or without a zone.
+    func date(_ key: Key) -> Date? {
+        if let value = number(key) { return LooseDate.epoch(value) }
+        guard let text = try? decodeIfPresent(String.self, forKey: key) else { return nil }
+        return LooseDate.parse(text)
+    }
+
     func flag(_ key: Key) -> Bool? {
         if let value = try? decodeIfPresent(Bool.self, forKey: key) { return value }
         if let value = try? decodeIfPresent(Int.self, forKey: key) { return value != 0 }
@@ -68,9 +84,16 @@ enum LooseDate {
         return formatter
     }()
 
+    /// Epoch seconds; a value that can only be milliseconds is read as such.
+    static func epoch(_ value: Double) -> Date? {
+        guard value.isFinite, value > 0 else { return nil }
+        return Date(timeIntervalSince1970: value > 1e11 ? value / 1000 : value)
+    }
+
     static func parse(_ text: String) -> Date? {
         let text = text.trimmed
         guard !text.isEmpty else { return nil }
+        if let value = Double(text), text.allSatisfy({ $0.isNumber || $0 == "." }) { return epoch(value) }
         if let date = zoned.date(from: text) { return date }
         let plain = String(text.prefix(19))  // drop fractions of a second
         for formatter in local {

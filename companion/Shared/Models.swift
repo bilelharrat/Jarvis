@@ -77,35 +77,55 @@ struct ApprovalChoice: Identifiable, Hashable, Sendable, Decodable {
 }
 
 struct Approval: Identifiable, Equatable, Sendable, Decodable {
+    /// Who is asking: JARVIS itself, or a Jarvis Code session.
+    enum Source: String, Equatable, Sendable {
+        case jarvis, code
+    }
+
     var id: String
     var question: String
     var detail: String
     var choices: [ApprovalChoice]
+    var source: Source = .jarvis
+    /// The Jarvis Code session it's for.
+    var taskID: Int?
 
     static let defaultChoices = [
         ApprovalChoice(id: "allow", label: "Allow"),
         ApprovalChoice(id: "deny", label: "Not now"),
     ]
 
-    init(id: String, question: String, detail: String = "", choices: [ApprovalChoice] = Approval.defaultChoices) {
+    init(
+        id: String, question: String, detail: String = "", choices: [ApprovalChoice] = Approval.defaultChoices,
+        source: Source = .jarvis, taskID: Int? = nil
+    ) {
         self.id = id
         self.question = question
         self.detail = detail
         self.choices = choices.isEmpty ? Approval.defaultChoices : choices
+        self.source = source
+        self.taskID = taskID
     }
 
-    private enum Key: String, CodingKey { case id, question, detail, choices }
+    private enum Key: String, CodingKey {
+        case id, question, detail, choices, source
+        case taskID = "task_id"
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         guard let id = c.text(.id), !id.isEmpty else {
             throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath, debugDescription: "approval without an id"))
         }
+        let taskID = c.integer(.taskID)
         self.init(
             id: id,
             question: c.text(.question) ?? "Jarvis needs your OK.",
             detail: c.text(.detail) ?? "",
-            choices: c.list(ApprovalChoice.self, .choices)
+            choices: c.list(ApprovalChoice.self, .choices),
+            // An older Mac doesn't say; a card tied to a session is Jarvis Code's.
+            source: Source(rawValue: c.text(.source) ?? "") ?? (taskID == nil ? .jarvis : .code),
+            taskID: taskID
         )
     }
 
@@ -164,7 +184,7 @@ struct Weather: Equatable, Sendable, Decodable {
         temp = c.number(.temp)
         high = c.number(.high)
         low = c.number(.low)
-        code = c.number(.code).map { Int($0) }
+        code = c.integer(.code)
         error = c.text(.error)
     }
 
@@ -259,6 +279,25 @@ struct Routine: Identifiable, Equatable, Sendable, Decodable {
 
 /// GET /api/state
 struct RemoteState: Equatable, Sendable, Decodable {
+    /// Whether the Mac sends pushes to this device.
+    struct Push: Equatable, Sendable, Decodable {
+        var enabled = false
+        var registered = false
+
+        init(enabled: Bool = false, registered: Bool = false) {
+            self.enabled = enabled
+            self.registered = registered
+        }
+
+        private enum Key: String, CodingKey { case enabled, registered }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Key.self)
+            enabled = c.flag(.enabled) ?? false
+            registered = c.flag(.registered) ?? false
+        }
+    }
+
     var state: MacState = .unknown
     var turn = Turn()
     var approvals: [Approval] = []
@@ -269,12 +308,21 @@ struct RemoteState: Equatable, Sendable, Decodable {
     var meeting: String?
     var routines: [Routine] = []
     var model: String?
+    /// Approvals waiting, everywhere (the list may be shorter).
+    var pendingApprovals = 0
+    var codeSessions: [CodeSessionSummary] = []
+    var delegationsActive = 0
+    var push: Push?
+    var tls = false
 
     init() {}
 
     private enum Key: String, CodingKey {
-        case state, turn, approvals, history, weather, tasks, meeting, routines, model
+        case state, turn, approvals, history, weather, tasks, meeting, routines, model, push, tls
         case nextEvent = "next_event"
+        case pendingApprovals = "pending_approvals"
+        case codeSessions = "code_sessions"
+        case delegationsActive = "delegations_active"
     }
 
     init(from decoder: Decoder) throws {
@@ -289,9 +337,16 @@ struct RemoteState: Equatable, Sendable, Decodable {
         meeting = c.text(.meeting).flatMap { $0.isEmpty ? nil : $0 }
         routines = c.list(Routine.self, .routines)
         model = c.text(.model)
+        pendingApprovals = max(c.integer(.pendingApprovals) ?? 0, approvals.count)
+        codeSessions = c.list(CodeSessionSummary.self, .codeSessions)
+        delegationsActive = max(0, c.integer(.delegationsActive) ?? 0)
+        push = c.object(Push.self, .push)
+        tls = c.flag(.tls) ?? false
     }
 
     var activeTasks: [BackgroundTask] { tasks.filter(\.isActive) }
+    /// Jarvis Code sessions working or waiting on the owner.
+    var liveCodeSessions: [CodeSessionSummary] { codeSessions.filter(\.status.isLive) }
 }
 
 /// POST /api/ask
@@ -324,13 +379,22 @@ enum MacCommand: Equatable, Sendable {
     case meetingStop
     case runRoutine(id: String)
 
-    var body: [String: String] {
+    var json: JSONValue {
         switch self {
         case .stop: ["type": "stop"]
         case .briefing: ["type": "briefing"]
-        case .meetingStart(let title): ["type": "meeting_start", "title": title]
+        case .meetingStart(let title): ["type": "meeting_start", "title": .string(title)]
         case .meetingStop: ["type": "meeting_stop"]
-        case .runRoutine(let id): ["type": "routine_run", "id": id]
+        case .runRoutine(let id): ["type": "routine_run", "id": .string(id)]
+        }
+    }
+
+    /// Worth sending an hour late if the Mac can't be reached now; stopping and meeting
+    /// notes only mean something at the moment they're asked for.
+    var keepsWhenOffline: Bool {
+        switch self {
+        case .briefing, .runRoutine: true
+        case .stop, .meetingStart, .meetingStop: false
         }
     }
 }

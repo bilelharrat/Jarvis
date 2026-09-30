@@ -1,7 +1,8 @@
 import Foundation
 
 /// What the iPhone hands the Watch over WatchConnectivity (application context, and the
-/// reply when the Watch asks): the Mac's address and this pair's token, or "unpaired".
+/// reply when the Watch asks): the Mac's address, this pair's token and the Mac's pinned
+/// certificate fingerprint, or "unpaired".
 /// The link between the phone and the watch is encrypted by watchOS.
 enum WatchLink {
     enum Update: Equatable, Sendable {
@@ -15,6 +16,7 @@ enum WatchLink {
     private static let baseURLKey = "baseURL"
     private static let tokenKey = "token"
     private static let macNameKey = "macName"
+    private static let fingerprintKey = "fingerprint"
     private static let unpairedKey = "unpaired"
     private static let sentAtKey = "sentAt"
 
@@ -24,6 +26,7 @@ enum WatchLink {
             context[baseURLKey] = pairing.baseURL.absoluteString
             context[tokenKey] = pairing.token
             context[macNameKey] = pairing.macName ?? ""
+            context[fingerprintKey] = pairing.fingerprint ?? ""
         } else {
             context[unpairedKey] = true
         }
@@ -36,6 +39,10 @@ enum WatchLink {
               let token = context[tokenKey] as? String, !token.isEmpty else { return .nothing }
         let name = (context[macNameKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let sent = (context[sentAtKey] as? Double).map(Date.init(timeIntervalSince1970:)) ?? Date()
-        return .paired(Pairing(baseURL: url, token: token, macName: name, deviceName: "Apple Watch", pairedAt: sent))
+        // Without a pinned certificate the Watch can't talk to the Mac: wait for one.
+        guard let fingerprint = (context[fingerprintKey] as? String).flatMap(CertificatePin.normalize) else { return .nothing }
+        return .paired(Pairing(
+            baseURL: url, token: token, macName: name, deviceName: "Apple Watch", pairedAt: sent, fingerprint: fingerprint
+        ))
     }
 }

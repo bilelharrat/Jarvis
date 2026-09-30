@@ -13,6 +13,11 @@ final class BonjourBrowser {
         let endpoint: NWEndpoint
         /// A stable host name from the TXT record ("host=Bilels-MacBook.local"), when given.
         let host: String?
+        /// The Mac says it speaks TLS ("tls=1").
+        var tls = false
+        /// The short fingerprint it announces ("fp=a1b2 c3d4 e5f6 0718"): a hint to warn on,
+        /// never a reason to trust.
+        var fingerprintHint: String?
     }
 
     static let serviceType = "_jarvis._tcp"
@@ -47,8 +52,8 @@ final class BonjourBrowser {
         searching = false
     }
 
-    /// The companion's base URL for a found Mac: its TXT host name if it gave one, else its
-    /// IPv4 address, with the advertised port.
+    /// The companion's base URL (https) for a found Mac: its TXT host name if it gave one,
+    /// else its IPv4 address, with the advertised port.
     func address(of mac: Mac) async throws -> URL {
         let (host, port) = try await Self.resolve(mac.endpoint)
         guard let url = MacAddress.url(host: mac.host ?? host, port: port) else {
@@ -82,10 +87,14 @@ final class BonjourBrowser {
     nonisolated private static func mac(from result: NWBrowser.Result) -> Mac? {
         guard case let .service(name, _, _, _) = result.endpoint else { return nil }
         var host: String?
-        if case let .bonjour(record) = result.metadata, let value = record["host"]?.trimmed, !value.isEmpty {
-            host = value
+        var tls = false
+        var hint: String?
+        if case let .bonjour(record) = result.metadata {
+            if let value = record["host"]?.trimmed, !value.isEmpty { host = value }
+            tls = record["tls"]?.trimmed == "1"
+            if let value = record["fp"]?.trimmed, !value.isEmpty { hint = String(value.prefix(40)) }
         }
-        return Mac(id: "\(name)|\(host ?? "")", name: name, endpoint: result.endpoint, host: host)
+        return Mac(id: "\(name)|\(host ?? "")", name: name, endpoint: result.endpoint, host: host, tls: tls, fingerprintHint: hint)
     }
 
     nonisolated private static func describe(_ error: NWError) -> String {

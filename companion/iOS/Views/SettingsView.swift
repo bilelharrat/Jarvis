@@ -40,10 +40,24 @@ struct SettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(Palette.amber)
                     }
+                    if let fingerprint = model.pairing?.shortFingerprint {
+                        LabeledContent {
+                            Text(fingerprint)
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(Palette.ink2)
+                                .textSelection(.enabled)
+                        } label: {
+                            HStack(spacing: Space.s) {
+                                IconTile(symbol: "lock.shield.fill")
+                                Text("Certificate")
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
                 } header: {
                     header("Your Mac")
                 } footer: {
-                    footer("Shown in Jarvis on your Mac under Settings › iPhone & Watch. Away from home, use the Mac’s Tailscale address (100.x.x.x).")
+                    footer("Shown in Jarvis on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address.")
                 }
                 .listRowBackground(rowGlass)
                 .listRowSeparatorTint(Palette.hairline)

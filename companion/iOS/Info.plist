@@ -18,21 +18,29 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.bshventures.jarvis.companion.pairing</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>jarvis-pair</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_jarvis._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>J.A.R.V.I.S. finds Jarvis on your Mac and talks to it over your network.</string>
 	<key>NSMicrophoneUsageDescription</key>

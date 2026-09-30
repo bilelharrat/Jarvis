@@ -34,6 +34,11 @@ final class AppModel {
     private(set) var watchStatus = PhoneWatchBridge.Status()
     /// Why the pairing screen is showing again.
     var pairingNotice: String?
+    /// The address of a pairing made before the companion spoke TLS, to pair again with.
+    private(set) var previousAddress: String?
+    /// A pairing link opened from outside the app (the Camera app read the Mac's QR code),
+    /// waiting for the owner to confirm it.
+    var offeredLink: PairingLink?
     var draft = ""
     private var speakSetting = true
 
@@ -56,7 +61,17 @@ final class AppModel {
         #if DEBUG
         if DebugLaunch.resetPairing { PairingStore.clear() }
         #endif
-        pairing = PairingStore.load()
+        if let stored = PairingStore.load() {
+            if stored.isPinned {
+                pairing = stored
+            } else {
+                // Paired before the Mac encrypted the connection: that token was only ever
+                // sent in the clear, so pair again (to the Mac's certificate) instead.
+                PairingStore.clear()
+                previousAddress = stored.address
+                pairingNotice = JarvisError.notPinned.message
+            }
+        }
         speakSetting = UserDefaults.standard.object(forKey: Self.speakKey) as? Bool ?? true
         #if DEBUG
         if let speak = DebugLaunch.speak { speakSetting = speak }
@@ -141,9 +156,15 @@ final class AppModel {
 
     // MARK: - Pairing
 
-    func pair(at baseURL: URL, code: String, deviceName: String, macName: String?) async throws {
-        let token = try await JarvisAPI(baseURL: baseURL, token: nil).pair(code: code, name: deviceName)
-        let pairing = Pairing(baseURL: baseURL, token: token, macName: macName, deviceName: deviceName, pairedAt: Date())
+    /// Pairs over a connection pinned to `fingerprint`: from the Mac's QR code, or the one
+    /// read from the connection and compared by the owner.
+    func pair(at baseURL: URL, fingerprint: String, code: String, deviceName: String, macName: String?) async throws {
+        let api = JarvisAPI(baseURL: baseURL, token: nil, fingerprint: fingerprint)
+        let result = try await api.pair(code: code, deviceName: deviceName)
+        let pairing = Pairing(
+            baseURL: baseURL, token: result.token, macName: result.macName ?? macName, deviceName: deviceName,
+            pairedAt: Date(), fingerprint: CertificatePin.normalize(fingerprint)
+        )
         do {
             try PairingStore.save(pairing)
         } catch {
@@ -154,9 +175,31 @@ final class AppModel {
         answering = []
         link = .connecting
         pairingNotice = nil
+        previousAddress = nil
         self.pairing = pairing
         watch.push(pairing)
         restartPolling()
+    }
+
+    /// A URL the app was opened with: a pairing link from the Mac's QR code (asked about
+    /// first), or a place in the app.
+    func open(_ url: URL) {
+        if let link = PairingLink(url.absoluteString) {
+            offeredLink = link
+        }
+    }
+
+    func acceptOfferedLink() async {
+        guard let link = offeredLink else { return }
+        offeredLink = nil
+        do {
+            try await pair(at: link.baseURL, fingerprint: link.fingerprint, code: link.code,
+                           deviceName: UIDevice.current.name, macName: link.macName)
+            Haptics.answered(negative: false)
+        } catch {
+            Haptics.failure()
+            show((error as? JarvisError)?.errorDescription ?? error.localizedDescription, style: .problem)
+        }
     }
 
     func changeAddress(to text: String) throws {

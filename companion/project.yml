@@ -48,9 +48,11 @@ targets:
           - _jarvis._tcp
         NSSpeechRecognitionUsageDescription: Turns what you say into a request for Jarvis, on your iPhone when it can.
         NSMicrophoneUsageDescription: Listens after you tap the reactor, so you can talk to Jarvis.
-        NSAppTransportSecurity:
-          # The Mac serves plain HTTP on the LAN; Tailscale 100.x addresses aren't "local".
-          NSAllowsLocalNetworking: true
+        NSCameraUsageDescription: Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bshventures.jarvis.companion.pairing
+            CFBundleURLSchemes:
+              - jarvis-pair
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark
@@ -86,8 +88,6 @@ targets:
         WKRunsIndependentlyOfCompanionApp: true
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: JARVIS talks to Jarvis on your Mac over your network.
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
 
   JarvisCompanionTests:
     type: bundle.unit-test

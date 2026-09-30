@@ -12,8 +12,19 @@ struct PairingView: View {
     @State private var failure: JarvisError?
     @State private var tried: URL?
     @State private var searchedAWhile = false
+    @State private var probe: Probe = .idle
+    @State private var probeTask: Task<Void, Never>?
+    @State private var showScanner = false
     @FocusState private var codeFocused: Bool
     @FocusState private var addressFocused: Bool
+
+    /// The Mac's certificate, read before anything is sent (trust on first use).
+    enum Probe: Equatable {
+        case idle
+        case checking(URL)
+        case found(URL, fingerprint: String)
+        case failed(JarvisError)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -24,10 +35,12 @@ struct PairingView: View {
                         if let notice = model.pairingNotice {
                             ErrorCallout(title: "Pair again", message: notice)
                         }
+                        scanCard
                         macSection
                         codeSection
                         VStack(spacing: Space.l) {
                             pairButton
+                                .id(Self.pairID)
                             footer
                         }
                     }
@@ -44,13 +57,34 @@ struct PairingView: View {
                         withAnimation { proxy.scrollTo(Self.failureID, anchor: .bottom) }
                     }
                 }
+                // The whole code is in: put the keyboard away so the fingerprint and the Pair
+                // button are both in view, to compare and then pair.
+                .onChange(of: code) { _, value in
+                    guard value.count == 6 else { return }
+                    codeFocused = false
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(350))
+                        withAnimation { proxy.scrollTo(Self.pairID, anchor: .bottom) }
+                    }
+                }
             }
             .scrollDismissesKeyboard(.interactively)
             TopScrim()
         }
         .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.12)))
-        .onAppear { browser.start() }
-        .onDisappear { browser.stop() }
+        .onAppear {
+            browser.start()
+            if address.isEmpty, let previous = model.previousAddress { address = previous }
+        }
+        .onDisappear {
+            browser.stop()
+            probeTask?.cancel()
+        }
+        .sheet(isPresented: $showScanner) {
+            ScanPairingSheet { link in
+                Task { await pair(with: link) }
+            }
+        }
         .task {
             try? await Task.sleep(for: .seconds(5))
             searchedAWhile = true
@@ -62,12 +96,10 @@ struct PairingView: View {
         }
         .onChange(of: address) { _, value in
             if !value.isEmpty { selected = nil }
+            checkCertificate(after: .milliseconds(700))
         }
-        .onChange(of: selected) { _, mac in
-            if mac != nil, code.count == 6, canPair { Task { await pair() } }  // code first, then the Mac
-        }
-        .onChange(of: code) { _, value in
-            if value.count == 6, canPair { Task { await pair() } }
+        .onChange(of: selected) { _, _ in
+            checkCertificate(after: .zero)
         }
     }
 
@@ -92,6 +124,51 @@ struct PairingView: View {
         .padding(.top, Space.xs)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("J.A.R.V.I.S. companion. Pair with your Mac.")
+    }
+
+    /// The quick way: the Mac's QR code carries its address, a code and its certificate.
+    private var scanCard: some View {
+        VStack(spacing: Space.s) {
+            Button {
+                failure = nil
+                showScanner = true
+            } label: {
+                HStack(spacing: Space.s + 2) {
+                    IconTile(symbol: "qrcode.viewfinder", tint: Palette.ice)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Scan the pairing code")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Palette.ink)
+                        Text("In Jarvis Settings › iPhone & Watch on your Mac")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.muted)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer(minLength: Space.xs)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.muted)
+                }
+                .padding(.horizontal, Space.m)
+                .padding(.vertical, Space.s + 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(GlassButtonStyle(tint: Palette.cyan, cornerRadius: 20))
+            .disabled(working)
+            .accessibilityLabel("Scan the pairing code")
+            .accessibilityHint("Opens the camera. The code is in Jarvis Settings, iPhone and Watch, on your Mac.")
+
+            HStack(spacing: Space.s) {
+                Rectangle().fill(Palette.hairline).frame(height: 0.5)
+                Text("or pair by hand")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.muted)
+                    .fixedSize()
+                Rectangle().fill(Palette.hairline).frame(height: 0.5)
+            }
+            .padding(.top, Space.xs)
+            .accessibilityHidden(true)
+        }
     }
 
     private var macSection: some View {
@@ -223,6 +300,7 @@ struct PairingView: View {
         VStack(alignment: .leading, spacing: Space.s) {
             SectionLabel(number: "02", title: "Pairing code")
             CodeEntryField(code: $code, focused: $codeFocused, invalid: isWrongCode)
+            fingerprintRow
             if let failure {
                 ErrorCallout(title: failure.title, message: failure.message, hint: hint(for: failure))
                     .id(Self.failureID)
@@ -245,6 +323,63 @@ struct PairingView: View {
             .glassCard(cornerRadius: 16)
             .padding(.top, Space.xxs)
         }
+    }
+
+    /// The certificate this iPhone will trust, to compare with the Mac's Settings before
+    /// the code goes anywhere.
+    @ViewBuilder
+    private var fingerprintRow: some View {
+        switch probe {
+        case .idle:
+            EmptyView()
+        case .checking:
+            HStack(spacing: Space.s) {
+                ProgressView().tint(Palette.ink2)
+                Text("Checking the Mac’s certificate…")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink2)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Space.m)
+            .frame(minHeight: 50)
+            .glassCard(cornerRadius: 16)
+            .accessibilityElement(children: .combine)
+        case .found(_, let fingerprint):
+            let warn = hintDisagrees(with: fingerprint)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(spacing: Space.s) {
+                    Image(systemName: warn ? "exclamationmark.shield.fill" : "lock.shield.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.title3)
+                        .foregroundStyle(warn ? Palette.amber : Palette.cyan)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Eyebrow("Mac’s fingerprint")
+                        Text(CertificatePin.short(fingerprint))
+                            .font(.system(.title3, design: .monospaced).weight(.semibold))
+                            .foregroundStyle(Palette.ink)
+                            .textSelection(.enabled)
+                    }
+                    Spacer(minLength: 0)
+                }
+                Text(warn
+                    ? "This isn’t the fingerprint the Mac announced on the network. Pair only if it matches the one in Jarvis Settings on your Mac."
+                    : "Check it matches the fingerprint in Jarvis Settings › iPhone & Watch on your Mac, then pair.")
+                    .font(.footnote)
+                    .foregroundStyle(warn ? Palette.amber : Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(Space.m)
+            .glassCard(cornerRadius: 16, tint: warn ? Palette.amber : Palette.cyan, strength: 0.6)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Mac’s fingerprint: \(CertificatePin.short(fingerprint).map { String($0) }.joined(separator: " "))")
+        case .failed(let error):
+            ErrorCallout(title: error.title, message: error.message, hint: hint(for: error))
+        }
+    }
+
+    private func hintDisagrees(with fingerprint: String) -> Bool {
+        guard let hint = selected?.fingerprintHint else { return false }
+        return !CertificatePin.shortMatches(hint, fingerprint)
     }
 
     private func footnote(_ text: String) -> some View {
@@ -272,11 +407,21 @@ struct PairingView: View {
         }
         .buttonStyle(PrimaryButtonStyle(cornerRadius: 18))
         .disabled(!canPair || working)
+        .accessibilityLabel("Pair with Mac")
+        .accessibilityHint(pairHint)
+    }
+
+    private var pairHint: String {
+        if case .found(_, let fingerprint) = probe {
+            return "Trusts the Mac with fingerprint \(CertificatePin.short(fingerprint))."
+        }
+        return "Choose your Mac and enter its code first."
     }
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             Label("Same Wi‑Fi as the Mac, or Tailscale on both when you’re away.", systemImage: "wifi")
+            Label("Encrypted to your Mac’s own certificate, and to no other.", systemImage: "lock.shield.fill")
             Label("Your token stays in this iPhone’s Keychain.", systemImage: "lock.fill")
         }
         .font(.footnote)
@@ -289,6 +434,7 @@ struct PairingView: View {
     // MARK: - Pairing
 
     private static let failureID = "pairing-failure"
+    private static let pairID = "pair-button"
 
     /// "J.A.R.V.I.S. on Tony-MacBook-Pro" → "Tony-MacBook-Pro" (display only; the whole
     /// name stays the row's VoiceOver label).
@@ -299,7 +445,45 @@ struct PairingView: View {
     }
 
     private var canPair: Bool {
-        code.count == 6 && (selected != nil || MacAddress.normalize(address) != nil)
+        guard code.count == 6, case .found = probe else { return false }
+        return true
+    }
+
+    /// Where to look: the Mac picked from the list, else the typed address.
+    private func target() async throws -> URL? {
+        if let selected { return try await browser.address(of: selected) }
+        return MacAddress.normalize(address)
+    }
+
+    /// Reads the certificate at the chosen address (after a pause while typing).
+    private func checkCertificate(after delay: Duration) {
+        probeTask?.cancel()
+        let haveTarget = selected != nil || MacAddress.normalize(address) != nil
+        guard haveTarget else {
+            probe = .idle
+            return
+        }
+        probeTask = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            do {
+                guard let url = try await target() else { return }
+                guard !Task.isCancelled else { return }
+                if case .found(url, _) = probe { return }
+                probe = .checking(url)
+                tried = url
+                let fingerprint = try await JarvisAPI.probeFingerprint(at: url)
+                guard !Task.isCancelled else { return }
+                withAnimation { probe = .found(url, fingerprint: fingerprint) }
+            } catch is CancellationError {
+            } catch let error as JarvisError {
+                guard !Task.isCancelled else { return }
+                withAnimation { probe = .failed(error) }
+            } catch {
+                guard !Task.isCancelled else { return }
+                withAnimation { probe = .failed(.unreachable(error.localizedDescription)) }
+            }
+        }
     }
 
     private var isWrongCode: Bool {
@@ -307,25 +491,31 @@ struct PairingView: View {
         return false
     }
 
+    private var name: String { deviceName.trimmed.isEmpty ? "iPhone" : deviceName.trimmed }
+
+    /// By hand: to the certificate shown above, which the person has compared.
     private func pair() async {
-        guard !working, canPair else { return }
+        guard !working, canPair, case .found(let url, let fingerprint) = probe else { return }
+        await pair { try await model.pair(at: url, fingerprint: fingerprint, code: code, deviceName: name, macName: selected?.name) }
+    }
+
+    /// From the QR code: the fingerprint came from the Mac's own screen.
+    private func pair(with link: PairingLink) async {
+        tried = link.baseURL
+        await pair {
+            try await model.pair(at: link.baseURL, fingerprint: link.fingerprint, code: link.code, deviceName: name, macName: link.macName)
+        }
+    }
+
+    private func pair(_ attempt: () async throws -> Void) async {
+        guard !working else { return }
         withAnimation { failure = nil }
         working = true
         codeFocused = false
         addressFocused = false
         defer { working = false }
         do {
-            let url: URL
-            if let selected {
-                url = try await browser.address(of: selected)
-            } else if let typed = MacAddress.normalize(address) {
-                url = typed
-            } else {
-                throw JarvisError.invalidAddress
-            }
-            tried = url
-            let name = deviceName.trimmed.isEmpty ? "iPhone" : deviceName.trimmed
-            try await model.pair(at: url, code: code, deviceName: name, macName: selected?.name)
+            try await attempt()
             Haptics.answered(negative: false)
         } catch let error as JarvisError {
             Haptics.failure()
@@ -345,7 +535,7 @@ struct PairingView: View {
         case .unreachable:
             let target = tried.map { "Tried \(MacAddress.display($0)). " } ?? ""
             return target + "If iOS asked about Local Network access and you said no, turn it on in Settings › Privacy & Security › Local Network."
-        case .notJarvis:
+        case .notJarvis, .notEncrypted:
             return tried.map { "Tried \(MacAddress.display($0))." }
         default:
             return nil
@@ -363,6 +553,10 @@ struct PairingView: View {
                 code.append(digit)
                 try? await Task.sleep(for: .milliseconds(140))
             }
+            for _ in 0..<40 where !canPair {  // the certificate check may still be running
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            await pair()
         }
         #endif
     }

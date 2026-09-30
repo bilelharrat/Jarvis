@@ -1,7 +1,8 @@
 import XCTest
 
-/// Drives the iPhone app against a throwaway companion server, the way a person would:
-/// type the address and code, ask, answer the approval, use the quick actions, unpair.
+/// Drives the iPhone app against a throwaway companion server (TLS, a self-signed
+/// certificate), the way a person would: type the address and code, compare the
+/// fingerprint and pair, ask, answer the approval, use the quick actions, unpair.
 ///
 /// Skipped unless the server is given, e.g.
 ///     TEST_RUNNER_JARVIS_TEST_SERVER=127.0.0.1:8766 TEST_RUNNER_JARVIS_TEST_CODE=123456 \
@@ -31,7 +32,10 @@ final class CompanionUITests: XCTestCase {
         XCTAssertTrue(address.waitForExistence(timeout: 10))
         address.tap()
         address.typeText(server + "\n")  // Next: on to the code
-        app.typeText(code)  // the sixth digit pairs
+        app.typeText(code)
+        // Typed by hand, pairing waits for a tap, with the Mac's fingerprint shown to compare.
+        XCTAssertTrue(element(containing: "Mac’s fingerprint", in: app).waitForExistence(timeout: 15), "no fingerprint")
+        app.buttons["Pair with Mac"].tap()
         let ask = app.textFields["Ask Jarvis"]
         XCTAssertTrue(ask.waitForExistence(timeout: 15), "didn't reach the home screen")
         snapshot("home")

@@ -3,22 +3,22 @@ import XCTest
 
 final class MacAddressTests: XCTestCase {
     func testAddsSchemeAndDefaultPort() {
-        XCTAssertEqual(MacAddress.normalize("192.168.1.20")?.absoluteString, "http://192.168.1.20:8765")
-        XCTAssertEqual(MacAddress.normalize("  Bilels-MacBook.local ")?.absoluteString, "http://Bilels-MacBook.local:8765")
-        XCTAssertEqual(MacAddress.normalize("100.101.102.103")?.absoluteString, "http://100.101.102.103:8765")
+        XCTAssertEqual(MacAddress.normalize("192.168.1.20")?.absoluteString, "https://192.168.1.20:8765")
+        XCTAssertEqual(MacAddress.normalize("  Bilels-MacBook.local ")?.absoluteString, "https://Bilels-MacBook.local:8765")
+        XCTAssertEqual(MacAddress.normalize("100.101.102.103")?.absoluteString, "https://100.101.102.103:8765")
     }
 
-    func testKeepsAGivenPortAndScheme() {
-        XCTAssertEqual(MacAddress.normalize("mac.local:8766")?.absoluteString, "http://mac.local:8766")
-        XCTAssertEqual(MacAddress.normalize("http://100.64.0.7")?.absoluteString, "http://100.64.0.7:8765")
-        XCTAssertEqual(MacAddress.normalize("HTTP://10.0.0.2:9000/")?.absoluteString, "http://10.0.0.2:9000")
-        XCTAssertEqual(MacAddress.normalize("https://mac.tail1234.ts.net")?.absoluteString, "https://mac.tail1234.ts.net")
+    func testKeepsAGivenPortAndAlwaysSpeaksTLS() {
+        XCTAssertEqual(MacAddress.normalize("mac.local:8766")?.absoluteString, "https://mac.local:8766")
+        XCTAssertEqual(MacAddress.normalize("http://100.64.0.7")?.absoluteString, "https://100.64.0.7:8765")
+        XCTAssertEqual(MacAddress.normalize("HTTP://10.0.0.2:9000/")?.absoluteString, "https://10.0.0.2:9000")
+        XCTAssertEqual(MacAddress.normalize("https://mac.tail1234.ts.net")?.absoluteString, "https://mac.tail1234.ts.net:8765")
     }
 
     func testDropsPathsAndHandlesIPv6() {
-        XCTAssertEqual(MacAddress.normalize("192.168.1.20:8765/api/state")?.absoluteString, "http://192.168.1.20:8765")
-        XCTAssertEqual(MacAddress.normalize("[fe80::1]:8766")?.absoluteString, "http://[fe80::1]:8766")
-        XCTAssertEqual(MacAddress.normalize("fd7a:115c::1")?.absoluteString, "http://[fd7a:115c::1]:8765")
+        XCTAssertEqual(MacAddress.normalize("192.168.1.20:8765/api/state")?.absoluteString, "https://192.168.1.20:8765")
+        XCTAssertEqual(MacAddress.normalize("[fe80::1]:8766")?.absoluteString, "https://[fe80::1]:8766")
+        XCTAssertEqual(MacAddress.normalize("fd7a:115c::1")?.absoluteString, "https://[fd7a:115c::1]:8765")
     }
 
     func testRejectsNonsense() {

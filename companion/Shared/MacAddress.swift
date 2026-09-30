@@ -1,18 +1,18 @@
 import Foundation
 
 /// Turns what someone types for the Mac ("192.168.1.20", "mac.local:8766",
-/// "http://100.101.102.103", a Tailscale name) into the companion's base URL.
+/// "https://100.101.102.103", a Tailscale IP) into the companion's base URL. The companion
+/// speaks only TLS (to the Mac's pinned certificate), so every address becomes https.
 enum MacAddress {
     static let defaultPort = 8765
 
     static func normalize(_ raw: String) -> URL? {
         var text = raw.trimmed
-        var scheme = "http"
+        let scheme = "https"
         let lower = text.lowercased()
         if lower.hasPrefix("http://") {
-            text.removeFirst(7)
-        } else if lower.hasPrefix("https://") {  // e.g. Tailscale Serve in front of the Mac
-            scheme = "https"
+            text.removeFirst(7)  // the Mac no longer serves the app over plain HTTP
+        } else if lower.hasPrefix("https://") {
             text.removeFirst(8)
         } else if text.contains("://") {
             return nil
@@ -42,10 +42,10 @@ enum MacAddress {
         }  // more than one colon and no brackets: a bare IPv6 address, no port
 
         if let port, !(1...65535).contains(port) { return nil }
-        return url(scheme: scheme, host: host, port: port ?? (scheme == "http" ? defaultPort : nil))
+        return url(scheme: scheme, host: host, port: port ?? defaultPort)
     }
 
-    static func url(scheme: String = "http", host: String, port: Int?) -> URL? {
+    static func url(scheme: String = "https", host: String, port: Int?) -> URL? {
         let host = host.trimmed
         guard !host.isEmpty else { return nil }
         let hostPart = host.contains(":") ? "[\(host)]" : host
@@ -57,7 +57,11 @@ enum MacAddress {
     /// "192.168.1.20:8765", for showing to people.
     static func display(_ url: URL) -> String {
         var text = url.absoluteString
-        if text.hasPrefix("http://") { text.removeFirst(7) }
+        if text.hasPrefix("https://") {
+            text.removeFirst(8)
+        } else if text.hasPrefix("http://") {
+            text.removeFirst(7)
+        }
         while text.hasSuffix("/") { text.removeLast() }
         return text
     }
