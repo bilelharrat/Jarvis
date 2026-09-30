@@ -24,11 +24,14 @@ targets:
     sources:
       - path: Shared
       - path: Activity
+      - path: ShareKit
       - path: iOS
     dependencies:
       - target: JarvisCompanionWatch
         embed: true
       - target: JarvisWidgets
+        embed: true
+      - target: JarvisShare
         embed: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion
@@ -146,6 +149,44 @@ targets:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
       path: Widgets/JarvisWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.bshventures.jarvis.companion
+
+  # "Send to Jarvis" in the share sheet.
+  JarvisShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: ShareKit
+      - path: Share
+      - path: iOS/Views/Components.swift
+      - path: iOS/Views/SpaceBackground.swift
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.share
+      INFOPLIST_FILE: Share/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      TARGETED_DEVICE_FAMILY: "1"
+      APPLICATION_EXTENSION_API_ONLY: true
+    info:
+      path: Share/Info.plist
+      properties:
+        CFBundleDisplayName: J.A.R.V.I.S.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+              NSExtensionActivationSupportsFileWithMaxCount: 1
+    entitlements:
+      path: Share/JarvisShare.entitlements
       properties:
         com.apple.security.application-groups:
           - group.com.bshventures.jarvis.companion

@@ -39,6 +39,14 @@ enum PairingStore {
     static func clear() {
         Keychain.remove(account)
     }
+
+    /// Once: a pairing saved before the App Group existed moves into its keychain group, so
+    /// the share extension can use it too.
+    static func shareWithExtensions(_ pairing: Pairing) {
+        let key = "pairing.sharedGroup"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        if (try? save(pairing)) != nil { UserDefaults.standard.set(true, forKey: key) }
+    }
 }
 
 /// The App Group the iPhone app shares with its widgets and share extension (and the Watch

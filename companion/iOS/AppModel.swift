@@ -74,6 +74,7 @@ final class AppModel {
         if let stored = PairingStore.load() {
             if stored.isPinned {
                 pairing = stored
+                PairingStore.shareWithExtensions(stored)
             } else {
                 // Paired before the Mac encrypted the connection: that token was only ever
                 // sent in the clear, so pair again (to the Mac's certificate) instead.

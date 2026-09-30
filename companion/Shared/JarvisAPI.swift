@@ -301,11 +301,12 @@ struct JarvisAPI: Sendable {
         _ = try await post("api/health", day.body, timeout: 10)
     }
 
-    /// Returns the name it was saved as on the Mac, for files and images.
-    func share(_ item: ShareItem) async throws -> String? {
+    /// What the Mac did with it: the name a file or image was saved as, and whether it
+    /// took the note ("summarize this") as a request.
+    func share(_ item: ShareItem) async throws -> ShareResult {
         if let data = item.data, data.count > ShareItem.maxBytes { throw JarvisError.tooBig }
         let data = try await send("api/share", body: try item.body(), timeout: 90)
-        return (try? JSONDecoder().decode(SavedBody.self, from: data))?.savedAs
+        return (try? JSONDecoder().decode(ShareResult.self, from: data)) ?? ShareResult(savedAs: nil, asked: false)
     }
 
     /// A photo (JPEG) and an optional question; the reply is Jarvis's answer.
@@ -432,8 +433,25 @@ private struct OkBody: Decodable { var ok: Bool? }
 private struct ErrorBody: Decodable { var error: String? }
 private struct ReplyBody: Decodable { var reply: String? }
 
-private struct SavedBody: Decodable {
+/// POST /api/share: `{ok, saved_as?, asked}`.
+struct ShareResult: Equatable, Sendable, Decodable {
     var savedAs: String?
+    /// The note went to Jarvis as a request.
+    var asked: Bool
 
-    private enum CodingKeys: String, CodingKey { case savedAs = "saved_as" }
+    init(savedAs: String?, asked: Bool) {
+        self.savedAs = savedAs
+        self.asked = asked
+    }
+
+    private enum Key: String, CodingKey {
+        case asked
+        case savedAs = "saved_as"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        savedAs = c.text(.savedAs).flatMap { $0.trimmed.isEmpty ? nil : $0 }
+        asked = c.flag(.asked) ?? false
+    }
 }

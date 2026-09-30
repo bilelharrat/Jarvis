@@ -152,6 +152,17 @@ Siri waits about 25 seconds: past that the Mac carries on and the answer lands i
 A request that needs a yes says so (the card is on the phone); an unreachable Mac keeps a
 question for later (the outbox); stop and meeting notes are never kept.
 
+## Share sheet
+
+**J.A.R.V.I.S.** in the share sheet sends a link, some text, a photo or a file to the Mac
+(`POST /api/share`), with an optional line for Jarvis ("Summarize this", or anything).
+Files and photos land in `~/Documents/Jarvis/Inbox/` on the Mac; with a line, the Mac runs
+it as a silent request about the item, and the answer lands in the app. Shared content is
+data to Jarvis, never instructions. Files go up to 18 MB (a photo too big is scaled down
+as JPEG to fit), so the base64 body stays under the Mac's 25 MB. When the Mac can't be
+reached it waits in the outbox (the data in a file beside it) and the app sends it within
+the hour. The extension uses the pairing from the App Group's keychain group.
+
 ## Widgets and complications
 
 - **Jarvis** (small, medium; Lock Screen circular, rectangular, inline): whether the Mac
@@ -267,5 +278,6 @@ Widgets/                    the iPhone widget extension (Home Screen, Lock Scree
 WatchWidgets/               the Watch complications extension
 WidgetsCommon/              the timeline provider and the glances both extensions show
 Activity/                   the Live Activity attributes and plan (app and widget extension)
+Share/, ShareKit/           the share extension; reading and sending what was shared
 Tests/, UITests/            unit tests; the end-to-end UI test
 ```

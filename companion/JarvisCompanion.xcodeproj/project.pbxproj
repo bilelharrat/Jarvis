@@ -12,6 +12,8 @@
 		04545E5A6C158C444584178D /* QuickActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4FDF01C107350849AA76BC /* QuickActions.swift */; };
 		04B3BC999C63CF69380E8D2C /* JarvisCompanionWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 566EE4877D185AFA856CBD13 /* JarvisCompanionWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0697DFA1C455ADAA1B600F11 /* JarvisWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 051615A18E0476D09B75C577 /* JarvisWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0766F6B265F2D485DAA709FE /* PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */; };
+		09B4B677C5712A36588186F1 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A06774F347CB2BC376C7207 /* Theme.swift */; };
 		09D9F117B68DA65C97B6E6AA /* PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */; };
 		0DFC948BC5C16B943AE7FC22 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		0DFD3E3D020BAC3EEC2CAB87 /* CodeEntryField.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48550560333BEA63660AEFB /* CodeEntryField.swift */; };
@@ -19,9 +21,11 @@
 		12C35BD9D520A9F7002A58C7 /* DigestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E7E2F21C7F660F782E595D /* DigestView.swift */; };
 		12ECC0247C5DB2C053F80D89 /* CodeSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C837DBB77D17F9D3236BD581 /* CodeSessionsView.swift */; };
 		131B8415793886F1E82DD967 /* LiveActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F6D20BB76C3AE137642500 /* LiveActivities.swift */; };
+		139503657A1CC6CC291286AF /* JarvisShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = ED47237DF7DB544D7DCA35AB /* JarvisShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		14C91675104C7897DA1EE458 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AF13DCCF32B738186BDB9A /* Components.swift */; };
 		18218B78E51630B5E3322D78 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
 		196F28C06977CD4F23006355 /* SnapshotProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18FC70ADE97F9018BC0753BE /* SnapshotProvider.swift */; };
+		19F8EDCED33D2533143AA004 /* SpaceBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AA66376AEED5EBFC8C18E40 /* SpaceBackground.swift */; };
 		1A3CEF5E012ED60A975824B7 /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */; };
 		1A408249BA46C3330C48ADAF /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
 		1C7AE5CBE826C1176AC9F4BA /* WatchHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC74BF02082BE9C300BE504 /* WatchHomeView.swift */; };
@@ -30,12 +34,14 @@
 		21C2B72A018E0983C5F4778F /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		25598C797EFADBBFEDDC8410 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC86D5DE428EECD6B4CA1A05 /* WidgetSnapshot.swift */; };
 		27E22EE9E92819EC4E556C19 /* JarvisLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC642AE209BB1E5406B94E07 /* JarvisLiveActivity.swift */; };
+		27E72CF2D6B981325C504617 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
 		28AF46EFF16486951AEDE6F5 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC86D5DE428EECD6B4CA1A05 /* WidgetSnapshot.swift */; };
 		28B2AFCF857820517007207E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 427EE7363E4456123529776B /* SettingsView.swift */; };
 		290992CE1E88AF781AD2C834 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
 		2AE5DCF5BF766A7F7680DA59 /* LiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB3F292D439ABFFD2304B18 /* LiveActivityTests.swift */; };
 		2B92E56CB0CD0FDC77B49CC1 /* SpeechController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82EB1B93672E76AFD046C9 /* SpeechController.swift */; };
 		2E3274AC6A354721C604EB38 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C620E39CE7778E786E23849 /* DebugLaunch.swift */; };
+		2E5F148EE3C1130EE7C8CE4A /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
 		322B0FFE1A4CA43A3AC5A749 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C69252B5A2CBAB50D02793 /* WatchLink.swift */; };
 		33FD1C7CF4D6C1493C4124DD /* Transcript.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB9E5E6712964B7972DDEB5 /* Transcript.swift */; };
 		34413C94E7A5002E04F90D96 /* CompanionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC863DBA3D2B3C37031C5C7F /* CompanionUITests.swift */; };
@@ -49,6 +55,8 @@
 		45140952309A197F3AF08A1B /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
 		465114EAD2ECFAABC8B8EE03 /* MoreSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2051AB9FDE17BFB000C42A /* MoreSheet.swift */; };
 		4CB19D6221D4DB0192848391 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
+		50ADBA707178B8C134F7DD36 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
+		50FF9F8AAE876B35BE1CC781 /* ShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D197DFFFF2B68A02AD7A58 /* ShareView.swift */; };
 		5224760E437E7A08CF8D16CE /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C69252B5A2CBAB50D02793 /* WatchLink.swift */; };
 		52E4D6FB8E21B9AA3E03387D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
 		55CF4777F923F40DBC5F003B /* SpendingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64D5961CC8EB971ABD5BF61 /* SpendingView.swift */; };
@@ -59,6 +67,7 @@
 		5A3B37D3C088803F8ADC4A36 /* PinningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3460FECA5A8F277DF87280 /* PinningTests.swift */; };
 		5AD99594B7214E63138CD7EC /* NotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */; };
 		5C8645AF8264D77FE0D1BF8D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A06774F347CB2BC376C7207 /* Theme.swift */; };
+		5D4EB6AB3B44AAE9DE9BE269 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AF13DCCF32B738186BDB9A /* Components.swift */; };
 		5D8E5F39B4AB6AEF84C27DC9 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6465A8EA614143D01D94BA /* JSONValue.swift */; };
 		6143196FAF0E6E4C0BD5B9DC /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
 		623AA6FAC1C1DB4DC2A271FC /* WatchApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A32E208AF7AE083703E1E3 /* WatchApprovalCard.swift */; };
@@ -70,17 +79,20 @@
 		67761C35440508ABAF75F4A6 /* WatchNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F02F794B7B82868AC93F0E /* WatchNotifications.swift */; };
 		6970AF652C89F75A41F873F9 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
 		6ABA56A767E3E1AEA6E91DCF /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC86D5DE428EECD6B4CA1A05 /* WidgetSnapshot.swift */; };
+		6AD6941FF4545FE6E84D263E /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C69252B5A2CBAB50D02793 /* WatchLink.swift */; };
 		6DC32968E49879504159FDBA /* WatchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2D5B4892F9C5013D6940AD /* WatchModel.swift */; };
 		717A2F60E5294CB35F698E08 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		71BE52615CE0CD9A3B0320A5 /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
 		72046399198327668EFBE4D1 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D083BC6390ED9CA1FAF28851 /* Destination.swift */; };
 		7471CA5FC9DC6FD40370C2C7 /* CodeSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88FE4D0B4F21CBD7AEC47625 /* CodeSessionView.swift */; };
 		748E241B0AF41C4D88CB73AF /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
+		77B7F0BFFC68F898661D6DA1 /* ShareModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D4DBC4B2E981A3EB110F53 /* ShareModel.swift */; };
 		78FBD38E4586849DF14FD20B /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
 		792BE40F20E259259940DCBA /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
 		7A87977425D352C74CCB318E /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A5BA93B90B959C3CD804B40 /* Haptics.swift */; };
 		7B7B594D58F10411F91D8E5C /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
 		7E6F5B5FE55A496888E7A21C /* ScanPairingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBBAC77255D80E6992DBAE6 /* ScanPairingSheet.swift */; };
+		7EFF4D7A610ECB5E131A5809 /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */; };
 		7F1711596F846A4CC61C4DF6 /* JarvisActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E275D34571EE64B33BE24BE /* JarvisActivity.swift */; };
 		7FD21510A56D3FCE01BCB210 /* PushCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95A98DD2F394C6BC77B42ADA /* PushCoordinator.swift */; };
 		802B1721CF8D48B7DF72A12F /* OutboxSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */; };
@@ -88,23 +100,29 @@
 		843055C91161B40160CBE620 /* SnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */; };
 		8846E71BA9567B56B8004B11 /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
 		8855850BF8D19A3EE6B85A30 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C620E39CE7778E786E23849 /* DebugLaunch.swift */; };
+		8A86752F5B8DB272AA6E9F05 /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
 		8BFBB69A6D2A39A68FDF5C59 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
 		8C7DFDCE8DFF1317469D3022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6BE5DE502A3F52A1E60A6509 /* Assets.xcassets */; };
+		8CCE61BB46696C967EBEB654 /* ShareModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D4DBC4B2E981A3EB110F53 /* ShareModel.swift */; };
 		8D0D513FF9B76B06F6B17A87 /* PhoneWatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9350356CCD0A6C3FA4A3865 /* PhoneWatchBridge.swift */; };
 		8E0D4CEC6D14A27FD7B68DDB /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
 		8F32D36C2892E3767CCE209D /* BonjourBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43E3B2A670E93A54FE1B823 /* BonjourBrowser.swift */; };
+		904F1AD44C52E89C2D8BEF0E /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D083BC6390ED9CA1FAF28851 /* Destination.swift */; };
 		941BA50A4EFCCACBD219F5D6 /* JarvisCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B478E423B94A7981AC6C870A /* JarvisCompanionApp.swift */; };
 		9671408682015C1E8DE997FF /* PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */; };
 		96D74B8F26C69D3925134500 /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		9879E7CD1B168396A3D5ED46 /* VoicePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E5DFCDF4EE110D6769E1F6 /* VoicePlayer.swift */; };
 		9B1F5F1A7BF435DD70824A89 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C620E39CE7778E786E23849 /* DebugLaunch.swift */; };
 		9CA59DD89A339D9934A864A0 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A06774F347CB2BC376C7207 /* Theme.swift */; };
+		9F26A0C3779981089E23DDCB /* ShareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE84B66624B459B350EC2CA /* ShareTests.swift */; };
 		A241BB9D1288DDCA5E9D9FAD /* ApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 551737142658F2F36993883B /* ApprovalCard.swift */; };
 		A534AA4E6C4DEE72E4F408B9 /* JarvisWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61DB5F4EEA7C43DC763ACFC /* JarvisWidgets.swift */; };
 		A573730FE73B8444D343C084 /* JarvisWatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D2613A66FD42E49FF1FB68CF /* JarvisWatchWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A7330A67457BD58C811C6C84 /* SnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */; };
+		A7F05CDD4553CD6946266D66 /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
 		A905455D985AF33F8E9A16DF /* ContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1026D031A91343564AB99990 /* ContractTests.swift */; };
 		AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
+		AFBEDA7548ED40DFE02C6BB4 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6465A8EA614143D01D94BA /* JSONValue.swift */; };
 		B030F9606EC25C463D82DF34 /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
 		B1B77E9C8F769C154B59CBF2 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		B3EA66B76E6473152068FC42 /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
@@ -121,18 +139,25 @@
 		BED3476AF4C62D76C3E3F852 /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
 		BF7F42EB13E252E34C1812B1 /* CompanionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A2333A360287AAA2927BBE /* CompanionTests.swift */; };
 		C222BCBE15D834A0B9F8FA39 /* RoutinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9650589EDEFBCB81F05856 /* RoutinesView.swift */; };
+		C33CB5255A0E287257BD0552 /* SnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */; };
 		C4C0454C97C437C1C9516DE8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B044E543CF5359056ABF45C /* Assets.xcassets */; };
 		C53943100718FD9FDA746233 /* StatusStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8545DCC87751DD4885468A8 /* StatusStrip.swift */; };
+		C56EC2022085D89AEE053C4F /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC86D5DE428EECD6B4CA1A05 /* WidgetSnapshot.swift */; };
 		C7F2B0B294DEE5B12D72D4A9 /* IntentRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CA106AA6DAAC90628128C0 /* IntentRunner.swift */; };
 		D023EB96A9FBC941FD3041EA /* ScreenKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6515DE55F3D5B79EDBAC090 /* ScreenKit.swift */; };
 		D07AD812BE5438D6598E5945 /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		D11737733862CD0FB3ABB5DD /* Pinning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9D5708789DADE23BD3F36D /* Pinning.swift */; };
 		D1BCC8004653A91F1E50ABA6 /* ReactorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C10CAA1099883096BB500EA /* ReactorView.swift */; };
+		D56CC514B7594086E14D1CD8 /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
 		D9DBB20DDCF250A22D45E8B5 /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
+		DA77AE7873ADFA625A56654C /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		DBF2544D9B8FCADDB7F3CC96 /* WatchRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5308F3FBE08B062C9236269 /* WatchRefresh.swift */; };
+		DCC7F6B82A5CB00FE2AC8E06 /* Pinning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9D5708789DADE23BD3F36D /* Pinning.swift */; };
 		DDEDDF8140BD31A8B0429053 /* BackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = D641D1C0008A03FABA3BC582 /* BackgroundRefresh.swift */; };
 		DEE4B0C1D3715B58A02E56A8 /* ReactorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C10CAA1099883096BB500EA /* ReactorView.swift */; };
+		DEF8CECC98D68A12D7CA41C8 /* ReactorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C10CAA1099883096BB500EA /* ReactorView.swift */; };
 		E005477017623036ADD6AF45 /* ReactorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C10CAA1099883096BB500EA /* ReactorView.swift */; };
+		E0811EFCEBE665C51E13843C /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
 		E0B5291643F7464449C4D34F /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F482B0337D746CE0F05B44DA /* HomeView.swift */; };
 		E1D21FDC2A1C2299C7BB7D8C /* ConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9550D8815339BFA94123EAFA /* ConversationsView.swift */; };
 		E205631D47A779E2467687C5 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C620E39CE7778E786E23849 /* DebugLaunch.swift */; };
@@ -149,6 +174,8 @@
 		F290AA948DF1F9F27418CEC0 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
 		F480C42D8B928BAEA3F53BB8 /* JarvisIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0912F44761BB896067B8140E /* JarvisIntents.swift */; };
 		F4AA8C0AE44F20DB74AF2060 /* Pinning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9D5708789DADE23BD3F36D /* Pinning.swift */; };
+		F5A567FE3235D1F392D7CEDC /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C620E39CE7778E786E23849 /* DebugLaunch.swift */; };
+		FA1F2F0EE39BF85F79751623 /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
 		FC326BC2706A6832C42685E1 /* JarvisActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E275D34571EE64B33BE24BE /* JarvisActivity.swift */; };
 /* End PBXBuildFile section */
 
@@ -173,6 +200,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 4DA8399862190A730096F8AB;
 			remoteInfo = JarvisCompanionWatch;
+		};
+		79CEB0F4A9ACDF2378689BB2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 559C4A6A7D0336C9FB54512A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B2DB737A94E9D64FE54BA041;
+			remoteInfo = JarvisShare;
 		};
 		A942812939CF27117E1DCE02 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -220,6 +254,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				0697DFA1C455ADAA1B600F11 /* JarvisWidgets.appex in Embed Foundation Extensions */,
+				139503657A1CC6CC291286AF /* JarvisShare.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -246,8 +281,10 @@
 		27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRequest.swift; sourceTree = "<group>"; };
 		29A595BB503334F0561F7F03 /* CompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionModels.swift; sourceTree = "<group>"; };
 		2A5BA93B90B959C3CD804B40 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
+		2ABC9D36EFCDA962D6400377 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2B044E543CF5359056ABF45C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2E539CF9A09919A62CDFC802 /* WidgetSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshotTests.swift; sourceTree = "<group>"; };
+		33D4DBC4B2E981A3EB110F53 /* ShareModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareModel.swift; sourceTree = "<group>"; };
 		3998F6FC21B1867BF767C10D /* JarvisCompanionWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisCompanionWatch.entitlements; sourceTree = "<group>"; };
 		3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxTests.swift; sourceTree = "<group>"; };
 		3E2D5B4892F9C5013D6940AD /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
@@ -266,6 +303,7 @@
 		5F4E4A91528D6974EDB4343E /* NotificationActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActions.swift; sourceTree = "<group>"; };
 		68CF94AC99D45B225819C75C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6BE5DE502A3F52A1E60A6509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		70D197DFFFF2B68A02AD7A58 /* ShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareView.swift; sourceTree = "<group>"; };
 		72E5DFCDF4EE110D6769E1F6 /* VoicePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePlayer.swift; sourceTree = "<group>"; };
 		750FD3968992EF82B0C57E89 /* JarvisWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisWidgets.entitlements; sourceTree = "<group>"; };
 		773F088B2A5977AF075B38BB /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -274,6 +312,7 @@
 		8C3460FECA5A8F277DF87280 /* PinningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinningTests.swift; sourceTree = "<group>"; };
 		8C620E39CE7778E786E23849 /* DebugLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLaunch.swift; sourceTree = "<group>"; };
 		8D4809DF873287D0210801F6 /* Decoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Decoding.swift; sourceTree = "<group>"; };
+		8DE84B66624B459B350EC2CA /* ShareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareTests.swift; sourceTree = "<group>"; };
 		8E4FDF01C107350849AA76BC /* QuickActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActions.swift; sourceTree = "<group>"; };
 		8F2051AB9FDE17BFB000C42A /* MoreSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreSheet.swift; sourceTree = "<group>"; };
 		9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotPublisher.swift; sourceTree = "<group>"; };
@@ -313,6 +352,8 @@
 		E48550560333BEA63660AEFB /* CodeEntryField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEntryField.swift; sourceTree = "<group>"; };
 		E828C88E6726C861CCEDF1B1 /* PairingLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingLink.swift; sourceTree = "<group>"; };
 		ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingStore.swift; sourceTree = "<group>"; };
+		ED47237DF7DB544D7DCA35AB /* JarvisShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE8AEF1FC31757089F2ED102 /* JarvisShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisShare.entitlements; sourceTree = "<group>"; };
 		F370B0F3655380238F7533AC /* JarvisCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = JarvisCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F397381F924EACB84F35D1B6 /* JarvisWatchWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisWatchWidgets.entitlements; sourceTree = "<group>"; };
 		F43E3B2A670E93A54FE1B823 /* BonjourBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourBrowser.swift; sourceTree = "<group>"; };
@@ -372,7 +413,9 @@
 			children = (
 				A59C41384B20095F451D6B2E /* Activity */,
 				6516F2CE6A86CC3F1B589C9A /* iOS */,
+				FC013BA5B2FFA73897A36F23 /* Share */,
 				E55D6E1821D39DC96A88D7C6 /* Shared */,
+				AF1A3796D3EDB318F705D7B4 /* ShareKit */,
 				9BF66CE8EC2EDFABF809C630 /* Tests */,
 				7618E7005436BDFE47024143 /* UITests */,
 				E87F7EDCCB16EA39A258F07B /* Watch */,
@@ -442,6 +485,7 @@
 				7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */,
 				3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */,
 				8C3460FECA5A8F277DF87280 /* PinningTests.swift */,
+				8DE84B66624B459B350EC2CA /* ShareTests.swift */,
 				2E539CF9A09919A62CDFC802 /* WidgetSnapshotTests.swift */,
 			);
 			path = Tests;
@@ -454,6 +498,7 @@
 				C66F961E366B4F19E99AED7C /* JarvisCompanionTests.xctest */,
 				565297325CAECF821B58C9CE /* JarvisCompanionUITests.xctest */,
 				566EE4877D185AFA856CBD13 /* JarvisCompanionWatch.app */,
+				ED47237DF7DB544D7DCA35AB /* JarvisShare.appex */,
 				D2613A66FD42E49FF1FB68CF /* JarvisWatchWidgets.appex */,
 				051615A18E0476D09B75C577 /* JarvisWidgets.appex */,
 			);
@@ -466,6 +511,14 @@
 				4E275D34571EE64B33BE24BE /* JarvisActivity.swift */,
 			);
 			path = Activity;
+			sourceTree = "<group>";
+		};
+		AF1A3796D3EDB318F705D7B4 /* ShareKit */ = {
+			isa = PBXGroup;
+			children = (
+				33D4DBC4B2E981A3EB110F53 /* ShareModel.swift */,
+			);
+			path = ShareKit;
 			sourceTree = "<group>";
 		};
 		B0F11DE8F6C9E780A744FA13 /* Widgets */ = {
@@ -540,6 +593,16 @@
 			path = Watch;
 			sourceTree = "<group>";
 		};
+		FC013BA5B2FFA73897A36F23 /* Share */ = {
+			isa = PBXGroup;
+			children = (
+				2ABC9D36EFCDA962D6400377 /* Info.plist */,
+				EE8AEF1FC31757089F2ED102 /* JarvisShare.entitlements */,
+				70D197DFFFF2B68A02AD7A58 /* ShareView.swift */,
+			);
+			path = Share;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -557,6 +620,7 @@
 			dependencies = (
 				53BC803DD2BA5B3FEFBA5F85 /* PBXTargetDependency */,
 				F9C4DD86DF6337D478F801F1 /* PBXTargetDependency */,
+				F47D6222737555D215865C50 /* PBXTargetDependency */,
 			);
 			name = JarvisCompanion;
 			packageProductDependencies = (
@@ -620,6 +684,23 @@
 			productReference = D2613A66FD42E49FF1FB68CF /* JarvisWatchWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		B2DB737A94E9D64FE54BA041 /* JarvisShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4DA43F92F76ADABEDF96EEE4 /* Build configuration list for PBXNativeTarget "JarvisShare" */;
+			buildPhases = (
+				415A8AC18A327049C1221D9A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = JarvisShare;
+			packageProductDependencies = (
+			);
+			productName = JarvisShare;
+			productReference = ED47237DF7DB544D7DCA35AB /* JarvisShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		F735214FE6CFCD0882DF839A /* JarvisWidgets */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 46928CEFE747F4A16800C01A /* Build configuration list for PBXNativeTarget "JarvisWidgets" */;
@@ -680,6 +761,10 @@
 						DevelopmentTeam = 9ZSY5R8A5C;
 						ProvisioningStyle = Automatic;
 					};
+					B2DB737A94E9D64FE54BA041 = {
+						DevelopmentTeam = 9ZSY5R8A5C;
+						ProvisioningStyle = Automatic;
+					};
 					F735214FE6CFCD0882DF839A = {
 						DevelopmentTeam = 9ZSY5R8A5C;
 						ProvisioningStyle = Automatic;
@@ -708,6 +793,7 @@
 				14F8D624DF54D121EDB1CD02 /* JarvisCompanion */,
 				4DA8399862190A730096F8AB /* JarvisCompanionWatch */,
 				F735214FE6CFCD0882DF839A /* JarvisWidgets */,
+				B2DB737A94E9D64FE54BA041 /* JarvisShare */,
 				A735C6C3ED41DD4F62823E55 /* JarvisWatchWidgets */,
 				4FF75D57D127C28398667F69 /* JarvisCompanionTests */,
 				F891A8CBBE618C835DEE0331 /* JarvisCompanionUITests */,
@@ -829,6 +915,37 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		415A8AC18A327049C1221D9A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D56CC514B7594086E14D1CD8 /* ApprovalResponse.swift in Sources */,
+				27E72CF2D6B981325C504617 /* CompanionModels.swift in Sources */,
+				5D4EB6AB3B44AAE9DE9BE269 /* Components.swift in Sources */,
+				F5A567FE3235D1F392D7CEDC /* DebugLaunch.swift in Sources */,
+				50ADBA707178B8C134F7DD36 /* Decoding.swift in Sources */,
+				904F1AD44C52E89C2D8BEF0E /* Destination.swift in Sources */,
+				AFBEDA7548ED40DFE02C6BB4 /* JSONValue.swift in Sources */,
+				7EFF4D7A610ECB5E131A5809 /* JarvisAPI.swift in Sources */,
+				DA77AE7873ADFA625A56654C /* MacAddress.swift in Sources */,
+				2E5F148EE3C1130EE7C8CE4A /* Models.swift in Sources */,
+				A7F05CDD4553CD6946266D66 /* NotificationActions.swift in Sources */,
+				E0811EFCEBE665C51E13843C /* Outbox.swift in Sources */,
+				8A86752F5B8DB272AA6E9F05 /* PairingLink.swift in Sources */,
+				FA1F2F0EE39BF85F79751623 /* PairingStore.swift in Sources */,
+				0766F6B265F2D485DAA709FE /* PendingRequest.swift in Sources */,
+				DCC7F6B82A5CB00FE2AC8E06 /* Pinning.swift in Sources */,
+				DEF8CECC98D68A12D7CA41C8 /* ReactorView.swift in Sources */,
+				8CCE61BB46696C967EBEB654 /* ShareModel.swift in Sources */,
+				50FF9F8AAE876B35BE1CC781 /* ShareView.swift in Sources */,
+				C33CB5255A0E287257BD0552 /* SnapshotPublisher.swift in Sources */,
+				19F8EDCED33D2533143AA004 /* SpaceBackground.swift in Sources */,
+				09B4B677C5712A36588186F1 /* Theme.swift in Sources */,
+				6AD6941FF4545FE6E84D263E /* WatchLink.swift in Sources */,
+				C56EC2022085D89AEE053C4F /* WidgetSnapshot.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6C33F9F031363C965C91ACBD /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -885,6 +1002,7 @@
 				7E6F5B5FE55A496888E7A21C /* ScanPairingSheet.swift in Sources */,
 				D023EB96A9FBC941FD3041EA /* ScreenKit.swift in Sources */,
 				28B2AFCF857820517007207E /* SettingsView.swift in Sources */,
+				77B7F0BFFC68F898661D6DA1 /* ShareModel.swift in Sources */,
 				843055C91161B40160CBE620 /* SnapshotPublisher.swift in Sources */,
 				561C5F498DCD259077F7D5C9 /* SpaceBackground.swift in Sources */,
 				2B92E56CB0CD0FDC77B49CC1 /* SpeechController.swift in Sources */,
@@ -911,6 +1029,7 @@
 				5AD99594B7214E63138CD7EC /* NotificationTests.swift in Sources */,
 				03B4E9901CB2854CCC30AF88 /* OutboxTests.swift in Sources */,
 				5A3B37D3C088803F8ADC4A36 /* PinningTests.swift in Sources */,
+				9F26A0C3779981089E23DDCB /* ShareTests.swift in Sources */,
 				BC3072F81E43CC6EDA1F88F0 /* WidgetSnapshotTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -932,6 +1051,11 @@
 			isa = PBXTargetDependency;
 			target = 4DA8399862190A730096F8AB /* JarvisCompanionWatch */;
 			targetProxy = 469354903DE302F12A9E2049 /* PBXContainerItemProxy */;
+		};
+		F47D6222737555D215865C50 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B2DB737A94E9D64FE54BA041 /* JarvisShare */;
+			targetProxy = 79CEB0F4A9ACDF2378689BB2 /* PBXContainerItemProxy */;
 		};
 		F6B03DBAB2A6ED0D2B3E6809 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1004,6 +1128,25 @@
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
+		};
+		442D0282D654401C474E7E3B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Share/JarvisShare.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Share/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
 		};
 		512D42E10783A0A1CB78A249 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -1277,6 +1420,25 @@
 			};
 			name = Release;
 		};
+		E9E65A75B4CC9A6656CAF31C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Share/JarvisShare.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Share/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		EB065CE8831AFBFE8CDE22D1 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1303,6 +1465,15 @@
 			buildConfigurations = (
 				CB06FCC8DE013CBFFEDE434E /* Debug */,
 				222F918ED9C09A1AF57A281F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4DA43F92F76ADABEDF96EEE4 /* Build configuration list for PBXNativeTarget "JarvisShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E9E65A75B4CC9A6656CAF31C /* Debug */,
+				442D0282D654401C474E7E3B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
