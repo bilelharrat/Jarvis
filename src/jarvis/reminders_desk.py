@@ -290,7 +290,15 @@ def choose(rows: list[dict[str, Any]], words: str, listed: str = "") -> list[dic
     exact = [r for r in rows if plain(r.get("title")) == want]
     if exact:
         return exact
-    return [r for r in rows if want in plain(r.get("title")) or plain(r.get("title")) in want]
+
+    def holds(text: str, part: str) -> bool:  # whole words ("rent" is never in "parent")
+        return bool(part) and bool(re.search(rf"(?<![a-z0-9]){re.escape(part)}(?![a-z0-9])", text))
+
+    return [
+        r
+        for r in rows
+        if (title := plain(r.get("title"))) and (holds(title, want) or holds(want, title))
+    ]
 
 
 def due_at(row: dict[str, Any]) -> datetime | None:

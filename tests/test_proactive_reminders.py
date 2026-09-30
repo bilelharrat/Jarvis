@@ -85,6 +85,19 @@ def test_the_reminder_a_request_means():
     assert desk.choose(rows, "") == [] and desk.choose(rows, "dentist") == []
 
 
+def test_a_request_means_whole_words_and_never_an_untitled_reminder():
+    """ "I've done the parent teacher conference" never means "Rent" (a word inside a word),
+    and a reminder with no title never matches everything: one wrong hit would be ticked
+    off with no card."""
+    rows = [row("Rent"), row(""), row("Parent teacher conference"), row("买牛奶")]
+    assert [r["title"] for r in desk.choose(rows, "the parent teacher conference")] == [
+        "Parent teacher conference"
+    ]
+    assert desk.choose(rows, "dentist") == [] and desk.choose(rows, "current events") == []
+    assert [r["title"] for r in desk.choose(rows, "pay the rent")] == ["Rent"]
+    assert [r["title"] for r in desk.choose(rows, "牛奶")] == ["买牛奶"]
+
+
 def test_when_a_reminder_is_due_in_words():
     words = lambda due: desk.due_words({"due": due}, NOW)  # noqa: E731
     assert words("2026-09-29T15:00") == "due today at 3 PM"
