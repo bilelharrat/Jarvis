@@ -47,3 +47,16 @@ test('a ringing alert names its timer; other heads-ups name none', () => {
   assert.equal(A.ringId('interrupt:mail:4'), '');
   assert.equal(A.ringId(undefined), '');
 });
+
+test('an email rule is a routine on the mail trigger', () => {
+  assert.equal(A.isEmailRule({ kind: 'event', spec: { trigger: { type: 'mail', from: 'Ann' } } }), true);
+  assert.equal(A.isEmailRule({ kind: 'event', spec: { trigger: { type: 'text', from: 'Mom' } } }), false);
+  assert.equal(A.isEmailRule({ kind: 'daily', spec: {} }), false);
+  assert.equal(A.isEmailRule({ kind: 'event' }), false);
+});
+
+test('how a routine runs, in a few of the window’s words', () => {
+  assert.deepEqual(A.howItRuns({ own: false, deliver: 'speak' }), ['In the conversation']);
+  assert.deepEqual(A.howItRuns({ own: true, model: 'opus', tools: 'normal', deliver: 'forward' }), ['On its own', 'Opus', 'can act', 'to your phone']);
+  assert.deepEqual(A.howItRuns({ own: true, model: '', tools: 'none', deliver: 'file' }), ['On its own', 'Haiku', 'no tools', 'to a file']);
+});

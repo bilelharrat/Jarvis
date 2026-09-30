@@ -1,8 +1,9 @@
 // The automation feature's window side: Settings › Routines (each schedule in the language
 // the window speaks, when it runs next, and under "How it runs" whether it runs on its own,
 // its model, tools and delivery, its standing orders and its last runs), Settings › Timers
-// & reminders (live countdowns, Stop, Snooze and Cancel), and Stop and Snooze on the card of
-// a timer or alarm ringing.
+// & reminders (live countdowns, Stop, Snooze and Cancel), Settings › Email rules ("when an
+// email from … arrives, …": routines on the mail trigger), and Stop and Snooze on the card
+// of a timer or alarm ringing.
 //
 // Everything a routine or a timer carries (its name, its prompt, its label, when it runs) is
 // the owner's or the backend's data: shown with textContent and marked data-no-i18n. The
@@ -42,6 +43,10 @@
     ringId(key) {
       const parts = String(key || '').split(':');
       return ['timer', 'alarm'].includes(parts[0]) && parts[1] ? parts[1] : '';
+    },
+    // An email rule is a routine that runs when an email arrives.
+    isEmailRule(r) {
+      return r.kind === 'event' && ((r.spec || {}).trigger || {}).type === 'mail';
     },
     // How a routine runs, in a few words (the window's words, each translated on its own).
     howItRuns(r) {
@@ -211,8 +216,9 @@
     }));
   }
 
-  // Drawn after app.js's own list on every change, in its place.
+  // Drawn after app.js's own list on every change, in its place (email rules too).
   function renderRoutines() {
+    renderEmailRules();
     const list = F.$('routine-list');
     if (!list) return;
     if (!routines.length) {
@@ -246,7 +252,9 @@
     );
     if (routinesGroup) routinesGroup.after(timersGroup);
     else settings.append(timersGroup);
+    buildEmailGroup(timersGroup);
     renderTimers();
+    renderEmailRules();
   }
 
   function timerRow(t) {
@@ -274,6 +282,68 @@
       li.append(button('Cancel', 'btn', () => send({ type: 'automation_timer', action: 'cancel', id: t.id }), `Cancel: ${t.label || KIND_NAMES[t.kind]}`));
     }
     return li;
+  }
+
+  // ── Settings › Email rules ──
+
+  let emailGroup = null;
+  const DELIVER_CHOICES = [['speak', 'Say it'], ['card', 'Card only'], ['forward', 'Send to my phone and chats'], ['file', 'Save to a file']];
+
+  function buildEmailGroup(after) {
+    emailGroup = el('section', 'group auto-group');
+    emailGroup.id = 'auto-email';
+    const list = el('ul', 'itemlist auto-email-list');
+    list.id = 'auto-email-list';
+    const form = el('form', 'folder-form auto-email-form');
+    const field = (name, placeholder, max) => {
+      const input = el('input');
+      input.name = name;
+      input.placeholder = placeholder;
+      input.maxLength = max;
+      input.setAttribute('aria-label', placeholder);
+      return input;
+    };
+    const sender = field('from', 'From: a name or an address', 120);
+    const subject = field('subject', 'Subject has (optional)', 120);
+    const then = field('then', 'Then: e.g. tell me what they need', 500);
+    const deliver = el('select');
+    deliver.setAttribute('aria-label', 'Result');
+    for (const [v, text] of DELIVER_CHOICES) { const o = el('option', '', text); o.value = v; deliver.append(o); }
+    const add = el('button', 'btn', 'Add rule');
+    add.type = 'submit';
+    form.append(sender, subject, then, deliver, add);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!sender.value.trim() && !subject.value.trim()) { sender.focus(); return; }
+      send({ type: 'automation_email_rule', from: sender.value.trim(), subject: subject.value.trim(), then: then.value.trim(), deliver: deliver.value });
+      sender.value = subject.value = then.value = '';
+    });
+    emailGroup.append(
+      el('h3', '', 'Email rules'),
+      el('p', 'small-status', 'When an email from someone, or about something, arrives, I read it with no tools at hand (what it says is never obeyed) and tell you, or do what you say with it. Say “Jarvis, when an email from Ann arrives, tell me what she needs”, or add one here. It uses the same watch on Mail as interruptions.'),
+      list,
+      form,
+    );
+    after.after(emailGroup);
+  }
+
+  function renderEmailRules() {
+    const list = F.$('auto-email-list');
+    if (!list) return;
+    const rules = routines.filter(A.isEmailRule);
+    if (!rules.length) { list.replaceChildren(el('li', 'muted', 'No email rules yet.')); return; }
+    list.replaceChildren(...rules.map((r) => {
+      const li = el('li', 'auto-rule');
+      li.dataset.id = r.id;
+      const fact = el('span', 'fact');
+      fact.append(mine(el('strong', '', A.schedule(r, lang))), mine(el('small', '', r.prompt || '')));
+      li.append(
+        fact,
+        button('Delete', 'btn', () => send({ type: 'routine_delete', id: r.id }), `Delete routine: ${r.name}`),
+        toggle('', `Routine on: ${r.name}`, r.enabled, () => send({ type: 'routine_toggle', id: r.id, enabled: !r.enabled })),
+      );
+      return li;
+    }));
   }
 
   function renderTimers() {

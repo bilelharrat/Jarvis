@@ -625,6 +625,7 @@ class Hub:
         self.approvals: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, asyncio.Future] = {}
         self._subscribers: set[WindowQueue] = set()
+        self._event_sinks: dict[str, list[Callable[[dict[str, Any]], Any]]] = {}
         # This run of the backend, in every hello: a window that reconnects to a new one
         # (whose sessions are numbered from 1 again) drops what it showed of the old one.
         self.instance_id = uuid.uuid4().hex[:12]
@@ -1044,6 +1045,14 @@ class Hub:
             except Exception:
                 log.exception("a feature's heads-up gate failed")
         return False
+
+    def add_event_sink(
+        self, kinds: tuple[str, ...] | list[str], sink: Callable[[dict[str, Any]], Any]
+    ) -> None:
+        """Hear these hub events as they're emitted, as the windows get them (the phone's
+        location, a Jarvis Code session finishing, this Mac's location)."""
+        for kind in kinds:
+            self._event_sinks.setdefault(kind, []).append(sink)
 
     def register_routine_runner(self, runner: Callable[[Any], Any]) -> None:
         """Run routines through a feature (its own session, model, tools and delivery, a run
@@ -2109,6 +2118,9 @@ class Hub:
             queue.put_nowait(event)
             if queue.cut_off:  # stopped reading: no more events pile up for it
                 self.unsubscribe(queue)
+        sinks = self._event_sinks.get(kind)
+        if sinks:
+            self._call_sinks(sinks, dict(event))
 
     def prefs_payload(self) -> dict[str, Any]:
         return {

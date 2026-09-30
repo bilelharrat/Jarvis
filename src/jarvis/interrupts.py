@@ -1497,12 +1497,26 @@ class Interrupter:
         self._digests = 0  # digests taken: a look settled after one has nothing to decide
         self._lock = asyncio.Lock()  # the state: waiting, told, marks
         self._polling = asyncio.Lock()  # one look at a time
+        self._observers: list[Callable[[list[Item]], Any]] = []
         self._load()
 
     @property
     def waiting(self) -> list[Item]:
         """What's waiting for what_did_i_miss, oldest first."""
         return list(self._waiting.values())
+
+    def add_observer(self, observer: Callable[[list[Item]], Any]) -> None:
+        """Hear every new text and email as it's read, before anything is scored or dropped
+        as a robot (the automation feature's email and text rules). Called under the lock:
+        an observer only takes note, and returns."""
+        self._observers.append(observer)
+
+    def _observe(self, items: list[Item]) -> None:
+        for observer in list(self._observers) if items else []:
+            try:
+                observer(list(items))
+            except Exception:
+                log.exception("interruptions: an observer failed")
 
     # ── settings ──
 
@@ -1958,6 +1972,7 @@ class Interrupter:
         items: list[Item] = []
         for source in READERS:
             batch = await self._read(source, now, names)
+            self._observe(batch.items)
             items += await self._sort_out(batch, source, vips, people, now)
         mode = self.current_mode(now)
         if not items:

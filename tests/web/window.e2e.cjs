@@ -2109,6 +2109,27 @@ test('A routine’s “How it runs” sets its job, takes back standing orders a
   assert(await js('$("routine-list").querySelector(".auto-chip span").textContent') === '通知你', 'the standing order stayed in English');
 });
 
+test('Email rules: added from Settings, listed by what starts them, after Timers', async () => {
+  await withAutomation();
+  await js('toggleSettings(true)');
+  const order = await js('[...$("settings").querySelectorAll("section.group")].map((g) => (g.querySelector("h3") || {}).textContent).filter((t) => ["Routines", "Timers & reminders", "Email rules"].includes(t))');
+  assert(JSON.stringify(order) === JSON.stringify(['Routines', 'Timers & reminders', 'Email rules']), JSON.stringify(order));
+  assert(await js('$("auto-email-list").textContent') === 'No email rules yet.', 'no empty line');
+  await js(`(() => { const f = $("auto-email").querySelector("form"); const put = (n, v) => { f.querySelector('[name="' + n + '"]').value = v; };
+    put('from', ' Ann '); put('then', 'tell me what she needs'); f.querySelector("select").value = 'card'; f.requestSubmit(); return true; })()`);
+  await js(`(() => { $("auto-email").querySelector("form").requestSubmit(); return true; })()`);  // nothing said: not sent
+  const s = await sentOf('automation_email_rule');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'automation_email_rule', from: 'Ann', subject: '', then: 'tell me what she needs', deliver: 'card' }]), JSON.stringify(s));
+  await js(`featureEvent({ type: 'routines', items: [
+    { id: 'e1', name: 'Email from Ann', prompt: 'Tell me what she needs', kind: 'event', enabled: true, when: 'when an email from Ann arrives', when_zh: '收到Ann的邮件时', spec: { trigger: { type: 'mail', from: 'Ann', subject: '' } } },
+    { id: 'd1', name: 'Brief', prompt: 'Brief me', kind: 'daily', enabled: true, when: 'every day at 7 AM', when_zh: '每天早上7点', spec: {} } ] })`);
+  const rules = await js('[...$("auto-email-list").children].map((li) => li.textContent)');
+  assert(rules.length === 1 && rules[0].includes('when an email from Ann arrives') && rules[0].includes('Tell me what she needs'), JSON.stringify(rules));
+  assert(await clickText('#auto-email-list li[data-id="e1"]', 'Delete'), 'no Delete');
+  assert(JSON.stringify(await sentOf('routine_delete')) === JSON.stringify([{ type: 'routine_delete', id: 'e1' }]), 'Delete sent nothing');
+  assert((await js('$("routine-list").children.length')) === 2, 'the rule should be in Routines too');
+});
+
 // ──
 
 let base;

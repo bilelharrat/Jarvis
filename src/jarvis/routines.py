@@ -23,14 +23,14 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jobs, jsonstore, schedules
+from . import jobs, jsonstore, schedules, triggers
 from .prefs import APP_SUPPORT
 from .textclean import clean_text
 
 log = logging.getLogger("jarvis")
 
 SERVER_NAME = "routines"
-KINDS = ("daily", "weekdays", "weekly", "once", *schedules.KINDS)
+KINDS = ("daily", "weekdays", "weekly", "once", *schedules.KINDS, triggers.KIND)
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 GRACE = timedelta(hours=3)  # a Mac asleep at 7:00 still runs the 7:00 routine at 8:30
 _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -69,6 +69,8 @@ class Routine:
 
     def describe(self, lang: str = "en") -> str:
         """When it runs, in words: English, or Chinese with lang "zh"."""
+        if self.kind == triggers.KIND:
+            return triggers.describe(self.spec, lang)
         if self.kind in schedules.KINDS:
             return schedules.describe(self.kind, self.spec, self.time, lang)
         if lang == "zh":
@@ -94,7 +96,9 @@ class Routine:
         return f"仅一次，{self.date} {clock}"
 
     def latest(self, now: datetime) -> datetime | None:
-        """The most recent scheduled time at or before now."""
+        """The most recent scheduled time at or before now (none for one on a trigger)."""
+        if self.kind == triggers.KIND:
+            return None
         if self.kind in schedules.KINDS:
             return schedules.latest(self.kind, self.spec, self.time, now)
         hour, minute = map(int, self.time.split(":"))
@@ -129,7 +133,7 @@ class Routine:
 
     def next_run(self, now: datetime) -> datetime | None:
         """When it runs next (None: paused, or nothing ahead)."""
-        if not self.enabled:
+        if not self.enabled or self.kind == triggers.KIND:
             return None
         if self.kind in schedules.KINDS:
             return schedules.next_after(self.kind, self.spec, self.time, now)
@@ -178,7 +182,7 @@ def validate(
     kind = str(kind).strip().lower()
     if kind not in KINDS:
         raise ValueError(f"schedule must be one of {', '.join(KINDS)}")
-    if kind in (schedules.INTERVAL, schedules.CRON):  # the spec says when; no time of day
+    if kind in (schedules.INTERVAL, schedules.CRON, triggers.KIND):  # no time of day
         return kind, "00:00", [], ""
     time = str(time).strip()
     if len(time) == 4 and time[1] == ":":
@@ -201,7 +205,10 @@ def validate(
 
 
 def clean_spec(kind: str, spec: Any) -> dict[str, Any]:
-    """The schedule's details for interval, monthly and cron ({} for the other kinds)."""
+    """The schedule's details for interval, monthly and cron, the trigger of an event
+    routine ({} for the other kinds)."""
+    if kind == triggers.KIND:
+        return triggers.clean_spec(spec)
     return schedules.clean(kind, spec) if kind in schedules.KINDS else {}
 
 
@@ -221,15 +228,44 @@ def spec_from(kind: str, args: dict[str, Any]) -> dict[str, Any]:
         }
     if kind == schedules.CRON:
         return {"cron": args.get("cron"), "tz": args.get("timezone")}
+    if kind == triggers.KIND:
+        return {
+            "trigger": args.get("trigger"),
+            "debounce": args.get("debounce_minutes"),
+            "cap": args.get("daily_cap"),
+        }
     return {}
 
 
-def job_from(args: dict[str, Any]) -> dict[str, Any]:
+def job_from(args: dict[str, Any], kind: str = "", spec: Any = None) -> dict[str, Any]:
     """create_routine's arguments as job settings: standing orders need a routine on its own
-    (a routine in the conversation asks for everything)."""
+    (a routine in the conversation asks for everything). An email or text rule with nothing
+    said about how it runs is the reader alone: on its own, with no tools."""
     may = args.get("may") or []
+    tools = args.get("tools")
     own = args.get("on_its_own") is True or bool(may)
-    return jobs.clean_job(own, args.get("model"), args.get("tools"), args.get("deliver"), may)
+    reading = kind == triggers.KIND and ((spec or {}).get("trigger") or {}).get("type") in (
+        "mail",
+        "text",
+    )
+    if reading and "on_its_own" not in args and not may and not tools:
+        own, tools = True, "none"
+    return jobs.clean_job(own, args.get("model"), tools, args.get("deliver"), may)
+
+
+def _placed(spec: dict[str, Any], store: RoutineStore) -> dict[str, Any]:
+    """A place trigger said as "here": where the Mac is now."""
+    trigger = spec.get("trigger") if isinstance(spec, dict) else None
+    if not isinstance(trigger, dict) or not trigger.get("here"):
+        return spec
+    try:
+        fix = store.here() or {}
+    except Exception:
+        fix = {}
+    if fix.get("lat") is None or fix.get("lon") is None:
+        raise ValueError("I don't know where the Mac is right now, so I can't use “here”")
+    place = trigger.get("place") or fix.get("neighborhood") or fix.get("city") or "here"
+    return {**spec, "trigger": {**trigger, "lat": fix["lat"], "lon": fix["lon"], "place": place}}
 
 
 _FIELDS = frozenset(f.name for f in fields(Routine))
@@ -312,8 +348,10 @@ class RoutineStore:
         self.broken: list[Any] = []  # rows it can't use, kept in the file as they were
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self.save_error = ""  # why the last save failed, until one works (a full disk)
-        # The language cards are asked in ("en" or "zh"): the automation feature sets it.
+        # The language cards are asked in ("en" or "zh"), and where the Mac is (for a place
+        # trigger said as "here"): the automation feature sets both.
         self.language: Callable[[], str] = lambda: "en"
+        self.here: Callable[[], dict[str, Any] | None] = lambda: None
         try:
             data = jsonstore.load_json(self.path, list)
         except jsonstore.Unreadable as exc:
@@ -493,7 +531,16 @@ def build_tools(
         "and on days; monthly at time: month_day (1-31, or -1 for the last day) or nth (1-5, "
         "or -1 for the last) with weekday (0 = Monday); cron: a five-field cron expression "
         "(minute hour day-of-month month day-of-week), optionally in timezone (an IANA name "
-        "such as America/New_York). on_its_own: run it in a session of its own that never joins "
+        "such as America/New_York); event: on a trigger instead of a clock, with trigger "
+        "{type: calendar (edge start or end, minutes before (negative) or after, title "
+        "words), mail (from, subject words: an email rule, 'when an email from X arrives, "
+        "do Y'), text (from a contact), battery (state low with below percent, charging, "
+        "unplugged), place (event arrive or leave, place such as home or work; here true "
+        "for where the Mac is now), wake (what: wake or unlock), session (a Jarvis Code "
+        "session finishing: folder, status done, failed or any)}, optionally "
+        "debounce_minutes and daily_cap. On a mail or text trigger the message is read "
+        "first by a reader with no tools: prompt is what to do with it ('tell me what "
+        "they need'). on_its_own: run it in a session of its own that never joins "
         "your conversation (for work done unattended), with model (haiku unless the user asks "
         "for sonnet or opus) and tools (none; read_only, the default; or normal, which may "
         "act, each action asking the user unless a standing order covers it). may: standing "
@@ -519,6 +566,28 @@ def build_tools(
                 "weekday": {"type": "integer"},
                 "cron": {"type": "string"},
                 "timezone": {"type": "string"},
+                "trigger": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string", "enum": list(triggers.TYPES)},
+                        "edge": {"type": "string", "enum": ["start", "end"]},
+                        "minutes": {"type": "integer"},
+                        "title": {"type": "string"},
+                        "from": {"type": "string"},
+                        "subject": {"type": "string"},
+                        "state": {"type": "string", "enum": ["low", "charging", "unplugged"]},
+                        "below": {"type": "integer"},
+                        "event": {"type": "string", "enum": ["arrive", "leave"]},
+                        "place": {"type": "string"},
+                        "here": {"type": "boolean"},
+                        "what": {"type": "string", "enum": ["wake", "unlock"]},
+                        "folder": {"type": "string"},
+                        "status": {"type": "string", "enum": ["any", "done", "failed"]},
+                    },
+                    "required": ["type"],
+                },
+                "debounce_minutes": {"type": "integer"},
+                "daily_cap": {"type": "integer"},
                 "on_its_own": {"type": "boolean"},
                 "model": {"type": "string", "enum": list(jobs.MODELS)},
                 "tools": {"type": "string", "enum": list(jobs.TOOL_LEVELS)},
@@ -536,8 +605,8 @@ def build_tools(
                 args.get("days"),
                 args.get("date", ""),
             )
-            spec = clean_spec(kind, spec_from(kind, args))
-            job = job_from(args)
+            spec = clean_spec(kind, _placed(spec_from(kind, args), store))
+            job = job_from(args, kind, spec)
         except ValueError as exc:
             return _text(str(exc), error=True)
         preview = Routine(

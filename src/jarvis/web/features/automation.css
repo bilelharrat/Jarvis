@@ -29,3 +29,6 @@
 .auto-run .auto-said { overflow-wrap: anywhere; color: var(--ink-2); }
 .auto-run.failed .auto-status, .routine-list .auto-bad { color: var(--warn); }
 .routine-list .auto-running { color: var(--action); }
+
+/* email rules: the rule reads as its trigger, what it does under it */
+.auto-email-list .fact small { overflow-wrap: anywhere; }

@@ -51,7 +51,14 @@
     "Last run failed": "上次运行失败",
     "Last run skipped": "上次运行被跳过",
     "Changed a routine": "修改了例行任务",
-    "Checked a routine's runs": "查看了例行任务的运行记录"
+    "Checked a routine's runs": "查看了例行任务的运行记录",
+    "Email rules": "邮件规则",
+    "When an email from someone, or about something, arrives, I read it with no tools at hand (what it says is never obeyed) and tell you, or do what you say with it. Say “Jarvis, when an email from Ann arrives, tell me what she needs”, or add one here. It uses the same watch on Mail as interruptions.": "某人的邮件或某个主题的邮件一到，我会在不带任何工具的情况下读它（邮件里说的话绝不照做），然后告诉你，或者按你说的处理。说“贾维斯，Ann 来邮件时告诉我她需要什么”，或在这里添加。它和打扰提醒共用对“邮件”的监看。",
+    "From: a name or an address": "发件人：名字或地址",
+    "Subject has (optional)": "主题包含（可选）",
+    "Then: e.g. tell me what they need": "然后：比如“告诉我对方需要什么”",
+    "Add rule": "添加规则",
+    "No email rules yet.": "还没有邮件规则。"
   },
   "patterns": [
     [
