@@ -272,3 +272,16 @@ def _no_real_claude_for_jarvis_itself(monkeypatch):
         raise AssertionError("a test reached utility_model.run_turn: fake it")
 
     monkeypatch.setattr(utility_model, "run_turn", refuse)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_reminders(monkeypatch):
+    """The Reminders helper (reminders_desk: EventKit in a subprocess) never starts in a
+    test, so a briefing's facts never read the owner's real reminders: whatever asks gets
+    an error back. test_proactive_reminders fakes the helper's answers itself."""
+    from jarvis import reminders_desk
+
+    async def not_here(*_args, **_kwargs):
+        return {"error": "Reminders aren't reachable in tests."}
+
+    monkeypatch.setattr(reminders_desk, "_run", not_here)

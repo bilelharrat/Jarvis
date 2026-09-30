@@ -43,7 +43,11 @@
     "Evening wrap-up time": "晚间总结时间",
     "Wrap up now": "立即总结",
     "Checked your briefing": "查看了简报设置",
-    "Changed your briefing": "修改了简报设置"
+    "Changed your briefing": "修改了简报设置",
+    "Checked your reminders": "查看了提醒事项",
+    "Added a reminder": "添加了提醒事项",
+    "Ticked off a reminder": "完成了一条提醒事项",
+    "Deleted a reminder": "删除了一条提醒事项"
   },
   "patterns": []
 }

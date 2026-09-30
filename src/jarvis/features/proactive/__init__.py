@@ -5,6 +5,8 @@ Its parts, each a module here with the details (settings, tools, commands, cost)
   everything for an hour" said out loud.
 - briefing.py: the morning briefing laid out by the owner (sections, order, news topics,
   facts the app already knows) and an evening wrap-up.
+- reminders.py: Apple Reminders by voice (list, add, tick off, delete on a card), and the
+  reminders due in the briefing and the wrap-up.
 
 Window: {"type": "proactive_state"} -> one "proactive" event with every part's state (each
 part sends its own piece again, as {"type": "proactive", <part>: {...}}, when it changes);
@@ -19,7 +21,7 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-from . import briefing, quiet
+from . import briefing, quiet, reminders
 
 _FEATURES: weakref.WeakKeyDictionary[Any, Proactive] = weakref.WeakKeyDictionary()
 
@@ -31,10 +33,12 @@ class Proactive:
         self.hub = hub
         self.quiet = quiet.Quiet(hub)
         self.briefing = briefing.Briefing(hub)
+        self.reminders = reminders.Reminders(hub, self.briefing)
 
     def install(self) -> None:
         self.quiet.install()
         self.briefing.install()
+        self.reminders.install()
         self.hub.register_command("proactive_state", self.send_state)
         self.hub.register_command("proactive_snooze", self.snooze_command)
 
