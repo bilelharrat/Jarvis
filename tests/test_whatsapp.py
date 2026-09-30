@@ -194,6 +194,44 @@ def test_the_store_is_kept_where_only_the_user_can_read_it(tmp_path):
     assert not (tmp_path / "store.json").exists()
 
 
+def test_a_damaged_store_is_read_for_what_it_still_has(tmp_path):
+    """store.json hand-edited or written by another build: whatever isn't what it should
+    be is left out, never an error at start (which stopped WhatsApp for the whole run) or at
+    every message after (a junk entry in a chat's list broke keeping new ones)."""
+    path = tmp_path / "store.json"
+    for junk in ([1, 2], "text", {"chats": [], "contacts": 5, "lids": "x", "messages": []}):
+        path.write_text(json.dumps(junk))
+        store = Store(path)
+        store.load()
+        assert (store.chats, store.contacts, store.lids, store.messages) == ({}, {}, {}, {})
+    good = {"id": "M1", "chat": "1@s.whatsapp.net", "from_me": False, "sender": None,
+            "ts": 5, "text": "hi"}  # fmt: skip
+    path.write_text(
+        json.dumps(
+            {
+                "chats": {"1@s.whatsapp.net": {"id": "1@s.whatsapp.net"}, "2@g.us": "junk"},
+                "messages": {"1@s.whatsapp.net": ["junk", {"id": 7}, good], "x": "junk"},
+            }
+        )
+    )
+    store = Store(path)
+    store.load()
+    assert list(store.chats) == ["1@s.whatsapp.net"]
+    assert store.messages == {"1@s.whatsapp.net": [good]}
+    new = store.apply_messages(
+        [
+            {
+                "id": "M2",
+                "chat": "1@s.whatsapp.net",
+                "sender": "1@s.whatsapp.net",
+                "ts": 9,
+                "text": "yo",
+            }
+        ]
+    )
+    assert [m["id"] for m in new] == ["M2"]
+
+
 def test_finding_a_chat_by_name_number_or_group():
     store = Store(None)
     store.apply_contacts([{"id": BEN, "name": "Ben Ma", "notify": "Benny"}])

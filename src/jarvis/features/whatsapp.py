@@ -108,6 +108,19 @@ def international(number: str, own: str = "") -> str:
     return ""
 
 
+def _kept_message(m: Any) -> bool:
+    """A message as the store keeps it (apply_messages' shape): anything else is left out."""
+    return (
+        isinstance(m, dict)
+        and isinstance(m.get("id"), str)
+        and isinstance(m.get("chat"), str)
+        and isinstance(m.get("ts"), int)
+        and isinstance(m.get("text"), str)
+        and isinstance(m.get("from_me"), bool)
+        and (m.get("sender") is None or isinstance(m.get("sender"), str))
+    )
+
+
 class Store:
     """Chats, contacts' names and each chat's latest messages, as the bridge reported them,
     kept on disk (only the user can read it) so reading works before the next sync."""
@@ -131,10 +144,23 @@ class Store:
         except (OSError, ValueError):
             log.warning("whatsapp: store unreadable; starting afresh")
             return
-        self.chats = {k: v for k, v in data.get("chats", {}).items() if isinstance(v, dict)}
-        self.contacts = {k: v for k, v in data.get("contacts", {}).items() if isinstance(v, dict)}
-        self.lids = {k: v for k, v in data.get("lids", {}).items() if isinstance(v, str)}
-        self.messages = {k: v for k, v in data.get("messages", {}).items() if isinstance(v, list)}
+        if not isinstance(data, dict):  # hand-edited, or another build's: what fits is read
+            data = {}
+
+        def part(key: str) -> dict[str, Any]:
+            value = data.get(key)
+            return value if isinstance(value, dict) else {}
+
+        self.chats = {
+            k: v for k, v in part("chats").items() if isinstance(v, dict) and v.get("id") == k
+        }
+        self.contacts = {k: v for k, v in part("contacts").items() if isinstance(v, dict)}
+        self.lids = {k: v for k, v in part("lids").items() if isinstance(v, str)}
+        self.messages = {}
+        for chat, kept in part("messages").items():
+            good = [m for m in kept if _kept_message(m)] if isinstance(kept, list) else []
+            if good:
+                self.messages[chat] = good
 
     def save(self) -> None:
         if self.path is None:
