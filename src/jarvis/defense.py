@@ -27,28 +27,58 @@ def _run(*args: str) -> str:
     return f"{done.stdout}\n{done.stderr}".strip()
 
 
+def _said(out: str, on: str, off: str) -> bool | None:
+    """On or off in macOS's own words; None for anything else (an error, no answer, words a
+    macOS update changed): an unknown is never taken for off, which would be a false alarm."""
+    if re.search(on, out):
+        return True
+    if re.search(off, out):
+        return False
+    return None
+
+
 def read_shields(run=_run) -> list[dict[str, Any]]:
     """[{name, on (True/False/None for unknown), detail}] for the five shields."""
 
-    def shield(name: str, out: str, on: bool | None, detail: str) -> dict[str, Any]:
-        return {"name": name, "on": None if not out else on, "detail": detail if out else "Unknown"}
+    def shield(name: str, on: bool | None, yes: str, no: str) -> dict[str, Any]:
+        return {"name": name, "on": on, "detail": "Unknown" if on is None else yes if on else no}
 
     fw = run("/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate")
-    fw_on = bool(re.search(r"enabled|State = [12]", fw))
     fv = run("fdesetup", "status")
-    fv_on = "FileVault is On" in fv or "in progress" in fv
     gk = run("spctl", "--status")
-    gk_on = "assessments enabled" in gk
     sip = run("csrutil", "status")
-    sip_on = bool(re.search(r"status:\s*enabled", sip))
     tm = run("tmutil", "destinationinfo")
-    tm_on = bool(tm) and "No destinations" not in tm
     return [
-        shield("Firewall", fw, fw_on, "Blocking unwanted connections" if fw_on else "Off"),
-        shield("FileVault", fv, fv_on, "Disk encrypted" if fv_on else "Disk not encrypted"),
-        shield("Gatekeeper", gk, gk_on, "Only trusted apps" if gk_on else "Any app can run"),
-        shield("SIP", sip, sip_on, "System files protected" if sip_on else "Protection off"),
-        shield("Backup", tm, tm_on, "Time Machine set up" if tm_on else "No Time Machine disk"),
+        shield(
+            "Firewall",
+            _said(fw, r"is enabled|State = [12]", r"is disabled|State = 0"),
+            "Blocking unwanted connections",
+            "Off",
+        ),
+        shield(
+            "FileVault",
+            _said(fv, r"FileVault is On|in progress", r"FileVault is Off"),
+            "Disk encrypted",
+            "Disk not encrypted",
+        ),
+        shield(
+            "Gatekeeper",
+            _said(gk, r"assessments enabled", r"assessments disabled"),
+            "Only trusted apps",
+            "Any app can run",
+        ),
+        shield(
+            "SIP",
+            _said(sip, r"status:\s*enabled", r"status:\s*disabled"),
+            "System files protected",
+            "Protection off",
+        ),
+        shield(
+            "Backup",
+            _said(tm, r"(?m)^\s*(?:Name|Kind|Mount Point)\s*:", r"No destinations"),
+            "Time Machine set up",
+            "No Time Machine disk",
+        ),
     ]
 
 

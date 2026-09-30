@@ -68,6 +68,45 @@ def test_a_shield_turning_off_is_noticed_once_known():
     assert defense.turned_off({}, now) == []  # nothing known before: nothing turned off
 
 
+def test_a_shield_is_off_only_when_macos_says_off():
+    """Anything but macOS's own words for on or off (an error, a daemon that didn't answer,
+    wording a macOS update changed) is unknown: never a false "FileVault just turned off"."""
+    said = {
+        "socketfilterfw": "Firewall is enabled. (State = 1)",
+        "fdesetup": "FileVault is On.",
+        "spctl": "assessments enabled",
+        "csrutil": "System Integrity Protection status: enabled.",
+        "tmutil": "Name: Backups\nKind: Local",
+    }
+
+    def run(*args):
+        return said[args[0].rsplit("/", 1)[-1]]
+
+    assert [s["on"] for s in defense.read_shields(run)] == [True] * 5
+    said.update(
+        socketfilterfw="Firewall is disabled. (State = 0)",
+        fdesetup="FileVault is Off.",
+        spctl="assessments disabled",
+        csrutil="System Integrity Protection status: disabled.",
+        tmutil="No destinations configured.",
+    )
+    assert [s["on"] for s in defense.read_shields(run)] == [False] * 5
+    said.update(
+        socketfilterfw="socketfilterfw: an error occurred",
+        fdesetup="Error: Unable to get FileVault status (-69594)",
+        spctl="spctl: XPC error: connection interrupted",
+        csrutil="csrutil: failed to read the status",
+        tmutil="tmutil: destinationinfo requires Full Disk Access privileges.",
+    )
+    shields = defense.read_shields(run)
+    assert [s["on"] for s in shields] == [None] * 5
+    assert {s["detail"] for s in shields} == {"Unknown"}
+    assert (
+        defense.turned_off({"FileVault": True, "Gatekeeper": True}, defense.shield_states(shields))
+        == []
+    )
+
+
 # ── the feature ──
 
 
