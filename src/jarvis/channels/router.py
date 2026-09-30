@@ -147,6 +147,7 @@ class Prepared:
     display: str | None
     attachments: list[dict[str, str]]
     note: str
+    untrusted: str = ""  # private data the request itself carries (the briefing's facts)
 
 
 class Channels:
@@ -722,11 +723,10 @@ class Channels:
             typing = self.spawn(self._typing(adapter, msg.chat))
         reply = ""
         try:
-            if briefing:
-                from ..hub import BRIEFING_PROMPT
-
+            if briefing:  # as the owner laid it out (hub.briefing_request)
+                request, carries = await self.hub.briefing_request()
                 note = NOTE.format(title=adapter.title)
-                prepared = Prepared(BRIEFING_PROMPT, "Morning briefing", [], note)
+                prepared = Prepared(request, "Morning briefing", [], note, carries)
             else:
                 prepared = await self._prepare(adapter, msg, text)
             if prepared is None:
@@ -738,6 +738,7 @@ class Channels:
                 started=turn.started,
                 attachments=prepared.attachments or None,
                 note=prepared.note,
+                untrusted=prepared.untrusted,
             )
         except asyncio.CancelledError:
             raise

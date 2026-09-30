@@ -3,6 +3,8 @@
 Its parts, each a module here with the details (settings, tools, commands, cost):
 - quiet.py: quiet hours that follow a Focus mode, the weekend's own hours, and "snooze
   everything for an hour" said out loud.
+- briefing.py: the morning briefing laid out by the owner (sections, order, news topics,
+  facts the app already knows) and an evening wrap-up.
 
 Window: {"type": "proactive_state"} -> one "proactive" event with every part's state (each
 part sends its own piece again, as {"type": "proactive", <part>: {...}}, when it changes);
@@ -17,7 +19,7 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-from . import quiet
+from . import briefing, quiet
 
 _FEATURES: weakref.WeakKeyDictionary[Any, Proactive] = weakref.WeakKeyDictionary()
 
@@ -28,14 +30,16 @@ class Proactive:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.quiet = quiet.Quiet(hub)
+        self.briefing = briefing.Briefing(hub)
 
     def install(self) -> None:
         self.quiet.install()
+        self.briefing.install()
         self.hub.register_command("proactive_state", self.send_state)
         self.hub.register_command("proactive_snooze", self.snooze_command)
 
     def state(self) -> dict[str, Any]:
-        return {"quiet": self.quiet.state()}
+        return {"quiet": self.quiet.state(), "briefing": self.briefing.state()}
 
     def send_state(self, _msg: dict[str, Any] | None = None) -> None:
         self.hub.emit("proactive", **self.state())

@@ -1,0 +1,7 @@
+/* The proactive feature's Settings pieces (web/features/proactive.js): the briefing's
+   sections, each with its order buttons and switch. */
+.brief-lead { margin-top: 4px; }
+.brief-sections { max-height: none; }
+.brief-sections li.off .fact strong { color: var(--muted); }
+.brief-sections .brief-move { min-width: 30px; padding: 4px 8px; }
+.brief-sections .brief-move:disabled { opacity: 0.35; cursor: default; }

@@ -287,7 +287,7 @@ async def test_a_snooze_said_is_done_at_once_without_claude(settings, quiet_spea
     # With nothing paused, "resume" is left to Claude, who can say so.
     await hub.ask("resume heads-ups")
     assert hub.client.said == ["resume heads-ups"]
-    hub.set_prefs({"language": "zh"})
+    hub.prefs.language = "zh"  # no language switch: it would voice fillers with the real say
     reply = await hub.ask("暂停提醒半小时")
     assert reply.startswith("提醒已暂停，到") and reply.endswith("为止。")
 

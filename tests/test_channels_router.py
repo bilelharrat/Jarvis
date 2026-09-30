@@ -261,7 +261,8 @@ async def test_the_briefing_runs_silently_as_the_apps_request(settings, quiet_sp
     router, chat = attach(hub)
     await router.receive(said("/brief"))
     await settle(router)
-    assert strip_note(hub.client.queries[-1]) == BRIEFING_PROMPT
+    # The briefing as the owner laid it out (jarvis.features.proactive.briefing).
+    assert strip_note(hub.client.queries[-1]).startswith(BRIEFING_PROMPT.split(".")[0])
     assert hub.history[-2]["text"] == "Morning briefing"
     assert chat.texts() == ["Two meetings tomorrow."]
 

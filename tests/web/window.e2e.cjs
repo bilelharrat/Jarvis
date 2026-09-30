@@ -4394,6 +4394,52 @@ test('Follow Focus says what’s on, or why it can’t see; a snooze shows until
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'proactive_snooze', minutes: 0 }]), JSON.stringify(s));
 });
 
+const BRIEFING = {
+  sections: [{ id: 'calendar', on: true }, { id: 'weather', on: true }, { id: 'news', on: false }],
+  topics: '', wrapup: { on: false, time: '21:00', last: '' },
+};
+
+test('Morning briefing lists its sections in order, each switched and moved from Settings', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: {} });
+  await deliver({ type: 'proactive', briefing: BRIEFING });
+  const shown = await js('[...$("brief-sections").children].map((li) => li.dataset.id + ":" + li.querySelector(".switch").getAttribute("aria-checked"))');
+  assert(JSON.stringify(shown) === '["calendar:true","weather:true","news:false"]', JSON.stringify(shown));
+  assert(await js('$("brief-sections").closest("section").contains($("sw-briefing"))'), 'not in Morning briefing');
+  assert(await js('$("brief-sections").querySelector("li .brief-move").disabled'), 'the first can move up');
+  await js('toggleSettings(true); __sent.length = 0; $("brief-sections").children[2].querySelector(".switch").click(); true');
+  let s = await sentOf('feature_prefs');
+  const on = [{ id: 'calendar', on: true }, { id: 'weather', on: true }, { id: 'news', on: true }];
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { briefing_sections: on } }]), JSON.stringify(s));
+  await js('__sent.length = 0; $("brief-sections").children[1].querySelectorAll(".brief-move")[0].click(); true');
+  s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s[0].changes.briefing_sections.map((x) => x.id)) === '["weather","calendar","news"]', JSON.stringify(s));
+  // What the settings keep wins over the backend's first word.
+  await deliver({ ...PREFS, features: { briefing_sections: [{ id: 'news', on: true }, { id: 'calendar', on: false }], briefing_topics: 'AI, robotics' } });
+  const now = await js('[...$("brief-sections").children].map((li) => li.dataset.id)');
+  assert(JSON.stringify(now) === '["news","calendar"]', JSON.stringify(now));
+  assert(await js('$("brief-topics").value') === 'AI, robotics', 'the topics');
+  await js('__sent.length = 0; $("brief-topics").value = "AI"; $("brief-topics").dispatchEvent(new Event("change")); true');
+  s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { briefing_topics: 'AI' } }]), JSON.stringify(s));
+});
+
+test('The evening wrap-up is switched on at a time, and “Wrap up now” asks for one', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: {} });
+  await deliver({ type: 'proactive', briefing: BRIEFING });
+  assert(await js('$("sw-wrapup").getAttribute("aria-checked")') === 'false', 'on by itself');
+  assert(await js('$("wrapup-time").value') === '21:00', 'the time');
+  await js('toggleSettings(true); __sent.length = 0; $("sw-wrapup").click(); $("wrapup-time").value = "21:30"; $("wrapup-time").dispatchEvent(new Event("change")); true');
+  const s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s.map((m) => m.changes)) === JSON.stringify([{ wrapup_on: true }, { wrapup_time: '21:30' }]), JSON.stringify(s));
+  await deliver({ ...PREFS, features: { wrapup_on: true, wrapup_time: '21:30' } });
+  assert(await js('$("sw-wrapup").getAttribute("aria-checked")') === 'true', 'not shown on');
+  await js('__sent.length = 0; $("wrapup-now").click(); true');
+  assert(JSON.stringify(await sentOf('briefing_wrapup_now')) === '[{"type":"briefing_wrapup_now"}]', 'no wrap-up asked for');
+  assert(await js('$("settings").hidden'), 'Settings stayed open');
+});
+
 // ──
 
 let base;

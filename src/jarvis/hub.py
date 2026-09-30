@@ -1003,7 +1003,8 @@ class Hub:
         self._task_sinks: list[Callable[[str, dict[str, Any]], Any]] = []
         self._turn_sinks: list[Callable[[dict[str, Any]], Any]] = []
         self._turn_steps: list[dict[str, str]] = []  # the tools this request ran, in order
-        self._briefing_notes: list[Callable[[], str]] = []
+        self._briefing_notes: list[tuple[Callable[[], str], str]] = []  # (note, its section)
+        self._briefing_composer: Callable[[list[tuple[str, str]]], Any] | None = None
         self._notify_gates: list[Callable[[Alert], Any]] = []
         self._quiet_checks: list[Callable[[datetime], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
@@ -1062,9 +1063,18 @@ class Hub:
         not a routine's or the briefing's), steps ([{tool, label}]: the tools it ran), reply}."""
         self._turn_sinks.append(sink)
 
-    def add_briefing_note(self, note: Callable[[], str]) -> None:
-        """A line of facts for the morning briefing's request ("" when there's nothing)."""
-        self._briefing_notes.append(note)
+    def add_briefing_note(self, note: Callable[[], str], section: str = "") -> None:
+        """A line of facts for the morning briefing's request ("" when there's nothing).
+        section: the briefing section it belongs to ("code", "health"…), so a briefing the
+        owner laid out leaves it out with its section."""
+        self._briefing_notes.append((note, section))
+
+    def register_briefing(self, composer: Callable[[list[tuple[str, str]]], Any]) -> None:
+        """Lay out the morning briefing: await composer(notes) gives its request, or
+        (request, the private data it carries, named as approval cards name it: "your
+        reminders"), notes being the features' lines as (section, line). One that fails,
+        or gives nothing, leaves the fixed request."""
+        self._briefing_composer = composer
 
     def add_quiet_check(self, check: Callable[[datetime], Any]) -> None:
         """A say on quiet hours besides the range in Settings: check(now) gives True (it's
@@ -5175,20 +5185,41 @@ class Hub:
     # ── morning briefing ──
 
     async def briefing(self) -> None:
-        await self.ask(BRIEFING_PROMPT + self._briefing_extra(), display="Morning briefing")
+        request, carries = await self.briefing_request()
+        await self.ask(request, display="Morning briefing", untrusted=carries)
 
-    def _briefing_extra(self) -> str:
-        """The feature modules' lines for the briefing (add_briefing_note)."""
-        lines: list[str] = []
-        for note in list(self._briefing_notes):
+    async def briefing_request(self) -> tuple[str, str]:
+        """What the briefing asks, and the private data that carries ("" when none; the
+        turn gate counts it as read): as a feature lays it out (register_briefing: the
+        owner's sections and order), else the fixed request with the features' lines."""
+        notes = self.briefing_notes()
+        composer = self._briefing_composer
+        if composer is not None:
+            try:
+                laid_out = await composer(notes)
+                request, carries = laid_out if isinstance(laid_out, tuple) else (laid_out, "")
+                if isinstance(request, str) and request.strip():
+                    return request, str(carries or "")
+            except Exception:  # a broken layout never costs the briefing
+                log.exception("the briefing's layout failed; the usual briefing instead")
+        return BRIEFING_PROMPT + "".join(f" {line}" for _section, line in notes), ""
+
+    def briefing_notes(self) -> list[tuple[str, str]]:
+        """The feature modules' lines for the briefing (add_briefing_note): (section, line)."""
+        lines: list[tuple[str, str]] = []
+        for note, section in list(self._briefing_notes):
             try:
                 line = str(note() or "").strip()
             except Exception:  # a broken note never costs the briefing
                 log.exception("a feature's briefing note failed")
                 continue
             if line:
-                lines.append(line)
-        return "".join(f" {line}" for line in lines)
+                lines.append((section, line))
+        return lines
+
+    def _briefing_extra(self) -> str:
+        """The feature modules' lines for the briefing, as one run of text."""
+        return "".join(f" {line}" for _section, line in self.briefing_notes())
 
     # ── the fallback model ──
 
@@ -5654,7 +5685,8 @@ class Hub:
         """The morning brief, written quietly, then read to the owner on the phone."""
         text = ""
         try:
-            text = await self.ask(BRIEFING_PROMPT, display="Wake-up call", silent=True)
+            request, carries = await self.briefing_request()
+            text = await self.ask(request, display="Wake-up call", silent=True, untrusted=carries)
         except Exception:  # the call still comes, with less in it
             log.exception("wake-up brief failed")
         try:

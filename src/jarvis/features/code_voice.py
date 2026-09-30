@@ -161,7 +161,7 @@ class CodeVoice:
         hub.voicecode.hooks.append(self.voice_hook)
         hub.register_instant(self.instant)
         hub.add_task_sink(self.on_task_event)
-        hub.add_briefing_note(self.briefing_note)
+        hub.add_briefing_note(self.briefing_note, section="code")
         hub.register_command("code_voice_seen", self.on_seen)
         hub.register_command("whats_this", self.on_whats_this)
         hub.register_command("code_voice_hand", self.on_hand)

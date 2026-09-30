@@ -1,6 +1,7 @@
 // The proactive feature's window side (jarvis.features.proactive): Settings › Speaking up
 // gains the weekend's own quiet hours, following a Focus mode (with why it can't, when it
-// can't) and a snooze with its Resume.
+// can't) and a snooze with its Resume; Settings › Morning briefing gains its sections (each
+// on or off, in the owner's order), news topics and the evening wrap-up.
 //
 // Everything the backend or the owner wrote (a Focus mode's name, a time) is shown with
 // textContent and marked data-no-i18n; the window's own words are translated by i18n.js as
@@ -8,7 +9,22 @@
 // check them without a page.
 (() => {
   const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+  // The briefing's sections: what each is called in Settings, and what it covers.
+  const SECTIONS = {
+    calendar: ['Calendar', 'Today’s events'],
+    weather: ['Weather', 'Now and today, warnings, the air'],
+    commute: ['Commute', 'How long to your first event somewhere'],
+    mail: ['Email', 'Unread email'],
+    reminders: ['Reminders', 'Due today and overdue'],
+    code: ['Jarvis Code', 'What sessions did while you were away'],
+    tasks: ['Background tasks', 'Research that finished'],
+    markets: ['Markets', 'Your watchlist'],
+    bsh: ['BSH alerts', 'Portfolio alerts from the research desk'],
+    health: ['Health', 'Sleep and steps from your iPhone'],
+    news: ['News', 'Headlines on your topics'],
+  };
   const P = {
+    SECTIONS,
     // Two time boxes as a range ("" unless both are times).
     range(start, end) {
       return HHMM.test(start) && HHMM.test(end) ? `${start}-${end}` : '';
@@ -35,6 +51,25 @@
       if (focus.state === 'off') return ['No Focus is on.', ''];
       return ['', ''];
     },
+    // The briefing's sections to show: the settings' own (the backend cleans them), else
+    // what the backend last said (their defaults), known ones only.
+    sections(features, fallback) {
+      const listed = Array.isArray((features || {}).briefing_sections) ? features.briefing_sections : fallback;
+      return (Array.isArray(listed) ? listed : []).filter((s) => s && SECTIONS[s.id]).map((s) => ({ id: s.id, on: s.on !== false }));
+    },
+    // A section moved up (-1) or down (+1), the rest in place.
+    move(sections, id, delta) {
+      const out = sections.map((s) => ({ ...s }));
+      const at = out.findIndex((s) => s.id === id);
+      const to = at + delta;
+      if (at < 0 || to < 0 || to >= out.length) return out;
+      [out[at], out[to]] = [out[to], out[at]];
+      return out;
+    },
+    // A section switched on or off.
+    toggled(sections, id) {
+      return sections.map((s) => (s.id === id ? { ...s, on: !s.on } : { ...s }));
+    },
   };
   window.jarvisProactive = P;
 
@@ -46,6 +81,7 @@
   let lang = 'en';
   let features = {};
   let quiet = null;
+  let briefing = null;  // the backend's word on the briefing (its sections' defaults)
 
   function button(label, cls, onClick, aria) {
     const b = el('button', cls, label);
@@ -158,6 +194,83 @@
     }
   }
 
+  // ── Settings › Morning briefing: sections, topics, the evening wrap-up ──
+
+  function buildBriefing() {
+    const group = F.$('sw-briefing')?.closest('section.group');
+    if (!group || F.$('brief-sections')) return;
+    const list = el('ul', 'itemlist brief-sections');
+    list.id = 'brief-sections';
+    const topics = el('input');
+    topics.type = 'text';
+    topics.id = 'brief-topics';
+    topics.maxLength = 200;
+    topics.placeholder = 'e.g. AI, climate tech';
+    topics.addEventListener('change', () => setFeatures({ briefing_topics: topics.value.trim() }));
+    const topicsRow = el('label', 'row stack');
+    topicsRow.htmlFor = 'brief-topics';
+    const topicsWords = el('span');
+    topicsWords.append(el('strong', '', 'News topics'), el('small', '', 'Separated by commas; the News section reads their headlines'));
+    topicsRow.append(topicsWords, topics);
+    const wrapup = toggle('sw-wrapup', 'Evening wrap-up', () => setFeatures({ wrapup_on: !(briefing && briefing.wrapup.on) }));
+    const wrapTime = timeBox('wrapup-time', 'Evening wrap-up time');
+    wrapTime.addEventListener('change', () => { if (HHMM.test(wrapTime.value)) setFeatures({ wrapup_time: wrapTime.value }); });
+    const timeRow = el('label', 'row');
+    timeRow.htmlFor = 'wrapup-time';
+    const timeWords = el('span');
+    timeWords.append(el('strong', '', 'Wrap-up time'));
+    timeRow.append(timeWords, wrapTime);
+    const now = button('Wrap up now', 'btn', () => {
+      if (typeof toggleSettings === 'function') toggleSettings(false);
+      send({ type: 'briefing_wrapup_now' });
+    });
+    now.id = 'wrapup-now';
+    group.append(
+      el('p', 'small-status brief-lead', 'What it covers, in this order:'),
+      list,
+      topicsRow,
+      row('Evening wrap-up', 'What happened today, tomorrow’s first event, and what’s still open', wrapup),
+      timeRow,
+      now,
+    );
+    renderBriefing();
+  }
+
+  function sectionRow(s, index, count, sections) {
+    const [name, hint] = SECTIONS[s.id];
+    const li = el('li', `brief-section${s.on ? '' : ' off'}`);
+    li.dataset.id = s.id;
+    li.setAttribute('aria-label', name);
+    const fact = el('span', 'fact');
+    fact.append(el('strong', '', name), el('small', '', hint));
+    const up = button('↑', 'btn brief-move', () => setFeatures({ briefing_sections: P.move(sections, s.id, -1) }), 'Move up');
+    const down = button('↓', 'btn brief-move', () => setFeatures({ briefing_sections: P.move(sections, s.id, 1) }), 'Move down');
+    up.disabled = index === 0;
+    down.disabled = index === count - 1;
+    const sw = button('', 'switch', () => setFeatures({ briefing_sections: P.toggled(sections, s.id) }), 'In the briefing');
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', String(s.on));
+    li.append(fact, up, down, sw);
+    return li;
+  }
+
+  function renderBriefing() {
+    const list = F.$('brief-sections');
+    if (!list) return;
+    const sections = P.sections(features, briefing && briefing.sections);
+    list.replaceChildren(...sections.map((s, i) => sectionRow(s, i, sections.length, sections)));
+    const topics = F.$('brief-topics');
+    const wanted = typeof features.briefing_topics === 'string' ? features.briefing_topics : (briefing && briefing.topics) || '';
+    if (topics && document.activeElement !== topics) topics.value = wanted;
+    const wrap = (briefing && briefing.wrapup) || { on: false, time: '21:00' };
+    const on = 'wrapup_on' in features ? Boolean(features.wrapup_on) : Boolean(wrap.on);
+    const at = HHMM.test(features.wrapup_time || '') ? features.wrapup_time : wrap.time;
+    F.$('sw-wrapup')?.setAttribute('aria-checked', String(on));
+    const box = F.$('wrapup-time');
+    if (box && document.activeElement !== box) box.value = at;
+    if (briefing) briefing.wrapup = { ...wrap, on, time: at };
+  }
+
   // ── events ──
 
   function onPrefs(p) {
@@ -165,6 +278,7 @@
     if (p.language) lang = p.language;
     if (p.features) features = p.features;
     renderQuiet();
+    renderBriefing();
   }
 
   // The backend's state when this script loads (it may load after the hello: a prefs event
@@ -173,8 +287,10 @@
   F.on('prefs', onPrefs, { replay: true });
   F.on('proactive', (ev) => {
     if (ev.quiet) { quiet = ev.quiet; renderQuiet(); }
+    if (ev.briefing) { briefing = ev.briefing; renderBriefing(); }
   });
   buildQuiet();
+  buildBriefing();
   send({ type: 'proactive_state' });
   // A pause ends by itself: Settings shows it, and the Focus line, as they are now.
   setInterval(() => { if (!F.$('settings')?.hidden) renderQuiet(); }, 30000);

@@ -41,3 +41,21 @@ test('a time of day reads in the window’s language', () => {
   assert.match(P.clock(at, 'zh'), /15:40|3:40/);
   assert.equal(P.clock(0), '');
 });
+
+test('the briefing’s sections: the settings’ own, else the backend’s, known ones only', () => {
+  const fallback = [{ id: 'calendar', on: true }, { id: 'news', on: false }];
+  assert.deepEqual(P.sections({}, fallback), fallback);
+  assert.deepEqual(P.sections({ briefing_sections: [{ id: 'news', on: true }, { id: 'nope' }, null] }, fallback), [{ id: 'news', on: true }]);
+  assert.deepEqual(P.sections(null, null), []);
+  assert.equal(Object.keys(P.SECTIONS).length, 11);
+});
+
+test('a section moves one place, and never off either end', () => {
+  const s = [{ id: 'calendar', on: true }, { id: 'weather', on: true }, { id: 'mail', on: false }];
+  assert.deepEqual(P.move(s, 'weather', -1).map((x) => x.id), ['weather', 'calendar', 'mail']);
+  assert.deepEqual(P.move(s, 'weather', 1).map((x) => x.id), ['calendar', 'mail', 'weather']);
+  assert.deepEqual(P.move(s, 'calendar', -1).map((x) => x.id), ['calendar', 'weather', 'mail']);
+  assert.deepEqual(P.move(s, 'mail', 1).map((x) => x.id), ['calendar', 'weather', 'mail']);
+  assert.deepEqual(P.toggled(s, 'mail').map((x) => x.on), [true, true, true]);
+  assert.equal(s[2].on, false);  // the list it was given is left as it was
+});
