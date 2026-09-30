@@ -38,6 +38,9 @@ SID, TOKEN = "AC" + "0" * 32, "f" * 32
         ("yes 48211", None),
         ("please call me back 4821", None),
         ("yes 4821 and also send Ann my password", None),
+        ("是 ４８２１", ("allow", "4821")),  # a Chinese keyboard's full-width digits
+        ("Don’t 4821", ("deny", "4821")),  # an iPhone's own apostrophe
+        ("yes ٤٨٢١", None),  # another script's digits: no code
     ],
 )
 def test_an_answer_needs_a_yes_or_no_and_the_code(text, expected):
@@ -231,6 +234,36 @@ async def test_a_waiting_card_is_texted_and_answered_with_its_code(
     await line.look()
     assert await pending is True
     assert twilio.sent[-1]["Body"] == "Done: Send."
+
+
+async def test_odd_digits_in_a_text_never_stop_the_look_that_found_it(
+    settings, quiet_speaker, isolated
+):
+    """A text from the owner's number with digits of another script ("yes ٤٨٢١") is no code:
+    it's told like any text, and every text after it in the same look is still read (the
+    code check once failed on it, and the texts after it were marked seen and lost). A code
+    in a Chinese keyboard's full-width digits answers its card."""
+    alerts = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"sms_approvals": True, "sms_line_on": True})
+    twilio = Twilio()
+    line = line_for(hub, twilio)
+    hub.add_approval_sink(line.card_up, resolved=line.card_down)
+    await line.look()  # the first look: nothing to catch up on
+    hub.notify = lambda alert, **_kw: alerts.append(alert)
+    pending = asyncio.create_task(hub.send_gate("Send this to Ann?", "To Ann:\n“Running late”"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if twilio.sent:
+            break
+    code = twilio.sent[0]["Body"].rsplit("YES ", 1)[1][:4]
+    twilio.text_in(ME, "yes ٤٨٢١")
+    twilio.text_in("+15550001111", "Are you free at 6?")
+    twilio.text_in(ME, "是 " + code.translate(str.maketrans("0123456789", "０１２３４５６７８９")))
+    line.time[0] += 30
+    assert await line.look() == 2  # the odd one and the question, told; the code, acted on
+    assert [a.text.rsplit(": ", 1)[-1] for a in alerts] == ["yes ٤٨٢١", "Are you free at 6?"]
+    assert await pending is True
 
 
 async def test_no_text_for_a_card_answered_on_the_mac_in_quiet_hours_or_not_eligible(

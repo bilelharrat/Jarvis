@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import secrets
 import time
+import unicodedata
 import urllib.parse
 from collections import deque
 from collections.abc import Callable
@@ -106,18 +107,21 @@ def _when(value: Any) -> str:
 # ── answers by text ──
 
 _YES = r"yes|y|yep|ok|okay|allow|approve|go|sure|是|好|可以|同意|允许|确认"
-_NO = r"no|n|nope|deny|decline|don'?t|cancel|不|否|拒绝|不要|取消"
+_NO = r"no|n|nope|deny|decline|don['’]?t|cancel|不|否|拒绝|不要|取消"
+# A code is four ASCII digits: \d would take any script's (٤٨٢١), which no code is.
 _ANSWER = re.compile(
-    rf"^\W*(?:(?P<a>{_YES}|{_NO})\W*(?P<c>\d{{4}})|(?P<c2>\d{{4}})\W*(?P<a2>{_YES}|{_NO}))\W*$",
+    rf"^\W*(?:(?P<a>{_YES}|{_NO})\W*(?P<c>[0-9]{{4}})|(?P<c2>[0-9]{{4}})\W*(?P<a2>{_YES}|{_NO}))\W*$",
     re.IGNORECASE,
 )
 
 
 def answer(text: str) -> tuple[str, str] | None:
     """("allow" or "deny", the code) for a text that answers a card: a yes or no word and
-    the four-digit code, either way round ("YES 4821", "4821 no", "是 4821"). None for
-    anything else: a message, a code alone, a yes alone."""
-    m = _ANSWER.match(" ".join(str(text or "").split()))
+    the four-digit code, either way round ("YES 4821", "4821 no", "是 4821", and in a Chinese
+    keyboard's full-width digits, "是 ４８２１"). None for anything else: a message, a code
+    alone, a yes alone."""
+    text = unicodedata.normalize("NFKC", str(text or ""))  # ４８２１ is 4821
+    m = _ANSWER.match(" ".join(text.split()))
     if m is None:
         return None
     word = (m.group("a") or m.group("a2")).lower()
@@ -172,7 +176,10 @@ class Codes:
         """The challenge this code answers; else why not ("paused", "wrong", "spent")."""
         if self.paused:
             return "paused"
-        hit = next((c for c in self.open.values() if secrets.compare_digest(c.code, code)), None)
+        given = str(code).encode(errors="replace")  # compare_digest takes no text but ASCII
+        hit = next(
+            (c for c in self.open.values() if secrets.compare_digest(c.code.encode(), given)), None
+        )
         if hit is not None:
             del self.open[hit.approval_id]
             return hit
