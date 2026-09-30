@@ -300,3 +300,21 @@ def test_every_sentence_the_window_shows_has_chinese():
     from jarvis.channels.router import LABELS
 
     assert all(label in strings for label in LABELS.values())
+
+
+def test_cutting_a_long_reply_reads_it_once_not_once_a_message():
+    """A long reply cut for Telegram or Discord (UTF-16 counted) measured everything still
+    to send before each cut: a megabyte took half a minute on the event loop, Discord's a
+    minute and a half. Each cut now measures one message's worth at most."""
+    scanned = []
+
+    def counting(text: str) -> int:
+        scanned.append(len(text))
+        return utf16_len(text)
+
+    text = ("A line with 中文 and an emoji 😀 in it.\n" * 6_000)[:200_000]
+    pieces = split_text(text, 4096, counting)
+    assert "".join(pieces).replace("\n", "") == text.replace("\n", "").strip()
+    assert all(utf16_len(p) <= 4096 for p in pieces)
+    assert max(scanned) <= 4096  # never what's left of the reply, one message's worth at most
+    assert sum(scanned) < 16 * len(text), sum(scanned)  # so about len × log, never len² / 4096

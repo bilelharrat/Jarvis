@@ -312,21 +312,26 @@ _FENCE = "```"
 
 def utf16_len(text: str) -> int:
     """Length as Telegram and Discord count it: characters past U+FFFF count twice."""
-    return len(text) + sum(1 for c in text if ord(c) > 0xFFFF)
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def _fits(text: str, limit: int, measure: Callable[[str], int]) -> int:
-    """How many characters of text fit in limit, as measure counts them."""
-    if measure(text) <= limit:
+    """How many characters of text fit in limit, as measure counts them (a character
+    counts as one at least, and a longer start of the text never measures less). Only the
+    first limit characters are ever measured: measuring all that's left of a long reply
+    for each message cost it its length again every time, half a minute for a megabyte."""
+    if len(text) <= limit and measure(text) <= limit:
         return len(text)
     if measure is len:
         return limit
-    used = 0
-    for i, c in enumerate(text):
-        used += 2 if ord(c) > 0xFFFF else 1
-        if used > limit:
-            return i
-    return len(text)
+    low, high = 0, min(len(text), limit)  # the most that fit is in between
+    while low < high:
+        mid = (low + high + 1) // 2
+        if measure(text[:mid]) <= limit:
+            low = mid
+        else:
+            high = mid - 1
+    return low
 
 
 _BREAKS = ("\n\n", "\n", "。", "！", "？", ". ", "! ", "? ", "；", "; ", "，", ", ", " ")
