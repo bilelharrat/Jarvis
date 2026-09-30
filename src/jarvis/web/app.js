@@ -3138,7 +3138,7 @@ function resumeMenu() {
   openMenu($('jc-plus'), [
     { heading: 'Resume a session' },
     ...pastSessions.slice(0, 12).map((p) => ({
-      label: p.title || 'Untitled session',
+      label: p.title || 'Untitled session', mine: !!p.title,
       note: new Date(p.last_modified).toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }),
       run: () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, prompt: '' }); },
     })),
@@ -3153,7 +3153,7 @@ function rewindMenu() {
   openMenu($('jc-plus'), [
     { heading: 'Put the files back to before…' },
     ...points.map((li) => ({
-      label: (li.querySelector('.jc-user-text') || li).textContent.slice(0, 70),
+      label: (li.querySelector('.jc-user-text') || li).textContent.slice(0, 70), mine: true,
       run: () => send({ type: 'task_rewind', id: t.id, uuid: li.dataset.uuid }),
     })),
   ]);
@@ -3734,7 +3734,8 @@ function menuItem(item) {
   if (item.disabled) { b.disabled = true; b.setAttribute('aria-disabled', 'true'); }
   if (item.icon) b.append(icon(item.icon, 16));
   const text = el('span', 'mi-text');
-  text.append(el('span', 'mi-label', item.label));
+  const label = el('span', 'mi-label', item.label);
+  text.append(item.mine ? mine(label) : label);  // mine: the owner's words or names, never translated
   if (item.note) text.append(el('small', '', item.note));
   b.append(text);
   if (isSwitch) b.append(el('span', `sw ${item.switch ? 'on' : ''}`));
@@ -4072,7 +4073,7 @@ function connectorItems(ask = true) {
   const servers = new Map(mcpServers.map((x) => [x.name, x]));
   off.forEach((name) => { if (!servers.has(name)) servers.set(name, { name, status: 'off' }); });
   const items = [...servers.values()].filter((x) => x.name).map((x) => ({
-    label: x.name, note: off.has(x.name) ? 'Off for this session' : (x.status && x.status !== 'connected' ? x.status : ''),
+    label: x.name, mine: true, note: off.has(x.name) ? 'Off for this session' : (x.status && x.status !== 'connected' ? x.status : ''),
     switch: !off.has(x.name), keepOpen: true,
     run: (on) => send({ type: 'task_mcp_toggle', id: t.id, name: x.name, enabled: on }),
   }));
@@ -4629,7 +4630,7 @@ function renderFilesPane(body, files, placeholder) {
     const shown = files.filter((f) => !q || f.toLowerCase().includes(q)).slice(0, 300);
     list.replaceChildren(...(shown.length ? shown.map((f) => {
       const li = el('li');
-      const b = el('button', '', f);
+      const b = mine(el('button', '', f));
       b.type = 'button';
       b.addEventListener('click', () => { fileView = { path: f }; send({ type: 'file_read', directory: deckProject, path: f }); drawViewer(viewer); });
       li.append(b);

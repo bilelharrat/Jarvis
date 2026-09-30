@@ -578,6 +578,22 @@ test('With no session open, a pane follows the project picked in the sidebar', a
   assert(text.includes('beta.py') && !text.includes('alpha.py'), `after picking beta the pane shows: ${text}`);
 });
 
+test('In Chinese, the owner’s files, sessions and messages in Jarvis Code’s lists and menus stay as written', async () => {
+  // A one-word dictionary is enough: "Settings" is also a file, a session and a message here.
+  await js(`(() => { const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(JSON.stringify({ strings: { Settings: '设置', 'Untitled session': '未命名会话' }, patterns: [] }))) : real(url, o)); })(); true`);
+  await open(1, `pastSessions = [{ session_id: 's1', title: 'Settings', last_modified: '2026-09-01T10:00' }]; renderPast(); ${said(1, 'u1', 'Settings')}`);
+  await frames(2);
+  await js(`window.jarvisI18n.setLang('zh')`);
+  await js(`onEvent({ type: 'task_diff', id: 1, files: [{ path: 'Settings', added: 1, removed: 0, new: true, hunks: [] }] }); openPane('artifacts'); true`);
+  const shown = await js(`({ past: $('cc-past').querySelector('span').textContent, files: [...document.querySelectorAll('#jc-pane-body .jc-files-list button')].map((b) => b.textContent) })`);
+  await js('rewindMenu(); true');
+  const rewind = await js('[...$("jc-menu").querySelectorAll(".mi-label")].map((n) => n.textContent)');
+  await js('closeMenu(); resumeMenu(); true');
+  const resume = await js('[...$("jc-menu").querySelectorAll(".mi-label")].map((n) => n.textContent)');
+  assert(shown.past === 'Settings' && shown.files.join() === 'Settings' && rewind.join() === 'Settings' && resume.join() === 'Settings',
+    JSON.stringify({ shown, rewind, resume }));
+});
+
 test('/rename with nothing after it names the session in place', async () => {
   await open(1, '$("deck-input").focus()');
   await typeText('/rename');
