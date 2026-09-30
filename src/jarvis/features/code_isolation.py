@@ -122,7 +122,8 @@ class Desk:
 
     @property
     def root(self) -> Path:
-        return self.hub.feature_path("worktrees")
+        """Where copies live, a folder only the owner can open (a copy may hold .env files)."""
+        return worktrees.root_for(self.hub.feature_path("worktrees"))
 
     def store(self) -> worktrees.CopyStore:
         if self._store is None:

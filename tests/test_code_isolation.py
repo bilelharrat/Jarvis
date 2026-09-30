@@ -82,6 +82,7 @@ async def test_an_isolated_session_runs_in_its_own_copy_on_its_own_branch(hub, p
     assert task.cwd == copy.cwd and root in task.cwd.parents
     assert task.cwd.name == "proj"  # labels, grouping and approvals still name the project
     assert copy.branch.startswith("jarvis/fix-the-login-") and copy.into == "main"
+    assert root.stat().st_mode & 0o777 == 0o700  # only the owner opens the copies (and their .env)
     assert copy.base == git(repo, "rev-parse", "HEAD").strip()
     assert task.workspace == {
         "slug": copy.slug,
