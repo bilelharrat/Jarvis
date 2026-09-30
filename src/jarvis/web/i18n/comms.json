@@ -1,0 +1,32 @@
+{
+  "strings": {
+    "Replied to an email": "回复了一封邮件",
+    "Messaged a group chat": "给群聊发了消息",
+    "Searched your email": "搜索了你的邮件",
+    "Tidied your inbox": "整理了你的收件箱",
+    "Unsubscribed from a mailing list": "退订了一个邮件列表",
+    "Archive this email?": "要归档这封邮件吗？",
+    "Flag this email?": "要给这封邮件加旗标吗？",
+    "Unflag this email?": "要取消这封邮件的旗标吗？",
+    "Mark this email as read?": "要把这封邮件标为已读吗？",
+    "Mark this email as unread?": "要把这封邮件标为未读吗？",
+    "Archive": "归档",
+    "Flag": "加旗标",
+    "Unflag": "取消旗标",
+    "Mark as read": "标为已读",
+    "Mark as unread": "标为未读",
+    "Unsubscribe": "退订",
+    "Keep it": "保留"
+  },
+  "patterns": [
+    ["^Reply to (.+?) about (.+)\\?$", "要回复$1关于“$2”的邮件吗？"],
+    ["^Message the group “(.+)”\\?$", "要给群聊“$1”发这条消息吗？"],
+    ["^Archive (\\d+) emails\\?$", "要归档这$1封邮件吗？"],
+    ["^Flag (\\d+) emails\\?$", "要给这$1封邮件加旗标吗？"],
+    ["^Unflag (\\d+) emails\\?$", "要取消这$1封邮件的旗标吗？"],
+    ["^Mark (\\d+) emails as read\\?$", "要把这$1封邮件标为已读吗？"],
+    ["^Mark (\\d+) emails as unread\\?$", "要把这$1封邮件标为未读吗？"],
+    ["^Unsubscribe from (.+)\\?$", "要退订$1的邮件吗？"],
+    ["^Your message to (.+) didn't go through \\(Messages error (\\d+)\\)\\.$", "你发给$1的消息没有发出去（信息应用错误 $2）。"]
+  ]
+}

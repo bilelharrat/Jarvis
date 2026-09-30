@@ -42,10 +42,48 @@ async def test_open_app_rejects_paths(calls):
     assert result["is_error"]
 
 
-async def test_draft_email_needs_an_address(calls):
+async def test_draft_email_to_someone_not_in_contacts_opens_nothing(calls):
+    """A name is looked up in Contacts; someone who isn't there is said, and no draft opens."""
     result = await mac_tools.draft_email.handler({"to": "Sam", "subject": "x", "body": "y"})
     assert result["is_error"]
-    assert calls == []
+    assert "no one called Sam" in result["content"][0]["text"]
+    assert [args[:3] for args, _stdin in calls] == [("osascript", "-l", "JavaScript")]
+    assert all(args[1] != "-" for args, _stdin in calls)  # only Contacts: no Mail script ran
+
+
+async def test_draft_email_by_contact_name_with_copies(calls):
+    """draft_email takes a contact's name, and copies: the draft opens in Mail with their
+    addresses, for the owner to read over and send."""
+    import json
+
+    from jarvis import mailkit
+
+    people = {
+        "Ann": [
+            {"name": "Ann Lee", "phones": [], "emails": [{"label": "work", "value": "ann@x.com"}]}
+        ],
+        "Bob": [
+            {"name": "Bob Ray", "phones": [], "emails": [{"label": "home", "value": "bob@y.com"}]}
+        ],
+    }
+
+    async def run_command(*args, stdin=None, timeout=30):
+        calls.append((args, stdin))
+        if args[:2] == ("osascript", "-l"):
+            return json.dumps(people.get(args[-1], []))
+        return ""
+
+    mac_tools.run_command = run_command  # the fixture's monkeypatch puts the real one back
+    result = await mac_tools.draft_email.handler(
+        {"to": "Ann", "subject": "Deck", "body": "Draft attached soon.", "cc": ["Bob"]}
+    )
+    assert (
+        result["content"][0]["text"]
+        == "Draft to Ann Lee is open in Mail for you to review and send."
+    )
+    args, script = calls[-1]
+    assert script == mailkit.DRAFT_SCRIPT
+    assert args[2:] == ("ann@x.com", "bob@y.com", "", "Deck", "Draft attached soon.", "")
 
 
 async def test_tool_failures_become_error_results(monkeypatch):
