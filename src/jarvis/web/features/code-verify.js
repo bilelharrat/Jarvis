@@ -122,6 +122,7 @@
     servers: [],  // every dev server, across projects
     logKey: '',  // the server whose output the logs view shows
     logs: new Map(),  // key -> [[n, text], ...]
+    from: 0,  // Clear view: the logs view shows the lines after this one
     follow: true,  // the logs view keeps to the newest line, unless scrolled up
   };
 
@@ -217,17 +218,34 @@
   function showLogs(key) {
     state.logKey = key;
     state.follow = true;
-    if (key) F.send({ type: 'cv_logs', key, since: 0 });
+    state.from = 0;
+    state.logs.delete(key);  // asked from its start (drawing the view asks)
+    clearTimeout(logTimer);
+    logTimer = 0;
     renderPreview();
+  }
+
+  // The backend sends a server's new output for a minute after it's asked (devservers.watch):
+  // while the logs view stays open it asks again before then, from the newest line it has.
+  const LOG_ASK_EVERY = 40000;
+  let logTimer = 0;
+  const lastLine = (key) => { const lines = state.logs.get(key) || []; return lines.length ? lines[lines.length - 1][0] : 0; };
+  function askLogs() {
+    F.send({ type: 'cv_logs', key: state.logKey, since: lastLine(state.logKey) });
+    clearTimeout(logTimer);
+    logTimer = setTimeout(() => { logTimer = 0; if (paneShown('cv-preview') && F.$('cv-log')) askLogs(); }, LOG_ASK_EVERY);
   }
 
   function logView() {
     const server = state.servers.find((s) => s.key === state.logKey);
     if (!server) return null;
+    // Not asked lately (just opened, or on show again after a while): asked now, so what came
+    // meanwhile shows too.
+    if (!logTimer) askLogs();
     const box = el('div', 'cv-logs');
     const head = el('div', 'cv-logs-head');
     head.append(el('strong', '', 'Output'), mine(el('span', 'jc-dim', server.name)), el('span', 'jc-spacer'),
-      button('Clear view', 'jc-mini', () => { state.logs.set(server.key, []); drawLog(); }));
+      button('Clear view', 'jc-mini', () => { state.from = lastLine(server.key); drawLog(); }));
     const pre = followed(mine(el('pre', 'jc-code cv-log')), state);
     pre.id = 'cv-log';
     box.append(head, pre);
@@ -238,7 +256,7 @@
   function drawLog() {
     const pre = F.$('cv-log');
     if (!pre) return;
-    const lines = state.logs.get(state.logKey) || [];
+    const lines = (state.logs.get(state.logKey) || []).filter(([n]) => n > state.from);
     pre.textContent = lines.map(([, text]) => text).join('\n') || t('Nothing yet.');
     if (state.follow) pre.scrollTop = pre.scrollHeight;
   }
@@ -346,7 +364,8 @@
     renderPreview();
   });
   F.on('cv_logs', (ev) => {
-    state.logs.set(ev.key, mergeLines([], ev.lines || []));
+    // Asked again from a line on: what came since joins what's there.
+    state.logs.set(ev.key, mergeLines(state.logs.get(ev.key) || [], ev.lines || []));
     if (ev.key === state.logKey) drawLog();
   });
   F.on('devserver_log', (ev) => {

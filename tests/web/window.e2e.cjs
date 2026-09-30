@@ -2881,6 +2881,50 @@ test('Settings has the switch for new sessions’ checks, kept as a feature sett
   assert(await js('$("sw-cv-new-sessions").closest("section").previousElementSibling.contains($("sw-code-narrate"))'), 'not beside Voice coding');
 });
 
+test('A dev server’s logs keep coming while they’re open: the view asks again before the backend’s minute runs out', async () => {
+  // Timers of the backend's scale (it sends a server's output for 60 s after it's asked) are
+  // held here and run by hand.
+  await js(`window.__later = []; const st = window.setTimeout, ct = window.clearTimeout;
+    window.setTimeout = (fn, ms, ...a) => (ms >= 20000 ? -__later.push({ fn, ms }) : st(fn, ms, ...a));
+    window.clearTimeout = (id) => (id < 0 ? (__later[-id - 1] = null) : ct(id)); true`);
+  const later = () => js('(() => { const due = __later.filter(Boolean); __later.length = 0; due.forEach((t) => t.fn()); return due.length; })()');
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-preview"); true');
+  const dir = '/Users/x/Projects/alpha';
+  const key = `${dir}::web`;
+  await deliver({ type: 'cv_state', project: 'alpha', path: dir, id: 1, session: null, problems: [], suggestions: [],
+    configs: [{ name: 'web', command: 'npm run dev', port: 5173, url: '', cwd: '', source: '.claude/launch.json', why: '' }], servers: [] });
+  await deliver({ type: 'devservers', items: [{ key, project: dir, name: 'web', command: 'npm run dev', status: 'ready', port: 5173, url: 'http://localhost:5173/', message: '', started_by: null, started_at: 100, lines: 3 }] });
+  assert(await clickText('#jc-pane-body .cv-server', 'Logs'), 'no Logs button');
+  await deliver({ type: 'cv_logs', key, lines: [[1, '$ npm run dev'], [2, 'VITE ready'], [3, 'GET /']] });
+  await deliver({ type: 'devserver_log', key, lines: [[4, 'GET /about']] });
+  const due = await js('__later.filter(Boolean).map((t) => t.ms)');
+  assert(due.length === 1 && due[0] < 60000, `nothing asks again before the backend stops sending: ${JSON.stringify(due)}`);
+  await js('__sent.length = 0; true');
+  await later();
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_logs', key, since: 4 }]), JSON.stringify(await js('__sent')));
+  // Its answer joins what's shown, each line once.
+  await deliver({ type: 'cv_logs', key, lines: [[4, 'GET /about'], [5, 'GET /api']] });
+  await frames(2);
+  let text = await js('$("cv-log").textContent');
+  assert(text === '$ npm run dev\nVITE ready\nGET /\nGET /about\nGET /api', JSON.stringify(text));
+  // A cleared view stays cleared: asked again from the newest line, not from the start.
+  assert(await clickText('#jc-pane-body .cv-logs', 'Clear view'), 'no Clear view');
+  await js('__sent.length = 0; true');
+  await later();
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_logs', key, since: 5 }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cv_logs', key, lines: [[6, 'GET /cart']] });
+  await frames(2);
+  text = await js('$("cv-log").textContent');
+  assert(text === 'GET /cart', JSON.stringify(text));
+  // Hidden: nothing asks any more.
+  assert(await clickText('#jc-pane-body .cv-server', 'Hide logs'), 'no Hide logs');
+  await js('__sent.length = 0; true');
+  await later();
+  assert(!(await sentOf('cv_logs')).length, JSON.stringify(await js('__sent')));
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this
