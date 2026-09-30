@@ -171,17 +171,15 @@
     text.title = r.prompt || '';
     li.append(
       text,
-      button('Run now', 'btn', () => send({ type: 'routine_run', id: r.id })),
-      button('Delete', 'btn', () => send({ type: 'routine_delete', id: r.id }), `Delete routine: ${r.name}`),
       toggle('', `Routine on: ${r.name}`, r.enabled, () => send({ type: 'routine_toggle', id: r.id, enabled: !r.enabled })),
       jobDetails(r),
     );
     return li;
   }
 
-  // "How it runs": on its own or in the conversation, its model, tools and delivery, its
-  // standing orders (each can be taken back; new ones only come by voice, on a card), and
-  // its last runs.
+  // "How it runs": Run now and Delete, on its own or in the conversation, its model, tools
+  // and delivery, its standing orders (each can be taken back; new ones only come by voice,
+  // on a card), and its last runs.
   function jobDetails(r) {
     const details = el('details', 'auto-more');
     const summary = el('summary');
@@ -194,6 +192,12 @@
     details.append(summary);
     const job = (changes) => send({ type: 'automation_job', id: r.id, ...changes });
     const body = el('div', 'auto-job');
+    const actions = el('div', 'folder-form auto-actions');
+    actions.append(
+      button('Run now', 'btn', () => send({ type: 'routine_run', id: r.id })),
+      button('Delete', 'btn danger', () => send({ type: 'routine_delete', id: r.id }), `Delete routine: ${r.name}`),
+    );
+    body.append(actions);
     body.append(
       row('On its own', 'A session of its own that never joins our conversation',
         toggle('', `On its own: ${r.name}`, r.own, () => job({ own: !r.own }))),
@@ -237,11 +241,14 @@
     list.replaceChildren(...runs.map((run) => {
       const li = el('li', `auto-run ${run.status}`);
       const head = el('small');
+      // What started it and what's said about it are the window's own sentences (their
+      // Chinese keeps any name in them as it is); what the run wrote is its own words.
       head.append(mine(el('bdi', '', A.when(run.at, lang))), el('span', 'auto-sep', ' · '),
-        mine(el('bdi', '', run.cause)), el('span', 'auto-sep', ' · '), el('span', 'auto-status', STATUS[run.status] || run.status));
+        el('span', '', run.cause), el('span', 'auto-sep', ' · '), el('span', 'auto-status', STATUS[run.status] || run.status));
       li.append(head);
-      const said = [run.output, run.note].filter(Boolean).join(' — ');
-      if (said) li.append(mine(el('span', 'auto-said', said)));
+      if (run.output) li.append(mine(el('span', 'auto-said', run.output)));
+      const notes = run.notes || (run.note ? [run.note] : []);
+      for (const note of notes) li.append(el('span', 'auto-note', note));
       return li;
     }));
   }
@@ -270,6 +277,8 @@
     const settings = F.$('settings');
     if (!settings) return;
     const routinesGroup = F.$('routine-list')?.closest('section.group');
+    const intro = routinesGroup?.querySelector('.small-status');
+    if (intro) intro.textContent = 'Things I do on my own schedule, or when something happens. Say “Jarvis, every weekday at 7, brief me”, “every 30 minutes from 9 to 6, check the build”, or “when I get home, turn on the lights”.';
     timersGroup = el('section', 'group auto-group');
     timersGroup.id = 'auto-timers';
     const list = el('ul', 'itemlist auto-timer-list');
@@ -306,7 +315,8 @@
     else if (t.kind === 'timer') {
       const left = mine(el('bdi', 'auto-left', A.left(A.until(t.due))));
       left.dataset.due = t.due;
-      about.append(left, ' ', el('span', '', 'left'), el('span', 'auto-sep', ' · '));
+      if (lang === 'zh') about.append(el('span', '', 'left'), left, el('span', 'auto-sep', ' · '));  // 剩余 4:12
+      else about.append(left, ' ', el('span', '', 'left'), el('span', 'auto-sep', ' · '));
     }
     about.append(mine(el('bdi', '', A.schedule(t, lang))));
     fact.append(about);
@@ -404,16 +414,17 @@
     const status = F.$('auto-checkin-status');
     const list = F.$('auto-checkin-list');
     if (!status || !list) return;
+    // Top-level spans only: the status line puts a dot between them (app.css).
     const parts = [];
     const last = (checkins.last || [])[0];
     if (checkins.running) parts.push(el('span', '', 'Checking in…'));
     else if (last) {
       const said = el('span');
-      said.append(el('span', '', 'Last check-in'), ' ', mine(el('bdi', '', A.when(last.at, lang))), el('span', 'auto-sep', ': '), el('span', '', A.checkinOutcome(last.outcome)));
+      said.append(el('bdi', '', 'Last check-in'), ' ', mine(el('bdi', '', A.when(last.at, lang))), lang === 'zh' ? '：' : ': ', el('bdi', '', A.checkinOutcome(last.outcome)));
       parts.push(said);
     }
     const used = el('span');
-    used.append(mine(el('bdi', '', `${checkins.today || 0}/${checkins.cap || 24}`)), ' ', el('span', '', 'today'));
+    used.append(mine(el('bdi', '', `${checkins.today || 0}/${checkins.cap || 24}`)), ' ', el('bdi', '', 'today'));
     parts.push(used);
     status.replaceChildren(...parts);
     const shown = (checkins.last || []).filter((c) => c.said).slice(0, 5);
@@ -586,7 +597,7 @@
     if (where) {
       where.replaceChildren();
       if (items.length && webhooks.url_file) {
-        where.append(el('span', '', 'The port changes when Jarvis restarts: scripts can read the current address from'), ' ', mine(el('code', '', webhooks.url_file)));
+        where.append(el('bdi', '', 'The port changes when Jarvis restarts: scripts can read the current address from'), ' ', mine(el('code', '', webhooks.url_file)));
       }
     }
   }
@@ -659,7 +670,7 @@
         const fact = el('span', 'fact');
         const head = el('small');
         head.append(mine(el('bdi', '', A.when(r.at, lang))), el('span', 'auto-sep', ' · '), mine(el('bdi', '', r.path)),
-          el('span', 'auto-sep', ' · '), mine(el('bdi', '', r.status)));
+          el('span', 'auto-sep', ' · '), el('span', '', r.status));
         fact.append(head);
         if (r.output) fact.append(mine(el('span', 'auto-said', r.output.slice(0, 300))));
         li.append(fact);
@@ -703,7 +714,13 @@
   function onPrefs(p) {
     if (!p) return;
     if (p.features) { features = p.features; syncSwitches(); syncCheckinSettings(); }
-    if (p.language && p.language !== lang) { lang = p.language; renderRoutines(); renderTimers(); }
+    if (p.language && p.language !== lang) {
+      lang = p.language;
+      renderRoutines();
+      renderTimers();
+      renderCheckins();
+      renderScripts();
+    }
   }
 
   // The backend's state when this script loads (it may load after the hello: what app.js
@@ -717,6 +734,7 @@
   });
   F.on('automation', (ev) => {
     if (ev.language) lang = ev.language;
+    if (ev.features) { features = { ...features, ...ev.features }; syncSwitches(); syncCheckinSettings(); }
     let redraw = false;
     if (ev.running) { running = ev.running; redraw = true; }
     if (ev.last_runs) { lastRuns = ev.last_runs; redraw = true; }

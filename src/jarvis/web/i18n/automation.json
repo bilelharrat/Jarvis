@@ -120,7 +120,23 @@
     "it isn't a file": "它不是文件",
     "it isn't yours": "它不属于你",
     "others can change it (chmod go-w)": "别人可以改它（chmod go-w）",
-    "it isn't executable (chmod +x)": "它不可执行（chmod +x）"
+    "it isn't executable (chmod +x)": "它不可执行（chmod +x）",
+    "Things I do on my own schedule, or when something happens. Say “Jarvis, every weekday at 7, brief me”, “every 30 minutes from 9 to 6, check the build”, or “when I get home, turn on the lights”.": "我按时间表、或在某件事发生时自动去做的事。说“贾维斯，每个工作日7点给我简报”“9点到6点之间每30分钟检查一下构建”或“我到家时把灯打开”。",
+    "Scheduled": "按时运行",
+    "Stopped before it finished.": "没完成就停了。",
+    "The reader couldn't read it (its limit for the hour or day, or it failed).": "读取器没能读它（到了每小时或每天的上限，或者出错了）。",
+    "It ended in an error.": "它出错结束了。",
+    "It gave no result.": "它没有给出结果。",
+    "It ran out of turns before it finished.": "还没完成就用完了轮次。",
+    "It reached its spending limit for one run.": "达到了单次运行的花费上限。",
+    "No reply.": "没有回复。",
+    "The Mac woke up": "Mac 唤醒了",
+    "The Mac was unlocked": "Mac 解锁了",
+    "The Mac was plugged in": "Mac 接上了电源",
+    "The Mac was unplugged": "Mac 拔掉了电源",
+    "ok": "成功",
+    "timed out": "超时",
+    "failed to start": "没能启动"
   },
   "patterns": [
     [
@@ -166,6 +182,70 @@
     [
       "^Don’t run: (.+)$",
       "不要运行：$1"
+    ],
+    [
+      "^It took longer than (\\d+) minutes\\.$",
+      "用了超过$1分钟。"
+    ],
+    [
+      "^It broke \\((\\w+)\\)\\.$",
+      "出错了（$1）。"
+    ],
+    [
+      "^Skipped, nobody answered: (.+)$",
+      "没人回应，已跳过：$1"
+    ],
+    [
+      "^Routines on their own ran (\\d+) times today, the most a day\\.$",
+      "单独运行的例行任务今天已运行$1次，到了每天的上限。"
+    ],
+    [
+      "^Saved to (.+)\\.$",
+      "已保存到$1。"
+    ],
+    [
+      "^Email from (.+)$",
+      "来自$1的邮件"
+    ],
+    [
+      "^Text from (.+)$",
+      "来自$1的短信"
+    ],
+    [
+      "^Webhook “(.+)”$",
+      "Webhook“$1”"
+    ],
+    [
+      "^Arrived at (.+)$",
+      "到达$1"
+    ],
+    [
+      "^Left (.+)$",
+      "离开$1"
+    ],
+    [
+      "^The battery is at (\\d+)%$",
+      "电量剩百分之$1"
+    ],
+    [
+      "^“(.+)” starts$",
+      "“$1”开始"
+    ],
+    [
+      "^“(.+)” ends$",
+      "“$1”结束"
+    ],
+    [
+      "^Jarvis Code finished in (.+)$",
+      "Jarvis Code 在$1完成了"
+    ],
+    [
+      "^Jarvis Code failed in (.+)$",
+      "Jarvis Code 在$1失败了"
+    ],
+    [
+      "^exit (\\d+)$",
+      "退出码 $1"
     ]
   ]
 }

@@ -10,6 +10,16 @@
 .auto-timer-list li.ringing .auto-ringing { color: var(--warn); font-weight: 600; }
 .auto-timer-list li.ringing .fact strong { color: var(--action); }
 
+/* Settings › Routines is a folder list, whose spans are one line, right to left (for paths):
+   not in a routine's row, whose words wrap and read left to right */
+.routine-list li.auto-routine span { direction: ltr; }
+.routine-list li.auto-routine > .fact { min-width: 0; }
+.routine-list li.auto-routine .fact strong { overflow-wrap: anywhere; }
+.routine-list li.auto-routine .auto-when { white-space: normal; overflow-wrap: anywhere; }
+.routine-list .auto-more span { flex: initial; overflow: visible; white-space: normal; text-overflow: clip; }
+.routine-list .auto-job .row > span { flex: 1; min-width: 0; }
+.routine-list .auto-runs > li { flex-direction: column; align-items: flex-start; gap: 2px; }
+
 /* "How it runs" under a routine: the list item wraps so it sits below the routine's row */
 .routine-list li.auto-routine { flex-wrap: wrap; row-gap: 4px; }
 .routine-list li.auto-routine > .auto-more { flex: 1 1 100%; min-width: 0; }
@@ -27,6 +37,7 @@
 .auto-run { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .auto-run small { color: var(--muted); font-size: 11.5px; }
 .auto-run .auto-said { overflow-wrap: anywhere; color: var(--ink-2); }
+.auto-run .auto-note { color: var(--muted); font-size: 12px; }
 .auto-run.failed .auto-status, .routine-list .auto-bad { color: var(--warn); }
 .routine-list .auto-running { color: var(--action); }
 

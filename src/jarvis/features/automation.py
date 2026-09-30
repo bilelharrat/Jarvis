@@ -67,6 +67,13 @@ prefs.register_feature_pref("heartbeat_on", False)
 prefs.register_feature_pref("heartbeat_minutes", 60, heartbeat_kit.clean_minutes)
 prefs.register_feature_pref("heartbeat_hours", heartbeat_kit.HOURS, heartbeat_kit.clean_hours)
 prefs.register_feature_pref("heartbeat_checklist", "", heartbeat_kit.clean_checklist)
+FEATURE_KEYS = (
+    "alarm_phone",
+    "heartbeat_on",
+    "heartbeat_minutes",
+    "heartbeat_hours",
+    "heartbeat_checklist",
+)
 
 # Did the owner's own words this turn ask for it? (hub.feature_gate; each pattern also
 # takes the Chinese.) Anything else, from a routine or an email, asks with a card.
@@ -434,6 +441,7 @@ class Automation:
             "checkins": self.heartbeat.public(),
             "webhooks": self.webhooks_state(),
             "scripts": self.scripts.public(),
+            "features": {key: self.hub.prefs.feature(key) for key in FEATURE_KEYS},
             **self.runs(),
         }
 

@@ -263,11 +263,15 @@ class Run:
     cause: str
     status: str = "ok"  # ok | failed | skipped
     output: str = ""
-    note: str = ""
+    notes: list[str] = field(default_factory=list)  # what's to say about it, sentence by sentence
     seconds: float = 0.0
     model: str = ""
     cost: float | None = None
     skipped: list[str] = field(default_factory=list)  # asked, nobody answered
+
+    @property
+    def note(self) -> str:
+        return " ".join(self.notes)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -276,6 +280,7 @@ class Run:
             "status": self.status,
             "output": self.output[:OUTPUT_KEPT],
             "note": self.note[:300],
+            "notes": [n[:300] for n in self.notes[:4]],
             "seconds": round(self.seconds, 1),
             "model": self.model,
             "cost": self.cost,
@@ -628,21 +633,21 @@ class JobRunner:
         try:
             await self._run(routine, cause, run)
         except asyncio.CancelledError:
-            run.status, run.note = "failed", "Stopped before it finished."
+            run.status = "failed"
+            run.notes.append("Stopped before it finished.")
             raise
         except TimeoutError:
-            run.status, run.note = "failed", f"It took longer than {RUN_SECONDS // 60} minutes."
+            run.status = "failed"
+            run.notes.append(f"It took longer than {RUN_SECONDS // 60} minutes.")
         except Exception as exc:  # a broken session, a tool that raised: this run only
             log.exception("automation: a routine run failed")
-            run.status, run.note = "failed", f"It broke ({type(exc).__name__})."
+            run.status = "failed"
+            run.notes.append(f"It broke ({type(exc).__name__}).")
         finally:
             self.running.pop(routine.id, None)
             run.seconds = time.monotonic() - started
             if run.skipped:
-                what = "; ".join(run.skipped[:3])
-                run.note = (
-                    run.note + " " if run.note else ""
-                ) + f"Skipped, nobody answered: {what}"
+                run.notes.append(f"Skipped, nobody answered: {'; '.join(run.skipped[:3])}")
                 if run.status == "ok":
                     run.status = "skipped"
             self._record(routine, run)
@@ -659,7 +664,7 @@ class JobRunner:
             )
             if summary is None:
                 run.status = "skipped"
-                run.note = (
+                run.notes.append(
                     "The reader couldn't read it (its limit for the hour or day, or it failed)."
                 )
                 return
@@ -671,7 +676,7 @@ class JobRunner:
         if own:
             if not self.cap.take(self.now()):
                 run.status = "skipped"
-                run.note = (
+                run.notes.append(
                     f"Routines on their own ran {OWN_RUNS_PER_DAY} times today, the most a day."
                 )
                 self._tell_cap(routine)
@@ -690,7 +695,7 @@ class JobRunner:
             text = answer.text.strip()
             if answer.failed or not text:
                 run.status = "failed"
-                run.note = (
+                run.notes.append(
                     ENDINGS.get(answer.why, "It ended in an error.")
                     if answer.failed
                     else "It gave no result."
@@ -706,7 +711,8 @@ class JobRunner:
         run.model = "conversation"
         run.output = (reply or "").strip()
         if not run.output:
-            run.status, run.note = "failed", "No reply."
+            run.status = "failed"
+            run.notes.append("No reply.")
             return
         if routine_deliver(routine) != "speak":
             await self._deliver(routine, run.output, run)
@@ -1104,7 +1110,7 @@ class JobRunner:
                 routine.name,
                 self.say("Saved “{routine}” to {path}.", routine=routine.name, path=shown),
             )
-            run.note = (run.note + " " if run.note else "") + f"Saved to {shown}."
+            run.notes.append(f"Saved to {shown}.")
         elif how == "card":
             self.card(key, routine.name, short)
         elif how == "forward":

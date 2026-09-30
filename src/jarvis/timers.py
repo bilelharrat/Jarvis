@@ -166,7 +166,8 @@ class Timer:
         """What Settings shows under its name: "Alarm · tomorrow 6:30 AM", "Every 20
         minutes until 6 PM · next 3:50 PM" (a timer's time left is counted by the window)."""
         zh = lang.is_zh(language)
-        at = clock(self.due_at, language)
+        due = self.due_at if self.kind == "alarm" else self.due_at.replace(second=0)
+        at = clock(due, language)
         days = (self.due_at.date() - now.date()).days
         if days == 1:
             at = f"明天{at}" if zh else f"tomorrow {at}"
@@ -190,6 +191,7 @@ class Timer:
         if not self.every:
             return f"提醒 · {at}" if zh else f"Reminder · {at}"
         until = _when(self.until)
+        until = until.replace(second=0) if until else None
         if zh:
             end = f"，到{clock(until, language)}为止" if until else ""
             return f"每{span(self.every, language)}{end} · 下一次{at}"
