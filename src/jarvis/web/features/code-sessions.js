@@ -162,7 +162,8 @@
     if (previous != null && previous !== id) {
       S.drafts.set(previous, input.value);
       keepDraft(previous);
-      if (attachments.length) S.held.set(previous, attachments); else S.held.delete(previous);
+      // (its files, and any still being read into its list: they go there once read)
+      if (attachments.length || reading.size) S.held.set(previous, attachments); else S.held.delete(previous);
     }
     if (previous !== id) {
       const draft = S.drafts.get(id) || '';

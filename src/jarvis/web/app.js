@@ -3434,6 +3434,8 @@ function addFile(file) {
   if (why === 'total') { jcNote(`${file.name} would make this message too big to send. Send it in a message of its own.`); return; }
   const slot = { kind, size: file.size };
   reading.add(slot);
+  // It goes with the composer it was dropped on, whichever session shows once it's read.
+  const into = attachments;
   const reader = new FileReader();
   reader.onerror = () => { reading.delete(slot); jcNote(`${file.name} couldn’t be read.`); };
   reader.onload = () => {
@@ -3441,11 +3443,11 @@ function addFile(file) {
     const result = String(reader.result);
     if (kind === 'text') {
       if (result.includes('\u0000')) { jcNote(`${file.name} isn’t a text file.`); return; }
-      attachments.push({ kind, type: 'text/plain', data: result, name: file.name, size: file.size });
+      into.push({ kind, type: 'text/plain', data: result, name: file.name, size: file.size });
     } else {
-      attachments.push({ kind, type: kind === 'pdf' ? 'application/pdf' : file.type, data: result.split(',', 2)[1], url: kind === 'image' ? result : '', name: file.name, size: file.size });
+      into.push({ kind, type: kind === 'pdf' ? 'application/pdf' : file.type, data: result.split(',', 2)[1], url: kind === 'image' ? result : '', name: file.name, size: file.size });
     }
-    renderAttachments();
+    if (into === attachments) renderAttachments();
   };
   if (kind === 'text') reader.readAsText(file); else reader.readAsDataURL(file);
 }

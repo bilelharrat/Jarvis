@@ -1401,6 +1401,16 @@ test('With the agent board over the transcript, a number key never answers the a
   assert((await sent()).includes('approve a1 allow'), `sent ${await sent()}`);
 });
 
+test('A file still being read when another session is opened goes with the session it was dropped in', async () => {
+  await sessions([1, 2]);
+  await js(`addFile(new File(['hello'], 'notes.txt', { type: 'text/plain' })); selectTask(2); true`);
+  await sleep(150);  // (read by now)
+  const there = await js('attachments.map((a) => a.name)');
+  await js('selectTask(1); true');
+  const back = await js('attachments.map((a) => a.name)');
+  assert(there.length === 0 && back.join() === 'notes.txt', JSON.stringify({ there, back }));
+});
+
 test('Each session keeps its own draft and attachments; a sent one is forgotten', async () => {
   await sessions([1, 2]);
   await js('$("deck-input").focus()');
