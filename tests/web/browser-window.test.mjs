@@ -10,6 +10,13 @@ const require = createRequire(import.meta.url);
 const WEB = fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
 const win = require(`${WEB}features/browser.js`);
 
+test('a certificate’s problem, in words, whatever the key', () => {
+  assert.equal(win.certText('authority'), 'Its certificate isn’t from an authority this Mac trusts.');
+  assert.equal(win.certText('date'), 'Its certificate has expired, or isn’t valid yet.');
+  assert.equal(win.certText('nonsense'), 'Its certificate has a problem.');
+  assert.deepEqual(Object.keys(win.CERT_PROBLEMS), ['authority', 'date', 'name', 'revoked', 'weak', 'other']);
+});
+
 test('what a site asks for, as the prompt says it', () => {
   assert.equal(win.askText(['microphone', 'camera']), 'wants to use your camera and microphone');
   assert.equal(win.askText(['location']), 'wants to know your location');
@@ -28,7 +35,8 @@ function sentences(source) {
     if (!/[A-Za-z]/.test(text) || text.startsWith('<') || /^[a-z0-9:_.#\- ]+$/.test(text) && !/^wants to /.test(text)) continue;
     if (/^(feature:browser:|data-|aria-|http|M\d|[a-z]+\/)/.test(text) || /[{}()=>;]/.test(text) && !/\{(host|what|a|b)\}/.test(text)) continue;
     if (/^[a-z]+(-[a-z]+)+$/.test(text) || /^[a-z]+[A-Z][A-Za-z]*$/.test(text)) continue; // a class, an attribute (viewBox)
-    if (/^(svg|button|select|option|label|section|div|span|strong|small|li|ul|p|b|h3)$/.test(text)) continue;
+    if (/^(svg|button|select|option|label|section|div|span|strong|small|li|ul|p|b|h2|h3|q|form|input)$/.test(text)) continue;
+    if (/^(Escape|Enter|Tab|Backspace|Arrow(Up|Down|Left|Right))$/.test(text)) continue; // a key's name
     found.add(text);
   }
   return found;

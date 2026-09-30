@@ -4979,6 +4979,58 @@ test('Settings › Browser: the search engine, and each site’s permissions to 
   assert(/^No site has asked yet/.test(await js('$("bp-sites").textContent')), 'forgetting the last site left its row');
 });
 
+test('A site’s sign-in shows its fields in the strip: Sign in sends what’s typed, once, and clears it; Esc cancels', async () => {
+  await loadBrowser();
+  await js(`$("browser").hidden = false; __b.on['feature:browser:ask']({ id: 'a1', type: 'auth', tab: 4, host: 'router.example', realm: 'Admin area', proxy: false, insecure: true }); true`);
+  await frames();
+  const shown = await js(`({ hidden: $("bd-ask").hidden, auth: $("bd-ask").classList.contains("bd-auth"), text: $("bd-ask").querySelector(".bd-ask-text").textContent,
+    notes: [...$("bd-ask").querySelectorAll(".bd-auth-note")].map((n) => n.textContent), realmMine: $("bd-ask").querySelector("q").hasAttribute("data-no-i18n"),
+    pass: $("bd-auth-pass").type, focused: document.activeElement === $("bd-auth-user"), buttons: [...$("bd-ask").querySelectorAll("button")].map((b) => b.textContent) })`);
+  assert(!shown.hidden && shown.auth && shown.text === 'router.exampleasks you to sign in' && shown.realmMine && shown.pass === 'password', JSON.stringify(shown));
+  assert(JSON.stringify(shown.notes) === '["The site says:Admin area","This connection isn’t private: the password is sent as it is."]', JSON.stringify(shown.notes));
+  assert(JSON.stringify(shown.buttons) === '["Cancel","Sign in"]' && shown.focused, JSON.stringify(shown));
+  // The same ask again (Settings opening reads it afresh): what's typed stays.
+  await js(`$("bd-auth-user").value = "admin"; $("bd-auth-pass").value = "hunter2"; __b.on['feature:browser:ask']({ id: 'a1', type: 'auth', tab: 4, host: 'router.example', realm: 'Admin area', proxy: false, insecure: true }); true`);
+  assert(await js('$("bd-auth-user").value === "admin" && $("bd-auth-pass").value === "hunter2"'), 'the same ask wiped the fields');
+  assert(await clickText('#bd-ask', 'Sign in'), 'no Sign in');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:auth')) === '[{"id":"a1","username":"admin","password":"hunter2"}]', JSON.stringify(await invokedOn('feature:browser:auth')));
+  assert(await js('$("bd-ask").hidden && !document.querySelector("#bd-auth-pass")'), 'the fields stayed');
+  // A proxy's, over a private connection: Esc cancels.
+  await js(`__b.on['feature:browser:ask']({ id: 'a2', type: 'auth', tab: 4, host: 'proxy.corp:3128', realm: '', proxy: true, insecure: false }); true`);
+  await frames();
+  assert(await js('$("bd-ask").querySelector(".bd-ask-text").textContent === "proxy.corp:3128is a proxy asking you to sign in" && !$("bd-ask").querySelector(".bd-auth-note")'), 'the proxy strip');
+  await js(`$("bd-auth-pass").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true`);
+  await settle();
+  assert(JSON.stringify((await invokedOn('feature:browser:auth')).at(-1)) === '{"id":"a2","cancel":true}', 'Esc did not cancel');
+  // Back to a permission prompt: the strip is a plain one again.
+  await js(`__b.on['feature:browser:ask']({ id: 'p9', type: 'permission', tab: 4, host: 'meet.google.com', origin: 'https://meet.google.com', kinds: ['camera'] }); true`);
+  assert(await js('!$("bd-ask").classList.contains("bd-auth") && !!$("bd-ask").querySelector(".bd-ask-acts")'), 'the permission strip kept the sign-in look');
+});
+
+test('A certificate warning takes the page’s place; Back to safety and Continue anyway answer it; the site button warns after', async () => {
+  await loadBrowser();
+  assert(await js('$("bd-cert").hidden && $("bd-cert").parentElement === $("browser-slot")'), 'the warning is missing or misplaced');
+  await js(`__b.on['feature:browser:ask']({ id: 'c1', type: 'cert', tab: 4, host: 'bank.example', url: 'https://bank.example/', problem: 'date' }); true`);
+  const shown = await js(`({ hidden: $("bd-cert").hidden, strip: $("bd-ask").hidden, head: $("bd-cert").querySelector("h2").textContent,
+    host: $("bd-cert").querySelector(".bd-cert-host").textContent, mine: $("bd-cert").querySelector(".bd-cert-host").hasAttribute("data-no-i18n"),
+    says: [...$("bd-cert").querySelectorAll("p")].map((p) => p.textContent), buttons: [...$("bd-cert").querySelectorAll("button")].map((b) => b.textContent) })`);
+  assert(!shown.hidden && shown.strip && shown.head === 'Your connection to this site isn’t private' && shown.host === 'bank.example' && shown.mine, JSON.stringify(shown));
+  assert(shown.says[1] === 'Its certificate has expired, or isn’t valid yet.' && /pretending to be this site/.test(shown.says[2]), JSON.stringify(shown.says));
+  assert(JSON.stringify(shown.buttons) === '["Back to safety","Continue anyway (unsafe)"]', JSON.stringify(shown.buttons));
+  assert(await clickText('#bd-cert', 'Back to safety'), 'no Back to safety');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:cert')) === '[{"id":"c1","choice":"back"}]', JSON.stringify(await invokedOn('feature:browser:cert')));
+  await js(`__b.on['feature:browser:ask']({ id: 'c2', type: 'cert', tab: 4, host: 'bank.example', url: 'https://bank.example/', problem: 'authority' }); true`);
+  assert(await clickText('#bd-cert', 'Continue anyway (unsafe)'), 'no Continue anyway');
+  await settle();
+  assert(JSON.stringify((await invokedOn('feature:browser:cert')).at(-1)) === '{"id":"c2","choice":"proceed"}', 'Continue anyway was not sent');
+  await js(`__b.on['feature:browser:ask'](null); __b.on['feature:browser:site-state']({ unsafe: true }); true`);
+  assert(await js('$("bd-cert").hidden && $("br-site").classList.contains("unsafe") && $("br-site").title === "Not secure: you continued past a certificate warning here"'), 'the site button does not warn');
+  await js(`__b.on['feature:browser:site-state']({ unsafe: false }); true`);
+  assert(await js('!$("br-site").classList.contains("unsafe") && $("br-site").title === "Site settings"'), 'the warning stayed');
+});
+
 test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {
   await js(`window.jarvisApp = undefined; ${fs.readFileSync(path.join(WEB, 'features', 'browser.js'), 'utf8')}\n;true`);
   assert(await js('!$("browser-group") && !$("bd-ask") && !$("br-site")'), 'the browser feature loaded without a browser');

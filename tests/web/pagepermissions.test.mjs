@@ -24,6 +24,9 @@ test('every browser session asks the per-site policy, and no handler grants outr
   assert.match(parity, /ses\.setPermissionCheckHandler\(/);
   assert.match(parity, /ses\.setDevicePermissionHandler\(\(\) => false\)/);
   assert.match(read('site-permissions.js'), /if \(pagePermission\(permission\)\) return Promise\.resolve\(true\);/);
-  for (const f of ['main.js', 'browser-parity.js', 'site-permissions.js']) assert.doesNotMatch(read(f), /callback\(true\)/, f);
+  for (const f of ['main.js', 'site-permissions.js']) assert.doesNotMatch(read(f), /callback\(true\)/, f);
+  // browser-parity.js's one: a site's certificate the user chose to continue to (certError).
+  assert.equal(parity.match(/callback\(true\)/g).length, 1);
+  assert.match(parity, /if \(host && print && this\.certOk\.has\(`\$\{host\}\|\$\{print\}`\)\) \{\n\s+event\.preventDefault\(\);\n\s+callback\(true\);/);
   assert.match(read('main.js'), /parity\.wireTab\(view\)/);
 });

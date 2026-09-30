@@ -11,7 +11,8 @@ const path = require('path');
 const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { createAgent } = require('./browser-agent');
 const { backendCommand } = require('./backend-launch'); // the bundled backend, else uv and the repo
-const { createParity } = require('./browser-parity'); // per-site permissions, Settings › Browser
+const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
+const { isCertError } = require('./browser-lib');
 
 app.setName('J.A.R.V.I.S.');
 
@@ -699,7 +700,10 @@ function createTab() {
   });
   const wc = view.webContents;
   const active = () => view === browserView;
-  wc.setWindowOpenHandler(({ url }) => {
+  wc.setWindowOpenHandler((details) => {
+    const popup = parity.windowOpen(wc, details); // a sign-in or payment popup: a real window (browser-parity.js)
+    if (popup) return popup;
+    const { url } = details;
     // a link that wants a new window: a new tab (behind, when it came from a tab behind)
     if (/^https?:\/\//.test(url)) { if (view === browserView) newTab(url); else browserAgent.popup(view, url); }
     return { action: 'deny' };
@@ -729,7 +733,7 @@ function createTab() {
   wc.on('did-finish-load', () => wc.setZoomFactor(browserZoom));
   for (const event of ['page-title-updated', 'did-start-loading', 'did-stop-loading']) wc.on(event, () => sendBrowserState());
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-    if (isMainFrame && code !== -3 && active()) {
+    if (isMainFrame && code !== -3 && active() && !isCertError(code)) { // a certificate's: browser-parity.js warns
       const where = onResearch(url) || (researchBase && url.startsWith(researchBase)) ? `The Research Center at ${researchOrigin()}` : url || 'The page';
       sendBrowserState({ error: `${where} isn't answering (${description}).` });
     }
@@ -891,13 +895,17 @@ const browserAgent = createAgent({
 });
 
 // Chrome's everyday behaviour beside the tabs (browser-parity.js): per-site permissions and
-// their prompt, the user agent, Settings › Browser.
+// their prompt, sign-in and payment popups, the leave-page question, HTTP sign-in, certificate
+// warnings, the user agent, Settings › Browser.
 const parity = createParity({
   window: () => (win && !win.isDestroyed() ? win : null),
   tabs: () => tabs,
   active: () => browserView,
   send: (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); },
   fromWindow,
+  dev: Boolean(DEV_URL),
+  // A popup's link for a new window: a tab in the dock.
+  openTab: (url) => { newTab(url); sendBrowserState(); if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
 });
 
 async function runBrowserCommand({ action, args = {} }) {
