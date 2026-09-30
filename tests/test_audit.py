@@ -20,6 +20,13 @@ from jarvis.tasks import TaskManager, is_read_only
         "find . -name '*.py'",
         "cat README.md",
         "git stash list",
+        # Common options on the programs that can also write or run something stay read-only.
+        "sort -rn data.txt",
+        "sort -k2 -t, people.csv",
+        "rg -n --type py TODO",
+        "tree -L 2 src",
+        "cut -d: -f1 people.txt",
+        "head -c 200 notes.md",
     ],
 )
 def test_commands_that_only_look(command):
@@ -56,6 +63,23 @@ def test_commands_that_only_look(command):
         "uniq a b",
         "less file",
         "",
+        # A write option whose value is attached, so the old flag-by-flag check missed it.
+        "sort -oout.txt in.txt",
+        "tree -oout.html",
+        # An option that runs another program, not on the program's safe list.
+        "sort --compress-program=gzip in.txt",
+        "sort --files0-from=list.txt in.txt",
+        "ag --pager sh TODO",
+        "rg --pre=./run.sh foo",
+        "rg --pre-glob=*.gz foo",
+        "file -C -m evil.magic",
+        "file -Cm evil.magic",
+        # Shell expansion the classifier judged before the shell ran it.
+        "cat $HOME/.netrc",
+        "echo ${SECRET}",
+        "rg {--pre=sh,} foo",
+        "grep {a,b} file",
+        "cat file{1..9}",
     ],
 )
 def test_anything_that_writes_runs_or_chains_asks(command):

@@ -237,17 +237,88 @@ def command_key(command: str, cwd: Path | None = None) -> str | None:
 
 # Shell commands that only look: nothing written, sent, deleted or run beyond themselves.
 # With "Read-only commands without asking" on (the default), these run without a prompt.
-_LOOK_ONLY = {
-    "ls", "pwd", "cat", "head", "tail", "wc", "which", "whoami", "date", "echo", "tree", "du",
-    "df", "file", "stat", "grep", "egrep", "fgrep", "rg", "ag", "diff", "cmp", "basename",
-    "dirname", "realpath", "readlink", "ps", "uname", "sw_vers", "jq", "sort", "cut", "tr",
-    "nl", "column", "hostname", "id", "uptime", "type", "true",
+# A command is read-only only when every part passes an allow list: no shell metacharacter
+# that could redirect, chain, expand or substitute (_NOT_READ_ONLY); a program on one of
+# these lists; and, for a program that can write a file or start another, only the options
+# known to do neither. Anything unrecognized — a program, an option — asks, so a new way to
+# write or run something can't slip through by being unlisted.
+#
+# Programs with no option that writes a file or runs another program: every option only
+# shapes what they read and print, so all are safe. A few have one option that does (rg and
+# ag launch a preprocessor or pager; file -C compiles a magic database to disk); those are
+# banned, by long name or, for a short flag, by its letter anywhere in a cluster.
+_READ_SAFE: dict[str, frozenset[str]] = {
+    p: frozenset()
+    for p in (
+        "ls", "pwd", "cat", "head", "tail", "wc", "which", "whoami", "date", "echo", "du",
+        "df", "stat", "grep", "egrep", "fgrep", "diff", "cmp", "basename", "dirname",
+        "realpath", "readlink", "ps", "uname", "sw_vers", "jq", "cut", "tr", "nl", "column",
+        "id", "uptime", "type", "true",
+    )
 }  # fmt: skip
-# Flags that make a "look" command write a file or run another program.
-_WRITES = {
-    "sort": ("-o", "--output"), "tree": ("-o",), "rg": ("--pre", "--pre-glob"),
-    "grep": ("--pre",), "jq": ("--rawfile-out",),
+_READ_SAFE["rg"] = frozenset({"--pre", "--pre-glob", "--hostname-bin"})  # each runs a program
+_READ_SAFE["ag"] = frozenset({"--pager"})  # runs a pager
+_READ_SAFE["file"] = frozenset({"-C", "--compile"})  # writes a compiled magic database
+
+
+def _has_banned(args: list[str], banned: frozenset[str]) -> bool:
+    """Whether a command uses one of its banned options (the ones that write or run
+    something), by long name (--pre, --pre=x) or by a short flag's letter in any cluster
+    (-C, -Cm), up to a "--" after which everything is an operand."""
+    short = {b[1] for b in banned if len(b) == 2 and b[0] == "-"}
+    long = {b for b in banned if b.startswith("--")}
+    for arg in args:
+        if arg == "--":
+            break
+        if arg.startswith("--"):
+            if arg.split("=", 1)[0] in long:
+                return True
+        elif arg.startswith("-") and arg != "-" and short & set(arg[1:]):
+            return True
+    return False
+
+
+# Programs that do have an option to write a file (sort -o, tree -o) or run another (sort
+# --compress-program): only their listed safe options pass, everything else asks. Each is
+# (safe value-less short letters; short options that take a value; safe long options; long
+# options that take a value).
+_READ_OPTS: dict[str, tuple[str, str, frozenset[str], frozenset[str]]] = {
+    "sort": (
+        "bcCdfghiMnrsuz", "ktS",
+        frozenset({"--check", "--dictionary-order", "--ignore-case", "--general-numeric-sort",
+                   "--ignore-leading-blanks", "--human-numeric-sort", "--ignore-nonprinting",
+                   "--month-sort", "--numeric-sort", "--reverse", "--stable", "--unique",
+                   "--version-sort", "--zero-terminated", "--debug"}),
+        frozenset({"--key", "--field-separator", "--buffer-size", "--parallel", "--sort"}),
+    ),
+    "tree": (
+        "adfiglnrstupxCDFJQRSUXvhc", "LPIH",
+        frozenset({"--noreport", "--dirsfirst", "--inodes", "--device", "--prune", "--si",
+                   "--du"}),
+        frozenset({"--filelimit", "--timefmt", "--sort"}),
+    ),
 }  # fmt: skip
+
+
+def _read_opts_ok(args: list[str], spec: tuple[str, str, frozenset[str], frozenset[str]]) -> bool:
+    """Whether every option of a sort/tree-style command is one that only reads (its safe
+    list); operands (a "--" and anything after, and words that aren't options) are data."""
+    safe_short, valued_short, safe_long, valued_long = spec
+    for arg in args:
+        if arg == "--":
+            break  # the rest are operands
+        if arg.startswith("--"):
+            if arg.split("=", 1)[0] not in safe_long and arg.split("=", 1)[0] not in valued_long:
+                return False
+        elif arg.startswith("-") and arg != "-":
+            for letter in arg[1:]:
+                if letter in valued_short:
+                    break  # the rest of the cluster (or the next word) is this option's value
+                if letter not in safe_short:
+                    return False
+    return True
+
+
 _GIT_LOOK = {
     "status", "log", "diff", "show", "rev-parse", "ls-files", "ls-tree", "blame",
     "describe", "shortlog", "cat-file", "grep", "whatchanged", "name-rev",
@@ -280,7 +351,12 @@ _VERSION_ONLY = {
     "bun",
     "deno",
 }
-_NOT_READ_ONLY = re.compile(r"[`<>;&\n]|\$\(|\|\|")
+# A metacharacter that could redirect, chain, background, substitute or expand: any of it
+# means the command is judged not read-only (the shell would do more than the words show).
+# Covered: redirects and here-docs (< > including >>, <<, <( ), chains (; &, && ||), pipes
+# into the next segment (handled by splitting on |), command and process substitution and
+# any variable ($, backticks), and brace expansion ({a,b} or {1..9}).
+_NOT_READ_ONLY = re.compile(r"[`<>;&$\n]|\|\||\{[^{}]*(?:,|\.\.)")
 
 
 def is_read_only(command: str) -> bool:
@@ -334,20 +410,24 @@ def is_read_only(command: str) -> bool:
                 return False
         elif name == "find":
             if any(a in _FIND_ACTS for a in args):
-                return False
+                return False  # -exec/-delete/-fprint and the rest: find's side-effecting actions
         elif name in _VERSION_ONLY:
             if not (len(args) == 1 and args[0] in ("--version", "-v", "-V", "version")) and not (
                 name == "npm" and args[:1] == ["ls"]
             ):
                 return False
-        elif name not in _LOOK_ONLY:
+        elif name == "hostname":
+            if args:
+                return False  # hostname NAME sets it
+        elif name in _READ_SAFE:
+            banned = _READ_SAFE[name]
+            if banned and _has_banned(args, banned):
+                return False  # an option that runs a preprocessor/pager, or writes (file -C)
+        elif name in _READ_OPTS:
+            if not _read_opts_ok(args, _READ_OPTS[name]):
+                return False
+        else:
             return False
-        elif any(
-            a == flag or a.startswith(flag + "=") for flag in _WRITES.get(name, ()) for a in args
-        ):
-            return False
-        elif name == "hostname" and args:
-            return False  # hostname NAME sets it
     return True
 
 
