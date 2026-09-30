@@ -13,6 +13,9 @@ Its parts, each a module here with the details (settings, tools, commands, cost)
   the leave-time heads-ups and the briefing's first trip follow.
 - calendar_look.py: the calendar the parts share, read by one loop.
 - habits.py: "Make it a routine" on a habit card.
+- meetings.py: an offer to take notes as a meeting starts; after the notes, a follow-up
+  email drafted from the action items and the action items in Reminders.
+- calls.py: notes for online calls, with the call's own sound (You and Them).
 
 Window: {"type": "proactive_state"} -> one "proactive" event with every part's state (each
 part sends its own piece again, as {"type": "proactive", <part>: {...}}, when it changes);
@@ -30,8 +33,10 @@ from typing import Any
 from . import (
     briefing,
     calendar_look,
+    calls,
     commute,
     habits,
+    meetings,
     quiet,
     reminders,
     weather_watch,
@@ -52,6 +57,9 @@ class Proactive:
         self.look = calendar_look.CalendarLook(hub)
         self.commute = commute.Commute(hub, self.briefing, self.look)
         self.habits = habits.Habits(hub)
+        self.meetings = meetings.Meetings(hub, self.look)
+        self.calls = calls.Calls(hub, self.look)
+        self.meetings.calls = self.calls
 
     def install(self) -> None:
         self.quiet.install()
@@ -61,6 +69,8 @@ class Proactive:
         self.look.install()
         self.commute.install()
         self.habits.install()
+        self.meetings.install()
+        self.calls.install()
         self.hub.register_command("proactive_state", self.send_state)
         self.hub.register_command("proactive_snooze", self.snooze_command)
 

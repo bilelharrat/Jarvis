@@ -4502,6 +4502,43 @@ test('A habit card offers “Make it a routine”, and goes once the routine is 
   assert(await js('!document.querySelector(`#cards [data-suggestion="habit:abc:2026-09-30"]`)'), 'the card stayed');
 });
 
+test('Meetings in Settings: the offer, call notes, and action items to Reminders on a list', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: {} });
+  assert(await js('$("meetings-group").previousElementSibling === $("travel-group")'), 'not after Weather and travel');
+  const on = () => js('["sw-meeting-offer","sw-call-notes","sw-meeting-reminders"].map((id) => $(id).getAttribute("aria-checked"))');
+  assert(JSON.stringify(await on()) === '["true","false","false"]', JSON.stringify(await on()));
+  assert(await js('$("meeting-reminders-list-row").hidden'), 'the list shows while it’s off');
+  await js('toggleSettings(true); __sent.length = 0; ["sw-meeting-offer","sw-call-notes","sw-meeting-reminders"].forEach((id) => $(id).click()); true');
+  const s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s.map((m) => m.changes)) === JSON.stringify([{ meeting_offer: false }, { call_notes: true }, { meeting_reminders: true }]), JSON.stringify(s));
+  await deliver({ ...PREFS, features: { meeting_reminders: true, meeting_reminders_list: 'Work' } });
+  assert(!(await js('$("meeting-reminders-list-row").hidden')), 'the list is hidden while it’s on');
+  assert(await js('$("meeting-reminders-list").value') === 'Work', 'the list’s name');
+  await js('__sent.length = 0; $("meeting-reminders-list").value = " Errands "; $("meeting-reminders-list").dispatchEvent(new Event("change")); true');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { meeting_reminders_list: 'Errands' } }]), 'the list wasn’t kept');
+});
+
+test('A meeting starting offers notes on a card, and the notes’ card offers a follow-up', async () => {
+  await featureScript('proactive.js');
+  await deliver({ type: 'meeting_offer', key: 'k1', title: 'Budget review', starts: '2026-09-30T10:00', calls: true, ttl: 900 });
+  const card = 'document.querySelector("#cards [data-meeting-offer=k1]")';
+  assert(await js(`${card}.querySelector(".card-title").hasAttribute("data-no-i18n")`), 'the title would be translated');
+  const buttons = await js(`[...${card}.querySelectorAll("button")].map((b) => b.textContent)`);
+  assert(JSON.stringify(buttons) === '["Take notes","Notes on the call","Not now"]', JSON.stringify(buttons));
+  await js(`__sent.length = 0; [...${card}.querySelectorAll("button")][1].click(); true`);
+  assert(JSON.stringify(await sentOf('meeting_offer')) === '[{"type":"meeting_offer","key":"k1","action":"call"}]', 'not sent');
+  assert(await js(`!${card}`), 'the offer stayed');
+  // The notes are written up: the card app.js shows gains the follow-up.
+  await deliver({ type: 'meeting', active: false, writing: false, title: 'Budget review', path: '/n/Budget review.md', minutes: 30, decisions: 1, actions: 2 });
+  const notes = 'document.querySelector("#cards [data-meeting-path]")';
+  assert(await js(`${notes}.querySelector(".card-actions").lastElementChild.textContent`) === 'Dismiss', 'Dismiss moved');
+  await js(`__sent.length = 0; ${notes}.querySelector(".meeting-draft").click(); true`);
+  assert(JSON.stringify(await sentOf('meeting_followup')) === JSON.stringify([{ type: 'meeting_followup', path: '/n/Budget review.md', action: 'email' }]), 'no draft asked for');
+  await deliver({ type: 'proactive', meetings: { followup: { path: '/n/Budget review.md', title: 'Budget review', actions: 2, people: 1, added: 2 } } });
+  assert(await js(`!${notes}.querySelector(".meeting-remind")`), 'Add to Reminders after they were added');
+});
+
 // ──
 
 let base;

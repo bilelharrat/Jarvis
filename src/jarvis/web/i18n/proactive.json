@@ -78,7 +78,23 @@
     "Checked how you get around": "查看了你的出行方式",
     "Changed how you get around": "修改了你的出行方式",
     "e.g. office, dentist": "例如：公司、牙医",
-    "Make it a routine": "设为例行任务"
+    "Offer to take notes": "提议记笔记",
+    "A card as a meeting with other people, or a call, starts": "有别人参加的会议或通话开始时，弹出一张卡片",
+    "Notes for online calls": "在线通话笔记",
+    "The call’s own sound too, so the notes say who spoke: you and them. Needs Screen Recording.": "同时录下通话本身的声音，笔记会标出是谁说的：你和对方。需要“录屏”权限。",
+    "Action items to Reminders": "待办事项加到提醒事项",
+    "After the notes are written up, each action item goes on a Reminders list by itself": "笔记整理好后，每条待办事项会自动加到提醒事项列表",
+    "Reminders list": "提醒事项列表",
+    "Where the action items go": "待办事项放在哪里",
+    "Your default list": "你的默认列表",
+    "Make it a routine": "设为例行任务",
+    "It’s starting. Take notes?": "要开始了。要记笔记吗？",
+    "Take notes": "记笔记",
+    "Notes on the call": "记通话笔记",
+    "Draft follow-up": "起草跟进邮件",
+    "Add to Reminders": "加到提醒事项",
+    "Action items added to Reminders.": "待办事项已加到提醒事项。",
+    "Started call notes": "开始了通话笔记"
   },
   "patterns": [
     [

@@ -14,4 +14,4 @@
 /* Rows and lines shown only sometimes: .row and .itemlist set their own display, which the
    hidden attribute alone doesn't override. */
 #quiet-weekend-row[hidden], #quiet-focus-status[hidden], #weather-status[hidden],
-.commute-places[hidden] { display: none; }
+#meeting-reminders-list-row[hidden], .commute-places[hidden] { display: none; }

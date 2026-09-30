@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import time
 from datetime import datetime, timedelta
@@ -78,6 +79,37 @@ def _person(person) -> str:
     return str(person.name() or "") or (str(url.absoluteString()) if url else "")
 
 
+# The owner's answer to an invitation (EKParticipantStatus), as rows carry it.
+_REPLIES = {1: "pending", 2: "accepted", 3: "declined", 4: "tentative", 5: "delegated"}
+# A call link in an event's link or notes: an online meeting.
+_CALL_LINK = re.compile(
+    r"(?:zoom\.us/|meet\.google\.com/|teams\.microsoft\.com/|teams\.live\.com/|webex\.com/"
+    r"|whereby\.com/|facetime\.apple\.com/|chime\.aws/)",
+    re.IGNORECASE,
+)
+
+
+def _mail(person) -> str:
+    """A participant's address, when their link is a mailto: one ("" otherwise)."""
+    url = person.URL()
+    text = str(url.absoluteString()) if url else ""
+    return text[7:][:254] if text.lower().startswith("mailto:") else ""
+
+
+def _online(event) -> bool:
+    """A call link in the event's link, notes or location."""
+    link = event.URL() if hasattr(event, "URL") else None
+    notes = event.notes() if hasattr(event, "notes") else None
+    where = " ".join(
+        (
+            str(link.absoluteString()) if link else "",
+            str(notes or "")[:4000],
+            str(event.location() or ""),
+        )
+    )
+    return bool(_CALL_LINK.search(where))
+
+
 def _row(event, details: bool = False) -> dict[str, Any] | None:
     """One event as the app reads it; None for a cancelled one. details adds what a card
     about changing it needs: can its calendar be changed, does it repeat, who organized it."""
@@ -87,15 +119,28 @@ def _row(event, details: bool = False) -> dict[str, Any] | None:
     begin = datetime.fromtimestamp(event.startDate().timeIntervalSince1970())
     finish = datetime.fromtimestamp(event.endDate().timeIntervalSince1970())
     # Who else is in it (names, or their addresses): the file index finds what the
-    # owner has for a meeting by its title and by these people.
-    attendees = []
+    # owner has for a meeting by its title and by these people. The owner's own record
+    # says how they answered, when it's an invitation.
+    attendees, emails, reply = [], [], ""
     for person in (event.attendees() if hasattr(event, "attendees") else None) or []:
         try:
             if person.isCurrentUser():
+                reply = _REPLIES.get(int(person.participantStatus()), "")
                 continue  # the owner is in every meeting: their name would match everything
             attendees.append(_person(person))
+            address = _mail(person)
+            if address:
+                emails.append(address)
         except Exception:  # an odd participant record: skip it
             continue
+    organizer_email = ""
+    try:
+        organizer = event.organizer() if hasattr(event, "organizer") else None
+        if organizer is not None and not organizer.isCurrentUser():
+            organizer_email = _mail(organizer)
+        online = _online(event)
+    except Exception:  # an odd organizer or link: not known
+        online = False
     calendar = event.calendar()
     row = {
         "attendees": [a for a in attendees if a][:10],
@@ -106,6 +151,11 @@ def _row(event, details: bool = False) -> dict[str, Any] | None:
         "location": str(event.location() or ""),
         "calendar": str(calendar.title() if calendar else ""),
         "id": _event_id(event),
+        # For the proactive parts: an invitation's answer, whom to write to, a call link.
+        "reply": reply,
+        "emails": emails[:20],
+        "organizer_email": organizer_email,
+        "online": online,
     }
     if details:
         organizer = event.organizer() if hasattr(event, "organizer") else None

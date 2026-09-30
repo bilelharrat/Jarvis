@@ -5,16 +5,22 @@ Everything stays on the Mac: speech is transcribed locally (a larger Whisper mod
 the wake-word one, since the words matter here), and only the finished transcript goes
 to Claude for the write-up. The transcript is saved as it grows, so nothing is lost if
 the app quits mid-meeting. Notes live in ~/Documents/Jarvis/Meetings.
+
+Notes on a call (jarvis.features.proactive.calls) say who spoke: the call's own sound goes
+in as Them and the microphone as You (Meeting.label). A microphone line that only repeats
+what the call had just said (heard through the speakers) is left out of the notes.
 """
 
 from __future__ import annotations
 
 import asyncio
+import bisect
+import difflib
 import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +58,14 @@ Date: {date}
 Transcript:
 {transcript}"""
 
+UNLABELED = "It has no speaker labels and may mishear words"
+LABELED = (
+    "Each line says who spoke: You (the user, on their microphone) or Them (everyone else "
+    "on the call); it may mishear words"
+)
+ECHO_SECONDS = 15.0  # a microphone line this near a call line…
+ECHO_ALIKE = 0.72  # …and this alike only repeats it
+
 Summarize = Callable[[str], Awaitable[str]]
 
 
@@ -69,6 +83,8 @@ class Meeting:
         if self.path.exists():  # two meetings in the same minute with the same title
             self.path = directory / f"{self.started:%Y-%m-%d %H%M%S} {_slug(self.title)}.md"
         self.lines: list[tuple[datetime, str]] = []
+        self.speakers: list[str] = []  # who said each line: "You", "Them", or "" (no labels)
+        self.label = ""  # the speaker of a line added without one (on a call: "You")
         self._dirty = False  # the file lacks a better line, or one an append missed
         self._written_at = 0.0  # when the whole file was last written
         self._pending: asyncio.Queue = asyncio.Queue()
@@ -102,16 +118,25 @@ class Meeting:
                 self.lines[index] = (self.lines[index][0], better)
                 self._save_soon()
 
-    def add(self, audio: Any, quick_text: str, at: datetime | None = None) -> None:
+    def add(
+        self,
+        audio: Any,
+        quick_text: str,
+        at: datetime | None = None,
+        speaker: str | None = None,
+    ) -> None:
         """Save the quick transcript now; refine it in the background if a notes model
-        is running. Lines the quick model heard as nothing still get a second listen."""
+        is running. Lines the quick model heard as nothing still get a second listen.
+        speaker: who said it ("You", "Them"); the meeting's label when not given."""
         at = at or datetime.now()
         text = " ".join(str(quick_text).split())
+        who = self.label if speaker is None else speaker
         self.lines.append((at, text))
+        self.speakers.append(who)
         if text:
             try:
                 with self.path.open("a") as notes:
-                    notes.write(f"[{at:%H:%M}] {text}\n")
+                    notes.write(f"[{at:%H:%M}] {_who(who)}{text}\n")
             except OSError:  # a full disk: the next whole write puts it in
                 self._dirty = True
         if self._dirty:
@@ -131,7 +156,43 @@ class Meeting:
             self._save()
 
     def transcript(self) -> str:
-        return "\n".join(f"[{at:%H:%M}] {text}" for at, text in self.lines if text)
+        return "\n".join(f"[{at:%H:%M}] {_who(who)}{text}" for at, text, who in self.kept())
+
+    def labeled(self) -> bool:
+        return any(self.speakers)
+
+    def refining(self) -> bool:
+        """A notes model is going over the lines (what it hears replaces the quick text)."""
+        return self._worker is not None
+
+    def kept(self) -> list[tuple[datetime, str, str]]:
+        """The lines said, with who said them; on a call, without a microphone line that
+        only repeats what the call had just said (its sound through the speakers)."""
+        speakers = self.speakers[: len(self.lines)]
+        speakers += [self.label] * (len(self.lines) - len(speakers))  # a line added directly
+        rows = [
+            (at, text, who) for (at, text), who in zip(self.lines, speakers, strict=True) if text
+        ]
+        them = sorted((at, _plain(text)) for at, text, who in rows if who == "Them")
+        if not them:
+            return rows
+        times = [at for at, _ in them]
+        window = timedelta(seconds=ECHO_SECONDS)
+        kept = []
+        for at, text, who in rows:
+            said = _plain(text)
+            if who == "You" and len(said) >= 8:
+                lo, hi = (
+                    bisect.bisect_left(times, at - window),
+                    bisect.bisect_right(times, at + window),
+                )
+                if any(
+                    difflib.SequenceMatcher(None, said, line).ratio() >= ECHO_ALIKE
+                    for _, line in them[lo:hi]
+                ):
+                    continue
+            kept.append((at, text, who))
+        return kept
 
     def words(self) -> int:
         return sum(len(text.split()) for _, text in self.lines)
@@ -159,7 +220,7 @@ class Meeting:
         head = f"# {self.title}\n\n{self.started:%A %d %B %Y, %H:%M}"
         body = f"\n\n{notes.strip()}\n" if notes else ""
         # Every line ends in a newline, as add() appends them.
-        lines = "".join(f"[{at:%H:%M}] {text}\n" for at, text in self.lines if text)
+        lines = "".join(f"[{at:%H:%M}] {_who(who)}{text}\n" for at, text, who in self.kept())
         self.path.write_text(f"{head}\n{body}\n## Transcript\n\n{lines}")
         self._dirty, self._written_at = False, time.monotonic()
 
@@ -171,6 +232,8 @@ class Meeting:
         prompt = SUMMARY_PROMPT.format(
             title=self.title, date=f"{self.started:%A %d %B %Y}", transcript=self.transcript()
         )
+        if self.labeled():  # a call: the lines say who spoke
+            prompt = prompt.replace(UNLABELED, LABELED, 1)
         try:
             notes = await summarize(prompt)
         except Exception as exc:  # offline, signed out: the transcript is still saved
@@ -179,6 +242,14 @@ class Meeting:
             return {"path": str(self.path), "decisions": 0, "actions": 0, "error": str(exc)}
         self._write(notes)
         return {"path": str(self.path), **count_items(notes)}
+
+
+def _who(speaker: str) -> str:
+    return f"{speaker}: " if speaker else ""
+
+
+def _plain(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
 
 
 def count_items(notes: str) -> dict[str, int]:

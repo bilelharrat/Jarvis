@@ -3,8 +3,11 @@
 // can't) and a snooze with its Resume; Settings › Morning briefing gains its sections (each
 // on or off, in the owner's order), news topics and the evening wrap-up; a new Settings ›
 // Weather and travel holds the weather heads-ups (severe weather, the air, big swings) and
-// how the owner gets around (the usual way, places reached another way, arriving early).
-// Cards: a habit card gains "Make it a routine"; weather heads-ups get their own kicker.
+// how the owner gets around (the usual way, places reached another way, arriving early),
+// and a new Settings › Meetings holds the meeting offer, call notes and action items to
+// Reminders. Cards: a habit card gains "Make it a routine", a meeting starting offers
+// notes, and the notes' card gains Draft follow-up and Add to Reminders. Weather heads-ups
+// get their own kicker on cards.
 //
 // Everything the backend or the owner wrote (a Focus mode's name, a time) is shown with
 // textContent and marked data-no-i18n; the window's own words are translated by i18n.js as
@@ -457,7 +460,50 @@
     list.hidden = !places.length;
   }
 
-  // ── cards: habits into routines ──
+  // ── Settings › Meetings: offers, call notes, action items ──
+
+  function buildMeetings() {
+    const before = F.$('travel-group') || F.$('sw-briefing')?.closest('section.group');
+    if (!before || F.$('meetings-group')) return;
+    const group = el('section', 'group');
+    group.id = 'meetings-group';
+    const offer = toggle('sw-meeting-offer', 'Offer to take notes', () => setFeatures({ meeting_offer: features.meeting_offer === false }));
+    const calls = toggle('sw-call-notes', 'Notes for online calls', () => setFeatures({ call_notes: !features.call_notes }));
+    const remind = toggle('sw-meeting-reminders', 'Action items to Reminders', () => setFeatures({ meeting_reminders: !features.meeting_reminders }));
+    const list = el('input');
+    list.type = 'text';
+    list.id = 'meeting-reminders-list';
+    list.maxLength = 80;
+    list.placeholder = 'Your default list';
+    list.addEventListener('change', () => setFeatures({ meeting_reminders_list: list.value.trim() }));
+    const listRow = el('label', 'row stack');
+    listRow.id = 'meeting-reminders-list-row';
+    listRow.htmlFor = 'meeting-reminders-list';
+    const listWords = el('span');
+    listWords.append(el('strong', '', 'Reminders list'), el('small', '', 'Where the action items go'));
+    listRow.append(listWords, list);
+    group.append(
+      el('h3', '', 'Meetings'),
+      row('Offer to take notes', 'A card as a meeting with other people, or a call, starts', offer),
+      row('Notes for online calls', 'The call’s own sound too, so the notes say who spoke: you and them. Needs Screen Recording.', calls),
+      row('Action items to Reminders', 'After the notes are written up, each action item goes on a Reminders list by itself', remind),
+      listRow,
+    );
+    before.after(group);
+    renderMeetings();
+  }
+
+  function renderMeetings() {
+    F.$('sw-meeting-offer')?.setAttribute('aria-checked', String(features.meeting_offer !== false));
+    F.$('sw-call-notes')?.setAttribute('aria-checked', String(Boolean(features.call_notes)));
+    F.$('sw-meeting-reminders')?.setAttribute('aria-checked', String(Boolean(features.meeting_reminders)));
+    const listRow = F.$('meeting-reminders-list-row');
+    if (listRow) listRow.hidden = !features.meeting_reminders;
+    const box = F.$('meeting-reminders-list');
+    if (box && document.activeElement !== box) box.value = typeof features.meeting_reminders_list === 'string' ? features.meeting_reminders_list : '';
+  }
+
+  // ── cards: habits into routines, meeting offers and follow-ups ──
 
   const settle = () => { if (typeof syncDismissAll === 'function') syncDismissAll(); };
 
@@ -482,6 +528,48 @@
     if (make) make.disabled = false;
   }
 
+  // A meeting starting: take notes? (a card, never spoken; it goes by itself).
+  F.on('meeting_offer', (ev) => {
+    const key = String(ev.key || '');
+    document.querySelectorAll(`#cards [data-meeting-offer="${CSS.escape(key)}"]`).forEach((n) => n.remove());
+    const card = el('div', 'card plain meeting-offer');
+    card.dataset.meetingOffer = key;
+    card.append(el('div', 'card-kicker', 'Meeting'));
+    card.append(mine(el('div', 'card-title', String(ev.title || ''))));
+    card.append(el('div', 'card-text', 'It’s starting. Take notes?'));
+    const actions = el('div', 'card-actions');
+    const act = (action) => { send({ type: 'meeting_offer', key, action }); card.remove(); settle(); };
+    actions.append(button('Take notes', 'btn primary', () => act('notes')));
+    if (ev.calls) actions.append(button('Notes on the call', 'btn', () => act('call')));
+    actions.append(button('Not now', 'btn', () => act('dismiss')));
+    card.append(actions);
+    F.$('cards').append(card);
+    settle();
+    setTimeout(() => { card.remove(); settle(); }, Math.max(60, Number(ev.ttl) || 900) * 1000);
+  });
+
+  // The notes' card (app.js makes it as the write-up ends): a follow-up and Reminders.
+  F.on('meeting', (ev) => {
+    if (ev.active || ev.writing || !ev.path || !(Number(ev.actions) > 0)) return;
+    const card = F.$('cards').lastElementChild;
+    const actions = card && card.querySelector('.card-actions');
+    if (!actions || card.dataset.meetingPath) return;
+    card.dataset.meetingPath = ev.path;
+    const follow = (action, b) => { b.disabled = true; send({ type: 'meeting_followup', path: ev.path, action }); };
+    const draft = button('Draft follow-up', 'btn meeting-draft', () => follow('email', draft));
+    const remind = button('Add to Reminders', 'btn meeting-remind', () => follow('reminders', remind));
+    actions.insertBefore(draft, actions.lastElementChild);
+    actions.insertBefore(remind, actions.lastElementChild);
+  });
+
+  function onFollowup(f) {
+    if (!f || !(Number(f.added) > 0)) return;
+    const card = document.querySelector(`#cards [data-meeting-path="${CSS.escape(String(f.path || ''))}"]`);
+    if (!card) return;
+    card.querySelector('.meeting-remind')?.remove();  // they're in Reminders already
+    card.insertBefore(el('div', 'card-text', 'Action items added to Reminders.'), card.querySelector('.card-actions'));
+  }
+
   // ── events ──
 
   function onPrefs(p) {
@@ -492,6 +580,7 @@
     renderBriefing();
     renderWeather();
     renderCommute();
+    renderMeetings();
   }
 
   // The backend's state when this script loads (it may load after the hello: a prefs event
@@ -504,11 +593,13 @@
     if (ev.weather) { weather = ev.weather; renderWeather(); }
     if (ev.commute) { commute = ev.commute; renderCommute(); }
     if (ev.habit) onHabit(ev.habit);
+    if (ev.meetings) onFollowup(ev.meetings.followup);
   });
   buildQuiet();
   buildBriefing();
   buildWeather();
   buildCommute();
+  buildMeetings();
   send({ type: 'proactive_state' });
   // A pause ends by itself: Settings shows it, and the Focus line, as they are now.
   setInterval(() => { if (!F.$('settings')?.hidden) renderQuiet(); }, 30000);
