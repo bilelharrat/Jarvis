@@ -543,16 +543,18 @@ class Api:
         return self.gate.admit(request, "read")
 
     async def _post(
-        self, request: Request, kind: str, cap: int | None = None
+        self, request: Request, kind: str, cap: int | None = None, upload: bool = False
     ) -> tuple[Any, dict[str, Any], Response | None]:
         """The device and its JSON body, or the refusal: token first, then its budget,
-        then the body (at most cap bytes)."""
-        from .remote import MAX_BODY
+        then the body (at most cap bytes; an upload, a share or a photo, has the minutes
+        a big file takes over Wi-Fi to arrive, the rest a few seconds)."""
+        from . import remote
 
         device, refused = self.gate.admit(request, kind)
         if device is None:
             return None, {}, refused
-        data = await self.gate.json(request, cap or MAX_BODY)
+        seconds = remote.UPLOAD_SECONDS if upload else None
+        data = await self.gate.json(request, cap or remote.MAX_BODY, seconds)
         if data is None:
             return None, {}, self.gate.too_big()
         return device, data, None
@@ -1007,7 +1009,7 @@ class Api:
         the Inbox folder. With a note ("summarize this"), JARVIS is asked about it as a
         silent request: what was shared is someone else's, so the request counts as having
         read outside content (the turn gate asks before anything could carry it off)."""
-        device, data, refused = await self._post(request, "upload", SHARE_BODY)
+        device, data, refused = await self._post(request, "upload", SHARE_BODY, upload=True)
         if refused is not None:
             return refused
         kind = data.get("kind")
@@ -1068,7 +1070,7 @@ class Api:
     # ── a photo, asked about ──
 
     async def photo(self, request: Request) -> Response:
-        device, data, refused = await self._post(request, "ask", PHOTO_BODY)
+        device, data, refused = await self._post(request, "ask", PHOTO_BODY, upload=True)
         if refused is not None:
             return refused
         try:

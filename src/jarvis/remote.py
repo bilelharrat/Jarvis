@@ -383,10 +383,12 @@ class Gate:
         return bytes(raw)
 
     async def json(
-        self, request: Request, cap: int = MAX_BODY, seconds: float = BODY_SECONDS
+        self, request: Request, cap: int = MAX_BODY, seconds: float | None = None
     ) -> dict[str, Any] | None:
-        """The request's JSON object, read at most cap bytes and seconds long. None: too
-        big or too slow; {} for anything that isn't a JSON object."""
+        """The request's JSON object, read at most cap bytes and seconds long (BODY_SECONDS
+        unless said: an upload has UPLOAD_SECONDS). None: too big or too slow; {} for
+        anything that isn't a JSON object."""
+        seconds = BODY_SECONDS if seconds is None else seconds
         try:
             if int(request.headers.get("content-length") or 0) > cap:
                 return None

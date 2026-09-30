@@ -3,6 +3,7 @@ things shared to the Mac (saved in a temp Inbox, and asked about as outside cont
 health days (for the briefing) and photos asked about. The fake Claude answers; sips, the
 Mac's own image tool, makes and shrinks the test pictures."""
 
+import asyncio
 import base64
 import json
 import plistlib
@@ -249,6 +250,64 @@ def test_uploads_have_a_small_budget(settings, quiet_speaker, isolated, tmp_path
     body = {"kind": "text", "text": "hi"}
     codes = [client.post("/api/share", json=body, headers=auth).status_code for _ in range(4)]
     assert codes == [200, 200, 200, 429] and remote.RATES["upload"][1] == 3
+
+
+async def trickle(server, head: bytes, body: bytes, pieces: int, gap: float) -> bytes:
+    """A request whose body comes in slowly, over pinned TLS: its whole reply."""
+    from companion_support import open_pinned
+
+    reader, writer = await open_pinned(server.port, server.identity.fingerprint)
+    try:
+        writer.write(head)
+        size = len(body) // pieces + 1
+        for i in range(pieces):
+            await asyncio.sleep(gap)
+            writer.write(body[i * size : (i + 1) * size])
+            await writer.drain()
+    except ConnectionError:
+        pass  # refused midway: the reply says why
+    try:
+        return await asyncio.wait_for(reader.read(), 10)
+    except ConnectionError:
+        return b""
+    finally:
+        writer.close()
+
+
+def head_of(path: str, body: bytes, token: str) -> bytes:
+    return (
+        f"POST {path} HTTP/1.1\r\nHost: mac\r\nAuthorization: Bearer {token}\r\n"
+        f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n"
+        "Connection: close\r\n\r\n"
+    ).encode()
+
+
+async def test_a_big_share_on_a_slow_link_gets_the_time_it_needs(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """An upload (a share, a photo) has UPLOAD_SECONDS to arrive, not the few seconds a small
+    request gets: 25 MB over ordinary Wi-Fi takes longer than those."""
+    monkeypatch.setattr(remote, "BODY_SECONDS", 0.3)  # a small request's time, made short
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.remote.host, hub.remote.port, hub.remote.advertiser = "127.0.0.1", 0, None
+    hub.remote.extension.inbox_folder = tmp_path / "Inbox"
+    assert await hub.remote.start()
+    try:
+        token = hub.remote.devices.pair(hub.remote.devices.start_pairing(), "iPhone")
+        content = bytes(range(256)) * 800
+        body = json.dumps(
+            {"kind": "file", "name": "big.bin", "data_base64": base64.b64encode(content).decode()}
+        ).encode()
+        reply = await trickle(hub.remote, head_of("/api/share", body, token), body, 4, 0.3)
+        assert reply.split(b"\r\n", 1)[0].split()[1] == b"200", reply[:200]
+        saved = json.loads(reply.split(b"\r\n\r\n", 1)[1])["saved_as"].rsplit("/", 1)[-1]
+        assert (tmp_path / "Inbox" / saved).read_bytes() == content
+        # A small request that dawdles as long is still dropped.
+        small = b'{"type": "stop"}'
+        reply = await trickle(hub.remote, head_of("/api/command", small, token), small, 4, 0.3)
+        assert reply.split(b"\r\n", 1)[0].split()[1] == b"413", reply[:200]
+    finally:
+        await hub.remote.stop()
 
 
 def test_a_share_is_capped(phone, monkeypatch):
