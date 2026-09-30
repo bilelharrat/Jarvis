@@ -144,13 +144,13 @@ async def test_a_helper_that_cant_run_on_this_mac_leaves_whisper_listening(
     settings, quiet_speaker, isolated, tmp_path, monkeypatch
 ):
     """The app's jarvis-hear is built for macOS 26 (SpeechAnalyzer): on an older Mac dyld
-    refuses to start it. Apple's recognizer is then unavailable, said plainly, and Whisper
-    goes on listening; nothing is compiled in its place."""
+    can't find those symbols and stops it at launch. Apple's recognizer is then unavailable,
+    said plainly, and Whisper goes on listening; nothing is compiled in its place."""
     source = audio.HERE / "jarvis-hear.swift"
     folder = tmp_path / "helpers"
     folder.mkdir()
     dead = folder / "jarvis-hear"
-    dead.write_text("#!/bin/sh\nkill -ABRT $$\n")  # what dyld does with a too-new binary
+    dead.write_text("#!/bin/sh\nkill -ABRT $$\n")  # dyld: "Symbol not found", abort
     dead.chmod(0o755)
     (folder / "jarvis-hear.sha256").write_text(digest(source) + "\n")
     monkeypatch.setenv(swift_helper.HELPERS_ENV, str(folder))

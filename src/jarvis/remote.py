@@ -49,7 +49,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Respon
 from starlette.routing import Route
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
-from . import companion_tls
+from . import companion_tls, packaged
 from .prefs import APP_SUPPORT
 
 log = logging.getLogger("jarvis")
@@ -448,7 +448,7 @@ def create_remote_app(
         )
 
     async def icon(_request):
-        path = Path(__file__).resolve().parents[2] / "app" / "build" / "icon-1024.png"
+        path = packaged.app_dir() / "build" / "icon-1024.png"
         if path.is_file():
             return FileResponse(path, media_type="image/png")
         return Response(status_code=404)

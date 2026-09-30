@@ -11,6 +11,7 @@ const path = require('path');
 const { toUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { pagePermission } = require('./page-permissions'); // full screen, nothing else
 const { createAgent } = require('./browser-agent');
+const { backendCommand } = require('./backend-launch'); // the bundled backend, else uv and the repo
 
 app.setName('J.A.R.V.I.S.');
 
@@ -18,6 +19,7 @@ const TOKEN = crypto.randomBytes(24).toString('hex');
 const SHORTCUT = 'Alt+Space';
 const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
 const LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', 'Jarvis');
+const DATA_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'Jarvis'); // the backend's (prefs.APP_SUPPORT)
 // Development only: show a backend that's already running (no microphone of its own)
 // instead of starting one, with a profile of its own and without the global shortcuts,
 // so it can run beside the installed app.
@@ -106,16 +108,13 @@ function openBackendLog() {
 function startBackend() {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const log = openBackendLog();
-  log.write(`\n--- ${new Date().toISOString()} starting on port ${port}\n`);
-  backend = spawn(findUv(), ['run', '--directory', jarvisHome(), 'jarvis', 'serve', '--port', String(port)], {
-    env: {
-      ...process.env,
-      JARVIS_TOKEN: TOKEN,
-      PYTHONUNBUFFERED: '1',
-      PATH: [...EXTRA_PATH, process.env.PATH || '/usr/bin:/bin'].join(':'),
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const how = backendCommand({
+    packaged: app.isPackaged, resourcesPath: process.resourcesPath, env: process.env, port, token: TOKEN,
+    extraPath: EXTRA_PATH, uv: findUv, home: jarvisHome, dataDir: DATA_DIR, exists: fs.existsSync,
   });
+  if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
+  log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''}\n`);
+  backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   backend.stdout.pipe(log);
   backend.stderr.pipe(log);
   backend.on('error', (err) => showProblem(`Couldn't start the backend: ${err.message}`));

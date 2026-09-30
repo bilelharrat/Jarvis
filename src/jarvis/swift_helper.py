@@ -4,7 +4,7 @@ the first time it's needed and cached in Application Support/Jarvis/bin by its s
 hash, as speech.ensure_player builds the voice player. A helper that can't be built (no
 swiftc, a compile error) is None, said once in the log; what needs it falls back.
 
-The app people download has no swiftc: it carries every helper prebuilt (app/scripts/dist)
+The app people download has no swiftc: it carries every helper prebuilt (app/scripts/release)
 and says where in JARVIS_HELPERS_DIR. prebuilt() is the one lookup all the helpers' builders
 ask first (this module, speech, codelook, hands_guard, audio).
 """

@@ -23,6 +23,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 
+from . import packaged
 from .hub import Hub
 
 log = logging.getLogger("jarvis")
@@ -42,10 +43,8 @@ class FreshStaticFiles(StaticFiles):
 
 
 WEB_DIR = Path(__file__).parent / "web"
-VISION_DIR = (
-    Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@mediapipe" / "tasks-vision"
-)
-XTERM_DIR = Path(__file__).resolve().parents[2] / "app" / "node_modules" / "@xterm"
+VISION_DIR = packaged.app_dir() / "node_modules" / "@mediapipe" / "tasks-vision"
+XTERM_DIR = packaged.app_dir() / "node_modules" / "@xterm"
 HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/"
     "float16/latest/hand_landmarker.task"
