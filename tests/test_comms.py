@@ -674,9 +674,8 @@ async def test_search_mail_finds_a_contacts_email_by_name(
             }
         ]
 
-    monkeypatch.setattr(messaging, "search_people", people)
     hub = make_hub(settings, quiet_speaker, isolated)
-    c = comms_for(hub, tmp_path, mail_db=lambda: index.path)
+    c = comms_for(hub, tmp_path, mail_db=lambda: index.path, lookup=people)
     out = await c.search({"person": "Ann", "limit": 1})
     assert "A. Lee <ann.lee@work.com> — Budget" in out["content"][0]["text"]
     out = await c.search({"person": "Ann", "subject": "holiday"})
@@ -904,3 +903,16 @@ def test_a_spoken_card_reads_in_chinese_line_by_line():
     assert (
         lang.translate(group, "zh") == "这是你发到群聊Family的消息：Dinner at 7. 要发送这条消息吗？"
     )
+
+
+async def test_without_messages_record_a_send_never_waits(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    import time as clock
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    c = comms_for(hub, tmp_path / "nowhere")  # no chat.db: no Full Disk Access
+    assert await c.baseline() == -1
+    started = clock.monotonic()
+    assert await c.delivered(-1, "+14155550101", "", "Bob") == ("Sent to Bob.", False)
+    assert clock.monotonic() - started < 1.0

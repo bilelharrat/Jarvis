@@ -188,6 +188,7 @@ class Comms:
         made=None,
         post=None,
         notify=None,
+        lookup=None,
     ) -> None:
         from ..sources import CHAT_DB, mail_index
         from ..sources import contact_names as read_names
@@ -202,6 +203,7 @@ class Comms:
         self.made = made or self._made
         self.post = post or _post_one_click
         self.notify = notify or hub.notify
+        self.lookup = lookup or (_no_contacts if offline else messaging.find_contacts)
         self._accounts: tuple[float, list[dict[str, Any]]] | None = None
         self._watching: set[asyncio.Task] = set()
 
@@ -279,6 +281,8 @@ class Comms:
     async def delivered(self, after: int, handle: str, chat: str, who: str) -> tuple[str, bool]:
         """What Messages recorded of a send, waiting a few seconds for it: delivered, failed
         (with its error), or on its way (then a failure later still becomes a heads-up)."""
+        if after < 0:  # Messages' record can't be read (no Full Disk Access): sent is all
+            return f"Sent to {who}.", False
         status = None
         deadline = time.monotonic() + DELIVERY_WAIT
         while time.monotonic() < deadline:
@@ -341,7 +345,7 @@ class Comms:
         elif person:
             name = person
             try:
-                people = await messaging.search_people(person)
+                people = await messaging.search_people(person, self.lookup)
             except mac_tools.ToolFailure:
                 people = []
             for p in people[:5]:
@@ -539,6 +543,10 @@ async def _refuse(*_args: Any, **_kwargs: Any) -> str:
     raise mac_tools.ToolFailure("not on this hub")
 
 
+async def _no_contacts(_query: str) -> list[dict[str, Any]]:
+    return []
+
+
 def _post_one_click(url: str) -> int:
     """RFC 8058's one-click unsubscribe: a POST of its fixed body, nothing of the owner's
     (no cookies, no sign-in), not following redirects. The HTTP status."""
@@ -617,7 +625,7 @@ def install(hub: Any) -> None:
     # servers are built after the hub's own), same tools and cards, and more of them.
     hub.register_server(
         messaging.SERVER_NAME,
-        lambda: messaging.build_server(hub.send_gate, extras),
+        lambda: messaging.build_server(hub.send_gate, extras, comms.lookup),
         prompt=PROMPT,
         labels=LABELS,
     )
