@@ -273,7 +273,7 @@
     const lately = (recentFiles.get(scope) || []).filter((p) => p !== path);
     recentFiles.set(scope, [path, ...lately].slice(0, 12));
     if (!paneShown()) F.openPane('files'); else draw();
-    if (!doc.loading) applyMark(doc);
+    if (!doc.loading && opts.line) applyMark(doc);
   }
 
   function closeDoc(scope, path, quiet) {
@@ -977,6 +977,7 @@
     const doc = docOf(ev);
     if (!doc) return;
     const keepAt = doc.ui && doc.reloading ? { s: doc.ui.ta.selectionStart, e: doc.ui.ta.selectionEnd, top: doc.ui.ta.scrollTop } : null;
+    const opening = doc.loading;  // (only a file opening goes to its lines: a reload never takes the keys)
     doc.loading = false;
     doc.reloading = false;
     doc.error = ev.error || '';
@@ -1012,7 +1013,7 @@
       }
     } else if (!doc.ui) doc.pendingText = shown;
     const { scope, state } = current();
-    if (doc.scope === scope && state.active === doc.path && state.view === 'editor') { draw(); applyMark(doc); } else drawTabs();
+    if (doc.scope === scope && state.active === doc.path && state.view === 'editor') { draw(); if (opening) applyMark(doc); } else drawTabs();
   });
 
   F.on('cw_file_saved', (ev) => {

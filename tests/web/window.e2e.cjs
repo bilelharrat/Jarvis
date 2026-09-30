@@ -4605,6 +4605,32 @@ test('A save or an open with no connection, or whose answer the connection lost,
   assert(read && read.path === 'README.md', JSON.stringify(await js('__sent')));
 });
 
+test('A file opened at a line, then changed by Claude, comes back without taking the keys from the composer', async () => {
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); __sent.length = 0; JarvisEditor.open("src/app.py", 2); true');
+  const [read] = await sentOf('cw_file_read');
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'a = 1\nb = 2\nc = 3\n', version: VERSION, crlf: false, editable: true });
+  await frames(3);
+  const opened = await js('(() => { const ta = document.querySelector("#jc-pane-body .ce-text"); return [document.activeElement === ta, ta.selectionStart, ta.selectionEnd]; })()');
+  assert(JSON.stringify(opened) === '[true,6,11]', JSON.stringify(opened));  // (its line, picked)
+  await js('$("deck-input").focus(); __sent.length = 0; true');
+  await deliver({ type: 'cw_file_stat', path: 'src/app.py', ref: read.ref, changed: true, missing: false });
+  const [reread] = await sentOf('cw_file_read');
+  assert(reread && reread.ref === read.ref, JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'a = 1\nb = 2\nclaude = 3\n', version: { mtime_ns: 5, size: 22, sha: 'eee' }, crlf: false, editable: true });
+  await frames(3);
+  assert(await editorText() === 'a = 1\nb = 2\nclaude = 3\n', 'Claude’s change is not shown');
+  assert(await js('document.activeElement === $("deck-input")'), `the keys went to ${await js('document.activeElement.className')}`);
+  // Opened again without a line ("open app.py" by voice): nor then.
+  await js('JarvisEditor.open("src/app.py"); true');
+  await frames(3);
+  assert(await js('document.activeElement === $("deck-input")'), `opened again, the keys went to ${await js('document.activeElement.className')}`);
+  await typeText('go on');
+  assert(await js('$("deck-input").value') === 'go on' && await editorText() === 'a = 1\nb = 2\nclaude = 3\n', 'what was typed went into the file');
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {
