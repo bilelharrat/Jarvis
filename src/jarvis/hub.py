@@ -2460,12 +2460,18 @@ class Hub:
         started: dict[str, str] | None = None,
         photos: list[dict[str, str]] | None = None,
         untrusted: str = "",
+        attachments: list[dict[str, str]] | None = None,
+        note: str = "",
     ) -> str:
         """One request. display: what the window shows instead of text (routines, the
         briefing). silent: say nothing out loud (a routine in quiet hours). screen: send a
         picture of the screen with it (the What's-this key). photos: pictures sent with
         it ({media_type, data}: a photo from the phone). untrusted: outside content it
-        carries, named as approval cards name it: the turn gate counts it as read."""
+        carries, named as approval cards name it: the turn gate counts it as read.
+        attachments: pictures and files sent with it ({media_type, data, name}: a chat's
+        photo or PDF), the owner's private data to the gates. note: where a request from
+        elsewhere came from (a chat), told to Claude; such a request never gets a look at
+        the screen by itself."""
         text = text.strip()
         if not text:
             return ""
@@ -2529,21 +2535,21 @@ class Hub:
             query = text
             images: list[dict[str, str]] = list(photos or [])
             started = time.monotonic()
+            # One with a picture or a file (a phone's photo, a chat's attachment) is for Claude.
+            instant = display is None and not images and not attachments
             try:
-                if (
-                    display is None
-                    and not images
-                    and (
-                        await self._instant_research(rid, text)
-                        or await self._instant_feature(rid, text)
-                        or await self._instant_window(rid, text)
-                        or await self._instant_shortcut(rid, text)
-                        or await self._instant_system(rid, text)
-                    )
+                if instant and (
+                    await self._instant_research(rid, text)
+                    or await self._instant_feature(rid, text)
+                    or await self._instant_window(rid, text)
+                    or await self._instant_shortcut(rid, text)
+                    or await self._instant_system(rid, text)
                 ):
                     pass
                 else:
                     notes = [self._style_note] if self._style_note else []
+                    if note:
+                        notes.append(note)
                     if heard_note:
                         notes.append(heard_note)
                     fresh = [n for at, n in self._alert_notes if time.monotonic() - at < 600]
@@ -2562,6 +2568,7 @@ class Hub:
                         )
                     elif screen or (
                         display is None
+                        and not note
                         and self.prefs.screen_aware
                         and lang.about_screen(text, self.language)
                     ):
@@ -2574,6 +2581,9 @@ class Hub:
                         self.mark_turn_untrusted("a picture of your screen")
                     elif screen:
                         query = text = WHATS_THIS_LOOK.format(app=self._whats_this_app)
+                    if attachments:
+                        images.extend(attachments)
+                        self.mark_turn_untrusted("the picture or file you sent")
                     if fresh:
                         notes.append(
                             "in the last few minutes the app gave the user these heads-ups "

@@ -169,15 +169,29 @@ def screen_note(frame: Frame) -> str:
     )
 
 
+def _block(item: dict[str, str]) -> dict[str, Any]:
+    """A picture, or a file sent with a request: a PDF as base64, a text file as its text
+    (as Jarvis Code's composer sends them), each file with its name."""
+    media_type = item["media_type"]
+    if media_type == "application/pdf" or media_type.startswith("text/"):
+        source = (
+            {"type": "base64", "media_type": media_type, "data": item["data"]}
+            if media_type == "application/pdf"
+            else {"type": "text", "media_type": "text/plain", "data": item["data"]}
+        )
+        block: dict[str, Any] = {"type": "document", "source": source}
+        if item.get("name"):
+            block["title"] = str(item["name"])[:200]
+        return block
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": media_type, "data": item["data"]},
+    }
+
+
 async def user_message(text: str, images: list[dict[str, str]]) -> AsyncIterator[dict[str, Any]]:
-    """One user message with pictures, in the streaming shape Claude Code takes."""
-    content: list[dict[str, Any]] = [
-        {
-            "type": "image",
-            "source": {"type": "base64", "media_type": i["media_type"], "data": i["data"]},
-        }
-        for i in images
-    ]
+    """One user message with pictures (and files), in the streaming shape Claude Code takes."""
+    content: list[dict[str, Any]] = [_block(i) for i in images]
     content.append({"type": "text", "text": text})
     yield {
         "type": "user",
