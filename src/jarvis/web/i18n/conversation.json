@@ -1,0 +1,25 @@
+{
+  "strings": {
+    "Carry on after a restart": "重启后接着聊",
+    "When Jarvis starts again, pick up the conversation where it was. New conversation still starts afresh.": "Jarvis 重新启动后，从上次的对话接着聊。“新对话”仍会从头开始。",
+    "Carrying on from earlier": "接着之前的对话",
+    "Past conversations…": "过去的对话…",
+    "Past conversations": "过去的对话",
+    "‹ Past conversations": "‹ 过去的对话",
+    "Conversations": "对话",
+    "Close conversations": "关闭对话",
+    "This conversation": "这段对话",
+    "Untitled": "未命名",
+    "Nothing said yet": "还没聊过",
+    "Search past conversations": "搜索过去的对话",
+    "No past conversation matches.": "没有匹配的过去对话。",
+    "No past conversations yet.": "还没有过去的对话。",
+    "Yesterday": "昨天",
+    "This is the conversation you’re in": "这就是现在这段对话",
+    "Carry on this conversation": "接着这段对话继续",
+    "Carry on": "继续",
+    "Reading…": "正在读取…",
+    "This conversation can’t be read.": "这段对话读不出来。"
+  },
+  "patterns": []
+}

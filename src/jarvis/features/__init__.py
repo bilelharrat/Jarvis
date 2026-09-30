@@ -35,6 +35,12 @@ A feature registers what it adds through the hub instead of editing its core tab
   mode is on), False (not, whatever the range in Settings says) or None. hub.quiet_now()
   is the answer everywhere quiet hours count; code that has only the hub uses
   proactive.quiet_hours_now(hub, now, in_quiet_hours).
+- The conversation itself (JARVIS's own Claude session): hub.add_connect_hook(hook) adjusts
+  its options at each connect (hook(options, resume), resume "" for a new conversation);
+  hub.add_query_hook(hook) hears each request just before Claude gets it (hook(text, rid),
+  may be async and may reconnect); hub.add_message_sink(sink) hears every message of its
+  stream; hub.first_connect, when set, makes the first connect at startup (True: it
+  connected).
 - hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
   in tests, never the user's real data there).
 - hub.register_route(path, endpoint, methods): an address of the feature's own on the window's

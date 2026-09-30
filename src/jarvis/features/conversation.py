@@ -1,0 +1,398 @@
+"""JARVIS's own conversation (the conversation feature): what outlasts a restart, and the
+owner's view of it.
+
+- It survives restarts: the current conversation's session id is kept (conversation.json
+  beside prefs.json, with what each conversation has read, for the turn gate, its cost and
+  its title) and carried on at startup (hub.first_connect) with a "Carrying on from earlier"
+  note, when Settings says so (conversation_resume, on by default). One that won't resume is
+  left and a new one starts. "New conversation" still starts afresh.
+- Past conversations: listed, searched and read back from Claude Code's own records of the
+  brain's sessions (conversation_past), and carried on as the current conversation after a
+  card. One reopened whose reads aren't on record counts as having read private data.
+
+Hooks it uses: hub.first_connect, hub.add_connect_hook (a new conversation), hub.add_query_hook
+(its title, the note put away), hub.add_message_sink (each turn's end: its session id, what
+it has read, its cost).
+
+Window commands: conversation_state (-> conversation), conversation_list {q, seq} (->
+conversation_list), conversation_open {session_id} (-> conversation_transcript),
+conversation_resume {session_id} (a card, then the conversation it carries on).
+
+Claude cost policy: nothing here calls a model on its own.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import re
+from datetime import datetime
+from typing import Any
+
+from claude_agent_sdk import ResultMessage
+
+from .. import conversation_past as past
+from .. import lang, prefs
+from ..conversation_state import ConversationState, clean_reads, valid_id
+
+log = logging.getLogger("jarvis")
+
+RESUME_PREF = "conversation_resume"
+prefs.register_feature_pref(RESUME_PREF, True)
+
+STATE_FILE = "conversation.json"
+TAIL_SHOWN = 20  # a carried-on conversation's last lines, shown in the window again
+LISTED = 100  # past conversations a list or a search sends the window
+BRAIN_HITS = 40  # the second brain's passages a search of past conversations weighs
+_CONVERSATION_NOTE = re.compile(r"^conversation:([\w-]+):\d+$")
+
+ZH = {
+    "Carrying on from earlier.": "接着之前的对话继续。",
+    "Carrying on “{title}”.": "接着“{title}”继续。",
+    "Carry on the conversation “{title}” from {when}?": "要接着{when}的对话“{title}”继续吗？",
+    "The conversation you're in now ends here; it stays in Past conversations.": (
+        "现在这段对话在这里结束；它会留在“过去的对话”里。"
+    ),
+    "That conversation isn't there any more.": "那段对话已经不在了。",
+    "That conversation couldn't be carried on, so you're still in this one.": (
+        "那段对话没能接上，所以还在现在这段对话里。"
+    ),
+    "That's the conversation you're in.": "这就是现在这段对话。",
+    "Conversations": "对话",
+}
+lang.add_texts(ZH)
+
+
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _day(moment: datetime, language: str) -> str:
+    """A day as it's said: today, yesterday, Monday 28 September (今天, 昨天, 9月28日)."""
+    days = (datetime.now().date() - moment.date()).days
+    if lang.is_zh(language):
+        return "今天" if days == 0 else "昨天" if days == 1 else f"{moment.month}月{moment.day}日"
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return f"{moment:%A} {moment.day} {moment:%B}"
+
+
+def _brain_ids(hits: list[dict[str, Any]]) -> set[str]:
+    """The conversations the second brain's passages come from (their session ids)."""
+    found = set()
+    for hit in hits:
+        match = _CONVERSATION_NOTE.match(str(hit.get("id") or ""))
+        if match:
+            found.add(match.group(1))
+    return found
+
+
+class Conversation:
+    """The conversation feature on one hub (hub.conversation)."""
+
+    def __init__(self, hub: Any) -> None:
+        self.hub = hub
+        self._state: ConversationState | None = None  # read on first use, never at install
+        # Claude Code's records, through the SDK (tests put fakes here).
+        self.list_sessions, self.get_messages, self.get_info = past._sdk()
+        self.resumed: dict[str, Any] | None = None  # carried on, until the next request
+        self._title = ""  # the first request of a conversation with no title yet
+        self._conn_total: float | None = None  # this connection's running cost, as reported
+        self._dirty = False
+        self._saver: asyncio.Task | None = None
+
+    # ── the record ──
+
+    @property
+    def state(self) -> ConversationState:
+        if self._state is None:
+            self._state = ConversationState(self.hub.feature_path(STATE_FILE))
+        return self._state
+
+    def _save_soon(self) -> None:
+        """Save in the background, once for a burst of changes; a save in a thread writes a
+        copy taken here, never what the loop is changing."""
+        self._dirty = True
+        if self._saver is None or self._saver.done():
+            self._saver = self.hub._spawn(self._save_all())
+
+    async def _save_all(self) -> None:
+        while self._dirty:
+            self._dirty = False
+            data = self.state.snapshot()
+            try:
+                await asyncio.to_thread(self.state.save, data)
+            except OSError as exc:  # a full disk: kept in memory, saved with the next turn
+                log.warning("conversation: couldn't save (%s)", exc)
+
+    async def flush(self) -> None:
+        """Wait for the saves under way (tests; closing)."""
+        while self._saver is not None and not self._saver.done():
+            await asyncio.shield(self._saver)
+
+    def _say(self, text: str, **values: Any) -> str:
+        return lang.tr(text, self.hub.language, **values)
+
+    def _toast(self, text: str) -> None:
+        self.hub.emit("toast", title=self._say("Conversations"), text=text)
+
+    # ── carrying a conversation on: after a restart, or one reopened ──
+
+    async def _show_carried_on(
+        self, sid: str, info: Any, note: str, why: str, keep: bool = False
+    ) -> None:
+        """The window's conversation list becomes the carried-on conversation's last lines
+        and the app's note (keep: what it already shows stays after them, a notice from
+        startup); Claude hears when its last message was."""
+        hub = self.hub
+        entries = await asyncio.to_thread(past.entries, sid, None, get_messages=self.get_messages)
+        last = int(getattr(info, "last_modified", 0) or 0)
+        when = datetime.fromtimestamp(last / 1000) if last else None
+        kept = list(hub.history) if keep else []
+        hub.history.clear()
+        for entry in (entries or [])[-TAIL_SHOWN:]:
+            hub.history.append({**entry, "at": ""})
+        hub.history.append({"role": "note", "text": note, "at": _now()})
+        hub.history.extend(kept)
+        if when is not None:
+            hub._add_style_note(
+                f"{why} (its last message was {when:%A %-d %B at %H:%M}); it carries on from there"
+            )
+        title = self._title_of(sid, info)
+        self.resumed = {"title": title, "at": when.isoformat(timespec="seconds") if when else ""}
+
+    def _title_of(self, sid: str, info: Any) -> str:
+        return (
+            self.state.titles().get(sid)
+            or past.owner_words(getattr(info, "custom_title", "") or "")
+            or past.owner_words(getattr(info, "first_prompt", "") or "")
+        )[:100]
+
+    async def first_connect(self) -> bool:
+        """At startup: carry on the conversation from before, when Settings says so and
+        Claude Code still has its record. False when a new one should start instead."""
+        hub = self.hub
+        if not hub.prefs.feature(RESUME_PREF):
+            return False
+        sid = valid_id(self.state.current)
+        if not sid:
+            return False
+        info = await asyncio.to_thread(past.exists, sid, None, get_info=self.get_info)
+        if info is None:
+            log.info("conversation: the last one's record is gone; starting a new one")
+            self.state.current = ""
+            self._save_soon()
+            return False
+        try:
+            await hub._connect(resume=sid)
+        except Exception:
+            log.warning("conversation: couldn't carry on the last one", exc_info=True)
+            with contextlib.suppress(Exception):
+                await hub.client.disconnect()
+            hub.client = None
+            return False
+        hub._session_id = sid
+        # What it had read before the restart is still in its context: the gates weigh it.
+        hub._session_reads = self.state.reads_of(sid)
+        await self._show_carried_on(
+            sid,
+            info,
+            self._say("Carrying on from earlier."),
+            "the app restarted since this conversation",
+            keep=True,
+        )
+        log.info("conversation: carried on from before the restart")
+        return True
+
+    async def reopen(self, session_id: str) -> None:
+        """Carry on a past conversation as the current one, after a card."""
+        hub = self.hub
+        sid = valid_id(session_id)
+        if not sid:
+            return
+        if sid == hub._session_id:
+            self._toast(self._say("That's the conversation you're in."))
+            return
+        info = await asyncio.to_thread(past.exists, sid, None, get_info=self.get_info)
+        if info is None:
+            self._toast(self._say("That conversation isn't there any more."))
+            return
+        title = self._title_of(sid, info) or "…"
+        last = int(getattr(info, "last_modified", 0) or 0)
+        when = _day(datetime.fromtimestamp(last / 1000), hub.language) if last else ""
+        question = self._say(
+            "Carry on the conversation “{title}” from {when}?", title=title, when=when
+        )
+        detail = self._say(
+            "The conversation you're in now ends here; it stays in Past conversations."
+        )
+        choice = await hub.request_approval(
+            question, detail, [("allow", "Carry on"), ("deny", "Not now")]
+        )
+        if choice != "allow":
+            return
+        async with hub._lock:  # after the request being answered, never in the middle of it
+            was, reads = hub._session_id, hub._session_reads
+            with contextlib.suppress(Exception):
+                await hub.client.disconnect()
+            try:
+                await hub._connect(resume=sid)
+            except Exception:
+                log.warning("conversation: couldn't reopen a past one", exc_info=True)
+                with contextlib.suppress(Exception):
+                    await hub.client.disconnect()
+                with contextlib.suppress(Exception):
+                    await hub._connect(resume=was)
+                    hub._session_reads = reads
+                self._toast(
+                    self._say(
+                        "That conversation couldn't be carried on, so you're still in this one."
+                    )
+                )
+                return
+            hub._session_id = sid
+            hub._session_reads = self.state.reads_of(sid)
+            hub.turn = {}
+            self._title = self.state.titles().get(sid, "")
+            await self._show_carried_on(
+                sid,
+                info,
+                self._say("Carrying on “{title}”.", title=title),
+                "the user reopened this earlier conversation",
+            )
+            self.state.current = sid
+            self._save_soon()
+        hub.emit("history", items=list(hub.history))
+        hub.emit("turn", rid="", user="")
+        self.emit()
+
+    # ── past conversations, for the window ──
+
+    async def list_past(self, msg: dict[str, Any]) -> None:
+        hub = self.hub
+        query = " ".join(str(msg.get("q") or "").split())[:200]
+        items = await asyncio.to_thread(
+            past.listing, None, self.state.titles(), list_sessions=self.list_sessions
+        )
+        if query:
+            try:
+                hits = await asyncio.to_thread(
+                    hub.kb.search, query, BRAIN_HITS, sources=["conversations"]
+                )
+            except Exception:  # the brain's index is being rebuilt: titles alone
+                hits = []
+            items = past.matching(items, query, _brain_ids(hits))
+        current = hub._session_id
+        shown = []
+        for item in items[:LISTED]:
+            sid = item["session_id"]
+            shown.append({**item, "current": sid == current, "cost": self.state.cost_of(sid)})
+        hub.emit("conversation_list", q=query, seq=str(msg.get("seq") or "")[:40], items=shown)
+
+    async def open_past(self, msg: dict[str, Any]) -> None:
+        hub = self.hub
+        sid = valid_id(msg.get("session_id"))
+        if not sid:
+            return
+        entries = await asyncio.to_thread(past.entries, sid, None, get_messages=self.get_messages)
+        hub.emit(
+            "conversation_transcript",
+            session_id=sid,
+            title=self.state.titles().get(sid, ""),
+            current=sid == hub._session_id,
+            entries=entries or [],
+            error="" if entries is not None else "unreadable",
+        )
+
+    # ── the conversation as it goes ──
+
+    def on_connect(self, _options: Any, resume: str) -> None:
+        self._conn_total = None  # a new connection reports its own running total
+        if resume:
+            return
+        # A new conversation ("New conversation", or one that wouldn't carry on).
+        self._title = ""
+        if self.resumed is not None:
+            self.resumed = None
+            self.emit()
+        if self.state.current:
+            self.state.current = ""
+            self._save_soon()
+
+    def on_query(self, text: str, _rid: str) -> None:
+        if not self._title:
+            self._title = text or str(self.hub.turn.get("user") or "")
+        if self.resumed is not None:  # a new turn: the note has done its work
+            self.resumed = None
+            self.emit()
+
+    def on_message(self, message: Any) -> None:
+        if isinstance(message, ResultMessage):
+            self._turn_over(message)
+
+    def _turn_cost(self, sid: str, total: float | None) -> float:
+        """This turn's cost. Claude Code reports a running total per connection (after a
+        resume, one that starts from the session's earlier total)."""
+        if total is None:
+            return 0.0
+        before = self.state.cost_of(sid)
+        if self._conn_total is None:
+            turn = total - before if total >= before else total
+        else:
+            turn = max(0.0, total - self._conn_total)
+        self._conn_total = total
+        return max(0.0, turn)
+
+    def _turn_over(self, message: ResultMessage) -> None:
+        hub = self.hub
+        sid = valid_id(message.session_id)
+        if not sid:
+            return
+        cost = self._turn_cost(sid, message.total_cost_usd)
+        reads = clean_reads(hub._session_reads) or {}
+        self.state.turn_over(sid, reads, cost, title=self._title)
+        self._title = self.state.titles().get(sid, "") or self._title
+        self._save_soon()
+
+    # ── the window ──
+
+    def public(self) -> dict[str, Any]:
+        hub = self.hub
+        sid = hub._session_id
+        return {
+            "resume": bool(hub.prefs.feature(RESUME_PREF)),
+            "resumed": self.resumed,
+            "session_id": sid,
+            "title": self.state.titles().get(sid, "") if sid else "",
+            "cost": self.state.cost_of(sid) if sid else 0.0,
+        }
+
+    def emit(self) -> None:
+        self.hub.emit("conversation", **self.public())
+
+    def install(self) -> None:
+        hub = self.hub
+        hub.conversation = self
+        hub.first_connect = self.first_connect
+        hub.add_connect_hook(self.on_connect)
+        hub.add_query_hook(self.on_query)
+        hub.add_message_sink(self.on_message)
+
+        def later(work: Any) -> Any:
+            """A command whose work reads files or waits on a card runs in the background:
+            the window's socket reads one command at a time."""
+            return lambda msg: hub._spawn(work(msg)) and None
+
+        hub.register_command("conversation_state", lambda _msg: self.emit())
+        hub.register_command("conversation_list", later(self.list_past))
+        hub.register_command("conversation_open", later(self.open_past))
+        hub.register_command(
+            "conversation_resume", later(lambda msg: self.reopen(str(msg.get("session_id") or "")))
+        )
+
+
+def install(hub: Any) -> None:
+    Conversation(hub).install()

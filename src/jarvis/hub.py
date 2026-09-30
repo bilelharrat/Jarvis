@@ -1011,6 +1011,14 @@ class Hub:
         self._routine_runner: Callable[[Any], Any] | None = None
         self._webhook: Callable[[str, Any], Any] | None = None
         self.routes: list[Any] = []  # feature modules' own addresses on the window's server
+        # The conversation's own hooks: its options at each connect, each request just
+        # before Claude gets it, and every message of its stream.
+        self._connect_hooks: list[Callable[[Any, str], Any]] = []
+        self._query_hooks: list[Callable[[str, str], Any]] = []
+        self._message_sinks: list[Callable[[Any], Any]] = []
+        # A feature's own first connect (carrying on the conversation from before a
+        # restart): True when it connected, False for a new conversation.
+        self.first_connect: Callable[[], Any] | None = None
         self.features = features.install_all(self)
 
     # ── features: what jarvis.features modules register ──
@@ -1200,6 +1208,32 @@ class Hub:
         except Exception:
             log.exception("feature loop %s stopped", name)
 
+    def add_connect_hook(self, hook: Callable[[Any, str], Any]) -> None:
+        """Adjust the conversation's options at each connect, just before Claude Code
+        starts: hook(options, resume), resume being the session carried on ("" for a new
+        conversation). One that fails is logged and the connect goes ahead."""
+        self._connect_hooks.append(hook)
+
+    def add_query_hook(self, hook: Callable[[str, str], Any]) -> None:
+        """Hear each request just before Claude gets it: hook(text, rid), text as the owner
+        said or typed it ("" for a routine's or the briefing's). It may be async, and may
+        reconnect (the turn's lock is held)."""
+        self._query_hooks.append(hook)
+
+    def add_message_sink(self, sink: Callable[[Any], Any]) -> None:
+        """Hear every message of the conversation's stream as it's read (the SDK's
+        assistant, user, system and result messages)."""
+        self._message_sinks.append(sink)
+
+    async def _before_query(self, text: str, rid: str) -> None:
+        for hook in list(self._query_hooks):
+            try:
+                result = hook(text, rid)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:  # a feature's hook never costs the user their request
+                log.exception("a feature's query hook failed")
+
     # ── lifecycle ──
 
     async def start(self) -> None:
@@ -1215,7 +1249,8 @@ class Hub:
             )
             self.transcriber.warm_up()
         try:
-            await self._connect()
+            if self.first_connect is None or not await self.first_connect():
+                await self._connect()
         except Exception as exc:  # Claude Code won't start: the window still opens to fix it
             log.exception("couldn't start Claude Code")
             self.client = None  # ask() connects again, and says if it still can't
@@ -1313,6 +1348,11 @@ class Hub:
             options.resume = resume
         else:  # a new conversation: nothing earlier is in its context
             self._session_reads = {"private": False, "web": False, "what": []}
+        for hook in list(self._connect_hooks):
+            try:
+                hook(options, resume)
+            except Exception:
+                log.exception("a feature's connect hook failed")
         self.client = self.client_factory(options=options)
         self._conn_cost = None  # a new connection's running total starts again
         await self.client.connect()
@@ -2777,6 +2817,7 @@ class Hub:
                         self._main_ref() != self._connected_ref
                     ):  # the fallback's time is up (or began)
                         await self._reconnect()
+                    await self._before_query(self._turn_text, rid)
                     await self._run_query(rid, query, images)
                     if self._claude_down:
                         await self._carry_on(rid, query, images)
@@ -2919,6 +2960,8 @@ class Hub:
         if isinstance(message, StreamEvent):
             self._on_stream(rid, message.event)
             return
+        if self._message_sinks:
+            self._call_sinks(self._message_sinks, message)
         if isinstance(message, RateLimitEvent):
             self._rate_limit(message.rate_limit_info)
             return

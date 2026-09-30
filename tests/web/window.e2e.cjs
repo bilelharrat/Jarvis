@@ -4645,6 +4645,74 @@ test('Without a feed (the owner’s own build) About shows the version and no Ch
   assert(r.version === 'J.A.R.V.I.S. 0.1.0' && r.check && /doesn’t check for updates/.test(r.line), JSON.stringify(r));
 });
 
+// ── JARVIS's own conversation (web/features/conversation*.js, loaded as features.js would) ──
+
+const CONVO = ['conversation.js', 'conversation.css'];
+
+test('Conversation: Settings carries on after a restart, and the note offers a new conversation', async () => {
+  await loadFeatures(...CONVO);
+  await js(`__ev({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { conversation_resume: false } }); __sent.length = 0; true`);
+  const sw = await js(`(() => { const s = $('sw-convo-resume'); return { on: s.getAttribute('aria-checked'), before: s.closest('section.group').nextElementSibling === $('open-accounts').closest('section.group') }; })()`);
+  assert(sw.on === 'false' && sw.before, JSON.stringify(sw));
+  await js(`$('sw-convo-resume').click(); true`);
+  const changes = await js('__sent.filter((m) => m.type === "feature_prefs").map((m) => m.changes)');
+  assert(JSON.stringify(changes) === '[{"conversation_resume":true}]', JSON.stringify(changes));
+  await js(`__ev({ type: 'conversation', resume: true, resumed: { title: 'What’s on <b>today</b>?', at: '2026-09-29T09:00:00' } }); __sent.length = 0; true`);
+  const shown = await js(`({ hidden: $('convo-note').hidden, title: $('convo-note-title').textContent, bold: $('convo-note').querySelectorAll('b').length, after: $('reply').nextElementSibling.id })`);
+  assert(!shown.hidden && shown.title === '“What’s on <b>today</b>?”' && shown.bold === 0 && shown.after === 'convo-note', JSON.stringify(shown));
+  await clickText('#convo-note', 'New conversation');
+  assert(JSON.stringify(await sent()) === '["reset"]' && await js(`$('convo-note').hidden`), 'New conversation did not reset');
+  await js(`__ev({ type: 'conversation', resume: true, resumed: { title: 'x', at: '' } }); __ev({ type: 'turn', rid: 'r1', user: 'Thanks' }); true`);
+  assert(await js(`$('convo-note').hidden`), 'the note stayed after a new turn');
+});
+
+test('Conversations: the past ones are listed, searched, read back and carried on', async () => {
+  await loadFeatures(...CONVO);
+  const dock = await js(`({ after: $('activity-btn').nextElementSibling.id, label: $('convo-btn').getAttribute('aria-label') })`);
+  assert(dock.after === 'convo-btn' && dock.label === 'Conversations', JSON.stringify(dock));
+  await js(`__ev({ type: 'conversation', resume: true, resumed: null, session_id: 'a', title: 'Plan the trip', cost: 0.12 }); __sent.length = 0; true`);
+  await js(`$('convo-btn').click(); true`);
+  const opened = await js(`({ open: !$('convo-layer').hidden, expanded: $('convo-btn').getAttribute('aria-expanded'), now: document.querySelector('.convo-now-title').textContent, focus: document.activeElement.id })`);
+  assert(opened.open && opened.expanded === 'true' && opened.now === '“Plan the trip”' && opened.focus === 'convo-search', JSON.stringify(opened));
+  assert(JSON.stringify(await sentOf('conversation_list')) === '[{"type":"conversation_list","q":"","seq":"1"}]', 'the sheet did not ask for the list');
+  const day = 86400000;
+  await js(`__ev({ type: 'conversation_list', seq: '1', q: '', items: [
+    { session_id: 'a', title: 'Plan the trip to <b>Lisbon</b>', preview: 'Plan the trip to <b>Lisbon</b>', at: Date.now(), current: true, cost: 0.12 },
+    { session_id: 'b', title: 'Taxes', preview: 'When are my taxes due', at: Date.now() - 3 * ${day}, current: false, cost: 0 }] }); true`);
+  const rows = await js(`[...document.querySelectorAll('.convo-row')].map((r) => ({ id: r.dataset.session, title: r.querySelector('.convo-row-title').textContent,
+    now: !!r.querySelector('.convo-now-tag'), preview: (r.querySelector('.convo-row-preview') || {}).textContent || '', bold: r.querySelectorAll('b').length }))`);
+  assert(JSON.stringify(rows) === JSON.stringify([
+    { id: 'a', title: 'Plan the trip to <b>Lisbon</b>', now: true, preview: '', bold: 0 },
+    { id: 'b', title: 'Taxes', now: false, preview: 'When are my taxes due', bold: 0 }]), JSON.stringify(rows));
+  await js(`__sent.length = 0; $('convo-search').value = 'tax'; $('convo-search').dispatchEvent(new Event('input')); true`);
+  assert(await until(`__sent.some((m) => m.type === 'conversation_list')`), 'typing searched nothing');
+  const searched = await sentOf('conversation_list');
+  assert(searched.length === 1 && searched[0].q === 'tax' && searched[0].seq === '2', JSON.stringify(searched));
+  await js(`__ev({ type: 'conversation_list', seq: '1', q: '', items: [] }); true`);  // an older answer: ignored
+  assert(await js(`document.querySelectorAll('.convo-row').length === 2`), 'an older list replaced a newer search');
+  await js(`__ev({ type: 'conversation_list', seq: '2', q: 'tax', items: [{ session_id: 'b', title: 'Taxes', preview: '', at: Date.now() - 3 * ${day}, current: false, cost: 0 }] }); __sent.length = 0; true`);
+  await js(`document.querySelector('[data-session="b"]').click(); true`);
+  assert(JSON.stringify(await sentOf('conversation_open')) === '[{"type":"conversation_open","session_id":"b"}]', 'opening sent nothing');
+  assert(await js(`document.querySelector('.convo-wait').textContent === 'Reading…' && !$('convo-back').hidden`), 'no reading state');
+  await js(`__ev({ type: 'conversation_transcript', session_id: 'b', current: false, error: '', entries: [{ role: 'user', text: 'When are my <i>taxes</i> due?' }, { role: 'assistant', text: 'April 15.' }] }); __sent.length = 0; true`);
+  const lines = await js(`[...document.querySelectorAll('.convo-lines li')].map((li) => li.className + ':' + li.textContent + ':' + li.hasAttribute('data-no-i18n'))`);
+  assert(JSON.stringify(lines) === JSON.stringify(['user:When are my <i>taxes</i> due?:true', 'assistant:April 15.:true']), JSON.stringify(lines));
+  await js(`$('convo-resume').click(); true`);
+  assert(JSON.stringify(await sentOf('conversation_resume')) === '[{"type":"conversation_resume","session_id":"b"}]', 'Carry on sent nothing');
+  assert(await js(`$('convo-layer').hidden && $('convo-btn').getAttribute('aria-expanded') === 'false'`), 'the sheet stayed over the card');
+  // The one you're in reads back without a Carry on; Escape goes back, then closes.
+  await js(`$('convo-btn').click(); document.querySelector('[data-session="b"]') && true`);
+  await js(`__ev({ type: 'conversation_list', seq: '3', q: '', items: [{ session_id: 'a', title: 'Plan', preview: '', at: Date.now(), current: true, cost: 0 }] }); document.querySelector('[data-session="a"]').click(); __ev({ type: 'conversation_transcript', session_id: 'a', current: true, error: '', entries: [] }); true`);
+  assert(await js(`!$('convo-resume') && document.querySelector('.convo-read .convo-now-tag').textContent === 'This is the conversation you’re in'`), 'the current one offered Carry on');
+  await js(`$('convo-pop').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+  assert(await js(`!$('convo-layer').hidden && $('convo-back').hidden`), 'Escape did not go back to the list');
+  await js(`$('convo-pop').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+  assert(await js(`$('convo-layer').hidden`), 'Escape did not close the sheet');
+  await js(`toggleSettings(true); true`);
+  await clickText('#convo-group', 'Past conversations…');
+  assert(await js(`!$('convo-layer').hidden && $('settings').hidden`), 'Settings did not open Conversations');
+});
+
 // ──
 
 let base;

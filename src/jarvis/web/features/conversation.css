@@ -1,0 +1,97 @@
+/* JARVIS's own conversation (features/conversation.js): the note under the reply when a
+   conversation carries on, the app's notes in the conversation list, and Conversations (a
+   dock app): the weather pop-out's glass, as Health & safety has it. Calm and small: the
+   conversation itself stays what's read. */
+
+.convo-note {
+  display: inline-flex; align-items: center; gap: 10px; max-width: min(620px, 100%);
+  padding: 5px 5px 5px 14px; border-radius: 18px; font-size: 13px; color: var(--ink-2);
+  background: var(--card); border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.convo-note[hidden] { display: none; }
+.convo-note-text { display: inline-flex; gap: 6px; min-width: 0; }
+.convo-note-text > span { white-space: nowrap; }
+.convo-note-title { overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.convo-note-btn {
+  flex: none; font: inherit; font-size: 12px; border: 0; border-radius: 14px; padding: 5px 11px;
+  min-height: 26px; background: var(--chip-hover); color: var(--ink); cursor: pointer;
+}
+.convo-note-btn:hover { filter: brightness(0.97); }
+
+/* The app's own notes in the conversation (carrying on, a summary made to make room). */
+.history li.note {
+  align-self: center; max-width: 92%; padding: 2px 10px; border-radius: 10px; background: transparent;
+  border: 0; font-size: 12px; color: var(--muted); text-align: center;
+}
+.history li.note time { display: none; }
+
+/* ── Conversations: the sheet (under the cards, so a card it raises shows above it) ── */
+.convo-layer { position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; padding: 24px; }
+.convo-layer[hidden] { display: none; }
+/* A light scrim, no blur: what's underneath stays readable. */
+.convo-scrim { position: absolute; inset: 0; background: rgba(20, 24, 32, 0.14); }
+.convo-pop {
+  --convo-line: var(--line); --convo-inset: var(--chip-hover); --convo-edge: transparent;
+  position: relative; width: min(640px, 100%); max-height: min(820px, calc(100vh - 48px));
+  display: flex; flex-direction: column; border-radius: 22px; color: var(--ink);
+  background: var(--card); border: 1px solid var(--convo-line);
+  box-shadow: inset 0 1px 0 var(--convo-edge), 0 2px 6px rgba(0, 0, 0, 0.1), 0 40px 100px -24px rgba(0, 0, 0, 0.5);
+  animation: convo-rise 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+body[data-look="orb"] .convo-pop {
+  --convo-line: var(--panel-line); --convo-inset: var(--panel-inset); --convo-edge: var(--panel-edge);
+  background-color: rgba(250, 250, 252, 0.72); background-image: var(--panel-glass);
+  -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
+}
+@media (prefers-color-scheme: dark) {
+  .convo-scrim { background: rgba(4, 6, 10, 0.42); }
+  body[data-look="orb"] .convo-pop { background-color: rgba(22, 25, 32, 0.66); }
+}
+@keyframes convo-rise { from { opacity: 0; transform: translateY(8px) scale(0.99); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .convo-pop { animation: none; } }
+
+.convo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px 8px; }
+.convo-head h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.1px; }
+.convo-head h2[hidden], .convo-back[hidden] { display: none; }
+.convo-back { border: 0; background: transparent; padding: 4px 0; font: inherit; font-size: 14px; color: var(--action); cursor: pointer; }
+.convo-close {
+  flex: none; margin-left: auto; width: 28px; height: 28px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center;
+  color: var(--ink-2); background: var(--convo-inset); box-shadow: inset 0 0 0 1px var(--convo-line);
+}
+.convo-close:hover { color: var(--ink); background: var(--chip-hover); }
+.convo-body { overflow-y: auto; overscroll-behavior: contain; padding: 4px 22px 22px; min-height: 0; display: flex; flex-direction: column; gap: 18px; }
+
+.convo-kicker { font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.convo-now { padding: 14px 16px; border-radius: 16px; background: var(--convo-inset); box-shadow: inset 0 0 0 1px var(--convo-line); }
+.convo-now-title { font-size: 15px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.convo-now-meta { margin-top: 4px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.convo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.convo-now-tag { font-size: 11.5px; font-weight: 600; color: var(--action); white-space: nowrap; }
+
+.convo-search {
+  width: 100%; box-sizing: border-box; min-height: 34px; padding: 6px 12px; border-radius: 10px; font: inherit; font-size: 14px;
+  color: var(--ink); background: var(--convo-inset); border: 1px solid var(--convo-line);
+}
+.convo-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; }
+.convo-list li + li { border-top: 1px solid var(--convo-line); }
+.convo-row {
+  width: 100%; display: flex; flex-direction: column; gap: 3px; padding: 10px 6px; border: 0; border-radius: 10px;
+  background: transparent; text-align: left; color: var(--ink); font: inherit; cursor: pointer;
+}
+.convo-row:hover { background: var(--chip-hover); }
+.convo-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.convo-row-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.convo-row-when { flex: none; display: inline-flex; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.convo-row-preview { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convo-empty { margin: 10px 2px 0; font-size: 13px; color: var(--muted); }
+.convo-empty[hidden] { display: none; }
+
+.convo-read-title { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.convo-lines { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.convo-lines li {
+  max-width: 86%; padding: 9px 13px; border-radius: 14px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.convo-lines .user { align-self: flex-end; background: var(--action); color: var(--action-ink); }
+.convo-lines .assistant { align-self: flex-start; background: var(--convo-inset); box-shadow: inset 0 0 0 1px var(--convo-line); }
+.convo-lines .convo-wait { align-self: center; background: transparent; color: var(--muted); font-size: 13px; }
