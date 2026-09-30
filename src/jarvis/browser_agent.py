@@ -45,6 +45,11 @@ TEXT_MAX = 5000
 FIELDS_MAX = 20
 
 PROMPT = (
+    "\n- Browser tabs: browser_open opens a page in a new tab of your own, so the page the "
+    "user was reading stays as it was (same_tab reuses the tab on show when the user asks "
+    "for that; background keeps the new tab behind the one on show). For the rest of the "
+    "request your browser tools work in that tab. browser_tabs lists, switches, opens and "
+    "closes tabs; every result says which tab it's about."
     "\n- Browser agent: browser_snapshot lists the page's elements with refs like [e12] "
     "(role, name, value, state, whether it's in view; + marks what's new since the last "
     "snapshot, ~ what changed). Act on them with browser_act by ref: click, type (replaces "
@@ -217,6 +222,146 @@ def read_text(r: dict[str, Any]) -> str:
         ]
         head.append(f"Also on the page, outside its main content: {', '.join(named)}.")
     return "\n".join(head) + "\n" + untrusted("\n\n".join(parts))
+
+
+class TabRoutes:
+    """Which tab each driver works in: JARVIS, the tab it opened or switched to, for the
+    rest of that request (the next request starts from the tab on show); a Jarvis Code
+    session, its own tab for as long as that's open."""
+
+    def __init__(self) -> None:
+        self._jarvis: tuple[str, int] | None = None
+        self._sessions: dict[int, int] = {}
+
+    def jarvis_tab(self, rid: str) -> int | None:
+        return self._jarvis[1] if self._jarvis and self._jarvis[0] == rid else None
+
+    def set_jarvis(self, rid: str, tab: Any) -> None:
+        self._jarvis = (rid, int(tab)) if tab else None
+
+    def session_tab(self, task_id: int) -> int | None:
+        return self._sessions.get(task_id)
+
+    def set_session(self, task_id: int, tab: Any) -> None:
+        if tab:
+            self._sessions[task_id] = int(tab)
+        else:
+            self._sessions.pop(task_id, None)
+
+    def forget(self, tab: Any) -> None:
+        """A tab that closed: no one works in it any more."""
+        if self._jarvis and self._jarvis[1] == tab:
+            self._jarvis = None
+        for task_id in [k for k, v in self._sessions.items() if v == tab]:
+            del self._sessions[task_id]
+
+    def route(self, args: dict[str, Any], rid: str) -> dict[str, Any]:
+        """A JARVIS call (no owner) goes to its tab this request, unless it names one."""
+        if "owner" in args or "tab" in args:
+            return args
+        tab = self.jarvis_tab(rid)
+        return {**args, "tab": tab} if tab else args
+
+
+def closed_tab(r: dict[str, Any]) -> bool:
+    """The window's answer when the tab a call was for is gone."""
+    text = str(r.get("message") or r.get("error") or "")
+    return r.get("ok") is False and bool(re.match(r"(Tab \d+ is closed|There's no tab)", text))
+
+
+def tabs_text(r: dict[str, Any], mine: str = "") -> str:
+    lines = []
+    for t in r.get("tabs") or []:
+        if not isinstance(t, dict):
+            continue
+        owner = str(t.get("owner") or "")
+        whose = (
+            " (yours)"
+            if owner and owner == mine
+            else " (JARVIS's)"
+            if owner == "jarvis"
+            else f" (Jarvis Code session {owner[5:]}'s)"
+            if owner.startswith("code:")
+            else ""
+        )
+        state = " (on show)" if t.get("shown") else ""
+        state += " (loading)" if t.get("loading") else ""
+        title = str(t.get("title") or "").strip() or "(no title)"
+        lines.append(f"- Tab {t.get('id')}: {title} — {t.get('url') or 'empty'}{state}{whose}")
+    return untrusted("\n".join(lines) or "(no tabs)")
+
+
+TABS_DESC = (
+    "The built-in browser's tabs. op: list (each tab's id, title and address, which is on "
+    "show and whose it is), switch (id: work in that tab and show it; background: true to "
+    "work in it behind the one on show), open (url: a new tab of your own; background: true "
+    "keeps it behind), close (id)."
+)
+OPEN_DESC = (
+    "Open a web page (or search words) in the built-in browser inside the J.A.R.V.I.S. "
+    "window, where the user can watch. It opens in a new tab of your own, so the page the "
+    "user was reading stays; later calls in this request reuse your tab. same_tab: true to "
+    "open it in the tab on show instead (only when the user asks for that); new_tab: true "
+    "for another tab; background: true to keep it behind the tab on show."
+)
+
+
+def tabs_tool(
+    call: BrowserCall, *, route: Callable[[dict], dict], mine: str, on_switch, may_open, may_close
+):
+    """browser_tabs for a driver. on_switch(tab) records the tab it now works in;
+    may_open(url) and may_close(tab, listing) say whether it may (a message, or "")."""
+
+    @tool(
+        "browser_tabs",
+        TABS_DESC,
+        {
+            "type": "object",
+            "properties": {
+                "op": {"type": "string", "enum": ["list", "switch", "open", "close"]},
+                "id": {"type": "integer"},
+                "url": {"type": "string"},
+                "background": {"type": "boolean"},
+            },
+            "required": ["op"],
+        },
+    )
+    async def browser_tabs(args):
+        op = str(args.get("op") or "list")
+        background = bool(args.get("background"))
+        if op == "list":
+            r = await call("tabs", route({"op": "list"}))
+            return error_result(r) or _text(tabs_text(r, mine))
+        if op == "open":
+            url = str(args.get("url") or "").strip()
+            if not url:
+                return _text("open needs a url.", error=True)
+            why = await may_open(url)
+            if why:
+                return _text(why, error=True)
+            r = await call("open", route({"url": url, "newTab": True, "background": background}))
+            if r.get("tab"):
+                on_switch(r["tab"])
+            return error_result(r) or _text(f"Opened in tab {r.get('tab')}.\n{where(r)}")
+        try:
+            tab = int(args.get("id"))
+        except (TypeError, ValueError):
+            return _text(f"{op} needs the id of a tab (browser_tabs list shows them).", error=True)
+        if op == "switch":
+            r = await call("tabs", route({"op": "switch", "id": tab, "background": background}))
+            if r.get("ok"):
+                on_switch(tab)
+            return error_result(r) or _text(f"{r.get('message')}\n{where(r)}")
+        if op == "close":
+            listing = await call("tabs", route({"op": "list"}))
+            why = may_close(tab, listing)
+            if why:
+                return _text(why, error=True)
+            r = await call("tabs", route({"op": "close", "id": tab}))
+            return error_result(r) or _text(str(r.get("message") or "Closed."))
+        return _text("op must be list, switch, open or close.", error=True)
+
+    return browser_tabs
 
 
 def act_args(args: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
@@ -429,14 +574,52 @@ def build_tools(call: BrowserCall, press_ok: PressOk, route: Callable[[dict], di
 def jarvis_tools(hub: Any) -> list:
     """JARVIS's own: a press that sends, posts, pays or deletes needs the user's yes, unless
     they've said never to ask (Settings › Control my Mac without asking); paying still meets
-    the purchase guard either way."""
+    the purchase guard either way. Opening a tab goes through the same check as browser_open
+    (an address can carry what the request has read)."""
 
     async def press_ok(label: str, _result: dict[str, Any]) -> bool:
         if hub.prefs.control_always:
             return True
         return await hub.confirm(f"Click “{label}” in the browser?")
 
-    return build_tools(hub.browser_call, press_ok, lambda req: req)
+    async def may_open(url: str) -> str:
+        from .brain import browser_tool
+
+        if await hub._egress_ok(browser_tool("browser_open"), {"url": url}):
+            return ""
+        return "The user didn't OK opening that. Don't retry it or find another way to do it."
+
+    tabs = tabs_tool(
+        hub.browser_call,
+        route=lambda req: {**req, "owner": "jarvis"},
+        mine="jarvis",
+        on_switch=lambda tab: hub.browser_tabs.set_jarvis(hub._rid, tab),
+        may_open=may_open,
+        may_close=lambda _tab, _listing: "",
+    )
+    return [*build_tools(hub.browser_call, press_ok, lambda req: req), tabs]
+
+
+async def jarvis_open(hub: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """browser_open for JARVIS: a new tab of its own, unless it already has one this request
+    (then that one) or the user asked for the tab on show (same_tab)."""
+    req: dict[str, Any] = {"url": str(args.get("url", "")), "owner": "jarvis"}
+    mine = hub.browser_tabs.jarvis_tab(hub._rid)
+    if args.get("same_tab"):
+        pass  # the tab on show
+    elif mine and not args.get("new_tab"):
+        req["tab"] = mine
+    else:
+        req["newTab"] = True
+    if args.get("background"):
+        req["background"] = True
+    r = await hub.browser_call("open", req)
+    if closed_tab(r) and "tab" in req:  # the user closed it: a new one
+        hub.browser_tabs.forget(req.pop("tab"))
+        r = await hub.browser_call("open", {**req, "newTab": True})
+    if r.get("tab"):
+        hub.browser_tabs.set_jarvis(hub._rid, r["tab"])
+    return r
 
 
 # ── Jarvis Code ──
@@ -457,21 +640,60 @@ def loopback(url: Any) -> bool:
 
 class CodeSession:
     """One Jarvis Code session's side of the browser: which session it is (its calls carry
-    owner "code:<id>"), and how a press that needs the user's OK is decided. On a page on
-    this Mac, the session's own approval of the browser tool counts (the app it's building);
-    elsewhere the session asks through its approval card, unless it runs with Bypass
-    permissions."""
+    owner "code:<id>" and go to its own tab once it has one), and how a press that needs the
+    user's OK is decided. On a page on this Mac, the session's own approval of the browser
+    tool counts (the app it's building); elsewhere the session asks through its approval
+    card, unless it runs with Bypass permissions."""
 
-    def __init__(self, tasks: Any = None, task_id: int = 0) -> None:
+    def __init__(
+        self, tasks: Any = None, task_id: int = 0, routes: TabRoutes | None = None
+    ) -> None:
         self.tasks = tasks
         self.task_id = int(task_id or 0)
+        self.routes = routes or TabRoutes()
 
     @property
     def owner(self) -> str:
         return f"code:{self.task_id}" if self.task_id else "code"
 
+    @property
+    def tab(self) -> int | None:
+        return self.routes.session_tab(self.task_id)
+
+    def use(self, tab: Any) -> None:
+        self.routes.set_session(self.task_id, tab)
+
     def route(self, req: dict[str, Any]) -> dict[str, Any]:
-        return {**req, "owner": self.owner}
+        out = {**req, "owner": self.owner}
+        if "tab" not in out and not out.get("newTab") and self.tab:
+            out["tab"] = self.tab
+        return out
+
+    async def open(self, call: BrowserCall, args: dict[str, Any]) -> dict[str, Any]:
+        """browser_open for a session: its own tab (a new one the first time, or with
+        new_tab), on show unless background."""
+        req: dict[str, Any] = {"url": str(args.get("url", ""))}
+        if args.get("new_tab") or not self.tab:
+            req["newTab"] = True
+        if args.get("background"):
+            req["background"] = True
+        r = await call("open", self.route(req))
+        if closed_tab(r):  # its tab was closed: a new one
+            self.use(None)
+            r = await call("open", self.route({**req, "newTab": True}))
+        if r.get("tab"):
+            self.use(r["tab"])
+        return r
+
+    def may_close(self, tab: int, listing: dict[str, Any]) -> str:
+        owners = {
+            t.get("id"): t.get("owner") for t in listing.get("tabs") or [] if isinstance(t, dict)
+        }
+        if tab not in owners:
+            return f"There's no tab {tab}."
+        if owners[tab] != self.owner:
+            return "A session closes only the tabs it opened."
+        return ""
 
     async def confirm(self, what: str, detail: str) -> bool:
         tasks = self.tasks
@@ -500,4 +722,15 @@ class CodeSession:
 
 
 def code_tools(call: BrowserCall, session: CodeSession) -> list:
-    return build_tools(call, session.press_ok, session.route)
+    async def may_open(_url: str) -> str:
+        return ""  # the session's own approval of the tool covered it
+
+    tabs = tabs_tool(
+        call,
+        route=session.route,
+        mine=session.owner,
+        on_switch=session.use,
+        may_open=may_open,
+        may_close=session.may_close,
+    )
+    return [*build_tools(call, session.press_ok, session.route), tabs]

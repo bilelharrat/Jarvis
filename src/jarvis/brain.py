@@ -34,7 +34,7 @@ BROWSER_READ = [
     "browser_snapshot",
     "browser_wait",
 ]
-BROWSER_CONTROL = ["browser_click", "browser_type", "browser_act"]
+BROWSER_CONTROL = ["browser_click", "browser_type", "browser_act", "browser_tabs"]
 # The built-in browser's tools that only look: every other tool on its server acts on a
 # page (types, clicks, submits, runs a script, uploads, opens or manages tabs), those added
 # later included, and goes past the turn gate (browser_acting).

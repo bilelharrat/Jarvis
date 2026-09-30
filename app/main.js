@@ -699,7 +699,8 @@ function createTab() {
   const wc = view.webContents;
   const active = () => view === browserView;
   wc.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) newTab(url); // a link that wants a new window: a new tab
+    // a link that wants a new window: a new tab (behind, when it came from a tab behind)
+    if (/^https?:\/\//.test(url)) { if (view === browserView) newTab(url); else browserAgent.popup(view, url); }
     return { action: 'deny' };
   });
   wc.session.setPermissionRequestHandler((_wc, permission, callback) => callback(pagePermission(permission)));
@@ -848,6 +849,21 @@ const browserAgent = createAgent({
   ensureBrowser,
   isShown: (view) => Boolean(view && view === browserView && browserShown),
   setSynthetic: (on) => { agentInput = on; },
+  addTab: ({ select, owner }) => {
+    const view = createTab();
+    view.agentOwner = owner || ''; // who opened it: 'jarvis', 'code:<session>'
+    tabs.push(view);
+    view.setBounds(lastBounds || { x: 0, y: 0, width: 1280, height: 800 }); // its page lays out at the dock's size
+    if (select) selectTab(view);
+    sendBrowserState();
+    return view;
+  },
+  blankTab: () => (browserView && !browserView.webContents.getURL() && !browserView.webContents.isLoading() ? browserView : null),
+  select: (view) => { selectTab(view); sendBrowserState(); },
+  close: (view) => closeTab(view),
+  showBrowser: () => { if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
+  markAsked: () => { browserAsked = true; },
+  toUrl,
   research: (view) => onResearch(view.webContents.getURL()),
 });
 
@@ -863,12 +879,6 @@ async function runBrowserCommand({ action, args = {} }) {
     return { error: 'The Research Center is on its sign-in page. The user signs in themselves; after that I can drive it.' };
   }
   switch (action) {
-    case 'open':
-      win.webContents.send('browser:open');
-      browserAsked = true;
-      await wc.loadURL(toUrl(args.url)).catch(() => {});
-      await waitForLoad(wc);
-      return { url: wc.getURL(), title: wc.getTitle() };
     case 'research':
       win.webContents.send('browser:open');
       if (/^https?:\/\//.test(String(args.base || ''))) researchBase = args.base;

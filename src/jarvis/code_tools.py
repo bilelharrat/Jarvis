@@ -57,12 +57,22 @@ def browser_tools(call: BrowserCall, session: browser_agent.CodeSession | None =
 
     @tool(
         "browser_open",
-        "Open a URL in the J.A.R.V.I.S. built-in browser (the user watches it). Use it to try "
-        "the web app you're building, e.g. http://localhost:5173.",
-        {"url": str},
+        "Open a URL in the J.A.R.V.I.S. built-in browser (the user watches it), in this "
+        "session's own tab: to try the web app you're building, e.g. http://localhost:5173. "
+        "new_tab: true for another tab; background: true to keep it behind the tab on show.",
+        {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "new_tab": {"type": "boolean"},
+                "background": {"type": "boolean"},
+            },
+            "required": ["url"],
+        },
     )
     async def browser_open(args):
-        return _page(await call("open", {"url": str(args.get("url", ""))}), "Opened")
+        r = await session.open(call, args)
+        return _page(r, f"Opened in tab {r.get('tab')}" if r.get("tab") else "Opened")
 
     @tool(
         "browser_read",
@@ -87,7 +97,11 @@ def browser_tools(call: BrowserCall, session: browser_agent.CodeSession | None =
         },
     )
     async def browser_click(args):
-        return _page(await call("click", {k: str(args.get(k, "")) for k in ("text", "selector")}))
+        return _page(
+            await call(
+                "click", session.route({k: str(args.get(k, "")) for k in ("text", "selector")})
+            )
+        )
 
     @tool(
         "browser_type",
@@ -107,18 +121,20 @@ def browser_tools(call: BrowserCall, session: browser_agent.CodeSession | None =
         return _page(
             await call(
                 "type",
-                {
-                    "text": str(args.get("text", "")),
-                    "field": str(args.get("field", "")),
-                    "submit": bool(args.get("submit")),
-                },
+                session.route(
+                    {
+                        "text": str(args.get("text", "")),
+                        "field": str(args.get("field", "")),
+                        "submit": bool(args.get("submit")),
+                    }
+                ),
             ),
             "Typed",
         )
 
     @tool("browser_screenshot", "See the built-in browser's page as an image.", {})
     async def browser_screenshot(_args):
-        r = await call("screenshot", {})
+        r = await call("screenshot", session.route({}))
         if r.get("error") or not r.get("png"):
             return _page(r if r.get("error") else {"error": "No picture."})
         return {

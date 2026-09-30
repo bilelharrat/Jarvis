@@ -45,7 +45,8 @@ async def test_browser_tools_drive_the_window_browser():
     await b["browser_open"]({"url": "http://localhost:5173"})
     out = await b["browser_read"]({})
     assert "Hello" in out["content"][0]["text"]
-    assert calls[0] == ("open", {"url": "http://localhost:5173"})
+    # a session opens its own tab (owner "code" without a session id here)
+    assert calls[0] == ("open", {"url": "http://localhost:5173", "newTab": True, "owner": "code"})
 
 
 async def test_simulator_tools(tmp_path, monkeypatch):

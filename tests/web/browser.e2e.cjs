@@ -236,6 +236,30 @@ test('The fuller read has dialogs, alerts, banners and sidebars, real labels, va
   assert(JSON.stringify(r.regions.map((x) => x.kind)) === JSON.stringify(['Dialog', 'Alert', 'Sidebar', 'Banner']), JSON.stringify(r.regions));
 });
 
+test('Opening in a new tab keeps the page on show; tabs list, switch and close', async () => {
+  await fresh();
+  const before = tabs.length;
+  const r = await run('open', { url: `${base}/other.html`, newTab: true, background: true, owner: 'jarvis' });
+  assert(r.ok && r.opened === 'new' && r.shown === false && tabs.length === before + 1, JSON.stringify(r));
+  assert(/shop\.html$/.test(shown.webContents.getURL()), 'the page on show changed');
+  const list = await run('tabs', { op: 'list' });
+  const mine = list.tabs.find((t) => t.id === r.tab);
+  assert(mine && mine.owner === 'jarvis' && !mine.shown && /other\.html$/.test(mine.url), JSON.stringify(list.tabs));
+  const snap = await run('snapshot', { tab: r.tab, interactive: true });
+  assert(snap.ok && /link "Back to shop"/.test(snap.text), snap.text);
+  const same = await run('open', { url: `${base}/shop.html`, tab: r.tab, background: true });
+  assert(same.ok && same.tab === r.tab && same.opened === 'same', JSON.stringify(same));
+  const sw = await run('tabs', { op: 'switch', id: r.tab });
+  assert(sw.ok && shown.webContents.id === r.tab, JSON.stringify(sw));
+  const closed = await run('tabs', { op: 'close', id: r.tab });
+  assert(closed.ok && !tabs.some((v) => v.webContents.id === r.tab), JSON.stringify(closed));
+  const gone = await run('snapshot', { tab: r.tab });
+  assert(!gone.ok && /closed/.test(gone.message), gone.message);
+  while (tabs.length > 1) await run('tabs', { op: 'close', id: tabs[tabs.length - 1].webContents.id });
+  const last = await run('tabs', { op: 'close', id: tabs[0].webContents.id });
+  assert(!last.ok && /only tab/.test(last.message), JSON.stringify(last));
+});
+
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
   const server = await serve();
@@ -243,8 +267,25 @@ app.whenReady().then(async () => {
   win = new BrowserWindow({ show: false, width: 1000, height: 700 });
   shown = newTab();
   win.contentView.addChildView(shown);
+  const select = (view) => {
+    if (view === shown) return;
+    win.contentView.removeChildView(shown);
+    shown = view;
+    win.contentView.addChildView(view);
+  };
   agent = createAgent({
     tabs: () => tabs, ensureBrowser: () => shown, isShown: (v) => v === shown, setSynthetic: () => {}, research: () => false,
+    addTab: ({ select: show, owner }) => { const v = newTab(); v.agentOwner = owner || ''; if (show) select(v); return v; },
+    blankTab: () => null,
+    select,
+    close: (view) => {
+      if (tabs.length < 2) return false;
+      tabs.splice(tabs.indexOf(view), 1);
+      if (view === shown) select(tabs[0]);
+      view.webContents.close();
+      return true;
+    },
+    showBrowser: () => {}, markAsked: () => {}, toUrl: (u) => u,
   });
   let failed = 0;
   for (const t of tests) {

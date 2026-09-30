@@ -179,6 +179,7 @@ TOOL_LABELS = {
     "browser_snapshot": "Looked over the browser page",
     "browser_act": "Acted in the browser",
     "browser_wait": "Waited for the browser page",
+    "browser_tabs": "Worked with browser tabs",
     "search_notes": "Searched your second brain",
     "read_note": "Read a note",
     "second_brain_status": "Checked the second brain",
@@ -721,7 +722,9 @@ class Hub:
         # Buying, booking and paying in the built-in browser: one confirmation, and every
         # click or keystroke there (JARVIS's own and Jarvis Code's) goes through its guard.
         self.transactions = transaction_desk or transactions.Transactions(
-            lambda: self._browser_raw("read", dict(transactions.GUARD_READ)),
+            lambda: self._browser_raw(
+                "read", self.browser_tabs.route(dict(transactions.GUARD_READ), self._rid)
+            ),
             self.purchase_gate,
             lambda: self.prefs,
             user_words=lambda: self._turn_text,
@@ -741,6 +744,8 @@ class Hub:
             send=self.send_gate,
             free=lambda: self.prefs.control_always,
         )
+        # Which tab JARVIS (this request) and each Jarvis Code session works in.
+        self.browser_tabs = browser_agent.TabRoutes()
         # Conversations JARVIS holds for the user by text or email, within their limits.
         self.delegations = delegation_store or delegate.DelegationStore()
         self.delegate = delegate.DelegateEngine(
@@ -789,7 +794,7 @@ class Hub:
             self.browser_call,
             self.workbench,
             lambda: cwd,
-            session=browser_agent.CodeSession(self.tasks, task_id),
+            session=browser_agent.CodeSession(self.tasks, task_id, self.browser_tabs),
         )
         self.tasks.page_url = lambda: browser_gate.read_url(self._browser_raw)
         # The Mac's own mouse and keyboard: never a press that pays outside the built-in
@@ -4205,8 +4210,13 @@ class Hub:
 
     async def browser_call(self, action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         """A browser action for JARVIS or Jarvis Code, through the purchase guard: a final
-        Pay / Book / Transfer button needs its confirmation for exactly that page."""
-        return await self._guarded_browser(action, args)
+        Pay / Book / Transfer button needs its confirmation for exactly that page. JARVIS's
+        go to the tab it's working in this request (browser_agent.TabRoutes)."""
+        args = self.browser_tabs.route(dict(args or {}), self._rid)
+        result = await self._guarded_browser(action, args)
+        if browser_agent.closed_tab(result) and args.get("tab"):
+            self.browser_tabs.forget(args["tab"])
+        return result
 
     async def _browser_raw(self, action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         """Ask the J.A.R.V.I.S. window to run a browser action; its answer comes back over
@@ -4243,13 +4253,21 @@ class Hub:
 
         @tool(
             "browser_open",
-            "Open a web page (or search words) in the built-in browser inside the J.A.R.V.I.S. "
-            "window, where the user can watch. Use it when the user wants you to browse or do "
-            "something on a website.",
-            {"url": str},
+            browser_agent.OPEN_DESC,
+            {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "new_tab": {"type": "boolean"},
+                    "same_tab": {"type": "boolean"},
+                    "background": {"type": "boolean"},
+                },
+                "required": ["url"],
+            },
         )
         async def browser_open(args):
-            return done(await hub.browser_call("open", {"url": args["url"]}), "Opened")
+            r = await browser_agent.jarvis_open(hub, args)
+            return done(r, f"Opened in tab {r.get('tab')}" if r.get("tab") else "Opened")
 
         @tool(
             "browser_read",

@@ -23,6 +23,7 @@ const MOD_BITS = { alt: 1, option: 1, control: 2, ctrl: 2, meta: 4, cmd: 4, comm
 const FIELD_MAX = 20;
 const WAIT_MAX = 30000;
 const IDLE_MS = 10 * 60 * 1000; // a tab the agent hasn't used this long goes back to normal
+const TABS_MAX = 30;
 const NOT_DRAWING = 'needs the page drawing on screen: its tab on show in the browser, with the J.A.R.V.I.S. window not covered by other apps. Click instead, or ask the user to bring the window forward.';
 
 // What a ref points at, as the purchase guard and the risky-press check need it.
@@ -931,16 +932,86 @@ class BrowserAgent {
     return `The page is showing a ${d.type} on screen: “${core.clip(d.message, 300)}”. The user has to answer it there.`;
   }
 
+  // ── tabs ──
+
+  // Open a page: in a new tab of the agent's own (on show, or behind the one on show with
+  // background), in the tab it names, or in the tab on show. A new tab reuses the tab on show
+  // when that has never had a page (the browser's first, empty tab).
+  async open(args = {}) {
+    const url = this.hooks.toUrl(args.url);
+    let view;
+    if (args.newTab) {
+      view = this.hooks.blankTab();
+      if (view && args.owner && !view.agentOwner) view.agentOwner = args.owner;
+      if (!view) {
+        if (this.views().length >= TABS_MAX) {
+          return { ok: false, message: `${this.views().length} tabs are open already. Close some with browser_tabs, or open this in a tab you have (tab).` };
+        }
+        view = this.hooks.addTab({ select: !args.background, owner: args.owner || '' });
+      }
+    } else {
+      view = this.target(args);
+    }
+    const tab = this.tab(view);
+    if (String(args.owner || '').startsWith('code:')) tab.keep = true; // a session's tab stays watched
+    if (!args.background) {
+      this.hooks.select(view);
+      this.hooks.showBrowser();
+    }
+    this.hooks.markAsked();
+    const wc = view.webContents;
+    await wc.loadURL(url).catch(() => {});
+    await this.loaded(wc, 20000);
+    if (tab.cdp.attached) await this.quiet(tab, Date.now() + 1500);
+    return { ok: true, ...this.where(view), opened: args.newTab ? 'new' : 'same', background: Boolean(args.background) };
+  }
+
+  // A page asking for a new window from a tab behind the one on show: a new tab behind too,
+  // the same driver's (the act that clicked it reports it).
+  popup(opener, url) {
+    if (this.views().length >= TABS_MAX) return;
+    const view = this.hooks.addTab({ select: false, owner: opener.agentOwner || '' });
+    view.webContents.loadURL(this.hooks.toUrl(url)).catch(() => {});
+  }
+
+  tabs(args = {}) {
+    const op = String(args.op || 'list');
+    if (op === 'list') {
+      return {
+        ok: true,
+        tabs: this.views().map((v) => ({
+          id: v.webContents.id, title: v.webContents.getTitle(), url: v.webContents.getURL(),
+          loading: v.webContents.isLoading(), shown: this.hooks.isShown(v), owner: v.agentOwner || '',
+        })),
+      };
+    }
+    const view = this.byId(args.id);
+    if (!view) return { ok: false, message: `There's no tab ${args.id}. List the open tabs with browser_tabs.` };
+    if (op === 'switch') {
+      if (!args.background) {
+        this.hooks.select(view);
+        this.hooks.showBrowser();
+      }
+      return { ok: true, message: args.background ? `Working in tab ${view.webContents.id}, behind the one on show.` : `Showing tab ${view.webContents.id}.`, ...this.where(view) };
+    }
+    if (op === 'close') {
+      const was = this.where(view);
+      if (!this.hooks.close(view)) return { ok: false, message: "That's the only tab open; it stays." };
+      return { ok: true, message: `Closed tab ${was.tab} (${was.title || was.url}).`, closed: was.tab };
+    }
+    return { ok: false, message: 'op must be list, switch or close (open with browser_open).' };
+  }
+
   // ── the command switch ──
 
   handles(action) {
-    return ['snapshot', 'describe', 'act', 'wait'].includes(action);
+    return ['snapshot', 'describe', 'act', 'wait', 'open', 'tabs'].includes(action);
   }
 
   async run(action, args = {}) {
     let view;
     try {
-      view = this.target(args);
+      view = action === 'tabs' || (action === 'open' && args.newTab) ? this.hooks.ensureBrowser() : this.target(args);
     } catch (err) {
       return { ok: false, message: err.message };
     }
@@ -950,6 +1021,8 @@ class BrowserAgent {
         case 'describe': return await this.describe(view, args);
         case 'act': return await this.act(view, args);
         case 'wait': return await this.wait(view, args);
+        case 'open': return await this.open(args);
+        case 'tabs': return this.tabs(args);
         default: return { error: `Unknown browser action ${action}` };
       }
     } catch (err) {

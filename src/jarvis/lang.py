@@ -2043,6 +2043,7 @@ ZH_TEXTS: dict[str, str] = {
     "Looked over the browser page": "查看了浏览器页面的元素",
     "Acted in the browser": "在浏览器中进行了操作",
     "Waited for the browser page": "等候了浏览器页面",
+    "Worked with browser tabs": "操作了浏览器标签页",
     "Searched your second brain": "搜索了第二大脑",
     "Read a note": "读取了一条笔记",
     "Checked the second brain": "查看了第二大脑",

@@ -2977,7 +2977,7 @@ def guard_browser(desk: Transactions, call: BrowserCall) -> BrowserCall:
 
     async def guarded(action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         args = dict(args or {})
-        if action in _LOOKING:
+        if action in _LOOKING or (action == "tabs" and args.get("op") == "list"):
             return await call(action, args)
         if action == "act":
             return await _guard_act(desk, call, args)
