@@ -47,6 +47,8 @@ def speaking_hub(settings, quiet_speaker, isolated, tmp_path):
     quiet_speaker.muted, quiet_speaker.rate = False, 190
     quiet_speaker.player_path = tmp_path / "jarvis-player"  # never run: talk-over's is
     isolated["prefs_store"].prefs.hands_free = True
+    # Talk over Jarvis is off until the owner turns it on (Settings › Listening): on here.
+    isolated["prefs_store"].prefs.features["voice_talk_over"] = True
     hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
     return hub
 

@@ -64,7 +64,9 @@ prefs_module.register_feature_pref(
 )
 prefs_module.register_feature_pref("wake_words", wakewords.EMPTY, wakewords.clean_pref)
 prefs_module.register_feature_pref("voice_engine", "whisper", lambda v: v if v in ENGINES else None)
-prefs_module.register_feature_pref("voice_talk_over", True)
+# Off until the owner has tried it on this Mac: the echo-cancelling helper is new, and
+# voice processing can lower other apps' sound while it listens (Settings › Listening).
+prefs_module.register_feature_pref("voice_talk_over", False)
 for _key, (_default, _clean) in SPEAKING_PREFS.items():
     prefs_module.register_feature_pref(_key, _default, _clean)
 
