@@ -40,6 +40,8 @@ STRIPE_TOOLS = ("create_product", "create_price", "create_payment_link")
 ZERO_DECIMAL = frozenset(
     "BIF CLP DJF GNF ISK JPY KMF KRW MGA PYG RWF UGX VND VUV XAF XOF XPF".split()
 )
+# And those it counts in thousandths (the last digit a zero).
+THREE_DECIMAL = frozenset("BHD JOD KWD OMR TND".split())
 
 
 def _routine_id(value: Any) -> str | None:
@@ -223,8 +225,14 @@ class InvoiceDesk:
         if isinstance(found, str):
             raise ValueError(found)
         live, tools = found
-        whole = invoice.currency in ZERO_DECIMAL
-        amount = int(round(invoice.total if whole else invoice.total * 100))
+        # Stripe counts in the currency's smallest unit: yen whole, dinars in thousandths
+        # (a multiple of ten), the rest in hundredths.
+        if invoice.currency in ZERO_DECIMAL:
+            amount = int(round(invoice.total))
+        elif invoice.currency in THREE_DECIMAL:
+            amount = int(round(invoice.total * 100)) * 10
+        else:
+            amount = int(round(invoice.total * 100))
         product = await self._call(
             live,
             tools["create_product"],

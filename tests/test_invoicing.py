@@ -425,6 +425,16 @@ async def test_stripe_through_the_connector(settings, quiet_speaker, isolated):
     )
     await desk.payment_link(yen)
     assert live.calls[-2][1]["unit_amount"] == 5000  # yen are whole
+    dinar = invoices.Invoice(
+        "INV-2026-003",
+        "2026-09-29",
+        "2026-10-29",
+        "Acme",
+        [invoices.Line("x", 1, 100.25)],
+        currency="KWD",
+    )
+    await desk.payment_link(dinar)
+    assert live.calls[-2][1]["unit_amount"] == 100250  # Stripe counts dinars in thousandths
     hub.connectors.connections["stripe"].policy = "read_only"
     assert "read-only" in desk.stripe_ready()
     live.tools = live.tools[:1]
