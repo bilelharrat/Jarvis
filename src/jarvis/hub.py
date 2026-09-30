@@ -355,6 +355,7 @@ class WindowQueue:
         return len(self._items)
 
 
+PREP_EVENTS_SECONDS = 10 * 60  # the calendar read for meeting prep is reused this long
 RESEARCH_FOLLOW_UP = 15.0  # after a Research Center command, the next needs no wake word
 ECHO_SECONDS = 4.0  # after JARVIS stops talking, its own voice may still be heard
 ECHO_WINDOW = 12.0  # what it said this recently may come back through the microphone
@@ -882,11 +883,14 @@ class Hub:
             data / "documents.json",
             folder=lambda: self.prefs.documents_folder or documents.default_folder(),
         )
+        # The next thirty hours of the calendar, for meeting prep and the names in meetings:
+        # (when it was read, the events), reused for PREP_EVENTS_SECONDS.
+        self._prep_cache: tuple[float, list[dict[str, Any]]] | None = None
         # Gentle cards: a habit's usual request, meeting prep, an email due soon.
         self.suggester = suggester or suggestions.Suggester(
             self._suggest,
             data / "suggestions.json",
-            events=self._upcoming_events,
+            events=self._prep_events,
             mail=self._recent_mail,
             has_prep=self._has_prep,
             enabled=lambda: self.prefs.proactive and self.prefs.suggestions,
@@ -1908,15 +1912,21 @@ class Hub:
         """Names the owner keeps (people in upcoming meetings, what memory holds, their
         Contacts) as hints for Whisper; refreshed every half hour."""
         while True:
-            try:
-                events = getattr(self.watcher, "_events", None) or []
-                people = [p for e in events for p in e.get("attendees") or []]
-                self.hearing.seed("calendar", people)
-                self.hearing.seed("memory", hearing.names_in(f.text for f in self.memory.facts))
-                self.hearing.seed("contacts", self.interrupts.known_names())
-            except Exception:
-                log.exception("hearing: couldn't refresh names")
+            await self._seed_hearing_names()
             await asyncio.sleep(1800)
+
+    async def _seed_hearing_names(self) -> None:
+        try:
+            try:  # the people in the next day's meetings, not only the next four hours'
+                events = await self._prep_events()
+            except Exception:
+                events = getattr(self.watcher, "_events", None) or []
+            people = [p for e in events for p in e.get("attendees") or []]
+            self.hearing.seed("calendar", people)
+            self.hearing.seed("memory", hearing.names_in(f.text for f in self.memory.facts))
+            self.hearing.seed("contacts", self.interrupts.known_names())
+        except Exception:
+            log.exception("hearing: couldn't refresh names")
 
     def _memory_changed(self) -> None:
         self.emit("memory", items=self.memory.public())
@@ -4876,6 +4886,22 @@ class Hub:
         if "events" not in found:
             raise RuntimeError(found.get("error", "no calendar"))
         return calendar_kit.parse(found["events"])
+
+    async def _prep_events(self) -> list[dict[str, Any]]:
+        """The calendar far enough ahead for meeting prep (suggestions.PREP_AHEAD_H: up to
+        thirty hours, so tomorrow's meetings too), read at most every ten minutes. The
+        heads-up watcher's own look, every few minutes, reaches four hours ahead."""
+        cached, now = self._prep_cache, time.monotonic()
+        if cached is not None and now - cached[0] < PREP_EVENTS_SECONDS:
+            return cached[1]
+        from . import calendar_kit
+
+        found = await calendar_kit.fetch(0, suggestions.PREP_AHEAD_H[1])
+        if "events" not in found:
+            raise RuntimeError(found.get("error", "no calendar"))
+        events = calendar_kit.parse(found["events"])
+        self._prep_cache = (now, events)
+        return events
 
     async def _eta_minutes(self, destination: str) -> int | None:
         from .maps import run_helper

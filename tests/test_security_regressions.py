@@ -683,3 +683,57 @@ async def test_jarvis_code_opens_its_dev_server_by_host_and_port():
         assert target.local, url
     remote = await browser_gate.target(open_tool, {"url": "example.com:8443"}, None)
     assert not remote.local and remote.verb == "open example.com in the browser"
+
+
+# ── 4. meeting prep reaches tomorrow's meetings ──
+
+
+async def test_meeting_prep_looks_thirty_hours_ahead_and_the_watcher_still_four(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    import time
+    from datetime import datetime, timedelta
+
+    from jarvis import calendar_kit
+    from jarvis import hub as hub_module
+
+    now = datetime.now().replace(second=0, microsecond=0)
+    tomorrow = now + timedelta(hours=20)
+    looks = []
+
+    async def fetch(back=0, ahead=24, timeout=70):
+        looks.append((back, ahead))
+        return {
+            "events": [
+                {
+                    "id": "e1",
+                    "title": "Board review",
+                    "begin": tomorrow.isoformat(),
+                    "end": (tomorrow + timedelta(hours=1)).isoformat(),
+                    "attendees": ["Priya Raman", "tom.ellis@example.com"],
+                    "all_day": False,
+                    "location": "",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(calendar_kit, "fetch", fetch)
+    own = {k: v for k, v in isolated.items() if k != "suggester"}  # the hub's own suggester
+    hub = hub_module.Hub(
+        settings, client_factory=lambda **k: None, speaker=quiet_speaker, poll=False, **own
+    )
+    assert hub.suggester._events == hub._prep_events
+    assert hub.watcher._events_fn == hub._upcoming_events
+    [prep] = await hub.suggester._preps(now)
+    assert prep.title == "Prep for Board review" and "Priya Raman" in prep.text
+    assert looks == [(0, 30)]
+    await hub._prep_events()  # within ten minutes: the same look
+    assert looks == [(0, 30)]
+    hub._prep_cache = (time.monotonic() - hub_module.PREP_EVENTS_SECONDS - 1, [])
+    await hub._prep_events()
+    assert looks == [(0, 30), (0, 30)]
+    await hub._upcoming_events()  # the watcher's look is still four hours
+    assert looks[-1] == (0, 4)
+    # Tomorrow's people are speech hints too.
+    await hub._seed_hearing_names()
+    assert {"Priya Raman", "tom.ellis"} <= set(hub.hearing.seeds["calendar"])
