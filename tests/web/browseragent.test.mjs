@@ -1,8 +1,10 @@
 // The browser agent's pure parts (app/browser-agent-core.js): snapshots, refs, what changed,
 // screenshot marks, keys, addresses. node --test tests/web/
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const core = require('../../app/browser-agent-core.js');
@@ -228,3 +230,10 @@ test('risky presses: sending, paying, deleting and form submits, not plain links
   assert.ok(!core.risky('Delete this post', { role: 'link' }));
   assert.ok(core.risky('Send', { role: 'link', submits: true }));
 });
+
+test('main.js opens a background tab’s new window in its opener’s profile, not by who opened the tab', () => {
+  const main = readFileSync(fileURLToPath(new URL('../../app/main.js', import.meta.url)), 'utf8');
+  assert.match(main, /browserAgent\.popup\(view, url, parity\.profileOf\(wc\) \|\| \{\}\)/);
+  assert.match(main, /createTab\(profile \|\| parity\.agentTab\(owner\)\)/);
+});
+

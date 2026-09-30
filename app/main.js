@@ -719,7 +719,7 @@ function createTab(opts = {}) {
     const { url } = details;
     // a link that wants a new window: a new tab (behind, when it came from a tab behind)
     // (a private page's, or one shown beside the dock's or in a window of its own: a tab in front, in its profile)
-    if (/^https?:\/\//.test(url)) { if (view === browserView || view.private || parity.shownElsewhere(view)) newTab(url, parity.profileOf(wc)); else browserAgent.popup(view, url); }
+    if (/^https?:\/\//.test(url)) { if (view === browserView || view.private || parity.shownElsewhere(view)) newTab(url, parity.profileOf(wc)); else browserAgent.popup(view, url, parity.profileOf(wc) || {}); }
     return { action: 'deny' };
   });
   parity.wireTab(view); // per-site permission prompts (browser-parity.js)
@@ -873,8 +873,9 @@ const browserAgent = createAgent({
   ensureBrowser,
   isShown: (view) => Boolean(view && view === browserView && browserShown),
   setSynthetic: (on) => { agentInput = on; },
-  addTab: ({ select, owner }) => {
-    const view = createTab(parity.agentTab(owner)); // JARVIS's own profile, when it browses signed out
+  addTab: ({ select, owner, profile }) => {
+    // a popup's: its opener's profile; else JARVIS's own, when it browses signed out
+    const view = createTab(profile || parity.agentTab(owner));
     view.agentOwner = owner || ''; // who opened it: 'jarvis', 'code:<session>'
     tabs.push(view);
     view.setBounds(lastBounds || { x: 0, y: 0, width: 1280, height: 800 }); // its page lays out at the dock's size

@@ -91,8 +91,8 @@ const upfile = path.join(app.getPath('temp'), `jarvis-upload-${process.pid}`, 'u
 let agent;
 const tabs = [];
 let shown = null;
-const newTab = () => {
-  const view = new WebContentsView({ webPreferences: { partition: 'browser-test', preload: path.join(__dirname, '..', '..', 'app', 'page-preload.js'), sandbox: true, contextIsolation: true } });
+const newTab = (partition = 'browser-test') => {
+  const view = new WebContentsView({ webPreferences: { partition, preload: path.join(__dirname, '..', '..', 'app', 'page-preload.js'), sandbox: true, contextIsolation: true } });
   view.setBounds({ x: 0, y: 0, width: 1000, height: 700 });
   tabs.push(view);
   return view;
@@ -343,6 +343,22 @@ test('Opening in a new tab keeps the page on show; tabs list, switch and close',
   assert(!last.ok && /only tab/.test(last.message), JSON.stringify(last));
 });
 
+test('A page behind the one on show opens its new tab in its own profile (a signed-out tab stays signed out)', async () => {
+  const opener = newTab('browser-test-signed-out');
+  const before = tabs.length;
+  try {
+    agent.popup(opener, `${base}/other.html`, { partition: 'browser-test-signed-out' });
+    const child = tabs[before];
+    assert(tabs.length === before + 1 && child !== shown, 'no new tab behind');
+    assert(child.webContents.session === opener.webContents.session, 'the new tab is in another profile than its opener');
+    child.webContents.close();
+    tabs.splice(tabs.indexOf(child), 1);
+  } finally {
+    tabs.splice(tabs.indexOf(opener), 1);
+    opener.webContents.close();
+  }
+});
+
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
   const server = await serve();
@@ -360,7 +376,7 @@ app.whenReady().then(async () => {
   };
   agent = createAgent({
     tabs: () => tabs, ensureBrowser: () => shown, isShown: (v) => v === shown, setSynthetic: () => {}, research: () => false,
-    addTab: ({ select: show, owner }) => { const v = newTab(); v.agentOwner = owner || ''; if (show) select(v); return v; },
+    addTab: ({ select: show, owner, profile }) => { const v = newTab(profile && profile.partition); v.agentOwner = owner || ''; if (show) select(v); return v; },
     blankTab: () => null,
     select,
     close: (view) => {

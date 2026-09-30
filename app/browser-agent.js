@@ -1332,10 +1332,11 @@ class BrowserAgent {
   }
 
   // A page asking for a new window from a tab behind the one on show: a new tab behind too,
-  // the same driver's (the act that clicked it reports it).
-  popup(opener, url) {
+  // the same driver's (the act that clicked it reports it), in the opener's profile (main.js
+  // says which: a signed-out tab's stays signed out).
+  popup(opener, url, profile) {
     if (this.views().length >= TABS_MAX) return;
-    const view = this.hooks.addTab({ select: false, owner: opener.agentOwner || '' });
+    const view = this.hooks.addTab({ select: false, owner: opener.agentOwner || '', profile });
     view.webContents.loadURL(this.hooks.toUrl(url)).catch(() => {});
   }
 
