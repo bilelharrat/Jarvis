@@ -6,6 +6,10 @@ The rules are plain functions of the current state so they can be tested; `Watch
 runs them every minute and hands anything new to the hub, which shows a card and, when
 the moment is right (not busy, not in quiet hours, not taking meeting notes), says it.
 Every alert has a key, and a key is only ever announced once.
+
+Travel times are by car with current traffic, unless a feature plans the trips
+(Watcher.plan: the proactive feature's commute profile, by transit or on foot, arriving
+early): time_to_leave then says how, and leaves by a train's departure when Maps gives one.
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
+
+from . import lang
 
 log = logging.getLogger("jarvis")
 
@@ -84,10 +90,52 @@ def meeting_soon(
     return out
 
 
+# What a leave-time heads-up says, by how the owner gets there: (time to go, running late).
+LEAVE_TEXTS = {
+    "driving": (
+        "Time to leave for {title}. It's {minutes} minutes to {place} with current traffic, "
+        "and it starts at {time}.",
+        "You'll be a little late for {title}: it's {minutes} minutes to {place} with current "
+        "traffic, and it starts at {time}.",
+    ),
+    "transit": (
+        "Time to leave for {title}. It's {minutes} minutes to {place} by transit, and it "
+        "starts at {time}.",
+        "You'll be a little late for {title}: it's {minutes} minutes to {place} by transit, "
+        "and it starts at {time}.",
+    ),
+    "walking": (
+        "Time to leave for {title}. It's a {minutes}-minute walk to {place}, and it starts "
+        "at {time}.",
+        "You'll be a little late for {title}: it's a {minutes}-minute walk to {place}, and "
+        "it starts at {time}.",
+    ),
+}
+lang.add_texts(
+    {
+        LEAVE_TEXTS["transit"][
+            0
+        ]: "该出发去{title}了。坐公共交通到{place}要{minutes}分钟，{time}开始。",
+        LEAVE_TEXTS["transit"][1]: (
+            "去{title}可能会晚一点：坐公共交通到{place}要{minutes}分钟，而它{time}就开始了。"
+        ),
+        LEAVE_TEXTS["walking"][0]: "该出发去{title}了。走到{place}要{minutes}分钟，{time}开始。",
+        LEAVE_TEXTS["walking"][1]: (
+            "去{title}可能会晚一点：走到{place}要{minutes}分钟，而它{time}就开始了。"
+        ),
+    }
+)
+
+
 def time_to_leave(
-    events: list[dict[str, Any]], now: datetime, etas: dict[str, int | None]
+    events: list[dict[str, Any]],
+    now: datetime,
+    etas: dict[str, int | None],
+    trips: dict[str, dict[str, Any]] | None = None,
 ) -> list[Alert]:
-    """etas: minutes of travel per event key (None when Maps couldn't say)."""
+    """etas: minutes of travel per event key (None when Maps couldn't say). trips: how each
+    goes when a feature planned it ({mode, early: minutes to arrive before it starts,
+    depart: when a train that gets there in time leaves}); by car without one."""
     out = []
     for e in events:
         if e.get("all_day") or not is_travel(e.get("location", "")):
@@ -96,16 +144,22 @@ def time_to_leave(
         minutes = etas.get(key)
         if minutes is None or minutes <= NEAR_MIN or e["begin"] <= now:
             continue
-        leave_at = e["begin"] - timedelta(minutes=minutes + LEAVE_BUFFER_MIN)
-        if now >= leave_at:
+        trip = (trips or {}).get(key) or {}
+        mode = trip.get("mode") if trip.get("mode") in LEAVE_TEXTS else "driving"
+        early = max(0, int(trip.get("early") or 0))
+        depart = trip.get("depart") if isinstance(trip.get("depart"), datetime) else None
+        if depart is not None:  # a timetable: the train that gets there in time
+            leave_at = depart - timedelta(minutes=LEAVE_BUFFER_MIN)
+            late = now > depart
+        else:
+            arrive = e["begin"] - timedelta(minutes=early)
+            leave_at = arrive - timedelta(minutes=minutes + LEAVE_BUFFER_MIN)
             late = now > e["begin"] - timedelta(minutes=minutes)
+        if now >= leave_at:
             place = e["location"].split(",")[0].split("\n")[0].strip()
-            text = (
-                f"You'll be a little late for {e['title']}: it's {minutes} minutes to {place} "
-                f"with current traffic, and it starts at {_clock(e['begin'])}."
-                if late
-                else f"Time to leave for {e['title']}. It's {minutes} minutes to {place} with "
-                f"current traffic, and it starts at {_clock(e['begin'])}."
+            template = LEAVE_TEXTS[mode][1 if late else 0]
+            text = template.format(
+                title=e["title"], minutes=minutes, place=place, time=_clock(e["begin"])
             )
             out.append(Alert(f"leave:{key}", "leave", f"Leave for {e['title']}", text))
     return out
@@ -228,6 +282,10 @@ class Watcher:
         self._events: list[dict[str, Any]] = []
         self._events_at: datetime | None = None
         self._etas: dict[str, tuple[datetime, int | None]] = {}
+        # A feature's trip planner, used instead of eta when set: plan(event) gives
+        # {minutes, mode, early, depart} or None (the proactive feature's commute profile).
+        self.plan: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]] | None = None
+        self.trips: dict[str, dict[str, Any]] = {}  # the trip last planned per event key
 
     async def run(self) -> None:
         while True:
@@ -244,7 +302,7 @@ class Watcher:
         await self._refresh_events(now)
         etas = await self._etas_for(now)
         alerts += meeting_soon(self._events, now, etas)
-        alerts += time_to_leave(self._events, now, etas)
+        alerts += time_to_leave(self._events, now, etas, self.trips)
         alerts += battery_alerts(self._battery_fn())
         alerts += rain_alerts(self._weather_fn(), now)
         if self._files_fn is not None:
@@ -277,11 +335,26 @@ class Watcher:
             key = event_key(e)
             cached = self._etas.get(key)
             if cached is None or (now - cached[0]).total_seconds() >= ETA_EVERY:
+                trip = None
                 try:
-                    minutes = await self._eta_fn(e["location"])
+                    if self.plan is not None:
+                        trip = await self.plan(e)
+                        minutes = trip.get("minutes") if trip else None
+                    else:
+                        minutes = await self._eta_fn(e["location"])
                 except Exception:
                     minutes = None
-                cached = (now, minutes)
+                usable = isinstance(minutes, int | float) and not isinstance(minutes, bool)
+                cached = (now, round(minutes) if usable else None)
                 self._etas[key] = cached
+                if trip:
+                    self.trips[key] = trip
+                else:
+                    self.trips.pop(key, None)
             out[key] = cached[1]
+        self.trips = {k: v for k, v in self.trips.items() if k in out}
         return out
+
+    def known_events(self) -> list[dict[str, Any]]:
+        """The calendar as last read (the next few hours), for features to look at."""
+        return list(self._events)

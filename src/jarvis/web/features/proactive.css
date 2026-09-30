@@ -1,8 +1,13 @@
 /* The proactive feature's Settings pieces (web/features/proactive.js): the briefing's
-   sections, each with its order buttons and switch; Weather and travel's status. */
+   sections, each with its order buttons and switch; Weather and travel's status and the
+   places reached another way. */
 .brief-lead { margin-top: 4px; }
 .brief-sections { max-height: none; }
 .brief-sections li.off .fact strong { color: var(--muted); }
 .brief-sections .brief-move { min-width: 30px; padding: 4px 8px; }
 .brief-sections .brief-move:disabled { opacity: 0.35; cursor: default; }
 #weather-status .weather-now { display: inline; }
+.commute-add { gap: 8px; }
+.commute-add input[type="text"] { flex: 1; min-width: 0; }
+.commute-add select { flex: none; }
+.commute-places .fact bdi { font-weight: 600; overflow-wrap: anywhere; }

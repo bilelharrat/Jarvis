@@ -61,7 +61,92 @@
     "No warnings right now.": "目前没有预警。",
     "Needs your location, or a weather city, to watch the weather.": "需要你的位置或天气城市，才能关注天气。",
     "The weather city couldn't be found just now.": "暂时找不到天气城市。",
-    "Checked weather warnings": "查看了天气预警"
+    "Checked weather warnings": "查看了天气预警",
+    "Getting around": "出行方式",
+    "Leave-time heads-ups follow it: by car with traffic, by transit with its timetable, or on foot": "“该出发了”提醒按它来算：开车按路况，公共交通按时刻表，或者步行",
+    "How you usually get around": "你平时怎么出行",
+    "Drive": "开车",
+    "Transit": "公共交通",
+    "Walk": "步行",
+    "Arrive early": "提前到达",
+    "Leave this much sooner than the trip needs": "比路上需要的时间再早这么多出发",
+    "On time": "准时",
+    "Places you get to another way": "用别的方式去的地方",
+    "A place matches an event whose location or title has it": "日程的地点或标题里有这个词就算匹配",
+    "A place": "地点",
+    "How you get there": "怎么去",
+    "Checked how you get around": "查看了你的出行方式",
+    "Changed how you get around": "修改了你的出行方式",
+    "e.g. office, dentist": "例如：公司、牙医"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^(\\d+) minutes early$",
+      "提前 $1 分钟"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}:\\d{2}) AM\\.$",
+      "该出发去 $1 了。坐公共交通到 $3 需要 $2 分钟，上午$4开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}:\\d{2}) AM\\.$",
+      "去 $1 可能会晚一点：坐公共交通到 $3 需要 $2 分钟，而它上午$4就开始了。"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}) AM\\.$",
+      "该出发去 $1 了。坐公共交通到 $3 需要 $2 分钟，上午$4点开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}) AM\\.$",
+      "去 $1 可能会晚一点：坐公共交通到 $3 需要 $2 分钟，而它上午$4点就开始了。"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}:\\d{2}) PM\\.$",
+      "该出发去 $1 了。坐公共交通到 $3 需要 $2 分钟，下午$4开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}:\\d{2}) PM\\.$",
+      "去 $1 可能会晚一点：坐公共交通到 $3 需要 $2 分钟，而它下午$4就开始了。"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}) PM\\.$",
+      "该出发去 $1 了。坐公共交通到 $3 需要 $2 分钟，下午$4点开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's (\\d+) minutes to (.+) by transit, and it starts at (\\d{1,2}) PM\\.$",
+      "去 $1 可能会晚一点：坐公共交通到 $3 需要 $2 分钟，而它下午$4点就开始了。"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}:\\d{2}) AM\\.$",
+      "该出发去 $1 了。走到 $3 需要 $2 分钟，上午$4开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}:\\d{2}) AM\\.$",
+      "去 $1 可能会晚一点：走到 $3 需要 $2 分钟，而它上午$4就开始了。"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}) AM\\.$",
+      "该出发去 $1 了。走到 $3 需要 $2 分钟，上午$4点开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}) AM\\.$",
+      "去 $1 可能会晚一点：走到 $3 需要 $2 分钟，而它上午$4点就开始了。"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}:\\d{2}) PM\\.$",
+      "该出发去 $1 了。走到 $3 需要 $2 分钟，下午$4开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}:\\d{2}) PM\\.$",
+      "去 $1 可能会晚一点：走到 $3 需要 $2 分钟，而它下午$4就开始了。"
+    ],
+    [
+      "^Time to leave for (.+)\\. It's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}) PM\\.$",
+      "该出发去 $1 了。走到 $3 需要 $2 分钟，下午$4点开始。"
+    ],
+    [
+      "^You'll be a little late for (.+): it's a (\\d+)-minute walk to (.+), and it starts at (\\d{1,2}) PM\\.$",
+      "去 $1 可能会晚一点：走到 $3 需要 $2 分钟，而它下午$4点就开始了。"
+    ]
+  ]
 }

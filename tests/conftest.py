@@ -285,3 +285,16 @@ def _no_real_reminders(monkeypatch):
         return {"error": "Reminders aren't reachable in tests."}
 
     monkeypatch.setattr(reminders_desk, "_run", not_here)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_maps(monkeypatch):
+    """Apple Maps (maps.run_helper: CoreLocation and MapKit in a subprocess) never answers a
+    test, so a briefing's trip or a leave-time heads-up never looks up the real one; tests
+    that want travel times fake run_helper themselves."""
+    from jarvis import maps
+
+    async def not_here(*_args, **_kwargs):
+        return {"error": "Maps isn't reachable in tests."}
+
+    monkeypatch.setattr(maps, "run_helper", not_here)

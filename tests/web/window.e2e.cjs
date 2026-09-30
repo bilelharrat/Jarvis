@@ -4462,6 +4462,32 @@ test('Weather and travel switches the weather heads-ups, says what it watches, a
   assert(await js('[...document.querySelectorAll("#cards .card-kicker")].some((k) => k.textContent === "Weather")'), 'no Weather kicker on the card');
 });
 
+test('Getting around: the usual way, arriving early and places reached another way, from Settings', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: {} });
+  await deliver({ type: 'proactive', commute: { mode: 'driving', places: [{ place: 'Office', mode: 'transit' }], early: 0 } });
+  assert(await js('$("commute-mode").closest("section") === $("travel-group")'), 'not in Weather and travel');
+  assert(await js('$("commute-mode").querySelector("[aria-checked=true]").dataset.mode') === 'driving', 'the usual way');
+  assert(await js('$("commute-early").value') === '0', 'arriving early');
+  assert(await js('$("commute-places").querySelector("bdi").hasAttribute("data-no-i18n")'), 'a place would be translated');
+  await js('toggleSettings(true); __sent.length = 0; $("commute-mode").querySelector("[data-mode=walking]").click(); $("commute-early").value = "10"; $("commute-early").dispatchEvent(new Event("change")); true');
+  let s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s.map((m) => m.changes)) === JSON.stringify([{ travel_mode: 'walking' }, { arrive_early: 10 }]), JSON.stringify(s));
+  await js('__sent.length = 0; $("commute-place").value = " dentist "; $("commute-place-mode").value = "walking"; $("commute-add").click(); true');
+  s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s[0].changes) === JSON.stringify({ travel_places: [{ place: 'Office', mode: 'transit' }, { place: 'dentist', mode: 'walking' }] }), JSON.stringify(s));
+  assert(await js('$("commute-place").value') === '', 'the box kept the place');
+  // What the settings keep wins, and a time said by voice (7 minutes) still shows.
+  await deliver({ ...PREFS, features: { travel_mode: 'transit', arrive_early: 7, travel_places: [{ place: 'Gym', mode: 'walking' }] } });
+  assert(await js('$("commute-mode").querySelector("[aria-checked=true]").dataset.mode') === 'transit', 'the setting');
+  assert(await js('$("commute-early").value') === '7', await js('$("commute-early").value'));
+  const shown = await js('[...$("commute-places").children].map((li) => li.dataset.place)');
+  assert(JSON.stringify(shown) === '["Gym"]', JSON.stringify(shown));
+  await js('__sent.length = 0; $("commute-places").querySelector("button").click(); true');
+  s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s[0].changes) === JSON.stringify({ travel_places: [] }), JSON.stringify(s));
+});
+
 // ──
 
 let base;

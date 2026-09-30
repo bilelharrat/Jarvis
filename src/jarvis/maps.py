@@ -104,6 +104,9 @@ def reverse_geocode(lat: float, lon: float) -> dict[str, Any]:
 def eta(
     lat: float, lon: float, destination: str, mode: str = "driving", arrive: float | None = None
 ) -> dict[str, Any]:
+    """Minutes, distance and, when Maps says, when to set off and when you'd arrive
+    (epoch seconds): with arrive, the trip that gets there by then (a train's
+    timetable)."""
     import CoreLocation
     import MapKit
     from Foundation import NSDate
@@ -153,10 +156,13 @@ def eta(
                 done["minutes"] = round(response2.expectedTravelTime() / 60)
                 done["km"] = round(response2.distance() / 1000, 1)
                 done["miles"] = round(response2.distance() / 1609.34, 1)
-                if arrive:
-                    departs = response2.expectedDepartureDate()
-                    if departs is not None:
-                        done["depart"] = float(departs.timeIntervalSince1970())
+                for key, getter in (
+                    ("depart", "expectedDepartureDate"),
+                    ("arrive", "expectedArrivalDate"),
+                ):
+                    moment = getattr(response2, getter, lambda: None)()
+                    if moment is not None:
+                        done[key] = round(moment.timeIntervalSince1970())
             done["end"] = True
 
         MapKit.MKDirections.alloc().initWithRequest_(request).calculateETAWithCompletionHandler_(

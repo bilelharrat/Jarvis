@@ -9,6 +9,9 @@ Its parts, each a module here with the details (settings, tools, commands, cost)
   reminders due in the briefing and the wrap-up.
 - weather_watch.py: severe weather warnings, the air and big temperature swings, as
   heads-ups and in the briefing.
+- commute.py: how the owner gets places (by car, transit or on foot, arriving early), which
+  the leave-time heads-ups and the briefing's first trip follow.
+- calendar_look.py: the calendar the parts share, read by one loop.
 
 Window: {"type": "proactive_state"} -> one "proactive" event with every part's state (each
 part sends its own piece again, as {"type": "proactive", <part>: {...}}, when it changes);
@@ -23,7 +26,7 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-from . import briefing, quiet, reminders, weather_watch
+from . import briefing, calendar_look, commute, quiet, reminders, weather_watch
 
 _FEATURES: weakref.WeakKeyDictionary[Any, Proactive] = weakref.WeakKeyDictionary()
 
@@ -37,12 +40,16 @@ class Proactive:
         self.briefing = briefing.Briefing(hub)
         self.reminders = reminders.Reminders(hub, self.briefing)
         self.weather = weather_watch.WeatherWatch(hub, self.briefing)
+        self.look = calendar_look.CalendarLook(hub)
+        self.commute = commute.Commute(hub, self.briefing, self.look)
 
     def install(self) -> None:
         self.quiet.install()
         self.briefing.install()
         self.reminders.install()
         self.weather.install()
+        self.look.install()
+        self.commute.install()
         self.hub.register_command("proactive_state", self.send_state)
         self.hub.register_command("proactive_snooze", self.snooze_command)
 
@@ -51,6 +58,7 @@ class Proactive:
             "quiet": self.quiet.state(),
             "briefing": self.briefing.state(),
             "weather": self.weather.state(),
+            "commute": self.commute.state(),
         }
 
     def send_state(self, _msg: dict[str, Any] | None = None) -> None:

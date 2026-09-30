@@ -69,3 +69,17 @@ test('the weather status: what it needs, else where it watches and what it sees'
   assert.equal(P.weatherLine(w, 'off').details, 'Red Flag Warning for your area.');
   assert.equal(P.weatherLine({ place: 'Paris', warnings: [], air: null }, 'sensitive').details, '');
 });
+
+test('places reached another way: added once, changed in place, removed, and no more than 30', () => {
+  assert.deepEqual(P.places({ travel_places: [{ place: 'Office', mode: 'transit' }, { place: 'x', mode: 'rocket' }, null] }, []), [{ place: 'Office', mode: 'transit' }]);
+  assert.deepEqual(P.places({}, [{ place: 'Gym', mode: 'walking' }]), [{ place: 'Gym', mode: 'walking' }]);
+  const one = [{ place: 'Office', mode: 'transit' }];
+  assert.deepEqual(P.withPlace(one, '  dentist ', 'walking'), [...one, { place: 'dentist', mode: 'walking' }]);
+  assert.deepEqual(P.withPlace(one, 'office', 'driving'), [{ place: 'Office', mode: 'driving' }]);
+  assert.equal(one[0].mode, 'transit');  // the list it was given is left as it was
+  assert.equal(P.withPlace(one, '   ', 'walking'), null);
+  assert.equal(P.withPlace(one, 'Gym', 'rocket'), null);
+  const full = Array.from({ length: 30 }, (_, i) => ({ place: `p${i}`, mode: 'walking' }));
+  assert.equal(P.withPlace(full, 'one more', 'walking'), null);
+  assert.deepEqual(P.withoutPlace([...one, { place: 'Gym', mode: 'walking' }], 'Office'), [{ place: 'Gym', mode: 'walking' }]);
+});

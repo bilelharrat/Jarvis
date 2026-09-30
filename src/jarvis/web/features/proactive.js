@@ -2,7 +2,8 @@
 // gains the weekend's own quiet hours, following a Focus mode (with why it can't, when it
 // can't) and a snooze with its Resume; Settings › Morning briefing gains its sections (each
 // on or off, in the owner's order), news topics and the evening wrap-up; a new Settings ›
-// Weather and travel holds the weather heads-ups (severe weather, the air, big swings).
+// Weather and travel holds the weather heads-ups (severe weather, the air, big swings) and
+// how the owner gets around (the usual way, places reached another way, arriving early).
 // Weather heads-ups get their own kicker on cards.
 //
 // Everything the backend or the owner wrote (a Focus mode's name, a time) is shown with
@@ -81,6 +82,26 @@
       if (air !== 'off' && w.air && Number.isFinite(w.air.aqi)) bits.push(`AQI ${w.air.aqi} · ${w.air.words}`);
       return { words: 'Watching the weather in', place: w.place, details: bits.join(' · ') };
     },
+    MODES: ['driving', 'transit', 'walking'],
+    // The places reached another way: the settings' own, else the backend's word.
+    places(features, fallback) {
+      const listed = Array.isArray((features || {}).travel_places) ? features.travel_places : fallback;
+      return (Array.isArray(listed) ? listed : []).filter((p) => p && typeof p.place === 'string' && P.MODES.includes(p.mode)).map((p) => ({ place: p.place, mode: p.mode }));
+    },
+    // A place added (or its way changed): null when there's no place to add, or no room.
+    withPlace(places, place, mode) {
+      const name = String(place || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (!name || !P.MODES.includes(mode)) return null;
+      const out = places.map((p) => ({ ...p }));
+      const known = out.find((p) => p.place.toLowerCase() === name.toLowerCase());
+      if (known) known.mode = mode;
+      else if (out.length >= 30) return null;
+      else out.push({ place: name, mode });
+      return out;
+    },
+    withoutPlace(places, place) {
+      return places.filter((p) => p.place !== place).map((p) => ({ ...p }));
+    },
   };
   window.jarvisProactive = P;
 
@@ -94,6 +115,7 @@
   let quiet = null;
   let briefing = null;  // the backend's word on the briefing (its sections' defaults)
   let weather = null;  // what the weather watch last saw
+  let commute = null;  // the backend's word on the commute profile
 
   function button(label, cls, onClick, aria) {
     const b = el('button', cls, label);
@@ -348,6 +370,93 @@
     status.hidden = !words;
   }
 
+  // ── Settings › Weather and travel: how you get around ──
+
+  const MODE_WORDS = { driving: 'Drive', transit: 'Transit', walking: 'Walk' };
+  const EARLY = [0, 5, 10, 15, 20, 30];
+
+  function buildCommute() {
+    const group = F.$('travel-group');
+    if (!group || F.$('commute-mode')) return;
+    const mode = segmented('commute-mode', 'How you usually get around', P.MODES.map((m) => [m, MODE_WORDS[m]]), (m) => setFeatures({ travel_mode: m }));
+    const early = el('select');
+    early.id = 'commute-early';
+    early.setAttribute('aria-label', 'Arrive early');
+    for (const m of EARLY) {
+      const option = el('option', '', m ? `${m} minutes early` : 'On time');
+      option.value = String(m);
+      early.append(option);
+    }
+    early.addEventListener('change', () => setFeatures({ arrive_early: Number(early.value) }));
+    const list = el('ul', 'itemlist commute-places');
+    list.id = 'commute-places';
+    const place = el('input');
+    place.type = 'text';
+    place.id = 'commute-place';
+    place.maxLength = 60;
+    place.placeholder = 'e.g. office, dentist';
+    place.setAttribute('aria-label', 'A place');
+    const how = el('select');
+    how.id = 'commute-place-mode';
+    how.setAttribute('aria-label', 'How you get there');
+    for (const m of P.MODES) {
+      const option = el('option', '', MODE_WORDS[m]);
+      option.value = m;
+      how.append(option);
+    }
+    const add = button('Add', 'btn', () => {
+      const places = P.withPlace(currentPlaces(), place.value, how.value);
+      if (!places) return;
+      setFeatures({ travel_places: places });
+      place.value = '';
+    });
+    add.id = 'commute-add';
+    place.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add.click(); } });
+    const addRow = el('div', 'row commute-add');
+    addRow.append(place, how, add);
+    group.append(
+      row('Getting around', 'Leave-time heads-ups follow it: by car with traffic, by transit with its timetable, or on foot'),
+      mode,
+      row('Arrive early', 'Leave this much sooner than the trip needs', early),
+      row('Places you get to another way', 'A place matches an event whose location or title has it'),
+      list,
+      addRow,
+    );
+    renderCommute();
+  }
+
+  function currentPlaces() {
+    return P.places(features, commute && commute.places);
+  }
+
+  function renderCommute() {
+    const c = commute || { mode: 'driving', places: [], early: 0 };
+    pick('commute-mode', P.MODES.includes(features.travel_mode) ? features.travel_mode : c.mode);
+    const early = Number.isInteger(features.arrive_early) ? features.arrive_early : c.early;
+    const select = F.$('commute-early');
+    if (select && document.activeElement !== select) {
+      if (![...select.options].some((o) => o.value === String(early))) {
+        const option = el('option', '', `${early} minutes early`);
+        option.value = String(early);
+        select.append(option);
+      }
+      select.value = String(early);
+    }
+    const list = F.$('commute-places');
+    if (!list) return;
+    const places = currentPlaces();
+    list.replaceChildren(...places.map((p) => {
+      const li = el('li');
+      li.dataset.place = p.place;
+      const words = el('span', 'fact');
+      words.append(mine(el('bdi', '', p.place)), el('small', '', MODE_WORDS[p.mode]));
+      const remove = button('Remove', 'btn', () => setFeatures({ travel_places: P.withoutPlace(currentPlaces(), p.place) }), 'Remove');
+      li.append(words, remove);
+      return li;
+    }));
+    list.hidden = !places.length;
+  }
+
   // ── events ──
 
   function onPrefs(p) {
@@ -357,6 +466,7 @@
     renderQuiet();
     renderBriefing();
     renderWeather();
+    renderCommute();
   }
 
   // The backend's state when this script loads (it may load after the hello: a prefs event
@@ -367,10 +477,12 @@
     if (ev.quiet) { quiet = ev.quiet; renderQuiet(); }
     if (ev.briefing) { briefing = ev.briefing; renderBriefing(); }
     if (ev.weather) { weather = ev.weather; renderWeather(); }
+    if (ev.commute) { commute = ev.commute; renderCommute(); }
   });
   buildQuiet();
   buildBriefing();
   buildWeather();
+  buildCommute();
   send({ type: 'proactive_state' });
   // A pause ends by itself: Settings shows it, and the Focus line, as they are now.
   setInterval(() => { if (!F.$('settings')?.hidden) renderQuiet(); }, 30000);
