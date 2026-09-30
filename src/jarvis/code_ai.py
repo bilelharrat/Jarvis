@@ -17,6 +17,11 @@ is told, and nothing is called):
   judge            Haiku 4.5   once a best-of-N comparison's sessions are all done: one
                                tool-less turn on at most 30,000 characters of their diffs
                                and test results                            20 a day
+  pr_draft         Haiku 4.5   a pull request's title and description, when the owner
+                               asks for a draft or an issue's session has finished: one
+                               tool-less turn on at most 24,000 characters of the branch's
+                               diff, its commit subjects and the session's last reply
+                                                                           30 a day
 
 Every call is one tool-less turn unless its kind says otherwise, with none of the
 owner's settings, hooks or MCP servers loaded, and a timeout. What it's shown (a diff, a
@@ -42,6 +47,7 @@ POLICY: dict[str, tuple[str, int]] = {
     "review": ("sonnet", 20),
     "deep_review": ("sonnet", 5),
     "judge": ("haiku", 20),
+    "pr_draft": ("haiku", 30),
 }
 CALL_SECONDS = 90.0
 
@@ -54,9 +60,11 @@ class Budget:
     """How many calls of each kind today, kept in a small JSON file (read defensively: a
     damaged one starts the day's counts over, never blocks the owner forever)."""
 
-    def __init__(self, path: Path | None) -> None:
-        """Read when made (a feature makes it at its first call, never at install)."""
+    def __init__(self, path: Path | None, caps: dict[str, int] | None = None) -> None:
+        """Read when made (a feature makes it at its first call, never at install). caps:
+        a day's cap for each kind, when they aren't POLICY's (a feature's own counts)."""
         self.path = path
+        self.caps = caps if caps is not None else {k: v[1] for k, v in POLICY.items()}
         self.day = date.today().isoformat()
         self.counts: dict[str, int] = {}
         self._load()
@@ -82,7 +90,7 @@ class Budget:
         day = (today or date.today()).isoformat()
         if day != self.day:
             self.day, self.counts = day, {}
-        cap = POLICY[kind][1]
+        cap = self.caps[kind]
         if self.counts.get(kind, 0) >= cap:
             raise OverBudget(kind)
         self.counts[kind] = self.counts.get(kind, 0) + 1
@@ -95,7 +103,7 @@ class Budget:
     def left(self, kind: str, today: date | None = None) -> int:
         day = (today or date.today()).isoformat()
         used = self.counts.get(kind, 0) if day == self.day else 0
-        return max(0, POLICY[kind][1] - used)
+        return max(0, self.caps[kind] - used)
 
 
 def budget_for(hub: Any) -> Budget:

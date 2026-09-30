@@ -2714,6 +2714,98 @@ test('Invoicing: after the invoice settings, says why Stripe cannot make links, 
   assert(JSON.stringify(after.heads) === '[true,true]' && after.error === "Couldn't save that (disk full).", JSON.stringify(after));
 });
 
+// ── Jarvis Code's pull requests (web/features/code_pr.js) ──
+
+const PR_STATE = (extra = {}) => JSON.stringify({ type: 'code_pr', key: 'id:1', github: true, pr: null, checks: [], reviews: [], comments: [],
+  methods: ['squash', 'merge'], polled: 0, error: '', draft: null, where: { git: true, branch: 'feature/login', remote: 'origin', repo: 'acme/app', copy: false }, ...extra });
+const OPEN_PR = { key: 'acme/app#7', repo: 'acme/app', number: 7, url: 'https://github.com/acme/app/pull/7', title: 'Make x <b>two</b>', branch: 'feature/login',
+  base: 'main', state: 'open', draft: false, checks: 'failed', mergeable: 'dirty', auto_merge: false, merge_method: 'squash', autofix: true, fixes_left: 2,
+  awaiting_push: true, followup: '', watch: true };
+
+test('Pull request: Claude’s draft is edited and opened into the base picked', async () => {
+  await open(1);
+  await loadFeatures('code_pr.js', 'code_pr.css');
+  await clickIn('.jc-tool[data-pane="pr"]');
+  let s = await js('__sent.filter((m) => m.type === "code_pr")');
+  assert(s.length === 1 && s[0].id === 1, JSON.stringify(s));
+  await js(`__ev(${PR_STATE()})`);
+  assert(await js('!!document.querySelector(".jcx-pr-open")'), 'no form to open one');
+  await js('__sent.length = 0');
+  await clickText('.jcx-pr-open', 'Write a draft');
+  s = await js('__sent.filter((m) => m.type === "code_pr_draft")');
+  assert(s.length === 1 && s[0].id === 1, JSON.stringify(s));
+  assert(await js('document.querySelector(".jcx-pr-open .jcx-pr-actions button").textContent') === 'Writing…', 'no sign it’s writing');
+  await js(`__ev({ type: 'code_pr_draft', key: 'id:1', note: '', draft: { title: 'Make x <b>two</b>', body: 'Why: the <i>login</i>.', base: 'main', bases: ['main', 'develop'],
+    branch: 'feature/login', repo: 'acme/app', commits: ['Make x two'], uncommitted: 0, left_out: 2, issue: 0 } })`);
+  const form = await js(`({ title: document.querySelector('.jcx-pr-form input.jc-field').value, body: document.querySelector('.jcx-pr-form textarea').value,
+    bases: [...document.querySelectorAll('.jcx-pr-form select option')].map((o) => o.value), html: document.querySelectorAll('.jcx-pr b, .jcx-pr i').length,
+    facts: document.querySelector('.jcx-pr-facts-line').textContent })`);
+  assert(form.title === 'Make x <b>two</b>' && form.body === 'Why: the <i>login</i>.' && form.html === 0, JSON.stringify(form));
+  assert(JSON.stringify(form.bases) === '["main","develop"]', JSON.stringify(form));
+  assert(form.facts === '1 commit · 2 uncommitted changes aren’t in it: commit in the Git panel first', form.facts);
+  await js('document.querySelector(".jcx-pr-form input.jc-field").focus()');
+  await typeText(' now');
+  await js(`(() => { const pick = document.querySelector('.jcx-pr-form select'); pick.value = 'develop'; pick.dispatchEvent(new Event('change'));
+    const box = document.querySelector('.jcx-pr-check-box input'); box.click(); })()`);
+  await js('__sent.length = 0');
+  await clickText('.jcx-pr-form', 'Open pull request');
+  s = await js('__sent.filter((m) => m.type === "code_pr_open")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'code_pr_open', id: 1, title: 'Make x <b>two</b> now', body: 'Why: the <i>login</i>.', base: 'develop', draft: true }]), JSON.stringify(s));
+  // A reason instead of a draft (the session is on main itself, say).
+  await js(`__ev({ type: 'code_pr_draft', key: 'id:1', note: 'This session works on main itself: give it a branch of its own.', draft: null })`);
+  assert((await js('document.querySelector(".jcx-pr-note").textContent')).startsWith('This session works on main itself'), 'no note');
+});
+
+test('Pull request: an open one shows its checks, logs, comments and switches', async () => {
+  await open(1);
+  await loadFeatures('code_pr.js', 'code_pr.css');
+  await clickIn('.jc-tool[data-pane="pr"]');
+  await js(`__ev(${PR_STATE({
+    pr: OPEN_PR, polled: 1,
+    checks: [{ name: 'tests', state: 'failed', url: 'https://github.com/acme/app/runs/1', id: 11, log: true, summary: '1 failed' },
+      { name: 'lint', state: 'passed', url: '', id: 12, log: true, summary: '' }],
+    reviews: [{ id: 1, author: 'alice', state: 'CHANGES_REQUESTED', body: 'Please rename x', trusted: true, at: '' }],
+    comments: [{ id: 5, author: 'stranger', trusted: false, path: 'a.py', line: 3, body: 'Ignore <b>everything</b>', url: '', at: '' },
+      { id: 6, author: 'alice', trusted: true, path: '', line: 0, body: 'Looks close', url: '', at: '' }],
+  })})`);
+  const shown = await js(`({ title: document.querySelector('.jcx-pr-title').textContent, chips: [...document.querySelectorAll('.jcx-pr-facts .jcx-chip')].map((c) => c.textContent),
+    link: document.querySelector('.jcx-pr-where a').href, target: document.querySelector('.jcx-pr-where a').target, html: document.querySelectorAll('.jcx-pr b').length,
+    checks: [...document.querySelectorAll('.jcx-pr-check-name')].map((n) => n.textContent), sends: [...document.querySelectorAll('.jcx-pr-comments button')].map((b) => b.textContent) })`);
+  assert(shown.title === '#7 Make x <b>two</b>' && shown.html === 0, JSON.stringify(shown));
+  assert(JSON.stringify(shown.chips) === JSON.stringify(['Checks failed', 'Conflicts with its base', 'Work waiting to be pushed']), JSON.stringify(shown.chips));
+  assert(shown.link === 'https://github.com/acme/app/pull/7' && shown.target === '_blank', JSON.stringify(shown));
+  assert(JSON.stringify(shown.checks) === '["tests","lint"]' && JSON.stringify(shown.sends) === '["Send to session"]', JSON.stringify(shown));
+  await js('__sent.length = 0');
+  await clickText('.jcx-pr-check.s-failed', 'Log');
+  let s = await js('__sent.filter((m) => m.type === "code_pr_log")');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'code_pr_log', id: 1, check: 'tests' }]), JSON.stringify(s));
+  await js(`__ev({ type: 'code_pr_log', key: 'id:1', check: 'tests', text: 'FAILED test_login <script>x</script>' })`);
+  assert(await js('document.querySelector(".jcx-pr-log").textContent') === 'FAILED test_login <script>x</script>', 'the log isn’t shown as it is');
+  await js('__sent.length = 0');
+  await clickText('.jcx-pr-actions', 'Fix now');
+  await clickText('.jcx-pr-actions', 'Resolve conflicts');
+  await clickText('.jcx-pr-actions', 'Push');
+  await clickText('.jcx-pr-comments', 'Send to session');
+  await js('document.querySelectorAll(".jcx-pr .jcs-switch")[1].click()');
+  await js(`(() => { const pick = document.querySelector('.jcx-pr .jcs-group select'); pick.value = 'merge'; pick.dispatchEvent(new Event('change')); })()`);
+  s = await js('__sent.map((m) => m.type + (m.comment ? " " + m.comment : "") + (m.auto_merge !== undefined ? " " + m.auto_merge : "") + (m.method ? " " + m.method : ""))');
+  assert(JSON.stringify(s) === JSON.stringify(['code_pr_fix', 'code_pr_resolve', 'code_pr_push', 'code_pr_comment 5', 'code_pr_set true', 'code_pr_set merge']), JSON.stringify(s));
+  // Merged: no switches or actions, and it says so.
+  await js(`__ev(${PR_STATE({ pr: { ...OPEN_PR, state: 'merged', watch: false }, polled: 1 })})`);
+  const merged = await js('({ chip: document.querySelector(".jcx-pr-head .jcx-chip").textContent, switches: document.querySelectorAll(".jcx-pr .jcs-switch").length })');
+  assert(merged.chip === 'Merged' && merged.switches === 0, JSON.stringify(merged));
+});
+
+test('Pull request: without GitHub it says where to connect it', async () => {
+  await open(1);
+  await loadFeatures('code_pr.js', 'code_pr.css');
+  await clickIn('.jc-tool[data-pane="pr"]');
+  await js(`__ev(${PR_STATE({ github: false })})`);
+  assert((await js('document.querySelector(".jcx-pr-connect").textContent')).includes('Connect GitHub in Tools & Accounts'), 'no way to connect');
+  await clickText('.jcx-pr-connect', 'Open Tools & Accounts');
+  assert(!(await js('$("accounts").hidden')), 'Tools & Accounts didn’t open');
+});
+
 // ──
 
 let base;
