@@ -1661,6 +1661,21 @@ test('“Mark as unread” on the open session keeps it unread until it’s open
   assert(!(await unread(1)), 'still unread once opened again');
 });
 
+test('A /btw card closed while it’s being answered stays closed when the answer comes', async () => {
+  await sessions([1], {}, '$("deck-input").focus()');
+  await typeText('/btw how many retries?');
+  await js('$("cc-slash").hidden = true; $("deck-composer").requestSubmit()');
+  const ref = await js('__sent.find((m) => m.type === "code_btw").ref');
+  await js(`__ev({ type: 'code_btw', id: 1, ref: '${ref}', question: 'how many retries?', state: 'working' }); true`);
+  await frames(2);
+  await js('document.querySelector(".cs-aside-x").click()');
+  await frames(2);
+  assert(await js('!document.querySelector(".cs-aside")'), 'the card stayed');
+  await js(`__ev({ type: 'code_btw', id: 1, ref: '${ref}', question: 'how many retries?', state: 'done', text: 'Three.' }); true`);
+  await frames(2);
+  assert(await js('!document.querySelector(".cs-aside")'), 'the closed card came back with its answer');
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

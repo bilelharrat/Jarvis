@@ -511,6 +511,7 @@
   goalBox.hidden = true;
   $('jc-bg').before(goalBox, asides);
   let btwRef = 0;
+  const btwClosed = new Set();  // "id:ref" of the cards closed: an answer still to come stays away
   F.registerSlash({
     name: 'btw',
     help: 'Ask on the side: it doesn’t join the conversation',
@@ -532,6 +533,7 @@
     if (mineNow.length > 3) { const gone = new Set(mineNow.slice(0, mineNow.length - 3)); S.btw = S.btw.filter((b) => !gone.has(b)); }
   }
   F.on('code_btw', (ev) => {
+    if (btwClosed.has(`${ev.id}:${ev.ref}`)) return;
     let card = S.btw.find((b) => b.ref === ev.ref && b.id === ev.id);
     if (!card) { card = { id: ev.id, ref: ev.ref, question: ev.question || '' }; S.btw.push(card); trimBtw(ev.id); }
     Object.assign(card, { state: ev.state, text: ev.text || '' });
@@ -550,7 +552,7 @@
       const x = el('button', 'cs-aside-x', '✕');
       x.type = 'button';
       x.setAttribute('aria-label', 'Close');
-      x.addEventListener('click', () => { S.btw = S.btw.filter((c) => c !== b); refresh(); });
+      x.addEventListener('click', () => { btwClosed.add(`${b.id}:${b.ref}`); S.btw = S.btw.filter((c) => c !== b); refresh(); });
       top.append(x);
       card.append(top);
       if (b.state === 'working') card.append(el('p', 'jc-sheen cs-aside-wait', 'Looking into it…'));
