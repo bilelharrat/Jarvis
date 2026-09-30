@@ -8,6 +8,9 @@
 //   6. build the disk image with an Applications link (dmg.js);
 //   7. sign, notarize and staple the disk image;
 //   8. write their SHA-256s (SHA256SUMS.txt), and check both with Gatekeeper (spctl).
+// With JARVIS_UPDATE_URL (the https address release.json will have), the app looks for
+// updates there (Contents/Resources/update.json), and the build also writes the update's zip
+// and release.json beside the disk image (app/update-feed.js; app/features/updates.js).
 // `npm run dist -- --adhoc` does 1-4 and 6 (and the checksum) signed ad hoc, with no
 // credentials: for checking the build on this Mac, never for giving to anyone; its disk image
 // says so in its name. Logs go to app/dist/logs, everything else to app/dist/release.
@@ -23,6 +26,7 @@ const { signApp } = require('./sign');
 const { verifyApp, buildMacStrings } = require('./verify');
 const { notarize, staple, zipApp } = require('./notarize');
 const { makeDmg, signDmg, writeChecksums } = require('./dmg');
+const { cleanFeedUrl, releaseFeed } = require('../../update-feed');
 
 const APP_DIR = path.resolve(__dirname, '..', '..');
 const REPO = path.resolve(APP_DIR, '..');
@@ -67,6 +71,20 @@ function checkIdentity(identity) {
 // What the build writes, by name (the ad hoc one can't be mistaken for a release).
 function dmgName(version, adhoc) {
   return `${DISPLAY}-${version}${adhoc ? '-adhoc' : ''}.dmg`;
+}
+
+function updateZipName(version) {
+  return `${DISPLAY}-${version}-mac.zip`;
+}
+
+// The update feed's address from JARVIS_UPDATE_URL: '' when unset (updates off), refused
+// when set but not https.
+function updateFeed(env) {
+  const given = String(env.JARVIS_UPDATE_URL || '').trim();
+  if (!given) return '';
+  const feed = cleanFeedUrl(given);
+  if (!feed) throw new BuildError(`JARVIS_UPDATE_URL must be an https address (the release.json the app will read), not ${given}`);
+  return feed;
 }
 
 // Gatekeeper's verdict on the notarized app and disk image, as a Mac that downloads them sees it.
@@ -145,8 +163,15 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   setLog(path.join(DIST, 'logs', `dist-${stamp}.log`));
   if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new BuildError('The app is built on an Apple-silicon Mac');
   const { identity, profile } = credentials(env, args);
+  const feed = updateFeed(env);
   if (!args.adhoc) checkIdentity(identity);
   say(`J.A.R.V.I.S. ${PKG.version}${args.adhoc ? ' (ad hoc: this Mac only)' : ''}`);
+  // What an earlier build left that this one might not make again (a feed without its zip).
+  if (fs.existsSync(OUT)) {
+    for (const name of fs.readdirSync(OUT).filter((n) => n === 'release.json' || n === 'SHA256SUMS.txt' || n.endsWith('-mac.zip'))) {
+      fs.rmSync(path.join(OUT, name), { force: true });
+    }
+  }
 
   say('1. packaging the app');
   const app = await packageApp();
@@ -165,7 +190,8 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   fs.mkdirSync(path.join(unpacked, 'build'), { recursive: true });
   fs.copyFileSync(path.join(APP_DIR, 'build', 'icon-1024.png'), path.join(unpacked, 'build', 'icon-1024.png')); // the companion's icon
   plist(app, `Set :LSMinimumSystemVersion ${minimum}`);
-  say(`  minimum macOS ${minimum}; the app is ${megabytes(sizeOf(app))}`);
+  if (feed) fs.writeFileSync(path.join(resources, 'update.json'), `${JSON.stringify({ feed }, null, 2)}\n`);
+  say(`  minimum macOS ${minimum}; the app is ${megabytes(sizeOf(app))}; ${feed ? `updates from ${feed}` : 'no updates (JARVIS_UPDATE_URL isn\'t set)'}`);
 
   say(`3. signing ${args.adhoc ? 'ad hoc' : `as ${identity}`}`);
   const helperEntitlements = Object.fromEntries(Object.entries(helpers.helpers).map(([n, h]) => [n, h.entitlements]));
@@ -194,14 +220,24 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     staple(dmg);
   }
 
+  const published = [dmg];
+  if (feed && !args.adhoc) {
+    // The update Squirrel downloads: the notarized, stapled app, and the feed pointing at it.
+    const zipName = updateZipName(PKG.version);
+    published.push(zipApp(app, path.join(OUT, zipName)));
+    const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, notes: env.JARVIS_RELEASE_NOTES || '' });
+    fs.writeFileSync(path.join(OUT, 'release.json'), `${JSON.stringify(release, null, 2)}\n`);
+    say(`  the update: ${zipName} and release.json, for ${feed}`);
+  }
+
   say('8. checksums');
-  const sums = writeChecksums([dmg], path.join(OUT, 'SHA256SUMS.txt'));
+  const sums = writeChecksums(published, path.join(OUT, 'SHA256SUMS.txt'));
   for (const line of sums) say(`  ${line}`);
   if (!args.adhoc) gatekeeper(app, dmg);
   return { app, dmg, minimum, helpers, backend };
 }
 
-module.exports = { main, credentials, parseArgs, electronZipDir, minimumFor, dmgName };
+module.exports = { main, credentials, parseArgs, electronZipDir, minimumFor, dmgName, updateZipName, updateFeed };
 
 if (require.main === module) {
   main().then(({ app, dmg }) => {

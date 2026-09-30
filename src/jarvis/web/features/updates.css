@@ -1,0 +1,8 @@
+/* Settings › About (web/features/updates.js), and the card that offers a restart into an
+   update that has downloaded: a card like the others, low on the right. */
+#updates-group .row .btn { flex: none; }
+#updates-group .row .btn[hidden] { display: none; }
+.updates-card { position: fixed; right: calc(24px + var(--sheet-w, 0px)); bottom: 24px; width: min(320px, calc(100vw - 48px)); z-index: 60; }
+.updates-card[hidden] { display: none; }
+.updates-card p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+.updates-card-actions { display: flex; gap: 8px; justify-content: flex-end; }

@@ -75,3 +75,10 @@ test('the checksums are as shasum -a 256 -c reads them', () => {
   assert.deepEqual(lines, ['5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03  J.A.R.V.I.S.-0.2.0.dmg']);
   assert.equal(readFileSync(path.join(dir, 'SHA256SUMS.txt'), 'utf8'), `${lines[0]}\n`);
 });
+
+test('the update feed is https or nothing; the update zip is named for its version', () => {
+  assert.equal(dist.updateFeed({}), '');
+  assert.equal(dist.updateFeed({ JARVIS_UPDATE_URL: ' https://downloads.example.com/jarvis/release.json ' }), 'https://downloads.example.com/jarvis/release.json');
+  assert.throws(() => dist.updateFeed({ JARVIS_UPDATE_URL: 'http://downloads.example.com/release.json' }), /must be an https address/);
+  assert.equal(dist.updateZipName('0.2.0'), 'J.A.R.V.I.S.-0.2.0-mac.zip');
+});

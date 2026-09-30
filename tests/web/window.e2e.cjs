@@ -4556,6 +4556,48 @@ test('An invitation that clashes says so on a Calendar card, with its reply to c
   assert(JSON.stringify(await sentOf('clash_reply')) === '[{"type":"clash_reply","key":"clash:k2"}]', 'no draft asked for');
 });
 
+// ── Settings › About (web/features/updates.js; app/features/updates.js is a stand-in here) ──
+
+test('Settings › About shows the version; an update that has downloaded is offered, never installed unasked', async () => {
+  await js(`(() => {
+    window.__appCalls = [];
+    window.__appOn = {};
+    let state = { version: '0.1.0', enabled: true, state: 'current' };
+    window.__appState = (s) => { state = s; (window.__appOn['feature:updates:state'] || (() => {}))(s); };
+    window.jarvisApp = { feature: {
+      invoke: (channel) => { __appCalls.push(channel); return Promise.resolve(channel.endsWith(':restart') ? true : state); },
+      on: (channel, fn) => { __appOn[channel] = fn; },
+      send: () => {},
+    } };
+  })(); true`);
+  await featureScript('updates.js');
+  await js('toggleSettings(true); true');
+  await frames(2);
+  let r = await js('({ version: $("updates-version").textContent, line: $("updates-line").textContent, check: !$("updates-check").hidden, restart: !$("updates-restart").hidden, card: $("updates-card").hidden, last: $("settings").lastElementChild.id })');
+  assert(r.version === 'J.A.R.V.I.S. 0.1.0' && r.line === 'Up to date.' && r.check && !r.restart && r.card && r.last === 'updates-group', JSON.stringify(r));
+  await js('$("updates-check").click(); true');
+  await frames(2);
+  assert((await js('__appCalls')).includes('feature:updates:check'), 'Check for updates asked nothing');
+  await js('__appState({ version: "0.1.0", enabled: true, state: "downloading", available: "0.2.0" }); true');
+  r = await js('({ line: $("updates-line").textContent, check: $("updates-check").hidden, card: $("updates-card").hidden })');
+  assert(r.line === 'Downloading 0.2.0…' && r.check && r.card, JSON.stringify(r));
+  await js('__appState({ version: "0.1.0", enabled: true, state: "ready", available: "0.2.0" }); true');
+  r = await js('({ line: $("updates-line").textContent, restart: !$("updates-restart").hidden, card: !$("updates-card").hidden, text: $("updates-card-text").textContent, calls: __appCalls.filter((c) => c.endsWith(":restart")).length })');
+  assert(r.line === '0.2.0 is ready to install.' && r.restart && r.card && /0\.2\.0 is ready/.test(r.text) && r.calls === 0, JSON.stringify(r));
+  assert(await clickText('#updates-card', 'Later'), 'no Later');
+  assert(await js('$("updates-card").hidden'), 'Later left the card up');
+  await js('$("updates-restart").click(); true');
+  assert((await js('__appCalls')).filter((c) => c.endsWith(':restart')).length === 1, 'Restart to update asked nothing');
+});
+
+test('Without a feed (the owner’s own build) About shows the version and no Check for updates', async () => {
+  await js(`window.jarvisApp = { feature: { invoke: () => Promise.resolve({ version: '0.1.0', enabled: false, state: 'off' }), on: () => {}, send: () => {} } }; true`);
+  await featureScript('updates.js');
+  await frames(2);
+  const r = await js('({ version: $("updates-version").textContent, line: $("updates-line").textContent, check: $("updates-check").hidden })');
+  assert(r.version === 'J.A.R.V.I.S. 0.1.0' && r.check && /doesn’t check for updates/.test(r.line), JSON.stringify(r));
+});
+
 // ──
 
 let base;

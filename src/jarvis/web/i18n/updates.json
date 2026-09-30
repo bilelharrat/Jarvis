@@ -1,0 +1,23 @@
+{
+  "strings": {
+    "About": "关于",
+    "Check for updates": "检查更新",
+    "Restart to update": "重新启动以更新",
+    "Restart now": "立即重新启动",
+    "Later": "稍后",
+    "This copy doesn’t check for updates.": "这个版本不检查更新。",
+    "Checking for updates…": "正在检查更新…",
+    "Up to date.": "已是最新版本。",
+    "Checks for updates every 6 hours.": "每 6 小时检查一次更新。",
+    "Couldn’t check for updates.": "无法检查更新。",
+    "Couldn’t reach the update server.": "无法连接更新服务器。",
+    "The update feed isn’t one J.A.R.V.I.S. can read.": "J.A.R.V.I.S. 无法读取这个更新源。",
+    "The update couldn’t be downloaded or installed.": "无法下载或安装这个更新。",
+    "Move J.A.R.V.I.S. to your Applications folder to get updates.": "把 J.A.R.V.I.S. 移到“应用程序”文件夹后才能获取更新。"
+  },
+  "patterns": [
+    ["^Downloading (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?)…$", "正在下载 $1…"],
+    ["^(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is ready to install\\.$", "$1 已可以安装。"],
+    ["^J\\.A\\.R\\.V\\.I\\.S\\. (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is ready\\. Restart to install it\\.$", "J.A.R.V.I.S. $1 已准备好，重新启动即可安装。"]
+  ]
+}
