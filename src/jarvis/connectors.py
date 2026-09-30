@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from . import jsonstore
+from .connector_log import ConnectorLog
 from .prefs import APP_SUPPORT
 from .textclean import clean_text
 
@@ -37,6 +38,7 @@ SIGN_IN_TIMEOUT = 300
 
 POLICIES = ("ask", "allow", "read_only")
 KINDS = ("http", "stdio")
+ACTIVITY_SHOWN = 100  # connector calls the window's activity list shows
 
 
 @dataclass(frozen=True)
@@ -126,8 +128,8 @@ CATALOG: list[CatalogEntry] = [
         "Google",
         "https://calendarmcp.googleapis.com/mcp/v1",
         "own_app",
-        "Your calendars and events.",
-        scope=f"{_G}calendar.calendarlist.readonly {_G}calendar.events.readonly",
+        "Your calendars and events: read them, and add or change events after you OK it.",
+        scope=f"{_G}calendar.calendarlist.readonly {_G}calendar.events",
         help_url="https://developers.google.com/workspace/guides/configure-mcp-servers",
         help=GOOGLE_HELP,
     ),
@@ -217,6 +219,30 @@ CATALOG: list[CatalogEntry] = [
         "https://mcp.canva.com/mcp",
         "oauth",
         "Designs and brand assets.",
+    ),
+    CatalogEntry(
+        "figma",
+        "Figma",
+        "Design",
+        "https://mcp.figma.com/mcp",
+        "oauth",
+        "Designs, components and variables (Figma's remote server).",
+        help_url="https://help.figma.com/hc/en-us/articles/32132100833559",
+        help="If Figma turns the sign-in down (its remote server lets in only apps it lists), "
+        "use the Figma desktop app's own server instead: turn it on in the app's Preferences, "
+        "then add http://127.0.0.1:3845/mcp under Add any tool.",
+    ),
+    CatalogEntry(
+        "slack",
+        "Slack",
+        "Work",
+        "https://mcp.slack.com/mcp",
+        "own_app",
+        "Search messages and channels, read threads, and post after you OK it.",
+        help_url="https://docs.slack.dev/ai/mcp-server",
+        help="Slack's server takes a Slack app of your own: create one at api.slack.com/apps "
+        f"with redirect URL {REDIRECT_URI} and the user scopes you want Jarvis to have, "
+        "install it to your workspace, then paste its client ID and secret here.",
     ),
 ]
 CATALOG_BY_ID = {e.id: e for e in CATALOG}
@@ -516,6 +542,7 @@ class Live:
 
     async def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if self.session is None:
+            self.manager.note_call(self.conn, name, "failed")
             return {
                 "content": [
                     {"type": "text", "text": f"{self.conn.name} isn't connected right now."}
@@ -527,8 +554,11 @@ class Live:
         except BaseException as exc:  # noqa: BLE001 - reported to Claude as a tool error
             if isinstance(exc, asyncio.CancelledError):
                 raise
+            self.manager.note_call(self.conn, name, "failed")
             return {"content": [{"type": "text", "text": _root_error(exc)}], "is_error": True}
-        return convert_result(result)
+        out = convert_result(result)
+        self.manager.note_call(self.conn, name, "failed" if out.get("is_error") else "done")
+        return out
 
 
 async def _list_all_tools(session: Any) -> list[Any]:
@@ -578,6 +608,8 @@ class ConnectorManager:
         self.callback = CallbackServer()
         self.connections: dict[str, Connection] = {}
         self.live: dict[str, Live] = {}
+        # Every connector tool call (service, tool, read or write, how it went; no contents).
+        self.activity = ConnectorLog(self.store.parent / "connector_activity.jsonl")
         self.signing_in: dict[str, str] = {}
         self.on_tools_changed: Callable[[], None] | None = None
         self.broken: list[Any] = []  # connections it can't use, kept in the file as they were
@@ -640,7 +672,20 @@ class ConnectorManager:
                 for t in tools
             ],
             "always_allow": conn.always_allow,
+            # Its service asks for more now (Google Calendar's changes): connect again for it.
+            "rescope": conn.id in CATALOG_BY_ID and conn.scope != CATALOG_BY_ID[conn.id].scope,
         }
+
+    def note_call(self, conn: Connection, tool: str, outcome: str) -> None:
+        """One connector tool call for the activity log: never what went in or came out."""
+        live = self.live.get(conn.id)
+        known = next((t for t in (live.tools if live else []) if t.name == tool), None)
+        kind = "read" if known is not None and is_read_only(known) else "write"
+        self.activity.add(conn.name, tool, kind, outcome)
+        self.emit("connector_activity", items=self.activity.recent(ACTIVITY_SHOWN))
+
+    def activity_public(self) -> dict[str, Any]:
+        return {"items": self.activity.recent(ACTIVITY_SHOWN)}
 
     def changed(self, tools_changed: bool = False) -> None:
         self.emit("connectors", **self.public())
@@ -685,6 +730,7 @@ class ConnectorManager:
             auth=entry.auth,
             scope=entry.scope,
         )
+        conn.scope = entry.scope  # connecting again asks for what the service needs now
         if entry.auth == "token":
             if not token.strip():
                 raise ValueError(f"Paste a {entry.name} token first.")
@@ -864,6 +910,8 @@ class ConnectorManager:
             conn.always_allow.append(tool)
             self._save()
             self.changed()
+        if choice not in ("allow", "always"):
+            self.note_call(conn, tool, "declined")
         return choice in ("allow", "always")
 
 

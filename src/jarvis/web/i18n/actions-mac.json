@@ -63,7 +63,16 @@
     "Read your browser tab": "读取了你的浏览器标签页",
     "Checked your Mac's defenses": "查看了 Mac 的安全防护",
     "Security heads-ups": "安全提醒",
-    "When FileVault, the firewall, System Integrity Protection or Gatekeeper turns off": "FileVault、防火墙、系统完整性保护或 Gatekeeper 关闭时提醒你"
+    "When FileVault, the firewall, System Integrity Protection or Gatekeeper turns off": "FileVault、防火墙、系统完整性保护或 Gatekeeper 关闭时提醒你",
+    "Recent activity": "最近的活动",
+    "Every call Jarvis makes in your connected accounts: the tool, when, and whether it read or changed something. What was sent and what came back is never kept.": "Jarvis 在你已连接账户里的每一次调用：用了哪个工具、什么时候、只是读取还是做了更改。发送和返回的内容从不保存。",
+    "Change": "更改",
+    "Declined": "已拒绝",
+    "It can do more now: disconnect it and connect it again to allow it.": "它现在能做更多事：断开后重新连接即可允许。",
+    "Your calendars and events: read them, and add or change events after you OK it.": "你的日历和日程：可以读取，经你同意后也能添加或修改日程。",
+    "Designs, components and variables (Figma's remote server).": "设计稿、组件和变量（Figma 的远程服务器）。",
+    "Search messages and channels, read threads, and post after you OK it.": "搜索消息和频道、阅读讨论串，经你同意后可以发消息。",
+    "If Figma turns the sign-in down (its remote server lets in only apps it lists), use the Figma desktop app's own server instead: turn it on in the app's Preferences, then add http://127.0.0.1:3845/mcp under Add any tool.": "如果 Figma 拒绝登录（它的远程服务器只允许列出的 app），就改用 Figma 桌面 app 自带的服务器：在 app 的偏好设置里打开它，然后在“添加任意工具”里添加 http://127.0.0.1:3845/mcp。"
   },
   "patterns": [
     [
@@ -161,6 +170,10 @@
     [
       "^Rename “(.+)” to “(.+)”\\?$",
       "要把“$1”重命名为“$2”吗？"
+    ],
+    [
+      "^Slack's server takes a Slack app of your own: create one at api\\.slack\\.com/apps with redirect URL (\\S+) and the user scopes you want Jarvis to have, install it to your workspace, then paste its client ID and secret here\\.$",
+      "Slack 的服务器需要你自己的 Slack app：在 api.slack.com/apps 创建一个，重定向 URL 填 $1，并给它你希望 Jarvis 拥有的用户权限范围，安装到你的工作区，然后在这里粘贴它的客户端 ID 和密钥。"
     ]
   ]
 }

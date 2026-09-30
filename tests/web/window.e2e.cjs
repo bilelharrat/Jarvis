@@ -2983,6 +2983,33 @@ test('Settings › Speaking up: security heads-ups follow the setting and change
   assert(JSON.stringify(sent) === JSON.stringify([{ type: 'feature_prefs', changes: { defense_alerts: true } }]), JSON.stringify(sent));
 });
 
+test('Tools & Accounts lists what Jarvis did in connected accounts, and which need connecting again', async () => {
+  await loadFeatures('connector-activity.js', 'connector-activity.css');
+  const conns = { type: 'connectors', catalog: [], redirect_uri: '', connections: [
+    { id: 'notion', name: 'Notion', kind: 'http', url: 'https://mcp.notion.com/mcp', command: '', auth: 'oauth', policy: 'ask', status: 'connected', error: '', sign_in_url: '', tools: [], always_allow: [], rescope: false },
+    { id: 'gcal', name: 'Google Calendar', kind: 'http', url: 'https://calendarmcp.googleapis.com/mcp/v1', command: '', auth: 'own_app', policy: 'ask', status: 'connected', error: '', sign_in_url: '', tools: [], always_allow: [], rescope: true }] };
+  await js(`__sent.length = 0; __ev(${JSON.stringify(conns)}); true`);
+  assert((await sentOf('connector_activity')).length === 1, 'the activity was not asked for');
+  const notes = await js('[...$("connections").children].map((c) => !!c.querySelector(".conn-rescope"))');
+  assert(JSON.stringify(notes) === '[false,true]', JSON.stringify(notes));
+  await js(`__ev(${JSON.stringify(conns)}); true`);  // drawn again: one note, asked once
+  assert((await sentOf('connector_activity')).length === 1 && await js('$("connections").children[1].querySelectorAll(".conn-rescope").length') === 1, 'asked or noted twice');
+  await js(`__ev({ type: 'connector_activity', items: [
+    { at: '2026-09-30T09:15:00', service: 'GitHub', tool: 'create_issue', kind: 'write', outcome: 'declined' },
+    { at: '2026-09-30T09:14:00', service: 'Notion', tool: 'search', kind: 'read', outcome: 'done' }] }); true`);
+  const rows = await js('[...document.querySelectorAll(".conn-activity-list li")].map((li) => [li.querySelector("strong").textContent, li.querySelector(".conn-kind").textContent, (li.querySelector(".conn-outcome") || {}).textContent || ""])');
+  assert(JSON.stringify(rows) === JSON.stringify([['GitHub · create_issue', 'Change', 'Declined'], ['Notion · search', 'Read', '']]), JSON.stringify(rows));
+  assert(await js('document.querySelector(".conn-activity .empty").hidden'), 'the empty note still shows');
+  // A service whose sign-in can be turned down shows the way round in its form (Figma's).
+  const figma = { id: 'figma', name: 'Figma', category: 'Design', url: 'https://mcp.figma.com/mcp', auth: 'oauth', blurb: 'Designs.', scope: '',
+    help_url: 'https://help.figma.com/hc/en-us/articles/32132100833559', help: 'Or add http://127.0.0.1:3845/mcp under Add any tool.', connected: false };
+  await js(`__ev(${JSON.stringify({ ...conns, catalog: [figma] })}); document.querySelector('#catalog .svc').click(); true`);
+  const form = await js('({ text: document.querySelector("#catalog .svc-form").textContent, guide: (document.querySelector("#catalog .svc-form a") || {}).href })');
+  assert(form.text.includes('127.0.0.1:3845') && form.guide === figma.help_url, JSON.stringify(form));
+  await frames();  // the cards drawn again by that click keep their note
+  assert(await js('$("connections").children[1].querySelectorAll(".conn-rescope").length') === 1, 'the note went with the redraw');
+});
+
 // ──
 
 let base;

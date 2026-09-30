@@ -1217,6 +1217,8 @@ function serviceForm(svc) {
   };
   if (svc.auth === 'oauth') {
     form.append(el('p', '', `Jarvis opens ${svc.name}’s sign-in page in your browser. Approve access there and you’re done.`));
+    if (svc.help) form.append(el('p', '', svc.help));  // a way round, when the sign-in can fail
+    if (svc.help_url) form.append(link(svc.help_url, 'Setup guide'));
   } else if (svc.auth === 'token') {
     form.append(el('p', '', svc.help));
     if (svc.help_url) form.append(link(svc.help_url, `Create a ${svc.name} token`));

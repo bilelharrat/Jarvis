@@ -24,7 +24,7 @@ FEATURES = [
     "mac_reading",
     "mac_defense",
 ]
-SCRIPTS = ["stocks.js", "mac-actions.js"]
+SCRIPTS = ["stocks.js", "mac-actions.js", "connector-activity.js"]
 # What a {slot} or ${…} stands for when a sentence is tried against the window's patterns.
 SAMPLE = "2"
 # Literals in the scripts that aren't the window's words: event and command names, CSS, ids.
@@ -115,6 +115,15 @@ def test_every_window_sentence_has_its_chinese(merged, script):
 
 
 def test_the_scripts_are_the_ones_listed():
-    ours = {"stocks.js", "mac-actions.js"}
+    ours = {"stocks.js", "mac-actions.js", "connector-activity.js"}
     present = {p.name for p in Path(WEB_DIR / "features").glob("*.js")} & ours
     assert present == set(SCRIPTS)
+
+
+@pytest.mark.parametrize("service", ["slack", "figma", "gcal"])
+def test_the_connectors_added_and_changed_show_in_chinese(merged, service):
+    from jarvis.connectors import CATALOG_BY_ID
+
+    entry = CATALOG_BY_ID[service]
+    for text in (entry.category, entry.blurb, entry.help):
+        assert not text or chinese(merged, text) is not None, text
