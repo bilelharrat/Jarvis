@@ -241,6 +241,22 @@ async def test_a_call_can_run_a_routine_with_the_summary_as_its_input(feature):
     assert heard[-1].text == "Noted: v2.3 shipped."
 
 
+async def test_a_call_never_runs_a_paused_routine(feature):
+    """A routine the owner paused (or that paused itself after failing ten times in a row)
+    doesn't run on a webhook's call either, and costs no model call."""
+    from jarvis.routines import Routine
+
+    hub, feat, heard = feature
+    routine = Routine("r9", "Deploys", "Tell me what shipped", "event", "00:00",
+                      spec={"trigger": {"type": "wake", "what": "wake"}, "debounce": 30, "cap": 20},
+                      own=True, tools="none", enabled=False)  # fmt: skip
+    hub.routines.items = [routine]
+    await feat.webhooks.add("deploys", routine="r9")
+    hub.client_factory = scripted("v2.3 shipped.")
+    await feat._webhook_call(feat.webhooks.find("deploys"), '{"version": "2.3"}')
+    assert hub.client_factory.made == [] and feat.history.runs("r9") == [] and heard == []
+
+
 async def test_settings_add_copy_renew_and_delete(feature, tmp_path):
     hub, feat, _heard = feature
     q = hub.subscribe()

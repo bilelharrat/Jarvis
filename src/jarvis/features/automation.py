@@ -301,6 +301,9 @@ class Automation:
         source = f"what was sent to the webhook “{hook.name}”"
         routine = next((r for r in self.hub.routines.items if r.id == hook.routine), None)
         if hook.routine and routine is not None:
+            if not routine.enabled:  # paused (by the owner, or after failing ten times)
+                log.info("webhooks: %s names a paused routine; it doesn't run", hook.name)
+                return
             cause = jobs.Cause("webhook", f"Webhook “{hook.name}”", content=text, source=source)
             await self.runner.run(routine, cause)
             return
