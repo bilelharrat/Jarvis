@@ -3066,6 +3066,34 @@ test('A dev server’s logs stay with its project: another project’s Preview p
   assert(await js('!!$("cv-log") && $("cv-log").textContent') === 'alpha’s output', await js('$("jc-pane-body").textContent'));
 });
 
+test('The Tests pane shows a run only under its own suite’s chip', async () => {
+  await featureScript('code-verify.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("cv-tests"); true');
+  const dir = '/Users/x/Projects/alpha';
+  // An Xcode project's schemes: two suites of the same runner.
+  const suite = (scheme) => ({ key: `xcode::${scheme}`, id: 'xcode', label: `xcodebuild · ${scheme}`, command: `xcodebuild test -project App.xcodeproj -scheme ${scheme}`,
+    cwd: '', ready: true, why: 'App.xcodeproj', files: false });
+  const run = { project: dir, suite: 'xcode', label: 'xcodebuild · AppTests', target: {}, status: 'failed', started: 1, seconds: 12, message: '',
+    summary: '3 passed · 1 failed', counts: { passed: 3, failed: 1, skipped: 0 }, complete: false, lines: 9, watch: false,
+    tree: [{ file: 'AppTests/LoginTests.swift', failed: 1, passed: 3, skipped: 0, cases: [
+      { file: 'AppTests/LoginTests.swift', name: 'LoginTests.testWrongPassword', status: 'failed', message: 'XCTAssertEqual failed', line: 12, target: 'AppTests/LoginTests/testWrongPassword' }] }],
+    output: [[1, '$ xcodebuild test']] };
+  await deliver({ type: 'cv_tests', project: 'alpha', path: dir, id: 1, files: {}, watch: null, run, suites: [suite('App'), suite('AppTests')] });
+  const shown = () => js(`({ on: (document.querySelector('#jc-pane-body .cv-suite.on') || {}).textContent, tree: !!document.querySelector('#jc-pane-body .cv-tree'),
+    line: !!document.querySelector('#jc-pane-body .cv-runline'), buttons: [...document.querySelectorAll('#jc-pane-body button:not(.cv-suite)')].map((b) => b.textContent) })`);
+  // Opened on the suite the run was of, with its results.
+  let r = await shown();
+  assert(r.on === 'xcodebuild · AppTests' && r.tree && r.buttons.includes('Fix failures'), `the run's results under ${r.on}: ${JSON.stringify(r)}`);
+  // The other suite's chip: none of that run (its results, Fix failures, or Stop while it runs).
+  assert(await clickText('#jc-pane-body .cv-chips', 'xcodebuild · App'), 'no App chip');
+  r = await shown();
+  assert(r.on === 'xcodebuild · App' && !r.tree && !r.line && !r.buttons.includes('Fix failures') && r.buttons.includes('Run all'), JSON.stringify(r));
+  await deliver({ type: 'cv_tests_run', run: { ...run, status: 'running', started: 2, summary: '', counts: null, tree: [] } });
+  r = await shown();
+  assert(!r.line && !r.buttons.includes('Stop') && r.buttons.includes('Run all'), JSON.stringify(r));
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this

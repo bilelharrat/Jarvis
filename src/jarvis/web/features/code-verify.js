@@ -590,6 +590,12 @@
     return info.suites.find((s) => s.key === tests.suite) || info.suites[0];
   }
 
+  // The latest run, when it was of this suite: it says its runner and label (suites can share
+  // a runner: an Xcode project's schemes, vitest at the top and in web/).
+  function runOf(run, suite) {
+    return run && run.suite === suite.id && run.label === suite.label ? run : null;
+  }
+
   function runTarget(target) {
     const suite = suiteNow();
     if (suite) send({ type: 'cv_tests', action: 'run', suite: suite.key, ...target }, tests.info);
@@ -702,7 +708,7 @@
     }
     const head = el('div', 'cv-bar');
     head.append(mine(el('code', 'cv-cmd cv-bar-cmd', suite.command)), el('span', 'jc-spacer'));
-    const run = info.run && info.run.suite === suite.id ? info.run : info.run;
+    const run = runOf(info.run, suite);
     const running = run && run.status === 'running';
     if (!suite.ready) {
       parts.push(head, el('p', 'cv-problems-list', suite.why));
@@ -756,7 +762,10 @@
   F.on('cv_tests', (ev) => {
     if (!forShown(ev)) return;
     tests.info = ev;
-    if (!ev.suites.some((s) => s.key === tests.suite)) tests.suite = ev.watch ? ev.watch.suite : '';
+    // None chosen yet (or it's gone): the watched suite, else the one the latest run was of.
+    if (!ev.suites.some((s) => s.key === tests.suite)) {
+      tests.suite = ev.watch ? ev.watch.suite : (ev.suites.find((s) => runOf(ev.run, s)) || { key: '' }).key;
+    }
     tests.output = ev.run && ev.run.output ? mergeLines([], ev.run.output) : [];
     renderTests();
   });
