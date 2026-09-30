@@ -1,5 +1,6 @@
 """What JARVIS did (the actions feature): a lasting, searchable log of every tool call of its
-own conversation (action_log.py), for the owner and for JARVIS itself.
+own conversation (action_log.py), for the owner and for JARVIS itself; and undoing what it
+did lately (undo.py).
 
 - Recorded from the conversation's stream (hub.add_message_sink): when each call started,
   its label as the Activity drawer says it, a few words that say nothing private
@@ -13,9 +14,15 @@ own conversation (action_log.py), for the owner and for JARVIS itself.
   Safari?"). Its answers are read from the log.
 - The owner can too: the Activity drawer's History tab, searched and paged (window command
   action_log {q, before, seq} -> action_log {q, before, seq, items, more}).
+- Undo, for 30 minutes after each action (undo.py weighs every call: PreToolUse and
+  PostToolUse hooks added at each connect, and the stream's results): "undo that" (撤销) at
+  once, without Claude; undo_action for Claude ("undo the calendar change", asked first
+  unless the owner's own words asked for it); and an Undo button under the reply after a
+  turn that did something undoable (window command undo_action {id}, event undo_offer).
+  Sent messages, emails and calls are said plainly to be past undoing.
 
-Claude cost policy: no model is called here. what_did_you_do is a tool of the conversation
-itself, answered from the file.
+Claude cost policy: no model is called here. what_did_you_do and undo_action are tools of
+the conversation itself; "undo that" is answered without Claude.
 """
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
+    HookMatcher,
     ResultMessage,
     ToolResultBlock,
     ToolUseBlock,
@@ -36,9 +44,10 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .. import action_log
+from .. import action_log, lang
 from ..action_log import ActionLog, short_name, summary
-from ..hub import tool_label
+from ..hub import FEATURE_ASKED, _asks, tool_label
+from ..undo import Undo
 
 log = logging.getLogger("jarvis")
 
@@ -53,8 +62,57 @@ PROMPT = (
     "('today', 'yesterday', a weekday or YYYY-MM-DD) or matching words: use it for 'what "
     "did you do yesterday?' or 'did you open that page?'. It names apps and sites, never "
     "what a message or search said."
+    "\n- Undo: undo_action undoes something you did in the last half hour (an event added, "
+    "changed or removed; something remembered or forgotten; a routine made, paused or "
+    "deleted; a document saved, moved to the Trash; a shortcut made instant). Give which "
+    "(words from what it was) or leave it empty for the last thing. Sent messages, emails "
+    "and calls can't be undone: say so plainly."
 )
-LABELS = {"what_did_you_do": "Looked back at what I did"}
+LABELS = {
+    "what_did_you_do": "Looked back at what I did",
+    "undo_action": "Undid something I did",
+}
+
+# The owner asking to undo, for undo_action's gate: "undo that", "take it back", 撤销.
+FEATURE_ASKED["undo"] = _asks(
+    r"undo\b|take\s+(?:that|it|this)\s+back\b|reverse\s+(?:that|it|this|what\s+you)\b"
+    r"|put\s+(?:it|that|things)\s+back\b"
+)
+lang.FEATURE_ASKED_ZH["undo"] = lang._asks_zh(r"(?:撤销|撤消|撤回|还原|恢复原样|改回去)")
+
+# "Undo that", "undo the last thing you did", "take that back": answered at once.
+UNDO_THAT = re.compile(
+    r"^(?:(?:ok(?:ay)?|jarvis|please|actually|no|wait|oops|hmm|sorry)\b[\s,]*)*"
+    r"(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
+    r"(?:undo(?:\s+(?:that|this|it|the\s+last\s+(?:thing|change|one|action)"
+    r"(?:\s+you\s+(?:just\s+)?(?:did|made))?|what\s+you\s+(?:just\s+)?did))?"
+    r"|take\s+(?:that|it)\s+back)"
+    r"(?:[\s,]+(?:please|jarvis))*[\s.!?]*$",
+    re.IGNORECASE,
+)
+# 撤销, 撤销刚才的操作, 把刚才那步撤销了.
+UNDO_THAT_ZH = re.compile(
+    r"^(?:(?:好的|好|请|麻烦|帮我|贾维斯|jarvis|等等|哎呀|不对|算了)[，,\s]*)*"
+    r"(?:(?:撤销|撤消|撤回)(?:一下)?(?:刚才|刚刚)?(?:的|那个|那步|那一步|这个)?(?:操作)?"
+    r"|把?(?:刚才|刚刚)(?:的|那个|那步|那一步)?(?:操作)?(?:撤销|撤消|撤回)(?:了|掉)?)"
+    r"(?:吧|一下)?[。！!.？?\s]*$",
+    re.IGNORECASE,
+)
+ZH = {
+    "Undo this: {label}?": "要撤销这一步吗：{label}？",
+    "Undid: {label}": "撤销了：{label}",
+    "Undo": "撤销",
+}
+lang.add_texts(ZH)
+
+
+def asks_undo(text: str, language: str) -> bool:
+    """The whole request is "undo that" (or its Chinese)."""
+    words = " ".join(str(text or "").split())
+    return bool(UNDO_THAT.match(words)) or (
+        lang.is_zh(language) and bool(UNDO_THAT_ZH.match(lang.to_simplified(words)))
+    )
+
 
 _ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
@@ -128,6 +186,8 @@ class Actions:
         self._pruned: date | None = None
         self._writing = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
+        self.undo = Undo(hub)
+        self._offered = ""  # the Undo button's action under the reply, if one is shown
 
     @property
     def log(self) -> ActionLog:
@@ -141,6 +201,9 @@ class Actions:
         task.add_done_callback(self._tasks.discard)
         return task
 
+    def _say(self, text: str, **values: Any) -> str:
+        return lang.tr(text, self.hub.language, **values)
+
     async def flush(self) -> None:
         """Wait for the writes and searches under way (tests)."""
         while self._tasks:
@@ -149,6 +212,7 @@ class Actions:
     # ── recording ──
 
     def on_message(self, message: Any) -> None:
+        self._for_undo(message)
         if self.hub.incognito:  # nothing of an incognito conversation is kept
             self._pending.clear()
             self._done.clear()
@@ -176,6 +240,14 @@ class Actions:
             if self._done:
                 entries, self._done = self._done, []
                 self._spawn(self._write(entries))
+
+    def note(self, label: str, outcome: str = "done") -> None:
+        """Something done without a tool call (an undo asked for in words or with the
+        button), kept like one."""
+        if self.hub.incognito:
+            return
+        entry = {"t": datetime.now().isoformat(timespec="seconds"), "tool": "undo"}
+        self._spawn(self._write([{**entry, "label": label, "summary": "", "outcome": outcome}]))
 
     async def _write(self, entries: list[dict[str, str]]) -> None:
         async with self._writing:  # one at a time: a day's count stays right
@@ -225,6 +297,85 @@ class Actions:
             more=len(items) > PAGE,
         )
 
+    # ── undo ──
+
+    def on_connect(self, options: Any, _resume: str) -> None:
+        """Every call of the conversation weighed as it runs: what it may change (before),
+        what it did (after), or nothing (it failed)."""
+        hooks = {kind: list(matchers) for kind, matchers in (options.hooks or {}).items()}
+        for kind, hook in (
+            ("PreToolUse", self._before_tool),
+            ("PostToolUse", self._after_tool),
+            ("PostToolUseFailure", self._tool_failed),
+        ):
+            hooks.setdefault(kind, []).append(HookMatcher(matcher=None, hooks=[hook]))
+        options.hooks = hooks
+
+    async def _before_tool(self, data: Any, tool_use_id: Any, _context: Any) -> dict[str, Any]:
+        data = data if isinstance(data, dict) else {}
+        tool_id = str(tool_use_id or data.get("tool_use_id") or "")
+        args = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {}
+        await self.undo.before(str(data.get("tool_name") or ""), args, tool_id)
+        return {}
+
+    async def _after_tool(self, data: Any, tool_use_id: Any, _context: Any) -> dict[str, Any]:
+        data = data if isinstance(data, dict) else {}
+        tool_id = str(tool_use_id or data.get("tool_use_id") or "")
+        args = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {}
+        await self.undo.after(str(data.get("tool_name") or ""), args, tool_id)
+        return {}
+
+    async def _tool_failed(self, data: Any, tool_use_id: Any, _context: Any) -> dict[str, Any]:
+        data = data if isinstance(data, dict) else {}
+        self.undo.failed(str(tool_use_id or data.get("tool_use_id") or ""))
+        return {}
+
+    def _for_undo(self, message: Any) -> None:
+        if isinstance(message, UserMessage) and isinstance(message.content, list):
+            for block in message.content:
+                if isinstance(block, ToolResultBlock):
+                    self.undo.result(block.tool_use_id, bool(block.is_error))
+        elif isinstance(message, ResultMessage):
+            self.undo.turn_over()
+            self._offer()
+
+    def _offer(self) -> None:
+        """The Undo button under the reply: this turn's last undoable action, if any."""
+        turn = int(getattr(self.hub, "commands", 0))
+        found = next(
+            (a for a in self.undo.undoable() if a.turn == turn),
+            None,
+        )
+        shown = found.id if found is not None else ""
+        if shown or self._offered:
+            self._offered = shown
+            self.hub.emit("undo_offer", id=shown, label=found.label if found is not None else "")
+
+    async def undo_now(self, action: Any) -> str:
+        """Undo one action; what's said about it. Kept in the log when something ran."""
+        said = await self.undo.undo(action)
+        if action is not None and action.undone:
+            self.note(self._say("Undid: {label}", label=action.label))
+        if self._offered and (action is None or action.id == self._offered):
+            self._offered = ""
+            self.hub.emit("undo_offer", id="", label="")
+        return said
+
+    async def instant(self, text: str) -> str | None:
+        """ "Undo that" (撤销): the last thing done, undone at once. The owner's own words
+        asked for exactly this, so there's no card."""
+        if not asks_undo(text, self.hub.language):
+            return None
+        return await self.undo_now(self.undo.last())
+
+    async def undo_clicked(self, msg: dict[str, Any]) -> None:
+        """The Undo button under the reply: the owner's own click, so no card. Between
+        requests: never in the middle of one that may be changing the same things."""
+        async with self.hub._lock:
+            action = self.undo.find(str(msg.get("id") or ""))
+            said = await self.undo_now(action) if action is not None else self.undo.nothing()
+        self.hub.emit("toast", title=self._say("Undo"), text=said)
+
     def build_server(self) -> Any:
         return create_sdk_mcp_server(name=SERVER, version="0.1.0", tools=self.tools())
 
@@ -254,7 +405,27 @@ class Actions:
             entries = await asyncio.to_thread(self.lookup, day, query)
             return _text(told(entries, day, query))
 
-        return [what_did_you_do]
+        @tool(
+            "undo_action",
+            "Undo something you did in the last half hour: an event you added, changed or "
+            "removed; something you remembered or forgot; a routine you made, paused or "
+            "deleted; a document you saved (moved to the Trash); a shortcut made instant. "
+            "which: words from what it was ('the Dentist event'), or empty for the last "
+            "thing you did. Messages, emails and calls can't be undone.",
+            {"type": "object", "properties": {"which": {"type": "string"}}},
+        )
+        async def undo_action(args: dict[str, Any]) -> dict[str, Any]:
+            which = " ".join(str(args.get("which") or "").split())[:200]
+            action = self.undo.pick(which)
+            if action is None:
+                return _text(self.undo.nothing(which))
+            if action.kind == "undo" and not action.undone:
+                question = self._say("Undo this: {label}?", label=action.label)
+                if not await self.hub.feature_gate("undo", question):
+                    return _text("The user didn't want that undone.", error=True)
+            return _text(await self.undo_now(action))
+
+        return [what_did_you_do, undo_action]
 
     def install(self) -> None:
         hub = self.hub
@@ -262,6 +433,11 @@ class Actions:
         hub.add_message_sink(self.on_message)
         hub.register_server(SERVER, self.build_server, prompt=PROMPT, labels=LABELS)
         hub.register_command("action_log", lambda msg: self._spawn(self.search(msg)) and None)
+        hub.add_connect_hook(self.on_connect)
+        hub.register_instant(self.instant)
+        hub.register_command(
+            "undo_action", lambda msg: self._spawn(self.undo_clicked(msg)) and None
+        )
 
 
 def _text(text: str, error: bool = False) -> dict[str, Any]:

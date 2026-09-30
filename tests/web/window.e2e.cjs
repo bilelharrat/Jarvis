@@ -4681,6 +4681,22 @@ test('Activity: a History tab searches what Jarvis did, a day at a time', async 
   await js(`toggleDrawer(false); true`);
 });
 
+test('Undo: a button under the reply after something undoable, gone with the next request', async () => {
+  await loadFeatures('actions.js', 'actions.css');
+  await js(`__sent.length = 0; __ev({ type: 'undo_offer', id: 'u3', label: 'Remembered “Ann <b>likes</b> tea”' }); true`);
+  const chip = await js(`({ hidden: $('act-undo').hidden, label: $('act-undo-label').textContent, mine: $('act-undo-label').hasAttribute('data-no-i18n'), bold: $('act-undo').querySelectorAll('b').length, inCaption: !!$('act-undo').closest('.caption') })`);
+  assert(!chip.hidden && chip.label === 'Remembered “Ann <b>likes</b> tea”' && chip.mine && chip.bold === 0 && chip.inCaption, JSON.stringify(chip));
+  await js(`$('act-undo-btn').click(); true`);
+  assert(JSON.stringify(await sentOf('undo_action')) === '[{"type":"undo_action","id":"u3"}]', 'Undo sent nothing');
+  assert(await js(`$('act-undo').hidden`), 'the button stayed after it was pressed');
+  await js(`__ev({ type: 'undo_offer', id: 'u4', label: 'Added “Dentist” to your calendar' }); true`);
+  assert(await js(`!$('act-undo').hidden`), 'a new offer was not shown');
+  await js(`__ev({ type: 'turn', rid: 'r9', user: 'What time is it?' }); true`);
+  assert(await js(`$('act-undo').hidden`), 'the offer outlasted the next request');
+  await js(`__ev({ type: 'undo_offer', id: 'u5', label: 'x' }); __ev({ type: 'undo_offer', id: '', label: '' }); true`);
+  assert(await js(`$('act-undo').hidden`), 'an empty offer did not hide it');
+});
+
 // ── JARVIS's own conversation (web/features/conversation*.js, loaded as features.js would) ──
 
 const CONVO = ['conversation.js', 'conversation.css'];

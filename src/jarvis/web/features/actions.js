@@ -1,7 +1,9 @@
 // What Jarvis did (the actions feature, jarvis.features.actions): a History tab in the
 // Activity drawer beside what's happening now. Every tool call of the last 90 days, searched,
-// newest first, a day under its own heading, older ones a page at a time. The words beside a
-// call (an app's or a site's name) are the owner's data: shown as text, with data-no-i18n.
+// newest first, a day under its own heading, older ones a page at a time. And an Undo button
+// under the reply after a turn that did something undoable. The words beside a call (an
+// app's or a site's name) and what an action was are the owner's data: shown as text, with
+// data-no-i18n.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
@@ -139,6 +141,43 @@
     empty.hidden = S.items.length > 0;
     empty.textContent = S.q ? 'Nothing Jarvis did matches.' : 'Nothing Jarvis did is kept yet.';
   }
+
+  // ── Undo, under the reply ──
+
+  function undoChip() {
+    let chip = $('act-undo');
+    if (chip) return chip;
+    const caption = document.querySelector('.caption');
+    if (!caption) return null;
+    chip = el('div', 'act-undo');
+    chip.id = 'act-undo';
+    chip.hidden = true;
+    const label = el('span', 'act-undo-label');
+    label.id = 'act-undo-label';
+    label.setAttribute('data-no-i18n', '');
+    const b = el('button', 'act-undo-btn', 'Undo');
+    b.type = 'button';
+    b.id = 'act-undo-btn';
+    b.addEventListener('click', () => {
+      send({ type: 'undo_action', id: chip.dataset.id || '' });
+      chip.hidden = true;
+    });
+    chip.append(label, b);
+    caption.append(chip);
+    return chip;
+  }
+
+  F.on('undo_offer', (ev) => {
+    const chip = undoChip();
+    if (!chip) return;
+    chip.dataset.id = ev.id || '';
+    $('act-undo-label').textContent = ev.label || '';
+    chip.hidden = !ev.id;
+  });
+  F.on('turn', (ev) => {
+    const chip = $('act-undo');
+    if (ev.user && chip) chip.hidden = true; // a new request: that offer was for the last one
+  });
 
   F.on('action_log', (ev) => {
     if (String(ev.seq || '') !== String(S.seq)) return; // an older search, or another window's

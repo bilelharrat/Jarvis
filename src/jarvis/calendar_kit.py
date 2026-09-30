@@ -8,6 +8,7 @@ EventKit answers on the main run loop, so like maps.py this runs as a short help
     python -m jarvis.calendar_kit at <start>
     python -m jarvis.calendar_kit remove <start> <id> <calendar> <future: 0|1>
     python -m jarvis.calendar_kit create <event-json>
+    python -m jarvis.calendar_kit add <event-json>
 
 It prints one JSON object: {"events": [...]}, {"removed": {...}}, {"created": {...}} or
 {"error": "..."}. create makes a whole event (notes, alerts, repeats, all-day, a link) from
@@ -392,6 +393,49 @@ def create(spec: dict[str, Any], ek: Any = None, foundation: Any = None) -> dict
     return {"created": _row(event, details=True)}
 
 
+def add(event: dict[str, Any]) -> dict[str, Any]:
+    """Put an event on the calendar from an event's fields as _row gives them (title,
+    begin, end, all_day, location, calendar): how "undo that" puts back a removed one. A
+    one-off, on its calendar when that can still be written to, else the default one; no
+    one is invited."""
+    import EventKit
+    from Foundation import NSDate
+
+    store = EventKit.EKEventStore.alloc().init()
+    if not _authorized(store):
+        return {"error": NO_ACCESS}
+    title = str(event.get("title") or "").strip()
+    try:
+        begin = datetime.fromisoformat(str(event.get("begin")))
+        end = datetime.fromisoformat(str(event.get("end")))
+    except ValueError:
+        return {"error": "That event's time can't be read."}
+    if not title or end < begin:
+        return {"error": "That event can't be put back."}
+    calendar = None
+    wanted = str(event.get("calendar") or "")
+    for cal in store.calendarsForEntityType_(EventKit.EKEntityTypeEvent) or []:
+        if str(cal.title()) == wanted and cal.allowsContentModifications():
+            calendar = cal
+            break
+    calendar = calendar or store.defaultCalendarForNewEvents()
+    if calendar is None:
+        return {"error": "There's no calendar to put it on."}
+    item = EventKit.EKEvent.eventWithEventStore_(store)
+    item.setTitle_(title)
+    item.setAllDay_(bool(event.get("all_day")))
+    item.setStartDate_(NSDate.dateWithTimeIntervalSince1970_(begin.timestamp()))
+    item.setEndDate_(NSDate.dateWithTimeIntervalSince1970_(end.timestamp()))
+    if event.get("location"):
+        item.setLocation_(str(event["location"]))
+    item.setCalendar_(calendar)
+    ok, error = store.saveEvent_span_commit_error_(item, EventKit.EKSpanThisEvent, True, None)
+    if not ok:
+        why = error.localizedDescription() if error is not None else "it said no"
+        return {"error": f"Calendar didn't save it ({why})."}
+    return {"added": _row(item)}
+
+
 def choose(rows: list[dict[str, Any]], title: str, calendar: str = "") -> list[dict[str, Any]]:
     """Of the events starting at the time asked for, the ones a request means: the title
     exactly (ignoring case and spacing), else those whose title holds the words asked for
@@ -444,6 +488,12 @@ async def edit_at(start: str, event_id: str, calendar: str, future: bool, change
 async def create_at(spec: dict[str, Any]) -> dict:
     """{"created": {...}} or {"error": ...} (see create())."""
     return await _helper("create", json.dumps(spec))
+
+
+async def add_event(event: dict[str, Any]) -> dict:
+    """{"added": {...}} or {"error": ...} (see add())."""
+    keep = ("title", "begin", "end", "all_day", "location", "calendar")
+    return await _helper("add", json.dumps({k: event.get(k) for k in keep}))
 
 
 async def _helper(*argv: str, timeout: float = 70) -> dict:
@@ -513,11 +563,14 @@ def main() -> None:
         elif len(args) == 2 and args[0] == "create":
             spec = json.loads(args[1])
             result = create(spec) if isinstance(spec, dict) else {"error": "Bad event."}
+        elif len(args) == 2 and args[0] == "add":
+            event = json.loads(args[1])
+            result = add(event) if isinstance(event, dict) else {"error": "not an event"}
         else:
             result = {
                 "error": "usage: events <back> <ahead> | at <start> | "
                 "remove <start> <id> <calendar> <0|1> | edit <start> <id> <calendar> <0|1> "
-                "<changes-json> | create <event-json>"
+                "<changes-json> | create <event-json> | add <event-json>"
             }
     except (ValueError, KeyError) as exc:  # a start that isn't one, a spec that isn't
         result = {"error": str(exc)}

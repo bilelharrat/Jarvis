@@ -170,7 +170,7 @@ async def test_the_history_tab_searches_newest_first_and_pages_back(
 async def test_what_did_you_do_reads_a_day_back(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated)
     assert "actions" in hub._extra_servers and "what_did_you_do" in hub._feature_prompt()
-    (what,) = hub.actions.tools()
+    what, _undo = hub.actions.tools()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     hub.actions.log.add(
         [

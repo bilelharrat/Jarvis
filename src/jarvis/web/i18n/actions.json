@@ -10,7 +10,14 @@
     "Nothing Jarvis did is kept yet.": "还没有保留 Jarvis 做过的事。",
     "stopped": "已中止",
     "failed": "失败",
-    "Looked back at what I did": "回顾了我做过的事"
+    "Looked back at what I did": "回顾了我做过的事",
+    "Undo": "撤销",
+    "Undid something I did": "撤销了我做过的一步"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^Undid: (.+)$",
+      "撤销了：$1"
+    ]
+  ]
 }
