@@ -8,10 +8,10 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const path = require('path');
-const { toUrl } = require('./url-input'); // what the address bar makes of what's typed
-const { pagePermission } = require('./page-permissions'); // full screen, nothing else
+const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { createAgent } = require('./browser-agent');
 const { backendCommand } = require('./backend-launch'); // the bundled backend, else uv and the repo
+const { createParity } = require('./browser-parity'); // per-site permissions, Settings › Browser
 
 app.setName('J.A.R.V.I.S.');
 
@@ -337,6 +337,7 @@ function selectTab(view) {
   if (!view || view === browserView) return;
   if (browserShown && browserView) win.contentView.removeChildView(browserView);
   browserView = view;
+  parity.selected(view);
   if (browserShown) {
     win.contentView.addChildView(view);
     if (lastBounds) view.setBounds(lastBounds);
@@ -350,7 +351,7 @@ function newTab(url) {
   tabs.push(view);
   selectTab(view);
   browserAsked = true;
-  view.webContents.loadURL(url ? toUrl(url) : 'https://www.google.com').catch(() => {});
+  view.webContents.loadURL(url ? toUrl(url) : homeUrl()).catch(() => {}); // the search engine's page
   return view;
 }
 
@@ -500,7 +501,7 @@ function pageMenu(view, p) {
   } else if (p.selectionText) {
     const text = p.selectionText.trim().slice(0, 60);
     items.push({ role: 'copy', label: 'Copy' });
-    items.push({ label: `Search Google for “${text}${p.selectionText.trim().length > 60 ? '…' : ''}”`, click: () => { newTab(`https://www.google.com/search?q=${encodeURIComponent(p.selectionText.trim())}`); sendBrowserState(); } });
+    items.push({ label: `Search ${searchEngine().name} for “${text}${p.selectionText.trim().length > 60 ? '…' : ''}”`, click: () => { newTab(searchUrl(p.selectionText)); sendBrowserState(); } });
     sep();
   }
   if (!p.linkURL && !p.isEditable && !p.selectionText && p.mediaType === 'none') {
@@ -689,6 +690,7 @@ function createTab() {
   const view = new WebContentsView({
     webPreferences: {
       partition: 'persist:jarvis-browser',
+      disableBlinkFeatures: 'WebBluetooth', // a page asking for a device would have macOS ask about Bluetooth
       preload: path.join(__dirname, 'page-preload.js'),
       sandbox: true,
       contextIsolation: true,
@@ -702,7 +704,7 @@ function createTab() {
     if (/^https?:\/\//.test(url)) { if (view === browserView) newTab(url); else browserAgent.popup(view, url); }
     return { action: 'deny' };
   });
-  wc.session.setPermissionRequestHandler((_wc, permission, callback) => callback(pagePermission(permission)));
+  parity.wireTab(view); // per-site permission prompts (browser-parity.js)
   // On the Research Center, direct input never reaches the page (Jarvis's own does).
   wc.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && win && !agentInput) win.webContents.send('browser:escape');
@@ -888,6 +890,16 @@ const browserAgent = createAgent({
   },
 });
 
+// Chrome's everyday behaviour beside the tabs (browser-parity.js): per-site permissions and
+// their prompt, the user agent, Settings › Browser.
+const parity = createParity({
+  window: () => (win && !win.isDestroyed() ? win : null),
+  tabs: () => tabs,
+  active: () => browserView,
+  send: (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); },
+  fromWindow,
+});
+
 async function runBrowserCommand({ action, args = {} }) {
   if (browserAgent.handles(action)) return browserAgent.run(action, args);
   let view;
@@ -1014,7 +1026,7 @@ ipcMain.handle('browser:show', (event, bounds) => {
   view.setBounds(lastBounds);
   // The start page only for an empty view: a page asked for a moment ago (the hosted Research
   // Center takes a network round trip) has no address yet, and would be replaced by it.
-  if (!view.webContents.getURL() && !view.webContents.isLoading() && !browserAsked) view.webContents.loadURL('https://www.google.com');
+  if (!view.webContents.getURL() && !view.webContents.isLoading() && !browserAsked) view.webContents.loadURL(homeUrl());
   sendBrowserState();
 });
 ipcMain.handle('browser:hide', (event) => {

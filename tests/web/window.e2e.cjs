@@ -4888,6 +4888,102 @@ test('Conversations: how full this conversation is, what it cost, and Compact no
   assert(await js(`$('convo-badge').textContent === '' && !$('convo-compact').disabled`), 'the badge stayed at 18%');
 });
 
+// ── the built-in browser's everyday features (web/features/browser.js), with a stand-in
+// for the app's side (app/browser-parity.js) ──
+
+// Loaded as features.js would load it, with window.jarvisApp standing in for the app: the
+// browser's own calls and the feature channels are recorded; __b.answer(channel, msg) is what
+// an invoke returns; __b.on[channel](payload) is the app sending.
+async function loadBrowser(answers = '') {
+  const source = fs.readFileSync(path.join(WEB, 'features', 'browser.js'), 'utf8');
+  const style = fs.readFileSync(path.join(WEB, 'features', 'browser.css'), 'utf8');
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(style)}; document.head.append(s); })(); true`);
+  await js(`
+    window.__b = { calls: [], invoked: [], on: {}, state: [], hello: {
+      engine: 'google', engines: [{ id: 'google', name: 'Google' }, { id: 'duckduckgo', name: 'DuckDuckGo' }], sites: [], ask: null } };
+    ${answers}
+    window.jarvisApp = {
+      browser: {
+        onState: (cb) => __b.state.push(cb), show: (b) => __b.calls.push(['show']), hide: () => __b.calls.push(['hide']),
+        tab: (...a) => __b.calls.push(['tab', ...a]), nav: (...a) => __b.calls.push(['nav', ...a]),
+      },
+      feature: {
+        invoke: (channel, ...args) => { __b.invoked.push([channel, ...args]); return Promise.resolve(__b.answer ? __b.answer(channel, ...args) : channel === 'feature:browser:hello' ? __b.hello : null); },
+        send: (channel, ...args) => __b.invoked.push([channel, ...args]),
+        on: (channel, cb) => { __b.on[channel] = cb; },
+      },
+    };
+    window.__state = (st) => { for (const cb of __b.state) cb(st); };
+    true`);
+  await js(`${source}\n;true`);
+  await settle();
+}
+const invokedOn = (channel) => js(`__b.invoked.filter(([c]) => c === ${JSON.stringify(channel)}).map(([, m]) => m)`);
+
+test('A site’s request shows its prompt over the page; the answer goes back and the prompt goes', async () => {
+  await loadBrowser();
+  assert(await js('$("bd-ask").hidden && $("bd-ask").nextElementSibling === $("browser-slot")'), 'the prompt strip is missing or misplaced');
+  await js(`__b.on['feature:browser:ask']({ id: 'p1', type: 'permission', tab: 4, host: 'meet.google.com', origin: 'https://meet.google.com', kinds: ['camera', 'microphone'] }); true`);
+  const shown = await js('({ hidden: $("bd-ask").hidden, text: $("bd-ask").querySelector(".bd-ask-text").textContent, host: $("bd-ask").querySelector("b").hasAttribute("data-no-i18n"), buttons: [...$("bd-ask").querySelectorAll(".bd-ask-btn")].map((b) => b.textContent) })');
+  assert(!shown.hidden && shown.text === 'meet.google.comwants to use your camera and microphone' && shown.host, JSON.stringify(shown));
+  assert(JSON.stringify(shown.buttons) === '["Don’t allow","Allow this time","Allow"]', JSON.stringify(shown.buttons));
+  assert(await clickText('#bd-ask', 'Allow'), 'no Allow');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:answer')) === '[{"id":"p1","choice":"allow"}]', JSON.stringify(await invokedOn('feature:browser:answer')));
+  assert(await js('$("bd-ask").hidden'), 'the prompt stayed');
+  // Notifications: no "this time"; ✕ is a no for now, remembered nowhere.
+  await js(`__b.on['feature:browser:ask']({ id: 'p2', type: 'permission', tab: 4, host: 'news.example', origin: 'https://news.example', kinds: ['notifications'] }); true`);
+  assert(JSON.stringify(await js('[...$("bd-ask").querySelectorAll(".bd-ask-btn")].map((b) => b.textContent)')) === '["Don’t allow","Allow"]', 'notifications offered Allow this time');
+  await js('$("bd-ask").querySelector(".bd-ask-x").click(); true');
+  await settle();
+  assert(JSON.stringify((await invokedOn('feature:browser:answer')).at(-1)) === '{"id":"p2","choice":"dismiss"}', 'the ✕ did not dismiss');
+  // The app says the tab on show has nothing waiting (another tab was picked): the strip goes.
+  await js(`__b.on['feature:browser:ask']({ id: 'p3', type: 'permission', tab: 4, host: 'maps.example', origin: 'https://maps.example', kinds: ['location'] }); __b.on['feature:browser:ask'](null); true`);
+  assert(await js('$("bd-ask").hidden'), 'a prompt for another tab stayed on show');
+});
+
+test('The site’s button sits at the address’s start for web pages and opens its menu where it is', async () => {
+  await loadBrowser();
+  assert(await js('$("br-site").parentElement.firstElementChild === $("br-site")'), 'not at the start of the address');
+  await js('__state({ url: "https://meet.google.com/abc", tabs: [] }); true');
+  assert(!(await js('$("br-site").hidden')), 'hidden on a web page');
+  await js('__state({ url: "about:blank", tabs: [] }); true');
+  assert(await js('$("br-site").hidden'), 'shown on a blank tab');
+  await js('__state({ url: "https://app.bshventures.com/research/markets", research: true, tabs: [] }); true');
+  assert(await js('$("br-site").hidden'), 'shown on the Research Center');
+  await js('__state({ url: "http://localhost:3000/", tabs: [] }); $("browser").hidden = false; $("br-site").click(); true');
+  await settle();
+  const [asked] = await invokedOn('feature:browser:site-menu');
+  assert(asked && Number.isFinite(asked.x) && Number.isFinite(asked.y) && asked.labels.camera === 'Camera' && asked.labels.block === 'Block', JSON.stringify(asked));
+});
+
+test('Settings › Browser: the search engine, and each site’s permissions to change or forget', async () => {
+  await loadBrowser(`__b.hello.sites = [{ origin: 'https://meet.google.com', host: 'meet.google.com', kinds: { camera: 'allow', microphone: 'block' } }];
+    __b.answer = (channel, msg) => channel === 'feature:browser:hello' ? __b.hello
+      : channel === 'feature:browser:site' ? { ok: true, sites: msg.forget ? [] : [{ origin: 'https://meet.google.com', host: 'meet.google.com', kinds: { camera: msg.value, microphone: 'block' } }] }
+      : channel === 'feature:browser:settings' ? { ...__b.hello, engine: msg.engine } : null;`);
+  const group = await js('({ title: $("browser-group").querySelector("h3").textContent, engine: $("bp-engine").value, engines: [...$("bp-engine").options].map((o) => o.textContent), rows: [...$("bp-sites").children].map((li) => li.textContent) })');
+  assert(group.title === 'Browser' && group.engine === 'google' && JSON.stringify(group.engines) === '["Google","DuckDuckGo"]', JSON.stringify(group));
+  assert(group.rows.length === 1 && group.rows[0].startsWith('meet.google.comForget'), JSON.stringify(group.rows));
+  const selects = await js('[...$("bp-sites").querySelectorAll("select")].map((s) => [s.getAttribute("aria-label"), s.value])');
+  assert(JSON.stringify(selects) === '[["Camera: meet.google.com","allow"],["Microphone: meet.google.com","block"]]', JSON.stringify(selects));
+  await js('const s = $("bp-sites").querySelector("select"); s.value = "block"; s.dispatchEvent(new Event("change")); true');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:site')) === '[{"origin":"https://meet.google.com","kind":"camera","value":"block"}]', JSON.stringify(await invokedOn('feature:browser:site')));
+  assert(await js('$("bp-sites").querySelector("select").value') === 'block', 'the row does not show the change');
+  await js('$("bp-engine").value = "duckduckgo"; $("bp-engine").dispatchEvent(new Event("change")); true');
+  await settle();
+  assert(JSON.stringify(await invokedOn('feature:browser:settings')) === '[{"engine":"duckduckgo"}]', 'the engine was not saved');
+  assert(await clickText('#bp-sites', 'Forget'), 'no Forget');
+  await settle();
+  assert(/^No site has asked yet/.test(await js('$("bp-sites").textContent')), 'forgetting the last site left its row');
+});
+
+test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {
+  await js(`window.jarvisApp = undefined; ${fs.readFileSync(path.join(WEB, 'features', 'browser.js'), 'utf8')}\n;true`);
+  assert(await js('!$("browser-group") && !$("bd-ask") && !$("br-site")'), 'the browser feature loaded without a browser');
+});
+
 // ──
 
 let base;

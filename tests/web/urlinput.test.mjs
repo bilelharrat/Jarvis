@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const { toUrl, isLocalHost, SEARCH } = require('../../app/url-input.js');
+const { toUrl, isLocalHost, SEARCH, ENGINES, setSearchEngine, searchEngine, searchUrl, homeUrl } = require('../../app/url-input.js');
 const FIXTURE = fileURLToPath(new URL('../fixtures/url_input.json', import.meta.url));
 const { cases } = JSON.parse(readFileSync(FIXTURE, 'utf8'));
 
@@ -40,4 +40,21 @@ test('a long run of input is read at once', () => {
   toUrl(`a${'.a'.repeat(50_000)}!`);
   toUrl(`${'a-'.repeat(50_000)}:`);
   assert.ok(performance.now() - started < 100);
+});
+
+test('words go to the search engine picked in Settings, and only a known one is picked', () => {
+  try {
+    assert.equal(setSearchEngine('duckduckgo'), 'duckduckgo');
+    assert.equal(toUrl('best ramen'), 'https://duckduckgo.com/?q=best%20ramen');
+    assert.equal(toUrl('example.com'), 'https://example.com', 'an address is still an address');
+    assert.equal(homeUrl(), 'https://duckduckgo.com');
+    assert.equal(searchEngine().name, 'DuckDuckGo');
+    assert.equal(setSearchEngine('altavista'), 'duckduckgo', 'an unknown engine changes nothing');
+    assert.equal(setSearchEngine('__proto__'), 'duckduckgo');
+    for (const id of Object.keys(ENGINES)) assert.ok(searchUrl('a b', id).startsWith('https://') && searchUrl('a b', id).endsWith('a%20b'), id);
+    assert.deepEqual(Object.keys(ENGINES), ['google', 'duckduckgo', 'bing', 'brave', 'kagi']);
+  } finally {
+    setSearchEngine('google');
+  }
+  assert.equal(toUrl('weather'), `${SEARCH}weather`);
 });

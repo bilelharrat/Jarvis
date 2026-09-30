@@ -1,6 +1,6 @@
 // What the built-in browser makes of an address typed in its bar, or one JARVIS asks it to
 // open: a web page, a page on this Mac or the local network, a file the user typed, or
-// words for a Google search.
+// words for a search (Google unless the owner picked another engine in Settings).
 //
 // - http(s)://… as it is; a host (with a port and a path, or not) gets https, except this
 //   Mac and the local network (localhost, *.localhost, *.local, IP addresses), which get
@@ -15,6 +15,23 @@
 'use strict';
 
 const SEARCH = 'https://www.google.com/search?q=';
+// The search engines the owner can pick (Settings › Browser); words go to the one picked.
+const ENGINES = {
+  google: { name: 'Google', search: SEARCH, home: 'https://www.google.com' },
+  duckduckgo: { name: 'DuckDuckGo', search: 'https://duckduckgo.com/?q=', home: 'https://duckduckgo.com' },
+  bing: { name: 'Bing', search: 'https://www.bing.com/search?q=', home: 'https://www.bing.com' },
+  brave: { name: 'Brave', search: 'https://search.brave.com/search?q=', home: 'https://search.brave.com' },
+  kagi: { name: 'Kagi', search: 'https://kagi.com/search?q=', home: 'https://kagi.com' },
+};
+let engine = 'google';
+
+function setSearchEngine(id) {
+  if (Object.hasOwn(ENGINES, id)) engine = id;
+  return engine;
+}
+const searchEngine = () => ({ id: engine, ...ENGINES[engine] });
+const searchUrl = (words, id = engine) => (ENGINES[id] || ENGINES.google).search + encodeURIComponent(String(words == null ? '' : words).trim());
+const homeUrl = () => ENGINES[engine].home;
 const HOST = /^(\[[0-9A-Fa-f:.]+\]|[\w-]+(?:\.[\w-]+)*)(?::(\d{1,5}))?([/?#]\S*)?$/;
 const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
@@ -39,7 +56,7 @@ function toUrl(input, { typed = false } = {}) {
       if (host.includes('.') && /[a-z]/i.test(top)) return `https://${text}`;
     }
   }
-  return SEARCH + encodeURIComponent(text);
+  return searchUrl(text);
 }
 
-module.exports = { toUrl, isLocalHost, SEARCH };
+module.exports = { toUrl, isLocalHost, SEARCH, ENGINES, setSearchEngine, searchEngine, searchUrl, homeUrl };
