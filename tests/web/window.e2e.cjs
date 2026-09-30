@@ -1608,6 +1608,30 @@ test('The goal being edited closes when another session is opened, whose banner 
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'code_goal', id: 2, action: 'clear' }]), JSON.stringify(s));
 });
 
+test('A snippet never takes a command’s name: /usage stays itself, and /ask or /config are refused', async () => {
+  await sessions([1]);
+  const snippets = (list) => js(`__ev({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_snippets: ${JSON.stringify(list)} } }); true`);
+  // A snippet called "usage", and then the feature with /usage (it loads after this one).
+  await snippets([{ name: 'usage', text: 'How much did I spend?' }]);
+  await featureScript('code-usage.js');
+  await snippets([]);  // the snippet removed…
+  await snippets([{ name: 'usage', text: 'How much did I spend?' }]);  // …and put back
+  await js('$("deck-input").focus(); true');
+  await typeText('/usag');
+  const usage = await js('[...$("cc-slash").querySelectorAll("button")].filter((b) => b.querySelector("strong").textContent === "/usage").map((b) => b.querySelector("span").textContent)');
+  assert(JSON.stringify(usage) === JSON.stringify(['Usage, limits and what sessions cost']), `/usage in the palette: ${JSON.stringify(usage)}`);
+  // Settings › Snippets refuses a feature's command and a built-in one's other name.
+  await js('openJcSettings("general"); [...document.querySelectorAll(".jcs-tabs button")].find((b) => b.dataset.tab === "snippets").click()');
+  await frames(2);
+  const add = (name) => js(`(() => { const f = document.querySelector('.cs-snippet-form'); const [n, t] = f.querySelectorAll('.jcs-input'); n.value = ${JSON.stringify(name)}; t.value = 'Words.'; f.requestSubmit(); return f.querySelector('.jcs-help').textContent; })()`);
+  await js('__sent.length = 0; true');
+  for (const name of ['usage', 'ask', 'config', 'btw']) {
+    const said = await add(name);
+    assert(said.includes('built-in'), `${name}: ${said || '(taken)'}`);
+  }
+  assert(!(await sentOf('feature_prefs')).length, JSON.stringify(await sentOf('feature_prefs')));
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

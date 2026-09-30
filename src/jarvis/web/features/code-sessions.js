@@ -622,13 +622,18 @@
 
   // ── snippets: saved prompts, in the / palette ──
 
-  let snippetNames = [];
+  let snippetsOn = [];  // the snippets' commands, as registered here
+  // Names a snippet can't have: the built-in commands and their other names (/ask, /config),
+  // and every feature's own (/btw, /usage…), whichever loaded first.
+  function commandNames() {
+    const features = [...featureSlash].filter(([, c]) => !snippetsOn.includes(c)).map(([name]) => name);
+    return [...SLASH_COMMANDS.map(([n]) => n), ...Object.keys(SLASH_MODE_IDS), ...SLASH_WITHOUT_SESSION, ...features];
+  }
   function applySnippets(list) {
-    snippetNames.forEach((n) => F.unregisterSlash(n));
-    const taken = [...SLASH_COMMANDS.map(([n]) => n), 'btw', 'goal'];
-    const commands = snippetCommands(list, taken);
-    commands.forEach((c) => F.registerSlash(c));
-    snippetNames = commands.map((c) => c.name);
+    // Only its own go: a feature loaded after this one keeps a name it took from a snippet.
+    snippetsOn.forEach((c) => { if (featureSlash.get(c.name) === c) F.unregisterSlash(c.name); });
+    snippetsOn = snippetCommands(list, commandNames());
+    snippetsOn.forEach((c) => F.registerSlash(c));
   }
 
   // ── projects' own defaults, as the composer shows them with no session open ──
@@ -813,7 +818,7 @@
       const text = textIn.value;
       help.classList.add('bad');
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) { help.textContent = t('Name it with letters, digits and dashes, like review-pr.'); return; }
-      if ([...SLASH_COMMANDS.map(([n]) => n), 'btw', 'goal'].includes(name)) { help.textContent = t('That name is a built-in command: pick another.'); return; }
+      if (commandNames().includes(name)) { help.textContent = t('That name is a built-in command: pick another.'); return; }
       if (!text.trim()) { help.textContent = t('Write the prompt it puts in the composer.'); return; }
       // Another's name, new or renamed onto it: the hub keeps only the first of two.
       if (list.some((s) => s.name === name && s !== editing)) { help.textContent = t('There’s a snippet with that name already.'); return; }
