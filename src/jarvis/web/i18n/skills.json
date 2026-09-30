@@ -1,0 +1,37 @@
+{
+  "strings": {
+    "Skills": "技能",
+    "How-tos Jarvis follows for particular tasks, each a folder with a SKILL.md. A skill guides how Jarvis works but never lets it do more: every action still asks as usual. New skills stay off until you turn them on.": "Jarvis 做特定任务时遵循的操作指南，每个都是一个含有 SKILL.md 的文件夹。技能只指导 Jarvis 怎么做，从不让它多做什么：每个操作仍会照常先询问。新技能在你打开之前保持关闭。",
+    "A git repository of skills": "一个技能的 git 仓库",
+    "Install from git": "从 git 安装",
+    "Install from a folder…": "从文件夹安装…",
+    "Offer to keep long tasks as skills": "主动提出把长任务存成技能",
+    "After a request that took many steps, Jarvis may draft a skill from it for you to read here (a few a day). A draft is never switched on by itself.": "一个请求做了很多步之后，Jarvis 可能会把它写成技能草稿放在这里给你看（每天几个）。草稿从不会自己打开。",
+    "Choose a skill, or a folder of skills": "选择一个技能，或一个装有技能的文件夹",
+    "The full path of the skill’s folder:": "技能文件夹的完整路径：",
+    "From a folder:": "来自文件夹：",
+    "From git:": "来自 git：",
+    "Drafted by Jarvis": "由 Jarvis 起草",
+    "Its files:": "它的文件：",
+    "Use this skill": "使用这个技能",
+    "It asks to pre-approve tools, which Jarvis never does:": "它要求预先批准一些工具，Jarvis 从不这样做：",
+    "Hide": "隐藏",
+    "From what you asked:": "来自你的请求：",
+    "Read it": "查看",
+    "Add to my skills": "加入我的技能",
+    "Discard": "丢弃",
+    "No skills yet.": "还没有技能。",
+    "Drafted for you to review": "起草好了，等你审阅",
+    "Skill drafted": "技能草稿",
+    "Listed your skills": "列出了你的技能",
+    "Used a skill": "用了一个技能",
+    "Read a skill's file": "读了技能的一个文件",
+    "Drafted a skill": "写了一个技能草稿"
+  },
+  "patterns": [
+    [
+      "^Move (.+) to the Trash\\? Jarvis stops using it\\.$",
+      "要把 $1 移到废纸篓吗？Jarvis 将不再使用它。"
+    ]
+  ]
+}

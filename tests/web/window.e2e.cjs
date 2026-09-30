@@ -3041,6 +3041,54 @@ test('Settings › Brain finds a model server on this Mac, adds it, and runs Jar
   assert(JSON.stringify(await sentOf('feature_prefs')) === '[{"type":"feature_prefs","changes":{"utility_model":"sonnet"}}]', 'the utility model was not set');
 });
 
+test('Settings › Skills: switches, previews, installs and the Workshop’s drafts, all as data', async () => {
+  await loadFeatures('skills.js', 'skills.css');
+  await js(`__ev(${JSON.stringify(HELLO)})`);
+  assert((await sentOf('skills_state')).length === 1, 'the skills were not asked for');
+  const skills = {
+    type: 'skills', offer: true, folder: '/x/skills', note: '', error: '',
+    items: [
+      { name: 'alpha', description: 'Does <b>it</b>.', on: false, usable: true, problems: [], source: 'git:https://github.com/o/r', allowed_tools: 'Bash', files: 1 },
+      { name: 'needs-ffmpeg', description: 'Video.', on: false, usable: false, problems: ['It needs ffmpeg, which this Mac doesn’t have.'], source: '', allowed_tools: '', files: 0 },
+    ],
+    proposals: [{ id: 'abc123def456', name: 'weekly-report', description: 'Sums up the week.', text: '---\nname: weekly-report\n---\n<img src=x onerror="window.__owned=1">', request: 'Put together my weekly report' }],
+  };
+  await js(`__ev(${JSON.stringify(skills)})`);
+  const shown = await js(`(() => {
+    const rows = [...document.querySelectorAll('#skills-list .sk-skill')];
+    return { names: rows.map((r) => r.querySelector('.sk-name').textContent), bold: document.querySelectorAll('#skills-group b').length,
+      data: rows.every((r) => r.querySelector('.sk-name').closest('[data-no-i18n]')), disabled: rows[1].querySelector('.switch').disabled,
+      problem: rows[1].querySelector('.sk-problem').textContent, from: rows[0].querySelector('.sk-source').textContent };
+  })()`);
+  assert(JSON.stringify(shown.names) === '["alpha","needs-ffmpeg"]' && shown.bold === 0 && shown.data, JSON.stringify(shown));
+  assert(shown.disabled && shown.problem.includes('ffmpeg') && shown.from === 'From git: https://github.com/o/r', JSON.stringify(shown));
+  await js('__sent.length = 0; document.querySelector("#skills-list .sk-skill .switch").click()');
+  assert(JSON.stringify(await sentOf('skills_toggle')) === '[{"type":"skills_toggle","name":"alpha","on":true}]', 'the switch did not ask');
+  assert(await clickText('#skills-list .sk-skill:first-child', 'Preview'), 'no Preview');
+  assert((await sentOf('skills_preview')).length === 1, 'the preview was not asked for');
+  await js(`__ev({ type: 'skills_preview', name: 'alpha', text: '# Alpha\\n<script>window.__owned=1</script>', files: ['reference.md'] })`);
+  assert((await js('document.querySelector("#skills-list .sk-text").textContent')).includes('<script>'), 'the preview is not shown as text');
+  assert(await clickText('#skills-drafts', 'Read it'), 'no Read it');
+  assert(await js('document.querySelector("#skills-drafts .sk-text").textContent.includes("<img")') && !(await js('window.__owned')), 'a draft ran as markup');
+  await js('__sent.length = 0');
+  assert(await clickText('#skills-drafts', 'Add to my skills'), 'no Add to my skills');
+  assert(await clickText('#skills-drafts', 'Discard'), 'no Discard');
+  assert(JSON.stringify(await js('__sent.map((m) => m.type + " " + m.id)')) === '["skills_accept abc123def456","skills_discard abc123def456"]', 'the draft buttons');
+  await js('__sent.length = 0; $("skills-git").value = "https://github.com/owner/skills"');
+  assert(await clickText('#skills-group', 'Install from git'), 'no Install from git');
+  await js('window.prompt = () => "/Users/x/Downloads/beta"; window.confirm = () => true; true');
+  assert(await clickText('#skills-group', 'Install from a folder…'), 'no Install from a folder');
+  await frames(2);
+  assert(await clickText('#skills-list .sk-skill:first-child', 'Remove'), 'no Remove');
+  const asked = await js('__sent.map((m) => JSON.stringify(m))');
+  assert(JSON.stringify(asked) === JSON.stringify([
+    '{"type":"skills_install_git","url":"https://github.com/owner/skills"}',
+    '{"type":"skills_install_folder","path":"/Users/x/Downloads/beta"}',
+    '{"type":"skills_remove","name":"alpha"}']), JSON.stringify(asked));
+  await js(`__ev(${JSON.stringify({ ...skills, error: 'That isn’t a folder.' })})`);
+  assert(await js('$("skills-status").textContent === "That isn’t a folder." && $("skills-status").classList.contains("bad")'), 'the error is not shown');
+});
+
 // ──
 
 let base;

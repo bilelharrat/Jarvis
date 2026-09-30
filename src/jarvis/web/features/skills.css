@@ -1,0 +1,17 @@
+/* Settings › Skills (skills.js): the owner's skills, installing, and the Workshop's drafts */
+.sk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sk-skill, .sk-draft { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 8px 0; border-bottom: 0.5px solid var(--line); font-size: 13px; }
+.sk-skill:last-child, .sk-draft:last-child { border-bottom: none; }
+.sk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sk-name { font-family: var(--mono); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.sk-description { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.sk-problem { color: var(--warn); font-size: 12.5px; }
+.sk-source, .sk-tools, .sk-files { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.sk-unusable .sk-name { color: var(--muted); }
+.sk-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.sk-preview { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.sk-text { margin: 6px 0 0; max-height: 280px; overflow: auto; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sk-install { display: flex; }
+.sk-status { margin-top: 6px; }
+.sk-status.bad { color: var(--warn); }
+.sk-subhead { margin: 14px 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }

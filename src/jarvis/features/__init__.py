@@ -19,6 +19,8 @@ A feature registers what it adds through the hub instead of editing its core tab
   shown, and every approval card put up and taken down (a phone or chat can then answer
   it through hub.resolve).
 - hub.add_task_sink(sink): hear every Jarvis Code and research event (kind, data).
+- hub.add_turn_sink(sink): hear each request JARVIS finished ({rid, request, own, steps:
+  the tools it ran, reply}).
 - hub.add_briefing_note(note): a line of facts for the morning briefing's request.
 - hub.voicecode.hooks: words said while voice coding, heard before its own commands.
 - hub.tasks.session_extras: add to a Jarvis Code session's options (tool servers, allowed

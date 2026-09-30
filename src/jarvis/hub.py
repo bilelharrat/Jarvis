@@ -1001,6 +1001,8 @@ class Hub:
         self._approval_done_sinks: list[Callable[[str], Any]] = []
         self._instants: list[Callable[[str], Any]] = []
         self._task_sinks: list[Callable[[str, dict[str, Any]], Any]] = []
+        self._turn_sinks: list[Callable[[dict[str, Any]], Any]] = []
+        self._turn_steps: list[dict[str, str]] = []  # the tools this request ran, in order
         self._briefing_notes: list[Callable[[], str]] = []
         self._notify_gates: list[Callable[[Alert], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
@@ -1052,6 +1054,11 @@ class Hub:
         """Hear every Jarvis Code and research event (kind, data): steps, turns ending,
         the sessions list."""
         self._task_sinks.append(sink)
+
+    def add_turn_sink(self, sink: Callable[[dict[str, Any]], Any]) -> None:
+        """Hear each request JARVIS has finished: {rid, request, own (the owner's own words,
+        not a routine's or the briefing's), steps ([{tool, label}]: the tools it ran), reply}."""
+        self._turn_sinks.append(sink)
 
     def add_briefing_note(self, note: Callable[[], str]) -> None:
         """A line of facts for the morning briefing's request ("" when there's nothing)."""
@@ -2618,6 +2625,7 @@ class Hub:
             if untrusted:
                 self._note_read("private", untrusted)
             self._turn_progress = False
+            self._turn_steps = []
             if started is not None:
                 started["rid"] = rid
             self.commands += 1
@@ -2752,6 +2760,16 @@ class Hub:
                 self.set_state("idle")
                 self._send_reply(rid, now=True)  # the last words, before the turn ends
                 self.emit("turn_done", rid=rid)
+                self._call_sinks(
+                    self._turn_sinks,
+                    {
+                        "rid": rid,
+                        "request": display or text,
+                        "own": display is None,
+                        "steps": list(self._turn_steps),
+                        "reply": self.turn.get("reply", ""),
+                    },
+                )
                 self._silent = False
                 self._turn_text = ""
                 if follow_up and not silent:
@@ -2996,6 +3014,8 @@ class Hub:
             "_t": time.monotonic(),
         }
         self._tools[block.id] = item
+        if len(self._turn_steps) < 200:
+            self._turn_steps.append({"tool": block.name, "label": item["label"]})
         self._publish_tool(item)
 
     def _tool_finished(self, tool_id: str, ok: bool) -> None:

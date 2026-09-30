@@ -1,10 +1,14 @@
 // The platform features' window side (web/features: local-models, skills, jarvis-mcp,
 // widgets and pictures): every sentence they write has its Chinese, and their fragments
-// never change a Chinese string the window already had. node --test tests/web/
+// never change a Chinese string the window already had; and their part of the app itself
+// (app/features/platform.js). node --test tests/web/
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
 
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
 const FILES = ['local-models.js', 'skills.js', 'jarvis-mcp.js', 'widgets.js'].filter((f) => existsSync(`${WEB}/features/${f}`));
@@ -109,4 +113,35 @@ test('the platform fragments never change a Chinese string the window already ha
 
 test('the patterns put names and counts into Chinese', () => {
   assert.equal(chinese('Ollama is added already.'), 'Ollama 已经添加了。');
+});
+
+// ── the app's side: the folder a skill is installed from ──
+
+const { handlers, install } = require('../../app/features/platform.js');
+
+function fakes({ canceled = false, paths = ['/Users/a/Downloads/skills'] } = {}) {
+  const asked = [];
+  const dialog = { showOpenDialog: async (win, options) => { asked.push({ win, options }); return { canceled, filePaths: paths }; } };
+  const win = { isDestroyed: () => false };
+  return { asked, win, h: handlers({ dialog, getWindow: () => win }) };
+}
+
+test('the skill folder picker asks in the window’s words and gives back the folder', async () => {
+  const f = fakes();
+  assert.equal(await f.h.pickSkillFolder('选择一个技能，或一个装有技能的文件夹'), '/Users/a/Downloads/skills');
+  assert.equal(f.asked[0].win, f.win);
+  assert.equal(f.asked[0].options.message, '选择一个技能，或一个装有技能的文件夹');
+  assert.deepEqual(f.asked[0].options.properties, ['openDirectory']);
+  assert.ok(f.asked[0].options.defaultPath.endsWith('/Downloads'));
+  await f.h.pickSkillFolder('x'.repeat(201));  // not a short line of words: the app's own
+  assert.equal(f.asked[1].options.message, 'Choose a skill, or a folder of skills');
+  assert.equal(await fakes({ canceled: true }).h.pickSkillFolder(), null);
+  assert.equal(await fakes({ paths: [] }).h.pickSkillFolder(), null);
+});
+
+test('only the window may ask for a folder', async () => {
+  const handled = new Map();
+  install({ ipcMain: { handle: (channel, fn) => handled.set(channel, fn) }, getWindow: () => null, fromWindow: (event) => event === 'the window' });
+  assert.deepEqual([...handled.keys()], ['feature:platform:pick-folder']);
+  assert.equal(await handled.get('feature:platform:pick-folder')('a page', 'Choose'), null);
 });
