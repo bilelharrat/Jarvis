@@ -348,6 +348,19 @@ test('Two or more notices can be dismissed at once; approvals stay', async () =>
   assert(r.plain === 0 && r.approvals === 1 && !r.button, JSON.stringify(r));
 });
 
+test('Notices never pile up: the same words are said once, and only the newest few stay', async () => {
+  // Ten text files dropped on Jarvis Code's composer: six go in, and the other four are one note.
+  await open(1);
+  await js('for (let i = 0; i < 10; i++) addFile(new File(["x"], "notes" + i + ".txt", { type: "text/plain" })); true');
+  await sleep(100);
+  const said = await js('[...$("cards").querySelectorAll(".card.plain .card-text")].map((n) => n.textContent)');
+  assert(JSON.stringify(said) === JSON.stringify(['Up to six attachments per message.']), JSON.stringify(said));
+  // A flood of different ones: the newest six stay.
+  await js('for (let i = 0; i < 40; i++) onEvent({ type: "toast", title: "Saved", text: "note " + i }); true');
+  const left = await js('[...$("cards").querySelectorAll(".card.plain .card-text")].map((n) => n.textContent)');
+  assert(left.length === 6 && left[5] === 'note 39' && left[0] === 'note 34', JSON.stringify(left));
+});
+
 // ── the galaxy, and 中文 ──
 
 test('A galaxy of 30,000 notes draws a bounded number of stars a frame, the focused one always', async () => {

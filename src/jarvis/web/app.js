@@ -5842,8 +5842,20 @@ function showApproval(a) {
 }
 
 // onDismiss: called only when the Dismiss button is pressed (not when the card times out).
+// Notices never pile up: the same words already up aren't said again (that one stays up
+// longer), and only the newest NOTICES_KEPT stay, the oldest going first.
+const NOTICES_KEPT = 6;
 function notice(kicker, title, text, ms, extra, onDismiss) {
+  const words = JSON.stringify([kicker, title, text]);
+  const same = !extra && !onDismiss && [...$('cards').querySelectorAll(':scope > .card.plain')].find((c) => c.noticeWords === words);
+  if (same) {
+    if (same.noticeTimer) { clearTimeout(same.noticeTimer); same.noticeTimer = ms ? setTimeout(() => { same.remove(); syncDismissAll(); }, ms) : 0; }
+    return same;
+  }
+  const older = $('cards').querySelectorAll(':scope > .card.plain');
+  for (let i = 0; i <= older.length - NOTICES_KEPT; i++) older[i].remove();
   const card = el('div', 'card plain');
+  card.noticeWords = words;
   card.append(el('div', 'card-kicker', kicker));
   if (title) card.append(el('div', 'card-title', title));
   if (text) card.append(el('div', 'card-text', text.length > 400 ? `${text.slice(0, 400)}…` : text));
@@ -5856,7 +5868,7 @@ function notice(kicker, title, text, ms, extra, onDismiss) {
   card.append(actions);
   $('cards').append(card);
   syncDismissAll();
-  if (ms) setTimeout(() => { card.remove(); syncDismissAll(); }, ms);
+  if (ms) card.noticeTimer = setTimeout(() => { card.remove(); syncDismissAll(); }, ms);
   return card;
 }
 
