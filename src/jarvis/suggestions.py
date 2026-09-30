@@ -420,8 +420,9 @@ async def _maybe_await(value: Any) -> Any:
 class Suggester:
     """notify(suggestion): the hub shows it. events(): calendar_kit.parse() dicts (async).
     mail(): recent inbox notes (async). has_prep(event): whether something to prepare
-    from exists (the file index, a document JARVIS wrote). enabled(), quiet_hours(),
-    busy(), lang(), now(): Settings and clocks, as callables for tests."""
+    from exists (the file index, a document JARVIS wrote). enabled(), quiet_hours() (a
+    range, or the hub's own say: True or False), busy(), lang(), now(): Settings and
+    clocks, as callables for tests."""
 
     def __init__(
         self,
@@ -569,8 +570,8 @@ class Suggester:
         """Not in quiet hours or a meeting, under the day's count, a while since the last,
         and nothing still on screen (a card nobody answered stops counting after a while)."""
         try:
-            quiet = self._quiet()
-            if quiet and in_quiet_hours(now, str(quiet)):
+            quiet = self._quiet()  # a range, or the hub's own say (True or False)
+            if quiet is True or (isinstance(quiet, str) and quiet and in_quiet_hours(now, quiet)):
                 return False
         except Exception:
             pass

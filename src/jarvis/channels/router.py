@@ -1084,7 +1084,7 @@ class Channels:
     def heads_up(self, alert: Any) -> None:
         """A heads-up shown on the Mac: to each chat that wants that kind, respecting quiet
         hours for all but urgent ones and a VIP's."""
-        from ..proactive import in_quiet_hours
+        from ..proactive import in_quiet_hours, quiet_hours_now
 
         kind = str(getattr(alert, "kind", ""))
         urgent = bool(
@@ -1093,7 +1093,7 @@ class Channels:
             or kind in URGENT_KINDS
         )
         vip = bool(getattr(alert, "vip", False))
-        quiet = in_quiet_hours(datetime.now(), self.hub.prefs.quiet_hours)
+        quiet = quiet_hours_now(self.hub, datetime.now(), in_quiet_hours)
         for name, adapter in self.adapters.items():
             if not self.usable(name):
                 continue

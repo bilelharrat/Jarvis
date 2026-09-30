@@ -27,6 +27,10 @@ A feature registers what it adds through the hub instead of editing its core tab
   tools) as they're made.
 - hub.add_notify_gate(gate): hold heads-ups back; one the gate returns False for doesn't
   show at all (the menu bar's "Pause heads-ups for an hour").
+- hub.add_quiet_check(check): a say on quiet hours: check(now) gives True (quiet: a Focus
+  mode is on), False (not, whatever the range in Settings says) or None. hub.quiet_now()
+  is the answer everywhere quiet hours count; code that has only the hub uses
+  proactive.quiet_hours_now(hub, now, in_quiet_hours).
 - hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
   in tests, never the user's real data there).
 - hub.register_route(path, endpoint, methods): an address of the feature's own on the window's

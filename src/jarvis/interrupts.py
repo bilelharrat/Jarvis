@@ -1427,7 +1427,8 @@ class Interrupter:
     addresses. contacts(): {last ten digits or email: name}, e.g. sources.contact_names
     (slow: read in the background every few hours). remembered(): memory's facts, whose
     people count like contacts (Remembered). mode() / set_mode(mode): the user's
-    setting. quiet_hours: "22:00-07:00" or a callable returning it. busy(): a meeting in
+    setting. quiet_hours: "22:00-07:00" or a callable returning it (or the hub's own say:
+    True or False, a Focus mode on, the weekend's hours). busy(): a meeting in
     progress (may be async). classify(text): optional async triage returning urgent,
     normal or ignore. lang(): "en" or "zh". enabled(): the whole feature on or off.
     learner: what the owner's reactions taught (a ReactionLearner); on_learned(text): told
@@ -1591,6 +1592,8 @@ class Interrupter:
     def _quiet(self, now: datetime) -> bool:
         try:
             spec = self._quiet_fn() if callable(self._quiet_fn) else self._quiet_fn
+            if isinstance(spec, bool):  # the hub's own say (a Focus mode, the weekend's hours)
+                return spec
             return bool(spec) and in_quiet_hours(now, str(spec))
         except Exception:
             return False

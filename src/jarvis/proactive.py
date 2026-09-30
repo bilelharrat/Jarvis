@@ -177,6 +177,30 @@ def in_quiet_hours(now: datetime, spec: str) -> bool:
     return now >= start or now < end
 
 
+def feature_quiet(hub: Any, now: datetime) -> bool | None:
+    """The hub's features' say on quiet hours now (Hub.quiet_verdict: a Focus mode on, the
+    weekend's own hours, heads-ups paused), or None when the range in Settings decides."""
+    verdict = getattr(hub, "quiet_verdict", None)
+    if not callable(verdict):
+        return None
+    try:
+        said = verdict(now)
+    except Exception:
+        return None
+    return said if isinstance(said, bool) else None
+
+
+def quiet_hours_now(
+    hub: Any, now: datetime, in_range: Callable[[datetime, str], bool] = in_quiet_hours
+) -> bool:
+    """Quiet hours now, for code that has the hub: its features' say, else the range in
+    Settings (in_range: the caller's own in_quiet_hours, so a test faking it still does)."""
+    said = feature_quiet(hub, now)
+    if said is not None:
+        return said
+    return bool(in_range(now, str(getattr(getattr(hub, "prefs", None), "quiet_hours", "") or "")))
+
+
 Notify = Callable[[Alert], None]
 
 

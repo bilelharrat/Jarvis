@@ -915,7 +915,7 @@ class Hub:
             remembered=lambda: [f.text for f in self.memory.facts],  # people told about
             mode=lambda: self.prefs.interruptions if self.prefs.proactive else "off",
             set_mode=lambda m: self.set_prefs({"interruptions": m}),
-            quiet_hours=lambda: self.prefs.quiet_hours,
+            quiet_hours=self._quiet_spec,
             busy=self._in_meeting,
             classify=self._triage_message,
             lang=lambda: self.prefs.language,
@@ -949,7 +949,7 @@ class Hub:
             mail=self._recent_mail,
             has_prep=self._has_prep,
             enabled=lambda: self.prefs.proactive and self.prefs.suggestions,
-            quiet_hours=lambda: self.prefs.quiet_hours,
+            quiet_hours=self._quiet_spec,
             busy=self._in_meeting,
             lang=lambda: self.prefs.language,
         )
@@ -1005,6 +1005,7 @@ class Hub:
         self._turn_steps: list[dict[str, str]] = []  # the tools this request ran, in order
         self._briefing_notes: list[Callable[[], str]] = []
         self._notify_gates: list[Callable[[Alert], Any]] = []
+        self._quiet_checks: list[Callable[[datetime], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
         self._webhook: Callable[[str, Any], Any] | None = None
         self.routes: list[Any] = []  # feature modules' own addresses on the window's server
@@ -1064,6 +1065,37 @@ class Hub:
     def add_briefing_note(self, note: Callable[[], str]) -> None:
         """A line of facts for the morning briefing's request ("" when there's nothing)."""
         self._briefing_notes.append(note)
+
+    def add_quiet_check(self, check: Callable[[datetime], Any]) -> None:
+        """A say on quiet hours besides the range in Settings: check(now) gives True (it's
+        quiet: a Focus mode is on), False (it isn't, whatever the range says: the weekend's
+        own hours) or None (no view). A check that fails has no view."""
+        self._quiet_checks.append(check)
+
+    def quiet_verdict(self, now: datetime) -> bool | None:
+        """The features' say on quiet hours now: True when one says it's quiet, else False
+        when one says it isn't, else None (the range in Settings decides)."""
+        said = []
+        for check in list(self._quiet_checks):
+            try:
+                said.append(check(now))
+            except Exception:
+                log.exception("a feature's quiet check failed")
+        if any(s is True for s in said):
+            return True
+        return False if any(s is False for s in said) else None
+
+    def quiet_now(self, now: datetime | None = None) -> bool:
+        """Quiet hours now: the features' say (quiet_verdict), else the range in Settings."""
+        now = now or datetime.now()
+        verdict = self.quiet_verdict(now)
+        return in_quiet_hours(now, self.prefs.quiet_hours) if verdict is None else verdict
+
+    def _quiet_spec(self) -> bool | str:
+        """Quiet hours for the kits that read them as a range (the interrupter, the
+        suggestions): the features' say when they have one, else the range itself."""
+        verdict = self.quiet_verdict(datetime.now())
+        return self.prefs.quiet_hours if verdict is None else verdict
 
     def register_loop(self, name: str, factory: Callable[[], Any]) -> None:
         """A background loop (factory() gives the coroutine), started with the others."""
@@ -1916,7 +1948,7 @@ class Hub:
         """A routine as a turn of the conversation, marked as one; its reply. note: what the
         app tells it besides (what started it). silent: no sound at all."""
         # In quiet hours it runs without a sound; anything it needs a yes for shows as a card.
-        quiet = silent or in_quiet_hours(datetime.now(), self.prefs.quiet_hours)
+        quiet = silent or self.quiet_now()
         return await self.ask(
             f"[Routine: {routine.name}] {routine.prompt}{note}",
             display=f"Routine · {routine.name}",
@@ -4873,7 +4905,7 @@ class Hub:
             note = f"{alert.kind}: {alert.text!r}"
         self._alert_notes.append((time.monotonic(), note))
         busy = self._lock.locked() or self.state in ("listening", "speaking")
-        quiet = in_quiet_hours(datetime.now(), self.prefs.quiet_hours)
+        quiet = self.quiet_now()
         breakthrough = bool(getattr(alert, "breakthrough", False))  # a VIP's urgent message
         if (
             speak

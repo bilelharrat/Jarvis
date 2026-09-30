@@ -34,7 +34,7 @@ from datetime import datetime
 from typing import Any
 
 from . import lang, push
-from .proactive import in_quiet_hours
+from .proactive import in_quiet_hours, quiet_hours_now
 
 log = logging.getLogger("jarvis")
 
@@ -404,7 +404,7 @@ class Notifier:
         if not test and not await self.owner_is_away():
             return {}
         now = self.clock()
-        quiet = not test and in_quiet_hours(datetime.now(), self.hub.prefs.quiet_hours)
+        quiet = not test and quiet_hours_now(self.hub, datetime.now(), in_quiet_hours)
         payload = note.payload(quiet, now)
         store = self.companion.store
         jobs: dict[str, Awaitable[push.Result]] = {}

@@ -40,7 +40,7 @@ from . import jsonstore, lang
 from .config import MAX_BUFFER
 from .jobs import _fence, one_shot
 from .prefs import MODELS as MODEL_IDS
-from .proactive import Alert, in_quiet_hours
+from .proactive import Alert, in_quiet_hours, quiet_hours_now
 from .textclean import clean_text
 
 log = logging.getLogger("jarvis")
@@ -207,7 +207,9 @@ class Heartbeat:
             return "heads-ups are off"
         if self.hub.meeting is not None:
             return "meeting notes are running"
-        if not within(now, s.get("hours") or HOURS) or in_quiet_hours(now, prefs.quiet_hours):
+        if not within(now, s.get("hours") or HOURS) or quiet_hours_now(
+            self.hub, now, in_quiet_hours
+        ):
             return "outside the active hours"
         if self.used_today(now) >= DAILY_CAP:
             return "the day's check-ins are used up"

@@ -54,7 +54,7 @@ from .. import hub as hub_module
 from .. import jobs, lang, prefs, triggers
 from .. import timers as timer_kit
 from .. import webhooks as webhook_kit
-from ..proactive import Alert, in_quiet_hours
+from ..proactive import Alert, in_quiet_hours, quiet_hours_now
 from ..textclean import clean_text
 
 log = logging.getLogger("jarvis")
@@ -345,7 +345,7 @@ class Automation:
     async def _ask_script(self, question: str, detail: str) -> bool | None:
         """A script's first run: a card (said, outside quiet hours). None: nobody answered."""
         spoken = ""
-        if not in_quiet_hours(datetime.now(), self.hub.prefs.quiet_hours):
+        if not quiet_hours_now(self.hub, datetime.now(), in_quiet_hours):
             spoken = question
             self.hub.say(question)
         try:

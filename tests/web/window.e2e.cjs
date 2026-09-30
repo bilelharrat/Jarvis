@@ -4347,6 +4347,53 @@ test('Export the whole session: share-safe, paths hidden, as a PDF, then shown i
   assert(await js('document.querySelector("#jc-pane-body .cx-result.bad").textContent').then((t) => t.includes('needs the app’s window') || t.includes('needs the app\'s window')), 'the error is not shown');
 });
 
+// ── proactive (web/features/proactive.js): quiet hours, the briefing, heads-up cards ──
+
+const PREFS = { type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, quiet_hours: '22:00-07:00' };
+const proactiveQuiet = (extra) => ({ type: 'proactive', quiet: { follow: true, focus: { state: 'off' }, paused_until: 0, quiet: false, why: '', snooze: true, ...extra } });
+
+test('Speaking up keeps the weekend’s own quiet hours, beside the weekdays’', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: { quiet_focus: true, quiet_weekend: '' } });
+  assert(await js('$("sw-quiet-weekend").closest(".row").previousElementSibling.contains($("quiet-end"))'), 'not under Quiet hours');
+  assert(await js('$("sw-quiet-weekend").getAttribute("aria-checked")') === 'false', 'on without a weekend range');
+  assert(await js('$("quiet-weekend-row").hidden'), 'the weekend’s hours show while off');
+  await js('toggleSettings(true); __sent.length = 0; $("sw-quiet-weekend").click(); true');
+  let s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { quiet_weekend: '23:30-09:00' } }]), JSON.stringify(s));
+  await deliver({ ...PREFS, features: { quiet_focus: true, quiet_weekend: '23:30-09:00' } });
+  assert(!(await js('$("quiet-weekend-row").hidden')), 'the weekend’s hours are hidden while on');
+  assert(await js('$("quiet-weekend-start").value') === '23:30', 'the start box');
+  await js('__sent.length = 0; $("quiet-weekend-end").value = "10:15"; $("quiet-weekend-end").dispatchEvent(new Event("change")); true');
+  s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { quiet_weekend: '23:30-10:15' } }]), JSON.stringify(s));
+});
+
+test('Follow Focus says what’s on, or why it can’t see; a snooze shows until when, then Resume', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: { quiet_focus: true } });
+  await deliver(proactiveQuiet({ focus: { state: 'on', name: 'Deep Work' }, quiet: true, why: 'focus' }));
+  const line = await js('$("quiet-focus-status").textContent');
+  assert(line.includes('A Focus is on now') && line.includes('Deep Work'), line);
+  assert(await js('$("quiet-focus-status").querySelector("bdi").hasAttribute("data-no-i18n")'), 'the mode’s name would be translated');
+  await deliver(proactiveQuiet({ focus: { state: 'no_access' } }));
+  assert((await js('$("quiet-focus-status").textContent')).includes('Full Disk Access'), 'no word on the permission');
+  await js('toggleSettings(true); __sent.length = 0; $("sw-quiet-focus").click(); true');
+  let s = await sentOf('feature_prefs');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'feature_prefs', changes: { quiet_focus: false } }]), JSON.stringify(s));
+  await deliver({ ...PREFS, features: { quiet_focus: false } });
+  assert(await js('$("quiet-focus-status").hidden'), 'a Focus line while it isn’t followed');
+  await js('__sent.length = 0; $("quiet-snooze").click(); true');
+  s = await sentOf('proactive_snooze');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'proactive_snooze', minutes: 60 }]), JSON.stringify(s));
+  await deliver({ ...PREFS, features: { shell_pause_until: Date.now() / 1000 + 3600 } });
+  assert(await js('$("quiet-snooze").textContent') === 'Resume heads-ups', await js('$("quiet-snooze").textContent'));
+  assert((await js('$("quiet-snooze-status").textContent')).startsWith('Paused until'), 'no end time shown');
+  await js('__sent.length = 0; $("quiet-snooze").click(); true');
+  s = await sentOf('proactive_snooze');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'proactive_snooze', minutes: 0 }]), JSON.stringify(s));
+});
+
 // ──
 
 let base;

@@ -62,7 +62,7 @@ from claude_agent_sdk import (
 from . import jsonstore, lang, mac_tools, messaging
 from .config import MAX_BUFFER
 from .prefs import MODELS as MODEL_IDS
-from .proactive import Alert, in_quiet_hours
+from .proactive import Alert, in_quiet_hours, quiet_hours_now
 from .textclean import clean_text
 
 log = logging.getLogger("jarvis")
@@ -884,7 +884,7 @@ class JobRunner:
             "“{routine}” wants to {what}. Allow it this once?", routine=routine.name, what=what
         )
         spoken = ""
-        if not in_quiet_hours(self.now(), self.hub.prefs.quiet_hours):
+        if not quiet_hours_now(self.hub, self.now(), in_quiet_hours):
             spoken = question
             self.hub.say(question)
         try:

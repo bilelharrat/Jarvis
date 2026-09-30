@@ -1,0 +1,22 @@
+{
+  "strings": {
+    "Own quiet hours at weekends": "周末用单独的勿扰时段",
+    "Keep different quiet hours on weekend nights": "周末晚上用不同的勿扰时段",
+    "At weekends": "周末",
+    "Friday and Saturday nights, and the mornings after": "周五和周六晚上，以及第二天早上",
+    "Weekend quiet hours start": "周末勿扰时段开始",
+    "Weekend quiet hours end": "周末勿扰时段结束",
+    "Follow Focus": "跟随专注模式",
+    "While a Focus mode is on (Do Not Disturb, Sleep, Work…), heads-ups stay cards.": "开着专注模式时（勿扰、睡眠、工作……），提醒只显示卡片。",
+    "A Focus is on now: I’m keeping to cards.": "现在开着专注模式：我只显示卡片。",
+    "I can’t see your Focus: allow Full Disk Access for J.A.R.V.I.S. in System Settings › Privacy & Security.": "我看不到你的专注模式：请在系统设置 › 隐私与安全性里为 J.A.R.V.I.S. 打开“完全磁盘访问权限”。",
+    "This Mac doesn’t show me its Focus.": "这台 Mac 没有提供专注模式的状态。",
+    "No Focus is on.": "现在没有开专注模式。",
+    "Snooze for an hour": "暂停一小时",
+    "Snooze heads-ups": "暂停提醒",
+    "Paused until": "暂停到",
+    "Or say “snooze everything for an hour”.": "也可以说“暂停提醒一小时”。",
+    "Snoozed heads-ups": "暂停了提醒"
+  },
+  "patterns": []
+}
