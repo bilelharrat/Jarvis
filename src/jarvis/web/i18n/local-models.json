@@ -1,0 +1,30 @@
+{
+  "strings": {
+    "Utility model": "辅助模型",
+    "For Jarvis’s own quick jobs in the background, like deciding whether a long task is worth keeping as a skill. Haiku costs least.": "用于 Jarvis 自己在后台做的小任务，比如判断一个长任务值不值得存成技能。Haiku 最省钱。",
+    "Models on this Mac": "这台 Mac 上的模型",
+    "Ollama or LM Studio, found running here. Added, a model can be the fallback, or run Jarvis all the time with nothing sent to Claude.": "在这里运行的 Ollama 或 LM Studio。添加后，模型可以作为备用模型，也可以一直运行 Jarvis，不再把任何请求发给 Claude。",
+    "Offline mode": "离线模式",
+    "Looking on this Mac…": "正在这台 Mac 上查找…",
+    "No model server is running on this Mac. Start Ollama or LM Studio, then look again.": "这台 Mac 上没有正在运行的模型服务器。请启动 Ollama 或 LM Studio，然后再找一次。",
+    "Added": "已添加",
+    "Add to Jarvis": "添加到 Jarvis",
+    "No models yet": "还没有模型",
+    "Look again": "再找一次",
+    "A model since removed (Haiku is used)": "已删除的模型（改用 Haiku）",
+    "Haiku 4.5": "Haiku 4.5",
+    "Jarvis thinks with this model on this Mac instead of Claude:": "Jarvis 用这台 Mac 上的这个模型来思考，而不是 Claude：",
+    "Web searches and connected accounts still use the internet.": "网页搜索和已连接的账户仍然需要联网。",
+    "Run Jarvis on a model on this Mac all the time, instead of Claude. It’s slower, and web searches and connected accounts still use the internet.": "一直用这台 Mac 上的模型运行 Jarvis，而不是 Claude。速度会慢一些，网页搜索和已连接的账户仍然需要联网。",
+    "OpenAI-compatible": "OpenAI 兼容",
+    "Any server that speaks OpenAI's API: Ollama or LM Studio on this Mac (Ollama is http://localhost:11434, LM Studio http://localhost:1234), OpenRouter, OpenAI and more, with every tool, through Jarvis's own relay on this Mac. Ollama and LM Studio don't check keys: type any word, like local. Give a local model a long context (32K or more).": "任何支持 OpenAI API 的服务器：这台 Mac 上的 Ollama 或 LM Studio（Ollama 是 http://localhost:11434，LM Studio 是 http://localhost:1234）、OpenRouter、OpenAI 等等，可使用所有工具，通过 Jarvis 在这台 Mac 上的中转。Ollama 和 LM Studio 不检查密钥：随便输入一个词，比如 local。请给本地模型较长的上下文（32K 或更多）。",
+    "Choose Anthropic API, OpenRouter, Google Gemini, OpenAI-compatible or Custom endpoint.": "请选择 Anthropic API、OpenRouter、Google Gemini、OpenAI 兼容或自定义端点。",
+    "That's an Anthropic key; add it as Anthropic API instead. It shouldn't go to another company's server.": "这是 Anthropic 的密钥；请改为作为 Anthropic API 添加。它不应该发到别家公司的服务器上。",
+    "That's a Google key; add it as Google Gemini instead.": "这是 Google 的密钥；请改为作为 Google Gemini 添加。",
+    "The local model relay isn't running yet; try again in a moment.": "本地模型中转还没启动；请稍后再试。",
+    "Look for it again first: it isn't running.": "请先再找一次：它没有在运行。"
+  },
+  "patterns": [
+    ["^(.+) is added already\\.$", "$1 已经添加了。"]
+  ]
+}

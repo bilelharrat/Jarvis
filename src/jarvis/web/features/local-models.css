@@ -1,0 +1,11 @@
+/* Settings › Brain: the utility model, models on this Mac, offline mode (local-models.js) */
+.lm-rows { display: contents; }
+/* its rows are the group's rows: the same padding and hairlines as .sheet .group > * */
+.sheet .lm-rows > * { padding: 12px 1px; border-top: 0.5px solid var(--s-line); }
+.lm-servers { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 6px; }
+.lm-server { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.lm-server-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.lm-models, .lm-added { color: var(--muted); font-size: 12.5px; }
+.lm-added { white-space: nowrap; }
+.lm-servers > .btn:last-child { align-self: flex-start; }
+#lm-offline-note b { font-weight: 600; color: var(--ink-2); }

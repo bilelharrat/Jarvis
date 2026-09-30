@@ -187,7 +187,8 @@ def test_a_key_shows_as_a_public_prefix_and_its_last_four_at_most(key, shown):
 @pytest.mark.parametrize(
     ("kind", "key", "base_url", "auth", "message"),
     [
-        ("openai", OR_KEY, None, None, "Choose Anthropic API, OpenRouter or Custom"),
+        ("azure", OR_KEY, None, None, "Choose Anthropic API, OpenRouter, Google Gemini"),
+        ("openai", OR_KEY, None, None, "Give the endpoint's address"),
         ("openrouter", "   ", None, None, "Paste the API key first"),
         ("openrouter", "sk-or-v1 abc def", None, None, "spaces or unusual characters"),
         ("openrouter", "sk-or-v1-\x00abc", None, None, "spaces or unusual characters"),
@@ -584,7 +585,8 @@ def test_public_is_what_the_panel_needs(tmp_path):
     store = make_store(tmp_path)
     state = store.public()
     kinds = {k["id"]: k for k in state["kinds"]}
-    assert set(kinds) == {"anthropic", "openrouter", "gemini", "custom"}
+    assert set(kinds) == {"anthropic", "openrouter", "gemini", "custom", "openai"}
+    assert kinds["openai"]["needs_base_url"] and kinds["openai"]["auth_choices"] == ["bearer"]
     assert kinds["custom"]["needs_base_url"]
     assert kinds["custom"]["auth_choices"] == ["bearer", "x-api-key"]
     assert not kinds["openrouter"]["needs_base_url"]

@@ -3010,6 +3010,37 @@ test('Tools & Accounts lists what Jarvis did in connected accounts, and which ne
   assert(await js('$("connections").children[1].querySelectorAll(".conn-rescope").length') === 1, 'the note went with the redraw');
 });
 
+// ── the platform features: models on this Mac, skills, Jarvis for other apps, widgets ──
+
+const HELLO = { type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, status: {}, activity: [], tasks: [], approvals: [], history: [], brain: {},
+  prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50, fallback_model: '', fallback_always: false, features: {} } };
+const BUILTIN = [{ ref: 'haiku', label: 'Haiku 4.5', name: 'Haiku 4.5', builtin: true }, { ref: 'sonnet', label: 'Sonnet 5.5', name: 'Sonnet 5.5', builtin: true }];
+
+test('Settings › Brain finds a model server on this Mac, adds it, and runs Jarvis offline on it', async () => {
+  await loadFeatures('local-models.js', 'local-models.css');
+  await js(`__ev(${JSON.stringify({ ...HELLO, providers: { models: BUILTIN, providers: [] } })})`);
+  assert((await sentOf('local_models_scan')).length === 1, 'it did not look for servers');
+  await js(`__ev({ type: 'local_models', servers: [{ port: 11434, name: 'Ollama', models: ['qwen3', 'llama3.2'], count: 2, added: '' }] })`);
+  const line = await js('document.querySelector("#lm-servers .lm-server").textContent');
+  assert(line.includes('Ollama') && line.includes('qwen3, llama3.2'), line);
+  assert(await js('$("lm-offline").hidden'), 'offline mode shown with no local model added');
+  assert(await clickText('#lm-servers', 'Add to Jarvis'), 'no Add to Jarvis');
+  assert(JSON.stringify(await sentOf('local_models_add')) === '[{"type":"local_models_add","port":11434}]', 'the add was not asked for');
+  const local = { ref: 'custom:m1', provider: 'p1', name: 'qwen3 · Ollama', label: 'qwen3', model: 'qwen3', builtin: false };
+  await js(`__ev({ type: 'providers', providers: [{ id: 'p1', kind: 'openai', base_url: 'http://localhost:11434', name: 'Ollama', models: [] }], models: ${JSON.stringify([...BUILTIN, local])} })`);
+  assert(!(await js('$("lm-offline").hidden')), 'offline mode not offered for a model on this Mac');
+  await js('__sent.length = 0; $("sw-offline").click()');
+  const asked = await sentOf('set_prefs');
+  assert(JSON.stringify(asked) === '[{"type":"set_prefs","changes":{"fallback_model":"custom:m1","fallback_always":true}}]', JSON.stringify(asked));
+  await js(`__ev({ type: 'prefs', ...${JSON.stringify(HELLO.prefs)}, fallback_model: 'custom:m1', fallback_always: true })`);
+  const shown = await js('({ on: $("sw-offline").getAttribute("aria-checked"), note: $("lm-offline-note").textContent, own: !!$("lm-offline-note").querySelector("[data-no-i18n]") })');
+  assert(shown.on === 'true' && shown.note.includes('qwen3 · Ollama') && shown.own, JSON.stringify(shown));
+  const options = await js('[...$("utility-model").options].map((o) => o.value)');
+  assert(JSON.stringify(options) === '["haiku","sonnet","custom:m1"]', JSON.stringify(options));
+  await js('__sent.length = 0; $("utility-model").value = "sonnet"; $("utility-model").dispatchEvent(new Event("change"))');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === '[{"type":"feature_prefs","changes":{"utility_model":"sonnet"}}]', 'the utility model was not set');
+});
+
 // ──
 
 let base;

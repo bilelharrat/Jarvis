@@ -137,7 +137,25 @@ KINDS: dict[str, Kind] = {
         "Any server that speaks Anthropic's Messages API, like a LiteLLM proxy or a model "
         "running on this Mac.",
     ),
+    # Through JARVIS's own relay on this Mac (openai_relay), which translates Anthropic's
+    # Messages API to OpenAI's Chat Completions and back.
+    "openai": Kind(
+        "openai",
+        "OpenAI-compatible",
+        "",
+        "bearer",
+        "Any server that speaks OpenAI's API: Ollama or LM Studio on this Mac (Ollama is "
+        "http://localhost:11434, LM Studio http://localhost:1234), OpenRouter, OpenAI and "
+        "more, with every tool, through Jarvis's own relay on this Mac. Ollama and LM Studio "
+        "don't check keys: type any word, like local. Give a local model a long context "
+        "(32K or more).",
+        "",
+        "https://ollama.com/search?c=tools",
+        ("qwen3", "llama3.2", "gpt-oss:20b", "mistral-small3.2"),
+    ),
 }
+# Names for a local server on its usual port (an OpenAI-compatible provider added without one).
+LOCAL_SERVERS = {11434: "Ollama", 1234: "LM Studio", 8080: "llama.cpp", 8000: "vLLM"}
 AUTHS = ("bearer", "x-api-key")
 _AUTH_WORDS = {
     "bearer": "bearer",
@@ -371,6 +389,13 @@ def _plain(value: Any, limit: int) -> str:
     return " ".join(text.split())[:limit].strip()
 
 
+def secrets_equal(a: str, b: str) -> bool:
+    """Two digests compared in constant time."""
+    import hmac
+
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
 def looks_like_key(text: Any) -> bool:
     return bool(_KEYISH.search(str(text or "").strip()))
 
@@ -454,6 +479,25 @@ def clean_base_url(value: Any) -> str:
     return f"{scheme}://{netloc}{f':{port}' if port is not None else ''}{path}"
 
 
+def openai_base_url(value: Any) -> str:
+    """An OpenAI-compatible server's address as the relay wants it: clean_base_url's, with
+    the /chat/completions it may have been pasted with taken off too (the relay adds
+    /v1/chat/completions itself)."""
+    text = str(value or "").strip()
+    trimmed = re.sub(r"(?:/v1)?/chat/completions/*$", "", text, flags=re.IGNORECASE)
+    return clean_base_url(trimmed or text)
+
+
+def base_url_for(kind: str, value: Any) -> str:
+    """The address a provider of this kind uses: the owner's for a custom endpoint or an
+    OpenAI-compatible server, the kind's own otherwise."""
+    if kind == "openai":
+        return openai_base_url(value)
+    if kind == "custom":
+        return clean_base_url(value)
+    return KINDS[kind].base_url
+
+
 def _ipv6(host: str) -> None:
     try:
         ipaddress.IPv6Address(host)
@@ -509,6 +553,13 @@ def _check_key_kind(spec: Kind, key: str) -> None:
             "That's an Anthropic key; add it as Anthropic API instead. It shouldn't go to "
             "OpenRouter."
         )
+    if spec.id == "openai" and key.startswith("sk-ant-"):
+        raise ValueError(
+            "That's an Anthropic key; add it as Anthropic API instead. It shouldn't go to "
+            "another company's server."
+        )
+    if spec.id == "openai" and key.startswith(("AIza", "AQ.")):
+        raise ValueError("That's a Google key; add it as Google Gemini instead.")
 
 
 def _id_shaped(label: str) -> bool:
@@ -594,7 +645,7 @@ def _provider_from(raw: dict[str, Any]) -> Provider | None:
     if spec is None or not _ID.fullmatch(pid):
         return None
     try:
-        base_url = clean_base_url(raw.get("base_url")) if spec.id == "custom" else spec.base_url
+        base_url = base_url_for(spec.id, raw.get("base_url"))
     except ValueError:
         return None
     try:
@@ -650,6 +701,8 @@ class ProviderStore:
         self.entries: dict[str, ModelEntry] = {}
         self.status: dict[str, dict[str, Any]] = {}  # each provider's last check, this run
         self._versions: dict[str, int] = {}  # bumped when a provider's key changes or goes
+        # (provider, key version, address) -> (the sealed key's digest, the sealed address)
+        self._relay_memo: dict[tuple[str, int, str], tuple[str, str]] = {}
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self._load()
 
@@ -799,6 +852,31 @@ class ProviderStore:
     def _bump(self, provider_id: str) -> None:
         self._versions[provider_id] = self._versions.get(provider_id, 0) + 1
 
+    def relay_target(self, provider_id: str, key: str) -> str | None:
+        """Where the OpenAI-compatible relay may send a request carrying this key for this
+        provider: the address sealed with that very key in the Keychain, or None (no such
+        provider, not that kind, the file edited since, or another key). Remembered per
+        key version, so the Keychain is read once per provider and key, not per request."""
+        provider = self.providers.get(str(provider_id or ""))
+        if provider is None or provider.kind != "openai" or not key:
+            return None
+        from .openai_relay import key_digest
+
+        memo = self._relay_memo
+        stamp = (provider.id, self._versions.get(provider.id, 0), provider.base_url)
+        digest = key_digest(key)
+        known = memo.get(stamp)
+        if known is not None:
+            return known[1] if secrets_equal(known[0], digest) else None
+        try:
+            record = self._saved(provider)
+        except ValueError:
+            return None
+        if len(memo) > 4 * MAX_PROVIDERS:
+            memo.clear()
+        memo[stamp] = (key_digest(record["key"]), record["base_url"])
+        return record["base_url"] if secrets_equal(key_digest(record["key"]), digest) else None
+
     # providers
 
     def add_provider(
@@ -815,10 +893,13 @@ class ProviderStore:
         with the Claude models ready to pick. Raises ValueError, in words to show."""
         spec = KINDS.get(str(kind or "").strip().lower())
         if spec is None:
-            raise ValueError("Choose Anthropic API, OpenRouter or Custom endpoint.")
+            raise ValueError(
+                "Choose Anthropic API, OpenRouter, Google Gemini, OpenAI-compatible or Custom "
+                "endpoint."
+            )
         key = clean_key(api_key)
         _check_key_kind(spec, key)
-        url = clean_base_url(base_url) if spec.id == "custom" else spec.base_url
+        url = base_url_for(spec.id, base_url)
         name = self._new_name(spec, name, url)
         way = _clean_auth(spec, auth)
         if len(self.providers) >= MAX_PROVIDERS:
@@ -923,9 +1004,13 @@ class ProviderStore:
                 raise ValueError(f"There's already a provider called {given}; pick another name.")
             return given
         stem = spec.name
-        if spec.id == "custom":
+        if spec.id in ("custom", "openai"):
             host = _plain(urlsplit(base_url).netloc, NAME_LIMIT)
             stem = spec.name if not host or looks_like_key(host) else host
+        if spec.id == "openai":
+            parts = urlsplit(base_url)
+            if is_local(parts.hostname or "") and parts.port in LOCAL_SERVERS:
+                stem = LOCAL_SERVERS[parts.port]
         return self._unique_name(stem)
 
     def find_provider(self, text: str) -> Provider | None:
@@ -1331,6 +1416,19 @@ def session_pins(provider: Provider, model: str, environ: Mapping[str, str]) -> 
             raise ValueError("The Gemini relay isn't running yet; try again in a moment.")
         pins["ANTHROPIC_BASE_URL"] = PROXY.address
         pins.update(dict.fromkeys(TIER_ENV, model))
+    elif provider.kind == "openai":
+        # OpenAI's API: Claude Code talks to JARVIS's other relay on this Mac, at this
+        # provider's own path; the relay sends the key only to the address sealed with it.
+        from .openai_relay import PROXY as OPENAI_PROXY
+
+        if not OPENAI_PROXY.address:
+            raise ValueError("The local model relay isn't running yet; try again in a moment.")
+        pins["ANTHROPIC_BASE_URL"] = OPENAI_PROXY.base_for(provider.id)
+        pins.update(dict.fromkeys(TIER_ENV, model))
+        if is_local(urlsplit(provider.base_url).hostname or ""):
+            # A model on this Mac: Claude Code's own telemetry, error reports and update
+            # checks stay off too, so nothing needs the network.
+            pins["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
     elif provider.kind != "anthropic":
         pins["ANTHROPIC_BASE_URL"] = provider.base_url
         pins.update(dict.fromkeys(TIER_ENV, model))
@@ -1365,7 +1463,7 @@ def _headers(provider: Provider, key: str) -> dict[str, str]:
         headers["Authorization"] = f"Bearer {key}"
     else:
         headers["x-api-key"] = key
-    if provider.kind != "openrouter":
+    if provider.kind not in ("openrouter", "openai"):
         headers["anthropic-version"] = ANTHROPIC_VERSION
     return headers
 

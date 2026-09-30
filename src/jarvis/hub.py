@@ -63,6 +63,7 @@ from . import (
     lang,
     livecontext,
     mac_tools,
+    openai_relay,
     phone,
     research,
     screenwatch,
@@ -5304,6 +5305,7 @@ class Hub:
                 await PROXY.start()
             except Exception as exc:  # a port refused, say: Gemini waits, nothing else does
                 log.warning("gemini relay didn't start: %s", exc)
+        await openai_relay.ready(self.providers)  # likewise for an OpenAI-compatible server
 
     async def _gemini_added(self, provider_id: str) -> None:
         """One paste is enough: a Gemini key brings Gemini Flash (fast: the fallback's
@@ -5324,6 +5326,7 @@ class Hub:
             from .gemini_proxy import PROXY
 
             await PROXY.start()
+        await openai_relay.ready(self.providers, ref)  # an OpenAI-compatible one: its relay
 
     async def _reconnect(self) -> None:
         with contextlib.suppress(Exception):

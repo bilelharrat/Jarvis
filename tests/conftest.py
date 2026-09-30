@@ -260,3 +260,15 @@ def _no_real_claude_for_jarvis_code(monkeypatch):
         raise AssertionError("a test reached code_ai.complete: fake the feature's .ai")
 
     monkeypatch.setattr(code_ai, "complete", refuse)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_claude_for_jarvis_itself(monkeypatch):
+    """JARVIS's own background calls (utility_model: a skill's triage and draft) never
+    reach Claude in a test: one a test didn't fake fails loudly instead."""
+    from jarvis import utility_model
+
+    async def refuse(*_args, **_kwargs):
+        raise AssertionError("a test reached utility_model.run_turn: fake it")
+
+    monkeypatch.setattr(utility_model, "run_turn", refuse)
