@@ -642,6 +642,13 @@ class Hub:
         self.mac_voice_for: Callable[[str], str] = lambda _language: ""
         self.heard_live: Callable[[Any], str | None] | None = None
         self.talk_over: Callable[[], bool] = lambda: False
+        # Is it the owner's voice (features/voice_id.py)? A check starts with each
+        # hands-free utterance, beside its transcription, and is awaited only where JARVIS
+        # would answer, act or take a spoken approval. None: no check, as before.
+        self.voice_guard: Any = None
+        self._heard_voice: Any = None  # the check of the utterance being handled
+        self._turn_voice: Any = None  # the check of the utterance this turn answers
+        self._voice_refused = False  # that utterance's spoken approval isn't the owner's
         self._speak_language()
         self.transcriber = transcriber
         self.recorder = recorder
@@ -2570,6 +2577,10 @@ class Hub:
         answer = self._voice_answer(text, approval)
         if answer is None:
             return False
+        if self._voice_refused:  # not the owner's voice: the card stays up for them
+            log.info("a spoken approval wasn't the owner's voice: not taken")
+            self.voice_guard.refused()
+            return True
         choice, feedback = answer
         if heard:
             self.emit("heard", text=text)
@@ -2727,6 +2738,7 @@ class Hub:
         untrusted: str = "",
         attachments: list[dict[str, str]] | None = None,
         note: str = "",
+        voice: Any = None,
     ) -> str:
         """One request. display: what the window shows instead of text (routines, the
         briefing). silent: say nothing out loud (a routine in quiet hours). screen: send a
@@ -2736,7 +2748,7 @@ class Hub:
         attachments: pictures and files sent with it ({media_type, data, name}: a chat's
         photo or PDF), the owner's private data to the gates. note: where a request from
         elsewhere came from (a chat), told to Claude; such a request never gets a look at
-        the screen by itself."""
+        the screen by itself. voice: a hands-free request's owner-voice check (running)."""
         text = text.strip()
         if not text:
             return ""
@@ -2770,6 +2782,7 @@ class Hub:
             self._stopping = False
             self._silent = silent
             self._turn_text = text if display is None else ""
+            self._turn_voice = voice
             heard_note = ""
             # The owner's own words, typed or said: never a routine's, and never learned
             # from while incognito.
@@ -2805,8 +2818,11 @@ class Hub:
             started = time.monotonic()
             # One with a picture or a file (a phone's photo, a chat's attachment) is for Claude.
             instant = display is None and not images and not attachments
+            owner = await self._settle_turn_voice()
             try:
-                if instant and (
+                if not owner:
+                    pass  # someone else's voice, with "Everything": no answer at all
+                elif instant and (
                     await self._instant_research(rid, text)
                     or await self._instant_feature(rid, text)
                     or await self._instant_window(rid, text)
@@ -3453,6 +3469,7 @@ class Hub:
                 log.info("skipped an utterance from %.0fs ago", time.monotonic() - ended)
                 continue
             self._heard_at = time.monotonic()
+            self._start_voice_check(audio)
             try:
                 if self.voicecode.focus is not None and self._code_hotwords:
                     stt = (
@@ -3492,6 +3509,7 @@ class Hub:
         if current is not None and not current(number):
             return  # they kept talking, or the whole utterance is already here: not worth it
         heard_at = time.monotonic()
+        self._start_voice_check(audio)
         stt = self.transcriber
         if self.voicecode.focus is not None and self._code_hotwords:
             if self._code_stt is not None and self._code_stt.loaded():
@@ -3564,10 +3582,43 @@ class Hub:
             return False
         return 0 <= self._utterance_began - self._last_voice[1] <= CONTINUE_GAP
 
+    def _start_voice_check(self, audio: Any) -> None:
+        """The owner-voice check of a hands-free utterance, started now (in a thread) so it
+        runs beside the transcription and the request; nothing waits for it here."""
+        guard = self.voice_guard
+        self._heard_voice = guard.start(audio) if guard is not None else None
+
+    async def _voice_allows(self, check: Any = None, risky: bool = False) -> bool:
+        """Whether what the utterance asks may happen: always, unless its check says it's
+        someone else's voice and the owner chose "Everything", or this is a risky step.
+        Awaited only where JARVIS answers, acts or takes an approval, by when the check
+        (started with the utterance) is done. No check, or a failed one: as before."""
+        check = self._heard_voice if check is None else check
+        if check is None or self.voice_guard is None:
+            return True
+        return await self.voice_guard.allows(check, risky)
+
+    async def _settle_turn_voice(self) -> bool:
+        """A spoken request's check, at the moment its turn first answers or acts. Someone
+        else's voice: with "Everything" the turn ends silently (False); with "Only risky
+        actions" their words stop counting as the owner's own (the gates then ask first,
+        and only the owner's voice or a tap answers)."""
+        check, self._turn_voice = self._turn_voice, None
+        if check is None:
+            return True
+        if not await self._voice_allows(check):
+            log.info("not the owner's voice: the request is dropped")
+            self._silent, self._turn_text = True, ""
+            return False
+        if not await self._voice_allows(check, risky=True):
+            log.info("not the owner's voice: risky steps will ask")
+            self._turn_text = ""
+        return True
+
     def _ask_by_voice(self, request: str) -> None:
         self.emit("heard", text=request)
         self._last_voice = (request, self._utterance_ended or time.monotonic())
-        self._spawn(self.ask(request))
+        self._spawn(self.ask(request, voice=self._heard_voice))
 
     async def on_heard(self, text: str) -> None:
         """One hands-free utterance: wake word, barge-in, or ignore. Its own voice coming
@@ -3599,6 +3650,9 @@ class Hub:
             # over Jarvis): taken as if "Jarvis" came first. It stops the reply, and what
             # was said is a request, a stop, or the answer to the question being read.
             woke, command = True, text
+        self._voice_refused = False
+        if self.approvals:  # a spoken answer to a card must be the owner's
+            self._voice_refused = not await self._voice_allows(risky=True)
         question = self._voice_question()
         if self.answer_by_voice(text, woke=woke):
             if stop and question is not None:  # "stop" says no, and stops what was asking
@@ -3620,7 +3674,13 @@ class Hub:
             log.info("research follow-up (%d words)", len(lang.words(text, language)))
             self._ask_by_voice(text)
             return
-        if busy and not woke and not stop and self._continues_request():
+        if (
+            busy
+            and not woke
+            and not stop
+            and self._continues_request()
+            and await self._voice_allows()
+        ):
             # A pause mid-sentence ended the utterance and its first half went off as a
             # request: ask again with all of it.
             earlier = self._last_voice[0] if self._last_voice else ""
@@ -3629,7 +3689,7 @@ class Hub:
             self._ask_by_voice(f"{earlier} {text}".strip())
             return
         if busy or self.state == "speaking":
-            if woke or lang.is_stop(text, language):
+            if (woke or lang.is_stop(text, language)) and await self._voice_allows():
                 await self.stop()
                 about_notes = self.meeting is not None and re.search(
                     r"\b(notes?|meeting|recording)\b|记录|会议|笔记|录音", command or ""
@@ -3649,6 +3709,8 @@ class Hub:
             if len(lang.words(command, language)) >= 2:
                 self._ask_by_voice(command)
             elif is_homecoming(text):  # "wake up, daddy's home": a welcome, then listening
+                if not await self._voice_allows():
+                    return
                 welcome = (
                     f"Welcome home, {self.prefs.address}."
                     if self.prefs.address
@@ -3685,7 +3747,8 @@ class Hub:
                 if woke and command and not lang.is_stop(command, self.language):
                     self.emit("heard", text=command)
                     if not self._answer_code_approval(command, woke=True):
-                        await self.voicecode.handle(command)
+                        if await self._voice_allows():
+                            await self.voicecode.handle(command)
                 elif woke and not lang.is_stop(command, self.language):
                     self._arm(seconds=FOCUS_FOLLOW_UP)
             return
@@ -3699,7 +3762,8 @@ class Hub:
         self.emit("heard", text=request)
         if self._answer_code_approval(request, woke=woke):
             return
-        await self.voicecode.handle(request)
+        if await self._voice_allows():
+            await self.voicecode.handle(request)
 
     def say(self, text: str, follow_up: bool = True) -> None:
         """Say something outside a JARVIS turn (voice-code narration and replies), then

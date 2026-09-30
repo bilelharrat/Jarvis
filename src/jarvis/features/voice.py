@@ -102,6 +102,9 @@ class Voice:
         listener.voice_factory = self.voice_detector
         listener.on_block = self._tap
         listener.source = self.duplex.source  # the echo-cancelled microphone, when it's on
+        guard = getattr(self.hub, "voice_guard", None)  # features/voice_id.py's look-ahead
+        if guard is not None:
+            guard.attach(listener)
         self.listener = listener
         try:
             asyncio.get_running_loop()
