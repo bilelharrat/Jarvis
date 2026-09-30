@@ -272,6 +272,35 @@
   "The name shown when Jarvis calls. Your iPhone shows it straight away (a Contacts card); other people’s phones once Twilio approves it, which needs a business profile in Twilio’s Trust Hub. US numbers only, and some mobile carriers show just the number.": "Jarvis 来电时显示的名称。你的 iPhone 会立即显示（通过一张联系人名片）；其他人的手机要等 Twilio 审核通过后才会显示，这需要在 Twilio 的 Trust Hub 中有企业资料。仅限美国号码，而且部分移动运营商只显示号码。",
   "Show calls as this name": "来电显示这个名称",
   "Setting up the caller ID name…": "正在设置来电显示名称…",
+  "Answer calls to my Twilio number": "接听打到我 Twilio 号码的电话",
+  "People who call it hear Jarvis and can leave you a message or book a time with you. It’s answered on your Twilio account, so it works while this Mac is off; messages and bookings reach you here, transcribed on this Mac.": "打来的人会听到 Jarvis，可以给你留言，或预约和你见面的时间。电话在你的 Twilio 账户上接听，所以这台 Mac 关机时也能用；留言和预约会送到这里，并在这台 Mac 上转成文字。",
+  "Let callers book a time": "允许来电者预约时间",
+  "Jarvis offers open times from your calendar: weekdays from tomorrow, a morning and an afternoon time a day":"Jarvis 会从你的日历中提供空闲时间：从明天起的工作日，每天上午和下午各一个",
+  "Meeting length": "会议时长",
+  "15 minutes": "15 分钟",
+  "30 minutes": "30 分钟",
+  "45 minutes": "45 分钟",
+  "1 hour": "1 小时",
+  "Offer times between": "提供的时间段",
+  "Offer times from": "提供时间自",
+  "Offer times until": "提供时间至",
+  "Book without asking me": "无需问我直接预约",
+  "A time a caller picks goes straight into your calendar, and they hear they’re booked. Off: you say yes first, then Jarvis calls them back to confirm.": "来电者选的时间会直接放进你的日历，他们会听到已预约成功。关闭时：先由你同意，然后 Jarvis 回电向他们确认。",
+  "Setting up answering on your Twilio account (about a minute)…": "正在你的 Twilio 账户上设置接听（约一分钟）…",
+  "Turning answering off…": "正在关闭接听…",
+  "Answering is off.": "接听已关闭。",
+  "Nothing was booked.": "没有预约。",
+  "Left a message": "留言",
+  "Wants to meet": "想约见",
+  "Wants a time": "想约时间",
+  "Missed call": "未接来电",
+  "Booked": "已预约",
+  "Let go": "放弃",
+  "Asked again": "已重新预约",
+  "Book": "预约",
+  "Voicemail": "语音留言",
+  "Booking request": "预约请求",
+  "Booked by phone": "电话预约成功",
   "Phone call": "电话",
   "Calling from your Twilio number isn't set up yet. In Settings › Phone, add your Twilio Account SID, Auth Token and Twilio number.": "还没有设置用你的 Twilio 号码拨打电话。请在“设置 › 电话”里填写你的 Twilio Account SID、Auth Token 和 Twilio 号码。",
   "Your Twilio account is a free trial, which can only call numbers verified in Twilio. Upgrade it in the Twilio Console (or verify that number there) and I can call anyone.": "你的 Twilio 账户是免费试用账户，只能拨打在 Twilio 验证过的号码。请在 Twilio 控制台升级账户（或在那里验证这个号码），我就能拨打任何号码。",
@@ -2953,6 +2982,18 @@
   [
    "^Couldn't reach Twilio \\((.+)\\)\\.$",
    "无法连接 Twilio（$1）。"
+  ],
+  [
+   "^Answering is on: people who call (.+) hear Jarvis and can leave a message or book a time with you\\. It works while this Mac is off; what they leave comes to you here\\.$",
+   "接听已开启：打 $1 的人会听到 Jarvis，可以给你留言或预约时间。这台 Mac 关机时也能用；他们留下的内容会送到这里。"
+  ],
+  [
+   "^Answering is off: calls to (.+) ring as they did before\\.$",
+   "接听已关闭：打到 $1 的电话恢复原来的方式。"
+  ],
+  [
+   "^Missed call from (.+); no message\\.$",
+   "$1 的未接来电，没有留言。"
   ]
  ]
 }

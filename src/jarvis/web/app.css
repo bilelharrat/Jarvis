@@ -362,6 +362,12 @@ input[type="range"] { width: 100%; accent-color: var(--action); }
 .routine-list li span.fact { display: flex; flex-direction: column; gap: 2px; direction: ltr; }
 .routine-list li small { color: var(--muted); font-size: 12px; }
 .time-range { display: flex !important; flex-direction: row !important; gap: 6px; align-items: center; }
+/* Answering: its options fade while it's off; a caller's words wrap under their name. */
+#line-options.off { opacity: 0.45; }
+.line-calls { max-height: 320px; overflow-y: auto; gap: 12px; margin-top: 4px; }
+.line-calls li { align-items: flex-start; }
+.line-calls li span.fact { flex: 1; min-width: 0; white-space: normal; overflow: visible; }
+.line-calls .line-words { overflow-wrap: anywhere; }
 .shortcut-list { max-height: 280px; overflow-y: auto; }
 .shortcut-list li.row span { direction: ltr; font-size: 14px; }
 .folder-form[hidden] { display: none; }

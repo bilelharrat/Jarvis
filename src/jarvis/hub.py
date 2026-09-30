@@ -43,6 +43,7 @@ from claude_agent_sdk import (
 )
 
 from . import (
+    answering,
     code_tools,
     computer,
     defense,
@@ -59,6 +60,7 @@ from . import (
     phone,
     research,
     screenwatch,
+    sources,
     suggestions,
     system_voice,
     transactions,
@@ -366,7 +368,7 @@ SLOW_COMMANDS = frozenset(
         "shortcuts", "meeting_start", "sim_list", "sim_boot", "file_read", "code_command",
         "task_context", "task_undo", "voicecode_start", "voicecode_enter",
         "providers_check", "task_model", "slash_list", "delegation_continue", "files_clear",
-        "phone_test", "phone_caller_name",
+        "phone_test", "phone_caller_name", "line_set", "line_book", "line_decline",
     }
 )  # fmt: skip
 
@@ -589,6 +591,7 @@ class Hub:
         suggester: Any = None,
         document_store: Any = None,
         video_desk: Any = None,
+        call_log: Any = None,
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
@@ -655,6 +658,20 @@ class Hub:
         self.screen = computer.Screen()
         self.desktop_hands = DesktopHands()
         self.phone = phone.Phone(lambda: self.prefs, voice=self._call_voice)
+        # Calls to the Jarvis number: messages and times to meet, answered on Twilio.
+        self.answering = answering.Answering(
+            lambda: self.prefs,
+            self.phone,
+            log_store=call_log,
+            transcribe=self._transcribe_call,
+            names=sources.contact_names,
+            heard=self._call_heard,
+            ask_book=lambda q, d, s: self.send_gate(q, d, s, ("Book", "Don't book")),
+            ask_call=self.call_gate,
+            after_call=self._follow_call,
+            changed=self._line_changed,
+            calendar=settings.calendar,
+        )
         from .prefs import APP_SUPPORT
         from .tasks import RuleStore
 
@@ -930,6 +947,7 @@ class Hub:
             self._spawn(self.suggester.run())
             self._spawn(self._hearing_names_loop())
             self._spawn(self.delegate.run())
+            self._spawn(self.answering.run())
             self._spawn(
                 fileindex.keep_fresh(
                     self.files,
@@ -1031,6 +1049,7 @@ class Hub:
             phone.SERVER_NAME: phone.build_server(
                 self.phone, self.confirm, approve=self.call_gate, after_call=self._follow_call
             ),
+            answering.SERVER_NAME: answering.build_server(self.answering),
             "meeting": meeting.build_server(self),
             memory.SERVER_NAME: memory.build_server(
                 self.memory, self._memory_changed, self.feature_gate
@@ -1060,6 +1079,7 @@ class Hub:
             "looks facts up; forget removes one."
             + research.PROMPT
             + phone.PROMPT
+            + answering.PROMPT
             + MODELS_PROMPT
             + ui.PROMPT
             + invoices.PROMPT
@@ -1906,6 +1926,7 @@ class Hub:
             "file_index": self.files.status(),
             "providers": self.providers.public(),
             "routines": self.routines.public(),
+            "line": self.answering.public(),
             "remote": self.remote.public(),
             "voicecode": self.voicecode.public(),
             "markets": self.markets.summary,
@@ -4266,6 +4287,10 @@ class Hub:
             )
         if "weather_city" in changed:
             self._spawn(self._refresh_weather())
+        if {"line_booking", "line_minutes", "line_hours", "line_autobook", "owner_name"} & set(
+            changed
+        ):
+            self._spawn(self._republish_line())  # what callers hear and are offered
         if "watchlist" in changed:
             self._spawn(self.refresh_markets())
         if "use_location" in changed:
@@ -4369,9 +4394,15 @@ class Hub:
     def notify(self, alert: Alert, speak_if_busy: bool = False, speak: bool = True) -> None:
         """Show an alert, and say it when that's welcome (never, with speak off). Heads-ups
         off means none at all (Claude Code and research still get their own cards)."""
-        # A conversation held for them that needs them, or how a call they asked for went,
-        # shows even with heads-ups off.
-        if not self.prefs.proactive and alert.kind not in ("meeting", "delegate", "call"):
+        # A conversation held for them that needs them, how a call they asked for went, or a
+        # call to the Jarvis number (answering is on to hear of them) shows even with
+        # heads-ups off.
+        if not self.prefs.proactive and alert.kind not in (
+            "meeting",
+            "delegate",
+            "call",
+            "voicemail",
+        ):
             return
         self.emit("alert", key=alert.key, alert_kind=alert.kind, title=alert.title, text=alert.text)
         self.history.append({"role": "assistant", "text": alert.text, "at": _now()})
@@ -4386,6 +4417,8 @@ class Hub:
             note = f"{alert.kind}: files ready for an upcoming meeting (files_for has them)"
         elif alert.kind == "delegate":  # written after reading the other person's messages
             note = f"{alert.kind}: a conversation update (list_delegations for details)"
+        elif alert.kind == "voicemail":  # a caller's words are anyone's to say: who, not what
+            note = f"{alert.kind}: {alert.note or 'a call to the Jarvis number (list_calls)'}"
         else:
             note = f"{alert.kind}: {alert.text!r}"
         self._alert_notes.append((time.monotonic(), note))
@@ -4885,6 +4918,62 @@ class Hub:
         if said:
             self.notify(Alert(f"call:{call_sid[-8:]}", "call", "Phone call", said))
 
+    # ── answering the Jarvis number ──
+
+    def _transcribe_call(self, audio: Any) -> str:
+        """A caller's message in words, with the Whisper the Mac listens with. Whisper's own
+        voice detection takes a message longer than half a minute, and skips the hold music
+        and silence; the wake word's hint is left out."""
+        transcriber = self.transcriber
+        if transcriber is None:
+            return ""
+        if not hasattr(transcriber, "_load"):  # a stand-in (tests)
+            return str(transcriber.transcribe(audio))
+        segments = video.whisper_transcribe(transcriber)(audio, threading.Event())
+        return " ".join(s.text for s in segments).strip()
+
+    def _call_heard(self, call: answering.Call, text: str, speak: bool) -> None:
+        """A call to the Jarvis number, collected: a heads-up, even with heads-ups off (the
+        owner turned answering on to hear of them)."""
+        titles = {"missed": "Missed call", "booking": "Booking request"}
+        title = titles.get(call.kind, "Voicemail")
+        if call.kind == "booking" and call.status == "booked":
+            title = "Booked by phone"
+        alert = Alert(f"voicemail:{call.id[-8:]}", "voicemail", title, text)
+        alert.note = answering.alert_note(call)
+        self.notify(alert, speak=speak)
+
+    def _line_changed(self) -> None:
+        self.emit("line", **self.answering.public())
+
+    async def _republish_line(self) -> None:
+        try:
+            await self.answering.publish()
+        except phone.PhoneError as exc:  # tried again with the next look at the calendar
+            log.warning("answering: couldn't update the open times: %s", exc)
+
+    async def _line_command(self, kind: str, msg: dict[str, Any]) -> None:
+        """Settings › Phone › Answering: on and off, and a caller's time booked or let go."""
+        note = ""
+        try:
+            if kind == "line_set":
+                note = await (
+                    self.answering.turn_on() if msg.get("on") else self.answering.turn_off()
+                )
+            elif kind == "line_book":
+                note = await self.answering.book(str(msg.get("id", "")))
+            elif kind == "line_decline":
+                note = await self.answering.decline(str(msg.get("id", "")))
+        except answering.SaidNo:
+            note = "Nothing was booked."
+        except phone.PhoneError as exc:
+            note = str(exc)
+        except Exception:
+            log.exception("answering: %s", kind)
+            note = "Something went wrong there. Try again."
+        self.answering.note = note or self.answering.note
+        self._line_changed()
+
     async def _call_voice(self, text: str) -> tuple[Any, int] | None:
         """A phone call's words in JARVIS's own voice: the cloud voice the Mac speaks with,
         and its effect when that's on. None without one (Twilio's voice reads the call)."""
@@ -5123,6 +5212,9 @@ class Hub:
             "phone_caller_name",
         ):
             await self._phone_command(kind, msg)
+            return
+        if kind in ("line_set", "line_book", "line_decline"):
+            await self._line_command(kind, msg)
             return
         if kind == "desktop_hand":  # ~30/s while steering the Mac; posting is sub-millisecond
             event = self.desktop_hands.handle(msg)

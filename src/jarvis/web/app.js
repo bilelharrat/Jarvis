@@ -115,6 +115,7 @@ function onEvent(ev) {
       if (ev.purchases) renderPurchases(ev.purchases);
       if (ev.file_index) renderFileIndex(ev.file_index);
       renderRoutines(ev.routines || []);
+      if (ev.line) renderLine(ev.line);
       if (ev.remote) renderRemote(ev.remote);
       onMeeting(ev.meeting || { active: false });
       onVoiceCode(ev.voicecode);
@@ -131,6 +132,7 @@ function onEvent(ev) {
     case 'purchases': renderPurchases(ev); break;
     case 'files_status': renderFileIndex(ev); break;
     case 'routines': renderRoutines(ev.items || []); break;
+    case 'line': renderLine(ev); break;
     case 'remote': renderRemote(ev); break;
     case 'devices': send({ type: 'remote' }); break;
     case 'remote_code': showRemoteCode(ev); break;
@@ -743,6 +745,12 @@ function renderPrefs(p) {
   if (document.activeElement !== $('phone-from')) $('phone-from').value = p.phone_from || '';
   if (document.activeElement !== $('phone-me')) $('phone-me').value = p.phone_me || '';
   setSwitch('sw-wake-call', p.wake_call);
+  setSwitch('sw-line-booking', p.line_booking !== false);
+  setSwitch('sw-line-autobook', !!p.line_autobook);
+  $('line-minutes').value = String(p.line_minutes || 30);
+  const [ls, le] = (p.line_hours || '09:00-17:00').split('-');
+  if (document.activeElement !== $('line-start')) $('line-start').value = ls;
+  if (document.activeElement !== $('line-end')) $('line-end').value = le;
   renderFallback();
   $('wake-call-time').value = p.wake_call_time || '07:00';
   $('folders').replaceChildren(...(p.brain_folders || []).map((f) => {
@@ -959,6 +967,20 @@ $('phone-caller-save').addEventListener('click', () => {
   $('phone-note').textContent = tr('Setting up the caller ID name…');
   send({ type: 'phone_caller_name', name: $('phone-caller-name').value.trim() });
 });
+// Settings › Phone › Answering: calls to the Twilio number, messages and bookings.
+let lineOn = false;
+$('sw-line').addEventListener('click', () => {
+  $('line-note').textContent = tr(lineOn ? 'Turning answering off…' : 'Setting up answering on your Twilio account (about a minute)…');
+  send({ type: 'line_set', on: !lineOn });
+});
+$('sw-line-booking').addEventListener('click', () => setPrefs({ line_booking: prefs.line_booking === false }));
+$('sw-line-autobook').addEventListener('click', () => setPrefs({ line_autobook: !prefs.line_autobook }));
+$('line-minutes').addEventListener('change', (e) => setPrefs({ line_minutes: Number(e.target.value) }));
+for (const id of ['line-start', 'line-end']) {
+  $(id).addEventListener('change', () => {
+    if ($('line-start').value && $('line-end').value) setPrefs({ line_hours: `${$('line-start').value}-${$('line-end').value}` });
+  });
+}
 $('phone-from').addEventListener('change', (e) => setPrefs({ phone_from: e.target.value }));
 $('phone-me').addEventListener('change', (e) => setPrefs({ phone_me: e.target.value }));
 $('sw-wake-call').addEventListener('click', () => setPrefs({ wake_call: !prefs.wake_call }));
@@ -4899,6 +4921,48 @@ function renderRoutines(items) {
   }));
 }
 
+// The calls to the Jarvis number, newest first: who, when, what they said (theirs, never
+// translated), and for a time a caller asked for, Book and Let go.
+const LINE_KINDS = { message: 'Left a message', booking: 'Wants to meet', schedule: 'Wants a time', missed: 'Missed call' };
+const LINE_STATUS = { booked: 'Booked', declined: 'Let go', replaced: 'Asked again' };
+function renderLine(line) {
+  lineOn = !!line.on;
+  setSwitch('sw-line', lineOn);
+  $('sw-line').disabled = !!line.busy;
+  $('line-options').classList.toggle('off', !lineOn);
+  if (line.busy) $('line-note').textContent = tr(line.busy === 'on' ? 'Setting up answering on your Twilio account (about a minute)…' : 'Turning answering off…');
+  else $('line-note').textContent = line.note || '';
+  const calls = line.calls || [];
+  $('line-calls').hidden = !calls.length;
+  $('line-calls').replaceChildren(...calls.map((c) => {
+    const li = el('li', 'routine');
+    const text = el('span', 'fact');
+    const when = c.at ? new Date(c.at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+    // The window's words (what kind of call, what came of it) apart from the caller's time
+    // and the clock, so each is translated as it appears.
+    const about = el('small');
+    about.append(el('bdi', '', LINE_KINDS[c.kind] || ''));
+    if (c.kind === 'booking') about.append(' · ', mine(el('bdi', '', c.said)));
+    if (LINE_STATUS[c.status]) about.append(' · ', el('bdi', '', LINE_STATUS[c.status]));
+    if (when) about.append(' · ', mine(el('bdi', '', when)));
+    text.append(mine(el('strong', '', c.who)), about);
+    if (c.words) text.append(mine(el('small', 'line-words', `“${c.words}”`)));
+    li.append(text);
+    if (c.kind === 'booking' && c.status === 'waiting') {
+      const book = el('button', 'btn', 'Book');
+      book.type = 'button';
+      book.setAttribute('aria-label', `Book ${c.who}`);
+      book.addEventListener('click', () => send({ type: 'line_book', id: c.id }));
+      const drop = el('button', 'btn', 'Let go');
+      drop.type = 'button';
+      drop.setAttribute('aria-label', `Let ${c.who}'s request go`);
+      drop.addEventListener('click', () => send({ type: 'line_decline', id: c.id }));
+      li.append(book, drop);
+    }
+    return li;
+  }));
+}
+
 function renderMemory(items) {
   const list = $('memory-list');
   if (!items.length) {
@@ -5180,7 +5244,7 @@ function syncDismissAll() {
   if ($('cards').firstElementChild !== all) $('cards').prepend(all);
 }
 
-const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work', learned: 'Learned', call: 'Phone call' };
+const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work', learned: 'Learned', call: 'Phone call', voicemail: 'Voicemail' };
 
 // A heads-up JARVIS raised on its own. Claude Code already has its own cards; everything
 // else gets one, plus a macOS notification when the window isn't in front.

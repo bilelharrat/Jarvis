@@ -91,6 +91,13 @@ class Prefs:
     twilio_paid_account: bool = False  # whether the Twilio account is paid (no rate limits)
     wake_call: bool = False  # a wake-up call with the morning brief
     wake_call_time: str = "07:00"
+    # Answering the Jarvis number (turned on and off in Settings › Phone, kept with the call
+    # log): whether callers are offered times to book, how long, within which hours, and
+    # whether a time they pick goes in the calendar without the owner's yes.
+    line_booking: bool = True
+    line_minutes: int = 30
+    line_hours: str = "09:00-17:00"
+    line_autobook: bool = False
     # The model JARVIS turns to when Claude can't answer (its usage limit, an outage): a
     # model ref ("custom:…"); "" is Automatic (a Gemini model added with a key, else any
     # added one), "off" is none.
@@ -253,6 +260,12 @@ def _clean(name: str, value: Any) -> Any:
         parts = str(value).split("-")
         ok = len(parts) == 2 and all(_TIME.match(p) for p in parts)
         return str(value) if ok else None
+    if name == "line_hours":  # a working day: it ends after it starts
+        parts = str(value).split("-")
+        ok = len(parts) == 2 and all(_TIME.match(p) for p in parts) and parts[0] < parts[1]
+        return str(value) if ok else None
+    if name == "line_minutes":
+        return value if type(value) is int and value in (15, 30, 45, 60) else None
     if name == "instant_shortcuts":
         if not isinstance(value, list):
             return None
@@ -289,6 +302,8 @@ def _clean(name: str, value: Any) -> Any:
         "clap_hands",
         "desktop_hands",
         "wake_call",
+        "line_booking",
+        "line_autobook",
         "twilio_paid_account",
         "fallback_code",
         "fallback_always",

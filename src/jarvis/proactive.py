@@ -48,6 +48,7 @@ class Alert:
     kind: str  # leave | soon | battery | rain | mail | task
     title: str
     text: str  # what JARVIS says
+    note: str = ""  # what rides along with the next request, when text isn't safe to
 
 
 def is_travel(location: str) -> bool:

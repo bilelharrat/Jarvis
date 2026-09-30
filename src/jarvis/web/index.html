@@ -431,6 +431,15 @@
       <input type="text" id="phone-caller-name" value="J.A.R.V.I.S." maxlength="15" autocomplete="off" spellcheck="false"></label>
     <div class="folder-form"><button type="button" class="btn" id="phone-test">Call me now</button><button type="button" class="btn" id="phone-caller-save">Show calls as this name</button></div>
     <p class="small-status" id="phone-note" aria-live="polite"></p>
+    <div class="row"><span><strong>Answer calls to my Twilio number</strong><small>People who call it hear Jarvis and can leave you a message or book a time with you. It’s answered on your Twilio account, so it works while this Mac is off; messages and bookings reach you here, transcribed on this Mac.</small></span><button type="button" class="switch" role="switch" id="sw-line" aria-checked="false" aria-label="Answer calls to my Twilio number"></button></div>
+    <div id="line-options">
+      <div class="row"><span><strong>Let callers book a time</strong><small>Jarvis offers open times from your calendar: weekdays from tomorrow, a morning and an afternoon time a day</small></span><button type="button" class="switch" role="switch" id="sw-line-booking" aria-checked="true" aria-label="Let callers book a time"></button></div>
+      <label class="row" for="line-minutes"><span><strong>Meeting length</strong></span><select id="line-minutes"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option></select></label>
+      <div class="row"><span><strong>Offer times between</strong></span><span class="time-range"><input type="time" id="line-start" aria-label="Offer times from" value="09:00"><input type="time" id="line-end" aria-label="Offer times until" value="17:00"></span></div>
+      <div class="row"><span><strong>Book without asking me</strong><small>A time a caller picks goes straight into your calendar, and they hear they’re booked. Off: you say yes first, then Jarvis calls them back to confirm.</small></span><button type="button" class="switch" role="switch" id="sw-line-autobook" aria-checked="false" aria-label="Book without asking me"></button></div>
+    </div>
+    <p class="small-status" id="line-note" aria-live="polite"></p>
+    <ul id="line-calls" class="folders routine-list line-calls"></ul>
   </section>
 
   <section class="group">

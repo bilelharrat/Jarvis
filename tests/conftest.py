@@ -198,6 +198,7 @@ def isolated(tmp_path):
     async def no_page():
         return {"error": "no browser in tests"}
 
+    from jarvis.answering import CallLog
     from jarvis.delegate import DelegationStore
     from jarvis.documents import DocumentStore
     from jarvis.fileindex import FileIndex
@@ -244,4 +245,6 @@ def isolated(tmp_path):
         "suggester": Suggester(lambda _s: None, tmp_path / "suggestions.json"),
         # Videos only from the temp folder, and write-ups filed there.
         "video_desk": VideoDesk(roots=[tmp_path], notes_dir=tmp_path / "Videos"),
+        # Calls to the Jarvis number: never the real call log or its voicemails.
+        "call_log": CallLog(tmp_path / "answering.json"),
     }
