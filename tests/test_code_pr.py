@@ -346,6 +346,49 @@ async def test_a_busy_session_gets_its_fix_later_and_three_is_the_most(
     assert hub.alerts[-1].text == "Pull request #7 still fails after 3 fixes; it's over to you."
 
 
+async def test_fixes_stay_counted_for_the_pull_request_when_it_passes_in_between(
+    hub, tmp_path, projects, monkeypatch
+):
+    repo, _bare = github_project(tmp_path, projects)
+    session(hub, repo)
+    sent = sends(hub, monkeypatch)
+    rec = watched(hub, repo)
+    for n in range(1, 6):  # fails, is fixed, fails again…
+        for sha, conclusion in ((f"bad{n}", "failure"), (f"good{n}", "success")):
+            rec.followup = ""
+            hub.fake.pulls[("acme/app", 7)]["head"]["sha"] = sha
+            hub.fake.run(sha, "tests", conclusion=conclusion)
+            await hub.code_pr.poll(rec)
+    assert len(sent) == 3 and rec.fix_attempts == 3  # at most three a pull request
+
+
+async def test_heads_ups_name_the_checks_and_the_caps_in_chinese(
+    hub, tmp_path, projects, monkeypatch
+):
+    repo, _bare = github_project(tmp_path, projects)
+    session(hub, repo)
+    sent = sends(hub, monkeypatch)
+    hub.prefs.language = "zh"
+    rec = watched(hub, repo, autofix=False)
+    for name in ("lint", "tests", "types", "build", "docs"):
+        hub.fake.run("head1", name, conclusion="failure")
+    await hub.code_pr.poll(rec)
+    said = hub.alerts[-1].text
+    assert said.startswith("拉取请求 #7 的检查失败了：") and said.endswith("等另外 1 项。"), said
+    assert ", " not in said and " and " not in said
+    rec.autofix = True  # its checks pass now; it conflicts, with today's requests all sent
+    hub.fake.pulls[("acme/app", 7)]["head"]["sha"] = "head2"
+    hub.fake.run("head2", "tests", conclusion="success")
+    hub.fake.pulls[("acme/app", 7)].update(mergeable=False, mergeable_state="dirty")
+    caps = hub.code_pr.caps
+    caps.counts["conflict"] = caps.caps["conflict"]
+    await hub.code_pr.poll(rec)
+    assert sent == [] and [a.text for a in hub.alerts[-2:]] == [
+        "拉取请求 #7 的检查现在通过了。",
+        "今天已自动发送了 5 次冲突处理；其余的等你处理。",
+    ]
+
+
 async def test_passing_again_and_a_merge_each_make_a_heads_up(hub, tmp_path, projects, monkeypatch):
     repo, _bare = github_project(tmp_path, projects)
     session(hub, repo)

@@ -169,7 +169,7 @@ ZH = {
     "Don't push": "不推送",
     "Not pushed.": "没有推送。",
     "Couldn't commit the session's work: {error}": "没能提交会话的改动：{error}",
-    "A pull request for issue #{n} is ready for your OK in Jarvis Code.": "为 issue #{n} 准备的拉取请求已就绪，请在 Jarvis Code 里确认。",
+    "A pull request for issue #{n} is ready for your OK in Jarvis Code.": "为议题 #{n} 准备的拉取请求已就绪，请在 Jarvis Code 里确认。",
 }
 lang.add_texts(ZH)
 
@@ -218,9 +218,13 @@ def parse_draft(text: str) -> tuple[str, str]:
     return title[:120], body[:20_000]
 
 
-def _names(items: list[str], limit: int = 4) -> str:
-    shown = ", ".join(items[:limit])
-    return shown + (f" and {len(items) - limit} more" if len(items) > limit else "")
+def _names(items: list[str], limit: int = 4, zh: bool = False) -> str:
+    """Checks' names (the repository's own), the first few: "lint, tests and 2 more"."""
+    shown = ("、" if zh else ", ").join(items[:limit])
+    if len(items) <= limit:
+        return shown
+    more = len(items) - limit
+    return f"{shown}等另外 {more} 项" if zh else f"{shown} and {more} more"
 
 
 class PullDesk:
@@ -745,7 +749,10 @@ class PullDesk:
             for rec in due:
                 self.next_poll[rec.key] = now + POLL_IDLE
             return
-        await github.gather_limited([self.poll(r) for r in due], limit=3)
+        results = await github.gather_limited([self.poll(r) for r in due], limit=3)
+        for rec, result in zip(due, results, strict=True):
+            if isinstance(result, Exception):
+                log.error("pull requests: %s couldn't be read", rec.key, exc_info=result)
 
     def _schedule(self, rec: PullRecord, changed: bool) -> None:
         now = time.time()
@@ -824,8 +831,7 @@ class PullDesk:
         if status == "failed":
             await self._failed(rec, ref, checks)
         elif status == "passed" and (was == "failed" or rec.told_failed):
-            rec.told_failed = ""
-            rec.fix_attempts = 0
+            rec.told_failed = ""  # (its fixes stay counted: at most FIX_ATTEMPTS a pull request)
             self.notify(
                 f"pr-fixed:{rec.key}:{rec.head_sha[:7]}",
                 f"Checks pass on pull request #{rec.number} now.",
@@ -842,7 +848,7 @@ class PullDesk:
         self, rec: PullRecord, ref: github.RepoRef, checks: list[github.Check]
     ) -> None:
         failing = [c for c in checks if c.state == "failed"]
-        names = _names([c.name for c in failing])
+        names = _names([c.name for c in failing], zh=lang.is_zh(self.hub.language))
         task = self.task_for(rec)
         will_fix = (
             rec.autofix
@@ -917,7 +923,7 @@ class PullDesk:
             marker = f"{kind}:{self.caps.day}"
             if marker not in self._capped:
                 self._capped.add(marker)
-                n, what = FOLLOW_UP_CAPS[kind], CAP_WORDS[kind]
+                n, what = FOLLOW_UP_CAPS[kind], self.tr(CAP_WORDS[kind])  # (in their words)
                 self.notify(
                     f"pr-cap:{marker}",
                     f"That's today's {n} automatic {what} sent; the rest wait for you.",
