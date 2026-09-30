@@ -42,6 +42,11 @@ ACTIONS = {
     "routine_run": "Ran a routine",
     "push_on": "Turned on notifications",
     "push_off": "Turned off notifications",
+    "code_sent": "Messaged Jarvis Code",
+    "code_stopped": "Stopped a Jarvis Code step",
+    "delegation_stopped": "Stopped a conversation",
+    "routine_changed": "Changed a routine",
+    "routine_deleted": "Deleted a routine",
 }
 
 
@@ -345,9 +350,29 @@ class Companion:
         return companion_api.routes(self, gate)
 
     async def state(self, device: Any) -> dict[str, Any]:
-        """More for /api/state."""
+        """More for /api/state: the cards up (each saying whose it is), Jarvis Code's
+        sessions, the conversations JARVIS holds, and whether push works for this phone."""
+        from .companion_api import SESSIONS_SHOWN, public_approval, session_status
+
+        approvals = [public_approval(card) for card in list(self.hub.approvals.values())]
+        waiting = {a["task_id"] for a in approvals if a.get("task_id")}
+        tasks = sorted(
+            (t for t in self.hub.tasks.tasks.values() if t.kind == "code"), key=lambda t: -t.id
+        )[:SESSIONS_SHOWN]
         record = self.store.known(device.id)
         return {
+            "approvals": approvals,
+            "pending_approvals": len(approvals),
+            "code_sessions": [
+                {
+                    "id": t.id,
+                    "title": " ".join((t.title or t.prompt).split())[:120],
+                    "project": t.cwd.name,
+                    "status": session_status(t, t.id in waiting),
+                }
+                for t in tasks
+            ],
+            "delegations_active": sum(1 for d in self.hub.delegations.items if d.is_open),
             "push": {
                 "enabled": await self.keys.get() is not None,
                 "registered": bool(record and record["push"]),
