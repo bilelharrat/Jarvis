@@ -13,9 +13,13 @@
     "Heads-ups paused": "提醒已暂停",
     "Resume heads-ups": "恢复提醒",
     "Open J.A.R.V.I.S.": "打开 J.A.R.V.I.S.",
-    "Quit J.A.R.V.I.S.": "退出 J.A.R.V.I.S."
+    "Quit J.A.R.V.I.S.": "退出 J.A.R.V.I.S.",
+    "Say “confirm purchase”, or confirm it in J.A.R.V.I.S.": "说“确认购买”，或在 J.A.R.V.I.S. 中确认。"
   },
   "patterns": [
-    ["^Heads-ups paused until (.+)$", "提醒已暂停至 $1"]
+    [
+      "^Heads-ups paused until (.+)$",
+      "提醒已暂停至 $1"
+    ]
   ]
 }

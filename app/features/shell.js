@@ -1,5 +1,7 @@
 // The app's shell on the Mac (main.js loads it from app/features): JARVIS in the menu bar
-// with what it's doing, and the quick controls there.
+// with what it's doing, and the quick controls there; the Dock's menu and its badge (the
+// cards waiting for an OK); macOS notifications for those cards, with Allow / Not now when
+// the window isn't in front, and for heads-ups, which open JARVIS on their card.
 //
 // The window is the go-between: it hears the backend's events and reports JARVIS's state
 // here ('feature:shell:state'), and carries out what the menus ask ('feature:shell:command')
@@ -30,7 +32,7 @@ function writeAtomic(file, text) {
 function install(ctx) {
   const electron = ctx.electron || require('electron');
   const { app, ipcMain } = ctx;
-  const { Menu, Tray, nativeImage } = electron;
+  const { Menu, Notification, Tray, nativeImage } = electron;
   const now = ctx.now || Date.now;
   const storeFile = path.join(app.getPath('userData'), 'shell.json');
   let store = lib.readStore(readText(storeFile));
@@ -42,6 +44,10 @@ function install(ctx) {
   let trayShown = '';
   let pauseTimer = null;
   const icons = new Map();
+  const canNotify = !ctx.dev && Boolean(Notification && Notification.isSupported());
+  const approvals = new Map(); // id -> the card, as the window reported it
+  const approvalNotes = new Map(); // id -> its notification
+  const headsUpNotes = []; // the latest few: a notification let go of leaves Notification Center
 
   const saveStore = () => writeAtomic(storeFile, JSON.stringify(store));
 
@@ -79,9 +85,9 @@ function install(ctx) {
       else { showWindow(); ctx.send('jarvis:summon'); }
     } else if (name === 'open') {
       showWindow();
-    } else if (name === 'code') {
+    } else if (name === 'code' || name === 'browser') {
       showWindow();
-      toWindow({ action: 'open', panel: 'code' });
+      toWindow({ action: 'open', panel: name });
     } else if (name === 'quit') {
       app.quit();
     } else if (['mute', 'unmute', 'hands-free', 'pause', 'resume'].includes(name)) {
@@ -128,6 +134,72 @@ function install(ctx) {
     }
   }
 
+  // ── the Dock: its menu, and a badge counting the cards that wait for an OK ──
+
+  let dockShown = '';
+  function refreshDock() {
+    if (ctx.dev || !app.dock) return;
+    const sign = JSON.stringify([state.muted, state.online, labels]);
+    if (sign !== dockShown) {
+      dockShown = sign;
+      app.dock.setMenu(Menu.buildFromTemplate(lib.dockTemplate(state, labels, act)));
+    }
+    app.dock.setBadge(approvals.size ? String(approvals.size) : '');
+  }
+
+  // ── notifications ──
+
+  function inFront() {
+    const win = windowOf();
+    return Boolean(win && win.isVisible() && win.isFocused());
+  }
+
+  function forgetApproval(id) {
+    approvals.delete(id);
+    const note = approvalNotes.get(id);
+    approvalNotes.delete(id);
+    if (note) note.close();
+  }
+
+  // A card that went up while the window isn't in front: Allow / Not now on the notification
+  // answer it through the window (the backend's approve command, as the card's buttons do);
+  // a click opens JARVIS on it.
+  function notifyApproval(a) {
+    if (!canNotify || inFront() || approvalNotes.has(a.id)) return;
+    const n = lib.approvalNotice(a, labels);
+    const note = new Notification({
+      title: n.title,
+      body: n.body,
+      silent: true,
+      groupId: 'jarvis-approvals',
+      actions: n.actions.map((text) => ({ type: 'button', text })),
+    });
+    note.on('action', (details, index) => {
+      const at = details && Number.isInteger(details.actionIndex) ? details.actionIndex : index;
+      const choice = n.answers[at];
+      approvalNotes.delete(a.id);
+      if (choice && approvals.has(a.id)) toWindow({ action: 'approve', id: a.id, choice });
+    });
+    note.on('click', () => {
+      approvalNotes.delete(a.id);
+      showWindow();
+      toWindow({ action: 'reveal', what: 'approval', id: a.id, task: a.task });
+    });
+    approvalNotes.set(a.id, note);
+    note.show();
+  }
+
+  function notifyHeadsUp(h) {
+    const note = new Notification({ title: h.title || 'J.A.R.V.I.S.', body: h.text, silent: true, groupId: 'jarvis-heads-ups' });
+    note.on('click', () => {
+      showWindow();
+      toWindow({ action: 'reveal', what: 'alert', key: h.key, kind: h.kind, title: h.title, text: h.text });
+    });
+    headsUpNotes.push(note);
+    if (headsUpNotes.length > 30) headsUpNotes.shift();
+    note.show();
+  }
+
   // ── the window's reports ──
 
   ipcMain.handle(`${CH}hello`, (event) => {
@@ -135,7 +207,7 @@ function install(ctx) {
     windowReady = true;
     const waiting = queued.splice(0);
     setTimeout(() => waiting.forEach((c) => ctx.send(`${CH}command`, c)), 0); // after this reply
-    return { dev: Boolean(ctx.dev) };
+    return { dev: Boolean(ctx.dev), notify: canNotify };
   });
 
   ipcMain.on(`${CH}state`, (event, report) => {
@@ -147,6 +219,38 @@ function install(ctx) {
       saveStore();
     }
     refreshTray();
+    refreshDock();
+  });
+
+  // Every card waiting when the window (re)connects: the badge counts them; one that's gone
+  // takes its notification with it.
+  ipcMain.on(`${CH}approvals`, (event, list) => {
+    if (!ctx.fromWindow(event) || !list || !Array.isArray(list.items)) return;
+    const waiting = new Map(list.items.slice(0, 50).map(lib.normalizeApproval).filter(Boolean).map((a) => [a.id, a]));
+    for (const id of [...approvals.keys()]) if (!waiting.has(id)) forgetApproval(id);
+    for (const [id, a] of waiting) approvals.set(id, a);
+    refreshDock();
+  });
+
+  ipcMain.on(`${CH}approval`, (event, raw) => {
+    if (!ctx.fromWindow(event)) return;
+    const a = lib.normalizeApproval(raw);
+    if (!a || approvals.size >= 50) return;
+    approvals.set(a.id, a);
+    refreshDock();
+    notifyApproval(a);
+  });
+
+  ipcMain.on(`${CH}approval-done`, (event, done) => {
+    if (!ctx.fromWindow(event) || !done || typeof done.id !== 'string') return;
+    forgetApproval(done.id);
+    refreshDock();
+  });
+
+  ipcMain.on(`${CH}heads-up`, (event, raw) => {
+    if (!ctx.fromWindow(event) || !canNotify) return;
+    const h = lib.normalizeHeadsUp(raw);
+    if (h) notifyHeadsUp(h);
   });
 
   // A new page in the window (a reload, the backend back after a restart): it says hello
@@ -161,11 +265,13 @@ function install(ctx) {
   }
 
   refreshTray();
+  refreshDock();
   return {
     act,
     tray: () => tray,
     state: () => state,
     labels: () => labels,
+    approvals: () => approvals,
   };
 }
 

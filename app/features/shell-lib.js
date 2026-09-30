@@ -21,7 +21,12 @@ const DEFAULT_LABELS = {
   resume: 'Resume heads-ups',
   open: 'Open J.A.R.V.I.S.',
   code: 'Jarvis Code',
+  browser: 'Browser',
   quit: 'Quit J.A.R.V.I.S.',
+  needsOk: 'Needs your OK',
+  allow: 'Allow',
+  notNow: 'Not now',
+  purchaseHint: 'Say “confirm purchase”, or confirm it in J.A.R.V.I.S.',
 };
 
 // The window's labels over the defaults: only known keys, only short plain strings.
@@ -78,6 +83,68 @@ function trayTemplate(s, L, act, { now = Date.now(), ask = '' } = {}) {
   ];
 }
 
+// ── the Dock icon's menu ──
+function dockTemplate(s, L, act) {
+  return [
+    { label: L.ask, click: () => act('ask') },
+    { label: s.muted ? L.unmute : L.mute, enabled: s.online, click: () => act(s.muted ? 'unmute' : 'mute') },
+    { type: 'separator' },
+    { label: L.code, click: () => act('code') },
+    { label: L.browser, click: () => act('browser') },
+  ];
+}
+
+// ── notifications ──
+
+const clip = (value, max) => (typeof value === 'string' ? value : '').slice(0, max);
+
+function excerpt(value, max) {
+  const flat = clip(value, 4000).replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+}
+
+// An approval card as the window reports it, in the shape and sizes this side trusts.
+function normalizeApproval(raw) {
+  if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !/^[\w-]{1,64}$/.test(raw.id)) return null;
+  const choices = (Array.isArray(raw.choices) ? raw.choices : []).slice(0, 8)
+    .filter((c) => c && typeof c.id === 'string' && c.id.length <= 40)
+    .map((c) => ({ id: c.id, label: clip(c.label, 60) }));
+  return {
+    id: raw.id,
+    question: clip(raw.question, 500),
+    detail: clip(raw.detail, 2000),
+    choices,
+    askKind: clip(raw.askKind, 20),
+    task: Number.isFinite(raw.task) ? raw.task : null,
+  };
+}
+
+// What its macOS notification says, and its buttons. Only a plain yes-or-no card gets
+// buttons (its own words for them: Allow / Not now, Send / Don't send): a purchase needs
+// the spoken words "confirm purchase" or JARVIS itself, and a plan or a question has
+// more answers than two buttons hold.
+function approvalNotice(a, L) {
+  const allow = a.choices.find((c) => c.id === 'allow');
+  const deny = a.choices.find((c) => c.id === 'deny');
+  const purchase = a.askKind === 'purchase';
+  const buttons = Boolean(allow && deny && !purchase);
+  const lines = [excerpt(a.question, 160), excerpt(a.detail, 180)].filter(Boolean);
+  if (purchase) lines.push(L.purchaseHint);
+  return {
+    title: L.needsOk,
+    body: lines.join('\n'),
+    actions: buttons ? [allow.label || L.allow, deny.label || L.notNow] : [],
+    answers: buttons ? ['allow', 'deny'] : [],
+  };
+}
+
+// A heads-up as the window reports it.
+function normalizeHeadsUp(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const h = { key: clip(raw.key, 200), kind: clip(raw.kind, 40), title: clip(raw.title, 200), text: clip(raw.text, 1000) };
+  return h.title || h.text ? h : null;
+}
+
 // ── the shell's own file (shell.json beside the app's data) ──
 // What the app needs before the backend answers: whether to show the menu bar icon.
 // Read defensively: a damaged or hand-edited file never stops the app.
@@ -88,4 +155,7 @@ function readStore(text) {
   return { version: 1, menuBar: raw.menuBar !== false };
 }
 
-module.exports = { DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, readStore };
+module.exports = {
+  DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate,
+  excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp, readStore,
+};

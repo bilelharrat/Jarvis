@@ -647,7 +647,7 @@ async function loadShell() {
   await js(`
     window.__app = { sent: [], on: {}, invoked: [] };
     window.jarvisApp = { feature: {
-      invoke: (channel, ...args) => { __app.invoked.push([channel, ...args]); return Promise.resolve(__app.answer ? __app.answer(channel, ...args) : { dev: false }); },
+      invoke: (channel, ...args) => { __app.invoked.push([channel, ...args]); return Promise.resolve(__app.answer ? __app.answer(channel, ...args) : { dev: false, notify: true }); },
       send: (channel, msg) => __app.sent.push([channel, msg]),
       on: (channel, fn) => { __app.on[channel] = fn; },
     } };
@@ -707,6 +707,66 @@ test('The shell carries out the menu bar’s commands over the window’s connec
   await js('__app.on["feature:shell:command"]({ action: "open", panel: "brain" }); true');
   assert(await js('galaxyMode') === 'open', 'the second brain did not open');
   await js('__app.on["feature:shell:command"]({ action: "nonsense" }); __app.on["feature:shell:command"](null); true');
+});
+
+test('A heads-up card carries its key; away from the window a feature can raise its notification', async () => {
+  await js(`window.__notes = []; window.Notification = function (title, o) { __notes.push([title, o.body]); };
+    document.hasFocus = () => false; true`);
+  await js('onEvent({ type: "alert", key: "rain:1", alert_kind: "rain", title: "Rain", text: "Rain in an hour." }); true');
+  let r = await js('({ key: $("cards").lastElementChild.dataset.alert, notes: __notes })');
+  assert(r.key === 'rain:1' && JSON.stringify(r.notes) === JSON.stringify([['Rain', 'Rain in an hour.']]), JSON.stringify(r));
+  await js(`window.__taken = []; window.addEventListener('jarvis-notify', (e) => { __taken.push(e.detail.key); e.preventDefault(); }); true`);
+  await js('onEvent({ type: "alert", key: "interrupt:m1", alert_kind: "message", title: "Ann", text: "Call me" }); true');
+  r = await js('({ key: $("cards").lastElementChild.dataset.alert, notes: __notes.length, taken: __taken })');
+  assert(r.key === 'interrupt:m1' && r.notes === 1 && JSON.stringify(r.taken) === '["interrupt:m1"]', JSON.stringify(r));
+  await js('document.hasFocus = () => true; onEvent({ type: "alert", key: "rain:2", alert_kind: "rain", title: "Rain", text: "Now." }); true');
+  assert(await js('__taken.length === 1 && __notes.length === 1'), 'a heads-up with the window in front went to a notification');
+});
+
+test('The shell tells the app which cards wait, and answers one only as its notification asked', async () => {
+  await loadShell();
+  await js(`__app.sent.length = 0;
+    __event({ type: 'approval', id: 'a1', question: 'Send it?', detail: 'to Ann', choices: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Not now' }], rid: '' });
+    __event({ type: 'approval', id: 'p1', question: 'Buy it?', detail: '', choices: [{ id: 'allow', label: 'Confirm purchase' }, { id: 'deny', label: 'Cancel' }], ask_kind: 'purchase', task_id: 3 });
+    __event({ type: 'approval_resolved', id: 'a1' });
+    true`);
+  const sent = await js('__app.sent');
+  assert(JSON.stringify(sent.map(([c, m]) => [c, m.id, m.askKind, m.task])) === JSON.stringify([
+    ['feature:shell:approval', 'a1', '', null], ['feature:shell:approval', 'p1', 'purchase', 3], ['feature:shell:approval-done', 'a1', undefined, undefined],
+  ]), JSON.stringify(sent));
+  assert(sent[0][1].choices[0].label === 'Allow' && sent[0][1].detail === 'to Ann', JSON.stringify(sent[0][1]));
+  await js(`__sent.length = 0;
+    __app.on['feature:shell:command']({ action: 'approve', id: 'p1', choice: 'allow' });
+    __app.on['feature:shell:command']({ action: 'approve', id: 'a1', choice: 'allow' });
+    __app.on['feature:shell:command']({ action: 'approve', id: 'p1', choice: 'always' });
+    true`);
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'approve', id: 'p1', choice: 'allow' }]), `only a waiting card, with allow or deny: ${JSON.stringify(s)}`);
+});
+
+test('The shell raises heads-ups through the app, and opens JARVIS on the card a notification names', async () => {
+  await loadShell();
+  await js(`window.__notes = []; window.Notification = function (title) { __notes.push(title); }; document.hasFocus = () => false;
+    __app.sent.length = 0;
+    __event({ type: 'alert', key: 'rain:1', alert_kind: 'rain', title: 'Rain', text: 'Rain in an hour.' });
+    true`);
+  const r = await js('({ notes: __notes, sent: __app.sent.filter(([c]) => c === "feature:shell:heads-up").map(([, m]) => m) })');
+  assert(r.notes.length === 0 && JSON.stringify(r.sent) === JSON.stringify([{ key: 'rain:1', kind: 'rain', title: 'Rain', text: 'Rain in an hour.' }]), JSON.stringify(r));
+  const reveal = (cmd) => js(`__app.on['feature:shell:command'](${JSON.stringify({ action: 'reveal', ...cmd })}); true`);
+  await reveal({ what: 'alert', key: 'rain:1', kind: 'rain', title: 'Rain', text: 'Rain in an hour.' });
+  assert(await js('$("cards").querySelector("[data-alert=\'rain:1\']").classList.contains("shell-flash")'), 'the card was not brought forward');
+  // Its card timed out: it comes back for another minute.
+  await js('$("cards").replaceChildren(); true');
+  await reveal({ what: 'alert', key: 'leave:1', kind: 'leave', title: 'Time to go', text: 'Leave now.' });
+  const back = await js('(() => { const c = $("cards").querySelector("[data-alert=\'leave:1\']"); return c && [c.querySelector(".card-kicker").textContent, c.querySelector(".card-title").textContent]; })()');
+  assert(JSON.stringify(back) === JSON.stringify(['Time to go', 'Time to go']), JSON.stringify(back));
+  // Jarvis Code's: its session.
+  await js('onEvent({ type: "tasks", items: [__task(4)] }); true');
+  await reveal({ what: 'alert', key: 'code-ok:4:123', kind: 'task', title: 'Jarvis Code needs you', text: '' });
+  assert(await js('!$("cc").hidden && ccSelected === 4'), 'Jarvis Code did not open on the session');
+  await js('toggleCC(false); ccSelected = null; true');
+  await reveal({ what: 'approval', id: 'x', task: 4 });
+  assert(await js('!$("cc").hidden && ccSelected === 4'), 'the approval’s session did not open');
 });
 
 // ──

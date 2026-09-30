@@ -1,6 +1,8 @@
 // The Mac app's shell, window side (app/features/shell.js is the other half): tells the app
-// what JARVIS is doing for the menu bar icon, carries out what its menus ask over this
-// window's connection, and adds the "This Mac" group to Settings.
+// what JARVIS is doing for the menu bar icon and which cards wait for an OK (the Dock's
+// badge, their notifications), hands it heads-ups to raise as macOS notifications, carries
+// out what its menus and notifications ask over this window's connection, and adds the
+// "This Mac" group to Settings.
 (() => {
   if (typeof window === 'undefined' || !window.jarvisFeatures) return;
   const F = window.jarvisFeatures;
@@ -11,6 +13,8 @@
   const seen = { state: 'idle', muted: false, prefs: null };
   let ready = false; // the app's side answered hello
   let online = false;
+  let canNotify = false; // the app raises notifications itself (not in the test window)
+  const approvals = new Map(); // the cards waiting for an OK, as the hub sent them
 
   const feature = (key, fallback) => {
     const features = (seen.prefs && seen.prefs.features) || {};
@@ -37,9 +41,27 @@
       resume: t('Resume heads-ups'),
       open: t('Open J.A.R.V.I.S.'),
       code: t('Jarvis Code'),
+      browser: t('Browser'),
       quit: t('Quit J.A.R.V.I.S.'),
+      needsOk: t('Needs your OK'),
+      allow: t('Allow'),
+      notNow: t('Not now'),
+      purchaseHint: t('Say “confirm purchase”, or confirm it in J.A.R.V.I.S.'),
     };
   }
+
+  // A card as the app's notification needs it: its words, and its buttons' in this language.
+  function forApp(a) {
+    return {
+      id: String(a.id),
+      question: String(a.question || ''),
+      detail: String(a.detail || ''),
+      choices: (a.choices || []).map((c) => ({ id: String(c.id), label: F.t(String(c.label || '')) })),
+      askKind: String(a.ask_kind || ''),
+      task: Number.isFinite(a.task_id) ? a.task_id : null,
+    };
+  }
+  const sendApprovals = () => { if (ready) bridge.send(`${CH}approvals`, { items: [...approvals.values()].map(forApp) }); };
 
   // ── reporting to the app ──
 
@@ -71,7 +93,40 @@
     Promise.resolve(window.jarvisI18n ? window.jarvisI18n.setLang(lang) : null).then(report, report);
   }
 
-  // ── what the app's menus ask ──
+  // ── what the app's menus and notifications ask ──
+
+  // A card opened from its notification: brought into view with a soft pulse.
+  function flash(card) {
+    card.scrollIntoView({ block: 'nearest' });
+    card.classList.remove('shell-flash');
+    void card.offsetWidth; // restart the animation
+    card.classList.add('shell-flash');
+    setTimeout(() => card.classList.remove('shell-flash'), 2000);
+  }
+
+  function openTask(id) {
+    if (F.$('cc').hidden) toggleCC(true);
+    selectTask(id);
+  }
+
+  function reveal(cmd) {
+    if (cmd.what === 'approval') {
+      if (Number.isFinite(cmd.task)) { openTask(cmd.task); return; } // Jarvis Code's, in its session
+      const card = F.$('cards').querySelector(`[data-approval="${CSS.escape(String(cmd.id))}"]`);
+      if (card) flash(card);
+      return;
+    }
+    if (cmd.what !== 'alert') return;
+    const key = String(cmd.key || '');
+    const code = /^code(?:-ok)?:(\d+):/.exec(key); // Jarvis Code finished, or needs you
+    if (code) { openTask(Number(code[1])); return; }
+    let card = key ? F.$('cards').querySelector(`[data-alert="${CSS.escape(key)}"]`) : null;
+    if (!card) { // its card timed out: back, for another minute
+      card = notice(ALERT_KICKERS[cmd.kind] || 'Heads-up', String(cmd.title || ''), String(cmd.text || ''), 60000);
+      card.dataset.alert = key;
+    }
+    flash(card);
+  }
 
   function openPanel(panel) {
     if (panel === 'settings') { if (F.$('settings').hidden) toggleSettings(true); }
@@ -89,6 +144,10 @@
       case 'pause': F.send({ type: 'shell_pause', minutes: 60 }); break;
       case 'resume': F.send({ type: 'shell_pause', minutes: 0 }); break;
       case 'open': openPanel(cmd.panel); break;
+      case 'approve':
+        if (approvals.has(cmd.id) && ['allow', 'deny'].includes(cmd.choice)) F.send({ type: 'approve', id: cmd.id, choice: cmd.choice });
+        break;
+      case 'reveal': reveal(cmd); break;
       default: break;
     }
   }
@@ -142,9 +201,29 @@
     seen.muted = Boolean(ev.muted);
     seen.prefs = ev.prefs || seen.prefs;
     online = true;
+    approvals.clear();
+    (ev.approvals || []).forEach((a) => approvals.set(a.id, a));
+    sendApprovals();
     renderGroup();
     afterLanguage(seen.prefs);
   }, { replay: true });
+  F.on('approval', (ev) => {
+    approvals.set(ev.id, ev);
+    if (ready) bridge.send(`${CH}approval`, forApp(ev));
+  });
+  F.on('approval_resolved', (ev) => {
+    approvals.delete(ev.id);
+    if (ready) bridge.send(`${CH}approval-done`, { id: String(ev.id) });
+  });
+
+  // A heads-up while the window isn't in front (app.js asks first): the app raises it, so a
+  // click on it can open JARVIS on its card. Without the app's side, app.js raises its own.
+  window.addEventListener('jarvis-notify', (e) => {
+    if (!ready || !canNotify || !e.detail) return;
+    e.preventDefault();
+    const ev = e.detail;
+    bridge.send(`${CH}heads-up`, { key: String(ev.key || ''), kind: String(ev.alert_kind || ''), title: String(ev.title || ''), text: String(ev.text || '') });
+  });
   F.on('state', (ev) => { seen.state = ev.value || 'idle'; report(); });
   F.on('muted', (ev) => { seen.muted = Boolean(ev.value); report(); });
   F.on('prefs', (ev) => { seen.prefs = ev; renderGroup(); afterLanguage(ev); });
@@ -161,7 +240,9 @@
     bridge.invoke(`${CH}hello`).then((info) => {
       if (!info) return;
       ready = true;
+      canNotify = info.notify === true;
       report();
+      sendApprovals();
     }, () => { /* an app without the shell feature: nothing to report to */ });
   }
 })();

@@ -5311,10 +5311,15 @@ function onAlert(ev) {
     const open = el('button', 'btn primary', 'Open');
     open.type = 'button';
     const card = notice(kicker, ev.title, ev.text, 60000, open, () => send({ type: 'alert_reaction', key, action: 'dismissed' }));
+    card.dataset.alert = key;
     open.addEventListener('click', () => { send({ type: 'alert_reaction', key, action: 'opened' }); card.remove(); syncDismissAll(); });
-  } else if (!['task', 'meeting'].includes(ev.alert_kind)) notice(kicker, ev.title, ev.text, 60000);
+  } else if (!['task', 'meeting'].includes(ev.alert_kind)) notice(kicker, ev.title, ev.text, 60000).dataset.alert = key;
   if (document.hidden || !document.hasFocus()) {
-    try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }
+    // A feature can raise it instead (the app's shell: clicking it opens JARVIS on this card).
+    const taken = !window.dispatchEvent(new CustomEvent('jarvis-notify', { cancelable: true, detail: ev }));
+    if (!taken) {
+      try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }
+    }
   }
 }
 

@@ -1,0 +1,11 @@
+/* The Mac app's shell, window side (web/features/shell.js). */
+
+/* A card opened from its macOS notification: a soft ring pulses around it twice. */
+@keyframes shell-flash {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--action) 45%, transparent), 0 12px 30px rgba(60, 40, 20, 0.08); }
+  100% { box-shadow: 0 0 0 12px color-mix(in srgb, var(--action) 0%, transparent), 0 12px 30px rgba(60, 40, 20, 0.08); }
+}
+.card.shell-flash { animation: shell-flash 900ms ease-out 2; }
+@media (prefers-reduced-motion: reduce) {
+  .card.shell-flash { animation: none; outline: 2px solid var(--action); outline-offset: 2px; }
+}

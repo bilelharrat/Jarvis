@@ -21,7 +21,13 @@ const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 // ── a stand-in Electron and main.js context ──
 
 function fakeElectron() {
-  const made = { trays: [], images: [] };
+  const made = { trays: [], images: [], notes: [] };
+  class Notification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; this.shown = false; this.closed = false; made.notes.push(this); }
+    show() { this.shown = true; }
+    close() { this.closed = true; }
+  }
   class Tray {
     constructor(image) { this.image = image; this.destroyed = false; made.trays.push(this); }
     setImage(image) { this.image = image; }
@@ -42,7 +48,7 @@ function fakeElectron() {
     },
   };
   const Menu = { buildFromTemplate: (template) => ({ template }) };
-  return { Tray, Menu, nativeImage, made };
+  return { Tray, Menu, Notification, nativeImage, made };
 }
 
 function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), 'shell-test-')) } = {}) {
@@ -54,6 +60,7 @@ function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), '
   app.getPath = () => userData;
   app.quit = () => { app.quits += 1; };
   app.focus = () => {};
+  app.dock = { badge: '', menu: null, setBadge(text) { this.badge = text; }, setMenu(menu) { this.menu = menu; } };
   const wc = new EventEmitter();
   wc.sent = [];
   const win = new EventEmitter();
@@ -66,6 +73,9 @@ function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), '
     show() { this.shown += 1; },
     showInactive() { this.shown += 1; },
     focus() {},
+    front: false, // visible and focused
+    isVisible() { return this.front; },
+    isFocused() { return this.front; },
   });
   const electron = fakeElectron();
   const ctx = {
@@ -84,7 +94,8 @@ function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), '
   const hello = () => ipcMain.handlers.get('feature:shell:hello')(fromWin);
   const report = (state) => ipcMain.emit('feature:shell:state', fromWin, state);
   const commands = () => wc.sent.filter(([channel]) => channel === 'feature:shell:command').map(([, c]) => c);
-  return { ctx, app, win, wc, electron, userData, hello, report, commands };
+  const tell = (channel, msg) => ipcMain.emit(`feature:shell:${channel}`, fromWin, msg);
+  return { ctx, app, win, wc, electron, userData, hello, report, commands, tell };
 }
 
 // ── the menu bar icon ──
@@ -248,6 +259,134 @@ test('the test window (JARVIS_BACKEND_URL) never puts an icon in the menu bar', 
   const t = fakeContext({ dev: true });
   shell.install(t.ctx);
   assert.equal(t.electron.made.trays.length, 0);
+});
+
+// ── notifications and the Dock ──
+
+const card = (id, extra = {}) => ({ id, question: 'Send this email to Ann?', detail: 'Hi Ann,\n\nThe deck is attached.', choices: [{ id: 'allow', label: 'Send' }, { id: 'deny', label: 'Don’t send' }], askKind: '', task: null, ...extra });
+
+test('a yes-or-no card gets its own two buttons; a purchase, a plan or a question gets none', () => {
+  const L = lib.mergeLabels();
+  const plain = lib.approvalNotice(lib.normalizeApproval(card('a1')), L);
+  assert.deepEqual(plain, { title: 'Needs your OK', body: 'Send this email to Ann?\nHi Ann, The deck is attached.', actions: ['Send', 'Don’t send'], answers: ['allow', 'deny'] });
+  const unlabelled = lib.approvalNotice(lib.normalizeApproval(card('a2', { choices: [{ id: 'allow' }, { id: 'deny' }] })), L);
+  assert.deepEqual(unlabelled.actions, ['Allow', 'Not now']);
+  const purchase = lib.approvalNotice(lib.normalizeApproval(card('a3', { askKind: 'purchase', question: 'Buy the headphones for $99?', detail: '', choices: [{ id: 'allow', label: 'Confirm purchase' }, { id: 'deny', label: 'Cancel' }] })), L);
+  assert.deepEqual(purchase.actions, []);
+  assert.equal(purchase.body, 'Buy the headphones for $99?\nSay “confirm purchase”, or confirm it in J.A.R.V.I.S.');
+  const plan = lib.approvalNotice(lib.normalizeApproval(card('a4', { choices: [{ id: 'plan_edits', label: 'Go' }, { id: 'plan_keep', label: 'Keep planning' }] })), L);
+  assert.deepEqual(plan.actions, []);
+  const shortcut = lib.approvalNotice(lib.normalizeApproval(card('a5', { choices: [{ id: 'allow', label: 'Run' }, { id: 'always', label: 'Always' }, { id: 'deny', label: 'Not now' }] })), L);
+  assert.deepEqual([shortcut.actions, shortcut.answers], [['Run', 'Not now'], ['allow', 'deny']]);
+  assert.equal(lib.excerpt('a  b\n c', 10), 'a b c');
+  assert.equal(lib.excerpt('x'.repeat(50), 10), `${'x'.repeat(9)}…`);
+  // Odd shapes from the window are refused.
+  for (const bad of [null, {}, { id: 5 }, { id: 'a b' }, { id: 'x'.repeat(65) }]) assert.equal(lib.normalizeApproval(bad), null);
+  assert.equal(lib.normalizeApproval({ id: 'a6', choices: 'no', task: '7' }).task, null);
+  assert.deepEqual(lib.normalizeApproval({ id: 'a6', choices: [{ id: 'allow', label: 5 }, 'x'] }).choices, [{ id: 'allow', label: '' }]);
+});
+
+test('a card that goes up while the window is away: a notification whose buttons answer it', async () => {
+  const t = fakeContext();
+  const s = shell.install(t.ctx);
+  assert.deepEqual(await t.hello(), { dev: false, notify: true });
+  t.tell('approval', card('a1'));
+  const [note] = t.electron.made.notes;
+  assert.ok(note.shown);
+  assert.equal(note.options.title, 'Needs your OK');
+  assert.deepEqual(note.options.actions, [{ type: 'button', text: 'Send' }, { type: 'button', text: 'Don’t send' }]);
+  assert.equal(note.options.silent, true);
+  assert.equal(t.app.dock.badge, '1');
+  note.emit('action', { actionIndex: 1 }, 1);
+  assert.deepEqual(t.commands(), [{ action: 'approve', id: 'a1', choice: 'deny' }]);
+  // The hub takes the card down: the badge goes.
+  t.tell('approval-done', { id: 'a1' });
+  assert.equal(t.app.dock.badge, '');
+  assert.equal(s.approvals().size, 0);
+
+  // A second one, answered in the window instead: its notification goes with it.
+  t.tell('approval', card('a2'));
+  const second = t.electron.made.notes[1];
+  t.tell('approval-done', { id: 'a2' });
+  assert.equal(second.closed, true);
+  second.emit('action', { actionIndex: 0 }); // too late: nothing is sent
+  assert.equal(t.commands().length, 1);
+});
+
+test('a click on a card’s notification opens JARVIS on it; a purchase has no buttons', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  await t.hello();
+  t.tell('approval', card('p1', { askKind: 'purchase', choices: [{ id: 'allow', label: 'Confirm purchase' }, { id: 'deny', label: 'Cancel' }] }));
+  const [note] = t.electron.made.notes;
+  assert.deepEqual(note.options.actions, []);
+  note.emit('click');
+  assert.equal(t.win.shown, 1);
+  assert.deepEqual(t.commands(), [{ action: 'reveal', what: 'approval', id: 'p1', task: null }]);
+  t.tell('approval', card('c1', { task: 7 }));
+  t.electron.made.notes[1].emit('click');
+  assert.deepEqual(t.commands()[1], { action: 'reveal', what: 'approval', id: 'c1', task: 7 });
+});
+
+test('no notification while the window is in front, for a card seen before, or from elsewhere', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  await t.hello();
+  t.win.front = true;
+  t.tell('approval', card('a1'));
+  assert.equal(t.electron.made.notes.length, 0);
+  assert.equal(t.app.dock.badge, '1'); // still counted
+  t.win.front = false;
+  t.tell('approval', card('a2'));
+  t.tell('approval', card('a2'));
+  assert.equal(t.electron.made.notes.length, 1);
+  t.ctx.ipcMain.emit('feature:shell:approval', { sender: {} }, card('a3'));
+  t.tell('approval', { id: 'bad id' });
+  assert.equal(t.app.dock.badge, '2');
+  // The window reconnects: what the hub says is waiting replaces the list.
+  t.tell('approvals', { items: [card('a9')] });
+  assert.equal(t.app.dock.badge, '1');
+  assert.equal(t.electron.made.notes[0].closed, true, 'a2 is gone, and its notification');
+});
+
+test('a heads-up raised for the window opens JARVIS on its card when clicked', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  await t.hello();
+  t.tell('heads-up', { key: 'rain:1', kind: 'rain', title: 'Rain', text: 'Rain in an hour.' });
+  t.tell('heads-up', { key: 'x', kind: 'x', title: '', text: '' }); // nothing to say: nothing raised
+  const [note] = t.electron.made.notes;
+  assert.equal(t.electron.made.notes.length, 1);
+  assert.deepEqual([note.options.title, note.options.body, note.options.silent], ['Rain', 'Rain in an hour.', true]);
+  note.emit('click');
+  assert.equal(t.win.shown, 1);
+  assert.deepEqual(t.commands(), [{ action: 'reveal', what: 'alert', key: 'rain:1', kind: 'rain', title: 'Rain', text: 'Rain in an hour.' }]);
+});
+
+test('the test window raises no notifications and leaves the Dock alone', async () => {
+  const t = fakeContext({ dev: true });
+  shell.install(t.ctx);
+  assert.deepEqual(await t.hello(), { dev: true, notify: false });
+  t.tell('approval', card('a1'));
+  t.tell('heads-up', { key: 'rain:1', kind: 'rain', title: 'Rain', text: 'Soon.' });
+  assert.equal(t.electron.made.notes.length, 0);
+  assert.equal(t.app.dock.menu, null);
+  assert.equal(t.app.dock.badge, '');
+});
+
+test('the Dock’s menu: Ask, Mute or Unmute, Jarvis Code and the browser', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  await t.hello();
+  t.report({ state: 'idle', online: true, muted: true, labels: { browser: '浏览器' } });
+  const items = t.app.dock.menu.template;
+  assert.deepEqual(items.map((i) => i.label || '—'), ['Ask…', 'Unmute', '—', 'Jarvis Code', '浏览器']);
+  items[4].click();
+  items[1].click();
+  await tick();
+  assert.deepEqual(t.commands(), [{ action: 'open', panel: 'browser' }, { action: 'unmute' }]);
+  items[0].click();
+  assert.equal(t.ctx.summons, 1);
 });
 
 // ── the window's words have their Chinese ──
