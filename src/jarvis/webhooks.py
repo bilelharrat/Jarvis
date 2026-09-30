@@ -82,7 +82,16 @@ def _hook_from(raw: Any) -> Hook | None:
     except ValueError:
         return None
     per_hour = raw.get("per_hour")
-    calls = [c for c in raw.get("calls") or [] if isinstance(c, dict)][-CALLS_KEPT:]
+    listed = raw.get("calls") if isinstance(raw.get("calls"), list) else []  # a hand edit
+    calls = [
+        {
+            "at": str(c.get("at") or ""),
+            "status": str(c.get("status") or ""),
+            "bytes": c["bytes"] if type(c.get("bytes")) is int else 0,
+        }
+        for c in listed
+        if isinstance(c, dict)
+    ][-CALLS_KEPT:]
     return Hook(
         name=name,
         created=str(raw.get("created") or ""),
@@ -139,7 +148,8 @@ class Webhooks:
     @property
     def hooks(self) -> list[Hook]:
         if self._hooks is None:
-            self._hooks = []
+            found: list[Hook] = []  # kept only once all are read: never half the file
+            broken: list[Any] = []
             try:
                 data = jsonstore.load_json(self.path, list)
             except jsonstore.Unreadable as exc:
@@ -150,9 +160,10 @@ class Webhooks:
                 hook = _hook_from(raw)
                 if hook is not None and hook.name not in names:
                     names.add(hook.name)
-                    self._hooks.append(hook)
+                    found.append(hook)
                 elif jsonstore.shallow(raw):
-                    self.broken.append(raw)
+                    broken.append(raw)
+            self._hooks, self.broken = found, broken
         return self._hooks
 
     def save(self) -> None:

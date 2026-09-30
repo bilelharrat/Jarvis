@@ -165,6 +165,24 @@ async def test_json_arrives_as_json_and_a_damaged_file_keeps_what_it_can(door, t
     assert len(json.loads(path.read_text())) == 5  # nothing another build wrote is lost
 
 
+def test_a_hooks_calls_of_the_wrong_type_never_lose_the_hooks_after_it(tmp_path):
+    """A hand edit that puts a number where a hook's list of calls goes: that hook keeps its
+    name and settings, the hooks after it are still there, and a save loses none of them."""
+    path = tmp_path / "webhooks.json"
+    rows = [
+        {"name": "ci", "calls": [{"at": "2026-09-30T09:00:00", "status": "accepted", "bytes": 3}]},
+        {"name": "build", "calls": 3},
+        {"name": "deploy", "calls": [{"at": 5, "status": ["x"]}, "row"]},
+    ]
+    path.write_text(json.dumps(rows))
+    hooks = wh.Webhooks(path, MemoryVault(), lambda *_: None)
+    assert [h.name for h in hooks.hooks] == ["ci", "build", "deploy"]
+    assert hooks.find("build").calls == []
+    assert hooks.find("deploy").calls == [{"at": "5", "status": "['x']", "bytes": 0}]
+    hooks.save()
+    assert [r["name"] for r in json.loads(path.read_text())] == ["ci", "build", "deploy"]
+
+
 # ── what the feature does with a call ──
 
 
