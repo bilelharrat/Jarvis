@@ -32,3 +32,8 @@
 
 /* email rules: the rule reads as its trigger, what it does under it */
 .auto-email-list .fact small { overflow-wrap: anywhere; }
+
+/* check-ins: the settings under the switch dim while it's off; what they said reads plainly */
+#auto-checkins.off > :is(label.row, .row:has(.time-range), .folder-form) { opacity: 0.55; }
+.auto-checkin-list .auto-said { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+#auto-checklist { resize: vertical; min-height: 84px; font: inherit; font-size: 14px; }

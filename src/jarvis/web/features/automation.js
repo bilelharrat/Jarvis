@@ -1,9 +1,10 @@
 // The automation feature's window side: Settings › Routines (each schedule in the language
 // the window speaks, when it runs next, and under "How it runs" whether it runs on its own,
 // its model, tools and delivery, its standing orders and its last runs), Settings › Timers
-// & reminders (live countdowns, Stop, Snooze and Cancel), Settings › Email rules ("when an
-// email from … arrives, …": routines on the mail trigger), and Stop and Snooze on the card
-// of a timer or alarm ringing.
+// & reminders (live countdowns, Stop, Snooze and Cancel), Settings › Check-ins (the
+// heartbeat: on or off, how often, active hours, the checklist, the last check-ins),
+// Settings › Email rules ("when an email from … arrives, …": routines on the mail trigger),
+// and Stop and Snooze on the card of a timer or alarm ringing.
 //
 // Everything a routine or a timer carries (its name, its prompt, its label, when it runs) is
 // the owner's or the backend's data: shown with textContent and marked data-no-i18n. The
@@ -43,6 +44,18 @@
     ringId(key) {
       const parts = String(key || '').split(':');
       return ['timer', 'alarm'].includes(parts[0]) && parts[1] ? parts[1] : '';
+    },
+    // A check-in's outcome, in the window's words.
+    checkinOutcome(outcome) {
+      return ({
+        quiet: 'Nothing needed you', said: 'Told you', unchanged: 'Nothing changed',
+        empty: 'Nothing to look at', repeat: 'Already told you', skipped: 'Skipped', failed: 'Didn’t work',
+      })[outcome] || outcome;
+    },
+    // Active hours as the owner set them in two time boxes ("" when they don't make a day).
+    hours(start, end) {
+      const ok = /^([01]\d|2[0-3]):[0-5]\d$/;
+      return ok.test(start) && ok.test(end) && start < end ? `${start}-${end}` : '';
     },
     // An email rule is a routine that runs when an email arrives.
     isEmailRule(r) {
@@ -252,8 +265,10 @@
     );
     if (routinesGroup) routinesGroup.after(timersGroup);
     else settings.append(timersGroup);
-    buildEmailGroup(timersGroup);
+    buildCheckinGroup(timersGroup);
+    buildEmailGroup(checkinGroup);
     renderTimers();
+    renderCheckins();
     renderEmailRules();
   }
 
@@ -282,6 +297,112 @@
       li.append(button('Cancel', 'btn', () => send({ type: 'automation_timer', action: 'cancel', id: t.id }), `Cancel: ${t.label || KIND_NAMES[t.kind]}`));
     }
     return li;
+  }
+
+  // ── Settings › Check-ins ──
+
+  let checkinGroup = null;
+  let checkins = { last: [], today: 0, cap: 24 };
+
+  function buildCheckinGroup(after) {
+    checkinGroup = el('section', 'group auto-group');
+    checkinGroup.id = 'auto-checkins';
+    const pref = (changes) => send({ type: 'feature_prefs', changes });
+    const every = choice('Every', String(features.heartbeat_minutes || 60), [['30', '30 minutes'], ['60', '60 minutes']],
+      (v) => pref({ heartbeat_minutes: Number(v) }));
+    every.querySelector('select').id = 'auto-checkin-minutes';
+    const range = el('span', 'time-range');
+    const start = el('input');
+    const end = el('input');
+    for (const [box, label] of [[start, 'Active hours start'], [end, 'Active hours end']]) {
+      box.type = 'time';
+      box.setAttribute('aria-label', label);
+      box.addEventListener('change', () => {
+        const hours = A.hours(start.value, end.value);
+        if (hours) pref({ heartbeat_hours: hours });
+      });
+      range.append(box);
+    }
+    start.id = 'auto-checkin-start';
+    end.id = 'auto-checkin-end';
+    const hoursRow = el('div', 'row');
+    const hoursWords = el('span');
+    hoursWords.append(el('strong', '', 'Active hours'), el('small', '', 'Check-ins only happen between these times'));
+    hoursRow.append(hoursWords, range);
+    const listLabel = el('label', 'row stack');
+    const listWords = el('span');
+    listWords.append(el('strong', '', 'Keep an eye on'), el('small', '', 'One thing a line, in your own words: “Ann’s reply about the lease”, “rain before my 5 PM run”.'));
+    const checklist = el('textarea');
+    checklist.id = 'auto-checklist';
+    checklist.rows = 4;
+    checklist.maxLength = 2000;
+    checklist.placeholder = 'e.g. the Acme contract email';
+    checklist.addEventListener('change', () => pref({ heartbeat_checklist: checklist.value }));
+    listLabel.append(listWords, checklist);
+    const now = el('div', 'folder-form');
+    now.append(button('Check in now', 'btn', () => send({ type: 'automation_checkin_now' })));
+    const status = el('p', 'small-status');
+    status.id = 'auto-checkin-status';
+    const past = el('ul', 'itemlist auto-checkin-list');
+    past.id = 'auto-checkin-list';
+    checkinGroup.append(
+      el('h3', '', 'Check-ins'),
+      el('p', 'small-status', 'Every 30 or 60 minutes in your active hours, I look over your checklist, your calendar, the texts and emails waiting, Jarvis Code and your timers on my own, and speak up only when something needs you. Haiku, at most 24 a day, and none when nothing has changed.'),
+      row('Check in on my own', '', toggle('sw-auto-checkins', 'Check in on my own', features.heartbeat_on,
+        () => pref({ heartbeat_on: !features.heartbeat_on }))),
+      every,
+      hoursRow,
+      listLabel,
+      now,
+      status,
+      past,
+    );
+    after.after(checkinGroup);
+    syncCheckinSettings();
+  }
+
+  function syncCheckinSettings() {
+    if (!checkinGroup) return;
+    const on = !!features.heartbeat_on;
+    F.$('sw-auto-checkins')?.setAttribute('aria-checked', String(on));
+    const minutes = F.$('auto-checkin-minutes');
+    if (minutes) minutes.value = String(features.heartbeat_minutes || 60);
+    const [start, end] = String(features.heartbeat_hours || '09:00-21:00').split('-');
+    const startBox = F.$('auto-checkin-start');
+    const endBox = F.$('auto-checkin-end');
+    if (startBox && document.activeElement !== startBox) startBox.value = start;
+    if (endBox && document.activeElement !== endBox) endBox.value = end;
+    const checklist = F.$('auto-checklist');
+    if (checklist && document.activeElement !== checklist) checklist.value = features.heartbeat_checklist || '';
+    checkinGroup.classList.toggle('off', !on);
+  }
+
+  function renderCheckins() {
+    const status = F.$('auto-checkin-status');
+    const list = F.$('auto-checkin-list');
+    if (!status || !list) return;
+    const parts = [];
+    const last = (checkins.last || [])[0];
+    if (checkins.running) parts.push(el('span', '', 'Checking in…'));
+    else if (last) {
+      const said = el('span');
+      said.append(el('span', '', 'Last check-in'), ' ', mine(el('bdi', '', A.when(last.at, lang))), el('span', 'auto-sep', ': '), el('span', '', A.checkinOutcome(last.outcome)));
+      parts.push(said);
+    }
+    const used = el('span');
+    used.append(mine(el('bdi', '', `${checkins.today || 0}/${checkins.cap || 24}`)), ' ', el('span', '', 'today'));
+    parts.push(used);
+    status.replaceChildren(...parts);
+    const shown = (checkins.last || []).filter((c) => c.said).slice(0, 5);
+    list.replaceChildren(...shown.map((c) => {
+      const li = el('li');
+      const fact = el('span', 'fact');
+      const head = el('small');
+      head.append(mine(el('bdi', '', A.when(c.at, lang))), el('span', 'auto-sep', ' · '), el('span', '', A.checkinOutcome(c.outcome)));
+      fact.append(head, mine(el('span', 'auto-said', c.said)));
+      li.append(fact);
+      return li;
+    }));
   }
 
   // ── Settings › Email rules ──
@@ -380,7 +501,7 @@
 
   function onPrefs(p) {
     if (!p) return;
-    if (p.features) { features = p.features; syncSwitches(); }
+    if (p.features) { features = p.features; syncSwitches(); syncCheckinSettings(); }
     if (p.language && p.language !== lang) { lang = p.language; renderRoutines(); renderTimers(); }
   }
 
@@ -401,6 +522,7 @@
     if (redraw) renderRoutines();
     if (ev.running && !ev.routines) opened.forEach((id) => send({ type: 'automation_history', id }));  // a run just ended
     if (ev.timers) { timers = ev.timers; renderTimers(); }
+    if (ev.checkins) { checkins = ev.checkins; renderCheckins(); }
   });
   F.on('automation_history', (ev) => {
     histories.set(ev.id, ev.runs || []);

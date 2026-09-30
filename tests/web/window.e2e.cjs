@@ -2130,6 +2130,35 @@ test('Email rules: added from Settings, listed by what starts them, after Timers
   assert((await js('$("routine-list").children.length')) === 2, 'the rule should be in Routines too');
 });
 
+test('Check-ins: on or off, how often, active hours and the checklist go to the settings; what they said shows', async () => {
+  await withAutomation();
+  await js('toggleSettings(true)');
+  await js(`featureEvent({ type: 'prefs', features: { heartbeat_on: false, heartbeat_minutes: 60, heartbeat_hours: '09:00-21:00', heartbeat_checklist: 'Ann’s reply' } })`);
+  const shown = await js('({ on: $("sw-auto-checkins").getAttribute("aria-checked"), every: $("auto-checkin-minutes").value, start: $("auto-checkin-start").value, end: $("auto-checkin-end").value, list: $("auto-checklist").value, off: $("auto-checkins").classList.contains("off") })');
+  assert(JSON.stringify(shown) === JSON.stringify({ on: 'false', every: '60', start: '09:00', end: '21:00', list: 'Ann’s reply', off: true }), JSON.stringify(shown));
+  await js('$("sw-auto-checkins").click()');
+  await js(`(() => { const s = $("auto-checkin-minutes"); s.value = '30'; s.dispatchEvent(new Event('change')); return true; })()`);
+  await js(`(() => { const e = $("auto-checkin-end"); e.value = '08:00'; e.dispatchEvent(new Event('change')); e.value = '22:30'; e.dispatchEvent(new Event('change')); return true; })()`);
+  await js(`(() => { const t = $("auto-checklist"); t.value = 'Ann’s reply\\nthe Acme contract'; t.dispatchEvent(new Event('change')); return true; })()`);
+  await clickText('#auto-checkins', 'Check in now');
+  const s = await js('__sent.filter((m) => m.type === "feature_prefs" || m.type === "automation_checkin_now")');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'feature_prefs', changes: { heartbeat_on: true } },
+    { type: 'feature_prefs', changes: { heartbeat_minutes: 30 } },
+    { type: 'feature_prefs', changes: { heartbeat_hours: '09:00-22:30' } },  // 09:00-08:00 isn't a day
+    { type: 'feature_prefs', changes: { heartbeat_checklist: 'Ann’s reply\nthe Acme contract' } },
+    { type: 'automation_checkin_now' },
+  ]), JSON.stringify(s));
+  const at = new Date().toISOString();
+  await js(`featureEvent({ type: 'automation', checkins: { today: 3, cap: 24, running: false, last: [
+    { at: '${at}', outcome: 'said', said: 'Ann replied: <b>sign today</b>.' }, { at: '${at}', outcome: 'quiet', said: '' } ] } })`);
+  const status = await js('$("auto-checkin-status").textContent');
+  assert(status.includes('Last check-in') && status.includes('Told you') && status.includes('3/24'), status);
+  const said = await js('[...$("auto-checkin-list").children].map((li) => li.textContent)');
+  assert(said.length === 1 && said[0].includes('Ann replied: <b>sign today</b>.'), JSON.stringify(said));
+  assert(await js('!$("auto-checkin-list").querySelector("b")'), 'what it said became markup');
+});
+
 // ──
 
 let base;

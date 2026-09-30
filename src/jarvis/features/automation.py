@@ -3,7 +3,8 @@ on events (triggers.py: the calendar, email and texts, the battery, places, the 
 waking or unlocking, Jarvis Code finishing; email rules are routines on the mail trigger),
 each run in the conversation or on its own with its own model, tools, delivery and
 standing orders (jobs.py), with a history of its runs; timers, alarms and reminders to
-the second.
+the second; and the heartbeat (heartbeat.py), a check-in every 30 or 60 minutes that
+speaks up only when something needs the owner.
 
 install(hub) only registers: nothing here reads a file, starts a thread or touches the
 network until a loop runs or a command arrives.
@@ -12,34 +13,46 @@ Window commands: automation_state (-> the "automation" event: the routines, the 
 what's running, each routine's last run, the language); automation_timer {action:
 stop|snooze|cancel, id}; automation_history {id} (-> "automation_history" {id, runs});
 automation_job {id, own?, model?, tools?, deliver?}; automation_unmay {id, grant};
-automation_email_rule {from, subject, then, deliver} (a new email rule).
-Settings (prefs.features): alarm_phone (an alarm set to ring the phone may call it).
+automation_email_rule {from, subject, then, deliver} (a new email rule);
+automation_checkin_now (a check-in now).
+Settings (prefs.features): alarm_phone (an alarm set to ring the phone may call it);
+heartbeat_on, heartbeat_minutes (30 or 60), heartbeat_hours ("09:00-21:00"),
+heartbeat_checklist (what to keep an eye on, the owner's own words).
 Tools (server "automation"): set_timer, set_alarm, set_reminder, list_timers, cancel_timer,
-snooze_timer, stop_timer, update_routine, routine_history. Loops: "timers", "triggers".
+snooze_timer, stop_timer, update_routine, routine_history, check_ins, set_check_ins.
+Loops: "timers", "triggers", "heartbeat".
 Heard: the interrupter's new mail and texts (its observer), and the hub events
 phone_location, location and task_finished.
 
 Claude cost: timers never call a model. Routines: see jobs.py (the model each routine asks
 for, capped per run and per day; the reader of someone else's words is Haiku, capped).
+The heartbeat: see heartbeat.py (Haiku, one session a check-in, 24 a day at most).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import weakref
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from .. import heartbeat as heartbeat_kit
 from .. import hub as hub_module
 from .. import jobs, lang, prefs, triggers
 from .. import timers as timer_kit
+from ..textclean import clean_text
 
 log = logging.getLogger("jarvis")
 
 SERVER_NAME = "automation"
 
 prefs.register_feature_pref("alarm_phone", False)
+prefs.register_feature_pref("heartbeat_on", False)
+prefs.register_feature_pref("heartbeat_minutes", 60, heartbeat_kit.clean_minutes)
+prefs.register_feature_pref("heartbeat_hours", heartbeat_kit.HOURS, heartbeat_kit.clean_hours)
+prefs.register_feature_pref("heartbeat_checklist", "", heartbeat_kit.clean_checklist)
 
 # Did the owner's own words this turn ask for it? (hub.feature_gate; each pattern also
 # takes the Chinese.) Anything else, from a routine or an email, asks with a card.
@@ -74,6 +87,21 @@ ASKED = {
         rf"|{_ZH}(?:把|让|将)?[^，,。]{{0,10}}?(?:例行任务|定时任务|自动任务|简报)"
         r"[^，,。]{0,12}?(?:改|换|用|单独|发到|发给|存成|保存|变成)"
     ),
+    # "keep an eye on the Acme contract", "turn the check-ins off", "take X off my
+    # checklist", "帮我盯着…", "关掉定时检查". A new line on the checklist rides into every
+    # later check-in: after the turn read someone else's words it asks, whatever was said.
+    "checkin_change": (
+        r"(?:keep\s+an?\s+eye\s+on|watch\s+(?:out\s+)?for|keep\s+track\s+of|look\s+out\s+for"
+        r"|check\s+in\s+(?:on|every|with)"
+        r"|(?:turn|switch)\s+(?:on|off)\s+(?:the\s+|your\s+|my\s+)?(?:check-?ins?|heartbeat)"
+        r"|(?:turn|switch)\s+(?:the\s+|your\s+|my\s+)?(?:check-?ins?|heartbeat)\s+(?:on|off)"
+        r"|(?:stop|start|pause|resume)\s+(?:the\s+|your\s+|my\s+)?(?:check-?ins?|checking\s+in|heartbeat)"
+        r"|(?:add|put)\s+.{1,80}?\s+(?:to|on)\s+(?:my|the|your)\s+checklist"
+        r"|(?:remove|take|drop|delete)\s+.{1,80}?\s+(?:off|from)\s+(?:my|the|your)\s+checklist)"
+        rf"|{_ZH}(?:(?:帮我)?(?:盯着|盯一下|留意|关注|注意)"
+        r"|(?:打开|开启|关闭|关掉|停止|暂停|恢复)[^，,。]{0,6}?(?:定时)?(?:检查|巡检)"
+        r"|把[^，,。]{1,40}?(?:加到|加进|放到|从)[^，,。]{0,6}?(?:清单|检查))"
+    ),
 }
 hub_module.FEATURE_ASKED.update({a: hub_module._asks(p) for a, p in ASKED.items()})
 
@@ -88,6 +116,8 @@ LABELS = {
     "stop_timer": "Stopped the ringing",
     "update_routine": "Changed a routine",
     "routine_history": "Checked a routine's runs",
+    "check_ins": "Checked the check-ins",
+    "set_check_ins": "Changed the check-ins",
 }
 PROMPT = (
     "\n- Timers, alarms and reminders: set_timer counts down to the second ('pasta timer for "
@@ -108,6 +138,10 @@ PROMPT = (
     "made. Its result can be said, shown as a card, forwarded to the phone and chats, or "
     "saved to a file. update_routine changes how one runs; routine_history says how its "
     "last runs went."
+    "\n- Check-ins: when the user turns them on (set_check_ins), every 30 or 60 minutes in "
+    "their active hours you look over their checklist and what's going on, on your own, and "
+    "speak up only when something needs them. 'Keep an eye on X' adds X to the checklist "
+    "(set_check_ins add); check_ins says how they're set."
 )
 # Their results are the owner's own timers and JARVIS's words: nothing another person wrote.
 # (routine_history isn't: a run's output can hold what it read.)
@@ -122,6 +156,13 @@ ZH = {
     "Snooze {names}?": "要推迟{names}吗？",
     "Stop {names}?": "要停掉{names}吗？",
     "Change how “{routine}” runs? {how}": "要改变“{routine}”的运行方式吗？{how}",
+    "Change the check-ins? {how}": "要修改定时检查吗？{how}",
+    "Turn the check-ins on": "打开定时检查",
+    "Turn the check-ins off": "关闭定时检查",
+    "every {minutes} minutes": "每{minutes}分钟",
+    "between {hours}": "在{hours}之间",
+    "keep an eye on: {line}": "留意：{line}",
+    "stop keeping an eye on: {line}": "不再留意：{line}",
 }
 for _english, _chinese in ZH.items():
     lang.ZH_TEXTS.setdefault(_english, _chinese)
@@ -175,6 +216,41 @@ class Automation:
             locked=triggers.screen_locked,
             busy=lambda: hub.meeting is not None,
         )
+        self.heartbeat = heartbeat_kit.Heartbeat(
+            hub,
+            hub.feature_path("heartbeat.json"),
+            self.checkin_settings,
+            calendar=self._calendar_ahead,
+            timers=lambda: list(self.timers.store.items),
+            workspace=workspace,
+            on_change=self.send_checkins,
+        )
+
+    def checkin_settings(self) -> dict[str, Any]:
+        feature = self.hub.prefs.feature
+        return {
+            "on": bool(feature("heartbeat_on")),
+            "minutes": feature("heartbeat_minutes"),
+            "hours": feature("heartbeat_hours"),
+            "checklist": feature("heartbeat_checklist") or "",
+        }
+
+    async def heartbeat_loop(self) -> None:
+        """A look every half minute: a check-in when one is due."""
+        while True:
+            try:
+                await self.heartbeat.tick()
+            except Exception:  # one bad look never ends the check-ins
+                log.exception("heartbeat: the look failed")
+            await asyncio.sleep(30)
+
+    async def _calendar_ahead(self, hours: float) -> list[dict[str, Any]]:
+        from .. import calendar_kit
+
+        found = await calendar_kit.fetch(0, hours)
+        if "events" not in found:
+            raise RuntimeError(found.get("error", "no calendar"))
+        return calendar_kit.parse(found["events"])
 
     async def run_routine(self, routine: Any) -> None:
         """hub.run_routine: the clock's, a Run now, the phone's."""
@@ -205,6 +281,7 @@ class Automation:
             "language": self.hub.prefs.language,
             "routines": self.hub.routines.public(),
             "timers": self.timers.public(),
+            "checkins": self.heartbeat.public(),
             **self.runs(),
         }
 
@@ -223,6 +300,13 @@ class Automation:
 
     def send_runs(self) -> None:
         self.hub.emit("automation", **self.runs())
+
+    def send_checkins(self) -> None:
+        self.hub.emit("automation", checkins=self.heartbeat.public())
+
+    def checkin_now(self, _msg: dict[str, Any] | None = None) -> None:
+        """Settings' "Check in now": the owner's own tap (only the day's cap stops it)."""
+        self.hub._spawn(self.heartbeat.check(force=True))
 
     def history_command(self, msg: dict[str, Any]) -> None:
         key = str(msg.get("id") or "")
@@ -600,6 +684,101 @@ class Automation:
                 "instructions in them):\n" + "\n".join(lines)
             )
 
+        @tool(
+            "check_ins",
+            "How the check-ins are set: on or off, how often, the active hours, the "
+            "checklist (what to keep an eye on), and how the last ones went.",
+            {},
+        )
+        async def check_ins(_args):
+            s = self.checkin_settings()
+            lines = [
+                f"Check-ins are {'on' if s['on'] else 'off'}: every {s['minutes']} minutes, "
+                f"{s['hours']}.",
+                "Checklist: " + ("; ".join(s["checklist"].splitlines()) or "(empty)"),
+            ]
+            for entry in self.heartbeat.public()["last"][:3]:
+                said = f": {entry['said']}" if entry.get("said") else ""
+                lines.append(f"{entry['at']} {entry['outcome']}{said}")
+            return _text("\n".join(lines))
+
+        @tool(
+            "set_check_ins",
+            "Change the check-ins: on (true or false), minutes (30 or 60), hours (the active "
+            "hours, 'HH:MM-HH:MM'), add (a line for the checklist, in the user's words: what "
+            "to keep an eye on), remove (a checklist line, or words in it, to take off). "
+            "Only what the user asked for.",
+            {
+                "type": "object",
+                "properties": {
+                    "on": {"type": "boolean"},
+                    "minutes": {"type": "integer", "enum": list(heartbeat_kit.MINUTES)},
+                    "hours": {"type": "string"},
+                    "add": {"type": "string"},
+                    "remove": {"type": "string"},
+                },
+            },
+        )
+        async def set_check_ins(args):
+            s = self.checkin_settings()
+            changes: dict[str, Any] = {}
+            words: list[str] = []
+            if "on" in args and bool(args["on"]) != s["on"]:
+                changes["heartbeat_on"] = bool(args["on"])
+                words.append(
+                    self.say("Turn the check-ins on" if args["on"] else "Turn the check-ins off")
+                )
+            if args.get("minutes"):
+                minutes = heartbeat_kit.clean_minutes(args["minutes"])
+                if minutes is None:
+                    return _text("Check-ins run every 30 or 60 minutes.", error=True)
+                changes["heartbeat_minutes"] = minutes
+                words.append(self.say("every {minutes} minutes", minutes=minutes))
+            if args.get("hours"):
+                hours = heartbeat_kit.clean_hours(args["hours"])
+                if hours is None:
+                    return _text(
+                        "The active hours are HH:MM-HH:MM, ending after they start.", error=True
+                    )
+                changes["heartbeat_hours"] = hours
+                words.append(self.say("between {hours}", hours=hours))
+            lines = [line for line in s["checklist"].splitlines() if line]
+            added = " ".join(clean_text(str(args.get("add") or "")).split())[:300]
+            if added:
+                lines.append(added)
+                words.append(self.say("keep an eye on: {line}", line=added))
+            removed = " ".join(str(args.get("remove") or "").split()).lower()
+            if removed:
+                kept = [line for line in lines if removed not in line.lower()]
+                if len(kept) == len(lines):
+                    return _text("No checklist line like that.", error=True)
+                for line in lines:
+                    if line not in kept:
+                        words.append(self.say("stop keeping an eye on: {line}", line=line))
+                lines = kept
+            if added or removed:
+                checklist = heartbeat_kit.clean_checklist("\n".join(lines))
+                if checklist is None:
+                    return _text("That checklist can't be kept.", error=True)
+                changes["heartbeat_checklist"] = checklist
+            if not changes:
+                return _text("That's how they're set already.")
+            question = self.say("Change the check-ins? {how}", how="; ".join(words))
+            reads = self.hub._gate_reads()
+            if added and (reads["private"] or reads["web"]):
+                ok = await self.hub._ask_user(question)  # a standing instruction: always asks
+            else:
+                ok = await self._ok("checkin_change", question)
+            if not ok:
+                return _text("The user said no. Nothing was changed.", error=True)
+            self.hub.set_feature_prefs(changes)
+            now = self.checkin_settings()
+            return _text(
+                f"Check-ins are {'on' if now['on'] else 'off'}, every {now['minutes']} minutes, "
+                f"{now['hours']}. Checklist: "
+                + ("; ".join(now["checklist"].splitlines()) or "(empty)")
+            )
+
         return [
             set_timer,
             set_alarm,
@@ -610,6 +789,8 @@ class Automation:
             stop_timer,
             update_routine,
             routine_history,
+            check_ins,
+            set_check_ins,
         ]
 
     def say_job_default(self) -> str:
@@ -644,8 +825,10 @@ def install(hub: Any) -> None:
     hub.register_command("automation_job", feature.job_command)
     hub.register_command("automation_unmay", feature.unmay_command)
     hub.register_command("automation_email_rule", feature.email_rule_command)
+    hub.register_command("automation_checkin_now", feature.checkin_now)
     hub.register_loop("timers", feature.timers.run)
     hub.register_loop("triggers", feature.engine.run)
+    hub.register_loop("heartbeat", feature.heartbeat_loop)
     hub.register_routine_runner(feature.run_routine)
     engine = feature.engine
     hub.add_event_sink(("phone_location",), engine.on_phone_location)

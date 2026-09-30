@@ -60,3 +60,13 @@ test('how a routine runs, in a few of the window’s words', () => {
   assert.deepEqual(A.howItRuns({ own: true, model: 'opus', tools: 'normal', deliver: 'forward' }), ['On its own', 'Opus', 'can act', 'to your phone']);
   assert.deepEqual(A.howItRuns({ own: true, model: '', tools: 'none', deliver: 'file' }), ['On its own', 'Haiku', 'no tools', 'to a file']);
 });
+
+test('active hours must make a day, and each check-in outcome has words', () => {
+  assert.equal(A.hours('09:00', '21:00'), '09:00-21:00');
+  assert.equal(A.hours('21:00', '09:00'), '');
+  assert.equal(A.hours('9:00', '21:00'), '');
+  assert.equal(A.hours('', ''), '');
+  assert.equal(A.checkinOutcome('quiet'), 'Nothing needed you');
+  assert.equal(A.checkinOutcome('said'), 'Told you');
+  assert.equal(A.checkinOutcome('mystery'), 'mystery');
+});
