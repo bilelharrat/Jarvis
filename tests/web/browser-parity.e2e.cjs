@@ -425,6 +425,35 @@ test('A page with unsaved work asks before it goes: Stay keeps it, Leave goes; w
   delete win.isVisible;
 });
 
+// main.js's closeTab for the owner's own close (⌘W, a tab's ×, its menu): the page is closed
+// as Chrome closes one, its beforeunload first, and the tab goes only once the page has.
+test('Closing a tab with unsaved work asks: Stay keeps the page, Leave closes it; one with none just closes', async () => {
+  const view = newTab();
+  active = view;
+  await view.webContents.loadURL(`${base}/leave`);
+  await page(view, '1'); // the user's touch: a page may only ask after one
+  win.isVisible = () => true;
+  syncBoxes.length = 0;
+  let gone = false;
+  view.webContents.once('destroyed', () => { gone = true; });
+  syncAnswer = 1; // Stay
+  for (let i = 0; i < 40 && !syncBoxes.length; i++) { view.webContents.close({ waitForBeforeUnload: true }); await sleep(100); }
+  assert(syncBoxes.length >= 1 && !gone && !view.webContents.isDestroyed(), 'Stay closed the page, or it never asked');
+  syncAnswer = 0; // Leave
+  const asked = syncBoxes.length;
+  for (let i = 0; i < 40 && !gone; i++) { view.webContents.close({ waitForBeforeUnload: true }); await sleep(100); }
+  assert(gone && syncBoxes.length > asked, 'Leave kept the page');
+  const plain = newTab();
+  await plain.webContents.loadURL(`${base}/other`);
+  let closed = false;
+  plain.webContents.once('destroyed', () => { closed = true; });
+  plain.webContents.close({ waitForBeforeUnload: true });
+  await until(() => closed);
+  assert(closed && syncBoxes.length === asked + 1, 'a page with nothing unsaved asked, or stayed');
+  delete win.isVisible;
+  for (const v of [view, plain]) { tabs.splice(tabs.indexOf(v), 1); win.contentView.removeChildView(v); } // (as main.js's dropTab)
+});
+
 test('A site’s sign-in asks in the window: the answer signs in; Cancel shows the site’s refusal', async () => {
   const view = newTab();
   active = view;

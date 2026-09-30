@@ -358,15 +358,29 @@ function newTab(url, opts) {
 }
 
 // The last tab never closes: the dock does (the window's close button).
-function closeTab(view) {
+// owner: the owner's own close (⌘W, a tab's ×, its menu). A page holding unsaved work asks
+// first (browser-parity.js's leave question), and Stay keeps the tab; JARVIS's and the
+// agent's closes never wait on a page.
+function closeTab(view, { owner = false } = {}) {
+  if (tabs.indexOf(view) < 0 || tabs.length < 2) return false;
+  const wc = view.webContents;
+  if (owner && !wc.isDestroyed()) {
+    const url = wc.getURL();
+    wc.once('destroyed', () => dropTab(view, url));
+    wc.close({ waitForBeforeUnload: true });
+    return true;
+  }
+  return dropTab(view, wc.getURL(), true);
+}
+
+function dropTab(view, url, close = false) {
   const at = tabs.indexOf(view);
-  if (at < 0 || tabs.length < 2) return false;
+  if (at < 0) return false; // (already gone: a close asked twice)
   tabs.splice(at, 1);
-  const url = view.webContents.getURL();
   if (/^https?:/.test(url) && !view.private) closedTabs.push(url); // a private tab's page isn't kept
   if (closedTabs.length > 25) closedTabs.shift();
   if (view === browserView) { const next = parity.nextDocked(at); if (next) selectTab(next); else newTab(); } // (never one popped out)
-  view.webContents.close();
+  if (close) view.webContents.close();
   sendBrowserState();
   return true;
 }
@@ -404,7 +418,7 @@ function browserShortcut(input) {
     return false;
   }
   if (key === 't') { newTab(); sendBrowserState(); return ui('address'); }
-  if (key === 'w') { if (tabs.length > 1) closeTab(browserView); else ui('close'); return true; }
+  if (key === 'w') { if (tabs.length > 1) closeTab(browserView, { owner: true }); else ui('close'); return true; }
   if (key === 'l') return ui('address');
   if (ctrl && key === 'f') return ui('full');
   if (key === 'f') return ui('find');
@@ -924,7 +938,7 @@ const parity = createParity({
   // The tabs put back from last time: each an empty tab its page is loaded into.
   restoreTab: () => { const view = createTab(); tabs.push(view); browserAsked = true; return view; },
   select: (view) => { selectTab(view); sendBrowserState(); },
-  closeTab: (view) => closeTab(view),
+  closeTab: (view) => closeTab(view, { owner: true }), // (the tab's menu: the owner's)
   changed: () => sendBrowserState(),
   // Never kept for next time: the Research Center's sign-in pages (their addresses can carry a reset token).
   keep: (url) => !(onResearch(url) && RESEARCH_AUTH.test(researchPath(url))),
@@ -1153,7 +1167,7 @@ ipcMain.handle('browser:tab', (event, { action, id, url } = {}) => {
   ensureBrowser();
   if (action === 'new') newTab(url);
   if (action === 'select') selectTab(tabById(id));
-  if (action === 'close') closeTab(tabById(id) || browserView);
+  if (action === 'close') closeTab(tabById(id) || browserView, { owner: true });
   sendBrowserState();
 });
 ipcMain.handle('browser:command', async (event, command) => {
