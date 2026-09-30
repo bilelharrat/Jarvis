@@ -1,6 +1,6 @@
 // The only things the page gets from Electron: hear about ⌥Space and ⌥⇧Space, ask for attention, pick
-// a folder for the second brain, lay out a PDF, and show and drive the built-in browser
-// (where the BSH Research Center opens).
+// a folder for the second brain, lay out a PDF, show and drive the built-in browser
+// (where the BSH Research Center opens), and the app feature modules' own channels.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('jarvisApp', {
@@ -14,6 +14,15 @@ contextBridge.exposeInMainWorld('jarvisApp', {
   // Where a file dropped on the window lives (a video to summarize): only the file the
   // user dropped, which the page can't learn otherwise.
   pathFor: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
+  // Feature modules of the app (app/features/*.js): only their own 'feature:…' channels.
+  feature: {
+    invoke: (channel, ...args) => (String(channel).startsWith('feature:')
+      ? ipcRenderer.invoke(channel, ...args) : Promise.reject(new Error('not a feature channel'))),
+    send: (channel, ...args) => { if (String(channel).startsWith('feature:')) ipcRenderer.send(channel, ...args); },
+    on: (channel, callback) => {
+      if (String(channel).startsWith('feature:')) ipcRenderer.on(channel, (_e, ...args) => callback(...args));
+    },
+  },
   browser: {
     show: (bounds) => ipcRenderer.invoke('browser:show', bounds),
     hide: () => ipcRenderer.invoke('browser:hide'),

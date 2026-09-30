@@ -2726,9 +2726,11 @@ class TaskManager:
             directory = str(args.get("directory") or "").strip()
             try:
                 items = await asyncio.to_thread(
-                    lambda: self.past_sessions(directory, limit=10)
-                    if directory
-                    else self.recent_sessions(per_project=10)[:15]
+                    lambda: (
+                        self.past_sessions(directory, limit=10)
+                        if directory
+                        else self.recent_sessions(per_project=10)[:15]
+                    )
                 )
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}

@@ -1075,9 +1075,36 @@ ipcMain.on('jarvis:attention', () => {
   if (win && !win.isFocused()) app.dock?.bounce('informational');
 });
 
+// ── feature modules for the app itself: app/features/*.js, each exporting install(ctx), in
+// name order. A feature adds its own IPC ('feature:<name>:…', which preload.js passes
+// through for the window), menus or windows; one that throws is logged and skipped. ──
+const featureContext = {
+  app,
+  ipcMain,
+  getWindow: () => win,
+  send: (channel, ...args) => { if (win && !win.isDestroyed()) win.webContents.send(channel, ...args); },
+  fromWindow: (event) => Boolean(win && !win.isDestroyed() && event && event.sender === win.webContents),
+  dev: Boolean(DEV_URL),
+  logDir: LOG_DIR,
+};
+function loadAppFeatures() {
+  const dir = path.join(__dirname, 'features');
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort(); } catch { return; }
+  for (const file of files) {
+    try {
+      const feature = require(path.join(dir, file));
+      if (feature && typeof feature.install === 'function') feature.install(featureContext);
+    } catch (err) {
+      console.error(`app feature ${file} didn't load: ${err && err.message}`);
+    }
+  }
+}
+
 app.whenReady().then(async () => {
   if (!gotLock) return; // quitting: the Jarvis already running has been brought forward
   createWindow();
+  loadAppFeatures();
   if (DEV_URL) {
     port = Number(new URL(DEV_URL).port);
     win.loadURL(DEV_URL);

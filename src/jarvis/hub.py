@@ -49,6 +49,7 @@ from . import (
     defense,
     delegate,
     documents,
+    features,
     fileindex,
     goals,
     hearing,
@@ -69,6 +70,8 @@ from . import (
 )
 from .brain import (
     EGRESS_TOOLS,
+    EXTRA_QUIET_RESULTS,
+    EXTRA_WEB_RESULTS,
     SCREEN_LOOKS,
     app_tool,
     browser_address,
@@ -86,7 +89,7 @@ from .desktop_hands import DesktopHands
 from .home import Shortcuts
 from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
-from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore
+from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore, clean_feature_values
 from .proactive import Alert, Watcher, in_quiet_hours
 from .providers import MAX_MODELS, ProviderStore
 from .providers import PROMPT as MODELS_PROMPT
@@ -901,6 +904,86 @@ class Hub:
         self._in_code = False  # inside a ``` block of the streaming reply: not voiced
         self._code_tail = ""  # its last two characters: a ``` can be split across deltas
         self.client: Any = None
+        # What feature modules (jarvis.features) add, kept apart from the core tables.
+        self._extra_servers: dict[str, Callable[[], Any]] = {}
+        self._extra_prompts: list[Callable[[], str]] = []
+        self._commands: dict[str, Callable[[dict[str, Any]], Any]] = {}
+        self._loops: list[tuple[str, Callable[[], Any]]] = []
+        self._notify_sinks: list[Callable[[Alert], Any]] = []
+        self._approval_sinks: list[Callable[[dict[str, Any]], Any]] = []
+        self._approval_done_sinks: list[Callable[[str], Any]] = []
+        self.features = features.install_all(self)
+
+    # ── features: what jarvis.features modules register ──
+
+    def feature_path(self, name: str) -> Path:
+        """Where a feature keeps its files: beside prefs.json, so a temp folder in tests."""
+        path = getattr(self.prefs_store, "path", None)
+        base = Path(path).parent if path else Path(".")
+        return base / name
+
+    def register_server(
+        self,
+        name: str,
+        build: Callable[[], Any],
+        *,
+        prompt: str | Callable[[], str] = "",
+        labels: dict[str, str] | None = None,
+        quiet: tuple[str, ...] | list[str] = (),
+        web: tuple[str, ...] | list[str] = (),
+    ) -> None:
+        """A feature's tool server for the brain (built at each connect), what the brain is
+        told about it, the Activity drawer's labels for its tools, and which of its tools
+        return nothing private (quiet) or pages anyone can write (web)."""
+        self._extra_servers[name] = build
+        if prompt:
+            self._extra_prompts.append(prompt if callable(prompt) else (lambda p=prompt: p))
+        TOOL_LABELS.update(labels or {})
+        EXTRA_QUIET_RESULTS.update(f"mcp__{name}__{tool}" for tool in quiet)
+        EXTRA_WEB_RESULTS.update(f"mcp__{name}__{tool}" for tool in web)
+
+    def register_command(self, kind: str, handler: Callable[[dict[str, Any]], Any]) -> None:
+        """A window command, {"type": kind, ...}: the handler gets the message (and may be
+        async). Checked before the built-in commands, so a kind must be new."""
+        self._commands[kind] = handler
+
+    def register_loop(self, name: str, factory: Callable[[], Any]) -> None:
+        """A background loop (factory() gives the coroutine), started with the others."""
+        self._loops.append((name, factory))
+
+    def add_notify_sink(self, sink: Callable[[Alert], Any]) -> None:
+        """Hear every heads-up that shows (after the card and any spoken line)."""
+        self._notify_sinks.append(sink)
+
+    def add_approval_sink(
+        self,
+        sink: Callable[[dict[str, Any]], Any],
+        resolved: Callable[[str], Any] | None = None,
+    ) -> None:
+        """Hear every approval card as it goes up (its id, question, detail and choices; answer
+        with hub.resolve) and, with resolved, the id of each one taken down."""
+        self._approval_sinks.append(sink)
+        if resolved is not None:
+            self._approval_done_sinks.append(resolved)
+
+    def _call_sinks(self, sinks: list[Callable[..., Any]], *args: Any) -> None:
+        """Call each sink; a coroutine one runs in the background. One failing sink never
+        stops the others, or the heads-up or approval it heard about."""
+        for sink in list(sinks):
+            try:
+                result = sink(*args)
+                if asyncio.iscoroutine(result):
+                    self._spawn(result)
+            except Exception:
+                log.exception("a feature's sink failed")
+
+    async def _feature_loop(self, name: str, factory: Callable[[], Any]) -> None:
+        try:
+            await factory()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("feature loop %s stopped", name)
 
     # ── lifecycle ──
 
@@ -959,6 +1042,8 @@ class Hub:
             self._spawn(self._markets_loop())
             self._spawn(self._defense_loop())
             self._spawn(self._awake_loop())
+            for name, factory in self._loops:
+                self._spawn(self._feature_loop(name, factory))
         await self._relay_if_needed()
         # Hands steering the Mac: lets go of a held button if the window stops talking.
         self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
@@ -1057,7 +1142,27 @@ class Hub:
             routines.SERVER_NAME: routines.build_server(
                 self.routines, self.confirm, self._routines_changed, self.feature_gate
             ),
+            **self._extra_built(),
         }
+
+    def _extra_built(self) -> dict[str, Any]:
+        """The feature modules' tool servers; one that fails to build is left out."""
+        built: dict[str, Any] = {}
+        for name, build in self._extra_servers.items():
+            try:
+                built[name] = build()
+            except Exception:
+                log.exception("feature server %s didn't build", name)
+        return built
+
+    def _extra_prompt(self) -> str:
+        parts: list[str] = []
+        for prompt in self._extra_prompts:
+            try:
+                parts.append(prompt())
+            except Exception:
+                log.exception("a feature's prompt failed")
+        return "".join(parts)
 
     def _feature_prompt(self) -> str:
         return (
@@ -1096,6 +1201,7 @@ class Hub:
             + self.memory.prompt_block()
             + self.documents.prompt_block()
             + self.goal_store.prompt_block()
+            + self._extra_prompt()
             + goals.UNCERTAINTY_PROMPT
             + lang.reply_instruction(self.language)
         )
@@ -1980,6 +2086,7 @@ class Hub:
         if spoken:
             self._voice_asked[approval_id] = {"text": spoken, "at": time.monotonic()}
         self.emit("approval", **approval)
+        self._call_sinks(self._approval_sinks, dict(approval))
         try:
             return await asyncio.wait_for(future, APPROVAL_TIMEOUT)
         except TimeoutError:
@@ -1989,6 +2096,7 @@ class Hub:
             self._futures.pop(approval_id, None)
             self._voice_asked.pop(approval_id, None)
             self.emit("approval_resolved", id=approval_id)
+            self._call_sinks(self._approval_done_sinks, approval_id)
 
     def resolve(self, approval_id: str, choice: str, feedback: str = "") -> bool:
         """Answer an approval. A 'no' can carry what to do instead ('deny:<feedback>')."""
@@ -4247,6 +4355,12 @@ class Hub:
             ],
         )
 
+    def set_feature_prefs(self, changes: dict[str, Any]) -> list[str]:
+        """Change some of the feature modules' settings (prefs.features), keeping the rest;
+        a value its feature doesn't accept leaves the old one."""
+        merged = {**self.prefs.features, **(clean_feature_values(changes) or {})}
+        return self.set_prefs({"features": merged})
+
     def set_prefs(self, changes: dict[str, Any], from_tool: bool = False) -> list[str]:
         """Apply settings now, then keep them. What they switch takes effect even when the
         file can't be written (a full disk): turning the microphone, the screen watching or
@@ -4433,6 +4547,7 @@ class Hub:
         ):
             self._announce_later(alert.text)
         log.info("alert: %s", alert.kind)
+        self._call_sinks(self._notify_sinks, alert)
 
     async def purchase_gate(self, question: str, detail: str) -> bool:
         """The one confirmation for a purchase: a card with Confirm purchase / Cancel, and
@@ -5204,6 +5319,12 @@ class Hub:
 
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
+        handler = self._commands.get(kind) if isinstance(kind, str) else None
+        if handler is not None:  # a feature module's command (register_command)
+            result = handler(msg)
+            if asyncio.iscoroutine(result):
+                await result
+            return
         if kind in (
             "phone_status",
             "phone_credentials",
@@ -5453,6 +5574,8 @@ class Hub:
             self._spawn(self._refresh_status(calendar=True))
         elif kind == "set_prefs" and isinstance(msg.get("changes"), dict):
             self.set_prefs(msg["changes"])
+        elif kind == "feature_prefs" and isinstance(msg.get("changes"), dict):
+            self.set_feature_prefs(msg["changes"])
         elif kind == "whats_this":
             app = await asyncio.to_thread(frontmost_app)
             self._whats_this_app = app

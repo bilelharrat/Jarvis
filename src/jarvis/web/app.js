@@ -38,7 +38,7 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}`);
   ws.onopen = () => { retry = 0; $('offline').hidden = true; };
-  ws.onmessage = (e) => onEvent(JSON.parse(e.data));
+  ws.onmessage = (e) => { const ev = JSON.parse(e.data); onEvent(ev); featureEvent(ev); };
   ws.onclose = (e) => {
     $('offline').hidden = false;
     if (e.code === 1009) notice('Jarvis', '', 'A message was too big for the connection and didn’t go.', 8000);
@@ -59,6 +59,38 @@ function send(msg) {
   ws.send(text);
   return true;
 }
+
+// ── feature modules: web/features/*.js (loaded by features.js, after this file) ──
+// They hear events, add Jarvis Code panes and menu items, and add their own settings groups
+// and dock buttons to the page, through window.jarvisFeatures.
+const featureListeners = new Map();  // event type ('*': every event) -> handlers
+const featureLast = new Map();  // the latest event of each type, for a listener added late
+const featurePanes = new Map();  // Jarvis Code pane id -> { title, render(body, task) }
+const featureMoreItems = [];  // Jarvis Code "More" menu items: { label, run, when?(task) }
+function featureEvent(ev) {
+  if (!ev || typeof ev.type !== 'string') return;
+  featureLast.set(ev.type, ev);
+  for (const fn of [...(featureListeners.get(ev.type) || []), ...(featureListeners.get('*') || [])]) {
+    try { fn(ev); } catch (err) { console.error('feature event', ev.type, err); }
+  }
+}
+window.jarvisFeatures = {
+  on(type, fn, { replay = false } = {}) {
+    if (!featureListeners.has(type)) featureListeners.set(type, []);
+    featureListeners.get(type).push(fn);
+    if (replay && featureLast.has(type)) {
+      try { fn(featureLast.get(type)); } catch (err) { console.error('feature event', type, err); }
+    }
+  },
+  send: (msg) => send(msg),
+  t: (text) => (window.jarvisI18n ? window.jarvisI18n.t(text) : String(text)),
+  el: (tag, cls, text) => el(tag, cls, text),
+  $: (id) => $(id),
+  registerPane(id, pane) { featurePanes.set(id, pane); PANE_TITLES[id] = pane.title || id; },
+  openPane: (id) => openPane(id),
+  registerMoreItem(item) { featureMoreItems.push(item); },
+  currentTask: () => currentTask(),
+};
 
 function onEvent(ev) {
   if (onJarvisCodeEvent(ev)) return;
@@ -3781,6 +3813,7 @@ $('jc-more').addEventListener('click', () => {
     { label: 'MCP servers', run: () => openPane('mcp') },
     { label: 'Activity', note: 'Every step and why it ran', run: () => openPane('audit') },
     { label: 'Permissions', run: () => openPane('rules') },
+    ...featureMoreItems.filter((i) => !i.when || i.when(t)).map(({ when, ...item }) => item),
     '-',
     { label: 'Rename session…', run: () => $('jc-title').dispatchEvent(new MouseEvent('dblclick')) },
     { label: 'Fork session', run: () => { if (t) { awakeNewSessionFork(t); } } },
@@ -3894,6 +3927,8 @@ function renderPaneBody() {
   body.classList.toggle('flush', currentPane === 'terminal');
   $('jc-pane-extra').replaceChildren();
   const t = currentTask();
+  const featurePane = featurePanes.get(currentPane);
+  if (featurePane) return featurePane.render(body, t);
   if (currentPane === 'terminal') return renderTerminal(body);
   if (currentPane === 'diff') return renderDiffPane(body);
   if (currentPane === 'sim') return renderSimPane(body);

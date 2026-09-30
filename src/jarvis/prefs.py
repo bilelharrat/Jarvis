@@ -153,9 +153,18 @@ class Prefs:
     pay_limit_purchase: float = 250.0
     pay_limit_transfer: float = 100.0
     pay_limit_day: float = 500.0
+    # Settings of jarvis.features modules, each registered with register_feature_pref.
+    features: dict[str, Any] = field(default_factory=dict)
 
     def model_id(self) -> str:
         return MODELS[self.model]
+
+    def feature(self, key: str) -> Any:
+        """A feature module's setting: what's kept, else its registered default."""
+        if key in self.features:
+            return self.features[key]
+        registered = FEATURE_PREFS.get(key)
+        return registered[0] if registered else None
 
     def public(self) -> dict[str, Any]:
         data = asdict(self)
@@ -273,6 +282,8 @@ def _clean(name: str, value: Any) -> Any:
         return sorted({v for v in names if v})
     if name == "brain_folders":
         return _brain_folders(value)
+    if name == "features":
+        return clean_feature_values(value)
     if name in {
         "voice_effect",
         "hands_free",
@@ -311,6 +322,60 @@ def _clean(name: str, value: Any) -> Any:
     }:
         return bool(value)
     return None
+
+
+# Feature modules' settings: key -> (default, clean). clean(value) gives the value to keep,
+# or None (or raises) to leave the old one; registered when a feature module imports.
+FEATURE_PREFS: dict[str, tuple[Any, Any]] = {}
+FEATURE_VALUE_LIMIT = 64_000  # characters of JSON per value: settings, not data
+
+
+def register_feature_pref(key: str, default: Any, clean: Any = None) -> None:
+    """A setting a feature module keeps in prefs.features. Without clean, a value must be
+    the default's type (an int for a float is fine)."""
+    FEATURE_PREFS[key] = (default, clean if clean is not None else _like(default))
+
+
+def _like(default: Any) -> Any:
+    kind = type(default)
+
+    def clean(value: Any) -> Any:
+        if kind is float and isinstance(value, int) and not isinstance(value, bool):
+            return float(value)
+        if kind is bool or isinstance(value, bool):
+            return value if isinstance(value, kind) and type(value) is kind else None
+        return value if isinstance(value, kind) else None
+
+    return clean
+
+
+def clean_feature_values(value: Any) -> dict[str, Any] | None:
+    """prefs.features as given, each registered key cleaned by its feature: a value that
+    fails its check is left out (Hub.set_feature_prefs then keeps the old one). A key no
+    feature registers (one from a feature since removed) is kept if it's plain JSON."""
+    import json
+
+    if not isinstance(value, dict):
+        return None
+    kept: dict[str, Any] = {}
+    for key, item in list(value.items())[:500]:
+        if not isinstance(key, str) or not key or len(key) > 64:
+            continue
+        registered = FEATURE_PREFS.get(key)
+        if registered is not None:
+            try:
+                item = registered[1](item)
+            except Exception:
+                item = None
+            if item is None:
+                continue
+        try:
+            if len(json.dumps(item, allow_nan=False)) > FEATURE_VALUE_LIMIT:
+                continue
+        except (TypeError, ValueError):
+            continue
+        kept[key] = item
+    return kept
 
 
 def _brain_folders(value: Any) -> list[str] | None:

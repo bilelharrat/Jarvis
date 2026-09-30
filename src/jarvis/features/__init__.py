@@ -1,0 +1,69 @@
+"""Feature modules: every module in this package that defines install(hub) is installed when
+the hub is made, in name order.
+
+A feature registers what it adds through the hub instead of editing its core tables:
+
+- hub.register_server(name, build, prompt=..., labels=..., quiet=..., web=...): an in-process
+  tool server for JARVIS's brain (allowed like the other feature servers; each tool that
+  changes something asks the user itself). quiet and web name tools whose results are
+  JARVIS's own words or public facts ("none") or pages anyone can write ("web"); every other
+  tool's result counts as the user's private data, which the turn gate weighs.
+- hub.register_command(kind, handler): a window command ({"type": kind, ...}).
+- hub.register_loop(name, factory): a background loop, started with the others (never in
+  tests, where poll is off).
+- hub.add_notify_sink(sink) / hub.add_approval_sink(sink, resolved=...): hear every heads-up
+  shown, and every approval card put up and taken down (a phone or chat can then answer
+  it through hub.resolve).
+- hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
+  in tests, never the user's real data there).
+- prefs.register_feature_pref(key, default, clean): a setting kept in prefs.features; read
+  it with hub.prefs.feature(key), change it from the window with {"type": "feature_prefs",
+  "changes": {key: value}}.
+
+Its window side lives in web/features/<name>.js and .css (loaded by web/features.js after
+app.js) and its Chinese strings in web/i18n/<name>.json (merged into i18n-zh.json). A
+feature that fails to import or install is logged and left out; the rest still load.
+
+install(hub) runs for every Hub, the tests' ones included: it only registers. No threads,
+network or files until a loop runs or a command arrives.
+"""
+
+from __future__ import annotations
+
+import importlib
+import logging
+import pkgutil
+from types import ModuleType
+from typing import Any
+
+log = logging.getLogger(__name__)
+
+
+def modules() -> list[ModuleType]:
+    """This package's feature modules, imported, in name order (a broken one is skipped)."""
+    found: list[ModuleType] = []
+    for info in sorted(pkgutil.iter_modules(__path__), key=lambda i: i.name):
+        if info.name.startswith("_"):
+            continue
+        try:
+            found.append(importlib.import_module(f"{__name__}.{info.name}"))
+        except Exception:
+            log.exception("feature %s didn't load", info.name)
+    return found
+
+
+def install_all(hub: Any) -> list[str]:
+    """Install every feature on this hub; the names of those that installed."""
+    installed: list[str] = []
+    for module in modules():
+        install = getattr(module, "install", None)
+        if not callable(install):
+            continue
+        name = module.__name__.rsplit(".", 1)[-1]
+        try:
+            install(hub)
+        except Exception:
+            log.exception("feature %s didn't install", name)
+            continue
+        installed.append(name)
+    return installed

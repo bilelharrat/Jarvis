@@ -52,6 +52,46 @@ HAND_MODEL_URL = (
 )
 
 
+def zh_strings(web_dir: Path = WEB_DIR) -> dict[str, Any]:
+    """The window's Chinese: i18n-zh.json with each feature's web/i18n/*.json merged in, in
+    name order (strings: a later file's wins; patterns: all of them, base file first). A
+    fragment that can't be read is skipped, never the whole translation."""
+    merged: dict[str, Any] = {"strings": {}, "patterns": []}
+    files = [web_dir / "i18n-zh.json", *sorted((web_dir / "i18n").glob("*.json"))]
+    for path in files:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            if path.name != "i18n-zh.json" or path.exists():
+                log.warning("i18n: skipped %s", path.name)
+            continue
+        if not isinstance(data, dict):
+            continue
+        strings, patterns = data.get("strings"), data.get("patterns")
+        if isinstance(strings, dict):
+            merged["strings"].update(
+                {k: v for k, v in strings.items() if isinstance(k, str) and isinstance(v, str)}
+            )
+        if isinstance(patterns, list):
+            merged["patterns"] += [p for p in patterns if isinstance(p, list) and len(p) == 2]
+    return merged
+
+
+def feature_assets(web_dir: Path = WEB_DIR) -> dict[str, list[str]]:
+    """The feature modules' window files (web/features/*.js and *.css), in name order, each
+    stamped with its modification time so an edit is never hidden by the cache."""
+    found: dict[str, list[str]] = {"scripts": [], "styles": []}
+    folder = web_dir / "features"
+    for kind, suffix in (("scripts", ".js"), ("styles", ".css")):
+        for path in sorted(folder.glob(f"*{suffix}")):
+            try:
+                stamp = int(path.stat().st_mtime)
+            except OSError:
+                continue
+            found[kind].append(f"/static/features/{path.name}?v={stamp}")
+    return found
+
+
 def create_app(hub: Hub, token: str) -> Starlette:
     async def index(_request):
         # Stamp script and stylesheet links with a version so an update is never hidden by
@@ -63,6 +103,12 @@ def create_app(hub: Hub, token: str) -> Starlette:
 
     async def health(_request):
         return JSONResponse({"ok": True})
+
+    async def zh_json(_request):
+        return JSONResponse(zh_strings(), headers={"Cache-Control": "no-cache"})
+
+    async def features_json(_request):
+        return JSONResponse(feature_assets(), headers={"Cache-Control": "no-store"})
 
     async def hand_model(_request):
         """MediaPipe's hand model, fetched once from Google's model store and cached."""
@@ -159,6 +205,8 @@ def create_app(hub: Hub, token: str) -> Starlette:
         routes=[
             Route("/", index),
             Route("/health", health),
+            Route("/static/i18n-zh.json", zh_json),
+            Route("/features.json", features_json),
             Route("/models/hand_landmarker.task", hand_model),
             WebSocketRoute("/ws", socket),
             Mount("/static", FreshStaticFiles(directory=WEB_DIR)),

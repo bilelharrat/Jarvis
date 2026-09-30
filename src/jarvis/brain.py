@@ -174,12 +174,17 @@ WEB_RESULTS = frozenset(
 )
 
 
+# Feature modules' tools (hub.register_server's quiet= and web=), added as they install.
+EXTRA_QUIET_RESULTS: set[str] = set()
+EXTRA_WEB_RESULTS: set[str] = set()
+
+
 def result_kind(tool_name: str) -> str:
     """What a tool's result brings into the conversation: "none", "web" (pages anyone can
     write) or "private" (the user's own data, much of it written by other people)."""
-    if tool_name in QUIET_RESULTS:
+    if tool_name in QUIET_RESULTS or tool_name in EXTRA_QUIET_RESULTS:
         return "none"
-    if tool_name in WEB_RESULTS:
+    if tool_name in WEB_RESULTS or tool_name in EXTRA_WEB_RESULTS:
         return "web"
     return "private"
 
