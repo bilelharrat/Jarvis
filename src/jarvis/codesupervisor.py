@@ -633,6 +633,14 @@ TEST_COMMAND = re.compile(
 _COUNTS = re.compile(r"\b(\d+) (passed|failed|pass|fail|failing|passing)\b", re.IGNORECASE)
 TURNS_KEPT = 30  # per session
 TESTS_KEPT = 50  # test commands awaiting their result, per session
+# What outlasts a restart (Journal.snapshot): by Claude Code session id, since a session
+# brought back gets a new id here. Bounded: the newest sessions, their latest turns, trimmed.
+SAVED_SESSIONS = 40
+SAVED_TURNS = 10
+SAVED_DAYS = 7
+SAVED_RESULT = 600
+SAVED_FILES = 40
+SAVED_TESTS = 10
 
 
 @dataclass
@@ -667,14 +675,40 @@ def test_counts(output: str) -> tuple[int, int]:
 class Journal:
     """Each session's finished turns (what changed, which tests ran and how they went,
     what it said), and when the user last looked at it or heard about it. Kept in
-    memory: sessions are this run's."""
+    memory, and saved (snapshot/restore, by the feature) so "catch me up" still knows
+    after a restart."""
 
-    def __init__(self, clock: Any = time.time) -> None:
+    def __init__(self, clock: Any = time.time, session_of: Any = None) -> None:
         self.clock = clock
         self.turns: dict[int, deque[Turn]] = {}
         self.seen: dict[int, float] = {}
         self._pending_tests: dict[int, dict[str, str]] = {}
         self._ran: dict[int, list[TestRun]] = {}
+        # Kept across a restart: session_of(task id) gives its Claude Code session id ("" if
+        # none yet); kept holds what a saved session did until it's open again here, and
+        # on_change hears each change worth saving.
+        self.session_of = session_of
+        self.kept: dict[str, dict[str, Any]] = {}
+        self.on_change: Any = None
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change()
+
+    def _adopt(self, task_id: int) -> None:
+        """A session brought back after a restart takes up what it did before."""
+        if not self.kept or self.session_of is None:
+            return
+        try:
+            sid = self.session_of(task_id)
+        except Exception:
+            return
+        record = self.kept.pop(sid, None) if sid else None
+        if record is None:
+            return
+        turns = sorted([*record["turns"], *self.turns.get(task_id, ())], key=lambda t: t.at)
+        self.turns[task_id] = deque(turns, maxlen=TURNS_KEPT)
+        self.seen[task_id] = max(self.seen.get(task_id, 0.0), record["seen"])
 
     def event(self, kind: str, data: dict[str, Any]) -> None:
         task_id = data.get("id")
@@ -711,20 +745,125 @@ class Journal:
                 result=str(data.get("result") or "")[:2000],
                 origin=str(data.get("origin") or "user"),
             )
+            self._adopt(task_id)
             self.turns.setdefault(task_id, deque(maxlen=TURNS_KEPT)).append(turn)
+            self._changed()
 
     def mark_seen(self, task_id: int, at: float | None = None) -> None:
+        self._adopt(task_id)
         self.seen[task_id] = self.clock() if at is None else at
+        self._changed()
 
     def unseen(self, task_id: int, since: float = 0.0) -> list[Turn]:
+        self._adopt(task_id)
         after = max(self.seen.get(task_id, 0.0), since)
         return [t for t in self.turns.get(task_id, ()) if t.at > after]
 
     def forget_others(self, keep: set[int]) -> None:
         """Sessions the list has let go of: nothing more to say about them."""
+        gone = False
         for store in (self.turns, self.seen, self._pending_tests, self._ran):
             for task_id in [k for k in store if k not in keep]:
                 del store[task_id]
+                gone = True
+        if gone:
+            self._changed()
+
+    # ── kept across a restart ──
+
+    def snapshot(self) -> dict[str, Any]:
+        """What to save: each session's latest turns and when it was last looked at, by its
+        Claude Code session id, bounded (the newest SAVED_SESSIONS, SAVED_DAYS at most)."""
+        since = self.clock() - SAVED_DAYS * 86400
+        found: dict[str, dict[str, Any]] = {}
+        for sid, record in self.kept.items():
+            found[sid] = {"seen": record["seen"], "turns": list(record["turns"])}
+        for task_id in set(self.turns) | set(self.seen):
+            try:
+                sid = self.session_of(task_id) if self.session_of is not None else ""
+            except Exception:
+                sid = ""
+            if sid:
+                found[sid] = {
+                    "seen": self.seen.get(task_id, 0.0),
+                    "turns": list(self.turns.get(task_id, ())),
+                }
+        sessions = []
+        for sid, record in found.items():
+            turns = [t for t in record["turns"] if t.at > since][-SAVED_TURNS:]
+            if not turns and record["seen"] <= since:
+                continue
+            newest = max([record["seen"], *(t.at for t in turns)])
+            sessions.append((newest, sid, record["seen"], turns))
+        sessions.sort(reverse=True)
+        return {
+            "version": 1,
+            "sessions": {
+                sid: {"seen": seen, "turns": [_turn_out(t) for t in turns]}
+                for _newest, sid, seen, turns in sessions[:SAVED_SESSIONS]
+            },
+        }
+
+    def restore(self, data: Any) -> None:
+        """Take back a snapshot (read defensively: a damaged or hand-edited file keeps
+        what it can and never raises)."""
+        sessions = data.get("sessions") if isinstance(data, dict) else None
+        if not isinstance(sessions, dict):
+            return
+        for sid, record in list(sessions.items())[: SAVED_SESSIONS * 2]:
+            if not isinstance(sid, str) or not sid or len(sid) > 100:
+                continue
+            if not isinstance(record, dict):
+                continue
+            seen = record.get("seen")
+            seen = float(seen) if isinstance(seen, (int, float)) and seen > 0 else 0.0
+            raw = record.get("turns") if isinstance(record.get("turns"), list) else []
+            turns = [t for t in (_turn_in(r) for r in raw[-SAVED_TURNS:]) if t is not None]
+            self.kept[sid] = {"seen": seen, "turns": sorted(turns, key=lambda t: t.at)}
+
+
+def _turn_out(turn: Turn) -> dict[str, Any]:
+    return {
+        "at": turn.at,
+        "status": turn.status,
+        "files": turn.files[:SAVED_FILES],
+        "tests": [
+            {
+                "command": r.command[:200],
+                "passed": r.passed,
+                "failed_count": r.failed_count,
+                "passed_count": r.passed_count,
+            }
+            for r in turn.tests[-SAVED_TESTS:]
+        ],  # fmt: skip
+        "result": turn.result[:SAVED_RESULT],
+        "origin": turn.origin,
+    }
+
+
+def _turn_in(raw: Any) -> Turn | None:
+    if not isinstance(raw, dict):
+        return None
+    at = raw.get("at")
+    if not isinstance(at, (int, float)) or isinstance(at, bool) or at <= 0:
+        return None
+    status = raw.get("status") if raw.get("status") in ("done", "failed") else "done"
+    files = raw.get("files") if isinstance(raw.get("files"), list) else []
+    tests = []
+    for r in (raw.get("tests") if isinstance(raw.get("tests"), list) else [])[:SAVED_TESTS]:
+        if isinstance(r, dict) and isinstance(r.get("command"), str):
+            counts = [r.get(k) for k in ("failed_count", "passed_count")]
+            failed, passed = (c if isinstance(c, int) and c >= 0 else 0 for c in counts)
+            tests.append(TestRun(r["command"][:200], r.get("passed") is True, failed, passed))
+    origin = raw.get("origin") if isinstance(raw.get("origin"), str) else "user"
+    return Turn(
+        at=float(at),
+        status=status,
+        files=[str(f)[:500] for f in files[:SAVED_FILES] if isinstance(f, str)],
+        tests=tests,
+        result=str(raw.get("result") or "")[:SAVED_RESULT],
+        origin=origin[:20],
+    )
 
 
 # ── what JARVIS says ──

@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .. import codelook, codepeers, lang
+from .. import codelook, codepeers, jsonstore, lang
 from .. import codesupervisor as cs
 from ..claude_signin import signed_in
 from ..code_vocab import normalize
@@ -72,6 +72,7 @@ log = logging.getLogger("jarvis")
 HAIKU_PER_HOUR = 30  # Haiku calls a rolling hour, for every summary this feature makes
 HAIKU_TIMEOUT = 20.0
 BRIEFING_HOURS = 18  # the briefing's "while you were away" looks back this far at most
+JOURNAL_SAVE_AFTER = 2.0  # seconds: changes to the catch-up record saved together
 SUMMARY_SYSTEM = (
     "You condense what a coding agent reported into one short spoken sentence for its "
     "owner: under 25 words, plain words, no code, no file paths, no lists. The reports are "
@@ -147,7 +148,10 @@ class Limiter:
 class CodeVoice:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
-        self.journal = cs.Journal()
+        self.journal = cs.Journal(session_of=self._session_of)
+        self.journal.on_change = self._journal_changed
+        self.journal_loaded = False  # saves wait for the kept record, never writing over it
+        self._journal_save: asyncio.TimerHandle | None = None
         self.limiter = Limiter(HAIKU_PER_HOUR)
         # Haiku, only in the app itself: a test's hub never polls, and never calls a model.
         self.summarize: Any = haiku if getattr(hub, "poll", False) else None
@@ -171,6 +175,47 @@ class CodeVoice:
         hub.register_command("task_send", self.on_task_send)
         hub.register_command("task_new", self.on_task_new)
         hub.tasks.session_extras.append(self.peers.extend)
+        hub.register_loop("code_voice_journal", self.load_journal)
+
+    # ── the catch-up record, kept across a restart ──
+
+    def _session_of(self, task_id: int) -> str:
+        task = self.hub.tasks.tasks.get(task_id)
+        return str(getattr(task, "session_id", "") or "") if task is not None else ""
+
+    def journal_path(self) -> Path:
+        return self.hub.feature_path("code_catch_up.json")
+
+    async def load_journal(self) -> None:
+        """Once, at startup (the hub's loop): what each session did before the restart."""
+        if self.journal_loaded:
+            return
+        try:
+            data = await asyncio.to_thread(jsonstore.load_json, self.journal_path(), dict)
+            self.journal.restore(data)
+        except Exception:
+            log.warning("Jarvis Code: couldn't read the catch-up record", exc_info=True)
+        self.journal_loaded = True
+
+    def _journal_changed(self) -> None:
+        if not self.journal_loaded or self._journal_save is not None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._journal_save = loop.call_later(JOURNAL_SAVE_AFTER, self._save_journal)
+
+    def _save_journal(self) -> None:
+        self._journal_save = None
+        data = self.journal.snapshot()  # (made here, on the loop; written in a thread)
+        self.hub._spawn(self.write_journal(data))
+
+    async def write_journal(self, data: dict[str, Any]) -> None:
+        try:
+            await asyncio.to_thread(jsonstore.save_json, self.journal_path(), data, indent=None)
+        except Exception:
+            log.warning("Jarvis Code: couldn't save the catch-up record", exc_info=True)
 
     # ── words ──
 

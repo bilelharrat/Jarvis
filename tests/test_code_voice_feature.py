@@ -718,3 +718,39 @@ async def test_without_a_pointing_hand_or_an_answer_the_request_goes_alone(
     await hub.voicecode.handle("undo that")  # a session command, pointing or not
     assert sent[-1] == (task.id, "make that blue")
     close_all(hub)
+
+
+async def test_catch_me_up_still_knows_after_a_restart(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(code_voice, "JOURNAL_SAVE_AFTER", 0.0)
+    hub, _said = await hub_with(settings, quiet_speaker, isolated, tmp_path, "api")
+    feature = hub.code_voice
+    await feature.load_journal()
+    task = session(hub, "api", "retry work", session_id="sid-api")
+    hub.tasks.emit("task_finished", id=task.id, task_kind="code", status="done",
+                   result="Added the retry.", files=["/p/a.py"])  # fmt: skip
+    path = feature.journal_path()
+    for _ in range(200):
+        if path.exists():
+            break
+        await asyncio.sleep(0.01)
+    assert "sid-api" in path.read_text()
+
+    # A new backend: the session comes back with another id, and its turn is still news.
+    fresh = code_voice.CodeVoice(hub)
+    await fresh.load_journal()
+    back = session(hub, "api", "retry work", session_id="sid-api")
+    assert back.id != task.id
+    (turn,) = fresh.journal.unseen(back.id)
+    assert turn.result == "Added the retry."
+    close_all(hub)
+
+
+async def test_a_damaged_catch_up_file_is_never_fatal(settings, quiet_speaker, isolated, tmp_path):
+    hub, _said = await hub_with(settings, quiet_speaker, isolated, tmp_path)
+    hub.code_voice.journal_path().write_text("{not json")
+    fresh = code_voice.CodeVoice(hub)
+    await fresh.load_journal()
+    assert fresh.journal_loaded and fresh.journal.kept == {}
+    close_all(hub)

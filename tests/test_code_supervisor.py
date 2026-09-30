@@ -249,6 +249,54 @@ def test_the_journal_keeps_turns_tests_and_what_was_seen():
     assert j.unseen(1) == [] and 1 not in j.turns
 
 
+def test_the_journal_outlasts_a_restart_by_session_id_and_bounded():
+    now = [1000.0]
+    sessions = {1: "sid-a", 2: "sid-b", 3: ""}
+    j = cs.Journal(clock=lambda: now[0], session_of=sessions.get)
+    saved = []
+    j.on_change = lambda: saved.append(True)
+    done = {"task_kind": "code", "status": "done", "result": "Fixed it. " * 200,
+            "files": [f"/p/{n}.py" for n in range(100)]}  # fmt: skip
+    j.event("task_finished", {**done, "id": 1})
+    j.event("task_finished", {**done, "id": 3})  # no Claude session yet: nothing to keep
+    now[0] = 1010.0
+    j.mark_seen(2)
+    assert saved
+    snap = cs.Journal.snapshot(j)
+    assert set(snap["sessions"]) == {"sid-a", "sid-b"}
+    (turn,) = snap["sessions"]["sid-a"]["turns"]
+    assert len(turn["result"]) == cs.SAVED_RESULT and len(turn["files"]) == cs.SAVED_FILES
+
+    # After a restart: the same sessions, new ids.
+    again = cs.Journal(clock=lambda: 1020.0, session_of={7: "sid-a", 8: "sid-b"}.get)
+    again.restore(snap)
+    (back,) = again.unseen(7)
+    assert back.status == "done" and back.files[0] == "/p/0.py"
+    assert again.unseen(8) == [] and again.seen[8] == 1010.0
+    again.mark_seen(7)
+    assert again.unseen(7) == []
+    # Sessions not open again are kept till they are (or grow too old).
+    later = cs.Journal(clock=lambda: 1000.0 + cs.SAVED_DAYS * 86400 + 30, session_of={}.get)
+    later.restore(again.snapshot())
+    assert later.snapshot()["sessions"] == {}
+
+
+def test_a_damaged_catch_up_record_keeps_what_it_can():
+    j = cs.Journal(clock=lambda: 500.0, session_of={1: "ok"}.get)
+    j.restore({"sessions": {"ok": {"seen": "x", "turns": [
+        {"at": 400, "status": "weird", "files": ["/a", 3], "tests": [{"command": "pytest",
+         "passed": True, "failed_count": -1, "passed_count": 4}, "junk"]},
+        {"at": "never"}, None]}, "": {}, "bad": [1]}})  # fmt: skip
+    j.restore("not a record")
+    j.restore({"sessions": []})
+    (turn,) = j.unseen(1)
+    assert turn.status == "done" and turn.files == ["/a"]
+    assert [(r.command, r.passed, r.failed_count, r.passed_count) for r in turn.tests] == [
+        ("pytest", True, 0, 4)
+    ]
+    assert list(j.kept) == []  # taken up by its session
+
+
 def test_a_test_run_that_fails_counts_as_failed():
     j = cs.Journal()
     j.event(
