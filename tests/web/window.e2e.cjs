@@ -1535,6 +1535,32 @@ test('Settings › Snippets adds one, and a built-in name is refused', async () 
   assert(JSON.stringify(r) === JSON.stringify([[{ name: 'fix-tests', text: 'Run the tests and fix failures.' }]]), JSON.stringify(r));
 });
 
+test('A project’s new sessions start in Bypass permissions only once that’s confirmed, as everyone’s do', async () => {
+  await featureScript('code-touchid.js');
+  await fakeTouchId(false);  // the finger says no
+  await sessions([1]);
+  await js('openJcSettings("general"); [...document.querySelectorAll(".jcs-tabs button")].find((b) => b.dataset.tab === "projects").click()');
+  await frames(2);
+  const mode = '.cs-jcs select[aria-label="Permission mode"]';
+  const pick = (value) => js(`(() => { const s = document.querySelector('${mode}'); s.value = '${value}'; s.dispatchEvent(new Event('change')); return true; })()`);
+  await js('__sent.length = 0; true');
+  await pick('auto');
+  await sleep(60);
+  let r = await js(`({ asked: __touch.slice(), saved: __sent.filter((m) => m.type === 'feature_prefs'), shown: document.querySelector('${mode}').value })`);
+  assert(!r.saved.length, `Bypass went on without asking: ${JSON.stringify(r.saved)}`);
+  assert(r.asked.includes('bypass-default') && r.shown === '', `not asked, or the refused Bypass stayed chosen: ${JSON.stringify(r)}`);
+  // No Touch ID here: the usual question decides.
+  await js('__finger = null; __confirmAnswer = false; true');
+  await pick('auto');
+  await sleep(60);
+  assert(!(await sentOf('feature_prefs')).length && (await js('__confirms.length')) === 1, JSON.stringify(await js('__sent')));
+  await js('__confirmAnswer = true; true');
+  await pick('auto');
+  await sleep(60);
+  r = await sentOf('feature_prefs');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'feature_prefs', changes: { code_project_defaults: { '/Users/x/alpha': { mode: 'auto' } } } }]), JSON.stringify(r));
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

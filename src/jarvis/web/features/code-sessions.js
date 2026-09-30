@@ -731,9 +731,15 @@
     const models = [['', 'Jarvis Code’s default'], ...modelList.map((m) => [m.ref, m.builtin ? m.label : `${m.label} · ${m.provider_name}`])];
     const rows = el('div', 'jcs-group');
     const row = (label, control) => { const r = el('label', 'jcs-row'); r.append(el('span', '', label), control); return r; };
+    // Bypass for the new sessions here is asked about first (Touch ID, or the usual question),
+    // as it is for everyone's in General; a no puts back what was saved.
+    const mode = select([['', 'Jarvis Code’s default'], ...JC_MODES.map((m) => [m.id, m.label])], own.mode || '', (v) => {
+      if (v === 'auto') confirmBypass('bypass-default', 'New sessions in this project would run any command and change any file without asking. Start them in Bypass permissions?', () => set('mode', v), () => { mode.value = own.mode || ''; });
+      else set('mode', v);
+    }, 'Permission mode');
     rows.append(
       row('Project', select(names.map((n) => [n, n]), defaultsFor, (v) => { defaultsFor = v; renderProjectsTab(); }, 'Project')),
-      row('Permission mode', select([['', 'Jarvis Code’s default'], ...JC_MODES.map((m) => [m.id, m.label])], own.mode || '', (v) => set('mode', v), 'Permission mode')),
+      row('Permission mode', mode),
       row('Model', select(models, own.model || '', (v) => set('model', v), 'Model')),
       row('Effort', select([['', 'Jarvis Code’s default'], ...EFFORTS.map((e) => [e, EFFORT_NAMES[e]])], own.effort || '', (v) => set('effort', v), 'Effort')),
       row('Ultracode', select([['', 'Jarvis Code’s default'], ['on', 'On'], ['off', 'Off']], own.ultracode === undefined ? '' : own.ultracode ? 'on' : 'off', (v) => set('ultracode', v === '' ? undefined : v === 'on'), 'Ultracode')),

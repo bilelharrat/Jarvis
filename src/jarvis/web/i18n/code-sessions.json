@@ -65,6 +65,7 @@
   "Folders opened one by one": "单独打开的文件夹",
   "None yet: Open folder… adds any folder in your home folder.": "还没有：“打开文件夹…”可以把个人文件夹中的任意文件夹添加为项目。",
   "New sessions in a project start with": "项目中的新会话默认使用",
+  "New sessions in this project would run any command and change any file without asking. Start them in Bypass permissions?": "这个项目中的新会话将不经询问就运行任何命令、修改任何文件。要让它们以“跳过权限确认”启动吗？",
   "No projects yet.": "还没有项目。",
   "No snippets yet.": "还没有片段。",
   "The prompt it puts in the composer": "它放进输入框的提示词",
