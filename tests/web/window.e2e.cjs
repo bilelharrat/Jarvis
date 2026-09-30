@@ -1603,6 +1603,79 @@ test('Notifications: the key is pasted once, each phone chooses what it is sent,
   assert(result.includes('Bilel’s iPhone') && result.includes('Open it to turn them back on'), result);
 });
 
+// ── Settings › Chats (a feature module: web/features/channels.js, injected here) ──
+
+const CHANNELS_JS = fs.readFileSync(path.join(WEB, 'features', 'channels.js'), 'utf8');
+const chatItem = (id, title, extra = {}) => ({ id, title, on: false, ready: false, state: 'off', error: '', bot: '', owner: '', since: '', pairs: id !== 'imessage', code: '', seconds: 0, forward: 'urgent', approvals: true, how: id === 'telegram' ? '/pair' : '!pair', ...extra });
+const chatsEvent = (over = {}) => `featureEvent(${JSON.stringify({ type: 'channels', audit: [], items: [
+  chatItem('telegram', 'Telegram', over.telegram), chatItem('imessage', 'iMessage', over.imessage),
+  chatItem('slack', 'Slack', over.slack), chatItem('discord', 'Discord', over.discord)] })}); true`;
+async function chatsOpen(over) {
+  await js(`${CHANNELS_JS}; toggleSettings(true); __sent.length = 0; true`);
+  await js(chatsEvent(over));
+  await js('document.querySelector(\'details.channel[data-channel="telegram"]\').open = true; true');
+}
+
+test('Settings › Chats: a pasted token goes one way and the field empties at once', async () => {
+  await chatsOpen();
+  const placed = await js('(() => { const g = $("channels-group"); return { chats: g.querySelectorAll("details.channel").length, beforeAccounts: !!(g.compareDocumentPosition($("open-accounts")) & Node.DOCUMENT_POSITION_FOLLOWING) }; })()');
+  assert(placed.chats === 4 && placed.beforeAccounts, JSON.stringify(placed));
+  await js('document.querySelector(\'details.channel[data-channel="telegram"] input[type="password"]\').focus()');
+  await type('abc123');
+  await clickText('details.channel[data-channel="telegram"]', 'Save to Keychain');
+  const r = await js('({ sent: __sent, left: document.querySelector(\'details.channel[data-channel="telegram"] input[type="password"]\').value })');
+  assert(JSON.stringify(r.sent) === JSON.stringify([{ type: 'channels_connect', channel: 'telegram', token: 'abc123' }]), JSON.stringify(r.sent));
+  assert(r.left === '', 'the token stayed in the field');
+});
+
+test('Settings › Chats: pairing shows the code, the owner as text, and the switches send settings', async () => {
+  await chatsOpen({ telegram: { ready: true, on: true, state: 'listening', bot: '@jarvis_bot' } });
+  await clickText('details.channel[data-channel="telegram"]', 'Pair');
+  await js(chatsEvent({ telegram: { ready: true, on: true, state: 'listening', bot: '@jarvis_bot', code: '123456', seconds: 600 } }));
+  const code = await js('document.querySelector(".channel-code").textContent');
+  assert(code.startsWith('/pair 123456'), code);
+  await js(chatsEvent({ telegram: { ready: true, on: true, state: 'listening', bot: '@jarvis_bot', owner: 'Ann <img src=x onerror="window.__pwned=1">' } }));
+  await frames(2);
+  const shown = await js('(() => { const o = document.querySelector(".channel-owner"); return { text: o.textContent, data: o.hasAttribute("data-no-i18n"), imgs: $("channels-group").querySelectorAll("img").length, pwned: !!window.__pwned, status: document.querySelector(\'details.channel[data-channel="telegram"] .channel-status\').textContent }; })()');
+  assert(shown.text.startsWith('Ann <img') && shown.data && shown.imgs === 0 && !shown.pwned, JSON.stringify(shown));
+  assert(shown.status === 'On', shown.status);
+  await js('document.querySelector(\'details.channel[data-channel="telegram"] .switch\').click(); true');
+  await clickText('details.channel[data-channel="telegram"] .segmented', 'All');
+  const sent = await js('__sent');
+  assert(JSON.stringify(sent) === JSON.stringify([
+    { type: 'channels_pair', channel: 'telegram' },
+    { type: 'feature_prefs', changes: { channels_telegram_on: false } },
+    { type: 'feature_prefs', changes: { channels_telegram_forward: 'all' } },
+  ]), JSON.stringify(sent));
+});
+
+test('Settings › Chats: a redraw never wipes a token being typed', async () => {
+  await chatsOpen({ slack: { state: 'off' } });
+  await js('document.querySelector(\'details.channel[data-channel="slack"]\').open = true; document.querySelector(\'details.channel[data-channel="slack"] input\').focus()');
+  await type('xapp');
+  await js(chatsEvent({ slack: { state: 'needs_setup', error: '' }, telegram: { state: 'needs_setup' } }));
+  const kept = await js('document.querySelector(\'details.channel[data-channel="slack"] input\').value');
+  assert(kept === 'xapp', `the field was redrawn: "${kept}"`);
+});
+
+test('Settings › Chats: iMessage picks a conversation, how Messages is signed in, and whose handles count', async () => {
+  await chatsOpen();
+  await js('document.querySelector(\'details.channel[data-channel="imessage"]\').open = true; true');
+  await clickText('details.channel[data-channel="imessage"]', 'Choose a conversation');
+  await js(`featureEvent({ type: 'channels_chats', error: '', items: [
+    { id: '+15105550100', guid: 'iMessage;-;+15105550100', name: '+15105550100', group: false, self: true, handles: ['+15105550100'] },
+    { id: 'chat77', guid: 'iMessage;+;chat77', name: 'Family', group: true, self: false, handles: ['+15105550100', '+14155550199'] }] }); true`);
+  await js(`(() => { const s = document.querySelector('details.channel[data-channel="imessage"] select'); s.value = 'chat77'; s.dispatchEvent(new Event('change')); })(); true`);
+  await js('document.querySelector(\'.channel-handle input[value="+15105550100"]\').click(); true');
+  await clickText('details.channel[data-channel="imessage"] .segmented', 'Jarvis’s own Apple ID');
+  await clickText('details.channel[data-channel="imessage"]', 'Use this conversation');
+  const sent = await js('__sent.filter((m) => m.type.startsWith("channels_"))');
+  assert(JSON.stringify(sent) === JSON.stringify([
+    { type: 'channels_chats' },
+    { type: 'channels_imessage', channel: 'imessage', chat: 'chat77', account: 'jarvis', handles: ['+15105550100'], prefix: false },
+  ]), JSON.stringify(sent));
+});
+
 // ──
 
 let base;

@@ -235,3 +235,66 @@ def test_a_card_tells_how_to_answer_it_in_words():
         ],
     }
     assert words.hint_for(question, "en").endswith("1. Postgres\n2. SQLite")
+
+
+# ── what the window shows, in Chinese too ──
+
+
+def _window_sentences():
+    """Every sentence the channels' backend puts in the window: errors and notes (ValueError,
+    set_state, note), Discord's close codes, the pairing toast; an f-string's slots filled
+    with a chat app's name, as the window would get it."""
+    import ast
+    from pathlib import Path
+
+    folder = Path(base.__file__).parent
+    found = []
+
+    def text(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(
+                v.value if isinstance(v, ast.Constant) else "Telegram" for v in node.values
+            )
+        return None
+
+    for path in sorted(folder.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Call):
+                name = getattr(node.func, "attr", getattr(node.func, "id", ""))
+                args = node.args
+                pick = None
+                if name == "ValueError" and args:
+                    pick = args[0]
+                elif name in ("set_state", "note") and len(args) >= 2:
+                    pick = args[1]
+                elif name == "emit" and args and getattr(args[0], "value", "") == "toast":
+                    pick = next((k.value for k in node.keywords if k.arg == "text"), None)
+                if pick is not None and text(pick):
+                    found.append(text(pick))
+            elif isinstance(node, ast.Assign) and any(
+                getattr(t, "id", "") == "FATAL" for t in node.targets
+            ):
+                found += [text(v) for v in node.value.values]
+    return [s for s in found if s]
+
+
+def test_every_sentence_the_window_shows_has_chinese():
+    from jarvis.server import zh_strings
+
+    merged = zh_strings()
+    strings, patterns = merged["strings"], [(re.compile(p), r) for p, r in merged["patterns"]]
+
+    def chinese(sentence):
+        if sentence in strings:
+            return True
+        return any(p.search(sentence) for p, _r in patterns)
+
+    sentences = _window_sentences()
+    assert len(sentences) > 30
+    missing = [s for s in sentences if not chinese(s)]
+    assert not missing, missing
+    from jarvis.channels.router import LABELS
+
+    assert all(label in strings for label in LABELS.values())
