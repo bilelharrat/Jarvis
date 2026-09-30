@@ -837,3 +837,142 @@ async def test_chinese_mac_commands_and_screen_questions_reach_the_hub(
     assert sent[-1] == [{"media_type": "image/jpeg", "data": "PIXELS"}]
     await hub.ask("明天几点开会")
     assert not sent[-1]
+
+
+# ── 6. a purchase in another currency is weighed with real rates ──
+
+
+class FxServer:
+    """The two rate services, faked with httpx's MockTransport: what each answers, and
+    every request made."""
+
+    def __init__(self, ecb=None, er=None):
+        import json
+
+        import httpx
+
+        self.ecb, self.er, self.requests = ecb, er, []
+
+        def handle(request):
+            self.requests.append(str(request.url))
+            host = request.url.host
+            answer = self.ecb if host == "api.frankfurter.dev" else self.er
+            if answer is None:
+                raise httpx.ConnectError("offline", request=request)
+            if isinstance(answer, int):
+                return httpx.Response(answer)
+            # As a server could send it: Infinity and NaN included, which json.loads reads.
+            return httpx.Response(200, content=json.dumps(answer, allow_nan=True).encode())
+
+        self.transport = httpx.MockTransport(handle)
+
+
+def usd_tables(ecb_eur=0.90, er_eur=0.92):
+    ecb = {
+        "amount": 1.0,
+        "base": "USD",
+        "date": "2026-09-28",
+        "rates": {"EUR": ecb_eur, "JPY": 150.0},
+    }
+    er = {
+        "result": "success",
+        "base_code": "USD",
+        "rates": {"EUR": er_eur, "AED": 3.6725, "JPY": 149.5},
+    }
+    return ecb, er
+
+
+async def test_rates_come_from_both_services_and_the_careful_one_counts(tmp_path):
+    from jarvis.fxrates import Rates
+
+    ecb, er = usd_tables()
+    server = FxServer(ecb, er)
+    rates = Rates(tmp_path / "fx_rates.json", transport=server.transport)
+    assert await rates.convert(90, "USD", "usd") == 90  # the same currency: nothing asked
+    assert server.requests == []
+    # 90 EUR is 100 USD by the ECB and 97.83 by the other: the larger counts toward limits.
+    assert await rates.convert(90, "EUR", "USD") == 100.0
+    assert "base=USD" in server.requests[0] and server.requests[1].endswith("/v6/latest/USD")
+    assert round(await rates.convert(36.725, "aed", "USD"), 2) == 10.0  # one service knows it
+    assert await rates.convert(10, "XYZ", "USD") is None  # no one does
+    assert len(server.requests) == 2  # one look for all of them, kept
+
+
+async def test_rates_are_kept_six_hours_on_disk_and_then_asked_again(tmp_path):
+    from jarvis.fxrates import FRESH_SECONDS, Rates
+
+    now = [1_000_000.0]
+    server = FxServer(*usd_tables())
+    path = tmp_path / "fx_rates.json"
+    first = Rates(path, transport=server.transport, clock=lambda: now[0])
+    assert await first.convert(90, "EUR", "USD") == 100.0
+    assert path.exists() and len(server.requests) == 2
+    later = Rates(path, transport=server.transport, clock=lambda: now[0] + 3600)
+    assert await later.convert(90, "EUR", "USD") == 100.0  # from the file, a restart later
+    assert len(server.requests) == 2
+    now[0] += FRESH_SECONDS + 1
+    server.ecb, server.er = usd_tables(ecb_eur=0.95, er_eur=0.95)
+    assert round(await first.convert(95, "EUR", "USD"), 2) == 100.0
+    assert len(server.requests) == 4  # stale: asked again
+
+
+async def test_without_rates_a_foreign_purchase_is_refused_as_before(tmp_path):
+    import pytest
+
+    from jarvis.fxrates import RETRY_SECONDS, Rates
+    from jarvis.transactions import Refused, Transactions
+
+    now = [0.0]
+    server = FxServer()  # offline
+    rates = Rates(tmp_path / "fx.json", transport=server.transport, clock=lambda: now[0])
+    assert await rates.convert(90, "EUR", "USD") is None
+    assert await rates.convert(50, "EUR", "USD") is None
+    assert len(server.requests) == 2  # a failed look isn't repeated at once
+    now[0] += RETRY_SECONDS + 1
+    server.ecb, server.er = usd_tables()
+    assert await rates.convert(90, "EUR", "USD") == 100.0
+
+    async def no_page():
+        return {}
+
+    async def never(*_a):
+        return False
+
+    offline = Rates(None, transport=FxServer().transport)
+    desk = Transactions(no_page, never, lambda: None, convert=offline.convert)
+    with pytest.raises(Refused, match="no exchange rate"):
+        await desk._home_amount(90.0, "EUR", "USD", "")
+    desk = Transactions(no_page, never, lambda: None, convert=rates.convert)
+    assert await desk._home_amount(90.0, "EUR", "USD", "") == 100.0
+    # A hub that doesn't poll (these tests) never asks the network.
+    silent = Rates(None, enabled=False, transport=FxServer(*usd_tables()).transport)
+    assert await silent.convert(90, "EUR", "USD") is None
+
+
+async def test_odd_answers_and_a_damaged_file_never_make_a_rate(tmp_path):
+    from jarvis.fxrates import Rates
+
+    bad_rates = {"EUR": -1, "JPY": float("inf"), "GBP": "0.8", "CHF": True, "cad": 1.35}
+    ecb = {"base": "EUR", "rates": {"EUR": 0.1}}  # rates for another currency than asked
+    er = {"result": "success", "base_code": "USD", "rates": bad_rates}
+    server = FxServer(ecb, er)
+    path = tmp_path / "fx_rates.json"
+    path.write_text("{not json")
+    rates = Rates(path, transport=server.transport)
+    assert await rates.convert(10, "EUR", "USD") is None
+    assert await rates.convert(10, "GBP", "USD") is None
+    assert round(await rates.convert(13.5, "CAD", "USD"), 2) == 10.0  # the one good rate
+    errors = FxServer({"error": "x"}, {"result": "error", "error-type": "unsupported-code"})
+    assert await Rates(None, transport=errors.transport).convert(1, "EUR", "USD") is None
+    down = FxServer(503, 500)
+    assert await Rates(None, transport=down.transport).convert(1, "EUR", "USD") is None
+
+
+def test_the_hub_gives_the_purchase_guard_its_rates(settings, quiet_speaker, isolated):
+    from jarvis.hub import Hub
+
+    own = {k: v for k, v in isolated.items() if k != "transaction_desk"}
+    hub = Hub(settings, client_factory=lambda **k: None, speaker=quiet_speaker, poll=False, **own)
+    assert hub.transactions._convert == hub.fx.convert
+    assert hub.fx.path == hub.feature_path("fx_rates.json")
+    assert hub.fx.enabled is False  # poll off: never the network

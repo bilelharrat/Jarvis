@@ -52,6 +52,7 @@ from . import (
     documents,
     features,
     fileindex,
+    fxrates,
     goals,
     hands_guard,
     hearing,
@@ -706,6 +707,9 @@ class Hub:
         self.invoices = invoice_store or invoices.InvoiceStore()
         from .brain import _workspace
 
+        # Exchange rates for a purchase in another currency, weighed against the limits in
+        # the owner's (the ECB's and open.er-api's, kept six hours; never asked in tests).
+        self.fx = fxrates.Rates(self.feature_path("fx_rates.json"), enabled=poll)
         # Buying, booking and paying in the built-in browser: one confirmation, and every
         # click or keystroke there (JARVIS's own and Jarvis Code's) goes through its guard.
         self.transactions = transaction_desk or transactions.Transactions(
@@ -713,6 +717,7 @@ class Hub:
             self.purchase_gate,
             lambda: self.prefs,
             user_words=lambda: self._turn_text,
+            convert=self.fx.convert,
             on_change=self._purchases_changed,  # Settings shows the day's spending at once
         )
         self._guarded_browser = transactions.guard_browser(self.transactions, self._browser_raw)
