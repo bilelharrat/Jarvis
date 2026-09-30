@@ -295,3 +295,39 @@ async def test_when_it_cant_start_the_conversation_before_goes_on(
     )
     assert made[-1].options.resume == NORMAL and hub._session_id == NORMAL
     assert emitted(hub, "conversation")[-1]["incognito"] is False
+
+
+def long_turn(sid, steps=6):
+    """A request that ran `steps` tools (a skill-sized one), then answered."""
+    from claude_agent_sdk import ToolResultBlock, ToolUseBlock, UserMessage
+
+    messages = []
+    for n in range(steps):
+        call = ToolUseBlock(id=f"t{n}", name="mcp__mac__list_events", input={})
+        messages.append(AssistantMessage(content=[call], model="m"))
+        done = ToolResultBlock(tool_use_id=f"t{n}", content="ok", is_error=False)
+        messages.append(UserMessage(content=[done]))
+    return messages + reply(sid, "Done.")
+
+
+async def test_what_it_did_while_incognito_is_never_weighed_as_a_skill(
+    settings, quiet_speaker, isolated
+):
+    """The Skill Workshop hears finished requests (a turn sink) and keeps long ones to
+    offer as skills, the owner's request and all: never one made while incognito."""
+    hub, made = make_hub(settings, quiet_speaker, isolated)
+    await hub.start()
+    heard = []
+    hub.add_turn_sink(lambda turn: heard.append(turn["request"]))
+    await go_incognito(hub)
+    made[-1].script = long_turn(SECRET)
+    await hub.ask("Plan my week around Dr Okafor's appointments")
+    await settle(hub)
+    assert heard == []
+    assert not any("Okafor" in t.get("request", "") for t in hub.skills.workshop.recent)
+    await go_incognito(hub, on=False)
+    made[-1].script = long_turn(NORMAL)
+    await hub.ask("Plan my week around the team offsite")
+    await settle(hub)
+    assert heard == ["Plan my week around the team offsite"]
+    assert [t["request"] for t in hub.skills.workshop.recent] == heard

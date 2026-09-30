@@ -23,7 +23,7 @@ A feature registers what it adds through the hub instead of editing its core tab
   it through hub.resolve).
 - hub.add_task_sink(sink): hear every Jarvis Code and research event (kind, data).
 - hub.add_turn_sink(sink): hear each request JARVIS finished ({rid, request, own, steps:
-  the tools it ran, reply}).
+  the tools it ran, reply}); none of an incognito conversation's.
 - hub.add_briefing_note(note, section=""): a line of facts for the morning briefing's
   request; section ("code", "health"…) leaves it out with that section of a briefing the
   owner laid out. hub.register_briefing(composer) lays the briefing out (the proactive

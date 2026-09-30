@@ -1087,7 +1087,8 @@ class Hub:
 
     def add_turn_sink(self, sink: Callable[[dict[str, Any]], Any]) -> None:
         """Hear each request JARVIS has finished: {rid, request, own (the owner's own words,
-        not a routine's or the briefing's), steps ([{tool, label}]: the tools it ran), reply}."""
+        not a routine's or the briefing's), steps ([{tool, label}]: the tools it ran), reply}.
+        None of an incognito conversation's: nothing from it is kept or learned from."""
         self._turn_sinks.append(sink)
 
     def add_briefing_note(self, note: Callable[[], str], section: str = "") -> None:
@@ -2931,16 +2932,17 @@ class Hub:
                 self.set_state("idle")
                 self._send_reply(rid, now=True)  # the last words, before the turn ends
                 self.emit("turn_done", rid=rid)
-                self._call_sinks(
-                    self._turn_sinks,
-                    {
-                        "rid": rid,
-                        "request": display or text,
-                        "own": display is None,
-                        "steps": list(self._turn_steps),
-                        "reply": self.turn.get("reply", ""),
-                    },
-                )
+                if not self.incognito:  # what learns from requests hears none of these
+                    self._call_sinks(
+                        self._turn_sinks,
+                        {
+                            "rid": rid,
+                            "request": display or text,
+                            "own": display is None,
+                            "steps": list(self._turn_steps),
+                            "reply": self.turn.get("reply", ""),
+                        },
+                    )
                 self._silent = False
                 self._turn_text = ""
                 if follow_up and not silent:
