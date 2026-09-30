@@ -354,6 +354,18 @@ def test_a_hand_edited_watch_file_is_read_defensively(settings, quiet_speaker, i
     assert len(kept) == 1 and kept[0]["every"] == watchers.MAX_HOURS and kept[0]["lines"] == ["abc"]
 
 
+async def test_a_watch_file_that_can_t_be_read_is_never_saved_over(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    desk = browser_ai.desk_for(hub)
+    desk.watchers.path.mkdir(parents=True)  # a folder in its place: it can't be read
+    assert desk.watchers.watches() == [] and desk.watchers.unreadable
+    desk.watchers._watches = [{"id": "w1"}]
+    await desk.watchers.save()
+    assert desk.watchers.path.is_dir()
+
+
 async def test_stopping_a_watch(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     desk, watch, _ = await made(hub, {SHOP: product()}, "change")

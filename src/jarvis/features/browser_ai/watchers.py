@@ -409,6 +409,7 @@ class Watchers:
         self.page = page  # pagectx.PageContext: the page on show
         self.transport: httpx.AsyncBaseTransport | None = None  # tests hand one in
         self._watches: list[dict[str, Any]] | None = None
+        self.unreadable = ""  # the file is there but can't be read: nothing is saved over it
 
     # ── the list ──
 
@@ -420,7 +421,9 @@ class Watchers:
         if self._watches is None:
             try:
                 raw = jsonstore.load_json(self.path, _load_shape) or []
-            except OSError:
+            except jsonstore.Unreadable as exc:
+                self.unreadable = exc.strerror or "it can't be read"
+                log.warning("page watcher: %s can't be read (%s)", self.path.name, exc)
                 raw = []
             self._watches = [w for w in (self._clean(x) for x in raw[:100]) if w is not None]
         return self._watches
@@ -470,6 +473,9 @@ class Watchers:
         }
 
     async def save(self) -> None:
+        if self.unreadable:
+            log.warning("page watcher: not saved over a file that can't be read")
+            return
         data = list(self.watches())
         try:
             await asyncio.to_thread(jsonstore.save_json, self.path, data, indent=None)
