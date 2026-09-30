@@ -27,6 +27,8 @@
   const DRAFTS_KEY = 'jarvis.editor.drafts';  // unsaved changes, kept in the window's storage
   const DRAFTS_MAX = 12;  // files with unsaved changes kept, the newest
   const DRAFT_CHARS = 2000000;  // a bigger file's unsaved changes aren't kept
+  const USER_MEMORY = '~/.claude/CLAUDE.md';  // the owner's own memory file, outside any project
+  const MEMORY = { project: 'CLAUDE.md', local: 'CLAUDE.local.md', user: USER_MEMORY };
   const PREVIEWS = { md: 'markdown', markdown: 'markdown', html: 'html', htm: 'html', csv: 'csv', tsv: 'csv', json: 'json' };
 
   // ── pure helpers ──
@@ -204,7 +206,9 @@
     restoredScopes.add(scope);
     const prefix = `${scope}\n`;
     for (const key of Object.keys(readDrafts())) {
-      if (key.startsWith(prefix) && !docs.has(key)) openDoc(key.slice(prefix.length), { background: true });
+      if (!key.startsWith(prefix) || docs.has(key)) continue;
+      const path = key.slice(prefix.length);
+      openDoc(path, { background: true, ...(path === USER_MEMORY ? memoryOptions('user') : {}) });
     }
   }
 
@@ -234,6 +238,14 @@
 
   // ── opening and closing files ──
 
+  // A memory file (the project's CLAUDE.md, its CLAUDE.local.md, the owner's own): made
+  // when saved if it isn't there yet.
+  function memoryOptions(target) {
+    return target === 'user' ? { where: { memory: 'user' }, rel: 'CLAUDE.md', allowCreate: true } : { allowCreate: true };
+  }
+
+  // opts: line and end (lines to mark), allowCreate, background (a tab, not shown), and for
+  // a file outside the project where (its scope) and rel (its path there).
   function openDoc(path, opts = {}) {
     const { task, scope, state } = current();
     path = String(path || '').replace(/^\.\//, '');
@@ -241,7 +253,8 @@
     const key = keyOf(scope, path);
     let doc = docs.get(key);
     if (!doc) {
-      doc = { key, scope, path, where: where(task), loading: true, dirty: false, text: '', version: null, crlf: false, editable: false, error: '', banner: null };
+      const rel = opts.rel || path;
+      doc = { key, scope, path, rel, where: opts.where || where(task), loading: true, dirty: false, text: '', version: null, crlf: false, editable: false, error: '', banner: null };
       docs.set(key, doc);
       state.open.push(path);
       // Too many open: the oldest with nothing unsaved goes.
@@ -250,7 +263,7 @@
         if (!old) break;
         closeDoc(scope, old, true);
       }
-      F.send({ type: 'cw_file_read', ...doc.where, path, ref: key });
+      F.send({ type: 'cw_file_read', ...doc.where, path: rel, ref: key });
     }
     if (opts.line) doc.mark = { start: opts.line, end: opts.end || opts.line };
     if (opts.allowCreate) doc.allowCreate = true;
@@ -595,7 +608,7 @@
     if (!doc.ui || !doc.editable || doc.saving) return;
     doc.saving = true;
     drawDocBar(doc);
-    F.send({ type: 'cw_file_save', ...doc.where, path: doc.path, text: doc.ui.ta.value, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
+    F.send({ type: 'cw_file_save', ...doc.where, path: doc.rel, text: doc.ui.ta.value, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
   }
 
   function reload(doc) {
@@ -603,12 +616,12 @@
     doc.reloading = true;
     clearTimeout(doc.stashTimer);
     dropDraft(doc.key);  // (what's on disk now, in place of the unsaved changes)
-    F.send({ type: 'cw_file_read', ...doc.where, path: doc.path, ref: doc.key });
+    F.send({ type: 'cw_file_read', ...doc.where, path: doc.rel, ref: doc.key });
     drawBanner(doc);
   }
 
   function compare(doc) {
-    F.send({ type: 'cw_file_compare', ...doc.where, path: doc.path, text: doc.ui.ta.value, ref: doc.key });
+    F.send({ type: 'cw_file_compare', ...doc.where, path: doc.rel, text: doc.ui.ta.value, ref: doc.key });
     doc.banner = { ...(doc.banner || {}), comparing: true };
     drawBanner(doc);
   }
@@ -621,7 +634,7 @@
       const { scope, state } = current();
       for (const path of state.open) {
         const doc = docs.get(keyOf(scope, path));
-        if (doc && doc.version && !doc.saving && !doc.loading) F.send({ type: 'cw_file_stat', ...doc.where, path, base: doc.version, ref: doc.key });
+        if (doc && doc.version && !doc.saving && !doc.loading) F.send({ type: 'cw_file_stat', ...doc.where, path: doc.rel, base: doc.version, ref: doc.key });
       }
     }, 400);
   }
@@ -865,11 +878,12 @@
     if (!editors) { F.send({ type: 'cw_editors' }); editors = []; }
     const line = doc && doc.ui ? lineCol(doc.ui.ta.value, doc.ui.ta.selectionStart).line : 0;
     const task = F.currentTask();
-    const open = (editor, path, at = 0) => F.send({ type: 'cw_open_in', ...where(task), editor, path, line: at });
+    const open = (editor, path, at = 0, w = where(task)) => F.send({ type: 'cw_open_in', ...w, editor, path, line: at });
+    const file = (editor, at = 0) => open(editor, doc.rel, at, doc.where);
     const items = [];
     if (editors.length && doc) {
       items.push({ heading: 'Open this file in' });
-      for (const ed of editors) items.push({ label: ed.name, run: () => open(ed.id, doc.path, line) });
+      for (const ed of editors) items.push({ label: ed.name, run: () => file(ed.id, line) });
       items.push('-');
     }
     if (editors.length) {
@@ -877,9 +891,25 @@
       for (const ed of editors) items.push({ label: ed.name, run: () => open(ed.id, '') });
       items.push('-');
     }
-    if (doc) items.push({ label: 'Its own app', run: () => open('app', doc.path) });
-    items.push({ label: 'Show in Finder', run: () => open('finder', doc ? doc.path : '') });
+    if (doc) items.push({ label: 'Its own app', run: () => file('app') });
+    items.push({ label: 'Show in Finder', run: () => (doc ? file('finder') : open('finder', '')) });
     if (typeof openMenu === 'function') openMenu(anchor, items);
+  }
+
+  // ── memory files ──
+
+  function openMemory(target) {
+    if (MEMORY[target]) openDoc(MEMORY[target], memoryOptions(target));
+  }
+
+  function memoryMenu(anchor) {
+    if (typeof openMenu !== 'function') return;
+    openMenu(anchor, [
+      { heading: 'Memory Jarvis Code reads' },
+      { label: 'Project: CLAUDE.md', note: 'Shared with whoever works on it', run: () => openMemory('project') },
+      { label: 'Local: CLAUDE.local.md', note: 'Just yours, this project', run: () => openMemory('local') },
+      { label: 'Yours: ~/.claude/CLAUDE.md', note: 'Just yours, every project', run: () => openMemory('user') },
+    ]);
   }
 
   // ── the pane ──
@@ -891,7 +921,8 @@
       const seg = el('div', 'jcx-seg ce-seg');
       seg.setAttribute('role', 'tablist');
       const whole = button('Open in…', 'jc-mini ce-open-project', (e) => openInMenu(e.currentTarget, null), 'Open the project in an editor, or in Finder');
-      top.append(seg, el('span', 'jc-spacer'), whole);
+      const memory = button('Memory', 'jc-mini ce-memory', (e) => memoryMenu(e.currentTarget), 'The CLAUDE.md files Jarvis Code reads');
+      top.append(seg, el('span', 'jc-spacer'), memory, whole);
       const tabs = el('div', 'ce-tabs');
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', 'Open files');
@@ -1021,6 +1052,9 @@
 
   F.on('cw_editors', (ev) => { editors = ev.items || []; });
 
+  // A "# note" went into a memory file: one open here comes back with it.
+  F.on('task_memory', (ev) => { if (ev.ok && paneShown()) checkSoon(); });
+
   // A step ended in the session on show: files open here may have changed.
   F.on('task_log_update', (ev) => { const task = F.currentTask(); if (task && ev.id === task.id && paneShown()) checkSoon(); });
   F.on('task_finished', (ev) => { const task = F.currentTask(); if (task && ev.id === task.id && paneShown()) checkSoon(); });
@@ -1033,6 +1067,8 @@
     open(path, line, end) { openDoc(path, line ? { line, end } : {}); },
     // A file that may not exist yet (CLAUDE.local.md): saving makes it.
     openNew(path) { openDoc(path, { allowCreate: true }); },
+    // A memory file: 'project', 'local' or 'user'.
+    openMemory,
     registerView(id, view) { views.set(id, view); if (rootEl) draw(); },
     showView(id) { const { state } = current(); state.view = id; if (!paneShown()) F.openPane('files'); else draw(); },
     where: () => where(F.currentTask()),

@@ -1,0 +1,10 @@
+/* Jarvis Code's "# note" (features/code-memory.js): where it goes, asked in the transcript. */
+
+.cm-ask { display: flex; flex-direction: column; gap: 8px; align-items: stretch; color: rgb(var(--c-ink)); padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-ink) / 0.04); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08); list-style: none; }
+.cm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
+.cm-note { font-style: normal; color: rgb(var(--c-ink)); }
+.cm-note::before { content: "“"; }
+.cm-note::after { content: "”"; }
+.cm-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.cm-choice.last { box-shadow: 0 0 0 1.5px rgb(var(--c-accent) / 0.5); }
+.cm-cancel { color: rgb(var(--c-muted)); }

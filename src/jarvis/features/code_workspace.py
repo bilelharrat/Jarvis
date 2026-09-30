@@ -7,6 +7,7 @@
   version they were edited from (a conflict otherwise, with the differences), checked for
   changes on disk; "Open in" the editors on this Mac (cw_editors, cw_open_in). The window
   is web/features/code-editor.js, in place of the core's read-only viewer.
+  The owner's own memory file, ~/.claude/CLAUDE.md, is one too ({memory: "user"}).
 - Search (cw_search; code_search): the project's files by text or regular expression, a
   newer search stopping the one before; web/features/code-search.js shows the matches in
   the Files pane, opens them at their line and mentions their files in the composer.
@@ -27,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import code_editor, code_search, lang, mac_tools
+from .. import code_editor, code_memory, code_search, lang, mac_tools
 from ..code_editor import Editors
 from ..code_records import RecordMedia
 
@@ -67,6 +68,15 @@ class Workspace:
     def folder(self, msg: dict[str, Any]) -> Path:
         return folder_of(self.hub, msg)
 
+    def root(self, msg: dict[str, Any]) -> Path:
+        """Where a file command's path is: the owner's own memory file ({memory: "user"},
+        ~/.claude/CLAUDE.md and nothing else there), else the command's folder."""
+        if msg.get("memory") == "user":
+            if str(msg.get("path") or "") != "CLAUDE.md":
+                raise ValueError("That's outside the project.")
+            return code_memory.user_dir()
+        return self.folder(msg)
+
     def caption(self, text: str) -> None:
         """A line in the caption, in the owner's language."""
         self.hub.emit("caption", text=lang.translate(text, self.hub.language))
@@ -104,7 +114,7 @@ class Workspace:
 
     async def cmd_file_read(self, msg: dict[str, Any]) -> None:
         try:
-            root = self.folder(msg)
+            root = self.root(msg)
         except ValueError as exc:
             self._answer("cw_file", msg, error=str(exc))
             return
@@ -116,7 +126,7 @@ class Workspace:
         """Has the file changed since the version the window has (base)?"""
         base = msg.get("base") if isinstance(msg.get("base"), dict) else {}
         try:
-            root = self.folder(msg)
+            root = self.root(msg)
             path = code_editor.locate(root, str(msg.get("path") or ""))
         except ValueError:
             return
@@ -127,7 +137,7 @@ class Workspace:
     async def cmd_file_save(self, msg: dict[str, Any]) -> None:
         base = msg.get("base") if isinstance(msg.get("base"), dict) else None
         try:
-            root = self.folder(msg)
+            root = self.root(msg)
         except ValueError as exc:
             self._answer("cw_file_saved", msg, error=str(exc))
             return
@@ -148,7 +158,7 @@ class Workspace:
     async def cmd_file_compare(self, msg: dict[str, Any]) -> None:
         """What's on disk against the window's text, as hunks the diff view draws."""
         try:
-            root = self.folder(msg)
+            root = self.root(msg)
             path = code_editor.locate(root, str(msg.get("path") or ""))
         except ValueError as exc:
             self._answer("cw_file_compare", msg, hunks=[], error=str(exc))
@@ -202,7 +212,7 @@ class Workspace:
         """A file (at a line) or the whole project in an editor on this Mac, in the file's
         own app, or in Finder: the owner's own click, on a file inside the project."""
         try:
-            root = self.folder(msg)
+            root = self.root(msg)
             rel = str(msg.get("path") or "")
             path = code_editor.locate(root, rel) if rel else Path(root).resolve()
         except ValueError as exc:

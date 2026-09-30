@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const WEB = path.join(ROOT, 'src/jarvis/web');
-const SCRIPTS = ['code-markdown.js', 'code-editor.js', 'code-search.js', 'code-terminal.js', 'code-mentions.js'];
+const SCRIPTS = ['code-markdown.js', 'code-editor.js', 'code-search.js', 'code-terminal.js', 'code-mentions.js', 'code-memory.js'];
 // Words that stay as they are in Chinese too.
 const AS_IS = new Set(['CRLF', 'LF', 'UTF-8', 'Aa', '.*']);
 
@@ -44,6 +44,8 @@ function wordsOf(source) {
     new RegExp(`\\btoggle\\('[^']*', ${q}`, 'g'),
   ];
   for (const re of forms) for (const m of source.matchAll(re)) found.add(m[1].replace(/\\'/g, "'"));
+  // Pairs in a table: [label, note].
+  for (const m of source.matchAll(new RegExp(`\\[${q}, ${q}\\]`, 'g'))) { found.add(m[1]); found.add(m[2]); }
   // (A phrase, or a capitalized word: 'conflict' or 'unified' is a value, not a word shown.)
   const classes = (s) => s.split(/\s+/).every((w) => /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(w));  // 'jc-field ce-filter'
   return [...found].filter((s) => /\p{L}/u.test(s) && !AS_IS.has(s) && !classes(s) && (/\s/.test(s) || /^\p{Lu}/u.test(s)));

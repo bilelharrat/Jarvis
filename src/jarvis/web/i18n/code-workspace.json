@@ -87,7 +87,23 @@
     "That's the most terminals at once: close one first.": "终端已经开到上限了：先关掉一个。",
     "Its last lines go with the message": "它最后几行会随消息一起发送",
     "its latest reply goes with the message": "它最新的回复会随消息一起发送",
-    "Folder": "文件夹"
+    "Folder": "文件夹",
+    "Save this note to": "把这条笔记存到",
+    "Project": "项目",
+    "Just me, here": "只给我，这个项目",
+    "Just me, everywhere": "只给我，所有项目",
+    "CLAUDE.md: shared with whoever works on it": "CLAUDE.md：和在这个项目上工作的人共享",
+    "CLAUDE.local.md: yours, this project only": "CLAUDE.local.md：你自己的，只用于这个项目",
+    "~/.claude/CLAUDE.md: yours, every project": "~/.claude/CLAUDE.md：你自己的，用于所有项目",
+    "Don’t save": "不保存",
+    "The CLAUDE.md files Jarvis Code reads": "Jarvis Code 会读的 CLAUDE.md 文件",
+    "Memory Jarvis Code reads": "Jarvis Code 读取的记忆",
+    "Project: CLAUDE.md": "项目：CLAUDE.md",
+    "Local: CLAUDE.local.md": "本地：CLAUDE.local.md",
+    "Yours: ~/.claude/CLAUDE.md": "你的：~/.claude/CLAUDE.md",
+    "Shared with whoever works on it": "和在这个项目上工作的人共享",
+    "Just yours, this project": "只是你的，这个项目",
+    "Just yours, every project": "只是你的，所有项目"
   },
   "patterns": [
     [

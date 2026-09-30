@@ -4235,6 +4235,57 @@ test('@ suggests the terminal, folders, where names are defined and, after the f
   assert(await js('document.body.textContent.includes("Reading https://example.com/x for your message…")'), 'no notice');
 });
 
+const MEMORY_CHOICES = [{ target: 'project', path: 'CLAUDE.md', exists: true }, { target: 'local', path: 'CLAUDE.local.md', exists: false }, { target: 'user', path: '~/.claude/CLAUDE.md', exists: false }];
+
+test('A "#" note asks where it goes, the last place first; not saved, it goes back in the composer', async () => {
+  await featureScript('code-memory.js');
+  await open(1);
+  await js('$("deck-input").value = "# always use <b>pnpm</b>"; $("deck-composer").requestSubmit(); true');
+  const [note] = await sentOf('task_memory');
+  assert(note && note.text === 'always use <b>pnpm</b>' && note.id === 1, JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_memory_ask', ref: 'm1', id: 1, text: 'always use <b>pnpm</b>', choices: MEMORY_CHOICES, last: 'local' });
+  await frames(2);
+  const card = await js(`({ buttons: [...document.querySelectorAll('#deck-timeline .cm-ask button')].map((b) => b.textContent),
+    focused: document.activeElement && document.activeElement.dataset.target, note: document.querySelector('#deck-timeline .cm-note').textContent,
+    b: document.querySelectorAll('#deck-timeline .cm-ask b').length })`);
+  assert(card.buttons.join('|') === 'Just me, here|Project|Just me, everywhere|Don’t save' && card.focused === 'local', JSON.stringify(card));
+  assert(card.note === 'always use <b>pnpm</b>' && card.b === 0, JSON.stringify(card));
+  await js('__sent.length = 0; true');
+  await press('Enter');
+  assert(JSON.stringify(await sentOf('cw_memory_save')) === JSON.stringify([{ type: 'cw_memory_save', ref: 'm1', target: 'local' }]), JSON.stringify(await js('__sent')));
+  assert(await js('!document.querySelector("#deck-timeline .cm-ask")'), 'the card stayed');
+  // Declined: nothing saved, and the note is back to edit.
+  await deliver({ type: 'cw_memory_ask', ref: 'm2', id: 1, text: 'maybe later', choices: MEMORY_CHOICES, last: 'project' });
+  await js('__sent.length = 0; $("deck-input").value = ""; true');
+  await press('Escape');
+  assert(JSON.stringify(await sentOf('cw_memory_save')) === JSON.stringify([{ type: 'cw_memory_save', ref: 'm2', target: null }]), JSON.stringify(await js('__sent')));
+  assert(await js('$("deck-input").value') === '# maybe later', await js('$("deck-input").value'));
+});
+
+test('The Files pane’s Memory menu opens the three CLAUDE.md files, the owner’s own outside the project', async () => {
+  await js('localStorage.removeItem("jarvis.editor.drafts"); true');
+  await featureScript('code-editor.js');
+  await open(1);
+  await js('jarvisFeatures.openPane("files"); true');
+  await deliver({ type: 'project_files', directory: 'alpha', files: ['src/app.py'] });
+  await frames(2);
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .ce-top', 'Memory'), 'no Memory button');
+  const items = await js('[...document.querySelectorAll("#jc-menu button")].map((b) => b.textContent)');
+  assert(items.some((x) => x.startsWith('Yours: ~/.claude/CLAUDE.md')) && items.some((x) => x.startsWith('Local: CLAUDE.local.md')), JSON.stringify(items));
+  await js('[...document.querySelectorAll("#jc-menu button")].find((b) => b.textContent.startsWith("Yours")).click(); true');
+  const [read] = await sentOf('cw_file_read');
+  assert(read && read.memory === 'user' && read.path === 'CLAUDE.md' && read.id === undefined, JSON.stringify(read));
+  await deliver({ type: 'cw_file', path: 'CLAUDE.md', ref: read.ref, error: 'There\'s no such file.', missing: true });
+  await frames(2);
+  assert(await js('document.querySelector("#jc-pane-body .ce-tab.on .ce-tab-name").title') === '~/.claude/CLAUDE.md', 'not shown as the owner’s own');
+  await typeAtEnd('# Me\n');
+  await js('__sent.length = 0; true');
+  await chord('s');
+  const [save] = await sentOf('cw_file_save');
+  assert(save && save.memory === 'user' && save.path === 'CLAUDE.md' && save.create === true && save.base === null && save.text === '# Me\n', JSON.stringify(save));
+});
+
 // ──
 
 let base;
