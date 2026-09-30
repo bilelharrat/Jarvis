@@ -53,7 +53,7 @@ class Inbound:
     action: tuple[str, str] | None = None  # a button pressed: (approval id, choice)
     ack: Callable[[str], Awaitable[None]] | None = None  # answers a button press
     owner: bool | None = None  # decided by the channel itself; None: by its pairing
-    team: str = ""  # the account's workspace, where the app has one
+    team: str = ""  # Slack: the workspace
 
 
 class Channel:
@@ -268,7 +268,7 @@ def pair_code(text: str) -> str | None:
     return digits if len(digits) == 6 else ""
 
 
-# Commands, in English after / or ! (some apps keep / for their own), and their Chinese twins,
+# Commands, in English after / or ! (Slack keeps / for its own), and their Chinese twins,
 # which also work as a whole message on their own.
 COMMANDS = ("stop", "brief", "status", "new", "help", "code", "cancel", "start")
 _COMMANDS_ZH = {
@@ -309,7 +309,7 @@ _FENCE = "```"
 
 
 def utf16_len(text: str) -> int:
-    """Length as Telegram counts it: characters past U+FFFF count twice."""
+    """Length as Telegram and Discord count it: characters past U+FFFF count twice."""
     return len(text) + sum(1 for c in text if ord(c) > 0xFFFF)
 
 
@@ -444,6 +444,35 @@ def telegram_escape(text: str) -> str:
     return _escape(text)
 
 
+def _slack_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _slack_words(text: str) -> str:
+    s = _slack_escape(text)
+    s = _HEADING.sub(lambda m: f"*{m.group(1).replace('**', '')}*", s)
+    s = _LINK.sub(lambda m: f"<{m.group(2)}|{m.group(1).replace('|', '/')}>", s)
+    s = _BOLD.sub(r"*\1*", s)
+    return _BULLET.sub(r"\1• ", s)
+
+
+def slack_mrkdwn(text: str) -> str:
+    """Claude's Markdown as Slack's mrkdwn: &, < and > escaped, **bold** as *bold*,
+    [text](url) as <url|text>; code blocks and `code` as they are."""
+    out: list[str] = []
+    for kind, body, _language in _blocks(text):
+        if kind == "code":
+            out.append(f"```\n{_slack_escape(body)}\n```")
+            continue
+        for is_code, piece in _inline(body):
+            out.append(f"`{_slack_escape(piece)}`" if is_code else _slack_words(piece))
+    return "".join(out)
+
+
+def slack_escape(text: str) -> str:
+    return _slack_escape(text)
+
+
 def plain_text(text: str) -> str:
     """Claude's Markdown as plain text (an app without markup): code as it is, no marks around words,
     links as "text (address)", bullets as •."""
@@ -461,6 +490,12 @@ def plain_text(text: str) -> str:
             s = _BOLD.sub(r"\1", s)
             out.append(_BULLET.sub(r"\1• ", s))
     return "".join(out)
+
+
+def discord_safe(text: str) -> str:
+    """Someone else's words in a Discord message: its Markdown can't open a code block or
+    hide a link (mentions never ping: allowed_mentions is empty on every message)."""
+    return text.replace("```", "`ˋ`").replace("](", "] (")
 
 
 def clip(text: str, limit: int) -> str:

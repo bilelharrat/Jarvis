@@ -15,6 +15,7 @@ from jarvis.channels.base import (
     pair_code,
     parse_command,
     plain_text,
+    slack_mrkdwn,
     split_text,
     telegram_html,
     utf16_len,
@@ -98,9 +99,20 @@ def test_only_web_links_become_links():
     assert "<a " not in html
 
 
+def test_slack_gets_its_own_markup():
+    out = slack_mrkdwn("**Bold** a<b & [site](https://x.y) `c<d`\n```\nx > 1\n```")
+    assert "*Bold*" in out and "a&lt;b &amp;" in out and "<https://x.y|site>" in out
+    assert "`c&lt;d`" in out and "```\nx &gt; 1\n```" in out
+
+
 def test_plain_text_drops_the_marks_and_keeps_links_readable():
     out = plain_text("## Title\n**Bold** see [docs](https://x.y) and `code`\n```\nls -la\n```")
     assert out == "Title\nBold see docs (https://x.y) and code\nls -la"
+
+
+def test_someone_elses_words_cant_open_a_discord_code_block_or_hide_a_link():
+    out = base.discord_safe("```hidden``` [safe](https://evil.example)")
+    assert "```" not in out and "](" not in out
 
 
 # ── commands and pairing ──

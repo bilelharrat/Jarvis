@@ -25,7 +25,7 @@ log = logging.getLogger("jarvis")
 VERSION = 1
 AUDIT_KEEP = 200
 SENT_KEEP = 300  # fingerprints of JARVIS's own iMessages
-PAIRED = ("telegram",)
+PAIRED = ("telegram", "slack", "discord")
 _ID = re.compile(r"^[\w.:@+-]{1,80}$")
 
 
@@ -43,7 +43,7 @@ def _text(value: Any, limit: int) -> str:
 @dataclass
 class Owner:
     """The account a chat is paired with: its user id, the direct chat with the bot, how
-    it's shown, since when, and its workspace (where the app has one)."""
+    it's shown, since when, and (Slack) its workspace."""
 
     user: str
     chat: str

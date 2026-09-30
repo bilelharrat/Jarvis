@@ -45,7 +45,7 @@ from .words import hint_for, say
 log = logging.getLogger("jarvis")
 
 STATE_FILE = "channels.json"
-ORDER = ("telegram", "imessage")
+ORDER = ("telegram", "imessage", "slack", "discord")
 FORWARD_MODES = ("urgent", "all", "none")
 SUPERVISE_EVERY = 2.0
 RESTART_AFTER = 30.0  # a channel that stopped with an error starts again after this
@@ -86,6 +86,8 @@ LABELS = {"send_file_to_chat": "Sent a file to your chat"}
 APP_WORDS = {
     "telegram": ("telegram", "电报"),
     "imessage": ("imessage", "i message", "messages app", "text me", "短信", "信息"),
+    "slack": ("slack",),
+    "discord": ("discord",),
 }
 
 # "send me the Q3 memo", "share the invoice", "text it to me", "把报告发给我"
@@ -186,10 +188,14 @@ class Channels:
         self._publish_at: asyncio.TimerHandle | None = None
         self._last_publish = 0.0
         self._saving: asyncio.TimerHandle | None = None
+        from .discord import Discord
         from .imessage import IMessage
+        from .slack import Slack
         from .telegram import Telegram
 
-        self.adapters: dict[str, Channel] = {a.name: a for a in (Telegram(self), IMessage(self))}
+        self.adapters: dict[str, Channel] = {
+            a.name: a for a in (Telegram(self), IMessage(self), Slack(self), Discord(self))
+        }
 
     @property
     def state(self) -> ChannelState:
@@ -1121,7 +1127,7 @@ class Channels:
             "send_file_to_chat",
             "Send the owner a file you made (a document you wrote, an invoice, a research "
             "report) in one of their chats: the one the request came from, or the chat app "
-            "they name (telegram, imessage). file: its title, name or path. "
+            "they name (telegram, imessage, slack, discord). file: its title, name or path. "
             "Only files you made can be sent; they're asked first unless they asked for it.",
             {"file": str, "chat": str},
         )

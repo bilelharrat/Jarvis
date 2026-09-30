@@ -1,4 +1,4 @@
-"""Talking to JARVIS from chat apps: Telegram and iMessage.
+"""Talking to JARVIS from chat apps: Telegram, iMessage, Slack and Discord.
 
 The owner writes to JARVIS from their phone and the request joins the one main
 conversation, as a silent turn (nothing is said on the Mac); the reply goes back to the chat
@@ -6,8 +6,8 @@ it came from. Heads-ups and approval cards can follow them there too.
 
 Who counts as the owner, per chat app:
 
-- Telegram is paired: the Mac shows a one-time code (ten minutes), the owner sends
-  "/pair <code>" to the bot in a direct message, and that account is bound.
+- Telegram, Slack and Discord are paired: the Mac shows a one-time code (ten minutes), the
+  owner sends "/pair <code>" to the bot in a direct message, and that account is bound.
   Wrong codes are rate-limited per sender and spend the code after enough of them. Anyone
   else who writes gets at most one polite refusal a day (and only so many an hour).
 - iMessage watches one conversation picked in Settings, and only the owner's own handles
