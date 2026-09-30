@@ -368,7 +368,10 @@ class LiveEars:
         status = await asyncio.to_thread(run_json, self.path, "status", language)
         self.locale = str(status.get("locale") or "")
         if not status.get("available"):
-            why = status.get("error") or "Apple's speech recognition isn't available on this Mac"
+            # No answer at all is a helper that can't run here (the downloadable app's is
+            # built for macOS 26, which SpeechAnalyzer needs): the plain sentence says so.
+            said = status.get("error") if "available" in status else ""
+            why = said or "Apple's speech recognition isn't available on this Mac"
             self._set("failed", str(why))
             return
         if not status.get("installed"):

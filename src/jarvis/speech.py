@@ -297,9 +297,13 @@ def ensure_player() -> Path | None:
     import subprocess
 
     from .prefs import APP_SUPPORT
+    from .swift_helper import prebuilt
 
     if not PLAYER_SOURCE.exists():
         return None
+    found = prebuilt("jarvis-player", PLAYER_SOURCE)
+    if found is not None:
+        return found
     digest = hashlib.sha256(PLAYER_SOURCE.read_bytes()).hexdigest()[:10]
     binary = APP_SUPPORT / "bin" / f"jarvis-player-{digest}"
     if binary.exists():

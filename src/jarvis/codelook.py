@@ -60,9 +60,13 @@ def ensure_helper(bin_dir: Path | None = None, source: Path = HELPER_SOURCE) -> 
     import hashlib
 
     from .prefs import APP_SUPPORT
+    from .swift_helper import prebuilt
 
     if not source.exists():
         return None
+    found = prebuilt("jarvis-look", source)
+    if found is not None:
+        return found
     digest = hashlib.sha256(source.read_bytes()).hexdigest()[:10]
     binary = (bin_dir or APP_SUPPORT / "bin") / f"jarvis-look-{digest}"
     if binary.exists():

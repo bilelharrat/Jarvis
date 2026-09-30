@@ -253,9 +253,13 @@ def ensure_probe() -> Path | None:
     """Build jarvis-axprobe once (a few seconds with swiftc), cached by the source's hash
     beside the voice player. None if it can't be built."""
     from .prefs import APP_SUPPORT
+    from .swift_helper import prebuilt
 
     if not AX_SOURCE.exists():
         return None
+    found = prebuilt("jarvis-axprobe", AX_SOURCE)
+    if found is not None:
+        return found
     digest = hashlib.sha256(AX_SOURCE.read_bytes()).hexdigest()[:10]
     binary = APP_SUPPORT / "bin" / f"jarvis-axprobe-{digest}"
     if binary.exists():

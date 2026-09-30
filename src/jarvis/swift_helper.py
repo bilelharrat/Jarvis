@@ -3,6 +3,10 @@ models, Vision's text recognition): each lives in native/<name>.swift, is built 
 the first time it's needed and cached in Application Support/Jarvis/bin by its source's
 hash, as speech.ensure_player builds the voice player. A helper that can't be built (no
 swiftc, a compile error) is None, said once in the log; what needs it falls back.
+
+The app people download has no swiftc: it carries every helper prebuilt (app/scripts/dist)
+and says where in JARVIS_HELPERS_DIR. prebuilt() is the one lookup all the helpers' builders
+ask first (this module, speech, codelook, hands_guard, audio).
 """
 
 from __future__ import annotations
@@ -23,14 +27,39 @@ log = logging.getLogger("jarvis")
 
 NATIVE = Path(__file__).parent / "native"
 BUILD_SECONDS = 300
+HELPERS_ENV = "JARVIS_HELPERS_DIR"  # the packaged app's prebuilt helpers (app/main.js sets it)
 
 _lock = threading.Lock()
 _failed: set[str] = set()  # sources that didn't build this run: not tried again, said once
 
 
+def prebuilt(name: str, source: Path) -> Path | None:
+    """The packaged app's own build of helper `name`: JARVIS_HELPERS_DIR holds `name` and
+    `name.sha256`, the SHA-256 of the source it was built from. It's used while that is
+    still this source's hash and the file is a program; otherwise None (no folder, no such
+    helper, another source, not executable), and the caller builds with swiftc as before.
+    Whether it runs on this Mac (one built for a newer macOS doesn't) is for the caller to
+    find out: each already treats a helper that fails to run as unavailable."""
+    folder = os.environ.get(HELPERS_ENV, "").strip()
+    if not folder:
+        return None
+    binary = Path(folder) / name
+    try:
+        recorded = (Path(folder) / f"{name}.sha256").read_text("ascii").split()
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    except (OSError, ValueError):
+        return None
+    if recorded[:1] != [digest] or not binary.is_file() or not os.access(binary, os.X_OK):
+        return None
+    return binary
+
+
 def binary_for(name: str, bin_dir: Path | None = None) -> Path | None:
     """Where helper `name` is (or will be) once built from its source now; None without it."""
     source = NATIVE / f"{name}.swift"
+    found = prebuilt(name, source)
+    if found is not None:
+        return found
     try:
         digest = hashlib.sha256(source.read_bytes()).hexdigest()[:10]
     except OSError:

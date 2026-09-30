@@ -21,10 +21,14 @@ def build(name: str, flags: tuple[str, ...] = ("-parse-as-library",)) -> Path | 
     """HERE/<name>.swift built into Application Support/Jarvis/bin/<name>-<hash> (once;
     a few seconds to a minute with swiftc). None when it can't be built."""
     from ..prefs import APP_SUPPORT
+    from ..swift_helper import prebuilt
 
     source = HERE / f"{name}.swift"
     if not source.exists():
         return None
+    found = prebuilt(name, source)
+    if found is not None:
+        return found
     digest = hashlib.sha256(source.read_bytes() + " ".join(flags).encode()).hexdigest()[:10]
     binary = APP_SUPPORT / "bin" / f"{name}-{digest}"
     if binary.exists():
