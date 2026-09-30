@@ -253,6 +253,20 @@ def _plain(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
 
 
+_NOTHING = re.compile(
+    r"(?:none|n/?a|nil|nothing|no\s+(?:\w+\s+){0,2}?(?:action\s+items?|actions?|decisions?"
+    r"|follow[\s-]?ups?|next\s+steps?|items?|tasks?|questions?)|无|暂无|没有)(?![a-z])",
+    re.IGNORECASE,
+)
+
+
+def nothing_item(text: str) -> bool:
+    """A bullet that only says there were none ("*None*", "(none)", "No action items.", 无),
+    however it's marked up; or a bullet with no words at all."""
+    bare = re.sub(r"^[\W_]+|[\W_]+$", "", str(text or ""))
+    return not bare or bool(_NOTHING.match(bare))
+
+
 def count_items(notes: str) -> dict[str, int]:
     sections: dict[str, list[str]] = {}
     current = ""
@@ -260,7 +274,11 @@ def count_items(notes: str) -> dict[str, int]:
         if line.startswith("## "):
             current = line[3:].strip().lower()
             sections[current] = []
-        elif current and re.match(r"\s*[-*] ", line) and "none" not in line.lower()[:12]:
+        elif (
+            current
+            and (m := re.match(r"\s*[-*]\s+(?:\[[ xX]\]\s+)?(.*)", line))
+            and not nothing_item(m.group(1))
+        ):
             sections[current].append(line)
     return {
         "decisions": len(sections.get("decisions", [])),

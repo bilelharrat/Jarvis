@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from ... import lang, prefs, reminders_desk
+from ...meeting import nothing_item
 from ...proactive import event_key
 from ...textclean import clean_text
 from .briefing import quote
@@ -134,10 +135,10 @@ def sections(notes: str) -> dict[str, list[str]]:
                 break
             out.setdefault(current, [])
             continue
-        m = re.match(r"\s*[-*]\s+(?:\[[ xX]\]\s+)?(.+)", line)
+        m = re.match(r"\s*[-*]\s+(?:\[[ xX]\]\s+)?(.*)", line)
         if current and m:
             item = " ".join(clean_text(m.group(1)).split())
-            if item and not re.match(r"(?i)^(?:none|n/?a)\b", item):
+            if not nothing_item(item):  # "*None*", "No action items.": not an item
                 out[current].append(item[:300])
     return out
 

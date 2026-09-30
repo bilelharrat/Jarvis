@@ -243,3 +243,17 @@ def test_a_meeting_counts_when_people_or_a_call_are_in_it():
     assert not m.is_meeting(event("x", 0, people=()))
     assert not m.is_meeting(event("x", 0, all_day=True))
     assert m.emails_of({"emails": ["a@b.co", "A@b.co", "nope", "c@d.org"]}) == ["a@b.co", "c@d.org"]
+
+
+@pytest.mark.parametrize(
+    "bullet",
+    ["*None*", "_None recorded._", "(none)", "No action items.", "None.", "N/A", "无", "- "],
+)
+def test_no_action_items_are_never_items(bullet):
+    """A write-up that says there were none, however it says it, adds no reminder, and the
+    card's count agrees with what would be added."""
+    from jarvis.meeting import count_items
+
+    notes = f"## Decisions\n- Ship Friday\n\n## Action items\n- {bullet}\n- Send Ann the deck\n"
+    assert m.sections(notes)["action items"] == ["Send Ann the deck"]
+    assert count_items(notes)["actions"] == 1
