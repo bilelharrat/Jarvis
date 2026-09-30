@@ -95,6 +95,7 @@ LOOK_EVERY = 30  # seconds between looks at the number's calls
 PUBLISH_EVERY = 600  # … and at the calendar, for the open times
 SETTLE = 20  # seconds after a call ends before it's collected: its recording lands first
 LATE = 300  # a recording still being processed this long after: the call goes without it
+SUMMARY_FROM = 240  # characters of a message past which its heads-up gives its gist
 KEEP = 200  # calls kept in the log (and their audio)
 SEEN = 1000
 DAYS_AHEAD = 14  # how far ahead callers can book (weekdays only)
@@ -398,6 +399,7 @@ class Call:
     minutes: int = 0  # … and its length
     goal: str = ""  # errand: what the owner asked Jarvis to get done
     talk: str = ""  # the conversation's Sync document (talk-<this>) while it's on Twilio
+    summary: str = ""  # a long message's gist, for the heads-up (Answering.summarize)
 
     def who(self) -> str:
         return self.name or shown_number(self.number) or "Someone who withheld their number"
@@ -920,6 +922,8 @@ def heads_up(call: Call) -> tuple[str, bool]:
     if call.kind == "missed":
         return f"Missed call from {who}; no message.", False
     if call.kind == "message":
+        if call.summary:  # a long one: its gist (the words are in the call log)
+            return f"{who} left a message: {_clip(call.summary)}", True
         if words:
             return f"{who} left a message{words}", True
         return f"{who} left a {call.seconds}-second message; I couldn't make out the words.", True
@@ -993,6 +997,9 @@ class Answering:
         self.line = line or Line()
         self.log = log_store or CallLog()
         self.transcribe = transcribe
+        # A long message's gist for its heads-up (features/voicemail.py sets it in the app:
+        # the utility model, capped); None: the heads-up quotes the words.
+        self.summarize: Callable[[str], Awaitable[str]] | None = None
         self.events = events or mac_tools.fetch_events
         self.applescript = applescript
         self.names = names
@@ -1463,6 +1470,11 @@ class Answering:
         elif ready and call.kind != "talk":
             wants = any(d.get("event") == "wants_time" for d in picks)
             call.kind = "schedule" if wants else "message"
+        if call.kind == "message" and len(call.words) > SUMMARY_FROM and self.summarize:
+            try:
+                call.summary = _clip(" ".join(str(await self.summarize(call.words)).split()), 300)
+            except Exception as exc:  # over its cap, offline: the heads-up quotes the words
+                log.info("answering: no gist for a message (%s)", type(exc).__name__)
         return call
 
     def _words(self, wav: bytes) -> str:
