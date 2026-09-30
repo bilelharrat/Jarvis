@@ -1,15 +1,22 @@
-"""The second brain, grown: search by meaning and the galaxy's search and filters. Search by
-meaning lives in jarvis.embeddings; this registers it on the hub:
+"""The second brain, grown: search by meaning, the galaxy's search and filters, and Research
+v2 (the owner's own material in reports, follow-ups, PDFs). Each lives in its own module
+(embeddings, reports); this registers them on the hub:
 
-- settings (prefs.features): brain_semantic;
-- hub.brain_extension: the rebuild's arguments for it;
+- settings (prefs.features): brain_semantic, research_local;
+- hub.brain_extension: the rebuild's arguments for them;
 - hub.kb.semantic: search by meaning, for every search of the second brain (JARVIS's
-  search_notes and the galaxy's search box);
+  search_notes, the galaxy's search box, the research pass);
+- hub.tasks.research_local: the research desk's second pass over the owner's material;
 - window commands: brain_search (-> brain_results), brain_semantic (the switch, then the
-  rebuild it needs), brain_semantic_status (-> brain_semantic);
+  rebuild it needs), brain_semantic_status (-> brain_semantic), research_reports
+  (-> research_reports), report_pdf (-> report_exported), report_open;
+- the "reports" tool server: list_reports, read_report, export_report_pdf;
 - a loop that readies search by meaning a little after startup (its helper and vectors).
 
-Cost policy (Claude): nothing here calls a model. Vectors are made on this Mac.
+Cost policy (Claude): nothing here calls a model on its own. Vectors are made on this Mac.
+The only model calls are the research desk's second pass (reports.py: once per research
+request the owner makes, medium effort, at most reports.LOCAL_TURNS turns) and follow-ups on
+reports, which are ordinary turns.
 """
 
 from __future__ import annotations
@@ -20,13 +27,18 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .. import embeddings, prefs, swift_helper
+from .. import embeddings, prefs, reports, swift_helper
 from ..brain_sources import SEMANTIC, VECTORS
 
 log = logging.getLogger("jarvis")
 
-prefs.register_feature_pref(*SEMANTIC)
+for _key, _default in [SEMANTIC, reports.LOCAL_PREF]:
+    prefs.register_feature_pref(_key, _default)
 
+PROMPT = (
+    "\n- search_notes matches by meaning as well as by words while search by meaning is on: "
+    "a note marked close in meaning needn't hold the words asked for."
+)
 MAX_RESULTS = 40
 RESULT_KEYS = ("id", "title", "source", "group", "excerpt", "match", "modified")
 WARM_AFTER = 45.0  # seconds after startup: search by meaning's helper and vectors, ready
@@ -165,6 +177,21 @@ def _vector_meta(path: Path) -> dict[str, Any]:
     return meta if isinstance(meta, dict) else {}
 
 
+def research_file(value: Any) -> Path | None:
+    """A report or its PDF or web page, directly in the research folder; None otherwise."""
+    try:
+        folder = reports.RESEARCH_DIR.resolve()
+        path = Path(str(value or "")).expanduser()
+        if path.is_symlink():
+            return None
+        path = path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if path.parent != folder or path.suffix.lower() not in (".md", ".pdf", ".html"):
+        return None
+    return path if path.is_file() else None
+
+
 def _clean_sources(value: Any) -> list[str] | None:
     if not isinstance(value, list):
         return None
@@ -179,6 +206,7 @@ def install(hub: Any) -> None:
     hub.kb.semantic = embeddings.SemanticSearch(
         lambda: bool(hub.prefs.feature(SEMANTIC[0])), control.query_embedder
     )
+    hub.tasks.research_local = lambda task: reports.own_material_pass(task, hub)
 
     async def brain_search(msg: dict[str, Any]) -> None:
         query = str(msg.get("q") or "")[:400]
@@ -205,14 +233,51 @@ def install(hub: Any) -> None:
         if isinstance(msg.get("on"), bool):
             control.switch(msg["on"])
 
+    def research_local(msg: dict[str, Any]) -> None:
+        if isinstance(msg.get("on"), bool):
+            hub.set_feature_prefs({reports.LOCAL_PREF[0]: msg["on"]})
+
+    async def research_reports(_msg: dict[str, Any]) -> None:
+        hub.emit("research_reports", items=await asyncio.to_thread(reports.list_reports))
+
+    async def report_pdf(msg: dict[str, Any]) -> None:
+        path = await asyncio.to_thread(reports.find_report, str(msg.get("name") or ""))
+        if path is None:
+            hub.emit("report_exported", name=str(msg.get("name") or "")[:200], error="missing")
+            return
+        try:
+            out, is_pdf = await reports.export_pdf(path, hub.pdf_call)
+        except OSError as exc:
+            hub.emit("report_exported", name=path.name, error=str(exc.strerror or exc)[:200])
+            return
+        hub.emit("report_exported", name=path.name, path=str(out), pdf=is_pdf)
+
+    def report_open(msg: dict[str, Any]) -> None:
+        from .. import mac_tools
+
+        path = research_file(msg.get("path"))
+        if path is not None:
+            hub._spawn(hub._quiet(mac_tools.run_command("open", str(path))))
+
     def later(work: Any) -> Any:
         """A command whose work takes a while runs in the background: the window's socket
-        reads one command at a time (a search per keystroke must never queue the rest)."""
+        reads one command at a time, and a PDF waits on the window's own answer to it."""
         return lambda msg: hub._spawn(work(msg)) and None
 
     hub.register_command("brain_search", later(brain_search))
     hub.register_command("brain_semantic", brain_semantic)
     hub.register_command("brain_semantic_status", lambda _msg: control.emit())
+    hub.register_command("research_local", research_local)
+    hub.register_command("research_reports", later(research_reports))
+    hub.register_command("report_pdf", later(report_pdf))
+    hub.register_command("report_open", report_open)
+    hub.register_server(
+        reports.SERVER_NAME,
+        lambda: reports.build_server(hub.pdf_call),
+        prompt=PROMPT + reports.PROMPT,
+        labels=reports.LABELS,
+        quiet=("export_report_pdf",),
+    )
 
     async def warm() -> None:
         """A little after startup, with search by meaning on: the helper built and running

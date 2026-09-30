@@ -1,7 +1,8 @@
-// The second brain, grown (jarvis.features.brain): the Settings row for search by meaning,
-// and the galaxy's search (the hub's search by words and meaning, not only titles), its
-// source filters and time slider. Everything shown that came from the owner's data carries
-// data-no-i18n.
+// The second brain, grown (jarvis.features.brain): Settings rows for search by meaning and
+// research's second pass; the galaxy's search (the hub's search by words and meaning, not
+// only titles), its source filters and time slider; and a research report's follow-up
+// question and PDF from its note panel. Everything shown that came from the owner's data
+// carries data-no-i18n.
 (() => {
   'use strict';
 
@@ -9,11 +10,13 @@
   if (!F) return;
   const { el, $, send } = F;
 
-  // As jarvis.brain_sources.SEMANTIC keeps it (the prefs event carries only what's been
-  // changed from it).
+  // As jarvis.brain_sources.SEMANTIC and reports.LOCAL_PREF keep them (the prefs event
+  // carries only what's been changed from these).
   const SWITCHES = [
     { key: 'brain_semantic', on: false, kind: 'semantic', title: 'Search by meaning',
       small: 'Finds notes about what you ask even when they use other words, with Apple’s on-device language models (English and Chinese). The first time, macOS may download Apple’s model.' },
+    { key: 'research_local', on: true, kind: 'research', title: 'Research reads my own material',
+      small: 'After the web, a second pass reads your second brain, the BSH desk and your files (with no web access then) and adds what bears on the topic.' },
   ];
   // The galaxy's filters: what each chip shows.
   const GROUPS = [
@@ -34,6 +37,7 @@
   const windowId = Math.random().toString(36).slice(2, 8);
 
   let features = {};
+  let language = 'en';
   const count = (n) => Number(n || 0).toLocaleString('en-US');
   const locale = () => (typeof uiLocale === 'function' ? uiLocale() : undefined);
   const color = (source) => (window.GALAXY_SOURCES && window.GALAXY_SOURCES.colors[source]) || '#9fb3c8';
@@ -85,12 +89,14 @@
     const on = !current(s);
     features = { ...features, [s.key]: on };  // shown now; the prefs event confirms it
     renderSwitches();
-    send({ type: 'brain_semantic', on });
+    if (s.kind === 'semantic') send({ type: 'brain_semantic', on });
+    else send({ type: 'research_local', on });
   }
 
   function applyPrefs(p) {
     if (!p) return;
     features = { ...(p.features || {}) };
+    language = p.language || 'en';
     renderSwitches();
   }
 
@@ -140,6 +146,17 @@
     const head = el('p', 'brain-results-head');
     const list = el('ol', 'brain-hits');
     results.append(head, list);
+    const reportsBtn = button('icon-btn dark brain-reports-btn', 'Reports');
+    reportsBtn.id = 'brain-reports-btn';
+    reportsBtn.setAttribute('aria-expanded', 'false');
+    reportsBtn.addEventListener('click', () => toggleReports());
+    const top = root.querySelector('.galaxy-top');
+    if (top) top.insertBefore(reportsBtn, $('galaxy-close'));
+    const reports = el('section', 'brain-results brain-reports');
+    reports.id = 'brain-reports';
+    reports.hidden = true;
+    reports.setAttribute('aria-label', 'Research reports');
+    reports.append(el('p', 'brain-results-head', 'Research reports'), el('ol', 'brain-hits'));
     const bar = el('div', 'brain-filters');
     const chips = el('div', 'brain-chips');
     chips.setAttribute('role', 'group');
@@ -158,8 +175,8 @@
     sliders.append(from, to);
     time.append(label, sliders);
     bar.append(chips, time);
-    root.append(results, bar);
-    ui = { root, results, head, list, chips, time, label, from, to };
+    root.append(results, reports, bar);
+    ui = { root, results, head, list, reports, reportsBtn, chips, time, label, from, to };
     for (const input of [from, to]) {
       input.addEventListener('input', () => {
         let a = Number(from.value), b = Number(to.value);
@@ -363,12 +380,111 @@
 
   function renderResults() {
     if (!ui) return;
-    ui.results.hidden = !search.q;
+    ui.results.hidden = !search.q || !ui.reports.hidden;
     if (!search.q) return;
     const n = search.items.length;
     ui.head.hidden = !n;
     ui.head.textContent = n === 1 ? '1 result' : `${n} results`;
     ui.list.replaceChildren(...(n ? search.items.map(hitRow) : [el('li', 'brain-empty', 'Nothing in your second brain matches that.')]));
+  }
+
+  // ── research reports: a list, and a report's follow-up and PDF from its note ──
+
+  function toggleReports(open) {
+    if (!ui) return;
+    const show = open === undefined ? ui.reports.hidden : open;
+    ui.reports.hidden = !show;
+    ui.reportsBtn.setAttribute('aria-expanded', String(show));
+    if (show) send({ type: 'research_reports' });
+    renderResults();
+  }
+
+  function renderReports(ev) {
+    if (!ui) return;
+    const list = ui.reports.querySelector('.brain-hits');
+    const items = ev.items || [];
+    if (!items.length) {
+      list.replaceChildren(el('li', 'brain-empty', 'No research reports yet. Ask Jarvis to research something.'));
+      return;
+    }
+    list.replaceChildren(...items.map((r) => {
+      const li = el('li', 'brain-report');
+      const read = button('brain-hit');
+      const head = el('span', 'brain-hit-head');
+      const dot = el('i');
+      dot.style.background = color('research');
+      head.append(dot, mine(el('strong', '', r.title)));
+      const when = new Date(r.modified);
+      read.append(head);
+      if (!Number.isNaN(when.getTime())) read.append(mine(el('small', 'brain-hit-meta', when.toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' }))));
+      read.addEventListener('click', () => { toggleReports(false); openNote(`file:${r.path}`); });
+      const pdf = button('btn brain-pdf', 'Save as PDF');
+      pdf.addEventListener('click', () => send({ type: 'report_pdf', name: r.name }));
+      li.append(read, pdf);
+      return li;
+    }));
+  }
+
+  function reportName(noteId) {
+    const path = String(noteId || '').startsWith('file:') ? noteId.slice(5) : '';
+    return /\.md$/i.test(path) ? path.split('/').pop() : '';
+  }
+
+  function noteExtra() {
+    let box = $('brain-note-extra');
+    if (box) return box;
+    const panel = $('note-panel');
+    if (!panel) return null;
+    box = el('div', 'brain-note-extra');
+    box.id = 'brain-note-extra';
+    box.hidden = true;
+    const form = el('form', 'brain-ask');
+    form.autocomplete = 'off';
+    const input = el('input');
+    input.id = 'brain-ask-q';
+    input.placeholder = 'Ask about this report…';
+    input.setAttribute('aria-label', 'Ask about this report');
+    const ask = el('button', 'btn', 'Ask');
+    ask.type = 'submit';
+    form.append(input, ask);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const question = input.value.trim();
+      if (!question || !box.dataset.title) return;
+      const about = language === 'zh' ? `关于我的研究报告“${box.dataset.title}”：` : `About my research report “${box.dataset.title}”: `;
+      if (send({ type: 'ask', text: about + question }) === false) return;
+      input.value = '';
+      if (typeof setGalaxyMode === 'function') setGalaxyMode('off');  // the answer shows on the dashboard
+    });
+    const pdf = button('btn brain-pdf', 'Save as PDF');
+    pdf.addEventListener('click', () => { if (box.dataset.name) send({ type: 'report_pdf', name: box.dataset.name }); });
+    box.append(form, pdf);
+    panel.append(box);
+    return box;
+  }
+
+  function onNote(n) {
+    if (n.id !== selectedNote) return;
+    const box = noteExtra();
+    const name = n.source === 'research' ? reportName(n.id) : '';
+    if (box) {
+      box.hidden = !name;
+      box.dataset.name = name;
+      box.dataset.title = name ? n.title : '';
+    }
+  }
+
+  function onExported(ev) {
+    if (typeof notice !== 'function') return;
+    if (ev.error) {
+      notice('Research', 'Couldn’t save that report', ev.error === 'missing' ? 'That report isn’t in Documents › Jarvis › Research any more.' : ev.error, 10000);
+      return;
+    }
+    const open = button('btn primary', 'Open');
+    open.addEventListener('click', () => send({ type: 'report_open', path: ev.path }));
+    const title = ev.pdf ? 'Saved as PDF' : 'Saved as a web page';
+    const text = ev.pdf ? 'It’s beside the report in Documents › Jarvis › Research.' : 'No window could print a PDF, so it was saved as a web page beside the report.';
+    notice('Research', title, text, 12000, open);
   }
 
   // ── wiring ──
@@ -379,6 +495,9 @@
   F.on('brain', (ev) => { if (ev.state !== 'building') send({ type: 'brain_semantic_status' }); });
   F.on('galaxy', () => renderGalaxyData(), { replay: true });
   F.on('brain_results', onResults);
+  F.on('research_reports', renderReports);
+  F.on('note', onNote);
+  F.on('report_exported', onExported);
   buildSettings();
   buildGalaxy();
 })();

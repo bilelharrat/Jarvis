@@ -845,6 +845,10 @@ class TaskManager:
         # The address on show in that browser, set by the hub: a page on this Mac
         # (localhost) is a session's own work, typed into unasked in Accept edits and Auto.
         self.page_url: Callable[[], Awaitable[str | None]] | None = None
+        # A finished research report with the owner's own material folded in, by a second
+        # session that has no web access (jarvis.features.brain): the revised report, or
+        # None to keep the web one.
+        self.research_local: Callable[[ClaudeTask], Awaitable[str | None]] | None = None
         # True when follow-ups should steer the running step (the owner's setting).
         self.steer_now: Callable[[], bool] | None = None
         # Claude couldn't answer a session (its limit, an outage): the hub's fallback, told
@@ -2478,6 +2482,8 @@ class TaskManager:
                         task.result = (message.result or task.result).strip()
                         task.status = "failed" if message.is_error else "done"
             if task.kind == "research" and task.status == "done" and task.result:
+                if self.research_local is not None:
+                    task.result = await self._with_local_material(task)
                 task.report_path = str(save_report(task.prompt, task.result))
         except asyncio.CancelledError:
             task.status = "stopped"
@@ -2502,6 +2508,21 @@ class TaskManager:
             )
             if self.on_finished is not None:
                 self.on_finished(task)
+
+    async def _with_local_material(self, task: ClaudeTask) -> str:
+        """The web report with what the owner's own material adds (research_local); the web
+        report as it was when that pass has nothing, or fails."""
+        assert self.research_local is not None
+        task.last_action = "Reading your own material"
+        self._changed()
+        try:
+            revised = await self.research_local(task)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # the web report still stands
+            log.warning("research %s: reading the owner's material failed", task.id, exc_info=True)
+            return task.result
+        return revised.strip() if revised and revised.strip() else task.result
 
     # ── permissions ──
 

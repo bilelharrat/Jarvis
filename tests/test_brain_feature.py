@@ -1,6 +1,6 @@
 """The second brain feature on the hub (jarvis.features.brain): its settings, what the rebuild
-is given, the galaxy's search command, and search by meaning's switch (the only moment
-Apple's model files are fetched). Everything with a temp folder and fakes."""
+is given, the galaxy's search command, search by meaning's switch (the only moment Apple's
+model files are fetched), and reports' PDFs. Everything with a temp folder and fakes."""
 
 import asyncio
 import json
@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 from conftest import FakeClient
 
-from jarvis import embeddings, swift_helper
+from jarvis import embeddings, mac_tools, reports, swift_helper
 from jarvis.features import brain as feature
 from jarvis.hub import Hub
 from jarvis.knowledge import Note
@@ -25,7 +25,13 @@ def _no_real_helpers(monkeypatch, tmp_path):
 
 @pytest.fixture
 def hub(settings, quiet_speaker, isolated):
-    made = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
+    made = Hub(
+        settings,
+        client_factory=FakeClient,
+        speaker=quiet_speaker,
+        poll=False,
+        **isolated,
+    )
     events = []
     made.emit = lambda kind, **data: events.append((kind, data))
     made.events = events
@@ -50,7 +56,14 @@ NOTES = {
             "1",
             modified=days_ago(2),
         ),
-        Note("notes:2", "notes", "Groceries", "Milk, eggs and bread.", "2", modified=days_ago(300)),
+        Note(
+            "notes:2",
+            "notes",
+            "Groceries",
+            "Milk, eggs and bread.",
+            "2",
+            modified=days_ago(300),
+        ),
     ],
     "mail": [
         Note(
@@ -72,7 +85,13 @@ NOTES = {
         )
     ],
     "conversations": [
-        Note("conversation:s:1", "conversations", "Taxes", "You: remind me about taxes", "s")
+        Note(
+            "conversation:s:1",
+            "conversations",
+            "Taxes",
+            "You: remind me about taxes",
+            "s",
+        )
     ],
     "images": [Note("image:/x.png", "images", "shot", "Text in the image", "/nowhere/x.png")],
     "reminders": [Note("reminder:r1", "reminders", "Dentist", "Reminder: Dentist", "r1")],
@@ -83,12 +102,19 @@ def test_the_feature_installs_its_settings_hooks_commands_and_tools(hub):
     assert "brain" in hub.features
     assert isinstance(hub.brain_extension, feature.BrainExtension)
     assert isinstance(hub.kb.semantic, embeddings.SemanticSearch)
+    assert hub.tasks.research_local is not None
     # Off until the owner turns it on: it may download Apple's model files.
     assert hub.prefs.feature("brain_semantic") is False
+    assert hub.prefs.feature("research_local") is True
+    assert "reports" in hub._feature_servers()
+    assert "list_reports" in hub._feature_prompt() or "list_reports" in hub._extra_prompt()
     for kind in (
         "brain_search",
         "brain_semantic",
         "brain_semantic_status",
+        "research_local",
+        "research_reports",
+        "report_pdf",
     ):
         assert kind in hub._commands
 
@@ -127,7 +153,10 @@ async def test_the_galaxys_search_returns_filtered_results_to_the_window(hub):
     week = (datetime.now() - timedelta(days=7)).date().isoformat()
     await hub._handle({"type": "brain_search", "q": "board", "since": week, "k": "lots"})
     await feature_task(hub)
-    assert {i["id"] for i in emitted(hub, "brain_results")[-1]["items"]} == {"notes:1", "mail:1"}
+    assert {i["id"] for i in emitted(hub, "brain_results")[-1]["items"]} == {
+        "notes:1",
+        "mail:1",
+    }
     await hub._handle({"type": "brain_search", "q": "x" * 5000, "sources": "notes"})
     await feature_task(hub)
     assert len(emitted(hub, "brain_results")[-1]["q"]) == 400
@@ -155,7 +184,9 @@ async def test_turning_search_by_meaning_on_fetches_the_model_only_then_and_make
     )
     monkeypatch.setattr(swift_helper, "ensure", lambda name: tmp_path / name)
     monkeypatch.setattr(
-        embeddings, "helper_status", lambda binary: calls.append("status") or next(states)
+        embeddings,
+        "helper_status",
+        lambda binary: calls.append("status") or next(states),
     )
     monkeypatch.setattr(embeddings, "request_assets", lambda binary: calls.append("assets") or [])
 
@@ -235,8 +266,93 @@ def test_the_query_helper_is_never_built_inside_a_search(hub, monkeypatch, tmp_p
     assert isinstance(control.query_embedder(), embeddings.HelperEmbedder)
 
 
+async def test_a_pdf_never_holds_up_the_windows_next_command(hub, monkeypatch, tmp_path):
+    """The window's socket reads one command at a time, and the PDF waits on the window's
+    own answer (pdf_result): awaited inline, it waited out its whole timeout."""
+    folder = tmp_path / "Research"
+    folder.mkdir()
+    (folder / "2026-09-20 1000 Lithium.md").write_text("# Lithium supply\n")
+    monkeypatch.setattr(reports, "RESEARCH_DIR", folder)
+    answer = asyncio.get_running_loop().create_future()
+
+    async def pdf(_page):
+        return await answer  # the window's answer, which comes as the next command
+
+    hub.pdf_call = pdf
+    await asyncio.wait_for(hub.handle({"type": "report_pdf", "name": "lithium"}), 1)
+    await asyncio.wait_for(hub.handle({"type": "brain_search", "q": "lithium"}), 1)
+    answer.set_result(b"%PDF")
+    await feature_task(hub)
+    assert emitted(hub, "report_exported")[-1]["pdf"] is True
+
+
+async def test_only_a_report_or_its_copies_in_the_research_folder_open(hub, monkeypatch, tmp_path):
+    folder = tmp_path / "Research"
+    folder.mkdir()
+    report, pdf = folder / "r.md", folder / "r.pdf"
+    report.write_text("# R")
+    pdf.write_bytes(b"%PDF")
+    elsewhere = tmp_path / "elsewhere.pdf"
+    elsewhere.write_bytes(b"%PDF")
+    (folder / "link.pdf").symlink_to(elsewhere)
+    (folder / "notes.txt").write_text("x")
+    monkeypatch.setattr(reports, "RESEARCH_DIR", folder)
+    opened = []
+
+    async def run_command(*argv, **_kw):
+        opened.append(argv)
+        return ""
+
+    monkeypatch.setattr(mac_tools, "run_command", run_command)
+    for path in (
+        pdf,
+        report,
+        elsewhere,
+        folder / "link.pdf",
+        folder / "notes.txt",
+        folder / "missing.pdf",
+        folder / ".." / "elsewhere.pdf",
+        "",
+        None,
+    ):
+        await hub._handle({"type": "report_open", "path": None if path is None else str(path)})
+    await feature_task(hub)
+    assert opened == [("open", str(pdf.resolve())), ("open", str(report.resolve()))]
+
+
+async def test_reports_are_listed_and_exported_for_the_window(hub, monkeypatch, tmp_path):
+    folder = tmp_path / "Research"
+    folder.mkdir()
+    (folder / "2026-09-20 1000 Lithium.md").write_text("# Lithium supply\n\n## In brief\nUp.\n")
+    monkeypatch.setattr(reports, "RESEARCH_DIR", folder)
+
+    async def pdf(page):
+        assert "Lithium supply" in page
+        return b"%PDF-1.7"
+
+    hub.pdf_call = pdf
+    await hub._handle({"type": "research_reports"})
+    await feature_task(hub)
+    [listed] = emitted(hub, "research_reports")
+    assert [i["title"] for i in listed["items"]] == ["Lithium supply"]
+    await hub._handle({"type": "report_pdf", "name": "2026-09-20 1000 Lithium.md"})
+    await feature_task(hub)
+    done = emitted(hub, "report_exported")[-1]
+    assert done["pdf"] is True and done["path"].endswith(".pdf")
+    await hub._handle({"type": "report_pdf", "name": "no such report"})
+    await feature_task(hub)
+    assert emitted(hub, "report_exported")[-1]["error"] == "missing"
+
+
 def test_galaxy_stars_carry_the_day_they_were_last_changed(hub):
     hub.kb.build(NOTES)
     nodes = {n["id"]: n for n in hub.kb.galaxy()["nodes"]}
     today = int((datetime.now() - datetime(1970, 1, 1)).total_seconds() // 86400)
     assert nodes["mail:1"]["t"] in (today - 1, today - 2) and nodes["safari:A1"]["t"] is None
+
+
+async def test_research_local_setting_is_the_owners_to_change(hub):
+    await hub._handle({"type": "research_local", "on": False})
+    assert hub.prefs.feature("research_local") is False
+    await hub._handle({"type": "research_local", "on": "no"})
+    assert hub.prefs.feature("research_local") is False
