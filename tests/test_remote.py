@@ -25,6 +25,22 @@ def test_pairing_codes_are_single_use_and_rate_limited(tmp_path):
     assert devices.remove(devices.items[0].id) and devices.check(token) is None
 
 
+def test_a_code_typed_on_a_chinese_keyboard_pairs_and_odd_ones_count_as_wrong(tmp_path):
+    client = TestClient(
+        create_remote_app(FakeHub(), devices := Devices(tmp_path / "devices.json")),
+        raise_server_exceptions=False,
+    )
+    code = devices.start_pairing()
+    for odd in ('"é12345"', '"١٢٣٤٥٦"', '"\\ud800\\ud800"', '"12345\\u0000"'):
+        body = f'{{"code": {odd}, "device_name": "Guess"}}'.encode()
+        reply = client.post("/api/pair", content=body)
+        assert reply.status_code == 403, odd  # a wrong code, never a 500
+    assert len(devices.failures["testclient"]) == 4  # and each counted as a guess
+    wide = code.translate(str.maketrans("0123456789", "０１２３４５６７８９"))  # full-width digits
+    reply = client.post("/api/pair", json={"code": wide, "device_name": "iPhone"})
+    assert reply.status_code == 200 and devices.check(reply.json()["token"]).name == "iPhone"
+
+
 def test_expired_codes_fail(tmp_path, monkeypatch):
     devices = Devices(tmp_path / "devices.json")
     code = devices.start_pairing()

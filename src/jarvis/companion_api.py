@@ -77,7 +77,7 @@ def _int(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # JSON's Infinity is a float int() refuses
         return None
 
 
@@ -325,18 +325,20 @@ class ShareRefused(ValueError):
 def _number(value: Any, low: float, high: float) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:  # a whole number longer than any float (JSON sets no limit)
+        return None
     return number if math.isfinite(number) and low <= number <= high else None
 
 
 def _epoch(value: Any) -> float | None:
     """Epoch seconds, from a number or an ISO 8601 time."""
     if isinstance(value, str):
-        try:
-            when = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
+        try:  # (a time without a zone in the year 1 has no epoch seconds here)
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except (ValueError, OverflowError, OSError):
             return None
-        return when.timestamp()
     return _number(value, 0, 4e10)
 
 

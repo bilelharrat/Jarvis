@@ -140,6 +140,31 @@ def test_a_fix_is_checked(phone):
     assert phone.client.post("/api/location", json={"lat": 1, "lon": 1}).status_code == 401
 
 
+def test_numbers_and_times_python_cant_hold_are_refused_never_a_500(phone):
+    """JSON takes whole numbers of any length (too big for a float), and a time can be one
+    Python can't turn into epoch seconds: the phone is told what's wrong, never a 500."""
+    raw = {**phone.auth, "Content-Type": "application/json"}
+    huge = b"1" + b"0" * 400
+    for body, what in (
+        (b'{"lat": ' + huge + b', "lon": 0}', "lat and lon"),
+        (b'{"lat": 1, "lon": -' + huge + b"}", "lat and lon"),
+        (b'{"lat": 1, "lon": 0, "accuracy": 5, "at": ' + huge + b"}", "at"),
+        (b'{"lat": 1, "lon": 0, "at": "0001-01-01T00:00:00"}', "at"),
+    ):
+        reply = phone.client.post("/api/location", content=body, headers=raw)
+        assert reply.status_code == 400 and reply.json() == {"error": what}, body
+    day = (date.today() - timedelta(days=1)).isoformat().encode()
+    for body, what in (
+        (b'{"day": "' + day + b'", "steps": ' + huge + b"}", "steps"),
+        (
+            b'{"day": "' + day + b'", "workouts": [{"kind": "Run", "minutes": ' + huge + b"}]}",
+            "workouts",
+        ),
+    ):
+        reply = phone.client.post("/api/health", content=body, headers=raw)
+        assert reply.status_code == 400 and reply.json() == {"error": what}, body
+
+
 # ── sharing ──
 
 

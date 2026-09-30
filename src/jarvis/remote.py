@@ -33,6 +33,7 @@ import socket
 import ssl
 import subprocess
 import time
+import unicodedata
 import uuid
 from collections import deque
 from collections.abc import Callable
@@ -204,7 +205,10 @@ class Devices:
         if self.locked(host):
             raise PermissionError("Too many wrong codes. Wait five minutes.")
         live = self.code is not None and time.monotonic() < self.code_expires
-        if not live or not secrets.compare_digest(str(code).strip(), self.code or ""):
+        # A Chinese keyboard's full-width digits are the code's own; compared as bytes, since
+        # compare_digest refuses text that isn't ASCII (a 500, and no wrong guess counted).
+        given = unicodedata.normalize("NFKC", str(code)).strip().encode(errors="replace")
+        if not live or not secrets.compare_digest(given, (self.code or "").encode()):
             if live:  # with no code on screen there's nothing to guess, so nothing to count
                 now = time.monotonic()
                 if len(self.failures) < 1000 or host in self.failures:

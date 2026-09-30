@@ -561,3 +561,19 @@ def test_next_run_for_each_kind_of_schedule():
     assert companion_api.next_run(routine, now) == datetime(2026, 10, 10, 9, 0)
     routine.enabled = False
     assert companion_api.next_run(routine, now) is None
+
+
+def test_numbers_json_can_carry_and_python_cant_hold_are_refused_never_a_500(api):
+    """JSON takes Infinity, NaN and whole numbers of any length: a call carrying one where a
+    session's or a routine's number goes is refused plainly, never answered with a 500."""
+    raw = {**api.auth, "Content-Type": "application/json"}
+    for path in ("/api/code/send", "/api/code/stop"):
+        for number in (b"Infinity", b"-Infinity", b"1e999", b"NaN", b"1" + b"0" * 400):
+            body = b'{"id": ' + number + b', "text": "hi"}'
+            reply = api.client.post(path, content=body, headers=raw)
+            assert reply.status_code == 404, (path, number)
+    brief = api.hub.routines.add("Morning brief", "Give me my briefing", "weekdays", "07:00")
+    for days in (b"[Infinity]", b"[1e999]", b"[NaN, 1]"):
+        body = b'{"id": "' + brief.id.encode() + b'", "days": ' + days + b"}"
+        reply = api.client.post("/api/routines/update", content=body, headers=raw)
+        assert reply.status_code == 400 and reply.json() == {"error": "days"}, days
