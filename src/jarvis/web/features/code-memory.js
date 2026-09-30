@@ -1,7 +1,8 @@
 // Jarvis Code's memory files (features/code_memory.py): where a "# note" goes. The note
 // waits in the transcript with the three places it can go (the last one chosen first):
 // the project's CLAUDE.md, its CLAUDE.local.md, or the owner's ~/.claude/CLAUDE.md. Not
-// saved, it goes back in the composer.
+// saved, it goes back in the composer. It waits in its own session's transcript, and comes
+// back each time that transcript is drawn again, until it's answered.
 (function (root) {
   'use strict';
 
@@ -16,9 +17,10 @@
     user: ['Just me, everywhere', '~/.claude/CLAUDE.md: yours, every project'],
   };
 
+  const cards = new Map();  // ref -> { id: the session it was typed in, li }: notes not answered yet
+
   F.on('cw_memory_ask', (ev) => {
-    const timeline = F.$('deck-timeline');
-    if (!timeline || !ev.ref) return;
+    if (!ev.ref) return;
     const li = el('li', 'cm-ask');
     const head = el('div', 'cm-head');
     head.append(el('span', '', 'Save this note to'), mine(el('q', 'cm-note', ev.text || '')));
@@ -27,6 +29,7 @@
     const choose = (target) => {
       if (chosen) return;
       chosen = true;
+      cards.delete(ev.ref);
       F.send({ type: 'cw_memory_save', ref: ev.ref, target });
       li.remove();
       const input = F.$('deck-input');
@@ -55,9 +58,22 @@
     row.append(cancel);
     li.append(head, row);
     li.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); choose(null); } });
+    cards.set(ev.ref, { id: ev.id, li });
+    const task = F.currentTask();
+    const timeline = F.$('deck-timeline');
+    if (!timeline || !task || task.id !== ev.id) return;  // (another session's: shown with it)
     timeline.append(li);
     const scroll = F.$('cc-scroll');
     if (scroll) scroll.scrollTop = scroll.scrollHeight;
     if (first) first.focus();
+  });
+
+  // A session's transcript drawn again (shown again, Jarvis Code opened again, a reconnect)
+  // takes everything out: its notes still waiting go back in.
+  F.on('task_transcript', (ev) => {
+    const task = F.currentTask();
+    const timeline = F.$('deck-timeline');
+    if (!timeline || !task || task.id !== ev.id) return;
+    for (const card of cards.values()) if (card.id === task.id && !card.li.isConnected) timeline.append(card.li);
   });
 })(typeof window === 'object' ? window : globalThis);

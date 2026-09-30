@@ -5418,6 +5418,31 @@ test('A "#" note asks where it goes, the last place first; not saved, it goes ba
   assert(await js('$("deck-input").value') === '# maybe later', await js('$("deck-input").value'));
 });
 
+test('A "#" note’s card stays with its session: shown only there, and back when its transcript is drawn again', async () => {
+  await featureScript('code-memory.js');
+  await open(1);
+  await js('onEvent({ type: "tasks", items: [__task(1), __task(2)] }); true');
+  const cards = () => js('[...document.querySelectorAll("#deck-timeline .cm-ask .cm-note")].map((n) => n.textContent)');
+  await deliver({ type: 'cw_memory_ask', ref: 'm1', id: 1, text: 'use pnpm', choices: MEMORY_CHOICES, last: 'project' });
+  assert(JSON.stringify(await cards()) === '["use pnpm"]', JSON.stringify(await cards()));
+  // Its transcript drawn again (Jarvis Code opened again, a reconnect): the card is still there.
+  await deliver({ type: 'task_transcript', id: 1, entries: [{ n: 1, role: 'assistant', text: 'Done.' }] });
+  assert(JSON.stringify(await cards()) === '["use pnpm"]', `the card went with a redraw: ${JSON.stringify(await cards())}`);
+  // Another session shown: not there, nor a note of session 1's that comes meanwhile.
+  await js('selectTask(2); true');
+  await deliver({ type: 'task_transcript', id: 2, entries: [] });
+  await deliver({ type: 'cw_memory_ask', ref: 'm2', id: 1, text: 'tabs, not spaces', choices: MEMORY_CHOICES, last: 'project' });
+  assert(JSON.stringify(await cards()) === '[]', `session 1's notes in session 2: ${JSON.stringify(await cards())}`);
+  // Session 1 again: both wait there, and one saved goes for good.
+  await js('selectTask(1); true');
+  await deliver({ type: 'task_transcript', id: 1, entries: [{ n: 1, role: 'assistant', text: 'Done.' }] });
+  assert(JSON.stringify(await cards()) === '["use pnpm","tabs, not spaces"]', JSON.stringify(await cards()));
+  await js('__sent.length = 0; document.querySelector("#deck-timeline .cm-ask .cm-choice").click(); true');
+  assert(JSON.stringify(await sentOf('cw_memory_save')) === JSON.stringify([{ type: 'cw_memory_save', ref: 'm1', target: 'project' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'task_transcript', id: 1, entries: [{ n: 1, role: 'assistant', text: 'Done.' }] });
+  assert(JSON.stringify(await cards()) === '["tabs, not spaces"]', JSON.stringify(await cards()));
+});
+
 test('The Files pane’s Memory menu opens the three CLAUDE.md files, the owner’s own outside the project', async () => {
   await featureScript('code-editor.js');
   await open(1);
