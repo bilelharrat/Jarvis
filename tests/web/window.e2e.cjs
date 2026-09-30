@@ -4647,6 +4647,22 @@ test('Replace and All with an expression that looks past its match replace what 
   assert(await editorText() === 'Xbar foobaz\nXbar\n', JSON.stringify(await editorText()));
 });
 
+test('Preview shows a Markdown file as what it is, even after lines of a file were read out by voice', async () => {
+  await featureScript('code_diff.js');
+  await featureScript('code-editor.js');
+  await featureScript('code-voice.js');
+  await open(1);
+  await deliver({ type: 'code_voice_file', id: 1, directory: 'alpha', path: 'README.md', start: 1, end: 1 });
+  const [read] = await sentOf('cw_file_read');
+  assert(read && read.path === 'README.md', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_file', path: 'README.md', ref: read.ref, text: 'Some **words**.\n', version: VERSION, crlf: false, editable: true });
+  await frames(2);
+  assert(await clickText('#jc-pane-body .ce-doc-bar', 'Preview'), 'no Preview');
+  const shown = await js('({ md: !!document.querySelector("#jc-pane-body .ce-preview .jc-preview strong"), text: document.querySelector("#jc-pane-body .ce-preview").textContent })');
+  assert(shown.md && shown.text.includes('words'), JSON.stringify(shown));
+  assert(await js('viewSource === true'), 'the core viewer’s own Source was changed');
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {

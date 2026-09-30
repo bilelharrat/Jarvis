@@ -848,7 +848,12 @@
     if (showing === 'loading') doc.ui.preview.replaceChildren(el('p', 'jc-dim', 'Opening…'));
     else if (showing === 'error') doc.ui.preview.replaceChildren(el('p', 'jc-dim ce-error', doc.error));
     else if (showing === 'preview') {
+      // (app.js's previewOf gives none while its own viewer is set to show the text, as "read
+      // lines 10 to 20 of …" leaves it: here Preview always previews, and leaves that be)
+      const source = typeof viewSource !== 'undefined' && viewSource;
+      if (source) viewSource = false;
       const shown = typeof previewOf === 'function' ? previewOf(doc.path, doc.ui.ta.value) : null;
+      if (source) viewSource = true;
       doc.ui.preview.replaceChildren(shown || el('p', 'jc-dim', 'No preview for this file.'));
     }
     const why = {
