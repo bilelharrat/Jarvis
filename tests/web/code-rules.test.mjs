@@ -37,8 +37,20 @@ test('the rules in a project’s .claude files, as rows, deny first', () => {
   assert.equal(cr.count(undefined), 0);
 });
 
+test('the Sandbox section says where a session stands, and reads the domains typed', () => {
+  assert.equal(cr.sandboxLine(null), '');
+  assert.equal(cr.sandboxLine({ on: false }), 'Its commands run outside the sandbox.');
+  assert.equal(cr.sandboxLine({ on: true, live: true }), 'Its commands run in the sandbox.');
+  assert.match(cr.sandboxLine({ on: true, live: false }), /from its next step/);
+  assert.deepEqual(cr.domainsOf(' pypi.org, files.pythonhosted.org\n github.com ,,'), ['pypi.org', 'files.pythonhosted.org', 'github.com']);
+  assert.deepEqual(cr.domainsOf(''), []);
+  assert.equal(cr.domainsOf(Array.from({ length: 30 }, (_, i) => `d${i}.com`).join(' ')).length, 20);
+});
+
 test('every string the Permissions pane shows has its Chinese', () => {
-  const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code-rules.json', import.meta.url), 'utf8'));
+  const read = (name) => JSON.parse(readFileSync(new URL(`../../src/jarvis/web/i18n/${name}.json`, import.meta.url), 'utf8'));
+  const [rules, sandbox] = [read('code-rules'), read('code-sandbox')];
+  const zh = { strings: { ...rules.strings, ...sandbox.strings }, patterns: [...rules.patterns, ...sandbox.patterns] };
   const source = readFileSync(new URL('../../src/jarvis/web/features/code-rules.js', import.meta.url), 'utf8');
   // (What's marked as data, mine(el(…)), is shown as it is: rules, names, examples.)
   const shown = [...source.matchAll(/(?<!mine\()el\('[a-z0-9]+', '[^']*', '([^']+)'\)/g)].map((m) => m[1]);
@@ -46,7 +58,9 @@ test('every string the Permissions pane shows has its Chinese', () => {
     'Web', 'MCP', 'Files', 'Command', 'Tool', 'Remove this rule', 'What the rule does', 'A rule, in Claude Code’s syntax',
     'Export to settings.local.json', 'Export to settings.json', 'Press again to write settings.local.json',
     'Press again to write settings.json (shared with the project)', 'Permissions',
-    'Adds these rules to .claude/settings.local.json, keeping what’s there', 'Adds these rules to .claude/settings.json, keeping what’s there'];
+    'Adds these rules to .claude/settings.local.json, keeping what’s there', 'Adds these rules to .claude/settings.json, keeping what’s there',
+    'This session’s sandbox', 'Domains to allow', 'Sandbox Bypass and unattended sessions',
+    ...[{ on: false }, { on: true, live: true }, { on: true, live: false }].map(cr.sandboxLine)];
   assert.deepEqual([...shown, ...extra].filter((s) => !(s in zh.strings)), []);
   for (const [re] of zh.patterns) assert.doesNotThrow(() => new RegExp(re));
 });

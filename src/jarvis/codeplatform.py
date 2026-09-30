@@ -1,6 +1,6 @@
 """What Jarvis Code's platform features share (features.code_usage, code_rules, code_lanes,
-code_mcp, code_plugins): which project a session belongs to, and how to read a window
-command's session.
+code_sandbox, code_mcp, code_plugins): which project a session belongs to, how to read a
+window command's session, and how several features weigh in on TaskManager.rule_check.
 
 A session in an isolated copy (features.code_isolation) works in a folder of its own, but
 its spending, permission rules and sandbox allowlist are its project's: the main
@@ -33,6 +33,24 @@ def code_task(hub: Any, msg: dict[str, Any]) -> Any:
     except (TypeError, ValueError):
         return None
     return task if task is not None and task.kind == "code" else None
+
+
+_WEIGHT = {"deny": 3, "ask": 2, "allow": 1}
+
+
+def add_rule_check(manager: Any, check: Any) -> None:
+    """Add a feature's check to TaskManager.rule_check beside any already there: the
+    strictest answer wins (deny, then ask, then allow; None from all: no rule covers it)."""
+    previous = manager.rule_check
+    if previous is None:
+        manager.rule_check = check
+        return
+
+    def both(task: Any, tool: str, tool_input: dict[str, Any]) -> Any:
+        found = [f for f in (previous(task, tool, tool_input), check(task, tool, tool_input)) if f]
+        return max(found, key=lambda f: _WEIGHT.get(f[0], 0)) if found else None
+
+    manager.rule_check = both
 
 
 def background(hub: Any, handler: Any) -> Any:

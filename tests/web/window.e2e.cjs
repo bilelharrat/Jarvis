@@ -3529,6 +3529,32 @@ test('The Permissions pane lists the project’s rules, adds and removes them, a
   assert(JSON.stringify(sent) === JSON.stringify([{ type: 'task_rules', id: 1, remove: 'git commit' }, { type: 'set_prefs', changes: { code_read_only: false } }]), JSON.stringify(sent));
 });
 
+test('The Permissions pane’s Sandbox section: the switch, this session’s own choice, and the project’s domains', async () => {
+  await featureScript('code-rules.js');
+  await open(1);
+  await js('openPane("rules"); true');
+  assert((await sentOf('cs_state')).length === 1, JSON.stringify(await js('__sent')));
+  await deliver(rulesState());
+  await deliver({ type: 'cs_state', id: 1, on: true, own: null, default: true, bypass: true, unattended: false, live: false, project: '/x/alpha', name: 'alpha',
+    domains: ['registry.npmjs.org', '<img src=x onerror="window.__pwned=1">'], presets: { npm: ['registry.npmjs.org'], pypi: ['pypi.org'], github: ['github.com'] } });
+  const r = await js(`({ sw: document.querySelector('#jc-pane-body .cs-switch').getAttribute('aria-checked'), line: document.querySelector('#jc-pane-body .cs-line').textContent,
+    domains: [...document.querySelectorAll('#jc-pane-body .cs-domains code[data-no-i18n]')].map((c) => c.textContent), imgs: document.querySelectorAll('#jc-pane-body img').length,
+    pwned: !!window.__pwned, seg: [...document.querySelectorAll('#jc-pane-body .cs-seg button')].map((b) => b.getAttribute('aria-checked')).join() })`);
+  assert(r.sw === 'true' && r.line.includes('from its next step') && r.seg === 'true,false,false', JSON.stringify(r));
+  assert(r.domains[0] === 'registry.npmjs.org' && r.domains.length === 2 && r.imgs === 0 && !r.pwned, JSON.stringify(r));
+  await js('__sent.length = 0; [...document.querySelectorAll("#jc-pane-body .cs-seg button")][2].click(); [...document.querySelectorAll("#jc-pane-body .cs-seg button")][0].click(); true');
+  assert(JSON.stringify(await sentOf('cs_session')) === JSON.stringify([{ type: 'cs_session', id: 1, on: false }, { type: 'cs_session', id: 1, on: null }]), JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; window.__d = document.querySelector("#jc-pane-body .cs-input"); __d.focus(); true');
+  await typeText('pypi.org, files.pythonhosted.org');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await js('document.querySelector("#jc-pane-body .cs-preset[data-preset=github]").click(); [...document.querySelectorAll("#jc-pane-body .cs-domains li")][0].querySelector("button").click(); true');
+  assert(JSON.stringify(await sentOf('cs_domains')) === JSON.stringify([{ type: 'cs_domains', id: 1, add: ['pypi.org', 'files.pythonhosted.org'] },
+    { type: 'cs_domains', id: 1, add: 'github' }, { type: 'cs_domains', id: 1, remove: 'registry.npmjs.org' }]), JSON.stringify(await js('__sent')));
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .cs-switch").click(); true');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { code_sandbox_bypass: false } }]), JSON.stringify(await js('__sent')));
+});
+
 // ──
 
 let base;

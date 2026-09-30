@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import coderules
-from ..codeplatform import code_task, project_of
+from ..codeplatform import add_rule_check, code_task, project_of
 from ..coderules import BEHAVIORS, RuleBook, RuleError
 
 log = logging.getLogger("jarvis")
@@ -242,7 +242,7 @@ class _Options:
 def install(hub: Any) -> None:
     desk = RuleDesk(hub)
     hub.code_rules = desk  # (for the other Jarvis Code features and the tests)
-    hub.tasks.rule_check = desk.check
+    add_rule_check(hub.tasks, desk.check)
     hub.tasks.option_hooks.append(_Options(desk))
     hub.register_command("cr_state", desk.cmd_state)
     hub.register_command("cr_add", desk.cmd_add)

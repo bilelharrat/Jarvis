@@ -1,0 +1,27 @@
+{
+  "strings": {
+    "Sandbox": "沙盒",
+    "Sandbox Bypass and unattended sessions": "把绕过权限和无人值守的会话放进沙盒",
+    "Their commands can write only in the project and reach only the domains allowed below.": "它们的命令只能在项目里写入，只能访问下面允许的域名。",
+    "This session": "这个会话",
+    "This session’s sandbox": "这个会话的沙盒",
+    "As set": "按设置",
+    "On": "开",
+    "Off": "关",
+    "Its commands run outside the sandbox.": "它的命令在沙盒外运行。",
+    "Its commands run in the sandbox.": "它的命令在沙盒里运行。",
+    "Its commands run in the sandbox from its next step; until then each one asks.": "从下一步开始，它的命令会在沙盒里运行；在那之前每条命令都会先询问。",
+    "Domains sandboxed commands may reach": "沙盒里的命令可以访问的域名",
+    "None: sandboxed commands reach only this Mac’s own servers.": "没有：沙盒里的命令只能访问这台 Mac 自己的服务器。",
+    "Remove": "移除",
+    "Domains to allow": "要允许的域名",
+    "Allow": "允许",
+    "Add the usual ones for": "添加常用域名：",
+    "Commands run in the sandbox now: they can write only in the project and reach only the domains allowed for it.": "现在命令在沙盒里运行：只能在项目里写入，只能访问为它允许的域名。",
+    "Commands run outside the sandbox now.": "现在命令在沙盒外运行。",
+    "The sandbox's allowed domains changed; it goes on with them.": "沙盒允许的域名已更改；会话会按新的列表继续。",
+    "Type a domain, like registry.npmjs.org.": "请输入域名，例如 registry.npmjs.org。",
+    "That's as many domains as one project can allow.": "这个项目允许的域名已经达到上限。"
+  },
+  "patterns": []
+}

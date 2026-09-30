@@ -2,7 +2,8 @@
 // one, and all it had (the read-only commands switch, the commands a session won't ask about
 // again) with the project's own rules: deny, ask or allow, in Claude Code's rule syntax, a
 // field to add one, and import from and export to the project's .claude settings files (a
-// second press writes).
+// second press writes). Its Sandbox section is features/code_sandbox.py's: the switch for
+// Bypass and unattended sessions, this session's own choice, and the project's allowlist.
 //
 // Rules, project and file names are data: text only (textContent), marked data-no-i18n.
 // Pure helpers are exported for node --test (tests/web/code-rules.test.mjs).
@@ -45,7 +46,19 @@
     return BEHAVIORS.reduce((n, b) => n + (((rules || {})[b] || []).length), 0);
   }
 
-  const api = { ruleKind, claudeRows, count, BEHAVIORS };
+  // Where a session stands with the sandbox (a cs_state): its line in the pane.
+  function sandboxLine(s) {
+    if (!s) return '';
+    if (!s.on) return 'Its commands run outside the sandbox.';
+    return s.live ? 'Its commands run in the sandbox.' : 'Its commands run in the sandbox from its next step; until then each one asks.';
+  }
+
+  // Domains typed into the allowlist field: split at spaces and commas.
+  function domainsOf(text) {
+    return String(text || '').split(/[\s,]+/).map((d) => d.trim()).filter(Boolean).slice(0, 20);
+  }
+
+  const api = { ruleKind, claudeRows, count, sandboxLine, domainsOf, BEHAVIORS };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -55,6 +68,8 @@
   const KIND_LABEL = { web: 'Web', mcp: 'MCP', files: 'Files', command: 'Command', tool: 'Tool' };
 
   const states = new Map();  // task id -> its latest cr_state
+  const sandboxes = new Map();  // task id -> its latest cs_state
+  let domainDraft = '';  // what's typed in the allowlist field
   let readOnly = true;  // prefs.code_read_only
   let behavior = 'deny';  // what the add field adds
   let draft = '';  // what's typed there, kept across redraws
@@ -68,6 +83,88 @@
     if (asked.id === task.id && now - asked.at < 400) return;  // (opening the pane asks twice)
     asked = { id: task.id, at: now };
     F.send({ type: 'cr_state', id: task.id });
+    F.send({ type: 'cs_state', id: task.id });
+  }
+
+  const PRESET_LABELS = { npm: 'npm', pypi: 'PyPI', github: 'GitHub' };
+
+  // The Sandbox section: the switch, this session's own choice, and the project's allowlist.
+  function sandboxSection(task) {
+    const s = sandboxes.get(task.id);
+    const parts = [el('p', 'jc-label cr-head', 'Sandbox')];
+    if (!s) return parts;
+    const row = el('div', 'jc-audit-switch');
+    const text = el('span');
+    text.append(el('strong', '', 'Sandbox Bypass and unattended sessions'),
+      el('small', '', 'Their commands can write only in the project and reach only the domains allowed below.'));
+    const sw = el('button', `sw${s.default ? ' on' : ''} cs-switch`);
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', String(!!s.default));
+    sw.setAttribute('aria-label', 'Sandbox Bypass and unattended sessions');
+    sw.addEventListener('click', () => F.send({ type: 'feature_prefs', changes: { code_sandbox_bypass: !s.default } }));
+    row.append(text, sw);
+    const mineRow = el('div', 'cs-session');
+    mineRow.append(el('span', 'cs-session-label', 'This session'));
+    const seg = el('div', 'cr-seg cs-seg');
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', 'This session’s sandbox');
+    for (const [value, label] of [[null, 'As set'], [true, 'On'], [false, 'Off']]) {
+      const b = el('button', '', label);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.dataset.on = String(value);
+      b.setAttribute('aria-checked', String(s.own === value || (value === null && (s.own === undefined || s.own === null))));
+      b.addEventListener('click', () => F.send({ type: 'cs_session', id: task.id, on: value }));
+      seg.append(b);
+    }
+    mineRow.append(seg);
+    const line = el('p', `jc-dim cs-line${s.on ? ' on' : ''}`, sandboxLine(s));
+    parts.push(row, mineRow, line);
+    // The project's allowlist.
+    const head = el('p', 'cr-group-head cs-domains-head');
+    head.append(el('strong', '', 'Domains sandboxed commands may reach'));
+    parts.push(head);
+    const domains = s.domains || [];
+    if (!domains.length) parts.push(el('p', 'jc-dim cr-none', 'None: sandboxed commands reach only this Mac’s own servers.'));
+    else {
+      const ul = el('ul', 'jc-list cr-list cs-domains');
+      ul.append(...domains.map((d) => {
+        const li = el('li');
+        const rm = el('button', 'jc-btn small', 'Remove');
+        rm.type = 'button';
+        rm.addEventListener('click', () => F.send({ type: 'cs_domains', id: task.id, remove: d }));
+        li.append(mine(el('code', 'cr-text', d)), rm);
+        return li;
+      }));
+      parts.push(ul);
+    }
+    const add = el('div', 'cr-add-row cs-add');
+    const input = el('input', 'jc-field cs-input');
+    input.placeholder = 'registry.npmjs.org';
+    input.setAttribute('aria-label', 'Domains to allow');
+    input.spellcheck = false;
+    input.value = domainDraft;
+    input.addEventListener('input', () => { domainDraft = input.value; });
+    const allow = el('button', 'jc-btn small filled cs-allow', 'Allow');
+    allow.type = 'button';
+    const go = () => { const list = domainsOf(input.value); if (list.length) F.send({ type: 'cs_domains', id: task.id, add: list }); else input.focus(); };
+    allow.addEventListener('click', go);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    add.append(input, allow);
+    const presets = el('div', 'cs-presets');
+    presets.append(el('span', 'jc-dim', 'Add the usual ones for'));
+    for (const name of Object.keys(s.presets || {})) {
+      const b = el('button', 'jc-mini cs-preset', PRESET_LABELS[name] || name);
+      b.type = 'button';
+      b.dataset.preset = name;
+      b.title = (s.presets[name] || []).join(', ');
+      b.addEventListener('click', () => F.send({ type: 'cs_domains', id: task.id, add: name }));
+      presets.append(b);
+    }
+    parts.push(add, presets);
+    if (s.error) parts.push(el('p', 'cr-error', s.error));
+    return parts;
   }
 
   function readOnlySwitch() {
@@ -205,6 +302,7 @@
       }));
       parts.push(ul);
     }
+    parts.push(...sandboxSection(task));
     // The project's .claude settings files.
     parts.push(el('p', 'jc-label cr-head', 'Claude Code’s settings in this project'));
     const rows = claudeRows(state.claude);
@@ -237,15 +335,26 @@
     render(body, task) { render(body, task); if (task) ask(task); },
   });
 
+  // A fresh state for the session on show: drawn again, the field being typed in kept.
+  function redraw(id) {
+    const task = F.currentTask();
+    if (!paneShown() || !task || task.id !== id) return;
+    const focused = document.activeElement;
+    const which = focused && focused.classList && focused.classList.contains('cs-input') ? '.cs-input' : focused && focused.classList && focused.classList.contains('cr-input') ? '.cr-input' : '';
+    render(paneBody, task);
+    if (which) { const input = paneBody.querySelector(which); if (input) input.focus(); }
+  }
+
   F.on('cr_state', (ev) => {
     states.set(ev.id, ev);
     if (ev.added) draft = '';  // (a rule added: the field starts over)
-    const task = F.currentTask();
-    if (paneShown() && task && task.id === ev.id) {
-      const focused = paneBody.querySelector('.cr-input') === document.activeElement;
-      render(paneBody, task);
-      if (focused) { const input = paneBody.querySelector('.cr-input'); if (input) input.focus(); }
-    }
+    redraw(ev.id);
+  });
+  F.on('cs_state', (ev) => {
+    const before = sandboxes.get(ev.id);
+    if (!ev.error && before && (ev.domains || []).length > (before.domains || []).length) domainDraft = '';  // (added)
+    sandboxes.set(ev.id, ev);
+    redraw(ev.id);
   });
   const readPrefs = (p) => { if (p && typeof p.code_read_only === 'boolean') readOnly = p.code_read_only; };
   F.on('prefs', (ev) => { readPrefs(ev); if (paneShown()) render(paneBody, F.currentTask()); }, { replay: true });
