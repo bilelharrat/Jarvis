@@ -97,10 +97,13 @@ class MacGate:
         spoken: str = "",
         choices: tuple[str, str] | None = None,
     ) -> bool:
-        """A yes or no on a card, said out loud (in the owner's language: the hub translates
-        the sentences lang knows)."""
+        """A yes or no on a card, said out loud (in the owner's language: the hub says the
+        sentences lang knows in Chinese, and the window shows the card's question in it; the
+        detail under it is the window's data, so it's put in the owner's language here)."""
         self.hub._say(spoken or question)
         options = [("allow", choices[0]), ("deny", choices[1])] if choices else None
+        if detail and lang.is_zh(self.hub.language):
+            detail = lang.translate(detail, self.hub.language)
         return await self.hub.request_approval(question, detail, options) == "allow"
 
     async def operate(

@@ -24,7 +24,24 @@
     "Queued music": "加入了播放队列",
     "Played Spotify": "用 Spotify 播放了",
     "Checked your speakers": "查看了你的扬声器",
-    "Switched speakers": "切换了扬声器"
+    "Switched speakers": "切换了扬声器",
+    "Flipped a Mac switch": "切换了 Mac 的开关",
+    "Checked the Mac's switches": "查看了 Mac 的开关",
+    "Checked your home questions": "查看了你的家居问题",
+    "Asked your home": "询问了你的家居",
+    "Turn dark mode on?": "要打开深色模式吗？",
+    "Turn dark mode off?": "要关闭深色模式吗？",
+    "Turn Wi-Fi on?": "要打开 Wi-Fi 吗？",
+    "Turn Wi-Fi off?": "要关闭 Wi-Fi 吗？",
+    "Turn Bluetooth on?": "要打开蓝牙吗？",
+    "Turn Bluetooth off?": "要关闭蓝牙吗？",
+    "Turn Focus off?": "要关闭专注模式吗？",
+    "Home questions": "家居问题",
+    "Shortcuts that only look, like “Is the garage closed”: ask “Jarvis, is the garage closed?” and I run it without asking and tell you what it says.": "只查看状态的快捷指令，比如“车库门关了吗”：问“贾维斯，车库门关了吗？”，我会直接运行它，并告诉你它的回答。",
+    "Add a question shortcut…": "添加一个问题快捷指令…",
+    "No other shortcuts to add": "没有其他可添加的快捷指令",
+    "Add a home question": "添加家居问题",
+    "Focus and Do Not Disturb: make shortcuts with the Set Focus action named like “Work Focus On” and “Focus Off”, then say “Jarvis, turn on work focus.”": "专注模式和勿扰模式：用“设定专注模式”操作做几个快捷指令，命名为“工作专注模式 开”“专注模式 关”之类，然后说“贾维斯，打开工作专注模式。”"
   },
   "patterns": [
     [
@@ -86,6 +103,14 @@
     [
       "^Remove (\\d+) price alerts for (.+)\\?$",
       "要删除 $2 的 $1 个价格提醒吗？"
+    ],
+    [
+      "^Turn on the (.+) Focus\\?$",
+      "要打开“$1”专注模式吗？"
+    ],
+    [
+      "^Remove “(.+)” from home questions$",
+      "从家居问题中移除“$1”"
     ]
   ]
 }

@@ -15,8 +15,8 @@ import pytest
 from jarvis import lang
 from jarvis.server import WEB_DIR, zh_strings
 
-FEATURES = ["places", "stocks", "mac_music"]
-SCRIPTS = ["stocks.js"]
+FEATURES = ["places", "stocks", "mac_music", "mac_switches"]
+SCRIPTS = ["stocks.js", "mac-actions.js"]
 # What a {slot} or ${…} stands for when a sentence is tried against the window's patterns.
 SAMPLE = "2"
 # Literals in the scripts that aren't the window's words: event and command names, CSS, ids.
@@ -49,12 +49,15 @@ def test_every_activity_label_has_its_chinese(merged, name):
 
 @pytest.mark.parametrize("name", FEATURES)
 def test_every_card_is_spoken_and_shown_in_chinese(merged, name):
-    texts = getattr(_module(name), "TEXTS", {})
-    for english, zh in texts.items():
+    module = _module(name)
+    for english, zh in getattr(module, "TEXTS", {}).items():
         sample = re.sub(r"\{\w+\}", "2", english)
         assert lang.translate(sample, "zh") != sample, english  # spoken (lang.add_texts)
         assert lang.has_cjk(zh)
-        assert chinese(merged, sample) is not None, english  # shown on the card
+        assert chinese(merged, sample) is not None, english  # the card's question, shown
+    for english in getattr(module, "DETAIL_TEXTS", {}):
+        sample = re.sub(r"\{\w+\}", "2", english)
+        assert lang.has_cjk(lang.translate(sample, "zh")), english  # mac_gate translates it
 
 
 def _literals(source: str) -> set[str]:
@@ -80,6 +83,6 @@ def test_every_window_sentence_has_its_chinese(merged, script):
 
 
 def test_the_scripts_are_the_ones_listed():
-    ours = {"stocks.js"}
+    ours = {"stocks.js", "mac-actions.js"}
     present = {p.name for p in Path(WEB_DIR / "features").glob("*.js")} & ours
     assert present == set(SCRIPTS)

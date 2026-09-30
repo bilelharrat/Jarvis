@@ -1,0 +1,6 @@
+/* Home questions under the shortcuts in Settings › Home & Shortcuts (features/mac-actions.js). */
+.homeq { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.homeq-title { display: flex; flex-direction: column; gap: 2px; }
+.homeq-title small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.homeq-list { max-height: 180px; }
+.homeq-add { width: 100%; }

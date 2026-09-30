@@ -2953,6 +2953,25 @@ test('Settings › Markets lists price alerts, removes one on a click and sets b
   assert(await js('document.querySelectorAll(".stocks-alerts li").length === 0 && document.querySelector(".stocks-cap").hidden'), 'the list did not empty');
 });
 
+test('Settings › Home & Shortcuts: shortcuts marked as home questions are added and removed', async () => {
+  await loadFeatures('mac-actions.js', 'mac-actions.css');
+  await js('__ev({ type: "shortcuts", names: ["Is the garage closed", "Movie Night", "Front door locked?"], instant: [] }); true');
+  await js('featureEvent({ type: "prefs", features: { home_questions: ["Front door locked?"] } }); true');
+  const placed = await js('$("shortcut-list").nextElementSibling.classList.contains("homeq")');
+  assert(placed, 'the home questions are not under the shortcuts');
+  const shown = await js('({ marked: [...document.querySelectorAll(".homeq-list strong")].map((n) => n.textContent), offered: [...document.querySelectorAll(".homeq-add option")].map((o) => o.value) })');
+  assert(JSON.stringify(shown) === JSON.stringify({ marked: ['Front door locked?'], offered: ['', 'Is the garage closed', 'Movie Night'] }), JSON.stringify(shown));
+  await js('__sent.length = 0; const s = document.querySelector(".homeq-add"); s.value = "Is the garage closed"; s.dispatchEvent(new Event("change")); true');
+  let sent = await js('__sent');
+  assert(JSON.stringify(sent) === JSON.stringify([{ type: 'feature_prefs', changes: { home_questions: ['Front door locked?', 'Is the garage closed'] } }]), JSON.stringify(sent));
+  assert(await js('document.querySelectorAll(".homeq-list li").length') === 2, 'the added one is not listed');
+  await js('__sent.length = 0; document.querySelector(".homeq-list li button").click(); true');
+  sent = await js('__sent');
+  assert(JSON.stringify(sent) === JSON.stringify([{ type: 'feature_prefs', changes: { home_questions: ['Is the garage closed'] } }]), JSON.stringify(sent));
+  const focus = await js('document.querySelector(".homeq-focus").textContent');
+  assert(focus.includes('“Work Focus On”'), focus);
+});
+
 // ──
 
 let base;
