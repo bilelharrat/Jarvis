@@ -733,7 +733,7 @@ async def test_edits_mode_stays_in_the_project_and_reads_outside_ask(settings, t
     assert isinstance(await policy("WebSearch", {"query": "x"}, ctx), PermissionResultAllow)
     opts = tm.options_for(task)
     assert opts.allowed_tools == ["TodoWrite"]  # reading and fetching go past the policy
-    tm.session_servers = lambda cwd: code_tools.build_servers(None, None, lambda: cwd)
+    tm.session_servers = lambda cwd, task_id=0: code_tools.build_servers(None, None, lambda: cwd)
     opts = tm.options_for(task)
     assert {code_tools.BROWSER, code_tools.SIMULATOR} <= set(opts.mcp_servers)
     assert opts.allowed_tools == ["TodoWrite", *code_tools.READ_ONLY]

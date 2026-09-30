@@ -10,6 +10,7 @@ const os = require('os');
 const path = require('path');
 const { toUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { pagePermission } = require('./page-permissions'); // full screen, nothing else
+const { createAgent } = require('./browser-agent');
 
 app.setName('J.A.R.V.I.S.');
 
@@ -262,6 +263,7 @@ let lastBounds = null;
 let browserShown = false;
 let browserLocked = false;
 let browserSynthetic = false; // true only while Jarvis itself sends input
+let agentInput = false; // true while the browser agent's own keys and clicks go in (browser-agent.js)
 let browserZoom = 1; // this session's zoom; Chromium would otherwise keep one per host forever
 let researchBase = '';
 let browserAsked = false; // a page was asked for: showing the view must not load the start page over it
@@ -703,9 +705,9 @@ function createTab() {
   wc.session.setPermissionRequestHandler((_wc, permission, callback) => callback(pagePermission(permission)));
   // On the Research Center, direct input never reaches the page (Jarvis's own does).
   wc.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && input.key === 'Escape' && win) win.webContents.send('browser:escape');
+    if (input.type === 'keyDown' && input.key === 'Escape' && win && !agentInput) win.webContents.send('browser:escape');
     // Chrome's shortcuts work with the page focused too (they're the browser's, not the page's).
-    if (input.type === 'keyDown' && !browserSynthetic && browserShortcut(input)) { event.preventDefault(); return; }
+    if (input.type === 'keyDown' && !browserSynthetic && !agentInput && browserShortcut(input)) { event.preventDefault(); return; }
     if (active() && browserLocked && !browserSynthetic) event.preventDefault();
   });
   // The window only shows local and data: images, so the icon comes over as data.
@@ -764,20 +766,20 @@ function focusScript(target) {
   })()`;
 }
 
-function browserInput(fn) {
+function browserInput(fn, view = browserView) {
   browserSynthetic = true;
-  try { fn(browserView.webContents); } finally { browserSynthetic = false; }
+  try { fn(view.webContents); } finally { browserSynthetic = false; }
 }
 
-function clickAt(x, y) {
+function clickAt(x, y, view = browserView) {
   browserInput((wc) => {
     wc.sendInputEvent({ type: 'mouseMove', x, y });
     wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
     wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
-  });
+  }, view);
 }
 
-function pageCall(action, args = {}, ms = 6000) {
+function pageCall(action, args = {}, ms = 6000, view = browserView) {
   return new Promise((resolve) => {
     const id = crypto.randomBytes(6).toString('hex');
     const timer = setTimeout(() => {
@@ -785,7 +787,7 @@ function pageCall(action, args = {}, ms = 6000) {
       resolve({ ok: false, message: 'The page did not answer.' });
     }, ms);
     pageCalls.set(id, (result) => { clearTimeout(timer); resolve(result || {}); });
-    browserView.webContents.send('jarvis:command', { id, action, args });
+    view.webContents.send('jarvis:command', { id, action, args });
   });
 }
 
@@ -814,9 +816,10 @@ async function researchOpen(pathname) {
 
 const fromPage = (event) => browserView && event.sender === browserView.webContents;
 const fromWindow = (event) => win && event.sender === win.webContents;
+const fromTab = (event) => tabs.some((view) => event.sender === view.webContents); // any tab's answer
 
 ipcMain.on('page:result', (event, message) => {
-  if (!fromPage(event) || !message) return;
+  if (!fromTab(event) || !message) return;
   const done = pageCalls.get(message.id);
   if (done) {
     pageCalls.delete(message.id);
@@ -833,11 +836,24 @@ ipcMain.on('page:click', (event, p) => {
   if (fromPage(event) && p) clickAt(Number(p.x) || 0, Number(p.y) || 0);
 });
 
+// JARVIS's and Jarvis Code's hands over the DevTools protocol: snapshots with element refs,
+// actions by ref, waits (browser-agent.js). It works on any tab, the one on show or not.
+const browserAgent = createAgent({
+  tabs: () => tabs,
+  ensureBrowser,
+  isShown: (view) => Boolean(view && view === browserView && browserShown),
+  setSynthetic: (on) => { agentInput = on; },
+  research: (view) => onResearch(view.webContents.getURL()),
+});
+
 async function runBrowserCommand({ action, args = {} }) {
-  const view = ensureBrowser();
+  if (browserAgent.handles(action)) return browserAgent.run(action, args);
+  let view;
+  try { view = browserAgent.target(args); } catch (err) { return { ok: false, message: err.message }; } // args.tab, else the tab on show
   const wc = view.webContents;
-  const where = () => ({ url: wc.getURL(), title: wc.getTitle() });
-  const signIn = onResearch(wc.getURL()) && !browserLocked;
+  const where = () => ({ url: wc.getURL(), title: wc.getTitle(), tab: wc.id });
+  const signIn = onResearch(wc.getURL()) && RESEARCH_AUTH.test(researchPath(wc.getURL()));
+  const lockedHere = onResearch(wc.getURL()) && !signIn;
   if (signIn && ['click', 'type', 'search'].includes(action)) {
     return { error: 'The Research Center is on its sign-in page. The user signs in themselves; after that I can drive it.' };
   }
@@ -865,14 +881,15 @@ async function runBrowserCommand({ action, args = {} }) {
       return { ok: true, ...where() };
     case 'read':
       if (!wc.getURL()) return { error: 'The browser is empty. Open a page first.' };
-      return { ...(await pageCall('read')), locked: browserLocked };
+      return { ...(await pageCall('read', {}, 6000, view)), locked: lockedHere, tab: wc.id };
     case 'click': {
-      const found = await pageCall('locate', { text: String(args.text || ''), selector: String(args.selector || '') });
+      const found = await pageCall('locate', { text: String(args.text || ''), selector: String(args.selector || '') }, 6000, view);
       if (!found.ok) return found;
       if (found.risky && !args.force) {
-        return { ok: false, needsConfirm: true, label: found.label, message: `“${found.label}” needs the user's OK first.` };
+        return { ok: false, needsConfirm: true, label: found.label, message: `“${found.label}” needs the user's OK first.`, ...where() };
       }
-      clickAt(found.x, found.y);
+      // behind other tabs or apps, the press goes in over the DevTools protocol
+      if (!(await browserAgent.pressHidden(view, { x: found.x, y: found.y }).catch(() => false))) clickAt(found.x, found.y, view);
       await waitForLoad(wc, 8000);
       return { ok: true, message: `Clicked “${found.label}”`, ...where() };
     }
@@ -881,11 +898,13 @@ async function runBrowserCommand({ action, args = {} }) {
       if (!focused) return { ok: false, message: 'No text field to type into.' };
       await wc.insertText(String(args.text || ''));
       if (args.submit) {
-        browserInput((view2) => {
-          view2.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
-          view2.sendInputEvent({ type: 'char', keyCode: '\r' });
-          view2.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
-        });
+        if (!(await browserAgent.pressHidden(view, { key: 'Enter' }).catch(() => false))) {
+          browserInput((view2) => {
+            view2.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+            view2.sendInputEvent({ type: 'char', keyCode: '\r' });
+            view2.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+          }, view);
+        }
         await waitForLoad(wc, 10000);
       }
       return { ok: true, ...where() };
@@ -906,7 +925,7 @@ async function runBrowserCommand({ action, args = {} }) {
     case 'scroll': {
       const direction = args.direction || (Number(args.amount) < 0 ? 'up' : 'down');
       const amount = Math.abs(Number(args.amount || 1)) || 1;
-      return { ...(await pageCall('scroll', { direction, amount })), ...where() };
+      return { ...(await pageCall('scroll', { direction, amount }, 6000, view)), ...where() };
     }
     case 'zoom': {
       const now = wc.getZoomFactor();

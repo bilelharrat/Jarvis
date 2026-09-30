@@ -859,7 +859,7 @@ class TaskManager:
         self.rules = rules or RuleStore()
         # Extra MCP servers for a session in a folder (the built-in browser, the iOS
         # Simulator: code_tools), set by the hub.
-        self.session_servers: Callable[[Path], dict[str, Any]] | None = None
+        self.session_servers: Callable[[Path, int], dict[str, Any]] | None = None
         # Feature modules' own additions to a code session's options (jarvis.features):
         # each is called with the session and its options as they're made.
         self.session_extras: list[Callable[[ClaudeTask, ClaudeAgentOptions], None]] = []
@@ -1852,7 +1852,7 @@ class TaskManager:
         )
         if self.session_servers is not None:
             # Added to the user's own MCP servers from their settings, never instead.
-            extra = self.session_servers(task.cwd)
+            extra = self.session_servers(task.cwd, task.id)  # its own browser tab, by id
             base = options.mcp_servers if isinstance(options.mcp_servers, dict) else {}
             options.mcp_servers = {**base, **extra}
             options.allowed_tools = [*options.allowed_tools, *code_tools.READ_ONLY]

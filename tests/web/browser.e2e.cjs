@@ -1,0 +1,217 @@
+// The browser agent (app/browser-agent.js over the DevTools protocol, with app/page-preload.js
+// in each tab) against a local test page, in a real Chromium: snapshots across frames and
+// shadow DOM, acting by ref with real input, waits, stale refs, a covered button, a tab
+// behind the one on show. No window is ever shown (a hidden one holds the tabs, which is
+// also how a covered J.A.R.V.I.S. window looks to Chromium); nothing leaves 127.0.0.1.
+//
+//   app/node_modules/.bin/electron tests/web/browser.e2e.cjs      (about 20 s; exit 1 on a failure)
+'use strict';
+
+const { app, BrowserWindow, WebContentsView } = require('electron');
+const fs = require('fs');
+const http = require('http');
+const os = require('os');
+const path = require('path');
+const { createAgent } = require('../../app/browser-agent');
+
+app.setPath('userData', fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jarvis-browser-test-')));
+app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const PAGES = {
+  '/shop.html': `<!doctype html><html><head><title>Test shop</title>
+<style>.hidebox{position:absolute;opacity:0;width:0;height:0} .fake{display:inline-block;width:14px;height:14px;border:1px solid #333}
+#cover{position:fixed;left:0;top:0;right:0;height:220px;background:#eee;z-index:9} body{padding-top:130px}</style></head><body>
+<div id="cover" hidden>Cookies! <button id="ok">Accept all</button></div>
+<header><nav><a href="/other.html">Other page</a></nav></header>
+<main><h1>Checkout</h1>
+<form id="f"><label for="em">Email address</label> <input id="em" name="email" required>
+<fieldset><legend>Shipping</legend><label><input type="radio" name="ship" value="std" checked> Standard</label>
+<label><input type="radio" name="ship" value="exp"> Express</label></fieldset>
+<select id="qty" aria-label="Quantity"><option>1</option><option selected>2</option><option>3</option></select>
+<input type="checkbox" id="gift" class="hidebox"><label for="gift"><span class="fake"></span> Gift wrap</label>
+<button type="submit">Place order</button></form>
+<button id="count" onclick="this.dataset.n=(+this.dataset.n||0)+1;this.textContent='Clicked '+this.dataset.n">Count me</button>
+<button id="later" onclick="setTimeout(()=>{const p=document.createElement('p');p.id='done';p.textContent='Saved at last';document.querySelector('main').append(p)},500)">Save slowly</button>
+<button id="top" onclick="document.getElementById('cover').hidden=false">Show banner</button>
+<my-comp></my-comp>
+<iframe id="same" src="/frame.html" title="Same frame" style="width:300px;height:80px"></iframe>
+<iframe id="cross" src="http://localhost:PORT/frame2.html" title="Cross frame" style="width:300px;height:80px"></iframe>
+<div style="height:1500px"></div><button id="far" onclick="this.textContent='Far clicked'">Far away</button>
+</main>
+<aside><h2>Summary</h2><p>Order total: $56.26</p></aside>
+<script>customElements.define('my-comp', class extends HTMLElement { connectedCallback() {
+  const r = this.attachShadow({ mode: 'closed' }); r.innerHTML = '<button>Shadow button</button>'; r.querySelector('button').onclick = () => { document.title = 'shadow clicked'; }; } });
+document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); document.title = 'Submitted ' + new FormData(e.target).get('email'); });
+addEventListener('click', (e) => { window.trusted = e.isTrusted; }, true);
+</script></body></html>`,
+  '/frame.html': '<!doctype html><body><button onclick="this.textContent=\'frame clicked\'">Frame button</button></body>',
+  '/frame2.html': '<!doctype html><body><label>Card holder <input id="ch"></label><button onclick="this.textContent=\'cross clicked\'">Cross button</button></body>',
+  '/other.html': '<!doctype html><title>Other</title><body><h1>Another page</h1><a href="/shop.html">Back to shop</a></body>',
+};
+
+function serve() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      const page = PAGES[new URL(req.url, 'http://x').pathname];
+      if (!page) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(page.replace(/PORT/g, String(server.address().port)));
+    });
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
+
+let win;
+let base;
+let agent;
+const tabs = [];
+let shown = null;
+const newTab = () => {
+  const view = new WebContentsView({ webPreferences: { partition: 'browser-test', preload: path.join(__dirname, '..', '..', 'app', 'page-preload.js'), sandbox: true, contextIsolation: true } });
+  view.setBounds({ x: 0, y: 0, width: 1000, height: 700 });
+  tabs.push(view);
+  return view;
+};
+const page = (view, code) => view.webContents.executeJavaScript(code, true);
+const run = (action, args = {}) => agent.run(action, args);
+const refOf = (snap, re) => {
+  const line = String(snap.text || '').split('\n').find((l) => re.test(l));
+  if (!line) throw new Error(`no line matching ${re} in:\n${snap.text}`);
+  return line.match(/\[(e\d+)\]/)[1];
+};
+
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
+function assert(cond, message) { if (!cond) throw new Error(message); }
+
+async function fresh(view = shown) {
+  await view.webContents.loadURL(`${base}/shop.html`);
+  await sleep(150);
+  return run('snapshot', { tab: view.webContents.id });
+}
+
+test('A snapshot lists the page across frames and shadow DOM, with refs and states', async () => {
+  const snap = await fresh();
+  assert(snap.ok && snap.first, JSON.stringify(snap).slice(0, 300));
+  for (const re of [/\[e\d+\] textbox "Email address" \(required/, /\[e\d+\] radio "Standard" \(checked/, /\[e\d+\] combobox "Quantity" = "2"/,
+    /\[e\d+\] checkbox "Gift wrap" \(unchecked/, /\[e\d+\] button "Shadow button"/, /iframe "Same frame"[^\n]*\n\s+\[e\d+\] button "Frame button"/,
+    /iframe "Cross frame"[^\n]*\n(.*\n)*?\s+\[e\d+\] textbox "Card holder"/, /"Order total: \$56\.26"/]) {
+    assert(re.test(snap.text), `missing ${re}:\n${snap.text}`);
+  }
+  assert(/button "Place order" \(in view\)/.test(snap.text) && /button "Far away"\n/.test(snap.text), 'in-view marks are wrong');
+});
+
+test('Clicks, typing, select and check land by ref, in every frame', async () => {
+  const snap = await fresh();
+  for (const [re, args] of [[/button "Count me"/, {}], [/button "Shadow button"/, {}], [/button "Frame button"/, {}], [/button "Cross button"/, {}], [/button "Far away"/, {}]]) {
+    const r = await run('act', { kind: 'click', ref: refOf(snap, re), ...args });
+    assert(r.ok, `${re}: ${r.message}`);
+    assert(!/own click/.test(r.message), `real input didn't reach the hidden page: ${r.message}`);
+  }
+  assert((await page(shown, 'window.trusted')) === true, 'the click was not real input');
+  let r = await run('act', { kind: 'type', ref: refOf(snap, /textbox "Email address"/), text: 'ada@example.com' });
+  assert(r.ok, r.message);
+  r = await run('act', { kind: 'type', ref: refOf(snap, /textbox "Card holder"/), text: 'Ada Lovelace' });
+  assert(r.ok, r.message);
+  r = await run('act', { kind: 'select', ref: refOf(snap, /combobox "Quantity"/), values: ['3'] });
+  assert(r.ok, r.message);
+  r = await run('act', { kind: 'check', ref: refOf(snap, /checkbox "Gift wrap"/) });
+  assert(r.ok, r.message);
+  const state = await page(shown, `({ count: document.getElementById('count').textContent, title: document.title, email: document.getElementById('em').value,
+    qty: document.getElementById('qty').value, gift: document.getElementById('gift').checked, far: document.getElementById('far').textContent,
+    frame: document.getElementById('same').contentDocument.body.innerText })`);
+  assert(state.count === 'Clicked 1' && state.title === 'shadow clicked' && state.email === 'ada@example.com' && state.qty === '3'
+    && state.gift && state.far === 'Far clicked' && state.frame === 'frame clicked', JSON.stringify(state));
+  const again = await run('snapshot', { tab: shown.webContents.id, interactive: true });
+  assert(/^~\s+\[e\d+\] button "Clicked 1"|^\+\s+\[e\d+\] button "Clicked 1"/m.test(again.text) || /"Clicked 1"/.test(again.text), again.text);
+  assert(/^~\s+\[e\d+\] textbox "Email address" = "ada@example.com"/m.test(again.text), `no change mark:\n${again.text}`);
+});
+
+test('A press that submits waits for the user; forced, it goes', async () => {
+  const snap = await fresh();
+  await run('act', { kind: 'type', ref: refOf(snap, /textbox "Email address"/), text: 'cy@example.com' });
+  const ref = refOf(snap, /button "Place order"/);
+  const r = await run('act', { kind: 'click', ref });
+  assert(!r.ok && r.needsConfirm && r.label === 'Place order', JSON.stringify(r));
+  assert(!/Submitted/.test(await page(shown, 'document.title')), 'it submitted without an OK');
+  const forced = await run('act', { kind: 'click', ref, force: true });
+  assert(forced.ok, forced.message);
+  assert((await page(shown, 'document.title')) === 'Submitted cy@example.com', 'forced press did not submit');
+});
+
+test('Enter types and submits; unknown keys are refused', async () => {
+  const snap = await fresh();
+  await run('act', { kind: 'type', ref: refOf(snap, /textbox "Email address"/), text: 'bob@example.com' });
+  const bad = await run('act', { kind: 'press', key: 'Hyper+Q' });
+  assert(!bad.ok && /isn't a key/.test(bad.message), bad.message);
+  await page(shown, "window.__log = []; for (const t of ['keydown','keypress','submit','focusin','focusout']) addEventListener(t, (e) => __log.push(t + ':' + (e.key || (e.target && e.target.id) || '')), true); true");
+  const r = await run('act', { kind: 'press', key: 'Enter', force: true });
+  assert(r.ok, r.message);
+  const title = await page(shown, 'document.title');
+  assert(title === 'Submitted bob@example.com', `${title} ${r.message} ${JSON.stringify(await page(shown, '({ log: window.__log, active: document.activeElement && document.activeElement.id, focus: document.hasFocus() })'))}`);
+});
+
+test('Something over an element is named, not clicked through', async () => {
+  const snap = await fresh();
+  await page(shown, 'document.getElementById("cover").hidden = false; scrollTo(0, 0); true');
+  const r = await run('act', { kind: 'click', ref: refOf(snap, /link "Other page"/) });
+  assert(!r.ok && /covered by <div#cover>/.test(r.message), r.message);
+});
+
+test('Waiting for text, and refs going stale on a new page', async () => {
+  const snap = await fresh();
+  const later = await run('act', { kind: 'click', ref: refOf(snap, /button "Save slowly"/) });
+  assert(later.ok, later.message);
+  const waited = await run('wait', { text: 'Saved at last', ms: 5000 });
+  assert(waited.ok, waited.message);
+  const nope = await run('wait', { text: 'never appears', ms: 400 });
+  assert(!nope.ok && /Still not/.test(nope.message), nope.message);
+  const count = refOf(snap, /button "Count me"/);
+  const nav = await run('act', { kind: 'click', ref: refOf(snap, /link "Other page"/) });
+  assert(nav.ok && nav.navigated, JSON.stringify(nav));
+  const stale = await run('act', { kind: 'click', ref: count });
+  assert(!stale.ok && /earlier snapshot/.test(stale.message), stale.message);
+  const url = await run('wait', { url: '**/other.html', ms: 2000 });
+  assert(url.ok, url.message);
+});
+
+test('A tab behind the one on show takes snapshots and clicks, and refs stay with their tab', async () => {
+  const onShow = await fresh();
+  const behind = newTab();
+  await behind.webContents.loadURL(`${base}/shop.html`);
+  const snap = await run('snapshot', { tab: behind.webContents.id, interactive: true });
+  assert(snap.ok && snap.shown === false, JSON.stringify(snap).slice(0, 200));
+  const r = await run('act', { tab: behind.webContents.id, kind: 'click', ref: refOf(snap, /button "Count me"/) });
+  assert(r.ok, r.message);
+  assert((await page(behind, 'document.getElementById("count").textContent')) === 'Clicked 1', 'the click did not land behind');
+  const wrong = await run('act', { tab: behind.webContents.id, kind: 'click', ref: refOf(onShow, /button "Count me"/) });
+  assert(!wrong.ok && /belongs to tab/.test(wrong.message), wrong.message);
+  const closed = await run('snapshot', { tab: 99999 });
+  assert(!closed.ok && /closed/.test(closed.message), closed.message);
+});
+
+app.whenReady().then(async () => {
+  if (app.dock) app.dock.hide();
+  const server = await serve();
+  base = `http://127.0.0.1:${server.address().port}`;
+  win = new BrowserWindow({ show: false, width: 1000, height: 700 });
+  shown = newTab();
+  win.contentView.addChildView(shown);
+  agent = createAgent({
+    tabs: () => tabs, ensureBrowser: () => shown, isShown: (v) => v === shown, setSynthetic: () => {}, research: () => false,
+  });
+  let failed = 0;
+  for (const t of tests) {
+    try {
+      await t.fn();
+      console.log(`ok     ${t.name}`);
+    } catch (err) {
+      failed++;
+      console.log(`FAILED ${t.name}\n       ${String(err.message).split('\n').join('\n       ')}`);
+    }
+  }
+  console.log(`\n${tests.length - failed} passed, ${failed} failed`);
+  server.close();
+  app.exit(failed ? 1 : 0);
+});

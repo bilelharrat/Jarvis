@@ -44,6 +44,7 @@ from claude_agent_sdk import (
 
 from . import (
     answering,
+    browser_agent,
     browser_gate,
     code_tools,
     computer,
@@ -175,6 +176,9 @@ TOOL_LABELS = {
     "browser_scroll": "Scrolled the browser",
     "browser_back": "Went back in the browser",
     "browser_screenshot": "Looked at the browser page",
+    "browser_snapshot": "Looked over the browser page",
+    "browser_act": "Acted in the browser",
+    "browser_wait": "Waited for the browser page",
     "search_notes": "Searched your second brain",
     "read_note": "Read a note",
     "second_brain_status": "Checked the second brain",
@@ -781,8 +785,11 @@ class Hub:
             self.emit
         )  # the iOS Simulator pane (live frames + input)
         # A Jarvis Code session gets the built-in browser and the iOS Simulator too.
-        self.tasks.session_servers = lambda cwd: code_tools.build_servers(
-            self.browser_call, self.workbench, lambda: cwd
+        self.tasks.session_servers = lambda cwd, task_id=0: code_tools.build_servers(
+            self.browser_call,
+            self.workbench,
+            lambda: cwd,
+            session=browser_agent.CodeSession(self.tasks, task_id),
         )
         self.tasks.page_url = lambda: browser_gate.read_url(self._browser_raw)
         # The Mac's own mouse and keyboard: never a press that pays outside the built-in
@@ -1307,6 +1314,7 @@ class Hub:
             + suggestions.PROMPT
             + delegate.PROMPT
             + transactions.PROMPT
+            + browser_agent.PROMPT
             + fileindex.PROMPT
             + screenwatch.PROMPT
             + video.PROMPT
@@ -4356,6 +4364,7 @@ class Hub:
                 browser_scroll,
                 browser_back,
                 browser_screenshot,
+                *browser_agent.jarvis_tools(hub),  # snapshots with refs, act by ref, wait
             ],
         )
 

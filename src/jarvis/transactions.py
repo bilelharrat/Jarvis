@@ -1356,7 +1356,13 @@ def _secret_field(item: Any) -> str | None:
     if tag == "input" and kind not in _TEXT_ENTRY:
         return None  # buttons, checkboxes, radios: not a place to type anything
     return _secret_in(
-        _field_words(item.get("label"), item.get("name"), item.get("placeholder"), item.get("id"))
+        _field_words(
+            item.get("label"),
+            item.get("name"),
+            item.get("placeholder"),
+            item.get("id"),
+            item.get("autocomplete"),
+        )
     )
 
 
@@ -1454,6 +1460,40 @@ def typing_refusal(
         return HAND_OVER[asked]  # it can't be told which box it lands in
     box = next((item for item in _fields(page) if wanted in _box_words(item)), None)
     if box is None or not _PLAIN_BOX.search(_field_words(_box_words(box))):
+        return HAND_OVER[asked]
+    digits = re.sub(r"\D", "", typed)
+    if _CODE_SHAPE.fullmatch(typed.strip()) and 3 <= len(digits) <= 8:
+        return HAND_OVER[asked]
+    return None
+
+
+def box_typing_refusal(text: Any, box: dict[str, Any], page: dict[str, Any] | None) -> str | None:
+    """typing_refusal for one box the browser pinned down exactly (a snapshot's ref, whose
+    tag, type, label, name, placeholder, id and autocomplete the window reads off it): no
+    card number, nothing into a card, code, password or bank box, and on a page that asks
+    for one of those, only ordinary words into a box whose own words say it's ordinary."""
+    typed = _nfkc(text)
+    for match in _CARD_DIGITS.finditer(typed):
+        digits = re.sub(r"\D", "", match.group())
+        if 13 <= len(digits) <= 19 and _luhn(digits):
+            return HAND_OVER["card"]
+    tag = _fold(box.get("tag"))
+    item = {
+        # a contenteditable box is typed into like a textarea
+        "tag": tag if tag in ("input", "textarea", "select") else "textarea",
+        "type": box.get("type") or "",
+        "label": " ".join(str(box.get(k) or "") for k in ("label", "ax")),
+        "name": box.get("name") or "",
+        "placeholder": box.get("placeholder") or "",
+        "id": box.get("id") or "",
+        "autocomplete": box.get("autocomplete") or "",
+    }
+    if kind := _secret_field(item):
+        return HAND_OVER[kind]
+    asked = sensitive_request(page) if page is not None else None
+    if asked is None:
+        return None
+    if not _PLAIN_BOX.search(_field_words(_box_words(item))):
         return HAND_OVER[asked]
     digits = re.sub(r"\D", "", typed)
     if _CODE_SHAPE.fullmatch(typed.strip()) and 3 <= len(digits) <= 8:
@@ -1887,6 +1927,36 @@ class TransactionGuard:
         kind = _first(final.values()) or token.pending.kind
         return Decision(True, kind=kind, pending=token.pending, token=token)
 
+    def allow_press(
+        self, url: Any, label: Any, *, page: dict[str, Any] | PageView | None
+    ) -> Decision:
+        """Whether the browser may press one element it pinned down exactly (a snapshot's
+        ref): there's no guessing what words would find, so what it completes is judged by
+        its own words on this page. One with no words where money is involved isn't pressed;
+        a final Pay / Book / Transfer button needs its confirmation for this page, as a
+        click by words does."""
+        words = _as_label(label)
+        view = None if page is None else _view(page)
+        if not label_key(words):
+            if view is not None and view.context:
+                return _refuse(
+                    "That element has no words that say what it does, and money is involved "
+                    "on this page. Press things here by what they say (browser_snapshot shows "
+                    "each one's words)."
+                )
+            return Decision(True)
+        kind = view.kind(words) if view is not None else is_commit_button(words)
+        token = self._live(url, {key} if (key := press_key(words)) else set())
+        if token is None:
+            if kind:
+                return _refuse(self._why_not(url, {words: kind}))
+            return Decision(True)
+        if view is not None and not still_as_confirmed(token.pending, view.page):
+            token.used = True  # void: the page isn't what the user said yes to
+            return _refuse(VOID)
+        token.used = True
+        return Decision(True, kind=kind or token.pending.kind, pending=token.pending, token=token)
+
     def allow_submit(self, page: dict[str, Any] | PageView | None) -> Decision:
         """Pressing Return in a box submits its form, and on a checkout that form is the
         order: on a page that asks for money or has a button that pays or books, press
@@ -2220,6 +2290,13 @@ class Transactions:
         toward today's spending from here on, until settle() (or record or release) says
         what became of it."""
         decision = self.guard.allow_click(url, label, selector=selector, page=page)
+        if decision.pending is not None:
+            self._pressed.append((self._now(), decision.pending))
+        return decision
+
+    def allow_press(self, url: Any, label: Any, *, page: dict[str, Any] | None = None) -> Decision:
+        """TransactionGuard.allow_press, counted toward today like allow_click."""
+        decision = self.guard.allow_press(url, label, page=page)
         if decision.pending is not None:
             self._pressed.append((self._now(), decision.pending))
         return decision
@@ -2749,7 +2826,127 @@ def approval_detail(p: Pending, limits: Limits, spent: float, lang: str = "en") 
 
 BrowserCall = Callable[[str, dict[str, Any] | None], Awaitable[dict[str, Any]]]
 # Browser actions that change nothing on the page.
-_LOOKING = frozenset({"read", "screenshot", "scroll", "zoom"})
+_LOOKING = frozenset(
+    {"read", "screenshot", "scroll", "zoom", "snapshot", "describe", "wait", "console", "network"}
+)
+# What says which tab a call is for; the guard reads that same tab.
+_ROUTE = ("tab", "owner")
+# browser_act's presses and what the guard does with their keys.
+_PRESSES = frozenset({"click", "dblclick", "rightclick", "check", "uncheck"})
+_ENTER = frozenset({"enter", "return"})
+_SPACE = frozenset({"space", " "})
+
+
+def _route(args: dict[str, Any]) -> dict[str, Any]:
+    return {k: args[k] for k in _ROUTE if k in args}
+
+
+def _key_name(key: Any) -> tuple[str, bool]:
+    """A key spec's key, lowercased, and whether a modifier other than Shift is held."""
+    parts = [p.strip() for p in str(key or "").split("+") if p.strip()]
+    if not parts:
+        return "", False
+    held = {p.lower() for p in parts[:-1]}
+    last = parts[-1] if len(parts[-1]) == 1 else parts[-1].lower()
+    return last, bool(held - {"shift"})
+
+
+def _words_of(box: dict[str, Any]) -> str:
+    """An element's words as it's pressed by: its accessible name, else its label."""
+    return str(box.get("ax") or box.get("label") or box.get("text") or "")
+
+
+def _pressable(box: dict[str, Any]) -> bool:
+    return bool(box) and (
+        box.get("tag") in ("button", "a", "summary")
+        or box.get("role") in ("button", "link", "menuitem", "tab", "checkbox", "radio", "switch")
+        or bool(box.get("submits"))
+        or box.get("type") in ("submit", "button", "image", "checkbox", "radio")
+    )
+
+
+async def _guard_act(desk: Transactions, call: BrowserCall, args: dict[str, Any]) -> dict[str, Any]:
+    """browser_act meets the same checks as a click or typing by words, on exactly the
+    elements its refs name: a press by the element's own words (a final Pay / Book /
+    Transfer button needs its confirmation), typing only into an ordinary box, never a card
+    number, and no Enter on a page that pays or books."""
+    route = _route(args)
+    kind = str(args.get("kind") or "click").lower()
+    page = await call("read", dict(route))
+    if not _readable(page):
+        return {
+            "ok": False,
+            "message": "I couldn't read the page to check it first, so I left it alone.",
+        }
+    fields = [f for f in args.get("fields") or [] if isinstance(f, dict)]
+    refs = [r for r in (args.get("ref"), args.get("to"), *(f.get("ref") for f in fields)) if r]
+    focused = kind == "press" and not args.get("ref")
+    described = await call("describe", {**route, "refs": refs, "focused": focused})
+    if described.get("error") or described.get("ok") is False:
+        return described
+    boxes = described.get("refs") if isinstance(described.get("refs"), dict) else {}
+
+    def box(ref: Any) -> dict[str, Any]:
+        found = boxes.get(str(ref or ""))
+        return found if isinstance(found, dict) else {}
+
+    url = page.get("url")
+    confirmed: Decision | None = None
+    presses: list[dict[str, Any]] = []
+    typing: list[tuple[str, dict[str, Any]]] = []
+    submit = False
+    if kind in _PRESSES:
+        presses.append(box(args.get("ref")))
+    elif kind == "drag":
+        presses += [box(args.get("ref")), box(args.get("to"))]
+    elif kind == "type":
+        typing.append((str(args.get("text") or ""), box(args.get("ref"))))
+        submit = bool(args.get("submit"))
+    elif kind == "fill":
+        typing += [(str(f.get("text") or ""), box(f.get("ref"))) for f in fields]
+    elif kind == "press":
+        key, held = _key_name(args.get("key"))
+        target = box(args.get("ref")) if args.get("ref") else boxes.get("focused") or {}
+        target = target if isinstance(target, dict) else {}
+        if key.lower() in _ENTER or key.lower() in _SPACE:
+            if _pressable(target) and not target.get("editable"):
+                presses.append(target)  # Enter or Space on a button presses it
+            elif key.lower() in _ENTER:
+                submit = True  # Enter in a box (or anywhere) can submit its form
+        elif len(key) == 1 and not held:
+            typing.append((key, target))  # a character goes into the focused box
+    for text, target in typing:
+        why = box_typing_refusal(text, target, page)
+        if why:
+            return {"ok": False, "message": why}
+    if submit:
+        why = desk.guard.allow_submit(page).message
+        if why:
+            return {"ok": False, "message": why}
+    for target in presses:
+        decision = desk.allow_press(url, _words_of(target), page=page)
+        if not decision.allowed:
+            if confirmed is not None:
+                desk.settle(confirmed, {"ok": False})
+            return {"ok": False, "message": decision.message}
+        if decision.pending is not None:
+            if confirmed is not None or kind == "drag":
+                desk.settle(decision, {"ok": False})
+                return {
+                    "ok": False,
+                    "message": "Press the confirmed button on its own, with a click.",
+                }
+            confirmed = decision
+    if confirmed is None:
+        desk.page_changed()
+        return await call("act", args)
+    try:
+        result = await call("act", {**args, "force": True})  # the purchase card was the user's OK
+    except BaseException:
+        desk.settle(confirmed, None)
+        raise
+    desk.settle(confirmed, result)
+    return result
 
 
 def _readable(page: Any) -> bool:
@@ -2778,10 +2975,12 @@ def guard_browser(desk: Transactions, call: BrowserCall) -> BrowserCall:
         args = dict(args or {})
         if action in _LOOKING:
             return await call(action, args)
+        if action == "act":
+            return await _guard_act(desk, call, args)
         if action not in ("click", "type", "search"):
             desk.page_changed()
             return await call(action, args)
-        page = await call("read", {})
+        page = await call("read", _route(args))
         if not _readable(page):
             return {
                 "ok": False,
@@ -2819,7 +3018,9 @@ def guard_browser(desk: Transactions, call: BrowserCall) -> BrowserCall:
             desk.page_changed()
             return await call("click", args)
         try:
-            result = await call("click", {"text": str(args.get("text", "")), "force": True})
+            result = await call(
+                "click", {"text": str(args.get("text", "")), "force": True, **_route(args)}
+            )
         except BaseException:
             desk.settle(decision, None)
             raise

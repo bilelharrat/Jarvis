@@ -1,0 +1,10 @@
+{
+  "strings": {
+    "Looked over the browser page": "查看了浏览器页面的元素",
+    "Acted in the browser": "在浏览器中进行了操作",
+    "Waited for the browser page": "等候了浏览器页面"
+  },
+  "patterns": [
+    ["^Jarvis Code in (.+?) wants to press “(.+)” in the browser$", "$1 中的 Jarvis Code 想在浏览器中按下“$2”"]
+  ]
+}
