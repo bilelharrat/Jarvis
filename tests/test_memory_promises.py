@@ -249,6 +249,24 @@ def test_a_damaged_promises_file_keeps_what_it_can(tmp_path):
     assert store.marks == {"message": 7}
 
 
+@pytest.mark.parametrize("sent", ["2026-09-29T09:00:00Z", "2026-09-29T09:00:00-07:00"])
+def test_a_promise_sent_at_a_zoned_time_still_gets_its_evening_reminder(tmp_path, sent):
+    """When it was promised, with a zone (another build's, or a hand edit): read as this
+    Mac's clock, so the evening before still reminds, for it and every promise after it."""
+    path = tmp_path / "commitments.json"
+    rows = [
+        {"id": "a", "text": "Send Ann the deck", "due": "2026-10-02", "sent": sent},
+        {"id": "b", "text": "Call Bob back", "due": "2026-10-02", "sent": "2026-09-29T10:00:00"},
+    ]
+    path.write_text(json.dumps({"items": rows}))
+    store = CommitmentStore(path)
+    evening = datetime(2026, 10, 1, 18, 30)
+    assert [(c.id, kind) for c, kind in store.due_reminders(evening)] == [
+        ("a", "eve"),
+        ("b", "eve"),
+    ]
+
+
 def test_only_promise_like_words_go_anywhere():
     sent = [
         commitments.Sent("message", 1, "Ann", "", text, datetime.now())

@@ -117,6 +117,19 @@ def _day(value: Any, today: date | None = None) -> str:
     )
 
 
+def _stamp(value: Any) -> str:
+    """A time as kept: one with a zone (another build's, or a hand edit) as this Mac's clock,
+    like every time here; anything else as it is (compared as it's read)."""
+    text = str(value or "")[:40]
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if when.tzinfo is None:
+        return text
+    return when.astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
+
+
 def _item_from(raw: Any) -> Commitment | None:
     if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
         return None
@@ -134,11 +147,11 @@ def _item_from(raw: Any) -> Commitment | None:
         text=text,
         to=tidy(raw.get("to"), 80),
         source=raw.get("source") if raw.get("source") in SOURCES else "said",
-        sent=str(raw.get("sent") or "")[:40],
+        sent=_stamp(raw.get("sent")),
         due=due,
         quote=tidy(raw.get("quote"), MAX_QUOTE),
         status=raw.get("status") if raw.get("status") in STATUSES else "open",
-        closed=str(raw.get("closed") or "")[:40],
+        closed=_stamp(raw.get("closed")),
         reminded=[r for r in reminded if r in ("eve", "due")],
         handle=tidy(raw.get("handle"), 120),
     )
