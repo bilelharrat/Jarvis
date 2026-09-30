@@ -74,6 +74,7 @@ FETCH_SECONDS = 60  # one look at Messages or Mail for their replies
 MONEY_SCAN = 800  # characters of each of their messages read to see whether money is in play
 BOOKING = ("", "asked", "booked", "declined")
 NUDGE_HOURS = 24  # quiet this long after our message, and one gentle nudge goes (0: never)
+NUDGE_DAYTIME = (9, 20)  # a nudge due at night waits for the morning (the Mac's clock)
 MEETING_MINUTES = (5, 8 * 60)
 NUDGES = {
     "en": "Just following up on my last message. No rush, whenever you have a moment.",
@@ -2089,7 +2090,7 @@ class DelegateEngine:
 
     def _nudge_due(self, d: Delegation) -> bool:
         """Our message was the last word, it's been quiet since for the nudge's hours, and
-        that message hasn't been followed up already: one nudge per silence."""
+        that message hasn't been followed up already: one nudge per silence, in the day."""
         try:
             hours = float(self.nudge_hours() or 0)
         except (TypeError, ValueError):
@@ -2100,7 +2101,9 @@ class DelegateEngine:
         at = _when(last.get("at"))
         if last.get("from") != "me" or at is None or d.nudged == last.get("at"):
             return False
-        return self._clock() - at >= timedelta(hours=hours)
+        now = self._clock()
+        first, last_hour = NUDGE_DAYTIME
+        return now - at >= timedelta(hours=hours) and first <= now.hour < last_hour
 
     def _nudge_text(self, d: Delegation) -> str:
         """The follow-up, in the conversation's language: theirs, else ours so far."""

@@ -302,6 +302,8 @@ def create(spec: dict[str, Any], ek: Any = None, foundation: Any = None) -> dict
         return {"error": f"The {calendar.title()} calendar can't be changed from here."}
     start = datetime.fromisoformat(spec["start"])
     end = datetime.fromisoformat(spec["end"])
+    if spec.get("all_day"):  # its last day to the second, as EventKit keeps all-day events
+        end -= timedelta(seconds=1)
     event = ek.EKEvent.eventWithEventStore_(store)
     event.setCalendar_(calendar)
     event.setTitle_(str(spec["title"]))

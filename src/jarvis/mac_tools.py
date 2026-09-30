@@ -873,8 +873,14 @@ def creation_question(
 
 def event_created(spec: dict[str, Any], calendar: str) -> str:
     """What create_event tells Claude once it's in."""
-    when = spec["start"].replace("T", " ")
     extra = " (repeating)" if spec.get("repeat") else ""
+    if spec.get("all_day"):
+        days = f" for {spec['days']} days" if spec.get("days", 1) > 1 else ""
+        return (
+            f"Added the all-day “{spec['title']}” on {spec['start'][:10]}{days}{extra} to the "
+            f"{calendar} calendar."
+        )
+    when = spec["start"].replace("T", " ")
     return f"Added “{spec['title']}” on {when}{extra} to the {calendar} calendar."
 
 

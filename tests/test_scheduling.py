@@ -380,6 +380,20 @@ def test_eventkit_gets_every_part_of_the_event():
     assert event["StartDate"].seconds == start and event["EndDate"].seconds == start + 45 * 60
 
 
+def test_an_all_day_event_ends_on_its_last_day():
+    ek = FakeEK()
+    spec = mac_tools.clean_event({"title": "Offsite", "start": "2026-10-01", "days": 2})
+    assert calendar_kit.create(spec, ek, ek.foundation)["created"]["title"] == "Offsite"
+    event = ek.saved[0].values
+    assert event["AllDay"] is True
+    assert event["StartDate"].seconds == datetime(2026, 10, 1).timestamp()
+    assert event["EndDate"].seconds == datetime(2026, 10, 2, 23, 59, 59).timestamp()
+    assert (
+        mac_tools.event_created(spec, "Work")
+        == "Added the all-day “Offsite” on 2026-10-01 for 2 days to the Work calendar."
+    )
+
+
 def test_eventkit_refuses_what_it_cant_do():
     spec = mac_tools.clean_event(
         {"title": "x", "start": "2026-10-01T07:00", "calendar": "Holidays"}
@@ -785,6 +799,19 @@ async def test_no_nudge_when_turned_off_and_a_chinese_one_for_a_chinese_talk(tmp
     engine.nudge_hours = lambda: 12
     await engine.step()
     assert world.delivered[-1][2] == delegate.NUDGES["zh"]
+
+
+async def test_a_nudge_due_at_night_waits_for_the_morning(tmp_path):
+    world = World(drafts=[move("Hi Sam, it's Jarvis, Robert's assistant. Lunch next week?")])
+    engine = engine_for(tmp_path, world)
+    engine.nudge_hours = lambda: 12
+    d, _ = await start(engine, expires_hours=240)  # sent at 2 PM
+    world.clock += timedelta(hours=12)  # 2 AM: due, but not at this hour
+    await engine.step()
+    assert len(world.delivered) == 1
+    world.clock += timedelta(hours=7)  # 9 AM
+    assert await engine.step() == {d.id: "nudged"}
+    assert world.delivered[-1][2] == delegate.NUDGES["en"]
 
 
 def test_a_nudges_card_says_it_is_a_follow_up():
