@@ -195,6 +195,7 @@ async def complete(
     hooks or MCP servers are loaded; what the prompt carries is data to the model."""
     from claude_agent_sdk import ClaudeAgentOptions
 
+    from .claude_signin import signed_in
     from .config import MAX_BUFFER
 
     usage_for(hub).take(purpose)
@@ -215,4 +216,6 @@ async def complete(
         env={**(cfg.get("env") or {}), "ENABLE_TOOL_SEARCH": "false"},
         settings=cfg.get("settings"),
     )
+    # The user's own API key, if that's how Jarvis signs in (a provider's settings stay).
+    options = signed_in(options)
     return await run_turn(prompt, options, timeout)

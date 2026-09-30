@@ -59,6 +59,7 @@ from claude_agent_sdk import (
 
 from . import lang
 from .brain import host_said, url_host
+from .claude_signin import signed_in
 from .config import MAX_BUFFER
 from .prefs import MODELS
 from .proactive import Alert
@@ -381,7 +382,7 @@ class BackgroundDesk:
         return await self.hub.request_approval(question, f"{detail}\n{url[:500]}") == "allow"
 
     def options(self, task: Any, job: Job) -> ClaudeAgentOptions:
-        return ClaudeAgentOptions(
+        options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
             model=self.model(),
             cwd=str(task.cwd),
@@ -398,6 +399,7 @@ class BackgroundDesk:
             max_budget_usd=MAX_BUDGET_USD,
             env={"ENABLE_TOOL_SEARCH": "false"},
         )
+        return signed_in(options)  # the user's own API key, if that's how Jarvis signs in
 
     # ── running ──
 
