@@ -1,0 +1,65 @@
+{
+  "strings": {
+    "Other agents": "其他代理",
+    "Codex, Gemini and others, over ACP": "通过 ACP 使用 Codex、Gemini 等",
+    "Other coding agents, over ACP": "通过 ACP 使用其他编程代理",
+    "Reading the agents…": "正在读取代理…",
+    "Run a task with another coding agent that speaks the Agent Client Protocol. It works in the project on show as an ordinary session: JARVIS answers the steps it asks about, by your permission mode and rules; what it does without asking is up to its own settings.": "用另一个支持 Agent Client Protocol 的编程代理来完成任务。它在当前项目里作为普通会话运行：它询问的步骤由 JARVIS 按你的权限模式和规则来回答；它不询问就做的事由它自己的设置决定。",
+    "No agents yet: add one below by the command that starts it.": "还没有代理：在下面用启动它的命令添加一个。",
+    "New session": "新会话",
+    "In the project on show": "在当前显示的项目中",
+    "Remove": "移除",
+    "Press again to remove": "再按一次移除",
+    "Add an agent": "添加代理",
+    "Name, like Codex": "名称，例如 Codex",
+    "Its name": "它的名称",
+    "The command that starts it, like codex-acp": "启动它的命令，例如 codex-acp",
+    "The command that starts it": "启动它的命令",
+    "Add": "添加",
+    "For example:": "例如：",
+    "Give the agent a name, like Codex.": "给代理起个名字，例如 Codex。",
+    "Type the command that starts it, like codex-acp.": "请输入启动它的命令，例如 codex-acp。",
+    "An agent signs in by itself: run its command once in Terminal if it asks. It gets no MCP servers or files from JARVIS; it works with its own tools, as you, in the project’s folder.": "代理会自己登录：如果它要求，就先在终端里运行一次它的命令。它不会从 JARVIS 得到 MCP 服务器或文件；它用自己的工具，以你的身份，在项目文件夹里工作。",
+    "Type the command that starts it, like codex-acp or gemini --experimental-acp.": "请输入启动它的命令，例如 codex-acp 或 gemini --experimental-acp。",
+    "That command has a quote that isn't closed.": "这条命令有一个引号没有闭合。",
+    "That's as many agents as can be kept.": "代理数量已经达到上限。",
+    "That agent isn't set up any more.": "这个代理已经不在了。",
+    "That agent isn't set up any more: add it again in Other agents.": "这个代理已经不在了：请在“其他代理”里重新添加。",
+    "Couldn't save that; try again.": "没能保存；请再试一次。",
+    "It didn't start a session.": "它没有开始会话。"
+  },
+  "patterns": [
+    [
+      "^(.+) needs you to sign in: run it once in Terminal, then try again\\.$",
+      "$1 需要你先登录：在终端里运行一次，然后再试。"
+    ],
+    [
+      "^(.+) picks its own model\\.$",
+      "$1 自己选择模型。"
+    ],
+    [
+      "^(.+) takes one message at a time\\.$",
+      "$1 一次只接收一条消息。"
+    ],
+    [
+      "^(.+) can't put files back\\.$",
+      "$1 不能把文件恢复回去。"
+    ],
+    [
+      "^The agent stopped: (.+)$",
+      "代理停止了：$1"
+    ],
+    [
+      "^The agent stopped\\.$",
+      "代理停止了。"
+    ],
+    [
+      "^It couldn't be started: (.+)$",
+      "没能启动它：$1"
+    ],
+    [
+      "^It speaks ACP version (.+), not 1\\.$",
+      "它使用的是 ACP 版本 $1，不是 1。"
+    ]
+  ]
+}

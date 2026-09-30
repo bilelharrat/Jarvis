@@ -49,6 +49,7 @@
   // Where a session stands with the sandbox (a cs_state): its line in the pane.
   function sandboxLine(s) {
     if (!s) return '';
+    if (s.other) return 'Another agent: Claude Code’s sandbox doesn’t reach it; its own settings decide.';
     if (!s.on) return 'Its commands run outside the sandbox.';
     return s.live ? 'Its commands run in the sandbox.' : 'Its commands run in the sandbox from its next step; until then each one asks.';
   }

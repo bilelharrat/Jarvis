@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import prefs
-from ..codeplatform import add_rule_check, code_task, project_of
+from ..codeplatform import add_rule_check, code_task, other_agent, project_of
 from ..codesandbox import PRESETS, DomainError, SandboxBook
 
 log = logging.getLogger("jarvis")
@@ -72,8 +72,9 @@ class SandboxDesk:
         return isinstance(runs, dict) and task.id in runs
 
     def wanted(self, task: Any) -> bool:
-        """Whether a session's commands should run in the sandbox."""
-        if task.kind != "code":
+        """Whether a session's commands should run in the sandbox (never another agent's:
+        Claude Code's sandbox doesn't reach it)."""
+        if task.kind != "code" or other_agent(task):
             return False
         if task.id in self.own:
             return self.own[task.id]
@@ -147,6 +148,7 @@ class SandboxDesk:
             default=self.hub.prefs.feature(PREF) is True,
             bypass=task.mode == "auto",
             unattended=self.unattended(task),
+            other=other_agent(task),
             live=bool(task.client is not None and applied is not None and applied[0]),
             project=project,
             name=Path(project).name,

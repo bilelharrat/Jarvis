@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import lang, prefs
-from ..codeplatform import code_task, project_of
+from ..codeplatform import code_task, other_agent, project_of
 from ..codeusage import WINDOWS, WINDOWS_ZH, Caps, Usage, crossed, money, money_value
 from ..proactive import Alert
 
@@ -145,7 +145,7 @@ class Meter:
     def gate(self, task: Any) -> str:
         """TaskManager.turn_gate: why this session's next message must wait, "" if it
         needn't."""
-        if task.kind != "code":
+        if task.kind != "code" or other_agent(task):  # (another agent spends nothing on Claude)
             return ""
         caps = self.caps(task)
         if caps.session > 0 and (task.cost_usd or 0.0) >= caps.session - NEAR:

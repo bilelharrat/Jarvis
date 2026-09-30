@@ -26,6 +26,12 @@ def project_of(hub: Any, task: Any) -> str:
     return str(task.cwd)
 
 
+def other_agent(task: Any) -> bool:
+    """A session with another agent over ACP (features.code_acp), not Claude Code: it spends
+    nothing on Claude, and Claude Code's own options (a budget, its sandbox) don't reach it."""
+    return str(getattr(task, "model_ref", "") or "").startswith("acp:")
+
+
 def code_task(hub: Any, msg: dict[str, Any]) -> Any:
     """The Jarvis Code session a window command names by its id, or None."""
     try:

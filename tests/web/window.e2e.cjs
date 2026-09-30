@@ -3724,6 +3724,34 @@ test('The Plugins pane installs, switches and removes plugins, adds marketplaces
   assert(await js('document.querySelector("#jc-pane-body .cx-total").textContent.includes("4.2k") && document.querySelector("#jc-pane-body .cx-context-list").textContent.includes("github")'), 'no context shown');
 });
 
+// ── Other agents over ACP (web/features/code-acp.js) ──
+
+test('The Other agents pane adds an agent, starts a session with it in the project on show, and removes it', async () => {
+  await featureScript('code-acp.js');
+  await open(1);
+  await clickAt('#jc-more');
+  assert(await clickItem('#jc-menu', 'Other agents'), 'no Other agents item in the More menu');
+  assert(await js('$("jc-pane-title").textContent') === 'Other agents', 'the pane did not open');
+  assert((await sentOf('acp_state')).length === 1, JSON.stringify(await js('__sent')));
+  await deliver({ type: 'acp_state', agents: [{ id: 'codex', name: 'Codex', command: 'codex-acp <img src=x onerror="window.__pwned=1">' }] });
+  assert(await js('!document.querySelector("#jc-pane-body img") && !window.__pwned && document.querySelector("#jc-pane-body .ca-command").textContent.includes("<img")'), 'the command wasn’t shown as text');
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .ca-agent[data-agent=codex] .ca-start").click(); true');
+  assert(JSON.stringify(await sentOf('acp_start')) === JSON.stringify([{ type: 'acp_start', agent: 'codex', directory: 'alpha', mode: 'ask' }]), JSON.stringify(await js('__sent')));
+  // Once it starts, the new session is the one on show.
+  await deliver({ type: 'tasks', items: [await js('__task(1)'), await js('__task(2, { model_label: "Codex" })')] });
+  await deliver({ type: 'acp_started', id: 2 });
+  assert(await js('ccSelected') === 2, 'the new session isn’t selected');
+  // An agent added from an example, and removed on a second press.
+  await js('__sent.length = 0; [...document.querySelectorAll("#jc-pane-body .ca-example")][1].click(); document.querySelector("#jc-pane-body .ca-add-btn").click(); true');
+  assert(JSON.stringify(await sentOf('acp_add')) === JSON.stringify([{ type: 'acp_add', name: 'Gemini', command: 'gemini --experimental-acp' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'acp_state', agents: [{ id: 'codex', name: 'Codex', command: 'codex-acp' }], error: 'That command has a quote that isn’t closed.' });
+  assert(await js('document.querySelector("#jc-pane-body .ca-add .cr-error").textContent.includes("quote")'), 'the error isn’t shown');
+  await js('__sent.length = 0; document.querySelector("#jc-pane-body .ca-remove").click(); true');
+  assert(!(await js('__sent')).length, 'removed on the first press');
+  await js('document.querySelector("#jc-pane-body .ca-remove").click(); true');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'acp_remove', agent: 'codex' }]), JSON.stringify(await js('__sent')));
+});
+
 // ──
 
 let base;
