@@ -764,6 +764,8 @@
       row('Model', select(models, own.model || '', (v) => set('model', v), 'Model')),
       row('Effort', select([['', 'Jarvis Code’s default'], ...EFFORTS.map((e) => [e, EFFORT_NAMES[e]])], own.effort || '', (v) => set('effort', v), 'Effort')),
       row('Ultracode', select([['', 'Jarvis Code’s default'], ['on', 'On'], ['off', 'Off']], own.ultracode === undefined ? '' : own.ultracode ? 'on' : 'off', (v) => set('ultracode', v === '' ? undefined : v === 'on'), 'Ultracode')),
+      // Auto-verify (features/code_verify.py): over Settings › Jarvis Code checks, here.
+      row('Check each turn’s work', select([['', 'Jarvis Code’s default'], ['on', 'On'], ['off', 'Off']], own.verify === undefined ? '' : own.verify ? 'on' : 'off', (v) => set('verify', v === '' ? undefined : v === 'on'), 'Check each turn’s work')),
     );
     rows.querySelectorAll('select').forEach((s, i) => { if (i && !path) s.disabled = true; });
     if (names.length) rows.firstChild.querySelector('select').querySelectorAll('option').forEach(mine);

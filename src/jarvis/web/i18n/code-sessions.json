@@ -59,6 +59,7 @@
   "Every folder in your projects folder is a project:": "项目文件夹里的每个文件夹都是一个项目：",
   "Not listed, since another project has the same name:": "未列出，因为已有同名项目：",
   "Jarvis Code’s default": "Jarvis Code 的默认设置",
+  "Check each turn’s work": "检查每一轮的成果",
   "Folders of projects": "项目所在的文件夹",
   "No other folders of projects yet.": "还没有其他项目文件夹。",
   "Add a folder of projects…": "添加一个项目所在的文件夹…",

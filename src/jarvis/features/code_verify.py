@@ -41,6 +41,7 @@ from typing import Any
 from claude_agent_sdk import HookMatcher, create_sdk_mcp_server, tool
 
 from .. import (
+    code_projects,
     codetests,
     computer,
     devservers,
@@ -71,6 +72,10 @@ TESTS_WAIT = 180.0  # ... and for it to end, before the check goes on without it
 
 PREF_VERIFY = "code_verify_new_sessions"  # new sessions check the preview after each turn
 prefs.register_feature_pref(PREF_VERIFY, False)
+# A project's own say (Settings › Projects › New sessions in a project start with), over
+# PREF_VERIFY for new sessions there: kept in code_project_defaults as "verify".
+PROJECT_VERIFY = "verify"
+code_projects.EXTRA_DEFAULTS[PROJECT_VERIFY] = lambda v: v if isinstance(v, bool) else None
 
 _ALL: weakref.WeakSet[CodeVerify] = weakref.WeakSet()  # for the exit handler
 
@@ -165,11 +170,34 @@ class CodeVerify:
     def session(self, task_id: int) -> SessionChecks:
         checks = self.sessions.get(task_id)
         if checks is None:
-            # A new session checks after each turn if the owner chose that for all of them.
-            checks = self.sessions[task_id] = SessionChecks(
-                verify=bool(self.hub.prefs.feature(PREF_VERIFY))
-            )
+            # A new session checks after each turn if its project says so, else if the owner
+            # chose that for all of them.
+            own = self.project_verify(self.hub.tasks.tasks.get(task_id))
+            verify = own if own is not None else bool(self.hub.prefs.feature(PREF_VERIFY))
+            checks = self.sessions[task_id] = SessionChecks(verify=verify)
         return checks
+
+    def project_verify(self, task: Any) -> bool | None:
+        """The session's project's own auto-verify default, None when it has none: by the
+        project's folder, or for an isolated copy the folder it was copied from."""
+        if task is None or getattr(task, "kind", "") != "code":
+            return None
+        value = self.hub.prefs.feature("code_project_defaults")
+        if not isinstance(value, dict) or not value:
+            return None
+        folders = [Path(task.cwd)]
+        desk = getattr(self.hub, "code_desk", None)
+        if desk is not None:
+            with contextlib.suppress(Exception):
+                copy = desk.store().by_path(task.cwd)
+                if copy is not None:
+                    folders.append(Path(copy.repo) / copy.prefix)
+        for folder in folders:
+            with contextlib.suppress(OSError, RuntimeError):
+                own = value.get(str(folder.resolve()))
+                if isinstance(own, dict) and isinstance(own.get(PROJECT_VERIFY), bool):
+                    return own[PROJECT_VERIFY]
+        return None
 
     def project_of(self, msg: dict[str, Any]) -> tuple[Path, Any]:
         """The folder a window command is about: its session's (id), else a project by

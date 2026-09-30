@@ -565,6 +565,30 @@ async def test_new_sessions_check_their_work_when_the_owner_says_so(hub, project
     assert hub.code_verify.session(41).verify is True  # a session's own switch stays
 
 
+async def test_a_projects_own_auto_verify_default_wins_over_the_owners(hub, project):
+    other = project.parent / "blog"
+    other.mkdir()
+    hub.tasks.tasks[51] = ClaudeTask(id=51, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[52] = ClaudeTask(id=52, prompt="x", cwd=other.resolve())
+    hub.set_feature_prefs({
+        "code_verify_new_sessions": False,
+        "code_project_defaults": {str(project.resolve()): {"verify": True, "mode": "plan"},
+                                  str(other.resolve()): {"verify": "yes"}},
+    })  # fmt: skip
+    kept = hub.prefs.feature("code_project_defaults")
+    assert kept[str(project.resolve())] == {"mode": "plan", "verify": True}
+    assert str(other.resolve()) not in kept  # not a switch: dropped
+    assert hub.code_verify.session(51).verify is True
+    assert hub.code_verify.session(52).verify is False  # no say of its own: the owner's
+    hub.set_feature_prefs({
+        "code_verify_new_sessions": True,
+        "code_project_defaults": {str(other.resolve()): {"verify": False}},
+    })  # fmt: skip
+    hub.tasks.tasks[53] = ClaudeTask(id=53, prompt="x", cwd=other.resolve())
+    assert hub.code_verify.session(53).verify is False
+    assert hub.code_verify.session(51).verify is True  # a session's switch, once made, stays
+
+
 # ── a session's extra hands: the iOS Simulator, Xcode's tools ──
 
 
