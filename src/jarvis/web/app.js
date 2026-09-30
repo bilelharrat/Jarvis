@@ -61,8 +61,8 @@ function send(msg) {
 }
 
 // ── feature modules: web/features/*.js (loaded by features.js, after this file) ──
-// They hear events, add Jarvis Code panes and menu items, and add their own settings groups
-// and dock buttons to the page, through window.jarvisFeatures.
+// They hear events, add Jarvis Code panes, menu items and composer @ suggestions, and add
+// their own settings groups and dock buttons to the page, through window.jarvisFeatures.
 const featureListeners = new Map();  // event type ('*': every event) -> handlers
 const featureLast = new Map();  // the latest event of each type, for a listener added late
 const featurePanes = new Map();  // Jarvis Code pane id -> { title, render(body, task) }

@@ -8,12 +8,21 @@ A feature registers what it adds through the hub instead of editing its core tab
   changes something asks the user itself). quiet and web name tools whose results are
   JARVIS's own words or public facts ("none") or pages anyone can write ("web"); every other
   tool's result counts as the user's private data, which the turn gate weighs.
-- hub.register_command(kind, handler): a window command ({"type": kind, ...}).
+- hub.register_command(kind, handler): a window command ({"type": kind, ...}). A handler
+  that returns False passes the message on (to the next feature's, then the built-in
+  command of that kind), so a feature can take only some of a core command's messages.
+- hub.register_instant(handler): words the user says or types to JARVIS, answered at once
+  without Claude (the reply, or None when they aren't the feature's).
 - hub.register_loop(name, factory): a background loop, started with the others (never in
   tests, where poll is off).
 - hub.add_notify_sink(sink) / hub.add_approval_sink(sink, resolved=...): hear every heads-up
   shown, and every approval card put up and taken down (a phone or chat can then answer
   it through hub.resolve).
+- hub.add_task_sink(sink): hear every Jarvis Code and research event (kind, data).
+- hub.add_briefing_note(note): a line of facts for the morning briefing's request.
+- hub.voicecode.hooks: words said while voice coding, heard before its own commands.
+- hub.tasks.session_extras: add to a Jarvis Code session's options (tool servers, allowed
+  tools) as they're made.
 - hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
   in tests, never the user's real data there).
 - prefs.register_feature_pref(key, default, clean): a setting kept in prefs.features; read
@@ -21,8 +30,9 @@ A feature registers what it adds through the hub instead of editing its core tab
   "changes": {key: value}}.
 
 Its window side lives in web/features/<name>.js and .css (loaded by web/features.js after
-app.js) and its Chinese strings in web/i18n/<name>.json (merged into i18n-zh.json). A
-feature that fails to import or install is logged and left out; the rest still load.
+app.js) and its Chinese strings in web/i18n/<name>.json (merged into i18n-zh.json); the
+sentences its backend says or shows are registered with lang.add_texts. A feature that
+fails to import or install is logged and left out; the rest still load.
 
 install(hub) runs for every Hub, the tests' ones included: it only registers. No threads,
 network or files until a loop runs or a command arrives.
