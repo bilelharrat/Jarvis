@@ -114,3 +114,102 @@ class NetMeter:
             }
         self._last = (now, c.bytes_recv, c.bytes_sent)
         return rates
+
+
+# ── changes worth a heads-up, updates waiting, ports open ──
+
+WATCHED = ("FileVault", "Firewall", "SIP", "Gatekeeper")  # a heads-up when one turns off
+UPDATES_SECONDS = 180  # softwareupdate -l asks Apple's servers: it can take a while
+LOCAL_ADDRESSES = ("127.0.0.1", "[::1]", "::1", "localhost")
+
+
+def shield_states(shields: list[dict[str, Any]]) -> dict[str, bool]:
+    """The watched shields macOS could report on: name -> on."""
+    return {
+        s["name"]: bool(s["on"])
+        for s in shields
+        if s.get("name") in WATCHED and isinstance(s.get("on"), bool)
+    }
+
+
+def turned_off(before: dict[str, Any], now: dict[str, bool]) -> list[str]:
+    """Shields that were on and are off now (one unknown either time doesn't count)."""
+    return [name for name in WATCHED if before.get(name) is True and now.get(name) is False]
+
+
+def parse_updates(out: str) -> list[dict[str, Any]]:
+    """softwareupdate -l's waiting updates: label, title, version, size, whether Apple
+    recommends it and whether it restarts the Mac."""
+    found: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for line in (out or "").splitlines():
+        label = re.match(r"\s*\*\s*Label:\s*(.+)$", line)
+        if label:
+            current = {"label": label.group(1).strip(), "title": label.group(1).strip()}
+            found.append(current)
+            continue
+        if current is None or "Title:" not in line:
+            continue
+        for key, value in re.findall(r"(\w+):\s*([^,]*)", line):
+            key = key.lower()
+            if key in ("title", "version", "size"):
+                current[key] = value.strip()
+            elif key == "recommended":
+                current["recommended"] = value.strip().upper() == "YES"
+            elif key == "action":
+                current["restart"] = value.strip().lower() == "restart"
+    return found
+
+
+def read_updates(run=None) -> dict[str, Any]:
+    """{"updates": […]} or {"error": why}; never raises."""
+    if run is None:
+        try:
+            done = subprocess.run(  # noqa: S603
+                ["softwareupdate", "-l"], capture_output=True, text=True, timeout=UPDATES_SECONDS
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {"error": f"softwareupdate didn't answer ({type(exc).__name__})"}
+        out = f"{done.stdout}\n{done.stderr}"
+    else:
+        out = run("softwareupdate", "-l")
+    if "No new software available" in out:
+        return {"updates": []}
+    updates = parse_updates(out)
+    if not updates and "Software Update found" not in out:
+        return {
+            "error": "softwareupdate gave no list"
+            + (f": {out.strip()[:120]}" if out.strip() else "")
+        }
+    return {"updates": updates}
+
+
+def parse_listening(out: str) -> list[dict[str, Any]]:
+    """lsof's listening TCP sockets, one per program and port: the program, its process,
+    the address and port, and whether other machines can reach it (not only this Mac)."""
+    seen: dict[tuple[str, int], dict[str, Any]] = {}
+    for line in (out or "").splitlines():
+        m = re.match(r"^(\S+)\s+(\d+)\s+(\S+)\s.*?TCP\s+(\S+):(\d+)\s+\(LISTEN\)", line)
+        if not m:
+            continue
+        command = m.group(1).replace("\\x20", " ")
+        address, port = m.group(4), int(m.group(5))
+        local = address in LOCAL_ADDRESSES
+        row = seen.setdefault(
+            (command, port),
+            {
+                "command": command,
+                "pid": int(m.group(2)),
+                "port": port,
+                "addresses": [],
+                "exposed": False,
+            },
+        )
+        if address not in row["addresses"]:
+            row["addresses"].append(address)
+        row["exposed"] = row["exposed"] or not local
+    return sorted(seen.values(), key=lambda r: (not r["exposed"], r["port"]))
+
+
+def read_listening(run=_run) -> list[dict[str, Any]]:
+    return parse_listening(run("lsof", "-nP", "-iTCP", "-sTCP:LISTEN"))

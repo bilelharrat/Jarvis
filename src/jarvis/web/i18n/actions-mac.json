@@ -60,7 +60,10 @@
     "Read the app's controls": "读取了当前 app 的控件",
     "Looked at all your screens": "查看了你所有的屏幕",
     "Listed your windows": "列出了你的窗口",
-    "Read your browser tab": "读取了你的浏览器标签页"
+    "Read your browser tab": "读取了你的浏览器标签页",
+    "Checked your Mac's defenses": "查看了 Mac 的安全防护",
+    "Security heads-ups": "安全提醒",
+    "When FileVault, the firewall, System Integrity Protection or Gatekeeper turns off": "FileVault、防火墙、系统完整性保护或 Gatekeeper 关闭时提醒你"
   },
   "patterns": [
     [

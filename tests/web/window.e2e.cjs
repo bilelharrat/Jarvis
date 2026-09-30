@@ -2972,6 +2972,17 @@ test('Settings › Home & Shortcuts: shortcuts marked as home questions are adde
   assert(focus.includes('“Work Focus On”'), focus);
 });
 
+test('Settings › Speaking up: security heads-ups follow the setting and change it', async () => {
+  await loadFeatures('mac-actions.js', 'mac-actions.css');
+  const placed = await js('$("sw-proactive").closest(".row").nextElementSibling.contains($("sw-defense-alerts"))');
+  assert(placed, 'the switch is not under Heads-ups');
+  await js('featureEvent({ type: "prefs", features: { defense_alerts: false } }); true');
+  assert(await js('$("sw-defense-alerts").getAttribute("aria-checked")') === 'false', 'the setting was not shown');
+  await js('__sent.length = 0; $("sw-defense-alerts").click(); true');
+  const sent = await js('__sent');
+  assert(JSON.stringify(sent) === JSON.stringify([{ type: 'feature_prefs', changes: { defense_alerts: true } }]), JSON.stringify(sent));
+});
+
 // ──
 
 let base;

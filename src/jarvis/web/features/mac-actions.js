@@ -1,11 +1,14 @@
-// Settings › Home & Shortcuts, for the Mac's switches and the home's answers
-// (jarvis.features.mac_switches): which shortcuts answer a question ("Is the garage
-// closed"), run without asking and read out, and how to name the shortcuts a Focus uses.
+// Settings for the Mac's switches, the home's answers and its defenses:
+// - Home & Shortcuts (jarvis.features.mac_switches): which shortcuts answer a question ("Is
+//   the garage closed"), run without asking and read out, and how to name the shortcuts a
+//   Focus uses;
+// - Speaking up (jarvis.features.mac_defense): heads-ups when a defense turns off.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, send } = F;
   const PREF = 'home_questions';
+  const DEFENSE = 'defense_alerts';
 
   // ── pure helpers (tests/web/mac-actions.test.mjs runs these) ──
 
@@ -20,6 +23,35 @@
   }
 
   if (typeof window.__macActionsTest === 'function') window.__macActionsTest({ addable, without });
+
+  // ── Speaking up: security heads-ups, after the Heads-ups switch ──
+
+  const headsUps = document.getElementById('sw-proactive');
+  const headsRow = headsUps && headsUps.closest('.row');
+  if (headsRow) {
+    const row = el('div', 'row');
+    const words = el('span');
+    words.append(el('strong', '', 'Security heads-ups'), el('small', '', 'When FileVault, the firewall, System Integrity Protection or Gatekeeper turns off'));
+    const sw = el('button', 'switch');
+    sw.type = 'button';
+    sw.id = 'sw-defense-alerts';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', 'true');
+    sw.setAttribute('aria-label', 'Security heads-ups');
+    sw.addEventListener('click', () => {
+      const on = sw.getAttribute('aria-checked') !== 'true';
+      sw.setAttribute('aria-checked', String(on));
+      send({ type: 'feature_prefs', changes: { [DEFENSE]: on } });
+    });
+    row.append(words, sw);
+    headsRow.after(row);
+    const fromPrefs = (p) => {
+      const features = (p && p.features) || {};
+      if (typeof features[DEFENSE] === 'boolean') sw.setAttribute('aria-checked', String(features[DEFENSE]));
+    };
+    F.on('prefs', fromPrefs, { replay: true });
+    F.on('hello', (ev) => fromPrefs(ev.prefs), { replay: true });
+  }
 
   // ── where it goes: under the shortcuts in Settings › Home & Shortcuts ──
 
