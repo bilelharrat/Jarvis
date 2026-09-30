@@ -4542,6 +4542,8 @@ class Hub:
             note = f"{alert.kind}: a conversation update (list_delegations for details)"
         elif alert.kind == "voicemail":  # a caller's words are anyone's to say: who, not what
             note = f"{alert.kind}: {alert.note or 'a call to the Jarvis number (list_calls)'}"
+        elif alert.note:  # a feature's own summary, for words that are anyone's to write
+            note = f"{alert.kind}: {alert.note}"
         else:
             note = f"{alert.kind}: {alert.text!r}"
         self._alert_notes.append((time.monotonic(), note))

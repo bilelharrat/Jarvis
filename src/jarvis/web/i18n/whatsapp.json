@@ -1,0 +1,31 @@
+{
+  "strings": {
+    "WhatsApp": "WhatsApp",
+    "Not linked": "未关联",
+    "Link WhatsApp": "关联 WhatsApp",
+    "Try again": "重试",
+    "Unlink": "取消关联",
+    "Cancel": "取消",
+    "Connected": "已连接",
+    "Starting WhatsApp…": "正在启动 WhatsApp…",
+    "Setting up WhatsApp (the first time takes a minute)…": "正在设置 WhatsApp（首次约需一分钟）…",
+    "Scan the code with your phone": "请用手机扫描二维码",
+    "Connecting to WhatsApp…": "正在连接 WhatsApp…",
+    "Linked in another copy of Jarvis that's running": "已在另一个正在运行的 Jarvis 中关联",
+    "Problem": "出现问题",
+    "WhatsApp link code": "WhatsApp 关联二维码",
+    "On your phone: WhatsApp → Settings → Linked devices → Link a device, then scan this code.": "在手机上：WhatsApp → 设置 → 已关联的设备 → 关联新设备，然后扫描此二维码。",
+    "Tell me when a WhatsApp message comes in": "收到 WhatsApp 消息时告诉我",
+    "Jarvis links as one of your WhatsApp devices, as WhatsApp Web does, and stays offline so your phone keeps its notifications. It reads your chats and sends only what you approve. WhatsApp doesn’t officially support assistants like this: use it for your own everyday messages, never bulk sending.": "Jarvis 会像 WhatsApp 网页版一样作为你的一台关联设备，并保持离线，让手机照常收到通知。它会读取你的聊天，只发送你批准的内容。WhatsApp 并未正式支持此类助手：请只用于日常个人消息，切勿群发。",
+    "Unlink WhatsApp from Jarvis? Jarvis logs out of your account and forgets what it saw.": "要取消 WhatsApp 与 Jarvis 的关联吗？Jarvis 会退出你的账号并删除它看到的内容。",
+    "The connection dropped; reconnecting.": "连接已断开，正在重新连接。",
+    "The code expired before it was scanned. Link again for a new one.": "二维码在扫描前已过期。请重新关联以获取新的二维码。",
+    "WhatsApp unlinked Jarvis (from the phone, or it was away too long).": "WhatsApp 已取消与 Jarvis 的关联（在手机上操作，或离线过久）。",
+    "Jarvis forgot the link. It couldn't tell WhatsApp while offline: remove it on the phone too (Settings → Linked devices).": "Jarvis 已删除关联。离线时无法通知 WhatsApp：请也在手机上移除（设置 → 已关联的设备）。",
+    "WhatsApp needs Node.js. Install it with: brew install node": "WhatsApp 需要 Node.js。请用以下命令安装：brew install node"
+  },
+  "patterns": [
+    ["^Connected as (.+?) · (\\d+) unread$", "已连接：$1 · $2 条未读"],
+    ["^Connected as (.+)$", "已连接：$1"]
+  ]
+}

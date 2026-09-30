@@ -1,0 +1,20 @@
+/* WhatsApp in Tools & Accounts (features/whatsapp.js) */
+.wa-group { display: flex; flex-direction: column; gap: 8px; }
+.wa-head { display: flex; align-items: center; gap: 8px; }
+.wa-head h3 { margin: 0; }
+.wa-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
+.wa-group[data-state="connected"] .wa-dot { background: #25d366; opacity: 1; box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.18); }
+.wa-group[data-state="connecting"] .wa-dot,
+.wa-group[data-state="linking"] .wa-dot,
+.wa-group[data-state="starting"] .wa-dot,
+.wa-group[data-state="installing"] .wa-dot { background: #f5a524; opacity: 1; }
+.wa-group[data-state="error"] .wa-dot { background: var(--warn); opacity: 1; }
+.wa-qr-box { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border-radius: 14px; background: rgba(127, 127, 127, 0.08); }
+.wa-qr-box[hidden] { display: none; }
+.wa-qr { width: 232px; height: 232px; padding: 10px; border-radius: 12px; background: #fff; image-rendering: pixelated; }
+.wa-qr-box .group-note { text-align: center; max-width: 300px; }
+.wa-actions { display: flex; gap: 8px; }
+.wa-actions .btn[hidden] { display: none; }
+.wa-announce { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.wa-announce[hidden] { display: none; }
+.wa-error[hidden] { display: none; }
