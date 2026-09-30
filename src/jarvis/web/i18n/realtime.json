@@ -1,0 +1,27 @@
+{
+  "strings": {
+    "Realtime conversation": "实时对话",
+    "Talk back and forth naturally; replies start in about a second": "自然地来回对话；回复大约一秒内开始",
+    "Realtime voice provider": "实时语音服务",
+    "Automatic": "自动",
+    "OpenAI": "OpenAI",
+    "Gemini": "Gemini",
+    "Minutes a day": "每天分钟数",
+    "Say “Jarvis” or hold the orb to start. It ends after 20 seconds of quiet, when you say “that’s all”, or when you tap the orb. Claude still does the work, with every approval.": "说“Jarvis”或按住光球即可开始。安静 20 秒、你说“就这样”或点按光球时结束。实际工作仍由 Claude 完成，所有批准照常进行。",
+    "Billed per minute to your own OpenAI or Google key from Settings › Models: roughly $0.02–0.10 a minute with OpenAI, less with Gemini.": "按分钟计费，使用你在“设置 › 模型”中的 OpenAI 或 Google 密钥：OpenAI 约每分钟 0.02–0.10 美元，Gemini 更便宜。",
+    "Turn on Talk over Jarvis to interrupt it while it speaks.": "开启“开口即可打断”后，才能在它说话时打断它。",
+    "Add an OpenAI or Google Gemini key in Settings › Models.": "请在“设置 › 模型”中添加 OpenAI 或 Google Gemini 密钥。",
+    "Gemini Live needs a Google AI Studio key (AIza…), not a Vertex AI one.": "Gemini Live 需要 Google AI Studio 密钥（AIza…），不能用 Vertex AI 密钥。",
+    "Realtime conversation needs an OpenAI or Google Gemini key in Settings › Models, so I'll listen the usual way.": "实时对话需要在“设置 › 模型”中添加 OpenAI 或 Google Gemini 密钥，所以我先用平常的方式听。",
+    "Realtime conversation couldn't connect, so I'll listen the usual way.": "实时对话连接不上，所以我先用平常的方式听。",
+    "The realtime conversation dropped, so I'm back to listening the usual way.": "实时对话断开了，我回到平常的聆听方式。",
+    "Today's realtime conversation minutes are used up, so I'll listen the usual way.": "今天的实时对话分钟数已用完，所以我先用平常的方式听。",
+    "Realtime conversation needs hands-free listening on.": "实时对话需要先开启免提聆听。",
+    "My voice player isn't ready yet, so I'll listen the usual way.": "我的语音播放器还没准备好，所以我先用平常的方式听。",
+    "Realtime conversation · tap the orb to end": "实时对话 · 点按光球结束",
+    "Realtime · talk over me or tap the orb to end": "实时对话 · 直接插话或点按光球结束"
+  },
+  "patterns": [
+    ["^([\\d.]+) of (\\d+) minutes used today$", "今天已用 $1 / $2 分钟"]
+  ]
+}

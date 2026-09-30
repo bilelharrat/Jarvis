@@ -1,0 +1,17 @@
+/* Settings › Listening › Realtime conversation, and the orb's ring while one is on
+   (features/realtime.js). */
+.realtime { display: contents; }
+.realtime [hidden] { display: none !important; }
+.realtime-minutes input[type="number"] { width: 5.5em; text-align: right; }
+.realtime-why { color: var(--danger, #ff453a); }
+/* a calm ring around the orb, breathing slowly while the conversation is open */
+body[data-realtime="on"] .orb {
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.45), 0 0 32px rgba(10, 132, 255, 0.28);
+  animation: realtime-ring 2.4s ease-in-out infinite;
+}
+@keyframes realtime-ring {
+  50% { box-shadow: 0 0 0 5px rgba(10, 132, 255, 0.3), 0 0 44px rgba(10, 132, 255, 0.2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-realtime="on"] .orb { animation: none; }
+}

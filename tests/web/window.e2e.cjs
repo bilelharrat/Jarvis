@@ -3351,6 +3351,35 @@ test('Recognise my voice: in Listening, the size before the download, then five 
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_id_forget' }]), 'forget sent nothing');
 });
 
+test('Realtime conversation: in Listening, its minutes and why; on the orb, a ring and a tap ends it', async () => {
+  await loadVoiceFeature('voice');
+  await loadVoiceFeature('realtime');
+  await js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'], engine: 'whisper', apple: { state: 'off' } }); true`);
+  const base = { on: false, provider: 'auto', minutes: 20, used: 0, keys: { openai: false, gemini: false }, active: false, using: '', state: '', talk_over: false, why: '' };
+  const deliver = (over) => js(`featureEvent(${JSON.stringify({ type: 'realtime', ...base, ...over })}); true`);
+  await deliver({});
+  let r = await js(`({ inside: !!$('realtime').closest('#voice-listening'), checked: $('realtime-switch').getAttribute('aria-checked'), provider: $('realtime-provider').hidden })`);
+  assert(r.inside && r.checked === 'false' && r.provider, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await js(`$('realtime-switch').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'realtime_settings', changes: { realtime_on: true } }]), 'the switch sent nothing');
+  await deliver({ on: true, used: 3.5, why: 'Add an OpenAI or Google Gemini key in Settings › Models.' });
+  r = await js(`({ used: $('realtime-used').textContent, why: $('realtime-why').textContent, whyShown: !$('realtime-why').hidden, talk: !$('realtime-talk-over').hidden,
+    minutes: $('realtime-minutes').value, picked: $('realtime-provider').querySelector('[aria-checked="true"]').textContent })`);
+  assert(r.used === '3.5 of 20 minutes used today' && /Settings › Models/.test(r.why) && r.whyShown && r.talk && r.minutes === '20' && r.picked === 'Automatic', JSON.stringify(r));
+  await js('__sent.length = 0; const m = $("realtime-minutes"); m.value = "45"; m.dispatchEvent(new Event("change")); true');
+  await js(`[...$('realtime-provider').querySelectorAll('button')].find((b) => b.textContent === 'Gemini').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'realtime_settings', changes: { realtime_minutes: 45 } }, { type: 'realtime_settings', changes: { realtime_provider: 'gemini' } }]), JSON.stringify(await js('__sent')));
+  // A conversation on: the orb's ring, the line under it, and a tap ends it (not "stop").
+  await deliver({ on: true, talk_over: true, active: true, using: 'openai', state: 'listening' });
+  r = await js(`({ ring: document.body.dataset.realtime, line: $('state-line').textContent, talk: $('realtime-talk-over').hidden })`);
+  assert(r.ring === 'on' && r.line === 'Realtime conversation · tap the orb to end' && r.talk, JSON.stringify(r));
+  await js(`__sent.length = 0; $('orb').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'realtime_stop' }]), JSON.stringify(await js('__sent')));
+  await deliver({ on: true, active: false });
+  assert(await js('document.body.dataset.realtime === undefined'), 'the ring stayed');
+});
+
 // ── actions and comms: the conversations' nudge delay ──
 
 test('Conversations for you: the nudge delay shows what is saved, and changing it saves it', async () => {
