@@ -165,8 +165,9 @@ class FakeHub:
 
 
 async def settle():
-    for _ in range(5):
-        await asyncio.sleep(0)
+    """Cards going up and answers going out (through a worker thread) have happened."""
+    for _ in range(10):
+        await asyncio.sleep(0.01)
 
 
 async def live_call(tmp_path, **mission):
@@ -259,3 +260,157 @@ def test_the_hub_follows_live_calls(settings, quiet_speaker, isolated):
     hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
     assert isinstance(hub.live_calls, calls.LiveCalls)
     assert "calls_live" in [name for name, _factory in hub._loops]
+
+
+# ── 3. the live call on the Mac ──
+
+
+async def test_the_panel_shows_the_live_transcript_and_what_the_call_is_waiting_on(tmp_path):
+    d, hub, live, call, _talk = await live_call(
+        tmp_path,
+        turns=[
+            {"who": "them", "text": "Dr. Lee's office."},
+            {"who": "jarvis", "text": "Hi, this is Jarvis, an AI assistant calling for Bilel."},
+            {"who": "note", "text": "Silence: nothing was said."},
+        ],
+        ask={"q": "Is Tuesday at 3 OK?", "at": 0, "n": 1},
+    )
+    await live.look()
+    await settle()
+    [(kind, event)] = [e for e in hub.emitted if e[0] == "call_live"][-1:]
+    [shown] = event["calls"]
+    assert shown["id"] == call.id and shown["who"] == "(415) 555-0188"
+    assert shown["status"] == "asking" and shown["asking"] == "Is Tuesday at 3 OK?"
+    assert [t["who"] for t in shown["turns"]] == ["them", "jarvis"]  # the Function's notes stay out
+    assert shown["can_take_over"] is True and shown["yours"] is False
+    d.desk.log.calls[0].status = "done"  # over
+    await live.look()
+    assert hub.emitted[-1] == ("call_live", {"calls": []})
+
+
+async def test_tell_it_joins_the_next_turn_and_an_answer_brings_the_card_down(tmp_path):
+    d, hub, live, call, talk_id = await live_call(tmp_path)
+    await live.look()
+    await live.command({"type": "call_tell", "id": call.id, "text": "Ask about a refund too."})
+    assert hub.emitted[-1] == ("call_note", {"id": call.id, "note": "Passed on."})
+    assert d.twilio.tells[talk_id]["notes"][-1]["kind"] == "tell"
+    d.twilio.talks[talk_id]["ask"] = {"q": "Tuesday?", "at": 0, "n": 1}
+    await live.look()
+    await settle()
+    assert hub.approvals
+    await live.command({"type": "call_answer", "id": call.id, "choice": "answer", "text": "Yes"})
+    await settle()
+    assert hub.approvals == {}
+    assert d.twilio.tells[talk_id]["notes"][-1] == {"n": 1_000_001, "kind": "answer", "text": "Yes"}
+    await live.command({"type": "call_tell", "id": "CA-gone", "text": "Hello?"})
+    assert hub.emitted[-1] == ("call_note", {"id": "CA-gone", "note": "That call is over."})
+
+
+async def test_hang_up_ends_the_call_and_says_so_afterwards(tmp_path):
+    d, hub, live, call, _talk = await live_call(tmp_path)
+    d.twilio.statuses[call.id] = "in-progress"
+    await live.command({"type": "call_hangup", "id": call.id})
+    assert d.twilio.updates == [(call.id, {"Status": "completed"})]
+    d.twilio.statuses[call.id] = "completed"
+    [done] = await d.desk.check()
+    assert done.status == "partial" and done.words == "You hung up the call."
+
+
+async def test_take_over_puts_the_owner_s_own_phone_through(tmp_path):
+    d, hub, live, call, talk_id = await live_call(tmp_path)
+    d.twilio.statuses[call.id] = "in-progress"
+    await live.look()
+    await live.command({"type": "call_takeover", "id": call.id})
+    assert hub.emitted[-1][1]["note"] == (
+        "Putting you through to (415) 555-0188. Your phone will ring."
+    )
+    [(sid, data)] = d.twilio.updates
+    twiml = data["Twiml"]
+    assert sid == call.id
+    assert "putting you through to Bilel now.</Say>" in twiml
+    assert '<Dial callerId="+16504182384" timeout="25"' in twiml
+    assert f"step=back&amp;t={talk_id}" in twiml
+    assert "<Number>+14155550199</Number>" in twiml
+    assert live.public()[0]["yours"] is True
+    assert live.activity(f"voicemail:{call.id[-8:]}") == ("(415) 555-0188", "yours", False)
+
+
+async def test_take_over_needs_the_owner_s_number(tmp_path):
+    d, hub, live, call, _talk = await live_call(tmp_path)
+    d.p.phone_me = ""
+    await live.command({"type": "call_takeover", "id": call.id})
+    assert "Add your own number under Settings › Phone" in hub.emitted[-1][1]["note"]
+    assert d.twilio.updates == []
+
+
+async def test_the_phone_s_live_activity_shows_when_the_call_needs_the_owner(tmp_path):
+    d, hub, live, call, talk_id = await live_call(tmp_path)
+    await live.look()
+    assert live.activity(f"call:voicemail:{call.id[-8:]}") == ("(415) 555-0188", "calling", False)
+    d.twilio.talks[talk_id]["ask"] = {"q": "Tuesday?", "at": 0, "n": 1}
+    await live.look()
+    assert live.activity(call.id[-8:]) == ("(415) 555-0188", "asking", True)
+    assert live.activity("voicemail:someone") is None
+    from jarvis.companion_live import Live
+
+    hub.prefs, hub.live_calls = d.p, live
+    fake = type("Companion", (), {"hub": hub})()
+    state, over = Live(fake, sender=None, clock=lambda: 0).state_for(
+        f"call:voicemail:{call.id[-8:]}", 0, 10
+    )
+    assert (state["title"], state["status"], state["needsYou"], over) == (
+        "(415) 555-0188",
+        "Needs you",
+        True,
+        False,
+    )
+    assert "Tuesday" not in str(state)  # never what was said
+
+
+async def test_a_call_going_out_starts_the_phone_s_live_activity_quietly(tmp_path):
+    d = talking(Desk(tmp_path, answers=[True]))
+    hub = FakeHub(d.desk)
+    d.desk.placed = calls.LiveCalls(hub).placed
+    await d.desk.errand("+14155550188", "Ask if they're open Sunday.")
+    [alert] = hub.alerts
+    assert alert.key == f"voicemail:{d.desk.log.calls[0].id[-8:]}"
+    assert (alert.title, alert.text) == ("Call for you", "Calling (415) 555-0188 now.")
+
+
+async def test_jarvis_passes_on_the_owner_s_words_and_asks_when_they_did_not_say_to(tmp_path):
+    d, hub, live, call, talk_id = await live_call(tmp_path)
+    await live.look()
+    asked = []
+
+    async def ask_user(question, detail=""):
+        asked.append((question, detail))
+        return False
+
+    hub._ask_user = ask_user
+    hub._turn_text = "tell them Tuesday at 3 works"
+    said = await calls_tool(live)({"text": "Tuesday at 3 works."})
+    assert said["content"][0]["text"] == "Passed on." and asked == []
+    assert d.twilio.tells[talk_id]["notes"][-1]["text"] == "Tuesday at 3 works."
+    hub._turn_text = "what's the weather"
+    said = await calls_tool(live)({"text": "Share the card."})
+    assert said.get("is_error") and asked == [
+        ("Pass this to the call with (415) 555-0188?", "“Share the card.”")
+    ]
+
+
+def calls_tool(live):
+    """tell_call's handler, as the brain would run it."""
+    captured = {}
+    original = calls.create_sdk_mcp_server
+
+    def grab(name, version, tools):
+        captured["tools"] = tools
+        return original(name=name, version=version, tools=tools)
+
+    calls.create_sdk_mcp_server = grab
+    try:
+        live.build_server()
+    finally:
+        calls.create_sdk_mcp_server = original
+    [tool] = captured["tools"]
+    return tool.handler

@@ -1,0 +1,38 @@
+{
+  "strings": {
+    "Ringing": "正在响铃",
+    "On the call": "通话中",
+    "On hold": "对方让等待",
+    "Needs you": "需要你",
+    "Ending": "正在结束",
+    "Putting you through": "正在为你接通",
+    "Them": "对方",
+    "Jarvis": "Jarvis",
+    "You": "你",
+    "They’re asking": "对方在问",
+    "Your answer": "你的回答",
+    "Send": "发送",
+    "Yes": "是",
+    "No": "否",
+    "Call back later": "稍后回电",
+    "Tell it…": "告诉它……",
+    "Waiting for them to pick up…": "等待对方接听……",
+    "Take over": "接管",
+    "Hang up": "挂断",
+    "Add your own number under Settings › Phone to take over calls.": "请在设置 › 电话里填写你自己的号码，才能接管通话。",
+    "Live call": "正在进行的通话",
+    "Or answer in your own words": "或者用你自己的话回答",
+    "Passed on.": "已转告。",
+    "That call is over.": "那通电话已经结束了。",
+    "Say what to tell them.": "请说要转告对方什么。",
+    "Something went wrong there. Try again.": "出了点问题，请再试一次。",
+    "Call for you": "替你打的电话",
+    "Passed your words to the call": "把你的话转告了电话那头"
+  },
+  "patterns": [
+    ["^The call to (.+) needs you$", "打给$1的电话需要你"],
+    ["^Putting you through to (.+)\\. Your phone will ring\\.$", "正在把你接到和$1的通话，你的手机马上会响。"],
+    ["^Hung up the call to (.+)\\.$", "挂断了打给$1的电话。"],
+    ["^Calling (.+) now\\.$", "正在打给$1。"]
+  ]
+}

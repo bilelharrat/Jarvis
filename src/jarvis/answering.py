@@ -1044,6 +1044,9 @@ class Answering:
         self.claude_key = claude_key
         self.lookup = lookup
         self.voice = voice
+        # A call JARVIS placed has gone out (features/calls.py: the phone's Live Activity).
+        self.placed: Callable[[Call], Any] | None = None
+        self.hung_up: set[str] = set()  # calls the owner hung up from the Mac
         self.busy = ""  # "on" | "off" while it's being turned on or off
         self.note = ""  # the latest word on it, for Settings
         self._lock: asyncio.Lock | None = None
@@ -1660,6 +1663,8 @@ class Answering:
             )
             self._save()
         self._changed()
+        if self.placed is not None:
+            self.placed(self.log.calls[0])
         return f"Calling {who} now. How it goes will come up as a heads-up when the call is over."
 
     async def reserve(
@@ -1759,12 +1764,16 @@ class Answering:
                     if result in ("done", "failed", "partial")
                     else ("partial" if call.transcript else "failed")
                 )
-                call.words = _clip(
-                    str(outcome.get("details") or (talk or {}).get("note") or ""), 600
-                ) or (
-                    "They hung up before anything was settled."
-                    if call.transcript
-                    else "Someone picked up, but no one spoke."
+                if not outcome and call.id in self.hung_up:
+                    call.status = "partial"
+                call.words = (
+                    _clip(str(outcome.get("details") or (talk or {}).get("note") or ""), 600)
+                    or ("You hung up the call." if call.id in self.hung_up else None)
+                    or (
+                        "They hung up before anything was settled."
+                        if call.transcript
+                        else "Someone picked up, but no one spoke."
+                    )
                 )
             if call.status == "done" and call.title and outcome.get("start"):
                 await self._file_errand(call, str(outcome["start"]))
@@ -1773,6 +1782,7 @@ class Answering:
                     await asyncio.to_thread(self.line.forget_talk, state, call.talk, sid, token)
                 call.talk = ""
             call.heard = False
+            self.hung_up.discard(call.id)
             finished.append(call)
         return finished
 

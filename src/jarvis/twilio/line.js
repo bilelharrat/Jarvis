@@ -749,6 +749,25 @@ async function hold(context, event) {
   return respond('<Pause length="1"/>', hop);
 }
 
+// After the owner took the call over from the Mac (a <Dial> of their own phone): how it went.
+async function back(context, event) {
+  const id = talkId(event);
+  const data = await talkDoc(context, id);
+  if (!data) return respond('<Hangup/>');
+  const who = data.owner || 'they';
+  data.ask = null;
+  if (event.DialCallStatus === 'completed') {
+    data.turns.push({ who: 'note', text: `${who} took over the call.` });
+    data.done = true;
+    data.outcome = data.outcome || { status: 'partial', start: '', details: 'You took over the call and talked with them yourself.' };
+    await saveTalk(context, id, data);
+    return respond('<Hangup/>');
+  }
+  return finish(context, id, data, `I'm sorry, ${who} couldn't come to the phone just now, so ${who === 'they' ? 'we' : who} will call you back. Thank you. Goodbye.`, {
+    status: 'partial', start: '', details: "You didn't pick up when I tried to put you through, so I said you'd call back.",
+  });
+}
+
 // Back from hold with the owner's answer: Jarvis's next line, with it in mind.
 async function resume(context, event) {
   const id = talkId(event);
@@ -1278,7 +1297,7 @@ function sendAudio(callback, { wav, keep }) {
   callback(null, wav);
 }
 
-const STEPS = { answer, choose, slots: slotsStep, pick, booked, left, talk, dial, hold, resume };
+const STEPS = { answer, choose, slots: slotsStep, pick, booked, left, talk, dial, hold, resume, back };
 
 function reply(callback, xml) {
   const body = `<?xml version="1.0" encoding="UTF-8"?>${xml}`;

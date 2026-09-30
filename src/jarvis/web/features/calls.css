@@ -1,0 +1,50 @@
+/* A call Jarvis placed, live (calls.js): a clear glass panel at the bottom left, above the
+   conversation; the transcript scrolls inside it. */
+.call-live {
+  position: fixed; left: 18px; bottom: 96px; z-index: 40;
+  width: min(380px, calc(100vw - 36px)); max-height: min(560px, calc(100vh - 140px));
+  display: flex; flex-direction: column; gap: 10px; overflow: hidden;
+}
+.cl-call {
+  display: flex; flex-direction: column; gap: 8px; min-height: 0;
+  padding: 14px 16px; border-radius: 18px;
+  background: var(--glass-fill-strong, var(--card)); border: 1px solid var(--line);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim, none), var(--glass-edge, none), var(--shadow-sheet, 0 12px 30px rgba(60, 40, 20, 0.1));
+  animation: rise 220ms ease-out;
+}
+.cl-head { display: flex; align-items: center; gap: 8px; }
+.cl-title { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.cl-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-dot { width: 8px; height: 8px; border-radius: 50%; background: #2ea44f; flex: none; animation: cl-pulse 1.6s ease-in-out infinite; }
+.cl-asking .cl-dot { background: var(--warn); }
+.cl-ringing .cl-dot { background: var(--muted); }
+.cl-status { font-size: 12px; color: var(--muted); }
+.cl-asking .cl-status { color: var(--warn); font-weight: 600; }
+.cl-clock { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cl-goal { margin: 0; font-size: 13px; color: var(--ink-2); }
+.cl-ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--warn); }
+.cl-ask p { margin: 0; }
+.cl-ask-title { font-size: 12px; color: var(--warn); font-weight: 600; }
+.cl-ask-q { font-size: 14px; }
+.cl-turns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 40px; max-height: 240px; font-size: 13.5px; }
+.cl-turn { display: flex; flex-direction: column; gap: 1px; }
+.cl-speaker { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.cl-jarvis .cl-speaker { color: var(--action); }
+.cl-owner .cl-words { font-style: italic; }
+.cl-empty { color: var(--muted); font-size: 13px; }
+.cl-row { display: flex; gap: 6px; align-items: center; }
+.cl-quick { flex-wrap: wrap; }
+.cl-field {
+  flex: 1; min-width: 0; font: inherit; font-size: 13.5px; color: var(--ink);
+  padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card);
+}
+.cl-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.cl-hangup { color: #fff; background: #d0342c; border-color: #d0342c; }
+.cl-hangup:hover { background: #b82a23; }
+.cl-note { margin: 0; font-size: 12px; color: var(--muted); }
+.cl-note:empty { display: none; }
+.cl-card { display: flex; flex-direction: column; gap: 8px; }
+.cl-card-detail { margin: 0; white-space: pre-wrap; font-size: 13.5px; }
+@keyframes cl-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .cl-dot, .cl-call { animation: none; } }

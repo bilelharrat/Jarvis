@@ -209,6 +209,12 @@ class Live:
             return self._delegation(ident, now)
         if kind == "video":
             return self._video(ident, now)
+        live = getattr(self.hub, "live_calls", None)
+        found = live.activity(ident) if live is not None and ident not in self._calls else None
+        if found is not None:  # a call JARVIS placed, running now (features/calls.py)
+            who, state, needs = found
+            status = self.w({"asking": "waiting_owner", "yours": "active"}.get(state, "calling"))
+            return self._state(_line(who, 60), status, "", None, needs, now), False
         if ident in self._calls:  # a call
             return self._state(
                 self.w("phone_call"), self.w("ended"), self._calls[ident], None, False, now

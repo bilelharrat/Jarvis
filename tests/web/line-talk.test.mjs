@@ -514,3 +514,17 @@ test('what the owner types into a live call joins the next turn, and brackets in
   assert.equal(owner, '[Bilel, through your own channel: Ask for a refund of the last month too.]');
   assert.doesNotMatch(them, /\[|\]/);
 });
+
+test('after the owner takes a call over, it ends as theirs; if they do not pick up, Jarvis says they will call back', async () => {
+  reset({ owner: 'Bilel' });
+  errand({ commit: true });
+  let xml = await placed({ step: 'back', DialCallStatus: 'completed' });
+  assert.match(xml, /<Response><Hangup\/><\/Response>$/);
+  assert.equal(talkOf('m1').done, true);
+  assert.match(talkOf('m1').outcome.details, /You took over the call/);
+  reset({ owner: 'Bilel' });
+  errand({ commit: true });
+  xml = await placed({ step: 'back', DialCallStatus: 'no-answer' });
+  assert.match(xml, /Bilel couldn't come to the phone just now, so Bilel will call you back\. Thank you\. Goodbye\.<\/Say><Hangup\/>/);
+  assert.equal(talkOf('m1').outcome.status, 'partial');
+});
