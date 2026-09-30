@@ -320,3 +320,23 @@ def test_the_move_setting_is_checked():
     clean = prefs_module.FEATURE_PREFS[feature.MOVE_PREF][1]
     assert clean(5) == 5.0 and clean(0) == 0.0 and clean(2.5) == 2.5
     assert clean(99) is None and clean(True) is None and clean("5") is None
+
+
+def test_the_alerts_are_read_only_when_theyre_needed(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from pathlib import Path
+
+    from jarvis import jsonstore
+
+    read = []
+    real = jsonstore.load_json
+    monkeypatch.setattr(
+        jsonstore,
+        "load_json",
+        lambda path, *a, **k: read.append(Path(path).name) or real(path, *a, **k),
+    )
+    hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
+    assert "price_alerts.json" not in read  # never while the hub is made
+    hub.stocks.cmd_alerts({})  # the window asks for them
+    assert read.count("price_alerts.json") == 1

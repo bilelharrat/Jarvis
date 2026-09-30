@@ -11,6 +11,9 @@ alerts (the "stocks" tool server, a loop, Settings › Markets).
   after hours) and every ten minutes otherwise (coins trade all night), and raises each
   heads-up once, at most stock_alerts.DAILY_CAP a day.
 
+The alerts are read from their file the first time they're needed, never while the hub is
+being made.
+
 Cost policy (Claude): nothing here calls a model. Quotes are one small request to CNBC's
 public quote service per check, only while there are alerts to check.
 """
@@ -159,8 +162,15 @@ class Stocks:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.gate = MacGate(hub)
-        self.store = AlertStore(hub.feature_path("price_alerts.json"))
+        self._store: AlertStore | None = None
         self.quotes = lambda symbols: hub.markets.quotes(symbols)
+
+    @property
+    def store(self) -> AlertStore:
+        """The price alerts, read from their file the first time they're needed."""
+        if self._store is None:
+            self._store = AlertStore(self.hub.feature_path("price_alerts.json"))
+        return self._store
 
     def watch_move(self) -> float:
         return float(self.hub.prefs.feature(MOVE_PREF) or 0.0)
