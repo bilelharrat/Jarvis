@@ -630,6 +630,25 @@ async def test_a_meeting_time_leaves_out_everyones_busy_times(settings, quiet_sp
     assert calls[0][0] == "query_free_busy" and calls[0][1]["items"] == [{"id": "ann@x.com"}]
 
 
+async def test_a_meeting_time_says_which_all_day_events_it_didnt_count(
+    settings, quiet_speaker, isolated
+):
+    today = datetime(2026, 9, 29, 8, 0)
+
+    async def events(offset, days):
+        return [
+            {"begin": today.replace(hour=0), "end": today.replace(hour=0) + timedelta(days=3),
+             "all_day": True, "title": "Vacation in Lisbon"}
+        ]  # fmt: skip
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    s = scheduling.Scheduler(hub, events=events, lookup=lookup, now=lambda: today)
+    out = await s.meeting_time({"people": ["Ann"], "duration_minutes": 60, "within_days": 1})
+    text = out["content"][0]["text"]
+    assert text.startswith("Times when you are free for 60 minutes:")
+    assert "(all-day events not counted as busy: 29 Sep “Vacation in Lisbon”)" in text
+
+
 async def test_without_a_connector_only_the_owners_calendar_counts(
     settings, quiet_speaker, isolated
 ):
@@ -740,6 +759,9 @@ async def test_booking_asks_first_and_notes_what_the_owner_said(settings, quiet_
     )
     assert "Sam Lee wrote: “Friday 12:30 works”" in card["detail"]
     assert "It overlaps “Dentist” (12:00 PM–1:00 PM)." in card["detail"]
+    # Where it is goes into the event as its location: the card shows it (it comes from
+    # what the other person wrote).
+    assert "\nAt Noma." in card["detail"]
     assert [c["label"] for c in card["choices"]] == ["Book", "Don't book"] and made == []
     assert d.booked == "asked"
     hub.resolve(card["id"], "allow")

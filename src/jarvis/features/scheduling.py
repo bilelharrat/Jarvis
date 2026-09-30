@@ -427,6 +427,15 @@ class Scheduler:
             for b, e in (busy.get(a) or [])
         ]
         windows = mac_tools.free_windows(mine + theirs, duration, now, end, hour0, hour1, now)
+        # All-day events aren't busy time (a holiday, a birthday): said, as find_free_slots does,
+        # so a day away isn't offered without a word.
+        allday = sorted(
+            {
+                f"{ev['begin']:%-d %b} “{ev['title']}”"
+                for ev in mine
+                if ev.get("all_day") and ev["begin"].date() <= end.date() and ev["end"] > now
+            }
+        )
         who = "you" + (f" and {_names(seen)}" if seen else "")
         if not windows:
             head = (
@@ -436,6 +445,8 @@ class Scheduler:
         else:
             rows = [f"- {s:%a %-d %b}, {s:%-I:%M %p} – {e:%-I:%M %p}" for s, e in windows[:limit]]
             head = f"Times when {who} are free for {duration} minutes:\n" + "\n".join(rows)
+            if allday:
+                head += f"\n(all-day events not counted as busy: {', '.join(allday)})"
         if blind:
             if self._freebusy_tool() is None:
                 why = (
@@ -480,6 +491,9 @@ class Scheduler:
         channel = "iMessage" if d.channel == "imessage" else "email"
         heard = next((t["text"] for t in reversed(d.transcript) if t["from"] == "them"), "")
         detail = f"Agreed with {d.contact} by {channel}."
+        place = " ".join(str(meeting.get("place") or "").split())[:200]
+        if place:  # it becomes the event's location, and comes from what they wrote
+            detail += f"\nAt {place}."
         if heard:
             detail += f"\n{d.contact} wrote: “{heard[:400]}”"
         clash = await self._clashes(start, start + timedelta(minutes=minutes))
