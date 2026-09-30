@@ -89,6 +89,40 @@ def test_big_moves_on_the_watchlist_and_the_daily_cap(tmp_path):
     assert store2.sent_today() == DAILY_CAP  # remembered across a restart
 
 
+def test_a_days_move_goes_off_once_for_its_session_not_again_each_night(tmp_path):
+    """CNBC's change stays on the last session's until the next open: overnight and at the
+    weekend it's still Friday's. A move alert or a watchlist move goes off while its market
+    is open, once for that session (New York's day, so a session that crosses the owner's
+    midnight is one), and never again on Friday's numbers on Saturday."""
+    clock = Clock(datetime(2026, 10, 2, 10, 0))  # a Friday, 10 am here (Pacific)
+    store = AlertStore(tmp_path / "alerts.json", clock)
+    store.add("NVDA", "move", 5)
+    friday = {"NVDA": q(180, 6.2, status="open")}
+    assert len(store.check(friday, ["NVDA"], 5)) == 2  # the alert, and the watchlist's
+    closed = {"NVDA": q(181, 6.2, status="closed")}
+    for later in (timedelta(hours=14, minutes=5), timedelta(days=1), timedelta(days=2, hours=18)):
+        clock.at = datetime(2026, 10, 2, 10, 0) + later  # Sat 00:05, Sat 10:00, Mon 04:00
+        assert store.check(closed, ["NVDA"], 5) == [], clock.at
+    assert store.sent_today() == 0  # nothing of the next days' cap spent on Friday's news
+    clock.at = datetime(2026, 10, 5, 7, 0)  # Monday, the market open: a new session
+    assert len(store.check({"NVDA": q(170, -5.4, status="open")}, ["NVDA"], 5)) == 2
+    # Coins trade around the clock: their day's move counts whenever it's asked.
+    store.add("BTC.CM=", "move", 5)
+    assert len(store.check({"BTC.CM=": q(61234, -5.5, status="closed")}, [], 0)) == 1
+
+
+def test_a_quote_that_cant_be_right_sets_nothing_off(tmp_path):
+    store = AlertStore(tmp_path / "alerts.json", Clock(datetime(2026, 9, 29, 10, 0)))
+    below = store.add("TSLA", "below", 200, last=250)
+    above = store.add("AAPL", "above", 200, last=180)
+    for bad in (q(0.0, 0.0), q(float("nan"), 1.0), q(float("inf"), 1.0)):
+        assert store.check({"TSLA": bad, "AAPL": bad}, [], 0) == []
+    assert (below.armed, above.armed) == (True, True)  # nor re-armed by a zero
+    assert store.check({"AAPL": q(195, float("nan"))}, ["AAPL"], 1) == []  # no change known
+    fired = store.check({"AAPL": q(201, 1.0)}, [], 0)
+    assert fired[0][2] == "AAPL is above 200.00: 201.00, up 1.0% today."
+
+
 def test_heads_ups_in_chinese():
     assert (
         heads_up("NVDA", "above", 150, 151.2, 2.34, "zh")

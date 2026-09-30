@@ -5,8 +5,12 @@ moving more than some percent in a day, and for big moves on their whole watchli
   it waits for a dip below first, so it never goes off the moment it's made. Once it has
   gone off it's done (kept a day, shown as gone off, then dropped).
 - "below 90" the same, the other way.
-- "moves 5%" goes off when the day's change reaches 5% either way, at most once a day.
+- "moves 5%" goes off when the day's change reaches 5% either way, at most once a trading
+  session: while that market is open (CNBC keeps the last session's change until the next
+  open, so overnight and at weekends it's old news), and once per New York day, so a session
+  that crosses the owner's midnight counts once. Coins trade around the clock: any time.
 - The watchlist setting (a percent, 0 for off) does the same for every watchlist symbol.
+- A quote that can't be right (a price of 0, not a number) sets nothing off.
 
 At most DAILY_CAP heads-ups a day go out, all alerts together; past that they wait for
 tomorrow. Quotes are CNBC's, as the Markets panel's (markets.py). The store is a JSON file
@@ -16,6 +20,7 @@ beside prefs.json (jsonstore: atomic saves, a .bak, a damaged file set aside).
 from __future__ import annotations
 
 import logging
+import math
 import re
 import uuid
 from dataclasses import asdict, dataclass, fields
@@ -50,6 +55,27 @@ def clean_symbols(values: Any) -> list[str]:
 
 def display_name(symbol: str) -> str:
     return NAMES.get(symbol, symbol)
+
+
+def session_day(now: datetime) -> str:
+    """New York's date for this moment (a naive time is this Mac's): a US trading session is
+    one New York day, wherever the owner is."""
+    from zoneinfo import ZoneInfo
+
+    return now.astimezone(ZoneInfo("America/New_York")).date().isoformat()
+
+
+def _in_session(symbol: str, quote: dict[str, Any]) -> bool:
+    """The quote's day's change is this session's: its market is open, or it's a coin."""
+    return symbol.endswith("=") or quote.get("status", "open") == "open"
+
+
+def _finite(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _price(value: float) -> str:
@@ -113,7 +139,7 @@ class AlertStore:
         self.clock = clock
         self.alerts: list[PriceAlert] = []
         self.sent: dict[str, int] = {}  # day -> heads-ups sent that day
-        self.moved: dict[str, list[str]] = {}  # day -> watchlist symbols already said
+        self.moved: dict[str, list[str]] = {}  # session day -> watchlist symbols already said
         self.unreadable = ""
         self._load()
 
@@ -134,8 +160,9 @@ class AlertStore:
         if isinstance(sent, dict) and isinstance(sent.get(today), int):
             self.sent = {today: sent[today]}
         moved = data.get("moved")
-        if isinstance(moved, dict) and isinstance(moved.get(today), list):
-            self.moved = {today: [s for s in moved[today] if isinstance(s, str)][:50]}
+        session = session_day(self.clock())
+        if isinstance(moved, dict) and isinstance(moved.get(session), list):
+            self.moved = {session: [s for s in moved[session] if isinstance(s, str)][:50]}
 
     def save(self) -> None:
         if self.unreadable:
@@ -221,15 +248,18 @@ class AlertStore:
         what went off, and re-arms alerts whose price came back across their line."""
         now = self.clock()
         today = now.date().isoformat()
+        session = session_day(now)
         self.sent = {today: self.sent.get(today, 0)}
-        self.moved = {today: self.moved.get(today, [])}
+        self.moved = {session: self.moved.get(session, [])}
         changed = self._prune(now)
         out: list[tuple[str, str, str]] = []
         for alert in self.alerts:
             quote = quotes.get(alert.symbol)
             if quote is None:
                 continue
-            last, pct = float(quote["last"]), float(quote.get("pct") or 0.0)
+            last, pct = _finite(quote.get("last")), _finite(quote.get("pct") or 0.0)
+            if last is None or last <= 0:
+                continue  # a price that can't be right: nothing goes off, nothing re-arms
             if alert.kind in ("above", "below"):
                 if alert.fired:
                     continue
@@ -240,38 +270,46 @@ class AlertStore:
                     continue
                 if not alert.armed:
                     continue
-            elif abs(pct) < alert.value or alert.fired[:10] == today:
+            elif (
+                pct is None
+                or abs(pct) < alert.value
+                or not _in_session(alert.symbol, quote)
+                or alert.fired[:10] == session
+            ):
                 continue
             if self.sent[today] >= DAILY_CAP:
                 break
-            alert.fired = now.isoformat(timespec="seconds")
+            # A move alert keeps the session's day it went off on; the others their time.
+            alert.fired = session if alert.kind == "move" else now.isoformat(timespec="seconds")
             self.sent[today] += 1
             changed = True
             out.append(
                 (
                     f"price:{alert.id}:{today}",
                     display_name(alert.symbol),
-                    heads_up(alert.symbol, alert.kind, alert.value, last, pct, language),
+                    heads_up(alert.symbol, alert.kind, alert.value, last, pct or 0.0, language),
                 )
             )
         if watch_move > 0:
             for symbol in watchlist:
                 quote = quotes.get(symbol)
-                if quote is None or symbol in self.moved[today]:
+                if quote is None or symbol in self.moved[session]:
                     continue
-                pct = float(quote.get("pct") or 0.0)
-                if abs(pct) < watch_move:
+                last, pct = _finite(quote.get("last")), _finite(quote.get("pct") or 0.0)
+                if last is None or last <= 0 or pct is None or abs(pct) < watch_move:
+                    continue
+                if not _in_session(symbol, quote):
                     continue
                 if self.sent[today] >= DAILY_CAP:
                     break
-                self.moved[today].append(symbol)
+                self.moved[session].append(symbol)
                 self.sent[today] += 1
                 changed = True
                 out.append(
                     (
                         f"move:{symbol}:{today}",
                         display_name(symbol),
-                        heads_up(symbol, "move", watch_move, float(quote["last"]), pct, language),
+                        heads_up(symbol, "move", watch_move, last, pct, language),
                     )
                 )
         if changed:
