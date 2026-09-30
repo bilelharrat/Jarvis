@@ -4631,6 +4631,22 @@ test('A file opened at a line, then changed by Claude, comes back without taking
   assert(await js('$("deck-input").value') === 'go on' && await editorText() === 'a = 1\nb = 2\nclaude = 3\n', 'what was typed went into the file');
 });
 
+test('Replace and All with an expression that looks past its match replace what find found', async () => {
+  await editorWith('foobar foobaz\nfoobar\n');
+  await js('document.querySelector("#jc-pane-body .ce-text").focus(); true');
+  await chord('f');
+  await js('document.querySelector("#jc-pane-body .ce-opt[title=\'Regular expression\']").click(); true');
+  await js('(() => { const i = document.querySelector("#jc-pane-body .ce-find-input"); i.value = "foo(?=bar)"; i.dispatchEvent(new Event("input")); return true; })()');
+  await frames(1);
+  assert(await js('document.querySelector("#jc-pane-body .ce-count").textContent') === '1 of 2', await js('document.querySelector("#jc-pane-body .ce-count").textContent'));
+  await js('document.querySelector("#jc-pane-body .ce-find button[title=Replace]").click(); true');
+  await js('(() => { const r = document.querySelectorAll("#jc-pane-body .ce-find-input")[1]; r.value = "X"; return true; })()');
+  assert(await clickText('#jc-pane-body .ce-find', 'Replace'), 'no Replace');
+  assert(await editorText() === 'Xbar foobaz\nfoobar\n', JSON.stringify(await editorText()));
+  assert(await clickText('#jc-pane-body .ce-find', 'All'), 'no Replace all');
+  assert(await editorText() === 'Xbar foobaz\nXbar\n', JSON.stringify(await editorText()));
+});
+
 // xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
 // given to show, what the owner typed and selected.
 const FAKE_XTERM = `(() => {

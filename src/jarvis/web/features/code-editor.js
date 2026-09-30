@@ -87,10 +87,18 @@
   }
 
   // What replaces one match: the text as typed, or with $1, $& from a regular expression.
-  function replacement(matched, query, replace, opts = {}) {
+  // The expression runs again where the match is (at, in the whole text) with find's own
+  // flags: a lookahead, a lookbehind or \B only match there. String#replace then fills in
+  // that match's groups, given it as the one match of its own text.
+  function replacement(matched, query, replace, opts = {}, text = matched, at = 0) {
     if (!opts.regex) return replace;
     try {
-      return matched.replace(new RegExp(opts.word ? `\\b(?:${query})\\b` : query, opts.caseSensitive ? '' : 'i'), replace);
+      const re = new RegExp(opts.word ? `\\b(?:${query})\\b` : query, `y${opts.caseSensitive ? '' : 'i'}m`);
+      re.lastIndex = at;
+      const m = re.exec(text);
+      if (!m) return replace;
+      const found = Object.assign(m.slice(), { index: 0, groups: m.groups });
+      return RegExp.prototype[Symbol.replace].call({ flags: '', exec: () => found }, m[0], replace);
     } catch (_) {
       return replace;
     }
@@ -580,7 +588,7 @@
     if (!r) return;
     ta.focus({ preventScroll: true });
     ta.setSelectionRange(r[0], r[1]);
-    insert(ta, replacement(ta.value.slice(r[0], r[1]), f.input.value, f.rinput.value, f));
+    insert(ta, replacement(ta.value.slice(r[0], r[1]), f.input.value, f.rinput.value, f, ta.value, r[0]));
     const after = ta.selectionEnd;
     refind(doc, false);
     f.at = Math.max(0, f.ranges.findIndex(([s]) => s >= after));
@@ -595,7 +603,7 @@
     let out = '';
     let at = 0;
     for (const [s, e] of f.ranges) {
-      out += ta.value.slice(at, s) + replacement(ta.value.slice(s, e), f.input.value, f.rinput.value, f);
+      out += ta.value.slice(at, s) + replacement(ta.value.slice(s, e), f.input.value, f.rinput.value, f, ta.value, s);
       at = e;
     }
     out += ta.value.slice(at);

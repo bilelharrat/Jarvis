@@ -40,6 +40,21 @@ test('replace: the text as typed, or with the expression’s groups', () => {
   assert.equal(E.replacement('x', '(', 'y', { regex: true }), 'y');  // a bad one: as typed
 });
 
+test('replace: an expression runs again where its match is, in the whole text, with find’s flags', () => {
+  const first = (text, query, replace, opts = {}) => {
+    const o = { regex: true, ...opts };
+    const [[s, e]] = E.findAll(text, query, o).ranges;
+    return E.replacement(text.slice(s, e), query, replace, o, text, s);
+  };
+  assert.equal(first('foobar', 'foo(?=bar)', 'X'), 'X');
+  assert.equal(first('a.retry', '(?<=\\.)retry', 'again'), 'again');
+  assert.equal(first('xfoo', '\\Bfoo', 'bar'), 'bar');
+  assert.equal(first('one\ntwo', '^two', 'TWO'), 'TWO');
+  assert.equal(first('RETRY(3)', 'retry\\((\\d)\\)', 'again($1, $$, $&)'), 'again(3, $, RETRY(3))');
+  assert.equal(first('k=v', '(?<key>\\w)=(?<val>\\w)', '$<val>=$<key>'), 'v=k');
+  assert.equal(first('Cat cat', 'cat', '[$&]', { caseSensitive: true }), '[cat]');
+});
+
 test('the file list: name matches first, shorter first; with no filter, the ones opened lately', () => {
   const files = ['src/jarvis/hub.py', 'tests/test_hub.py', 'src/jarvis/web/hubble.js', 'docs/github.md', 'README.md'];
   // hub.py and hubble.js start with it; github.md and test_hub.py only have it (shorter first).
