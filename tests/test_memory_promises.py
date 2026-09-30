@@ -170,6 +170,33 @@ async def test_reminders_the_evening_before_and_the_morning_its_due(hub, desk):
     assert item.status == "open"
 
 
+async def test_a_reminder_held_back_by_a_pause_comes_once_the_pause_is_over(hub, desk):
+    """Heads-ups paused ("snooze everything for an hour"), or switched off: the evening's
+    reminder waits, rather than being marked as said while nothing showed."""
+    from jarvis.features import shell
+
+    due = date.today() + timedelta(days=1)
+    desk.promises.add(
+        "Send Ann the deck",
+        to="Ann Lee",
+        due=due.isoformat(),
+        sent=(datetime.now() - timedelta(days=2)).isoformat(timespec="seconds"),
+    )
+    q = hub.subscribe()
+    evening = datetime.combine(due - timedelta(days=1), datetime.min.time()).replace(hour=18)
+    shell.pause_heads_ups(hub, {"minutes": 60})
+    await desk.remind_promises(evening.replace(minute=30))
+    hub.set_prefs({"proactive": False})
+    shell.pause_heads_ups(hub, {"minutes": 0})
+    await desk.remind_promises(evening.replace(hour=19, minute=30))
+    assert not [e for e in drain(q) if e["type"] == "alert"]
+    assert desk.promises.items[0].reminded == []
+    hub.set_prefs({"proactive": True})
+    await desk.remind_promises(evening.replace(hour=20, minute=30))
+    [alert] = [e for e in drain(q) if e["type"] == "alert"]
+    assert alert["text"] == "Due tomorrow: Send Ann the deck"
+
+
 async def test_a_promise_made_the_evening_before_gets_only_the_mornings_reminder(desk):
     due = date.today() + timedelta(days=1)
     evening = datetime.combine(due - timedelta(days=1), datetime.min.time())

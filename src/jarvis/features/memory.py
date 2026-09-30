@@ -788,16 +788,25 @@ class MemoryDesk:
                 if item.to
                 else lang.tr("A promise", language)
             )
-            self.promises.reminded(item, kind)
-            self.hub.notify(
-                Alert(
-                    f"commitment:{item.id}:{kind}",
-                    "commitment",
-                    title,
-                    lang.tr(template, language, text=item.text.rstrip(".")),
-                    note=f"a promise the user made is due ({item.text})",
-                )
+            alert = Alert(
+                f"commitment:{item.id}:{kind}",
+                "commitment",
+                title,
+                lang.tr(template, language, text=item.text.rstrip(".")),
+                note=f"a promise the user made is due ({item.text})",
             )
+            if self.held_back(alert):
+                continue  # heads-ups off or paused: it waits for a later look in its window
+            self.promises.reminded(item, kind)
+            self.hub.notify(alert)
+
+    def held_back(self, alert: Alert) -> bool:
+        """hub.notify would show nothing of this now: heads-ups are off, or held back (a
+        pause). A promise's reminder then waits, rather than being marked as said."""
+        if not self.hub.prefs.proactive:
+            return True
+        held = getattr(self.hub, "_held_back", None)
+        return bool(held(alert)) if callable(held) else False
 
     async def sweep(self, now: datetime) -> None:
         if time.monotonic() - self._last_sweep < SWEEP_EVERY and self._last_sweep:
