@@ -370,10 +370,17 @@ def _same_item(a: Path, b: Path) -> bool:
 
 
 def _when(stamp: str) -> datetime:
+    """A record's time as this Mac's clock reads it (one with a zone, hand-edited in, too)."""
     try:
-        return datetime.fromisoformat(stamp)
+        when = datetime.fromisoformat(stamp)
     except ValueError:
         return datetime.min
+    if when.tzinfo is not None:
+        try:
+            when = when.astimezone().replace(tzinfo=None)
+        except (OverflowError, ValueError, OSError):
+            return datetime.min
+    return when
 
 
 def _record_from(raw: Any) -> Record | None:

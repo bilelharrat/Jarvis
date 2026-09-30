@@ -297,6 +297,21 @@ def test_no_undo_log_can_stop_it(tmp_path, home, blob):
     assert actions.undo() == "Moved 1 item back."
 
 
+def test_a_hand_edited_time_with_a_zone_never_stops_a_change(tmp_path, home):
+    path = tmp_path / "file_actions.json"
+    stamp = "2026-09-30T10:00:00+00:00"
+    row = {"id": "z", "kind": "move", "at": stamp, "items": [{"from": "/x", "to": "/y"}]}
+    path.write_text(json.dumps({"records": [row]}))
+    now = datetime(2026, 9, 30, 12, 0)
+    actions = fa.FileActions(path, home=home, trash=fake_trash(home), clock=lambda: now)
+    record = actions.move(
+        actions.plan_move([str(home / "Desktop" / "notes.txt")], str(home / "Documents"))
+    )
+    saved = json.loads(path.read_text())["records"]
+    assert [r["id"] for r in saved] == ["z", record.id]
+    assert actions.undo() == "Moved 1 item back."
+
+
 def test_old_changes_are_forgotten(tmp_path, home):
     clock = [datetime(2026, 9, 1, 10, 0)]
     actions = fa.FileActions(
