@@ -2475,3 +2475,43 @@ body[data-look="orb"] .wx-pop {
   .usage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-split { grid-template-columns: 1fr; }
 }
+
+/* ═════════════ System stats › the full picture: Activity Monitor's tabs, with charts ═════════════ */
+#p-system { cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease; }
+#p-system:hover, #p-system:focus-visible {
+  transform: translateY(-2px); border-color: var(--action); outline: none;
+  box-shadow: inset 0 1px 0 var(--panel-edge, transparent), inset 0 0 0 0.5px var(--action), 0 14px 34px rgba(0, 0, 0, 0.2);
+}
+#p-system .wx-more { opacity: 0.55; }
+#p-system:hover .wx-more, #p-system:focus-visible .wx-more { opacity: 1; }
+.sys-pop { width: min(920px, 100%); }
+.sys-pop .wx-head { gap: 16px; }
+.sys-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--wx-inset); box-shadow: inset 0 0 0 1px var(--wx-line); margin: 0 auto; }
+.sys-tabs button { border: 0; background: transparent; color: var(--ink-2); font: 500 12.5px/1 var(--sans); padding: 7px 14px; border-radius: 7px; cursor: pointer; transition: background 140ms ease, color 140ms ease; }
+.sys-tabs button:hover { color: var(--ink); }
+.sys-tabs button[aria-selected="true"] { color: var(--ink); background: var(--card, rgba(255, 255, 255, 0.12)); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), inset 0 0 0 0.5px var(--wx-line); }
+@media (prefers-color-scheme: dark) { .sys-tabs button[aria-selected="true"] { background: rgba(255, 255, 255, 0.12); } }
+.sys-body { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+.sys-chart { position: relative; border-radius: 12px; background: var(--wx-inset); box-shadow: inset 0 0 0 1px var(--wx-line); padding: 10px 12px 8px; }
+.sys-chart svg { display: block; width: 100%; height: 150px; overflow: visible; }
+.sys-chart .grid { stroke: var(--wx-line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sys-chart .line { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.sys-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; font-size: 11.5px; color: var(--ink-2); }
+.sys-legend span { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.sys-legend i { width: 9px; height: 9px; border-radius: 3px; }
+.sys-legend .sys-top { margin-left: auto; color: var(--muted); }
+.sys-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.sys-cores { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 8px; }
+.sys-core { display: flex; flex-direction: column; gap: 4px; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sys-core i { display: block; height: 44px; border-radius: 6px; background: var(--wx-line); position: relative; overflow: hidden; }
+.sys-core i span { position: absolute; left: 0; right: 0; bottom: 0; background: var(--action); border-radius: 0 0 6px 6px; }
+.sys-stack { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--wx-line); }
+.sys-stack span { display: block; height: 100%; }
+.sys-table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.sys-table th { text-align: left; font-weight: 600; font-size: 11px; color: var(--muted); letter-spacing: 0.03em; padding: 6px 10px; border-bottom: 1px solid var(--wx-line); position: sticky; top: 0; }
+.sys-table td { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--wx-line) 55%, transparent); white-space: nowrap; }
+.sys-table td:first-child { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.sys-table th.num, .sys-table td.num { text-align: right; }
+.sys-table tr:hover td { background: var(--wx-inset); }
+.sys-note { margin: 0; font-size: 11.5px; color: var(--muted); }
+@media (max-width: 720px) { .sys-tabs button { padding: 7px 9px; } }

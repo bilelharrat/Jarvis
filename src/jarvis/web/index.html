@@ -42,8 +42,8 @@
 
 <div class="layout">
 <aside class="side left" aria-label="System panels">
-  <section class="panel" id="p-system">
-    <h2><span class="hud-only">System // </span>System stats</h2>
+  <section class="panel" id="p-system" tabindex="0" aria-label="System stats — open the full picture">
+    <h2><span class="hud-only">System // </span>System stats<span class="wx-more not-hud" aria-hidden="true">Details ›</span></h2>
     <div class="meter"><span>CPU</span><b id="v-cpu">–</b><i><em id="bar-cpu"></em></i></div>
     <div class="meter"><span>RAM</span><b id="v-mem">–</b><i><em id="bar-mem"></em></i></div>
     <div class="meter"><span>Storage</span><b id="v-disk">–</b><i><em id="bar-disk"></em></i></div>
@@ -808,6 +808,26 @@
       </button>
     </header>
     <div class="wx-body" id="wx-body"></div>
+  </section>
+</div>
+
+<div id="sys-layer" class="wx-layer" hidden>
+  <div class="wx-scrim" id="sys-scrim"></div>
+  <section class="wx-pop sys-pop" id="sys-pop" role="dialog" aria-modal="true" aria-labelledby="sys-title">
+    <header class="wx-head">
+      <h2 id="sys-title">System</h2>
+      <div class="sys-tabs" id="sys-tabs" role="tablist" aria-label="System">
+        <button type="button" role="tab" data-tab="cpu">CPU</button>
+        <button type="button" role="tab" data-tab="memory">Memory</button>
+        <button type="button" role="tab" data-tab="energy">Energy</button>
+        <button type="button" role="tab" data-tab="disk">Disk</button>
+        <button type="button" role="tab" data-tab="network">Network</button>
+      </div>
+      <button type="button" class="wx-close" id="sys-close" aria-label="Close system">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="sys-body" id="sys-body"><p class="usage-empty">Measuring…</p></div>
   </section>
 </div>
 

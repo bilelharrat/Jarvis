@@ -195,6 +195,7 @@ function onEvent(ev) {
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
     case 'usage': renderUsage(ev); break;
+    case 'sysmon': renderSysmon(ev); break;
     case 'weather': renderWeather(ev.weather); break;
     case 'markets': renderMarkets(ev); break;
     case 'history': history = ev.items || []; renderHistory(); break;
@@ -1791,6 +1792,222 @@ $('usage-close').addEventListener('click', closeUsage);
 $('usage-scrim').addEventListener('click', closeUsage);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && usageIsOpen()) { e.preventDefault(); e.stopPropagation(); closeUsage(); }
+}, true);
+
+// ── System stats › the full picture: Activity Monitor's tabs, each with its chart ──
+let sysTab = 'cpu';
+let sysReturnFocus = null;
+const SYS_RED = '#ff5f57', SYS_BLUE = '#0a84ff', SYS_GREEN = '#30d158', SYS_AMBER = '#ffb340', SYS_ORANGE = '#ff9f0a';
+function bytesText(n) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = Math.max(0, n || 0);
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+const rateText = (n) => `${bytesText(n)}/s`;
+const countText = (n) => (n || 0).toLocaleString(uiLocale());
+
+// An Activity Monitor graph: the last few minutes, stacked areas or lines, 0 to max.
+function sysChart(history, series, { max = null, stacked = false } = {}) {
+  const w = 600, h = 150;
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  for (const y of [0.25, 0.5, 0.75]) {
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('class', 'grid'); line.setAttribute('x1', 0); line.setAttribute('x2', w);
+    line.setAttribute('y1', h * y); line.setAttribute('y2', h * y);
+    svg.append(line);
+  }
+  const n = history.length;
+  const top = max || Math.max(1, ...history.flatMap((p) => series.map((s) => (stacked ? series.reduce((a, t) => a + (p[t.key] || 0), 0) : p[s.key] || 0))));
+  const x = (i) => (n <= 1 ? w : (i / (180 - 1)) * w + (w - ((n - 1) / (180 - 1)) * w));
+  const base = new Array(n).fill(0);
+  for (const s of series) {
+    const ys = history.map((p, i) => (stacked ? base[i] : 0) + (p[s.key] || 0));
+    const pts = ys.map((v, i) => `${x(i).toFixed(1)},${(h - (Math.min(v, top) / top) * h).toFixed(1)}`);
+    if (!pts.length) continue;
+    if (s.fill !== false) {
+      const floor = stacked ? base.map((v, i) => `${x(i).toFixed(1)},${(h - (Math.min(v, top) / top) * h).toFixed(1)}`).reverse() : [`${x(n - 1).toFixed(1)},${h}`, `${x(0).toFixed(1)},${h}`];
+      const area = document.createElementNS(SVG_NS, 'polygon');
+      area.setAttribute('points', [...pts, ...floor].join(' '));
+      area.setAttribute('fill', s.color); area.setAttribute('fill-opacity', stacked ? '0.55' : '0.22');
+      svg.append(area);
+    }
+    const line = document.createElementNS(SVG_NS, 'polyline');
+    line.setAttribute('class', 'line'); line.setAttribute('points', pts.join(' ')); line.setAttribute('stroke', s.color);
+    svg.append(line);
+    if (stacked) ys.forEach((v, i) => { base[i] = v; });
+  }
+  return { svg, top };
+}
+
+function sysChartBox(history, series, opts, topLabel) {
+  const box = el('div', 'sys-chart');
+  const { svg, top } = sysChart(history, series, opts);
+  box.append(svg);
+  const legend = el('div', 'sys-legend');
+  const last = history[history.length - 1] || {};
+  for (const s of series) {
+    const item = el('span');
+    const dot = el('i'); dot.style.background = s.color;
+    item.append(dot, el('span', '', `${s.label} ${s.fmt(last[s.key] || 0)}`));
+    legend.append(item);
+  }
+  legend.append(el('span', 'sys-top', topLabel ? topLabel(top) : ''));
+  box.append(legend);
+  return box;
+}
+
+function sysTile(label, value, sub) {
+  const tile = el('div', 'usage-tile');
+  tile.append(el('small', '', label), el('b', '', value));
+  if (sub) tile.append(el('span', '', sub));
+  return tile;
+}
+
+function sysTable(cols, rows) {
+  const table = el('table', 'sys-table');
+  const head = el('tr');
+  for (const c of cols) head.append(el('th', c.num ? 'num' : '', c.label));
+  const thead = el('thead'); thead.append(head);
+  const body = el('tbody');
+  for (const r of rows) {
+    const tr = el('tr');
+    cols.forEach((c, i) => { const td = el('td', c.num ? 'num' : '', c.get(r)); if (i === 0) mine(td); tr.append(td); });
+    body.append(tr);
+  }
+  table.append(thead, body);
+  return table;
+}
+
+function renderSysmon(ev) {
+  if (!sysIsOpen() || ev.tab !== sysTab) return;
+  const h = ev.history || [];
+  const parts = [];
+  const pct = (v) => `${Math.round(v)}%`;
+  if (ev.tab === 'cpu' && ev.cpu) {
+    const c = ev.cpu;
+    parts.push(sysChartBox(h, [{ key: 'system', label: 'System', color: SYS_RED, fmt: pct }, { key: 'user', label: 'User', color: SYS_BLUE, fmt: pct }], { max: 100, stacked: true }, () => 'CPU load · 6 min'));
+    const tiles = el('div', 'sys-tiles');
+    tiles.append(sysTile('System', pct(c.system)), sysTile('User', pct(c.user)), sysTile('Idle', pct(c.idle)),
+      sysTile('Processes', countText(c.processes)), sysTile('Threads', countText(c.threads)), sysTile('Load average', c.load.map((v) => v.toFixed(1)).join('  '), '1, 5 and 15 min'));
+    const cores = el('div', 'sys-cores');
+    c.cores.forEach((v, i) => { const core = el('div', 'sys-core'); const bar = el('i'); const fill = el('span'); fill.style.height = `${Math.min(100, v)}%`; bar.append(fill); core.append(bar, el('span', '', `Core ${i + 1} · ${Math.round(v)}%`)); cores.append(core); });
+    parts.push(tiles, cores);
+    parts.push(sysTable([
+      { label: 'Process', get: (p) => p.name }, { label: '% CPU', num: true, get: (p) => p.cpu.toFixed(1) },
+      { label: 'Threads', num: true, get: (p) => p.threads }, { label: 'PID', num: true, get: (p) => p.pid }, { label: 'User', get: (p) => p.user || '' },
+    ], ev.processes || []));
+  } else if (ev.tab === 'memory' && ev.memory) {
+    const m = ev.memory;
+    const color = m.pressure >= 80 ? SYS_RED : m.pressure >= 50 ? SYS_AMBER : SYS_GREEN;
+    parts.push(sysChartBox(h, [{ key: 'pressure', label: 'Memory pressure', color, fmt: pct }], { max: 100 }, () => '6 min'));
+    const tiles = el('div', 'sys-tiles');
+    tiles.append(sysTile('Physical memory', bytesText(m.total)), sysTile('Memory used', bytesText(m.used)),
+      sysTile('App memory', bytesText(m.app)), sysTile('Wired memory', bytesText(m.wired)), sysTile('Compressed', bytesText(m.compressed)),
+      sysTile('Cached files', bytesText(m.cached)), sysTile('Swap used', bytesText(m.swap), m.swap_total ? `of ${bytesText(m.swap_total)}` : ''));
+    const stack = el('div', 'sys-stack');
+    const key = el('div', 'sys-legend');
+    for (const [label, v, c] of [['App memory', m.app, SYS_BLUE], ['Wired memory', m.wired, SYS_ORANGE], ['Compressed', m.compressed, SYS_AMBER], ['Cached files', m.cached, 'rgba(160,160,170,0.55)']]) {
+      const seg = el('span'); seg.style.width = `${(100 * v) / m.total}%`; seg.style.background = c; stack.append(seg);
+      const item = el('span'); const dot = el('i'); dot.style.background = c; item.append(dot, el('span', '', label)); key.append(item);
+    }
+    parts.push(tiles, stack, key);
+    parts.push(sysTable([
+      { label: 'Process', get: (p) => p.name }, { label: 'Memory', num: true, get: (p) => bytesText(p.memory) },
+      { label: 'Threads', num: true, get: (p) => p.threads }, { label: 'PID', num: true, get: (p) => p.pid }, { label: 'User', get: (p) => p.user || '' },
+    ], ev.processes || []));
+  } else if (ev.tab === 'energy') {
+    const e = ev.energy || {};
+    parts.push(sysChartBox(h, [{ key: 'battery', label: 'Battery', color: SYS_GREEN, fmt: pct }], { max: 100 }, () => '6 min'));
+    const tiles = el('div', 'sys-tiles');
+    if (e.percent != null) tiles.append(sysTile('Battery', `${e.percent}%`, e.plugged ? 'On power adapter' : 'On battery'));
+    if (e.minutes_left != null) tiles.append(sysTile(e.plugged ? 'Until full' : 'Time left', `${Math.floor(e.minutes_left / 60)}:${String(e.minutes_left % 60).padStart(2, '0')}`));
+    if (e.watts != null) tiles.append(sysTile(e.watts < 0 ? 'Drawing' : 'Charging at', `${Math.abs(e.watts)} W`));
+    if (e.health != null) tiles.append(sysTile('Battery health', `${e.health}%`, 'of its design capacity'));
+    if (e.cycles != null) tiles.append(sysTile('Cycle count', countText(e.cycles), e.design_cycles ? `of ${countText(e.design_cycles)}` : ''));
+    if (e.temperature != null) tiles.append(sysTile('Temperature', `${e.temperature} °C`));
+    parts.push(tiles);
+    parts.push(ev.processes && ev.processes.length ? sysTable([
+      { label: 'Process', get: (p) => p.name }, { label: 'Energy impact', num: true, get: (p) => p.energy.toFixed(1) }, { label: 'PID', num: true, get: (p) => p.pid },
+    ], ev.processes) : el('p', 'sys-note', 'Measuring energy impact…'));
+  } else if (ev.tab === 'disk' && ev.disk) {
+    const d = ev.disk;
+    parts.push(sysChartBox(h, [{ key: 'read', label: 'Read', color: SYS_BLUE, fmt: rateText, fill: true }, { key: 'write', label: 'Written', color: SYS_RED, fmt: rateText }], {}, (t) => `peak ${rateText(t)}`));
+    const last = h[h.length - 1] || {};
+    const tiles = el('div', 'sys-tiles');
+    tiles.append(sysTile('Reads/sec', countText(last.reads)), sysTile('Writes/sec', countText(last.writes)),
+      sysTile('Data read', bytesText(d.read_total), 'since startup'), sysTile('Data written', bytesText(d.write_total), 'since startup'),
+      sysTile('Reads in', countText(d.reads_total)), sysTile('Writes out', countText(d.writes_total)));
+    parts.push(tiles);
+    parts.push(sysTable([
+      { label: 'Volume', get: (v) => v.name }, { label: 'Used', num: true, get: (v) => bytesText(v.used) },
+      { label: 'Free', num: true, get: (v) => bytesText(v.total - v.used) }, { label: 'Size', num: true, get: (v) => bytesText(v.total) }, { label: 'Format', get: (v) => v.fs },
+    ], d.volumes || []));
+    parts.push(el('p', 'sys-note', 'macOS doesn’t show other apps how much each process reads or writes.'));
+  } else if (ev.tab === 'network' && ev.network) {
+    const nw = ev.network;
+    parts.push(sysChartBox(h, [{ key: 'down', label: 'Received', color: SYS_BLUE, fmt: rateText }, { key: 'up', label: 'Sent', color: SYS_ORANGE, fmt: rateText }], {}, (t) => `peak ${rateText(t)}`));
+    const last = h[h.length - 1] || {};
+    const tiles = el('div', 'sys-tiles');
+    tiles.append(sysTile('Packets in/sec', countText(last.pin)), sysTile('Packets out/sec', countText(last.pout)),
+      sysTile('Data received', bytesText(nw.received), 'since startup'), sysTile('Data sent', bytesText(nw.sent), 'since startup'),
+      sysTile('Packets in', countText(nw.packets_in)), sysTile('Packets out', countText(nw.packets_out)));
+    parts.push(tiles);
+    parts.push(sysTable([
+      { label: 'Interface', get: (i) => i.name }, { label: 'Received', num: true, get: (i) => bytesText(i.received) },
+      { label: 'Sent', num: true, get: (i) => bytesText(i.sent) }, { label: 'Status', get: (i) => (i.up ? 'Active' : 'Inactive') },
+    ], nw.interfaces || []));
+    parts.push(el('p', 'sys-note', 'macOS doesn’t show other apps how much each process sends or receives.'));
+  }
+  const body = $('sys-body');
+  const keep = body.scrollTop;
+  body.replaceChildren(...parts);
+  body.scrollTop = keep;
+}
+
+function sysIsOpen() { return !$('sys-layer').hidden; }
+function selectSysTab(tab) {
+  sysTab = tab;
+  for (const b of $('sys-tabs').querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+  $('sys-body').replaceChildren(el('p', 'usage-empty', 'Measuring…'));
+  send({ type: 'sysmon_open', tab });
+}
+function openSys() {
+  if (sysIsOpen()) return;
+  sysReturnFocus = document.activeElement;
+  $('sys-layer').hidden = false;
+  $('sys-pop').scrollTop = 0;
+  $('sys-scrim').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
+  $('sys-pop').animate(wxReduced() ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: 'translateY(14px) scale(0.97)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+    { duration: 320, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+  selectSysTab(sysTab);
+  $('sys-close').focus({ preventScroll: true });
+}
+function closeSys() {
+  if (!sysIsOpen()) return;
+  $('sys-layer').hidden = true;
+  send({ type: 'sysmon_close' });
+  const back = sysReturnFocus;
+  sysReturnFocus = null;
+  if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
+}
+$('p-system').addEventListener('click', openSys);
+$('p-system').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSys(); } });
+$('sys-close').addEventListener('click', closeSys);
+$('sys-scrim').addEventListener('click', closeSys);
+$('sys-tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) selectSysTab(b.dataset.tab); });
+$('sys-tabs').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const tabs = ['cpu', 'memory', 'energy', 'disk', 'network'];
+  const next = tabs[(tabs.indexOf(sysTab) + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+  selectSysTab(next);
+  $('sys-tabs').querySelector(`[data-tab="${next}"]`).focus();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && sysIsOpen()) { e.preventDefault(); e.stopPropagation(); closeSys(); }
 }, true);
 
 let historyScroll = 0;

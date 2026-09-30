@@ -68,6 +68,7 @@ from . import (
     screenwatch,
     sources,
     suggestions,
+    sysmon,
     system_voice,
     transactions,
     ui,
@@ -275,6 +276,8 @@ REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they
 WINDOW_QUEUE = 3000  # events waiting for one window; one that stops reading is cut off
 WINDOW_BYTES = 32 * 1024 * 1024  # and at most this much of their text (terminal output,
 # simulator pictures, file views): 3000 terminal chunks alone would be 260 MB
+SYSMON_EVERY = 2.0  # s: System stats' charts
+SYSMON_TABS = ("cpu", "memory", "energy", "disk", "network")
 PLAN_EVERY = 180.0  # s: the plan's usage windows, while a window is open
 PLAN_AFTER_ANSWER = 45.0  # s: after answers, look again this soon (not after each one)
 REPLY_EVERY = 0.05  # s: a streaming reply goes to the windows at most 20 times a second
@@ -284,7 +287,7 @@ LATEST_ONLY = frozenset(
     {
         "reply", "level", "vitals", "defense", "history", "ask_queue", "tasks", "markets",
         "prefs", "files_status", "purchases", "delegations", "goals", "providers", "state",
-        "weather", "remote", "status", "brain", "memory", "routines", "connectors", "usage",
+        "weather", "remote", "status", "brain", "memory", "routines", "connectors", "usage", "sysmon",
     }
 )  # fmt: skip
 
@@ -838,6 +841,9 @@ class Hub:
         self._usage_timer = False
         self._plan_soon = asyncio.Event()  # an answer came: the plan's windows moved
         self.tasks.on_usage = self._code_usage
+        # System stats' pop-out: Activity Monitor's tabs, with history for their charts.
+        self.sysmon = sysmon.SystemMonitor()
+        self._sysmon_tab: str | None = None  # the tab on show; None while it's closed
         self.tasks.claude_back = self._claude_back
         self.tasks.read_only_free = lambda: self.prefs.code_read_only
         self._fallback_until = 0.0
@@ -1189,6 +1195,7 @@ class Hub:
             self._spawn(self._markets_loop())
             self._spawn(self._defense_loop())
             self._spawn(self._plan_loop())
+            self._spawn(self._sysmon_loop())
             self._spawn(self._awake_loop())
             for name, factory in self._loops:
                 self._spawn(self._feature_loop(name, factory))
@@ -5160,6 +5167,25 @@ class Hub:
         self._usage_changed()
         self._plan_soon.set()
 
+    async def _sysmon_loop(self) -> None:
+        """Every two seconds while a window is open: the charts' numbers, and the tab on
+        show in full while the pop-out is open."""
+        while True:
+            if self._subscribers:
+                try:
+                    await asyncio.to_thread(self.sysmon.sample)
+                    if self._sysmon_tab:
+                        await self._sysmon_send()
+                except Exception:  # a process gone mid-read, a tool missing: next time
+                    log.exception("system monitor failed")
+            await asyncio.sleep(SYSMON_EVERY)
+
+    async def _sysmon_send(self) -> None:
+        tab = self._sysmon_tab
+        if tab:
+            details = await asyncio.to_thread(self.sysmon.details, tab)
+            self.emit("sysmon", **details)
+
     async def _plan_loop(self) -> None:
         """The plan's windows for the Session card (claude_usage.fetch_plan): every few
         minutes while a window is open, and soon after answers (at most once a minute)."""
@@ -6006,6 +6032,11 @@ class Hub:
             self.set_prefs(msg["changes"])
         elif kind == "feature_prefs" and isinstance(msg.get("changes"), dict):
             self.set_feature_prefs(msg["changes"])
+        elif kind == "sysmon_open" and msg.get("tab") in SYSMON_TABS:
+            self._sysmon_tab = msg["tab"]
+            await self._sysmon_send()
+        elif kind == "sysmon_close":
+            self._sysmon_tab = None
         elif kind == "whats_this":
             app = await asyncio.to_thread(frontmost_app)
             self._whats_this_app = app

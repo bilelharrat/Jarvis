@@ -275,7 +275,7 @@
   "Answer calls to my Twilio number": "接听打到我 Twilio 号码的电话",
   "People who call it hear Jarvis and can leave you a message or book a time with you. It’s answered on your Twilio account, so it works while this Mac is off; messages and bookings reach you here, transcribed on this Mac.": "打来的人会听到 Jarvis，可以给你留言，或预约和你见面的时间。电话在你的 Twilio 账户上接听，所以这台 Mac 关机时也能用；留言和预约会送到这里，并在这台 Mac 上转成文字。",
   "Let callers book a time": "允许来电者预约时间",
-  "Jarvis offers open times from your calendar: weekdays from tomorrow, a morning and an afternoon time a day":"Jarvis 会从你的日历中提供空闲时间：从明天起的工作日，每天上午和下午各一个",
+  "Jarvis offers open times from your calendar: weekdays from tomorrow, a morning and an afternoon time a day": "Jarvis 会从你的日历中提供空闲时间：从明天起的工作日，每天上午和下午各一个",
   "Meeting length": "会议时长",
   "15 minutes": "15 分钟",
   "30 minutes": "30 分钟",
@@ -1551,7 +1551,70 @@
   "Input": "输入",
   "Output": "输出",
   "Cache reads": "缓存读取",
-  "Cache writes": "缓存写入"
+  "Cache writes": "缓存写入",
+  "System stats — open the full picture": "系统状态 — 查看完整信息",
+  "System": "系统",
+  "CPU": "CPU",
+  "Energy": "能耗",
+  "Disk": "磁盘",
+  "Close system": "关闭系统",
+  "Measuring…": "正在测量…",
+  "User": "用户",
+  "Idle": "空闲",
+  "Processes": "进程",
+  "Threads": "线程",
+  "Load average": "平均负载",
+  "Process": "进程",
+  "% CPU": "% CPU",
+  "PID": "PID",
+  "Physical memory": "物理内存",
+  "Memory used": "已用内存",
+  "App memory": "App 内存",
+  "Wired memory": "联动内存",
+  "Compressed": "已压缩",
+  "Cached files": "缓存的文件",
+  "Swap used": "已使用的交换",
+  "On power adapter": "使用电源适配器",
+  "On battery": "使用电池",
+  "Until full": "距离充满",
+  "Time left": "剩余时间",
+  "Drawing": "耗电",
+  "Charging at": "充电功率",
+  "Battery health": "电池健康",
+  "of its design capacity": "相对设计容量",
+  "Cycle count": "循环计数",
+  "Temperature": "温度",
+  "Energy impact": "能耗影响",
+  "Measuring energy impact…": "正在测量能耗影响…",
+  "Reads/sec": "每秒读取",
+  "Writes/sec": "每秒写入",
+  "Data read": "读取的数据",
+  "Data written": "写入的数据",
+  "since startup": "自启动以来",
+  "Reads in": "读取次数",
+  "Writes out": "写入次数",
+  "Volume": "宗卷",
+  "Used": "已用",
+  "Free": "可用",
+  "Size": "大小",
+  "Format": "格式",
+  "macOS doesn’t show other apps how much each process reads or writes.": "macOS 不向其他 App 提供每个进程的读写量。",
+  "Packets in/sec": "每秒传入数据包",
+  "Packets out/sec": "每秒传出数据包",
+  "Data received": "接收的数据",
+  "Data sent": "发送的数据",
+  "Packets in": "传入数据包",
+  "Packets out": "传出数据包",
+  "Interface": "接口",
+  "Received": "已接收",
+  "Sent": "已发送",
+  "Status": "状态",
+  "Active": "活跃",
+  "Inactive": "不活跃",
+  "macOS doesn’t show other apps how much each process sends or receives.": "macOS 不向其他 App 提供每个进程的收发量。",
+  "CPU load · 6 min": "CPU 负载 · 6 分钟",
+  "6 min": "6 分钟",
+  "1, 5 and 15 min": "1、5 和 15 分钟"
  },
  "patterns": [
   [
@@ -3061,6 +3124,50 @@
   [
    "^(\\$[\\d.]+) · ([\\d.]+[kMB]?) tokens$",
    "$1 · $2 令牌"
+  ],
+  [
+   "^Core (\\d+) · (\\d+)%$",
+   "核心 $1 · $2%"
+  ],
+  [
+   "^System (\\d+%)$",
+   "系统 $1"
+  ],
+  [
+   "^User (\\d+%)$",
+   "用户 $1"
+  ],
+  [
+   "^Memory pressure (\\d+%)$",
+   "内存压力 $1"
+  ],
+  [
+   "^Battery (\\d+%)$",
+   "电池 $1"
+  ],
+  [
+   "^Read (.+/s)$",
+   "读取 $1"
+  ],
+  [
+   "^Written (.+/s)$",
+   "写入 $1"
+  ],
+  [
+   "^Received (.+/s)$",
+   "接收 $1"
+  ],
+  [
+   "^Sent (.+/s)$",
+   "发送 $1"
+  ],
+  [
+   "^peak (.+)$",
+   "峰值 $1"
+  ],
+  [
+   "^of (.+)$",
+   "共 $1"
   ]
  ]
 }
