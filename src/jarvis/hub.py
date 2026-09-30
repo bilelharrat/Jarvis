@@ -44,6 +44,7 @@ from claude_agent_sdk import (
 
 from . import (
     answering,
+    browser_gate,
     code_tools,
     computer,
     defense,
@@ -74,6 +75,7 @@ from .brain import (
     EXTRA_WEB_RESULTS,
     SCREEN_LOOKS,
     app_tool,
+    browser_acting,
     browser_address,
     browser_tool,
     build_options,
@@ -712,6 +714,15 @@ class Hub:
             on_change=self._purchases_changed,  # Settings shows the day's spending at once
         )
         self._guarded_browser = transactions.guard_browser(self.transactions, self._browser_raw)
+        # What the built-in browser's tools type or press, once a turn has read private data:
+        # on a site the user didn't name, a card first (the turn gate's browser_gate part).
+        self.browser_gate = browser_gate.ActingGate(
+            reads=self._gate_reads,
+            words=lambda: self._turn_text,
+            turn=lambda: self._rid,
+            page=lambda: browser_gate.read_url(self._browser_raw),
+            ask=self._ask_user,
+        )
         # Conversations JARVIS holds for the user by text or email, within their limits.
         self.delegations = delegation_store or delegate.DelegationStore()
         self.delegate = delegate.DelegateEngine(
@@ -759,6 +770,7 @@ class Hub:
         self.tasks.session_servers = lambda cwd: code_tools.build_servers(
             self.browser_call, self.workbench, lambda: cwd
         )
+        self.tasks.page_url = lambda: browser_gate.read_url(self._browser_raw)
         # Settings › Queue Jarvis Code follow-ups off: they steer the running step.
         self.tasks.steer_now = lambda: not self.prefs.code_queue
         # The fallback model (Settings › Brain; Automatic picks Gemini): Claude down (its
@@ -1349,9 +1361,13 @@ class Hub:
     async def turn_gate(self, tool_name: str, tool_input: dict[str, Any]) -> bool | None:
         """The permission policy's call for brain.TURN_GATED tools: web addresses and
         research topics that could carry what this turn has read off the Mac, and Claude
-        Code sessions started or steered on the model's say-so."""
+        Code sessions started or steered on the model's say-so. Also for the built-in
+        browser's tools that act on a page (brain.browser_acting): after private reads,
+        typing into a site the user didn't name asks (browser_gate); None otherwise."""
         if tool_name in EGRESS_TOOLS:
             return await self._egress_ok(tool_name, tool_input)
+        if browser_acting(tool_name):
+            return await self.browser_gate.check(tool_name, tool_input)
         if tool_name == app_tool("voice_code"):
             return await self._voice_code_ok(tool_input)
         if tool_name == task_tool("message_claude_task"):
@@ -1400,7 +1416,10 @@ class Hub:
             spoken = f"Can I open {site} in the built-in browser?"
         else:
             question, spoken = f"Fetch a page from {site}?", f"Can I fetch a page from {site}?"
-        return await self._ask_user(question, f"{address}\n\n{self._why_asking(reads)}", spoken)
+        allowed = await self._ask_user(question, f"{address}\n\n{self._why_asking(reads)}", spoken)
+        if allowed and tool_name == browser_tool("browser_open"):
+            self.browser_gate.approve(host)  # pressing around there needs no second card
+        return allowed
 
     async def _voice_code_ok(self, args: dict[str, Any]) -> bool:
         """voice_code goes ahead unasked when the user's own words this turn asked to code,

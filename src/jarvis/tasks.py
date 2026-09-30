@@ -55,7 +55,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import code_tools
+from . import browser_gate, code_tools
 from .computer import is_sensitive
 from .config import MAX_BUFFER, Settings
 from .knowledge import RESEARCH_DIR
@@ -839,6 +839,9 @@ class TaskManager:
         # Feature modules' own additions to a code session's options (jarvis.features):
         # each is called with the session and its options as they're made.
         self.session_extras: list[Callable[[ClaudeTask, ClaudeAgentOptions], None]] = []
+        # The address on show in that browser, set by the hub: a page on this Mac
+        # (localhost) is a session's own work, typed into unasked in Accept edits and Auto.
+        self.page_url: Callable[[], Awaitable[str | None]] | None = None
         # True when follow-ups should steer the running step (the owner's setting).
         self.steer_now: Callable[[], bool] | None = None
         # Claude couldn't answer a session (its limit, an outage): the hub's fallback, told
@@ -2452,6 +2455,9 @@ class TaskManager:
 
             if free := self._goes_ahead(task, tool_name, tool_input):
                 return allow(*free)
+            page = await self._browser_target(tool_name, tool_input)
+            if page is not None and page.local and task.mode in ("edits", "smart"):
+                return allow("auto", "a page on this Mac")
             editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
             command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
             rule = command_rule(command, task.cwd) if command else ""
@@ -2468,7 +2474,7 @@ class TaskManager:
                 "WebFetch": f"read a page on {_domain(str(tool_input.get('url', '')))}",
             }.get(tool_name, f"use {tool_name.split('__')[-1].replace('_', ' ')}")
             if tool_name.startswith(f"mcp__{code_tools.BROWSER}__"):
-                verb = "use the browser"
+                verb = page.verb if page is not None else "use the browser"
             elif tool_name.startswith(f"mcp__{code_tools.SIMULATOR}__"):
                 verb = "use the iOS Simulator"
             if tool_name in EDIT_TOOLS:
@@ -2535,6 +2541,16 @@ class TaskManager:
             )
 
         return can_use_tool
+
+    async def _browser_target(
+        self, tool_name: str, tool_input: dict[str, Any]
+    ) -> browser_gate.Target | None:
+        """Where a session's browser call that acts (not only looks) lands: the address it
+        opens or the page on show. None for any other tool."""
+        prefix = f"mcp__{code_tools.BROWSER}__"
+        if not tool_name.startswith(prefix) or tool_name in code_tools.READ_ONLY:
+            return None
+        return await browser_gate.target(tool_name, tool_input, self.page_url)
 
     def _goes_ahead(
         self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]

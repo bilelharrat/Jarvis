@@ -1,0 +1,18 @@
+{
+  "strings": {
+    "Type into this page in the built-in browser?": "要在内置浏览器里往这个页面输入内容吗？",
+    "Use this page in the built-in browser?": "要在内置浏览器里操作这个页面吗？",
+    "Run a script on this page in the built-in browser?": "要在内置浏览器里对这个页面运行脚本吗？",
+    "Upload a file to this page?": "要把文件上传到这个页面吗？",
+    "Open this page in the built-in browser?": "要在内置浏览器中打开这个页面吗？"
+  },
+  "patterns": [
+    ["^Type into (.+) in the built-in browser\\?$", "要在内置浏览器里往 $1 输入内容吗？"],
+    ["^Use (.+) in the built-in browser\\?$", "要在内置浏览器里操作 $1 吗？"],
+    ["^Run a script on (.+) in the built-in browser\\?$", "要在内置浏览器里对 $1 运行脚本吗？"],
+    ["^Upload a file to (.+)\\?$", "要把文件上传到 $1 吗？"],
+    ["^Jarvis Code in (.+?) wants to type into (.+)$", "$1 中的 Jarvis Code 想在 $2 里输入内容"],
+    ["^Jarvis Code in (.+?) wants to open (.+) in the browser$", "$1 中的 Jarvis Code 想在浏览器中打开 $2"],
+    ["^Jarvis Code in (.+?) wants to click on (.+)$", "$1 中的 Jarvis Code 想在 $2 上点按"]
+  ]
+}

@@ -33,6 +33,21 @@ BROWSER_READ = [
     "browser_screenshot",
 ]
 BROWSER_CONTROL = ["browser_click", "browser_type"]
+# The built-in browser's tools that only look: every other tool on its server acts on a
+# page (types, clicks, submits, runs a script, uploads, opens or manages tabs), those added
+# later included, and goes past the turn gate (browser_acting).
+BROWSER_LOOKING = frozenset(
+    {
+        "browser_read",
+        "browser_screenshot",
+        "browser_snapshot",
+        "browser_wait",
+        "browser_console",
+        "browser_network",
+        "browser_scroll",
+        "browser_back",
+    }
+)
 APP_SERVER = "jarvis"
 # JARVIS's own app tools, each by name. A new one is refused until it's listed here or
 # gated below: a wildcard once let voice_code start Claude Code sessions unasked.
@@ -73,6 +88,13 @@ def app_tool(name: str) -> str:
 
 def browser_tool(name: str) -> str:
     return f"mcp__{BROWSER_SERVER}__{name}"
+
+
+def browser_acting(tool_name: str) -> bool:
+    """A tool on the built-in browser's server that acts on a page: any but the looking
+    ones, by name, so a tool added to the server later is weighed too."""
+    prefix = f"mcp__{BROWSER_SERVER}__"
+    return tool_name.startswith(prefix) and tool_name[len(prefix) :] not in BROWSER_LOOKING
 
 
 TASK_AUTO_ALLOWED = ["claude_task_status", "stop_claude_task", "list_claude_sessions"]
@@ -186,6 +208,8 @@ def result_kind(tool_name: str) -> str:
         return "none"
     if tool_name in WEB_RESULTS or tool_name in EXTRA_WEB_RESULTS:
         return "web"
+    if tool_name.startswith(f"mcp__{BROWSER_SERVER}__"):
+        return "web"  # the built-in browser's other tools (snapshots, tabs, console) show pages
     return "private"
 
 
@@ -397,7 +421,12 @@ def make_permission_policy(
     and running Shortcuts.
 
     TURN_GATED tools go to turn_gate, which knows what the current turn has read and what
-    the user said; without one (or when it has no view), the user is asked every time."""
+    the user said; without one (or when it has no view), the user is asked every time.
+
+    A built-in browser tool that acts on a page (browser_acting) goes to turn_gate first,
+    free_control or not: once the turn has read private data, typing into or pressing
+    things on a site the user didn't name asks. When it has nothing to weigh (None), the
+    mouse-and-keyboard rules above decide, as for browser_click."""
     confirmable = {mac_tool(name) for name in mac_tools.NEEDS_CONFIRMATION}
     confirmable |= {task_tool(name) for name in TASK_NEEDS_CONFIRMATION}
     control = {computer_tool(name) for name in computer.CONTROL_TOOLS}
@@ -405,10 +434,23 @@ def make_permission_policy(
 
     operating = {mac_tool("quit_app"), mac_tool("run_shortcut")} | control
 
+    def acting(tool_name: str) -> bool:  # browser_open is the turn gate's egress check
+        return browser_acting(tool_name) and tool_name not in TURN_GATED
+
     async def can_use_tool(
         tool_name: str, tool_input: dict[str, Any], _context: ToolPermissionContext
     ):
-        if tool_name in operating and free_control is not None and free_control():
+        if acting(tool_name) and turn_gate is not None:
+            decision = await turn_gate(tool_name, tool_input)
+            if decision is False:
+                return PermissionResultDeny(
+                    message="The user didn't OK that. Don't retry it or find another way to "
+                    "do it; tell them briefly what you wanted to do."
+                )
+            if decision:
+                return PermissionResultAllow()
+        free = free_control is not None and free_control()
+        if (tool_name in operating or acting(tool_name)) and free:
             return PermissionResultAllow()
         if tool_name == mac_tool("run_shortcut") and shortcut_gate is not None:
             if await shortcut_gate(str(tool_input.get("name", "")), bool(tool_input.get("input"))):
@@ -453,7 +495,7 @@ def make_permission_policy(
                 if decision:
                     return PermissionResultAllow()
                 return PermissionResultDeny(message="The user didn't allow that. Don't retry it.")
-        if tool_name in control and control_gate is not None:
+        if (tool_name in control or acting(tool_name)) and control_gate is not None:
             if await control_gate():
                 return PermissionResultAllow()
             return PermissionResultDeny(
@@ -549,7 +591,7 @@ def build_options(
         allowed += [app_tool(name) for name in APP_AUTO_ALLOWED]
     if browser_server is not None:
         servers[BROWSER_SERVER] = browser_server
-        allowed += [f"mcp__{BROWSER_SERVER}__{name}" for name in BROWSER_READ]
+        allowed += [f"mcp__{BROWSER_SERVER}__{name}" for name in sorted(BROWSER_LOOKING)]
     if computer_server is not None:
         servers[computer.SERVER_NAME] = computer_server
         allowed += [computer_tool(name) for name in computer.READ_TOOLS]
