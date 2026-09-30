@@ -1,6 +1,7 @@
-"""The iPhone and Watch companion's feature module: pairing by QR code, push notifications
-and the companion's part of Settings, on top of remote.py's server (jarvis.companion and
-jarvis.companion_push do the work).
+"""The iPhone and Watch companion's feature module: pairing by QR code, push notifications,
+the phone's location (for travel times) and health (for the briefing), and the
+companion's part of Settings, on top of remote.py's server (jarvis.companion,
+jarvis.companion_api and jarvis.companion_push do the work).
 
 Settings it keeps (prefs.features):
 - companion_plain_http: plain HTTP for the old app and web page as well as HTTPS. Off
@@ -11,7 +12,10 @@ Settings it keeps (prefs.features):
 Each phone's own push settings (what it's sent) are kept with its push token in
 companion.json, and the push key in the Keychain.
 
-Claude cost policy: nothing here calls a model.
+Claude cost policy: nothing here calls a model by itself. A photo or a share with a note
+from the phone is one ordinary request of the owner's (as /api/ask is), at most three
+of the phones' at once (hub.REMOTE_TURNS); phone_health is a tool of the main
+conversation, called when the briefing or the owner asks.
 """
 
 from __future__ import annotations
@@ -59,12 +63,15 @@ def watch_tasks(hub: Any, listener: Callable[[str, dict[str, Any]], Any]) -> Non
 
 
 def install(hub: Any) -> None:
-    from ..companion import Companion
+    from ..companion import LABELS, PROMPT, Companion
 
     companion = Companion(hub)
     hub.remote.extension = companion
     for kind in COMMANDS:
         hub.register_command(kind, companion.command)
+    # The phone's health, for the briefing (its result is the owner's own: private).
+    hub.register_server("companion", companion.build_server, prompt=PROMPT, labels=LABELS)
+    hub.travel_fixes.append(companion.phone_fix)  # trips start where the phone is
     notifier = companion.notifier
     hub.add_approval_sink(notifier.approval)
     hub.add_notify_sink(notifier.alert)

@@ -76,7 +76,15 @@
     "Stopped a Jarvis Code step": "停下了 Jarvis Code 的一步",
     "Stopped a conversation": "停止了一个对话",
     "Changed a routine": "修改了一个例行任务",
-    "Deleted a routine": "删除了一个例行任务"
+    "Deleted a routine": "删除了一个例行任务",
+    "Shared something": "分享了内容",
+    "Asked about a photo": "询问了一张照片",
+    "Sent health data": "发送了健康数据",
+    "Arrived home": "到家了",
+    "Left home": "离开了家",
+    "Arrived at work": "到公司了",
+    "Left work": "离开了公司",
+    "Checked your health from your iPhone": "查看了 iPhone 上的健康数据"
   },
   "patterns": [
     [

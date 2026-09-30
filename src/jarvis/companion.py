@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -47,7 +47,25 @@ ACTIONS = {
     "delegation_stopped": "Stopped a conversation",
     "routine_changed": "Changed a routine",
     "routine_deleted": "Deleted a routine",
+    "shared": "Shared something",
+    "photo": "Asked about a photo",
+    "health": "Sent health data",
+    "arrive_home": "Arrived home",
+    "leave_home": "Left home",
+    "arrive_work": "Arrived at work",
+    "leave_work": "Left work",
 }
+WORDS = {
+    "en": {"photo_question": "What's in this photo?"},
+    "zh": {"photo_question": "这张照片里有什么？"},
+}
+PROMPT = (
+    "\n- iPhone health: phone_health has the owner's recent sleep, steps and workouts from "
+    "their iPhone, when its app sends them. In a morning briefing, call it and mention last "
+    "night's sleep and yesterday's steps in one short sentence if there are any; otherwise "
+    "only when asked."
+)
+LABELS = {"phone_health": "Checked your health from your iPhone"}
 
 
 class Saver:
@@ -340,6 +358,126 @@ class Companion:
         self.keys = push.Keys(hub.connectors.vault)
         self.sender = push.Sender(self.keys, run=run)
         self.notifier = Notifier(self, self.sender, away=away or owner_away)
+        self.location: dict[str, Any] | None = None  # the phone's latest fix (memory only)
+        self.inbox_folder: Path | None = None  # tests: somewhere of their own
+
+    def inbox(self) -> Path:
+        """Where what's shared from the phone is saved."""
+        return self.inbox_folder or Path.home() / "Documents" / "Jarvis" / "Inbox"
+
+    def words(self, key: str) -> str:
+        from . import lang
+
+        return WORDS["zh" if lang.is_zh(getattr(self.hub.prefs, "language", "en")) else "en"][key]
+
+    # ── the phone's location and health ──
+
+    def set_location(self, device: Any, fix: dict[str, Any]) -> None:
+        """The phone's latest fix, heard by the hub (phone_location). Only a region's
+        comings and goings go in the log, never where the phone was."""
+        self.location = dict(fix)
+        self.hub.emit("phone_location", **fix)
+        if fix.get("event") and fix.get("region"):
+            self.record(device, f"{fix['event']}_{fix['region']}")
+
+    def phone_fix(self) -> dict[str, float] | None:
+        """Where trips start (hub.travel_fixes): the phone's fix while it's fresh and
+        close enough, else None and the Mac's own is used."""
+        from .companion_api import FIX_ACCURACY, FIX_SECONDS
+
+        fix = self.location
+        if not fix or time.time() - fix["at"] > FIX_SECONDS:
+            return None
+        if fix.get("accuracy") is not None and fix["accuracy"] > FIX_ACCURACY:
+            return None
+        return {"lat": fix["lat"], "lon": fix["lon"]}
+
+    def health_days(self, today: date | None = None) -> dict[str, dict[str, Any]]:
+        """The phone's health days kept (the last two weeks), each read defensively."""
+        from .companion_api import clean_health
+
+        today = today or date.today()
+        raw = self.store.extra("health")
+        days: dict[str, dict[str, Any]] = {}
+        for day, record in raw.items() if isinstance(raw, dict) else []:
+            if isinstance(record, dict):
+                clean = clean_health({**record, "day": day}, today)
+                if isinstance(clean, dict):
+                    days[clean["day"]] = clean
+        return dict(sorted(days.items()))
+
+    def set_health(self, day: dict[str, Any]) -> None:
+        from .companion_api import HEALTH_DAYS
+
+        days = self.health_days()
+        days[day["day"]] = {**days.get(day["day"], {}), **day}
+        cutoff = (date.today() - timedelta(days=HEALTH_DAYS)).isoformat()
+        self.store.set_extra(
+            "health",
+            {k: {f: v for f, v in d.items() if f != "day"} for k, d in days.items() if k > cutoff},
+        )
+
+    def health_text(self, today: date | None = None) -> str:
+        """The phone's health, for Claude: last night's sleep, yesterday's steps and the
+        days before, as the app sent them (the owner's own data: private)."""
+        today = today or date.today()
+        days = self.health_days(today)
+        this, before = today.isoformat(), (today - timedelta(days=1)).isoformat()
+        recent = {k: v for k, v in days.items() if k in (this, before)}
+        if not recent:
+            return "Nothing recent from the iPhone's Health app (the J.A.R.V.I.S. app sends it when the owner allows it)."
+        parts = []
+        night = days.get(this, {}).get("sleep_hours")
+        if night is None:
+            night = days.get(before, {}).get("sleep_hours")
+        if night is not None:
+            parts.append(f"last night's sleep: {night:g} hours")
+        steps = days.get(before, {}).get("steps")
+        if steps is not None:
+            parts.append(f"yesterday's steps: {steps:,}")
+        if (today_steps := days.get(this, {}).get("steps")) is not None:
+            parts.append(f"steps so far today: {today_steps:,}")
+        heart = days.get(this, {}).get("resting_hr") or days.get(before, {}).get("resting_hr")
+        if heart:
+            parts.append(f"resting heart rate: {heart} bpm")
+        workouts = days.get(before, {}).get("workouts") or []
+        if workouts:
+            parts.append(
+                "yesterday's workouts: "
+                + ", ".join(f"{w['kind']} {w['minutes']} min" for w in workouts[:5])
+            )
+        earlier = [
+            f"{k}: "
+            + ", ".join(
+                f"{v[f]:,} steps" if f == "steps" else f"{v[f]:g} h sleep"
+                for f in ("steps", "sleep_hours")
+                if f in v
+            )
+            for k, v in list(days.items())[-7:]
+            if k not in (this, before) and ("steps" in v or "sleep_hours" in v)
+        ]
+        text = (
+            "From the owner's iPhone (Apple Health): " + ("; ".join(parts) or "no totals yet") + "."
+        )
+        if earlier:
+            text += " Earlier: " + "; ".join(earlier) + "."
+        return text
+
+    def build_server(self) -> Any:
+        from claude_agent_sdk import create_sdk_mcp_server, tool
+
+        @tool(
+            "phone_health",
+            "The owner's recent health from their iPhone (Apple Health, sent by the "
+            "J.A.R.V.I.S. app): last night's sleep, yesterday's steps, resting heart rate "
+            "and workouts. For the morning briefing, and questions about their sleep or "
+            "activity.",
+            {},
+        )
+        async def phone_health(_args: dict[str, Any]) -> dict[str, Any]:
+            return {"content": [{"type": "text", "text": self.health_text()}]}
+
+        return create_sdk_mcp_server(name="companion", version="0.1.0", tools=[phone_health])
 
     # ── remote.py's hooks ──
 
