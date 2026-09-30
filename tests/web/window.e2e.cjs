@@ -3346,6 +3346,24 @@ test('An import is looked over first: what fits is ticked, and only what stays t
   assert(await js('!document.querySelector("#mem-tab-import .mem-pick")'), 'the review stayed after saving');
 });
 
+test('Promises go by the Mac’s own day: due today isn’t late in the evening, and today can be picked', async () => {
+  // toISOString's date is UTC's: late in the evening west of Greenwich (or just after
+  // midnight east of it) that's another day. At both moments, "today" is the Mac's own.
+  await withMemory();
+  try {
+    for (const at of ['2026-09-30T23:30:00', '2026-10-01T00:30:00']) {
+      const local = at.slice(0, 10);
+      await js(`(() => { const Real = window.__RealDate || Date; window.__RealDate = Real; const fixed = new Real(${JSON.stringify(at)}).getTime(); window.Date = class extends Real { constructor(...a) { super(...(a.length ? a : [fixed])); } static now() { return fixed; } }; })(); true`);
+      const due = { id: 'p1', text: 'Send Ann the deck', to: 'Ann', source: 'said', sent: '2026-09-29T10:00:00', due: local, quote: '', status: 'open', closed: '', reminded: [], handle: '' };
+      await js(`__ev(${memState({ promises: [due] })}); toggleSettings(true); document.querySelector("[data-mem-tab=promises]").click(); true`);
+      const r = await js(`({ items: document.querySelectorAll('#mem-tab-promises [data-promise=p1]').length, late: document.querySelectorAll('#mem-tab-promises .mem-late').length, min: [...document.querySelectorAll('#mem-tab-promises input[type=date]')].map((i) => i.min) })`);
+      assert(r.items === 1 && r.late === 0 && r.min.length === 1 && r.min[0] === local, `${at}: ${JSON.stringify(r)}`);
+    }
+  } finally {
+    await js('if (window.__RealDate) window.Date = window.__RealDate; true');
+  }
+});
+
 test('A standing intent and About me are sent as written', async () => {
   await withMemory();
   await js('toggleSettings(true); document.querySelector("[data-mem-tab=intents]").click(); __sent.length = 0; true');

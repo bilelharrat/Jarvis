@@ -69,6 +69,12 @@
     if (run) b.addEventListener('click', run);
     return b;
   }
+  // Today on this Mac's calendar, YYYY-MM-DD (toISOString's date is UTC's: in the evening
+  // west of Greenwich it's already tomorrow there).
+  function today() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
   function day(iso) {
     const d = new Date(String(iso || '').length === 10 ? `${iso}T12:00:00` : iso);
     if (Number.isNaN(d.getTime())) return '';
@@ -129,7 +135,7 @@
     const i = el('input');
     i.type = 'date';
     i.value = value || '';
-    i.min = new Date().toISOString().slice(0, 10);
+    i.min = today();
     if (label) i.setAttribute('aria-label', label);
     return i;
   }
@@ -806,7 +812,7 @@
     text.append(mine(el('span', 'mem-fact', p.text)));
     const meta = el('div', 'mem-meta');
     if (p.to) { meta.append(el('span', '', `${T('To')} `)); meta.append(mine(el('span', '', p.to))); }
-    if (p.due) meta.append(el('span', p.due < new Date().toISOString().slice(0, 10) && p.status === 'open' ? 'mem-late' : '', `${p.to ? ' · ' : ''}${T('due')} ${day(p.due)}`));
+    if (p.due) meta.append(el('span', p.due < today() && p.status === 'open' ? 'mem-late' : '', `${p.to ? ' · ' : ''}${T('due')} ${day(p.due)}`));
     if (p.status !== 'open') meta.append(el('span', '', ` · ${T(p.status === 'done' ? 'Done' : 'Dismissed')}`));
     text.append(meta);
     if (p.quote) text.append(mine(el('q', 'mem-quote mem-block', p.quote)));
