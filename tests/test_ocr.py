@@ -150,6 +150,28 @@ def test_a_reader_that_stalls_or_cant_be_built_stops_reading_not_the_rebuild(tmp
     assert len(collect_images([desk], cache, lambda: later, home=home)) == 2
 
 
+def test_a_cache_damaged_past_its_first_table_starts_afresh(tmp_path):
+    """Damage the open-time look doesn't see (the texts table's pages) is found when it's
+    opened, and the cache starts afresh: never a rebuild that fails on it every time."""
+    import sqlite3
+
+    home = tmp_path / "home"
+    desk = home / "Desktop"
+    for n in range(40):
+        image(desk / f"shot{n}.png", fill=f"shot {n} ".encode() * 50)
+    cache = tmp_path / "images.db"
+    assert len(collect_images([desk], cache, FakeReader, home=home)) == 40
+    conn = sqlite3.connect(cache)
+    root = conn.execute("SELECT rootpage FROM sqlite_master WHERE name = 'texts'").fetchone()[0]
+    size = conn.execute("PRAGMA page_size").fetchone()[0]
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.close()
+    with open(cache, "r+b") as fh:  # the texts table's root page, overwritten
+        fh.seek((root - 1) * size)
+        fh.write(b"\xff" * size)
+    assert len(collect_images([desk], cache, FakeReader, home=home)) == 40
+
+
 def test_images_gone_from_the_folders_are_forgotten(tmp_path):
     home = tmp_path / "home"
     desk = home / "Desktop"

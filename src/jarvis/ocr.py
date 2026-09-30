@@ -80,7 +80,11 @@ class TextCache:
             "(path TEXT PRIMARY KEY, size INTEGER, mtime REAL, key TEXT)"
         )
         conn.execute("CREATE TABLE IF NOT EXISTS texts (key TEXT PRIMARY KEY, text TEXT, at REAL)")
-        conn.execute("SELECT count(*) FROM files").fetchone()  # damage shows here
+        # Damage anywhere shows here (a count of one table sees only that table's pages).
+        found = conn.execute("PRAGMA quick_check").fetchone()
+        if not found or found[0] != "ok":
+            conn.close()
+            raise sqlite3.DatabaseError("the cache is damaged")
         return conn
 
     def key_for(self, path: str, size: int, mtime: float) -> str | None:
