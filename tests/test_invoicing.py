@@ -182,8 +182,13 @@ async def test_a_recurring_invoice_is_shown_then_kept(tmp_path):
     )
     assert text(out) == "Set up: Acme, $2,000.00, every month on the 1st, next on 1 October 2026."
     question, detail, spoken, choices = desk.cards[-1]
-    assert question == "Invoice Acme $2,000.00 every month on the 1st, next on 1 October 2026?"
+    assert question == "Set up a recurring invoice for Acme?"
+    assert detail.startswith("$2,000.00 every month on the 1st, next on 1 October 2026\n")
     assert "Each one is offered to ap@acme.com on a Send card first." in detail
+    assert spoken == (
+        "Set up a recurring invoice for Acme: 2,000 dollars, every month on the 1st, next on "
+        "1 October 2026?"
+    )
     assert choices == ("Set it up", "Not now")
     assert "[" in text(await tools["list_recurring_invoices"]({}))
     out = await tools["create_recurring_invoice"](
@@ -199,6 +204,37 @@ async def test_a_recurring_invoice_is_shown_then_kept(tmp_path):
     desk.answers = [False]
     out = await tools["stop_recurring_invoice"]({"invoice": "acme"})
     assert out["is_error"] and desk.recurring.find("acme") is not None
+    question, detail, _spoken, choices = desk.cards[-1]
+    assert question == "Stop the recurring invoice for Acme?" and choices == ("Stop it", "Keep it")
+    assert detail.startswith("$2,000.00 every month on the 1st, next on 1 October 2026.\n")
+
+
+async def test_the_cards_are_said_in_chinese(tmp_path):
+    from jarvis import lang
+
+    desk = Desk(tmp_path, asked={"save_client"})
+    desk.extras.language = lambda: "zh"
+    store, tools = tools_for(tmp_path, desk)
+    await tools["create_recurring_invoice"](
+        {
+            "client": "Acme",
+            "items": [{"description": "Retainer", "unit_price": 2000}],
+            "every": "monthly",
+            "start": "2026-10-01",
+        }  # fmt: skip
+    )
+    spoken = desk.cards[-1][2]
+    assert spoken == "Set up a recurring invoice for Acme: $2,000.00, 每月1日，下次是2026年10月1日?"
+    assert lang.translate(spoken, "zh") == (
+        "要给Acme设置定期发票吗？每次$2,000.00，每月1日，下次是2026年10月1日。"
+    )
+    await tools["create_invoice"](
+        {"client": "Acme", "items": [{"description": "x", "unit_price": 99}]}
+    )
+    await tools["invoice_payment_link"]({"number": "1"})
+    assert lang.translate(desk.cards[-1][2], "zh") == (
+        "要为发票 INV-2026-001 生成 Stripe 付款链接吗？金额$99.00。"
+    )
 
 
 async def test_a_reminder_shows_the_email_and_goes_once_a_week(tmp_path):

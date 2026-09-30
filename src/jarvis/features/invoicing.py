@@ -81,6 +81,9 @@ lang.add_texts(
         "Save {client} to your clients?": "要把{client}存到你的客户里吗？",
         "Remove {client} from your clients?": "要把{client}从你的客户里删除吗？",
         "Stop the recurring invoice for {client}?": "要停止给{client}的定期发票吗？",
+        "Set up a recurring invoice for {client}?": "要给{client}设置定期发票吗？",
+        "Set up a recurring invoice for {client}: {amount}, {when}?": "要给{client}设置定期发票吗？每次{amount}，{when}。",
+        "Create a Stripe payment link for {number}, {amount}?": "要为发票 {number} 生成 Stripe 付款链接吗？金额{amount}。",
         "Here's a payment reminder to {client} for {number}, {amount}. Do you want it sent?": "这是给{client}的付款提醒，发票 {number}，金额{amount}。要发送吗？",
         "Invoice reminders": "发票提醒",
         "Saved a client": "保存了一位客户",
@@ -148,6 +151,7 @@ class InvoiceDesk:
             send=self.send,
             changed=self.publish,
             today=self.today,
+            language=lambda: self.hub.language,
         )
 
     async def ask(self, question: str, detail: str, spoken: str, choices: tuple[str, str]) -> bool:
@@ -312,6 +316,12 @@ class InvoiceDesk:
         if not task.cancelled() and task.exception() is not None:
             log.error("invoicing: offering an invoice by email failed", exc_info=task.exception())
 
+    def _said(self, invoice: invoices.Invoice) -> str:
+        """The amount as a card says it (its figures in Chinese, read as 两千美元)."""
+        if lang.is_zh(self.hub.language):
+            return invoices.money(invoice.total, invoice.currency)
+        return invoices.spoken_money(invoice.total, invoice.currency)
+
     async def offer_email(self, invoice: invoices.Invoice) -> bool:
         """A recurring invoice to its client: the Send card with exactly what goes, then Mail."""
         sender = self.hub.prefs.invoice_from.strip().splitlines()
@@ -331,7 +341,7 @@ class InvoiceDesk:
             f"Email {invoice.client} invoice {invoice.number}?",
             detail,
             f"Here's invoice {invoice.number} for {invoice.client}, "
-            f"{invoices.spoken_money(invoice.total, invoice.currency)}. Do you want it emailed to them?",
+            f"{self._said(invoice)}. Do you want it emailed to them?",
             ("Send", "Don't send"),
         ):
             return False

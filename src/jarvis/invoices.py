@@ -477,9 +477,17 @@ def _ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def describe_schedule(schedule: Schedule) -> str:
-    """ "every month on the 1st, next on 1 October 2026"."""
+def describe_schedule(schedule: Schedule, language: str = "en") -> str:
+    """ "every month on the 1st, next on 1 October 2026" (每月1日，下次是2026年10月1日)."""
     nxt = date.fromisoformat(schedule.next)
+    if language == "zh":
+        when = {
+            "weekly": f"每周{'一二三四五六日'[schedule.anchor % 7]}",
+            "monthly": f"每月{schedule.anchor}日",
+            "quarterly": f"每三个月的{schedule.anchor}日",
+            "yearly": f"每年{nxt.month}月{nxt.day}日",
+        }[schedule.every]
+        return f"{when}，下次是{nxt.year}年{nxt.month}月{nxt.day}日"
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     when = {
         "weekly": f"every week on {days[schedule.anchor % 7]}",
@@ -799,6 +807,7 @@ class InvoiceExtras:
     send: Callable[[str, str, str, str], Awaitable[None]]
     changed: Callable[[], None] = lambda: None
     today: Callable[[], date] = date.today
+    language: Callable[[], str] = lambda: "en"  # what the cards are said in: "en" or "zh"
 
 
 def build_tools(
@@ -941,6 +950,16 @@ def build_tools(
 
 def extra_tools(store: InvoiceStore, prefs: Callable[[], Any], extras: InvoiceExtras) -> list:
     """Clients, recurring invoices, payment links and reminders."""
+
+    def zh() -> bool:
+        from . import lang
+
+        return lang.is_zh(extras.language())
+
+    def said(value: float, currency: str) -> str:
+        """An amount as a card says it: "2,000 dollars"; in Chinese its figures ($2,000.00),
+        which Chinese speech reads as 两千美元."""
+        return money(value, currency) if zh() else spoken_money(value, currency)
 
     def _text(text: str, error: bool = False) -> dict[str, Any]:
         out: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
@@ -1093,11 +1112,12 @@ def extra_tools(store: InvoiceStore, prefs: Callable[[], Any], extras: InvoiceEx
             if schedule.email
             else ""
         )
+        spoken_when = describe_schedule(schedule, "zh" if zh() else "en")
         if not await extras.ask(
-            f"Invoice {schedule.client} {total} {when}?",
-            f"{lines}\nDue {schedule.due_days} days after each.{emailed}",
-            f"Invoice {schedule.client} {spoken_money(schedule_total(schedule), schedule.currency)} "
-            f"{when}?",
+            f"Set up a recurring invoice for {schedule.client}?",
+            f"{total} {when}\n{lines}\nDue {schedule.due_days} days after each.{emailed}",
+            f"Set up a recurring invoice for {schedule.client}: "
+            f"{said(schedule_total(schedule), schedule.currency)}, {spoken_when}?",
             ("Set it up", "Not now"),
         ):
             return _text("The user said no. Nothing was set up.", error=True)
@@ -1130,7 +1150,8 @@ def extra_tools(store: InvoiceStore, prefs: Callable[[], Any], extras: InvoiceEx
         if found is None:
             return _text("There's no recurring invoice like that.", error=True)
         if not extras.asked("stop_recurring") and not await extras.ask(
-            f"Stop invoicing {found.client} {describe_schedule(found).split(', next')[0]}?",
+            f"Stop the recurring invoice for {found.client}?",
+            f"{money(schedule_total(found), found.currency)} {describe_schedule(found)}.\n"
             "Invoices already issued stay as they are.",
             f"Stop the recurring invoice for {found.client}?",
             ("Stop it", "Keep it"),
@@ -1165,7 +1186,7 @@ def extra_tools(store: InvoiceStore, prefs: Callable[[], Any], extras: InvoiceEx
             "Stripe gets the invoice number, the client's name and the amount. Anyone with "
             f"the link can pay {total} into your Stripe account.",
             f"Create a Stripe payment link for {invoice.number}, "
-            f"{spoken_money(invoice.total, invoice.currency)}?",
+            f"{said(invoice.total, invoice.currency)}?",
             ("Create link", "Not now"),
         ):
             return _text("The user said no. No link was made.", error=True)
@@ -1246,7 +1267,7 @@ def extra_tools(store: InvoiceStore, prefs: Callable[[], Any], extras: InvoiceEx
             f"Send {invoice.client} a reminder about {invoice.number}?",
             detail,
             f"Here's a payment reminder to {invoice.client} for {invoice.number}, "
-            f"{spoken_money(invoice.total, invoice.currency)}. Do you want it sent?",
+            f"{said(invoice.total, invoice.currency)}. Do you want it sent?",
             ("Send", "Don't send"),
         ):
             return _text("The user said no. It wasn't sent.", error=True)

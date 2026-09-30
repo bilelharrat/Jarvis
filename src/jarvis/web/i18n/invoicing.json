@@ -86,6 +86,14 @@
     [
       "^Couldn't save that \\((.+)\\)\\.$",
       "没能保存（$1）。"
+    ],
+    [
+      "^Set up a recurring invoice for (.+)\\?$",
+      "要给$1设置定期发票吗？"
+    ],
+    [
+      "^Stop the recurring invoice for (.+)\\?$",
+      "要停止给$1的定期发票吗？"
     ]
   ]
 }
