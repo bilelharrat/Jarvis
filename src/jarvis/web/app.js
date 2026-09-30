@@ -580,10 +580,19 @@ function desktopTarget() {
   }
   return deskTarget;
 }
+let handsBlockedCard = null;
 function onDesktopHands(ev) {
   if (ev.state === 'blocked' || ev.state === 'error') {
     handHud({ blocked: true, status: ev.text });
-    notice('Hand control', 'Can’t steer the Mac', ev.text, 15000);
+    if (ev.state === 'error') notice('Hand control', 'Can’t steer the Mac', ev.text, 15000);
+    else if (!handsBlockedCard || !handsBlockedCard.isConnected) {
+      // Not allowed under Accessibility: one click to the switch. (One card: moves already
+      // on their way are refused too, each with its own "blocked".)
+      const open = el('button', 'btn primary', 'Open Accessibility settings');
+      open.type = 'button';
+      open.addEventListener('click', () => send({ type: 'open_privacy', pane: 'accessibility' }));
+      handsBlockedCard = notice('Hand control', 'Can’t steer the Mac', ev.text, 15000, open);
+    }
     if (handsOn) stopHandControl();
   }
 }

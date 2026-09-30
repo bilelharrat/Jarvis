@@ -43,9 +43,13 @@ YIELD_S = 1.5  # the hands keep off the cursor this long after the mouse last mo
 DISPLAYS_TTL = 5.0  # s between looks at the display arrangement
 BUTTONS = ("left", "right")
 
+# macOS keeps a permission for the build it was given to: after J.A.R.V.I.S. is rebuilt or
+# signed differently the switch there can still show on while the Mac refuses it.
 NOT_PERMITTED = (
     "To steer the Mac with your hands, allow J.A.R.V.I.S. in System Settings › Privacy & "
-    "Security › Accessibility, then turn hand control of the Mac on again."
+    "Security › Accessibility, then turn hand control of the Mac on again. If it's already "
+    "on there, that was an earlier build of J.A.R.V.I.S.: remove it with −, then add it "
+    "again with +."
 )
 FAILED = "Hand control of the Mac stopped: the Mac refused a mouse event."
 

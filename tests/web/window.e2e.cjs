@@ -655,6 +655,19 @@ test('An interruption card has Open; Open and Dismiss teach, other heads-ups hav
   assert(r.opens === 0 && r.cards === 1, JSON.stringify(r));
 });
 
+test('Hand control refused by the Mac: one notice, with a button to the Accessibility switch', async () => {
+  // Moves already on their way are refused too: each brings its own "blocked".
+  for (let i = 0; i < 3; i++) await js('onEvent({ type: "desktop_hands", state: "blocked", text: "Allow J.A.R.V.I.S. under Accessibility." }); true');
+  const cards = await js('[...$("cards").querySelectorAll(".card.plain")].filter((c) => c.textContent.includes("Can’t steer the Mac")).length');
+  assert(cards === 1, `${cards} notices`);
+  assert(await clickText('#cards .card.plain', 'Open Accessibility settings'), 'no Open Accessibility settings');
+  const r = await js('__sent.filter((m) => m.type === "open_privacy").map((m) => m.pane)');
+  assert(JSON.stringify(r) === '["accessibility"]', JSON.stringify(r));
+  // A mouse event the Mac refused is no permission matter: no button there.
+  await js('$("cards").querySelectorAll(".card.plain").forEach((c) => c.remove()); onEvent({ type: "desktop_hands", state: "error", text: "The Mac refused a mouse event." }); true');
+  assert(!(await clickText('#cards .card.plain', 'Open Accessibility settings')), 'a refused event offered the settings');
+});
+
 test('Settings lists what was learned and your documents, each with its button', async () => {
   await js(`
     onEvent({ type: 'hearing', corrections: [{ heard: 'akin', meant: 'Okin', count: 1, at: '' }], words: [{ word: 'Okin', count: 3, why: 'corrected' }] });

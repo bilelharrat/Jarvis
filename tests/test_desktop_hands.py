@@ -91,6 +91,8 @@ def test_without_accessibility_nothing_is_posted_and_the_window_is_told():
     hands, poster, clock = rig(permitted=False)
     event = send(hands, clock, "start")
     assert event["state"] == "blocked" and "Accessibility" in event["text"]
+    # a switch left on for an earlier build of the app is refused too: the text says what to do
+    assert "earlier build" in event["text"]
     assert poster.requested == 1, "macOS is asked to show its prompt"
     for op, fields in [
         ("move", {"x": 0.2, "y": 0.2}),
