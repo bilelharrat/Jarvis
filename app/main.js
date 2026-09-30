@@ -48,6 +48,16 @@ app.on('second-instance', () => {
   }
 });
 
+// jarvis:// links (app/features/shell.js opens them). One that launches the app arrives
+// before the features load, so it waits here until one takes them.
+const earlyLinks = [];
+let openLink = null;
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (openLink) openLink(url);
+  else if (earlyLinks.length < 10) earlyLinks.push(url);
+});
+
 function jarvisHome() {
   if (process.env.JARVIS_HOME) return process.env.JARVIS_HOME;
   const baked = path.join(__dirname, 'jarvis-home.json');
@@ -1103,6 +1113,7 @@ const featureContext = {
   logDir: LOG_DIR,
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
+  onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
 };
 function loadAppFeatures() {
   const dir = path.join(__dirname, 'features');

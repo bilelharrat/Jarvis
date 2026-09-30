@@ -1,8 +1,9 @@
 // The Mac app's shell, window side (app/features/shell.js is the other half): tells the app
 // what JARVIS is doing for the menu bar icon and which cards wait for an OK (the Dock's
 // badge, their notifications), hands it heads-ups to raise as macOS notifications, carries
-// out what its menus and notifications ask over this window's connection, and adds the
-// "This Mac" group to Settings (the menu bar icon, the global shortcuts).
+// out what its menus, notifications and jarvis:// links ask over this window's connection,
+// and adds the "This Mac" group to Settings (the menu bar icon, the global shortcuts, the
+// Services menu's "Ask JARVIS").
 (() => {
   // ── pure helpers (tests/web/shell.test.mjs requires this file for them) ──
 
@@ -170,6 +171,41 @@
     flash(card);
   }
 
+  // A jarvis:// link's request: in the box, in view, and never sent from here. Any page can
+  // open a link, so the owner reads it and presses Return (the note under the box says so).
+  function prefill(text) {
+    if (!F.$('cc').hidden) toggleCC(false);
+    if (!F.$('settings').hidden) toggleSettings(false);
+    if (!F.$('accounts').hidden) toggleAccounts(false);
+    if (galaxyMode === 'open') setGalaxyMode('off');
+    const input = F.$('ask-input');
+    input.value = String(text || '').slice(0, 2000);
+    input.focus();
+    let note = F.$('shell-link-note');
+    if (!note) {
+      note = F.el('p', 'shell-link-note', en('From a link: read it, then press Return to send it.'));
+      note.id = 'shell-link-note';
+      F.$('ask-form').after(note);
+    }
+    note.hidden = !input.value;
+  }
+
+  // A jarvis:// link's project: Jarvis Code open on it, once the list of projects is in.
+  let wantedProject = '';
+  function pickProject(name) {
+    if (!deckProjects.some((p) => p.name === name)) return false;
+    openProjects.add(name);
+    selectProject(name);
+    return true;
+  }
+  function openProject(name) {
+    name = String(name || '').slice(0, 100);
+    if (!name) return;
+    if (F.$('cc').hidden) toggleCC(true); // asks for the projects
+    else F.send({ type: 'claude_projects' });
+    if (!pickProject(name)) wantedProject = name;
+  }
+
   function openPanel(panel) {
     if (panel === 'settings') { if (F.$('settings').hidden) toggleSettings(true); }
     else if (panel === 'code') { if (F.$('cc').hidden) toggleCC(true); }
@@ -190,6 +226,8 @@
         if (approvals.has(cmd.id) && ['allow', 'deny'].includes(cmd.choice)) F.send({ type: 'approve', id: cmd.id, choice: cmd.choice });
         break;
       case 'reveal': reveal(cmd); break;
+      case 'prefill': prefill(cmd.text); break;
+      case 'project': openProject(cmd.name); break;
       default: break;
     }
   }
@@ -228,6 +266,42 @@
     return row;
   }
 
+  // The Services menu's "Ask JARVIS": Add writes the Quick Action, Remove takes it away.
+  function serviceRow() {
+    const row = F.el('div', 'row shell-service-row');
+    row.id = 'shell-service-row';
+    row.hidden = true; // until the app says it can (the installed app only)
+    const words = F.el('span');
+    words.append(
+      F.el('strong', '', 'Ask about a selection'),
+      F.el('small', '', 'Adds “Ask JARVIS” to the Services menu: select text in any app, then right-click › Services. The text lands in the request box; nothing is sent until you press Return.'),
+    );
+    const button = F.el('button', 'btn', 'Add');
+    button.type = 'button';
+    button.id = 'shell-service';
+    button.addEventListener('click', () => serviceAction(serviceState && serviceState.installed ? 'remove' : 'add'));
+    row.append(words, button);
+    return row;
+  }
+
+  let serviceState = null;
+  function renderService() {
+    const row = F.$('shell-service-row');
+    if (!row || !serviceState) return;
+    row.hidden = !serviceState.available;
+    F.$('shell-service').textContent = serviceState.installed ? en('Remove') : en('Add');
+    F.$('shell-service').disabled = serviceState.taken;
+    const note = F.$('shell-service-note');
+    const problem = serviceState.taken
+      ? en('There’s already a Quick Action named “Ask JARVIS” in ~/Library/Services. Rename or remove it first.')
+      : serviceState.error ? en('That didn’t work. Try again.') : '';
+    note.hidden = !problem || !serviceState.available;
+    note.textContent = problem;
+  }
+  function serviceAction(action) {
+    bridge.invoke(`${CH}service`, { action }).then((state) => { serviceState = state; renderService(); }, () => {});
+  }
+
   let group = null;
   function buildGroup() {
     if (group || !bridge) return;
@@ -237,12 +311,17 @@
     note.id = 'shell-key-note';
     note.hidden = true;
     note.setAttribute('aria-live', 'polite');
+    const serviceNote = F.el('p', 'small-status warn-line');
+    serviceNote.id = 'shell-service-note';
+    serviceNote.hidden = true;
     group.append(
       F.el('h3', '', 'This Mac'),
       switchRow('sw-shell-menubar', 'Show in the menu bar', 'What JARVIS is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
       shortcutRow('ask', 'Talk', 'From any app: shows JARVIS and starts listening.'),
       shortcutRow('whatsThis', 'What’s this?', 'From any app: JARVIS explains what’s in front of you.'),
       note,
+      serviceRow(),
+      serviceNote,
     );
     const settings = F.$('settings');
     const accounts = F.$('open-accounts');
@@ -396,6 +475,12 @@
     const ev = e.detail;
     bridge.send(`${CH}heads-up`, { key: String(ev.key || ''), kind: String(ev.alert_kind || ''), title: String(ev.title || ''), text: String(ev.text || '') });
   });
+  F.on('claude_projects', () => { // after app.js has the list (renderProjects)
+    if (!wantedProject) return;
+    const name = wantedProject;
+    wantedProject = '';
+    if (!pickProject(name)) notice('Jarvis Code', '', en(`No Jarvis Code project named “${name}”.`), 8000);
+  });
   F.on('state', (ev) => { seen.state = ev.value || 'idle'; report(); });
   F.on('muted', (ev) => { seen.muted = Boolean(ev.value); report(); });
   F.on('prefs', (ev) => { seen.prefs = ev; renderGroup(); afterLanguage(ev); });
@@ -409,6 +494,9 @@
 
   if (bridge) {
     bridge.on(`${CH}command`, run);
+    // The note under the request box goes with the link's text: sent, or cleared.
+    F.$('ask-form').addEventListener('submit', () => { const n = F.$('shell-link-note'); if (n) n.hidden = true; });
+    F.$('ask-input').addEventListener('input', (e) => { const n = F.$('shell-link-note'); if (n && !e.target.value) n.hidden = true; });
     bridge.on(`${CH}shortcuts`, (status) => { keyStatus = status; renderShortcuts(); });
     bridge.invoke(`${CH}hello`).then((info) => {
       if (!info) return;
@@ -419,6 +507,7 @@
       report();
       sendApprovals();
       if (info.recovered) notice('Jarvis', '', 'The window stopped unexpectedly and was reloaded.', 15000);
+      serviceAction('status');
     }, () => { /* an app without the shell feature: nothing to report to */ });
   }
 })();

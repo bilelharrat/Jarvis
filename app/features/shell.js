@@ -2,7 +2,8 @@
 // with what it's doing, and the quick controls there; the Dock's menu and its badge (the
 // cards waiting for an OK); macOS notifications for those cards, with Allow / Not now when
 // the window isn't in front, and for heads-ups, which open JARVIS on their card; the
-// global shortcuts for Talk and What's this?, the ones the user chose in Settings; the
+// global shortcuts for Talk and What's this?, the ones the user chose in Settings;
+// jarvis:// links, and the Services menu's "Ask JARVIS" that sends a selection to one; the
 // window's place, remembered for each set of displays; and a crashed page reloaded.
 //
 // The window is the go-between: it hears the backend's events and reports JARVIS's state
@@ -10,9 +11,12 @@
 // over its own connection. Electron comes from ctx.electron in the tests, else the real one.
 'use strict';
 
+const { execFile } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const lib = require('./shell-lib.js');
+const links = require('./shell-links.js');
 const { iconPng } = require('./shell-icon.js');
 
 const CH = 'feature:shell:';
@@ -63,6 +67,12 @@ function install(ctx) {
   let reportedShortcuts = '';
   let recording = false;
   let recordingTimer = null;
+  let linkTimes = []; // when jarvis:// links were last opened
+  // The installed app only: the test window (or `npm start`) would register itself as the
+  // jarvis:// app, and a Quick Action's link would open that.
+  const installed = !ctx.dev && app.isPackaged === true;
+  const servicesDir = ctx.servicesDir || path.join(os.homedir(), 'Library', 'Services');
+  const run = ctx.run || ((file, args) => execFile(file, args, { timeout: 15_000 }, () => {}));
 
   const saveStore = () => writeAtomic(storeFile, JSON.stringify(store));
 
@@ -315,6 +325,79 @@ function install(ctx) {
     if (ctx.fromWindow(event)) setRecording(on);
   });
 
+  // ── jarvis:// links ──
+  // Any web page can open one, so a link only ever shows JARVIS: the request box filled in
+  // (never sent), a panel, a Jarvis Code project. At most five every ten seconds.
+
+  function openLink(raw) {
+    const allowed = lib.allowAgain(linkTimes, now(), { max: 5, windowMs: 10_000 });
+    linkTimes = allowed.times;
+    if (!allowed.ok) { console.warn('shell: jarvis:// links are coming too fast; this one is ignored'); return; }
+    const link = links.parseLink(raw);
+    if (!link) { console.warn('shell: ignored a jarvis:// link JARVIS doesn\'t open'); return; }
+    showWindow();
+    if (link.action === 'ask') toWindow({ action: 'prefill', text: link.text });
+    else if (link.action === 'open' && link.panel) toWindow({ action: 'open', panel: link.panel });
+    else if (link.action === 'code') toWindow({ action: 'project', name: link.project });
+  }
+
+  if (ctx.onOpenUrl) ctx.onOpenUrl(openLink);
+  else app.on('open-url', (event, url) => { event.preventDefault(); openLink(url); });
+  if (installed && !app.isDefaultProtocolClient('jarvis')) app.setAsDefaultProtocolClient('jarvis');
+
+  // ── the Services menu's "Ask JARVIS" ──
+  // Written into ~/Library/Services only when the owner clicks Add in Settings; only ours
+  // is ever replaced or removed (never a Quick Action of theirs with the same name).
+
+  const serviceDir = path.join(servicesDir, links.SERVICE_BUNDLE);
+  const serviceInfo = () => readText(path.join(serviceDir, 'Contents', 'Info.plist'));
+
+  function serviceStatus(error = '') {
+    const info = serviceInfo();
+    const ours = links.isOurService(info);
+    return { available: installed, installed: ours, taken: Boolean(info) && !ours, error };
+  }
+
+  function addService() {
+    if (serviceInfo() && !links.isOurService(serviceInfo())) return serviceStatus('taken');
+    const staging = path.join(servicesDir, `.jarvis-service-${process.pid}`);
+    try {
+      fs.rmSync(staging, { recursive: true, force: true });
+      for (const [rel, text] of Object.entries(links.serviceFiles())) {
+        fs.mkdirSync(path.dirname(path.join(staging, rel)), { recursive: true });
+        fs.writeFileSync(path.join(staging, rel), text);
+      }
+      fs.rmSync(serviceDir, { recursive: true, force: true }); // ours, from before
+      fs.renameSync(staging, serviceDir);
+    } catch (err) {
+      fs.rmSync(staging, { recursive: true, force: true });
+      console.warn(`shell: couldn't add the Quick Action: ${err && err.message}`);
+      return serviceStatus('failed');
+    }
+    run('/System/Library/CoreServices/pbs', ['-update']); // the Services menu sees it now
+    return serviceStatus();
+  }
+
+  function removeService() {
+    if (!links.isOurService(serviceInfo())) return serviceStatus();
+    try {
+      fs.rmSync(serviceDir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`shell: couldn't remove the Quick Action: ${err && err.message}`);
+      return serviceStatus('failed');
+    }
+    run('/System/Library/CoreServices/pbs', ['-update']);
+    return serviceStatus();
+  }
+
+  ipcMain.handle(`${CH}service`, (event, req) => {
+    if (!ctx.fromWindow(event)) return null;
+    const action = req && req.action;
+    if (installed && action === 'add') return addService();
+    if (installed && action === 'remove') return removeService();
+    return serviceStatus();
+  });
+
   // ── the window's place, for each set of displays ──
 
   let displaysKey = '';
@@ -386,7 +469,7 @@ function install(ctx) {
       windowReady = false;
       state = { ...state, online: false };
       refreshTray();
-      const allowed = lib.allowReload(reloads, now());
+      const allowed = lib.allowAgain(reloads, now());
       reloads = allowed.times;
       const w = windowOf();
       if (!w) return;

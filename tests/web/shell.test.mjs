@@ -2,7 +2,7 @@
 // Electron, with no window, menu bar or file outside a temp folder. node --test tests/web/
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -80,7 +80,7 @@ function fakeElectron() {
 const LAPTOP = { bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 38, width: 1512, height: 870 }, scaleFactor: 2 };
 const BIG = { bounds: { x: 1512, y: -400, width: 2560, height: 1440 }, workArea: { x: 1512, y: -375, width: 2560, height: 1415 }, scaleFactor: 1 };
 
-function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), 'shell-test-')) } = {}) {
+function fakeContext({ dev = false, packaged = false, userData = mkdtempSync(path.join(tmpdir(), 'shell-test-')) } = {}) {
   const ipcMain = new EventEmitter();
   ipcMain.handlers = new Map();
   ipcMain.handle = (channel, fn) => ipcMain.handlers.set(channel, fn);
@@ -90,6 +90,10 @@ function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), '
   app.quit = () => { app.quits += 1; };
   app.focus = () => {};
   app.dock = { badge: '', menu: null, setBadge(text) { this.badge = text; }, setMenu(menu) { this.menu = menu; } };
+  app.isPackaged = packaged;
+  app.protocols = [];
+  app.isDefaultProtocolClient = (scheme) => app.protocols.includes(scheme);
+  app.setAsDefaultProtocolClient = (scheme) => { app.protocols.push(scheme); return true; };
   const wc = new EventEmitter();
   wc.sent = [];
   const win = new EventEmitter();
@@ -124,11 +128,17 @@ function fakeContext({ dev = false, userData = mkdtempSync(path.join(tmpdir(), '
     logDir: userData,
     getWindow: () => win,
     delays: { save: 5, displays: 5, reload: 5 },
+    servicesDir: path.join(userData, 'Services'),
+    ran: [],
     send: (channel, ...args) => wc.sent.push([channel, ...args]),
     fromWindow: (event) => Boolean(event && event.sender === wc),
     summons: 0,
   };
   ctx.summon = () => { ctx.summons += 1; };
+  ctx.run = (file, args) => ctx.ran.push([file, ...args]);
+  // main.js's hand-off of jarvis:// links (the ones from before the features loaded first).
+  ctx.early = [];
+  ctx.onOpenUrl = (fn) => { ctx.openLink = fn; ctx.early.splice(0).forEach((url) => fn(url)); };
   const fromWin = { sender: wc };
   const hello = () => ipcMain.handlers.get('feature:shell:hello')(fromWin);
   const report = (state) => ipcMain.emit('feature:shell:state', fromWin, state);
@@ -682,8 +692,92 @@ test('a page that ends cleanly, or while quitting, is left alone', async () => {
   t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
   await tick(60);
   assert.equal(t.wc.reloads, 0);
-  assert.deepEqual(lib.allowReload([1, 2, 3], 4), { ok: false, times: [1, 2, 3] });
-  assert.deepEqual(lib.allowReload([1, 2, 3], 4 + 5 * 60_000), { ok: true, times: [4 + 5 * 60_000] });
+  assert.deepEqual(lib.allowAgain([1, 2, 3], 4), { ok: false, times: [1, 2, 3] });
+  assert.deepEqual(lib.allowAgain([1, 2, 3], 4 + 5 * 60_000), { ok: true, times: [4 + 5 * 60_000] });
+});
+
+// ── jarvis:// links ──
+
+test('a link shows JARVIS and fills in the request box, opens a panel or a project; never more', async () => {
+  const t = fakeContext();
+  t.ctx.early.push('jarvis://ask?text=Summarize%20this%20page'); // it launched the app
+  shell.install(t.ctx);
+  assert.equal(t.win.shown, 1);
+  assert.deepEqual(t.commands(), [], 'kept until the page is there');
+  await t.hello();
+  await until(() => t.commands().length === 1, 'the early link');
+  assert.deepEqual(t.commands(), [{ action: 'prefill', text: 'Summarize this page' }]);
+  t.ctx.openLink('jarvis://open?panel=settings');
+  t.ctx.openLink('jarvis://code?project=alpha');
+  t.ctx.openLink('jarvis://open'); // just JARVIS
+  t.ctx.openLink('jarvis://send?to=someone'); // not one JARVIS opens: nothing at all
+  assert.deepEqual(t.commands().slice(1), [{ action: 'open', panel: 'settings' }, { action: 'project', name: 'alpha' }]);
+  assert.equal(t.win.shown, 4);
+});
+
+test('links coming too fast are dropped, five every ten seconds at most', async () => {
+  let clock = 5_000_000;
+  const t = fakeContext();
+  t.ctx.now = () => clock;
+  shell.install(t.ctx);
+  await t.hello();
+  for (let i = 0; i < 8; i++) t.ctx.openLink(`jarvis://ask?text=${i}`);
+  assert.deepEqual(t.commands().map((c) => c.text), ['0', '1', '2', '3', '4']);
+  clock += 10_001;
+  t.ctx.openLink('jarvis://ask?text=later');
+  assert.equal(t.commands().at(-1).text, 'later');
+});
+
+test('only the installed app becomes the jarvis:// app', () => {
+  const dev = fakeContext({ dev: true, packaged: true });
+  shell.install(dev.ctx);
+  const fromSource = fakeContext();
+  shell.install(fromSource.ctx);
+  assert.deepEqual([dev.app.protocols, fromSource.app.protocols], [[], []]);
+  const installed = fakeContext({ packaged: true });
+  shell.install(installed.ctx);
+  assert.deepEqual(installed.app.protocols, ['jarvis']);
+});
+
+// ── the Services menu's "Ask JARVIS" ──
+
+test('Add writes the Quick Action (its golden copy) and refreshes the Services menu; Remove takes it away', async () => {
+  const t = fakeContext({ packaged: true });
+  shell.install(t.ctx);
+  const service = (action) => t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action });
+  assert.deepEqual(service('status'), { available: true, installed: false, taken: false, error: '' });
+  assert.deepEqual(service('add'), { available: true, installed: true, taken: false, error: '' });
+  const bundle = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
+  const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
+  assert.equal(readFileSync(path.join(bundle, 'Contents/Info.plist'), 'utf8'), readFileSync(path.join(fixtures, 'ask-jarvis.Info.plist'), 'utf8'));
+  assert.equal(readFileSync(path.join(bundle, 'Contents/document.wflow'), 'utf8'), readFileSync(path.join(fixtures, 'ask-jarvis.document.wflow'), 'utf8'));
+  assert.deepEqual(t.ctx.ran, [['/System/Library/CoreServices/pbs', '-update']]);
+  assert.deepEqual(service('add').installed, true, 'again: rewritten, still one');
+  assert.deepEqual(service('remove'), { available: true, installed: false, taken: false, error: '' });
+  assert.equal(existsSync(bundle), false);
+  assert.equal(t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: {} }, { action: 'add' }), null, 'only the window can');
+});
+
+test('a Quick Action of the owner’s own with the same name is never touched', () => {
+  const t = fakeContext({ packaged: true });
+  const theirs = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow', 'Contents');
+  mkdirSync(theirs, { recursive: true });
+  writeFileSync(path.join(theirs, 'Info.plist'), '<plist><dict><key>CFBundleIdentifier</key><string>com.them</string></dict></plist>');
+  shell.install(t.ctx);
+  const service = (action) => t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action });
+  assert.deepEqual(service('add'), { available: true, installed: false, taken: true, error: 'taken' });
+  service('remove');
+  assert.match(readFileSync(path.join(theirs, 'Info.plist'), 'utf8'), /com\.them/);
+  assert.deepEqual(t.ctx.ran, []);
+});
+
+test('the test window and a build from source never write a Quick Action', () => {
+  for (const t of [fakeContext({ dev: true, packaged: true }), fakeContext()]) {
+    shell.install(t.ctx);
+    const got = t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action: 'add' });
+    assert.deepEqual(got, { available: false, installed: false, taken: false, error: '' });
+    assert.equal(existsSync(t.ctx.servicesDir), false);
+  }
 });
 
 // ── the window's words have their Chinese ──

@@ -1,8 +1,8 @@
 // The app shell's pure logic, apart from Electron so node --test can check it
 // (app/features/shell.js wires it up): the words its menus use, what the window reports,
 // the menus themselves as templates, the global shortcuts the user may choose, the window's
-// place on each set of displays, how often a crashed page is reloaded, and the small file
-// it keeps beside the app's data.
+// place on each set of displays, how often a crashed page is reloaded (or a link opened),
+// and the small file it keeps beside the app's data.
 'use strict';
 
 // ── words ──
@@ -274,9 +274,9 @@ function rememberPlace(store, key, bounds, at) {
   return { ...store, places: Object.fromEntries(keep) };
 }
 
-// ── a crashed page: reloaded, but not over and over ──
-// The times of the reloads still counted, and whether another one may go now.
-function allowReload(times, now, { max = 3, windowMs = 5 * 60_000 } = {}) {
+// ── not over and over: a crashed page reloaded, jarvis:// links opened ──
+// The times still counted, and whether one more may go now.
+function allowAgain(times, now, { max = 3, windowMs = 5 * 60_000 } = {}) {
   const recent = (times || []).filter((t) => now - t < windowMs);
   return recent.length < max ? { ok: true, times: [...recent, now] } : { ok: false, times: recent };
 }
@@ -302,5 +302,5 @@ module.exports = {
   DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate,
   excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp,
   DEFAULT_SHORTCUTS, checkAccelerator, shortcutLabel, normalizeShortcuts,
-  MIN_SIZE, displaySetKey, placeWindow, centerOn, rememberPlace, allowReload, readStore,
+  MIN_SIZE, displaySetKey, placeWindow, centerOn, rememberPlace, allowAgain, readStore,
 };

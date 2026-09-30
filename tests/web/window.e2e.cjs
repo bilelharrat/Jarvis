@@ -642,10 +642,11 @@ test('“@” at the start of a Jarvis Code message offers the other sessions to
 
 // Loaded as features.js would load it, after app.js, with window.jarvisApp.feature recording
 // what goes to the app and keeping the handler for what the app sends.
-async function loadShell(hello = { dev: false, notify: true, recovered: false }) {
+async function loadShell(hello = { dev: false, notify: true, recovered: false }, answers = '') {
   const source = fs.readFileSync(path.join(WEB, 'features', 'shell.js'), 'utf8');
   await js(`
     window.__app = { sent: [], on: {}, invoked: [], hello: ${JSON.stringify(hello)} };
+    ${answers}
     window.jarvisApp = { feature: {
       invoke: (channel, ...args) => { __app.invoked.push([channel, ...args]); return Promise.resolve(__app.answer ? __app.answer(channel, ...args) : channel === 'feature:shell:hello' ? __app.hello : null); },
       send: (channel, msg) => __app.sent.push([channel, msg]),
@@ -832,6 +833,71 @@ test('A shortcut another app holds is said in Settings; Change… waits for the 
   await js('$("offline").hidden = false; true');
   await sleep(20);
   assert(await js('$("shell-rec-ask").disabled && $("shell-rec-whatsThis").disabled'), 'Change… works offline');
+});
+
+test('A jarvis:// link fills in the request box and sends nothing; Return sends it', async () => {
+  await loadShell();
+  await js('toggleSettings(true); toggleCC(true); __sent.length = 0; true');
+  await sleep(80);
+  await js('__app.on["feature:shell:command"]({ action: "prefill", text: "Summarize the Q3 memo" }); true');
+  let r = await js(`({ value: $('ask-input').value, focused: document.activeElement === $('ask-input'), note: !$('shell-link-note').hidden,
+    noteText: $('shell-link-note').textContent, settings: $('settings').hidden, cc: $('cc').hidden, sent: __sent.map((m) => m.type) })`);
+  assert(r.value === 'Summarize the Q3 memo' && r.focused && r.note && r.settings && r.cc, JSON.stringify(r));
+  assert(r.noteText === 'From a link: read it, then press Return to send it.' && !r.sent.includes('ask'), JSON.stringify(r));
+  await sleep(300);
+  assert(!(await js('__sent.some((m) => m.type === "ask")')), 'a link’s request was sent by itself');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  r = await js('({ asked: __sent.filter((m) => m.type === "ask").map((m) => m.text), note: $("shell-link-note").hidden })');
+  assert(JSON.stringify(r.asked) === JSON.stringify(['Summarize the Q3 memo']) && r.note, JSON.stringify(r));
+});
+
+test('A jarvis:// link opens a Jarvis Code project, once the list of projects is in', async () => {
+  await loadShell();
+  await js('__sent.length = 0; __app.on["feature:shell:command"]({ action: "project", name: "beta" }); true');
+  await sleep(80);
+  assert(await js('!$("cc").hidden && __sent.some((m) => m.type === "claude_projects")'), 'Jarvis Code did not open for the list');
+  await js(`__event({ type: 'claude_projects', items: [{ name: 'alpha', branch: 'main' }, { name: 'beta', branch: 'dev' }] }); true`);
+  assert(await js('deckProject') === 'beta', `on ${await js('deckProject')}`);
+  await js('__app.on["feature:shell:command"]({ action: "project", name: "zeta" }); true');
+  await js(`__event({ type: 'claude_projects', items: [{ name: 'alpha', branch: 'main' }, { name: 'beta', branch: 'dev' }] }); true`);
+  const r = await js('({ on: deckProject, said: [...$("cards").querySelectorAll(".card-text")].map((n) => n.textContent) })');
+  assert(r.on === 'beta' && r.said.includes('No Jarvis Code project named “zeta”.'), JSON.stringify(r));
+});
+
+test('Settings adds “Ask JARVIS” to the Services menu and takes it away; never over one of the owner’s', async () => {
+  await loadShell(undefined, `
+    window.__service = { available: true, installed: false, taken: false, error: '' };
+    __app.answer = (channel, req) => {
+      if (channel === 'feature:shell:hello') return __app.hello;
+      if (channel !== 'feature:shell:service') return null;
+      if (req.action === 'add') __service.installed = true;
+      if (req.action === 'remove') __service.installed = false;
+      return { ...__service };
+    };`);
+  await sleep(30);
+  const row = () => js('({ hidden: $("shell-service-row").hidden, label: $("shell-service").textContent, disabled: $("shell-service").disabled, note: $("shell-service-note").hidden ? "" : $("shell-service-note").textContent })');
+  let r = await row();
+  assert(!r.hidden && r.label === 'Add' && !r.note, JSON.stringify(r));
+  await js('$("shell-service").click(); true');
+  await sleep(30);
+  r = await row();
+  assert(r.label === 'Remove', JSON.stringify(r));
+  await js('$("shell-service").click(); true');
+  await sleep(30);
+  assert((await row()).label === 'Add', 'not removed');
+  const calls = await js('__app.invoked.filter(([c]) => c === "feature:shell:service").map(([, m]) => m.action)');
+  assert(JSON.stringify(calls) === JSON.stringify(['status', 'add', 'remove']), JSON.stringify(calls));
+  // One of the owner's own by that name: said, and the button can't write over it.
+  await js(`__service = { available: true, installed: false, taken: true, error: 'taken' }; $('shell-service').click(); true`);
+  await sleep(30);
+  r = await row();
+  assert(r.disabled && /already a Quick Action named “Ask JARVIS”/.test(r.note), JSON.stringify(r));
+  // The test window, or a build from source: no row at all.
+  await js(`__service = { available: false, installed: false, taken: false, error: '' }; $('shell-service').disabled = false; $('shell-service').click(); true`);
+  await sleep(30);
+  r = await row();
+  assert(r.hidden && !r.note, JSON.stringify(r));
 });
 
 // ──

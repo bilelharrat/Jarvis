@@ -16,3 +16,7 @@
 .shell-key kbd.recording { box-shadow: 0 0 0 3px color-mix(in srgb, var(--action) 35%, transparent); border-color: var(--action); }
 .sheet .shell-key .btn { min-height: 30px; padding: 0 12px; font-size: 13px; }
 .sheet .shell-key .btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Under the request box, while it holds a jarvis:// link's words: read, then Return. */
+.shell-link-note { width: min(520px, 100%); margin: 6px 0 0; font-size: 12.5px; line-height: 1.4; color: var(--muted); text-align: center; }
+.shell-link-note[hidden] { display: none; }
