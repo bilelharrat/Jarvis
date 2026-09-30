@@ -2982,6 +2982,64 @@ test('A late answer about another session never replaces the Tests, Problems or 
   assert(text === 'Looking at the project…', `session 1's dev servers shown for session 2: ${text}`);
 });
 
+test('With no session open, the panes act on the project they show, and one drawn for another project shows none of the last one’s', async () => {
+  await featureScript('code-verify.js');
+  await js('deckProjects = [{ name: "alpha", branch: "main" }, { name: "beta", branch: "main" }]; deckProject = "alpha"; openProjects.add("alpha"); toggleCC(true); ccSelected = null; renderCC([]); true');
+  await sleep(80);
+  const dirs = { alpha: '/Users/x/Projects/alpha', beta: '/Users/x/Projects/beta' };
+  const stateOf = (name) => ({ type: 'cv_state', project: name, path: dirs[name], id: null, session: null, problems: [], servers: [],
+    configs: [{ name: `${name}-web`, command: 'npm run dev', port: 5173, url: '', cwd: '', source: '.claude/launch.json', why: '' }],
+    suggestions: [{ name: 'static', command: 'python3 -m http.server 8000', port: 8000, url: '', cwd: '', source: '', why: 'index.html: a static site, served from this folder' }] });
+  const testsOf = (name) => ({ type: 'cv_tests', project: name, path: dirs[name], id: null, files: {}, watch: null, run: null,
+    suites: [{ key: `pytest:${name}:`, id: 'pytest', label: 'pytest', command: 'pytest', cwd: '', ready: true, why: '', files: false }] });
+  const problemsOf = (name) => ({ type: 'cv_problems_state', project: name, path: dirs[name], id: null, after_turn: null, check: null,
+    checkers: [{ id: 'ruff', label: `Ruff ${name}`, command: 'ruff check', ready: true, why: '', slow: false }] });
+  const clicked = async (root, label) => { await js('__sent.length = 0; true'); assert(await clickText(root, label), `no ${label}`); return js('__sent'); };
+  const redrawn = async (asked) => {  // what app.js does when the sidebar's project changes
+    await js('deckProject = "beta"; __sent.length = 0; renderPaneBody(); true');
+    assert(JSON.stringify(await js('__sent')) === JSON.stringify([asked]), JSON.stringify(await js('__sent')));
+  };
+  // Preview: alpha's, then beta picked in the sidebar before the pane is drawn again.
+  await js('jarvisFeatures.openPane("cv-preview"); true');
+  await deliver(stateOf('alpha'));
+  await js('deckProject = "beta"; true');
+  let s = await clicked('#jc-pane-body .cv-server:not(.cv-suggestion)', 'Start');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_server', action: 'start', name: 'alpha-web', directory: 'alpha' }]), `Start on alpha's server: ${JSON.stringify(s)}`);
+  s = await clicked('#jc-pane-body .cv-suggestion', 'Save');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_save', name: 'static', directory: 'alpha' }]), `Save on alpha's suggestion: ${JSON.stringify(s)}`);
+  await redrawn({ type: 'cv_state', directory: 'beta' });
+  await deliver(stateOf('alpha'));  // (alpha's answer, late)
+  let text = await js('$("jc-pane-body").textContent');
+  assert(text === 'Looking at the project…', `alpha's dev servers shown for beta: ${text}`);
+  await deliver(stateOf('beta'));
+  s = await clicked('#jc-pane-body .cv-server:not(.cv-suggestion)', 'Start');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_server', action: 'start', name: 'beta-web', directory: 'beta' }]), JSON.stringify(s));
+  // Tests and Problems: the same.
+  await js('deckProject = "alpha"; jarvisFeatures.openPane("cv-tests"); true');
+  await deliver(testsOf('alpha'));
+  await js('deckProject = "beta"; true');
+  s = await clicked('#jc-pane-body .cv-bar', 'Run all');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_tests', action: 'run', suite: 'pytest:alpha:', directory: 'alpha' }]), `Run all on alpha's tests: ${JSON.stringify(s)}`);
+  await redrawn({ type: 'cv_tests', action: 'state', directory: 'beta' });
+  await deliver(testsOf('alpha'));
+  text = await js('$("jc-pane-body").textContent');
+  assert(text === 'Looking for the project’s tests…', `alpha's tests shown for beta: ${text}`);
+  await deliver(testsOf('beta'));
+  s = await clicked('#jc-pane-body .cv-bar', 'Run all');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_tests', action: 'run', suite: 'pytest:beta:', directory: 'beta' }]), JSON.stringify(s));
+  await js('deckProject = "alpha"; jarvisFeatures.openPane("cv-problems"); true');
+  await deliver(problemsOf('alpha'));
+  await js('deckProject = "beta"; true');
+  s = await clicked('#jc-pane-body .cv-bar', 'Check');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'cv_problems', action: 'run', directory: 'alpha' }]), `Check on alpha's checkers: ${JSON.stringify(s)}`);
+  await redrawn({ type: 'cv_problems', action: 'state', directory: 'beta' });
+  await deliver(problemsOf('alpha'));
+  text = await js('$("jc-pane-body").textContent');
+  assert(text === 'Looking for the project’s checkers…', `alpha's checkers shown for beta: ${text}`);
+  await deliver(problemsOf('beta'));
+  assert(await js('$("jc-pane-body").textContent.includes("Ruff beta")'), await js('$("jc-pane-body").textContent'));
+});
+
 // ── Settings › Listening (web/features/voice.js) ──
 
 // A feature module's window script, run in the page as features.js would run it (this

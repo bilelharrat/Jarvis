@@ -167,6 +167,12 @@
     return task ? ev.id === task.id : !ev.id && ev.project === (typeof deckProject !== 'undefined' ? deckProject : '');
   }
 
+  // What a pane's buttons act on: what it shows (that answer's session, else its project),
+  // even when another has been picked since it was drawn.
+  function whereOf(info) {
+    return info.id ? { id: info.id } : { directory: info.project };
+  }
+
   function openAddress(url) {
     if (!isLocal(url)) return;
     const app = root.jarvisApp;
@@ -192,7 +198,7 @@
         button('Stop', 'jc-mini', () => F.send({ type: 'cv_server', action: 'stop', key: server.key })),
       );
     } else {
-      actions.append(button('Start', 'jc-mini', () => F.send({ type: 'cv_server', action: 'start', name: config.name, ...where() })));
+      actions.append(button('Start', 'jc-mini', () => F.send({ type: 'cv_server', action: 'start', name: config.name, ...whereOf(state.info) })));
     }
     if (server) {
       const logs = button(state.logKey === server.key ? 'Hide logs' : 'Logs', 'jc-mini', () => showLogs(state.logKey === server.key ? '' : server.key));
@@ -219,7 +225,7 @@
     const li = el('li', 'cv-server cv-suggestion');
     const head = el('div', 'cv-server-head');
     head.append(mine(el('strong', '', s.name)), el('span', 'jc-spacer'),
-      button('Save', 'jc-mini', () => F.send({ type: 'cv_save', name: s.name, ...where() })));
+      button('Save', 'jc-mini', () => F.send({ type: 'cv_save', name: s.name, ...whereOf(state.info) })));
     li.append(head, mine(el('code', 'cv-cmd', s.command + (s.cwd ? `   (in ${s.cwd}/)` : ''))), mine(el('small', 'cv-note', s.why)));
     return li;
   }
@@ -574,7 +580,7 @@
     filter: '',
   };
 
-  function send(msg) { F.send({ ...msg, ...where() }); }
+  function send(msg, info) { F.send({ ...msg, ...whereOf(info) }); }  // (info: what the pane shows)
 
   function suiteNow() {
     const info = tests.info;
@@ -584,7 +590,7 @@
 
   function runTarget(target) {
     const suite = suiteNow();
-    if (suite) send({ type: 'cv_tests', action: 'run', suite: suite.key, ...target });
+    if (suite) send({ type: 'cv_tests', action: 'run', suite: suite.key, ...target }, tests.info);
   }
 
   function caseRow(c) {
@@ -699,7 +705,7 @@
     if (!suite.ready) {
       parts.push(head, el('p', 'cv-problems-list', suite.why));
     } else {
-      head.append(running ? button('Stop', 'jc-btn small danger', () => send({ type: 'cv_tests', action: 'stop' }))
+      head.append(running ? button('Stop', 'jc-btn small danger', () => send({ type: 'cv_tests', action: 'stop' }, info))
         : button('Run all', 'jc-btn small filled', () => runTarget({})));
       parts.push(head);
       const watching = info.watch && info.watch.suite === suite.key;
@@ -711,7 +717,7 @@
       toggle.setAttribute('role', 'switch');
       toggle.setAttribute('aria-checked', String(!!watching));
       toggle.setAttribute('aria-label', t('Watch'));
-      toggle.addEventListener('click', () => send({ type: 'cv_tests', action: 'watch', on: !watching, suite: suite.key }));
+      toggle.addEventListener('click', () => send({ type: 'cv_tests', action: 'watch', on: !watching, suite: suite.key }, info));
       sw.append(label, toggle);
       parts.push(sw);
     }
@@ -723,7 +729,7 @@
       line.append(el('span', 'jc-spacer'));
       const failed = run.counts && run.counts.failed;
       if (failed && !running && F.currentTask()) {
-        line.append(button('Fix failures', 'jc-btn small tinted', () => send({ type: 'cv_tests', action: 'fix' })));
+        line.append(button('Fix failures', 'jc-btn small tinted', () => send({ type: 'cv_tests', action: 'fix' }, info)));
       }
       parts.push(line);
       if (!run.complete && run.status !== 'running') parts.push(el('p', 'jc-dim cv-intro', 'Read from the output: some results may be missing.'));
@@ -819,8 +825,8 @@
       names.append(chip);
     }
     bar.append(names, el('span', 'jc-spacer'));
-    if (quick.length) bar.append(button(running ? 'Checking…' : 'Check', 'jc-btn small filled', () => { if (!running) send({ type: 'cv_problems', action: 'run' }); }));
-    if (slow.length) bar.append(button('Build', 'jc-btn small', () => { if (!running) send({ type: 'cv_problems', action: 'run', slow: true }); }));
+    if (quick.length) bar.append(button(running ? 'Checking…' : 'Check', 'jc-btn small filled', () => { if (!running) send({ type: 'cv_problems', action: 'run' }, info); }));
+    if (slow.length) bar.append(button('Build', 'jc-btn small', () => { if (!running) send({ type: 'cv_problems', action: 'run', slow: true }, info); }));
     parts.push(bar);
     if (info.after_turn !== null && info.after_turn !== undefined) {
       const sw = el('div', 'jc-audit-switch cv-switch');
@@ -846,7 +852,7 @@
         ? [`${counts.errors} error${counts.errors === 1 ? '' : 's'}`, `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`]
         : ['No problems'];
       line.append(el('span', `cv-mark ${running ? 'running' : counts.errors ? 'failed' : 'passed'}`, running ? '' : counts.errors ? '✕' : '✓'), pieces('', text), el('span', 'jc-spacer'));
-      if (!running && check.problems.length && F.currentTask()) line.append(button('Fix these', 'jc-btn small tinted', () => send({ type: 'cv_problems', action: 'fix' })));
+      if (!running && check.problems.length && F.currentTask()) line.append(button('Fix these', 'jc-btn small tinted', () => send({ type: 'cv_problems', action: 'fix' }, info)));
       parts.push(line);
       for (const c of check.checkers || []) {
         if (c.error) parts.push(mine(el('p', 'cv-problems-list', `${c.label}: ${c.error}`)));
