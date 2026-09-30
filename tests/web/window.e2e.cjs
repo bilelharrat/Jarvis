@@ -3089,6 +3089,16 @@ test('Settings › Skills: switches, previews, installs and the Workshop’s dra
   assert(await js('$("skills-status").textContent === "That isn’t a folder." && $("skills-status").classList.contains("bad")'), 'the error is not shown');
 });
 
+test('Settings › Brain: the background tasks’ model', async () => {
+  await loadFeatures('local-models.js', 'local-models.css');
+  await js(`__ev(${JSON.stringify({ ...HELLO, providers: { models: BUILTIN, providers: [] } })})`);
+  assert(await js('$("background-model").value') === 'sonnet', 'Sonnet is not the default');
+  await js('__sent.length = 0; $("background-model").value = "haiku"; $("background-model").dispatchEvent(new Event("change"))');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === '[{"type":"feature_prefs","changes":{"background_model":"haiku"}}]', 'the model was not set');
+  await js(`__ev({ type: 'prefs', ...${JSON.stringify(HELLO.prefs)}, features: { background_model: 'opus' } })`);
+  assert(await js('$("background-model").value') === 'opus', 'the kept model is not shown');
+});
+
 test('Settings › Jarvis in other apps: on and off, asking first, the lines to paste and what apps did', async () => {
   await loadFeatures('jarvis-mcp.js', 'jarvis-mcp.css');
   await js(`__ev(${JSON.stringify(HELLO)})`);

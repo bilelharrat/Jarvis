@@ -69,7 +69,17 @@
     sw.addEventListener('click', toggleOffline);
     offline.append(offWords, sw);
 
-    rows.append(utility, local, offline);
+    const background = el('label', 'row');
+    background.htmlFor = 'background-model';
+    const bgWords = el('span');
+    bgWords.append(el('strong', '', 'Background tasks’ model'), el('small', '', 'What does the work when you ask for something in the background. Each task stops at $1.00.'));
+    const bgSelect = el('select');
+    bgSelect.id = 'background-model';
+    bgSelect.append(option('sonnet', 'Sonnet 5.5'), option('haiku', 'Haiku 4.5'), option('opus', 'Opus 5.5'));
+    bgSelect.addEventListener('change', () => send({ type: 'feature_prefs', changes: { background_model: bgSelect.value } }));
+    background.append(bgWords, bgSelect);
+
+    rows.append(utility, background, local, offline);
     anchor.after(rows);
     return rows;
   }
@@ -92,6 +102,8 @@
     if (!opts.some((o) => o.value === chosen)) opts.push(option(chosen, 'A model since removed (Haiku is used)'));
     select.replaceChildren(...opts);
     select.value = chosen;
+    const background = F.$('background-model');
+    if (background) background.value = (prefs.features && prefs.features.background_model) || 'sonnet';
   }
 
   function renderServers() {

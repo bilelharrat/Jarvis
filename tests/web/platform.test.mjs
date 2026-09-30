@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
 const FILES = ['local-models.js', 'skills.js', 'jarvis-mcp.js', 'widgets.js'].filter((f) => existsSync(`${WEB}/features/${f}`));
-const FRAGMENTS = ['local-models.json', 'skills.json', 'jarvis-mcp.json', 'widgets.json'].filter((f) => existsSync(`${WEB}/i18n/${f}`));
+const FRAGMENTS = ['local-models.json', 'skills.json', 'jarvis-mcp.json', 'background.json', 'widgets.json'].filter((f) => existsSync(`${WEB}/i18n/${f}`));
 const base = JSON.parse(readFileSync(`${WEB}/i18n-zh.json`, 'utf8'));
 // As the server merges them (server.zh_strings): the base, then every fragment in name order.
 const merged = { strings: { ...base.strings }, patterns: [...base.patterns] };

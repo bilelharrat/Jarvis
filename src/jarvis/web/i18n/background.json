@@ -1,0 +1,20 @@
+{
+  "strings": {
+    "Searching your notes": "正在搜索你的笔记",
+    "Reading a note": "正在读一条笔记",
+    "Checking what I remember": "正在查看我记住的事",
+    "Checking your calendar": "正在查看你的日历",
+    "Looking at your skills": "正在查看你的技能",
+    "Using a skill": "正在使用一个技能",
+    "Reading a skill's file": "正在读技能的一个文件",
+    "Telling you something": "正在告诉你一件事",
+    "Searching the web": "正在搜索网页",
+    "Reading a web page": "正在读一个网页",
+    "Starting": "正在开始",
+    "Started a background task": "开始了一个后台任务",
+    "Stopped a background task": "停止了一个后台任务",
+    "Background tasks’ model": "后台任务的模型",
+    "What does the work when you ask for something in the background. Each task stops at $1.00.": "你让我在后台做事时用哪个模型。每个任务花到 1.00 美元就会停下。"
+  },
+  "patterns": []
+}

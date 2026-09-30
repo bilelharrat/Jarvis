@@ -610,8 +610,9 @@ class ClaudeTask:
     allow_edits: bool = False
     files_changed: set[str] = field(default_factory=set)
     commands: int = 0
-    kind: str = "code"  # code | research
+    kind: str = "code"  # code | research | a feature's own kind (background)
     report_path: str = ""
+    label: str = ""  # what the windows call a feature's own kind of task
     mode: str = "ask"
     session_id: str = ""
     title: str = ""
@@ -712,7 +713,8 @@ class ClaudeTask:
             "prompt": self.prompt[:500],
             "folder": self.cwd.name,
             "kind": self.kind,
-            "label": "Research" if self.kind == "research" else f"Jarvis Code · {self.cwd.name}",
+            "label": self.label
+            or ("Research" if self.kind == "research" else f"Jarvis Code · {self.cwd.name}"),
             "title": self.title or self.prompt[:80],
             "mode": self.mode,
             "mode_label": MODE_LABELS.get(self.mode, self.mode),
@@ -1717,6 +1719,11 @@ class TaskManager:
         task.handle = asyncio.create_task(self._run(task))
         self._changed()
         return task
+
+    def new_id(self) -> int:
+        """A number for a task a feature runs itself (a kind of its own): one sequence
+        with the sessions', so the windows and claude_task_status tell them apart."""
+        return next(self._ids)
 
     def cancel(self, task_id: int) -> bool:
         """End a session. A second press while it's ending does nothing: cancelling again
