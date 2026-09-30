@@ -1,22 +1,26 @@
-"""The second brain, grown: search by meaning, the galaxy's search and filters, and Research
-v2 (the owner's own material in reports, follow-ups, PDFs). Each lives in its own module
-(embeddings, reports); this registers them on the hub:
+"""The second brain, grown: search by meaning, the galaxy's search and filters, more sources
+(JARVIS's own conversations, text in images, Safari and other browsers' bookmarks,
+Reminders, Voice Memos) and Research v2 (the owner's own material in reports, follow-ups,
+PDFs). Each lives in its own module (embeddings, ocr, brain_sources, reminders_kit, reports);
+this registers them on the hub:
 
-- settings (prefs.features): brain_semantic, research_local;
-- hub.brain_extension: the rebuild's arguments for them;
+- settings (prefs.features): brain_semantic, brain_conversations, brain_images, brain_safari,
+  brain_bookmarks, brain_reminders, brain_voicememos, research_local;
+- hub.brain_extension: the rebuild's arguments for them, the ones refreshed with mail and
+  texts every four hours, and opening their notes;
 - hub.kb.semantic: search by meaning, for every search of the second brain (JARVIS's
   search_notes, the galaxy's search box, the research pass);
 - hub.tasks.research_local: the research desk's second pass over the owner's material;
-- window commands: brain_search (-> brain_results), brain_semantic (the switch, then the
-  rebuild it needs), brain_semantic_status (-> brain_semantic), research_reports
-  (-> research_reports), report_pdf (-> report_exported), report_open;
+- window commands: brain_search (-> brain_results), brain_source and brain_semantic (a
+  switch, then the rebuild it needs), brain_semantic_status (-> brain_semantic),
+  research_reports (-> research_reports), report_pdf (-> report_exported), report_open;
 - the "reports" tool server: list_reports, read_report, export_report_pdf;
 - a loop that readies search by meaning a little after startup (its helper and vectors).
 
-Cost policy (Claude): nothing here calls a model on its own. Vectors are made on this Mac.
-The only model calls are the research desk's second pass (reports.py: once per research
-request the owner makes, medium effort, at most reports.LOCAL_TURNS turns) and follow-ups on
-reports, which are ordinary turns.
+Cost policy (Claude): nothing here calls a model on its own. Vectors, text in images and
+Voice Memos' transcripts are all made on this Mac. The only model calls are the research
+desk's second pass (reports.py: once per research request the owner makes, medium effort,
+at most reports.LOCAL_TURNS turns) and follow-ups on reports, which are ordinary turns.
 """
 
 from __future__ import annotations
@@ -27,21 +31,26 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .. import embeddings, prefs, reports, swift_helper
-from ..brain_sources import SEMANTIC, VECTORS
+from .. import brain_sources, embeddings, prefs, reports, swift_helper
+from ..brain_sources import SEMANTIC, SWITCHES, VECTORS
 
 log = logging.getLogger("jarvis")
 
-for _key, _default in [SEMANTIC, reports.LOCAL_PREF]:
+for _key, _default in [*SWITCHES.values(), SEMANTIC, reports.LOCAL_PREF]:
     prefs.register_feature_pref(_key, _default)
 
+RECENT = ("conversations", "images", "reminders", "voicememos")  # refreshed every 4 hours
 PROMPT = (
-    "\n- search_notes matches by meaning as well as by words while search by meaning is on: "
-    "a note marked close in meaning needn't hold the words asked for."
+    "\n- The second brain also holds your past conversations with the user (source "
+    "conversations), and, as they turn them on, text in their screenshots and images, their "
+    "Safari and other browsers' bookmarks, Reminders and Voice Memos transcripts; "
+    "search_notes matches by meaning as well as by words. When the user asks what you talked "
+    "about before ('what did we say about the lease last week?'), search_notes for it."
 )
 MAX_RESULTS = 40
 RESULT_KEYS = ("id", "title", "source", "group", "excerpt", "match", "modified")
 WARM_AFTER = 45.0  # seconds after startup: search by meaning's helper and vectors, ready
+APPS = {"reminders": "Reminders", "voicememos": "Voice Memos"}
 
 
 class BrainExtension:
@@ -50,9 +59,52 @@ class BrainExtension:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
 
+    def on(self, source: str) -> bool:
+        return bool(self.hub.prefs.feature(SWITCHES[source][0]))
+
     def build_args(self) -> dict[str, Any]:
-        """For the rebuild (brain_build): whether to make vectors for search by meaning."""
-        return {"more": {"semantic": bool(self.hub.prefs.feature(SEMANTIC[0]))}}
+        """For the rebuild (brain_build): which newer sources to read, whether to make
+        vectors, and the speech model Voice Memos are transcribed with."""
+        more: dict[str, Any] = {source: self.on(source) for source in SWITCHES}
+        more["semantic"] = bool(self.hub.prefs.feature(SEMANTIC[0]))
+        if more["voicememos"]:
+            from .. import lang
+
+            language = self.hub.language
+            more["whisper"] = {
+                "model": lang.whisper_model(language, self.hub.settings.whisper_model),
+                "language": language,
+            }
+        return {"more": more}
+
+    def recent_sources(self) -> set[str]:
+        return {source for source in RECENT if self.on(source)}
+
+    def open_note(self, note: Any) -> bool:
+        """Open one of these sources' notes where it lives; False for the core ones."""
+        if note.source not in SWITCHES:
+            return False
+        from .. import computer, mac_tools
+
+        hub = self.hub
+        if note.source in ("safari", "bookmarks"):
+            if brain_sources._web_url(note.ref):
+                hub._spawn(hub._quiet(mac_tools.run_command("open", note.ref)))
+        elif note.source in APPS:
+            hub._spawn(hub._quiet(mac_tools.run_command("open", "-a", APPS[note.source])))
+        elif note.source == "images" or note.id.startswith("file:"):
+            try:
+                path = computer.safe_path(note.ref)
+            except ValueError:
+                return True
+            hub._spawn(hub._quiet(mac_tools.run_command("open", str(path))))
+        else:  # a conversation from Jarvis's own records: its words are what the window shows
+            hub.emit(
+                "toast",
+                title="Jarvis conversation",
+                text="This conversation is in Jarvis's own records; its words are shown here.",
+            )
+        return True
 
 
 class SemanticControl:
@@ -229,6 +281,14 @@ def install(hub: Any) -> None:
             items=[{key: h[key] for key in RESULT_KEYS} for h in hits],
         )
 
+    def brain_source(msg: dict[str, Any]) -> None:
+        source = str(msg.get("source") or "")
+        if source not in SWITCHES or not isinstance(msg.get("on"), bool):
+            return
+        changed = hub.set_feature_prefs({SWITCHES[source][0]: msg["on"]})
+        if changed:
+            hub._spawn(hub.rebuild_brain(only={source}))
+
     def brain_semantic(msg: dict[str, Any]) -> None:
         if isinstance(msg.get("on"), bool):
             control.switch(msg["on"])
@@ -265,6 +325,7 @@ def install(hub: Any) -> None:
         return lambda msg: hub._spawn(work(msg)) and None
 
     hub.register_command("brain_search", later(brain_search))
+    hub.register_command("brain_source", brain_source)
     hub.register_command("brain_semantic", brain_semantic)
     hub.register_command("brain_semantic_status", lambda _msg: control.emit())
     hub.register_command("research_local", research_local)

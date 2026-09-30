@@ -2,6 +2,17 @@
  "strings": {
   "Search by meaning": "按含义搜索",
   "Finds notes about what you ask even when they use other words, with Apple’s on-device language models (English and Chinese). The first time, macOS may download Apple’s model.": "即使用词不同，也能找到与你所问内容相关的笔记，使用 Apple 的设备端语言模型（英文和中文）。首次使用时，macOS 可能会下载 Apple 的模型。",
+  "Jarvis conversations": "与 Jarvis 的对话",
+  "What you and Jarvis said, from Jarvis’s own records, secrets blanked out": "你和 Jarvis 说过的话，来自 Jarvis 自己的记录，密码等机密已遮盖",
+  "Text in screenshots and images": "截图和图片中的文字",
+  "Read on this Mac by Apple’s Vision in the folders above, a few hundred each update. Never your Photos library.": "由 Apple 的视觉框架在这台 Mac 上读取上面文件夹中的图片，每次更新读取几百张。绝不读取你的照片图库。",
+  "Safari bookmarks and Reading List": "Safari 书签和阅读列表",
+  "Needs Full Disk Access.": "需要“完全磁盘访问权限”。",
+  "Chrome, Arc, Brave and Edge bookmarks": "Chrome、Arc、Brave 和 Edge 书签",
+  "Reminders": "提醒事项",
+  "Read only. macOS asks once.": "只读。macOS 会询问一次。",
+  "Voice Memos": "语音备忘录",
+  "Transcribed on this Mac with Jarvis’s speech model, a few each update. Needs Full Disk Access.": "用 Jarvis 的语音模型在这台 Mac 上转写，每次更新转写几条。需要“完全磁盘访问权限”。",
   "Research reads my own material": "研究时参考我自己的资料",
   "After the web, a second pass reads your second brain, the BSH desk and your files (with no web access then) and adds what bears on the topic.": "网络研究完成后，第二轮会读取你的第二大脑、BSH 工作台和你的文件（此时无法访问网络），并补充与主题相关的内容。",
   "Getting search by meaning ready…": "正在准备按含义搜索…",
@@ -25,6 +36,10 @@
   "Mail": "邮件",
   "Messages": "信息",
   "BSH": "BSH",
+  "Conversations": "对话",
+  "Bookmarks": "书签",
+  "Voice memos": "语音备忘录",
+  "Images": "图片",
   "by meaning": "按含义",
   "1 result": "1 条结果",
   "Nothing in your second brain matches that.": "你的第二大脑中没有与此匹配的内容。",
@@ -38,6 +53,14 @@
   "Saved as a web page": "已存储为网页",
   "It’s beside the report in Documents › Jarvis › Research.": "它和报告一起位于 文稿 › Jarvis › Research。",
   "No window could print a PDF, so it was saved as a web page beside the report.": "没有窗口可以打印 PDF，因此已在报告旁存储为网页。",
+  "Jarvis conversation": "Jarvis 对话",
+  "This conversation is in Jarvis's own records; its words are shown here.": "这段对话在 Jarvis 自己的记录中；内容显示在这里。",
+  "Reading conversations…": "正在读取对话…",
+  "Reading images…": "正在读取图片中的文字…",
+  "Reading safari…": "正在读取 Safari 书签…",
+  "Reading bookmarks…": "正在读取书签…",
+  "Reading reminders…": "正在读取提醒事项…",
+  "Reading voicememos…": "正在读取语音备忘录…",
   "Search by meaning: finding what's new…": "按含义搜索：正在查找新内容…"
  },
  "patterns": [
@@ -56,6 +79,30 @@
   [
    "^([\\d,]+) of ([\\d,]+) notes shown$",
    "显示 $2 条笔记中的 $1 条"
+  ],
+  [
+   "^Read (\\d+) from conversations \\((\\d+)s\\)$",
+   "已从对话读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from images \\((\\d+)s\\)$",
+   "已从图片读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from safari \\((\\d+)s\\)$",
+   "已从 Safari 读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from bookmarks \\((\\d+)s\\)$",
+   "已从书签读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from reminders \\((\\d+)s\\)$",
+   "已从提醒事项读取 $1 条（$2 秒）"
+  ],
+  [
+   "^Read (\\d+) from voicememos \\((\\d+)s\\)$",
+   "已从语音备忘录读取 $1 条（$2 秒）"
   ],
   [
    "^Search by meaning: ([\\d,]+) new passages…$",

@@ -108,7 +108,10 @@ def tokens(text: str) -> list[str]:
 @dataclass
 class Note:
     id: str
-    source: str  # notes | files | computer | bsh | research | meetings | photos | mail | messages
+    # notes | files | computer | bsh | research | meetings | videos | photos | mail | messages,
+    # and jarvis.brain_sources' conversations | images | safari | bookmarks | reminders |
+    # voicememos
+    source: str
     title: str
     text: str
     ref: str  # Apple Notes id, file path, or BSH reference
@@ -1026,11 +1029,13 @@ class Collector:
         messages: bool = False,
         only: set[str] | None = None,
         progress: Callable[[str], None] = lambda _msg: None,
+        extra: dict[str, Callable[[], list[Note]]] | None = None,
         finish: Callable[[KnowledgeBase, Callable[[str], None]], None] | None = None,
     ) -> dict[str, Any]:
-        """finish(kb, progress): run on the built index before it's saved (vectors for search
-        by meaning, and the galaxy's links by meaning); a finish that fails leaves the index
-        as built."""
+        """extra: more sources, name -> collect(), read like the others (jarvis.brain_sources:
+        conversations, text in images, bookmarks, reminders, voice memos). finish(kb,
+        progress): run on the built index before it's saved (vectors for search by meaning,
+        and the galaxy's links by meaning); a finish that fails leaves the index as built."""
         from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
         from concurrent.futures import TimeoutError as FutureTimeout
 
@@ -1074,6 +1079,8 @@ class Collector:
         gather("research", lambda: collect_folder(RESEARCH_DIR, source="research", readers=readers))
         gather("meetings", lambda: collect_folder(MEETINGS_DIR, source="meetings", readers=readers))
         gather("videos", lambda: collect_folder(VIDEOS_DIR, source="videos", readers=readers))
+        for source, fn in (extra or {}).items():
+            gather(source, fn)
 
         # Sources are independent (mostly other apps answering), so read them side by
         # side; a slow one can't hold up the rest, and all must be done in SOURCE_SECONDS.

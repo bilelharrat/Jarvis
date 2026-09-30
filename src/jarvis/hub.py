@@ -663,8 +663,8 @@ class Hub:
             self.kb.load()
         self.collector = Collector(self.kb, settings.bsh_dir)
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
-        # Search by meaning for the second brain (jarvis.features.brain): build_args() for
-        # the rebuild. None without that feature.
+        # The second brain's newer sources and search by meaning (jarvis.features.brain):
+        # build_args(), recent_sources() and open_note(note). None without that feature.
         self.brain_extension: Any = None
         self.screen = computer.Screen()
         self.desktop_hands = DesktopHands()
@@ -3619,6 +3619,8 @@ class Hub:
                 )
                 if on
             }
+            if self.brain_extension is not None:
+                recent |= self.brain_extension.recent_sources()
             if recent:
                 await self.rebuild_brain(only=recent)
 
@@ -3793,6 +3795,8 @@ class Hub:
     def open_note(self, note_id: str) -> None:
         note = self.kb.get(note_id)
         if note is None:
+            return
+        if self.brain_extension is not None and self.brain_extension.open_note(note):
             return
         if note.source == "notes":
             script = 'on run argv\ntell application "Notes"\nshow note id (item 1 of argv)\nactivate\nend tell\nend run'

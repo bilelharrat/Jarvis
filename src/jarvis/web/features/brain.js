@@ -1,8 +1,8 @@
-// The second brain, grown (jarvis.features.brain): Settings rows for search by meaning and
-// research's second pass; the galaxy's search (the hub's search by words and meaning, not
-// only titles), its source filters and time slider; and a research report's follow-up
-// question and PDF from its note panel. Everything shown that came from the owner's data
-// carries data-no-i18n.
+// The second brain, grown (jarvis.features.brain): Settings rows for search by meaning, the
+// newer sources and research's second pass; the galaxy's search (the hub's search by words
+// and meaning, not only titles), its source filters and time slider; and a research
+// report's follow-up question and PDF from its note panel. Everything shown that came from
+// the owner's data carries data-no-i18n.
 (() => {
   'use strict';
 
@@ -10,11 +10,22 @@
   if (!F) return;
   const { el, $, send } = F;
 
-  // As jarvis.brain_sources.SEMANTIC and reports.LOCAL_PREF keep them (the prefs event
-  // carries only what's been changed from these).
+  // As jarvis.brain_sources.SWITCHES, SEMANTIC and reports.LOCAL_PREF keep them (the prefs
+  // event carries only what's been changed from these).
   const SWITCHES = [
     { key: 'brain_semantic', on: false, kind: 'semantic', title: 'Search by meaning',
       small: 'Finds notes about what you ask even when they use other words, with Apple’s on-device language models (English and Chinese). The first time, macOS may download Apple’s model.' },
+    { key: 'brain_conversations', source: 'conversations', on: true, title: 'Jarvis conversations',
+      small: 'What you and Jarvis said, from Jarvis’s own records, secrets blanked out' },
+    { key: 'brain_images', source: 'images', on: true, title: 'Text in screenshots and images',
+      small: 'Read on this Mac by Apple’s Vision in the folders above, a few hundred each update. Never your Photos library.' },
+    { key: 'brain_safari', source: 'safari', on: false, title: 'Safari bookmarks and Reading List',
+      small: 'Needs Full Disk Access.' },
+    { key: 'brain_bookmarks', source: 'bookmarks', on: false, title: 'Chrome, Arc, Brave and Edge bookmarks' },
+    { key: 'brain_reminders', source: 'reminders', on: false, title: 'Reminders',
+      small: 'Read only. macOS asks once.' },
+    { key: 'brain_voicememos', source: 'voicememos', on: false, title: 'Voice Memos',
+      small: 'Transcribed on this Mac with Jarvis’s speech model, a few each update. Needs Full Disk Access.' },
     { key: 'research_local', on: true, kind: 'research', title: 'Research reads my own material',
       small: 'After the web, a second pass reads your second brain, the BSH desk and your files (with no web access then) and adds what bears on the topic.' },
   ];
@@ -23,12 +34,16 @@
     ['notes', 'Notes', ['notes']],
     ['mail', 'Mail', ['mail']],
     ['messages', 'Messages', ['messages']],
-    ['files', 'Files', ['files', 'computer']],
+    ['files', 'Files', ['files', 'computer', 'images']],
     ['bsh', 'BSH', ['bsh']],
     ['research', 'Research', ['research']],
     ['meetings', 'Meetings', ['meetings']],
+    ['conversations', 'Conversations', ['conversations']],
     ['videos', 'Videos', ['videos']],
     ['photos', 'Photos', ['photos']],
+    ['bookmarks', 'Bookmarks', ['safari', 'bookmarks']],
+    ['reminders', 'Reminders', ['reminders']],
+    ['voicememos', 'Voice memos', ['voicememos']],
   ];
   const SEARCH_WAIT = 250;
   const RESULTS = 30;
@@ -90,7 +105,8 @@
     features = { ...features, [s.key]: on };  // shown now; the prefs event confirms it
     renderSwitches();
     if (s.kind === 'semantic') send({ type: 'brain_semantic', on });
-    else send({ type: 'research_local', on });
+    else if (s.kind === 'research') send({ type: 'research_local', on });
+    else send({ type: 'brain_source', source: s.source, on });
   }
 
   function applyPrefs(p) {
@@ -472,6 +488,8 @@
       box.dataset.name = name;
       box.dataset.title = name ? n.title : '';
     }
+    // A conversation from Jarvis's own records is all here: nothing to open elsewhere.
+    if (String(n.id).startsWith('conversation:') && $('note-open')) $('note-open').hidden = true;
   }
 
   function onExported(ev) {

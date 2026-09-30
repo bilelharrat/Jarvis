@@ -14,10 +14,18 @@ const SOURCE_COLORS = {
   photos: '#ff8fc7',
   mail: '#ff8a65',
   messages: '#b8f26b',
+  conversations: '#a5f3fc',
+  images: '#5eead4',
+  safari: '#93c5fd',
+  bookmarks: '#93c5fd',
+  reminders: '#fef08a',
+  voicememos: '#fca5a5',
 };
 const SOURCE_NAMES = {
   notes: 'Apple Notes', files: 'Folders', computer: 'Files', bsh: 'BSH desk',
   research: 'Research', meetings: 'Meetings', videos: 'Videos', photos: 'Photos', mail: 'Email', messages: 'Texts',
+  conversations: 'Conversations', images: 'Images', safari: 'Safari', bookmarks: 'Bookmarks',
+  reminders: 'Reminders', voicememos: 'Voice memos',
 };
 
 // Past this many stars a frame draws a fixed sample of the rest (the focused, highlighted and

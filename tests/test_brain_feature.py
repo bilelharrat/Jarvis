@@ -1,6 +1,7 @@
 """The second brain feature on the hub (jarvis.features.brain): its settings, what the rebuild
-is given, the galaxy's search command, search by meaning's switch (the only moment Apple's
-model files are fetched), and reports' PDFs. Everything with a temp folder and fakes."""
+is given, the galaxy's search command, the switches and the rebuilds they start, search by
+meaning's switch (the only moment Apple's model files are fetched), opening the new sources'
+notes, and reports' PDFs. Everything with a temp folder and fakes."""
 
 import asyncio
 import json
@@ -25,13 +26,7 @@ def _no_real_helpers(monkeypatch, tmp_path):
 
 @pytest.fixture
 def hub(settings, quiet_speaker, isolated):
-    made = Hub(
-        settings,
-        client_factory=FakeClient,
-        speaker=quiet_speaker,
-        poll=False,
-        **isolated,
-    )
+    made = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
     events = []
     made.emit = lambda kind, **data: events.append((kind, data))
     made.events = events
@@ -56,14 +51,7 @@ NOTES = {
             "1",
             modified=days_ago(2),
         ),
-        Note(
-            "notes:2",
-            "notes",
-            "Groceries",
-            "Milk, eggs and bread.",
-            "2",
-            modified=days_ago(300),
-        ),
+        Note("notes:2", "notes", "Groceries", "Milk, eggs and bread.", "2", modified=days_ago(300)),
     ],
     "mail": [
         Note(
@@ -85,13 +73,7 @@ NOTES = {
         )
     ],
     "conversations": [
-        Note(
-            "conversation:s:1",
-            "conversations",
-            "Taxes",
-            "You: remind me about taxes",
-            "s",
-        )
+        Note("conversation:s:1", "conversations", "Taxes", "You: remind me about taxes", "s")
     ],
     "images": [Note("image:/x.png", "images", "shot", "Text in the image", "/nowhere/x.png")],
     "reminders": [Note("reminder:r1", "reminders", "Dentist", "Reminder: Dentist", "r1")],
@@ -103,13 +85,24 @@ def test_the_feature_installs_its_settings_hooks_commands_and_tools(hub):
     assert isinstance(hub.brain_extension, feature.BrainExtension)
     assert isinstance(hub.kb.semantic, embeddings.SemanticSearch)
     assert hub.tasks.research_local is not None
-    # Off until the owner turns it on: it may download Apple's model files.
-    assert hub.prefs.feature("brain_semantic") is False
+    defaults = {
+        key: hub.prefs.feature(key) for key, _ in [*feature.SWITCHES.values(), feature.SEMANTIC]
+    }
+    assert defaults == {
+        "brain_conversations": True,
+        "brain_images": True,
+        "brain_safari": False,
+        "brain_bookmarks": False,
+        "brain_reminders": False,
+        "brain_voicememos": False,
+        "brain_semantic": False,  # may download Apple's model files: only when turned on
+    }
     assert hub.prefs.feature("research_local") is True
     assert "reports" in hub._feature_servers()
     assert "list_reports" in hub._feature_prompt() or "list_reports" in hub._extra_prompt()
     for kind in (
         "brain_search",
+        "brain_source",
         "brain_semantic",
         "brain_semantic_status",
         "research_local",
@@ -119,10 +112,14 @@ def test_the_feature_installs_its_settings_hooks_commands_and_tools(hub):
         assert kind in hub._commands
 
 
-def test_the_rebuild_is_told_whether_to_make_vectors(hub):
-    assert hub.brain_extension.build_args() == {"more": {"semantic": False}}
-    hub.set_feature_prefs({"brain_semantic": True})
-    assert hub.brain_extension.build_args() == {"more": {"semantic": True}}
+def test_the_rebuild_is_given_the_switches_and_the_speech_model_for_voice_memos(hub):
+    more = hub.brain_extension.build_args()["more"]
+    assert more == {**{s: d for s, (_k, d) in feature.SWITCHES.items()}, "semantic": False}
+    hub.set_feature_prefs({"brain_voicememos": True, "brain_semantic": True})
+    more = hub.brain_extension.build_args()["more"]
+    assert more["voicememos"] and more["semantic"]
+    assert more["whisper"]["model"] and more["whisper"]["language"] == hub.language
+    assert hub.brain_extension.recent_sources() == {"conversations", "images", "voicememos"}
 
 
 async def test_a_rebuild_passes_them_to_the_rebuild_process(hub, monkeypatch):
@@ -133,8 +130,27 @@ async def test_a_rebuild_passes_them_to_the_rebuild_process(hub, monkeypatch):
         raise OSError("not in tests")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    await hub.rebuild_brain(only={"vectors"})
-    assert seen[0]["only"] == ["vectors"] and seen[0]["more"] == {"semantic": False}
+    await hub.rebuild_brain(only={"conversations"})
+    assert seen[0]["only"] == ["conversations"] and seen[0]["more"]["conversations"] is True
+
+
+async def test_the_four_hourly_refresh_includes_the_sources_that_change_often(hub, monkeypatch):
+    rebuilt = []
+    sleeps = iter([None])
+
+    async def sleep(_seconds):
+        if next(sleeps, "stop") == "stop":
+            raise asyncio.CancelledError
+
+    async def rebuild(only=None):
+        rebuilt.append(only)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    hub.rebuild_brain = rebuild
+    hub.set_prefs({"brain_mail": False, "brain_messages": False})
+    with pytest.raises(asyncio.CancelledError):
+        await hub._refresh_recent()
+    assert rebuilt == [{"conversations", "images"}]
 
 
 async def test_the_galaxys_search_returns_filtered_results_to_the_window(hub):
@@ -153,13 +169,33 @@ async def test_the_galaxys_search_returns_filtered_results_to_the_window(hub):
     week = (datetime.now() - timedelta(days=7)).date().isoformat()
     await hub._handle({"type": "brain_search", "q": "board", "since": week, "k": "lots"})
     await feature_task(hub)
-    assert {i["id"] for i in emitted(hub, "brain_results")[-1]["items"]} == {
-        "notes:1",
-        "mail:1",
-    }
+    assert {i["id"] for i in emitted(hub, "brain_results")[-1]["items"]} == {"notes:1", "mail:1"}
     await hub._handle({"type": "brain_search", "q": "x" * 5000, "sources": "notes"})
     await feature_task(hub)
     assert len(emitted(hub, "brain_results")[-1]["q"]) == 400
+
+
+async def test_a_switch_keeps_its_setting_and_rebuilds_only_its_source(hub):
+    rebuilt = []
+
+    async def rebuild(only=None):
+        rebuilt.append(only)
+
+    hub.rebuild_brain = rebuild
+    await hub._handle({"type": "brain_source", "source": "safari", "on": True})
+    await asyncio.sleep(0)
+    assert hub.prefs.feature("brain_safari") is True and rebuilt == [{"safari"}]
+    for junk in (
+        {"source": "safari", "on": True},
+        {"source": "photos", "on": False},
+        {"source": "safari", "on": "yes"},
+        {"source": None},
+    ):
+        await hub._handle({"type": "brain_source", **junk})
+    await asyncio.sleep(0)
+    assert rebuilt == [{"safari"}]  # unchanged, not a new source, not a yes or no
+    saved = json.loads(hub.prefs_store.path.read_text())
+    assert saved["features"]["brain_safari"] is True
 
 
 async def test_turning_search_by_meaning_on_fetches_the_model_only_then_and_makes_vectors(
@@ -184,9 +220,7 @@ async def test_turning_search_by_meaning_on_fetches_the_model_only_then_and_make
     )
     monkeypatch.setattr(swift_helper, "ensure", lambda name: tmp_path / name)
     monkeypatch.setattr(
-        embeddings,
-        "helper_status",
-        lambda binary: calls.append("status") or next(states),
+        embeddings, "helper_status", lambda binary: calls.append("status") or next(states)
     )
     monkeypatch.setattr(embeddings, "request_assets", lambda binary: calls.append("assets") or [])
 
@@ -264,6 +298,46 @@ def test_the_query_helper_is_never_built_inside_a_search(hub, monkeypatch, tmp_p
     assert built == [embeddings.HELPER]  # in the background, once
     (tmp_path / "missing-helper").write_text("x")
     assert isinstance(control.query_embedder(), embeddings.HelperEmbedder)
+
+
+async def test_the_new_sources_notes_open_where_they_live(hub, monkeypatch, tmp_path):
+    opened = []
+
+    async def run_command(*argv, **_kw):
+        opened.append(argv)
+        return ""
+
+    monkeypatch.setattr(mac_tools, "run_command", run_command)
+    image = tmp_path / "shot.png"
+    image.write_bytes(b"png")
+    hub.kb.build(
+        {
+            "safari": [Note("safari:1", "safari", "Deck", "x", "https://ex.com/deck")],
+            "bookmarks": [
+                Note("bookmark:Chrome:2", "bookmarks", "Bad", "x", "javascript:alert(1)")
+            ],
+            "images": [Note(f"image:{image}", "images", "shot", "x", str(image))],
+            "reminders": [Note("reminder:r1", "reminders", "Dentist", "x", "r1")],
+            "voicememos": [Note("memo:a.m4a", "voicememos", "Memo", "x", "/x/a.m4a")],
+            "conversations": [Note("conversation:s:1", "conversations", "Taxes", "x", "s")],
+        }
+    )
+    monkeypatch.setattr("jarvis.computer.Path.home", lambda: tmp_path)
+    for note_id in (
+        "safari:1",
+        "bookmark:Chrome:2",
+        f"image:{image}",
+        "reminder:r1",
+        "memo:a.m4a",
+        "conversation:s:1",
+    ):
+        await hub._handle({"type": "open_note", "id": note_id})
+    await feature_task(hub)
+    assert ("open", "https://ex.com/deck") in opened
+    assert not any("javascript:alert(1)" in a for argv in opened for a in argv)
+    assert ("open", str(image.resolve())) in opened
+    assert ("open", "-a", "Reminders") in opened and ("open", "-a", "Voice Memos") in opened
+    assert emitted(hub, "toast")[-1]["title"] == "Jarvis conversation"
 
 
 async def test_a_pdf_never_holds_up_the_windows_next_command(hub, monkeypatch, tmp_path):

@@ -1379,8 +1379,8 @@ const GALAXY_NODES = `[
   { id: 'n2', title: 'Groceries', source: 'notes', group: '', p: [0.2, 0, 0.1], t: 20400 },
   { id: 'm1', title: 'Board dinner', source: 'mail', group: '', p: [0.3, 0, 0.2], t: 20718 },
   { id: 'f1', title: 'Deck', source: 'computer', group: '', p: [0.4, 0, 0.1], t: 20600 },
-  { id: 'i1', title: 'Screenshot', source: 'files', group: '', p: [0.5, 0, 0.1], t: 20719 },
-  { id: 'c1', title: 'Taxes', source: 'meetings', group: '', p: [0.6, 0, 0.1], t: null },
+  { id: 'i1', title: 'Screenshot', source: 'images', group: '', p: [0.5, 0, 0.1], t: 20719 },
+  { id: 'c1', title: 'Taxes', source: 'conversations', group: '', p: [0.6, 0, 0.1], t: null },
 ]`;
 
 test('The second brain’s new switches sit under Second brain, keep their defaults and send their own commands', async () => {
@@ -1390,19 +1390,21 @@ test('The second brain’s new switches sit under Second brain, keep their defau
     const ids = [...group.querySelectorAll('.switch')].map((s) => s.id);
     const on = (id) => $(id).getAttribute('aria-checked');
     return { ids, before: ids.indexOf('sw-brain_semantic') > ids.indexOf('sw-messages'),
-      semantic: on('sw-brain_semantic'), research: on('sw-research_local'),
-      last: $('fda-btn').previousElementSibling.querySelector('.switch').id };
+      semantic: on('sw-brain_semantic'), conversations: on('sw-brain_conversations'), safari: on('sw-brain_safari'),
+      research: on('sw-research_local'), last: $('fda-btn').previousElementSibling.querySelector('.switch').id };
   })()`);
   assert(r.before && r.last === 'sw-research_local', JSON.stringify(r));
-  assert(r.semantic === 'false' && r.research === 'true', JSON.stringify(r));
-  await js(`$('sw-brain_semantic').click(); $('sw-research_local').click(); true`);
+  assert(r.semantic === 'false' && r.conversations === 'true' && r.safari === 'false' && r.research === 'true', JSON.stringify(r));
+  await js(`$('sw-brain_safari').click(); $('sw-brain_semantic').click(); $('sw-research_local').click(); $('sw-brain_conversations').click(); true`);
   const s = await js('__sent');
   assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'brain_source', source: 'safari', on: true },
     { type: 'brain_semantic', on: true },
     { type: 'research_local', on: false },
+    { type: 'brain_source', source: 'conversations', on: false },
   ]), JSON.stringify(s));
-  await js(`__deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { research_local: true } }); true`);
-  assert(await js(`$('sw-research_local').getAttribute('aria-checked') === 'true' && $('sw-brain_semantic').getAttribute('aria-checked') === 'false'`), 'prefs did not set the switches');
+  await js(`__deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { brain_safari: false, brain_images: false } }); true`);
+  assert(await js(`$('sw-brain_safari').getAttribute('aria-checked') === 'false' && $('sw-brain_images').getAttribute('aria-checked') === 'false' && $('sw-brain_conversations').getAttribute('aria-checked') === 'true'`), 'prefs did not set the switches');
   await js(`__deliver({ type: 'brain_semantic', on: true, state: 'ready', vectors: 1200, wanted: 3000, detail: '' }); true`);
   const status = await js(`({ text: $('brain-semantic-status').textContent, hidden: $('brain-semantic-status').hidden, on: $('sw-brain_semantic').getAttribute('aria-checked') })`);
   assert(!status.hidden && status.on === 'true' && status.text === '1,200 of 3,000 passages searchable by meaning; the rest come as the brain updates.', JSON.stringify(status));
@@ -1452,7 +1454,7 @@ test('Source chips and the time slider hide stars, narrow the search and are onl
   await js(`setGalaxyMode('open'); __deliver({ type: 'galaxy', nodes: ${GALAXY_NODES}, edges: [[0, 2], [1, 3]], clusters: [] }); true`);
   await frames();
   const chips = await js(`[...document.querySelectorAll('.brain-chip')].map((c) => c.dataset.group + ':' + c.querySelector('small').textContent)`);
-  assert(JSON.stringify(chips) === JSON.stringify(['notes:2', 'mail:1', 'files:2', 'meetings:1']), JSON.stringify(chips));
+  assert(JSON.stringify(chips) === JSON.stringify(['notes:2', 'mail:1', 'files:2', 'conversations:1']), JSON.stringify(chips));
   assert(await js(`getComputedStyle($('galaxy-legend')).display === 'none'`), 'the old legend still shows');
   await js(`document.querySelector('.brain-chip[data-group="files"]').click(); true`);
   await frames();
@@ -1460,8 +1462,8 @@ test('Source chips and the time slider hide stars, narrow the search and are onl
   assert(JSON.stringify(r.visible) === '[1,1,1,0,0,1]' && r.count === '4 of 6 notes shown' && r.pressed === 'false', JSON.stringify(r));
   await js(`__sent.length = 0; $('galaxy-q').value = 'board'; $('galaxy-search').requestSubmit(); true`);
   const [narrow] = await sentOf('brain_search');
-  assert(JSON.stringify(narrow.sources.sort()) === JSON.stringify(['mail', 'meetings', 'notes']), JSON.stringify(narrow));
-  // The last two weeks: the undated meeting and the older notes go.
+  assert(JSON.stringify(narrow.sources.sort()) === JSON.stringify(['conversations', 'mail', 'notes']), JSON.stringify(narrow));
+  // The last two weeks: the undated conversation and the older notes go.
   await js(`$('brain-from').value = '20710'; $('brain-from').dispatchEvent(new Event('input')); $('brain-from').dispatchEvent(new Event('change')); true`);
   await frames();
   r = await js(`({ visible: [...galaxy.visible], label: document.querySelector('.brain-time-label').textContent, search: __sent.filter((m) => m.type === 'brain_search').pop() })`);
@@ -1515,8 +1517,8 @@ test('A research report’s note offers a follow-up question and a PDF; other no
     __sent.length = 0; document.querySelector('#brain-note-extra .brain-pdf').click(); true`);
   s = await js('__sent');
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'report_pdf', name: '2026-09-20 1000 Lithium.md' }]), JSON.stringify(s));
-  await js(`selectedNote = 'notes:9'; __deliver({ type: 'note', id: selectedNote, title: 'Taxes', source: 'notes', group: '', text: 'taxes' }); true`);
-  assert(await js(`$('brain-note-extra').hidden`), 'a note offered report controls');
+  await js(`selectedNote = 'conversation:s1:1'; __deliver({ type: 'note', id: selectedNote, title: 'Taxes', source: 'conversations', group: '', text: 'You: taxes' }); true`);
+  assert(await js(`$('brain-note-extra').hidden && $('note-open').hidden`), 'a conversation offered report controls or Open');
   await js(`__deliver({ type: 'report_exported', name: 'x.md', path: '/Users/x/Documents/Jarvis/Research/x.pdf', pdf: true }); true`);
   assert(await js(`[...document.querySelectorAll('#cards .card-title')].some((t) => t.textContent === 'Saved as PDF')`), 'no notice for the PDF');
   await js(`__sent.length = 0; [...document.querySelectorAll('#cards .card button')].find((b) => b.textContent === 'Open').click(); true`);
