@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from jarvis import speaking, voices, wakewords
+from jarvis import duplex, speaking, stt_apple, voices, wakewords
 from jarvis.server import zh_strings
 
 WEB = Path(__file__).resolve().parents[1] / "src" / "jarvis" / "web"
@@ -106,9 +106,14 @@ def test_each_window_string_has_chinese(zh, text):
         "The provider answered 502; try again later.",
         "About 123 MB.",
         "Downloading from Apple… 42%",
-        "Apple’s recognizer couldn’t start (no audio format), so Whisper listens.",
-        "Talking over me needs the Mac’s echo cancellation, which couldn’t start (the Mac's "
-        "input is AirPods Pro, not its own microphone). Say “Jarvis, stop” to interrupt.",
+        # why talk-over or Apple's recognizer couldn't run, shown after "Why:"
+        "the Mac's input is AirPods Pro, not its own microphone",
+        "voice processing couldn't start: The operation couldn’t be completed.",
+        "the audio engine didn't start: The operation couldn’t be completed.",
+        "Apple's speech model for zh-CN isn't on this Mac",
+        "the Mac has no microphone",
+        "Apple's speech recognition doesn't support this language",
+        "no audio format for the speech model",
         f"That's {wakewords.MAX_WORDS} wake words already; remove one first.",
     ],
 )
@@ -146,6 +151,29 @@ def _messages(module):
         and id(node) not in docs | logged
         and re.fullmatch(r"[A-Z][^\n]* [^\n]*[.!?]", node.value)
     }
+
+
+def _reasons(module):
+    """The reasons a module gives for something not running (lowercase, shown after
+    "Why:" in the pane): its strings passed to _set/_give_up/_fail or set as failed."""
+    import ast
+
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in ("_set", "_give_up", "_fail", "refused"):
+                found |= {
+                    a.value
+                    for a in node.args
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str)
+                }
+    return {r for r in found if " " in r}
+
+
+@pytest.mark.parametrize("text", sorted(_reasons(duplex) | _reasons(stt_apple)))
+def test_each_reason_something_couldnt_run_has_chinese(zh, text):
+    assert zh(text), f"no Chinese for {text!r}"
 
 
 @pytest.mark.parametrize(

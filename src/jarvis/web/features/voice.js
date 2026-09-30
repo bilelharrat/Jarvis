@@ -281,6 +281,12 @@
   slider.addEventListener('change', () => change({ voice_vad_threshold: Math.round(100 - Number(slider.value)) / 100 }));
   sensitivity.append(sensitivityHead, slider);
 
+  // A note, and the reason after it in a text of its own (translated on its own).
+  function withReason(node, note, why) {
+    node.replaceChildren(document.createTextNode(note));
+    if (why) node.append(document.createTextNode(' '), el('span', 'voice-why', why));
+  }
+
   // Wake words: the names that wake hands-free, each with Remove, and a field to add one.
   const wakeRow = el('div', 'row stack');
   const wakeLabel = el('span');
@@ -360,9 +366,9 @@
     if (!on) note = 'Off: say “Jarvis, stop” to interrupt me.';
     else if (talk.state === 'on') note = 'On: talk over me to interrupt (any voice near the Mac does). The Mac’s echo cancellation keeps my own voice out of the microphone.';
     else if (talk.state === 'preparing') note = 'Starting the Mac’s echo cancellation…';
-    else if (talk.state === 'unavailable') note = `Talking over me needs the Mac’s echo cancellation, which couldn’t start (${talk.why || 'unknown'}). Say “Jarvis, stop” to interrupt.`;
+    else if (talk.state === 'unavailable') note = 'Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “Jarvis, stop” to interrupt. Why:';
     else note = 'Works while hands-free listens.';
-    talkNote.textContent = note;
+    withReason(talkNote, note, talk.state === 'unavailable' && on ? talk.why || 'unknown' : '');
     const handsFree = F.$('sw-handsfree') && F.$('sw-handsfree').closest('.row');
     const small = handsFree && handsFree.querySelector('small');
     if (small) {
@@ -385,10 +391,10 @@
         note = `Apple’s speech model for ${language} isn’t on this Mac yet. macOS downloads it from Apple when you press Download.`;
         if (apple.bytes > 0) size = `About ${Math.max(1, Math.round(apple.bytes / 1e6))} MB.`;
       } else if (apple.state === 'downloading') note = `Downloading from Apple… ${Math.round((apple.progress || 0) * 100)}%`;
-      else if (apple.state === 'failed') note = `Apple’s recognizer couldn’t start (${apple.why || 'unknown'}), so Whisper listens.`;
+      else if (apple.state === 'failed') note = 'Apple’s recognizer couldn’t start, so Whisper listens. Why:';
       else note = 'Starts when hands-free listens.';
     }
-    engineNote.textContent = note;
+    withReason(engineNote, note, kind === 'apple' && apple.state === 'failed' ? apple.why || 'unknown' : '');
     engineSize.textContent = size;
     engineSize.hidden = !size;
     download.hidden = !(kind === 'apple' && apple.state === 'needs_model');

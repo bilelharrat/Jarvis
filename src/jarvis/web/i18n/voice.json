@@ -63,7 +63,25 @@
     "Off: say “Jarvis, stop” to interrupt me.": "已关闭：说“贾维斯，停”来打断我。",
     "Starting the Mac’s echo cancellation…": "正在启动 Mac 的回声消除…",
     "Works while hands-free listens.": "免提聆听时可用。",
-    "On: talk over me to interrupt (any voice near the Mac does). The Mac’s echo cancellation keeps my own voice out of the microphone.": "已开启：我说话时你直接开口就能打断我（Mac 附近任何人说话都会）。Mac 的回声消除会把我自己的声音挡在麦克风之外。"
+    "On: talk over me to interrupt (any voice near the Mac does). The Mac’s echo cancellation keeps my own voice out of the microphone.": "已开启：我说话时你直接开口就能打断我（Mac 附近任何人说话都会）。Mac 的回声消除会把我自己的声音挡在麦克风之外。",
+    "Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “Jarvis, stop” to interrupt. Why:": "打断我需要 Mac 的回声消除，但它在这里无法启动，所以请说“贾维斯，停”来打断。原因：",
+    "Apple’s recognizer couldn’t start, so Whisper listens. Why:": "Apple 的识别器无法启动，所以由 Whisper 来听。原因：",
+    "unknown": "未知",
+    "the helper couldn't be built on this Mac (swiftc)": "这台 Mac 上无法编译辅助程序（swiftc）",
+    "Jarvis's voice player isn't ready": "Jarvis 的语音播放器还没准备好",
+    "the voice couldn't be moved to the echo-cancelling player": "无法把语音切换到带回声消除的播放器",
+    "the echo-cancelled microphone didn't start": "带回声消除的麦克风没有启动",
+    "the echo-cancelling helper kept stopping": "回声消除辅助程序反复停止",
+    "the echo-cancelled microphone went quiet": "带回声消除的麦克风没有声音了",
+    "the helper stopped": "辅助程序停止了",
+    "the Mac has no microphone": "这台 Mac 没有麦克风",
+    "the recognizer couldn't be built on this Mac (swiftc)": "这台 Mac 上无法编译识别器（swiftc）",
+    "Apple's speech recognition isn't available on this Mac": "这台 Mac 上无法使用 Apple 的语音识别",
+    "Apple's speech recognition doesn't support this language": "Apple 的语音识别不支持这种语言",
+    "Apple's model took too long to load": "Apple 的模型加载太久了",
+    "Apple's recognizer fell behind": "Apple 的识别器跟不上了",
+    "Apple's recognizer stopped": "Apple 的识别器停止了",
+    "no audio format for the speech model": "语音模型没有可用的音频格式"
   },
   "patterns": [
     [
@@ -127,12 +145,20 @@
       "正在从 Apple 下载… $1%"
     ],
     [
-      "^Apple’s recognizer couldn’t start \\((.+)\\), so Whisper listens\\.$",
-      "Apple 的识别器无法启动（$1），所以由 Whisper 来听。"
+      "^the Mac's input is (.+), not its own microphone$",
+      "Mac 当前的输入设备是 $1，不是它自带的麦克风"
     ],
     [
-      "^Talking over me needs the Mac’s echo cancellation, which couldn’t start \\((.+)\\)\\. Say “Jarvis, stop” to interrupt\\.$",
-      "打断我需要 Mac 的回声消除，但它无法启动（$1）。请说“贾维斯，停”来打断。"
+      "^voice processing couldn't start: (.+)$",
+      "语音处理无法启动：$1"
+    ],
+    [
+      "^the audio engine didn't start: (.+)$",
+      "音频引擎没有启动：$1"
+    ],
+    [
+      "^Apple's speech model for (.+) isn't on this Mac$",
+      "这台 Mac 上没有 Apple 的 $1 语音模型"
     ]
   ]
 }
