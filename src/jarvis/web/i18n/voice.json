@@ -11,7 +11,26 @@
     "Normal": "标准",
     "Loudness decides: any loud sound can start listening.": "按音量判断：任何较响的声音都可能触发聆听。",
     "The neural detector couldn’t load here, so loudness decides.": "神经网络检测器在这台 Mac 上无法加载，所以改为按音量判断。",
-    "A neural model tells speech from noise: doors, typing and fans don’t start a request.": "由神经网络模型区分语音和噪音：关门声、打字声和风扇声都不会触发请求。"
+    "A neural model tells speech from noise: doors, typing and fans don’t start a request.": "由神经网络模型区分语音和噪音：关门声、打字声和风扇声都不会触发请求。",
+    "Wake words": "唤醒词",
+    "“Jarvis” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.": "“贾维斯”在句子里任何位置都能唤醒我；其他名字要放在请求开头（“星期五，今天有什么安排？”），或跟在“嘿”后面。",
+    "Add a name, like Friday": "添加一个名字，例如 Friday",
+    "Add a wake word": "添加唤醒词",
+    "A wake word is one word (2 to 20 letters) or 2 to 8 Chinese characters, and not one I already answer to, like “stop” or “yes”.": "唤醒词是一个单词（2 到 20 个字母）或 2 到 8 个汉字，而且不能是我已经会回应的词，比如“stop”或“yes”。",
+    "Keep at least one wake word, or hands-free can’t be woken.": "至少保留一个唤醒词，否则免提模式就无法唤醒了。"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^Say “Hey (.+)” ·$",
+      "说“嘿，$1” ·"
+    ],
+    [
+      "^Remove (?!(?:/|~))([^ ]{1,20})$",
+      "移除“$1”"
+    ],
+    [
+      "^That's (\\d+) wake words already; remove one first\\.$",
+      "已经有 $1 个唤醒词了，请先移除一个。"
+    ]
+  ]
 }

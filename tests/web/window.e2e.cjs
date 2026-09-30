@@ -2510,6 +2510,29 @@ test('Listening sits after Voice, asks for its state and switches the detector',
   assert(!off.shown && /couldn’t load/.test(off.note), JSON.stringify(off));
 });
 
+test('Wake words: each has Remove (not the last), a name is added, the hint follows', async () => {
+  await loadFeature('voice');
+  await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); true`);
+  await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, wake_words: ["Jarvis", "Friday"], wake_error: "" }); true`);
+  let r = await js(`({ names: [...$('voice-wake-list').querySelectorAll('.fact')].map((n) => n.textContent),
+    disabled: [...$('voice-wake-list').querySelectorAll('button')].map((b) => b.disabled), hint: $('hint').firstChild.nodeValue })`);
+  assert(JSON.stringify(r.names) === '["Jarvis","Friday"]' && JSON.stringify(r.disabled) === '[false,false]', JSON.stringify(r));
+  assert(r.hint === 'Say “Hey Jarvis” · ', r.hint);
+  await js('__sent.length = 0; true');
+  await clickText('#voice-wake-list li:nth-child(2)', 'Remove');
+  await js(`$('voice-wake-input').value = '  Computer '; $('voice-wake-form').requestSubmit(); true`);
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'voice_settings', changes: { wake_remove: 'Friday' } }, { type: 'voice_settings', changes: { wake_add: 'Computer' } }]), JSON.stringify(s));
+  assert(await js(`$('voice-wake-input').value === ''`), 'the field kept the name');
+  await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, wake_words: ["Friday"], wake_error: "Keep at least one wake word, or hands-free can’t be woken." }); true`);
+  r = await js(`({ disabled: [...$('voice-wake-list').querySelectorAll('button')].map((b) => b.disabled), hint: $('hint').firstChild.nodeValue,
+    error: $('voice-wake-error').hidden ? '' : $('voice-wake-error').textContent })`);
+  assert(JSON.stringify(r.disabled) === '[true]' && r.hint === 'Say “Hey Friday” · ' && /at least one/.test(r.error), JSON.stringify(r));
+  // app.js writes the hint afresh on a settings change: it's named again straight after.
+  await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); featureEvent({ type: 'prefs' }); true`);
+  assert(await js(`$('hint').firstChild.nodeValue === 'Say “Hey Friday” · '`), 'the hint went back to Jarvis');
+});
+
 // ──
 
 let base;

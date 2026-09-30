@@ -250,8 +250,8 @@ _LEADING_NAMES = re.compile(
 
 
 def _latin_wakes(word: str, greeted: bool = False) -> bool:
-    """A Latin word Whisper wrote for "Jarvis", judged by wake.find_wake itself."""
-    return wake.find_wake(("hey " if greeted else "") + word)[0]
+    """A Latin word Whisper wrote for "Jarvis", judged by wake.find_jarvis itself."""
+    return wake.find_jarvis(("hey " if greeted else "") + word)[0]
 
 
 def _wake_spans(s: str) -> list[tuple[int, int]]:
@@ -286,7 +286,7 @@ def find_wake_zh(text: str) -> tuple[bool, str]:
     if not has_cjk(raw):
         return wake.find_wake(raw)
     s = to_simplified(raw)
-    for start, end in _wake_spans(s):
+    for start, end in _wake_spans(s) if wake.jarvis_on() else ():
         if _PANEL_AFTER.match(s, end):
             continue  # "贾维斯代码完成了…": the panel's name, most likely its own voice
         before = _LEAD_WORDS.sub("", s[:start].strip(_EDGE)).strip(_EDGE)
@@ -296,6 +296,44 @@ def find_wake_zh(text: str) -> tuple[bool, str]:
         if not after:
             return True, before
         return True, f"{before}，{after}"
+    return _named_wake_zh(s)
+
+
+_CALL_GREETING_ZH = re.compile(
+    r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|(?:hey|hi|hello|yo)(?![a-z]))[\s,，、!！]*", re.I
+)
+_CALL_PAUSE_ZH = re.compile(r"[ \t]*[，,。.！!？?、：:；;—–-]")
+
+
+def _called_name_zh(s: str) -> int:
+    """How long the wake word (not "Jarvis") at the start of s is, 0 if none there: a
+    Chinese one as written, a Latin one as wake.is_other_name hears it."""
+    for name in wake.other_names():
+        name = to_simplified(name).lower()
+        if has_cjk(name) and s.lower().startswith(name):
+            return len(name)
+    word = _LATIN_WORD.match(s)
+    if word and wake.is_other_name(word.group()):
+        return word.end()
+    return 0
+
+
+def _named_wake_zh(s: str) -> tuple[bool, str]:
+    """wake._find_named for a Chinese transcript: another wake word, called. "嘿，星期五" and
+    "星期五，明天天气怎么样？" wake it; "星期五我们开会" and "星期五。" (an answer) don't."""
+    if not wake.other_names():
+        return False, ""
+    t = s.strip()
+    greeting = _CALL_GREETING_ZH.match(t)
+    greeted = greeting is not None and greeting.end() < len(t)
+    rest = t[greeting.end() :] if greeted else t
+    size = _called_name_zh(rest)
+    if not size:
+        return False, ""
+    after = rest[size:]
+    command = after.strip(_EDGE)
+    if greeted or (_CALL_PAUSE_ZH.match(after) and _size(command) >= 1):
+        return True, command
     return False, ""
 
 
@@ -403,6 +441,10 @@ def _answer_core(text: str) -> str:
     throat-clearing in front ("嗯，那就发吧" -> "发吧")."""
     t = _WAKE_ZH.sub(" ", to_simplified(text).lower().replace("’", "'"))
     t = re.sub(r"[a-z']+", lambda m: " " if _latin_wakes(m.group()) else m.group(), t)
+    # Another wake word, called first ("星期五，好的"): not part of the answer.
+    called = _called_name_zh(t.strip())
+    if called and _CALL_PAUSE_ZH.match(t.strip()[called:]):
+        t = t.strip()[called:]
     return _strip_leads(_squash(t), _ANSWER_FILLERS)
 
 
@@ -428,7 +470,7 @@ def _asking_back(core: str, raw: str) -> bool:
 def _latin_words(raw: str) -> list[str]:
     """The Latin words said, without the wake word ("Jarvis, OK，发吧" -> ["ok"])."""
     words = re.findall(r"[a-z']+", to_simplified(raw).lower().replace("’", "'"))
-    return [w for w in words if not _latin_wakes(w)]
+    return [w for w in words if not _latin_wakes(w) and not wake.is_other_name(w)]
 
 
 def _yes_lead(core: str, raw: str, vocab: tuple[str, ...] = YES_ZH) -> int:

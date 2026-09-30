@@ -1,5 +1,6 @@
-// Settings › Listening: how hands-free tells your voice from other sounds (features/voice.py).
-// The hub sends the pane's state as a "voice" event; changes go back as voice_settings.
+// Settings › Listening (features/voice.py): how hands-free tells your voice from other
+// sounds, and the wake words. The hub sends the pane's state as a "voice" event; changes go
+// back as voice_settings.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
@@ -58,7 +59,67 @@
   slider.addEventListener('change', () => change({ voice_vad_threshold: Math.round(100 - Number(slider.value)) / 100 }));
   sensitivity.append(sensitivityHead, slider);
 
-  listening.append(detectorRow, detector, detectorNote, sensitivity);
+  // Wake words: the names that wake hands-free, each with Remove, and a field to add one.
+  const wakeRow = el('div', 'row stack');
+  const wakeLabel = el('span');
+  wakeLabel.append(el('strong', '', 'Wake words'),
+    el('small', '', '“Jarvis” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.'));
+  wakeRow.append(wakeLabel);
+  const wakeList = el('ul', 'folders voice-wake-list');
+  wakeList.id = 'voice-wake-list';
+  const wakeForm = el('form', 'folder-form');
+  wakeForm.id = 'voice-wake-form';
+  const wakeInput = el('input');
+  wakeInput.id = 'voice-wake-input';
+  wakeInput.type = 'text';
+  wakeInput.maxLength = 20;
+  wakeInput.placeholder = 'Add a name, like Friday';
+  wakeInput.setAttribute('aria-label', 'Add a wake word');
+  const wakeAdd = el('button', 'btn', 'Add');
+  wakeAdd.type = 'submit';
+  wakeForm.append(wakeInput, wakeAdd);
+  wakeForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const word = wakeInput.value.trim();
+    if (!word) return;
+    change({ wake_add: word });
+    wakeInput.value = '';
+  });
+  const wakeError = el('p', 'small-status warn-line');
+  wakeError.id = 'voice-wake-error';
+  wakeError.hidden = true;
+
+  listening.append(detectorRow, detector, detectorNote, sensitivity, wakeRow, wakeList, wakeForm, wakeError);
+
+  function renderWakeWords() {
+    const words = state.wake_words || [];
+    wakeList.replaceChildren(...words.map((word) => {
+      const li = el('li');
+      const name = el('span', 'fact', word);
+      name.setAttribute('data-no-i18n', '');
+      const rm = el('button', 'btn', 'Remove');
+      rm.type = 'button';
+      rm.disabled = words.length <= 1;
+      rm.setAttribute('aria-label', `Remove ${word}`);
+      rm.addEventListener('click', () => change({ wake_remove: word }));
+      li.append(name, rm);
+      return li;
+    }));
+    wakeError.textContent = state.wake_error || '';
+    wakeError.hidden = !state.wake_error;
+    hint();
+  }
+
+  // The footer's "Say “Hey Jarvis”" (its first text, while hands-free is on) names the first
+  // wake word when Jarvis isn't one. Written in English: the i18n layer puts it in Chinese.
+  function hint() {
+    const words = (state && state.wake_words) || [];
+    const name = words.some((w) => w.toLowerCase() === 'jarvis') ? 'Jarvis' : words[0];
+    const first = F.$('hint') && F.$('hint').firstChild;
+    if (!name || !first || first.nodeType !== Node.TEXT_NODE) return;
+    const wanted = `Say “Hey ${name}” · `;
+    if (first.nodeValue !== wanted && F.t(wanted) !== first.nodeValue) first.nodeValue = wanted;
+  }
 
   function sensitivityWord(value) {
     if (value >= 60) return 'Hears quieter voices';
@@ -93,7 +154,8 @@
   }
 
   place();
-  F.on('voice', (ev) => { state = ev; place(); render(); }, { replay: true });
+  F.on('voice', (ev) => { state = ev; place(); render(); renderWakeWords(); }, { replay: true });
+  F.on('prefs', () => hint());  // app.js writes the hint afresh with each settings change
   // A new connection (or backend) sends its own hello: ask for the pane's state again.
   F.on('hello', () => send({ type: 'voice_status' }), { replay: true });
 })();

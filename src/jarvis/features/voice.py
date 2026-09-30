@@ -6,6 +6,8 @@ Listening
   or a fan doesn't start one and a noisy room doesn't hold one open after you stop;
   "Loudness" is the detector from before. A sensitivity slider moves the model's
   threshold. If the model can't load, loudness decides and Settings says why.
+- Wake words (wakewords.py): "Jarvis", the persona's own name, and any the owner adds;
+  wake.py hears them (configured here), "Jarvis" anywhere, the others when called.
 
 The window side is web/features/voice.js (+ .css), its Chinese web/i18n/voice.json.
 
@@ -24,7 +26,7 @@ import weakref
 from typing import Any
 
 from .. import prefs as prefs_module
-from .. import vad
+from .. import vad, wake, wakewords
 
 log = logging.getLogger("jarvis")
 
@@ -39,6 +41,7 @@ prefs_module.register_feature_pref("voice_detector", "neural", _clean_detector)
 prefs_module.register_feature_pref(
     "voice_vad_threshold", vad.DEFAULT_THRESHOLD, vad.clean_threshold
 )
+prefs_module.register_feature_pref("wake_words", wakewords.EMPTY, wakewords.clean_pref)
 
 # The settings voice_settings may change (and nothing else of prefs.features).
 SETTINGS = ("voice_detector", "voice_vad_threshold")
@@ -56,6 +59,7 @@ class Voice:
         self.hub = hub
         self.listener: Any = None  # the hands-free listener made last (reopened on changes)
         self.model_checked = False
+        self.wake_error = ""  # why the last wake word change didn't happen (shown once)
 
     # ── hands-free listening ──
 
@@ -94,6 +98,8 @@ class Voice:
             # None until the model has been tried (the pane asks for it to be)
             "neural_ok": (not why) if (self.model_checked or why) else None,
             "neural_why": why,
+            "wake_words": wakewords.of(self.hub.prefs),
+            "wake_error": self.wake_error,
         }
 
     def emit(self) -> None:
@@ -117,7 +123,14 @@ class Voice:
         if before["voice_detector"] != after["voice_detector"]:
             log.info("voice detection: %s", after["voice_detector"])
             self._reopen_listener()  # the new detector from the next block on
+        self.wake_error = ""
+        for key, change in (("wake_add", wakewords.add), ("wake_remove", wakewords.remove)):
+            if key in changes:
+                kept, self.wake_error = change(self.hub.prefs, changes[key])
+                if kept is not None:
+                    self.hub.set_feature_prefs({"wake_words": kept})
         await self.status()
+        self.wake_error = ""
 
 
 def _try_model() -> None:
@@ -127,9 +140,22 @@ def _try_model() -> None:
         pass  # unavailable_reason() now says why
 
 
+def _wake_source(prefs: Any):
+    """wake.py's source of wake words: these settings, read at each check (a persona or
+    language change applies at once). Held weakly: a hub that's gone leaves "Jarvis"."""
+    ref = weakref.ref(prefs)
+
+    def words() -> list[str]:
+        current = ref()
+        return wakewords.of(current) if current is not None else []
+
+    return words
+
+
 def install(hub: Any) -> None:
     voice = Voice(hub)
     _FEATURES[hub] = voice
+    wake.configure(_wake_source(hub.prefs))
     if hub.listener_factory is None:  # the app's own listener (a test's stays its own)
         hub.listener_factory = voice.make_listener
     hub.register_command("voice_status", voice.status)
