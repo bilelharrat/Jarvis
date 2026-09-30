@@ -5,7 +5,82 @@
     "Worked out when to leave": "算好了出发时间",
     "Shared your ETA": "发送了你的预计到达时间",
     "Checked a forecast": "查看了天气预报",
-    "Checked the air quality": "查看了空气质量"
+    "Checked the air quality": "查看了空气质量",
+    "Checked a quote": "查看了行情",
+    "Changed your watchlist": "修改了你的自选股",
+    "Set a price alert": "设置了价格提醒",
+    "Checked your price alerts": "查看了你的价格提醒",
+    "Removed a price alert": "删除了价格提醒",
+    "3% or more": "3% 或以上",
+    "5% or more": "5% 或以上",
+    "10% or more": "10% 或以上",
+    "Big moves on my watchlist": "自选股大幅波动",
+    "A heads-up when a stock on your watchlist moves this much in a day": "自选股一天内涨跌达到这个幅度时提醒你",
+    "Price alerts: say “Jarvis, tell me when Nvidia goes above 150.”": "价格提醒：说“贾维斯，英伟达涨到 150 以上时告诉我。”",
+    "Went off today": "今天已提醒",
+    "Waits for the price to come back first": "等价格先回到另一边",
+    "Watching": "盯着中"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^Moves (.+)% in a day$",
+      "一天内涨跌 $1%"
+    ],
+    [
+      "^Goes above (.+)$",
+      "涨到 $1 以上"
+    ],
+    [
+      "^Goes below (.+)$",
+      "跌到 $1 以下"
+    ],
+    [
+      "^(\\d+) of (\\d+) price heads-ups used today$",
+      "今天已用 $1 / $2 次价格提醒"
+    ],
+    [
+      "^Remove the (.+) alert$",
+      "删除 $1 的提醒"
+    ],
+    [
+      "^Add (.+) to your watchlist and take (.+) off\\?$",
+      "要把 $1 加到自选股，并删除 $2 吗？"
+    ],
+    [
+      "^Add (.+) to your watchlist\\?$",
+      "要把 $1 加到你的自选股吗？"
+    ],
+    [
+      "^Take (.+) off your watchlist\\?$",
+      "要把 $1 从你的自选股中删除吗？"
+    ],
+    [
+      "^Tell you when (.+) goes above (.+)\\?$",
+      "要在 $1 涨到 $2 以上时告诉你吗？"
+    ],
+    [
+      "^Tell you when (.+) goes below (.+)\\?$",
+      "要在 $1 跌到 $2 以下时告诉你吗？"
+    ],
+    [
+      "^Tell you when (.+) moves (.+)% in a day\\?$",
+      "要在 $1 一天内涨跌 $2% 时告诉你吗？"
+    ],
+    [
+      "^Stop telling you when (.+) goes above (.+)\\?$",
+      "要不再在 $1 涨到 $2 以上时告诉你吗？"
+    ],
+    [
+      "^Stop telling you when (.+) goes below (.+)\\?$",
+      "要不再在 $1 跌到 $2 以下时告诉你吗？"
+    ],
+    [
+      "^Stop telling you when (.+) moves (.+)% in a day\\?$",
+      "要不再在 $1 一天内涨跌 $2% 时告诉你吗？"
+    ],
+    [
+      "^Remove (\\d+) price alerts for (.+)\\?$",
+      "要删除 $2 的 $1 个价格提醒吗？"
+    ]
+  ]
 }

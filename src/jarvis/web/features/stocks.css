@@ -1,0 +1,5 @@
+/* Price alerts under the watchlist in Settings › Markets (features/stocks.js). */
+.stocks-box { display: flex; flex-direction: column; gap: 10px; }
+.stocks-box .row select { flex: none; }
+.stocks-alerts { max-height: 220px; }
+.stocks-cap[hidden] { display: none; }

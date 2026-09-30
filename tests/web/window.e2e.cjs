@@ -2924,6 +2924,35 @@ test('Claude’s limit: a waiting session counts down in its header, and the set
   assert(await js('document.querySelector(".jcx-limit").hidden'), 'the countdown stayed after the wait');
 });
 
+// ── the Mac and the world: Settings › Markets' price alerts (features/stocks.js) ──
+
+test('Settings › Markets lists price alerts, removes one on a click and sets big-move heads-ups', async () => {
+  await loadFeatures('stocks.js', 'stocks.css');
+  await js('featureEvent({ type: "hello", prefs: { features: { stocks_move_alert: 5 } } }); true');
+  const placed = await js('$("watchlist").closest("label").nextElementSibling.classList.contains("stocks-box")');
+  assert(placed, 'the alerts are not under the watchlist');
+  assert(await js('$("stocks-move").value') === '5', 'the big-move setting was not shown');
+  assert((await sentOf('price_alerts')).length === 1, 'the alerts were not asked for');
+  await js(`__ev({ type: 'price_alerts', sent_today: 2, cap: 8, move: 5, items: [
+    { id: 'a1', symbol: 'NVDA', name: 'NVDA', kind: 'above', value: 150, fired: '', waiting: false },
+    { id: 'a2', symbol: '.SPX', name: 'S&P 500', kind: 'move', value: 2, fired: '', waiting: false },
+    { id: 'a3', symbol: 'TSLA', name: 'TSLA', kind: 'below', value: 200, fired: '', waiting: true }] }); true`);
+  const shown = await js(`[...document.querySelectorAll('.stocks-alerts li')].map((li) => li.querySelector('strong').textContent + ' | ' + li.querySelector('small').textContent)`);
+  assert(JSON.stringify(shown) === JSON.stringify([
+    'NVDA | Goes above 150.00 · Watching', 'S&P 500 | Moves 2% in a day · Watching', 'TSLA | Goes below 200.00 · Waits for the price to come back first',
+  ]), JSON.stringify(shown));
+  assert(await js('document.querySelector(".stocks-cap").textContent') === '2 of 8 price heads-ups used today', 'no count of today’s heads-ups');
+  await js('__sent.length = 0; document.querySelector(".stocks-alerts li button").click(); true');
+  const removed = await js('__sent');
+  assert(JSON.stringify(removed) === JSON.stringify([{ type: 'price_alert_remove', id: 'a1' }]), JSON.stringify(removed));
+  assert(await js('document.querySelector(".stocks-alerts li button").disabled'), 'the button stayed live');
+  await js('__sent.length = 0; $("stocks-move").value = "10"; $("stocks-move").dispatchEvent(new Event("change")); true');
+  const set = await js('__sent');
+  assert(JSON.stringify(set) === JSON.stringify([{ type: 'feature_prefs', changes: { stocks_move_alert: 10 } }]), JSON.stringify(set));
+  await js('__ev({ type: "price_alerts", items: [], sent_today: 0, cap: 8 }); true');
+  assert(await js('document.querySelectorAll(".stocks-alerts li").length === 0 && document.querySelector(".stocks-cap").hidden'), 'the list did not empty');
+});
+
 // ──
 
 let base;
