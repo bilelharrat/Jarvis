@@ -304,10 +304,11 @@ def _segments(command: str) -> list[str]:
 
 
 # Shell words that stand in front of a command without being one (control flow, negation,
-# a pipeline's timing keyword): a deny rule looks past them to the command they introduce.
+# grouping): a deny rule looks past them to the command they introduce. ("time" is left to
+# _WRAPPERS, which already finds the command after it, so a Bash(time …) rule still matches.)
 _RESERVED = {
     "if", "then", "elif", "else", "fi", "while", "until", "for", "select", "do", "done",
-    "case", "esac", "function", "!", "{", "}", "in", "time", "coproc",
+    "case", "esac", "function", "!", "{", "}", "in", "coproc",
 }  # fmt: skip
 
 
