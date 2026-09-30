@@ -113,6 +113,7 @@ class TabCdp {
   }
 
   reset(why) {
+    this.focusEmulated = false;
     this.sessions.clear();
     this.worlds.clear();
     this.inflight.clear();

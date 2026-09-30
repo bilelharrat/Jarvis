@@ -6,9 +6,13 @@
     "Worked with browser tabs": "操作了浏览器标签页",
     "Read the browser console": "查看了浏览器控制台",
     "Checked the page's requests": "查看了网页的请求",
-    "Ran a script in the page": "在网页中运行了脚本"
+    "Ran a script in the page": "在网页中运行了脚本",
+    "Answered a page's question": "回答了网页的询问",
+    "Uploaded a file you picked": "上传了你选的文件"
   },
   "patterns": [
-    ["^Jarvis Code in (.+?) wants to press “(.+)” in the browser$", "$1 中的 Jarvis Code 想在浏览器中按下“$2”"]
+    ["^Jarvis Code in (.+?) wants to press “(.+)” in the browser$", "$1 中的 Jarvis Code 想在浏览器中按下“$2”"],
+    ["^Jarvis Code in (.+?) wants to answer OK to the page's question “(.+)”$", "$1 中的 Jarvis Code 想对网页的询问“$2”回答“确定”"],
+    ["^The page asks: “(.+)” Answer OK\\?$", "网页在问：“$1” 要回答“确定”吗？"]
   ]
 }

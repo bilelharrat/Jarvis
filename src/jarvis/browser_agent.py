@@ -411,6 +411,105 @@ def screenshot_content(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# A page's question whose OK deletes, pays, sends or can't be undone: answering OK asks the
+# user first (a card, spoken too).
+_WEIGHTY = re.compile(
+    r"\b(delet\w*|remov\w*|eras\w*|discard\w*|destroy\w*|wip\w*|purg\w*|permanent\w*|irreversibl\w*"
+    r"|can(?:no|')t be undone|unsubscrib\w*|cancel\w*|clos\w* (?:your |the |this )?account|deactivat\w*"
+    r"|revok\w*|reset\w*|overwrit\w*|replac\w*|sign(?:ing)? out|log(?:ging)? out|leav\w* (?:this |the )?(?:page|site)"
+    r"|pay\w*|purchas\w*|buy\w*|order\w*|checkout|charg\w*|transfer\w*|send\w*|submit\w*|publish\w*"
+    r"|post\w*|shar\w*|donat\w*|subscrib\w*|confirm\w* (?:the |your |this )?(?:payment|purchase|order|booking))\b"
+    r"|[$€£¥]\s?\d"
+    r"|删除|移除|清空|永久|无法恢复|不可恢复|撤销|注销|取消订阅|退订|支付|付款|购买|下单|转账|发送|提交|发布|扣款",
+    re.IGNORECASE,
+)
+
+
+def weighty(message: Any) -> bool:
+    """A page's confirm whose OK deletes, pays, sends, publishes or can't be undone."""
+    return bool(_WEIGHTY.search(str(message or "")))
+
+
+DIALOG_DESC = (
+    "Answer the alert, confirm or prompt the built-in browser's page is waiting on (browser_act "
+    "and the other tools say when one is). accept: true for OK, false for Cancel; text: what to "
+    "type into a prompt. A confirm whose OK deletes, pays, sends or can't be undone asks the "
+    "user first."
+)
+UPLOAD_DESC = (
+    "Upload a file into the page: ref is its file box, or the button that opens a file chooser "
+    "(from browser_snapshot). The user picks the file themselves in the Mac's open panel; you "
+    "never give a path."
+)
+
+
+def dialog_tool(call: BrowserCall, route: Callable[[dict], dict], ask_ok) -> Any:
+    """browser_dialog over this call. ask_ok(message, status) decides an OK that deletes,
+    pays or sends (the user's card, or a session's rule)."""
+
+    @tool(
+        "browser_dialog",
+        DIALOG_DESC,
+        {
+            "type": "object",
+            "properties": {
+                "accept": {"type": "boolean"},
+                "text": {"type": "string"},
+                "tab": {"type": "integer"},
+            },
+            "required": ["accept"],
+        },
+    )
+    async def browser_dialog(args):
+        where_to = _tab(args)
+        status = await call("dialog", route({"op": "status", **where_to}))
+        if (bad := error_result(status)) is not None:
+            return bad
+        waiting = status.get("dialog")
+        if not waiting:
+            native = status.get("native")
+            if native:
+                return _text(
+                    f"The page's {native.get('type')} is on screen for the user to answer: "
+                    f"“{_clip(native.get('message'), 300)}”.",
+                    error=True,
+                )
+            return _text("No dialog is waiting on this page.", error=True)
+        accept = bool(args.get("accept"))
+        message = str(waiting.get("message") or "")
+        if accept and waiting.get("type") == "confirm" and weighty(message):
+            if not await ask_ok(message, status):
+                return _text(
+                    "The user said no. Answer it with accept: false (Cancel), or leave it.",
+                    error=True,
+                )
+        req = {"accept": accept, "text": _clip(args.get("text", ""), 2000), **where_to}
+        r = await call("dialog", route(req))
+        return error_result(r) or _text(f"{r.get('message') or 'Answered.'}\n{where(r)}")
+
+    return browser_dialog
+
+
+def upload_tool(call: BrowserCall, route: Callable[[dict], dict]) -> Any:
+    @tool(
+        "browser_upload",
+        UPLOAD_DESC,
+        {
+            "type": "object",
+            "properties": {"ref": {"type": "string"}, "tab": {"type": "integer"}},
+            "required": ["ref"],
+        },
+    )
+    async def browser_upload(args):
+        ref = ref_of(args.get("ref"))
+        if not ref:
+            return _text("browser_upload needs a ref from browser_snapshot, like e12.", error=True)
+        r = await call("upload", route({"ref": ref, **_tab(args)}))
+        return error_result(r) or _text(f"{r.get('message') or 'Uploaded.'}\n{where(r)}")
+
+    return browser_upload
+
+
 def act_args(args: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
     """browser_act's input as the window takes it, or why it can't be."""
     kind = str(args.get("action") or "click").strip().lower()
@@ -636,6 +735,9 @@ def jarvis_tools(hub: Any) -> list:
             return ""
         return "The user didn't OK opening that. Don't retry it or find another way to do it."
 
+    async def dialog_ok(message: str, _status: dict[str, Any]) -> bool:
+        return await hub.confirm(f"The page asks: “{_clip(message, 200)}” Answer OK?")
+
     tabs = tabs_tool(
         hub.browser_call,
         route=lambda req: {**req, "owner": "jarvis"},
@@ -644,7 +746,12 @@ def jarvis_tools(hub: Any) -> list:
         may_open=may_open,
         may_close=lambda _tab, _listing: "",
     )
-    return [*build_tools(hub.browser_call, press_ok, lambda req: req), tabs]
+    return [
+        *build_tools(hub.browser_call, press_ok, lambda req: req),
+        tabs,
+        dialog_tool(hub.browser_call, lambda req: req, dialog_ok),
+        upload_tool(hub.browser_call, lambda req: req),
+    ]
 
 
 async def jarvis_open(hub: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -731,6 +838,16 @@ class CodeSession:
         if r.get("tab"):
             self.use(r["tab"])
         return r
+
+    async def dialog_ok(self, message: str, status: dict[str, Any]) -> bool:
+        """OK to a page's question that deletes, pays or sends: on this Mac's own app the
+        session's approval of the tool counts; elsewhere its card asks."""
+        if loopback(status.get("url")):
+            return True
+        return await self.confirm(
+            f"answer OK to the page's question “{_clip(message, 120)}”",
+            f"{message}\n{status.get('url') or ''}".strip(),
+        )
 
     def may_close(self, tab: int, listing: dict[str, Any]) -> str:
         owners = {
@@ -955,4 +1072,6 @@ def code_tools(call: BrowserCall, session: CodeSession) -> list:
         *build_tools(call, session.press_ok, session.route),
         tabs,
         *devtools_tools(call, session),
+        dialog_tool(call, session.route, session.dialog_ok),
+        upload_tool(call, session.route),
     ]

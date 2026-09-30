@@ -833,6 +833,11 @@ ipcMain.on('page:result', (event, message) => {
   }
 });
 ipcMain.on('page:hover', (event, hover) => { if (fromPage(event)) win.webContents.send('browser:hover', hover); });
+// A tab's page asking alert, confirm or prompt while the browser agent acts in it (page-preload.js).
+ipcMain.on('page:dialog', (event, dialogArgs) => {
+  if (!fromTab(event)) { event.returnValue = null; return; }
+  browserAgent.onPageDialog(event, dialogArgs);
+});
 ipcMain.on('page:note', (event, note) => { if (fromPage(event)) win.webContents.send('browser:note', note); });
 ipcMain.on('page:pointer', (event, p) => {
   if (!fromPage(event) || !p) return;
@@ -865,12 +870,27 @@ const browserAgent = createAgent({
   markAsked: () => { browserAsked = true; },
   toUrl,
   research: (view) => onResearch(view.webContents.getURL()),
+  // The page's own-command channel (page-preload.js), for a tab.
+  pageCall: (view, action, args, ms) => pageCall(action, args, ms, view),
+  // Files only the user picks, in the Mac's own open panel, for an upload the agent started.
+  pickFiles: async ({ multiple, title }) => {
+    const options = { title, buttonLabel: 'Upload', properties: ['openFile', ...(multiple ? ['multiSelections'] : [])] };
+    const result = win && !win.isDestroyed() ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    return result.canceled ? [] : result.filePaths.slice(0, 20);
+  },
+  // A page's question the agent didn't answer in time: the user answers it in the Mac's box.
+  askUser: ({ type, message, host, signal }) => dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+    type: type === 'confirm' ? 'question' : 'info', message: message || ' ', detail: host ? `From ${host}` : '',
+    buttons: type === 'confirm' ? ['OK', 'Cancel'] : ['OK'], defaultId: 0, cancelId: type === 'confirm' ? 1 : 0, signal,
+  }).then((r) => r.response === 0),
 });
 
 async function runBrowserCommand({ action, args = {} }) {
   if (browserAgent.handles(action)) return browserAgent.run(action, args);
   let view;
   try { view = browserAgent.target(args); } catch (err) { return { ok: false, message: err.message }; } // args.tab, else the tab on show
+  const waiting = browserAgent.waiting(view); // a page waiting on its dialog answers nothing else
+  if (waiting) return waiting;
   const wc = view.webContents;
   const where = () => ({ url: wc.getURL(), title: wc.getTitle(), tab: wc.id });
   const signIn = onResearch(wc.getURL()) && RESEARCH_AUTH.test(researchPath(wc.getURL()));

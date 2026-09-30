@@ -2869,6 +2869,32 @@ def _pressable(box: dict[str, Any]) -> bool:
     )
 
 
+async def _guard_upload(
+    desk: Transactions, call: BrowserCall, args: dict[str, Any]
+) -> dict[str, Any]:
+    """An upload presses its element (a file box, or the button that opens a file chooser):
+    never a final Pay / Book / Transfer button."""
+    route = _route(args)
+    page = await call("read", {**route, **GUARD_READ})
+    if not _readable(page):
+        return {
+            "ok": False,
+            "message": "I couldn't read the page to check it first, so I left it alone.",
+        }
+    described = await call("describe", {**route, "refs": [args.get("ref")]})
+    if described.get("error") or described.get("ok") is False:
+        return described
+    box = (described.get("refs") or {}).get(str(args.get("ref") or "")) or {}
+    words = _as_label(_words_of(box))
+    if label_key(words) and _view(page).kind(words):
+        return {
+            "ok": False,
+            "message": f"“{_line(words, 60)}” completes a purchase; it isn't an upload.",
+        }
+    desk.page_changed()
+    return await call("upload", args)
+
+
 async def _guard_act(desk: Transactions, call: BrowserCall, args: dict[str, Any]) -> dict[str, Any]:
     """browser_act meets the same checks as a click or typing by words, on exactly the
     elements its refs name: a press by the element's own words (a final Pay / Book /
@@ -2977,8 +3003,13 @@ def guard_browser(desk: Transactions, call: BrowserCall) -> BrowserCall:
 
     async def guarded(action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         args = dict(args or {})
-        if action in _LOOKING or (action == "tabs" and args.get("op") == "list"):
+        if action in _LOOKING or (action, args.get("op")) in (
+            ("tabs", "list"),
+            ("dialog", "status"),
+        ):
             return await call(action, args)
+        if action == "upload":  # it presses the element that opens the file chooser
+            return await _guard_upload(desk, call, args)
         if action == "act":
             return await _guard_act(desk, call, args)
         if action not in ("click", "type", "search"):

@@ -856,3 +856,114 @@ async def test_a_session_submits_on_its_localhost_app_and_asks_elsewhere():
     out = await click({"text": "Submit"})
     assert out.get("is_error") and len(remote.did("click")) == 1
     assert tasks.cards and "press “Submit” in the browser" in tasks.cards[0][0]
+
+
+# ── page dialogs and uploads ──
+
+
+class DialogWindow:
+    """A page waiting on a confirm, as app/browser-agent.js answers browser_dialog."""
+
+    def __init__(self, message="Delete 3 files?", kind="confirm", url="https://files.example/"):
+        self.waiting = {"type": kind, "message": message, "value": ""} if message else None
+        self.url = url
+        self.calls = []
+
+    async def __call__(self, action, args=None):
+        args = dict(args or {})
+        self.calls.append((action, args))
+        if action == "dialog" and args.get("op") == "status":
+            return {"ok": True, "url": self.url, "tab": 3, "dialog": self.waiting, "native": None}
+        if action == "dialog":
+            self.waiting = None
+            return {
+                "ok": True,
+                "message": "Answered the page's confirm with OK.",
+                "url": self.url,
+                "tab": 3,
+            }
+        return {"ok": True, "url": self.url}
+
+    def answers(self):
+        return [a for n, a in self.calls if n == "dialog" and a.get("op") != "status"]
+
+
+def test_which_questions_are_weighty():
+    for message in ("Delete 3 files?", "This can't be undone. Continue?", "Pay $56.26 now?",
+                    "Send this message to everyone?", "Leave this page? Changes won't be saved",
+                    "确定要删除吗？", "Cancel your subscription?"):  # fmt: skip
+        assert browser_agent.weighty(message), message
+    for message in ("Show more results?", "Continue to the next step?", "Save your draft?", ""):
+        assert not browser_agent.weighty(message), message
+
+
+async def test_jarvis_answers_a_plain_question_and_asks_before_a_weighty_ok():
+    confirms = []
+
+    async def confirm(question):
+        confirms.append(question)
+        return False
+
+    plain = DialogWindow("Show more results?")
+    hub = SimpleNamespace(
+        browser_call=plain, prefs=SimpleNamespace(control_always=True), confirm=confirm,
+        browser_tabs=browser_agent.TabRoutes(), _rid="r1",
+    )  # fmt: skip
+    answer = handlers(browser_agent.jarvis_tools(hub))["browser_dialog"]
+    assert not (await answer({"accept": True})).get("is_error") and confirms == []
+    weighty = DialogWindow("Delete 3 files?")
+    hub.browser_call = weighty
+    answer = handlers(browser_agent.jarvis_tools(hub))["browser_dialog"]
+    out = await answer({"accept": True})
+    assert out.get("is_error") and weighty.answers() == []  # even with "never ask" on: a card
+    assert confirms == ["The page asks: “Delete 3 files?” Answer OK?"]
+    assert not (await answer({"accept": False})).get("is_error")  # Cancel never asks
+    assert weighty.answers() == [{"accept": False, "text": ""}]
+    none = DialogWindow(message="")
+    hub.browser_call = none
+    out = await handlers(browser_agent.jarvis_tools(hub))["browser_dialog"]({"accept": True})
+    assert out.get("is_error") and "No dialog" in text_of(out)
+
+
+async def test_a_session_answers_its_localhost_app_and_asks_elsewhere():
+    tasks = Tasks(answer="deny")
+    local = DialogWindow("Delete this todo?", url="http://localhost:5173/")
+    answer = handlers(code_tools.browser_tools(local, CodeSession(tasks, 7)))["browser_dialog"]
+    assert not (await answer({"accept": True})).get("is_error") and tasks.cards == []
+    remote = DialogWindow("Delete this repository?", url="https://git.example/")
+    answer = handlers(code_tools.browser_tools(remote, CodeSession(tasks, 7)))["browser_dialog"]
+    out = await answer({"accept": True})
+    assert out.get("is_error") and remote.answers() == []
+    assert "answer OK to the page's question “Delete this repository?”" in tasks.cards[0][0]
+
+
+async def test_an_upload_takes_a_ref_never_a_path(tmp_path):
+    window = FakeWindow()
+    upload = handlers(code_tools.browser_tools(window, CodeSession(Tasks(), 7)))["browser_upload"]
+    bad = await upload({"ref": "/Users/me/.ssh/id_rsa"})
+    assert bad.get("is_error") and window.calls == []
+    d, _ = desk(tmp_path, window)
+    browser = tx.guard_browser(d, window)
+    final = await browser("upload", {"ref": "e1"})
+    assert final["ok"] is False and "isn't an upload" in final["message"]
+    await browser("upload", {"ref": "e2"})
+    assert window.did("upload") == [{"ref": "e2"}]
+
+
+async def test_dialog_status_is_a_look_and_an_answer_ends_confirmations(tmp_path):
+    window = FakeWindow()
+    d, _ = desk(tmp_path, window)
+    await d.confirm(ORDER)
+    browser = tx.guard_browser(d, window)
+    await browser("dialog", {"op": "status"})
+    assert (await browser("act", {"kind": "click", "ref": "e1"}))["ok"] is True
+    await d.confirm(ORDER)
+    await browser("dialog", {"accept": True})
+    assert (await browser("act", {"kind": "click", "ref": "e1"}))["ok"] is False
+
+
+def test_dialogs_and_uploads_are_acting_tools():
+    for name in ("browser_dialog", "browser_upload"):
+        assert name in brain.BROWSER_CONTROL
+        assert brain.result_kind(brain.browser_tool(name)) == "web"
+    assert tool_label("mcp__browser__browser_upload") == "Uploaded a file you picked"

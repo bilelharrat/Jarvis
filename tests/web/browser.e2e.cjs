@@ -50,6 +50,12 @@ addEventListener('click', (e) => { window.trusted = e.isTrusted; }, true);
   '/logs.html': `<!doctype html><title>Logs</title><body><h1>Logs</h1><script>
 console.error('boom at load'); fetch('/missing.json').catch(() => {}); setTimeout(() => { throw new Error('kaput'); }, 0);
 </script></body>`,
+  '/ask.html': `<!doctype html><title>Ask</title><body><main>
+<button onclick="document.title = 'answer ' + confirm('Delete 3 files?')">Delete files</button>
+<button onclick="alert('Hi there')">Say hi</button>
+<button onclick="document.title = 'named ' + prompt('Your name?', 'Bob')">Name it</button>
+<input type="file" id="f" style="display:none"><button onclick="document.getElementById('f').click()">Choose file</button>
+</main></body>`,
   '/other.html': '<!doctype html><title>Other</title><body><h1>Another page</h1><a href="/shop.html">Back to shop</a></body>',
   '/form.html': `<!doctype html><title>Form</title><body>
 <div id="banner" style="position:fixed;bottom:0;left:0;right:0;background:#fee">We use cookies. <button>Accept</button></div>
@@ -80,6 +86,8 @@ function serve() {
 
 let win;
 let base;
+const picks = []; // what the user 'picks' in the open panel, one list per upload
+const upfile = path.join(app.getPath('temp'), `jarvis-upload-${process.pid}`, 'upload.txt');
 let agent;
 const tabs = [];
 let shown = null;
@@ -100,6 +108,7 @@ const refOf = (snap, re) => {
 // main.js's pageCall: a command to the tab's page-preload.js, its answer by IPC.
 const answers = new Map();
 ipcMain.on('page:result', (_event, message) => { const done = answers.get(message && message.id); if (done) { answers.delete(message.id); done(message.result); } });
+ipcMain.on('page:dialog', (event, question) => agent.onPageDialog(event, question)); // as main.js does
 const pageCall = (view, action, args = {}) => new Promise((resolve) => {
   const id = `c${Math.random()}`;
   answers.set(id, resolve);
@@ -279,6 +288,37 @@ test('A session tab keeps its console and requests from the start; eval runs onl
   await run('tabs', { op: 'close', id: r.tab });
 });
 
+test('A page question during an act waits for browser_dialog; alerts are reported; uploads take only the user\'s pick', async () => {
+  await shown.webContents.loadURL(`${base}/ask.html`);
+  await sleep(150);
+  const snap = await run('snapshot', {});
+  const del = await run('act', { kind: 'click', ref: refOf(snap, /button "Delete files"/), force: true }); // the user OK'd the press
+  assert(del.ok && /asks \(confirm\): “Delete 3 files\?”/.test(del.message), del.message);
+  const blocked = await run('snapshot', {});
+  assert(!blocked.ok && /waiting for an answer/.test(blocked.message), blocked.message);
+  const status = await run('dialog', { op: 'status' });
+  assert(status.dialog && status.dialog.type === 'confirm' && status.dialog.message === 'Delete 3 files?', JSON.stringify(status));
+  const answered = await run('dialog', { accept: true });
+  assert(answered.ok, answered.message);
+  await sleep(100);
+  assert((await page(shown, 'document.title')) === 'answer true', await page(shown, 'document.title'));
+  const alert = await run('act', { kind: 'click', ref: refOf(snap, /button "Say hi"/) });
+  assert(alert.ok && /showed an alert: “Hi there” \(closed\)/.test(alert.message), alert.message);
+  const named = await run('act', { kind: 'click', ref: refOf(snap, /button "Name it"/) });
+  assert(/asks \(prompt\)/.test(named.message), named.message);
+  await run('dialog', { accept: true, text: 'Ada' });
+  await sleep(100);
+  assert((await page(shown, 'document.title')) === 'named Ada', await page(shown, 'document.title'));
+  picks.push([upfile]);
+  const up = await run('upload', { ref: refOf(snap, /button "Choose file"/) });
+  assert(up.ok && /upload\.txt/.test(up.message), up.message);
+  await sleep(100);
+  assert((await page(shown, 'document.getElementById("f").files[0].name')) === 'upload.txt', 'the file box is empty');
+  picks.push([]);
+  const none = await run('upload', { ref: refOf(snap, /button "Choose file"/) });
+  assert(!none.ok && /didn't pick/.test(none.message), none.message);
+});
+
 test('Opening in a new tab keeps the page on show; tabs list, switch and close', async () => {
   await fresh();
   const before = tabs.length;
@@ -307,6 +347,8 @@ app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
   const server = await serve();
   base = `http://127.0.0.1:${server.address().port}`;
+  fs.mkdirSync(path.dirname(upfile), { recursive: true });
+  fs.writeFileSync(upfile, 'hello');
   win = new BrowserWindow({ show: false, width: 1000, height: 700 });
   shown = newTab();
   win.contentView.addChildView(shown);
@@ -329,6 +371,9 @@ app.whenReady().then(async () => {
       return true;
     },
     showBrowser: () => {}, markAsked: () => {}, toUrl: (u) => u,
+    pageCall: (view, action, args) => pageCall(view, action, args),
+    pickFiles: async () => picks.shift() || [],
+    askUser: async () => false,
   });
   let failed = 0;
   for (const t of tests) {

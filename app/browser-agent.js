@@ -29,6 +29,9 @@ const SHOT_WIDTH = 1280; // the widest picture Claude gets
 const PIECE_CSS = 1600; // a full page comes as pictures this tall (CSS pixels)
 const FULL_MAX = 9600; // and no taller than this in all
 const LOG_MAX = 200; // console messages or requests in one answer
+const DIALOG_WAIT = 60 * 1000; // an agent's page dialog unanswered this long goes to the user
+const DIALOG_MODE = 2500; // after an action, the page's dialogs go to the agent this much longer (then the user's box)
+const QUIET_ACTIONS = new Set(['dialog', 'tabs', 'console', 'network']);
 const EVAL_MAX = 20000; // characters of an evaluation's result
 // Only on pages on this Mac (a Jarvis Code session's own app): checked again inside the page,
 // in the same run as the script, so a page that just navigated away can't be reached.
@@ -472,6 +475,10 @@ class BrowserAgent {
     if (known && known.docGen === cdp.docGen && Date.now() - known.at < 8000) return known.ok;
     let ok = false;
     try {
+      if (!cdp.focusEmulated) { // keys reach the page as if its window had the focus (it seldom does)
+        await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, { timeout: 3000 }).catch(() => {});
+        cdp.focusEmulated = true;
+      }
       const ctx = await cdp.world('', cdp.mainFrameId);
       await cdp.send('Runtime.evaluate', { contextId: ctx, expression: "window.__heard = false; if (!window.__listening) { window.__listening = true; addEventListener('keydown', (e) => { if (e.key === 'Shift') window.__heard = true; }, true); } true" });
       const shift = { key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16, nativeVirtualKeyCode: 16 };
@@ -683,6 +690,15 @@ class BrowserAgent {
   // ── acting ──
 
   async act(view, args = {}) {
+    try {
+      return await this.actNow(view, args);
+    } finally { // what the act set off has had its moment: the page's dialogs are the user's again soon
+      const tab = this.state.get(view.webContents.id);
+      if (tab && tab.dialogsMode !== undefined && tab.dialogsMode !== null) this.userDialogsSoon(tab);
+    }
+  }
+
+  async actNow(view, args = {}) {
     if (this.hooks.research && this.hooks.research(view)) {
       return { ok: false, message: 'This tab is the BSH Research Center: work in it with the research tools, which it answers to.', ...this.where(view) };
     }
@@ -718,6 +734,10 @@ class BrowserAgent {
       return { ok: false, needsConfirm: true, label, message: `“${label}” needs the user's OK first.`, ...this.where(view) };
     }
     const mode = await this.readiness(tab);
+    await this.agentDialogs(tab);
+    tab.alertShown = null;
+    tab.dialogWaiters = [];
+    const dialogSoon = this.nextDialog(tab).then((d) => ({ dialog: d }));
     const before = { docGen: tab.cdp.docGen, url: view.webContents.getURL(), tabs: new Set(this.views().map((v) => v.webContents.id)) };
     let note = '';
     const run = (async () => {
@@ -810,7 +830,12 @@ class BrowserAgent {
     })();
     let outcome;
     try {
-      outcome = await run;
+      const first = await Promise.race([run.then((value) => ({ value })), dialogSoon]);
+      if (first.dialog && first.dialog.type !== 'alert') { // the page asks: it waits for the answer
+        run.catch(() => {});
+        return { ok: true, message: `Done, and the page asks (${first.dialog.type}): “${core.clip(first.dialog.message, 300)}”. Answer it with browser_dialog.`, dialog: this.dialogNote(tab), ...this.where(view) };
+      }
+      outcome = first.dialog ? await run : first.value;
     } catch (err) {
       run.catch(() => {});
       if (err instanceof CdpError) return { ok: false, message: err.message, ...this.where(view) };
@@ -819,8 +844,10 @@ class BrowserAgent {
     if (kind !== 'hover' && kind !== 'scroll') await this.settle(tab, before);
     const created = this.views().filter((v) => !before.tabs.has(v.webContents.id)).map((v) => v.webContents.id);
     const navigated = tab.cdp.docGen !== before.docGen;
+    const alerted = tab.alertShown ? ` The page showed an alert: “${core.clip(tab.alertShown.message, 300)}” (closed).` : '';
+    tab.alertShown = null;
     return {
-      ok: true, message: `${outcome}${note}.`, navigated, newTabs: created, dialog: this.dialogNote(tab), ...this.where(view),
+      ok: true, message: `${outcome}${note}.${alerted}`, navigated, newTabs: created, dialog: this.dialogNote(tab), ...this.where(view),
     };
   }
 
@@ -945,9 +972,145 @@ class BrowserAgent {
   // ── dialogs the page shows ──
 
   dialogNote(tab) {
-    const d = tab.cdp.nativeDialog;
-    if (!d) return '';
-    return `The page is showing a ${d.type} on screen: “${core.clip(d.message, 300)}”. The user has to answer it there.`;
+    const d = tab.dialog;
+    if (d) {
+      if (d.type === 'alert') return `The page showed an alert: “${core.clip(d.message, 300)}” (it's closed).`;
+      return `The page is asking (${d.type}): “${core.clip(d.message, 300)}”${d.type === 'prompt' && d.value ? ` (suggested: “${core.clip(d.value, 80)}”)` : ''}. Answer it with browser_dialog; the page waits until then.`;
+    }
+    const n = tab.cdp.nativeDialog;
+    if (!n) return '';
+    return `The page is showing a ${n.type} on screen: “${core.clip(n.message, 300)}”. The user has to answer it there.`;
+  }
+
+  // The page's alert, confirm or prompt while the agent acts in its tab (page-preload.js asks
+  // over a synchronous message and waits): an alert is closed at once and reported; a confirm
+  // or prompt waits for browser_dialog, and after a minute goes to the user.
+  onPageDialog(event, args = {}) {
+    const view = this.views().find((v) => v.webContents === event.sender);
+    if (!view) { event.returnValue = null; return; }
+    const tab = this.tab(view);
+    const d = { type: ['alert', 'confirm', 'prompt'].includes(args.type) ? args.type : 'alert', message: String(args.message || ''), value: String(args.value || ''), at: Date.now() };
+    if (d.type === 'alert') {
+      event.returnValue = null;
+      tab.dialog = d;
+      tab.alertShown = d;
+      setTimeout(() => { if (tab.dialog === d) tab.dialog = null; }, 0);
+    } else {
+      if (tab.dialog && tab.dialog.event) this.answerDialog(tab, false); // a second one: the first is cancelled
+      d.event = event;
+      tab.dialog = d;
+      const host = (() => { try { return new URL(view.webContents.getURL()).host; } catch { return ''; } })();
+      d.timer = setTimeout(() => this.dialogToUser(tab, d, host), DIALOG_WAIT);
+    }
+    for (const fn of [...(tab.dialogWaiters || [])]) fn(d);
+    tab.dialogWaiters = [];
+  }
+
+  dialogToUser(tab, d, host) {
+    if (tab.dialog !== d) return;
+    if (d.type === 'prompt') { this.answerDialog(tab, false); return; } // no box for typing: cancelled
+    const abort = new AbortController();
+    d.abort = abort;
+    this.hooks.askUser({ type: d.type, message: d.message, host, signal: abort.signal })
+      .then((ok) => { if (tab.dialog === d) this.answerDialog(tab, ok); })
+      .catch(() => { if (tab.dialog === d) this.answerDialog(tab, false); });
+  }
+
+  answerDialog(tab, accept, text = '') {
+    const d = tab.dialog;
+    if (!d || !d.event) return null;
+    clearTimeout(d.timer);
+    if (d.abort) d.abort.abort(); // the user's box for it goes
+    tab.dialog = null;
+    const value = d.type === 'confirm' ? Boolean(accept) : accept ? String(text || d.value || '') : null;
+    try { d.event.returnValue = value; } catch { /* the page went away */ }
+    return { type: d.type, message: d.message, accepted: Boolean(accept) };
+  }
+
+  // A promise for the next dialog of this tab's page.
+  nextDialog(tab) {
+    return new Promise((resolve) => { tab.dialogWaiters = [...(tab.dialogWaiters || []), resolve]; });
+  }
+
+  // While a page waits on its question, nothing else reaches it: the answer comes first.
+  waiting(view) {
+    const tab = this.state.get(view.webContents.id);
+    if (!tab || !tab.dialog || !tab.dialog.event) return null;
+    return { ok: false, message: `The page is waiting for an answer to its ${tab.dialog.type}: “${core.clip(tab.dialog.message, 200)}”. Answer it with browser_dialog first.`, ...this.where(view), dialog: this.dialogNote(tab) };
+  }
+
+  // The page's dialogs go to the agent while it acts in this tab, and a moment after (what its
+  // click set off); the user's own clicks' dialogs are theirs again right after.
+  async agentDialogs(tab) {
+    clearTimeout(tab.dialogsOff);
+    if (tab.dialogsMode === tab.cdp.docGen) return;
+    const r = await this.hooks.pageCall(tab.view, 'dialogs', { agent: true }, 2000).catch(() => null);
+    if (r && r.ok) tab.dialogsMode = tab.cdp.docGen;
+  }
+
+  userDialogsSoon(tab) {
+    clearTimeout(tab.dialogsOff);
+    tab.dialogsOff = setTimeout(() => {
+      tab.dialogsMode = null;
+      if (!tab.view.webContents.isDestroyed()) this.hooks.pageCall(tab.view, 'dialogs', { agent: false }, 2000).catch(() => {});
+    }, DIALOG_MODE);
+  }
+
+  dialogAction(view, args = {}) {
+    const tab = this.tab(view);
+    if (String(args.op || '') === 'status') {
+      const d = tab.dialog && tab.dialog.event ? tab.dialog : null;
+      const n = tab.cdp.nativeDialog;
+      return { ok: true, ...this.where(view), dialog: d ? { type: d.type, message: d.message, value: d.value } : null, native: n ? { type: n.type, message: n.message } : null };
+    }
+    if (!tab.dialog || !tab.dialog.event) {
+      if (tab.cdp.nativeDialog) return { ok: false, message: this.dialogNote(tab), ...this.where(view) };
+      return { ok: false, message: 'No dialog is waiting on this page.', ...this.where(view) };
+    }
+    const answered = this.answerDialog(tab, Boolean(args.accept), args.text);
+    return { ok: true, message: `Answered the page's ${answered.type} with ${answered.accepted ? (answered.type === 'prompt' ? 'the text' : 'OK') : 'Cancel'}.`, ...this.where(view) };
+  }
+
+  // ── uploads ──
+
+  // A file for an upload is only ever one the user picks in the Mac's own open panel: the
+  // agent names the file box (or the button that opens it), never a path.
+  async upload(view, args = {}) {
+    const tab = this.tab(view);
+    await tab.cdp.ensure();
+    this.sync(tab);
+    let entry;
+    try { entry = this.entry(tab, args.ref); } catch (err) { return { ok: false, message: err.message, ...this.where(view) }; }
+    const info = await this.info(tab, entry);
+    const host = (() => { try { return new URL(view.webContents.getURL()).host; } catch { return 'the page'; } })();
+    const pick = async (multiple) => this.hooks.pickFiles({ multiple, title: `Choose a file to upload to ${host}` });
+    const name = (p) => String(p).split('/').pop();
+    let files = [];
+    let box = entry.backendNodeId;
+    let session = entry.session || undefined;
+    if (info.file) {
+      files = await pick(info.multiple);
+    } else {
+      await tab.cdp.send('Page.setInterceptFileChooserDialog', { enabled: true }, { session });
+      try {
+        const opened = tab.cdp.waitFor((m) => m === 'Page.fileChooserOpened', 5000);
+        const mode = await this.readiness(tab);
+        const at = await this.point(tab, entry);
+        if (mode === 'page') await tab.cdp.onNode(entry, 'function () { this.click(); }');
+        else await this.click(tab, at, { live: mode === 'live' });
+        const ev = await opened;
+        if (!ev) return { ok: false, message: `${describeEntry(entry)} didn't open a file chooser.`, ...this.where(view) };
+        box = ev.params.backendNodeId;
+        session = ev.session || undefined;
+        files = await pick(ev.params.mode === 'selectMultiple');
+      } finally {
+        await tab.cdp.send('Page.setInterceptFileChooserDialog', { enabled: false }, { session: entry.session || undefined }).catch(() => {});
+      }
+    }
+    if (!files.length) return { ok: false, message: "The user didn't pick a file, so nothing was uploaded.", ...this.where(view) };
+    await tab.cdp.send('DOM.setFileInputFiles', { files, backendNodeId: box }, { session });
+    await this.quiet(tab, Date.now() + 1500);
+    return { ok: true, message: `Put ${files.map(name).join(', ')} (the user's pick) into ${describeEntry(entry)}.`, files: files.map(name), ...this.where(view) };
   }
 
   // ── screenshots ──
@@ -1195,7 +1358,7 @@ class BrowserAgent {
   // ── the command switch ──
 
   handles(action) {
-    return ['snapshot', 'describe', 'act', 'wait', 'open', 'tabs', 'screenshot', 'console', 'network', 'eval'].includes(action);
+    return ['snapshot', 'describe', 'act', 'wait', 'open', 'tabs', 'screenshot', 'console', 'network', 'eval', 'dialog', 'upload'].includes(action);
   }
 
   async run(action, args = {}) {
@@ -1204,6 +1367,10 @@ class BrowserAgent {
       view = action === 'tabs' || (action === 'open' && args.newTab) ? this.hooks.ensureBrowser() : this.target(args);
     } catch (err) {
       return { ok: false, message: err.message };
+    }
+    if (!QUIET_ACTIONS.has(action) && !(action === 'open' && args.newTab)) {
+      const waiting = this.waiting(view);
+      if (waiting) return waiting;
     }
     try {
       switch (action) {
@@ -1217,6 +1384,8 @@ class BrowserAgent {
         case 'console': return await this.consoleLog(view, args);
         case 'network': return await this.networkLog(view, args);
         case 'eval': return await this.evaluate(view, args);
+        case 'dialog': return this.dialogAction(view, args);
+        case 'upload': return await this.upload(view, args);
         default: return { error: `Unknown browser action ${action}` };
       }
     } catch (err) {

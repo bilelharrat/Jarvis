@@ -183,6 +183,8 @@ TOOL_LABELS = {
     "browser_console": "Read the browser console",
     "browser_network": "Checked the page's requests",
     "browser_eval": "Ran a script in the page",
+    "browser_dialog": "Answered a page's question",
+    "browser_upload": "Uploaded a file you picked",
     "search_notes": "Searched your second brain",
     "read_note": "Read a note",
     "second_brain_status": "Checked the second brain",

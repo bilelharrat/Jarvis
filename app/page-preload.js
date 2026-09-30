@@ -10,7 +10,7 @@
 //   and keys, which the main process can't all stop;
 // - answers J.A.R.V.I.S.'s voice commands: find and press, read, scroll, the search box.
 
-const { ipcRenderer, webFrame } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 const CLICKABLE = [
   'a[href]', 'button', 'summary', 'select', 'textarea', 'label[for]',
@@ -667,6 +667,7 @@ async function command({ action, args = {} }) {
     case 'search': return search(args);
     case 'navigate': return navigate(args);
     case 'find': return findInPage(args);
+    case 'dialogs': agentDialogs = Boolean(args.agent); return { ok: true };
     default: return { ok: false, message: `Unknown command ${action}` };
   }
 }
@@ -680,6 +681,31 @@ for (const type of ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'dragstart
   'keydown', 'keypress', 'keyup', 'beforeinput', 'paste', 'cut', 'compositionstart']) {
   window.addEventListener(type, block, { capture: true, passive: false });
 }
+
+// ── the page's alert, confirm and prompt while JARVIS or Jarvis Code acts in this tab ──
+// They go to the app, which hands them to the agent to answer (the page waits for the answer,
+// as it would for the box). Otherwise, and in frames inside the page, they're the page's own
+// box as always. Electron's own box can't be closed once the agent has answered over the
+// DevTools protocol, so the agent never answers that one.
+let agentDialogs = false;
+try {
+  const own = { alert: window.alert, confirm: window.confirm, prompt: window.prompt };
+  const ask = (type) => (message, value) => {
+    if (!agentDialogs) return own[type].call(window, message, value);
+    const text = (v) => (v === undefined || v === null ? '' : String(v)).slice(0, 2000);
+    const answer = ipcRenderer.sendSync('page:dialog', { type, message: text(message), value: text(value) });
+    return type === 'alert' ? undefined : answer;
+  };
+  contextBridge.executeInMainWorld({
+    func: (alertFn, confirmFn, promptFn) => {
+      for (const [name, fn] of [['alert', alertFn], ['confirm', confirmFn], ['prompt', promptFn]]) {
+        try { Object.defineProperty(fn, 'name', { value: name }); } catch (e) { /* kept */ }
+        window[name] = fn;
+      }
+    },
+    args: [ask('alert'), ask('confirm'), ask('prompt')],
+  });
+} catch (_) { /* no bridge here: the page keeps its own */ }
 
 ipcRenderer.on('jarvis:hand', (_event, msg) => onHand(msg));
 ipcRenderer.on('jarvis:locked', (_event, value) => {
