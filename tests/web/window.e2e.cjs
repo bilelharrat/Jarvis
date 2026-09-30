@@ -2626,6 +2626,18 @@ test('Talk over Jarvis: the switch, why it can’t run, and the hands-free row s
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_settings', changes: { voice_talk_over: false } }]), 'no switch');
 });
 
+// ── actions and comms: the conversations' nudge delay ──
+
+test('Conversations for you: the nudge delay shows what is saved, and changing it saves it', async () => {
+  await loadFeature('scheduling.js');
+  await js(`featureEvent({ type: 'prefs', features: { delegate_nudge_hours: 48 } }); true`);
+  assert(await js('$("delegate-nudge").value') === '48', 'the saved delay is not shown');
+  assert(await js('$("delegate-nudge").closest("section.group").contains($("delegation-list"))'), 'not in the Conversations group');
+  await js('toggleSettings(true); const s = $("delegate-nudge"); s.value = "12"; s.dispatchEvent(new Event("change")); true');
+  const r = await js('__sent.filter((m) => m.type === "feature_prefs")');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'feature_prefs', changes: { delegate_nudge_hours: 12 } }]), JSON.stringify(r));
+});
+
 // ──
 
 let base;

@@ -2,7 +2,7 @@ from dataclasses import replace
 
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
-from jarvis import brain
+from jarvis import brain, mac_tools
 from jarvis.config import Settings
 
 
@@ -57,7 +57,10 @@ async def test_confirmable_tools_ask_and_respect_the_answer():
     assert isinstance(denied, PermissionResultDeny)
 
 
-async def test_free_control_operates_the_mac_without_asking():
+async def test_free_control_operates_the_mac_without_asking(monkeypatch):
+    from datetime import date
+
+    monkeypatch.setattr(mac_tools, "_today", lambda: date(2026, 9, 29))  # a Tuesday
     asked = []
 
     async def confirm(q):
@@ -81,7 +84,9 @@ async def test_free_control_operates_the_mac_without_asking():
     # Not operating the Mac: a calendar event still asks.
     event = {"title": "Dentist", "start": "2026-10-01T09:00"}
     assert isinstance(await free("mcp__mac__create_event", event, ctx), PermissionResultDeny)
-    assert asked == ["Add “Dentist” to your calendar at 2026-10-01T09:00 for 60 minutes?"]
+    assert asked == [
+        "Add “Dentist” to your calendar, Thursday 1 October at 9:00 AM, for 60 minutes?"
+    ]
     off = brain.make_permission_policy(confirm, control_gate, free_control=lambda: False)
     assert isinstance(await off("mcp__computer__click", {}, ctx), PermissionResultDeny)
     assert asked[-1] == "control"

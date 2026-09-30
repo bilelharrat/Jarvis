@@ -1013,6 +1013,7 @@ def test_the_models_answer_is_read_strictly():
         "summary": "s",
         "need_owner": None,
         "subject": "",
+        "meeting": None,
     }
     fenced = '```json\n{"reply": "null", "done": "true", "need_owner": "Which day?"}\n```'
     assert parse_draft(fenced) == {
@@ -1021,6 +1022,7 @@ def test_the_models_answer_is_read_strictly():
         "summary": "",
         "need_owner": "Which day?",
         "subject": "",
+        "meeting": None,
     }
     assert parse_draft('Sure! {"reply": "a\\r\\n\\n\\n\\nb"} hope that helps')["reply"] == "a\n\nb"
     for bad in ("no json here", '{"reply": ', "[1, 2]"):

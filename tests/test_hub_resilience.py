@@ -1032,7 +1032,7 @@ async def test_the_phone_never_gets_another_conversations_reply_or_card(
 
 
 async def test_the_phone_still_gets_its_own_card_early(settings, quiet_speaker, isolated):
-    event = {"title": "Dentist", "start": "Thu 9:00"}
+    event = {"title": "Dentist", "start": "2030-10-03T09:00"}  # a start create_event can add
 
     def turn(client, query):
         return (

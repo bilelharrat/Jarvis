@@ -498,6 +498,16 @@ def make_permission_policy(
             if await shortcut_gate(str(tool_input.get("name", "")), bool(tool_input.get("input"))):
                 return PermissionResultAllow()
             return PermissionResultDeny(message="The user said no. Don't do it.")
+        if tool_name == mac_tool("create_event"):
+            # The card shows the event as it will be added (its notes, alerts and repeats
+            # too); one that can't be added gets no card, and Claude hears why.
+            spoken = language() if language is not None else "en"
+            question, why = mac_tools.creation_question(tool_input, spoken)
+            if not question:
+                return PermissionResultDeny(message=f"{why} Nothing was added.")
+            if await confirm(question):
+                return PermissionResultAllow()
+            return PermissionResultDeny(message="The user said no. Don't do it.")
         if tool_name == mac_tool("edit_event"):
             spoken = language() if language is not None else "en"
             question, why = await mac_tools.edit_question(tool_input, spoken)
@@ -550,12 +560,8 @@ def make_permission_policy(
 
 def describe_action(tool_name: str, tool_input: dict[str, Any]) -> str:
     if tool_name == mac_tool("create_event"):
-        where = f" at {tool_input['location']}" if tool_input.get("location") else ""
-        minutes = tool_input.get("duration_minutes") or 60
-        return (
-            f"Add “{tool_input.get('title')}” to your calendar at {tool_input.get('start')}"
-            f" for {minutes} minutes{where}?"
-        )
+        question, why = mac_tools.creation_question(tool_input)
+        return question or f"Add “{tool_input.get('title')}” to your calendar? ({why})"
     if tool_name == mac_tool("run_shortcut"):
         return f"Run the shortcut “{tool_input.get('name')}”?"
     if tool_name == mac_tool("quit_app"):

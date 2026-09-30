@@ -618,18 +618,295 @@ def event_args(calendar: str, title: str, start_iso: str, minutes: int, location
     ]
 
 
+REPEATS = ("daily", "weekdays", "weekly", "monthly", "yearly")
+WEEKDAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+MAX_ALERTS = 3
+ALERT_MOST = 4 * 7 * 24 * 60  # an alert up to four weeks ahead
+MAX_NOTES = 2000
+# Where a link is a video call's: Calendar shows it as one (a Join button) when it's the
+# event's location too.
+VIDEO_HOSTS = (
+    "zoom.us",
+    "meet.google.com",
+    "teams.microsoft.com",
+    "teams.live.com",
+    "webex.com",
+    "facetime.apple.com",
+    "whereby.com",
+    "meet.jit.si",
+)
+_ZH_DAYS = "一二三四五六日"
+
+
+def _int(value: Any, default: int, low: int, high: int, what: str) -> int:
+    if value in (None, ""):
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"{what} must be a whole number.") from None
+    if not low <= number <= high:
+        raise ValueError(f"{what} must be between {low} and {high}.")
+    return number
+
+
+def _video(url: str) -> bool:
+    from .brain import url_host
+
+    host = url_host(url) or ""
+    return any(host == h or host.endswith("." + h) for h in VIDEO_HOSTS)
+
+
+def clean_event(args: dict[str, Any], default_calendar: str = "") -> dict[str, Any]:
+    """create_event's arguments, checked and made plain for Calendar: ValueError says what's
+    wrong, in words Claude can put right."""
+    from . import calendar_kit
+    from .brain import url_host
+    from .textclean import clean_text
+
+    title = " ".join(clean_text(args.get("title") or "").split())[:200]
+    if not title:
+        raise ValueError("The event needs a title.")
+    raw = str(args.get("start") or "").strip()
+    try:
+        start, day_only = calendar_kit.when(raw)
+    except ValueError:
+        raise ValueError(
+            f"“{raw}” isn't a time: give it like 2026-09-30T15:00, or 2026-09-30 for an "
+            "all-day event."
+        ) from None
+    all_day = args.get("all_day") is True or day_only
+    days, minutes = 1, 0
+    if all_day:
+        start = start.replace(hour=0, minute=0)
+        days = _int(args.get("days"), 1, 1, 31, "days")
+        end = start + timedelta(days=days)
+    elif args.get("end"):
+        try:
+            end = calendar_kit.when(str(args["end"]))[0]
+        except ValueError:
+            raise ValueError(
+                f"“{args['end']}” isn't a time: give it like 2026-09-30T16:00."
+            ) from None
+        minutes = int((end - start).total_seconds() // 60)
+        if not 1 <= minutes <= 24 * 60:
+            raise ValueError("The end must be after the start, and within a day of it.")
+    else:
+        minutes = _int(args.get("duration_minutes"), 60, 1, 24 * 60, "duration_minutes")
+        end = start + timedelta(minutes=minutes)
+    location = " ".join(clean_text(args.get("location") or "").split())[:300]
+    notes = clean_text(args.get("notes") or "").strip()[:MAX_NOTES]
+    url = str(args.get("url") or "").strip()
+    if url and (not url.lower().startswith("https://") or url_host(url) is None or len(url) > 1000):
+        raise ValueError("The link must be a plain web address starting with https://.")
+    video = bool(url) and _video(url)
+    if video and not location:
+        location = url  # Calendar then offers to join the call
+    raw_alerts = args.get("alerts") or []
+    raw_alerts = raw_alerts if isinstance(raw_alerts, list) else [raw_alerts]
+    alerts = sorted({_int(a, 0, 0, ALERT_MOST, "An alert") for a in raw_alerts})
+    if len(alerts) > MAX_ALERTS:
+        raise ValueError(f"At most {MAX_ALERTS} alerts.")
+    repeat = None
+    kind = str(args.get("repeat") or "").strip().lower()
+    if kind and kind != "none":
+        if kind not in REPEATS:
+            raise ValueError(f"repeat must be one of {', '.join(REPEATS)}.")
+        every = _int(args.get("repeat_every"), 1, 1, 99, "repeat_every")
+        wanted = args.get("repeat_days") or []
+        wanted = wanted if isinstance(wanted, list) else [wanted]
+        weekdays: list[int] = []
+        for name in wanted:
+            word = str(name).strip().lower()
+            hits = [i for i, day in enumerate(WEEKDAY_NAMES) if word and day.startswith(word[:3])]
+            if len(word) < 2 or len(hits) != 1:
+                raise ValueError(f"“{name}” isn't a day of the week.")
+            weekdays.append(hits[0])
+        if kind == "weekdays":
+            kind, weekdays = "weekly", [0, 1, 2, 3, 4]
+        elif kind == "weekly" and not weekdays:
+            weekdays = [start.weekday()]
+        elif kind != "weekly":
+            weekdays = []
+        until = str(args.get("repeat_until") or "").strip()
+        count = (
+            _int(args.get("repeat_count"), 0, 1, 500, "repeat_count")
+            if args.get("repeat_count") not in (None, "", 0)
+            else 0
+        )
+        if until and count:
+            raise ValueError("Give repeat_until or repeat_count, not both.")
+        if until:
+            try:
+                last = datetime.fromisoformat(until[:10])
+            except ValueError:
+                raise ValueError(f"“{until}” isn't a date: give it like 2026-12-31.") from None
+            if last.date() < start.date():
+                raise ValueError("The repeats can't end before the event starts.")
+            until = last.date().isoformat()
+        repeat = {
+            "frequency": kind,
+            "every": every,
+            "days": sorted(set(weekdays)),
+            "until": until,
+            "count": count,
+            "weekdays": sorted(set(weekdays)) == [0, 1, 2, 3, 4] and every == 1,
+        }
+    calendar = " ".join(clean_text(args.get("calendar") or default_calendar or "").split())[:100]
+    return {
+        "title": title,
+        "start": start.isoformat(timespec="minutes"),
+        "end": end.isoformat(timespec="minutes"),
+        "all_day": all_day,
+        "minutes": minutes,
+        "days": days,
+        "location": location,
+        "notes": notes,
+        "url": url,
+        "video": video,
+        "alerts": alerts,
+        "repeat": repeat,
+        "calendar": calendar,
+    }
+
+
+def _span_words(minutes: int, language: str) -> str:
+    """10 minutes, 2 hours, 1 day, 1 week (10分钟, 2小时…)."""
+    for size, en, zh in ((10080, "week", "周"), (1440, "day", "天"), (60, "hour", "小时")):
+        if minutes >= size and minutes % size == 0:
+            n = minutes // size
+            return f"{n}{zh}" if language == "zh" else f"{n} {en}{'s' if n != 1 else ''}"
+    return (
+        f"{minutes}分钟" if language == "zh" else f"{minutes} minute{'s' if minutes != 1 else ''}"
+    )
+
+
+def _day_words(days: list[int], language: str) -> str:
+    if language == "zh":
+        return (
+            "和".join(f"周{_ZH_DAYS[d]}" for d in days)
+            if len(days) < 3
+            else "、".join(f"周{_ZH_DAYS[d]}" for d in days)
+        )
+    names = [WEEKDAY_NAMES[d].capitalize() for d in days]
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def event_lines(spec: dict[str, Any], language: str = "en") -> list[str]:
+    """What an event carries beyond its title and time, a sentence each, as the card shows
+    them: how it repeats, its alerts, where (all-day), the link, the notes, the calendar."""
+    from . import lang as lang_mod
+
+    zh = lang_mod.is_zh(language)
+    tongue = "zh" if zh else "en"
+    lines: list[str] = []
+    rule = spec.get("repeat")
+    if rule:
+        every, kind = rule["every"], rule["frequency"]
+        unit = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}[kind]
+        if rule.get("weekdays"):
+            lines.append("It repeats every weekday.")
+        elif kind == "weekly":
+            days = _day_words(rule["days"], tongue)
+            lines.append(
+                f"It repeats every week on {days}."
+                if every == 1
+                else f"It repeats every {every} weeks on {days}."
+            )
+        else:
+            lines.append(
+                f"It repeats every {unit}." if every == 1 else f"It repeats every {every} {unit}s."
+            )
+        if rule.get("until"):
+            last = datetime.fromisoformat(rule["until"])
+            day = f"{last.year}年{last.month}月{last.day}日" if zh else f"{last.day} {last:%B %Y}"
+            lines.append(f"Until {day}.")
+        elif rule.get("count"):
+            lines.append(f"{rule['count']} times in all.")
+    if spec.get("alerts"):
+        words = [
+            ("开始时" if zh else "when it starts")
+            if m == 0
+            else (f"提前{_span_words(m, 'zh')}" if zh else f"{_span_words(m, 'en')} before")
+            for m in spec["alerts"]
+        ]
+        lines.append(f"Alerts: {('、' if zh else ', ').join(words)}.")
+    if spec.get("all_day") and spec.get("location") and not spec.get("video"):
+        lines.append(f"At {spec['location']}.")
+    if spec.get("url"):
+        lines.append(f"Video call: {spec['url']}" if spec.get("video") else f"Link: {spec['url']}")
+    if spec.get("notes"):
+        lines.append(f"Notes: {spec['notes']}")
+    if spec.get("calendar"):
+        lines.append(f"On the {spec['calendar']} calendar.")
+    return lines
+
+
+def creation_question(
+    args: dict[str, Any], language: str = "en", default_calendar: str = ""
+) -> tuple[str, str]:
+    """create_event's card: the event as it will be added, said the way it's heard ("tomorrow
+    at 3:00 PM", not an ISO date), then everything else it carries, a line each. ("", why)
+    when there's nothing valid to add, so no card is shown."""
+    try:
+        spec = clean_event(args, default_calendar)
+    except ValueError as exc:
+        return "", str(exc)
+    when = spoken_when(spec["start"], spec["all_day"], language)
+    title = spec["title"]
+    if spec["all_day"]:
+        head = (
+            f"Add the all-day “{title}” to your calendar, {when}, for {spec['days']} days?"
+            if spec["days"] > 1
+            else f"Add the all-day “{title}” to your calendar, {when}?"
+        )
+    elif spec["location"] and not spec["video"]:
+        head = (
+            f"Add “{title}” to your calendar, {when}, for {spec['minutes']} minutes, "
+            f"at {spec['location']}?"
+        )
+    else:
+        head = f"Add “{title}” to your calendar, {when}, for {spec['minutes']} minutes?"
+    lines = event_lines(spec, language)
+    return head + ("\n\n" + "\n".join(lines) if lines else ""), ""
+
+
+def event_created(spec: dict[str, Any], calendar: str) -> str:
+    """What create_event tells Claude once it's in."""
+    when = spec["start"].replace("T", " ")
+    extra = " (repeating)" if spec.get("repeat") else ""
+    return f"Added “{spec['title']}” on {when}{extra} to the {calendar} calendar."
+
+
 def make_create_event(default_calendar: str):
     @tool(
         "create_event",
-        "Add an event to Calendar. start is local time in ISO format, e.g. 2026-09-29T14:30. "
-        "Asks the user first.",
+        "Add an event to Calendar. start is local time in ISO format, e.g. 2026-09-29T14:30 "
+        "(just the date, 2026-09-29, for an all-day event). Optional: duration_minutes (or "
+        "end); all_day with days (for more than one day); location; notes; url (a web link, "
+        "e.g. the video call's); alerts (minutes before: [10], [0, 1440]); repeat (daily, "
+        "weekdays, weekly, monthly or yearly) with repeat_every (2 = every other), "
+        'repeat_days (weekly: ["monday", "thursday"]) and repeat_until (a date) or '
+        "repeat_count; calendar (omit for the default). Asks the user first, showing the "
+        "event. To invite people, send_invite once it's added.",
         {
             "type": "object",
             "properties": {
                 "title": {"type": "string"},
                 "start": {"type": "string"},
                 "duration_minutes": {"type": "integer"},
+                "end": {"type": "string"},
+                "all_day": {"type": "boolean"},
+                "days": {"type": "integer"},
                 "location": {"type": "string"},
+                "notes": {"type": "string"},
+                "url": {"type": "string"},
+                "alerts": {"type": "array", "items": {"type": "integer"}},
+                "repeat": {"type": "string", "enum": ["none", *REPEATS]},
+                "repeat_every": {"type": "integer"},
+                "repeat_days": {"type": "array", "items": {"type": "string"}},
+                "repeat_until": {"type": "string"},
+                "repeat_count": {"type": "integer"},
                 "calendar": {
                     "type": "string",
                     "description": "Calendar name; omit for the default",
@@ -640,15 +917,24 @@ def make_create_event(default_calendar: str):
     )
     @_guarded
     async def create_event(args):
+        from . import calendar_kit
+
+        spec = clean_event(args, default_calendar)
+        done = await calendar_kit.create_at(spec)
+        if "created" in done:
+            return event_created(spec, str(done["created"].get("calendar") or "default"))
+        if done.get("error") != calendar_kit.NO_ACCESS:
+            raise ToolFailure(done.get("error") or "Calendar didn't add it.")
+        # Without calendar access, Calendar's own script still adds a plain timed event.
+        if spec["all_day"] or spec["notes"] or spec["url"] or spec["alerts"] or spec["repeat"]:
+            raise ToolFailure(
+                f"{calendar_kit.NO_ACCESS} Without it I can only add a plain timed event."
+            )
         argv = event_args(
-            args.get("calendar") or default_calendar,
-            args["title"],
-            args["start"],
-            int(args.get("duration_minutes") or 60),
-            args.get("location") or "",
+            spec["calendar"], spec["title"], spec["start"], spec["minutes"], spec["location"]
         )
         cal = await run_applescript(CREATE_EVENT_SCRIPT, *argv, timeout=60)
-        return f"Added “{args['title']}” on {args['start']} to the {cal} calendar."
+        return event_created(spec, cal)
 
     return create_event
 
@@ -686,13 +972,14 @@ def _today():
     return datetime.now().date()
 
 
-def spoken_when(begin: str, all_day: bool, language: str = "en") -> str:
+def spoken_when(begin: str, all_day: bool, language: str = "en", today=None) -> str:
     """An event's time the way it's said, in the card and out loud: "today at 3:00 PM",
-    "Wednesday 30 September", 明天下午3:00 (an ISO date read aloud is a string of numbers)."""
+    "Wednesday 30 September", 明天下午3:00 (an ISO date read aloud is a string of numbers).
+    today: the day it's said on (a caller with its own clock), else the real one."""
     from . import lang
 
     moment = datetime.fromisoformat(begin)
-    days = (moment.date() - _today()).days
+    days = (moment.date() - (today or _today())).days
     if lang.is_zh(language):
         day = (
             "今天"

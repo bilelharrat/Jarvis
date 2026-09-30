@@ -7,8 +7,11 @@ EventKit answers on the main run loop, so like maps.py this runs as a short help
     python -m jarvis.calendar_kit events <hours-back> <hours-ahead>
     python -m jarvis.calendar_kit at <start>
     python -m jarvis.calendar_kit remove <start> <id> <calendar> <future: 0|1>
+    python -m jarvis.calendar_kit create <event-json>
 
-It prints one JSON object: {"events": [...]}, {"removed": {...}} or {"error": "..."}.
+It prints one JSON object: {"events": [...]}, {"removed": {...}}, {"created": {...}} or
+{"error": "..."}. create makes a whole event (notes, alerts, repeats, all-day, a link) from
+the spec mac_tools.clean_event made; the owner has seen it on a card first.
 macOS asks once for calendar access on behalf of the J.A.R.V.I.S. app. `at` lists what
 starts at a time; which of those a request means is decided here in the app (choose), and
 `remove` deletes exactly that one, by its id, start and calendar.
@@ -28,15 +31,17 @@ NO_ACCESS = (
 )
 
 
-def _authorized(store) -> bool:
-    import EventKit
-    from Foundation import NSDate, NSRunLoop
+def _authorized(store, EventKit: Any = None) -> bool:  # noqa: N803 - the framework's name
+    if EventKit is None:
+        import EventKit
 
     status = EventKit.EKEventStore.authorizationStatusForEntityType_(EventKit.EKEntityTypeEvent)
     if status == 3:  # full access
         return True
     if status != 0:  # restricted, denied, or write-only
         return False
+    from Foundation import NSDate, NSRunLoop
+
     done: dict[str, Any] = {}
 
     def answered(granted, _error):
@@ -257,6 +262,84 @@ def edit(
     }
 
 
+# EventKit's recurrence frequencies, and its days of the week (1 is Sunday).
+_FREQUENCY = {"daily": 0, "weekly": 1, "monthly": 2, "yearly": 3}
+
+
+def _weekday(monday_first: int) -> int:
+    return (monday_first + 1) % 7 + 1
+
+
+def create(spec: dict[str, Any], ek: Any = None, foundation: Any = None) -> dict[str, Any]:
+    """Add the event a spec describes (mac_tools.clean_event's): its calendar (the default
+    for new events when none is named), times, all-day, place, notes, link, alerts and how
+    it repeats. ek and foundation are EventKit and Foundation (tests pass fakes)."""
+    if ek is None:
+        import EventKit as ek
+    if foundation is None:
+        import Foundation as foundation
+    NSDate, NSURL = foundation.NSDate, foundation.NSURL
+    store = ek.EKEventStore.alloc().init()
+    if not _authorized(store, ek):
+        return {"error": NO_ACCESS}
+    wanted = str(spec.get("calendar") or "").strip().casefold()
+    if wanted:
+        calendar = next(
+            (
+                c
+                for c in store.calendarsForEntityType_(ek.EKEntityTypeEvent) or []
+                if str(c.title()).casefold() == wanted
+            ),
+            None,
+        )
+        if calendar is None:
+            return {"error": f"There's no calendar called {spec['calendar']}."}
+    else:
+        calendar = store.defaultCalendarForNewEvents()
+        if calendar is None:
+            return {"error": "There's no calendar to add it to."}
+    if not calendar.allowsContentModifications():
+        return {"error": f"The {calendar.title()} calendar can't be changed from here."}
+    start = datetime.fromisoformat(spec["start"])
+    end = datetime.fromisoformat(spec["end"])
+    event = ek.EKEvent.eventWithEventStore_(store)
+    event.setCalendar_(calendar)
+    event.setTitle_(str(spec["title"]))
+    event.setAllDay_(bool(spec.get("all_day")))
+    event.setStartDate_(NSDate.dateWithTimeIntervalSince1970_(start.timestamp()))
+    event.setEndDate_(NSDate.dateWithTimeIntervalSince1970_(end.timestamp()))
+    if spec.get("location"):
+        event.setLocation_(str(spec["location"]))
+    if spec.get("notes"):
+        event.setNotes_(str(spec["notes"]))
+    if spec.get("url"):
+        event.setURL_(NSURL.URLWithString_(str(spec["url"])))
+    for minutes in spec.get("alerts") or []:
+        event.addAlarm_(ek.EKAlarm.alarmWithRelativeOffset_(-60.0 * int(minutes)))
+    rule = spec.get("repeat")
+    if rule:
+        days = [ek.EKRecurrenceDayOfWeek.dayOfWeek_(_weekday(d)) for d in rule.get("days") or []]
+        ending = None
+        if rule.get("until"):
+            last = datetime.fromisoformat(rule["until"]) + timedelta(days=1, seconds=-1)
+            ending = ek.EKRecurrenceEnd.recurrenceEndWithEndDate_(
+                NSDate.dateWithTimeIntervalSince1970_(last.timestamp())
+            )
+        elif rule.get("count"):
+            ending = ek.EKRecurrenceEnd.recurrenceEndWithOccurrenceCount_(int(rule["count"]))
+        made = ek.EKRecurrenceRule.alloc()
+        made = made.initRecurrenceWithFrequency_interval_daysOfTheWeek_daysOfTheMonth_monthsOfTheYear_weeksOfTheYear_daysOfTheYear_setPositions_end_(
+            _FREQUENCY[rule["frequency"]], int(rule.get("every") or 1), days or None,
+            None, None, None, None, None, ending,
+        )  # fmt: skip
+        event.addRecurrenceRule_(made)
+    ok, error = store.saveEvent_span_commit_error_(event, ek.EKSpanThisEvent, True, None)
+    if not ok:
+        why = error.localizedDescription() if error is not None else "it said no"
+        return {"error": f"Calendar didn't add it ({why})."}
+    return {"created": _row(event, details=True)}
+
+
 def choose(rows: list[dict[str, Any]], title: str, calendar: str = "") -> list[dict[str, Any]]:
     """Of the events starting at the time asked for, the ones a request means: the title
     exactly (ignoring case and spacing), else those whose title holds the words asked for
@@ -304,6 +387,11 @@ async def edit_at(start: str, event_id: str, calendar: str, future: bool, change
     return await _helper(
         "edit", start, event_id, calendar, "1" if future else "0", json.dumps(changes)
     )
+
+
+async def create_at(spec: dict[str, Any]) -> dict:
+    """{"created": {...}} or {"error": ...} (see create())."""
+    return await _helper("create", json.dumps(spec))
 
 
 async def _helper(*argv: str, timeout: float = 70) -> dict:
@@ -370,12 +458,16 @@ def main() -> None:
             result = remove(args[1], args[2], args[3], args[4] == "1")
         elif len(args) == 6 and args[0] == "edit":
             result = edit(args[1], args[2], args[3], args[4] == "1", json.loads(args[5]))
+        elif len(args) == 2 and args[0] == "create":
+            spec = json.loads(args[1])
+            result = create(spec) if isinstance(spec, dict) else {"error": "Bad event."}
         else:
             result = {
                 "error": "usage: events <back> <ahead> | at <start> | "
-                "remove <start> <id> <calendar> <0|1> | edit <start> <id> <calendar> <0|1> <changes-json>"
+                "remove <start> <id> <calendar> <0|1> | edit <start> <id> <calendar> <0|1> "
+                "<changes-json> | create <event-json>"
             }
-    except ValueError as exc:  # a start that isn't one
+    except (ValueError, KeyError) as exc:  # a start that isn't one, a spec that isn't
         result = {"error": str(exc)}
     print(json.dumps(result), flush=True)
 

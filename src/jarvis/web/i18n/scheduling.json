@@ -1,0 +1,25 @@
+{
+  "strings": {
+    "Nudge when they go quiet": "对方不回复时提醒一下",
+    "One short, polite follow-up after Jarvis’s last message, shown to you before it goes like any other": "在 Jarvis 的上一条消息之后发一条简短、礼貌的跟进消息；和其他消息一样，发出前先给你看",
+    "Never": "从不",
+    "After 12 hours": "12小时后",
+    "After a day": "一天后",
+    "After 2 days": "两天后",
+    "After 3 days": "三天后",
+    "Send the invite": "发送邀请",
+    "Don't book": "不预约",
+    "Sent calendar invitations": "发送了日历邀请",
+    "Looked for a time that suits everyone": "找了大家都方便的时间"
+  },
+  "patterns": [
+    ["^Send the invite for “(.+)” to (.+)\\?$", "要把“$1”的邀请发给$2吗？"],
+    ["^Book “(.+)”, (.+), for (\\d+) minutes\\?$", "要预约“$1”吗？时间：$2，时长$3分钟。"],
+    ["^Send (.+) a follow-up\\?$", "要给$1发一条跟进消息吗？"],
+    ["^Booked “(.+)”, (.+)\\.$", "已预约“$1”，时间：$2。"],
+    ["^Add “(.+)” to your calendar, (.+), for (\\d+) minutes, at (.+)\\?$", "要把“$1”加到日历吗？时间：$2，时长$3分钟，地点：$4。"],
+    ["^Add “(.+)” to your calendar, (.+), for (\\d+) minutes\\?$", "要把“$1”加到日历吗？时间：$2，时长$3分钟。"],
+    ["^Add the all-day “(.+)” to your calendar, (.+), for (\\d+) days\\?$", "要把全天日程“$1”加到日历吗？从$2开始，共$3天。"],
+    ["^Add the all-day “(.+)” to your calendar, (.+)\\?$", "要把全天日程“$1”加到日历吗？日期：$2。"]
+  ]
+}
