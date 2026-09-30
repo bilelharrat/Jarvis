@@ -46,3 +46,9 @@
 .auto-hook-example { flex: 1 1 100%; font-size: 12px; }
 .auto-hook-example code { display: block; margin-top: 6px; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; overflow-wrap: anywhere; user-select: all; }
 #auto-hook-where code { font-size: 11.5px; overflow-wrap: anywhere; user-select: all; }
+
+/* script hooks: a script's path reads as code; one that can't run is marked */
+.auto-script-list .fact strong { font-family: var(--mono); font-size: 12.5px; font-weight: 500; }
+.auto-script-list li.problem small, .auto-script-list li.changed small { color: var(--warn); }
+#auto-scripts-where code { font-size: 11.5px; overflow-wrap: anywhere; user-select: all; }
+.auto-script-runs .auto-said { font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; }

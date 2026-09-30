@@ -4,8 +4,9 @@ waking or unlocking, Jarvis Code finishing; email rules are routines on the mail
 each run in the conversation or on its own with its own model, tools, delivery and
 standing orders (jobs.py), with a history of its runs; timers, alarms and reminders to
 the second; the heartbeat (heartbeat.py), a check-in every 30 or 60 minutes that speaks
-up only when something needs the owner; and webhooks (webhooks.py), POST /hooks/<name>
-on the window's local server for the owner's own scripts and apps.
+up only when something needs the owner; webhooks (webhooks.py), POST /hooks/<name> on
+the window's local server for the owner's own scripts and apps; and script hooks
+(hooks.py), the owner's scripts run on events after a yes remembered by their hash.
 
 install(hub) only registers: nothing here reads a file, starts a thread or touches the
 network until a loop runs or a command arrives.
@@ -18,15 +19,16 @@ automation_email_rule {from, subject, then, deliver} (a new email rule);
 automation_checkin_now (a check-in now); automation_webhook {action: add|delete|regenerate|
 update|token, name, routine?, note?, per_hour?} (-> "automation_webhook_token" {name, token}
 for token and regenerate); automation_origin {origin} (the window's own address, for the
-file that tells local scripts the port).
+file that tells local scripts the port); automation_scripts {action: allow|deny|open|scan,
+path?} (Settings › Script hooks).
 Settings (prefs.features): alarm_phone (an alarm set to ring the phone may call it);
 heartbeat_on, heartbeat_minutes (30 or 60), heartbeat_hours ("09:00-21:00"),
 heartbeat_checklist (what to keep an eye on, the owner's own words).
 Tools (server "automation"): set_timer, set_alarm, set_reminder, list_timers, cancel_timer,
 snooze_timer, stop_timer, update_routine, routine_history, check_ins, set_check_ins.
 Loops: "timers", "triggers", "heartbeat".
-Heard: the interrupter's new mail and texts (its observer), and the hub events
-phone_location, location and task_finished.
+Heard: the interrupter's new mail and texts (its observer), the hub events
+phone_location, location and task_finished, and every heads-up (for the script hooks).
 
 Claude cost: timers never call a model. Routines: see jobs.py (the model each routine asks
 for, capped per run and per day; the reader of someone else's words is Haiku, capped).
@@ -47,11 +49,12 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .. import heartbeat as heartbeat_kit
+from .. import hooks as hooks_kit
 from .. import hub as hub_module
 from .. import jobs, lang, prefs, triggers
 from .. import timers as timer_kit
 from .. import webhooks as webhook_kit
-from ..proactive import Alert
+from ..proactive import Alert, in_quiet_hours
 from ..textclean import clean_text
 
 log = logging.getLogger("jarvis")
@@ -201,6 +204,7 @@ class Automation:
             phone_on=lambda: bool(hub.prefs.feature("alarm_phone")),
             stops=lambda: hub._stops,
             on_change=self.send_timers,
+            on_rang=lambda t: self.hook("timer", {"kind": t.kind, "label": t.label, "id": t.id}),
             spawn=hub._spawn,
         )
         self.files_dir = jobs.FILES  # where routines' result files go (a temp folder in tests)
@@ -218,7 +222,15 @@ class Automation:
             folder=lambda: self.files_dir,
             workspace=workspace,
             on_change=self.send_runs,
+            on_finished=self._routine_finished,
         )
+        self.scripts = hooks_kit.ScriptHooks(
+            hub.feature_path("hooks"),
+            hub.feature_path("hooks.json"),
+            self._ask_script,
+            on_change=self.send_scripts,
+        )
+        self._scripts_seen: dict[str, tuple[float, bool]] = {}  # event -> (when looked, any)
 
         self.engine = triggers.TriggerEngine(
             lambda: hub.routines.items,
@@ -228,6 +240,8 @@ class Automation:
             battery=hub_module.battery,
             locked=triggers.screen_locked,
             busy=lambda: hub.meeting is not None,
+            on_event=self.hook,
+            unlock_wanted=lambda: self.has_scripts("unlock"),
         )
         self.webhooks = webhook_kit.Webhooks(
             hub.feature_path("webhooks.json"),
@@ -268,6 +282,7 @@ class Automation:
     async def _webhook_call(self, hook: webhook_kit.Hook, text: str) -> None:
         """A call a hook accepted: the routine it names runs with the reader's summary as
         its input; otherwise the summary is a heads-up. Never the payload itself."""
+        self.hook("webhook", {"hook": hook.name, "text": text[:4000]})
         source = f"what was sent to the webhook “{hook.name}”"
         routine = next((r for r in self.hub.routines.items if r.id == hook.routine), None)
         if hook.routine and routine is not None:
@@ -282,6 +297,102 @@ class Automation:
         stamp = datetime.now().strftime("%H%M%S")
         title = self.say("Webhook · {name}", name=hook.name)
         self.hub.notify(Alert(f"webhook:{hook.name}:{stamp}", "webhook", title, words))
+
+    # ── the owner's scripts ──
+
+    def has_scripts(self, event: str) -> bool:
+        """Whether any script waits on this event (looked at once a minute at most: a
+        heads-up comes often, and most owners have no hooks folder at all)."""
+        import time
+
+        now = time.monotonic()
+        seen = self._scripts_seen.get(event)
+        if seen is None or now - seen[0] > 60:
+            folder = self.scripts.folder / event
+            try:
+                any_there = folder.is_dir() and any(
+                    not p.name.startswith(".") for p in folder.iterdir()
+                )
+            except OSError:
+                any_there = False
+            seen = (now, any_there)
+            self._scripts_seen[event] = seen
+        return seen[1]
+
+    def hook(self, event: str, data: dict[str, Any]) -> None:
+        """Something happened: the owner's scripts for it run (each after its yes)."""
+        if self.has_scripts(event):
+            self.hub._spawn(self.scripts.fire(event, data))
+
+    def _routine_finished(self, routine: Any, run: jobs.Run) -> None:
+        self.hook(
+            "routine-finished",
+            {
+                "routine": {"id": routine.id, "name": routine.name},
+                "status": run.status,
+                "output": run.output[:4000],
+                "note": run.note,
+            },
+        )
+
+    async def _ask_script(self, question: str, detail: str) -> bool | None:
+        """A script's first run: a card (said, outside quiet hours). None: nobody answered."""
+        spoken = ""
+        if not in_quiet_hours(datetime.now(), self.hub.prefs.quiet_hours):
+            spoken = question
+            self.hub.say(question)
+        try:
+            choice = await asyncio.wait_for(
+                self.hub.request_approval(
+                    question, detail, [("allow", "Run it"), ("deny", "Don't")], spoken=spoken
+                ),
+                jobs.APPROVAL_WAIT,
+            )
+        except TimeoutError:
+            return None
+        return choice == "allow"
+
+    def session_hook(self, data: dict[str, Any]) -> None:
+        if data.get("task_kind") == "code" and data.get("status") in ("done", "failed"):
+            self.hook(
+                "session-done",
+                {
+                    "session": data.get("id"),
+                    "folder": data.get("folder"),
+                    "status": data.get("status"),
+                    "result": str(data.get("result") or "")[:4000],
+                },
+            )
+
+    def heads_up_hook(self, alert: Alert) -> None:
+        self.hook(
+            "heads-up",
+            {"kind": alert.kind, "title": alert.title, "text": alert.text, "key": alert.key},
+        )
+
+    def send_scripts(self) -> None:
+        self.hub.emit("automation", scripts=self.scripts.public())
+
+    async def scripts_command(self, msg: dict[str, Any]) -> None:
+        """Settings › Script hooks: allow or refuse a script as it is now, open the folder
+        (made on demand, with a folder per event), look again."""
+        action, rel = msg.get("action"), str(msg.get("path") or "")
+        if action in ("allow", "deny"):
+            if await asyncio.to_thread(self.scripts.decide, rel, action == "allow"):
+                return  # decide() told the windows
+        elif action == "open":
+            try:
+                folder = await asyncio.to_thread(self.scripts.ensure_folder)
+                await asyncio.to_thread(reveal, folder)
+            except OSError as exc:
+                self.hub.emit(
+                    "error", text=f"I couldn't open the hooks folder ({exc.strerror or exc})."
+                )
+            self._scripts_seen.clear()
+        elif action == "scan":
+            self._scripts_seen.clear()
+        public = await asyncio.to_thread(self.scripts.public)
+        self.hub.emit("automation", scripts=public)
 
     async def _calendar_ahead(self, hours: float) -> list[dict[str, Any]]:
         from .. import calendar_kit
@@ -322,6 +433,7 @@ class Automation:
             "timers": self.timers.public(),
             "checkins": self.heartbeat.public(),
             "webhooks": self.webhooks_state(),
+            "scripts": self.scripts.public(),
             **self.runs(),
         }
 
@@ -928,6 +1040,7 @@ def install(hub: Any) -> None:
     hub.register_command("automation_email_rule", feature.email_rule_command)
     hub.register_command("automation_checkin_now", feature.checkin_now)
     hub.register_command("automation_webhook", feature.webhook_command)
+    hub.register_command("automation_scripts", feature.scripts_command)
     hub.register_command("automation_origin", feature.origin_command)
     hub.register_webhook(feature.webhooks.handle)
     hub.register_loop("timers", feature.timers.run)
@@ -938,6 +1051,15 @@ def install(hub: Any) -> None:
     hub.add_event_sink(("phone_location",), engine.on_phone_location)
     hub.add_event_sink(("location",), lambda ev: engine.on_mac_location(ev.get("location")))
     hub.add_event_sink(("task_finished",), engine.on_session)
+    hub.add_event_sink(("task_finished",), feature.session_hook)
+    hub.add_notify_sink(feature.heads_up_hook)
     observe = getattr(hub.interrupts, "add_observer", None)
     if callable(observe):  # a test's own interrupter may not have one
         observe(engine.on_messages)
+
+
+def reveal(folder: Any) -> None:
+    """Show a folder in Finder (the owner's own tap in Settings)."""
+    import subprocess
+
+    subprocess.run(["open", str(folder)], check=False, timeout=10)

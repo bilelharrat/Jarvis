@@ -536,3 +536,13 @@ async def test_the_interrupter_hands_over_every_new_email_robots_too(tmp_path):
     count = len(seen)
     await watch.poll()
     assert len(seen) == count  # each one once
+
+
+async def test_a_script_hook_on_unlocking_has_the_lock_state_polled_too(tmp_path):
+    rig = Rig(tmp_path, unlock_wanted=lambda: True)  # no routine waits on it: a script does
+    await rig.tick(seconds=5)
+    rig.lock = True
+    await rig.tick(seconds=5)
+    rig.lock = False
+    await rig.tick(seconds=5)
+    assert rig.fired == [] and [name for name, _d in rig.hooks] == ["unlock"]

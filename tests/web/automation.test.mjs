@@ -77,3 +77,9 @@ test('a webhook’s address and how to call it', () => {
   const example = A.hookExample('http://127.0.0.1:52011', 'ci');
   assert.match(example, /^curl -X POST -H "X-Jarvis-Token: \$JARVIS_TOKEN" --data '.+' http:\/\/127\.0\.0\.1:52011\/hooks\/ci$/);
 });
+
+test('a script hook’s standing, in words', () => {
+  assert.equal(A.scriptState('allowed'), 'Allowed');
+  assert.equal(A.scriptState('changed'), 'Changed: asks again');
+  assert.equal(A.scriptState('problem'), 'Can’t run');
+});

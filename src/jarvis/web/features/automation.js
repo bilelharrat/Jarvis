@@ -5,7 +5,8 @@
 // heartbeat: on or off, how often, active hours, the checklist, the last check-ins),
 // Settings › Email rules ("when an email from … arrives, …": routines on the mail trigger),
 // Settings › Webhooks (each hook's address, its token to copy, a new token, what it does),
-// and Stop and Snooze on the card of a timer or alarm ringing.
+// Settings › Script hooks (the owner's scripts found, each one's say, their last runs), and
+// Stop and Snooze on the card of a timer or alarm ringing.
 //
 // Everything a routine or a timer carries (its name, its prompt, its label, when it runs) is
 // the owner's or the backend's data: shown with textContent and marked data-no-i18n. The
@@ -65,6 +66,13 @@
     // How to call it from a script, with the token put in by the one who runs it.
     hookExample(origin, name) {
       return `curl -X POST -H "X-Jarvis-Token: $JARVIS_TOKEN" --data 'Build 42 failed' ${A.hookUrl(origin, name)}`;
+    },
+    // A script's standing, in the window's words.
+    scriptState(state) {
+      return ({
+        allowed: 'Allowed', new: 'Asks the first time it runs', changed: 'Changed: asks again',
+        denied: 'Not allowed', problem: 'Can’t run',
+      })[state] || state;
     },
     // An email rule is a routine that runs when an email arrives.
     isEmailRule(r) {
@@ -279,10 +287,12 @@
     buildCheckinGroup(timersGroup);
     buildEmailGroup(checkinGroup);
     buildHooksGroup(emailGroup);
+    buildScriptsGroup(hooksGroup);
     renderTimers();
     renderCheckins();
     renderEmailRules();
     renderHooks();
+    renderScripts();
   }
 
   function timerRow(t) {
@@ -588,6 +598,76 @@
     if (buttonNode && ev.token) copy(ev.token, buttonNode);
   }
 
+  // ── Settings › Script hooks ──
+
+  let scriptsGroup = null;
+  let scripts = { folder: '', scripts: [], runs: [] };
+
+  function buildScriptsGroup(after) {
+    scriptsGroup = el('section', 'group auto-group');
+    scriptsGroup.id = 'auto-scripts';
+    const actions = el('div', 'folder-form');
+    actions.append(
+      button('Open the folder', 'btn', () => send({ type: 'automation_scripts', action: 'open' })),
+      button('Look again', 'btn', () => send({ type: 'automation_scripts', action: 'scan' })),
+    );
+    const where = el('p', 'small-status');
+    where.id = 'auto-scripts-where';
+    const list = el('ul', 'itemlist auto-script-list');
+    list.id = 'auto-script-list';
+    const runs = el('ul', 'itemlist auto-script-runs');
+    runs.id = 'auto-script-runs';
+    scriptsGroup.append(
+      el('h3', '', 'Script hooks'),
+      el('p', 'small-status', 'Your own scripts, run when something happens: put an executable script in the folder named for the event (heads-up, routine-finished, session-done, arrive, leave, wake, unlock, timer, webhook). It gets what happened as JSON on its input and runs for at most 30 seconds. I ask you the first time, and again whenever it changes.'),
+      actions,
+      where,
+      list,
+      runs,
+    );
+    after.after(scriptsGroup);
+  }
+
+  function renderScripts() {
+    const list = F.$('auto-script-list');
+    if (!list) return;
+    const where = F.$('auto-scripts-where');
+    if (where) where.replaceChildren(...(scripts.folder ? [mine(el('code', '', scripts.folder))] : []));
+    const found = scripts.scripts || [];
+    if (!found.length) list.replaceChildren(el('li', 'muted', 'No scripts yet.'));
+    else {
+      list.replaceChildren(...found.map((sc) => {
+        const li = el('li', `auto-script ${sc.state}`);
+        li.dataset.path = sc.path;
+        const fact = el('span', 'fact');
+        const about = el('small');
+        about.append(el('span', '', A.scriptState(sc.state)));
+        if (sc.problem) about.append(el('span', 'auto-sep', ': '), el('span', '', sc.problem));
+        fact.append(mine(el('strong', '', sc.path)), about);
+        li.append(fact);
+        if (sc.state !== 'problem') {
+          if (sc.state !== 'allowed') li.append(button('Allow', 'btn', () => send({ type: 'automation_scripts', action: 'allow', path: sc.path }), `Allow: ${sc.path}`));
+          if (sc.state !== 'denied') li.append(button('Don’t', 'btn', () => send({ type: 'automation_scripts', action: 'deny', path: sc.path }), `Don’t run: ${sc.path}`));
+        }
+        return li;
+      }));
+    }
+    const runs = F.$('auto-script-runs');
+    if (runs) {
+      runs.replaceChildren(...(scripts.runs || []).slice(0, 5).map((r) => {
+        const li = el('li');
+        const fact = el('span', 'fact');
+        const head = el('small');
+        head.append(mine(el('bdi', '', A.when(r.at, lang))), el('span', 'auto-sep', ' · '), mine(el('bdi', '', r.path)),
+          el('span', 'auto-sep', ' · '), mine(el('bdi', '', r.status)));
+        fact.append(head);
+        if (r.output) fact.append(mine(el('span', 'auto-said', r.output.slice(0, 300))));
+        li.append(fact);
+        return li;
+      }));
+    }
+  }
+
   function renderTimers() {
     const list = F.$('auto-timer-list');
     if (!list) return;
@@ -646,6 +726,7 @@
     if (ev.timers) { timers = ev.timers; renderTimers(); }
     if (ev.checkins) { checkins = ev.checkins; renderCheckins(); }
     if (ev.webhooks) { webhooks = ev.webhooks; renderHooks(); }
+    if (ev.scripts) { scripts = ev.scripts; renderScripts(); }
   });
   F.on('automation_webhook_token', onToken);
   F.on('automation_history', (ev) => {

@@ -100,7 +100,27 @@
     "Accepted": "已收到",
     "Too many this hour": "这小时次数太多",
     "Too big": "太大",
-    "The port changes when Jarvis restarts: scripts can read the current address from": "Jarvis 重启后端口会变：脚本可以从这个文件读取当前地址"
+    "The port changes when Jarvis restarts: scripts can read the current address from": "Jarvis 重启后端口会变：脚本可以从这个文件读取当前地址",
+    "Script hooks": "脚本钩子",
+    "Your own scripts, run when something happens: put an executable script in the folder named for the event (heads-up, routine-finished, session-done, arrive, leave, wake, unlock, timer, webhook). It gets what happened as JSON on its input and runs for at most 30 seconds. I ask you the first time, and again whenever it changes.": "在发生某件事时运行你自己的脚本：把可执行脚本放进以事件命名的文件夹（heads-up、routine-finished、session-done、arrive、leave、wake、unlock、timer、webhook）。它会从标准输入收到描述这件事的 JSON，最多运行30秒。第一次运行前我会问你，脚本改动后会再问。",
+    "Open the folder": "打开文件夹",
+    "Look again": "重新查看",
+    "No scripts yet.": "还没有脚本。",
+    "Allowed": "已允许",
+    "Asks the first time it runs": "第一次运行时会问你",
+    "Changed: asks again": "已改动：会再问你",
+    "Not allowed": "不允许",
+    "Can’t run": "无法运行",
+    "Allow": "允许",
+    "Don’t": "不要",
+    "Run it": "运行",
+    "Don't": "不要",
+    "it points outside the hooks folder": "它指向钩子文件夹以外",
+    "it can't be read": "无法读取",
+    "it isn't a file": "它不是文件",
+    "it isn't yours": "它不属于你",
+    "others can change it (chmod go-w)": "别人可以改它（chmod go-w）",
+    "it isn't executable (chmod +x)": "它不可执行（chmod +x）"
   },
   "patterns": [
     [
@@ -138,6 +158,14 @@
     [
       "^Run “(.+)”$",
       "运行“$1”"
+    ],
+    [
+      "^Allow: (.+)$",
+      "允许：$1"
+    ],
+    [
+      "^Don’t run: (.+)$",
+      "不要运行：$1"
     ]
   ]
 }

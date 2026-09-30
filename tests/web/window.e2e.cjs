@@ -2189,6 +2189,35 @@ test('Webhooks: each one’s address, its token to copy, a new token, what it do
   ]), JSON.stringify(s));
 });
 
+test('Script hooks: what was found and each one’s say, the folder, the last runs', async () => {
+  await withAutomation();
+  await js('toggleSettings(true)');
+  await js(`featureEvent({ type: 'automation', scripts: { folder: '/Users/x/Library/Application Support/Jarvis/hooks', scripts: [
+    { path: 'arrive/lights.sh', event: 'arrive', state: 'new', problem: '' },
+    { path: 'heads-up/log.sh', event: 'heads-up', state: 'allowed', problem: '' },
+    { path: 'wake/x.sh', event: 'wake', state: 'problem', problem: "it isn't executable (chmod +x)" } ],
+    runs: [{ at: new Date().toISOString(), path: 'heads-up/log.sh', status: 'exit 3', output: '<b>boom</b>' }] } })`);
+  const rows = await js('[...$("auto-script-list").children].map((li) => [li.dataset.path, [...li.querySelectorAll("button")].map((b) => b.textContent)])');
+  assert(JSON.stringify(rows) === JSON.stringify([
+    ['arrive/lights.sh', ['Allow', 'Don’t']],
+    ['heads-up/log.sh', ['Don’t']],
+    ['wake/x.sh', []],
+  ]), JSON.stringify(rows));
+  assert((await js('$("auto-scripts").textContent')).includes('it isn\'t executable'), 'the problem is not said');
+  assert((await js('$("auto-script-runs").textContent')).includes('<b>boom</b>') && await js('!$("auto-script-runs").querySelector("b")'), 'output became markup');
+  await clickText('#auto-script-list li[data-path="arrive/lights.sh"]', 'Allow');
+  await clickText('#auto-script-list li[data-path="heads-up/log.sh"]', 'Don’t');
+  await clickText('#auto-scripts', 'Open the folder');
+  await clickText('#auto-scripts', 'Look again');
+  const s = await sentOf('automation_scripts');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'automation_scripts', action: 'allow', path: 'arrive/lights.sh' },
+    { type: 'automation_scripts', action: 'deny', path: 'heads-up/log.sh' },
+    { type: 'automation_scripts', action: 'open' },
+    { type: 'automation_scripts', action: 'scan' },
+  ]), JSON.stringify(s));
+});
+
 // ──
 
 let base;

@@ -301,7 +301,8 @@ class TriggerEngine:
     routines(): the routines. events(): the calendar around now (calendar_kit's shape).
     battery(): {"percent", "plugged"} or None. locked(): the screen's lock state or None.
     busy(): meeting notes running (a run waits). on_event(name, data): the script hooks
-    hear arrive, leave, wake, unlock."""
+    hear arrive, leave, wake, unlock. unlock_wanted(): something besides a routine (a
+    script hook) waits on unlocking, so the lock state is polled."""
 
     def __init__(
         self,
@@ -317,6 +318,7 @@ class TriggerEngine:
         wall: Callable[[], float] = time.time,
         mono: Callable[[], float] = time.monotonic,
         on_event: Callable[[str, dict[str, Any]], Any] = lambda _n, _d: None,
+        unlock_wanted: Callable[[], bool] = lambda: False,
     ) -> None:
         self.routines = routines
         self.fire = fire
@@ -328,6 +330,7 @@ class TriggerEngine:
         self.busy = busy
         self.wall, self.mono = wall, mono
         self.on_event = on_event
+        self.unlock_wanted = unlock_wanted
         self._state: dict[str, Any] | None = None
         self._inbox: deque[dict[str, Any]] = deque(maxlen=INBOX_KEPT)
         self.deferred: list[tuple[str, Cause]] = []
@@ -517,10 +520,9 @@ class TriggerEngine:
         self._mac_event("wake", "The Mac woke up", now)
 
     async def _unlock(self, now: datetime) -> None:
-        if not self._waiting("wake"):
-            self._locked = None
-            return
-        if not any(t.get("what") == "unlock" for _r, t in self._waiting("wake")):
+        routine = any(t.get("what") == "unlock" for _r, t in self._waiting("wake"))
+        if not routine and not self.unlock_wanted():
+            self._locked = None  # a fresh start when something waits on it again
             return
         locked = await asyncio.to_thread(self.locked_fn)
         before, self._locked = self._locked, locked
