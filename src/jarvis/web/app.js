@@ -179,7 +179,8 @@ function onEvent(ev) {
       // window was away goes, one raised meanwhile gets its sheet and its number keys.
       $('cards').querySelectorAll('.needs-ok').forEach((n) => n.remove());
       pendingApprovals.clear();
-      (ev.approvals || []).forEach((a) => { showApproval(a); pendingApprovals.set(a.id, a); });
+      for (const id of approvalSeen.keys()) if (!(ev.approvals || []).some((a) => a.id === id)) approvalSeen.delete(id);
+      (ev.approvals || []).forEach((a) => { approvalShown(a.id); showApproval(a); pendingApprovals.set(a.id, a); });
       renderInlineApprovals();
       if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }  // what it missed
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
@@ -273,10 +274,11 @@ function onEvent(ev) {
     case 'sources': onSources(ev); break;
     case 'files': onFiles(ev); break;
     case 'tool': onTool(ev); break;
-    case 'approval': showApproval(ev); pendingApprovals.set(ev.id, ev); renderInlineApprovals(); break;
+    case 'approval': approvalShown(ev.id); showApproval(ev); pendingApprovals.set(ev.id, ev); renderInlineApprovals(); break;
     case 'approval_resolved': {
       document.querySelectorAll(`[data-approval="${CSS.escape(ev.id)}"]`).forEach((n) => n.remove());
       pendingApprovals.delete(ev.id);
+      approvalSeen.delete(ev.id);
       break;
     }
     case 'status': renderStatus(ev); break;
@@ -2983,8 +2985,19 @@ function renderQueue(t) {
   if (more) list.append(el('li', 'jc-queued', `and ${more} more waiting`));
 }
 
+// An approval answers only once it has been up a moment, and not right after another answer:
+// the second click of a double-click, or a card that has just slid (or arrived) under the
+// pointer, never answers what the owner didn't read.
+const APPROVAL_SETTLE = 400;  // ms
+const approvalSeen = new Map();  // approval id -> when the window first showed it
+let approvalAnsweredAt = -Infinity;
+function approvalShown(id) { if (!approvalSeen.has(id)) approvalSeen.set(id, performance.now()); }
+
 function answerApproval(a, choice, feedback) {
+  const now = performance.now();
+  if (now - approvalAnsweredAt < APPROVAL_SETTLE || now - (approvalSeen.get(a.id) ?? -Infinity) < APPROVAL_SETTLE) return;
   const go = () => {
+    approvalAnsweredAt = performance.now();  // (one a check turned down can be tried again at once)
     send({ type: 'approve', id: a.id, choice, feedback: feedback || '' });
     document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove());
   };

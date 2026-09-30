@@ -190,6 +190,7 @@ test('A new approval keeps the reason being typed for another one', async () => 
 
 test('Number keys answer only from Jarvis Code itself, once per press', async () => {
   await open(1, 'onEvent(__approval("A"))');
+  await sleep(SETTLED);
   await js('toggleSettings(true); document.querySelector("#settings summary").focus()');
   await key('1');
   assert(!(await sent()).some((s) => s.startsWith('approve')), 'a 1 pressed in Settings answered the approval');
@@ -199,7 +200,7 @@ test('Number keys answer only from Jarvis Code itself, once per press', async ()
   assert(s.length === 1 && s[0] === 'approve A allow', `sent ${s}`);
 });
 
-// A moment for an approval to have been up.
+// An approval answers only once it has been up a moment (APPROVAL_SETTLE in app.js).
 const SETTLED = 450;
 
 test('Keys typed into a field a redraw took away never answer an approval or talk', async () => {
@@ -221,6 +222,30 @@ test('Keys typed into a field a redraw took away never answer an approval or tal
   assert(s.join() === 'approve A allow', `sent ${s}`);
 });
 
+test('A double-click answers one approval, never the next card sliding or arriving under the pointer', async () => {
+  const card = (id) => `#cards [data-approval="${id}"] .btn.primary`;
+  await js('onEvent(__approval("A", { task_id: undefined })); onEvent(__approval("B", { task_id: undefined }))');
+  await sleep(SETTLED);
+  // B is on top; its Yes answered, A slides up under the pointer for the double-click's second click.
+  const { x, y } = await js(`(() => { const b = document.querySelector('${card('B')}').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+  for (const clickCount of [1, 2]) {
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount });
+  }
+  let s = (await sent()).filter((t) => t.startsWith('approve'));
+  assert(s.join() === 'approve B allow', `the double-click answered ${s}`);
+  // A card that has only just arrived on top takes no click; once it has been up a moment, it does.
+  await sleep(SETTLED);
+  await js('onEvent(__approval("C", { task_id: undefined }))');
+  await clickAt(card('C'));
+  s = (await sent()).filter((t) => t.startsWith('approve'));
+  assert(s.join() === 'approve B allow', `a card just raised answered: ${s}`);
+  await sleep(SETTLED);
+  await clickAt(card('C'));
+  s = (await sent()).filter((t) => t.startsWith('approve'));
+  assert(s.join() === 'approve B allow,approve C allow', `sent ${s}`);
+});
+
 // ── a reconnect ──
 
 test('A reconnect replaces what is waiting: answered ones go, new ones get a sheet and keys', async () => {
@@ -236,6 +261,7 @@ test('A reconnect replaces what is waiting: answered ones go, new ones get a she
   await js('{ const a = __approval("new"); delete a.type; onEvent({ type: "hello", hub_id: "hub-a", state: "idle", muted: true, status: {}, activity: [], tasks: [__task(1)], prefs, brain: {}, approvals: [a], history: [] }); document.activeElement.blur(); }');
   r = await js('({ sheets: document.querySelectorAll("#deck-timeline .jc-ask").length, cards: $("cards").querySelectorAll(".needs-ok").length })');
   assert(r.sheets === 1 && r.cards === 1, `an approval still waiting lost its card or sheet: ${JSON.stringify(r)}`);
+  await sleep(SETTLED);
   await key('1');
   assert((await sent()).includes('approve new allow'), 'the number key did not answer the approval from the snapshot');
 });
@@ -1276,6 +1302,7 @@ test('The agent board: lanes by where each session stands, answering from a card
   await frames(2);
   r = await js('document.querySelector(\'.cs-card[data-task="1"]\').textContent');
   assert(r.includes('+12') && r.includes('−3') && r.includes('feature/x') && r.includes('Editing app.py') && r.includes('just now'), r);
+  await sleep(SETTLED);
   await js('[...document.querySelectorAll(\'.cs-card[data-task="2"] button\')].find((b) => b.textContent === "Yes").click()');
   assert((await sent()).includes('approve a2 allow'), `sent ${await sent()}`);
   await press('Escape');
@@ -3561,6 +3588,7 @@ test('A question that takes several answers: number keys tick them, Answer sends
   await featureScript('code-ask.js');
   await open(1);
   await deliver(askCard('q1', true));
+  await sleep(SETTLED);
   const r = await js(`({ sheet: !!document.querySelector('#deck-timeline > .jc-ask.cq-multi[data-approval="q1"]'), ticks: document.querySelectorAll('#deck-timeline .cq-tick').length,
     imgs: document.querySelectorAll('#deck-timeline .jc-ask img, #cards img').length, pwned: !!window.__pwned, bold: document.querySelectorAll('#deck-timeline b').length,
     send: document.querySelector('#deck-timeline .cq-send').disabled })`);
@@ -3581,6 +3609,7 @@ test('A question with one answer: a number picks it, or the owner’s own words 
   await featureScript('code-ask.js');
   await open(1);
   await deliver(askCard('q2', false));
+  await sleep(SETTLED);
   assert(await js('!!document.querySelector("#deck-timeline > .jc-ask.cq-sheet .cq-choice") && !document.querySelector("#deck-timeline .cq-tick")'), 'no option buttons');
   await js('document.activeElement.blur(); true');
   await key('3');
@@ -3588,6 +3617,7 @@ test('A question with one answer: a number picks it, or the owner’s own words 
   await deliver({ type: 'approval_resolved', id: 'q2' });  // (as the hub says once it's answered)
   await js('__sent.length = 0; true');
   await deliver(askCard('q3', false));
+  await sleep(SETTLED);
   await js('window.__o = document.querySelector("#deck-timeline .cq-other-input"); __o.focus(); true');
   await type('only lint');
   await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
@@ -3597,6 +3627,7 @@ test('A question with one answer: a number picks it, or the owner’s own words 
   // Outside Jarvis Code, its card has the same options.
   await js('__sent.length = 0; toggleCC(false); true');
   await deliver(askCard('q4', false, { task_id: 2 }));
+  await sleep(SETTLED);
   assert(await js('!!document.querySelector("#cards [data-approval=q4] .cq-card .cq-choice")'), 'the card has no options');
   await js('[...document.querySelectorAll("#cards [data-approval=q4] .cq-skip")][0].click(); true');
   assert(JSON.stringify(await approves()) === JSON.stringify([['q4', 'skip', '']]), JSON.stringify(await approves()));
@@ -3703,6 +3734,7 @@ test('Bypass and a risky step allowed from its card ask for Touch ID first, or t
   // A risky step waits for the finger; an ordinary one goes at once.
   await js('__finger = false; __touch.length = 0; true');
   await deliver({ ...(await js('__approval("r1", { detail: "$ rm -rf build" })')), task_id: 1 });
+  await sleep(SETTLED);
   await js('document.querySelector("#deck-timeline [data-approval=r1] .jc-choices button").click(); true');
   await sleep(60);
   assert((await sentOf('approve')).length === 0 && (await js('!!document.querySelector("#deck-timeline [data-approval=r1]")')), 'a risky step went without the finger');
@@ -3711,6 +3743,7 @@ test('Bypass and a risky step allowed from its card ask for Touch ID first, or t
   assert(JSON.stringify((await sentOf('approve')).map((m) => [m.id, m.choice])) === JSON.stringify([['r1', 'allow']]), JSON.stringify(await js('__sent')));
   assert(await js('!document.querySelector("[data-approval=r1]")'), 'the answered sheet stayed');
   await deliver({ ...(await js('__approval("r2", { detail: "$ npm test" })')), task_id: 1 });
+  await sleep(SETTLED);
   await js('__touch.length = 0; document.querySelector("#deck-timeline [data-approval=r2] .jc-choices button").click(); true');
   assert(JSON.stringify((await sentOf('approve')).map((m) => m.id)) === JSON.stringify(['r1', 'r2']) && (await js('__touch.length')) === 0, 'an ordinary step waited');
 });
