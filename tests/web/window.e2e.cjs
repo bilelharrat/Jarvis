@@ -4697,6 +4697,39 @@ test('Undo: a button under the reply after something undoable, gone with the nex
   assert(await js(`$('act-undo').hidden`), 'an empty offer did not hide it');
 });
 
+// ── The owner's own personas (web/features/personas.js, Settings › Personality) ──
+
+test('Settings: personas of your own are made, changed and removed under the persona choice', async () => {
+  await loadFeatures('personas.js', 'personas.css');
+  await js(`__ev({ type: 'personas_custom', items: [], max: 8, error: '' }); true`);
+  const shown = await js(`({ after: $('persona-group').nextElementSibling.id, items: $('persona-list').children.length, add: !$('persona-new').hidden && !$('persona-new').disabled, form: $('persona-form').hidden })`);
+  assert(shown.after === 'persona-own' && shown.items === 0 && shown.add && shown.form, JSON.stringify(shown));
+  await js(`$('persona-new').click(); true`);
+  assert(await js(`!$('persona-form').hidden && $('persona-new').hidden && $('persona-humor').value === '60' && $('persona-humor-out').textContent === '60%'`), 'the editor did not open empty');
+  await js(`$('persona-name').value = 'Alfred'; $('persona-about').value = 'A gentle old butler.'; $('persona-humor').value = '30'; $('persona-humor').dispatchEvent(new Event('input')); __sent.length = 0; $('persona-form').requestSubmit(); true`);
+  const made = await sentOf('persona_save');
+  assert(JSON.stringify(made) === JSON.stringify([{ type: 'persona_save', persona: { name: 'Alfred', description: 'A gentle old butler.', zh_name: '', zh_description: '', humor: 30 } }]), JSON.stringify(made));
+  await js(`__ev({ type: 'personas_custom', items: [], max: 8, error: 'Give the persona a name.' }); true`);
+  assert(await js(`!$('persona-form').hidden && !$('persona-error').hidden && $('persona-error').textContent === 'Give the persona a name.' && !$('persona-save').disabled`), 'an error closed the editor');
+  const alfred = `{ id: 'alfred', name: 'Alfred <i>x</i>', description: 'A gentle old butler.', zh_name: '', zh_description: '', humor: 30, extra: {} }`;
+  await js(`$('persona-form').requestSubmit(); __ev({ type: 'personas_custom', items: [${alfred}], max: 8, error: '' }); true`);
+  const listed = await js(`({ form: $('persona-form').hidden, names: [...document.querySelectorAll('.persona-item strong')].map((n) => n.textContent), mine: document.querySelector('.persona-item strong').hasAttribute('data-no-i18n'), italics: document.querySelectorAll('.persona-item i').length })`);
+  assert(listed.form && listed.names[0] === 'Alfred <i>x</i>' && listed.mine && listed.italics === 0, JSON.stringify(listed));
+  const press = (label) => js(`[...document.querySelectorAll('.persona-item .btn')].find((b) => b.textContent === ${JSON.stringify(label)}).click(); true`);
+  await js('__sent.length = 0');
+  await press('Edit');
+  assert(await js(`$('persona-name').value === 'Alfred <i>x</i>' && $('persona-humor').value === '30'`), 'Edit did not fill the editor');
+  await js(`$('persona-form').requestSubmit(); true`);
+  assert((await sentOf('persona_save'))[0].persona.id === 'alfred', 'an edit lost its id');
+  await js(`__ev({ type: 'personas_custom', items: [${alfred}], max: 8, error: '' }); __sent.length = 0; true`);
+  await press('Delete');
+  assert((await sentOf('persona_delete')).length === 0 && await js(`[...document.querySelectorAll('.persona-item .btn')].some((b) => b.textContent === 'Delete it?')`), 'one press deleted it');
+  await press('Delete it?');
+  assert(JSON.stringify(await sentOf('persona_delete')) === '[{"type":"persona_delete","id":"alfred"}]', 'the second press did not delete it');
+  await js(`__ev({ type: 'personas_custom', items: Array.from({ length: 8 }, (_, i) => ({ id: 'p' + i, name: 'P' + i, description: 'd', zh_name: '', zh_description: '', humor: 60, extra: {} })), max: 8, error: '' }); true`);
+  assert(await js(`$('persona-new').disabled && $('persona-new').title === "There's room for 8 personas of your own."`), 'a full list still offered a new one');
+});
+
 // ── JARVIS's own conversation (web/features/conversation*.js, loaded as features.js would) ──
 
 const CONVO = ['conversation.js', 'conversation.css'];

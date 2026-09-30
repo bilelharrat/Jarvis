@@ -1,0 +1,38 @@
+{
+  "strings": {
+    "Your personas": "你的角色",
+    "New persona…": "新建角色…",
+    "A persona of your own": "你自己的角色",
+    "e.g. Alfred": "例如 Alfred",
+    "How it talks and what it’s like": "它怎么说话、是什么样的",
+    "Humor it starts with": "初始幽默度",
+    "Name": "名字",
+    "What it’s like": "它是什么样的",
+    "Name in Chinese (optional)": "中文名（可选）",
+    "What it’s like, in Chinese (optional)": "它是什么样的（中文，可选）",
+    "Save persona": "保存角色",
+    "Cancel": "取消",
+    "Edit": "编辑",
+    "Delete": "删除",
+    "Delete it?": "确定删除？",
+    "Give the persona a name.": "给这个角色起个名字。",
+    "Describe the persona: how it talks and what it's like.": "描述一下这个角色：它怎么说话、是什么样的。",
+    "That persona isn't there any more.": "那个角色已经不在了。",
+    "That persona can't be kept.": "这个角色没法保存。",
+    "Looked at the personas": "查看了角色"
+  },
+  "patterns": [
+    [
+      "^There's room for (\\d+) personas of your own\\.$",
+      "你最多可以有 $1 个自己的角色。"
+    ],
+    [
+      "^Couldn't save it just now \\((.+)\\)\\.$",
+      "暂时没能保存（$1）。"
+    ],
+    [
+      "^Couldn't remove it just now \\((.+)\\)\\.$",
+      "暂时没能删除（$1）。"
+    ]
+  ]
+}

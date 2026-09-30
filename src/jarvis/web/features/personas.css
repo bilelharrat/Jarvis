@@ -1,0 +1,25 @@
+/* The owner's own personas (features/personas.js): under the persona choice in Settings ›
+   Personality, a quiet list and an editor in the Settings sheet's own row style. */
+
+.persona-own { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.persona-kicker { font-size: 12px; font-weight: 600; color: var(--muted); }
+.persona-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.persona-list:empty { display: none; }
+.persona-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line);
+}
+.persona-words { display: flex; flex-direction: column; min-width: 0; }
+.persona-words strong { font-size: 14px; font-weight: 600; }
+.persona-words small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-buttons { flex: none; display: inline-flex; gap: 6px; }
+#persona-new { align-self: flex-start; }
+#persona-new[hidden] { display: none; }
+.persona-form { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); }
+.persona-form[hidden] { display: none; }
+.persona-form textarea, .persona-form input:not([type="range"]) {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; padding: 7px 10px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical;
+}
+.persona-error { margin: 0; font-size: 13px; color: var(--warn); }
+.persona-error[hidden] { display: none; }
