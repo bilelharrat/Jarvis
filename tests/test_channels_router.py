@@ -863,7 +863,7 @@ def test_the_public_state_never_holds_a_token(settings, quiet_speaker, isolated)
     router.adapters["telegram"].connected()
     state = router.public()
     assert "SECRET" not in json.dumps(state)
-    assert [i["id"] for i in state["items"]] == ["telegram"]
+    assert [i["id"] for i in state["items"]] == ["telegram", "imessage"]
     assert next(i for i in state["items"] if i["id"] == "telegram")["ready"] is True
 
 
@@ -946,11 +946,11 @@ def test_the_feature_registers_its_settings_commands_and_tool(settings, quiet_sp
     hub = make_hub(settings, quiet_speaker, isolated)
     assert "channels" in hub.features
     assert hub.prefs.feature("channels_telegram_on") is False  # off until connected
-    assert hub.prefs.feature("channels_telegram_forward") == "urgent"
-    assert hub.prefs.feature("channels_telegram_approvals") is True
+    assert hub.prefs.feature("channels_imessage_forward") == "urgent"
+    assert hub.prefs.feature("channels_imessage_approvals") is True
     hub.set_feature_prefs({"channels_telegram_forward": "loud"})
     assert hub.prefs.feature("channels_telegram_forward") == "urgent"
-    assert {"channels_status", "channels_connect", "channels_pair"} <= set(hub._commands)
+    assert {"channels_status", "channels_connect", "channels_imessage"} <= set(hub._commands)
     assert "chats" in hub._feature_servers()
     assert hub._extra_prompt() == ""  # no chat connected: nothing said about chats
     assert tool_label("mcp__chats__send_file_to_chat") == "Sent a file to your chat"

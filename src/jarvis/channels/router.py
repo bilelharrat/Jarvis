@@ -1,6 +1,6 @@
 """The chat channels' side of the hub: what comes in from a chat, and what goes out to one.
 
-A message from the owner (checked by pairing) becomes a silent
+A message from the owner (checked by pairing, or by the iMessage setup) becomes a silent
 turn in the main conversation, with a note saying where it came from, and the reply goes
 back to that chat. Commands (/stop, /status, /brief, /new, /help, /code) are handled here
 without a model. Approval cards raised by a chat's own request go back to that chat at
@@ -45,7 +45,7 @@ from .words import hint_for, say
 log = logging.getLogger("jarvis")
 
 STATE_FILE = "channels.json"
-ORDER = ("telegram",)
+ORDER = ("telegram", "imessage")
 FORWARD_MODES = ("urgent", "all", "none")
 SUPERVISE_EVERY = 2.0
 RESTART_AFTER = 30.0  # a channel that stopped with an error starts again after this
@@ -85,6 +85,7 @@ PROMPT = (
 LABELS = {"send_file_to_chat": "Sent a file to your chat"}
 APP_WORDS = {
     "telegram": ("telegram", "电报"),
+    "imessage": ("imessage", "i message", "messages app", "text me", "短信", "信息"),
 }
 
 # "send me the Q3 memo", "share the invoice", "text it to me", "把报告发给我"
@@ -185,9 +186,10 @@ class Channels:
         self._publish_at: asyncio.TimerHandle | None = None
         self._last_publish = 0.0
         self._saving: asyncio.TimerHandle | None = None
+        from .imessage import IMessage
         from .telegram import Telegram
 
-        self.adapters: dict[str, Channel] = {a.name: a for a in (Telegram(self),)}
+        self.adapters: dict[str, Channel] = {a.name: a for a in (Telegram(self), IMessage(self))}
 
     @property
     def state(self) -> ChannelState:
@@ -442,7 +444,7 @@ class Channels:
 
     async def _not_owner(self, adapter: Channel, msg: Inbound) -> None:
         if msg.owner is False:
-            return  # a channel that knows it isn't the owner's: never answered
+            return  # a channel that knows it isn't the owner's (iMessage): never answered
         if msg.action is not None:
             await self._ack(msg, say(words.PRIVATE, self.language))
             return
@@ -1119,7 +1121,7 @@ class Channels:
             "send_file_to_chat",
             "Send the owner a file you made (a document you wrote, an invoice, a research "
             "report) in one of their chats: the one the request came from, or the chat app "
-            "they name (telegram). file: its title, name or path. "
+            "they name (telegram, imessage). file: its title, name or path. "
             "Only files you made can be sent; they're asked first unless they asked for it.",
             {"file": str, "chat": str},
         )
@@ -1214,6 +1216,8 @@ class Channels:
         adapter = self.adapters.get(name)
         if kind == "channels_status":
             self.publish(now=True)
+        elif kind == "channels_chats":
+            self.spawn(self._list_chats())
         elif adapter is None:
             return
         elif kind == "channels_connect":
@@ -1227,6 +1231,8 @@ class Channels:
             self.spawn(self._unpair(adapter))
         elif kind == "channels_disconnect":
             self.spawn(self._disconnect(adapter))
+        elif kind == "channels_imessage" and name == "imessage":
+            self.spawn(self._set_imessage(msg))
 
     def note(self, name: str, text: str, error: bool = False) -> None:
         self.hub.emit("channels_note", channel=name, text=text, error=error)
@@ -1285,6 +1291,9 @@ class Channels:
             task.cancel()
         self.state.owners.pop(adapter.name, None)
         self.state.bots.pop(adapter.name, None)
+        if adapter.name == "imessage":
+            self.state.imessage = {}
+            self.state.mark = {}
         self.codes[adapter.name].cancel()
         try:
             await asyncio.to_thread(adapter.forget_secrets)
@@ -1296,6 +1305,32 @@ class Channels:
         adapter.connected()
         await self.save_now()
         self.audit(adapter.name, "you", "disconnected")
+        self.publish(now=True)
+
+    async def _list_chats(self) -> None:
+        imessage = self.adapters["imessage"]
+        try:
+            items = await imessage.recent_chats()  # type: ignore[attr-defined]
+        except PermissionError:
+            self.hub.emit("channels_chats", items=[], error="full_disk")
+            return
+        except Exception as exc:
+            log.info("channels: couldn't list chats (%s)", type(exc).__name__)
+            self.hub.emit("channels_chats", items=[], error="unreadable")
+            return
+        self.hub.emit("channels_chats", items=items, error="")
+
+    async def _set_imessage(self, msg: dict[str, Any]) -> None:
+        imessage = self.adapters["imessage"]
+        try:
+            await imessage.configure(msg)  # type: ignore[attr-defined]
+        except ValueError as exc:
+            self.note("imessage", str(exc), error=True)
+            return
+        await self.save_now()
+        self.audit("imessage", "you", "set up")
+        if msg.get("on", True):
+            self.set_on("imessage", True)
         self.publish(now=True)
 
 

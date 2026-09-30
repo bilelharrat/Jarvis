@@ -1,4 +1,4 @@
-"""Chats: talking to JARVIS from Telegram (jarvis.channels).
+"""Chats: talking to JARVIS from Telegram and iMessage (jarvis.channels).
 
 This registers the channels' settings (each one off until it's connected: its kill switch,
 what heads-ups it forwards, whether approval cards follow the owner there), the window's
@@ -23,6 +23,8 @@ COMMANDS = (
     "channels_pair",
     "channels_unpair",
     "channels_disconnect",
+    "channels_chats",
+    "channels_imessage",
 )
 
 
