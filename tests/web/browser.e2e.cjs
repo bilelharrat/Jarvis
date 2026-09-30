@@ -47,6 +47,9 @@ addEventListener('click', (e) => { window.trusted = e.isTrusted; }, true);
 </script></body></html>`,
   '/frame.html': '<!doctype html><body><button onclick="this.textContent=\'frame clicked\'">Frame button</button></body>',
   '/frame2.html': '<!doctype html><body><label>Card holder <input id="ch"></label><button onclick="this.textContent=\'cross clicked\'">Cross button</button></body>',
+  '/logs.html': `<!doctype html><title>Logs</title><body><h1>Logs</h1><script>
+console.error('boom at load'); fetch('/missing.json').catch(() => {}); setTimeout(() => { throw new Error('kaput'); }, 0);
+</script></body>`,
   '/other.html': '<!doctype html><title>Other</title><body><h1>Another page</h1><a href="/shop.html">Back to shop</a></body>',
   '/form.html': `<!doctype html><title>Form</title><body>
 <div id="banner" style="position:fixed;bottom:0;left:0;right:0;background:#fee">We use cookies. <button>Accept</button></div>
@@ -251,6 +254,29 @@ test('Screenshots: plain, with marks on the refs in view (then gone), and the wh
   await shown.webContents.loadURL(`${base}/form.html`);
   const full = await run('screenshot', { fullPage: true });
   assert(full.ok && full.fullPage && full.pngs.length >= 2 && !full.cut, JSON.stringify({ n: full.pngs.length, cut: full.cut }));
+});
+
+test('A session tab keeps its console and requests from the start; eval runs only on this Mac', async () => {
+  const r = await run('open', { url: `${base}/logs.html`, newTab: true, background: true, owner: 'code:1' });
+  assert(r.ok, JSON.stringify(r));
+  await run('wait', { tab: r.tab, idle: true, ms: 3000 });
+  const log = await run('console', { tab: r.tab });
+  assert(log.entries.some((m) => m.level === 'error' && /boom at load/.test(m.text)), JSON.stringify(log.entries));
+  assert(log.entries.some((m) => m.level === 'error' && /Uncaught.*kaput/.test(m.text)), JSON.stringify(log.entries));
+  const errors = await run('console', { tab: r.tab, level: 'error' });
+  assert(errors.entries.every((m) => m.level === 'error'), JSON.stringify(errors.entries));
+  const net = await run('network', { tab: r.tab, failed: true });
+  assert(net.entries.some((q) => q.status === 404 && /missing\.json/.test(q.url)), JSON.stringify(net.entries));
+  const value = await run('eval', { tab: r.tab, expression: 'await Promise.resolve(document.title + " " + (6 * 7))' });
+  assert(value.ok && value.value === '"Logs 42"', JSON.stringify(value));
+  const obj = await run('eval', { tab: r.tab, expression: '({ a: 1, list: [1, 2] })' });
+  assert(obj.ok && JSON.parse(obj.value).list.length === 2, JSON.stringify(obj));
+  const thrown = await run('eval', { tab: r.tab, expression: 'nope.nothing' });
+  assert(!thrown.ok && /ReferenceError/.test(thrown.message), JSON.stringify(thrown));
+  await run('open', { url: 'data:text/html,<title>Elsewhere</title>', tab: r.tab, background: true });
+  const refused = await run('eval', { tab: r.tab, expression: 'document.title' });
+  assert(!refused.ok && /only runs on pages on this Mac/.test(refused.message), JSON.stringify(refused));
+  await run('tabs', { op: 'close', id: r.tab });
 });
 
 test('Opening in a new tab keeps the page on show; tabs list, switch and close', async () => {

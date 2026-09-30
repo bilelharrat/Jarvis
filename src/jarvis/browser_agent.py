@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -767,6 +768,177 @@ class CodeSession:
         )
 
 
+def _since(r: dict[str, Any]) -> str:
+    since = r.get("since")
+    if not since:
+        return ""
+    stamp = datetime.fromtimestamp(float(since) / 1000).strftime("%H:%M:%S")
+    return f" (kept since {stamp}; reload the page for what came before)"
+
+
+def console_text(r: dict[str, Any]) -> str:
+    rows = []
+    for m in r.get("entries") or []:
+        if not isinstance(m, dict):
+            continue
+        at = (
+            f" ({m.get('url')}:{int(m['line']) + 1})"
+            if m.get("url") and m.get("line") is not None
+            else ""
+        )
+        frame = " [iframe]" if m.get("frame") else ""
+        rows.append(f"{str(m.get('level') or 'log').upper()}{frame}: {m.get('text')}{at}")
+    more = f"\n({r['more']} earlier ones not shown)" if r.get("more") else ""
+    body = "\n".join(rows) or "(no console messages)"
+    return f"{where(r)}\nConsole{_since(r)}:\n" + untrusted(body + more)
+
+
+def network_text(r: dict[str, Any]) -> str:
+    rows = []
+    for q in r.get("entries") or []:
+        if not isinstance(q, dict):
+            continue
+        failed = str(q.get("failed") or "")
+        if q.get("status"):  # an answer came; a body left unread is canceled after it
+            state = str(q["status"])
+        elif failed:
+            state = f"failed: {failed}"
+        else:
+            state = "pending" if not q.get("done") else "done"
+        extra = ", ".join(
+            x
+            for x in (
+                str(q.get("type") or "").lower(),
+                f"{q['ms']} ms" if q.get("ms") is not None else "",
+                failed if q.get("status") and failed else "",
+            )
+            if x
+        )
+        rows.append(
+            f"{q.get('method')} {state} {str(q.get('url'))[:300]}"
+            + (f" ({extra})" if extra else "")
+        )
+    more = f"\n({r['more']} earlier ones not shown)" if r.get("more") else ""
+    body = "\n".join(rows) or "(no requests)"
+    return f"{where(r)}\nRequests{_since(r)}:\n" + untrusted(body + more)
+
+
+CONSOLE_DESC = (
+    "The built-in browser's console for this session's tab: recent messages, errors and "
+    "uncaught exceptions, newest last. level: error, warning or all (default); limit: how many "
+    "(default 50)."
+)
+NETWORK_DESC = (
+    "The requests this session's tab made, newest last: method, status or failure, address, "
+    "type and time. failed: true for failures and 4xx/5xx only; filter: part of the address; "
+    "limit: how many (default 50)."
+)
+EVAL_DESC = (
+    "Run JavaScript in the page of this session's tab, only on a page on this Mac (localhost, "
+    "127.0.0.1, ::1): the web app you're building. The value of the last expression comes back "
+    "(awaited if it's a promise); top-level await works."
+)
+
+
+def devtools_tools(call: BrowserCall, session: CodeSession) -> list:
+    """What Jarvis Code needs to debug the app it's building: the console, the requests,
+    JavaScript on a local page, and scrolling and going back."""
+
+    @tool(
+        "browser_console",
+        CONSOLE_DESC,
+        {
+            "type": "object",
+            "properties": {
+                "level": {"type": "string", "enum": ["error", "warning", "all"]},
+                "limit": {"type": "integer"},
+                "tab": {"type": "integer"},
+            },
+        },
+    )
+    async def browser_console(args):
+        req = {
+            "level": str(args.get("level") or "all"),
+            "limit": _count(args.get("limit")),
+            **_tab(args),
+        }
+        r = await call("console", session.route(req))
+        return error_result(r) or _text(console_text(r))
+
+    @tool(
+        "browser_network",
+        NETWORK_DESC,
+        {
+            "type": "object",
+            "properties": {
+                "failed": {"type": "boolean"},
+                "filter": {"type": "string"},
+                "limit": {"type": "integer"},
+                "tab": {"type": "integer"},
+            },
+        },
+    )
+    async def browser_network(args):
+        req = {
+            "failed": bool(args.get("failed")),
+            "filter": _clip(args.get("filter", ""), 200),
+            "limit": _count(args.get("limit")),
+            **_tab(args),
+        }
+        r = await call("network", session.route(req))
+        return error_result(r) or _text(network_text(r))
+
+    @tool(
+        "browser_eval",
+        EVAL_DESC,
+        {
+            "type": "object",
+            "properties": {"expression": {"type": "string"}, "tab": {"type": "integer"}},
+            "required": ["expression"],
+        },
+    )
+    async def browser_eval(args):
+        req = {"expression": _clip(args.get("expression", ""), 20000), **_tab(args)}
+        r = await call("eval", session.route(req))
+        if (bad := error_result(r)) is not None:
+            return bad
+        return _text(f"{where(r)}\n" + untrusted(str(r.get("value"))))
+
+    @tool(
+        "browser_scroll",
+        "Scroll the page in this session's tab. amount: screens, negative goes up.",
+        {
+            "type": "object",
+            "properties": {"amount": {"type": "integer"}, "tab": {"type": "integer"}},
+        },
+    )
+    async def browser_scroll(args):
+        try:
+            amount = int(args.get("amount") or 1)
+        except (TypeError, ValueError):
+            amount = 1
+        r = await call("scroll", session.route({"amount": max(-20, min(20, amount)), **_tab(args)}))
+        return error_result(r) or _text(f"Scrolled.\n{where(r)}")
+
+    @tool(
+        "browser_back",
+        "Go back a page in this session's tab.",
+        {"type": "object", "properties": {"tab": {"type": "integer"}}},
+    )
+    async def browser_back(args):
+        r = await call("back", session.route(_tab(args)))
+        return error_result(r) or _text(f"Went back.\n{where(r)}")
+
+    return [browser_console, browser_network, browser_eval, browser_scroll, browser_back]
+
+
+def _count(value: Any) -> int:
+    try:
+        return max(1, min(200, int(value or 50)))
+    except (TypeError, ValueError):
+        return 50
+
+
 def code_tools(call: BrowserCall, session: CodeSession) -> list:
     async def may_open(_url: str) -> str:
         return ""  # the session's own approval of the tool covered it
@@ -779,4 +951,8 @@ def code_tools(call: BrowserCall, session: CodeSession) -> list:
         may_open=may_open,
         may_close=session.may_close,
     )
-    return [*build_tools(call, session.press_ok, session.route), tabs]
+    return [
+        *build_tools(call, session.press_ok, session.route),
+        tabs,
+        *devtools_tools(call, session),
+    ]

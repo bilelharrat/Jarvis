@@ -25,6 +25,10 @@ READ_ONLY = [
     f"mcp__{BROWSER}__browser_screenshot",
     f"mcp__{BROWSER}__browser_snapshot",
     f"mcp__{BROWSER}__browser_wait",
+    f"mcp__{BROWSER}__browser_console",
+    f"mcp__{BROWSER}__browser_network",
+    f"mcp__{BROWSER}__browser_scroll",
+    f"mcp__{BROWSER}__browser_back",
     f"mcp__{SIMULATOR}__sim_list",
     f"mcp__{SIMULATOR}__sim_screenshot",
 ]
@@ -97,11 +101,16 @@ def browser_tools(call: BrowserCall, session: browser_agent.CodeSession | None =
         },
     )
     async def browser_click(args):
-        return _page(
-            await call(
-                "click", session.route({k: str(args.get(k, "")) for k in ("text", "selector")})
-            )
-        )
+        req = session.route({k: str(args.get(k, "")) for k in ("text", "selector")})
+        r = await call("click", req)
+        if r.get("needsConfirm"):  # it submits, sends, posts, pays or deletes
+            # On the app it's building (localhost) the session's own OK for this tool counts;
+            # elsewhere it asks through the session's card.
+            label = str(r.get("label") or req["text"] or req["selector"])
+            if not await session.press_ok(label, r):
+                return _text(f"The user said no. Don't press “{label}”.", error=True)
+            r = await call("click", {**req, "force": True})
+        return _page(r)
 
     @tool(
         "browser_type",

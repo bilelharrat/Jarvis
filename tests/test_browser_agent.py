@@ -748,3 +748,111 @@ async def test_both_screenshot_tools_ask_for_marks_and_full_pages():
     assert window.did("screenshot")[-1] == {"marks": True, "fullPage": False, "owner": "code:7"}
     hub = SimpleNamespace(browser_call=window)
     assert hub.browser_call is window
+
+
+# ── Jarvis Code's devtools ──
+
+
+def test_console_and_requests_read_as_untrusted_lines():
+    console = browser_agent.console_text(
+        {
+            "tab": 3, "title": "App", "url": "http://localhost:5173/", "since": 1_790_000_000_000, "more": 4,
+            "entries": [
+                {"level": "error", "text": "Uncaught TypeError: x is undefined", "url": "http://localhost:5173/main.js", "line": 41},
+                {"level": "warning", "text": "Deprecated", "frame": "iframe"},
+            ],
+        }
+    )  # fmt: skip
+    assert "ERROR: Uncaught TypeError: x is undefined (http://localhost:5173/main.js:42)" in console
+    assert "WARNING [iframe]: Deprecated" in console and "(4 earlier ones not shown)" in console
+    assert browser_agent.UNTRUSTED in console and "kept since" in console
+    requests = browser_agent.network_text(
+        {
+            "tab": 3, "url": "http://localhost:5173/", "entries": [
+                {"method": "GET", "status": 404, "url": "http://localhost:5173/api/todos", "type": "Fetch", "ms": 12, "done": True},
+                {"method": "POST", "failed": "net::ERR_CONNECTION_REFUSED", "url": "http://localhost:8000/save", "type": "XHR", "done": True},
+                {"method": "GET", "url": "http://localhost:5173/slow", "type": "Fetch"},
+            ],
+        }
+    )  # fmt: skip
+    assert "GET 404 http://localhost:5173/api/todos (fetch, 12 ms)" in requests
+    assert "POST failed: net::ERR_CONNECTION_REFUSED http://localhost:8000/save (xhr)" in requests
+    assert "GET pending http://localhost:5173/slow (fetch)" in requests
+    unread = browser_agent.network_text(
+        {
+            "entries": [
+                {
+                    "method": "GET",
+                    "status": 404,
+                    "failed": "canceled",
+                    "url": "http://x/",
+                    "type": "Fetch",
+                    "ms": 3,
+                }
+            ]
+        }
+    )
+    assert "GET 404 http://x/ (fetch, 3 ms, canceled)" in unread
+    assert "(no requests)" in browser_agent.network_text({"entries": []})
+
+
+async def test_a_session_gets_devtools_scroll_and_back_on_its_own_tab():
+    window = FakeWindow()
+    session = CodeSession(Tasks(), 7)
+    session.use(4)
+    tools = handlers(code_tools.browser_tools(window, session))
+    await tools["browser_console"]({"level": "error", "limit": 999})
+    await tools["browser_network"]({"failed": True, "filter": "api"})
+    await tools["browser_eval"]({"expression": "document.title"})
+    await tools["browser_scroll"]({"amount": -2})
+    await tools["browser_back"]({})
+    assert window.did("console")[0] == {"level": "error", "limit": 200, "owner": "code:7", "tab": 4}
+    assert window.did("network")[0] == {
+        "failed": True,
+        "filter": "api",
+        "limit": 50,
+        "owner": "code:7",
+        "tab": 4,
+    }
+    assert window.did("eval")[0] == {"expression": "document.title", "owner": "code:7", "tab": 4}
+    assert window.did("scroll")[0] == {"amount": -2, "owner": "code:7", "tab": 4}
+    assert window.did("back")[0] == {"owner": "code:7", "tab": 4}
+    for name in ("browser_console", "browser_network", "browser_scroll", "browser_back"):
+        assert f"mcp__{code_tools.BROWSER}__{name}" in code_tools.READ_ONLY
+    assert f"mcp__{code_tools.BROWSER}__browser_eval" not in code_tools.READ_ONLY
+
+
+class ClickWindow(FakeWindow):
+    """A click by words on a Submit button, as main.js answers it."""
+
+    def __init__(self, url):
+        super().__init__(page={**review_page(url=url), "text": "Sign up", "actions": ["Submit"]})
+
+    async def __call__(self, action, args=None):
+        args = dict(args or {})
+        if action == "click":
+            self.calls.append((action, args))
+            if not args.get("force"):
+                return {
+                    "ok": False,
+                    "needsConfirm": True,
+                    "label": "Submit",
+                    "url": self.page["url"],
+                }
+            return {"ok": True, "message": "Clicked “Submit”", "url": self.page["url"]}
+        return await super().__call__(action, args)
+
+
+async def test_a_session_submits_on_its_localhost_app_and_asks_elsewhere():
+    local = ClickWindow("http://localhost:5173/signup")
+    tasks = Tasks()
+    click = handlers(code_tools.browser_tools(local, CodeSession(tasks, 7)))["browser_click"]
+    out = await click({"text": "Submit"})
+    assert not out.get("is_error") and [a.get("force") for a in local.did("click")] == [None, True]
+    assert tasks.cards == []
+    remote = ClickWindow("https://forum.example/new")
+    tasks = Tasks(answer="deny")
+    click = handlers(code_tools.browser_tools(remote, CodeSession(tasks, 7)))["browser_click"]
+    out = await click({"text": "Submit"})
+    assert out.get("is_error") and len(remote.did("click")) == 1
+    assert tasks.cards and "press “Submit” in the browser" in tasks.cards[0][0]

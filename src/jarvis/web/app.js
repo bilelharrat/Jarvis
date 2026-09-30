@@ -4801,7 +4801,7 @@ async function runBrowserCommand(ev) {
   if (!app || !app.browser) return;
   $('br-jarvis').hidden = false;
   const behind = ev.args && (ev.args.background || ev.args.op === 'list'); // work in a tab behind, or a list
-  if (!browserOpenNow && !behind && !['read', 'snapshot', 'describe', 'wait'].includes(ev.action)) toggleBrowser(true); // looks don't open it
+  if (!browserOpenNow && !behind && !['read', 'snapshot', 'describe', 'wait', 'console', 'network'].includes(ev.action)) toggleBrowser(true); // looks don't open it
   let result;
   try {
     result = await app.browser.command({ action: ev.action, args: ev.args || {} });

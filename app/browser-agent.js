@@ -28,6 +28,11 @@ const TABS_MAX = 30;
 const SHOT_WIDTH = 1280; // the widest picture Claude gets
 const PIECE_CSS = 1600; // a full page comes as pictures this tall (CSS pixels)
 const FULL_MAX = 9600; // and no taller than this in all
+const LOG_MAX = 200; // console messages or requests in one answer
+const EVAL_MAX = 20000; // characters of an evaluation's result
+// Only on pages on this Mac (a Jarvis Code session's own app): checked again inside the page,
+// in the same run as the script, so a page that just navigated away can't be reached.
+const LOCAL_GUARD = "{ const h = location.hostname; if (!(h === 'localhost' || h.endsWith('.localhost') || h === '[::1]' || /^127(\\.\\d{1,3}){3}$/.test(h))) throw new Error('browser_eval only runs on pages on this Mac (localhost)'); }";
 // Numbered marks on what can be acted on, drawn over the page for a screenshot and removed.
 const MARKS_STYLE = `.b{position:fixed;box-sizing:border-box;border:2px solid #ff3b30;border-radius:3px}
 .t{position:fixed;box-sizing:border-box;height:15px;padding:0 3px;font:600 11px/15px -apple-system,Helvetica,sans-serif;color:#fff;background:#ff3b30;border-radius:3px;white-space:nowrap}`;
@@ -1054,6 +1059,63 @@ class BrowserAgent {
     return { ok: true, ...this.where(view), pngs, png: pngs[0], legend, fullPage: Boolean(args.fullPage), cut };
   }
 
+  // ── what the page logged and fetched (Jarvis Code) ──
+
+  async consoleLog(view, args = {}) {
+    const tab = this.tab(view);
+    await tab.cdp.ensure();
+    const level = String(args.level || 'all');
+    const wanted = level === 'error' ? ['error'] : level === 'warning' ? ['error', 'warning'] : null;
+    const rows = tab.cdp.console.filter((m) => !wanted || wanted.includes(m.level));
+    const limit = Math.max(1, Math.min(LOG_MAX, Number(args.limit) || 50));
+    return { ok: true, ...this.where(view), since: tab.cdp.watchingSince, entries: rows.slice(-limit), more: Math.max(0, rows.length - limit) };
+  }
+
+  async networkLog(view, args = {}) {
+    const tab = this.tab(view);
+    await tab.cdp.ensure();
+    const filter = String(args.filter || '').toLowerCase();
+    const rows = tab.cdp.requests.filter((r) => (!args.failed || r.failed || r.status >= 400) && (!filter || r.url.toLowerCase().includes(filter)));
+    const limit = Math.max(1, Math.min(LOG_MAX, Number(args.limit) || 50));
+    return { ok: true, ...this.where(view), since: tab.cdp.watchingSince, entries: rows.slice(-limit).map((r) => ({ ...r })), more: Math.max(0, rows.length - limit) };
+  }
+
+  // Run JavaScript in the page, only on a page on this Mac; its result as text.
+  async evaluate(view, args = {}) {
+    const url = view.webContents.getURL();
+    if (!core.isLoopback(url)) return { ok: false, message: `browser_eval only runs on pages on this Mac (localhost, 127.0.0.1, ::1); this tab shows ${url || 'nothing'}.`, ...this.where(view) };
+    const tab = this.tab(view);
+    await tab.cdp.ensure();
+    const expression = String(args.expression || '');
+    if (!expression.trim()) return { ok: false, message: 'Give browser_eval an expression.' };
+    const r = await tab.cdp.send('Runtime.evaluate', {
+      expression: `${LOCAL_GUARD}\n${expression}`, replMode: true, awaitPromise: true, returnByValue: false,
+      generatePreview: false, userGesture: false, objectGroup: 'jarvis-eval',
+    }, { timeout: 15000 });
+    try {
+      if (r.exceptionDetails) {
+        const d = r.exceptionDetails;
+        return { ok: false, message: `The script threw: ${core.clip((d.exception && d.exception.description) || d.text, 2000)}`, ...this.where(view) };
+      }
+      return { ok: true, ...this.where(view), value: await this.remoteText(tab, r.result) };
+    } finally {
+      tab.cdp.send('Runtime.releaseObjectGroup', { objectGroup: 'jarvis-eval' }, { timeout: 2000 }).catch(() => {});
+    }
+  }
+
+  async remoteText(tab, obj) {
+    if (!obj) return 'undefined';
+    if (obj.type === 'undefined') return 'undefined';
+    if (obj.unserializableValue) return obj.unserializableValue;
+    if (obj.type !== 'object' || obj.subtype === 'null') return typeof obj.value === 'string' ? JSON.stringify(obj.value).slice(0, EVAL_MAX) : String(obj.value);
+    if (obj.subtype === 'node' || obj.subtype === 'error' || !obj.objectId) return core.clip(obj.description || obj.className, EVAL_MAX);
+    const r = await tab.cdp.send('Runtime.callFunctionOn', {
+      objectId: obj.objectId, returnByValue: true,
+      functionDeclaration: 'function () { try { return JSON.stringify(this, null, 2); } catch (e) { return String(this); } }',
+    });
+    return String((r.result && r.result.value) ?? obj.description ?? '').slice(0, EVAL_MAX);
+  }
+
   // ── tabs ──
 
   // Open a page: in a new tab of the agent's own (on show, or behind the one on show with
@@ -1075,7 +1137,13 @@ class BrowserAgent {
       view = this.target(args);
     }
     const tab = this.tab(view);
-    if (String(args.owner || '').startsWith('code:')) tab.keep = true; // a session's tab stays watched
+    if (String(args.owner || '').startsWith('code:')) {
+      // A session's tab is watched from before its page loads: all of its console messages and
+      // requests are kept, for browser_console and browser_network.
+      tab.keep = true;
+      if (!view.webContents.getURL()) await view.webContents.loadURL('about:blank').catch(() => {});
+      await tab.cdp.ensure().catch(() => {});
+    }
     if (!args.background) {
       this.hooks.select(view);
       this.hooks.showBrowser();
@@ -1127,7 +1195,7 @@ class BrowserAgent {
   // ── the command switch ──
 
   handles(action) {
-    return ['snapshot', 'describe', 'act', 'wait', 'open', 'tabs', 'screenshot'].includes(action);
+    return ['snapshot', 'describe', 'act', 'wait', 'open', 'tabs', 'screenshot', 'console', 'network', 'eval'].includes(action);
   }
 
   async run(action, args = {}) {
@@ -1146,6 +1214,9 @@ class BrowserAgent {
         case 'open': return await this.open(args);
         case 'tabs': return this.tabs(args);
         case 'screenshot': return await this.screenshot(view, args);
+        case 'console': return await this.consoleLog(view, args);
+        case 'network': return await this.networkLog(view, args);
+        case 'eval': return await this.evaluate(view, args);
         default: return { error: `Unknown browser action ${action}` };
       }
     } catch (err) {
