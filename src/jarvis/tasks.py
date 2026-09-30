@@ -880,6 +880,8 @@ class TaskManager:
         # Claude's usage-limit status changed (a RateLimitEvent's info): the hub keeps when
         # it resets.
         self.on_rate_limit: Callable[[Any], None] | None = None
+        # A turn ended (the session, its cost, the ResultMessage): the Session card's usage.
+        self.on_usage: Callable[[ClaudeTask, float, Any], None] | None = None
         # Whether Claude is known to be back (its limit has reset): a session the fallback
         # took over goes back to its own model at the next message.
         self.claude_back: Callable[[], bool] | None = None
@@ -2310,6 +2312,11 @@ class TaskManager:
             task.resume_at = ""
         task.session_id = message.session_id or task.session_id
         turn_cost = self._count_cost(task, message.total_cost_usd)
+        if self.on_usage is not None:
+            try:
+                self.on_usage(task, turn_cost, message)
+            except Exception:  # the card's numbers never stop a session
+                log.exception("counting usage failed")
         # Claude couldn't answer and the fallback is taking over: no failure to report.
         handover, task.handover = task.handover, False
         if message.is_error and not handover and (why := _ended(message)):

@@ -150,6 +150,7 @@ function onEvent(ev) {
       history = ev.history || [];
       renderHistory();
       if (ev.vitals) renderVitals(ev.vitals);
+      if (ev.usage) renderUsage(ev.usage);
       if (ev.defense) renderDefense(ev.defense);
       renderWeather(ev.weather);
       renderMarkets(ev.markets);
@@ -193,6 +194,7 @@ function onEvent(ev) {
     case 'caption': $('reply').textContent = ev.text; break;
     case 'shortcuts': renderShortcuts(ev.names || [], ev.instant || []); break;
     case 'vitals': renderVitals(ev); break;
+    case 'usage': renderUsage(ev); break;
     case 'weather': renderWeather(ev.weather); break;
     case 'markets': renderMarkets(ev); break;
     case 'history': history = ev.items || []; renderHistory(); break;
@@ -1642,6 +1644,159 @@ $('wx-pop').addEventListener('keydown', (e) => {
   if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
+
+// ── Claude usage: the Session card's cell, and everything else in its pop-out ──
+let lastUsage = null;
+let usageReturnFocus = null;
+const usd = (n) => (n >= 100 ? `$${Math.round(n)}` : n >= 10 ? `$${n.toFixed(1)}` : `$${(n || 0).toFixed(2)}`);
+function tokensText(n) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)}k`;
+  return String(n || 0);
+}
+function resetText(at) {
+  if (!at) return '';
+  const when = new Date(at * 1000);
+  const soon = when - Date.now() < 20 * 3600 * 1000;
+  const time = when.toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit' });
+  return soon ? `resets ${time}` : `resets ${when.toLocaleDateString(uiLocale(), { weekday: 'short' })} ${time}`;
+}
+function limitLevel(l) {
+  const pct = l.utilization == null ? null : Math.round(l.utilization * 100);
+  return l.status === 'rejected' || (pct != null && pct >= 100) ? 'full' : l.status === 'allowed_warning' || (pct != null && pct >= 80) ? 'warn' : '';
+}
+
+function renderUsage(u) {
+  lastUsage = u;
+  const five = (u.limits || []).find((l) => l.type === 'five_hour' && l.utilization != null);
+  const meter = document.querySelector('#p-uptime .usage-meter');
+  if (five) {
+    const pct = Math.round(five.utilization * 100);
+    $('v-usage-label').textContent = '5-hour limit';
+    $('v-usage').textContent = `${pct}% used`;
+    $('v-usage-bar').style.width = `${Math.min(100, pct)}%`;
+    meter.className = `usage-meter ${limitLevel(five)}`;
+    meter.hidden = false;
+  } else {
+    $('v-usage-label').textContent = 'Claude today';
+    $('v-usage').textContent = `${usd(u.today.cost)} · ${tokensText(u.today.tokens)}`;
+    meter.hidden = true;
+  }
+  if (usageIsOpen()) renderUsagePop(u);
+}
+
+function usageRows(items, total) {
+  const box = el('div');
+  for (const it of items) {
+    const row = el('div', 'usage-row');
+    const bar = el('div', 'usage-bar');
+    const fill = el('span');
+    fill.style.width = `${total ? Math.max(2, Math.round((it.cost / total) * 100)) : 0}%`;
+    bar.append(fill);
+    row.append(mine(el('span', '', it.name)), bar, el('span', 'usage-note', `${usd(it.cost)} · ${tokensText(it.tokens)} tokens`));
+    box.append(row);
+  }
+  return box;
+}
+
+function renderUsagePop(u) {
+  const body = $('usage-body');
+  const parts = [];
+  // The plan's limits, as Claude Code last reported them.
+  const plan = el('section');
+  plan.append(el('h3', '', 'Plan limits'));
+  const limits = (u.limits || []).filter((l) => l.utilization != null || l.status === 'rejected');
+  if (!limits.length) plan.append(el('p', 'usage-empty', 'Your plan’s limits show here after Jarvis’s next answer: Claude Code reports them as it goes.'));
+  for (const l of limits) {
+    const pct = l.utilization == null ? 100 : Math.round(l.utilization * 100);
+    const row = el('div', `usage-row ${limitLevel(l)}`);
+    const bar = el('div', 'usage-bar');
+    const fill = el('span');
+    fill.style.width = `${Math.min(100, pct)}%`;
+    bar.append(fill);
+    const note = l.status === 'rejected' ? `Used up · ${resetText(l.resets_at)}` : `${pct}% used${l.resets_at ? ` · ${resetText(l.resets_at)}` : ''}`;
+    row.append(el('span', '', l.label), bar, el('span', 'usage-note', note));
+    plan.append(row);
+  }
+  parts.push(plan);
+  // How much, over four spans.
+  const spend = el('section');
+  spend.append(el('h3', '', 'Consumption'));
+  const tiles = el('div', 'usage-tiles');
+  for (const [label, b] of [['This session', u.session], ['Today', u.today], ['Last 7 days', u.week], ['Last 30 days', u.month]]) {
+    const tile = el('div', 'usage-tile');
+    tile.append(el('small', '', label), el('b', '', usd(b.cost)), el('span', '', `${b.requests} answers · ${tokensText(b.tokens)} tokens`));
+    tiles.append(tile);
+  }
+  spend.append(tiles);
+  parts.push(spend);
+  // The last two weeks.
+  const days = el('section');
+  days.append(el('h3', '', 'Last 14 days'));
+  const chart = el('div', 'usage-chart');
+  const top = Math.max(...u.history.map((d) => d.cost), 0.0001);
+  u.history.forEach((d, i) => {
+    const day = el('div', `usage-day${i === u.history.length - 1 ? ' today' : ''}`);
+    const bar = el('i');
+    bar.style.height = `${Math.round((d.cost / top) * 86)}px`;
+    day.title = `${d.date}: ${usd(d.cost)} · ${tokensText(d.tokens)} tokens`;
+    const date = new Date(`${d.date}T12:00:00`);
+    day.append(bar, el('small', '', date.toLocaleDateString(uiLocale(), { weekday: 'narrow' })));
+    chart.append(day);
+  });
+  days.append(chart);
+  parts.push(days);
+  // Where it went: JARVIS, Jarvis Code, research; and which models.
+  const split = el('div', 'usage-split');
+  const where = el('section');
+  where.append(el('h3', '', 'Where it went · 30 days'));
+  where.append(u.month.sources.length ? usageRows(u.month.sources, u.month.cost) : el('p', 'usage-empty', 'Nothing yet.'));
+  const models = el('section');
+  models.append(el('h3', '', 'By model · 30 days'));
+  models.append(u.month.models.length ? usageRows(u.month.models, u.month.cost) : el('p', 'usage-empty', 'Nothing yet.'));
+  split.append(where, models);
+  parts.push(split);
+  // The tokens themselves.
+  const kinds = el('section');
+  kinds.append(el('h3', '', 'Tokens · 30 days'));
+  const kt = el('div', 'usage-tiles');
+  for (const [label, key] of [['Input', 'input'], ['Output', 'output'], ['Cache reads', 'cache_read'], ['Cache writes', 'cache_write']]) {
+    const tile = el('div', 'usage-tile');
+    tile.append(el('small', '', label), el('b', '', tokensText(u.month[key])));
+    kt.append(tile);
+  }
+  kinds.append(kt);
+  parts.push(kinds);
+  body.replaceChildren(...parts);
+}
+
+function usageIsOpen() { return !$('usage-layer').hidden; }
+function openUsage() {
+  if (!lastUsage || usageIsOpen()) return;
+  usageReturnFocus = document.activeElement;
+  renderUsagePop(lastUsage);
+  $('usage-layer').hidden = false;
+  $('usage-pop').scrollTop = 0;
+  $('usage-scrim').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
+  $('usage-pop').animate(wxReduced() ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: 'translateY(14px) scale(0.97)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+    { duration: 320, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+  $('usage-close').focus({ preventScroll: true });
+}
+function closeUsage() {
+  if (!usageIsOpen()) return;
+  $('usage-layer').hidden = true;
+  const back = usageReturnFocus;
+  usageReturnFocus = null;
+  if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
+}
+$('p-uptime').addEventListener('click', openUsage);
+$('p-uptime').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openUsage(); } });
+$('usage-close').addEventListener('click', closeUsage);
+$('usage-scrim').addEventListener('click', closeUsage);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && usageIsOpen()) { e.preventDefault(); e.stopPropagation(); closeUsage(); }
+}, true);
 
 let historyScroll = 0;
 

@@ -46,6 +46,7 @@ from . import (
     answering,
     browser_agent,
     browser_gate,
+    claude_usage,
     code_tools,
     computer,
     defense,
@@ -281,7 +282,7 @@ LATEST_ONLY = frozenset(
     {
         "reply", "level", "vitals", "defense", "history", "ask_queue", "tasks", "markets",
         "prefs", "files_status", "purchases", "delegations", "goals", "providers", "state",
-        "weather", "remote", "status", "brain", "memory", "routines", "connectors",
+        "weather", "remote", "status", "brain", "memory", "routines", "connectors", "usage",
     }
 )  # fmt: skip
 
@@ -820,6 +821,13 @@ class Hub:
         # their own model at the first message once the limit has reset.
         self.tasks.on_claude_down = self._code_claude_down
         self.tasks.on_rate_limit = self._rate_limit
+        # What Claude has been used for (Session card › Claude usage): every answer's tokens
+        # and cost, JARVIS's and Jarvis Code's, and the plan's limits. Beside prefs.json.
+        self.usage = claude_usage.UsageBook(self.prefs_store.path.with_name("usage.json"))
+        self._conn_cost: float | None = None  # this conversation's running cost so far
+        self._usage_sent = 0.0
+        self._usage_timer = False
+        self.tasks.on_usage = self._code_usage
         self.tasks.claude_back = self._claude_back
         self.tasks.read_only_free = lambda: self.prefs.code_read_only
         self._fallback_until = 0.0
@@ -1225,6 +1233,7 @@ class Hub:
         else:  # a new conversation: nothing earlier is in its context
             self._session_reads = {"private": False, "web": False, "what": []}
         self.client = self.client_factory(options=options)
+        self._conn_cost = None  # a new connection's running total starts again
         await self.client.connect()
 
     def _feature_servers(self) -> dict[str, Any]:
@@ -2066,6 +2075,7 @@ class Hub:
             )
 
     async def close(self) -> None:
+        self.usage.flush()
         self.desktop_hands.release_all()
         from .gemini_proxy import PROXY
 
@@ -2182,6 +2192,7 @@ class Hub:
             "brain": {**self.kb.summary(), **self.brain_state},
             "history": list(self.history),
             "vitals": self.vitals(),
+            "usage": self.usage.summary(),
             "defense": self.defense,
             "weather": self.weather,
             "location": self.location,
@@ -2845,6 +2856,7 @@ class Hub:
         elif isinstance(message, ResultMessage):
             if message.session_id:
                 self._session_id = message.session_id
+            self._count_usage(message)
             # An API error (its usage limit, say) ends with subtype "success": the reply
             # itself was Claude Code's words for it, already on screen and said.
             if (
@@ -5098,11 +5110,53 @@ class Hub:
             return ref
         return ""
 
+    def _count_usage(self, message: Any) -> None:
+        """One of JARVIS's own answers, for the Session card: Claude Code reports a running
+        cost per connection, so this answer's is the difference."""
+        total = getattr(message, "total_cost_usd", None)
+        cost = 0.0
+        if total is not None:
+            before = self._conn_cost or 0.0
+            cost = total - before if total >= before else total
+            self._conn_cost = total
+        models = getattr(message, "model_usage", None) or {}
+        model = next(iter(models), "") or getattr(
+            getattr(self.client, "options", None), "model", ""
+        )
+        self.usage.record("jarvis", cost, getattr(message, "usage", None), model or "")
+        self._usage_changed()
+
+    def _code_usage(self, task: Any, cost: float, message: Any) -> None:
+        """A Jarvis Code turn ended (tasks._turn_over): its share of the usage."""
+        models = getattr(message, "model_usage", None) or {}
+        model = next(iter(models), "") or getattr(task, "model", "") or ""
+        self.usage.record("code", cost, getattr(message, "usage", None), model)
+        self._usage_changed()
+
+    def _usage_changed(self) -> None:
+        """The windows' Session card, at most once a second (a burst of answers is one)."""
+        now = time.monotonic()
+        if now - self._usage_sent < 1.0:
+            if not self._usage_timer:
+                self._usage_timer = True
+                self._spawn(self._usage_later())
+            return
+        self._usage_sent = now
+        self.emit("usage", **self.usage.summary())
+
+    async def _usage_later(self) -> None:
+        await asyncio.sleep(1.0)
+        self._usage_timer = False
+        self._usage_sent = 0.0
+        self._usage_changed()
+
     def _rate_limit(self, info: Any) -> None:
         """Claude's usage limit as Claude Code reports it, from either conversation: when
         it's used up, when it resets. Extra usage still allowed past the limit isn't Claude
         being down. (Its "allowed" isn't taken as Claude being back: one model's weekly
         limit, Opus's say, can be used up while the others still answer.)"""
+        self.usage.limit(info)
+        self._usage_changed()
         if getattr(info, "status", "") != "rejected":
             return
         if getattr(info, "overage_status", None) == "allowed":

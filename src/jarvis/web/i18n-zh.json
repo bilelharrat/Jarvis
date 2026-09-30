@@ -1526,9 +1526,38 @@
   "Pulling out the sound…": "正在提取音频…",
   "Ready": "已完成",
   "Drop the file from Finder.": "请从访达拖入文件。",
-  "⌥-click to show it in Finder": "按住 ⌥ 点按可在访达中显示"
+  "⌥-click to show it in Finder": "按住 ⌥ 点按可在访达中显示",
+  "Usage ›": "用量 ›",
+  "Session — open Claude usage": "会话 — 打开 Claude 用量",
+  "Claude usage": "Claude 用量",
+  "Close Claude usage": "关闭 Claude 用量",
+  "Jarvis runs on your Claude subscription, so nothing is billed per token. Costs are Claude Code’s API-price estimate of the same work. Connected accounts:": "Jarvis 使用你的 Claude 订阅运行，不按令牌计费。费用是 Claude Code 按 API 价格对同等工作量的估算。已连接的账户：",
+  "5-hour limit": "5 小时额度",
+  "Claude today": "今天的 Claude",
+  "Weekly limit": "每周额度",
+  "Weekly · Opus": "每周 · Opus",
+  "Weekly · Sonnet": "每周 · Sonnet",
+  "Extra usage": "额外用量",
+  "Plan limits": "套餐额度",
+  "Your plan’s limits show here after Jarvis’s next answer: Claude Code reports them as it goes.": "Jarvis 下次回答后，这里会显示你的套餐额度：Claude Code 会随时报告。",
+  "Consumption": "消耗",
+  "This session": "本次会话",
+  "Last 7 days": "最近 7 天",
+  "Last 30 days": "最近 30 天",
+  "Last 14 days": "最近 14 天",
+  "Where it went · 30 days": "用在哪里 · 30 天",
+  "By model · 30 days": "按模型 · 30 天",
+  "Tokens · 30 days": "令牌 · 30 天",
+  "Input": "输入",
+  "Output": "输出",
+  "Cache reads": "缓存读取",
+  "Cache writes": "缓存写入"
  },
  "patterns": [
+  [
+   "^Show (\\d+) more$",
+   "再显示 $1 个"
+  ],
   [
    "^([\\d,]+) waiting for Spotlight$",
    "$1 个文件等待聚焦搜索读取"
@@ -3008,6 +3037,30 @@
   [
    "^Missed call from (.+); no message\\.$",
    "$1 的未接来电，没有留言。"
+  ],
+  [
+   "^(\\d+)% used$",
+   "已用 $1%"
+  ],
+  [
+   "^(\\d+)% used · resets (.+)$",
+   "已用 $1% · $2 重置"
+  ],
+  [
+   "^Used up · resets (.+)$",
+   "已用完 · $1 重置"
+  ],
+  [
+   "^resets (.+)$",
+   "$1 重置"
+  ],
+  [
+   "^(\\d+) answers · (.+) tokens$",
+   "$1 次回答 · $2 令牌"
+  ],
+  [
+   "^(\\$[\\d.]+) · ([\\d.]+[kMB]?) tokens$",
+   "$1 · $2 令牌"
   ]
  ]
 }

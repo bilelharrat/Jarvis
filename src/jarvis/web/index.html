@@ -57,13 +57,13 @@
     <h2>Markets <span id="mk-status" class="mk-status">…</span><span class="mk-open" aria-hidden="true">Research Center ↗</span></h2>
     <div id="mk-indices" class="mk-indices"><p class="muted">Loading today’s markets…</p></div>
   </section>
-  <section class="panel" id="p-uptime">
-    <h2><span class="hud-only">System // </span>Session</h2>
+  <section class="panel" id="p-uptime" tabindex="0" aria-label="Session — open Claude usage">
+    <h2><span class="hud-only">System // </span>Session<span class="wx-more not-hud" aria-hidden="true">Usage ›</span></h2>
     <div class="kv-grid">
       <div><small>Running for</small><b id="v-uptime">–</b></div>
       <div><small>Requests</small><b id="v-commands">0</b></div>
       <div><small>Model</small><b id="v-model">–</b></div>
-      <div><small>Accounts</small><b id="v-accounts">0</b></div>
+      <div class="usage-cell"><small id="v-usage-label">Claude usage</small><b id="v-usage">–</b><i class="usage-meter" aria-hidden="true"><span id="v-usage-bar"></span></i></div>
     </div>
   </section>
   <section class="panel hud-only" id="p-defense">
@@ -808,6 +808,20 @@
       </button>
     </header>
     <div class="wx-body" id="wx-body"></div>
+  </section>
+</div>
+
+<div id="usage-layer" class="wx-layer" hidden>
+  <div class="wx-scrim" id="usage-scrim"></div>
+  <section class="wx-pop usage-pop" id="usage-pop" role="dialog" aria-modal="true" aria-labelledby="usage-title">
+    <header class="wx-head">
+      <h2 id="usage-title">Claude usage</h2>
+      <button type="button" class="wx-close" id="usage-close" aria-label="Close Claude usage">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="usage-body" id="usage-body"></div>
+    <p class="usage-foot">Jarvis runs on your Claude subscription, so nothing is billed per token. Costs are Claude Code’s API-price estimate of the same work. Connected accounts: <b id="v-accounts">0</b></p>
   </section>
 </div>
 
