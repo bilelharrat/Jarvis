@@ -70,7 +70,21 @@
     "Searching…": "正在搜索…",
     "Stopped before anything matched.": "还没找到匹配就停止了。",
     "Type something to search for.": "输入要搜索的内容。",
-    "That's too long to search for.": "这太长了，无法搜索。"
+    "That's too long to search for.": "这太长了，无法搜索。",
+    "New terminal": "新终端",
+    "Split": "分屏",
+    "Two terminals, one above the other": "上下两个终端",
+    "Send to Jarvis Code": "发给 Jarvis Code",
+    "Put the selected text in the message": "把选中的文字放进消息",
+    "Terminals": "终端",
+    "Close this terminal": "关闭这个终端",
+    "Opening a terminal…": "正在打开终端…",
+    "Starting a shell…": "正在启动 shell…",
+    "Still running:": "仍在运行：",
+    "Click × again to close it anyway.": "再点一次 × 仍然关闭。",
+    "Stop this command": "停止这个命令",
+    "Stopping…": "正在停止…",
+    "That's the most terminals at once: close one first.": "终端已经开到上限了：先关掉一个。"
   },
   "patterns": [
     [
@@ -124,6 +138,10 @@
     [
       "^git grep didn't start: (.+)$",
       "git grep 没能启动：$1"
+    ],
+    [
+      "^The terminal didn't start: (.+)$",
+      "终端没能启动：$1"
     ]
   ]
 }

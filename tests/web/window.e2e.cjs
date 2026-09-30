@@ -4086,6 +4086,121 @@ test('Search finds text across the project: matches by file, a match opens at it
   assert(sel[0] === 14 && sel[1] === 26, JSON.stringify(sel));
 });
 
+// xterm.js stands in here as a small fake (the test page has no /xterm files): what it was
+// given to show, what the owner typed and selected.
+const FAKE_XTERM = `(() => {
+  window.__xterms = [];
+  window.Terminal = class {
+    constructor(o) { this.o = o; this.shown = ''; this.cols = 80; this.rows = 24; this.sel = ''; window.__xterms.push(this); }
+    loadAddon() {}
+    onData(fn) { this.typed = fn; }
+    onSelectionChange(fn) { this.selChanged = fn; }
+    open(el) { this.el = el; el.append(Object.assign(document.createElement('div'), { className: 'fake-xterm' })); }
+    write(d) { this.shown += typeof d === 'string' ? d : new TextDecoder().decode(d); }
+    reset() { this.shown = ''; }
+    focus() {}
+    dispose() { this.disposed = true; }
+    hasSelection() { return !!this.sel; }
+    getSelection() { return this.sel; }
+  };
+  window.FitAddon = { FitAddon: class { fit() {} } };
+  return true;
+})()`;
+const b64 = (s) => Buffer.from(s).toString('base64');
+const TERM = (term, title, extra = {}) => ({ term, title, cwd: '/Users/x/alpha', folder: 'alpha', alive: true, created: 1, ...extra });
+
+test('Terminals: tabs of shells that outlive the pane, a split, and closing one asks while it runs', async () => {
+  await featureScript('code-terminal.js');
+  await open(1);
+  await js(FAKE_XTERM);
+  await js('jarvisFeatures.openPane("terminal"); true');
+  const [listAsk] = await sentOf('cw_terms');
+  assert(listAsk && listAsk.id === 1 && listAsk.ref === 'task:1', JSON.stringify(await js('__sent')));
+  // None yet: one starts, as the old terminal did.
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [], ref: 'task:1' });
+  const [made] = await sentOf('cw_term_new');
+  assert(made && made.ref === 'task:1' && made.id === 1, JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_term_new', ref: 'task:1', ...TERM('t1', 'zsh 1') });
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1')] });
+  for (let i = 0; i < 20 && !(await sentOf('cw_term_attach')).length; i++) await frames(2);
+  assert(JSON.stringify(await sentOf('cw_term_attach')) === JSON.stringify([{ type: 'cw_term_attach', term: 't1' }]), JSON.stringify(await js('__sent')));
+  // What it printed before comes back; what came before that answer isn't shown twice.
+  await deliver({ type: 'cw_term_data', term: 't1', data: b64('early ') });
+  await deliver({ type: 'cw_term_replay', term: 't1', data: b64('$ make\r\nbuilt\r\n'), alive: true });
+  await deliver({ type: 'cw_term_data', term: 't1', data: b64('$ ') });
+  assert(await js('__xterms[0].shown') === '$ make\r\nbuilt\r\n$ ', await js('__xterms[0].shown'));
+  await js('__sent.length = 0; __xterms[0].typed("ls\\r"); true');
+  assert(JSON.stringify(await sentOf('cw_term_input')) === JSON.stringify([{ type: 'cw_term_input', term: 't1', data: 'ls\r' }]), 'typing did not go');
+  // Closing the pane only detaches; opening it again shows the same shell.
+  await js('__sent.length = 0; closePane(); true');
+  assert(!(await js('__sent.some((m) => /close/.test(m.type))')), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_term_data', term: 't1', data: b64('while away\r\n') });
+  await js('jarvisFeatures.openPane("terminal"); true');
+  await frames(3);
+  const back = await js('({ xterms: __xterms.length, shown: __xterms[0].shown, attached: __sent.filter((m) => m.type === "cw_term_attach").length, tab: [...document.querySelectorAll("#jc-pane-body .ct-tab-name")].map((b) => b.textContent) })');
+  assert(back.xterms === 1 && back.shown.endsWith('while away\r\n') && back.attached === 0 && back.tab.join() === 'zsh 1', JSON.stringify(back));
+  // Split: a second shell below.
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane-body .ct-bar', 'Split'), 'no Split');
+  const [second] = await sentOf('cw_term_new');
+  assert(second && second.ref === 'task:1', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_term_new', ref: 'task:1', ...TERM('t2', 'zsh 2') });
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1'), TERM('t2', 'zsh 2')] });
+  await frames(3);
+  const split = await js('({ slots: [...document.querySelectorAll("#jc-pane-body .ct-slot")].filter((s) => !s.hidden).length, split: document.querySelector("#jc-pane-body .ct-area").classList.contains("split"), xterms: __xterms.length })');
+  assert(split.slots === 2 && split.split && split.xterms === 2, JSON.stringify(split));
+  // Closing one where something runs: it asks, and a second click closes it.
+  await js('__sent.length = 0; true');
+  await js('document.querySelectorAll("#jc-pane-body .ct-tab-x")[1].click(); true');
+  assert(JSON.stringify(await sentOf('cw_term_close')) === JSON.stringify([{ type: 'cw_term_close', term: 't2' }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_term_busy', term: 't2', what: 'npm run <b>dev</b>' });
+  await frames(2);
+  const note = await js('({ text: document.querySelector("#jc-pane-body .ct-note").textContent, hidden: document.querySelector("#jc-pane-body .ct-note").hidden, b: document.querySelectorAll("#jc-pane-body .ct-note b").length })');
+  assert(!note.hidden && note.text.includes('npm run <b>dev</b>') && note.b === 0, JSON.stringify(note));
+  await js('__sent.length = 0; document.querySelectorAll("#jc-pane-body .ct-tab-x")[1].click(); true');
+  assert(JSON.stringify(await sentOf('cw_term_close')) === JSON.stringify([{ type: 'cw_term_close', term: 't2', force: true }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1')] });
+  await frames(2);
+  assert(await js('__xterms[1].disposed === true && document.querySelectorAll("#jc-pane-body .ct-tab").length === 1'), 'the closed terminal stayed');
+});
+
+test('A terminal’s selection goes to Jarvis Code, in a code block', async () => {
+  await featureScript('code-terminal.js');
+  await open(1);
+  await js(FAKE_XTERM);
+  await js('jarvisFeatures.openPane("terminal"); true');
+  await deliver({ type: 'cw_terms', folder: '/Users/x/alpha', items: [TERM('t1', 'zsh 1')], ref: 'task:1' });
+  for (let i = 0; i < 20 && !(await js('__xterms.length')); i++) await frames(2);
+  assert(await js('document.querySelector("#jc-pane-body .ct-send").disabled'), 'Send is on with nothing selected');
+  await js('__xterms[0].sel = "Error: port 5173 is in use"; __xterms[0].selChanged(); $("deck-input").value = "why?"; true');
+  assert(await clickText('#jc-pane-body .ct-bar', 'Send to Jarvis Code'), 'no Send to Jarvis Code');
+  assert(await js('$("deck-input").value') === 'why?\nFrom the terminal:\n```\nError: port 5173 is in use\n```\n', JSON.stringify(await js('$("deck-input").value')));
+});
+
+test('A "!" command streams its output as it comes, can be cancelled, and ends as before', async () => {
+  await featureScript('code-terminal.js');
+  await open(1);
+  await js('$("deck-input").value = "!npm test"; $("deck-composer").requestSubmit(); true');
+  const [bash] = await sentOf('task_bash');
+  assert(bash && bash.command === 'npm test', JSON.stringify(await js('__sent')));
+  await deliver({ type: 'cw_bang_start', ref: bash.ref });
+  // (as a terminal sends it: \r\n line ends, one split between two messages)
+  await deliver({ type: 'cw_bang_data', ref: bash.ref, text: 'PASS a.test.js\r\n10%\r50%\r', skipped: 0 });
+  await deliver({ type: 'cw_bang_data', ref: bash.ref, text: '\n100%\r\n<b>ok</b>\r\n', skipped: 0 });
+  const live = await js('({ text: document.querySelector(".jc-bang .ct-bang-live").textContent, cancel: !!document.querySelector(".jc-bang .ct-bang-cancel"), b: document.querySelectorAll(".jc-bang b").length })');
+  assert(live.text === 'PASS a.test.js\n50%\n100%\n<b>ok</b>\n' && live.cancel && live.b === 0, JSON.stringify(live));
+  await js('__sent.length = 0; document.querySelector(".jc-bang .ct-bang-cancel").click(); true');
+  assert(JSON.stringify(await sentOf('cw_bang_cancel')) === JSON.stringify([{ type: 'cw_bang_cancel', ref: bash.ref }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'task_bash', ref: bash.ref, command: 'npm test', output: 'PASS a.test.js\n100%\n(cancelled)', code: 130, cancelled: true, seconds: 4.2 });
+  const done = await js('({ live: !!document.querySelector(".jc-bang .ct-bang-live"), cancel: !!document.querySelector(".jc-bang .ct-bang-cancel"), state: document.querySelector(".jc-bang .jc-bang-state").textContent, out: document.querySelector(".jc-bang .jc-bang-out").textContent })');
+  assert(!done.live && !done.cancel && done.state === 'Cancelled' && done.out.endsWith('(cancelled)'), JSON.stringify(done));
+  // What it printed goes with the next message, as it did.
+  await js('__sent.length = 0; $("deck-input").value = "fix it"; $("deck-composer").requestSubmit(); true');
+  const [msg] = await sentOf('task_send');
+  assert(msg && msg.text.includes('$ npm test') && msg.text.includes('(exit 130)') && msg.text.endsWith('fix it'), JSON.stringify(msg));
+});
+
 // ──
 
 let base;

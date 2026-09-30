@@ -62,21 +62,10 @@ class Workspace:
         return task
 
     def session(self, msg: dict[str, Any]) -> Any:
-        """The Jarvis Code session a command names (by id), or None."""
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
-        return task if task is not None and task.kind == "code" else None
+        return session_of(self.hub, msg)
 
     def folder(self, msg: dict[str, Any]) -> Path:
-        """The folder a command is about: its session's (id), whose files the session works
-        on (its own isolated copy, when it has one); else a project (directory). Raises
-        ValueError for one that isn't a project."""
-        task = self.session(msg)
-        if task is not None:
-            return Path(task.cwd)
-        return self.hub.tasks.resolve_dir(str(msg.get("directory") or ""))
+        return folder_of(self.hub, msg)
 
     def caption(self, text: str) -> None:
         """A line in the caption, in the owner's language."""
@@ -235,6 +224,25 @@ class Workspace:
             await mac_tools.run_command(*command, timeout=20)
         except (mac_tools.ToolFailure, OSError) as exc:
             self.caption(f"Couldn't open it: {exc}")
+
+
+def session_of(hub: Any, msg: dict[str, Any]) -> Any:
+    """The Jarvis Code session a window command names (by id), or None."""
+    try:
+        task = hub.tasks.tasks.get(int(msg.get("id") or 0))
+    except (TypeError, ValueError):
+        return None
+    return task if task is not None and task.kind == "code" else None
+
+
+def folder_of(hub: Any, msg: dict[str, Any]) -> Path:
+    """The folder a window command is about: its session's (id), whose files the session
+    works on (its own isolated copy, when it has one); else a project (directory). Raises
+    ValueError for one that isn't a project."""
+    task = session_of(hub, msg)
+    if task is not None:
+        return Path(task.cwd)
+    return hub.tasks.resolve_dir(str(msg.get("directory") or ""))
 
 
 HUNKS_MAX = 60  # hunks a comparison shows

@@ -1,0 +1,36 @@
+/* Jarvis Code's terminals (features/code-terminal.js): tabs of shells above one terminal, or
+   two, one above the other; and a "!" command's output as it streams in the transcript. */
+
+.ct-root { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.ct-bar { display: flex; align-items: center; gap: 6px; flex: none; padding-top: 2px; min-width: 0; }
+.ct-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 0 1 auto; }
+.ct-tab { display: inline-flex; align-items: center; flex: none; max-width: 170px; border-radius: 8px; background: rgb(var(--c-ink) / 0.05); }
+.ct-tab.shown { background: rgb(var(--c-ink) / 0.09); }
+.ct-tab.on { background: var(--glass-pill); box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.1); }
+.ct-tab.ended .ct-tab-name { color: rgb(var(--c-subtle)); text-decoration: line-through; }
+.ct-tab-name { border: 0; background: transparent; padding: 4px 2px 4px 10px; font: 12px var(--mono); color: rgb(var(--c-ink-2)); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ct-tab.on .ct-tab-name { color: rgb(var(--c-ink)); }
+.ct-tab-x { border: 0; background: transparent; width: 20px; height: 20px; margin-right: 3px; border-radius: 5px; color: rgb(var(--c-muted)); cursor: pointer; font-size: 13px; line-height: 1; flex: none; }
+.ct-tab-x:hover { background: rgb(var(--c-ink) / 0.08); color: rgb(var(--c-ink)); }
+.ct-tab-x.armed { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.ct-add { width: 24px; height: 24px; flex: none; font-size: 15px; }
+.ct-split[aria-pressed="true"] { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent-ink)); }
+.ct-bar .jc-mini { white-space: nowrap; flex: none; }
+.ct-bar .jc-mini:disabled { opacity: 0.45; cursor: default; }
+.ct-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 6px 10px; border-radius: 9px; font-size: 12px; background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); }
+.ct-note[hidden] { display: none; }
+.ct-note code { font: 11.5px var(--mono); }
+.ct-area { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.ct-slot { flex: 1; min-height: 0; border-radius: 12px; }
+.ct-slot[hidden] { display: none; }
+.ct-area.split .ct-slot.focused { box-shadow: 0 0 0 1.5px rgb(var(--c-accent) / 0.55); }
+.ct-term { height: 100%; box-sizing: border-box; }
+
+/* a "!" command while it runs */
+.ct-bang-cancel { flex: none; }
+#deck-timeline .ct-bang-cancel { font: 11.5px var(--sans); }  /* (not the command's own type) */
+.ct-bang-live[hidden] { display: none; }
+/* The deck's own `button { font: inherit }` outranks a class: the pane's buttons get their type here. */
+#jc-pane .ct-tab-name { font: 12px var(--mono); }
+#jc-pane .ct-tab-x { font-size: 13px; }
+#jc-pane .ct-add { font-size: 15px; }
