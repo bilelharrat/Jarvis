@@ -153,6 +153,11 @@ def test_a_command_rule_denies_generously(tmp_path):
         "sudo -u root git push", "nice -n 5 git push", "timeout -s KILL 30 rm -rf x",
         "xargs -I{} sh -c 'git push {}'", "eval 'git push'", "sudo bash -c 'git push'",
         r"find . -name '*.o' -exec rm -rf {} \;", "env -i PATH=/bin git push",
+        # Subshells and shell constructs mustn't hide a denied command from the rule.
+        "( (git push) )", "(rm -rf build)", "if true; then git push; fi", "! git push",
+        "for f in a; do git push; done", "while git push; do break; done",
+        "f() { git push; }; f", "case x in x) git push;; esac", "cat <(git push)",
+        "echo x > >(git push)", "{ git push; }", "$( (git push) )",
     ]:  # fmt: skip
         assert run(denied) == "deny", denied
     assert run("npm publish --tag beta") == "ask"  # an ask catches what it names, and more
@@ -180,6 +185,10 @@ def test_a_command_line_is_every_part_of_it():
     assert ["git", "push"] in command_parts("eval git push")
     assert command_parts("echo 'unbalanced") == [["echo", "unbalanced"]]
     assert ["rm", "-rf", "x"] in command_parts("echo $(rm -rf x)")
+    # A subshell, a process substitution and a shell keyword each still expose the command.
+    assert ["git", "push"] in command_parts("( (git push) )")
+    assert ["git", "push"] in command_parts("cat <(git push)")
+    assert ["git", "push"] in command_parts("if true; then git push; fi")
 
 
 def test_a_long_command_is_looked_through_in_linear_time(tmp_path):

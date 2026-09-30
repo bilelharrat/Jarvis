@@ -273,7 +273,10 @@ def _words(text: str) -> list[str]:
 
 def _segments(command: str) -> list[str]:
     """A command line split where the shell splits it into commands (; & | && || and line
-    ends), never inside quotes; a backslash before a line end continues the line."""
+    ends, plus the ( ) that open and close a subshell), never inside quotes; a backslash
+    before a line end continues the line. Splitting on the grouping parens means a command
+    the owner denied can't hide from the rule inside a subshell, ( (git push) ), a process
+    substitution, cat <(git push), or a shell construct like if git push; then …."""
     out: list[str] = []
     part: list[str] = []
     quote = ""
@@ -289,7 +292,7 @@ def _segments(command: str) -> list[str]:
             quote = "" if c == quote else quote
         elif c in "'\"":
             quote = c
-        elif c in ";&|\n":
+        elif c in ";&|\n()":
             out.append("".join(part))
             part = []
             i += 1
@@ -298,6 +301,14 @@ def _segments(command: str) -> list[str]:
         i += 1
     out.append("".join(part))
     return [p for p in out if p.strip()]
+
+
+# Shell words that stand in front of a command without being one (control flow, negation,
+# a pipeline's timing keyword): a deny rule looks past them to the command they introduce.
+_RESERVED = {
+    "if", "then", "elif", "else", "fi", "while", "until", "for", "select", "do", "done",
+    "case", "esac", "function", "!", "{", "}", "in", "time", "coproc",
+}  # fmt: skip
 
 
 def _program(word: str) -> str:
@@ -337,8 +348,8 @@ def command_parts(command: str, depth: int = 0) -> list[list[str]]:
         parts += command_parts(inner.group(1) or inner.group(2) or "", depth + 1)
     for segment in _segments(_SUBSTITUTED.sub(" ", command)):
         words = _words(segment.strip().lstrip("({").rstrip(")}").strip())
-        while words and _ASSIGNMENT.match(words[0]):
-            words = words[1:]
+        while words and (_ASSIGNMENT.match(words[0]) or words[0] in _RESERVED):
+            words = words[1:]  # leading VAR=value, and if/for/while/! and the like
         if not words:
             continue
         parts.append(words)
