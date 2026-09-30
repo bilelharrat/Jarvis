@@ -109,6 +109,17 @@ async def test_calls_are_capped_per_hour_and_day():
     assert len(twilio.calls) == phone.CALLS_PER_DAY
 
 
+async def test_paid_account_has_no_rate_limits():
+    now = [1000.0]
+    ph, twilio = made(prefs(twilio_paid_account=True), clock=lambda: now[0])
+    ph.save_credentials(SID, TOKEN)
+    # Make many more calls than the normal limits allow (should not raise)
+    for _ in range(phone.CALLS_PER_HOUR * 5):  # 5x the hourly limit
+        await ph.call_me("hi")
+    # All calls should succeed with no rate limit error
+    assert len(twilio.calls) == phone.CALLS_PER_HOUR * 5
+
+
 async def test_someone_else_rings_from_the_iphone_after_a_yes():
     ran, asked, answers = [], [], [True, False]
 

@@ -117,7 +117,10 @@ NOT_VERIFIED = (
 
 
 class PhoneError(Exception):
-    """Something to tell the owner, in words."""
+    """Something to tell the owner, in words. status: Twilio's HTTP status when it said no
+    (409: that's already there, 404: it isn't), else 0."""
+
+    status = 0
 
 
 def clean_number(value: Any) -> str | None:
@@ -288,14 +291,17 @@ def _refusal(status: int, body: Any, reason: str) -> PhoneError:
     body = body if isinstance(body, dict) else {}
     said = str(body.get("message") or "")
     if body.get("code") == 21219:  # a trial account calling a number it hasn't verified
-        return PhoneError(TRIAL_UNVERIFIED)
+        error = PhoneError(TRIAL_UNVERIFIED)
     # Twilio answers 401 both for a wrong token and for an account it won't serve yet
     # (identity check not done); only its message tells them apart.
-    if status == 401 and re.search(r"compliance|KYC", said, re.I):
-        return PhoneError(NOT_VERIFIED)
-    if status == 401 and (not said or re.search(r"authenticat", said, re.I)):
-        return PhoneError(BAD_SIGN_IN)
-    return PhoneError(f"Twilio said no: {said or reason}")
+    elif status == 401 and re.search(r"compliance|KYC", said, re.I):
+        error = PhoneError(NOT_VERIFIED)
+    elif status == 401 and (not said or re.search(r"authenticat", said, re.I)):
+        error = PhoneError(BAD_SIGN_IN)
+    else:
+        error = PhoneError(f"Twilio said no: {said or reason}")
+    error.status = status
+    return error
 
 
 def _request(
@@ -315,6 +321,24 @@ def _request(
             body = {}
         raise _refusal(response.status_code, body, response.reason_phrase)
     return response.json() if response.content else {}
+
+
+def _download(url: str, sid: str, token: str) -> bytes:
+    """A file on the owner's Twilio account (a call's recording), as bytes. Twilio may send
+    it on from another address; the sign-in never goes along there."""
+    import httpx
+
+    try:
+        response = httpx.get(url, auth=(sid, token), timeout=60, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        raise PhoneError(f"Couldn't reach Twilio ({type(exc).__name__}).") from None
+    if response.status_code >= 400:
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        raise _refusal(response.status_code, body, response.reason_phrase)
+    return response.content
 
 
 def _seconds(stamp: Any) -> float:
@@ -706,6 +730,11 @@ class Phone:
         per_day: int = CALLS_PER_DAY,
         made: str = "called you",
     ) -> None:
+        # Paid accounts have no rate limits
+        p = self.prefs()
+        if getattr(p, "twilio_paid_account", False):
+            return
+
         recent = self.recent if recent is None else recent
         now = self.clock()
         while recent and now - recent[0] > 86400:

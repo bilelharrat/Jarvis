@@ -88,6 +88,7 @@ class Prefs:
     desktop_hands: bool = False  # hand control steers the whole Mac
     phone_me: str = ""  # the owner's own number: the only one JARVIS calls on its own
     phone_from: str = ""  # their Twilio number, that calls come from
+    twilio_paid_account: bool = False  # whether the Twilio account is paid (no rate limits)
     wake_call: bool = False  # a wake-up call with the morning brief
     wake_call_time: str = "07:00"
     # The model JARVIS turns to when Claude can't answer (its usage limit, an outage): a
@@ -288,6 +289,7 @@ def _clean(name: str, value: Any) -> Any:
         "clap_hands",
         "desktop_hands",
         "wake_call",
+        "twilio_paid_account",
         "fallback_code",
         "fallback_always",
         "code_read_only",
