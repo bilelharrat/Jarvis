@@ -196,7 +196,8 @@ def _session_notes(info: Any, messages: list[Any]) -> list[Note]:
     if not first or first.startswith(ONE_OFF) or not replied:
         return []
     when = datetime.fromtimestamp((getattr(info, "last_modified", 0) or 0) / 1000)
-    title = (getattr(info, "custom_title", None) or first).strip().splitlines()[0][:100]
+    named = str(getattr(info, "custom_title", None) or "").strip() or first.strip()
+    title = (named.splitlines() or [""])[0][:100] or f"A conversation, {when:%d %B %Y}"
     parts = _parts(lines)
     notes = []
     for n, part in enumerate(parts, 1):

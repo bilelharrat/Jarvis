@@ -87,6 +87,23 @@ def test_a_conversation_keeps_both_sides_words_and_nothing_else(tmp_path):
     assert n.modified.startswith("2026-")
 
 
+def test_a_blank_title_never_loses_every_conversation(tmp_path):
+    """A conversation whose first words are only spaces, or whose title is, is still read,
+    and so are the others (an IndexError used to lose them all)."""
+    folder = tmp_path / "workspace"
+    folder.mkdir()
+    sessions = [
+        session("blank", [said("user", "   "), said("assistant", "Hm?")], title="  "),
+        session("spaces", [said("user", "hello"), said("assistant", "Hi.")], title=" \n "),
+        session("ok", [said("user", "Remind me about taxes"), said("assistant", "On it.")]),
+    ]
+    list_sessions, get_messages, _ = fake_sdk(sessions)
+    notes = collect_conversations(
+        folder, tmp_path / "saved", list_sessions=list_sessions, get_messages=get_messages
+    )
+    assert "ok" in [n.ref for n in notes] and all(n.title.strip() for n in notes)
+
+
 def test_one_off_sessions_in_the_brains_folder_are_not_conversations(tmp_path):
     folder = tmp_path / "workspace"
     folder.mkdir()
