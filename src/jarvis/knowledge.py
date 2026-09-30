@@ -1,7 +1,8 @@
 """The second brain: Apple Notes, chosen folders, the BSH research desk and JARVIS's own
 research reports, indexed locally for search and laid out in 3D as a "knowledge galaxy".
 
-Everything stays on this Mac. Search is BM25 over ~1,200-character chunks. Galaxy
+Everything stays on this Mac. Search is BM25 over ~1,200-character chunks, fused with
+search by meaning when that's on (jarvis.embeddings, through KnowledgeBase.semantic). Galaxy
 positions come from TF-IDF vectors projected down to three dimensions, so notes about
 similar things drift together.
 """
@@ -468,9 +469,12 @@ class _Index:
     chunk_pos: np.ndarray  # int32: which of its note's chunks it is
     chunk_len: np.ndarray  # float32: words in the chunk
     avg_len: float
+    note_day: np.ndarray  # float64 per note: its modified day (embeddings.day_of), NaN if none
 
     @classmethod
     def of(cls, notes: list[Note]) -> _Index:
+        from .embeddings import day_of
+
         vocab = _Vocab()
         term_of, chunk_of, count_of = array("i"), array("i"), array("I")
         chunk_note, chunk_pos, chunk_len = array("i"), array("i"), array("f")
@@ -513,6 +517,7 @@ class _Index:
             else np.zeros(0, np.int32),
             chunk_len=lengths,
             avg_len=float(lengths.mean()) if len(lengths) else 1.0,
+            note_day=np.array([day_of(n.modified) for n in notes], dtype=np.float64),
         )
 
     def posting(self, word: str) -> tuple[np.ndarray, np.ndarray] | None:
@@ -534,6 +539,9 @@ class KnowledgeBase:
         self.errors: dict[str, str] = {}
         self._index = _Index.of([])
         self._galaxy: dict[str, Any] | None = None
+        # Search by meaning (embeddings.SemanticSearch), set by jarvis.features.brain; None
+        # (or the setting off, or no vectors yet) searches by words alone.
+        self.semantic: Any = None
         # Held only to swap in a finished index and to take a consistent look at one. The
         # slow work (parsing, indexing, laying out) happens before it's taken, so a search
         # or a window's hello never waits behind a load or a build.
@@ -621,32 +629,43 @@ class KnowledgeBase:
 
     # querying
 
-    def search(self, query: str, k: int = 6) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int = 6,
+        *,
+        sources: Any = None,
+        since: str = "",
+        until: str = "",
+    ) -> list[dict[str, Any]]:
+        """The notes that best answer a query, each with its best passage as the excerpt:
+        BM25 over the words, fused with search by meaning when that's on (self.semantic).
+        sources (names), since and until (ISO dates, both days included) narrow it."""
         from .fileindex import redact
 
-        words = tokens(str(query)[:MAX_QUERY_CHARS])
+        text = str(query)[:MAX_QUERY_CHARS]
+        words = tokens(text)
         with self._lock:
-            notes, index = self.notes, self._index
-        n_chunks = len(index.chunk_note)
-        if not words or not n_chunks:
+            notes, index, built_at = self.notes, self._index, self.built_at
+        if not len(index.chunk_note) or not text.strip():
             return []
-        found = [p for w in dict.fromkeys(words) if (p := index.posting(w)) is not None]
-        # A pasted page of text is searched by its most telling words, not every one.
-        found = sorted(found, key=lambda p: len(p[0]))[:MAX_QUERY_TERMS]
-        if not found:
-            return []
-        scores = np.zeros(n_chunks, dtype=np.float32)
-        for ids, counts in found:
-            tf = counts.astype(np.float32)
-            idf = math.log(1 + (n_chunks - len(ids) + 0.5) / (len(ids) + 0.5))
-            norm = tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * index.chunk_len[ids] / index.avg_len))
-            scores[ids] += idf * norm  # a chunk is in a word's postings once
-        hit = np.flatnonzero(scores)
-        ranked = hit[np.argsort(-scores[hit], kind="stable")]
-        _, first = np.unique(index.chunk_note[ranked], return_index=True)
-        best = ranked[np.sort(first)][:k]  # each note's best chunk, best notes first
+        allowed = _allowed(notes, index, sources, since, until)
+        keyword = _by_words(index, words, allowed)
+        meaning = None
+        semantic = self.semantic
+        if semantic is not None:
+            try:
+                meaning = semantic.best_chunks(text, self.store, built_at, index, allowed)
+            except Exception:  # never worse than the words alone
+                log.warning("second brain: search by meaning failed; words only", exc_info=True)
+        if meaning:
+            from .embeddings import fuse
+
+            picked = fuse(keyword, meaning, index.chunk_note, index.note_day, k)
+        else:
+            picked = [(c, score, "words") for c, score in keyword[:k]]
         out = []
-        for c in best:
+        for c, score, how in picked:
             n = notes[int(index.chunk_note[c])]
             chunks = chunk_text(n.title, n.text)
             chunk = chunks[min(int(index.chunk_pos[c]), len(chunks) - 1)]
@@ -656,7 +675,9 @@ class KnowledgeBase:
                     "title": redact(n.title),
                     "source": n.source,
                     "group": n.group,
-                    "score": round(float(scores[c]), 3),
+                    "score": round(float(score), 3),
+                    "match": how,
+                    "modified": n.modified[:25],
                     "excerpt": excerpt(redact(chunk), words),
                 }
             )
@@ -672,15 +693,24 @@ class KnowledgeBase:
         with self._lock:
             if self._galaxy is not None:
                 return self._galaxy
-            notes, positions = self.notes, self.positions
+            notes, positions, index = self.notes, self.positions, self._index
             edges, clusters, built_at = self.edges, self.clusters, self.built_at
         # float64 before rounding: a float32 0.1234 prints as 0.12340000271797180.
         points = positions.astype(np.float64).round(4).tolist()
         if len(points) != len(notes):  # never, since load() and build() check; never a crash
             points = [[0.0, 0.0, 0.0]] * len(notes)
+        days = index.note_day if len(index.note_day) == len(notes) else None
         galaxy = {
             "nodes": [
-                {"id": n.id, "title": n.title, "source": n.source, "group": n.group, "p": points[i]}
+                {
+                    "id": n.id,
+                    "title": n.title,
+                    "source": n.source,
+                    "group": n.group,
+                    "p": points[i],
+                    # The day it was last changed (days since 1970, local), for the time slider.
+                    "t": int(days[i] // 1) if days is not None and math.isfinite(days[i]) else None,
+                }
                 for i, n in enumerate(notes)
             ],
             "edges": edges,
@@ -693,6 +723,13 @@ class KnowledgeBase:
             if self._galaxy is None:  # two made at once: one of them is the build's
                 self._galaxy = galaxy
             return self._galaxy
+
+    def warm_semantic(self) -> bool:
+        """Search by meaning readied ahead of the first search (embeddings.SemanticSearch)."""
+        with self._lock:
+            store, built_at, n_chunks = self.store, self.built_at, len(self._index.chunk_note)
+        semantic = self.semantic
+        return bool(semantic is not None and semantic.warm(store, built_at, n_chunks))
 
     def summary(self) -> dict[str, Any]:
         with self._lock:
@@ -729,6 +766,58 @@ def _saved_state(data: Any) -> tuple[list[Note], np.ndarray, list[tuple[int, int
         )
     edges = [(a, b) for a, b in edges if 0 <= a < len(notes) and 0 <= b < len(notes)]
     return notes, positions, edges, clusters
+
+
+def _allowed(
+    notes: list[Note], index: _Index, sources: Any, since: str, until: str
+) -> np.ndarray | None:
+    """Which notes a search may return (None: all of them): those from `sources`, modified
+    from `since` to `until` (ISO dates, both included). A time limit leaves out the undated."""
+    if not sources and not since and not until:
+        return None
+    mask = np.ones(len(notes), dtype=bool)
+    if sources:
+        wanted = {str(s) for s in sources} if not isinstance(sources, str) else {sources}
+        mask &= np.fromiter((n.source in wanted for n in notes), dtype=bool, count=len(notes))
+    if since or until:
+        from .embeddings import day_of
+
+        days = index.note_day
+        known = np.isfinite(days)
+        mask &= known
+        filled = np.where(known, days, 0.0)
+        low = day_of(since) if since else math.nan
+        high = day_of(until) if until else math.nan
+        if math.isfinite(low):
+            mask &= filled >= math.floor(low)
+        if math.isfinite(high):
+            mask &= filled < math.floor(high) + 1
+    return mask
+
+
+def _by_words(
+    index: _Index, words: list[str], allowed: np.ndarray | None
+) -> list[tuple[int, float]]:
+    """BM25: each note's best chunk with its score, best notes first (allowed ones only)."""
+    n_chunks = len(index.chunk_note)
+    found = [p for w in dict.fromkeys(words) if (p := index.posting(w)) is not None]
+    # A pasted page of text is searched by its most telling words, not every one.
+    found = sorted(found, key=lambda p: len(p[0]))[:MAX_QUERY_TERMS]
+    if not found:
+        return []
+    scores = np.zeros(n_chunks, dtype=np.float32)
+    for ids, counts in found:
+        tf = counts.astype(np.float32)
+        idf = math.log(1 + (n_chunks - len(ids) + 0.5) / (len(ids) + 0.5))
+        norm = tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * index.chunk_len[ids] / index.avg_len))
+        scores[ids] += idf * norm  # a chunk is in a word's postings once
+    if allowed is not None:
+        scores[~allowed[index.chunk_note]] = 0
+    hit = np.flatnonzero(scores)
+    ranked = hit[np.argsort(-scores[hit], kind="stable")]
+    _, first = np.unique(index.chunk_note[ranked], return_index=True)
+    best = ranked[np.sort(first)]  # each note's best chunk, best notes first
+    return [(int(c), float(scores[c])) for c in best]
 
 
 def excerpt(text: str, words: list[str], width: int = 360) -> str:
@@ -937,7 +1026,11 @@ class Collector:
         messages: bool = False,
         only: set[str] | None = None,
         progress: Callable[[str], None] = lambda _msg: None,
+        finish: Callable[[KnowledgeBase, Callable[[str], None]], None] | None = None,
     ) -> dict[str, Any]:
+        """finish(kb, progress): run on the built index before it's saved (vectors for search
+        by meaning, and the galaxy's links by meaning); a finish that fails leaves the index
+        as built."""
         from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
         from concurrent.futures import TimeoutError as FutureTimeout
 
@@ -1008,5 +1101,10 @@ class Collector:
             readers.shutdown(wait=False, cancel_futures=True)
         progress("Arranging the galaxy…")
         self.kb.build(collected, errors)
+        if finish is not None:
+            try:
+                finish(self.kb, progress)
+            except Exception:  # the index is still good: saved as built
+                log.exception("second brain: finishing the rebuild failed")
         self.kb.save()
         return self.kb.summary()

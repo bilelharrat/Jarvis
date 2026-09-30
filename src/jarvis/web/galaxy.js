@@ -44,6 +44,8 @@ class Galaxy {
     this.focusId = null;
     this.highlights = new Set();
     this.hoverId = null;
+    this.visible = null; // Uint8Array, 1 for each star shown (the second brain's filters); null: all
+    this.visibleStamp = 0;
     this.interactive = false;
     this.running = false;
     this.onSelect = null;
@@ -60,6 +62,19 @@ class Galaxy {
     this.clusters = data.clusters || [];
     this.byId = new Map(this.nodes.map((n, i) => [n.id, i]));
     if (this.focusId && !this.byId.has(this.focusId)) this.focusId = null;
+    this.visible = null; // made for the old stars: the filters make one for these
+    this.visibleStamp++;
+  }
+
+  // Which stars show (filters): a Uint8Array with 1 for each shown star, or null for all.
+  // The focused, highlighted and hovered stars show either way.
+  setVisible(mask) {
+    this.visible = mask && mask.length === this.nodes.length ? mask : null;
+    this.visibleStamp++;
+  }
+
+  shown(i) {
+    return !this.visible || this.visible[i] === 1;
   }
 
   counts() {
@@ -173,7 +188,7 @@ class Galaxy {
       py[i] = h / 2 + (y1 * f) / depth;
       pd[i] = depth;
     }
-    this.every = n > STAR_BUDGET ? Math.ceil(n / STAR_BUDGET) : 1;
+    const visible = this.visible && this.visible.length === n ? this.visible : null;
 
     ctx.lineWidth = 1;
     ctx.strokeStyle = 'rgba(140, 190, 255, 0.05)';
@@ -182,20 +197,32 @@ class Galaxy {
     for (let k = 0; k < this.edges.length; k += edgeStep) {
       const [a, b] = this.edges[k];
       if (!pd[a] || !pd[b]) continue;
+      if (visible && (!visible[a] || !visible[b])) continue;
       ctx.moveTo(px[a], py[a]);
       ctx.lineTo(px[b], py[b]);
     }
     ctx.stroke();
 
-    // Farthest first. Past the budget only the sample is drawn, so only it is sorted.
-    const every = this.every;
-    if (!this.order || this.orderEvery !== every || this.orderN !== n) {
-      this.order = new Uint32Array(Math.ceil(n / every));
-      for (let i = 0, k = 0; i < n; i += every, k++) this.order[k] = i;
-      this.orderEvery = every;
+    // Farthest first. Past the budget only a sample of the shown stars is drawn (every
+    // `every`-th of them), so only it is sorted; it's made again when the filters change.
+    if (!this.order || this.orderN !== n || this.orderStamp !== this.visibleStamp) {
+      let count = n;
+      if (visible) { count = 0; for (let i = 0; i < n; i++) count += visible[i]; }
+      const step = count > STAR_BUDGET ? Math.ceil(count / STAR_BUDGET) : 1;
+      const order = new Uint32Array(Math.ceil(count / step));
+      const sampled = new Uint8Array(n);
+      for (let i = 0, seen = 0, k = 0; i < n && k < order.length; i++) {
+        if (visible && !visible[i]) continue;
+        if (seen++ % step === 0) { order[k++] = i; sampled[i] = 1; }
+      }
+      this.order = order;
+      this.sampled = sampled;
+      this.every = step;
       this.orderN = n;
+      this.orderStamp = this.visibleStamp;
       this.sortedAt = -1e9;
     }
+    const every = this.every;
     const order = this.order;
     if (t - this.sortedAt > SORT_EVERY_MS) {
       order.sort((a, b) => pd[b] - pd[a]);
@@ -215,10 +242,10 @@ class Galaxy {
     };
     for (let k = 0; k < order.length; k++) if (pd[order[k]]) star(order[k]);
     // The focused, highlighted and hovered stars that aren't in the sample: on top.
-    if (every > 1) {
+    if (every > 1 || visible) {
       for (const id of new Set([this.focusId, this.hoverId, ...this.highlights])) {
         const i = this.byId.get(id);
-        if (i !== undefined && i % every && pd[i]) star(i);
+        if (i !== undefined && !this.sampled[i] && pd[i]) star(i);
       }
     }
     ctx.globalAlpha = 1;
@@ -282,10 +309,9 @@ class Galaxy {
     return this.nearest(x - r.left, y - r.top, radius);
   }
 
-  // Past the budget only a sample of the stars is drawn; only drawn ones can be picked.
+  // Past the budget, or with filters, only some stars are drawn; only drawn ones can be picked.
   drawn(i) {
-    const every = this.every || 1;
-    if (every === 1 || i % every === 0) return true;
+    if (!this.sampled || this.sampled.length !== this.nodes.length || this.sampled[i]) return true;
     const id = this.nodes[i].id;
     return id === this.focusId || id === this.hoverId || this.highlights.has(id);
   }

@@ -663,6 +663,9 @@ class Hub:
             self.kb.load()
         self.collector = Collector(self.kb, settings.bsh_dir)
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
+        # Search by meaning for the second brain (jarvis.features.brain): build_args() for
+        # the rebuild. None without that feature.
+        self.brain_extension: Any = None
         self.screen = computer.Screen()
         self.desktop_hands = DesktopHands()
         self.phone = phone.Phone(lambda: self.prefs, voice=self._call_voice)
@@ -3641,6 +3644,8 @@ class Hub:
             "messages": self.prefs.brain_messages,
             "only": sorted(only) if only is not None else None,
         }
+        if self.brain_extension is not None:
+            args.update(self.brain_extension.build_args())
         proc = None
         try:
             proc = self._build_proc = await asyncio.create_subprocess_exec(
@@ -3779,7 +3784,9 @@ class Hub:
             return "Nothing in the second brain matches that."
         return "\n\n".join(
             f"[{h['id']}] {h['title']} ({h['source']}{', ' + h['group'] if h['group'] else ''})"
-            f"\n{h['excerpt']}"
+            # Found by search by meaning alone: its excerpt needn't have the query's words.
+            + (" · close in meaning" if h.get("match") == "meaning" else "")
+            + f"\n{h['excerpt']}"
             for h in hits
         )
 

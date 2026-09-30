@@ -1,0 +1,55 @@
+{
+ "strings": {
+  "Search by meaning": "按含义搜索",
+  "Finds notes about what you ask even when they use other words, with Apple’s on-device language models (English and Chinese). The first time, macOS may download Apple’s model.": "即使用词不同，也能找到与你所问内容相关的笔记，使用 Apple 的设备端语言模型（英文和中文）。首次使用时，macOS 可能会下载 Apple 的模型。",
+  "Getting search by meaning ready…": "正在准备按含义搜索…",
+  "macOS is downloading Apple’s language model (once). This can take a few minutes.": "macOS 正在下载 Apple 的语言模型（仅此一次），可能需要几分钟。",
+  "Making vectors in the background…": "正在后台生成向量…",
+  "Vectors come with the next update of the brain.": "向量将在第二大脑下次更新时生成。",
+  "Apple’s language model isn’t on this Mac yet. Turn this off and on again to download it.": "这台 Mac 上还没有 Apple 的语言模型。关闭后再打开此项即可下载。",
+  "Search by meaning needs Xcode’s command line tools to build its helper.": "按含义搜索需要 Xcode 命令行工具来构建其辅助程序。",
+  "Search by meaning’s helper stopped; it tries again at the next update.": "按含义搜索的辅助程序已停止；下次更新时会再试。",
+  "Search by meaning couldn’t start this time; it tries again at the next update.": "按含义搜索这次未能启动；下次更新时会再试。",
+  "Search your second brain…": "搜索你的第二大脑…",
+  "Search results": "搜索结果",
+  "Sources": "来源",
+  "From": "从",
+  "Until": "至",
+  "to": "至",
+  "All time": "全部时间",
+  "Notes": "备忘录",
+  "Mail": "邮件",
+  "Messages": "信息",
+  "BSH": "BSH",
+  "by meaning": "按含义",
+  "1 result": "1 条结果",
+  "Nothing in your second brain matches that.": "你的第二大脑中没有与此匹配的内容。",
+  "Search by meaning: finding what's new…": "按含义搜索：正在查找新内容…"
+ },
+ "patterns": [
+  [
+   "^([\\d,]+) of ([\\d,]+) passages searchable by meaning; the rest come as the brain updates\\.$",
+   "已有 $1 / $2 个段落可按含义搜索；其余的会随第二大脑更新生成。"
+  ],
+  [
+   "^Ready: ([\\d,]+) passages searchable by meaning\\.$",
+   "已就绪：$1 个段落可按含义搜索。"
+  ],
+  [
+   "^(\\d+) results$",
+   "$1 条结果"
+  ],
+  [
+   "^([\\d,]+) of ([\\d,]+) notes shown$",
+   "显示 $2 条笔记中的 $1 条"
+  ],
+  [
+   "^Search by meaning: ([\\d,]+) new passages…$",
+   "按含义搜索：$1 个新段落…"
+  ],
+  [
+   "^Search by meaning: (\\d+) of (\\d+) passages have vectors$",
+   "按含义搜索：$2 个段落中已有 $1 个生成了向量"
+  ]
+ ]
+}

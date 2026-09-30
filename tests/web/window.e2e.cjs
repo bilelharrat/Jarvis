@@ -1358,6 +1358,143 @@ test('Settings › Snippets adds one, and a built-in name is refused', async () 
   assert(JSON.stringify(r) === JSON.stringify([[{ name: 'fix-tests', text: 'Run the tests and fix failures.' }]]), JSON.stringify(r));
 });
 
+// ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
+
+const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');
+const BRAIN_CSS = fs.readFileSync(path.join(WEB, 'features', 'brain.css'), 'utf8');
+// Waits for a condition in the page (a debounced search), up to three seconds.
+async function until(cond) {
+  for (let i = 0; i < 60; i++) {
+    if (await js(cond)) return true;
+    await sleep(50);
+  }
+  return false;
+}
+async function loadBrain() {
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(BRAIN_CSS)}; document.head.append(s); })(); true`);
+  await js(`${BRAIN_JS}; window.__deliver = (ev) => { onEvent(ev); featureEvent(ev); }; __sent.length = 0; true`);
+}
+const GALAXY_NODES = `[
+  { id: 'n1', title: 'Board prep', source: 'notes', group: '', p: [0.1, 0, 0.1], t: 20720 },
+  { id: 'n2', title: 'Groceries', source: 'notes', group: '', p: [0.2, 0, 0.1], t: 20400 },
+  { id: 'm1', title: 'Board dinner', source: 'mail', group: '', p: [0.3, 0, 0.2], t: 20718 },
+  { id: 'f1', title: 'Deck', source: 'computer', group: '', p: [0.4, 0, 0.1], t: 20600 },
+  { id: 'i1', title: 'Screenshot', source: 'files', group: '', p: [0.5, 0, 0.1], t: 20719 },
+  { id: 'c1', title: 'Taxes', source: 'meetings', group: '', p: [0.6, 0, 0.1], t: null },
+]`;
+
+test('Search by meaning’s switch sits under Second brain, off until turned on, and sends its own command', async () => {
+  await loadBrain();
+  const r = await js(`(() => {
+    const group = $('fda-btn').parentElement;
+    const ids = [...group.querySelectorAll('.switch')].map((s) => s.id);
+    return { before: ids.indexOf('sw-brain_semantic') > ids.indexOf('sw-messages'),
+      semantic: $('sw-brain_semantic').getAttribute('aria-checked'), status: $('fda-btn').previousElementSibling.id };
+  })()`);
+  assert(r.before && r.semantic === 'false' && r.status === 'brain-semantic-status', JSON.stringify(r));
+  await js(`$('sw-brain_semantic').click(); true`);
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'brain_semantic', on: true }]), JSON.stringify(s));
+  await js(`__deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { brain_semantic: false } }); true`);
+  assert(await js(`$('sw-brain_semantic').getAttribute('aria-checked') === 'false'`), 'prefs did not set the switch');
+  await js(`__deliver({ type: 'brain_semantic', on: true, state: 'ready', vectors: 1200, wanted: 3000, detail: '' }); true`);
+  const status = await js(`({ text: $('brain-semantic-status').textContent, hidden: $('brain-semantic-status').hidden, on: $('sw-brain_semantic').getAttribute('aria-checked') })`);
+  assert(!status.hidden && status.on === 'true' && status.text === '1,200 of 3,000 passages searchable by meaning; the rest come as the brain updates.', JSON.stringify(status));
+  await js(`__deliver({ type: 'brain_semantic', on: false, state: 'off', vectors: 0, wanted: 0 }); true`);
+  assert(await js(`$('brain-semantic-status').hidden`), 'the status stayed while off');
+});
+
+test('The galaxy’s search asks the hub, shows its results as text and flies to the best on Enter', async () => {
+  await loadBrain();
+  await js(`setGalaxyMode('open'); __deliver({ type: 'galaxy', nodes: ${GALAXY_NODES}, edges: [], clusters: [] }); __sent.length = 0; true`);
+  await js(`$('galaxy-q').value = 'board'; $('galaxy-q').dispatchEvent(new Event('input')); true`);
+  assert(await until(`__sent.some((m) => m.type === 'brain_search')`), 'typing searched nothing');
+  const typed = await sentOf('brain_search');
+  assert(typed.length === 1 && typed[0].q === 'board' && typed[0].k === 30 && typed[0].seq, JSON.stringify(typed));
+  assert(!('sources' in typed[0]) && !('since' in typed[0]), 'no filter was set');
+  await js(`__deliver({ type: 'brain_results', seq: 'another-window:1', q: 'board', items: [{ id: 'n2', title: 'Wrong', source: 'notes', group: '', excerpt: '', match: 'words', modified: '' }] }); true`);
+  assert(await js(`$('brain-results').hidden || !$('brain-results').textContent.includes('Wrong')`), 'another window’s results were shown');
+  await js(`__sent.length = 0; $('galaxy-search').requestSubmit(); true`);
+  const [enter] = await sentOf('brain_search');
+  const items = `[{ id: 'm1', title: '<img src=x onerror="window.__pwned=1">Board dinner', source: 'mail', group: 'Ann', excerpt: 'Dinner after the <b>board</b> meeting', match: 'meaning', modified: '2026-09-28T19:00:00' },
+    { id: 'n1', title: 'Board prep', source: 'notes', group: '', excerpt: 'Revenue slides', match: 'words', modified: '2026-09-29' }]`;
+  await js(`__deliver({ type: 'brain_results', seq: ${JSON.stringify(enter.seq)}, q: 'board', items: ${items} }); true`);
+  await frames();
+  const r = await js(`({ shown: !$('brain-results').hidden, head: document.querySelector('.brain-results-head').textContent,
+    titles: [...document.querySelectorAll('#brain-results .brain-hit strong')].map((x) => x.textContent),
+    imgs: document.querySelectorAll('#brain-results img, #brain-results b').length, pwned: !!window.__pwned,
+    meaning: document.querySelectorAll('#brain-results .brain-by-meaning').length,
+    focus: galaxy.focusId, highlights: [...galaxy.highlights], note: __sent.filter((m) => m.type === 'note').map((m) => m.id),
+    noI18n: document.querySelector('#brain-results .brain-hit strong').hasAttribute('data-no-i18n') })`);
+  assert(r.shown && r.head === '2 results' && r.titles[1] === 'Board prep' && r.imgs === 0 && !r.pwned, JSON.stringify(r));
+  assert(r.meaning === 1 && r.focus === 'm1' && r.note[0] === 'm1' && r.highlights.includes('n1') && r.noI18n, JSON.stringify(r));
+  await js(`__sent.length = 0; document.querySelectorAll('#brain-results .brain-hit')[1].click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'note', id: 'n1' }]), 'a result click did not open its note');
+  assert(await js(`selectedNote === 'n1' && galaxy.focusId === 'n1'`), 'a result click did not fly to its star');
+  // Nothing found (a filter, say): the old results and their lit stars go.
+  await js(`__sent.length = 0; $('galaxy-search').requestSubmit(); true`);
+  const [again] = await sentOf('brain_search');
+  await js(`__deliver({ type: 'brain_results', seq: ${JSON.stringify(again.seq)}, q: 'board', items: [] }); true`);
+  const none = await js(`({ size: galaxy.highlights.size, empty: document.querySelector('#brain-results .brain-empty') && document.querySelector('#brain-results .brain-empty').textContent, head: document.querySelector('#brain-results .brain-results-head').hidden })`);
+  assert(none.size === 0 && none.empty === 'Nothing in your second brain matches that.' && none.head, JSON.stringify(none));
+  await js(`$('galaxy-q').value = ''; $('galaxy-q').dispatchEvent(new Event('input')); true`);
+  assert(await until(`$('brain-results').hidden && galaxy.highlights.size === 0`), 'clearing the search left results');
+});
+
+test('Source chips and the time slider hide stars, narrow the search and are only for the open galaxy', async () => {
+  await loadBrain();
+  await js(`setGalaxyMode('open'); __deliver({ type: 'galaxy', nodes: ${GALAXY_NODES}, edges: [[0, 2], [1, 3]], clusters: [] }); true`);
+  await frames();
+  const chips = await js(`[...document.querySelectorAll('.brain-chip')].map((c) => c.dataset.group + ':' + c.querySelector('small').textContent)`);
+  assert(JSON.stringify(chips) === JSON.stringify(['notes:2', 'mail:1', 'files:2', 'meetings:1']), JSON.stringify(chips));
+  assert(await js(`getComputedStyle($('galaxy-legend')).display === 'none'`), 'the old legend still shows');
+  await js(`document.querySelector('.brain-chip[data-group="files"]').click(); true`);
+  await frames();
+  let r = await js(`({ visible: [...galaxy.visible], count: $('galaxy-count').textContent, pressed: document.querySelector('.brain-chip[data-group="files"]').getAttribute('aria-pressed') })`);
+  assert(JSON.stringify(r.visible) === '[1,1,1,0,0,1]' && r.count === '4 of 6 notes shown' && r.pressed === 'false', JSON.stringify(r));
+  await js(`__sent.length = 0; $('galaxy-q').value = 'board'; $('galaxy-search').requestSubmit(); true`);
+  const [narrow] = await sentOf('brain_search');
+  assert(JSON.stringify(narrow.sources.sort()) === JSON.stringify(['mail', 'meetings', 'notes']), JSON.stringify(narrow));
+  // The last two weeks: the undated meeting and the older notes go.
+  await js(`$('brain-from').value = '20710'; $('brain-from').dispatchEvent(new Event('input')); $('brain-from').dispatchEvent(new Event('change')); true`);
+  await frames();
+  r = await js(`({ visible: [...galaxy.visible], label: document.querySelector('.brain-time-label').textContent, search: __sent.filter((m) => m.type === 'brain_search').pop() })`);
+  assert(JSON.stringify(r.visible) === '[1,0,1,0,0,0]', JSON.stringify(r));
+  const day = (t) => new Date(t * 86400000).toISOString().slice(0, 10);
+  assert(r.label.startsWith('From') && r.search.since === day(20710) && r.search.until === day(20720), JSON.stringify(r));
+  // Closed: every star again (the ambient galaxy shows what Jarvis draws on); open: the filters.
+  await js(`setGalaxyMode('off'); true`);
+  await frames();
+  assert(await js('galaxy.visible === null'), 'the filters stayed on the closed galaxy');
+  await js(`setGalaxyMode('open'); true`);
+  await frames(3);
+  assert(await js('JSON.stringify([...galaxy.visible]) === "[1,0,1,0,0,0]"'), 'the filters did not come back');
+});
+
+test('A filtered galaxy of 30,000 notes still draws a bounded number of stars, and every star of a small source', async () => {
+  await loadBrain();
+  const r = await js(`(() => {
+    const nodes = Array.from({ length: 30000 }, (_, i) => ({ id: 'n' + i, title: 'Note ' + i, source: i % 100 === 0 ? 'mail' : 'notes', group: '', p: [Math.cos(i) * 1.2, (i % 7) / 50, Math.sin(i) * 1.2], t: 20000 + (i % 700) }));
+    setGalaxyMode('open');
+    __deliver({ type: 'galaxy', nodes, edges: [], clusters: [] });
+    galaxy.resize();
+    const ctx = galaxy.ctx, real = ctx.drawImage.bind(ctx);
+    let calls = 0; ctx.drawImage = (...a) => { calls++; return real(...a); };
+    const mask = new Uint8Array(30000); for (let i = 0; i < 30000; i += 100) mask[i] = 1;
+    galaxy.setVisible(mask);
+    galaxy.frame(performance.now());
+    const small = calls; calls = 0;
+    galaxy.setVisible(new Uint8Array(30000).fill(1));
+    const started = performance.now();
+    galaxy.frame(performance.now());
+    const ms = performance.now() - started;
+    ctx.drawImage = real;
+    return { small, all: calls, ms };
+  })()`);
+  assert(r.small >= 250 && r.small <= 320, `a 300-star source drew ${r.small}`);
+  assert(r.all <= 8100, `${r.all} stars drawn in one frame`);
+});
+
 // ──
 
 let base;

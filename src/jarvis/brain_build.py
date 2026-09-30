@@ -67,6 +67,10 @@ def main() -> None:
     def progress(message: str) -> None:
         print(json.dumps({"progress": message}), flush=True)
 
+    # Search by meaning's vectors (args["more"], from jarvis.features.brain): made here too,
+    # under this lock and at this priority.
+    from . import brain_sources
+
     summary = collector.run(
         notes=args.get("notes", False),
         bsh=args.get("bsh_on", False),
@@ -77,6 +81,7 @@ def main() -> None:
         messages=args.get("messages", False),
         only=only,
         progress=progress,
+        finish=brain_sources.finisher(args),
     )
     print(json.dumps({"done": summary}), flush=True)
 
