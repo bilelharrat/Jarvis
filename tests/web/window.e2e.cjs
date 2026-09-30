@@ -594,6 +594,19 @@ test('In Chinese, the owner’s files, sessions and messages in Jarvis Code’s 
     JSON.stringify({ shown, rewind, resume }));
 });
 
+test('In the smallest window (760 × 620), Jarvis Code uses the whole width and its header fits', async () => {
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 760, height: 620, deviceScaleFactor: 1, mobile: false });
+  try {
+    await open(1);
+    await frames(3);
+    const r = await js(`(() => { const box = (id) => $(id).getBoundingClientRect();
+      return { main: Math.round(document.querySelector('.jc-main').getBoundingClientRect().left), side: $('jc-side').checkVisibility(), close: Math.round(box('cc-close').right), more: Math.round(box('jc-more').right), title: Math.round(box('jc-title').width), vw: innerWidth }; })()`);
+    assert(!r.side && r.main === 0 && r.close <= r.vw && r.more <= r.vw && r.title > 40, JSON.stringify(r));
+  } finally {
+    await cdp('Emulation.clearDeviceMetricsOverride');
+  }
+});
+
 test('/rename with nothing after it names the session in place', async () => {
   await open(1, '$("deck-input").focus()');
   await typeText('/rename');

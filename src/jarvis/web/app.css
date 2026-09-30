@@ -2026,7 +2026,8 @@ body.in-app .jc-side-head { padding-left: 70px; min-height: 32px; }
 .jc-main { left: 284px; }
 body.in-app .jc-toolbar { padding-top: 6px; min-height: 52px; }
 body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }
-@media (max-width: 900px) { body.in-app .jc-toolbar { padding-left: 84px; } }
+/* (in a narrow window the sidebar is hidden: the main column takes its place, as above) */
+@media (max-width: 900px) { body.in-app .jc-toolbar { padding-left: 84px; } .jc-main { left: 0; } }
 
 /* rows: a whisper of ink on hover, a press, and the glass pill lifting onto the selection */
 .jc-project, .jc-session { transition: background-color 150ms ease, transform 220ms var(--ease-spring); }
