@@ -292,9 +292,15 @@
       case 'pause': F.send({ type: 'shell_pause', minutes: 60 }); break;
       case 'resume': F.send({ type: 'shell_pause', minutes: 0 }); break;
       case 'open': openPanel(cmd.panel); break;
-      case 'approve':
-        if (approvals.has(cmd.id) && ['allow', 'deny'].includes(cmd.choice)) F.send({ type: 'approve', id: cmd.id, choice: cmd.choice });
+      case 'approve': {
+        // Answered as the card's own button would be: through the window's checks (Touch ID
+        // before allowing a risky Jarvis Code step), never around them.
+        const card = approvals.get(cmd.id);
+        if (!card || !['allow', 'deny'].includes(cmd.choice)) break;
+        if (F.answerApproval) F.answerApproval(card, cmd.choice);
+        else F.send({ type: 'approve', id: cmd.id, choice: cmd.choice });
         break;
+      }
       case 'reveal': reveal(cmd); break;
       case 'prefill': prefill(cmd.text); break;
       case 'library': if (['history', 'bookmarks'].includes(cmd.kind)) openLibraryPanel(cmd.kind); break;

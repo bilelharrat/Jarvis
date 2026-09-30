@@ -759,7 +759,7 @@ test('The shell tells the app which cards wait, and answers one only as its noti
     __app.on['feature:shell:command']({ action: 'approve', id: 'p1', choice: 'always' });
     true`);
   const s = await js('__sent');
-  assert(JSON.stringify(s) === JSON.stringify([{ type: 'approve', id: 'p1', choice: 'allow' }]), `only a waiting card, with allow or deny: ${JSON.stringify(s)}`);
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'approve', id: 'p1', choice: 'allow', feedback: '' }]), `only a waiting card, with allow or deny: ${JSON.stringify(s)}`);
 });
 
 test('The shell raises heads-ups through the app, and opens JARVIS on the card a notification names', async () => {
@@ -3606,6 +3606,28 @@ test('Bypass and a risky step allowed from its card ask for Touch ID first, or t
   await deliver({ ...(await js('__approval("r2", { detail: "$ npm test" })')), task_id: 1 });
   await js('__touch.length = 0; document.querySelector("#deck-timeline [data-approval=r2] .jc-choices button").click(); true');
   assert(JSON.stringify((await sentOf('approve')).map((m) => m.id)) === JSON.stringify(['r1', 'r2']) && (await js('__touch.length')) === 0, 'an ordinary step waited');
+});
+
+test('A notification’s Allow on a risky Jarvis Code step asks for Touch ID, as the card’s own button does', async () => {
+  await loadShell();
+  await featureScript('code-touchid.js');
+  await fakeTouchId(false); // Touch ID on this Mac, and the finger says no
+  await js(`__event(__approval('r1', { detail: '$ git push --force origin main' }));
+    __event(__approval('r2', { detail: '$ npm test' }));
+    __event(__approval('r3', { detail: '$ rm -rf build' }));
+    __sent.length = 0;
+    __app.on['feature:shell:command']({ action: 'approve', id: 'r1', choice: 'allow' });
+    __app.on['feature:shell:command']({ action: 'approve', id: 'r2', choice: 'allow' });
+    __app.on['feature:shell:command']({ action: 'approve', id: 'r3', choice: 'deny' });
+    true`);
+  await sleep(80);
+  const answered = () => js('__sent.filter((m) => m.type === "approve").map((m) => m.id + " " + m.choice)');
+  // The risky step waited for the finger, which said no; an ordinary one and a no went at once.
+  assert(JSON.stringify(await answered()) === JSON.stringify(['r2 allow', 'r3 deny']), JSON.stringify(await js('__sent')));
+  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['feature:touchid:available', 'approve']), JSON.stringify(await js('__touch')));
+  await js(`__finger = true; __app.on['feature:shell:command']({ action: 'approve', id: 'r1', choice: 'allow' }); true`);
+  await sleep(80);
+  assert(JSON.stringify(await answered()) === JSON.stringify(['r2 allow', 'r3 deny', 'r1 allow']), JSON.stringify(await js('__sent')));
 });
 
 test('Jarvis Code settings has the Touch ID switch; off, Bypass asks the usual question', async () => {

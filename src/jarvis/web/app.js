@@ -140,6 +140,7 @@ window.jarvisFeatures = {
   registerEntry(role, render) { featureEntries.set(role, render); },
   registerApprovalView(view) { featureApprovalViews.push(view); },
   registerCheck(check) { featureChecks.push(check); },
+  answerApproval: (a, choice, feedback) => answerApproval(a, choice, feedback),  // as its card's button: checks first
   registerEntryDecorator(fn) { featureDecorators.push(fn); },
   registerRichText(render) { featureRichText = render; },
   currentTask: () => currentTask(),
