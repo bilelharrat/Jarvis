@@ -230,7 +230,8 @@ async def test_a_days_cap_stops_it_and_the_rest_wait_for_tomorrow(hub, projects,
 async def test_a_rate_limit_loses_no_issue(hub, projects, monkeypatch):
     app_project(projects)
     entry = opted_in(hub)
-    starts(hub, monkeypatch)
+    started = starts(hub, monkeypatch)
+    labelled(hub.fake, 4)
     labelled(hub.fake, 5)
     hub.fake.fail[("GET", "/repos/acme/app/issues/5")] = (
         403,
@@ -239,7 +240,10 @@ async def test_a_rate_limit_loses_no_issue(hub, projects, monkeypatch):
     )
     with pytest.raises(github.RateLimited):
         await hub.code_issues.look(entry)
-    assert 500 not in hub.code_issues.seen().get("acme/app", [])
+    assert len(started) == 1  # issue 4's session, before the limit
+    hub.code_issues._seen = None  # (read again from its file: what was seen is kept)
+    assert 400 in hub.code_issues.seen()["acme/app"]
+    assert 500 not in hub.code_issues.seen()["acme/app"]
     del hub.fake.fail[("GET", "/repos/acme/app/issues/5")]
     hub.code_pr.client.limited_until = 0
     assert await hub.code_issues.look(entry) == [5]

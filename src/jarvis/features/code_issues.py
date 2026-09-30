@@ -339,35 +339,37 @@ class Issues:
                 seen.append(event_id)
                 continue
             fresh.append((event_id, int(issue.get("number") or 0), event))
-        started = []
-        for event_id, number, event in fresh:
-            if not number:
+        started: list[int] = []
+        try:  # (what's seen is kept even when a rate limit stops the look)
+            for event_id, number, event in fresh:
+                if not number:
+                    seen.append(event_id)
+                    continue
+                if not self.caps.left("issue"):
+                    self._capped()
+                    break  # not seen: tomorrow's look starts them
+                try:
+                    issue = await self.client.issue(ref, number)
+                except github.RateLimited:
+                    raise  # not seen: the next look reads it
+                except github.GitHubError:
+                    issue = event.get("issue") or {}  # as the event had it
+                if issue.get("state") == "closed" or issue.get("pull_request"):
+                    seen.append(event_id)
+                    continue
+                try:
+                    self.caps.take("issue")
+                except code_ai.OverBudget:
+                    self._capped()
+                    break
                 seen.append(event_id)
-                continue
-            if not self.caps.left("issue"):
-                self._capped()
-                break  # not seen: tomorrow's look starts them
-            try:
-                issue = await self.client.issue(ref, number)
-            except github.RateLimited:
-                raise  # not seen: the next look reads it
-            except github.GitHubError:
-                issue = event.get("issue") or {}  # as the event had it
-            if issue.get("state") == "closed" or issue.get("pull_request"):
-                seen.append(event_id)
-                continue
-            try:
-                self.caps.take("issue")
-            except code_ai.OverBudget:
-                self._capped()
-                break
-            seen.append(event_id)
-            labeller = str((event.get("actor") or {}).get("login") or "")
-            said = self.start(entry, issue, labeller)
-            if not said:
-                started.append(number)
-        del seen[:-SEEN_KEPT]
-        self.save()
+                labeller = str((event.get("actor") or {}).get("login") or "")
+                said = self.start(entry, issue, labeller)
+                if not said:
+                    started.append(number)
+        finally:
+            del seen[:-SEEN_KEPT]
+            self.save()
         return started
 
     def _capped(self) -> None:
