@@ -14,12 +14,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import wake
+from . import personas, wake
 from .lang import _CJK_CHARS, has_cjk, is_zh, to_simplified
 from .textclean import clean_text
 
-# The persona's own name, in English and in Chinese (lang.ZH_PERSONAS).
+# The persona's own name, in English and in Chinese (lang.ZH_PERSONAS). The owner's own
+# personas (personas.py) join these as they're registered: _own_personas.
 PERSONA_NAMES = {"tars": ("TARS", "塔斯"), "friday": ("Friday", "星期五")}
+BUILT_IN_NAMES = dict(PERSONA_NAMES)
 MAX_WORDS = 8
 EMPTY: dict[str, list[str]] = {"added": [], "removed": []}
 
@@ -143,3 +145,24 @@ def hotwords(words: list[str], language: str) -> list[str]:
     """The wake words a recognizer should listen for in this language (Chinese ones only
     in Chinese)."""
     return [w for w in words if is_zh(language) or not has_cjk(w)]
+
+
+def _own_personas(items: list[Any]) -> None:
+    """The owner's own personas answer to their names too, as TARS and Friday do: each
+    one's name, in English and in Chinese, when it can be a wake word at all (clean_word:
+    one word, not one that already means something). Dropped ones stop answering."""
+    for ident in [k for k in PERSONA_NAMES if k not in BUILT_IN_NAMES]:
+        del PERSONA_NAMES[ident]
+    for persona in items:
+        ident = getattr(persona, "id", "")
+        if not ident or ident in BUILT_IN_NAMES or ident == "jarvis":
+            continue
+        name = clean_word(getattr(persona, "name", "")) or ""
+        zh_name = clean_word(getattr(persona, "zh_name", "")) or ""
+        english = name if name and not has_cjk(name) else ""
+        chinese = zh_name if has_cjk(zh_name) else (name if has_cjk(name) else "")
+        if english or chinese:
+            PERSONA_NAMES[ident] = (english, chinese)
+
+
+personas.add_listener(_own_personas)

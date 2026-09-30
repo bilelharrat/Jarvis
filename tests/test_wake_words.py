@@ -211,3 +211,25 @@ async def test_a_hands_free_call_by_another_name_asks(settings, quiet_speaker, i
     await asyncio.sleep(0.01)
     assert hub.client.said == ["what's on tomorrow"]
     assert voice_feature.feature_for(hub) is not None
+
+
+def test_the_owners_own_personas_answer_to_their_names(monkeypatch):
+    from jarvis import lang, personas, prefs
+
+    monkeypatch.setattr(prefs, "PERSONAS", dict(prefs.PERSONAS))
+    monkeypatch.setattr(lang, "ZH_PERSONAS", dict(lang.ZH_PERSONAS))
+    monkeypatch.setattr(personas, "KNOWN", dict(personas.KNOWN))
+    monkeypatch.setattr(wakewords, "PERSONA_NAMES", dict(wakewords.BUILT_IN_NAMES))
+    nova = personas.Persona("nova", "Nova", "Bright and quick.", zh_name="诺瓦")
+    xiaomei = personas.Persona("xiaomei", "小美", "温和。")
+    long_name = personas.Persona("captain", "Captain Jack", "A pirate.")  # two words: no
+    taken = personas.Persona("hey", "Hey", "Says hey.")  # already means something
+    personas.register([nova, xiaomei, long_name, taken])
+    assert wakewords.defaults("nova") == ["Jarvis", "Nova"]
+    assert wakewords.defaults("nova", "zh") == ["Jarvis", "Nova", "诺瓦"]
+    assert wakewords.defaults("xiaomei", "zh") == ["Jarvis", "小美"]
+    assert wakewords.defaults("captain") == wakewords.defaults("hey") == ["Jarvis"]
+    assert wakewords.defaults("friday") == ["Jarvis", "Friday"]  # the built-in ones stay
+    personas.register([xiaomei], dropped=["nova"])
+    assert wakewords.defaults("nova") == ["Jarvis"]  # a dropped persona stops answering
+    assert "friday" in wakewords.PERSONA_NAMES and "xiaomei" in wakewords.PERSONA_NAMES
