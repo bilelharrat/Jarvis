@@ -49,3 +49,17 @@ test('the composer offers the other sessions as @mentions, by number, title or p
   assert.deepEqual(cv.sessionMentions('api', tasks, 1).map((m) => m.value), ['session-12']);
   assert.deepEqual(cv.sessionMentions('zzz', tasks, 1), []);
 });
+
+test('a mention on its way to "@session-2", or "@s2" as the backend reads it, is by number', () => {
+  const tasks = [
+    { id: 1, kind: 'code', title: 'Add a retry', folder: 'jarvis' },
+    { id: 2, kind: 'code', title: 'Write the docs', folder: 'bsh' },
+    { id: 12, kind: 'code', prompt: 'Fix the login', folder: 'api' },
+  ];
+  for (const typed of ['s', 'se', 'sessio', 'session', 'session-']) {
+    assert.deepEqual(cv.sessionMentions(typed, tasks, 1).map((m) => m.value), ['session-2', 'session-12'], typed);
+  }
+  assert.deepEqual(cv.sessionMentions('s1', tasks, null).map((m) => m.value), ['session-1', 'session-12']);
+  assert.deepEqual(cv.sessionMentions('session2', tasks, 1).map((m) => m.value), ['session-2']);
+  assert.deepEqual(cv.sessionMentions('sql', tasks, 1), []);  // another word: a title or project
+});

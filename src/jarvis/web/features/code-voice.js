@@ -51,7 +51,11 @@
   // The other sessions a composer's "@…" can mean, by number, title or project: the
   // composer's suggestions (the current session left out).
   function sessionMentions(query, tasks, currentId, limit = 6) {
-    const q = String(query || '').toLowerCase().replace(/^session-?/, '');
+    // "@se" … "@session-", maybe with a number, are on their way to "@session-3", and "@s3" is
+    // session 3 too (as the backend reads it): the number is what's looked for then.
+    const typed = String(query || '').toLowerCase();
+    const [, word = '', number = ''] = typed.match(/^([a-z]*)-?(\d*)$/) || [];
+    const q = (word || number) && 'session'.startsWith(word) ? number : typed;
     return (tasks || [])
       .filter((t) => t && t.kind === 'code' && t.id !== currentId)
       .filter((t) => !q || String(t.id).startsWith(q) || String(t.title || t.prompt || '').toLowerCase().includes(q)

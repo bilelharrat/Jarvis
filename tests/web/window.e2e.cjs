@@ -784,6 +784,17 @@ test('“@” at the start of a Jarvis Code message offers the other sessions to
   assert(!midway.some((t) => t.startsWith('@session')), JSON.stringify(midway));  // only at the start
 });
 
+test('“@se” on the way to “@session-4”, and “@s4” as the backend reads it, offer the other sessions', async () => {
+  await loadFeature('code-voice.js');
+  await open(3);
+  await js(`onEvent({ type: 'tasks', items: [__task(3), __task(4, { title: 'Write the docs' })] }); $("deck-input").focus(); true`);
+  for (const typed of ['@se', '@sessio', '@session-', '@s4', '@session4']) {
+    await js(`$("deck-input").value = ${JSON.stringify(typed)}; $("deck-input").dispatchEvent(new Event("input")); true`);
+    const offered = await js('[...$("cc-slash").querySelectorAll("button code")].map((c) => c.textContent)');
+    assert(JSON.stringify(offered) === '["@session-4"]', `${typed}: ${JSON.stringify(offered)}`);
+  }
+});
+
 // ── the Mac app's shell (web/features/shell.js), with a stand-in for the app's side ──
 
 // What the page queued runs before this returns (its zero-delay timers, promise callbacks
