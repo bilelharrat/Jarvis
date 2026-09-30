@@ -3,7 +3,7 @@
 // badge, their notifications), hands it heads-ups to raise as macOS notifications, carries
 // out what its menus, notifications and jarvis:// links ask over this window's connection,
 // and adds the "This Mac" group to Settings (the menu bar icon, opening at login, the
-// global shortcuts, the Services menu's "Ask JARVIS").
+// global shortcuts, the Services menu's "Ask JARVIS", waking the Mac for the briefing).
 (() => {
   // ── pure helpers (tests/web/shell.test.mjs requires this file for them) ──
 
@@ -365,6 +365,86 @@
     bridge.invoke(`${CH}service`, { action }).then((state) => { serviceState = state; renderService(); }, () => {});
   }
 
+  // Waking the Mac for the briefing: what's scheduled, what the button sets, Remove. Each
+  // change asks for the owner's password in macOS's own window (the backend's shell_wake).
+  let wakeState = null;
+  const clockAt = (minutes) => { const d = new Date(); d.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0); return clockText(d); };
+  const hhmmMinutes = (hhmm) => { const m = /^(\d{2}):(\d{2})$/.exec(String(hhmm || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+
+  function wakeRows() {
+    const row = F.el('div', 'row stack');
+    const words = F.el('span');
+    const status = F.el('small', '', '');
+    status.id = 'shell-wake-status';
+    words.append(F.el('strong', '', 'Scheduled wake'), status);
+    row.append(words);
+    const plan = F.el('p', 'small-status');
+    plan.id = 'shell-wake-plan';
+    const buttons = F.el('div', 'folder-form');
+    const set = F.el('button', 'btn primary', 'Wake the Mac for my briefing and routines');
+    set.type = 'button';
+    set.id = 'shell-wake-set';
+    set.addEventListener('click', () => wakeAction('set'));
+    const clear = F.el('button', 'btn danger', 'Remove');
+    clear.type = 'button';
+    clear.id = 'shell-wake-clear';
+    clear.hidden = true;
+    clear.addEventListener('click', () => wakeAction('clear'));
+    buttons.append(set, clear);
+    const note = F.el('p', 'small-status');
+    note.id = 'shell-wake-note';
+    note.hidden = true;
+    note.setAttribute('aria-live', 'polite');
+    return [row, plan, buttons, note];
+  }
+
+  function wakeAction(action) {
+    if (action !== 'status' && wakeState) wakeState = { ...wakeState, busy: true }; // until the backend says
+    renderWake();
+    F.send({ type: 'shell_wake', action });
+  }
+
+  function renderWake() {
+    if (!group || !wakeState) return;
+    const w = wakeState;
+    const scheduled = w.scheduled;
+    let status = en('This Mac doesn’t wake on a schedule.');
+    if (scheduled && scheduled.days === 'every day' && Number.isFinite(scheduled.minutes)) status = en(`This Mac wakes every day at ${clockAt(scheduled.minutes)}.`);
+    else if (scheduled) status = en(`This Mac wakes: ${scheduled.entry}.`);
+    F.$('shell-wake-status').textContent = status;
+    const wanted = hhmmMinutes(w.time);
+    const when = wanted === null ? String(w.time || '') : clockAt(wanted);
+    F.$('shell-wake-plan').textContent = w.reason === 'wake_call'
+      ? en(`Every day at ${when}, 5 minutes before your wake-up call. macOS asks for your password.`)
+      : en(`Every day at ${when}, 5 minutes before your briefing. macOS asks for your password.`);
+    const set = F.$('shell-wake-set');
+    const clear = F.$('shell-wake-clear');
+    set.hidden = Boolean(w.matches);
+    clear.hidden = !scheduled;
+    set.disabled = clear.disabled = Boolean(w.busy) || !online;
+    let note = '';
+    let warn = false;
+    if (w.busy) note = en('Waiting for your password in macOS’s window…');
+    else if (w.note === 'failed') { note = en('That didn’t work. Try again.'); warn = true; }
+    else if (w.note === 'unavailable') { note = en('This Mac can’t schedule a wake.'); warn = true; }
+    else if (scheduled && (w.others || []).length) { note = en(`Remove also clears: ${w.others.join('; ')}.`); warn = true; }
+    const box = F.$('shell-wake-note');
+    box.hidden = !note;
+    box.textContent = note;
+    box.classList.toggle('warn-line', warn);
+  }
+
+  // Asked for when Settings opens, and again when the briefing's or wake-up call's time moves.
+  let wakeAsked = '';
+  function askWake() {
+    if (!group || F.$('settings').hidden || !online) return;
+    const p = seen.prefs || {};
+    const sign = JSON.stringify([p.briefing_enabled, p.briefing_time, p.wake_call, p.wake_call_time]);
+    if (sign === wakeAsked && wakeState) return;
+    wakeAsked = sign;
+    F.send({ type: 'shell_wake', action: 'status' });
+  }
+
   let group = null;
   function buildGroup() {
     if (group || !bridge) return;
@@ -392,6 +472,7 @@
       note,
       serviceRow(),
       serviceNote,
+      ...wakeRows(),
     );
     const settings = F.$('settings');
     const accounts = F.$('open-accounts');
@@ -407,6 +488,8 @@
     if (!group) return;
     F.$('sw-shell-menubar').setAttribute('aria-checked', String(feature('shell_menu_bar', true) !== false));
     renderShortcuts();
+    renderWake();
+    askWake();
   }
 
   // ── the global shortcuts ──
@@ -552,6 +635,7 @@
     wantedProject = '';
     if (!pickProject(name)) notice('Jarvis Code', '', en(`No Jarvis Code project named “${name}”.`), 8000);
   });
+  F.on('shell_wake', (ev) => { wakeState = ev; renderWake(); });
   F.on('state', (ev) => { seen.state = ev.value || 'idle'; report(); });
   F.on('muted', (ev) => { seen.muted = Boolean(ev.value); report(); });
   F.on('prefs', (ev) => { seen.prefs = ev; renderGroup(); afterLanguage(ev); });
@@ -559,9 +643,12 @@
   // Offline while the window's connection is down ("Reconnecting to Jarvis…" is showing).
   const offline = F.$('offline');
   if (offline) {
-    new MutationObserver(() => { online = offline.hidden; report(); renderShortcuts(); })
+    new MutationObserver(() => { online = offline.hidden; report(); renderShortcuts(); renderWake(); })
       .observe(offline, { attributes: true, attributeFilter: ['hidden'] });
   }
+  // Settings opening: the wake schedule as it is now (someone may have changed it in pmset).
+  new MutationObserver(() => { if (!F.$('settings').hidden) { wakeAsked = ''; askWake(); } })
+    .observe(F.$('settings'), { attributes: true, attributeFilter: ['hidden'] });
 
   if (bridge) {
     bridge.on(`${CH}command`, run);

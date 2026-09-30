@@ -948,6 +948,38 @@ test('Open at login isn’t offered where it can’t work (the test window, a bu
   assert(await js('getComputedStyle($("sw-shell-login").closest(".row")).display') === 'none', 'hidden, but still on show');
 });
 
+test('Scheduled wake: asked for as Settings opens, set and removed only by the buttons', async () => {
+  await loadShell();
+  await js('__sent.length = 0; toggleSettings(true); true');
+  await settle();
+  const wakes = () => js('__sent.filter((m) => m.type === "shell_wake").map((m) => m.action)');
+  assert(JSON.stringify(await wakes()) === '["status"]', JSON.stringify(await wakes()));
+  const show = (ev) => js(`__event(${JSON.stringify({ type: 'shell_wake', time: '07:55', reason: 'briefing', scheduled: null, matches: false, others: [], note: '', busy: false, ...ev })}); true`);
+  const rows = () => js(`({ status: $('shell-wake-status').textContent, plan: $('shell-wake-plan').textContent, set: $('shell-wake-set').hidden ? 'hidden' : $('shell-wake-set').disabled ? 'off' : 'on',
+    clear: $('shell-wake-clear').hidden ? 'hidden' : $('shell-wake-clear').disabled ? 'off' : 'on', note: $('shell-wake-note').hidden ? '' : $('shell-wake-note').textContent })`);
+  await show({});
+  let r = await rows();
+  assert(r.status === 'This Mac doesn’t wake on a schedule.' && /^Every day at 7:55\sAM, 5 minutes before your briefing\. macOS asks for your password\.$/u.test(r.plan), JSON.stringify(r));
+  assert(r.set === 'on' && r.clear === 'hidden' && !r.note, JSON.stringify(r));
+  await js('$("shell-wake-set").click(); true');
+  r = await rows();
+  assert(r.set === 'off' && r.note === 'Waiting for your password in macOS’s window…', `while macOS asks: ${JSON.stringify(r)}`);
+  await show({ scheduled: { entry: 'wakepoweron at 7:55AM every day', minutes: 475, days: 'every day' }, matches: true, others: ['shutdown at 11:00PM weekdays only'] });
+  r = await rows();
+  assert(/^This Mac wakes every day at 7:55\sAM\.$/u.test(r.status) && r.set === 'hidden' && r.clear === 'on', JSON.stringify(r));
+  assert(r.note === 'Remove also clears: shutdown at 11:00PM weekdays only.', JSON.stringify(r));
+  await js('$("shell-wake-clear").click(); true');
+  assert(JSON.stringify(await wakes()) === '["status","set","clear"]', JSON.stringify(await wakes()));
+  // The wake-up call is earlier; pmset has something set by hand; a failure is said.
+  await show({ time: '06:25', reason: 'wake_call', scheduled: { entry: 'wakepoweron at 9:00AM weekdays only', minutes: 540, days: 'weekdays only' }, note: 'failed' });
+  r = await rows();
+  assert(r.status === 'This Mac wakes: wakepoweron at 9:00AM weekdays only.' && /before your wake-up call/.test(r.plan), JSON.stringify(r));
+  assert(r.set === 'on' && r.clear === 'on' && r.note === 'That didn’t work. Try again.', JSON.stringify(r));
+  // The briefing moved while Settings is open: asked again.
+  await js(`__event({ type: 'prefs', language: 'en', briefing_enabled: true, briefing_time: '09:00', wake_call: false, wake_call_time: '07:00', features: {} }); true`);
+  assert(JSON.stringify(await wakes()) === '["status","set","clear","status"]', JSON.stringify(await wakes()));
+});
+
 // ──
 
 let base;

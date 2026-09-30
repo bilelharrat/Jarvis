@@ -56,7 +56,12 @@
     "Bring All to Front": "前置全部窗口",
     "Open at login": "登录时打开",
     "JARVIS opens when you log in to this Mac.": "登录这台 Mac 时自动打开 JARVIS。",
-    "macOS is waiting for your OK: System Settings › General › Login Items.": "macOS 正在等你确认：系统设置 › 通用 › 登录项。"
+    "macOS is waiting for your OK: System Settings › General › Login Items.": "macOS 正在等你确认：系统设置 › 通用 › 登录项。",
+    "Scheduled wake": "定时唤醒",
+    "Wake the Mac for my briefing and routines": "为晨间简报和例行任务唤醒 Mac",
+    "This Mac doesn’t wake on a schedule.": "这台 Mac 没有设置定时唤醒。",
+    "Waiting for your password in macOS’s window…": "正在等待你在 macOS 的窗口中输入密码…",
+    "This Mac can’t schedule a wake.": "这台 Mac 无法设置定时唤醒。"
   },
   "patterns": [
     [
@@ -78,6 +83,26 @@
     [
       "^No Jarvis Code project named “(.+)”\\.$",
       "没有名为“$1”的 Jarvis Code 项目。"
+    ],
+    [
+      "^This Mac wakes every day at (.+)\\.$",
+      "这台 Mac 每天 $1 唤醒。"
+    ],
+    [
+      "^This Mac wakes: (.+)\\.$",
+      "这台 Mac 的唤醒计划：$1。"
+    ],
+    [
+      "^Every day at (.+), 5 minutes before your briefing\\. macOS asks for your password\\.$",
+      "每天 $1 唤醒，比晨间简报早 5 分钟。macOS 会请你输入密码。"
+    ],
+    [
+      "^Every day at (.+), 5 minutes before your wake-up call\\. macOS asks for your password\\.$",
+      "每天 $1 唤醒，比叫醒电话早 5 分钟。macOS 会请你输入密码。"
+    ],
+    [
+      "^Remove also clears: (.+)\\.$",
+      "移除时也会清除：$1。"
     ]
   ]
 }
