@@ -114,3 +114,27 @@ async def test_someone_elses_words_that_started_a_run_count_as_read(made):
         jobs.one_shot = real_one_shot
     out = await seen["allow"]("WebFetch", {"url": "https://ann.example.org/post?n=1"}, Ctx())
     assert isinstance(out, PermissionResultDeny) and cards
+
+
+# ── widgets: a script widget can reach the network past its page policy ──
+
+
+async def test_a_script_widget_after_a_read_asks_first(settings, quiet_speaker, isolated):
+    """A widget's page policy stops fetches, pictures, forms and navigation, but not
+    WebRTC (a TURN server's user name can carry anything), so a widget with scripts made
+    after the conversation read the owner's data or a page is a way off the Mac: it asks,
+    and nobody answering leaves it unshown. One without scripts, or before any read, goes."""
+    from test_hub import make_hub
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    cards = []
+    hub.add_approval_sink(lambda a: (cards.append(a), hub.resolve(a["id"], "deny")))
+    tools = {t.name: t.handler for t in hub.widgets.build_tools()}
+    html = "<p>Balance: 12,345</p><script>new RTCPeerConnection()</script>"
+    out = await tools["show_widget"]({"title": "Balance", "html": html, "scripts": True})
+    assert not out.get("is_error") and cards == []
+    hub._note_read("private", "your email")
+    out = await tools["show_widget"]({"title": "Balance", "html": html, "scripts": True})
+    assert out.get("is_error") and cards, "a script widget went up unasked after a read"
+    out = await tools["show_widget"]({"title": "Balance", "html": "<p>12,345</p>"})
+    assert not out.get("is_error") and len(cards) == 1

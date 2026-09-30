@@ -37,6 +37,8 @@ ASKED = Asked(
 )
 
 ZH = {
+    "Show the widget “{title}” with scripts?": "显示带脚本的小组件“{title}”吗？",
+    "This conversation has read your data or a web page, and a widget's scripts can reach a server on the internet. Without scripts it can't.": "这次对话读过你的数据或网页，小组件的脚本可以连到互联网上的服务器；不带脚本就不行。",
     "Take {title} off the dashboard?": "要把 {title} 从仪表板上拿掉吗？",
     "Showed a widget": "显示了一个小组件",
     "Pinned a widget": "固定了一个小组件",
@@ -104,6 +106,20 @@ class Widgets:
         where = "on screen and pinned to the dashboard" if pin else "on screen"
         return f"It's {where} (widget {widget.id}).", False
 
+    async def scripts_ok(self, title: str) -> bool:
+        """A widget with scripts, once the conversation has read the owner's data or a page:
+        its page policy stops fetches and navigation but not WebRTC, which can reach any
+        server, so it asks first (as an address that could carry what was read does)."""
+        reads = self.hub._gate_reads()
+        if not (reads["private"] or reads["web"]):
+            return True
+        question = self.tr("Show the widget “{title}” with scripts?", title=title[:80] or "Widget")
+        detail = self.tr(
+            "This conversation has read your data or a web page, and a widget's scripts can "
+            "reach a server on the internet. Without scripts it can't."
+        )
+        return await self.hub._ask_user(question, detail)
+
     async def remove(self, which: str) -> tuple[str, bool]:
         found = self.store.find(which)
         if not found:
@@ -145,10 +161,17 @@ class Widgets:
             },
         )
         async def show_widget(args):
+            scripts = args.get("scripts") is True
+            if scripts and not await desk.scripts_ok(str(args.get("title") or "")):
+                return _text(
+                    "The owner didn't OK a widget with scripts just now. Show it without "
+                    "scripts, or not at all; don't try another way.",
+                    error=True,
+                )
             text, error = desk.show(
                 args.get("title"),
                 args.get("html"),
-                scripts=args.get("scripts") is True,
+                scripts=scripts,
                 height=args.get("height"),
                 pin=args.get("pin") is True,
             )
