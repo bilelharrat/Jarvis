@@ -211,9 +211,14 @@
 
   new MutationObserver(() => decorate()).observe($('deck-project-list'), { childList: true });
 
+  let inView = null;  // the open session, while it's seen
   function decorate() {
     const list = $('deck-project-list');
-    if (ccSelected != null && seeing(ccSelected)) S.unread.delete(ccSelected);  // (back in view)
+    // Read as it comes (back) into view, not at every redraw while it's there: one marked
+    // unread by hand stays so until it's looked at again.
+    const seen = ccSelected != null && seeing(ccSelected) ? ccSelected : null;
+    if (seen != null && seen !== inView) S.unread.delete(seen);
+    inView = seen;
     // The filter first: one with nothing left in it (the last archived session unarchived)
     // goes back to All before the rows are shown by it.
     renderFilter();

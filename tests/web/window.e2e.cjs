@@ -1648,6 +1648,19 @@ test('Unarchiving the last archived session, seen under Archived, shows every se
   assert(JSON.stringify(r) === JSON.stringify({ rows: [true, true, true], add: true }), `after Unarchive: ${JSON.stringify(r)}`);
 });
 
+test('“Mark as unread” on the open session keeps it unread until it’s opened again', async () => {
+  await sessions([1, 2]);
+  const unread = (id) => js(`!!document.querySelector('#deck-project-list .jc-session[data-task="${id}"] .cs-unread')`);
+  assert(await js('document.visibilityState === "visible" && !document.hidden'), 'the page is hidden: the open session is never in view');
+  await js(`document.querySelector('#deck-project-list .jc-session[data-task="1"]').parentElement.querySelector('.cs-row-menu').click(); true`);
+  assert(await clickItem('#jc-menu', 'Mark as unread'), 'no Mark as unread in the menu');
+  await frames(3);
+  assert(await unread(1), 'the open session isn’t marked unread');
+  await js('selectTask(2); selectTask(1); true');  // looked at again
+  await frames(3);
+  assert(!(await unread(1)), 'still unread once opened again');
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');
