@@ -1,0 +1,37 @@
+/* Jarvis Code's best of N. */
+
+.jcx-bestof { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.deck.jc .jcx-bestof .jc-btn { font-size: 12px; }
+.deck.jc .jcx-bestof .jc-btn.filled { color: #fff; }
+.deck.jc .jcx-bestof .jc-btn:not(.filled) { color: rgb(var(--c-ink)); }
+.jcx-bestof .jc-btn:disabled { opacity: 0.45; cursor: default; }
+.jcx-bestof > .jc-dim { margin: 0; }
+.jcx-bprompt { resize: vertical; min-height: 64px; font: 13px/1.45 var(--sans); }
+.jcx-bvariants { display: flex; flex-direction: column; gap: 6px; }
+.jcx-bvariant { display: flex; align-items: center; gap: 8px; }
+.jcx-bvariant .jcs-select { flex: 1; min-width: 0; }
+.jcx-badd { align-self: flex-start; }
+.jcx-bfield { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
+.jcx-bfield > span { flex: none; width: 120px; }
+.jcx-bfield .jc-field, .jcx-bfield .jcs-select { flex: 1; min-width: 0; }
+.jcx-bnote { font-size: 11.5px; }
+.jcx-bstart { align-self: flex-end; }
+
+.jcx-bgroup-head { display: flex; align-items: flex-start; gap: 8px; }
+.jcx-brequest { flex: 1; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.jcx-bjudge { padding: 8px 11px; border-radius: 11px; font-size: 12.5px; line-height: 1.45; background: rgb(var(--c-purple-soft)); color: rgb(var(--c-ink)); }
+.jcx-bjudge strong { display: block; margin-bottom: 2px; font-size: 11px; color: rgb(var(--c-purple-ink)); text-transform: uppercase; letter-spacing: 0.03em; }
+.jcx-bgrid { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.jcx-bgrid.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.jc-pane:has(.jcx-bgrid.n3) { width: min(72%, 900px); }
+.jcx-bcard { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); min-width: 0; }
+.jcx-bcard.kept { box-shadow: 0 0 0 2px rgb(var(--c-success)), var(--shadow-card); }
+.jcx-bcard.failed { opacity: 0.7; }
+.jcx-bhead { display: flex; align-items: center; gap: 6px; }
+.jcx-bhead strong { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-bstats { margin: 0; font: 12px var(--mono); color: rgb(var(--c-ink-2)); }
+.jcx-btest summary { list-style: none; cursor: pointer; }
+.jcx-btest summary::-webkit-details-marker { display: none; }
+.jcx-btest .jc-code { max-height: 180px; margin-top: 6px; border-radius: 8px; background: rgb(var(--c-surface-muted)); font-size: 11px; }
+.jcx-chip.ok { color: rgb(var(--c-success-ink)); background: rgb(var(--c-success-soft)); }
+.jcx-bactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }

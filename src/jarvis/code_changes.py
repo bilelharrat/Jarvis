@@ -719,6 +719,44 @@ def describe(repo: Repo, f: FileDiff, h: Hunk, max_lines: int = 30) -> str:
     return f"{repo.shown(f.path)} line {h.first_changed}{where}:\n" + "\n".join(body)
 
 
+def as_text(view: View, limit: int = 60_000) -> str:
+    """The view as the reviewer reads it: each hunk with its file and new-file line
+    numbers ("   42 + text"), so a finding can name the line it means."""
+    out: list[str] = []
+    size = 0
+    for f in view.files:
+        shown = view.repo.shown(f.path)
+        if f.sensitive:
+            out.append(f"### {shown}\n(credentials: changed, lines withheld)\n")
+            continue
+        if f.binary:
+            out.append(f"### {shown}\n(binary file changed)\n")
+            continue
+        head = f"### {shown}" + (
+            " (new file)" if f.new else " (deleted)" if f.status == "D" else ""
+        )
+        out.append(head)
+        for h in f.hunks:
+            line = h.new_start
+            rows = [f"@@ {h.where or 'hunk'} @@"]
+            for tag, text in h.lines:
+                if tag == "\\":
+                    continue
+                if tag == "-":
+                    rows.append(f"      - {text}")
+                    continue
+                rows.append(f"{line:>5} {'+' if tag == '+' else ' '} {text}")
+                line += 1
+            block = "\n".join(rows)
+            if size + len(block) > limit:
+                out.append("[… the rest of the diff is left out]")
+                return "\n".join(out)
+            size += len(block)
+            out.append(block)
+        out.append("")
+    return "\n".join(out)
+
+
 # ── undoing, keeping and staging one hunk ──
 
 

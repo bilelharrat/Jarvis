@@ -248,3 +248,15 @@ def isolated(tmp_path):
         # Calls to the Jarvis number: never the real call log or its voicemails.
         "call_log": CallLog(tmp_path / "answering.json"),
     }
+
+
+@pytest.fixture(autouse=True)
+def _no_real_claude_for_jarvis_code(monkeypatch):
+    """Jarvis Code's own Claude calls (code_ai: commit messages, reviews, the best-of
+    judge) never reach Claude in a test: one a test didn't fake fails loudly instead."""
+    from jarvis import code_ai
+
+    async def refuse(*_args, **_kwargs):
+        raise AssertionError("a test reached code_ai.complete: fake the feature's .ai")
+
+    monkeypatch.setattr(code_ai, "complete", refuse)

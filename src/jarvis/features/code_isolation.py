@@ -424,6 +424,12 @@ class Desk:
             choices = [("land", "Land anyway"), ("deny", "Don't land")]
         if await self.ask(question, detail, choices, speak=by_voice) != "land":
             return "Not landed."
+        return await self.land_now(copy)
+
+    async def land_now(self, copy: worktrees.Copy) -> str:
+        """Land a copy the owner has already said yes to (Land's card, or best-of-N's Keep
+        this one): its work committed and merged, its sessions ended, the copy removed."""
+        inside = self.tasks_in(copy)
         message = f"Jarvis Code: {copy.title or copy.slug}"
         async with self.lock(copy.repo):
             landed = await asyncio.to_thread(worktrees.land, copy, message)
@@ -466,6 +472,12 @@ class Desk:
         choices = [("discard", "Discard"), ("deny", "Keep it")]
         if await self.ask(question, detail, choices, speak=by_voice) != "discard":
             return "Kept."
+        return await self.discard_now(copy)
+
+    async def discard_now(self, copy: worktrees.Copy) -> str:
+        """Discard a copy the owner has already said yes to, keeping all of its work as a
+        recovery ref for TRASH_DAYS."""
+        inside = self.tasks_in(copy)
         async with self.lock(copy.repo):
             for task in inside:
                 self.hub.tasks.cancel(task.id)

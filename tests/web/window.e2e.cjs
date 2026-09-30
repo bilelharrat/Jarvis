@@ -1961,6 +1961,39 @@ test('Review: findings are listed, pinned under their lines, and handed to the s
   assert(JSON.stringify(s) === JSON.stringify(['code_review_fix f1 false', 'code_review_fix  true', 'code_review_dismiss f2 false']), JSON.stringify(s));
 });
 
+test('Best of N: set up two or three variants, compare them, keep one', async () => {
+  await open(1);
+  await loadFeatures('code_bestof.js', 'code_bestof.css');
+  await js('$("deck-input").value = "fix the flaky test"; $("jc-more").click()');
+  assert(await clickText('#jc-menu', 'Best of N…'), 'no Best of N in the More menu');
+  const form = await js(`({ prompt: document.querySelector('.jcx-bprompt').value,
+    picks: [...document.querySelectorAll('.jcx-bvariant select')].map((s) => s.value) })`);
+  assert(form.prompt === 'fix the flaky test' && JSON.stringify(form.picks) === '["sonnet","","opus",""]', JSON.stringify(form));
+  await clickText('.jcx-bestof', 'Add a third');
+  await js(`(() => { const [, , , , model, effort] = document.querySelectorAll('.jcx-bvariant select'); model.value = 'haiku'; model.dispatchEvent(new Event('change')); effort.value = 'max'; effort.dispatchEvent(new Event('change'));
+    const tests = document.querySelector('.jcx-bfield input'); tests.value = 'npm test'; tests.dispatchEvent(new Event('input')); })()`);
+  await js('__sent.length = 0');
+  await clickText('.jcx-bestof', 'Start');
+  const started = await js('__sent.filter((m) => m.type === "code_bestof")');
+  assert(started.length === 1 && started[0].directory === 'alpha' && started[0].mode === 'edits' && started[0].tests === 'npm test', JSON.stringify(started));
+  assert(JSON.stringify(started[0].variants) === JSON.stringify([{ model: 'sonnet', effort: '' }, { model: 'opus', effort: '' }, { model: 'haiku', effort: 'max' }]), JSON.stringify(started[0].variants));
+  const group = (status, extra = {}) => JSON.stringify({ type: 'code_bestof', group: 'b1', project: 'alpha', prompt: 'fix the flaky test', tests: 'npm test', status, judge: '', kept: 0, started: 1,
+    variants: [{ n: 1, label: 'Sonnet 5.5', task_id: 1, slug: 's1', status: 'working', stats: {}, test: null }, { n: 2, label: 'Opus 5.5', task_id: 2, slug: 's2', status: 'working', stats: {}, test: null }], ...extra });
+  await js(`__ev(${group('running')})`);
+  assert(await js('document.querySelectorAll(".jcx-bcard").length === 2 && ![...document.querySelectorAll(".jcx-bcard button")].some((b) => b.textContent === "Keep this one")'), 'Keep offered before they finished');
+  await js(`__ev(${group('done', { judge: 'Opus <b>wins</b>: its fix is smaller.', variants: [
+    { n: 1, label: 'Sonnet 5.5', task_id: 1, slug: 's1', status: 'done', stats: { files: 2, added: 9, removed: 1 }, test: { code: 1, tail: 'FAIL x' } },
+    { n: 2, label: 'Opus 5.5', task_id: 2, slug: 's2', status: 'done', stats: { files: 1, added: 3, removed: 1 }, test: { code: 0, tail: 'ok' } }] })})`);
+  const shown = await js(`({ judge: document.querySelector('.jcx-bjudge span').textContent, bold: document.querySelectorAll('.jcx-bjudge b').length,
+    stats: [...document.querySelectorAll('.jcx-bstats')].map((n) => n.textContent), tests: [...document.querySelectorAll('.jcx-btest .jcx-chip')].map((n) => n.textContent) })`);
+  assert(shown.judge === 'Opus <b>wins</b>: its fix is smaller.' && shown.bold === 0, JSON.stringify(shown));
+  assert(JSON.stringify(shown.stats) === '["2 files +9 −1","1 file +3 −1"]' && JSON.stringify(shown.tests) === '["tests failed (1)","tests passed"]', JSON.stringify(shown));
+  await js('__sent.length = 0');
+  await clickText('.jcx-bcard:nth-child(2)', 'Keep this one');
+  const kept = await js('__sent.filter((m) => m.type === "code_bestof_keep")');
+  assert(kept.length === 1 && kept[0].group === 'b1' && kept[0].n === 2, JSON.stringify(kept));
+});
+
 // ──
 
 let base;

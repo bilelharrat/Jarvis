@@ -197,7 +197,7 @@ def _inside(repo: code_changes.Repo, shown: str) -> str | None:
 class GitPanel:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
-        self.ai = code_ai.complete  # (the tests put a fake here)
+        self.ai = code_ai.call  # (the tests put a fake here)
         self._locks: dict[str, asyncio.Lock] = {}
 
     # ── helpers ──

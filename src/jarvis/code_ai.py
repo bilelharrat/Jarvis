@@ -14,6 +14,9 @@ is told, and nothing is called):
                                at once, each reading the project (read-only, up to 8
                                turns), then one verifier (read-only, up to 10 turns);
                                four calls, counted as one deep review       5 a day
+  judge            Haiku 4.5   once a best-of-N comparison's sessions are all done: one
+                               tool-less turn on at most 30,000 characters of their diffs
+                               and test results                            20 a day
 
 Every call is one tool-less turn unless its kind says otherwise, with none of the
 owner's settings, hooks or MCP servers loaded, and a timeout. What it's shown (a diff, a
@@ -38,6 +41,7 @@ POLICY: dict[str, tuple[str, int]] = {
     "commit_message": ("haiku", 60),
     "review": ("sonnet", 20),
     "deep_review": ("sonnet", 5),
+    "judge": ("haiku", 20),
 }
 CALL_SECONDS = 90.0
 
@@ -51,15 +55,13 @@ class Budget:
     damaged one starts the day's counts over, never blocks the owner forever)."""
 
     def __init__(self, path: Path | None) -> None:
+        """Read when made (a feature makes it at its first call, never at install)."""
         self.path = path
-        self.day = ""
+        self.day = date.today().isoformat()
         self.counts: dict[str, int] = {}
-        self._loaded = False
+        self._load()
 
     def _load(self) -> None:
-        if self._loaded:
-            return
-        self._loaded = True
         if self.path is None:
             return
         from . import jsonstore
@@ -77,7 +79,6 @@ class Budget:
 
     def take(self, kind: str, today: date | None = None) -> None:
         """Count one call of this kind, or raise OverBudget when today's cap is reached."""
-        self._load()
         day = (today or date.today()).isoformat()
         if day != self.day:
             self.day, self.counts = day, {}
@@ -92,7 +93,6 @@ class Budget:
                 jsonstore.save_json(self.path, {"day": self.day, "counts": self.counts})
 
     def left(self, kind: str, today: date | None = None) -> int:
-        self._load()
         day = (today or date.today()).isoformat()
         used = self.counts.get(kind, 0) if day == self.day else 0
         return max(0, POLICY[kind][1] - used)
@@ -110,6 +110,12 @@ def budget_for(hub: Any) -> Budget:
 
 def model_for(kind: str) -> str:
     return MODELS[POLICY[kind][0]]
+
+
+async def call(prompt: str, **kw: Any) -> str:
+    """complete(), looked up when called: what the features hold, so a test's stand-in
+    for complete() (conftest refuses every real one) is always the one reached."""
+    return await complete(prompt, **kw)
 
 
 async def complete(

@@ -68,11 +68,11 @@ def test_the_diff_is_read_with_new_file_line_numbers(tmp_path):
     (repo / "a.py").write_text(numbered(20).replace("line 5\n", "five\n"))
     (repo / ".env").write_text("TOKEN=1\n")
     view = code_changes.session_view(repo, [], scoped=False)
-    text = cr.diff_text(view)
+    text = code_changes.as_text(view)
     assert "### a.py" in text and "    5 + five" in text and "      - line 5" in text
     assert "    4   line 4" in text
     assert "### .env\n(credentials: changed, lines withheld)" in text and "TOKEN" not in text
-    assert cr.diff_text(view, limit=10).endswith("[… the rest of the diff is left out]")
+    assert code_changes.as_text(view, limit=10).endswith("[… the rest of the diff is left out]")
 
 
 def test_findings_are_checked_merged_and_capped():
