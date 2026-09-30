@@ -19,7 +19,39 @@
     "Checked your timers": "查看了计时器",
     "Cancelled a timer": "取消了计时器",
     "Snoozed": "推迟了响铃",
-    "Stopped the ringing": "停止了响铃"
+    "Stopped the ringing": "停止了响铃",
+    "How it runs": "运行方式",
+    "On its own": "单独运行",
+    "A session of its own that never joins our conversation": "在独立的会话里运行，不进入我们的对话",
+    "In the conversation": "在对话里运行",
+    "no tools": "不用工具",
+    "reads only": "只读",
+    "can act": "可执行操作",
+    "card only": "只显示卡片",
+    "to your phone": "发到手机",
+    "to a file": "存成文件",
+    "Model": "模型",
+    "Tools": "工具",
+    "Result": "结果",
+    "None: it only writes": "不用工具：只写结果",
+    "Read only": "只读",
+    "Can act, asking first": "可执行操作，先问你",
+    "Say it": "说出来",
+    "Card only": "只显示卡片",
+    "Send to my phone and chats": "发到我的手机和聊天",
+    "Save to a file": "存成文件",
+    "May do without asking": "可以不问就做",
+    "Last runs": "最近的运行",
+    "Loading…": "正在加载…",
+    "It hasn’t run yet.": "还没有运行过。",
+    "Done": "完成",
+    "Failed": "失败",
+    "Skipped": "已跳过",
+    "Running…": "正在运行…",
+    "Last run failed": "上次运行失败",
+    "Last run skipped": "上次运行被跳过",
+    "Changed a routine": "修改了例行任务",
+    "Checked a routine's runs": "查看了例行任务的运行记录"
   },
   "patterns": [
     [
@@ -33,6 +65,14 @@
     [
       "^Cancel: (.+)$",
       "取消：$1"
+    ],
+    [
+      "^On its own: (.+)$",
+      "单独运行：$1"
+    ],
+    [
+      "^Take back: (.+)$",
+      "收回：$1"
     ]
   ]
 }

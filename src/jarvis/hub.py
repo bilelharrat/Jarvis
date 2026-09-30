@@ -959,6 +959,7 @@ class Hub:
         self._task_sinks: list[Callable[[str, dict[str, Any]], Any]] = []
         self._briefing_notes: list[Callable[[], str]] = []
         self._notify_gates: list[Callable[[Alert], Any]] = []
+        self._routine_runner: Callable[[Any], Any] | None = None
         self.features = features.install_all(self)
 
     # ── features: what jarvis.features modules register ──
@@ -1043,6 +1044,12 @@ class Hub:
             except Exception:
                 log.exception("a feature's heads-up gate failed")
         return False
+
+    def register_routine_runner(self, runner: Callable[[Any], Any]) -> None:
+        """Run routines through a feature (its own session, model, tools and delivery, a run
+        history): runner(routine) is awaited in place of a turn of the conversation, and
+        may call routine_turn for one that runs in the conversation."""
+        self._routine_runner = runner
 
     def _call_sinks(self, sinks: list[Callable[..., Any]], *args: Any) -> None:
         """Call each sink; a coroutine one runs in the background. One failing sink never
@@ -1809,10 +1816,18 @@ class Hub:
         )
 
     async def run_routine(self, routine) -> None:
+        if self._routine_runner is not None:  # a feature's (automation: jobs, history)
+            await self._routine_runner(routine)
+        else:
+            await self.routine_turn(routine)
+
+    async def routine_turn(self, routine, note: str = "", silent: bool = False) -> str:
+        """A routine as a turn of the conversation, marked as one; its reply. note: what the
+        app tells it besides (what started it). silent: no sound at all."""
         # In quiet hours it runs without a sound; anything it needs a yes for shows as a card.
-        quiet = in_quiet_hours(datetime.now(), self.prefs.quiet_hours)
-        await self.ask(
-            f"[Routine: {routine.name}] {routine.prompt}",
+        quiet = silent or in_quiet_hours(datetime.now(), self.prefs.quiet_hours)
+        return await self.ask(
+            f"[Routine: {routine.name}] {routine.prompt}{note}",
             display=f"Routine · {routine.name}",
             silent=quiet,
         )
@@ -4678,7 +4693,8 @@ class Hub:
         off means none at all (Claude Code and research still get their own cards)."""
         # A conversation held for them that needs them, how a call they asked for went, or a
         # call to the Jarvis number (answering is on to hear of them) shows even with
-        # heads-ups off; so does a timer, an alarm or a reminder they set.
+        # heads-ups off; so does a timer, an alarm or a reminder they set, or what one of
+        # their routines has to tell them.
         if not self.prefs.proactive and alert.kind not in (
             "meeting",
             "delegate",
@@ -4687,6 +4703,7 @@ class Hub:
             "timer",
             "alarm",
             "reminder",
+            "routine",
         ):
             return
         if self._held_back(alert):

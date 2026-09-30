@@ -23,7 +23,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jsonstore, schedules
+from . import jobs, jsonstore, schedules
 from .prefs import APP_SUPPORT
 from .textclean import clean_text
 
@@ -49,6 +49,23 @@ class Routine:
     last_run: str = ""  # the scheduled occurrence last run, ISO
     # interval, monthly and cron: the schedule itself (schedules.py); {} for the rest
     spec: dict[str, Any] = field(default_factory=dict)
+    # How it runs (jobs.py): in the conversation or on its own (with its model and tools),
+    # where its result goes, and the standing orders it may act on without asking.
+    own: bool = False
+    model: str = ""  # haiku | sonnet | opus ("": Haiku)
+    tools: str = "read_only"  # none | read_only | normal
+    deliver: str = "speak"  # speak | card | forward | file
+    may: list[str] = field(default_factory=list)
+    failures: int = 0  # failed runs in a row: jobs.FAILURES_TO_PAUSE of them pause it
+
+    def job(self) -> dict[str, Any]:
+        return {
+            "own": self.own,
+            "model": self.model,
+            "tools": self.tools,
+            "deliver": self.deliver,
+            "may": list(self.may),
+        }
 
     def describe(self, lang: str = "en") -> str:
         """When it runs, in words: English, or Chinese with lang "zh"."""
@@ -146,6 +163,8 @@ class Routine:
             "when": self.describe(),
             "when_zh": self.describe("zh"),
             "next_run": upcoming.isoformat(timespec="minutes") if upcoming else "",
+            "may_words": [jobs.describe_grant(g) for g in self.may],
+            "may_words_zh": [jobs.describe_grant(g, "zh") for g in self.may],
         }
 
 
@@ -205,6 +224,14 @@ def spec_from(kind: str, args: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def job_from(args: dict[str, Any]) -> dict[str, Any]:
+    """create_routine's arguments as job settings: standing orders need a routine on its own
+    (a routine in the conversation asks for everything)."""
+    may = args.get("may") or []
+    own = args.get("on_its_own") is True or bool(may)
+    return jobs.clean_job(own, args.get("model"), args.get("tools"), args.get("deliver"), may)
+
+
 _FIELDS = frozenset(f.name for f in fields(Routine))
 
 
@@ -249,7 +276,29 @@ def _routine_from(raw: Any) -> Routine | None:
         if ran.tzinfo is not None:  # another build's zoned time: this Mac's clock, like the rest
             routine.last_run = ran.astimezone().replace(tzinfo=None).isoformat(timespec="minutes")
     routine.enabled = routine.enabled is True  # "false", 0, null: paused, never run by surprise
+    _clean_job_fields(routine)
     return routine
+
+
+def _clean_job_fields(routine: Routine) -> None:
+    """How it runs, from the file, each setting on its own: one that can't be used falls back
+    to the careful default (in the conversation, said aloud, reading only), and a standing
+    order that can't be read is dropped, never widened."""
+    routine.own = routine.own is True
+    routine.model = routine.model if routine.model in ("", *jobs.MODELS) else ""
+    routine.tools = routine.tools if routine.tools in jobs.TOOL_LEVELS else "read_only"
+    routine.deliver = routine.deliver if routine.deliver in jobs.DELIVERIES else "speak"
+    grants: list[str] = []
+    for value in routine.may if isinstance(routine.may, list) else []:
+        try:
+            grant = jobs.clean_grant(value)
+        except (ValueError, TypeError):
+            continue
+        if grant not in grants and len(grants) < jobs.MAX_GRANTS:
+            grants.append(grant)
+    routine.may = grants
+    failures = routine.failures
+    routine.failures = failures if type(failures) is int and 0 <= failures < 10_000 else 0
 
 
 class RoutineStore:
@@ -287,14 +336,25 @@ class RoutineStore:
         self.save_error = ""
 
     def add(
-        self, name: str, prompt: str, kind: str, time: str, days=None, date="", spec=None
+        self,
+        name: str,
+        prompt: str,
+        kind: str,
+        time: str,
+        days=None,
+        date="",
+        spec=None,
+        job: dict[str, Any] | None = None,
     ) -> Routine:
         name, prompt = clean_text(name).strip()[:80], clean_text(prompt).strip()[:2000]
         if not name or not prompt:
             raise ValueError("a routine needs a name and what to do")
         kind, time, days, date = validate(kind, time, days, date)
         spec = clean_spec(kind, spec)
-        routine = Routine(uuid.uuid4().hex[:8], name, prompt, kind, time, days, date, spec=spec)
+        job = jobs.clean_job(**(job or {}))
+        routine = Routine(
+            uuid.uuid4().hex[:8], name, prompt, kind, time, days, date, spec=spec, **job
+        )
         # Created after today's time has passed: don't run it right away.
         latest = routine.latest(datetime.now())
         if latest is not None and kind != "once":
@@ -324,6 +384,25 @@ class RoutineStore:
             except OSError:
                 self.items = before
                 raise
+        return routine
+
+    def update_job(self, key: str, **changes: Any) -> Routine | None:
+        """Change how a routine runs (own, model, tools, deliver, may): cleaned as add()
+        cleans them (ValueError when a value can't be used), kept only once it's saved."""
+        routine = self.find(key)
+        if routine is None:
+            return None
+        wanted = {**routine.job(), **{k: v for k, v in changes.items() if k in routine.job()}}
+        job = jobs.clean_job(**wanted)
+        before = routine.job()
+        for name, value in job.items():
+            setattr(routine, name, value)
+        try:
+            self.save()
+        except OSError:
+            for name, value in before.items():
+                setattr(routine, name, value)
+            raise
         return routine
 
     def set_enabled(self, key: str, on: bool) -> Routine | None:
@@ -387,10 +466,12 @@ def _language(store: RoutineStore) -> str:
 
 
 def _add_question(preview: Routine, what: str, lang: str) -> str:
-    """The card that adds a routine: when it runs and exactly what it will ask."""
+    """The card that adds a routine: when it runs, exactly what it will ask, and (when it's
+    not simply said in the conversation) how it runs and what it may do unasked."""
+    how = jobs.describe_job(preview.job(), lang)
     if lang == "zh":
-        return f"要添加例行任务吗？{preview.describe('zh')}：{what}"
-    return f"Add a routine, {preview.describe()}: {what}?"
+        return f"要添加例行任务吗？{preview.describe('zh')}：{what}" + (f"\n{how}" if how else "")
+    return f"Add a routine, {preview.describe()}: {what}?" + (f" {how}" if how else "")
 
 
 def build_tools(
@@ -412,7 +493,15 @@ def build_tools(
         "and on days; monthly at time: month_day (1-31, or -1 for the last day) or nth (1-5, "
         "or -1 for the last) with weekday (0 = Monday); cron: a five-field cron expression "
         "(minute hour day-of-month month day-of-week), optionally in timezone (an IANA name "
-        "such as America/New_York). Asks the user first.",
+        "such as America/New_York). on_its_own: run it in a session of its own that never joins "
+        "your conversation (for work done unattended), with model (haiku unless the user asks "
+        "for sonnet or opus) and tools (none; read_only, the default; or normal, which may "
+        "act, each action asking the user unless a standing order covers it). may: standing "
+        "orders the user grants now, only ones they said: notify, draft_email, notes, "
+        "calendar, call_me, research, web, message:<contact>, email:<contact>, "
+        "session:<project folder>, shortcut:<Shortcut name>. deliver: speak (the default), "
+        "card, forward (to their phone and chats) or file (Markdown in Documents › Jarvis › "
+        "Automations). Asks the user first; one yes approves the standing orders too.",
         {
             "type": "object",
             "properties": {
@@ -430,6 +519,11 @@ def build_tools(
                 "weekday": {"type": "integer"},
                 "cron": {"type": "string"},
                 "timezone": {"type": "string"},
+                "on_its_own": {"type": "boolean"},
+                "model": {"type": "string", "enum": list(jobs.MODELS)},
+                "tools": {"type": "string", "enum": list(jobs.TOOL_LEVELS)},
+                "deliver": {"type": "string", "enum": list(jobs.DELIVERIES)},
+                "may": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["name", "prompt", "schedule"],
         },
@@ -443,16 +537,19 @@ def build_tools(
                 args.get("date", ""),
             )
             spec = clean_spec(kind, spec_from(kind, args))
+            job = job_from(args)
         except ValueError as exc:
             return _text(str(exc), error=True)
-        preview = Routine("", str(args.get("name", "")), "", kind, time, days, date, spec=spec)
+        preview = Routine(
+            "", str(args.get("name", "")), "", kind, time, days, date, spec=spec, **job
+        )
         # The card shows the prompt exactly as it will be kept and run, hidden text and all
         # taken out, and when it runs in the language the user speaks.
         what = clean_text(args.get("prompt", "")).strip()[:2000].rstrip("?.! ")
         if not await confirm(_add_question(preview, what, _language(store))):
             return _text("The user said no. Don't add it.", error=True)
         try:
-            routine = store.add(args["name"], args["prompt"], kind, time, days, date, spec)
+            routine = store.add(args["name"], args["prompt"], kind, time, days, date, spec, job)
         except ValueError as exc:
             return _text(str(exc), error=True)
         except OSError as exc:

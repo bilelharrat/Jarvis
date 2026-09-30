@@ -2075,6 +2075,40 @@ test('A ringing alarm’s card has Stop and Snooze; a reminder’s card has neit
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'automation_timer', action: 'stop', id: 'ab12cd' }]), JSON.stringify(s));
 });
 
+test('A routine’s “How it runs” sets its job, takes back standing orders and shows its runs', async () => {
+  await withAutomation();
+  await js('toggleSettings(true)');
+  const routine = `{ id: 'j1', name: 'Inbox', prompt: 'Check my inbox', kind: 'daily', enabled: true, when: 'every day at 9 AM',
+    when_zh: '每天上午9点', next_run: '', own: true, model: 'haiku', tools: 'normal', deliver: 'file',
+    may: ['notify', 'message:Ann'], may_words: ['notify you', 'message Ann'], may_words_zh: ['通知你', '给Ann发消息'] }`;
+  await js(`featureEvent({ type: 'automation', routines: [${routine}], running: {}, last_runs: { j1: { status: 'failed' } } })`);
+  const summary = await js('$("routine-list").querySelector("li[data-id=\\"j1\\"] summary").textContent');
+  assert(summary === 'How it runsOn its own · Haiku · can act · to a file', summary);
+  assert(await js('$("routine-list").textContent.includes("Last run failed")'), 'no failed last run');
+  await js('$("routine-list").querySelector("li[data-id=\\"j1\\"] details").open = true');
+  await sleep(50);
+  assert((await sentOf('automation_history')).length === 1, 'opening did not ask for the runs');
+  await js(`featureEvent({ type: 'automation_history', id: 'j1', runs: [{ at: new Date().toISOString(), cause: 'Scheduled', status: 'failed', output: '', note: 'It broke <b>x</b>' }] })`);
+  const runs = await js('$("routine-list").querySelector(".auto-runs").textContent');
+  assert(runs.includes('Scheduled') && runs.includes('Failed') && runs.includes('It broke <b>x</b>'), runs);
+  await js(`(() => { const s = $("routine-list").querySelector('select[aria-label="Model"]'); s.value = 'sonnet'; s.dispatchEvent(new Event('change')); })()`);
+  await js(`$("routine-list").querySelector('.auto-job .switch').click()`);
+  await js(`$("routine-list").querySelector('.auto-chip-x[aria-label="Take back: message Ann"]').click()`);
+  const s = await js('__sent.filter((m) => m.type === "automation_job" || m.type === "automation_unmay")');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'automation_job', id: 'j1', model: 'sonnet' },
+    { type: 'automation_job', id: 'j1', own: false },
+    { type: 'automation_unmay', id: 'j1', grant: 'message:Ann' },
+  ]), JSON.stringify(s));
+  // Redrawn (a run began): still open, still showing its runs.
+  await js(`featureEvent({ type: 'automation', running: { j1: 'now' } })`);
+  const after = await js('({ open: $("routine-list").querySelector("details").open, runs: $("routine-list").querySelector(".auto-runs").textContent, busy: $("routine-list").textContent.includes("Running…") })');
+  assert(after.open && after.runs.includes('Scheduled') && after.busy, JSON.stringify(after));
+  // In Chinese the standing orders are the backend's Chinese words.
+  await js(`featureEvent({ type: 'prefs', language: 'zh' })`);
+  assert(await js('$("routine-list").querySelector(".auto-chip span").textContent') === '通知你', 'the standing order stayed in English');
+});
+
 // ──
 
 let base;

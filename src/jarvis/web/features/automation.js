@@ -1,6 +1,8 @@
 // The automation feature's window side: Settings › Routines (each schedule in the language
-// the window speaks, and when it runs next), Settings › Timers & reminders (live countdowns,
-// Stop, Snooze and Cancel), and Stop and Snooze on the card of a timer or alarm ringing.
+// the window speaks, when it runs next, and under "How it runs" whether it runs on its own,
+// its model, tools and delivery, its standing orders and its last runs), Settings › Timers
+// & reminders (live countdowns, Stop, Snooze and Cancel), and Stop and Snooze on the card of
+// a timer or alarm ringing.
 //
 // Everything a routine or a timer carries (its name, its prompt, its label, when it runs) is
 // the owner's or the backend's data: shown with textContent and marked data-no-i18n. The
@@ -41,6 +43,17 @@
       const parts = String(key || '').split(':');
       return ['timer', 'alarm'].includes(parts[0]) && parts[1] ? parts[1] : '';
     },
+    // How a routine runs, in a few words (the window's words, each translated on its own).
+    howItRuns(r) {
+      const parts = [];
+      if (r.own) {
+        parts.push('On its own', ({ haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' })[r.model] || 'Haiku');
+        parts.push(({ none: 'no tools', read_only: 'reads only', normal: 'can act' })[r.tools] || 'reads only');
+      } else parts.push('In the conversation');
+      const where = ({ card: 'card only', forward: 'to your phone', file: 'to a file' })[r.deliver];
+      if (where) parts.push(where);
+      return parts;
+    },
   };
   window.jarvisAutomation = A;
 
@@ -53,6 +66,10 @@
   let features = {};
   let routines = [];
   let timers = { items: [], ringing: [] };
+  let running = {};  // routine id -> when its run began
+  let lastRuns = {};  // routine id -> its last run
+  const histories = new Map();  // routine id -> its runs, newest first (once asked for)
+  const opened = new Set();  // routines whose "How it runs" is open: kept open across redraws
 
   function button(label, cls, onClick, aria) {
     const b = el('button', cls, label);
@@ -79,6 +96,24 @@
     return r;
   }
 
+  function choice(label, value, options, onChange, disabled) {
+    const select = el('select');
+    select.setAttribute('aria-label', label);
+    for (const [v, text] of options) {
+      const option = el('option', '', text);
+      option.value = v;
+      select.append(option);
+    }
+    select.value = value;
+    select.disabled = !!disabled;
+    select.addEventListener('change', () => onChange(select.value));
+    const r = el('label', 'row');
+    const words = el('span');
+    words.append(el('strong', '', label));
+    r.append(words, select);
+    return r;
+  }
+
   // ── Settings › Routines ──
 
   function routineRow(r) {
@@ -93,6 +128,10 @@
       next.dataset.at = r.next_run;
       about.append(el('span', 'auto-sep', ' · '), el('span', '', 'Next run'), ' ', next);
     }
+    if (running[r.id]) about.append(el('span', 'auto-sep', ' · '), el('span', 'auto-running', 'Running…'));
+    else if (lastRuns[r.id] && lastRuns[r.id].status !== 'ok') {
+      about.append(el('span', 'auto-sep', ' · '), el('span', 'auto-bad', lastRuns[r.id].status === 'failed' ? 'Last run failed' : 'Last run skipped'));
+    }
     text.append(mine(el('strong', '', r.name)), about);
     text.title = r.prompt || '';
     li.append(
@@ -100,8 +139,76 @@
       button('Run now', 'btn', () => send({ type: 'routine_run', id: r.id })),
       button('Delete', 'btn', () => send({ type: 'routine_delete', id: r.id }), `Delete routine: ${r.name}`),
       toggle('', `Routine on: ${r.name}`, r.enabled, () => send({ type: 'routine_toggle', id: r.id, enabled: !r.enabled })),
+      jobDetails(r),
     );
     return li;
+  }
+
+  // "How it runs": on its own or in the conversation, its model, tools and delivery, its
+  // standing orders (each can be taken back; new ones only come by voice, on a card), and
+  // its last runs.
+  function jobDetails(r) {
+    const details = el('details', 'auto-more');
+    const summary = el('summary');
+    const how = el('small', 'auto-how');
+    A.howItRuns(r).forEach((part, i) => {
+      if (i) how.append(el('span', 'auto-sep', ' · '));
+      how.append(el('span', '', part));
+    });
+    summary.append(el('span', '', 'How it runs'), how);
+    details.append(summary);
+    const job = (changes) => send({ type: 'automation_job', id: r.id, ...changes });
+    const body = el('div', 'auto-job');
+    body.append(
+      row('On its own', 'A session of its own that never joins our conversation',
+        toggle('', `On its own: ${r.name}`, r.own, () => job({ own: !r.own }))),
+      choice('Model', r.model || 'haiku', [['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], (v) => job({ model: v }), !r.own),
+      choice('Tools', r.tools || 'read_only', [['none', 'None: it only writes'], ['read_only', 'Read only'], ['normal', 'Can act, asking first']], (v) => job({ tools: v }), !r.own),
+      choice('Result', r.deliver || 'speak', [['speak', 'Say it'], ['card', 'Card only'], ['forward', 'Send to my phone and chats'], ['file', 'Save to a file']], (v) => job({ deliver: v })),
+    );
+    const words = lang === 'zh' ? (r.may_words_zh || []) : (r.may_words || []);
+    if ((r.may || []).length) {
+      const may = el('div', 'auto-may');
+      may.append(el('strong', '', 'May do without asking'));
+      const list = el('ul', 'auto-chips');
+      r.may.forEach((grant, i) => {
+        const chip = el('li', 'auto-chip');
+        chip.append(mine(el('span', '', words[i] || grant)),
+          button('×', 'auto-chip-x', () => send({ type: 'automation_unmay', id: r.id, grant }), `Take back: ${words[i] || grant}`));
+        list.append(chip);
+      });
+      may.append(list);
+      body.append(may);
+    }
+    const past = el('div', 'auto-history');
+    past.append(el('strong', '', 'Last runs'));
+    const runs = el('ol', 'auto-runs');
+    runs.dataset.id = r.id;
+    past.append(runs);
+    body.append(past);
+    details.append(body);
+    fillHistory(runs, histories.get(r.id));
+    details.open = opened.has(r.id);
+    details.addEventListener('toggle', () => {
+      if (details.open) { opened.add(r.id); send({ type: 'automation_history', id: r.id }); } else opened.delete(r.id);
+    });
+    return details;
+  }
+
+  const STATUS = { ok: 'Done', failed: 'Failed', skipped: 'Skipped' };
+  function fillHistory(list, runs) {
+    if (!runs) { list.replaceChildren(el('li', 'muted', 'Loading…')); return; }
+    if (!runs.length) { list.replaceChildren(el('li', 'muted', 'It hasn’t run yet.')); return; }
+    list.replaceChildren(...runs.map((run) => {
+      const li = el('li', `auto-run ${run.status}`);
+      const head = el('small');
+      head.append(mine(el('bdi', '', A.when(run.at, lang))), el('span', 'auto-sep', ' · '),
+        mine(el('bdi', '', run.cause)), el('span', 'auto-sep', ' · '), el('span', 'auto-status', STATUS[run.status] || run.status));
+      li.append(head);
+      const said = [run.output, run.note].filter(Boolean).join(' — ');
+      if (said) li.append(mine(el('span', 'auto-said', said)));
+      return li;
+    }));
   }
 
   // Drawn after app.js's own list on every change, in its place.
@@ -217,8 +324,18 @@
   });
   F.on('automation', (ev) => {
     if (ev.language) lang = ev.language;
-    if (ev.routines) { routines = ev.routines; renderRoutines(); }
+    let redraw = false;
+    if (ev.running) { running = ev.running; redraw = true; }
+    if (ev.last_runs) { lastRuns = ev.last_runs; redraw = true; }
+    if (ev.routines) { routines = ev.routines; redraw = true; }
+    if (redraw) renderRoutines();
+    if (ev.running && !ev.routines) opened.forEach((id) => send({ type: 'automation_history', id }));  // a run just ended
     if (ev.timers) { timers = ev.timers; renderTimers(); }
+  });
+  F.on('automation_history', (ev) => {
+    histories.set(ev.id, ev.runs || []);
+    const list = document.querySelector(`#routine-list .auto-runs[data-id="${CSS.escape(String(ev.id))}"]`);
+    if (list) fillHistory(list, ev.runs || []);
   });
   F.on('routines', (ev) => { routines = ev.items || []; renderRoutines(); });
   F.on('prefs', onPrefs);
