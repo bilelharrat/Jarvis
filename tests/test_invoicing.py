@@ -442,6 +442,27 @@ async def test_stripe_through_the_connector(settings, quiet_speaker, isolated):
     assert "doesn't offer create_price, create_payment_link" in desk.stripe_ready()
 
 
+async def test_a_recurring_invoice_for_a_client_no_longer_listed_takes_no_one_elses_details(
+    settings, quiet_speaker, isolated
+):
+    """The client list finds "Acme" in "Acme Holdings" when no Acme is left: an invoice
+    issued by itself for a client since removed must not go to that other client."""
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.notify = lambda alert, **_kw: None
+    desk = invoicing.InvoiceDesk(hub, today=lambda: date(2026, 10, 1))
+    desk.clients.save_client("Acme", "ap@acme.com", "1 Main St")
+    desk.clients.save_client("Acme Holdings", "billing@acmeholdings.com", "9 Other Rd")
+    schedule = desk.recurring.add(
+        "Acme", [{"description": "Retainer", "unit_price": 2000}], "monthly", "2026-10-01",
+        today=TODAY,
+    )  # fmt: skip
+    desk.recurring.keep(schedule)
+    desk.clients.remove(desk.clients.find("Acme").id)
+    assert await desk.issue_due() == ["INV-2026-001"]
+    invoice = hub.invoices.invoices[-1]
+    assert (invoice.client, invoice.client_email, invoice.client_address) == ("Acme", "", "")
+
+
 async def test_a_recurring_invoice_goes_out_on_its_day(settings, quiet_speaker, isolated):
     alerts, ran = [], []
     hub = make_hub(settings, quiet_speaker, isolated)

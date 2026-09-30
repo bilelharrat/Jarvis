@@ -343,15 +343,16 @@ class ClientBook:
             raise jsonstore.refusal(self.path, self.unreadable)
         jsonstore.save_json(self.path, [asdict(c) for c in self.clients] + self.broken)
 
-    def find(self, name: str) -> Client | None:
-        """By name exactly (ignoring case and spacing), else the one whose name holds it."""
+    def find(self, name: str, *, exact: bool = False) -> Client | None:
+        """By name exactly (ignoring case and spacing), else (unless exact) the one whose name
+        holds it."""
         self.load()
         want = " ".join(str(name or "").casefold().split())
         if not want:
             return None
-        exact = [c for c in self.clients if " ".join(c.name.casefold().split()) == want]
-        if exact:
-            return exact[0]
+        same = [c for c in self.clients if " ".join(c.name.casefold().split()) == want]
+        if same or exact:
+            return same[0] if same else None
         near = [c for c in self.clients if want in c.name.casefold() or c.id == want]
         return near[0] if len(near) == 1 else None
 

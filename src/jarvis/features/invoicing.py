@@ -279,7 +279,9 @@ class InvoiceDesk:
         store = self.hub.invoices
         issued: list[str] = []
         for schedule in self.recurring.due(today):
-            client = self.clients.find(schedule.client)
+            # That very client: never another whose name holds this one ("Acme Holdings"
+            # when Acme has been taken off the list).
+            client = self.clients.find(schedule.client, exact=True)
             try:
                 invoice = store.create(
                     schedule.client,
