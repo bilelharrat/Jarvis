@@ -115,6 +115,8 @@ struct SettingsView: View {
                 .listRowBackground(rowGlass)
                 .listRowSeparatorTint(Palette.hairline)
 
+                SensorSettings()
+
                 Section {
                     LabeledContent {
                         Text(watchText)

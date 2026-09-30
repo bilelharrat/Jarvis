@@ -60,8 +60,14 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Only if you turn on the daily health summary. Steps, sleep, resting heart rate and workouts go to Jarvis on your Mac for your briefing. Nothing is written to Health.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>J.A.R.V.I.S. finds Jarvis on your Mac and talks to it over your network.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>So Jarvis on your Mac knows when you arrive at or leave home and work, even when J.A.R.V.I.S. isn’t open. Low-power updates only; only your Mac gets it.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Only if you turn on Share my location. Tells Jarvis on your Mac where you are, for travel times. Only your Mac gets it.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Listens after you tap the reactor, so you can talk to Jarvis.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

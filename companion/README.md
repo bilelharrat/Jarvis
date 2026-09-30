@@ -163,6 +163,25 @@ as JPEG to fit), so the base64 body stays under the Mac's 25 MB. When the Mac ca
 reached it waits in the outbox (the data in a file beside it) and the app sends it within
 the hour. The extension uses the pairing from the App Group's keychain group.
 
+## Sensors (all off until turned on in Settings)
+
+- **Location**: iOS's low-power significant-change updates (about every 500 m; a fix goes
+  at most every five minutes unless you've moved 400 m) give the Mac a recent position for
+  travel times, and Home and Work (set to "here" in Settings) are 150 m regions watched by
+  `CLMonitor`, so arriving and leaving are sent as events (`POST /api/location` with
+  `event` and `region`), even when the app isn't open. "Always" location is needed for
+  arrivals; Settings says so. Kept in the outbox when the Mac is away (the latest fix
+  replaces older ones; arrivals each count).
+- **Health**: a read-only daily summary from Apple Health, a few times a day at most:
+  yesterday's steps, resting heart rate and workouts, and last night's sleep (asleep
+  stages only, 6 pm to noon, overlaps between iPhone and Watch counted once), plus today
+  so far (`POST /api/health`). Nothing is written to Health.
+- **Show Jarvis** (camera): adds Show Jarvis to the hub: take a photo, ask about it
+  (`POST /api/photo`, JPEG at most 2048 px); the answer shows and is spoken. A photo goes
+  only when you send it. (Not kept for later: you're waiting for the answer.)
+
+Unpairing turns location and health off.
+
 ## Widgets and complications
 
 - **Jarvis** (small, medium; Lock Screen circular, rectangular, inline): whether the Mac

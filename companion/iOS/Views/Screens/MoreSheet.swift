@@ -6,6 +6,7 @@ struct MoreSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var path: [Destination]
+    @AppStorage(SensorSettings.cameraKey) private var camera = false
 
     init(start: Destination? = nil) {
         _path = State(initialValue: start.flatMap { $0 == .home ? nil : $0 }.map { Self.stack(for: $0) } ?? [])
@@ -32,6 +33,9 @@ struct MoreSheet: View {
                 Section {
                     link(.digest, "What did I miss", symbol: "tray.full.fill", detail: nil)
                     link(.spending, "Spending", symbol: "creditcard.fill", detail: nil)
+                    if camera {
+                        link(.showJarvis, "Show Jarvis", symbol: "camera.fill", detail: nil)
+                    }
                 } header: {
                     ListHeader("For you")
                 }
@@ -74,7 +78,8 @@ struct MoreSheet: View {
         case .digest: DigestView()
         case .spending: SpendingView()
         case .outbox: OutboxList()
-        case .showJarvis, .home: EmptyView()
+        case .showJarvis: ShowJarvisView()
+        case .home: EmptyView()
         }
     }
 

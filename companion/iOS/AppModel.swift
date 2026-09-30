@@ -166,6 +166,7 @@ final class AppModel {
         if active {
             reloadQueue(sayExpired: true)
             restartPolling()
+            Task { await HealthService.shared.sendIfDue() }
         } else {
             stopPolling()
             speech.cancel()
@@ -664,6 +665,8 @@ final class AppModel {
         outbox.removeAll()  // nothing kept for this Mac goes to another
         SnapshotPublisher.shared.clear()
         Task { await LiveActivities.shared.endAll() }
+        LocationService.shared.turnOff()  // nothing to send to: off until turned on again
+        HealthService.shared.turnOff()
         queued = []
         pairing = nil
         remote = nil

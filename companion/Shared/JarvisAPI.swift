@@ -309,8 +309,9 @@ struct JarvisAPI: Sendable {
         return (try? JSONDecoder().decode(ShareResult.self, from: data)) ?? ShareResult(savedAs: nil, asked: false)
     }
 
-    /// A photo (JPEG) and an optional question; the reply is Jarvis's answer.
-    func photo(jpeg: Data, question: String?) async throws -> String {
+    /// A photo (JPEG, at most 8 MB) and an optional question: `{reply, done, approvals}`, done
+    /// false while the Mac is still on it, with any cards it raised.
+    func photo(jpeg: Data, question: String?) async throws -> AskResult {
         let question = question?.trimmed ?? ""
         var body = try JSONValue.object(dropping: ["question": question.isEmpty ? nil : .string(question)]).encoded()
         body.removeLast()  // {…} → {…,"data_base64":"…"}
@@ -319,7 +320,7 @@ struct JarvisAPI: Sendable {
         body.append(jpeg.base64EncodedData())
         body.append(Data(#""}"#.utf8))
         let data = try await send("api/photo", body: body, timeout: 120)
-        return (try? JSONDecoder().decode(ReplyBody.self, from: data))?.reply ?? ""
+        return try decode(AskResult.self, from: data)
     }
 
     /// Any POST, for requests kept in the outbox.
@@ -431,7 +432,6 @@ struct JarvisAPI: Sendable {
 
 private struct OkBody: Decodable { var ok: Bool? }
 private struct ErrorBody: Decodable { var error: String? }
-private struct ReplyBody: Decodable { var reply: String? }
 
 /// POST /api/share: `{ok, saved_as?, asked}`.
 struct ShareResult: Equatable, Sendable, Decodable {

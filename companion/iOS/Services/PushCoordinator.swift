@@ -196,7 +196,10 @@ final class BackgroundTime {
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         guard !TestHost.isRunningUnitTests else { return true }
-        MainActor.assumeIsolated { PushCoordinator.shared.launch() }
+        MainActor.assumeIsolated {
+            PushCoordinator.shared.launch()
+            LocationService.shared.resume()  // iOS may have relaunched the app for an arrival
+        }
         return true
     }
 
