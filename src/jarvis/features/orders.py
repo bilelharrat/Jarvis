@@ -274,11 +274,12 @@ class Orders:
     async def remind(self) -> int:
         """Subscriptions renewing within the setting's days, each told once per renewal date
         (after REMIND_HOUR, not in quiet hours: the next look says it then)."""
-        from ..proactive import Alert, in_quiet_hours
+        from ..proactive import Alert, in_quiet_hours, quiet_hours_now
 
         days = self.hub.prefs.feature("orders_renewal_days") or 0
         now = self.now()
-        if not days or now.hour < REMIND_HOUR or in_quiet_hours(now, self.hub.prefs.quiet_hours):
+        # (quiet hours as the features see them too: a Focus mode, the weekend's own hours)
+        if not days or now.hour < REMIND_HOUR or quiet_hours_now(self.hub, now, in_quiet_hours):
             return 0
         from ..mac_tools import spoken_when
 

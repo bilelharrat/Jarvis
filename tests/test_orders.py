@@ -311,6 +311,24 @@ async def test_renewals_are_reminded_once_before_the_day(
     assert await desk.remind() == 0
 
 
+async def test_a_renewal_waits_while_a_focus_mode_keeps_heads_ups_quiet(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    alerts = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_prefs({"quiet_hours": "23:00-06:00"})  # 10:00 isn't in the range...
+    focus = [True]
+    hub.add_quiet_check(lambda _now: focus[0])  # ...but a Focus mode is on
+    hub.notify = lambda alert, **_kw: alerts.append(alert)
+    now = datetime(2026, 9, 29, 10, 0)
+    desk = desk_for(hub, Inbox(tmp_path / "Envelope Index"), now=lambda: now)
+    desk.book.load()
+    desk.book.apply(orders.Found("subscription", "Netflix", renews="2026-10-01"), now)
+    assert await desk.remind() == 0 and alerts == []
+    focus[0] = False
+    assert await desk.remind() == 1
+
+
 async def test_the_owner_can_take_one_off_the_list_and_the_tools_read_it(
     settings, quiet_speaker, isolated, tmp_path
 ):

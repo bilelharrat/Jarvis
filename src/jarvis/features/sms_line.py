@@ -279,14 +279,15 @@ class SmsLine:
         self.codes.drop(str(approval_id))
 
     async def _text_card(self, card: dict[str, Any]) -> None:
-        from ..proactive import in_quiet_hours
+        from ..proactive import in_quiet_hours, quiet_hours_now
 
         approval_id = card["id"]
         try:
             await self.sleep(sms.ASK_AFTER)
             if approval_id not in self.hub.approvals:
                 return
-            if in_quiet_hours(self.now(), self.hub.prefs.quiet_hours):
+            # (quiet hours as the features see them too: a Focus mode, the weekend's own hours)
+            if quiet_hours_now(self.hub, self.now(), in_quiet_hours):
                 return
             creds = await self._creds()
             if not (creds and self.hub.prefs.phone_from):

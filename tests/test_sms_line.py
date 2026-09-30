@@ -271,6 +271,24 @@ async def test_no_text_for_a_card_answered_on_the_mac_in_quiet_hours_or_not_elig
     await purchase
 
 
+async def test_no_text_for_a_card_while_a_focus_mode_keeps_things_quiet(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"sms_approvals": True})
+    hub.set_prefs({"quiet_hours": "03:00-03:01"})  # not the range...
+    hub.add_quiet_check(lambda _now: True)  # ...but a Focus mode is on
+    twilio = Twilio()
+    line = line_for(hub, twilio)
+    hub.add_approval_sink(line.card_up, resolved=line.card_down)
+    pending = asyncio.create_task(hub.request_approval("Quit Mail?"))
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert twilio.sent == []  # the card waits on the Mac
+    hub.resolve(next(iter(hub.approvals)), "deny")
+    await pending
+
+
 async def test_guessing_codes_stops_answering_by_text_and_says_so_once(
     settings, quiet_speaker, isolated
 ):
