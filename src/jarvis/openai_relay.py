@@ -20,7 +20,10 @@ What's translated:
   input_json deltas, message_delta with the stop reason and usage, message_stop). A tool
   call's arguments are gathered and sent whole once they're complete, checked as JSON;
 - errors, as Anthropic error JSON; a server that isn't running says so plainly, and isn't
-  retried over and over (a 400, which Claude Code shows rather than retries).
+  retried over and over (a 400, which Claude Code shows rather than retries). One that stops
+  with an error part-way, breaks off, or isn't a model server at all (a web page at that
+  address) ends the stream with Anthropic's error event, never as a quiet, cut-off answer
+  taken as done; a whole reply that isn't JSON is a 400 too.
 
 Cost: none of its own. It carries requests a session makes; what the provider charges is
 the provider's (a model on this Mac costs nothing).
@@ -388,6 +391,14 @@ class Stream:
         self._flush_calls()
         self._close_text()
 
+    @staticmethod
+    def failed(message: str, kind: str = "invalid_request_error") -> str:
+        """Anthropic's error event: the stream ends in it, and Claude Code reports it."""
+        return (
+            f"event: error\ndata: "
+            f"{json.dumps({'type': 'error', 'error': {'type': kind, 'message': message}})}\n\n"
+        )
+
     def stop_reason(self) -> str:
         return "tool_use" if self.used_tools else FINISH.get(self.finish, "end_turn")
 
@@ -549,17 +560,19 @@ class OpenAIRelay:
                 await response.aclose()
             try:
                 data = json.loads(raw)
-            except (ValueError, RecursionError):
-                return (*anthropic_error(529, f"{_where(upstream)} didn't answer in JSON."), None)
+            except (ValueError, RecursionError):  # a web page, say: retrying won't help
+                return (*anthropic_error(400, f"{_where(upstream)} didn't answer in JSON."), None)
             converter.whole(data if isinstance(data, dict) else {})
             return 200, converter.message(), None
 
         async def events() -> AsyncIterator[str]:
             yield converter.start()
+            where, heard, failed = _where(upstream), False, ""
             try:
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
+                    heard = True
                     text = line[5:].strip()
                     if text == "[DONE]":
                         break
@@ -568,15 +581,27 @@ class OpenAIRelay:
                     except (ValueError, RecursionError):
                         continue
                     if isinstance(data, dict) and isinstance(data.get("error"), dict | str):
+                        error = data["error"]
+                        said = error.get("message") if isinstance(error, dict) else error
+                        said = _said(json.dumps({"error": str(said or "")}).encode(), key)
                         log.warning("openai relay: the stream carried an error")
+                        failed = f"{where} stopped with an error" + (f": {said}" if said else ".")
                         break
                     piece = converter.chunk(data) if isinstance(data, dict) else ""
                     if piece:
                         yield piece
             except httpx.HTTPError as exc:
                 log.warning("openai relay: the stream broke: %s", exc)
+                failed = f"{where}'s answer broke off part-way; try again."
+                yield Stream.failed(failed, "api_error")
+                return
             finally:
                 await response.aclose()
+            if not failed and not heard:
+                failed = f"{where} answered, but isn't a model server (no streamed reply came)."
+            if failed:
+                yield Stream.failed(failed)
+                return
             yield converter.end()
 
         return 200, None, events()

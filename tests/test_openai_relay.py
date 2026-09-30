@@ -425,6 +425,51 @@ async def test_errors_come_back_as_anthropic_errors_in_plain_words():
     assert status == 529 and data["error"]["type"] == "overloaded_error"
 
 
+async def test_a_model_server_that_fails_or_answers_garbage_says_so_instead_of_going_quiet():
+    """A local model server that stops with an error part-way, breaks off, or isn't a model
+    server at all (a web page at that address): the reply ends in an Anthropic error Claude
+    Code reports, never a quiet, empty or cut-off answer JARVIS takes as done."""
+
+    async def run(answer, stream=True):
+        relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+        body = {"model": "qwen3", "stream": stream, "messages": [{"role": "user", "content": "hi"}]}
+        return await relay.messages("http://localhost:11434", KEY, body)
+
+    def failed(request):  # LM Studio, vLLM: an error as a chunk, after some words
+        text = sse(chunk("The first"), {"error": {"message": "context length exceeded"}})
+        return httpx.Response(200, text=text, headers={"content-type": "text/event-stream"})
+
+    status, _, events = await run(failed)
+    got = events_of("".join([p async for p in events]))
+    assert status == 200 and got[-1]["type"] == "error"
+    assert "context length exceeded" in got[-1]["error"]["message"]
+    assert "message_stop" not in [e["type"] for e in got]
+
+    class Broken(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices": [{"index": 0, "delta": {"content": "Half"}}]}\n\n'
+            raise httpx.ReadError("connection reset")
+
+    def broken(request):
+        return httpx.Response(200, stream=Broken(), headers={"content-type": "text/event-stream"})
+
+    _, _, events = await run(broken)
+    got = events_of("".join([p async for p in events]))
+    assert got[-1]["type"] == "error" and "broke off" in got[-1]["error"]["message"]
+
+    def page(request):  # a web page where the model server was expected
+        return httpx.Response(200, text="<!doctype html><title>Router</title>")
+
+    _, _, events = await run(page)
+    got = events_of("".join([p async for p in events]))
+    assert got[-1]["type"] == "error" and "isn't a model server" in got[-1]["error"]["message"]
+
+    # A whole (non-streamed) reply that isn't JSON: shown, not retried as if overloaded.
+    status, data, _ = await run(page, stream=False)
+    assert status == 400 and data["error"]["type"] == "invalid_request_error"
+    assert "didn't answer in JSON" in data["error"]["message"]
+
+
 async def test_a_whole_reply_comes_back_whole():
     def answer(request):
         return httpx.Response(
