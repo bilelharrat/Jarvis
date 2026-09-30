@@ -215,6 +215,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        guard !TestHost.isRunningUnitTests else { return completionHandler(.noData) }
         let push = JarvisPush(userInfo: userInfo)
         Task { @MainActor in
             await PushCoordinator.shared.receivedInBackground(push)

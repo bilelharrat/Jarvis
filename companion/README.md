@@ -49,9 +49,10 @@ xcodebuild -project JarvisCompanion.xcodeproj -scheme JarvisCompanion \
 On a device, run the JarvisCompanion scheme from Xcode with your iPhone selected; the
 Watch app installs with it (or from the Watch app on the iPhone).
 
-On a Mac under heavy load, `test` can fail with "The test runner hung before establishing
-connection" (Xcode's launch of the test host loses a race); `build-for-testing` followed
-by `test-without-building` avoids it.
+On a busy Mac, `test` can fail with "The test runner hung before establishing
+connection": the process Xcode waited on was the app launched the ordinary way, not as
+the test host, so it ran like the real app, talking to the Mac the Simulator is paired
+with. `build-for-testing` followed by `test-without-building` gets through.
 
 ## On a device and TestFlight
 

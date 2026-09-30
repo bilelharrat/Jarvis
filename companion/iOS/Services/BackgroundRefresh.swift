@@ -16,6 +16,7 @@ enum BackgroundRefresh {
 
     @MainActor
     static func run() async {
+        guard !TestHost.isRunningUnitTests else { return }  // the test host stays still
         schedule()
         guard let pairing = PairingStore.load(), pairing.isPinned else { return }
         do {

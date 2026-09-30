@@ -183,3 +183,11 @@ final class TranscriptTests: XCTestCase {
         XCTAssertTrue(lines[1].live)
     }
 }
+
+/// The app hosting these tests stays still (no pairing, polling, background refresh or
+/// pushes), so nothing reaches whatever Mac this Simulator is paired with.
+final class TestHostTests: XCTestCase {
+    func testTheHostKnowsItIsHostingUnitTests() {
+        XCTAssertTrue(TestHost.isRunningUnitTests)
+    }
+}
