@@ -4,6 +4,7 @@ a restart, and set or cancelled unasked only when the owner's own words asked fo
 
 import asyncio
 import json
+from dataclasses import asdict
 from datetime import datetime, timedelta
 
 import pytest
@@ -114,6 +115,28 @@ def test_a_countdowns_instant_that_cant_be_right_leaves_the_wall_clock_to_decide
         "c": datetime(2026, 9, 30, 9, 0).timestamp(),
         "d": row["at"],
     }
+
+
+def test_a_hand_edited_row_never_stops_the_clock(tmp_path):
+    """A reminder repeating every 10**14 seconds, a timer that long, one due in the year
+    9999 (hand edits): the clock never fails on them, and every other one still goes off."""
+    path = tmp_path / "timers.json"
+    alarm = tk.new_alarm("15:31", "wake", NOW)
+    odd = [
+        {**asdict(tk.new_reminder("x", NOW, in_minutes=1)), "id": "r1", "every": 10**14},
+        {**asdict(tk.new_timer(60, "y", NOW)), "id": "t1", "seconds": 10**14},
+        {**asdict(tk.new_reminder("z", NOW, every_minutes=5)), "id": "r2", "due": "9999-12-31T23:59:00", "at": 0},
+    ]  # fmt: skip
+    path.write_text(json.dumps([*odd, asdict(alarm)]))
+    clock = Clock()
+    timers, heard, _played = make(tmp_path, clock)
+    clock.tick(minutes=2)
+    timers.fire_due(clock())
+    assert [a.kind for a, _busy in heard][-1] == "alarm"  # the alarm still went off
+    timers.fire_due(clock())  # and the next look is fine too
+    clock.at = datetime(9999, 12, 31, 23, 59, 30)
+    timers.fire_due(clock())
+    timers.stop()
 
 
 def test_a_file_that_cant_be_read_is_never_saved_over(tmp_path):

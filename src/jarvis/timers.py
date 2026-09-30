@@ -265,9 +265,11 @@ def _timer_from(raw: Any) -> Timer | None:
         return None
     timer.label = clean_text(timer.label).strip()[:120]
     timer.created = timer.created if isinstance(timer.created, str) else ""
-    for name in ("seconds", "every", "snoozed"):
+    for name, most in (("seconds", MAX_TIMER), ("every", MAX_EVERY), ("snoozed", 10_000)):
         value = getattr(timer, name)
-        setattr(timer, name, value if type(value) is int and value >= 0 else 0)
+        setattr(timer, name, value if type(value) is int and 0 <= value <= most else 0)
+    if timer.every and timer.every < MIN_EVERY:
+        timer.every = MIN_EVERY
     timer.until = timer.until if isinstance(timer.until, str) and _when(timer.until) else ""
     timer.phone = timer.phone is True
     at = timer.at
@@ -609,14 +611,20 @@ class Timers:
         if not due:
             return []
         for timer in due:
-            late = stamp - timer.instant() > MISSED_SECONDS
-            if timer.kind == "reminder" and timer.every:
-                self._advance(timer, now)
-                if late:
-                    continue  # missed while closed or asleep: it picks up at its next time
-            else:
-                self.store.items.remove(timer)
-            self._fire(timer, now, late)
+            try:
+                late = stamp - timer.instant() > MISSED_SECONDS
+                if timer.kind == "reminder" and timer.every:
+                    self._advance(timer, now)
+                    if late:
+                        continue  # missed while closed or asleep: it picks up at its next time
+                else:
+                    self.store.items.remove(timer)
+                self._fire(timer, now, late)
+            except (ValueError, OverflowError):  # a time past what a date can be (a hand edit)
+                log.warning("timers: one can't be worked out; it's set aside in the file")
+                if timer in self.store.items:
+                    self.store.items.remove(timer)
+                    self.store.broken.append(asdict(timer))
         try:
             self.store.save()
         except OSError as exc:
