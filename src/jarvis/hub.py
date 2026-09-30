@@ -5677,6 +5677,8 @@ class Hub:
                         str(d) for d in (msg.get("add_dirs") or own.get("add_dirs") or [])[:10]
                     ],
                     plugins=[str(d) for d in (msg.get("plugins") or own.get("plugins") or [])[:10]],
+                    # The composer's "Isolated copy" switch; absent, the owner's default.
+                    isolate=msg["isolated"] if isinstance(msg.get("isolated"), bool) else None,
                 )
             except ValueError as exc:
                 self.emit("error", text=str(exc))

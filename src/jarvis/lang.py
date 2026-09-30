@@ -2519,18 +2519,22 @@ def tr(template: str, lang: str = "zh", **values: Any) -> str:
 
 
 def add_texts(texts: dict[str, str]) -> None:
-    """A feature module's own sentences in Chinese (jarvis.features), added when it imports:
-    translate() and tr() know them from then on, as they know ZH_TEXTS's."""
-    ZH_TEXTS.update(texts)
+    """A feature module's own sentences with their Chinese, as ZH_TEXTS holds them (the
+    English as the module writes it, {slots} and all), added when it imports: translate()
+    and tr() know them from then on. An English sentence the core already has keeps the
+    core's Chinese."""
+    fresh = {k: v for k, v in texts.items() if k not in ZH_TEXTS}
+    if not fresh:
+        return
+    ZH_TEXTS.update(fresh)
+    added = [(key, _template_pattern(key), *_ends(key)) for key in fresh if _SLOT.search(key)]
     _TEMPLATES[:] = sorted(
-        ((key, _template_pattern(key), *_ends(key)) for key in ZH_TEXTS if _SLOT.search(key)),
-        key=lambda item: len(_SLOT.sub("", item[0])),
-        reverse=True,
+        [*_TEMPLATES, *added], key=lambda item: len(_SLOT.sub("", item[0])), reverse=True
     )
     _TEMPLATE_ALIASES.update(
         {
             _OWN_NAMES.sub("{name}", key): (key, m.group(1))
-            for key in texts
+            for key in fresh
             if (m := _OWN_NAMES.search(key))
         }
     )

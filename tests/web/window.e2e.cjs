@@ -1676,6 +1676,92 @@ test('Settings › Chats: iMessage picks a conversation, how Messages is signed 
   ]), JSON.stringify(sent));
 });
 
+// ── Jarvis Code's feature modules (web/features): loaded into the page as features.js
+// loads them, their styles too ──
+
+// __ev(event): an event as the socket delivers it, to app.js and to the features' listeners.
+async function loadFeatures(...names) {
+  await js('window.__ev = (ev) => { onEvent(ev); featureEvent(ev); }; true');
+  for (const name of names) {
+    const file = path.join(WEB, 'features', name);
+    if (name.endsWith('.css')) await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(fs.readFileSync(file, 'utf8'))}; document.head.append(s); })()`);
+    else await js(fs.readFileSync(file, 'utf8'));
+  }
+}
+
+test('Isolated copy: the switch goes with a new session, and is on when another session is at work', async () => {
+  await js('deckProjects = [{ name: "alpha", branch: "main" }]; deckProject = "alpha"; openProjects.add("alpha"); toggleCC(true); ccSelected = null; renderCC([]); __sent.length = 0');
+  await loadFeatures('code_isolation.js', 'code_isolation.css');
+  await sleep(80);
+  const shown = await js('({ hidden: $("jcx-iso-switch").hidden, on: $("jcx-iso-switch").getAttribute("aria-pressed") })');
+  assert(!shown.hidden && shown.on === 'false', JSON.stringify(shown));
+  await js('$("deck-input").value = "fix the login"; $("deck-composer").requestSubmit()');
+  let news = await js('__sent.filter((m) => m.type === "task_new")');
+  assert(news.length === 1 && news[0].isolated === false && news[0].prompt === 'fix the login', JSON.stringify(news));
+  // Another session at work in the project: the switch is on, and says why.
+  await js('__sent.length = 0; __ev({ type: "tasks", items: [__task(7, { folder: "alpha", busy: true })] }); ccSelected = null; renderCC(ccTasks)');
+  const offered = await js('({ on: $("jcx-iso-switch").getAttribute("aria-pressed"), title: $("jcx-iso-switch").title })');
+  assert(offered.on === 'true' && offered.title.startsWith('Another session is working'), JSON.stringify(offered));
+  await js('$("deck-input").value = "second"; $("deck-composer").requestSubmit()');
+  news = await js('__sent.filter((m) => m.type === "task_new")');
+  assert(news.length === 1 && news[0].isolated === true, JSON.stringify(news));
+  // The owner's own choice wins for the next session, then it's back to the default.
+  await js('__sent.length = 0');
+  await clickAt('#jcx-iso-switch');
+  await js('$("cc-start-typed").click()');
+  news = await js('__sent.filter((m) => m.type === "task_new")');
+  assert(news.length === 1 && news[0].isolated === false, JSON.stringify(news));
+  await sleep(20);
+  assert(await js('$("jcx-iso-switch").getAttribute("aria-pressed")') === 'true', 'the switch kept a choice for the next session');
+  // With a session on screen there's nothing to start: no switch.
+  await js('__ev({ type: "tasks", items: [__task(7, { folder: "alpha" })] }); selectTask(7)');
+  assert(await js('$("jcx-iso-switch").hidden'), 'the switch shows over an open session');
+});
+
+test('Isolated copy: the header names the branch, and the Copies pane lands, discards and brings back', async () => {
+  await open(3);
+  await loadFeatures('code_isolation.js', 'code_isolation.css');
+  await js('__ev({ type: "tasks", items: [__task(3, { workspace: { slug: "fix-login-1a2b", branch: "jarvis/fix-login-1a2b", into: "main" } })] }); selectTask(3); __sent.length = 0');
+  await sleep(40);
+  const badge = await js('({ hidden: document.querySelector(".jcx-iso-badge").hidden, text: document.querySelector(".jcx-iso-badge").textContent })');
+  assert(!badge.hidden && badge.text === 'jarvis/fix-login-1a2b → main', JSON.stringify(badge));
+  await clickAt('.jcx-iso-badge');
+  assert((await sent()).includes('code_copies'), 'the pane never asked for the copies');
+  await js(`__ev({ type: 'code_copies', root: '/tmp/worktrees', copies: [
+      { slug: 'fix-login-1a2b', project: 'alpha', branch: 'jarvis/fix-login-1a2b', into: 'main', title: 'fix the <b>login</b>', created: Date.now() / 1000 - 300,
+        state: { exists: true, branch: true, dirty: 2, ahead: 1, files: 3, added: 12, removed: 4 }, sessions: [3], live: true, busy: false, leftover: false, conflicts: ['a.py'], resumable: true },
+      { slug: 'old-0000', project: 'alpha', branch: 'jarvis/old-0000', into: 'main', title: '', created: 1,
+        state: { exists: true, branch: true, dirty: 1, ahead: 0, files: 1, added: 1, removed: 0 }, sessions: [], live: false, busy: false, leftover: true, conflicts: [], resumable: false } ],
+    trash: [{ slug: 'gone-1111', project: 'alpha', title: 'an old try', at: Date.now() / 1000 - 90000, into: 'main', restorable: true }] })`);
+  const pane = await js(`({ cards: [...document.querySelectorAll('.jcx-copy')].map((c) => c.querySelector('strong').textContent + ' | ' + [...c.querySelectorAll('.jcx-chip')].map((x) => x.textContent).join(',') + ' | ' + c.querySelector('.jcx-copy-stats').textContent),
+      bold: document.querySelectorAll('.jcx-copy b').length, root: document.querySelector('.jcx-copies-root').textContent })`);
+  assert(pane.cards[0] === 'fix the <b>login</b> | open,conflicts | 3 files +12 −4 · 2 not committed · 1 commit ahead', JSON.stringify(pane));
+  assert(pane.cards[1] === 'old-0000 | not landed | 1 file +1 −0 · 1 not committed', JSON.stringify(pane));
+  assert(pane.bold === 0 && pane.root === '/tmp/worktrees', 'a title was drawn as HTML');
+  await js('__sent.length = 0');
+  await clickText('.jcx-copy:first-child', 'Land');
+  await clickText('.jcx-copy:first-child', 'Resolve in session');
+  await clickText('.jcx-copy:nth-child(2)', 'Discard');
+  await clickText('.jcx-copies', 'Bring back');
+  const acts = await js('__sent.filter((m) => m.type === "code_copy").map((m) => m.action + " " + m.slug)');
+  assert(JSON.stringify(acts) === JSON.stringify(['land fix-login-1a2b', 'resolve fix-login-1a2b', 'discard old-0000', 'restore gone-1111']), JSON.stringify(acts));
+  // The project's own options: .env files and linked dependencies, as settings.
+  await js('__sent.length = 0');
+  await clickAt('.jcx-copies .jcs-switch');
+  const prefs = await js('__sent.filter((m) => m.type === "feature_prefs").map((m) => m.changes)');
+  assert(JSON.stringify(prefs) === JSON.stringify([{ code_iso_env: ['alpha'] }]), JSON.stringify(prefs));
+});
+
+test('Isolated copy: the default is a Jarvis Code setting', async () => {
+  await loadFeatures('code_isolation.js');
+  await js('toggleCC(true); openJcSettings("general"); __sent.length = 0');
+  await clickAt('#jcx-iso-default');
+  const changes = await js('__sent.filter((m) => m.type === "feature_prefs").map((m) => m.changes)');
+  assert(JSON.stringify(changes) === JSON.stringify([{ code_isolate_default: true }]), JSON.stringify(changes));
+  await js('__ev({ type: "prefs", features: { code_isolate_default: true } })');
+  assert(await js('$("jcx-iso-default").getAttribute("aria-checked")') === 'true', 'the setting didn’t show');
+});
+
 // ──
 
 let base;

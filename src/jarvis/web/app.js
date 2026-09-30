@@ -71,6 +71,14 @@ const featureMentions = [];  // Jarvis Code composer: (query, textBefore) -> mor
 // Jarvis Code / commands: name -> { name, help, run?(arg, task), insert?, needsArg?, withoutSession? }
 // (insert: text the palette puts in the composer, a snippet; run: the command itself).
 const featureSlash = new Map();
+const featureSessionOptions = [];  // () => fields a new session's task_new carries ({ isolated })
+function featureSessionFields() {
+  const fields = {};
+  for (const fn of featureSessionOptions) {
+    try { Object.assign(fields, fn() || {}); } catch (err) { console.error('feature session option', err); }
+  }
+  return fields;
+}
 function featureEvent(ev) {
   if (!ev || typeof ev.type !== 'string') return;
   featureLast.set(ev.type, ev);
@@ -94,6 +102,7 @@ window.jarvisFeatures = {
   openPane: (id) => openPane(id),
   registerMoreItem(item) { featureMoreItems.push(item); },
   registerMentions(suggest) { featureMentions.push(suggest); },
+  registerSessionOption(fn) { featureSessionOptions.push(fn); },
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
@@ -2106,7 +2115,7 @@ function newSession(voice) {
   if (!deckProject) return;
   awaitingNewSession = true;
   if (voice) send({ type: 'voicecode_start', directory: deckProject });
-  else send({ type: 'task_new', directory: deckProject, prompt: '', ...takePending() });
+  else send({ type: 'task_new', directory: deckProject, prompt: '', ...takePending(), ...featureSessionFields() });
 }
 $('cc-start-voice').addEventListener('click', () => newSession(true));
 $('cc-start-typed').addEventListener('click', () => newSession(false));
@@ -2686,7 +2695,7 @@ function slashWithoutSession(text) {
     const mode = SLASH_MODE_IDS[name];
     if (mode === 'smart' && !autoCapable(composerState().modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return true; }
     if (mode === 'auto' && !confirm(tr('Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?'))) return true;
-    if (!send({ type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins] })) return unsent();
+    if (!send({ type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields() })) return unsent();
     takePending();
     awaitingNewSession = true;
     return true;
@@ -2782,7 +2791,7 @@ function sendToSession(text, steer) {
     if (!deckProject) return false;
     if (text.startsWith('/') && !images.length && slashWithoutSession(text)) return true;
     const extra = { add_dirs: [...pending.dirs], plugins: [...pending.plugins] };
-    if (!send({ type: 'task_new', directory: deckProject, prompt: text, images, ...extra })) return unsent();
+    if (!send({ type: 'task_new', directory: deckProject, prompt: text, images, ...extra, ...featureSessionFields() })) return unsent();
     takePending();  // the folders and plugins went with it
     clearAttachments();
     awaitingNewSession = true;

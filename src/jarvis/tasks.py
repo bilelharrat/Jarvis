@@ -692,6 +692,10 @@ class ClaudeTask:
     # be told from anyone else's in a shared folder; and those of edits not yet done.
     edit_marks: list[Any] = field(default_factory=list)
     pending_marks: dict[str, Any] = field(default_factory=dict)
+    isolate: bool | None = None  # its own isolated copy asked for (None: the default)
+    # Its isolated copy, once it runs in one: {"slug", "branch", "base" (the commit it
+    # started from), "into" (the branch it lands in)}. Its changes are then all of the copy's.
+    workspace: dict[str, str] = field(default_factory=dict)
 
     @property
     def steerable(self) -> bool:
@@ -730,6 +734,9 @@ class ClaudeTask:
             "files_changed": heapq.nsmallest(50, self.files_changed),  # (sorted, first 50)
             "commands": self.commands,
             "path": str(self.cwd),
+            "workspace": {
+                k: self.workspace[k] for k in ("slug", "branch", "into") if k in self.workspace
+            },
             "report_path": self.report_path,
             "status": self.status,
             "last_action": self.last_action,
@@ -878,6 +885,11 @@ class TaskManager:
         self.start_defaults: Callable[[Path, str], dict[str, Any]] | None = None
         self.turn_note: Callable[[ClaudeTask], str] | None = None
         self.closing = False  # the app is quitting: nothing opens again by itself
+        # Set by the isolated-copies feature: prepare(task) runs before a session's first
+        # connection (it may move the session into its own copy), and isolated_dir(path)
+        # names a copy folder a session may run in, which resolve_dir then accepts.
+        self.prepare: Callable[[ClaudeTask], Awaitable[None]] | None = None
+        self.isolated_dir: Callable[[str], Path | None] | None = None
         self._spawns: deque[float] = deque()  # when the latest Claude Codes were started
         self._open: set[int] = set()  # sessions connecting or connected
         self._changed_at = 0.0
@@ -887,6 +899,8 @@ class TaskManager:
     # ── folders ──
 
     def resolve_dir(self, directory: str) -> Path:
+        if self.isolated_dir is not None and (copy := self.isolated_dir(directory)) is not None:
+            return copy  # a session's own isolated copy of a project
         raw = Path(directory.strip()).expanduser()
         candidates = [raw] if raw.is_absolute() else [self.settings.projects_dir / raw]
         extra, more_roots = self._more_projects()
@@ -968,9 +982,12 @@ class TaskManager:
         images: list[dict[str, str]] | None = None,
         add_dirs: list[str] | None = None,
         plugins: list[str] | None = None,
+        isolate: bool | None = None,
     ) -> ClaudeTask:
         """A new session (or the open one that is this resume). images go with the first
-        message; add_dirs and plugins are the composer's + menu choices made before it."""
+        message; add_dirs and plugins are the composer's + menu choices made before it;
+        isolate asks for (True) or against (False) its own isolated copy of the project,
+        None leaving it to the owner's default."""
         cwd = self.resolve_dir(directory)
         same = self._by_session(resume) if resume else None
         if same is not None:  # already open here: the same session, never a second copy
@@ -995,6 +1012,7 @@ class TaskManager:
             env=dict(env or {}),
             provider_settings=provider_settings or "",
             ultracode=bool(ultracode),
+            isolate=isolate,
         )
         if task.mode == "smart" and not auto_capable(task.model or self.model):
             task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
@@ -1855,6 +1873,8 @@ class TaskManager:
             return
         task.status = "running"
         try:
+            if self.prepare is not None:  # (its own isolated copy: made, or found again)
+                await self.prepare(task)
             if not task.history_read:
                 await self._read_history(task)
             while await self._connect(task) == _REOPEN:

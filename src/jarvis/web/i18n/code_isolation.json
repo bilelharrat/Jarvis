@@ -1,6 +1,68 @@
 {
   "strings": {
-    "Undo this session’s own changes in this file": "撤销这个会话在此文件中的改动"
+    "Undo this session’s own changes in this file": "撤销这个会话在此文件中的改动",
+    "Isolated copy": "独立副本",
+    "Another session is working in this project, so this one gets a copy of its own. Click to share the folder instead.": "另一个会话正在这个项目里工作，所以这个会话会有自己的副本。点一下改为共用文件夹。",
+    "This session gets its own copy of the project, on a branch of its own, until you land it.": "这个会话会在项目的独立副本里、自己的分支上工作，直到你把它合并回去。",
+    "This session works in the project folder itself. Click for a copy of its own.": "这个会话直接在项目文件夹里工作。点一下让它有自己的副本。",
+    "Isolated copy: this session works on a branch of its own. Open the Copies pane to land or discard it.": "独立副本：这个会话在自己的分支上工作。打开副本面板可以合并或丢弃它。",
+    "working": "进行中",
+    "open": "已打开",
+    "not landed": "未合并",
+    "conflicts": "有冲突",
+    "folder gone, branch kept": "文件夹已不在，分支还在",
+    "no changes yet": "还没有改动",
+    "Show": "显示",
+    "Resume": "继续",
+    "Resolve in session": "交给会话解决",
+    "Land": "合并",
+    "Discard": "丢弃",
+    "Each isolated copy is the project on a branch of its own, outside the project folder. Land it to merge its work back; discard it to throw it away (kept 30 days).": "每个独立副本都是项目在自己分支上的一份拷贝，放在项目文件夹之外。合并会把它的工作并回去；丢弃会扔掉它（保留 30 天）。",
+    "Copy .env files": "复制 .env 文件",
+    "Only files git ignores, so a copy can never commit them.": "只复制 git 忽略的文件，所以副本永远不会把它们提交出去。",
+    "Link node_modules and .venv": "链接 node_modules 和 .venv",
+    "Nothing to install again, but shared with the main folder: installing or upgrading a package in the copy changes the main folder’s too.": "不用重新安装，但会和主文件夹共用：在副本里安装或升级依赖包，主文件夹的也会跟着变。",
+    "Copies": "副本",
+    "No isolated copies. Turn on “Isolated copy” when you start a session to give it one.": "还没有独立副本。开始会话时打开“独立副本”，它就会有一个。",
+    "Recently discarded": "最近丢弃的",
+    "Bring back": "找回",
+    "Isolated copies": "独立副本",
+    "Isolated copy for new sessions": "新会话使用独立副本",
+    "Each new session works on a branch of its own, in a copy of the project, until you land it. The composer’s switch still decides for each one.": "每个新会话都在项目副本里、自己的分支上工作，直到你合并它。输入框里的开关仍可以逐个决定。",
+    "just now": "刚刚"
   },
-  "patterns": []
+  "patterns": [
+    [
+      "^Landing hit conflicts in (.+?)(…|\\.)$",
+      "合并时这些文件有冲突：$1$2"
+    ],
+    [
+      "^New copies of (.+)$",
+      "$1 的新副本"
+    ],
+    [
+      "^(\\d+) min ago$",
+      "$1 分钟前"
+    ],
+    [
+      "^(\\d+) h ago$",
+      "$1 小时前"
+    ],
+    [
+      "^(\\d+) days? ago$",
+      "$1 天前"
+    ],
+    [
+      "^(\\d+) files? \\+(\\d+) −(\\d+)$",
+      "$1 个文件 +$2 −$3"
+    ],
+    [
+      "^(\\d+) not committed$",
+      "$1 个未提交"
+    ],
+    [
+      "^(\\d+) commits? ahead$",
+      "领先 $1 个提交"
+    ]
+  ]
 }
