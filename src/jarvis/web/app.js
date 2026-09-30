@@ -2377,8 +2377,12 @@ function moveGlider() {
 }
 
 function selectProject(name) {
-  if (deckProject !== name) pastSessions = [];
+  const other = deckProject !== name;
+  if (other) pastSessions = [];
   deckProject = name;
+  // With no session open, a pane is the project's (its Git, dev servers, tests, files):
+  // it's drawn again for the project picked, so its buttons never act on another.
+  if (other && !ccSelected && currentPane) renderPaneBody();
   send({ type: 'claude_sessions', directory: name });
   if (!projectFiles[name]) send({ type: 'project_files', directory: name });
   document.querySelectorAll('.cc-project-name').forEach((n) => { n.textContent = name; });

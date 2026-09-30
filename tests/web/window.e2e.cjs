@@ -556,6 +556,15 @@ test('Activity shows the steps of the session on show: another session’s are n
   assert(!r.text.includes('npm test') && JSON.stringify(r.asked) === '[2,1]', JSON.stringify(r));
 });
 
+test('With no session open, a pane follows the project picked in the sidebar', async () => {
+  await js(`deckProjects = [{ name: 'alpha', branch: 'main' }, { name: 'beta', branch: 'main' }]; projectFiles.alpha = ['alpha.py']; projectFiles.beta = ['beta.py'];
+    deckProject = 'alpha'; onEvent({ type: 'tasks', items: [] }); toggleCC(true); ccSelected = null; openPane('files'); true`);
+  assert((await js('$("jc-pane-body").textContent')).includes('alpha.py'), 'the Files pane doesn’t list alpha');
+  await js('selectProject("beta"); true');
+  const text = await js('$("jc-pane-body").textContent');
+  assert(text.includes('beta.py') && !text.includes('alpha.py'), `after picking beta the pane shows: ${text}`);
+});
+
 test('/rename with nothing after it names the session in place', async () => {
   await open(1, '$("deck-input").focus()');
   await typeText('/rename');
