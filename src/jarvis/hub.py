@@ -4952,6 +4952,7 @@ class Hub:
         events = calendar_kit.parse(found["events"])
         self._prep_cache = (now, events)
         return events
+
     def _travel_origin(self) -> dict[str, Any] | None:
         """Where a trip starts: a fresher fix than the Mac's (the owner's phone), else
         the Mac's own location."""

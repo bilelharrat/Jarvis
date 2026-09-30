@@ -952,10 +952,11 @@ def test_the_feature_registers_its_settings_commands_and_tool(settings, quiet_sp
     assert hub.prefs.feature("channels_discord_forward") == "urgent"
     assert {"channels_status", "channels_connect", "channels_imessage"} <= set(hub._commands)
     assert "chats" in hub._feature_servers()
-    assert hub._extra_prompt() == ""  # no chat connected: nothing said about chats
+    assert hub.chat_channels.prompt() == ""  # no chat connected: nothing said about chats
+    assert "message you from" not in hub._extra_prompt()
     assert tool_label("mcp__chats__send_file_to_chat") == "Sent a file to your chat"
     assert brain.result_kind("mcp__chats__send_file_to_chat") == "private"
-    assert [name for name, _f in hub._loops] == ["channels"]
+    assert [name for name, _f in hub._loops].count("channels") == 1  # other features have theirs
 
 
 async def test_the_prompt_names_the_chats_that_are_connected(settings, quiet_speaker, isolated):

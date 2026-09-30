@@ -115,7 +115,8 @@ async def test_ended_sessions_come_back_ended_and_a_resting_one_can_be_ended(
     hub = make_hub(settings, quiet_speaker, isolated)
     await hub.code_sessions.restore()
     done = hub.tasks.start("one", "proj")
-    open_one = hub.tasks.start("two", "proj")
+    # Sharing the folder on purpose: no isolated copy offered for a second session there.
+    open_one = hub.tasks.start("two", "proj", isolate=False)
     assert await until(lambda: done.status == "waiting" and open_one.status == "waiting")
     open_one.session_id = "s-two"  # (the fake gives every conversation the same id)
     hub.tasks.cancel(done.id)

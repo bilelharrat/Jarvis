@@ -139,7 +139,7 @@ ZH: dict[str, str] = {
     CHOSE: "你选择了：{label}。",
     CLOSED: "已关闭。",
     GONE: "这个已经关闭了。",
-    NO_SESSIONS: "没有打开的 Jarvis Code 会话。",
+    NO_SESSIONS: "现在没有打开的 Jarvis Code 会话。",  # as the voice supervisor says it
     SESSIONS: "Jarvis Code 会话：",
     SESSIONS_HOW: "给会话发消息：{code} <编号> <消息>",
     NO_SUCH_SESSION: "没有叫“{name}”的 Jarvis Code 会话。",
