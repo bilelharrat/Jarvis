@@ -4539,6 +4539,23 @@ test('A meeting starting offers notes on a card, and the notes’ card offers a 
   assert(await js(`!${notes}.querySelector(".meeting-remind")`), 'Add to Reminders after they were added');
 });
 
+test('An invitation that clashes says so on a Calendar card, with its reply to copy or draft', async () => {
+  await featureScript('proactive.js');
+  await deliver({ ...PREFS, features: {} });
+  assert(await js('$("sw-clash-alerts").closest("section") === $("meetings-group")'), 'not in Meetings');
+  assert(await js('$("sw-clash-alerts").getAttribute("aria-checked")') === 'true', 'off by itself');
+  await js('toggleSettings(true); __sent.length = 0; $("sw-clash-alerts").click(); true');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { clash_alerts: false } }]), 'not switched');
+  await js('toggleSettings(false); true');
+  await deliver({ type: 'alert', key: 'clash:k2', alert_kind: 'clash', title: 'Invitation clash', text: '“Offsite” tomorrow at 9 AM clashes with your rule “No meetings before 10”.' });
+  await deliver({ type: 'proactive', clash: { key: 'clash:k2', reply: 'Thanks for the invite. I don’t take meetings before 10 AM.', mail: true } });
+  const clash = 'document.querySelector(`#cards [data-alert="clash:k2"]`)';
+  assert(await js(`${clash}.querySelector(".card-kicker").textContent`) === 'Calendar', 'no Calendar kicker');
+  assert(await js(`${clash}.querySelector(".clash-reply").hasAttribute("data-no-i18n")`), 'the reply would be translated');
+  await js(`__sent.length = 0; [...${clash}.querySelectorAll("button")].find((b) => b.textContent === "Draft in Mail").click(); true`);
+  assert(JSON.stringify(await sentOf('clash_reply')) === '[{"type":"clash_reply","key":"clash:k2"}]', 'no draft asked for');
+});
+
 // ──
 
 let base;

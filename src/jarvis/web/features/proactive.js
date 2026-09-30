@@ -4,10 +4,11 @@
 // on or off, in the owner's order), news topics and the evening wrap-up; a new Settings ›
 // Weather and travel holds the weather heads-ups (severe weather, the air, big swings) and
 // how the owner gets around (the usual way, places reached another way, arriving early),
-// and a new Settings › Meetings holds the meeting offer, call notes and action items to
-// Reminders. Cards: a habit card gains "Make it a routine", a meeting starting offers
-// notes, and the notes' card gains Draft follow-up and Add to Reminders. Weather heads-ups
-// get their own kicker on cards.
+// and a new Settings › Meetings holds the meeting offer, call notes, action items to
+// Reminders and invitations that clash. Cards: a habit card gains "Make it a routine", a
+// meeting starting offers notes, the notes' card gains Draft follow-up and Add to
+// Reminders, and a clashing invitation shows its suggested reply to copy or draft.
+// Weather heads-ups and invitation clashes get their own kickers on cards.
 //
 // Everything the backend or the owner wrote (a Focus mode's name, a time) is shown with
 // textContent and marked data-no-i18n; the window's own words are translated by i18n.js as
@@ -311,7 +312,10 @@
   // ── Settings › Weather and travel: weather heads-ups ──
 
   // Weather heads-ups say so on their cards (app.js's kickers name each kind of heads-up).
-  if (typeof ALERT_KICKERS === 'object' && ALERT_KICKERS) ALERT_KICKERS.weather = 'Weather';
+  if (typeof ALERT_KICKERS === 'object' && ALERT_KICKERS) {
+    ALERT_KICKERS.weather = 'Weather';
+    ALERT_KICKERS.clash = 'Calendar';
+  }
 
   const AIR_MODES = [['off', 'Off'], ['sensitive', 'Sensitive groups'], ['unhealthy', 'Unhealthy']];
 
@@ -460,7 +464,7 @@
     list.hidden = !places.length;
   }
 
-  // ── Settings › Meetings: offers, call notes, action items ──
+  // ── Settings › Meetings: offers, call notes, action items, invitations that clash ──
 
   function buildMeetings() {
     const before = F.$('travel-group') || F.$('sw-briefing')?.closest('section.group');
@@ -482,12 +486,14 @@
     const listWords = el('span');
     listWords.append(el('strong', '', 'Reminders list'), el('small', '', 'Where the action items go'));
     listRow.append(listWords, list);
+    const clashes = toggle('sw-clash-alerts', 'Invitations that clash', () => setFeatures({ clash_alerts: features.clash_alerts === false }));
     group.append(
       el('h3', '', 'Meetings'),
       row('Offer to take notes', 'A card as a meeting with other people, or a call, starts', offer),
       row('Notes for online calls', 'The call’s own sound too, so the notes say who spoke: you and them. Needs Screen Recording.', calls),
       row('Action items to Reminders', 'After the notes are written up, each action item goes on a Reminders list by itself', remind),
       listRow,
+      row('Invitations that clash', 'A heads-up, with a reply to send, when an invitation breaks your time rules (Goals) or double-books you', clashes),
     );
     before.after(group);
     renderMeetings();
@@ -497,13 +503,14 @@
     F.$('sw-meeting-offer')?.setAttribute('aria-checked', String(features.meeting_offer !== false));
     F.$('sw-call-notes')?.setAttribute('aria-checked', String(Boolean(features.call_notes)));
     F.$('sw-meeting-reminders')?.setAttribute('aria-checked', String(Boolean(features.meeting_reminders)));
+    F.$('sw-clash-alerts')?.setAttribute('aria-checked', String(features.clash_alerts !== false));
     const listRow = F.$('meeting-reminders-list-row');
     if (listRow) listRow.hidden = !features.meeting_reminders;
     const box = F.$('meeting-reminders-list');
     if (box && document.activeElement !== box) box.value = typeof features.meeting_reminders_list === 'string' ? features.meeting_reminders_list : '';
   }
 
-  // ── cards: habits into routines, meeting offers and follow-ups ──
+  // ── cards: habits into routines, meeting offers and follow-ups, invitations that clash ──
 
   const settle = () => { if (typeof syncDismissAll === 'function') syncDismissAll(); };
 
@@ -570,6 +577,22 @@
     card.insertBefore(el('div', 'card-text', 'Action items added to Reminders.'), card.querySelector('.card-actions'));
   }
 
+  // An invitation that clashes: the suggested reply, to copy or open as a Mail draft.
+  function onClash(c) {
+    const key = String((c && c.key) || '');
+    const card = document.querySelector(`#cards [data-alert="${CSS.escape(key)}"]`);
+    if (!card || card.querySelector('.clash-reply')) return;
+    const reply = mine(el('div', 'card-text clash-reply', String(c.reply || '')));
+    const actions = card.querySelector('.card-actions');
+    card.insertBefore(reply, actions);
+    const copy = button('Copy reply', 'btn', async () => {
+      try { await navigator.clipboard.writeText(String(c.reply || '')); copy.textContent = 'Copied'; } catch (_) { copy.textContent = 'Couldn’t copy'; }
+    });
+    const mail = button('Draft in Mail', 'btn', () => { mail.disabled = true; send({ type: 'clash_reply', key }); });
+    actions.insertBefore(copy, actions.lastElementChild);
+    actions.insertBefore(mail, actions.lastElementChild);
+  }
+
   // ── events ──
 
   function onPrefs(p) {
@@ -594,6 +617,7 @@
     if (ev.commute) { commute = ev.commute; renderCommute(); }
     if (ev.habit) onHabit(ev.habit);
     if (ev.meetings) onFollowup(ev.meetings.followup);
+    if (ev.clash) onClash(ev.clash);
   });
   buildQuiet();
   buildBriefing();

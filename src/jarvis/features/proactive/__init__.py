@@ -12,6 +12,8 @@ Its parts, each a module here with the details (settings, tools, commands, cost)
 - commute.py: how the owner gets places (by car, transit or on foot, arriving early), which
   the leave-time heads-ups and the briefing's first trip follow.
 - calendar_look.py: the calendar the parts share, read by one loop.
+- clashes.py: a new invitation that breaks the owner's time rules or double-books them: a
+  heads-up with a reply suggested (a draft, never sent).
 - habits.py: "Make it a routine" on a habit card.
 - meetings.py: an offer to take notes as a meeting starts; after the notes, a follow-up
   email drafted from the action items and the action items in Reminders.
@@ -34,6 +36,7 @@ from . import (
     briefing,
     calendar_look,
     calls,
+    clashes,
     commute,
     habits,
     meetings,
@@ -56,6 +59,7 @@ class Proactive:
         self.weather = weather_watch.WeatherWatch(hub, self.briefing)
         self.look = calendar_look.CalendarLook(hub)
         self.commute = commute.Commute(hub, self.briefing, self.look)
+        self.clashes = clashes.Clashes(hub, self.look)
         self.habits = habits.Habits(hub)
         self.meetings = meetings.Meetings(hub, self.look)
         self.calls = calls.Calls(hub, self.look)
@@ -68,6 +72,7 @@ class Proactive:
         self.weather.install()
         self.look.install()
         self.commute.install()
+        self.clashes.install()
         self.habits.install()
         self.meetings.install()
         self.calls.install()

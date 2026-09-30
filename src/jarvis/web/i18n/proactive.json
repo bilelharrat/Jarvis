@@ -87,6 +87,8 @@
     "Reminders list": "提醒事项列表",
     "Where the action items go": "待办事项放在哪里",
     "Your default list": "你的默认列表",
+    "Invitations that clash": "冲突的邀请",
+    "A heads-up, with a reply to send, when an invitation breaks your time rules (Goals) or double-books you": "邀请违反你的时间规则（目标）或和已有日程撞了时提醒你，并附上可以发送的回复",
     "Make it a routine": "设为例行任务",
     "It’s starting. Take notes?": "要开始了。要记笔记吗？",
     "Take notes": "记笔记",
@@ -94,6 +96,8 @@
     "Draft follow-up": "起草跟进邮件",
     "Add to Reminders": "加到提醒事项",
     "Action items added to Reminders.": "待办事项已加到提醒事项。",
+    "Copy reply": "拷贝回复",
+    "Draft in Mail": "在“邮件”里起草",
     "Started call notes": "开始了通话笔记"
   },
   "patterns": [

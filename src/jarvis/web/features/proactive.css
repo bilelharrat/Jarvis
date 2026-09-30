@@ -15,3 +15,5 @@
    hidden attribute alone doesn't override. */
 #quiet-weekend-row[hidden], #quiet-focus-status[hidden], #weather-status[hidden],
 #meeting-reminders-list-row[hidden], .commute-places[hidden] { display: none; }
+/* A clashing invitation's suggested reply, set apart from the heads-up as a quote. */
+.clash-reply { border-left: 2px solid var(--line); padding-left: 10px; color: var(--muted); }
