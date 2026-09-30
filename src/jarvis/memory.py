@@ -125,7 +125,12 @@ _COMMON = {
 _SECRET = re.compile(
     r"(password|passcode|passwd|\bpin\b|api[ _-]?key|secret|token|social security|\bssn\b"
     r"|credit card|card number|cvv|routing number|account number|sk-[a-z0-9-]{8,}"
-    r"|\b(?:\d[ -]?){13,19}\b|密码|口令|验证码|卡号|身份证号)",
+    r"|\b(?:\d[ -]?){13,19}\b|密码|口令|验证码|卡号|身份证号"
+    # A code with its digits ("the door code is 4821", "the code to the garage is 55123"),
+    # never a zip code's; a passport's or a licence's number.
+    r"|(?<!zip )(?<!postal )(?<!area )\bcode\b[^.\n\d]{0,24}?\d(?:[\s-]?\d){2,}"
+    r"|passport\s*(?:number|no\b|#)|passport\W+(?:is\W+)?[a-z]{0,2}\d{6,}"
+    r"|licen[cs]e\s*(?:number|no\b|#)|护照号|驾照号|门禁码)",
     re.IGNORECASE,
 )
 

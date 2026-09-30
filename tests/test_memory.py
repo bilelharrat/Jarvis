@@ -37,6 +37,44 @@ def test_secrets_are_never_stored(tmp_path, secret):
     assert store.facts == []
 
 
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "The front door code is 4821",
+        "Our alarm code is 9 8 7 6",
+        "The gate code: 1942#",
+        "The code to the garage is 55123",
+        "My passport number is 533380006",
+        "Passport: X12345678",
+        "My driver's license number is D1234567",
+        "门禁密码是4821",
+    ],
+)
+def test_codes_and_id_numbers_are_secrets_too(tmp_path, secret):
+    """ "Passwords, keys and codes are refused": a door's code and a passport's number too
+    (facts ride in every request to Claude)."""
+    store = MemoryStore(tmp_path / "memory.json")
+    with pytest.raises(ValueError, match="don't keep"):
+        store.add(secret)
+    assert store.facts == []
+
+
+@pytest.mark.parametrize(
+    "fact",
+    [
+        "My zip code is 94110",
+        "I code in Python 3 most days",
+        "The code review is at 2 PM on Fridays",
+        "Ann is renewing her passport in March",
+        "My dog Biscuit was born in 2019",
+    ],
+)
+def test_facts_that_only_look_like_codes_are_kept(tmp_path, fact):
+    store = MemoryStore(tmp_path / "memory.json")
+    store.add(fact)
+    assert [f.text for f in store.facts] == [fact]
+
+
 async def test_tools_round_trip(tmp_path):
     store = MemoryStore(tmp_path / "memory.json")
     changes = []
