@@ -74,6 +74,9 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - com.bshventures.jarvis.companion.refresh
         NSSupportsLiveActivities: true
+        # "Ask Jarvis" to Siri: the display name is J.A.R.V.I.S.
+        INAlternativeAppNames:
+          - INAlternativeAppName: Jarvis
     entitlements:
       path: iOS/JarvisCompanion.entitlements
       properties:

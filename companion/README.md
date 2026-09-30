@@ -133,6 +133,25 @@ On the Watch, iPhone notifications appear by themselves with the same actions (N
 because… by dictation or Scribble). The Watch app registers the same categories and, when
 an action is delivered to it, answers the Mac itself with the pairing the iPhone gave it.
 
+## Siri, Shortcuts and the Action Button
+
+App Shortcuts, so they're in Siri, Shortcuts, Spotlight and the Action Button with no
+setup ("Jarvis" is an alternative app name, so "Ask Jarvis" works):
+
+| Shortcut | Does | Says back |
+|---|---|---|
+| **Ask Jarvis** (asks for the request) | `POST /api/ask` | the reply (markdown out, a long one cut at a sentence) |
+| **Brief me** | asks for the briefing | the briefing |
+| **What did I miss** | `GET /api/digest` | how many, and the top three |
+| **Stop Jarvis** | `stop` | "Stopped." |
+| **Start / Stop meeting notes** | `meeting_start` / `meeting_stop` | a line |
+
+They run in the background (the app doesn't open) over the pinned pairing, and return
+their words as the result too, for Shortcuts. Siri speaks the reply when asked by voice.
+Siri waits about 25 seconds: past that the Mac carries on and the answer lands in the app.
+A request that needs a yes says so (the card is on the phone); an unreachable Mac keeps a
+question for later (the outbox); stop and meeting notes are never kept.
+
 ## Widgets and complications
 
 - **Jarvis** (small, medium; Lock Screen circular, rectangular, inline): whether the Mac
@@ -240,7 +259,7 @@ Shared/                     both apps
   PairingStore.swift        Pairing + Keychain
   WatchLink.swift           what the iPhone hands the Watch
   ReactorView.swift, Theme.swift, DebugLaunch.swift
-iOS/                        AppModel (state, polling), Transcript, Services/ (speech,
+iOS/                        AppModel (state, polling), Transcript, Intents/, Services/ (speech,
                             voice, Bonjour, Watch bridge, haptics), Views/, Views/Screens/
                             (the hub: Jarvis Code, conversations, routines, digest, spending)
 Watch/                      WatchModel, WatchSessionBridge, WatchRefresh, Views/

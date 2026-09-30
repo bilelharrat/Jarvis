@@ -113,6 +113,7 @@
 		B71FEA2D9172CE2A3D59B5FF /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
 		B7722CE807343C959211C100 /* JarvisWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4329AC90D4506354C450578A /* JarvisWatchApp.swift */; };
 		B867B4C8A9495523D8F974BA /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D083BC6390ED9CA1FAF28851 /* Destination.swift */; };
+		B928340AF5498A79F4346FA4 /* IntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A940FE619E3F9608364A41E /* IntentTests.swift */; };
 		BC3072F81E43CC6EDA1F88F0 /* WidgetSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E539CF9A09919A62CDFC802 /* WidgetSnapshotTests.swift */; };
 		BCBE371AA14B472D675A3BBD /* ApprovalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4811A961DDE187BE9FD8A1 /* ApprovalTests.swift */; };
 		BD6E0666E7801FAE18CAAEEA /* CodeDiffView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC55007EFFD1A9FA46C89953 /* CodeDiffView.swift */; };
@@ -122,6 +123,7 @@
 		C222BCBE15D834A0B9F8FA39 /* RoutinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9650589EDEFBCB81F05856 /* RoutinesView.swift */; };
 		C4C0454C97C437C1C9516DE8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B044E543CF5359056ABF45C /* Assets.xcassets */; };
 		C53943100718FD9FDA746233 /* StatusStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8545DCC87751DD4885468A8 /* StatusStrip.swift */; };
+		C7F2B0B294DEE5B12D72D4A9 /* IntentRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CA106AA6DAAC90628128C0 /* IntentRunner.swift */; };
 		D023EB96A9FBC941FD3041EA /* ScreenKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6515DE55F3D5B79EDBAC090 /* ScreenKit.swift */; };
 		D07AD812BE5438D6598E5945 /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		D11737733862CD0FB3ABB5DD /* Pinning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9D5708789DADE23BD3F36D /* Pinning.swift */; };
@@ -145,6 +147,7 @@
 		EE4E823655E8E4B275A249F6 /* Pinning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9D5708789DADE23BD3F36D /* Pinning.swift */; };
 		F175E0A05CBB0A7433D534A5 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10DA979C0AFFE3D76DA961C /* PairingView.swift */; };
 		F290AA948DF1F9F27418CEC0 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
+		F480C42D8B928BAEA3F53BB8 /* JarvisIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0912F44761BB896067B8140E /* JarvisIntents.swift */; };
 		F4AA8C0AE44F20DB74AF2060 /* Pinning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9D5708789DADE23BD3F36D /* Pinning.swift */; };
 		FC326BC2706A6832C42685E1 /* JarvisActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E275D34571EE64B33BE24BE /* JarvisActivity.swift */; };
 /* End PBXBuildFile section */
@@ -229,10 +232,13 @@
 		02F02F794B7B82868AC93F0E /* WatchNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchNotifications.swift; sourceTree = "<group>"; };
 		051615A18E0476D09B75C577 /* JarvisWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		05C69252B5A2CBAB50D02793 /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
+		06CA106AA6DAAC90628128C0 /* IntentRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentRunner.swift; sourceTree = "<group>"; };
+		0912F44761BB896067B8140E /* JarvisIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisIntents.swift; sourceTree = "<group>"; };
 		0F9D5708789DADE23BD3F36D /* Pinning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pinning.swift; sourceTree = "<group>"; };
 		1026D031A91343564AB99990 /* ContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContractTests.swift; sourceTree = "<group>"; };
 		18FC70ADE97F9018BC0753BE /* SnapshotProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotProvider.swift; sourceTree = "<group>"; };
 		1A36D13F368B90884D9B34D7 /* MacAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAddress.swift; sourceTree = "<group>"; };
+		1A940FE619E3F9608364A41E /* IntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentTests.swift; sourceTree = "<group>"; };
 		1AA66376AEED5EBFC8C18E40 /* SpaceBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceBackground.swift; sourceTree = "<group>"; };
 		1D9650589EDEFBCB81F05856 /* RoutinesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutinesView.swift; sourceTree = "<group>"; };
 		24D271D5774776815961B42C /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -386,6 +392,7 @@
 				A20B36A4ACFE5161694B7EF8 /* JarvisCompanion.entitlements */,
 				B478E423B94A7981AC6C870A /* JarvisCompanionApp.swift */,
 				BEB9E5E6712964B7972DDEB5 /* Transcript.swift */,
+				E446EF829A787F838FDFE828 /* Intents */,
 				377C5FCABDB6D1AD49BC056D /* Services */,
 				2F9C4968B5092848056EE7A9 /* Views */,
 			);
@@ -430,6 +437,7 @@
 				DB4811A961DDE187BE9FD8A1 /* ApprovalTests.swift */,
 				A3A2333A360287AAA2927BBE /* CompanionTests.swift */,
 				1026D031A91343564AB99990 /* ContractTests.swift */,
+				1A940FE619E3F9608364A41E /* IntentTests.swift */,
 				9DB3F292D439ABFFD2304B18 /* LiveActivityTests.swift */,
 				7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */,
 				3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */,
@@ -478,6 +486,15 @@
 				FAC74BF02082BE9C300BE504 /* WatchHomeView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		E446EF829A787F838FDFE828 /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				06CA106AA6DAAC90628128C0 /* IntentRunner.swift */,
+				0912F44761BB896067B8140E /* JarvisIntents.swift */,
+			);
+			path = Intents;
 			sourceTree = "<group>";
 		};
 		E55D6E1821D39DC96A88D7C6 /* Shared */ = {
@@ -842,10 +859,12 @@
 				12C35BD9D520A9F7002A58C7 /* DigestView.swift in Sources */,
 				7A87977425D352C74CCB318E /* Haptics.swift in Sources */,
 				E0B5291643F7464449C4D34F /* HomeView.swift in Sources */,
+				C7F2B0B294DEE5B12D72D4A9 /* IntentRunner.swift in Sources */,
 				B639CB99D62187E7E7DB4398 /* JSONValue.swift in Sources */,
 				36A3C789BF100653EFCB085B /* JarvisAPI.swift in Sources */,
 				FC326BC2706A6832C42685E1 /* JarvisActivity.swift in Sources */,
 				941BA50A4EFCCACBD219F5D6 /* JarvisCompanionApp.swift in Sources */,
+				F480C42D8B928BAEA3F53BB8 /* JarvisIntents.swift in Sources */,
 				131B8415793886F1E82DD967 /* LiveActivities.swift in Sources */,
 				AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */,
 				B71FEA2D9172CE2A3D59B5FF /* Models.swift in Sources */,
@@ -887,6 +906,7 @@
 				BCBE371AA14B472D675A3BBD /* ApprovalTests.swift in Sources */,
 				BF7F42EB13E252E34C1812B1 /* CompanionTests.swift in Sources */,
 				A905455D985AF33F8E9A16DF /* ContractTests.swift in Sources */,
+				B928340AF5498A79F4346FA4 /* IntentTests.swift in Sources */,
 				2AE5DCF5BF766A7F7680DA59 /* LiveActivityTests.swift in Sources */,
 				5AD99594B7214E63138CD7EC /* NotificationTests.swift in Sources */,
 				03B4E9901CB2854CCC30AF88 /* OutboxTests.swift in Sources */,
