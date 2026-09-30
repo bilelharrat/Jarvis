@@ -1994,6 +1994,40 @@ test('Best of N: set up two or three variants, compare them, keep one', async ()
   assert(kept.length === 1 && kept[0].group === 'b1' && kept[0].n === 2, JSON.stringify(kept));
 });
 
+// ── the automation feature (web/features/automation.js), loaded as features.js would ──
+
+const automationJs = fs.readFileSync(path.join(WEB, 'features', 'automation.js'), 'utf8');
+const withAutomation = () => js(`${automationJs}; true`);
+const ROUTINES = `[
+  { id: 'a', name: 'Build', prompt: 'Check the build', kind: 'interval', enabled: true,
+    when: 'every 30 minutes, 9 AM to 6 PM', when_zh: '上午9点到晚上6点之间每30分钟',
+    next_run: new Date(Date.now() + 3600e3).toISOString() },
+  { id: 'b', name: 'Rent <b>now</b>', prompt: 'Pay rent', kind: 'monthly', enabled: false,
+    when: 'monthly on the last day at 5 PM', when_zh: '每月最后一天下午5点', next_run: '' },
+]`;
+
+test('Routines show their schedule in the window’s language and their next run; buttons send', async () => {
+  await withAutomation();
+  assert(JSON.stringify(await sentOf('automation_state')) === JSON.stringify([{ type: 'automation_state' }]), 'no state asked for');
+  await js(`featureEvent({ type: 'routines', items: ${ROUTINES} })`);
+  const rows = await js('[...$("routine-list").children].map((li) => li.textContent)');
+  assert(rows.length === 2 && rows[0].includes('Build') && rows[0].includes('every 30 minutes, 9 AM to 6 PM') && rows[0].includes('Next run'), JSON.stringify(rows));
+  assert(rows[1].includes('Rent <b>now</b>') && rows[1].includes('paused') && !rows[1].includes('Next run'), rows[1]);
+  assert(await js('!$("routine-list").querySelector("b")'), 'a name became markup');
+  assert(await clickText('#routine-list li[data-id="a"]', 'Run now'), 'no Run now');
+  await js('$("routine-list").querySelector(\'li[data-id="b"] .switch\').click()');
+  assert(await clickText('#routine-list li[data-id="b"]', 'Delete'), 'no Delete');
+  const s = await js('__sent.filter((m) => m.type.startsWith("routine_"))');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'routine_run', id: 'a' }, { type: 'routine_toggle', id: 'b', enabled: true }, { type: 'routine_delete', id: 'b' }]), JSON.stringify(s));
+  await js(`featureEvent({ type: 'prefs', language: 'zh' })`);
+  const zh = await js('[...$("routine-list").querySelectorAll(".auto-when bdi")].map((b) => b.textContent)');
+  assert(zh[0] === '上午9点到晚上6点之间每30分钟' && zh.includes('每月最后一天下午5点'), JSON.stringify(zh));
+  // A hello from a restarted backend redraws from what it says, and asks for the rest.
+  await js(`featureEvent({ type: 'hello', prefs: { language: 'en' }, routines: [] })`);
+  assert(await js('$("routine-list").textContent') === 'No routines yet.', 'the old routines stayed');
+  assert((await sentOf('automation_state')).length === 2, 'the hello asked for no state');
+});
+
 // ──
 
 let base;

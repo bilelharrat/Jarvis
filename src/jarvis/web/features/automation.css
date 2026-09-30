@@ -1,0 +1,5 @@
+/* The automation feature (web/features/automation.js): Settings › Routines and Automations. */
+
+/* a routine's schedule and next run: the schedule is the backend's words, kept whole */
+.routine-list .auto-when bdi { unicode-bidi: isolate; }
+.routine-list .auto-when .auto-sep { color: var(--muted); }

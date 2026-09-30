@@ -1,9 +1,13 @@
 """Routines: requests the user schedules by voice. "Brief me every weekday at 7",
-"check the BSH portfolio every Friday at 4", "at 1am, research X".
+"check the BSH portfolio every Friday at 4", "at 1am, research X", "every 30 minutes
+between 9 and 6, check the build", "on the last Friday of the month at 4, …".
 
 Each routine is a prompt JARVIS runs as if the user had just asked it, on a schedule:
-daily, weekdays, weekly on chosen days, or once. Anything a routine does still goes
-through the usual confirmations. Stored in ~/Library/Application Support/Jarvis/routines.json.
+daily, weekdays, weekly on chosen days, or once; every N minutes within a window, monthly
+(a day, the last day, or the Nth weekday) or a cron expression with a time zone
+(schedules.py works those out). Anything a routine does still goes through the usual
+confirmations. Stored in ~/Library/Application Support/Jarvis/routines.json: a routine of a
+kind an older build doesn't know is kept in the file by it, untouched.
 """
 
 from __future__ import annotations
@@ -19,14 +23,14 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jsonstore
+from . import jsonstore, schedules
 from .prefs import APP_SUPPORT
 from .textclean import clean_text
 
 log = logging.getLogger("jarvis")
 
 SERVER_NAME = "routines"
-KINDS = ("daily", "weekdays", "weekly", "once")
+KINDS = ("daily", "weekdays", "weekly", "once", *schedules.KINDS)
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 GRACE = timedelta(hours=3)  # a Mac asleep at 7:00 still runs the 7:00 routine at 8:30
 _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -43,8 +47,15 @@ class Routine:
     date: str = ""  # once: YYYY-MM-DD
     enabled: bool = True
     last_run: str = ""  # the scheduled occurrence last run, ISO
+    # interval, monthly and cron: the schedule itself (schedules.py); {} for the rest
+    spec: dict[str, Any] = field(default_factory=dict)
 
-    def describe(self) -> str:
+    def describe(self, lang: str = "en") -> str:
+        """When it runs, in words: English, or Chinese with lang "zh"."""
+        if self.kind in schedules.KINDS:
+            return schedules.describe(self.kind, self.spec, self.time, lang)
+        if lang == "zh":
+            return self._describe_zh()
         clock = datetime.strptime(self.time, "%H:%M").strftime("%-I:%M %p").replace(":00 ", " ")
         if self.kind == "daily":
             return f"every day at {clock}"
@@ -55,8 +66,20 @@ class Routine:
             return f"{', '.join(names) or 'weekly'} at {clock}"
         return f"once, {self.date} at {clock}"
 
+    def _describe_zh(self) -> str:
+        clock = schedules.clock(self.time, "zh")
+        if self.kind == "daily":
+            return f"每天{clock}"
+        if self.kind == "weekdays":
+            return f"工作日{clock}"
+        if self.kind == "weekly":
+            return f"{schedules.days_zh(sorted(self.days)) or '每周'}{clock}"
+        return f"仅一次，{self.date} {clock}"
+
     def latest(self, now: datetime) -> datetime | None:
         """The most recent scheduled time at or before now."""
+        if self.kind in schedules.KINDS:
+            return schedules.latest(self.kind, self.spec, self.time, now)
         hour, minute = map(int, self.time.split(":"))
         if self.kind == "once":
             try:
@@ -87,8 +110,43 @@ class Routine:
             return None
         return when
 
+    def next_run(self, now: datetime) -> datetime | None:
+        """When it runs next (None: paused, or nothing ahead)."""
+        if not self.enabled:
+            return None
+        if self.kind in schedules.KINDS:
+            return schedules.next_after(self.kind, self.spec, self.time, now)
+        hour, minute = map(int, self.time.split(":"))
+        if self.kind == "once":
+            when = _when(self.date)
+            if when is None:
+                return None
+            when = when.replace(hour=hour, minute=minute)
+            return when if when > now else None
+        for ahead in range(8):
+            day = (now + timedelta(days=ahead)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+            if day <= now:
+                continue
+            if self.kind == "weekdays" and day.weekday() >= 5:
+                continue
+            if self.kind == "weekly" and day.weekday() not in self.days:
+                continue
+            return day
+        return None
+
     def public(self) -> dict[str, Any]:
-        return {**asdict(self), "when": self.describe()}
+        try:
+            upcoming = self.next_run(datetime.now())
+        except (TypeError, ValueError, KeyError):  # edited after it was loaded
+            upcoming = None
+        return {
+            **asdict(self),
+            "when": self.describe(),
+            "when_zh": self.describe("zh"),
+            "next_run": upcoming.isoformat(timespec="minutes") if upcoming else "",
+        }
 
 
 def validate(
@@ -101,6 +159,8 @@ def validate(
     kind = str(kind).strip().lower()
     if kind not in KINDS:
         raise ValueError(f"schedule must be one of {', '.join(KINDS)}")
+    if kind in (schedules.INTERVAL, schedules.CRON):  # the spec says when; no time of day
+        return kind, "00:00", [], ""
     time = str(time).strip()
     if len(time) == 4 and time[1] == ":":
         time = "0" + time
@@ -119,6 +179,30 @@ def validate(
             # e.g. "tonight at 1am" said at 23:30 but dated today: it would never run.
             raise ValueError("that time has already passed; use the next date it happens")
     return kind, time, clean_days if kind == "weekly" else [], str(date) if kind == "once" else ""
+
+
+def clean_spec(kind: str, spec: Any) -> dict[str, Any]:
+    """The schedule's details for interval, monthly and cron ({} for the other kinds)."""
+    return schedules.clean(kind, spec) if kind in schedules.KINDS else {}
+
+
+def spec_from(kind: str, args: dict[str, Any]) -> dict[str, Any]:
+    """create_routine's arguments as a schedule spec."""
+    if kind == schedules.INTERVAL:
+        return {
+            "every": args.get("every_minutes"),
+            "start": args.get("from_time") or "",
+            "end": args.get("until_time") or "",
+            "days": args.get("days"),
+        }
+    if kind == schedules.MONTHLY:
+        return {
+            k: args.get(a)
+            for k, a in (("day", "month_day"), ("nth", "nth"), ("weekday", "weekday"))
+        }
+    if kind == schedules.CRON:
+        return {"cron": args.get("cron"), "tz": args.get("timezone")}
+    return {}
 
 
 _FIELDS = frozenset(f.name for f in fields(Routine))
@@ -154,6 +238,10 @@ def _routine_from(raw: Any) -> Routine | None:
         day = _when(routine.date)
         if day is None or day.tzinfo is not None:
             return None
+    try:  # a schedule's details, cleaned as add() cleans them; one that can't be: kept aside
+        routine.spec = clean_spec(routine.kind, routine.spec)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
     if routine.last_run:
         ran = _when(routine.last_run)
         if ran is None:
@@ -175,6 +263,8 @@ class RoutineStore:
         self.broken: list[Any] = []  # rows it can't use, kept in the file as they were
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self.save_error = ""  # why the last save failed, until one works (a full disk)
+        # The language cards are asked in ("en" or "zh"): the automation feature sets it.
+        self.language: Callable[[], str] = lambda: "en"
         try:
             data = jsonstore.load_json(self.path, list)
         except jsonstore.Unreadable as exc:
@@ -196,12 +286,15 @@ class RoutineStore:
         jsonstore.save_json(self.path, [asdict(r) for r in self.items] + self.broken)
         self.save_error = ""
 
-    def add(self, name: str, prompt: str, kind: str, time: str, days=None, date="") -> Routine:
+    def add(
+        self, name: str, prompt: str, kind: str, time: str, days=None, date="", spec=None
+    ) -> Routine:
         name, prompt = clean_text(name).strip()[:80], clean_text(prompt).strip()[:2000]
         if not name or not prompt:
             raise ValueError("a routine needs a name and what to do")
         kind, time, days, date = validate(kind, time, days, date)
-        routine = Routine(uuid.uuid4().hex[:8], name, prompt, kind, time, days, date)
+        spec = clean_spec(kind, spec)
+        routine = Routine(uuid.uuid4().hex[:8], name, prompt, kind, time, days, date, spec=spec)
         # Created after today's time has passed: don't run it right away.
         latest = routine.latest(datetime.now())
         if latest is not None and kind != "once":
@@ -286,6 +379,20 @@ async def _always(_action: str, _question: str) -> bool:
     return True
 
 
+def _language(store: RoutineStore) -> str:
+    try:
+        return "zh" if str(store.language()).startswith("zh") else "en"
+    except Exception:
+        return "en"
+
+
+def _add_question(preview: Routine, what: str, lang: str) -> str:
+    """The card that adds a routine: when it runs and exactly what it will ask."""
+    if lang == "zh":
+        return f"要添加例行任务吗？{preview.describe('zh')}：{what}"
+    return f"Add a routine, {preview.describe()}: {what}?"
+
+
 def build_tools(
     store: RoutineStore,
     confirm: Callable[[str], Awaitable[bool]],
@@ -296,10 +403,16 @@ def build_tools(
         "create_routine",
         "Schedule something for JARVIS to do on its own, repeatedly or once: 'brief me every "
         "weekday at 7', 'check the portfolio every Friday at 4pm', 'tonight at 1am, research "
-        "X'. prompt is the request exactly as JARVIS should run it then, written as the user "
-        "asking (e.g. 'Research the European battery market and file a report'). schedule: "
-        "daily, weekdays, weekly (with days, 0 = Monday … 6 = Sunday) or once (with date "
-        "YYYY-MM-DD). time is 24-hour HH:MM, local. Asks the user first.",
+        "X', 'every 30 minutes from 9 to 6, check the build', 'on the last Friday of each "
+        "month at 4, …'. prompt is the request exactly as JARVIS should run it then, written "
+        "as the user asking (e.g. 'Research the European battery market and file a report'). "
+        "schedule: daily, weekdays, weekly (with days, 0 = Monday … 6 = Sunday) or once "
+        "(with date YYYY-MM-DD), each at time (24-hour HH:MM, local); interval: every "
+        "every_minutes (5 to 1440), optionally only from from_time until until_time (HH:MM) "
+        "and on days; monthly at time: month_day (1-31, or -1 for the last day) or nth (1-5, "
+        "or -1 for the last) with weekday (0 = Monday); cron: a five-field cron expression "
+        "(minute hour day-of-month month day-of-week), optionally in timezone (an IANA name "
+        "such as America/New_York). Asks the user first.",
         {
             "type": "object",
             "properties": {
@@ -309,8 +422,16 @@ def build_tools(
                 "time": {"type": "string"},
                 "days": {"type": "array", "items": {"type": "integer"}},
                 "date": {"type": "string"},
+                "every_minutes": {"type": "integer"},
+                "from_time": {"type": "string"},
+                "until_time": {"type": "string"},
+                "month_day": {"type": "integer"},
+                "nth": {"type": "integer"},
+                "weekday": {"type": "integer"},
+                "cron": {"type": "string"},
+                "timezone": {"type": "string"},
             },
-            "required": ["name", "prompt", "schedule", "time"],
+            "required": ["name", "prompt", "schedule"],
         },
     )
     async def create_routine(args):
@@ -321,16 +442,17 @@ def build_tools(
                 args.get("days"),
                 args.get("date", ""),
             )
+            spec = clean_spec(kind, spec_from(kind, args))
         except ValueError as exc:
             return _text(str(exc), error=True)
-        preview = Routine("", str(args.get("name", "")), "", kind, time, days, date)
+        preview = Routine("", str(args.get("name", "")), "", kind, time, days, date, spec=spec)
         # The card shows the prompt exactly as it will be kept and run, hidden text and all
-        # taken out.
+        # taken out, and when it runs in the language the user speaks.
         what = clean_text(args.get("prompt", "")).strip()[:2000].rstrip("?.! ")
-        if not await confirm(f"Add a routine, {preview.describe()}: {what}?"):
+        if not await confirm(_add_question(preview, what, _language(store))):
             return _text("The user said no. Don't add it.", error=True)
         try:
-            routine = store.add(args["name"], args["prompt"], kind, time, days, date)
+            routine = store.add(args["name"], args["prompt"], kind, time, days, date, spec)
         except ValueError as exc:
             return _text(str(exc), error=True)
         except OSError as exc:
