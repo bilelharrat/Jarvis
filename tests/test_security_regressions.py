@@ -15,7 +15,7 @@ BROWSER = brain.browser_tool
 CTX = ToolPermissionContext()
 
 
-def page_at(hub, url):
+def page_at(hub, url, title="A page"):
     """The built-in browser, showing url (a read's answer), for the gates to look at."""
     seen = []
 
@@ -23,7 +23,7 @@ def page_at(hub, url):
         seen.append(action)
         if url is None:
             return {"error": "The built-in browser is only in the J.A.R.V.I.S. app window."}
-        return {"url": url, "title": "A page", "text": ""} if action == "read" else {"ok": True}
+        return {"url": url, "title": title, "text": ""} if action == "read" else {"ok": True}
 
     hub._browser_raw = raw
     return seen
@@ -251,6 +251,15 @@ def test_what_a_call_carries_is_read_from_its_arguments():
     click = browser_gate.carried(BROWSER("browser_click"), {"text": "Sign in", "selector": "#go"})
     assert click.words == ""  # the words say what to press
     assert browser_gate.carried(BROWSER("browser_type"), {"text": "hi", "submit": True}).submit
+    tab = browser_gate.carried(BROWSER("browser_tabs"), {"action": "select", "id": 3})
+    assert tab.words == "" and not tab.urls  # a tab by its id carries nothing
+    enter = browser_gate.carried(BROWSER("browser_act"), {"action": "press", "key": "Enter"})
+    assert enter.submit and enter.words == ""
+    assert browser_gate.send_of(BROWSER("browser_act"), {"action": "press", "key": "Enter"}, enter)
+    assert browser_gate.send_of(BROWSER("browser_act"), {"action": "click", "name": "Send"},
+                                browser_gate.Carried()) == "send"  # fmt: skip
+    assert browser_gate.send_of(BROWSER("browser_click"), {"selector": "#send"},
+                                browser_gate.Carried()) is None  # fmt: skip
     assert browser_gate.address_host("best ramen near me") == browser_gate.SEARCH_HOST
     assert browser_gate.address_host("https://www.Example.com./x") == "www.example.com"
     for host in ("localhost", "app.localhost", "127.0.0.1", "127.8.9.10", "::1", "[::1]"):
@@ -260,6 +269,50 @@ def test_what_a_call_carries_is_read_from_its_arguments():
     assert browser_gate.page_host("http://[::1]:5173/app") == "::1"
     assert browser_gate.page_host("file:///etc/passwd") is None
     assert tool_label(BROWSER("browser_type")) == "Typed in the browser"
+
+
+async def test_a_send_on_a_web_messaging_app_follows_the_messaging_rule(
+    settings, quiet_speaker, isolated
+):
+    """Webmail and web chats in the built-in browser: Send, Post or Delete, or Return in a
+    chat's box, shows the send card unless the user asked for exactly that (and, after a
+    read, named the conversation), as in the Mac's own messaging apps."""
+    hub = await started(settings, quiet_speaker, isolated, said="check my inbox")
+    page_at(hub, "https://mail.google.com/mail/u/0/#inbox", "Inbox (2) - me@example.com - Gmail")
+    q = hub.subscribe()
+    pending = asyncio.create_task(hub.turn_gate(BROWSER("browser_click"), {"text": "Send"}))
+    approval = await answer(hub, q, "deny")
+    assert await pending is False
+    assert approval["question"] == "Send this in Gmail?"
+    assert [c["label"] for c in approval["choices"]] == ["Send", "Don't send"]
+    assert "You didn't ask me to do this" in approval["detail"]
+    # Typing with Return in Gmail is a new line, not a send.
+    assert await hub.turn_gate(BROWSER("browser_type"), {"text": "hi", "submit": True}) is None
+    # In a chat it sends: the card shows the words.
+    page_at(hub, "https://app.slack.com/client/T1/D2", "Ann Lee (DM) - BSH Ventures - Slack")
+    pending = asyncio.create_task(
+        hub.turn_gate(BROWSER("browser_type"), {"text": "the Q3 numbers", "submit": True})
+    )
+    approval = await answer(hub, q, "deny")
+    assert await pending is False
+    assert approval["question"] == "Send this in Slack?" and "the Q3 numbers" in approval["detail"]
+    # Asked for in so many words: no card, until a page is read and the conversation
+    # isn't named in full.
+    hub._turn_text = "send ann lee the q3 numbers"
+    assert await hub.turn_gate(BROWSER("browser_click"), {"text": "Send now"}) is None
+    hub.note_tool_result(BROWSER("browser_read"))
+    assert await hub.turn_gate(BROWSER("browser_click"), {"text": "Send now"}) is None  # named
+    hub._turn_text = "send ann the q3 numbers"
+    pending = asyncio.create_task(hub.turn_gate(BROWSER("browser_click"), {"text": "Send now"}))
+    approval = await answer(hub, q, "allow")
+    assert await pending is True and "didn't name this conversation" in approval["detail"]
+    # Anywhere else a Send button is only a button; with Control off the click asks itself.
+    page_at(hub, "https://example.com/contact", "Contact us")
+    assert await hub.turn_gate(BROWSER("browser_click"), {"text": "Send"}) is None
+    hub.set_prefs({"control_always": False})
+    page_at(hub, "https://mail.google.com/mail/u/0/#inbox", "Inbox - Gmail")
+    hub._turn_text = "check my inbox"
+    assert await hub.turn_gate(BROWSER("browser_click"), {"text": "Send"}) is None
 
 
 # ── 1b. Jarvis Code: pages on this Mac are the session's own work ──

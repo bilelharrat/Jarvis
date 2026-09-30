@@ -727,8 +727,11 @@ class Hub:
             reads=self._gate_reads,
             words=lambda: self._turn_text,
             turn=lambda: self._rid,
-            page=lambda: browser_gate.read_url(self._browser_raw),
+            page=lambda: browser_gate.read_where(self._browser_raw),
             ask=self._ask_user,
+            asked=lambda kind: self._user_asked_for(f"hands_{kind}"),
+            send=self.send_gate,
+            free=lambda: self.prefs.control_always,
         )
         # Conversations JARVIS holds for the user by text or email, within their limits.
         self.delegations = delegation_store or delegate.DelegationStore()

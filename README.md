@@ -140,11 +140,12 @@ Some things are checked in code whatever the prompt says and however free the ha
   立即支付…) is refused, and JARVIS points to the built-in browser. A button is found
   first and pressed only once its name is checked.
 - **Sending.** In a messaging or mail app (Messages, Mail, Slack, WhatsApp, Telegram,
-  Discord, Outlook, WeChat and others, and their web versions), pressing Send, Post,
-  Publish, Delete or Submit, or Return in the message box, shows the same kind of card
-  as a message JARVIS sends for you: where it goes, the text, and a yes. Unless you asked for
-  exactly that in your own words this request; and even then, once the conversation has
-  read your data or a page, unless you named the conversation in full.
+  Discord, Outlook, WeChat and others, and their web versions, in the built-in browser
+  too), pressing Send, Post, Publish, Delete or Submit, or Return in a chat's message box,
+  shows the same kind of card as a message JARVIS sends for you: where it goes, the text,
+  and a yes. Unless you asked for exactly that in your own words this request; and even
+  then, once the conversation has read your data or a page, unless you named the
+  conversation in full.
 - **The built-in browser's pages** may go full screen; the camera, microphone, location,
   notifications and every other permission stay refused. Its address bar opens
   `localhost:3000`, IP addresses and `[::1]` over http, opens `file:` only when you typed

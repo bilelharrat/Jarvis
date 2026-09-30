@@ -13,6 +13,12 @@ turn takes their OK first, on a card that shows what would be typed and why it a
   does, named site or not; so does a script run in a page, which can reach any site;
 - a file from the Mac leaves with an upload, so an upload asks even when nothing was read.
 
+On a web messaging or mail app (Gmail, Outlook, Slack, WhatsApp, Discord…) a click on Send,
+Post, Publish, Delete or Submit, or typing with Return in a chat's box, follows the same
+rule as the Mac's own messaging apps (hands_guard), whatever was read: the send card,
+unless the user's own words asked for exactly that, and after a read, named the
+conversation in full.
+
 Which tool does what is read from its arguments' names, not a list of tools: the browser's
 server grows, and a tool added to it later is weighed the same way (brain.browser_acting).
 
@@ -29,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
+from . import hands_guard
 from .brain import browser_address, host_said
 
 # Arguments by what they carry. Anything else a tool is handed (text, value, keys, fields…)
@@ -37,11 +44,14 @@ _URL_KEYS = frozenset({"url", "urls", "href", "address", "link"})
 _FILE_KEYS = frozenset({"path", "paths", "file", "files", "file_path", "filepath", "filename"})
 _SCRIPT_KEYS = frozenset({"script", "code", "expression", "js", "javascript", "function"})
 _TAB_KEYS = frozenset({"tab", "tabs", "tab_id", "tabid", "tab_index"})
-# Where and how to act, not what goes in: a selector, an element's ref, a position, a verb.
+# Where and how to act, not what goes in: a selector, an element's ref or id, a position,
+# a verb.
 _WHERE_KEYS = frozenset(
     {
         "selector",
         "ref",
+        "id",
+        "role",
         "element",
         "index",
         "nth",
@@ -70,7 +80,37 @@ SHOWN = 600  # of the words or script, on the card
 SEARCH_HOST = "www.google.com"  # where words the address bar doesn't take for an address go
 
 PageUrl = Callable[[], Awaitable[str | None]]
+Where = Callable[[], Awaitable[dict[str, str]]]
 Ask = Callable[[str, str, str], Awaitable[bool]]
+Send = Callable[[str, str, str, tuple[str, str]], Awaitable[bool]]
+# Web messaging and mail apps by their host (and anything under it) -> (name, kind), as
+# hands_guard.MESSAGING has the Mac's own; a page whose title names one counts too.
+WEB_MESSAGING = {
+    "mail.google.com": ("Gmail", "mail"),
+    "outlook.live.com": ("Outlook", "mail"),
+    "outlook.office.com": ("Outlook", "mail"),
+    "outlook.office365.com": ("Outlook", "mail"),
+    "mail.yahoo.com": ("Yahoo Mail", "mail"),
+    "mail.proton.me": ("Proton Mail", "mail"),
+    "icloud.com": ("iCloud Mail", "mail"),
+    "slack.com": ("Slack", "chat"),
+    "web.whatsapp.com": ("WhatsApp", "chat"),
+    "discord.com": ("Discord", "chat"),
+    "messenger.com": ("Messenger", "chat"),
+    "web.telegram.org": ("Telegram", "chat"),
+    "teams.microsoft.com": ("Microsoft Teams", "chat"),
+    "teams.live.com": ("Microsoft Teams", "chat"),
+    "linkedin.com": ("LinkedIn", "chat"),
+    "x.com": ("X", "chat"),
+    "twitter.com": ("X", "chat"),
+    "facebook.com": ("Facebook", "chat"),
+    "instagram.com": ("Instagram", "chat"),
+    "reddit.com": ("Reddit", "chat"),
+    "bsky.app": ("Bluesky", "chat"),
+    "threads.net": ("Threads", "chat"),
+}
+_VERBS = {"send": "Send", "post": "Post", "publish": "Publish", "delete": "Delete",
+          "submit": "Submit"}  # fmt: skip
 
 
 @dataclass
@@ -133,6 +173,8 @@ def carried(tool: str, args: Any) -> Carried:
                 what.tab = True
             elif k == "submit":
                 what.submit = what.submit or item is True
+            elif k in ("key", "keys") and str(item).strip().lower() in ("enter", "return"):
+                what.submit = True  # a press of Return, by itself
             elif k in _WHERE_KEYS or (k == "text" and depth == 0 and name in _TEXT_IS_WHERE):
                 continue
             else:
@@ -178,17 +220,53 @@ def address_host(text: str) -> str | None:
     return page_host(address) if address else SEARCH_HOST
 
 
-async def read_url(call: Callable[..., Awaitable[Any]]) -> str | None:
-    """The address of the page on show in the built-in browser, by reading it (None when
-    there's no page, or it didn't answer)."""
+async def read_where(call: Callable[..., Awaitable[Any]]) -> dict[str, str]:
+    """The page on show in the built-in browser, by reading it: {"url", "title"}, empty when
+    there's no page or it didn't answer."""
     try:
         page = await call("read", {})
     except Exception:
-        return None
+        return {}
     if not isinstance(page, dict) or page.get("error") or page.get("ok") is False:
-        return None
+        return {}
     url = page.get("url")
-    return str(url) if url else None
+    return {"url": str(url), "title": str(page.get("title") or "")} if url else {}
+
+
+async def read_url(call: Callable[..., Awaitable[Any]]) -> str | None:
+    """The address of the page on show in the built-in browser (None when there's none)."""
+    return (await read_where(call)).get("url")
+
+
+def messaging_page(host: str | None, title: str = "") -> tuple[str, str] | None:
+    """(name, "chat" or "mail") for a web messaging or mail app: by its host, or a title
+    that names one."""
+    if host:
+        name = host.removeprefix("www.")
+        for known, app in WEB_MESSAGING.items():
+            if name == known or name.endswith("." + known):
+                return app
+    for pattern, app_name, kind in hands_guard.WEB_APPS:
+        if title and pattern.search(title):
+            return app_name, kind
+    return None
+
+
+def send_of(tool: str, args: Any, what: Carried) -> str | None:
+    """What a call does to a message, by its own words: a click on Send, Post, Publish,
+    Delete or Submit ("send"…), typing with Return ("return": a send in a chat's box), or
+    None. A click by a CSS selector or an element's ref says nothing of what it presses."""
+    if not isinstance(args, dict):
+        return None
+    name = tool.rsplit("__", 1)[-1]
+    action = str(args.get("action") or "").lower()
+    if name == "browser_click" or action in ("click", "press", "tap"):
+        labels = [str(args.get(k) or "") for k in ("text", "label", "name")]
+        if found := hands_guard.send_kind(x for x in labels if x):
+            return found
+    if what.submit and (what.words or name == "browser_type" or action in ("press", "key")):
+        return "return"
+    return None
 
 
 def _quoted(text: str) -> str:
@@ -240,9 +318,13 @@ async def target(tool: str, args: Any, page: PageUrl | None) -> Target:
 class ActingGate:
     """The turn gate's call for a built-in browser tool that acts on a page. reads(): what
     the turn and its conversation have read (hub._gate_reads); words(): the user's own
-    words this turn; turn(): the request's id; page(): the address on show; ask(question,
-    detail, spoken): a card, said aloud. check() returns None when there's nothing to
-    weigh (the mouse-and-keyboard rules decide), else whether the user said yes."""
+    words this turn; turn(): the request's id; page(): the page on show ({"url",
+    "title"}); ask(question, detail, spoken): a card, said aloud; asked(kind): the user's
+    own words asked for that kind of send; send(question, detail, spoken, choices): the
+    send card (hub.send_gate); free(): Control my Mac without asking is on (with it off,
+    the browser asks before any click that sends, deletes or pays by itself). check()
+    returns None when there's nothing to weigh (the mouse-and-keyboard rules decide), else
+    whether the user said yes."""
 
     def __init__(
         self,
@@ -250,11 +332,15 @@ class ActingGate:
         reads: Callable[[], dict[str, Any]],
         words: Callable[[], str],
         turn: Callable[[], str],
-        page: PageUrl,
+        page: Where,
         ask: Ask,
+        asked: Callable[[str], bool] | None = None,
+        send: Send | None = None,
+        free: Callable[[], bool] = lambda: True,
     ) -> None:
         self._reads, self._words, self._turn = reads, words, turn
         self._page, self._ask = page, ask
+        self._asked, self._send, self._free = asked, send, free
         self._approved: tuple[str, set[str]] = ("", set())
 
     def approve(self, host: str | None) -> None:
@@ -273,6 +359,20 @@ class ActingGate:
         reads = self._reads()
         what = carried(tool, args)
         name = tool.rsplit("__", 1)[-1]
+        seen: dict[str, str] | None = None
+
+        async def page() -> dict[str, str]:  # read once, whichever check needs it first
+            nonlocal seen
+            if seen is None:
+                found = await self._page()
+                seen = found if isinstance(found, dict) else {}
+            return seen
+
+        send = send_of(tool, args, what)
+        if send == "return" or (send and self._free()):  # else the click asks by itself
+            decided = await self._send_check(send, reads, await page(), what, args)
+            if decided is not None:
+                return decided
         if not (reads.get("private") or what.files):
             return None
         # A file, a script or an address carries whatever it's given, to a site the user
@@ -292,7 +392,7 @@ class ActingGate:
         if what.tab and kind != "use":
             hosts.append(None)  # a tab named for what it carries: maybe not the page on show
         else:
-            url = await self._page()
+            url = (await page()).get("url")
             hosts.append(page_host(url))
         known = list(dict.fromkeys(h for h in hosts if h))
         certain = bool(known) and None not in hosts
@@ -311,6 +411,51 @@ class ActingGate:
         if certain and kind == "use":
             self._sites().update(known)
         return True
+
+    async def _send_check(
+        self, send: str, reads: dict[str, Any], page: dict[str, str], what: Carried, args: Any
+    ) -> bool | None:
+        """A send on a web messaging app: the send card unless the user asked for exactly
+        that and, after a read, named the conversation (the page's title) in full. None:
+        not a send there, or one that may go ahead (the other checks still apply)."""
+        app = messaging_page(page_host(page.get("url")), page.get("title", ""))
+        if app is None or self._send is None:
+            return None
+        app_name, app_kind = app
+        if send == "return":  # Return sends in a chat's box; in mail it's a new line
+            if app_kind != "chat":
+                return None
+            send = "send"
+        asked = self._asked is not None and self._asked(send)
+        tainted = bool(reads.get("private") or reads.get("web"))
+        if asked and (
+            not tainted or hands_guard.conversation_named(page.get("title", ""), self._words())
+        ):
+            return None
+        verb = _VERBS[send]
+        lines = [f"In: {app_name}" + (f" · {page['title']}" if page.get("title") else "")]
+        if page.get("url"):
+            lines.append(f"On: {page['url']}")
+        if what.words:
+            lines.append(f"Message: {_quoted(what.words)}")
+        label = str(args.get("text") or "").strip() if isinstance(args, dict) else ""
+        lines.append(f"Button: {_quoted(label)}" if label and not what.words else "Key: return")
+        if asked and tainted:
+            seen = "; ".join(list(reads.get("what") or [])[:6]) or "outside content"
+            why = (
+                f"Earlier: {seen}. That could have put words or a recipient here, and you "
+                "didn't name this conversation in full, so check it before it goes."
+            )
+        else:
+            why = "You didn't ask me to do this in your own words just now."
+        spoken = (
+            f"Here's your message in {app_name}: {what.words.strip()} Do you want it sent?"
+            if send in ("send", "post") and what.words and len(what.words) <= 300
+            else f"Can I press {verb} in {app_name}?"
+        )
+        question = f"{verb} this in {app_name}?"
+        detail = "\n".join(lines) + f"\n\n{why}"
+        return await self._send(question, detail, spoken, (verb, f"Don't {verb.lower()}"))
 
     @staticmethod
     def _questions(kind: str, site: str) -> tuple[str, str]:
