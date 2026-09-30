@@ -16,8 +16,8 @@ send the key elsewhere; Claude's models and tiers stay as they are. A run with a
 its own (a model picked in Settings › Models) keeps that provider's settings.
 
 With no key set, signed_in() changes nothing: the owner's own login works as it always has.
-It acts only once activate() has named the running backend's hub (the feature's loop, which
-never runs in tests).
+It acts only once activate() has named the running backend's hub (the feature does, as the
+app's hub is made, before its first connection; never for a test's hub).
 """
 
 from __future__ import annotations

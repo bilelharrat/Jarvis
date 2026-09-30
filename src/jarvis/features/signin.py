@@ -68,6 +68,13 @@ class SignIn:
         if callable(changed):
             changed()  # Settings › Models shows the key's provider too
 
+    def _reconnect(self) -> None:
+        """The conversation's Claude Code was started signed in the old way: it starts again
+        signed in the new one (the conversation kept), as when a provider is removed."""
+        reload = getattr(self.hub, "_tools_changed", None)
+        if callable(reload):
+            reload()
+
     async def state(self, _msg: dict[str, Any] | None = None) -> None:
         self.hub.emit("signin", **self.public(), error="", note="")
 
@@ -104,6 +111,7 @@ class SignIn:
             self.hub.set_feature_prefs({PREF: added["id"]})
             claude_signin.forget(added["id"])
             self._changed(note="Signed in with your API key.")
+            self._reconnect()
         except ValueError as exc:  # the key's shape, the Keychain: said in words to show
             self._changed(error=str(exc))
 
@@ -116,6 +124,8 @@ class SignIn:
                 claude_signin.forget(provider.id)
             self.hub.set_feature_prefs({PREF: ""})
             self._changed(note="The API key is removed; Jarvis signs in with your Claude account.")
+            if provider is not None:
+                self._reconnect()
         except ValueError as exc:
             self._changed(error=str(exc))
 
@@ -133,8 +143,8 @@ def install(hub: Any) -> None:
     hub.register_command("signin_state", signin.state)
     hub.register_command("signin_key", signin.use_key)
     hub.register_command("signin_forget", signin.forget)
-
-    async def turn_on() -> None:  # the real backend only: its runs sign in from here on
+    # The real backend only (a test's hub never polls): its runs sign in from here on. Now,
+    # as the hub is made, not in a loop: the hub connects to Claude before its loops start,
+    # and that first connection must carry the key too.
+    if getattr(hub, "poll", False):
         claude_signin.activate(hub)
-
-    hub.register_loop("signin", turn_on)

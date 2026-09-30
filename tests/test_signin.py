@@ -157,6 +157,43 @@ async def test_removing_its_provider_in_settings_ends_the_key_sign_in(hub):
     assert last(hub)["mode"] == "account"
 
 
+def test_the_running_app_signs_in_from_its_very_first_connection():
+    """The app's hub connects to Claude before its feature loops start: the sign-in is
+    turned on as the feature is installed (the real backend only, never a test's hub), so the
+    first conversation after a restart already carries the key."""
+
+    class Backend:
+        def __init__(self, poll):
+            self.poll = poll
+
+        def register_command(self, *_a):
+            pass
+
+        def register_loop(self, *_a):
+            pass
+
+    app = Backend(poll=True)
+    try:
+        signin_feature.install(app)
+        assert claude_signin._HUB is not None and claude_signin._HUB() is app
+    finally:
+        claude_signin.deactivate()
+    signin_feature.install(Backend(poll=False))
+    assert claude_signin._HUB is None  # a test's hub never signs the process in
+
+
+async def test_a_key_pasted_or_removed_reaches_the_conversation_at_once(hub):
+    """The conversation's Claude Code was started signed in the old way: a new key, or its
+    removal, reconnects it (keeping the conversation), as a provider's removal does."""
+    reloads = []
+    hub._tools_changed = lambda: reloads.append(True)
+    found, _ = signin_of(hub)
+    await found.use_key({"key": KEY})
+    assert reloads == [True]
+    await found.forget()
+    assert reloads == [True, True]
+
+
 async def test_the_window_reaches_it_by_its_commands(hub):
     found, _ = signin_of(hub)
     await hub._commands["signin_state"][0]({"type": "signin_state"})
