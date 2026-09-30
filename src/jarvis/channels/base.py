@@ -7,6 +7,7 @@ import html
 import re
 import secrets
 import time
+import unicodedata
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -259,12 +260,13 @@ _PAIR = re.compile(r"^\s*[/!]?(?:pair|配对)(?:@\w+)?[\s:：]*([\d\s-]{0,20})\s
 
 
 def pair_code(text: str) -> str | None:
-    """The code in "/pair 123 456" (or "pair 123456", "配对 123456"); "" for a pairing
-    message without a proper code; None when it isn't one."""
-    m = _PAIR.match(text or "")
+    """The code in "/pair 123 456" (or "pair 123456", "配对 123456", in a Chinese keyboard's
+    full-width digits too); "" for a pairing message without a proper code; None when it
+    isn't one."""
+    m = _PAIR.match(unicodedata.normalize("NFKC", text or ""))  # ６ is 6
     if m is None:
         return None
-    digits = re.sub(r"\D", "", m.group(1))
+    digits = re.sub(r"[^0-9]", "", m.group(1))  # (\d is any script's digits: ٦ is no code)
     return digits if len(digits) == 6 else ""
 
 

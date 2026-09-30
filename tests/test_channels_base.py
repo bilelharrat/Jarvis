@@ -148,6 +148,8 @@ def test_pairing_messages_are_recognized_with_or_without_the_code():
     assert pair_code("/pair 123 456") == "123456"
     assert pair_code("!pair@jarvis_bot 123-456") == "123456"
     assert pair_code("配对 654321") == "654321"
+    assert pair_code("配对 ６５４ ３２１") == "654321"  # a Chinese keyboard's full-width digits
+    assert pair_code("/pair ٦٥٤٣٢١") == ""  # another script's digits: no code
     assert pair_code("/pair 12345") == "" and pair_code("/pair") == ""
     assert pair_code("pair programming tips") is None and pair_code("hello") is None
 
