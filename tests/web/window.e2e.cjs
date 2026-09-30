@@ -1740,6 +1740,28 @@ test('A click on the agent board survives the task list the hub resends in the m
   assert(doing === 'Editing b.py', `the card after the click: ${doing}`);
 });
 
+test('In Chinese the board’s and the pinned rows’ own words read in Chinese, and titles and replies stay as they are', async () => {
+  await sessions([1, 2, 3, 4], { 1: { title: '', prompt: '' }, 2: { status: 'resting' }, 3: { status: 'stopped', last_action: 'Stopped' }, 4: { title: 'Done', result: 'Done' } });
+  // The window's Chinese as the backend serves it: i18n-zh.json and every feature's merged in.
+  const zh = { strings: {}, patterns: [] };
+  for (const file of ['i18n-zh.json', ...fs.readdirSync(path.join(WEB, 'i18n')).filter((f) => f.endsWith('.json')).sort().map((f) => `i18n/${f}`)]) {
+    const d = JSON.parse(fs.readFileSync(path.join(WEB, file), 'utf8'));
+    Object.assign(zh.strings, d.strings || {});
+    zh.patterns.push(...(d.patterns || []));
+  }
+  await js(`(() => { const zh = ${JSON.stringify(JSON.stringify(zh))}; const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(zh)) : real(url, o)); })(); true`);
+  await js('__ev({ type: "code_meta", full: true, items: { 1: { pinned: true } } }); window.jarvisI18n.setLang("zh")');
+  await js('document.querySelector(".cs-board-btn").click(); true');
+  await frames(3);
+  const text = (selector) => `(document.querySelector('${selector}') || {}).textContent`;
+  const r = await js(`({ title: ${text('.cs-card[data-task="1"] .cs-card-title')}, pinned: ${text('.cs-pinned-title')},
+    resting: ${text('.cs-card[data-task="2"] .cs-card-doing')}, stopped: ${text('.cs-card[data-task="3"] .cs-card-doing')},
+    ownTitle: ${text('.cs-card[data-task="4"] .cs-card-title')}, reply: ${text('.cs-card[data-task="4"] .cs-card-doing')} })`);
+  assert(r.title === '新会话' && r.pinned === '新会话', `an untitled session: ${JSON.stringify(r)}`);
+  assert(r.resting === '休眠中：会从上次停下的地方继续' && r.stopped === '已停止', `what a card says: ${JSON.stringify(r)}`);
+  assert(r.ownTitle === 'Done' && r.reply === 'Done', `a title or a reply was translated: ${JSON.stringify(r)}`);
+});
+
 // ── the second brain feature (web/features/brain.js): loaded as features.js loads it ──
 
 const BRAIN_JS = fs.readFileSync(path.join(WEB, 'features', 'brain.js'), 'utf8');

@@ -204,7 +204,8 @@
     const card = el('article', `cs-card ${col}`);
     card.dataset.task = task.id;
     const top = el('div', 'cs-card-top');
-    top.append(el('span', `jc-dot ${col === 'needs' ? 'needs' : statusOf(task)}`), mine(el('h3', 'cs-card-title', task.title || task.prompt || 'New session')));
+    const named = task.title || task.prompt;  // the user's words; "New session" is the window's
+    top.append(el('span', `jc-dot ${col === 'needs' ? 'needs' : statusOf(task)}`), named ? mine(el('h3', 'cs-card-title', named)) : el('h3', 'cs-card-title', 'New session'));
     if (shared().unread.has(task.id)) { const u = el('span', 'cs-unread'); u.title = t('New since you looked'); top.append(u); }
     if (meta.pinned) { const pin = el('span', 'cs-pin'); pin.insertAdjacentHTML('beforeend', shared().pinIcon || ''); pin.title = t('Pinned'); top.append(pin); }
     const project = el('p', 'cs-card-project');
@@ -213,7 +214,8 @@
     if (branch) project.append(document.createTextNode(' · '), mine(el('span', 'cs-card-branch', `⎇ ${branch}`)));
     if (meta.group) project.append(document.createTextNode(' · '), mine(el('span', 'cs-card-group', meta.group)));
     const line = el('p', 'cs-card-doing', doing(task, asks[0]));
-    if (!asks.length && !task.busy) mine(line);  // its own words (the last reply), not ours
+    // Its own words (the last reply), not ours ("Resting: …", "Stopped" and the like).
+    if (!asks.length && !task.busy && String(task.result || '').trim()) mine(line);
     const detail = asks.length && asks[0].detail ? [mine(el('pre', 'cs-card-detail', asks[0].detail.split('\n').slice(0, 3).join('\n')))] : [];
     const stats = el('p', 'cs-card-stats');
     const files = (task.files_changed || []).length;

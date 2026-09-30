@@ -321,7 +321,8 @@
       const b = el('button', 'cs-pinned-row');
       b.type = 'button';
       b.setAttribute('aria-current', String(x.id === ccSelected));
-      b.append(el('span', `jc-dot ${needsYou(x.id).length ? 'needs' : statusOf(x)}`), mine(el('span', 'cs-pinned-title', x.title || x.prompt || 'New session')), mine(el('small', '', x.folder)));
+      const named = x.title || x.prompt;  // the user's words; "New session" is the window's
+      b.append(el('span', `jc-dot ${needsYou(x.id).length ? 'needs' : statusOf(x)}`), named ? mine(el('span', 'cs-pinned-title', named)) : el('span', 'cs-pinned-title', 'New session'), mine(el('small', '', x.folder)));
       b.addEventListener('click', () => F.selectTask(x.id));
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); rowMenu(b, x.id); });
       return b;
