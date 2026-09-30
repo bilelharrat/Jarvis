@@ -1002,6 +1002,179 @@ test('The MCP pane says why it lists nothing: no session, not running yet, check
   assert((await body()).includes('github'), await body());
 });
 
+// ── Health & safety (features/ops.js): its sheet, its confirmations and first-run Setup ──
+// The feature's script and style are put in the page as the backend's /features.json
+// would; its events arrive through featureEvent(), as a hub's do.
+
+const OPS_JS = fs.readFileSync(path.join(WEB, 'features', 'ops.js'), 'utf8');
+const OPS_CSS = fs.readFileSync(path.join(WEB, 'features', 'ops.css'), 'utf8');
+async function withOps() {
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(OPS_CSS)}; document.head.append(s); })(); true`);
+  await js(`${OPS_JS}\n;true`);
+  await js('__sent.length = 0; true');
+}
+const opsEvent = (ev) => js(`featureEvent(${JSON.stringify(ev)}); true`);
+const opsPress = (key, code, vk) => cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk })
+  .then(() => cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk }));
+const opsCheck = (id, extra = {}) => ({ id, group: 'jarvis', title: id, state: 'ok', summary: 'Fine', hint: '', meta: '', details: [], fix: null, pane: '', command: '', details_words: false, ...extra });
+
+test('Settings › Health & safety opens its sheet on the tab picked; Escape closes only the sheet', async () => {
+  await withOps();
+  await js('toggleSettings(true); __sent.length = 0; true');
+  const placed = await js('(() => { const g = $("ops-group"); return { there: !!g, beforeAccounts: !!(g && g.nextElementSibling && g.nextElementSibling.querySelector("#open-accounts")) }; })()');
+  assert(placed.there && placed.beforeAccounts, JSON.stringify(placed));
+  await js('document.querySelector("[data-ops-tab=security]").click(); true');
+  const r = await js('({ open: !$("ops-layer").hidden, tab: document.querySelector("#ops-pop [aria-selected=true]").dataset.tab, sent: __sent.map((m) => m.type), focus: document.activeElement && document.activeElement.id })');
+  assert(r.open && r.tab === 'security' && r.sent.includes('ops_security') && r.focus === 'ops-close', JSON.stringify(r));
+  await opsPress('Escape', 'Escape', 27);
+  const after = await js('({ sheet: $("ops-layer").hidden, settings: !$("settings").hidden, sent: __sent.map((m) => m.type) })');
+  assert(after.sheet && after.settings, `Escape: ${JSON.stringify(after)}`);
+  assert(!after.sent.includes('stop'), 'Escape went on to the window behind');
+});
+
+test('A checkup lists what needs you; a fix and System Settings go only after a click, a fix after its confirmation', async () => {
+  await withOps();
+  await opsEvent({ type: 'ops_doctor', at: new Date().toISOString(), counts: { problem: 2, warn: 1, ok: 1 }, worst: 'problem',
+    groups: { permissions: 'Permissions', jarvis: 'Jarvis', data: 'Your data' },
+    checks: [
+      opsCheck('perm:screen', { group: 'permissions', title: 'Screen Recording', state: 'problem', summary: 'Not allowed yet', hint: 'Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Screen Recording, then restart Jarvis.', pane: 'screen' }),
+      opsCheck('logs', { title: 'Errors in the log', state: 'warn', summary: '2 in the last hour', details: ['2026-09-29 20:00:00,000 ERROR boom <img src=x onerror="window.__pwned=1">'] }),
+      opsCheck('file_index', { group: 'data', title: 'File index', state: 'problem', summary: 'Damaged', fix: { id: 'rebuild_file_index', label: 'Rebuild', confirm: 'Rebuild the file index? It starts again from nothing and fills back in, in the background.' } }),
+      opsCheck('disk', { group: 'data', title: 'Free disk space', summary: '80 GB free' }),
+    ] });
+  await js('toggleSettings(true); true');
+  const line = await js('$("ops-line-checkup").textContent');
+  assert(line === '2 need attention · 1 to look at', line);
+  await js('document.querySelector("[data-ops-tab=checkup]").click(); __sent.length = 0; true');
+  const shown = await js('({ items: [...document.querySelectorAll("#ops-tab-checkup .ops-item")].map((li) => li.dataset.check + ":" + li.dataset.state), groups: [...document.querySelectorAll("#ops-tab-checkup .ops-group-title")].map((h) => h.textContent), imgs: document.querySelectorAll("#ops-tab-checkup img").length, logData: !!document.querySelector("[data-check=logs] details ul[data-no-i18n]") })');
+  assert(JSON.stringify(shown.items) === JSON.stringify(['perm:screen:problem', 'logs:warn', 'file_index:problem', 'disk:ok']), JSON.stringify(shown));
+  assert(JSON.stringify(shown.groups) === JSON.stringify(['Permissions', 'Jarvis', 'Your data']) && shown.imgs === 0 && shown.logData, JSON.stringify(shown));
+  assert(await clickText('[data-check="perm:screen"]', 'Open System Settings'), 'no Open System Settings');
+  assert(await clickText('[data-check="file_index"]', 'Rebuild'), 'no Rebuild');
+  let s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'ops_open_settings', pane: 'screen' }]), `a fix went without its confirmation: ${JSON.stringify(s)}`);
+  assert(await js('!!document.querySelector("[data-check=file_index] .ops-confirm")'), 'no confirmation');
+  await js('document.querySelector("[data-check=file_index] .ops-confirm .btn.primary").click(); true');
+  s = await sentOf('ops_fix');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'ops_fix', fix: 'rebuild_file_index' }]), JSON.stringify(s));
+  assert(!(await js('window.__pwned')), 'a log line became markup');
+  await opsEvent({ type: 'ops_fixed', fix: 'rebuild_file_index', ok: true, text: 'The file index is rebuilding in the background.' });
+  assert((await js('document.querySelector("#ops-tab-checkup .ops-toast").textContent')) === 'The file index is rebuilding in the background.', 'no word of the fix');
+});
+
+test('The security review tightens only after its confirmation, and never shows a name as the window’s words', async () => {
+  await withOps();
+  await opsEvent({ type: 'ops_security', at: new Date().toISOString(), counts: { risk: 1, notice: 1, ok: 0 }, findings: [
+    { id: 'connectors', title: 'Connected accounts', state: 'risk', summary: '1 runs everything without asking', note: '', actions: [],
+      items: [{ id: 'notion', label: 'Notion', note: 'Everything runs without asking', user: true, actions: [{ id: 'connector_ask', label: 'Ask first', confirm: 'Have Notion ask before anything that changes your data?', item: 'notion' }] }] },
+    { id: 'screen', title: 'Screen awareness', state: 'notice', summary: 'On', note: '', items: [], actions: [{ id: 'screen_off', label: 'Turn it off', confirm: 'Turn screen awareness off?', item: '' }] },
+  ] });
+  await js('toggleSettings(true); true');
+  assert((await js('$("ops-line-security").textContent')) === '1 risk · 1 worth knowing', 'the Settings line');
+  await js('document.querySelector("[data-ops-tab=security]").click(); __sent.length = 0; true');
+  assert(await clickText('[data-finding="connectors"]', 'Ask first'), 'no Ask first');
+  assert((await sentOf('ops_tighten')).length === 0, 'tightened before the confirmation');
+  const confirm = await js('document.querySelector("[data-finding=connectors] .ops-confirm p").textContent');
+  assert(confirm === 'Have Notion ask before anything that changes your data?', confirm);
+  await js('document.querySelector("[data-finding=connectors] .ops-confirm .btn.primary").click(); true');
+  assert(await clickText('[data-finding="screen"]', 'Turn it off'), 'no Turn it off');
+  await opsPress('Escape', 'Escape', 27);  // the confirmation closes, not the sheet
+  const r = await js('({ sent: __sent.filter((m) => m.type === "ops_tighten"), sheet: !$("ops-layer").hidden, confirm: !!document.querySelector("[data-finding=screen] .ops-confirm"), name: !!document.querySelector("[data-finding=connectors] .ops-sub-label strong[data-no-i18n]") })');
+  assert(JSON.stringify(r.sent) === JSON.stringify([{ type: 'ops_tighten', action: 'connector_ask', item: 'notion' }]), JSON.stringify(r.sent));
+  assert(r.sheet && !r.confirm && r.name, JSON.stringify(r));
+});
+
+test('A restore shows what changes, then restores and restarts; the waiting restore can be taken back', async () => {
+  await withOps();
+  const path = '/Users/x/Documents/Jarvis/Backups/Jarvis backup 2026-09-28 at 03.00.00 (daily).zip';
+  const backups = { type: 'ops_backups', folder: '/Users/x/Documents/Jarvis/Backups', folder_label: '~/Documents/Jarvis/Backups', chosen: false, daily: true, knowledge: false, error: '', pending: null,
+    items: [{ name: 'Jarvis backup 2026-09-28 at 03.00.00 (daily).zip', path, created: '2026-09-28T03:00:00', kind: 'daily', files: 5, size: 20480, knowledge: false }] };
+  backups.newest = backups.items[0];
+  await opsEvent(backups);
+  await js('toggleSettings(true); document.querySelector("[data-ops-tab=backups]").click(); __sent.length = 0; true');
+  const row = `.ops-backup[data-path="${path}"]`;
+  assert(await clickText(row, 'Verify'), 'no Verify');
+  await opsEvent({ type: 'ops_verified', path, ok: true, files: 5, problem: '' });
+  assert((await js(`document.querySelector(${JSON.stringify(row)} + " .ops-hint").textContent`)) === 'Verified: all 5 files match their checksums.', 'not verified');
+  assert(await clickText(row, 'Restore…'), 'no Restore…');
+  await opsEvent({ type: 'ops_restore_preview', path, ok: true, problem: '', backup: backups.items[0], replace: ['memory.json'], add: ['goals.json'], same: ['prefs.json'], keep: ['transactions.json'], left: ['channels.json'] });
+  const preview = await js(`document.querySelector(${JSON.stringify(row)} + " .ops-preview").textContent`);
+  for (const words of ['Memory', 'Goals', 'Settings', 'Purchase log', 'channels.json', 'safety backup']) assert(preview.includes(words), `preview: ${preview}`);
+  assert((await sentOf('ops_restore')).length === 0, 'restored before the confirmation');
+  assert(await clickText(row, 'Restore and restart'), 'no Restore and restart');
+  await opsEvent({ type: 'ops_restore_staged', ok: true, pending: { backup: backups.items[0].name, created: '2026-09-28T03:00:00', files: 4 }, safety: { name: 'x', kind: 'safety' }, text: '' });
+  await opsEvent({ ...backups, pending: { backup: backups.items[0].name, created: '2026-09-28T03:00:00', staged: '', safety: 'x', files: 4 } });
+  const r = await js('({ toast: document.querySelector("#ops-tab-backups .ops-toast").textContent, banner: document.querySelector("#ops-tab-backups .ops-banner").textContent, line: $("ops-line-backups").textContent, path: document.querySelector("#ops-tab-backups .ops-path").textContent })');
+  assert(r.toast === 'Restart Jarvis to finish: quit it and open it again.', JSON.stringify(r));
+  assert(r.banner.includes('A restore is ready') && r.line === 'A restore is waiting for a restart' && r.path === '~/Documents/Jarvis/Backups', JSON.stringify(r));
+  assert(await clickText('#ops-tab-backups .ops-banner', 'Cancel the restore'), 'no Cancel the restore');
+  await js('document.querySelector("#ops-tab-backups [data-pref=ops_backup_daily]").click(); true');
+  const s = await js('__sent.filter((m) => m.type !== "ops_backups")');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'ops_backup_verify', path },
+    { type: 'ops_restore_preview', path },
+    { type: 'ops_restore', path },
+    { type: 'ops_restore_cancel' },
+    { type: 'feature_prefs', changes: { ops_backup_daily: false } },
+  ]), JSON.stringify(s));
+});
+
+test('Setup shows by itself on a fresh install, once; its steps set things only when pressed', async () => {
+  await withOps();
+  await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
+  assert(await js('!$("ops-setup").hidden'), 'Setup did not show');
+  await js('document.querySelector("#ops-setup-body [data-lang=zh]").click(); true');
+  await js('$("ops-setup-next").click(); true');  // Voice
+  await js('$("ops-mic-test").click(); true');
+  await opsEvent({ type: 'ops_mic', state: 'heard', text: 'testing <b>one</b> two' });
+  const heard = await js('({ text: document.querySelector("#ops-setup-body .ops-mic q").textContent, data: !!document.querySelector("#ops-setup-body .ops-mic q[data-no-i18n]"), bold: document.querySelectorAll("#ops-setup-body b").length })');
+  assert(heard.text === 'testing <b>one</b> two' && heard.data && heard.bold === 0, JSON.stringify(heard));
+  await js('$("ops-setup-next").click(); true');  // Permissions
+  await opsEvent({ type: 'ops_permissions', at: '', error: '',
+    rows: [{ id: 'screen', title: 'Screen Recording', why: 'To look at your screen when you ask what’s on it.', state: 'off', label: 'Not allowed yet', hint: '', apps: [], pane: 'screen' },
+      { id: 'microphone', title: 'Microphone', why: 'To hear you.', state: 'granted', label: 'Allowed', hint: '', apps: [], pane: 'microphone' }] });
+  const perms = await js('[...document.querySelectorAll("#ops-setup-body .ops-item")].map((li) => li.dataset.perm + ":" + li.dataset.state + ":" + li.querySelectorAll("button").length)');
+  assert(JSON.stringify(perms) === JSON.stringify(['screen:problem:1', 'microphone:ok:0']), JSON.stringify(perms));
+  assert(await clickText('#ops-setup-body [data-perm="screen"]', 'Open System Settings'), 'no Open System Settings');
+  await js('$("ops-setup-next").click(); true');  // Claude
+  await opsEvent({ type: 'ops_claude', ...opsCheck('claude', { title: 'Claude sign-in', state: 'problem', summary: 'Not signed in', command: 'claude auth login' }) });
+  assert((await js('document.querySelector("#ops-setup-body .ops-command code").textContent')) === 'claude auth login', 'no sign-in command');
+  await js('$("ops-setup-next").click(); document.querySelector("#ops-setup-body [data-pref=hands_free]").click(); $("ops-setup-next").click(); true');
+  assert((await js('$("ops-setup-next").textContent')) === 'Done', 'not the last step');
+  await js('$("ops-setup-next").click(); true');
+  const s = await js('__sent.filter((m) => !["ops_permissions"].includes(m.type))');
+  assert(JSON.stringify(s) === JSON.stringify([
+    { type: 'set_prefs', changes: { language: 'zh' } },
+    { type: 'ops_mic_test' },
+    { type: 'ops_open_settings', pane: 'screen' },
+    { type: 'ops_claude' },
+    { type: 'set_prefs', changes: { hands_free: true } },
+    { type: 'ops_setup', state: 'done' },
+  ]), JSON.stringify(s));
+  assert(await js('$("ops-setup").hidden'), 'Setup stayed open');
+  await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
+  assert(await js('$("ops-setup").hidden'), 'Setup came back in the same window');
+});
+
+test('In Chinese the sheet reads in Chinese, and a path or a log line stays as it is', async () => {
+  await withOps();
+  const merged = (() => {
+    const base = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n-zh.json'), 'utf8'));
+    const ops = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n', 'ops.json'), 'utf8'));
+    return { strings: { ...base.strings, ...ops.strings }, patterns: [...base.patterns, ...ops.patterns] };
+  })();
+  await js(`(() => { const zh = ${JSON.stringify(JSON.stringify(merged))}; const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(zh)) : real(url, o)); })(); true`);
+  await js('window.jarvisI18n.setLang("zh")');
+  await opsEvent({ type: 'ops_doctor', at: new Date().toISOString(), counts: { warn: 3 }, worst: 'warn', groups: { permissions: 'Permissions', jarvis: 'Jarvis', data: 'Your data' },
+    checks: [opsCheck('logs', { title: 'Errors in the log', state: 'warn', summary: '3 in the last hour', hint: "If something isn't working, make a diagnostics file and share it when you ask for help.", details: ['2026-09-29 20:00:00,000 ERROR the backup folder is gone'] })] });
+  await js('toggleSettings(true); document.querySelector("[data-ops-tab=checkup]").click(); true');
+  await frames(3);
+  const r = await js('({ tabs: [...document.querySelectorAll("#ops-pop .ops-tabs button")].map((b) => b.textContent), summary: document.querySelector("[data-check=logs] .ops-summary").textContent, hint: document.querySelector("[data-check=logs] .ops-hint").textContent, line: document.querySelector("[data-check=logs] details li").textContent, row: $("ops-line-checkup").textContent })');
+  assert(JSON.stringify(r.tabs) === JSON.stringify(['体检', '安全检查', '备份', '诊断']), JSON.stringify(r));
+  assert(r.summary === '最近一小时 3 个' && r.hint.startsWith('如果有什么不对劲') && r.row === '3 项值得查看', JSON.stringify(r));
+  assert(r.line === '2026-09-29 20:00:00,000 ERROR the backup folder is gone', `a log line was translated: ${r.line}`);
+});
+
 // ──
 
 let base;
