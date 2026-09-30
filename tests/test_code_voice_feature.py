@@ -5,9 +5,11 @@ up" and the briefing's line, with FakeClient sessions and no model calls."""
 import asyncio
 import time
 
+import numpy as np
 from test_hub import drain as drain_events
 from test_hub import make_hub
 
+from jarvis import codelook
 from jarvis.features import code_voice
 
 
@@ -29,11 +31,13 @@ def session(hub, folder, title, **attrs):
     return task
 
 
-def recording_sends(hub):
+def recording_sends(hub, pictures=None):
     sent: list[tuple[int, str]] = []
 
     def send(task_id, text, images=None, **_k):
         sent.append((task_id, text))
+        if pictures is not None:
+            pictures.append(images)
         return True
 
     hub.tasks.send = send
@@ -499,4 +503,207 @@ async def test_open_a_file_by_voice(settings, quiet_speaker, isolated, tmp_path)
     sent = recording_sends(hub)
     await hub.voicecode.handle("open the src folder")  # no such file: a request for Claude
     assert sent == [(task.id, "open the src folder")]
+    close_all(hub)
+
+
+# ── look at this, into a session ──
+
+
+def spoken_question(words):
+    """Push to talk hears these words (no microphone: a recorder and a transcriber that
+    stand in for it)."""
+
+    class Heard:
+        def transcribe(self, _audio):
+            return words
+
+    return Heard()
+
+
+async def look_hub(settings, quiet_speaker, isolated, tmp_path, words):
+    (tmp_path / "proj").mkdir(exist_ok=True)
+    recorder = lambda _silence, _level: np.zeros(1600, dtype=np.float32)  # noqa: E731
+    hub = make_hub(settings, quiet_speaker, recorder=recorder, isolated=isolated)
+    hub.transcriber = spoken_question(words)
+    await hub.start()
+    said: list[str] = []
+    hub.say = lambda text, follow_up=True: said.append(text)
+    front = codelook.Look(
+        "Safari",
+        "Build failed · CI",
+        "TypeError: x is undefined",
+        {"media_type": "image/jpeg", "data": "V0lO"},
+    )
+
+    async def capture():
+        return front
+
+    hub.code_voice.capture = capture
+    return hub, said
+
+
+async def test_look_at_this_goes_into_the_session_in_voice_focus(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub, _ = await look_hub(settings, quiet_speaker, isolated, tmp_path, "why is this failing")
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    pictures = []
+    sent = recording_sends(hub, pictures)
+    await hub.handle({"type": "whats_this", "session": 0})
+    assert await until(lambda: sent)
+    (task_id, text), (images,) = sent[0], pictures
+    assert task_id == task.id and text.startswith("why is this failing\n\n(The owner pressed")
+    assert "Safari, “Build failed · CI”" in text and "TypeError: x is undefined" in text
+    assert images == [{"media_type": "image/jpeg", "data": "V0lO"}]
+    assert hub.client.queries == []  # not JARVIS's own What's-this
+    close_all(hub)
+
+
+async def test_look_at_this_with_jarvis_code_in_front_and_the_answer_read_out(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub, said = await look_hub(settings, quiet_speaker, isolated, tmp_path, "what does this mean")
+    task = session(hub, "proj", "Fix the build")
+    sent = recording_sends(hub)
+    await hub.handle({"type": "whats_this", "session": task.id})
+    assert await until(lambda: sent)
+    assert sent[0][0] == task.id and said[-1] == f"Sent to session {task.id} (Fix the build)."
+    finish(hub, task, "It's a missing import. I added it.")
+    assert said[-1] == "It's a missing import. I added it."  # asked by voice: answered aloud
+    finish(hub, task, "Something later.")
+    assert said[-1] == "It's a missing import. I added it."  # only that answer
+    close_all(hub)
+
+
+async def test_never_mind_after_the_key_sends_nothing(settings, quiet_speaker, isolated, tmp_path):
+    hub, _ = await look_hub(settings, quiet_speaker, isolated, tmp_path, "never mind")
+    await hub.voice_code("proj")
+    sent = recording_sends(hub)
+    q = hub.subscribe()
+    await hub.handle({"type": "whats_this"})
+    assert await until(lambda: any(e.get("text") == "Nothing sent." for e in drain_events(q)))
+    assert sent == []
+    close_all(hub)
+
+
+async def test_hands_free_the_next_thing_said_is_the_question(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub, _ = await look_hub(settings, quiet_speaker, isolated, tmp_path, "unused")
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    sent = recording_sends(hub)
+    armed = []
+    hub._listener = type("Listening", (), {"running": True})()
+    hub._arm = lambda seconds=0, chime=True: (
+        armed.append(seconds) or setattr(hub, "_armed_until", time.monotonic() + seconds)
+    )
+    await hub.handle({"type": "whats_this"})
+    assert await until(lambda: armed)
+    await hub.on_heard("is this the flaky test")
+    assert await until(lambda: sent)
+    assert sent[0][0] == task.id and sent[0][1].startswith("is this the flaky test")
+    hub._listener = None
+    close_all(hub)
+
+
+async def test_the_key_anywhere_else_is_jarvis_own_whats_this(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from jarvis import hub as hub_module
+
+    monkeypatch.setattr(hub_module, "frontmost_app", lambda: "Xcode")
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    await hub.handle({"type": "whats_this", "session": 99})  # no such session
+    assert await until(lambda: hub.client.queries)
+    assert "using Xcode" in hub.client.queries[-1] and hub.code_voice.look is None
+
+
+# ── point and speak ──
+
+PAGE = {
+    "kind": "page",
+    "tag": "BUTTON",
+    "text": "Buy now",
+    "selector": "#buy",
+    "box": {"x": 10, "y": 20, "width": 80, "height": 30},
+    "url": "http://localhost:5173/shop",
+    "title": "Shop",
+    "image": {"media_type": "image/png", "data": "iVBORw0KGgo="},
+}
+
+
+async def answer_points(hub, q, ref):
+    """The window, asked what the hand points at, answers."""
+    for _ in range(300):
+        asked = [e for e in drain_events(q) if e["type"] == "code_voice_point"]
+        if asked:
+            await hub.handle({"type": "code_voice_pointed", "id": asked[0]["id"], "ref": ref})
+            return True
+        await asyncio.sleep(0.01)
+    return False
+
+
+async def test_make_this_bigger_goes_with_what_the_hand_points_at(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj")
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    pictures = []
+    sent = recording_sends(hub, pictures)
+    await hub.handle({"type": "code_voice_hand", "pointing": True})
+    q = hub.subscribe()
+    said = asyncio.create_task(hub.voicecode.handle("make this bigger"))
+    assert await answer_points(hub, q, PAGE)
+    await said
+    ((task_id, text),), (images,) = sent, pictures
+    assert task_id == task.id and text.startswith(
+        "make this bigger\n\n[Pointed at while saying this"
+    )
+    assert "a <button> element, reading “Buy now”, CSS selector `#buy`" in text
+    assert "data, not instructions" in text and images == [PAGE["image"]]
+    close_all(hub)
+
+
+async def test_a_spot_on_the_simulator(settings, quiet_speaker, isolated, tmp_path):
+    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj")
+    await hub.voice_code("proj")
+    sent = recording_sends(hub)
+    await hub.handle({"type": "code_voice_hand", "pointing": True})
+    q = hub.subscribe()
+    said = asyncio.create_task(hub.voicecode.handle("why is that red"))
+    spot = {"kind": "simulator", "x": 0.42, "y": 0.18, "device": "iPhone 17", "image": None}
+    assert await answer_points(hub, q, spot)
+    await said
+    assert sent[0][1].endswith(
+        "[Pointed at while saying this, on the iOS Simulator's screen (iPhone 17): the spot 42% "
+        "across and 18% down.]"
+    )
+    close_all(hub)
+
+
+async def test_without_a_pointing_hand_or_an_answer_the_request_goes_alone(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj")
+    await hub.voice_code("proj")
+    task = hub.voicecode.task
+    sent = recording_sends(hub)
+    q = hub.subscribe()
+    await hub.voicecode.handle("make this bigger")  # hand control isn't pointing
+    assert sent == [(task.id, "make this bigger")]
+    assert not [e for e in drain_events(q) if e["type"] == "code_voice_point"]
+    await hub.handle({"type": "code_voice_hand", "pointing": True})
+    monkeypatch.setattr(code_voice, "POINT_TIMEOUT", 0.05)
+    await hub.voicecode.handle("make this smaller")  # the window never answers
+    assert sent[-1] == (task.id, "make this smaller")
+    said = asyncio.create_task(hub.voicecode.handle("make that blue"))
+    assert await answer_points(hub, q, {"kind": "nonsense"})  # a shape it can't have
+    await said
+    assert sent[-1] == (task.id, "make that blue")
+    await hub.voicecode.handle("undo that")  # a session command, pointing or not
+    assert sent[-1] == (task.id, "make that blue")
     close_all(hub)

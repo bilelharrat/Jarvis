@@ -21,3 +21,17 @@ test('the lines asked for are marked within the file shown', () => {
   assert.deepEqual(cv.lineSpan(150, 160, 100), [100, 100]); // none
   assert.deepEqual(cv.lineSpan(0, 0, 10), [0, 0]);
 });
+
+test('a point on the simulator is a spot in fractions of its picture, kept on it', () => {
+  const rect = { left: 100, top: 50, right: 500, bottom: 850, width: 400, height: 800 };
+  assert.deepEqual(cv.spotOn({ x: 300, y: 450 }, rect), { x: 0.5, y: 0.5 });
+  assert.deepEqual(cv.spotOn({ x: 20, y: 2000 }, rect), { x: 0, y: 1 });
+  assert.equal(cv.inside({ x: 300, y: 450 }, rect), true);
+  assert.equal(cv.inside({ x: 99, y: 450 }, rect), false);
+});
+
+test('the picture sent is a square around the spot, never off the screen', () => {
+  assert.deepEqual(cv.cropBox({ x: 0.5, y: 0.5 }, 1000, 2000), { sx: 300, sy: 800, sw: 400, sh: 400 });
+  assert.deepEqual(cv.cropBox({ x: 0, y: 0 }, 1000, 2000), { sx: 0, sy: 0, sw: 400, sh: 400 });
+  assert.deepEqual(cv.cropBox({ x: 1, y: 1 }, 1000, 2000), { sx: 600, sy: 1600, sw: 400, sh: 400 });
+});

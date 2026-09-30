@@ -22,6 +22,18 @@ in Settings › Models, by name), "ultracode on/off", "open hub.py" and "read li
 20 of hub.py" (shown in Jarvis Code's Files viewer and described in a sentence: code is
 never read aloud).
 
+Look at this, into a session: the What's-this key (⌥⇧Space) while voice coding, or with
+Jarvis Code in front on a session, takes what's in front (codelook: the app, its window's
+title and picture, the selected text read without the clipboard) and the question the
+owner then says, and sends them to that session. Otherwise the key is JARVIS's own
+What's-this, as before (the command returns False to the built-in one).
+
+Point and speak: with hand control on and the built-in browser or the iOS Simulator
+pane in view (the window says so), a request that points ("make this bigger", "why is
+that red") goes to the focused session with what the hand points at: the element's tag,
+words, CSS path and box on the page (or the spot on the simulator's screen), and a
+picture of it. The window has POINT_TIMEOUT to say; otherwise the request goes alone.
+
 Claude cost policy: "what's everyone doing" and the rest never call a model. "Catch me
 up" calls Haiku 4.5 once for a session only when several of its replies need condensing
 into one sentence, and "read lines…" once to describe the lines. All such calls share a
@@ -36,13 +48,17 @@ import asyncio
 import logging
 import re
 import time
+import uuid
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import codelook, lang
 from .. import codesupervisor as cs
-from .. import lang
 from ..prefs import MODELS
+from ..voicecode import parse as voice_command
+from ..voicecode import speakable
 
 log = logging.getLogger("jarvis")
 
@@ -61,6 +77,24 @@ LINES_SYSTEM = (
 )
 LINES_SENT = 200  # lines of a range, at most, described
 CREDENTIALS = "That file holds credentials or private data."  # as the Files viewer says it
+POINT_TIMEOUT = 2.5  # seconds the window has to say what the hand points at
+LOOK_LISTEN = 10.0  # seconds after the key to start saying the question (hands-free)
+LOOK_SLACK = 10.0  # ...and for it to be heard and written down
+# "Never mind" after the key: nothing is sent.
+LOOK_CANCEL = re.compile(
+    r"\W*(?:never ?mind|cancel(?: that)?|forget (?:it|that)|nothing|no thanks|stop)\W*"
+    r"|\W*(?:算了|不用了|取消|没事)\W*",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class PendingLook:
+    """What was in front when the key was pressed, waiting for the question."""
+
+    task_id: int
+    seen: codelook.Look
+    question: asyncio.Future  # the words said next; None: never mind
 
 
 async def haiku(prompt: str, system: str = SUMMARY_SYSTEM) -> str:
@@ -109,6 +143,11 @@ class CodeVoice:
         self.limiter = Limiter(HAIKU_PER_HOUR)
         # Haiku, only in the app itself: a test's hub never polls, and never calls a model.
         self.summarize: Any = haiku if getattr(hub, "poll", False) else None
+        self.look: PendingLook | None = None
+        self.pointing = False  # the window: hand control is on over a page or the simulator
+        self.point_calls: dict[str, asyncio.Future] = {}
+        self.speak_next: set[int] = set()  # sessions whose next reply is read out
+        self.helper_told = False  # the look-at-this helper couldn't be built: said once
 
     def install(self) -> None:
         hub = self.hub
@@ -117,6 +156,9 @@ class CodeVoice:
         hub.add_task_sink(self.on_task_event)
         hub.add_briefing_note(self.briefing_note)
         hub.register_command("code_voice_seen", self.on_seen)
+        hub.register_command("whats_this", self.on_whats_this)
+        hub.register_command("code_voice_hand", self.on_hand)
+        hub.register_command("code_voice_pointed", self.on_pointed)
 
     # ── words ──
 
@@ -133,18 +175,22 @@ class CodeVoice:
     async def voice_hook(self, text: str, task: Any) -> bool:
         """Voice coding: the utterance is ours when it's about the sessions or one of this
         feature's session commands; otherwise voicecode carries on with it."""
+        if self.take_question(text):
+            return True
         ask = cs.parse(text, self.language)
-        if ask is None:
-            return False
-        reply = await self.handle(ask, task)
-        if reply is None:
-            return False
-        if reply:
-            self.hub.say(reply)
-        return True
+        reply = await self.handle(ask, task) if ask is not None else None
+        if reply is not None:
+            if reply:
+                self.hub.say(reply)
+            return True
+        if self.pointing and cs.points_at(text) and voice_command(text).kind == "send":
+            return await self.point_and_speak(text, task)
+        return False
 
     async def instant(self, text: str) -> str | None:
         """Not voice coding: only what's about the sessions, never a session command."""
+        if self.take_question(text):
+            return ""
         ask = cs.parse(text, self.language)
         if ask is None or ask.focused or ask.weak:
             return None
@@ -464,6 +510,130 @@ class CodeVoice:
             return self.say("It's inside {symbol}.", symbol=symbol)
         return self.say("They're inside {symbol}.", symbol=symbol)
 
+    # ── point and speak ──
+
+    def on_hand(self, msg: dict[str, Any]) -> None:
+        """The window: whether hand control now points at a page or the simulator."""
+        self.pointing = msg.get("pointing") is True
+
+    def on_pointed(self, msg: dict[str, Any]) -> None:
+        future = self.point_calls.get(str(msg.get("id", "")))
+        if future is not None and not future.done():
+            future.set_result(cs.clean_reference(msg.get("ref")))
+
+    async def pointed(self) -> dict[str, Any] | None:
+        """What the hand points at, as the window sees it now (None: nothing, or no answer)."""
+        call = uuid.uuid4().hex[:10]
+        future = asyncio.get_running_loop().create_future()
+        self.point_calls[call] = future
+        self.hub.emit("code_voice_point", id=call)
+        try:
+            return await asyncio.wait_for(future, POINT_TIMEOUT)
+        except TimeoutError:
+            return None
+        finally:
+            self.point_calls.pop(call, None)
+
+    async def point_and_speak(self, text: str, task: Any) -> bool:
+        """ "Make this bigger" while pointing: the request with what it points at."""
+        ref = await self.pointed()
+        if ref is None:
+            return False  # nothing under the hand: the request goes as it was said
+        request = text if lang.has_cjk(text) else await self.hub.with_code_hints(task, text)
+        images = [ref["image"]] if ref.get("image") else None
+        note = cs.reference_note(ref)
+        await self.hub.voicecode._send(task, f"{request}\n\n{note}", hint=False, images=images)
+        return True
+
+    # ── look at this ──
+
+    async def on_whats_this(self, msg: dict[str, Any]) -> bool | None:
+        """⌥⇧Space into the session in voice focus, or the one Jarvis Code shows in front
+        (msg["session"]); anything else is JARVIS's own What's-this (False)."""
+        task = self.hub.voicecode.task
+        if task is None:
+            try:
+                task = self.hub.tasks.tasks.get(int(msg.get("session") or 0))
+            except (TypeError, ValueError):
+                task = None
+        if task is None or task.kind != "code":
+            return False
+        seen = await self.capture()
+        if self.look is not None and not self.look.question.done():
+            self.look.question.set_result(None)  # pressed again: this one instead
+        look = PendingLook(task.id, seen, asyncio.get_running_loop().create_future())
+        self.look = look
+        self.hub.emit("caption", text=self.say("What about it?"))
+        self.hub._spawn(self.send_look(look))
+        return None
+
+    async def capture(self) -> codelook.Look:
+        """What's in front. In the app the helper is built on first use; a test's hub
+        never builds one (or captures anything but its own stand-in screen)."""
+        from ..hub import frontmost_app
+
+        poll = getattr(self.hub, "poll", False)
+        seen = await codelook.look(
+            helper=codelook.ensure_helper if poll else (lambda: None),
+            app_name=frontmost_app if poll else (lambda: ""),
+            screen=self.hub.screen_watch.capture,
+        )
+        if poll and not self.helper_told and not (seen.helper and seen.ax):
+            self.helper_told = True  # said once: why the title or the selection didn't go
+            why = (
+                "To send your selected text too, allow Accessibility for J.A.R.V.I.S. in "
+                "System Settings."
+                if seen.helper
+                else "Only a picture went along: the helper that reads the window's title and "
+                "selected text couldn't be built."
+            )
+            self.hub.emit("caption", text=self.say(why))
+        return seen
+
+    def take_question(self, text: str) -> bool:
+        """The words said after the key are its question ("never mind": nothing goes)."""
+        look = self.look
+        if look is None or look.question.done():
+            return False
+        look.question.set_result(None if LOOK_CANCEL.fullmatch(text.strip()) else text.strip())
+        return True
+
+    async def send_look(self, look: PendingLook) -> None:
+        """Wait for the question (hands-free: the next thing said; otherwise push to talk),
+        then send it all to the session. With no question, it asks what this is."""
+        hub = self.hub
+        try:
+            if hub._listener is not None and hub._listener.running:
+                hub._arm(seconds=LOOK_LISTEN)
+                wait = LOOK_LISTEN + LOOK_SLACK
+            else:
+                await hub.listen()  # its words come back through instant()
+                wait = 0.2
+            try:
+                question = await asyncio.wait_for(asyncio.shield(look.question), wait)
+            except TimeoutError:
+                question = ""
+        finally:
+            superseded = self.look is not look
+            if not superseded:
+                self.look = None
+        task = hub.tasks.tasks.get(look.task_id)
+        if superseded:
+            return  # the key was pressed again: the newer look goes instead
+        if question is None or task is None:
+            hub.emit("caption", text=self.say("Nothing sent."))
+            return
+        if question and not lang.has_cjk(question):
+            question = await hub.with_code_hints(task, question)
+        hub.tasks.send(task.id, codelook.message(look.seen, question), look.seen.images())
+        hub.emit("show_session", id=task.id)
+        if hub.voicecode.focus == task.id:
+            hub.acknowledge()  # its answer is read out when it comes, as every reply is
+            hub.set_state("thinking")
+        else:
+            self.speak_next.add(task.id)  # asked by voice: the answer is read out too
+            hub.say(self.say("Sent to {session}.", session=cs.name_of(task, self.language)))
+
     # ── what happens in the sessions ──
 
     def on_task_event(self, kind: str, data: dict[str, Any]) -> None:
@@ -472,6 +642,15 @@ class CodeVoice:
         if kind == "task_finished" and data.get("task_kind") == "code":
             if self.hub.voicecode.focus == task_id:
                 self.journal.mark_seen(task_id)  # its reply is being read out
+            elif task_id in self.speak_next:
+                self.speak_next.discard(task_id)
+                if data.get("status") != "stopped":
+                    self.journal.mark_seen(task_id)
+                    reply = speakable(
+                        str(data.get("result") or "") or "Done.",
+                        sentences=self.hub.prefs.code_sentences,
+                    )
+                    self.hub.say(reply)
         elif kind == "tasks":
             ids = {item.get("id") for item in data.get("items") or [] if isinstance(item, dict)}
             self.journal.forget_others({i for i in ids if isinstance(i, int)})

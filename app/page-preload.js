@@ -36,6 +36,7 @@ let pending = null; // { el, at } waiting for a second pinch
 let coast = 0;
 let lastPointer = { x: -1, y: -1 };
 let cursorAt = { x: 0, y: 0 };
+let movedAt = 0; // when the hand last moved the cursor (what it's on is "this" for a while)
 
 // ── the overlay ──
 
@@ -236,6 +237,7 @@ function onHand(msg) {
   switch (msg.t) {
     case 'move': {
       cursorAt = { x, y };
+      movedAt = Date.now();
       u.cursor.hidden = false;
       u.cursor.dataset.mode = msg.mode || 'aim';
       u.cursor.style.transform = `translate(${x}px, ${y}px)`;
@@ -480,8 +482,50 @@ function findInPage({ text = '', forward = true, stop = false }) {
   return { ok: true, matches: findRanges.length, active: findAt + 1 };
 }
 
+// ── point and speak: what the hand is on, for "make this bigger" in Jarvis Code ──
+
+const POINT_FRESH_MS = 4000; // the hand dropped while the words were said still counts
+
+// A CSS path that finds the element again: from the nearest ancestor with a unique id,
+// each step its tag, two classes and its place among siblings of that tag.
+function selectorOf(el) {
+  const parts = [];
+  for (let node = el; node && node.nodeType === 1 && node !== document.documentElement && parts.length < 6; node = node.parentElement) {
+    if (node.id && /^[A-Za-z][\w-]*$/.test(node.id) && document.querySelectorAll(`#${node.id}`).length === 1) {
+      parts.unshift(`#${node.id}`);
+      break;
+    }
+    let part = node.tagName.toLowerCase();
+    const classes = [...node.classList].filter((c) => /^[A-Za-z][\w-]*$/.test(c)).slice(0, 2);
+    if (classes.length) part += `.${classes.join('.')}`;
+    const same = node.parentElement ? [...node.parentElement.children].filter((c) => c.tagName === node.tagName) : [];
+    if (same.length > 1) part += `:nth-of-type(${same.indexOf(node) + 1})`;
+    parts.unshift(part);
+  }
+  return parts.join(' > ');
+}
+
+// The element under the hand's cursor (else the control it lights), where it is on the
+// page, and its words.
+function pointed() {
+  if (!ui || (ui.cursor.hidden && Date.now() - movedAt > POINT_FRESH_MS)) return { ok: false, message: 'The hand isn’t pointing at the page.' };
+  const under = document.elementFromPoint(cursorAt.x, cursorAt.y);
+  const el = under && usable(under) ? under : (hover && hover.isConnected ? hover : under);
+  if (!el || el === document.body || el === document.documentElement) return { ok: false, message: 'Nothing is under the hand.' };
+  const r = el.getBoundingClientRect();
+  const words = el.getAttribute('aria-label') || el.innerText || el.value || el.getAttribute('alt') || el.title || '';
+  return {
+    ok: true,
+    tag: el.tagName.toLowerCase(),
+    text: String(words).replace(/\s+/g, ' ').trim().slice(0, 200),
+    selector: selectorOf(el),
+    box: { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) },
+  };
+}
+
 async function command({ action, args = {} }) {
   switch (action) {
+    case 'pointed': return pointed();
     case 'locate': {
       let el = null;
       if (args.selector) { try { el = document.querySelector(args.selector); } catch (_) { el = null; } }

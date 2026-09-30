@@ -786,13 +786,13 @@ class VoiceCoder:
         if task is None:
             self.exit()
             return
+        self._typed = typed
         if not typed and intent is None:
             for hook in list(self.hooks):
                 if await hook(text, task):
                     return
         intent = intent or parse(text)
         tasks = self.hub.tasks
-        self._typed = typed
         if typed:
 
             def say(note: str, follow_up: bool = True) -> None:
@@ -979,12 +979,16 @@ class VoiceCoder:
         more = " There's more; say read the rest." if len(parts) > start + 4 else ""
         return " ".join(chunk) + more
 
-    async def _send(self, task, text: str, hint: bool = True, plain: bool = False) -> None:
+    async def _send(
+        self, task, text: str, hint: bool = True, plain: bool = False, images: Any = None
+    ) -> None:
         typed = getattr(self, "_typed", False)
         if hint and not typed:  # typed names are already exact
             text = await self.hub.with_code_hints(task, text)
         if plain:
             self.hub.tasks.send(task.id, text, plain=True)
+        elif images:  # what the owner pointed at, as a picture
+            self.hub.tasks.send(task.id, text, images)
         else:
             self.hub.tasks.send(task.id, text)
         if typed:

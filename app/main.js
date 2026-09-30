@@ -911,6 +911,21 @@ async function runBrowserCommand({ action, args = {} }) {
       sendBrowserState();
       return { ok: true, zoom: Math.round(browserZoom * 100) };
     }
+    case 'pointed': { // Jarvis Code's point and speak: what the hand is on, and a picture of it
+      if (!wc.getURL()) return { ok: false, message: 'The browser is empty.' };
+      const found = await pageCall('pointed');
+      if (!found.ok || !found.box) return found;
+      const z = wc.getZoomFactor();
+      const shown = view.getBounds();
+      const pad = 12;
+      const x = Math.min(Math.max(0, Math.floor((found.box.x - pad) * z)), Math.max(0, shown.width - 1));
+      const y = Math.min(Math.max(0, Math.floor((found.box.y - pad) * z)), Math.max(0, shown.height - 1));
+      const width = Math.max(1, Math.min(shown.width - x, Math.ceil((found.box.width + pad * 2) * z)));
+      const height = Math.max(1, Math.min(shown.height - y, Math.ceil((found.box.height + pad * 2) * z)));
+      const image = await wc.capturePage({ x, y, width, height });
+      const scaled = image.getSize().width > 800 ? image.resize({ width: 800 }) : image;
+      return { ...found, ...where(), png: image.isEmpty() ? '' : scaled.toPNG().toString('base64') };
+    }
     case 'screenshot': {
       const image = await wc.capturePage();
       const size = image.getSize();

@@ -390,3 +390,28 @@ def test_every_sentence_has_its_chinese_with_the_same_slots():
         assert lang.ZH_TEXTS[english] == chinese  # registered with lang: translate knows it
     assert lang.translate("Ultracode off.") == "ultracode 已关闭。"
     assert lang.tr("Told {session}.", "zh", session="会话3") == "已转告会话3。"
+
+
+def test_what_the_hand_points_at_is_kept_only_in_its_shapes():
+    page = cs.clean_reference(
+        {
+            "kind": "page",
+            "tag": "BUTTON onclick=x",
+            "text": " Buy \n now ",
+            "selector": "#buy",
+            "box": {"x": 1, "y": 2.6, "width": 3, "height": 4},
+            "url": "javascript:alert(1)",
+            "image": {"media_type": "image/svg+xml", "data": "PHN2Zz4="},
+        }
+    )
+    assert page["tag"] == "element" and page["text"] == "Buy now" and page["box"] == [1, 3, 3, 4]
+    assert page["url"] == "" and page["image"] is None
+    assert cs.clean_reference({"kind": "simulator", "x": 2, "y": -1})["x"] == 1.0
+    assert cs.clean_reference({"kind": "simulator", "x": "a", "y": 0}) is None
+    assert cs.clean_reference("page") is None and cs.clean_reference({"kind": "file"}) is None
+    note = cs.reference_note(page)
+    assert note.startswith(
+        "[Pointed at while saying this, in the built-in browser (the page): a <element>"
+    )
+    assert cs.points_at("make this bigger") and cs.points_at("把这个改成蓝色")
+    assert not cs.points_at("add a retry around the query")

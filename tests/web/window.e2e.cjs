@@ -594,6 +594,36 @@ test('“Read lines 3 to 4 of hub.py” opens it in the Files viewer with those 
   assert(JSON.stringify(marked) === '[false,false,true,true,false]', JSON.stringify(marked));
 });
 
+test('The look-at-this key names the Jarvis Code session in front, and only then', async () => {
+  await open(3);
+  assert(JSON.stringify(await js('whatsThisMessage()')) === '{"type":"whats_this","session":3}', 'session 3 is in front');
+  await js('toggleCC(false); true');
+  assert(JSON.stringify(await js('whatsThisMessage()')) === '{"type":"whats_this","session":0}', 'Jarvis Code is closed');
+});
+
+test('With hand control on a page, the window says so and says what the hand points at', async () => {
+  await loadFeature('code-voice.js');
+  await js(`window.jarvisApp = { browser: { command: async (c) => (c.action === 'pointed'
+    ? { ok: true, tag: 'button', text: 'Buy now', selector: '#buy', box: { x: 10, y: 20, width: 80, height: 30 }, url: 'http://localhost:5173/', title: 'Shop', png: 'iVBOR' }
+    : { ok: false }) } }; true`);
+  await js('handsOn = true; browserOpenNow = true; $("hand-panel").hidden = false; true');
+  await frames(2);
+  const hand = await sentOf('code_voice_hand');
+  assert(JSON.stringify(hand.map((m) => m.pointing)) === '[true]', JSON.stringify(hand));
+  await deliver({ type: 'code_voice_point', id: 'p1' });
+  await frames(2);
+  const [answer] = await sentOf('code_voice_pointed');
+  assert(answer && answer.id === 'p1' && answer.ref.kind === 'page' && answer.ref.selector === '#buy', JSON.stringify(answer));
+  assert(answer.ref.image.media_type === 'image/png' && answer.ref.image.data === 'iVBOR', JSON.stringify(answer.ref.image));
+  await js('handsOn = false; $("hand-panel").hidden = true; __sent.length = 0; true');
+  await frames(2);
+  await deliver({ type: 'code_voice_point', id: 'p2' });
+  await frames(2);
+  const off = await sentOf('code_voice_pointed');
+  assert(off.length === 1 && off[0].ref === null, JSON.stringify(off));  // hands off: nothing pointed at
+  assert(JSON.stringify((await sentOf('code_voice_hand')).map((m) => m.pointing)) === '[false]', 'the hand going off was not said');
+});
+
 // ──
 
 let base;

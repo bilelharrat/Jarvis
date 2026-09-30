@@ -349,7 +349,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (app) app.onSummon(() => { if (state === 'idle') send({ type: 'listen' }); });
-if (app && app.onWhatsThis) app.onWhatsThis(() => send({ type: 'whats_this' }));
+// ⌥⇧Space: with Jarvis Code open on a session, what's in front goes to that session.
+function whatsThisMessage() { return { type: 'whats_this', session: !$('cc').hidden && ccSelected ? ccSelected : 0 }; }
+if (app && app.onWhatsThis) app.onWhatsThis(() => send(whatsThisMessage()));
 
 // ── sources & the galaxy ──
 
