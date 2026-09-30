@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -101,6 +102,13 @@ class Intent:
 
 
 _LEADING = ("please", "okay", "ok", "so", "now", "and", "hey", "can", "could", "you")
+
+# What feature modules (jarvis.features) add: each parser takes an utterance's plain words
+# and its raw text and gives an Intent or None; the handler for that Intent's kind
+# (hub, task, intent, say) carries it out. Only an utterance none of the commands in
+# parse() took reaches the parsers.
+EXTRA_PARSERS: dict[str, Callable[[str, str], Intent | None]] = {}
+EXTRA_HANDLERS: dict[str, Callable[..., Awaitable[None]]] = {}
 
 
 def _tokens(text: str) -> list[str]:
@@ -272,6 +280,10 @@ def parse(text: str) -> Intent:
         return Intent("git", "pr")
     if whole(r"(run|rerun|re run) (the |all the )?tests( again| please)?", 6):
         return Intent("git", "tests")
+    for extra in list(EXTRA_PARSERS.values()):
+        found = extra(said, raw)
+        if found is not None:
+            return found
     return Intent("send", text=raw)
 
 
@@ -929,6 +941,8 @@ class VoiceCoder:
             await self._send(task, prompt, plain=True)  # git's own wording: no ultracode
             say({"commit": "Committing.", "push": "Pushing.", "pr": "Opening a pull request.",
                  "tests": "Running the tests."}[intent.arg], follow_up=False)  # fmt: skip
+        elif intent.kind in EXTRA_HANDLERS:
+            await EXTRA_HANDLERS[intent.kind](self.hub, task, intent, say)
         else:
             await self._send(task, intent.text)
 
