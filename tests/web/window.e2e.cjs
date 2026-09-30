@@ -5472,6 +5472,36 @@ test('Export the whole session: share-safe, paths hidden, as a PDF, then shown i
   assert(await js('document.querySelector("#jc-pane-body .cx-result.bad").textContent').then((t) => t.includes('needs the app’s window') || t.includes('needs the app\'s window')), 'the error is not shown');
 });
 
+test('An export is its session’s: another session shows neither it nor its file, and a lost ask never leaves Export stuck', async () => {
+  await featureScript('code-export.js');
+  await open(1);
+  await js('onEvent({ type: "tasks", items: [__task(1), __task(2)] }); jarvisFeatures.openPane("cw-export"); true');
+  const go = () => js('(() => { const b = document.querySelector("#jc-pane-body .cx-go"); return b ? [b.textContent, b.disabled] : null; })()');
+  assert(await clickText('#jc-pane-body', 'Export'), 'no Export button');
+  const [asked] = await sentOf('cw_export');
+  assert(asked && asked.id === 1 && JSON.stringify(await go()) === '["Exporting…",true]', JSON.stringify(await go()));
+  // Session 2 on show: its own Export, and session 1's file isn't said to be its.
+  await js('selectTask(2); true');
+  assert(JSON.stringify(await go()) === '["Export",false]', `session 2 shows session 1's export: ${JSON.stringify(await go())}`);
+  await deliver({ type: 'cw_export', ref: asked.ref, ok: true, path: '/Users/x/Documents/Jarvis/Jarvis Code/One.html', name: 'One.html', entries: 3 });
+  await frames(2);
+  assert(!(await js('$("jc-pane-body").textContent.includes("One.html")')), 'session 1’s file shown in session 2');
+  await js('selectTask(1); true');
+  assert(await js('$("jc-pane-body").textContent.includes("One.html")'), 'session 1’s file isn’t shown with it');
+  // No connection: nothing starts, and Export stays as it was.
+  await js('window.__send = send; send = () => false; true');
+  assert(await clickText('#jc-pane-body', 'Export'), 'no Export button');
+  assert(JSON.stringify(await go()) === '["Export",false]', `an export that couldn't be asked for: ${JSON.stringify(await go())}`);
+  // Asked, then the connection went: after the reconnect Export works again.
+  await js('send = __send; __sent.length = 0; true');
+  assert(await clickText('#jc-pane-body', 'Export'), 'no Export button');
+  assert(JSON.stringify(await go()) === '["Exporting…",true]', JSON.stringify(await go()));
+  await deliver({ type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, status: {}, activity: [], tasks: [await js('__task(1)'), await js('__task(2)')],
+    prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50 }, brain: {}, approvals: [], history: [] });
+  await frames(2);
+  assert(JSON.stringify(await go()) === '["Export",false]', `Export stuck after a reconnect: ${JSON.stringify(await go())}`);
+});
+
 // ── proactive (web/features/proactive.js): quiet hours, the briefing, heads-up cards ──
 
 const PREFS = { type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, quiet_hours: '22:00-07:00' };

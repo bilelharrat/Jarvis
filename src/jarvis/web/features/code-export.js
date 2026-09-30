@@ -11,9 +11,14 @@
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
 
   const choice = { safe: false, anonymize: false, format: 'html' };
-  let pending = '';  // the ref of the export being made
-  let result = null;  // { ok, path, name } | { error }
+  // Each session's export: the ref it was asked with, whether it's being made, and what came
+  // of it ({ ok, path, name } | { error }). Another session shows its own, never this one.
+  const jobs = new Map();  // session id -> { ref, pending, result }
   let refN = 0;
+  function jobOf(t) {
+    if (!jobs.has(t.id)) jobs.set(t.id, { ref: '', pending: false, result: null });
+    return jobs.get(t.id);
+  }
 
   function shown() { return typeof currentPane !== 'undefined' && currentPane === 'cw-export' && !F.$('jc-pane').hidden; }
 
@@ -36,7 +41,8 @@
   let drawn = '';
   function keyNow() {
     const t = F.currentTask();
-    return JSON.stringify([t ? t.id : 0, choice, pending, result && (result.path || result.error)]);
+    const job = t ? jobOf(t) : {};
+    return JSON.stringify([t ? t.id : 0, choice, !!job.pending, job.result && (job.result.path || job.result.error)]);
   }
   function draw(body, again = false) {
     const t = F.currentTask();
@@ -44,6 +50,8 @@
     if (!again && key === drawn && body.querySelector(':scope > .cx-root, :scope > .jc-empty')) return;
     drawn = key;
     if (!t) { body.replaceChildren(el('p', 'jc-empty', 'Open a session to export it.')); return; }
+    const job = jobOf(t);
+    const result = job.result;
     const what = el('fieldset', 'cx-group');
     what.append(el('legend', '', 'What'),
       option('safe', false, 'Everything', 'Every message, each step’s input and output, the thinking and pictures'),
@@ -58,13 +66,14 @@
     hide.append(box, hideWords);
     const format = el('fieldset', 'cx-group');
     format.append(el('legend', '', 'As'), option('format', 'html', 'A page (HTML)', 'Opens in any browser'), option('format', 'pdf', 'A PDF', 'Laid out for printing, steps opened'));
-    const go = el('button', 'jc-btn cx-go', pending ? 'Exporting…' : 'Export');
+    const go = el('button', 'jc-btn cx-go', job.pending ? 'Exporting…' : 'Export');
     go.type = 'button';
-    go.disabled = !!pending;
+    go.disabled = job.pending;
     go.addEventListener('click', () => {
-      pending = `x${++refN}`;
-      result = null;
-      F.send({ type: 'cw_export', id: t.id, safe: choice.safe, anonymize: choice.anonymize, format: choice.format, ref: pending });
+      const ref = `x${++refN}`;
+      // (not connected: nothing is being made, and Export stays as it was)
+      if (!F.send({ type: 'cw_export', id: t.id, safe: choice.safe, anonymize: choice.anonymize, format: choice.format, ref })) return;
+      Object.assign(job, { ref, pending: true, result: null });
       draw(body, true);
     });
     const parts = [what, hide, format, go];
@@ -87,9 +96,17 @@
   if (F.registerMoreItem) F.registerMoreItem({ label: 'Export the whole session…', run: () => F.openPane('cw-export'), when: (t) => !!t });
 
   F.on('cw_export', (ev) => {
-    if (!ev.ref || ev.ref !== pending) return;
-    pending = '';
-    result = ev;
-    if (shown()) draw(F.$('jc-pane-body'), true);
+    const job = [...jobs.values()].find((j) => j.ref && j.ref === ev.ref);
+    if (!job) return;
+    job.pending = false;
+    job.result = ev;
+    if (shown()) draw(F.$('jc-pane-body'));  // (drawn again only when it's the session on show's)
+  });
+
+  // A reconnect: an answer may have been missed while away, so Export can be asked again (one
+  // that comes after all still shows, unless another was asked for since).
+  F.on('hello', () => {
+    for (const job of jobs.values()) job.pending = false;
+    if (shown()) draw(F.$('jc-pane-body'));
   });
 })(typeof window === 'object' ? window : globalThis);
