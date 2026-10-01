@@ -1,8 +1,10 @@
+import AVFoundation
 import CoreLocation
 import SwiftUI
 
-/// Settings › Sensors: location, health and the camera, each off until turned on, each
-/// saying plainly what it sends and when.
+/// Settings › Sensors: location, health, the live camera, contacts and the calendar, each
+/// off until turned on (iOS asks its permission then), each saying plainly what it sends
+/// and when; and why notifications aren't one of them.
 struct SensorSettings: View {
     @State private var location = LocationService.shared.enabled
     @State private var authorization = LocationService.shared.authorization
@@ -11,9 +13,16 @@ struct SensorSettings: View {
     @State private var settingPlace: LocationReport.Region?
     @State private var health = HealthService.shared.enabled
     @State private var healthProblem: String?
-    @AppStorage(SensorSettings.cameraKey) private var camera = false
+    @AppStorage(SensorSettings.liveCameraKey) private var liveCamera = false
+    @State private var cameraProblem: String?
+    @State private var contacts = PhoneSensors.shared.contactsOn
+    @State private var contactsProblem: String?
+    @State private var calendar = PhoneSensors.shared.calendarOn
+    @State private var calendarProblem: String?
+    @State private var calendarSent = PhoneSensors.shared.calendarSentAt
+    @State private var syncing = false
 
-    static let cameraKey = "sensors.camera"
+    static let liveCameraKey = "sensors.camera.live"
 
     var body: some View {
         Group {
@@ -65,17 +74,85 @@ struct SensorSettings: View {
             .glassRow()
 
             Section {
-                Toggle(isOn: $camera) {
+                Toggle(isOn: Binding(get: { liveCamera }, set: setLiveCamera)) {
                     HStack(spacing: Space.s) {
-                        IconTile(symbol: "camera.fill")
-                        Text("Show Jarvis")
+                        IconTile(symbol: "camera.viewfinder")
+                        Text("Point and ask")
                     }
                 }
-                .accessibilityLabel("Show Jarvis")
+                .accessibilityLabel("Point and ask")
+                if let cameraProblem { openSettings(cameraProblem) }
             } header: {
                 ListHeader("Camera")
             } footer: {
-                ListFooter("Adds Show Jarvis to the menu: take a photo and ask about it. A photo goes to your Mac only when you send it.")
+                ListFooter("Adds a live view to Show Jarvis: point the camera and ask “What’s this?” or “Read this”. The camera shows only on your screen; one still frame goes to Jarvis each time you ask, never a video stream. Show Jarvis can always take a single photo.")
+            }
+            .glassRow()
+
+            Section {
+                Toggle(isOn: Binding(get: { contacts }, set: setContacts)) {
+                    HStack(spacing: Space.s) {
+                        IconTile(symbol: "person.crop.circle.fill")
+                        Text("Look up contacts")
+                    }
+                }
+                .accessibilityLabel("Look up contacts")
+                if let contactsProblem { openSettings(contactsProblem) }
+            } header: {
+                ListHeader("Contacts")
+            } footer: {
+                ListFooter("When your Mac’s Contacts don’t have someone, Jarvis can ask this iPhone “who is…”. It looks up that one name here and sends back at most five matches: name, job, company, numbers and emails. Your address book is never uploaded.")
+            }
+            .glassRow()
+
+            Section {
+                Toggle(isOn: Binding(get: { calendar }, set: setCalendar)) {
+                    HStack(spacing: Space.s) {
+                        IconTile(symbol: "calendar")
+                        Text("Share my calendar")
+                    }
+                }
+                .accessibilityLabel("Share my calendar")
+                if calendar {
+                    HStack(spacing: Space.s) {
+                        Text(calendarSent.map { "Sent \($0.formatted(.relative(presentation: .named)))" } ?? "Not sent yet")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.muted)
+                        Spacer(minLength: Space.xs)
+                        if syncing {
+                            ProgressView()
+                        } else {
+                            Button("Sync now") { syncCalendar() }
+                                .foregroundStyle(Palette.cyan)
+                                .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                if let calendarProblem { openSettings(calendarProblem) }
+            } header: {
+                ListHeader("Calendar")
+            } footer: {
+                ListFooter("For calendars that live only on this iPhone: the next 14 days of events (title, time, place and calendar name; never notes, invitees or links) go to your Mac every 30 minutes, and when Jarvis asks. Your Mac keeps only the latest copy and forgets it when you turn this off.")
+            }
+            .glassRow()
+
+            Section {
+                Label {
+                    Text("Other apps’ notifications")
+                        .foregroundStyle(Palette.ink)
+                } icon: {
+                    Image(systemName: "bell.slash")
+                        .foregroundStyle(Palette.muted)
+                }
+                .accessibilityElement(children: .combine)
+                Button("Open Shortcuts") {
+                    if let url = URL(string: "shortcuts://") { UIApplication.shared.open(url) }
+                }
+                .foregroundStyle(Palette.cyan)
+            } header: {
+                ListHeader("Notifications")
+            } footer: {
+                ListFooter("iOS doesn’t let any app read other apps’ notifications, so Jarvis can’t see them. Two things come close: a Focus filter (Settings › Focus) decides which apps and people can reach you, and a Shortcuts automation (Shortcuts › Automation, for example “When I get an email from…” or “When an app is opened”) can run “Ask Jarvis” with what you choose to pass it.")
             }
             .glassRow()
         }
@@ -156,6 +233,61 @@ struct SensorSettings: View {
                 health = false
                 healthProblem = "Apple Health didn’t allow it. You can allow it in Settings › Health › Data Access."
             }
+        }
+    }
+
+    private func setLiveCamera(_ on: Bool) {
+        cameraProblem = nil
+        guard on else {
+            liveCamera = false
+            return
+        }
+        Task {
+            let allowed = await AVCaptureDevice.requestAccess(for: .video)
+            liveCamera = allowed
+            if !allowed { cameraProblem = "The camera is off for J.A.R.V.I.S. in Settings." }
+        }
+    }
+
+    private func setContacts(_ on: Bool) {
+        contactsProblem = nil
+        contacts = on
+        Task {
+            if on {
+                if await PhoneSensors.shared.turnOnContacts() == false {
+                    contacts = false
+                    contactsProblem = "Contacts are off for J.A.R.V.I.S. in Settings."
+                }
+            } else {
+                await PhoneSensors.shared.turnOffContacts()
+            }
+        }
+    }
+
+    private func setCalendar(_ on: Bool) {
+        calendarProblem = nil
+        calendar = on
+        Task {
+            if on {
+                syncing = true
+                if await PhoneSensors.shared.turnOnCalendar() == false {
+                    calendar = false
+                    calendarProblem = "Calendars are off for J.A.R.V.I.S. in Settings (it needs full access to read them)."
+                }
+                syncing = false
+            } else {
+                await PhoneSensors.shared.turnOffCalendar()
+            }
+            calendarSent = PhoneSensors.shared.calendarSentAt
+        }
+    }
+
+    private func syncCalendar() {
+        syncing = true
+        Task {
+            await PhoneSensors.shared.sendCalendarIfDue(force: true)
+            calendarSent = PhoneSensors.shared.calendarSentAt
+            syncing = false
         }
     }
 

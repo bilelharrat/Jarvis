@@ -56,12 +56,12 @@ targets:
           - _jarvis._tcp
         NSSpeechRecognitionUsageDescription: Turns what you say into a request for Jarvis, on your iPhone when it can.
         NSMicrophoneUsageDescription: Listens when you talk to Jarvis, and for “Hey Jarvis” while you have that turned on.
-        NSCalendarsFullAccessUsageDescription: So Jarvis can tell you what’s on your calendar and add events when you ask, on this iPhone.
+        NSCalendarsFullAccessUsageDescription: So Jarvis can tell you what’s on your calendar and add events when you ask, on this iPhone. If you turn on Share my calendar, the next 14 days of events also go to Jarvis on your Mac.
         NSRemindersFullAccessUsageDescription: So Jarvis can read your reminders, add new ones and tick them off when you ask.
-        NSContactsUsageDescription: So Jarvis knows who you mean when you ask it to call or text someone.
+        NSContactsUsageDescription: So Jarvis knows who you mean when you ask it to call or text someone. If you turn on contact lookups, your Mac can ask this iPhone “who is…” one name at a time; your address book is never uploaded.
         NSAppleMusicUsageDescription: So Jarvis can play your music when you ask.
         NSHomeKitUsageDescription: So Jarvis can control your Home accessories and scenes when you ask.
-        NSCameraUsageDescription: Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis.
+        NSCameraUsageDescription: Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis. With Point and ask on, the camera shows live on your screen and one frame goes to Jarvis only when you ask.
         NSLocationWhenInUseUsageDescription: For the weather where you are, travel times and places nearby when you ask Jarvis.
         NSLocationAlwaysAndWhenInUseUsageDescription: So Jarvis on your Mac knows when you arrive at or leave home and work, even when J.A.R.V.I.S. isn’t open. Low-power updates only; only your Mac gets it.
         NSHealthShareUsageDescription: Only if you turn on the daily health summary. Steps, sleep, resting heart rate and workouts go to Jarvis on your Mac for your briefing. Nothing is written to Health.

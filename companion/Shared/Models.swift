@@ -317,6 +317,8 @@ struct RemoteState: Equatable, Sendable, Decodable {
     var tls = false
     /// The Mac's feature screens it serves (memory, goals, timers…).
     var features: [String] = []
+    /// What the Mac asks of this iPhone's contacts and calendar (only those turned on).
+    var phoneAsks: [PhoneAsk] = []
 
     init() {}
 
@@ -326,6 +328,7 @@ struct RemoteState: Equatable, Sendable, Decodable {
         case pendingApprovals = "pending_approvals"
         case codeSessions = "code_sessions"
         case delegationsActive = "delegations_active"
+        case phoneAsks = "phone_asks"
     }
 
     init(from decoder: Decoder) throws {
@@ -346,6 +349,7 @@ struct RemoteState: Equatable, Sendable, Decodable {
         push = c.object(Push.self, .push)
         tls = c.flag(.tls) ?? false
         features = ((try? c.decodeIfPresent([String].self, forKey: .features)) ?? nil) ?? []
+        phoneAsks = c.list(PhoneAsk.self, .phoneAsks).filter { !$0.id.isEmpty && $0.kind != .unknown }
     }
 
     var activeTasks: [BackgroundTask] { tasks.filter(\.isActive) }

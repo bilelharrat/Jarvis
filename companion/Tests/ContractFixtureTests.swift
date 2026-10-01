@@ -339,4 +339,26 @@ final class ContractFixtureTests: XCTestCase {
         XCTAssertTrue(state.tasks.contains { $0.status == "waiting" })
         XCTAssertEqual(state.activeTasks.map(\.id), running)
     }
+
+    // MARK: - The phone's contacts and calendar
+
+    func testTheMacsAsksOfThePhone() throws {
+        let (state, json) = try decode(RemoteState.self, "state_asks")
+        let asks = list(json, "phone_asks")
+        XCTAssertFalse(asks.isEmpty)
+        XCTAssertEqual(state.phoneAsks.map(\.id), asks.compactMap { $0["id"] as? String })
+        XCTAssertEqual(state.phoneAsks.first?.kind, .contact)
+        XCTAssertEqual(state.phoneAsks.first?.name, asks.first?["name"] as? String)
+        let (plain, _) = try decode(RemoteState.self, "state")
+        XCTAssertEqual(plain.phoneAsks, [])
+    }
+
+    func testTheMacTookTheSensorsCalendarAndAnswer() throws {
+        for name in ["sensors", "calendar", "contacts_answer"] {
+            let fixture = try Self.fixture(name)
+            XCTAssertEqual(fixture.status, 200, name)
+            XCTAssertEqual(fixture.object["ok"] as? Bool, true, name)
+        }
+        XCTAssertEqual(try Self.fixture("calendar").object["events"] as? Int, 1)
+    }
 }

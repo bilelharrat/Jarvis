@@ -307,6 +307,22 @@ struct JarvisAPI: Sendable {
         _ = try await post("api/health", day.body, timeout: 10)
     }
 
+    /// Which of the contacts and calendar sensors the owner turned on here.
+    func setSensors(contacts: Bool, calendar: Bool) async throws {
+        _ = try await post("api/sensors", ["contacts": .bool(contacts), "calendar": .bool(calendar)], timeout: 10)
+    }
+
+    /// The people found for one of the Mac's "who is" asks; false when the ask had gone.
+    func answerContacts(id: String, people: [ContactCard]) async throws -> Bool {
+        let data = try await post("api/contacts/answer", ["id": .string(id), "people": .array(people.prefix(ContactCard.most).map(\.body))], timeout: 10)
+        return okay(data)
+    }
+
+    /// The next two weeks of this iPhone's events, in place of the copy the Mac had.
+    func sendCalendar(_ events: [PhoneEvent]) async throws {
+        _ = try await post("api/calendar", ["events": .array(events.map(\.body))], timeout: 20)
+    }
+
     /// What the Mac did with it: the name a file or image was saved as, and whether it
     /// took the note ("summarize this") as a request.
     func share(_ item: ShareItem) async throws -> ShareResult {

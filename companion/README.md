@@ -146,7 +146,7 @@ In App Store Connect (appstoreconnect.apple.com):
    a beta description, a feedback email, contact details and a **privacy policy URL**,
    which Beta App Review needs because the app reads Health data and location. The policy
    should say what the app sends to your Mac (requests, approvals, the Health summary,
-   location, photos and shared items), that none of it goes to BSH Ventures, and that
+   location, photos, shared items, contact lookups and calendar events), that none of it goes to BSH Ventures, and that
    Jarvis on the Mac may send requests to Claude under the owner's own account. In the
    review notes, say the app does nothing until it's paired with Jarvis on the tester's
    own Mac, and attach a short screen recording. Then External Testing › + a group › add the
@@ -387,11 +387,30 @@ from the App Group's keychain group.
   yesterday's steps, resting heart rate and workouts, and last night's sleep (asleep
   stages only, 6 pm to noon, overlaps between iPhone and Watch counted once), plus today
   so far (`POST /api/health`). Nothing is written to Health.
-- **Show Jarvis** (camera): adds Show Jarvis to the hub: take a photo, ask about it
-  (`POST /api/photo`, JPEG at most 2048 px); the answer shows and is spoken. A photo goes
-  only when you send it. (Not kept for later: you're waiting for the answer.)
+- **Show Jarvis** (camera): take a photo, ask about it (`POST /api/photo`, JPEG at most
+  2048 px); the answer shows and is spoken. A photo goes only when you send it. (Not kept
+  for later: you're waiting for the answer.)
+- **Point and ask** (camera, live): a live view in Show Jarvis with "What's this?", "Read
+  this", "Translate this" or your own question. The camera shows only on the screen; each
+  question takes one still frame and sends it as a photo. Never a video stream; the camera
+  stops when the view closes or the app leaves the screen.
+- **Contacts**: when the Mac's Contacts don't have someone, its `phone_contact` tool asks
+  the phone: the name appears in `/api/state` (`phone_asks`), and a silent push (no name in
+  it) wakes a closed app. The phone looks that one name up and answers
+  (`POST /api/contacts/answer`) with at most five people: name, job, company, numbers and
+  emails. The address book never leaves the phone; the Mac keeps an answer in memory ten
+  minutes.
+- **Calendar**: for calendars that live only on the phone, the next 14 days of events
+  (title, times, place, calendar name; never notes, invitees or links) go to the Mac
+  (`POST /api/calendar`) every 30 minutes while it's on (while the app is open and on
+  background refresh), and when its `phone_calendar` tool asks for a fresh copy. The Mac
+  keeps the latest copy only and forgets it when this is turned off.
+- **Notifications** aren't a sensor: iOS doesn't let an app read other apps'
+  notifications. Settings says so and points to Focus filters and Shortcuts automations
+  (which can run "Ask Jarvis").
 
-Unpairing turns location and health off.
+Which of contacts and calendar are on is told to the Mac (`POST /api/sensors`); it answers
+neither for a phone that hasn't turned it on. Unpairing turns every sensor off.
 
 ## Widgets and complications
 

@@ -245,6 +245,11 @@ final class AppModel {
             reloadQueue(sayExpired: true)
             restartPolling()
             Task { await HealthService.shared.sendIfDue() }
+            Task {
+                // Each time it opens while one is on (a Mac paired again starts knowing nothing).
+                await PhoneSensors.shared.report(force: PhoneSensors.shared.contactsOn || PhoneSensors.shared.calendarOn)
+                await PhoneSensors.shared.sendCalendarIfDue()
+            }
             resumeWakeWord()
             takeListenRequest()
             if listenOnOpen {
@@ -769,6 +774,10 @@ final class AppModel {
             apply(state)
             if let pairing { SnapshotPublisher.shared.publish(state, macName: pairing.macLabel) }
             if foreground { Task { await LiveActivities.shared.sync(state, api: api, inForeground: true) } }
+            if !state.phoneAsks.isEmpty { Task { await PhoneSensors.shared.answer(state.phoneAsks, using: api) } }
+            if foreground, PhoneSensors.shared.calendarOn {
+                Task { await PhoneSensors.shared.sendCalendarIfDue(using: api) }  // every 30 minutes while open
+            }
             if !queued.isEmpty { startDrain() }
         } catch JarvisError.unpaired {
             if pairing?.token == api.token { lost() }
@@ -831,6 +840,7 @@ final class AppModel {
         Task { await LiveActivities.shared.endAll() }
         LocationService.shared.turnOff()  // nothing to send to: off until turned on again
         HealthService.shared.turnOff()
+        PhoneSensors.shared.forget()
         queued = []
         pairing = nil
         brain.tools.mac = nil

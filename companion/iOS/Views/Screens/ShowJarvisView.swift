@@ -9,6 +9,8 @@ struct ShowJarvisView: View {
     @State private var photo: UIImage?
     @State private var question = ""
     @State private var showCamera = false
+    @State private var showLive = false
+    @AppStorage(SensorSettings.liveCameraKey) private var liveCamera = false
     @State private var phase: Phase = .idle
     @FocusState private var asking: Bool
 
@@ -54,6 +56,9 @@ struct ShowJarvisView: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $showLive) {
+            LiveCameraView()
+        }
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { image in
                 photo = image
@@ -86,6 +91,17 @@ struct ShowJarvisView: View {
             .buttonStyle(PrimaryButtonStyle())
             .disabled(!hasCamera)
             .padding(.top, Space.xs)
+            if liveCamera, hasCamera {
+                Button {
+                    showLive = true
+                } label: {
+                    Label("Point and ask", systemImage: "camera.viewfinder")
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 48)
+                }
+                .buttonStyle(GlassButtonStyle(tint: Palette.cyan))
+                .accessibilityHint("Shows the camera live; one frame goes to Jarvis each time you ask.")
+            }
         }
         .padding(Space.l)
         .glassCard(cornerRadius: Radius.card)
@@ -147,54 +163,54 @@ struct ShowJarvisView: View {
 
     private func send() async {
         guard let photo else { return }
-        if model.answersOnPhone {
-            return await sendToPhone(photo)
-        }
-        guard let api = model.pairing?.api else { return }
-        guard let jpeg = PhotoPrep.jpeg(from: photo) else {
-            phase = .failed("Couldn’t prepare that photo.")
-            return
-        }
         phase = .sending
+        phase = await PhotoQuestion.ask(about: photo, question, model: model)
+    }
+}
+
+/// One picture asked about, from Show Jarvis or its live view: Jarvis on the Mac looks at
+/// it (POST /api/photo), or Jarvis on the iPhone when it's the one answering (no Mac, or it
+/// can't be reached). The answer is spoken when spoken replies are on.
+@MainActor
+enum PhotoQuestion {
+    nonisolated static let fallback = "What is this?"
+
+    static func ask(about photo: UIImage, _ question: String, model: AppModel) async -> ShowJarvisView.Phase {
+        let question = question.trimmed.isEmpty ? fallback : question.trimmed
+        if model.answersOnPhone {
+            return await askPhone(about: photo, question, model: model)
+        }
+        guard let api = model.pairing?.api else { return .failed("Pair your Mac in Settings first.") }
+        guard let jpeg = PhotoPrep.jpeg(from: photo) else { return .failed("Couldn’t prepare that photo.") }
         do {
-            let result = try await api.photo(jpeg: jpeg, question: question.trimmed.isEmpty ? "What is this?" : question)
+            let result = try await api.photo(jpeg: jpeg, question: question)
             if result.done, !result.reply.trimmed.isEmpty {
-                phase = .answered(result.reply)
                 Haptics.reply()
                 if model.speakReplies { model.voice.speak(result.reply, using: api) }
-            } else if !result.approvals.isEmpty {
-                phase = .note("Jarvis needs your OK first. The card is on the main screen.")
-                model.expectActivity()
-            } else {
-                phase = .note("Jarvis is still working on it. The answer will be in the conversation.")
-                model.expectActivity()
+                return .answered(result.reply)
             }
+            model.expectActivity()
+            if !result.approvals.isEmpty { return .note("Jarvis needs your OK first. The card is on the main screen.") }
+            return .note("Jarvis is still working on it. The answer will be in the conversation.")
         } catch {
             Haptics.failure()
-            if let problem = model.handle(error) {
-                phase = .failed(problem.neverDelivered ? "Your Mac can’t be reached right now. Try again when it’s back." : problem.message)
-            } else {
-                phase = .idle
-            }
+            guard let problem = model.handle(error) else { return .idle }
+            return .failed(problem.neverDelivered ? "Your Mac can’t be reached right now. Try again when it’s back." : problem.message)
         }
     }
 
-    /// Jarvis on the iPhone looks at it (no Mac, or it can't be reached).
-    private func sendToPhone(_ photo: UIImage) async {
+    /// Jarvis on the iPhone looks at it.
+    private static func askPhone(about photo: UIImage, _ question: String, model: AppModel) async -> ShowJarvisView.Phase {
         guard let jpeg = PhotoPrep.jpeg(from: photo, longest: 1568, maxBytes: 4 * 1024 * 1024) else {
-            phase = .failed("Couldn’t prepare that photo.")
-            return
+            return .failed("Couldn’t prepare that photo.")
         }
-        phase = .sending
-        let ask = question.trimmed.isEmpty ? "What is this?" : question.trimmed
-        if let reply = await model.brain.ask(ask, image: jpeg, macName: model.pairing?.macLabel) {
-            phase = .answered(reply)
+        if let reply = await model.brain.ask(question, image: jpeg, macName: model.pairing?.macLabel) {
             Haptics.reply()
             if model.speakReplies { model.voice.speakLocally(reply) }
-        } else {
-            Haptics.failure()
-            phase = .failed(model.brain.turns.last?.text ?? "Jarvis couldn’t look at it right now.")
+            return .answered(reply)
         }
+        Haptics.failure()
+        return .failed(model.brain.turns.last?.text ?? "Jarvis couldn’t look at it right now.")
     }
 }
 
