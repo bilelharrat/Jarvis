@@ -868,6 +868,11 @@ class Hub:
         self._fallback_until = 0.0
         self._connected_ref = ""  # the added model the conversation runs on ("": Claude)
         self._claude_down = ""  # why Claude couldn't answer this turn
+        # A sign-in the running Claude Code process holds can go stale while it runs (another
+        # Claude process refreshed the account's sign-in and it rotated): a fresh process
+        # reads the current one. Asked again once per turn before it counts as Claude down.
+        self._stale_signin = False
+        self._signin_retried = False
         self._claude_said = ""  # ... in Claude Code's words ("You've hit your weekly limit…")
         # When Claude's usage limit resets (epoch seconds), as Claude Code said when it was
         # hit, and when Claude last couldn't answer. 0: never heard.
@@ -2907,12 +2912,20 @@ class Hub:
                         self._style_note, self._style_notes, self._style_dropped = "", [], False
                         self._alert_notes.clear()
                     self._claude_down, self._claude_said = "", ""
+                    self._stale_signin = self._signin_retried = False
                     if (
                         self._main_ref() != self._connected_ref
                     ):  # the fallback's time is up (or began)
                         await self._reconnect()
                     await self._before_query(self._turn_text, rid)
                     await self._run_query(rid, query, images)
+                    if self._stale_signin:
+                        self._stale_signin = False
+                        log.warning("Claude's sign-in went stale: a fresh session, and again")
+                        with contextlib.suppress(Exception):
+                            await self.client.disconnect()
+                        await self._connect(resume=self._session_id)
+                        await self._run_query(rid, query, images)
                     if self._claude_down:
                         await self._carry_on(rid, query, images)
             except Exception as exc:  # the Claude Code process died: reconnect and retry once
@@ -3062,6 +3075,15 @@ class Hub:
             return
         if isinstance(message, AssistantMessage):
             error = getattr(message, "error", None)
+            if (
+                error == "authentication_failed"
+                and not self._connected_ref
+                and not self._signin_retried
+                and not self._turn_progress
+            ):
+                # Not said: a fresh Claude Code process asks again with the current sign-in.
+                self._stale_signin = self._signin_retried = True
+                return
             if error in CLAUDE_DOWN and not self._connected_ref:
                 self._claude_couldnt()
                 if self._fallback_ref():
@@ -3103,6 +3125,7 @@ class Hub:
                 message.is_error
                 and not self._stopping
                 and not self._claude_down
+                and not self._stale_signin
                 and message.subtype != "success"
             ):
                 detail = "; ".join(message.errors or []) or message.subtype

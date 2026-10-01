@@ -652,3 +652,75 @@ async def test_a_running_background_task_doesnt_hold_up_the_move(
     assert await until(lambda: task.result == "Fixed it on Gemini.")
     assert task.model_ref == gemini and len(Limited.made) == 2
     hub.tasks.cancel(task.id)
+
+
+class StaleSignIn(FakeClient):
+    """The first Claude Code process holds a sign-in that went stale; a fresh one answers."""
+
+    made: list = []
+
+    def __init__(self, options=None):
+        super().__init__(options)
+        StaleSignIn.made.append(self)
+        stale = len(StaleSignIn.made) == 1
+        self.script = (
+            [
+                AssistantMessage(
+                    content=[
+                        TextBlock(
+                            text="Failed to authenticate. OAuth session expired and could "
+                            "not be refreshed."
+                        )
+                    ],
+                    model="m",
+                    error="authentication_failed",
+                ),
+                result(is_error=True),
+            ]
+            if stale
+            else [AssistantMessage(content=[TextBlock(text="Sunny and 68.")], model="m"), result()]
+        )
+
+
+async def test_a_stale_sign_in_starts_a_fresh_session_and_asks_again(
+    settings, quiet_speaker, isolated
+):
+    StaleSignIn.made = []
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.client_factory = StaleSignIn
+    await hub.start()
+    q = hub.subscribe()
+    assert await hub.ask("What's the weather?") == "Sunny and 68."
+    events = drain(q)
+    assert not [e for e in events if e["type"] == "error"]
+    assert not any("authenticate" in str(e.get("text", "")) for e in events)  # never said
+    assert len(StaleSignIn.made) == 2
+
+
+class NeverSignedIn(FakeClient):
+    """Every Claude Code process answers that the sign-in is gone."""
+
+    made: list = []
+
+    def __init__(self, options=None):
+        super().__init__(options)
+        NeverSignedIn.made.append(self)
+        self.script = [
+            AssistantMessage(
+                content=[TextBlock(text="Failed to authenticate.")],
+                model="m",
+                error="authentication_failed",
+            ),
+            result(is_error=True),
+        ]
+
+
+async def test_a_sign_in_that_stays_gone_is_asked_again_only_once(
+    settings, quiet_speaker, isolated
+):
+    NeverSignedIn.made = []
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.client_factory = NeverSignedIn
+    await hub.start()
+    await hub.ask("What's the weather?")
+    assert len(NeverSignedIn.made) == 2  # one fresh session, then it's said as before
