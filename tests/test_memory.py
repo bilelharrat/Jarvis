@@ -20,6 +20,36 @@ def test_restating_a_fact_replaces_it(tmp_path):
     store.add("The user's gym is Equinox on Market Street.")
     store.add("The user's gym is the Equinox on Market Street.")
     assert len(store.facts) == 1
+    store.add("I take my coffee black")
+    store.add("The user takes their coffee black.")
+    assert len(store.facts) == 2
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        (
+            "Ann Lee, the user's co-founder at BSH Ventures, lives in Oakland with her two kids",
+            "Ann Lee, the user's co-founder at BSH Ventures, lives in Seattle with her two kids",
+        ),
+        (
+            "The user's sister Mia takes her coffee with oat milk every single morning",
+            "The user's sister Mia never takes her coffee with oat milk every single morning",
+        ),
+        ("Ann's birthday is on the 3rd of May", "Ann's birthday is on the 4th of May"),
+    ],
+)
+def test_facts_one_word_apart_are_never_silently_merged(tmp_path, old, new):
+    """The sweep's bug: two long facts differing in one word were taken for the same fact,
+    and the newer silently replaced the older (Oakland lost, a "never" lost). Both stay, for
+    the wiki to show as a conflict; add_many keeps the second too."""
+    store = MemoryStore(tmp_path / "memory.json")
+    store.add(old)
+    store.add(new)
+    assert [f.text for f in store.facts] == [old, new]
+    other = MemoryStore(tmp_path / "other.json")
+    saved, left = other.add_many([{"text": old}, {"text": new}], source="import")
+    assert [f.text for f in saved] == [old, new] and left == []
 
 
 @pytest.mark.parametrize(

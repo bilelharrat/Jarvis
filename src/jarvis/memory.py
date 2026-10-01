@@ -224,8 +224,53 @@ def _match_words(text: str) -> set[str]:
     return found | {w[:-2] for w in found if w.endswith("'s") and len(w) > 2}
 
 
+# Words that never make two wordings of a fact different facts: who it's about said another
+# way ("my", "the user's", "their"), articles and joins. Never a negation, a number or a name.
+_FILLER = _COMMON | {
+    "user",
+    "users",
+    "user's",
+    "their",
+    "they",
+    "them",
+    "his",
+    "her",
+    "he",
+    "she",
+    "we",
+    "our",
+    "your",
+    "you",
+    "has",
+    "have",
+    "had",
+    "be",
+    "been",
+    "s",
+}
+
+
+def _content(words: set[str]) -> set[str]:
+    """A fact's words that carry what it says: filler aside, "takes" as "take" and "kids" as
+    "kid" (so "I take my coffee black" and "The user takes their coffee black" match)."""
+    out = set()
+    for word in words:
+        word = word.replace("'", "")
+        if word in _FILLER:
+            continue
+        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        out.add(word)
+    return out
+
+
 def _alike(new: set[str], old: set[str]) -> bool:
-    return bool(new and old and len(new & old) / len(new | old) > 0.8)
+    """The same fact said again: the very same words that carry meaning, worded another way.
+    Two facts that differ in even one such word ("lives in Oakland", "lives in Seattle";
+    "likes", "never likes") are two facts, never one silently put over the other: a change
+    is an edit, and a conflict is the wiki's to show."""
+    a, b = _content(new), _content(old)
+    return bool(a and b and a == b)
 
 
 def _tidy(text: Any) -> str:
