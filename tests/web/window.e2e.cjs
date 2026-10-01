@@ -4415,6 +4415,131 @@ test('A standing intent and About me are sent as written', async () => {
   assert(JSON.stringify(await sentOf('memory_about')) === JSON.stringify([{ type: 'memory_about', about: 'I run a small fund.' }]), 'about');
 });
 
+// ── Memory wiki (features/wiki.js): opened from Settings › Memory and by voice; pages with
+// each line's source, edits and forgets through memory's commands, conflicts, the map ──
+
+const WIKI_FACT = (id, text, extra = {}) => ({ id: `fact:${id}`, kind: 'fact', text, at: '2026-09-22T10:00:00', source: { type: 'fact', how: 'said', origin: 'remember that', learned: '2026-09-22T10:00:00' }, fact: id, category: 'people', confidence: 'high', expires: '', pages: [], ...extra });
+const WIKI_PAGE = {
+  id: 'person:ann-lee', kind: 'person', title: 'Ann Lee', aliases: ['Ann'], changed: '2026-09-29T10:00:00', summary: 'Ann is your co-founder.', summary_current: true,
+  statements: [
+    WIKI_FACT('a1', 'Ann lives in Oakland <img src=x onerror="window.__pwned=1">', { pages: [{ id: 'place:oakland', title: 'Oakland' }] }),
+    WIKI_FACT('b2', 'Ann moved to Seattle.'),
+    { id: 'promise:p1', kind: 'promise', text: 'send the deck', at: '2026-09-20', source: { type: 'promise', how: 'mail', at: '2026-09-20', quote: 'I will send the deck' }, promise: 'p1', to: 'Ann Lee', due: '', status: 'open', pages: [] },
+    { id: 'journal:2026-09-28:1', kind: 'journal', text: 'Lunch with Ann', at: '2026-09-28', source: { type: 'journal', day: '2026-09-28' }, day: '2026-09-28', pages: [] },
+    { id: 'conversation:s1', kind: 'conversation', text: 'what did Ann say?', at: '2026-09-01T09:00', source: { type: 'conversation', title: 'Deck', at: '2026-09-01T09:00' }, session: 's1', pages: [] },
+  ],
+  links: [{ id: 'place:oakland', title: 'Oakland', kind: 'place' }],
+  conflicts: [],
+};
+WIKI_PAGE.conflicts = [{ key: 'k1', a: 'a1', b: 'b2', subject: 'person:ann-lee', attribute: 'lives', how: 'rule', why: '', first: WIKI_PAGE.statements[0], second: WIKI_PAGE.statements[1] }];
+const WIKI_INDEX = { type: 'wiki_index', pages: [{ id: 'person:ann-lee', kind: 'person', title: 'Ann Lee', count: 5, conflicts: 1 }, { id: 'place:oakland', kind: 'place', title: 'Oakland', count: 1, conflicts: 0 }], conflicts: 1, missing: [], incognito: false };
+async function withWiki() {
+  await loadFeatures('memory.js', 'memory.css', 'wiki.js', 'wiki.css');
+  await js(`__ev({ type: 'memory', items: ${JSON.stringify(MEM_FACTS)} }); __ev(${memState()}); __sent.length = 0; true`);
+}
+
+test('Settings › Memory opens the memory wiki; its pages list, a page shows where each line came from', async () => {
+  await withWiki();
+  await js('toggleSettings(true); __sent.length = 0; true');
+  const row = await js('({ row: !!$("wiki-open-row"), after: $("mem-rows").nextElementSibling && $("mem-rows").nextElementSibling.id, memRows: document.querySelectorAll("#mem-rows .mem-row").length })');
+  assert(row.row && row.after === 'wiki-entry' && row.memRows === 8, JSON.stringify(row));
+  await js('$("wiki-open-row").click(); true');
+  const open = await js('({ open: !$("wiki-layer").hidden, sent: __sent.map((m) => m.type), focus: document.activeElement && document.activeElement.id, tab: document.querySelector("#wiki-pop [aria-selected=true]").dataset.tab })');
+  assert(open.open && open.sent.includes('wiki_open') && open.focus === 'wiki-close' && open.tab === 'pages', JSON.stringify(open));
+  await js(`__ev(${JSON.stringify(WIKI_INDEX)}); __sent.length = 0; true`);
+  const list = await js('({ groups: [...document.querySelectorAll("#wiki-list .wiki-group")].map((h) => h.textContent), links: [...document.querySelectorAll("#wiki-list .wiki-link")].map((b) => b.dataset.page), flagged: document.querySelectorAll("#wiki-list .wiki-flagged").length, intro: !!document.querySelector("#wiki-main .wiki-intro") })');
+  assert(JSON.stringify(list.groups) === '["People","Places"]' && JSON.stringify(list.links) === '["person:ann-lee","place:oakland"]' && list.flagged === 1 && list.intro, JSON.stringify(list));
+  await js('document.querySelector("#wiki-list [data-page=\'person:ann-lee\']").click(); true');
+  assert(JSON.stringify(await sentOf('wiki_page')) === JSON.stringify([{ type: 'wiki_page', id: 'person:ann-lee' }]), 'page asked');
+  await js(`__ev({ type: 'wiki_page', id: 'person:ann-lee', page: ${JSON.stringify(WIKI_PAGE)}, missing: false }); true`);
+  const page = await js(`({
+    title: document.querySelector('#wiki-main .wiki-page-title').textContent,
+    own: document.querySelector('#wiki-main .wiki-page-title').hasAttribute('data-no-i18n') && document.querySelector('[data-statement="fact:a1"] .wiki-st-text').hasAttribute('data-no-i18n'),
+    imgs: document.querySelectorAll('#wiki-main img').length, pwned: !!window.__pwned,
+    summary: document.querySelector('#wiki-main .wiki-summary p').textContent,
+    sections: [...document.querySelectorAll('#wiki-main > .wiki-section')].map((h) => h.textContent),
+    fact: document.querySelector('[data-statement="fact:a1"] .wiki-source').textContent,
+    promise: document.querySelector('[data-statement="promise:p1"] .wiki-source').textContent,
+    journal: document.querySelector('[data-statement="journal:2026-09-28:1"] .wiki-source').textContent,
+    convo: document.querySelector('[data-statement="conversation:s1"] .wiki-source').textContent,
+    also: [...document.querySelectorAll('[data-statement="fact:a1"] .wiki-tag')].map((b) => b.textContent),
+  })`);
+  assert(page.title === 'Ann Lee' && page.own && page.imgs === 0 && !page.pwned && page.summary === 'Ann is your co-founder.', JSON.stringify(page));
+  assert(JSON.stringify(page.sections) === '["What Jarvis knows","Promises","In your journal","In conversations","Linked pages"]', JSON.stringify(page.sections));
+  // A person's page offers their card, asked for by name as Settings › Memory › People does.
+  assert(await clickText('#wiki-main .wiki-card', 'Show the person card'), 'no person card');
+  assert(JSON.stringify(await sentOf('memory_person')) === JSON.stringify([{ type: 'memory_person', name: 'Ann Lee' }]), 'card asked');
+  await js(`__ev({ type: 'memory_person', asked: 'Ann Lee', name: 'Ann Lee', meetings: [{ at: '2026-10-02T10:00', title: 'Board prep', with: [] }], texts: [], mail: [{ at: '2026-09-29T09:00', subject: 'Deck v3' }], mentions: [], missing: [] }); true`);
+  const card = await js('[...document.querySelectorAll("#wiki-main .wiki-card li")].map((li) => li.textContent)');
+  assert(card.length === 2 && card[0].includes('Board prep') && card[1].includes('Deck v3'), JSON.stringify(card));
+  assert(page.fact.startsWith('You told me') && page.fact.includes('remember that'), page.fact);
+  assert(page.promise.startsWith('An email you sent') && page.promise.includes('I will send the deck'), page.promise);
+  assert(page.journal.startsWith('Daily note'), page.journal);
+  assert(page.convo.startsWith('A conversation with Jarvis') && page.convo.includes('“Deck”'), page.convo);
+  assert(JSON.stringify(page.also) === '["Oakland"]', JSON.stringify(page.also));
+});
+
+test('A wiki line is edited and forgotten through memory, a conflict settled three ways; Escape closes only the wiki', async () => {
+  await withWiki();
+  await js(`__ev({ type: 'wiki_show', tab: 'pages', page: 'person:ann-lee' }); __ev(${JSON.stringify(WIKI_INDEX)}); __ev({ type: 'wiki_page', id: 'person:ann-lee', page: ${JSON.stringify(WIKI_PAGE)}, missing: false }); __sent.length = 0; true`);
+  assert(await js('!$("wiki-layer").hidden'), 'wiki_show didn’t open it');
+  assert(await clickText('[data-statement="fact:b2"]', 'Edit'), 'no Edit');
+  await js(`(() => { const f = document.querySelector('[data-statement="fact:b2"] form'); f.querySelector('textarea').value = 'Ann moved to Tacoma.'; f.requestSubmit(); })(); true`);
+  assert(JSON.stringify(await sentOf('memory_edit')) === JSON.stringify([{ type: 'memory_edit', id: 'b2', text: 'Ann moved to Tacoma.' }]), 'edit');
+  assert(await clickText('[data-statement="fact:a1"]', 'Forget'), 'no Forget');
+  assert(JSON.stringify(await sentOf('memory_forget')) === JSON.stringify([{ type: 'memory_forget', id: 'a1' }]), 'forget');
+  await js('__sent.length = 0; true');
+  assert(await clickText('[data-conflict="k1"]', 'Keep A'), 'no Keep A');
+  assert(await clickText('[data-conflict="k1"]', 'Keep B'), 'no Keep B');
+  assert(await clickText('[data-conflict="k1"]', 'Both true at different times'), 'no Both');
+  const settled = await js('__sent.filter((m) => m.type === "memory_forget" || m.type === "wiki_resolve")');
+  assert(JSON.stringify(settled) === JSON.stringify([{ type: 'memory_forget', id: 'b2' }, { type: 'memory_forget', id: 'a1' }, { type: 'wiki_resolve', key: 'k1', choice: 'both', page: 'person:ann-lee' }]), JSON.stringify(settled));
+  await js('__sent.length = 0; true');
+  assert(await clickText('[data-statement="promise:p1"]', 'Done'), 'no Done');
+  assert(JSON.stringify(await sentOf('memory_promise')) === JSON.stringify([{ type: 'memory_promise', id: 'p1', status: 'done' }]), 'promise');
+  assert(await clickText('[data-statement="conversation:s1"]', 'Read it'), 'no Read it');
+  await js(`__ev({ type: 'conversation_transcript', session_id: 's1', entries: [{ role: 'user', text: 'what did Ann say?' }, { role: 'assistant', text: 'She liked it.' }] }); true`);
+  assert(await js('document.querySelectorAll("#wiki-main .wiki-lines li").length === 2'), 'no transcript');
+  await js('__sent.length = 0; toggleSettings(true); true');
+  await opsPress('Escape', 'Escape', 27);
+  assert(await js('!$("wiki-layer").hidden && !document.querySelector("#wiki-main .wiki-reading")'), 'Escape closed the reading first');
+  await opsPress('Escape', 'Escape', 27);
+  const after = await js('({ wiki: $("wiki-layer").hidden, settings: !$("settings").hidden, sent: __sent.map((m) => m.type) })');
+  assert(after.wiki && after.settings && !after.sent.includes('stop'), JSON.stringify(after));
+});
+
+test('The people map draws 2,000 people on one canvas, quickly, and a click opens a page', async () => {
+  await withWiki();
+  await js(`__ev({ type: 'wiki_show', tab: 'map' }); __sent.length = 0; true`);
+  const nodes = [{ id: 'me', title: 'You', kind: 'me', weight: 0 }];
+  const edges = [];
+  for (let i = 1; i < 2000; i++) { nodes.push({ id: `person:p${i}`, title: `Person ${i}`, kind: i % 9 ? 'person' : 'org', weight: i % 5 }); edges.push([i % 40 ? i - (i % 40) : 0, i, i % 3 ? 'works' : 'texts', 1]); }
+  await js(`window.__map = ${JSON.stringify({ type: 'wiki_map', nodes, edges, more: 0, missing: [] })}; true`);
+  const started = Date.now();
+  await js('__ev(window.__map); true');
+  await frames(20);
+  const took = Date.now() - started;
+  const r = await js('({ canvases: document.querySelectorAll("#wiki-map canvas").length, perNode: document.querySelectorAll("#wiki-map [data-page]").length, status: $("wiki-map-status").textContent, w: $("wiki-canvas").width })');
+  assert(r.canvases === 1 && r.perNode === 0 && r.status.startsWith('1999 people and organisations') && r.w > 0, JSON.stringify(r));
+  assert(took < 4000, `20 frames took ${took} ms`);
+  // Click the owner's neighbour: the map hands its id to the pages.
+  const target = await js(`(() => { const c = $('wiki-canvas').getBoundingClientRect(); return { x: c.left + c.width / 2, y: c.top + c.height / 2 }; })()`);
+  const picked = await js(`(() => {
+    const c = $('wiki-canvas'); const r = c.getBoundingClientRect();
+    const fire = (type, x, y) => c.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, bubbles: true, pointerId: 1 }));
+    // Find a drawn node by scanning a small grid around the middle (not the owner).
+    for (let dx = -120; dx <= 120; dx += 4) for (let dy = -120; dy <= 120; dy += 4) {
+      const x = r.left + r.width / 2 + dx, y = r.top + r.height / 2 + dy;
+      fire('pointermove', x, y);
+      if (c.title && c.title !== 'You') { fire('pointerdown', x, y); fire('pointerup', x, y); return c.title; }
+    }
+    return '';
+  })()`);
+  assert(picked && picked.startsWith('Person'), `nothing to click near ${JSON.stringify(target)}`);
+  const asked = await sentOf('wiki_page');
+  assert(asked.length === 1 && asked[0].id.startsWith('person:p') && await js('!$("wiki-pages").hidden'), JSON.stringify(asked));
+});
+
 // ── Jarvis Code's usage meter and limits (web/features/code-usage.js) ──
 
 // A menu item with a note under its label: its button's text starts with the label.
