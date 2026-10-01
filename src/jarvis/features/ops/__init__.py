@@ -1,10 +1,11 @@
 """Ops: first-run setup, the checkup ("Jarvis, run a checkup"), the security review,
 backups of the data folder and a diagnostics file to share when asking for help.
 
-- Setup: a guided, skippable sheet on a fresh install (no prefs.json when the backend
-  started), and from Settings any time: language, a voice and microphone test, the macOS
-  permissions with their live status, the Claude sign-in, hands-free and the briefing, and
-  a pointer to the iPhone companion.
+- Setup: the first-run intro (web/features/intro.js), shown by itself on a fresh install
+  (no prefs.json when the backend started) and from Settings any time. It uses this
+  feature's state (ops_state, ops_setup), the permissions' live status, the Claude check,
+  the voice sample and the microphone test, and ops_mic_meter: a live level meter read off
+  hands-free's own stream for a few seconds (nothing recorded), or the microphone test.
 - The checkup (doctor.py): permissions, Claude, the speech model, the Swift compiler, disk
   space, damaged data files, errors in the log, the companion's port, accounts, leftover
   Claude processes, the file and knowledge indexes and backups; a fix button only for the
@@ -90,6 +91,7 @@ def install(hub: Any) -> None:
         "ops_open_settings": ops.open_settings,
         "ops_voice_test": ops.voice_test,
         "ops_mic_test": ops.mic_test,
+        "ops_mic_meter": ops.mic_meter,
         "ops_doctor": ops.doctor,
         "ops_fix": ops.fix,
         "ops_security": ops.security,

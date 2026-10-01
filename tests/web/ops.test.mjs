@@ -86,7 +86,7 @@ function sentences() {
 
 test('every sentence the Health & safety window writes has its Chinese', () => {
   const all = sentences();
-  assert.ok(all.length > 150, `only ${all.length} found: the scan has gone wrong`);
+  assert.ok(all.length > 100, `only ${all.length} found: the scan has gone wrong`);
   const missing = all.filter((s) => chinese(s) === null);
   assert.deepEqual(missing, []);
 });

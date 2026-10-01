@@ -41,6 +41,7 @@ DAILY_FIRST_DELAY = 10 * 60.0  # seconds after the start before the first daily 
 DAILY_EVERY = 60 * 60.0  # then hourly: a Mac asleep at the usual time still gets one
 DAILY_GAP = timedelta(hours=20)  # a daily backup newer than this is today's
 MIC_SECONDS = 30.0
+METER_SECONDS = 8.0  # the intro's live microphone meter, read off hands-free's stream
 SETUP_STATES = ("", "pending", "done", "skipped")
 VOICE_SAMPLE = "Hello. This is how I sound. If you can hear me clearly, the voice is working."
 VOICE_SAMPLE_ZH = "你好，这就是我的声音。如果你能听清楚，说明语音一切正常。"
@@ -86,6 +87,8 @@ class Ops:
         self._backup_lock: asyncio.Lock | None = None
         self._busy: set[str] = set()
         self._mic_busy = False
+        self._meter_task: asyncio.Task | None = None
+        self.meter_seconds = METER_SECONDS
         self._backup_failed_told = False
         self._tasks: set[asyncio.Task] = set()
 
@@ -279,6 +282,48 @@ class Ops:
             return
         self._mic_busy = True
         self.spawn(self._mic())
+
+    async def mic_meter(self, _msg: dict[str, Any] | None = None) -> None:
+        """The intro's live microphone meter. While hands-free listens, its own stream's
+        levels for a few seconds (nothing is recorded, kept or transcribed), then the
+        loudest: {"state": "metered", "peak"}. Otherwise it's the microphone test: one
+        utterance, its levels, then what was heard."""
+        listener = getattr(self.hub, "_listener", None)
+        if listener is None or not getattr(listener, "running", False):
+            if self.hub.prefs.hands_free:  # on, but its microphone never opened
+                self.emit("ops_mic", state="metered", peak=0.0)
+                return
+            await self.mic_test()
+            return
+        task = self._meter_task
+        if task is None or task.done():
+            self._meter_task = self.spawn(self._meter(listener))
+
+    async def _meter(self, listener: Any) -> None:
+        loop = asyncio.get_running_loop()
+        original = listener.on_level
+        peak = [0.0]
+        last = [0.0]
+
+        def tap(rms: float) -> None:  # on the microphone's thread
+            if original is not None:
+                original(rms)
+            value = round(min(float(rms) * 12, 1.0), 3)
+            peak[0] = max(peak[0], value)
+            now = time.monotonic()
+            if now - last[0] < 0.1:
+                return
+            last[0] = now
+            loop.call_soon_threadsafe(lambda: self.emit("ops_mic", state="level", level=value))
+
+        listener.on_level = tap
+        self.emit("ops_mic", state="listening")
+        try:
+            await asyncio.sleep(self.meter_seconds)
+        finally:
+            if listener.on_level is tap:
+                listener.on_level = original
+        self.emit("ops_mic", state="metered", peak=round(peak[0], 3))
 
     async def _mic(self) -> None:
         hub = self.hub

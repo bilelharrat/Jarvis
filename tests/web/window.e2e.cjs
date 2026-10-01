@@ -1338,42 +1338,283 @@ test('A restore shows what changes, then restores and restarts; the waiting rest
   ]), JSON.stringify(s));
 });
 
-test('Setup shows by itself on a fresh install, once; its steps set things only when pressed', async () => {
-  await withOps();
+// ── First-run intro (web/features/intro.js, put in as features.js would) ──
+
+const INTRO_JS = fs.readFileSync(path.join(WEB, 'features', 'intro.js'), 'utf8');
+const INTRO_CSS = fs.readFileSync(path.join(WEB, 'features', 'intro.css'), 'utf8');
+async function withIntro({ ops = false } = {}) {
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(INTRO_CSS)}; document.head.append(s); })(); true`);
+  await js(`${INTRO_JS}\n;true`);
+  if (ops) await withOps();
+  await js('__sent.length = 0; true');
+}
+const introCard = () => js('window.jarvisIntro.card()');
+const introNext = () => js('$("intro-next").click(); true');
+const introGo = async (id) => { for (let i = 0; i < 30 && (await introCard()) !== id; i++) await introNext(); assert((await introCard()) === id, `never reached ${id}`); };
+const INTRO_CATALOG = {
+  type: 'connectors', redirect_uri: 'http://localhost:47823/callback', connections: [],
+  catalog: [
+    { id: 'notion', name: 'Notion', category: 'Work', auth: 'oauth', blurb: 'Search, read and write pages and databases.', help: '', help_url: '', steps: [], connected: false },
+    { id: 'asana', name: 'Asana', category: 'Work', auth: 'own_app', blurb: 'Tasks and projects.', help: '', help_url: 'https://developers.asana.com/docs/integrating-with-asanas-mcp-server',
+      steps: ["Open Asana's developer console (app.asana.com/0/my-apps) and sign in.", 'In the sidebar, open OAuth and add this redirect URL: {redirect_uri}', 'Copy the Client ID and Client secret, and paste them below.'], connected: false },
+    { id: 'github', name: 'GitHub', category: 'Developer', auth: 'token', blurb: 'Repos, issues, pull requests and Actions.', help: '', help_url: '', steps: ['Press Generate token, copy it, and paste it below.'], connected: false },
+  ],
+};
+
+test('The intro shows by itself on a fresh install, once; Continue, Back, Not now and Skip walk it, and only a press sets anything', async () => {
+  await withIntro();
   await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
-  assert(await js('!$("ops-setup").hidden'), 'Setup did not show');
-  await js('document.querySelector("#ops-setup-body [data-lang=zh]").click(); true');
-  await js('$("ops-setup-next").click(); true');  // Voice
-  await js('$("ops-mic-test").click(); true');
-  await opsEvent({ type: 'ops_mic', state: 'heard', text: 'testing <b>one</b> two' });
-  const heard = await js('({ text: document.querySelector("#ops-setup-body .ops-mic q").textContent, data: !!document.querySelector("#ops-setup-body .ops-mic q[data-no-i18n]"), bold: document.querySelectorAll("#ops-setup-body b").length })');
-  assert(heard.text === 'testing <b>one</b> two' && heard.data && heard.bold === 0, JSON.stringify(heard));
-  await js('$("ops-setup-next").click(); true');  // Permissions
+  assert(await js('!$("intro").hidden'), 'the intro did not show');
+  let r = await js('({ card: window.jarvisIntro.card(), title: $("intro-title").textContent, back: $("intro-back").hidden, next: $("intro-next").textContent, dots: document.querySelectorAll("#intro-dots li").length, on: document.querySelector("#intro-dots li.on").dataset.section })');
+  assert(r.card === 'welcome' && r.back && r.next === 'Get started' && r.dots === 11 && r.on === 'welcome', JSON.stringify(r));
+  await introNext();
+  await js('document.querySelector("#intro-card [data-lang=zh]").click(); true');
+  await introNext();  // the microphone
+  assert((await introCard()) === 'mic', await introCard());
+  await js('$("intro-back").click(); true');
+  assert((await introCard()) === 'language', 'Back went nowhere');
+  await introNext();
+  await js('$("intro-later").click(); true');  // Not now: the next card
+  assert((await introCard()) === 'permissions', await introCard());
   await opsEvent({ type: 'ops_permissions', at: '', error: '',
-    rows: [{ id: 'screen', title: 'Screen Recording', why: 'To look at your screen when you ask what’s on it.', state: 'off', label: 'Not allowed yet', hint: '', apps: [], pane: 'screen' },
-      { id: 'microphone', title: 'Microphone', why: 'To hear you.', state: 'granted', label: 'Allowed', hint: '', apps: [], pane: 'microphone' }] });
-  const perms = await js('[...document.querySelectorAll("#ops-setup-body .ops-item")].map((li) => li.dataset.perm + ":" + li.dataset.state + ":" + li.querySelectorAll("button").length)');
-  assert(JSON.stringify(perms) === JSON.stringify(['screen:problem:1', 'microphone:ok:0']), JSON.stringify(perms));
-  assert(await clickText('#ops-setup-body [data-perm="screen"]', 'Open System Settings'), 'no Open System Settings');
-  await js('$("ops-setup-next").click(); true');  // Claude
-  await opsEvent({ type: 'ops_claude', ...opsCheck('claude', { title: 'Claude sign-in', state: 'problem', summary: 'Not signed in', command: 'claude auth login' }) });
-  assert((await js('document.querySelector("#ops-setup-body .ops-command code").textContent')) === 'claude auth login', 'no sign-in command');
-  await js('$("ops-setup-next").click(); document.querySelector("#ops-setup-body [data-pref=hands_free]").click(); $("ops-setup-next").click(); true');
-  assert((await js('$("ops-setup-next").textContent')) === 'Done', 'not the last step');
-  await js('$("ops-setup-next").click(); true');
-  const s = await js('__sent.filter((m) => !["ops_permissions"].includes(m.type))');
+    rows: [{ id: 'microphone', title: 'Microphone', why: 'To hear you.', state: 'granted', label: 'Allowed', hint: '', apps: [], pane: 'microphone' },
+      { id: 'screen', title: 'Screen Recording', why: 'To look at your screen when you ask what’s on it.', state: 'off', label: 'Not allowed yet', hint: '', apps: [], pane: 'screen' }] });
+  r = await js('[...document.querySelectorAll("#intro-card [data-perm]")].map((li) => li.dataset.perm + ":" + li.dataset.state + ":" + li.querySelectorAll("button").length)');
+  assert(JSON.stringify(r) === JSON.stringify(['screen:bad:1']), JSON.stringify(r));  // the microphone has its own card
+  assert(await clickText('#intro-card [data-perm="screen"]', 'Open System Settings'), 'no Open System Settings');
+  await introGo('twilio');
+  await js('$("intro-later").click(); true');  // Not now on Twilio: past the whole Twilio part
+  assert((await introCard()) === 'iphone-calls', await introCard());
+  await introGo('done');
+  r = await js('({ next: $("intro-next").textContent, later: $("intro-later").hidden, on: document.querySelector("#intro-dots li.on").dataset.section })');
+  assert(r.next === 'Start using Jarvis' && r.later && r.on === 'done', JSON.stringify(r));
+  await introNext();
+  const s = await js('__sent.filter((m) => ["set_prefs", "ops_open_settings", "ops_setup", "ops_mic_meter", "signin_key", "phone_credentials", "voice_key", "providers_add", "connect"].includes(m.type))');
   assert(JSON.stringify(s) === JSON.stringify([
     { type: 'set_prefs', changes: { language: 'zh' } },
-    { type: 'ops_mic_test' },
     { type: 'ops_open_settings', pane: 'screen' },
-    { type: 'ops_claude' },
-    { type: 'signin_state' },
-    { type: 'set_prefs', changes: { hands_free: true } },
     { type: 'ops_setup', state: 'done' },
   ]), JSON.stringify(s));
-  assert(await js('$("ops-setup").hidden'), 'Setup stayed open');
+  assert(await js('$("intro").hidden'), 'the intro stayed open');
   await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
-  assert(await js('$("ops-setup").hidden'), 'Setup came back in the same window');
+  assert(await js('$("intro").hidden'), 'the intro came back in the same window');
+});
+
+test('Skip setup says so and closes; Escape only closes; Settings › Set up Jarvis again… opens it from the start', async () => {
+  await withIntro({ ops: true });
+  await js('window.jarvisIntro.open(); true');
+  await introNext();
+  await opsPress('Escape', 'Escape', 27);
+  assert(await js('$("intro").hidden'), 'Escape left it open');
+  assert((await sentOf('ops_setup')).length === 0, 'Escape said the setup was done or skipped');
+  await js('toggleSettings(true); $("ops-setup-open").click(); true');
+  let r = await js('({ open: !$("intro").hidden, card: window.jarvisIntro.card(), settings: $("settings").hidden })');
+  assert(r.open && r.card === 'welcome' && r.settings, JSON.stringify(r));
+  await js('$("intro-skip").click(); true');
+  r = await js('({ hidden: $("intro").hidden, sent: __sent.filter((m) => m.type === "ops_setup") })');
+  assert(r.hidden && JSON.stringify(r.sent) === '[{"type":"ops_setup","state":"skipped"}]', JSON.stringify(r));
+});
+
+test('Intro › microphone: the bars follow the hub’s levels, a voice is a success, silence says exactly what to do', async () => {
+  await withIntro();
+  await js('window.jarvisIntro.open("mic"); true');
+  await js('$("intro-mic-test").click(); true');
+  assert((await sentOf('ops_mic_meter')).length === 1, 'the meter wasn’t asked for');
+  await opsEvent({ type: 'ops_mic', state: 'listening' });
+  for (const level of [0.02, 0.04]) await opsEvent({ type: 'ops_mic', state: 'level', level });
+  let r = await js('({ ok: $("intro-card").dataset.ok, tallest: Math.max(...[...document.querySelectorAll("#intro-bars i")].map((b) => parseInt(b.style.height, 10))) })');
+  assert(r.ok === 'false' && r.tallest > 6, JSON.stringify(r));
+  await opsEvent({ type: 'ops_mic', state: 'level', level: 0.5 });
+  r = await js('({ ok: $("intro-card").dataset.ok, title: $("intro-title").textContent, badge: !!document.querySelector("#intro-card .intro-check") })');
+  assert(r.ok === 'true' && r.title === 'Jarvis hears you' && r.badge, JSON.stringify(r));
+  // the run ends; another that hears nothing: what to do, and the button to the pane
+  await opsEvent({ type: 'ops_mic', state: 'metered', peak: 0.5 });
+  await js('$("intro-mic-test").click(); true');
+  await opsEvent({ type: 'ops_mic', state: 'listening' });
+  await opsEvent({ type: 'ops_mic', state: 'metered', peak: 0 });
+  r = await js('({ ok: $("intro-card").dataset.ok, text: document.querySelector("#intro-card .intro-callout").textContent })');
+  assert(r.ok === 'false' && r.text.includes('Privacy & Security › Microphone') && r.text.includes('Quit Jarvis (⌘Q)'), JSON.stringify(r));
+  assert(await clickText('#intro-card .intro-callout', 'Open Microphone settings'), 'no Open Microphone settings');
+  assert(JSON.stringify(await sentOf('ops_open_settings')) === '[{"type":"ops_open_settings","pane":"microphone"}]', 'not the Microphone pane');
+});
+
+test('Intro › Try it succeeds only on the hub’s own events: ⌥ Space’s listening, what it heard and its answer; the wake word; two claps', async () => {
+  await withIntro();
+  await js('window.jarvisIntro.open("talk"); true');
+  // a typed question, and an answer with no listening before it, prove nothing
+  await opsEvent({ type: 'turn', rid: 'x', user: 'typed' });
+  await opsEvent({ type: 'reply', rid: 'x', text: 'An answer.' });
+  assert((await js('$("intro-card").dataset.ok')) === 'false', 'a typed question counted');
+  await opsEvent({ type: 'state', value: 'listening' });
+  assert((await js('document.querySelector("#intro-card .intro-status").textContent')).startsWith('Listening'), 'not listening');
+  await opsEvent({ type: 'heard', text: 'what time is it <b>now</b>' });
+  await opsEvent({ type: 'turn', rid: 'r1', user: 'what time is it <b>now</b>' });
+  await opsEvent({ type: 'reply', rid: 'r2', text: 'Another turn’s words.' });
+  assert((await js('$("intro-card").dataset.ok')) === 'false', 'another turn’s reply counted');
+  await opsEvent({ type: 'reply', rid: 'r1', text: 'It’s 3:42.' });
+  let r = await js('({ ok: $("intro-card").dataset.ok, you: document.querySelector("#intro-card .intro-bubble.you").textContent, me: document.querySelector("#intro-card .intro-bubble.jarvis").textContent, data: document.querySelectorAll("#intro-card .intro-bubble [data-no-i18n]").length, bold: document.querySelectorAll("#intro-card b").length, later: $("intro-later").hidden })');
+  assert(r.ok === 'true' && r.you === 'what time is it <b>now</b>' && r.me === 'It’s 3:42.' && r.data === 2 && r.bold === 0 && r.later, JSON.stringify(r));
+  await opsEvent({ type: 'state', value: 'idle' });
+  assert((await js('$("intro-card").dataset.ok')) === 'true', 'the success went when Jarvis stopped');
+  await js('document.querySelector("#intro-card button.intro-orb").click(); true');
+  assert((await sentOf('listen')).length === 1, 'the orb didn’t talk');
+  // the wake word: hands-free first, then what it heard and its answer
+  await introNext();
+  assert((await introCard()) === 'wake', await introCard());
+  assert(await clickText('#intro-card', 'Turn on hands-free'), 'no Turn on hands-free');
+  assert(JSON.stringify((await sentOf('set_prefs')).pop()) === '{"type":"set_prefs","changes":{"hands_free":true}}', 'hands-free wasn’t asked for');
+  await opsEvent({ type: 'prefs', look: 'orb', language: 'en', hands_free: true, clap_hands: true });
+  await opsEvent({ type: 'heard', text: 'what time is it' });
+  await opsEvent({ type: 'turn', rid: 'w1', user: 'what time is it' });
+  assert((await js('$("intro-card").dataset.ok')) === 'false', 'done before the answer');
+  await opsEvent({ type: 'reply', rid: 'w1', text: 'Ten past nine.' });
+  r = await js('({ ok: $("intro-card").dataset.ok, title: $("intro-title").textContent })');
+  assert(r.ok === 'true' && r.title === 'Jarvis heard its name', JSON.stringify(r));
+  // two claps: the hub's "hands on"
+  await introNext();
+  await opsEvent({ type: 'ui', action: 'panel', name: 'settings', open: true });
+  assert((await js('$("intro-card").dataset.ok')) === 'false', 'another ui event counted');
+  await opsEvent({ type: 'ui', action: 'hands', on: true });
+  r = await js('({ ok: $("intro-card").dataset.ok, title: $("intro-title").textContent })');
+  assert(r.ok === 'true' && r.title === 'Hand control is on', JSON.stringify(r));
+});
+
+test('Intro › Claude: the walkthrough, a key sent once and never shown, the live check, and the owner’s Claude Code sign-in skips it', async () => {
+  await withIntro();
+  await js('window.jarvisIntro.open("claude"); true');
+  assert((await sentOf('signin_state')).length === 1 && (await sentOf('ops_claude')).length === 1, 'the sign-in wasn’t asked for');
+  await opsEvent({ type: 'signin', mode: 'account', hint: '', status: null, key_url: '', error: '', note: '' });
+  await opsEvent({ type: 'ops_claude', ...opsCheck('claude', { title: 'Claude sign-in', state: 'problem', summary: 'Not signed in' }) });
+  let r = await js('({ steps: document.querySelectorAll("#intro-card .intro-steps li").length, link: document.querySelector("#intro-card a.intro-link").href, target: document.querySelector("#intro-card a.intro-link").target, type: $("intro-claude-key").type, text: $("intro-card").textContent })');
+  assert(r.steps === 5 && r.link.startsWith('https://platform.claude.com/') && r.target === '_blank' && r.type === 'password', JSON.stringify(r));
+  assert(r.text.includes('billed to your Anthropic account') && r.text.includes('Settings › API keys'), r.text);
+  const key = `sk-ant-api03-${'k'.repeat(40)}Wxyz`;
+  await js(`(() => { const i = $('intro-claude-key'); i.value = ${JSON.stringify(key)}; i.form.requestSubmit(); })(); true`);
+  r = await js('({ value: $("intro-claude-key").value, busy: document.querySelector("#intro-card .intro-form button").disabled, label: document.querySelector("#intro-card .intro-form button").textContent })');
+  assert(r.value === '' && r.busy && r.label === 'Checking…', JSON.stringify(r));
+  const asked = await sentOf('signin_key');
+  assert(asked.length === 1 && asked[0].key === key, JSON.stringify(asked));
+  await opsEvent({ type: 'signin', mode: 'account', hint: '', status: null, key_url: '', error: 'Anthropic didn’t take that key.', note: '' });
+  r = await js('({ warn: document.querySelector("#intro-card .warn").textContent, busy: document.querySelector("#intro-card .intro-form button").disabled })');
+  assert(r.warn === 'Anthropic didn’t take that key.' && !r.busy, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await opsEvent({ type: 'signin', mode: 'key', hint: 'sk-…Wxyz', status: { ok: true }, key_url: '', error: '', note: 'Signed in with your API key.' });
+  r = await js('({ ok: $("intro-card").dataset.ok, form: !!$("intro-claude-key"), hint: document.querySelector("#intro-card .intro-meta").textContent, data: document.querySelector("#intro-card .intro-meta").hasAttribute("data-no-i18n"), text: $("intro").textContent })');
+  assert(r.ok === 'true' && !r.form && r.hint === 'sk-…Wxyz' && r.data && !r.text.includes(key), JSON.stringify(r));
+  assert((await sentOf('ops_claude')).length === 1, 'the check didn’t run again for the new sign-in');
+  assert(await clickText('#intro-card', 'Remove the key'), 'no Remove');
+  assert((await sentOf('signin_forget')).length === 1, 'Remove went nowhere');
+  // the owner's development Mac: signed in through Claude Code already
+  await opsEvent({ type: 'signin', mode: 'account', hint: '', status: null, key_url: '', error: '', note: '' });
+  await opsEvent({ type: 'ops_claude', ...opsCheck('claude', { title: 'Claude sign-in', state: 'ok', summary: 'Signed in', meta: 'Max · 2.1.284' }) });
+  r = await js('({ ok: $("intro-card").dataset.ok, form: !!$("intro-claude-key"), title: $("intro-title").textContent, later: $("intro-later").hidden, text: $("intro-card").textContent })');
+  assert(r.ok === 'true' && !r.form && r.title === 'Claude is connected' && r.later && r.text.includes('Signed in through Claude Code'), JSON.stringify(r));
+});
+
+test('Intro › accounts: a card a catalog group, live status, OAuth in one press, and an own app’s walkthrough with the redirect URI', async () => {
+  await withIntro();
+  await js('window.jarvisIntro.open("welcome"); true');
+  assert((await sentOf('connectors')).length >= 1, 'the catalog wasn’t asked for');
+  await opsEvent(INTRO_CATALOG);
+  await introGo('accounts:Work');
+  let r = await js('({ ids: window.jarvisIntro.card(), rows: [...document.querySelectorAll("#intro-card [data-svc]")].map((li) => li.dataset.svc), title: $("intro-title").textContent })');
+  assert(JSON.stringify(r.rows) === '["notion","asana"]' && r.title === 'Your work apps', JSON.stringify(r));
+  assert(await clickText('#intro-card [data-svc="notion"]', 'Connect'), 'no Connect');
+  assert(JSON.stringify(await sentOf('connect')) === '[{"type":"connect","id":"notion"}]', JSON.stringify(await sentOf('connect')));
+  await opsEvent({ ...INTRO_CATALOG, connections: [{ id: 'notion', name: 'Notion', status: 'connected', error: '', sign_in_url: '', tools: [], always_allow: [] }] });
+  r = await js('({ pill: document.querySelector("#intro-card [data-svc=notion] .intro-pill").textContent, ok: $("intro-card").dataset.ok })');
+  assert(r.pill === 'Connected' && r.ok === 'true', JSON.stringify(r));
+  assert(await clickText('#intro-card [data-svc="asana"]', 'Set up'), 'no Set up');
+  r = await js(`({ steps: [...document.querySelectorAll('#intro-card [data-svc=asana] .intro-steps li')].map((li) => li.textContent),
+    uri: document.querySelector('#intro-card [data-svc=asana] .intro-code code').textContent, data: document.querySelector('#intro-card [data-svc=asana] .intro-code code').hasAttribute('data-no-i18n'),
+    secret: $('intro-svc-asana-client_secret').type, guide: document.querySelector('#intro-card [data-svc=asana] a').href })`);
+  assert(r.steps.length === 3 && r.steps[1].startsWith('In the sidebar, open OAuth and add this redirect URL:') && r.uri === 'http://localhost:47823/callback' && r.data && r.secret === 'password', JSON.stringify(r));
+  await js(`$('intro-svc-asana-client_id').value = 'id-1'; $('intro-svc-asana-client_secret').value = 'secret-1'; document.querySelector('#intro-card .intro-svc-form').requestSubmit(); true`);
+  assert(JSON.stringify((await sentOf('connect')).pop()) === '{"type":"connect","id":"asana","client_id":"id-1","client_secret":"secret-1"}', 'the client didn’t go');
+  assert(await js('!document.querySelector("#intro-card .intro-svc-form") && !$("intro").textContent.includes("secret-1")'), 'the secret stayed on screen');
+  await opsEvent({ type: 'connector_error', id: 'asana', text: 'Paste the OAuth client ID first.' });
+  assert((await js('document.querySelector("#intro-card [data-svc=asana] .warn").textContent')) === 'Paste the OAuth client ID first.', 'no error shown');
+  await introNext();
+  assert((await introCard()) === 'accounts:Developer', await introCard());
+  assert(await clickText('#intro-card [data-svc="github"]', 'Set up'), 'no Set up for a token');
+  assert(await js('$("intro-svc-github-token").type === "password"'), 'no token field');
+});
+
+test('Intro › Twilio: the walkthrough, SID and token to the Keychain’s message, the numbers to prefs, and Call me now once they’re all there', async () => {
+  await withIntro();
+  await js('window.jarvisIntro.open("twilio"); true');
+  assert((await sentOf('phone_status')).length === 1, 'the phone’s state wasn’t asked for');
+  let r = await js('[...document.querySelectorAll("#intro-card a.intro-link")].map((a) => new URL(a.href).host)');
+  assert(JSON.stringify(r) === '["www.twilio.com","console.twilio.com","console.twilio.com"]', JSON.stringify(r));
+  await introNext();
+  await opsEvent({ type: 'phone_status', signed_in: false, sid_hint: '', ready: false });
+  assert(await js('$("intro-tw-call").disabled && $("intro-tw-token").type === "password"'), 'Call me now was on before the sign-in');
+  await js(`$('intro-tw-sid').value = 'AC${'a'.repeat(32)}'; document.querySelector('#intro-card form').requestSubmit(); true`);
+  assert((await sentOf('phone_credentials')).length === 0 && (await js('$("intro-card").textContent')).includes('Add both the Account SID and the Auth Token.'), 'a SID without a token went');
+  await js(`$('intro-tw-token').value = '${'b'.repeat(32)}'; document.querySelector('#intro-card form').requestSubmit(); true`);
+  r = await js('({ sent: __sent.filter((m) => m.type === "phone_credentials"), token: $("intro-tw-token").value })');
+  assert(JSON.stringify(r.sent) === JSON.stringify([{ type: 'phone_credentials', sid: `AC${'a'.repeat(32)}`, token: 'b'.repeat(32) }]) && r.token === '', JSON.stringify(r));
+  await opsEvent({ type: 'phone_status', signed_in: true, sid_hint: 'ACaa…aaaa', ready: false, note: 'Saved in your Keychain.' });
+  await js(`(() => { const f = $('intro-tw-from'); f.value = '+14155550100'; f.dispatchEvent(new Event('change')); const m = $('intro-tw-me'); m.value = '+14155550199'; m.dispatchEvent(new Event('change')); })(); true`);
+  r = await js('__sent.filter((m) => m.type === "set_prefs").map((m) => m.changes)');
+  assert(JSON.stringify(r) === JSON.stringify([{ phone_from: '+14155550100' }, { phone_me: '+14155550199' }]), JSON.stringify(r));
+  await opsEvent({ type: 'prefs', look: 'orb', language: 'en', phone_from: '+14155550100', phone_me: '+14155550199' });
+  r = await js('({ call: $("intro-tw-call").disabled, hint: document.querySelector("#intro-card .intro-meta").textContent, form: !!$("intro-tw-sid"), from: $("intro-tw-from").value })');
+  assert(!r.call && r.hint === 'ACaa…aaaa' && !r.form && r.from === '+14155550100', JSON.stringify(r));
+  await js('$("intro-tw-call").click(); true');
+  assert((await sentOf('phone_test')).length === 1, 'no test call');
+  await opsEvent({ type: 'phone_status', signed_in: true, sid_hint: 'ACaa…aaaa', ready: true, note: 'Calling you now.' });
+  r = await js('({ ok: $("intro-card").dataset.ok, text: $("intro-card").textContent })');
+  assert(r.ok === 'true' && r.text.includes('Your phone should ring now.') && r.text.includes('trial message') && r.text.includes('Geo permissions'), JSON.stringify(r));
+  await introNext();
+  await js('$("intro-wake-call").click(); true');
+  assert(JSON.stringify((await sentOf('set_prefs')).pop()) === '{"type":"set_prefs","changes":{"wake_call":true}}', 'the wake-up call wasn’t asked for');
+});
+
+test('Intro › the voice and a second AI: keys go once to their own messages, and the new provider is checked', async () => {
+  await withIntro();
+  await js('window.jarvisIntro.open("voice"); true');
+  assert((await sentOf('voice_status')).length === 1, 'the voice wasn’t asked for');
+  await opsEvent({ type: 'voice', provider: 'jarvis', clouds: { fish: { key: '' } }, jarvis_own_key: false, speaking_error: '' });
+  await js('$("intro-voice-play").click(); document.querySelector("#intro-card details").open = true; $("intro-fish-key").value = "fish-secret-123"; $("intro-fish-key").form.requestSubmit(); true');
+  let r = await js('({ sent: __sent.filter((m) => ["ops_voice_test", "voice_key"].includes(m.type)), value: $("intro-fish-key").value })');
+  assert(JSON.stringify(r.sent) === JSON.stringify([{ type: 'ops_voice_test' }, { type: 'voice_key', provider: 'fish', key: 'fish-secret-123' }]) && r.value === '', JSON.stringify(r));
+  await opsEvent({ type: 'voice', provider: 'jarvis', clouds: { fish: { key: 'fish…123' } }, jarvis_own_key: true, speaking_error: '' });
+  r = await js('({ ok: $("intro-card").dataset.ok, text: $("intro").textContent })');
+  assert(r.ok === 'true' && r.text.includes('fish…123') && !r.text.includes('fish-secret-123'), JSON.stringify(r));
+  await introGo('models');
+  assert((await sentOf('providers_list')).length === 1, 'the providers weren’t asked for');
+  await opsEvent({ type: 'providers', providers: [{ id: 'a1', kind: 'anthropic', kind_name: 'Anthropic API', name: 'Claude API key', key_hint: 'sk-…1' }], models: [], kinds: [] });
+  assert((await js('document.querySelectorAll("#intro-card [data-provider]").length')) === 0, 'the Claude key showed as a second AI');
+  await js('document.querySelector("#intro-card [data-kind=openrouter]").click(); $("intro-model-key").value = "sk-or-v1-abc"; $("intro-model-key").form.requestSubmit(); true');
+  assert(JSON.stringify(await sentOf('providers_add')) === '[{"type":"providers_add","kind":"openrouter","name":"","key":"sk-or-v1-abc"}]', JSON.stringify(await sentOf('providers_add')));
+  await opsEvent({ type: 'providers', providers: [{ id: 'a1', kind: 'anthropic', name: 'Claude API key' }, { id: 'p2', kind: 'openrouter', kind_name: 'OpenRouter', name: 'OpenRouter', key_hint: 'sk-or-…abc' }], models: [], kinds: [] });
+  assert(JSON.stringify(await sentOf('providers_check')) === '[{"type":"providers_check","id":"p2"}]', 'the new key wasn’t checked');
+  await opsEvent({ type: 'providers_check', id: 'p2', ok: true, error: '' });
+  r = await js('({ ok: $("intro-card").dataset.ok, pill: document.querySelector("#intro-card [data-provider=p2] .intro-pill").textContent, text: $("intro").textContent })');
+  assert(r.ok === 'true' && r.pill === 'Works' && !r.text.includes('sk-or-v1-abc'), JSON.stringify(r));
+});
+
+test('In Chinese the intro reads in Chinese, and what the owner said stays as it is', async () => {
+  await withIntro();
+  const merged = (() => {
+    const out = { strings: {}, patterns: [] };
+    for (const f of ['i18n-zh.json', ...fs.readdirSync(path.join(WEB, 'i18n')).sort().map((n) => path.join('i18n', n))]) {
+      const d = JSON.parse(fs.readFileSync(path.join(WEB, f), 'utf8'));
+      Object.assign(out.strings, d.strings || {});
+      out.patterns.push(...(d.patterns || []));
+    }
+    return out;
+  })();
+  await js(`(() => { const zh = ${JSON.stringify(JSON.stringify(merged))}; const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(zh)) : real(url, o)); })(); true`);
+  await js('window.jarvisI18n.setLang("zh")');
+  await js('window.jarvisIntro.open("talk"); true');
+  await opsEvent({ type: 'state', value: 'listening' });
+  await opsEvent({ type: 'heard', text: 'what time is it' });
+  await opsEvent({ type: 'reply', rid: '', text: 'It’s noon.' });
+  await frames(3);
+  const r = await js('({ title: $("intro-title").textContent, next: $("intro-next").textContent, you: document.querySelector("#intro-card .intro-bubble.you").textContent, skip: $("intro-skip").textContent })');
+  assert(r.title === '你和 Jarvis 说上话了' && r.next === '继续' && r.skip === '跳过设置' && r.you === 'what time is it', JSON.stringify(r));
 });
 
 test('In Chinese the sheet reads in Chinese, and a path or a log line stays as it is', async () => {
@@ -5920,31 +6161,6 @@ test('An invitation that clashes says so on a Calendar card, with its reply to c
   assert(await js(`${clash}.querySelector(".clash-reply").hasAttribute("data-no-i18n")`), 'the reply would be translated');
   await js(`__sent.length = 0; [...${clash}.querySelectorAll("button")].find((b) => b.textContent === "Draft in Mail").click(); true`);
   assert(JSON.stringify(await sentOf('clash_reply')) === '[{"type":"clash_reply","key":"clash:k2"}]', 'no draft asked for');
-});
-
-test('Setup › Claude takes an Anthropic API key once, never shows it back, and offers only Remove while it’s in use', async () => {
-  await withOps();
-  await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
-  await js('$("ops-setup-next").click(); $("ops-setup-next").click(); $("ops-setup-next").click(); true');  // Claude
-  assert((await sentOf('signin_state')).length === 1, 'the sign-in wasn’t asked for');
-  await opsEvent({ type: 'signin', mode: 'account', hint: '', status: null, key_url: 'https://console.anthropic.com/settings/keys', error: '', note: '' });
-  const key = `sk-ant-api03-${'k'.repeat(40)}Wxyz`;
-  let r = await js('({ type: document.querySelector("#ops-setup-body .ops-key-form input").type, lead: document.querySelector("#ops-setup-body .ops-lead").textContent })');
-  assert(r.type === 'password' && /your own Anthropic API key/.test(r.lead), JSON.stringify(r));
-  await js(`(() => { const i = document.querySelector('#ops-setup-body .ops-key-form input'); i.value = ${JSON.stringify(key)}; i.form.requestSubmit(); })(); true`);
-  r = await js('({ value: document.querySelector("#ops-setup-body .ops-key-form input").value, busy: document.querySelector("#ops-setup-body .ops-key-form button").disabled })');
-  assert(r.value === '' && r.busy, JSON.stringify(r));
-  const asked = await sentOf('signin_key');
-  assert(asked.length === 1 && asked[0].key === key, JSON.stringify(asked));
-  await js('__sent.length = 0; true');
-  await opsEvent({ type: 'signin', mode: 'key', hint: 'sk-…Wxyz', status: { ok: true }, key_url: '', error: '', note: 'Signed in with your API key.' });
-  r = await js('({ form: !!document.querySelector("#ops-setup-body .ops-key-form"), hint: document.querySelector("#ops-setup-body .ops-key .ops-meta").textContent, data: !!document.querySelector("#ops-setup-body .ops-key .ops-meta[data-no-i18n]"), text: $("ops-setup-body").textContent })');
-  assert(!r.form && r.hint === 'sk-…Wxyz' && r.data && !r.text.includes(key), JSON.stringify(r));
-  assert((await sentOf('ops_claude')).length === 1, 'the check didn’t run again for the new sign-in');
-  assert(await clickText('#ops-setup-body .ops-key', 'Remove the key'), 'no Remove');
-  assert((await sentOf('signin_forget')).length === 1, 'Remove went nowhere');
-  await opsEvent({ type: 'signin', mode: 'account', hint: '', status: null, key_url: '', error: 'Anthropic didn’t take that key.', note: '' });
-  assert(await js('!!document.querySelector("#ops-setup-body .ops-key-form") && document.querySelector("#ops-setup-body .ops-key .warn").textContent.length > 0'), 'no form or no error after');
 });
 
 // ── What only the owner's install shows (web/features/newuser.js) ──

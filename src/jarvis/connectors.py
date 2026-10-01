@@ -53,6 +53,10 @@ class CatalogEntry:
     scope: str = ""
     help_url: str = ""
     help: str = ""
+    # The intro's walkthrough (web/features/intro.js), one step a line; {redirect_uri}
+    # stands for REDIRECT_URI, shown as text to copy. Each line has its Chinese in
+    # web/i18n/intro.json.
+    steps: tuple[str, ...] = ()
 
 
 _G = "https://www.googleapis.com/auth/"
@@ -64,6 +68,21 @@ GOOGLE_HELP = (
     "create a Google Cloud project, enable the API and its MCP API, set up the OAuth "
     f"consent screen, and create a Web OAuth client with redirect URI {REDIRECT_URI}. "
     "Then paste its client ID and secret here."
+)
+
+GOOGLE_STEPS = (
+    "Join the Google Workspace Developer Preview Program: Google's connectors are a preview "
+    "for now.",
+    "In the Google Cloud console (console.cloud.google.com), create a project or pick one.",
+    "Under APIs & Services, enable the service's API and its MCP API (for Gmail: the Gmail "
+    "API and the Gmail MCP API).",
+    "Open Google Auth Platform › Branding and press Get Started: an app name, your email, "
+    "and External as the audience.",
+    "Under Audience › Test users, add your own Google account.",
+    "Under Clients, press Create Client, pick Web application, and add this authorized "
+    "redirect URI: {redirect_uri}",
+    "Press Create, copy the Client ID and Client Secret, and paste them below. The same "
+    "client works for Gmail, Calendar and Drive.",
 )
 
 CATALOG: list[CatalogEntry] = [
@@ -100,6 +119,13 @@ CATALOG: list[CatalogEntry] = [
         "Tasks and projects. Needs an MCP app from Asana's developer console.",
         help_url="https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
         help=f"Create an MCP app in Asana's developer console with redirect URI {REDIRECT_URI}, then paste its client ID and secret.",
+        steps=(
+            "Open Asana's developer console (app.asana.com/0/my-apps) and sign in.",
+            "Press Create new app, name it Jarvis, pick MCP app, then press Create app.",
+            "In the sidebar, open OAuth and add this redirect URL: {redirect_uri}",
+            "Open Manage distribution, pick your workspace (or Any workspace), and save.",
+            "Copy the Client ID and Client secret, and paste them below.",
+        ),
     ),
     CatalogEntry(
         "monday",
@@ -122,6 +148,7 @@ CATALOG: list[CatalogEntry] = [
         scope=f"{_G}gmail.readonly {_G}gmail.compose",
         help_url="https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server",
         help=GOOGLE_HELP,
+        steps=GOOGLE_STEPS,
     ),
     CatalogEntry(
         "gcal",
@@ -133,6 +160,7 @@ CATALOG: list[CatalogEntry] = [
         scope=f"{_G}calendar.calendarlist.readonly {_G}calendar.events",
         help_url="https://developers.google.com/workspace/guides/configure-mcp-servers",
         help=GOOGLE_HELP,
+        steps=GOOGLE_STEPS,
     ),
     CatalogEntry(
         "gdrive",
@@ -144,6 +172,7 @@ CATALOG: list[CatalogEntry] = [
         scope=f"{_G}drive.readonly {_G}drive.file",
         help_url="https://developers.google.com/workspace/guides/configure-mcp-servers",
         help=GOOGLE_HELP,
+        steps=GOOGLE_STEPS,
     ),
     CatalogEntry(
         "github",
@@ -154,6 +183,12 @@ CATALOG: list[CatalogEntry] = [
         "Repos, issues, pull requests and Actions.",
         help_url="https://github.com/settings/personal-access-tokens/new",
         help="Create a fine-grained personal access token with the repos and permissions you want Jarvis to have, then paste it here.",
+        steps=(
+            "Open GitHub's page for a new fine-grained token, and sign in.",
+            "Name it Jarvis, pick the repositories, and give it the permissions you want Jarvis "
+            "to have.",
+            "Press Generate token, copy it, and paste it below.",
+        ),
     ),
     CatalogEntry(
         "sentry",
@@ -204,6 +239,13 @@ CATALOG: list[CatalogEntry] = [
         "CRM contacts, companies and deals. Needs an MCP auth app from HubSpot.",
         help_url="https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server",
         help=f"In HubSpot, create an MCP auth app (Development > MCP Auth Apps) with redirect URI {REDIRECT_URI}, then paste its client ID and secret.",
+        steps=(
+            "In HubSpot, open Development, then MCP Connectors in the sidebar.",
+            "Press Create MCP connector and name it Jarvis.",
+            "Add this redirect URL: {redirect_uri}",
+            "Press Create, then copy the client ID and client secret from its page and paste "
+            "them below.",
+        ),
     ),
     CatalogEntry(
         "zapier",
@@ -244,6 +286,15 @@ CATALOG: list[CatalogEntry] = [
         help="Slack's server takes a Slack app of your own: create one at api.slack.com/apps "
         f"with redirect URL {REDIRECT_URI} and the user scopes you want Jarvis to have, "
         "install it to your workspace, then paste its client ID and secret here.",
+        steps=(
+            "At api.slack.com/apps, press Create New App › From scratch, name it Jarvis and "
+            "pick your workspace.",
+            "Under OAuth & Permissions, add this redirect URL: {redirect_uri}",
+            "Under User Token Scopes, add what Jarvis may do (search:read.public and "
+            "chat:write, say).",
+            "Install it to your workspace. It stays an internal app, listed nowhere.",
+            "Under Basic Information, copy the Client ID and Client Secret, and paste them below.",
+        ),
     ),
 ]
 CATALOG_BY_ID = {e.id: e for e in CATALOG}

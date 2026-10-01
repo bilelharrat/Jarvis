@@ -1,4 +1,5 @@
-/* Health & safety (features/ops.js): its Settings group, its sheet and first-run Setup.
+/* Health & safety (features/ops.js): its Settings group and its sheet (first-run Setup is
+   features/intro.css).
    The sheet is the weather pop-out's glass: the card's colours in every look, and in the
    orb look the same frosted --panel-* glass over a dimmed room. */
 
@@ -142,40 +143,7 @@ body[data-look="orb"] .ops-pop {
 .ops-files { margin: 0; font-size: 13px; line-height: 1.5; }
 .ops-files strong { font-weight: 600; }
 
-/* ── first-run Setup ── */
-.ops-setup { z-index: 75; }
-.ops-setup-pop { width: min(620px, 100%); }
-.ops-skip { border: 0; background: transparent; color: var(--action); font-size: 13.5px; padding: 6px 4px; }
-.ops-skip:hover { text-decoration: underline; }
-.ops-steps { list-style: none; display: flex; gap: 6px; margin: 0; padding: 4px 22px 10px; }
-.ops-steps li { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.ops-step-dot { height: 4px; border-radius: 2px; background: var(--ops-line); }
-.ops-steps li.done .ops-step-dot, .ops-steps li.on .ops-step-dot { background: var(--action); }
-.ops-step-name { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ops-steps li.on .ops-step-name { color: var(--ink); font-weight: 600; }
-.ops-setup-body { display: flex; flex-direction: column; gap: 12px; min-height: 260px; }
-.ops-setup-body h3 { margin: 4px 0 0; font-family: var(--serif); font-weight: 400; font-size: 24px; letter-spacing: -0.3px; }
-.ops-lead { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
-.ops-lang { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 360px; }
-.ops-setup-body > .ops-actions { justify-content: flex-start; }
-.ops-setup-body > .btn { align-self: flex-start; }
-.ops-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 22px 18px; border-top: 1px solid var(--ops-line); }
-.ops-foot .btn[hidden] { display: none; }
-.ops-mic p { margin: 0; font-size: 14px; line-height: 1.45; }
-.ops-mic q { font-style: italic; }
-.ops-meter { display: block; margin-top: 8px; height: 6px; max-width: 280px; border-radius: 3px; background: var(--ops-line); overflow: hidden; }
-.ops-meter i { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--action); transition: width 90ms linear; }
-.ops-perms .ops-item { padding: 9px 12px; }
-.ops-setup-body .ops-card .ops-line { gap: 8px; align-items: center; }
-.ops-setup-body .ops-card .ops-line .ops-dot { margin-top: 0; }
-
 @media (max-width: 640px) {
   .ops-item { grid-template-columns: 12px minmax(0, 1fr); }
   .ops-item > .ops-actions { grid-column: 2; justify-content: flex-start; }
-  .ops-step-name { display: none; }
 }
-
-/* Setup › Claude: the user's own Anthropic API key, pasted once. */
-.ops-key-form { display: flex; gap: 8px; align-items: center; }
-.ops-key-form input { flex: 1; min-width: 0; min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--ops-line); background: var(--card); font: inherit; font-size: 13px; }
-.ops-key .ops-small { align-self: flex-start; }

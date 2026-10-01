@@ -1,6 +1,6 @@
 // Health & safety (features/ops): Settings' checkup, security review, backups and
-// diagnostics file, in one sheet; and first-run Setup, shown by itself on a fresh install
-// and from Settings any time. Everything the hub sends is rendered as text; what's the
+// diagnostics file, in one sheet; and "Set up Jarvis again…", which opens the first-run
+// intro (features/intro.js) any time. Everything the hub sends is rendered as text; what's the
 // owner's own (paths, phone and account names, what the microphone heard, log lines)
 // carries data-no-i18n.
 (() => {
@@ -16,7 +16,6 @@
     doctor: null,
     review: null,
     backups: null,
-    setup: null,
     tab: 'checkup',
     confirming: '', // the fix or tighten whose confirmation is open
     toast: { checkup: '', security: '', backups: '' },
@@ -26,14 +25,6 @@
     diagSize: 2,
     preview: null, // { path, state: 'loading' | 'ready' | 'staging' | 'staged' | 'failed', data }
     diag: null,
-    setupShown: false,
-    step: 0,
-    perms: null,
-    claude: null,
-    signin: null, // the API key sign-in (features/signin.py): { mode, hint, error, note }
-    signinBusy: false,
-    mic: { state: '', text: '', level: 0 },
-    voiceMuted: false,
   };
 
   const STATE_WORDS = {
@@ -112,7 +103,7 @@
       row('backups', 'Backups', 'ops-line-backups', 'Your settings and data, kept safe'),
       row('diagnostics', 'Diagnostics file', 'ops-line-diagnostics', 'Recent logs to share when you ask for help'),
     );
-    const setup = button('Set up Jarvis again…', 'btn', () => openSetup());
+    const setup = button('Set up Jarvis again…', 'btn', () => { if (window.jarvisIntro) window.jarvisIntro.open(); });
     setup.id = 'ops-setup-open';
     group.append(rows, setup);
     const before = $('open-accounts') && $('open-accounts').closest('section.group');
@@ -670,309 +661,12 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (setupOpen()) { e.preventDefault(); e.stopPropagation(); closeSetup(); return; }
     if (sheetOpen()) {
       e.preventDefault();
       e.stopPropagation();
       if (S.confirming) { S.confirming = ''; render(S.tab); } else closeSheet();
     }
   }, true);
-
-  // ── first-run Setup ──
-
-  const STEPS = [
-    ['language', 'Language'],
-    ['voice', 'Voice'],
-    ['permissions', 'Permissions'],
-    ['claude', 'Claude'],
-    ['habits', 'Hands-free'],
-    ['phone', 'iPhone & Watch'],
-  ];
-  let permsTimer = null;
-  let setupReturn = null;
-
-  function setupLayer() {
-    if ($('ops-setup')) return $('ops-setup');
-    const layer = el('div', 'ops-layer ops-setup');
-    layer.id = 'ops-setup';
-    layer.hidden = true;
-    const pop = el('section', 'ops-pop ops-setup-pop');
-    pop.setAttribute('role', 'dialog');
-    pop.setAttribute('aria-modal', 'true');
-    pop.setAttribute('aria-labelledby', 'ops-setup-title');
-    const top = el('header', 'ops-head');
-    const title = el('h2', '', 'Welcome to Jarvis');
-    title.id = 'ops-setup-title';
-    const skip = button('Skip setup', 'ops-skip', () => { F.send({ type: 'ops_setup', state: 'skipped' }); closeSetup(); });
-    skip.id = 'ops-setup-skip';
-    top.append(title, skip);
-    const dots = el('ol', 'ops-steps');
-    dots.id = 'ops-steps';
-    dots.setAttribute('aria-label', 'Steps');
-    const body = el('div', 'ops-body ops-setup-body');
-    body.id = 'ops-setup-body';
-    const foot = el('footer', 'ops-foot');
-    const back = button('Go back', 'btn', () => goStep(S.step - 1));
-    back.id = 'ops-setup-back';
-    const next = button('Continue', 'btn primary', () => (S.step >= STEPS.length - 1 ? finishSetup() : goStep(S.step + 1)));
-    next.id = 'ops-setup-next';
-    foot.append(back, next);
-    pop.append(top, dots, body, foot);
-    pop.addEventListener('keydown', trapTab);
-    layer.append(el('div', 'ops-scrim'), pop);
-    document.body.append(layer);
-    return layer;
-  }
-
-  function setupOpen() { const l = $('ops-setup'); return Boolean(l && !l.hidden); }
-
-  function openSetup() {
-    const layer = setupLayer();
-    if (!setupOpen()) setupReturn = document.activeElement;
-    if (sheetOpen()) closeSheet();
-    if (!$('settings').hidden && typeof toggleSettings === 'function') toggleSettings(false);
-    layer.hidden = false;
-    S.setupShown = true;
-    goStep(0);
-    $('ops-setup-next').focus({ preventScroll: true });
-  }
-
-  function closeSetup() {
-    const layer = $('ops-setup');
-    if (!layer || layer.hidden) return;
-    layer.hidden = true;
-    stopPermsTimer();
-    const back = setupReturn;
-    setupReturn = null;
-    if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
-  }
-
-  function finishSetup() {
-    F.send({ type: 'ops_setup', state: 'done' });
-    closeSetup();
-  }
-
-  function goStep(n) {
-    S.step = Math.max(0, Math.min(STEPS.length - 1, n));
-    const dots = $('ops-steps');
-    dots.replaceChildren(...STEPS.map(([id, label], i) => {
-      const li = el('li', i === S.step ? 'on' : i < S.step ? 'done' : '');
-      li.dataset.step = id;
-      li.append(el('span', 'ops-step-dot'), el('span', 'ops-step-name', label));
-      if (i === S.step) li.setAttribute('aria-current', 'step');
-      return li;
-    }));
-    $('ops-setup-back').hidden = S.step === 0;
-    $('ops-setup-next').textContent = S.step === STEPS.length - 1 ? 'Done' : 'Continue';
-    stopPermsTimer();
-    const id = STEPS[S.step][0];
-    if (id === 'permissions') {
-      F.send({ type: 'ops_permissions' });
-      permsTimer = setInterval(() => { if (document.hasFocus()) F.send({ type: 'ops_permissions' }); }, 4000);
-    }
-    if (id === 'claude') { F.send({ type: 'ops_claude' }); F.send({ type: 'signin_state' }); }
-    renderStep();
-  }
-
-  // The user's own Anthropic API key, instead of a Claude account: pasted once, checked
-  // with Anthropic, kept in the Keychain; the window never sees it again.
-  function keyCard() {
-    const k = S.signin || {};
-    const card = el('div', 'ops-card ops-key');
-    if (k.mode === 'key') {
-      const line = el('div', 'ops-line');
-      line.dataset.state = 'ok';
-      line.append(el('i', 'ops-dot'), el('strong', '', 'Jarvis uses your Anthropic API key'), data(el('span', 'ops-meta', k.hint || '')));
-      card.append(line, el('p', 'ops-hint', 'Claude is billed to your Anthropic account. The key stays in your Keychain.'));
-      card.append(button('Remove the key', 'btn ops-small', () => { S.signinBusy = true; F.send({ type: 'signin_forget' }); renderStep(); }));
-    } else {
-      card.append(el('strong', '', 'Or use your own Anthropic API key'),
-        el('p', 'ops-hint', 'Make one at console.anthropic.com › API keys. Claude is then billed to your Anthropic account; the key stays in your Keychain.'));
-      const form = el('form', 'ops-key-form');
-      const input = el('input', '');
-      input.type = 'password';
-      input.autocomplete = 'off';
-      input.spellcheck = false;
-      input.placeholder = 'sk-ant-…';
-      input.setAttribute('aria-label', 'Anthropic API key');
-      const use = el('button', 'btn ops-small', S.signinBusy ? 'Checking…' : 'Use this key');
-      use.type = 'submit';
-      use.disabled = S.signinBusy;
-      form.append(input, use);
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const key = input.value.trim();
-        if (!key || S.signinBusy) return;
-        input.value = '';
-        S.signinBusy = true;
-        F.send({ type: 'signin_key', key });
-        renderStep();
-      });
-      card.append(form);
-    }
-    if (k.error) card.append(el('p', 'ops-hint warn', k.error));
-    else if (k.note) card.append(el('p', 'ops-hint ok', k.note));
-    return card;
-  }
-
-  function stopPermsTimer() { if (permsTimer) { clearInterval(permsTimer); permsTimer = null; } }
-
-  function renderStep() {
-    const body = $('ops-setup-body');
-    if (!body || !setupOpen()) return;
-    const id = STEPS[S.step][0];
-    const nodes = [];
-    const p = S.prefs || {};
-    if (id === 'language') {
-      nodes.push(el('h3', '', 'Which language?'), el('p', 'ops-lead', 'Jarvis shows, speaks and listens in the language you pick. You can change it any time in Settings.'));
-      const seg = el('div', 'segmented ops-lang');
-      seg.setAttribute('role', 'radiogroup');
-      seg.setAttribute('aria-label', 'Language');
-      for (const [code, name] of [['en', 'English'], ['zh', '中文']]) {
-        const b = data(el('button', '', name));
-        b.type = 'button';
-        b.setAttribute('role', 'radio');
-        b.dataset.lang = code;
-        b.setAttribute('aria-checked', String((p.language || 'en') === code));
-        b.addEventListener('click', () => F.send({ type: 'set_prefs', changes: { language: code } }));
-        seg.append(b);
-      }
-      nodes.push(seg);
-    } else if (id === 'voice') {
-      nodes.push(el('h3', '', 'Can you hear each other?'), el('p', 'ops-lead', 'Play a sample of Jarvis’s voice, then check it hears you.'));
-      const row = el('div', 'ops-actions');
-      row.append(button('Play a sample', 'btn', () => F.send({ type: 'ops_voice_test' })));
-      const mic = button(S.mic.state === 'listening' || S.mic.state === 'transcribing' ? 'Listening…' : 'Test the microphone', 'btn', () => { S.mic = { state: 'starting', text: '', level: 0 }; F.send({ type: 'ops_mic_test' }); renderStep(); });
-      mic.disabled = S.mic.state === 'listening' || S.mic.state === 'transcribing' || S.mic.state === 'starting';
-      mic.id = 'ops-mic-test';
-      row.append(mic);
-      nodes.push(row);
-      if (S.voiceMuted) {
-        const muted = el('div', 'ops-banner');
-        muted.append(el('p', '', 'Spoken replies are off, so Jarvis stays quiet.'), button('Turn spoken replies on', 'btn', () => { S.voiceMuted = false; F.send({ type: 'mute', value: false }); F.send({ type: 'ops_voice_test' }); renderStep(); }));
-        nodes.push(muted);
-      }
-      nodes.push(micStatus());
-    } else if (id === 'permissions') {
-      nodes.push(el('h3', '', 'What Jarvis may use on this Mac'), el('p', 'ops-lead', 'macOS asks for most of these the first time Jarvis needs them. You can allow them now; this list updates as you do.'));
-      const list = el('ul', 'ops-list ops-perms');
-      const rows = S.perms ? S.perms.rows : null;
-      if (!rows) nodes.push(el('p', 'ops-empty', 'Checking…'));
-      else {
-        for (const r of rows) {
-          const li = el('li', 'ops-item');
-          li.dataset.state = r.state === 'granted' ? 'ok' : ['denied', 'off', 'restricted'].includes(r.state) ? 'problem' : r.state === 'unknown' || r.state === 'not_running' ? 'unknown' : 'warn';
-          li.dataset.perm = r.id;
-          const text = el('div', 'ops-text');
-          const top = el('div', 'ops-line');
-          top.append(el('strong', '', r.title), el('span', 'ops-summary', r.label));
-          text.append(top, el('p', 'ops-hint', r.why));
-          if (r.apps && r.apps.length) {
-            const apps = el('p', 'ops-hint');
-            r.apps.forEach((a, i) => { if (i) apps.append(document.createTextNode(' · ')); apps.append(el('span', '', a.app), document.createTextNode(': '), el('span', '', a.label)); });
-            text.append(apps);
-          }
-          li.append(el('i', 'ops-dot'), text);
-          if (r.state !== 'granted') {
-            const actions = el('div', 'ops-actions');
-            actions.append(button('Open System Settings', 'btn ops-small', () => F.send({ type: 'ops_open_settings', pane: r.pane })));
-            li.append(actions);
-          }
-          list.append(li);
-        }
-        nodes.push(list);
-        if (S.perms.error) nodes.push(el('p', 'ops-hint warn', S.perms.error));
-      }
-    } else if (id === 'claude') {
-      nodes.push(el('h3', '', 'Jarvis thinks with Claude'), el('p', 'ops-lead', 'It needs a Claude account signed in on this Mac, or your own Anthropic API key.'));
-      const c = S.claude;
-      if (!c) nodes.push(el('p', 'ops-empty', 'Checking…'));
-      else {
-        const box = el('div', 'ops-card');
-        const line = el('div', 'ops-line');
-        line.dataset.state = c.state;
-        line.append(el('i', 'ops-dot'), el('strong', '', c.summary));
-        if (c.meta) line.append(data(el('span', 'ops-meta', c.meta)));
-        box.append(line);
-        if (c.hint && c.state !== 'ok') box.append(el('p', 'ops-hint', c.hint));
-        if (c.command) {
-          const cmd = el('div', 'ops-command');
-          cmd.append(data(el('code', '', c.command)), button('Copy', 'btn ops-small', () => copy(c.command)));
-          box.append(cmd);
-        }
-        nodes.push(box);
-      }
-      nodes.push(keyCard());
-      nodes.push(button('Check again', 'btn', () => { S.claude = null; F.send({ type: 'ops_claude' }); renderStep(); }));
-    } else if (id === 'habits') {
-      nodes.push(el('h3', '', 'How you’d like to talk'));
-      const card = el('div', 'ops-card');
-      card.append(prefSwitch('Hands-free', 'Say “Jarvis” to talk, and talk over it to interrupt. Keeps the microphone on. Off: press ⌥ Space or tap the orb.', p.hands_free, 'hands_free'));
-      card.append(prefSwitch('Morning briefing', 'Your day, the weather and the markets, when Jarvis is running at that time.', p.briefing_enabled, 'briefing_enabled'));
-      const time = el('label', 'ops-row-line');
-      time.htmlFor = 'ops-briefing-time';
-      const tl = el('span', 'ops-row-text');
-      tl.append(el('strong', '', 'Briefing time'));
-      const input = el('input', '');
-      input.type = 'time';
-      input.id = 'ops-briefing-time';
-      input.value = p.briefing_time || '08:00';
-      input.addEventListener('change', () => { if (/^\d\d:\d\d$/.test(input.value)) F.send({ type: 'set_prefs', changes: { briefing_time: input.value } }); });
-      time.append(tl, input);
-      card.append(time);
-      nodes.push(card);
-    } else if (id === 'phone') {
-      nodes.push(el('h3', '', 'Jarvis on your iPhone and Apple Watch'), el('p', 'ops-lead', 'Ask Jarvis from your phone or your wrist: turn on the companion in Settings › iPhone & Watch, then pair your phone with the code it shows. It’s optional, and you can do it any time.'));
-      nodes.push(button('Open iPhone & Watch settings', 'btn', () => {
-        closeSetup();
-        if (typeof toggleSettings === 'function') toggleSettings(true);
-        const sw = $('sw-remote');
-        if (sw) { sw.scrollIntoView({ block: 'center' }); sw.focus({ preventScroll: true }); }
-      }));
-      nodes.push(el('p', 'ops-hint', 'That’s everything. Settings › Health & safety has a checkup, a security review and backups whenever you want them.'));
-    }
-    body.replaceChildren(...nodes);
-  }
-
-  function prefSwitch(title, note, on, key) {
-    const row = el('div', 'ops-row-line');
-    const label = el('span', 'ops-row-text');
-    label.append(el('strong', '', title), el('small', '', note));
-    const sw = el('button', 'switch');
-    sw.type = 'button';
-    sw.setAttribute('role', 'switch');
-    sw.setAttribute('aria-checked', String(Boolean(on)));
-    sw.setAttribute('aria-label', title);
-    sw.dataset.pref = key;
-    sw.addEventListener('click', () => F.send({ type: 'set_prefs', changes: { [key]: !on } }));
-    row.append(label, sw);
-    return row;
-  }
-
-  function micStatus() {
-    const box = el('div', 'ops-mic');
-    const m = S.mic;
-    if (!m.state) return box;
-    const line = el('p', '');
-    if (m.state === 'starting' || m.state === 'listening') {
-      line.textContent = 'Listening… say something.';
-      const meter = el('span', 'ops-meter');
-      const fill = el('i', '');
-      fill.style.width = `${Math.round((m.level || 0) * 100)}%`;
-      meter.append(fill);
-      box.append(line, meter);
-      return box;
-    }
-    if (m.state === 'transcribing') line.textContent = 'One moment…';
-    else if (m.state === 'heard' && m.text) {
-      line.append(el('span', '', 'Jarvis heard:'), document.createTextNode(' '), data(el('q', '', m.text)));
-    } else if (m.state === 'heard' || m.state === 'silent') line.textContent = 'Jarvis didn’t hear anything. Check the microphone in Settings › Voice, then try again.';
-    else if (m.state === 'hands_free') line.textContent = 'Hands-free is listening already: say “Jarvis, what time is it?” to try it.';
-    else if (m.state === 'busy') line.textContent = 'Jarvis is busy. Try again in a moment.';
-    else if (m.state === 'error') line.textContent = m.text || 'Jarvis couldn’t use the microphone.';
-    box.append(line);
-    return box;
-  }
 
   // ── the hub's events ──
 
@@ -991,11 +685,9 @@
       if (S.backups.chosen !== Boolean(f.ops_backup_folder) || (f.ops_backup_folder && f.ops_backup_folder !== S.backups.folder)) F.send({ type: 'ops_backups' });
       if (sheetOpen() && S.tab === 'backups') renderBackups();
     }
-    if (setupOpen()) renderStep();
   });
 
   F.on('ops_state', (ev) => {
-    S.setup = ev.setup || null;
     if (ev.backups) S.backups = ev.backups;
     S.busy = new Set(ev.busy || []);
     renderLines();
@@ -1005,7 +697,6 @@
       if (r.ok) notice('Backups', 'Restored', r.files === 1 ? '1 file went back to how it was in the backup.' : `${r.files} files went back to how they were in the backup.`, 0);
       else notice('Backups', 'The restore didn’t finish', r.problem || '', 0);
     }
-    if (S.setup && S.setup.show && !S.setupShown) openSetup();
   });
 
   F.on('ops_busy', (ev) => {
@@ -1074,45 +765,6 @@
   F.on('ops_diagnostics', (ev) => {
     S.diag = ev;
     if (sheetOpen() && S.tab === 'diagnostics') renderDiagnostics();
-  });
-
-  F.on('ops_permissions', (ev) => {
-    S.perms = ev;
-    if (setupOpen()) renderStep();
-  });
-
-  F.on('ops_claude', (ev) => {
-    S.claude = ev;
-    if (setupOpen()) renderStep();
-  });
-
-  F.on('signin', (ev) => {
-    const changed = !S.signin || S.signin.mode !== ev.mode;
-    S.signin = ev;
-    S.signinBusy = false;
-    if (changed && setupOpen() && STEPS[S.step][0] === 'claude') { S.claude = null; F.send({ type: 'ops_claude' }); }
-    if (setupOpen()) renderStep();
-  });
-
-  F.on('ops_voice', (ev) => {
-    S.voiceMuted = Boolean(ev.muted);
-    if (setupOpen()) renderStep();
-  });
-
-  F.on('ops_mic', (ev) => {
-    if (ev.state === 'level') {
-      S.mic.level = ev.level || 0;
-      const fill = document.querySelector('#ops-setup .ops-meter i');
-      if (fill) fill.style.width = `${Math.round(S.mic.level * 100)}%`;
-      return;
-    }
-    S.mic = { state: ev.state, text: ev.text || '', level: 0 };
-    if (setupOpen()) renderStep();
-  });
-
-  window.addEventListener('focus', () => {
-    if (setupOpen() && STEPS[S.step][0] === 'permissions') F.send({ type: 'ops_permissions' });
-    if (setupOpen() && STEPS[S.step][0] === 'claude') F.send({ type: 'ops_claude' });
   });
 
   settingsGroup();
