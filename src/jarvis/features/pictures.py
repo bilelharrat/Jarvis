@@ -18,6 +18,8 @@ utility_model's daily counts, kept beside the settings so a restart doesn't rese
 from __future__ import annotations
 
 import asyncio
+import base64
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
@@ -42,6 +44,19 @@ ASKED = Asked(
     r"画(?![面家廊展质风好完])(?:一|几|两)?(?:只|个|张|幅|条|朵|座|棵|位|群|片|些)?[^，,。]"
     r"|(?:生成|做|制作|设计|创作|来)(?:一|几|两)?(?:张|幅|个|些)?[^，,。]{0,20}?"
     r"(?:图|图片|图像|画|插画|插图|海报|照片|头像|壁纸|图标|标志|logo)"
+    r")",
+)
+# The owner's own words asking to change a picture ("remove the background from this photo").
+EDIT_ASKED = Asked(
+    r"(?:edit|change|fix|remove|erase|delete|add|put|replace|swap|restyle|retouch|recolou?r"
+    r"|brighten|darken|blur|sharpen|crop|turn|make|clean\s+up|touch\s+up)\b[^.?!]{0,80}?"
+    r"\b(?:this|that|the|my|these|those|attached)\s+(?:[\w'-]+\s+){0,3}?"
+    r"(?:pictures?|images?|photos?|screenshots?|selfies?|backgrounds?|drawings?|logos?)\b"
+    r"|(?:pictures?|images?|photos?|screenshots?)\s+(?:edit|editing)\b",
+    rf"{lang._NOT_DONE_ZH}(?:"
+    r"(?:把|将)?(?:这|那)?(?:张|幅|个)?(?:图|图片|照片|截图)[^，,。]{0,20}?"
+    r"(?:去掉|删掉|换成|改成|调亮|调暗|修|编辑|加上|裁剪|变成)"
+    r"|(?:编辑|修改|修)(?:一下)?(?:这|那)?(?:张|幅)?(?:图|图片|照片|截图)"
     r")",
 )
 
@@ -94,12 +109,13 @@ class Pictures:
     def model(self) -> str:
         return self.hub.prefs.feature("image_model") or imagegen.DEFAULT_MODEL
 
-    async def _allowed(self, prompt: str) -> bool:
-        """The owner's own words asked for a picture, in a turn that read nothing private or
-        from the web: go ahead. Otherwise a card, said aloud, with the description."""
+    async def _allowed(self, prompt: str, asked: Asked = ASKED) -> bool:
+        """The owner's own words asked for a picture (or to change one), in a turn that read
+        nothing private or from the web: go ahead. Otherwise a card, said aloud, with the
+        description."""
         reads = self.hub._gate_reads()
         tainted = reads["private"] or reads["web"] or not self.hub._turn_text
-        if ASKED.by_owner(self.hub) and not tainted:
+        if asked.by_owner(self.hub) and not tainted:
             return True
         detail = self.tr(
             "This description goes to Google, and the picture is billed to your Gemini key ({cost}).",
@@ -146,6 +162,85 @@ class Pictures:
             False,
         )
 
+    def source_for(self, which: str) -> tuple[bytes, str] | str:
+        """The picture to edit: "attached" (sent with the latest request: a dropped screenshot,
+        the phone's photo), "last" (the last one made here), or a path to an image file in
+        the owner's home. Its bytes and media type, or why not, in words."""
+        which = str(which or "attached").strip()
+        if which in ("", "attached", "this"):
+            sent = list(getattr(self.hub, "last_pictures", []) or [])
+            if not sent:
+                return "No picture came with a request yet: ask the owner to attach one, or name a file."
+            item = sent[-1]
+            try:
+                return base64.b64decode(item.get("data", ""), validate=True), str(
+                    item.get("media_type")
+                )
+            except (ValueError, TypeError):
+                return "That picture couldn't be read."
+        if which == "last":
+            if not self.desk.made:
+                return "No picture has been made here yet."
+            path = list(self.desk.made.values())[-1]
+        else:
+            path = Path(which).expanduser()
+        try:
+            path = path.resolve()
+        except OSError:
+            return "That file can't be found."
+        home = Path.home().resolve()
+        made_here = which == "last"  # a picture made here is ours wherever it's kept
+        if not path.is_file() or (not made_here and home not in path.parents):
+            return "Only an image file in the owner's home folder can be edited."
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return "That file can't be read."
+        kind = imagegen._kind(raw)
+        if kind is None:
+            return "That file isn't a PNG, JPEG or WebP picture."
+        return raw, kind[0]
+
+    async def edit(self, instruction: str, which: str = "attached") -> tuple[str, bool]:
+        instruction = " ".join(str(instruction or "").split())[: imagegen.MAX_PROMPT]
+        if not instruction:
+            return "Say how the picture should change.", True
+        source = await asyncio.to_thread(self.source_for, which)
+        if isinstance(source, str):
+            return source, True
+        key = await asyncio.to_thread(self.hub.providers.key_of, "gemini")
+        if not key:
+            return (
+                "There's no Google Gemini key: add one in Settings › Models to edit pictures. "
+                "Tell the owner.",
+                True,
+            )
+        if not await self._allowed(instruction, EDIT_ASKED):
+            return "The owner didn't want that picture changed.", True
+        try:
+            utility_model.usage_for(self.hub).take("picture")
+        except utility_model.OverBudget:
+            return f"That's {imagegen.PER_DAY} pictures today; try again tomorrow.", True
+        model = self.model()
+        try:
+            made = await self.desk.generate(key, instruction, model=model, source=source)
+        except imagegen.ImageError as exc:
+            return str(exc), True
+        cost = imagegen.cost_note(model)
+        self.hub.emit(
+            "image_made",
+            rid=self.hub._rid,
+            prompt=instruction,
+            cost=lang.translate(cost, self.hub.language),
+            **{k: made[k] for k in ("id", "name", "path", "mime", "data")},
+        )
+        said = f" Gemini said: {made['text']}" if made["text"] else ""
+        return (
+            f"Edited it: {made['name']}, saved in Documents › Jarvis › Images and shown on "
+            f"screen (the original is unchanged). Google charges it to the owner's key: {cost}.{said}",
+            False,
+        )
+
     def build_tools(self) -> list:
         pictures = self
 
@@ -170,7 +265,30 @@ class Pictures:
                 out["is_error"] = True
             return out
 
-        return [generate_image]
+        @tool(
+            "edit_image",
+            "Change a picture with Google's Gemini (the owner's own key), when they ask: remove or "
+            "add something, restyle it, fix the lighting… instruction: how it should change; "
+            "image: 'attached' (the picture sent with their request: a screenshot or the "
+            "phone's photo), 'last' (the last picture made here), or the path of an image file "
+            "in their home. The edit is a new file in Documents › Jarvis › Images; the original "
+            "stays as it was.",
+            {
+                "type": "object",
+                "properties": {"instruction": {"type": "string"}, "image": {"type": "string"}},
+                "required": ["instruction"],
+            },
+        )
+        async def edit_image(args):
+            text, error = await pictures.edit(
+                str(args.get("instruction", "")), str(args.get("image", "") or "attached")
+            )
+            out: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
+            if error:
+                out["is_error"] = True
+            return out
+
+        return [generate_image, edit_image]
 
     def build_server(self):
         return create_sdk_mcp_server(name="pictures", version="0.1.0", tools=self.build_tools())

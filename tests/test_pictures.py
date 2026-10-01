@@ -190,9 +190,9 @@ def hub(settings, quiet_speaker, isolated):
     return hub
 
 
-async def call(hub, args):
-    [generate_image] = hub.pictures.build_tools()
-    return await generate_image.handler(args)
+async def call(hub, args, name="generate_image"):
+    tools = {t.name: t for t in hub.pictures.build_tools()}
+    return await tools[name].handler(args)
 
 
 async def answer_card(hub, choice, cards):
@@ -354,3 +354,48 @@ def test_its_chinese():
         lang.translate("Google's price for gemini-x-image", "zh")
         == "Google 对 gemini-x-image 的定价"
     )
+
+
+# ── editing a picture ──
+
+
+async def test_a_picture_is_edited_from_the_one_sent_with_the_request(hub):
+    hub._turn_text = "remove the background from this photo"
+    hub.last_pictures = [{"media_type": "image/jpeg", "data": base64.b64encode(JPEG).decode()}]
+    said = await call(
+        hub, {"instruction": "Remove the background", "image": "attached"}, "edit_image"
+    )
+    assert not said.get("is_error") and said["content"][0]["text"].startswith("Edited it: ")
+    [request] = hub.google.requests
+    parts = json.loads(request.content)["contents"][0]["parts"]
+    assert parts[0]["inlineData"] == {
+        "mimeType": "image/jpeg",
+        "data": base64.b64encode(JPEG).decode(),
+    }
+    assert parts[1] == {"text": "Remove the background"}
+    assert [e for e in hub.events if e[0] == "image_made"]
+
+
+async def test_editing_needs_a_picture_and_stays_in_the_home_folder(hub, tmp_path):
+    hub._turn_text = "edit this picture"
+    hub.last_pictures = []
+    said = await call(hub, {"instruction": "Make it brighter"}, "edit_image")
+    assert said["is_error"] and "No picture came with a request" in said["content"][0]["text"]
+    outside = await call(hub, {"instruction": "x", "image": "/etc/hosts"}, "edit_image")
+    assert outside["is_error"] and "home folder" in outside["content"][0]["text"]
+    assert hub.google.requests == []
+
+
+async def test_the_last_picture_made_here_can_be_edited(hub):
+    hub._turn_text = "draw a fox, then make the picture night-time"
+    await call(hub, {"prompt": "A fox"})
+    said = await call(hub, {"instruction": "Make it night", "image": "last"}, "edit_image")
+    assert not said.get("is_error")
+    parts = json.loads(hub.google.requests[-1].content)["contents"][0]["parts"]
+    assert base64.b64decode(parts[0]["inlineData"]["data"]) == PNG
+
+
+async def test_not_a_picture_isnt_sent(tmp_path):
+    desk = ImageDesk(tmp_path / "Images", Google().client())
+    with pytest.raises(ImageError, match="can't be edited"):
+        await desk.generate(GOOGLE_KEY, "brighter", source=(b"not a picture", "image/png"))

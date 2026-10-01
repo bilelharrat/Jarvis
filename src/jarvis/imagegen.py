@@ -97,10 +97,17 @@ class ImageDesk:
         return [vertex, gemini] if key.startswith("AQ.") else [gemini, vertex]
 
     async def generate(
-        self, key: str, prompt: str, *, model: str = DEFAULT_MODEL, aspect: str = ""
+        self,
+        key: str,
+        prompt: str,
+        *,
+        model: str = DEFAULT_MODEL,
+        aspect: str = "",
+        source: tuple[bytes, str] | None = None,
     ) -> dict[str, Any]:
         """One picture: {"id", "path", "name", "mime", "data" (base64), "text"}. ImageError
-        (in words to say) when Google made none."""
+        (in words to say) when Google made none. source: a picture to change ((bytes, its
+        media type)); then prompt says how."""
         prompt = " ".join(str(prompt or "").split())[:MAX_PROMPT]
         if not prompt:
             raise ImageError("Say what the picture should show.")
@@ -108,8 +115,16 @@ class ImageDesk:
             raise ImageError(
                 "There's no Google Gemini key: add one in Settings › Models to make pictures."
             )
+        parts: list[dict[str, Any]] = [{"text": prompt}]
+        if source is not None:
+            raw_in, mime_in = source
+            if len(raw_in) > MAX_IMAGE or _kind(raw_in) is None:
+                raise ImageError("That picture can't be edited: it's too big or not a picture.")
+            parts.insert(
+                0, {"inlineData": {"mimeType": mime_in, "data": base64.b64encode(raw_in).decode()}}
+            )
         body: dict[str, Any] = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
         }
         if aspect in ASPECTS:

@@ -667,6 +667,7 @@ class Hub:
         self._futures: dict[str, asyncio.Future] = {}
         self._subscribers: set[WindowQueue] = set()
         self._event_sinks: dict[str, list[Callable[[dict[str, Any]], Any]]] = {}
+        self.last_pictures: list[dict[str, str]] = []  # sent with the latest request that had any
         # This run of the backend, in every hello: a window that reconnects to a new one
         # (whose sessions are numbered from 1 again) drops what it showed of the old one.
         self.instance_id = uuid.uuid4().hex[:12]
@@ -2850,6 +2851,15 @@ class Hub:
                 self._spawn(self.speaker.cloud.warm())
             query = text
             images: list[dict[str, str]] = list(photos or [])
+            # The pictures this request brought (the phone's photo, a dropped screenshot): what
+            # "edit this picture" means (features.pictures' edit_image).
+            sent = [
+                p
+                for p in [*(photos or []), *(attachments or [])]
+                if str(p.get("media_type", "")).startswith("image/")
+            ]
+            if sent:
+                self.last_pictures = sent[-4:]
             started = time.monotonic()
             # One with a picture or a file (a phone's photo, a chat's attachment) is for Claude.
             instant = display is None and not images and not attachments
