@@ -101,6 +101,7 @@
 		51F61EF8EB074064FE2607CC /* RichText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6454BD1B8C9A7F4E4FBF9B27 /* RichText.swift */; };
 		5224760E437E7A08CF8D16CE /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C69252B5A2CBAB50D02793 /* WatchLink.swift */; };
 		52E4D6FB8E21B9AA3E03387D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
+		53E69B2B0493344F684B4406 /* MacChatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296E1AE937C8851AC210300C /* MacChatsView.swift */; };
 		5470B84C3FB4072428C8B9FC /* pair.json in Resources */ = {isa = PBXBuildFile; fileRef = F181CA2D304559FE5CB6DAB4 /* pair.json */; };
 		55CF4777F923F40DBC5F003B /* SpendingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64D5961CC8EB971ABD5BF61 /* SpendingView.swift */; };
 		56064213946531FC63966C0E /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
@@ -437,6 +438,7 @@
 		266D8B5BA9ECC4EB03BBF947 /* error_unknown_endpoint.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_unknown_endpoint.json; sourceTree = "<group>"; };
 		27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRequest.swift; sourceTree = "<group>"; };
 		28A38549A45A72F4B2858650 /* share_asked.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = share_asked.json; sourceTree = "<group>"; };
+		296E1AE937C8851AC210300C /* MacChatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacChatsView.swift; sourceTree = "<group>"; };
 		29A595BB503334F0561F7F03 /* CompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionModels.swift; sourceTree = "<group>"; };
 		2A5BA93B90B959C3CD804B40 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		2ABC9D36EFCDA962D6400377 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -647,6 +649,7 @@
 				43AF13DCCF32B738186BDB9A /* Components.swift */,
 				9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */,
 				1BB9FC3DBFBEC9BC943067FB /* JarvisView.swift */,
+				296E1AE937C8851AC210300C /* MacChatsView.swift */,
 				B46CDF77E69B96A427B73499 /* MainTabs.swift */,
 				C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */,
 				E10DA979C0AFFE3D76DA961C /* PairingView.swift */,
@@ -1540,6 +1543,7 @@
 				FCCF4C23005CF91B1B48A4E5 /* LocalBrain.swift in Sources */,
 				4E9A04458448E30689BAE3AF /* LocationService.swift in Sources */,
 				AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */,
+				53E69B2B0493344F684B4406 /* MacChatsView.swift in Sources */,
 				917F6165DE0AE2A461EC0271 /* MacFeature.swift in Sources */,
 				67E4FA380B9DF52156764BDB /* MacFeatureView.swift in Sources */,
 				07F0E82EC3EAAC5D6A707A32 /* MacPrefsView.swift in Sources */,

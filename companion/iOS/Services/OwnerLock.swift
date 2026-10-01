@@ -7,7 +7,7 @@ import UIKit
 @MainActor
 enum OwnerLock {
     static let key = "brain.ownerOnly"
-    static let refusal = "Unlock your iPhone first, then ask me again. I only answer you."
+    nonisolated static let refusal = "Unlock your iPhone first, then ask me again. I only answer you."
 
     static var isOn: Bool { UserDefaults.standard.bool(forKey: key) }
 

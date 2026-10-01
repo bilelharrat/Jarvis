@@ -20,6 +20,8 @@ from jarvis.interrupts import Announced, Item
 from jarvis.tasks import ClaudeTask
 
 GETS = [
+    "/api/chats",
+    "/api/chats/one?id=11111111-2222-3333-4444-555555555555",
     "/api/code/options",
     "/api/code/sessions",
     "/api/code/session?id=1",
@@ -48,6 +50,9 @@ GETS = [
     "/api/prefs",
 ]
 POSTS = [
+    "/api/chats/resume",
+    "/api/chats/manage",
+    "/api/chats/new",
     "/api/code/new",
     "/api/code/action",
     "/api/code/send",

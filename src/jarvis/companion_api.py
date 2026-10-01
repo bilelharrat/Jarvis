@@ -1201,12 +1201,13 @@ class Api:
 
 
 def routes(companion: Any, gate: Any) -> list[Route]:
-    from . import companion_code, companion_more
+    from . import companion_chats, companion_code, companion_more
 
     api = Api(companion, gate)
     return (
         companion_more.routes(api)
         + companion_code.routes(api)
+        + companion_chats.routes(api)
         + [
             Route("/api/push/register", api.push_register, methods=["POST"]),
             Route("/api/push/unregister", api.push_unregister, methods=["POST"]),

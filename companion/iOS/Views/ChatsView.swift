@@ -9,11 +9,32 @@ struct ChatsView: View {
     @State private var renaming: SavedChat?
     @State private var newTitle = ""
     @State private var confirmDeleteAll = false
+    @State private var place: Place = .phone
     private var store: ChatStore { .shared }
+
+    enum Place: Hashable { case phone, mac }
 
     var body: some View {
         let found = store.search(query)
         GlassList {
+            if model.pairing != nil {
+                Picker("Where", selection: $place) {
+                    Text("This iPhone").tag(Place.phone)
+                    Text("Your Mac").tag(Place.mac)
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+            }
+            if place == .mac {
+                Section {
+                    Button {
+                        Task { await newOnMac() }
+                    } label: {
+                        Label("New Conversation on Your Mac", systemImage: "square.and.pencil")
+                    }
+                }
+                MacChatsList(query: query)
+            } else {
             Section {
                 Button {
                     model.brain.newChat()
@@ -83,6 +104,7 @@ struct ChatsView: View {
                     }
                 }
             }
+            }
         }
         .searchable(text: $query, prompt: "Search chats")
         .navigationTitle("Chats")
@@ -105,6 +127,17 @@ struct ChatsView: View {
                 store.deleteAll()
                 model.brain.newChat()
             }
+        }
+    }
+
+    private func newOnMac() async {
+        guard let api = model.pairing?.api else { return }
+        do {
+            _ = try await api.request("api/chats/new", body: Data("{}".utf8), timeout: 30)
+            Haptics.answered(negative: false)
+            model.show("A new conversation started on your Mac.", style: .success)
+        } catch {
+            if let problem = model.handle(error) { model.show(problem.message, style: .problem) }
         }
     }
 
