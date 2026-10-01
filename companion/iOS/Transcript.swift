@@ -24,6 +24,13 @@ struct TranscriptLine: Identifiable, Equatable {
     var activity: String?
     /// Small copies of the pictures sent with a question (JPEG).
     var pictures: [Data] = []
+    /// The names of documents sent with a question.
+    var files: [String] = []
+}
+
+/// What can be done with a line of the conversation (a long press on it).
+enum LineAction: Equatable {
+    case readAloud, regenerate, edit, good, bad
 }
 
 /// Builds the conversation from the Mac's history, the turn it's working on right now, the

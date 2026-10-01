@@ -29,6 +29,15 @@ when the other fails, and the Mac when both do.
   companion is on (`jarvis.companion_wake`), same certificate and token. The app shows
   "Opening JARVIS on your Mac…" and what waited in the outbox goes once it answers; Siri
   waits up to 15 s and then asks. A Mac that's asleep or off can't be opened this way.
+- **Chats like the Claude, ChatGPT and Gemini apps** (Jarvis on iPhone): every chat kept on
+  the iPhone (`ChatStore`, App Group `phone-chats.json`, pictures' and documents' bytes left
+  out) with Chats (search, pinned first, swipe to pin, rename, delete, share), New Chat and
+  Temporary Chat (kept nowhere, nothing remembered); replies in full Markdown (`RichText`:
+  headings, lists, quotes, tables, code blocks with Copy); a long press on a line for Copy,
+  Share, Read Aloud, Edit (the last question), Try Again and Good/Bad Response (a bad one's
+  "what was wrong" is kept as a correction); Files in the + menu (PDFs as PDFs, text files as
+  text; to the Mac's Inbox with the question when the Mac answers). Typed questions get
+  formatted answers; spoken ones stay short and plain.
 - **Learning and judgement** (Jarvis on iPhone): memory sorted into facts, preferences,
   people, goals and corrections (kept last; the prompt says to save every correction at once),
   and which contact a short name means ("Ann" → Ann Lee), learned when the owner picks one

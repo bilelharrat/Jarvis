@@ -47,6 +47,8 @@ final class AppModel {
     var draft = ""
     /// Pictures waiting in the composer (photos, screenshots), sent with the draft.
     var attachments: [Attachment] = []
+    /// Documents waiting in the composer (PDFs, text files), sent with the draft.
+    var documents: [PickedDocument] = []
     /// Small copies of the pictures sent to the Mac this session, by question.
     private(set) var sentPictures: [String: [Data]] = [:]
     private var speakSetting = true
@@ -119,7 +121,7 @@ final class AppModel {
                 self?.voice.speakLocally(OwnerLock.refusal)
                 return
             }
-            Task { await self?.send(command) }
+            Task { await self?.send(command, spoken: true) }
         }
         voice.onFinish = { [weak self] in self?.resumeWakeWord() }
         NotificationCenter.default.addObserver(forName: ListenRequest.notification, object: nil, queue: .main) { [weak self] _ in
@@ -199,7 +201,7 @@ final class AppModel {
                 id: "local:\(turn.id)",
                 kind: turn.role == .user ? .user : turn.role == .jarvis ? .jarvis : .problem,
                 text: turn.text, time: turn.time, live: turn.live, onPhone: true, activity: turn.activity,
-                pictures: turn.pictures
+                pictures: turn.pictures, files: turn.files
             )
         }
         guard !mac.isEmpty, !phone.isEmpty else { return mac + phone }
@@ -435,22 +437,32 @@ final class AppModel {
             resumeWakeWord()
             return
         }
-        Task { await send(text) }
+        Task { await send(text, spoken: true) }
     }
 
     func sendDraft() {
         let text = draft.trimmed
         let pictures = attachments
-        guard !text.isEmpty || !pictures.isEmpty else { return }
+        let files = documents
+        guard !text.isEmpty || !pictures.isEmpty || !files.isEmpty else { return }
         draft = ""
         attachments = []
+        documents = []
         Task {
-            if pictures.isEmpty {
+            if pictures.isEmpty && files.isEmpty {
                 await send(text)
             } else {
-                await send(text, pictures: pictures)
+                await send(text, pictures: pictures, documents: files)
             }
         }
+    }
+
+    /// Adds documents to the composer (up to `PickedDocument.limit`).
+    func attach(documents picked: [PickedDocument]) {
+        let room = PickedDocument.limit - documents.count
+        guard room > 0 else { return show("Up to \(PickedDocument.limit) documents at a time.") }
+        documents += picked.prefix(room)
+        if picked.count > room { show("Up to \(PickedDocument.limit) documents at a time, so the first \(room) went in.") }
     }
 
     /// Adds pictures to the composer, up to `Attachment.limit`.
@@ -471,20 +483,39 @@ final class AppModel {
     /// A question about pictures (photos, screenshots): Jarvis on the Mac looks at them
     /// (POST /api/photo), or Jarvis on the iPhone when it's the one answering. They can't wait
     /// in the outbox: when the Mac can't be reached they go back into the composer.
-    func send(_ raw: String, pictures: [Attachment]) async {
-        let question = raw.trimmed.isEmpty ? PhotoQuestion.fallback(count: pictures.count) : raw.trimmed
+    func send(_ raw: String, pictures: [Attachment], documents files: [PickedDocument] = []) async {
+        let question = raw.trimmed.isEmpty
+            ? (pictures.isEmpty ? PickedDocument.fallback(count: files.count) : PhotoQuestion.fallback(count: pictures.count))
+            : raw.trimmed
         voice.stop()
         speech.cancel()
         if answersOnPhone {
             let jpegs = pictures.compactMap { PhotoPrep.jpeg(from: $0.image, longest: 1568, maxBytes: 4 * 1024 * 1024) }
             guard jpegs.count == pictures.count else {
-                return restore(raw, pictures, "Couldn’t prepare those pictures.")
+                return restore(raw, pictures, "Couldn’t prepare those pictures.", files)
             }
-            return await askPhone(question, images: jpegs, pictures: pictures.map(\.thumbnail))
+            await askPhone(question, images: jpegs, pictures: pictures.map(\.thumbnail),
+                           documents: files.compactMap(\.block), files: files.map(\.name))
+            guard brain.lastFailed, brainMode == .automatic, pairing != nil else { return }
+            brain.dropFailedAsk()  // the services failed: the Mac looks at them instead
         }
         guard let api = pairing?.api else { return }
-        let unreachable = "Your Mac can’t be reached, so the pictures stay here. Send them when it’s back."
-        if isOffline { return restore(raw, pictures, unreachable) }
+        let unreachable = "Your Mac can’t be reached, so they stay here. Send them when it’s back."
+        if isOffline { return restore(raw, pictures, unreachable, files) }
+        if !files.isEmpty {
+            // Documents go to the Mac's Inbox with the question; its answer lands in the conversation.
+            do {
+                for (index, file) in files.enumerated() {
+                    _ = try await api.share(ShareItem(kind: .file, name: file.name, data: file.data,
+                                                      note: index == files.count - 1 && pictures.isEmpty ? question : nil))
+                }
+                show(files.count == 1 ? "Sent to your Mac. The answer will be in the conversation." : "Sent \(files.count) documents to your Mac.")
+                expectActivity()
+            } catch {
+                return restore(raw, pictures, handle(error)?.message ?? unreachable, files)
+            }
+            guard !pictures.isEmpty else { return }
+        }
         // Under the Mac's 16 MB for all of them together.
         let each = pictures.count > 1 ? 4 * 1024 * 1024 : PhotoPrep.maxBytes
         let jpegs = pictures.compactMap { PhotoPrep.jpeg(from: $0.image, maxBytes: each) }
@@ -524,20 +555,54 @@ final class AppModel {
         resumeWakeWord()
     }
 
+    /// What a long press on a line asked for.
+    func act(_ action: LineAction, on line: TranscriptLine) {
+        switch action {
+        case .readAloud:
+            voice.stop()
+            if let api = pairing?.api, !isOffline { voice.speak(line.text, using: api) } else { voice.speakLocally(line.text) }
+        case .regenerate:
+            guard let work = brain.regenerate() else { return }
+            Task { if let reply = await work.value { announce(reply) } }
+        case .edit:
+            if let text = brain.takeBackLast() { draft = text }
+        case .good:
+            Haptics.answered(negative: false)
+            UserDefaults.standard.set(UserDefaults.standard.integer(forKey: "feedback.good") + 1, forKey: "feedback.good")
+            show("Thanks. Noted.", style: .success)
+        case .bad:
+            break  // the screen asks what was wrong (feedback(_:retry:))
+        }
+    }
+
+    /// What was wrong with a reply: kept as a correction (never repeated), and tried again
+    /// with it when asked.
+    func feedback(_ what: String, retry: Bool) {
+        let lesson = what.trimmed
+        if !lesson.isEmpty, !brain.temporary { LocalMemory.shared.add(lesson, kind: .correction) }
+        Haptics.answered(negative: true)
+        if retry, let work = brain.regenerate() {
+            Task { if let reply = await work.value { announce(reply) } }
+        } else {
+            show(lesson.isEmpty ? "Thanks. Noted." : "Got it. Jarvis won’t do that again.", style: .success)
+        }
+    }
+
     /// Puts pictures that didn't go back into the composer, with what was typed.
-    private func restore(_ text: String, _ pictures: [Attachment], _ message: String) {
+    private func restore(_ text: String, _ pictures: [Attachment], _ message: String, _ files: [PickedDocument] = []) {
         if draft.trimmed.isEmpty { draft = text }
         attachments = Array((pictures + attachments).prefix(Attachment.limit))
+        documents = Array((files + documents).prefix(PickedDocument.limit))
         Haptics.failure()
         show(message, style: .problem)
     }
 
     /// `queuedAt`: when it was first asked, for a question that waited in the outbox.
-    func send(_ raw: String, queuedAt: Date? = nil) async {
+    func send(_ raw: String, queuedAt: Date? = nil, spoken: Bool = false) async {
         let text = raw.trimmed
         guard !text.isEmpty else { return }
         if answersOnPhone && queuedAt == nil {
-            await askPhone(text)
+            await askPhone(text, spoken: spoken)
             // Automatic: when the key's services fail, the Mac answers instead.
             guard brain.lastFailed, brainMode == .automatic, pairing != nil else { return }
             brain.dropFailedAsk()
@@ -581,10 +646,14 @@ final class AppModel {
     }
 
     /// Jarvis on the iPhone answers.
-    func askPhone(_ text: String, images: [Data] = [], pictures: [Data] = []) async {
+    func askPhone(
+        _ text: String, images: [Data] = [], pictures: [Data] = [], documents: [JSONValue] = [], files: [String] = [],
+        spoken: Bool = false
+    ) async {
         voice.stop()
         speech.cancel()
-        guard let reply = await brain.ask(text, images: images, pictures: pictures, macName: pairing?.macLabel) else {
+        guard let reply = await brain.ask(text, images: images, pictures: pictures, documents: documents, files: files,
+                                          spoken: spoken, macName: pairing?.macLabel) else {
             resumeWakeWord()
             return
         }

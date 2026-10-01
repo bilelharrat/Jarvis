@@ -34,6 +34,8 @@ final class PhoneTools {
     private(set) var actions: [PhoneAction] = []
     /// Reaches the Mac for what only the Mac can do; nil when there's no Mac.
     var mac: JarvisAPI?
+    /// A temporary chat: nothing in it is remembered.
+    var temporary = false
     /// Names that matched several contacts lately, waiting to learn which one was meant.
     private var ambiguous: Set<String> = []
 
@@ -202,6 +204,8 @@ final class PhoneTools {
         case "music": return try await music(action: try need("action"), query: string("query"))
         case "home": return try await home.perform(action: try need("action"), name: string("name"), on: input["on"]?.boolValue)
         case "health_today": return try await health()
+        case "remember" where temporary, "remember_person" where temporary:
+            return "Not remembered: this is a temporary chat, and the owner asked that nothing from it be kept."
         case "remember":
             let kind = string("kind").flatMap { LocalMemory.Fact.Kind(rawValue: $0.lowercased()) } ?? .fact
             LocalMemory.shared.add(try need("fact"), kind: kind)

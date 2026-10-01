@@ -6,6 +6,8 @@ struct TranscriptView: View {
     let lines: [TranscriptLine]
     var onSuggestion: (String) -> Void = { _ in }
     var suggestions: [String] = EmptyTranscript.defaultSuggestions
+    /// A long press's choice on a line (copy and share are done here).
+    var onAction: (LineAction, TranscriptLine) -> Void = { _, _ in }
 
     var body: some View {
         ScrollView {
@@ -13,8 +15,15 @@ struct TranscriptView: View {
                 if lines.isEmpty {
                     EmptyTranscript(suggestions: suggestions, onSuggestion: onSuggestion)
                 }
+                let lastUser = lines.last { $0.kind == .user }?.id
+                let lastReply = lines.last { $0.kind == .jarvis }?.id
                 ForEach(lines) { line in
-                    TranscriptRow(line: line)
+                    TranscriptRow(
+                        line: line,
+                        canRegenerate: line.onPhone && line.id == lastReply && !line.live,
+                        canEdit: line.onPhone && line.id == lastUser,
+                        onAction: { onAction($0, line) }
+                    )
                         .id(line.id)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
@@ -31,6 +40,9 @@ struct TranscriptView: View {
 
 struct TranscriptRow: View {
     let line: TranscriptLine
+    var canRegenerate = false
+    var canEdit = false
+    var onAction: (LineAction) -> Void = { _ in }
 
     var body: some View {
         Group {
@@ -45,6 +57,28 @@ struct TranscriptRow: View {
         .accessibilityLabel(accessibilityText)
     }
 
+    /// Copy, share, read aloud; on Jarvis's last reply here, try again and feedback; on
+    /// the last question, edit it.
+    @ViewBuilder
+    private var menu: some View {
+        Button("Copy", systemImage: "doc.on.doc") {
+            UIPasteboard.general.string = line.text
+            Haptics.tap()
+        }
+        ShareLink(item: line.text) { Label("Share", systemImage: "square.and.arrow.up") }
+        Button("Read Aloud", systemImage: "speaker.wave.2") { onAction(.readAloud) }
+        if canEdit {
+            Button("Edit", systemImage: "pencil") { onAction(.edit) }
+        }
+        if line.kind == .jarvis {
+            if canRegenerate {
+                Button("Try Again", systemImage: "arrow.clockwise") { onAction(.regenerate) }
+            }
+            Button("Good Response", systemImage: "hand.thumbsup") { onAction(.good) }
+            Button("Bad Response", systemImage: "hand.thumbsdown") { onAction(.bad) }
+        }
+    }
+
     private var userBubble: some View {
         HStack {
             Spacer(minLength: 56)
@@ -54,6 +88,9 @@ struct TranscriptRow: View {
                     SentPictures(pictures: line.pictures)
                         .opacity(line.sending ? 0.7 : 1)
                 }
+                ForEach(line.files, id: \.self) { name in
+                    DocumentChip(name: name)
+                }
                 Text(line.text)
                     .font(.body)
                     .foregroundStyle(Palette.ink)
@@ -62,7 +99,8 @@ struct TranscriptRow: View {
                     .glassEffect(.regular.tint((line.waiting ? Color.gray : Palette.cyan).opacity(0.35)), in: bubble)
                     .overlay { SpecularRim(shape: bubble, tint: line.waiting ? .white : Palette.ring, strength: 0.7) }
                     .opacity(line.sending ? 0.7 : 1)
-                    .textSelection(.enabled)
+                    .contentShape(.contextMenuPreview, bubble)
+                    .contextMenu { if !line.text.isEmpty { menu } }
                 if line.waiting {
                     Label("Waiting for your Mac", systemImage: "clock")
                         .font(.caption2)
@@ -110,17 +148,15 @@ struct TranscriptRow: View {
                         .padding(.vertical, 5)
                 }
             } else {
-                Text(reply)
-                    .font(.body)
-                    .foregroundStyle(Palette.ink)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
+                RichText(text: line.text, caret: line.live)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .glassCard(cornerRadius: 22)
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .contextMenu { if !line.text.isEmpty && !line.live { menu } }
         .padding(.trailing, 28)
     }
 
@@ -133,17 +169,6 @@ struct TranscriptRow: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .symbolRenderingMode(.multicolor)
         }
-    }
-
-    /// The reply with a caret while it's still being written.
-    private var reply: AttributedString {
-        var text = Self.markdown(line.text)
-        if line.live {
-            var caret = AttributedString(" ●")
-            caret.foregroundColor = .accentColor
-            text.append(caret)
-        }
-        return text
     }
 
     private var accessibilityText: String {

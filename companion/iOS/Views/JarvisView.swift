@@ -11,6 +11,9 @@ struct JarvisView: View {
     @FocusState private var typing: Bool
     @State private var showCamera = false
     @State private var showRoutines = false
+    @State private var showChats = false
+    @State private var feedbackLine: TranscriptLine?
+    @State private var feedbackText = ""
 
     var body: some View {
         @Bindable var model = model
@@ -20,9 +23,16 @@ struct JarvisView: View {
                     welcome
                         .transition(.opacity)
                 } else {
-                    TranscriptView(lines: model.transcript) { suggestion in
+                    TranscriptView(lines: model.transcript, onSuggestion: { suggestion in
                         Task { await model.send(suggestion) }
-                    }
+                    }, onAction: { action, line in
+                        if action == .bad {
+                            feedbackText = ""
+                            feedbackLine = line
+                        } else {
+                            model.act(action, on: line)
+                        }
+                    })
                     .transition(.opacity)
                 }
                 if model.speech.isActive {
@@ -56,7 +66,7 @@ struct JarvisView: View {
                 .padding(.bottom, Space.xs)
             }
             .navigationTitle("Jarvis")
-            .navigationSubtitle(model.answererLabel)
+            .navigationSubtitle(model.brain.temporary && model.answersOnPhone ? "Temporary chat" : model.answererLabel)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
             .animation(.spring(response: 0.45, dampingFraction: 0.86), value: model.visibleApprovals.map(\.id))
@@ -65,6 +75,13 @@ struct JarvisView: View {
             .animation(.smooth, value: model.transcript.isEmpty)
             .sheet(isPresented: $showCamera) {
                 NavigationStack { ShowJarvisView() }
+            }
+            .sheet(isPresented: $showChats) {
+                NavigationStack { ChatsView() }
+            }
+            .sheet(item: $feedbackLine) { _ in
+                NavigationStack { feedbackSheet }
+                    .presentationDetents([.medium])
             }
             .sheet(isPresented: $showRoutines) {
                 NavigationStack {
@@ -81,8 +98,46 @@ struct JarvisView: View {
 
     // MARK: - Pieces
 
+    /// What was wrong with a reply: kept as a correction, and tried again if asked.
+    private var feedbackSheet: some View {
+        Form {
+            Section {
+                TextField("What was wrong? (optional)", text: $feedbackText, axis: .vertical)
+                    .lineLimit(2...6)
+            } footer: {
+                Text("Jarvis keeps it as a correction and won’t make that mistake again.")
+            }
+            Section {
+                Button("Try Again with This") {
+                    model.feedback(feedbackText, retry: true)
+                    feedbackLine = nil
+                }
+                .disabled(!(feedbackLine?.onPhone ?? false))
+                Button("Just Note It") {
+                    model.feedback(feedbackText, retry: false)
+                    feedbackLine = nil
+                }
+            }
+        }
+        .navigationTitle("Bad Response")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { feedbackLine = nil }
+            }
+        }
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                showChats = true
+            } label: {
+                Image(systemName: "list.bullet")
+            }
+            .accessibilityLabel("Chats")
+        }
         ToolbarItem(placement: .topBarLeading) {
             Button {
                 model.speakReplies.toggle()
@@ -106,9 +161,9 @@ struct JarvisView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                if !model.brain.turns.isEmpty {
-                    Button("New Conversation on iPhone", systemImage: "square.and.pencil") { model.brain.clear() }
-                }
+                Button("New Chat", systemImage: "square.and.pencil") { model.brain.newChat() }
+                Button("Temporary Chat", systemImage: "eye.slash") { model.brain.newChat(temporary: true) }
+                Button("Chats", systemImage: "list.bullet") { showChats = true }
                 if !model.queued.isEmpty {
                     Button("Waiting to Send (\(model.queued.count))", systemImage: "tray.and.arrow.up") { showOutbox = true }
                 }
@@ -303,9 +358,10 @@ private struct Composer: View {
     @State private var showPhotos = false
     @State private var picked: [PhotosPickerItem] = []
     @State private var showCamera = false
+    @State private var showFiles = false
 
     private var hasCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
-    private var canSend: Bool { !text.trimmed.isEmpty || !model.attachments.isEmpty }
+    private var canSend: Bool { !text.trimmed.isEmpty || !model.attachments.isEmpty || !model.documents.isEmpty }
     private var room: Int { max(Attachment.limit - model.attachments.count, 0) }
 
     var body: some View {
@@ -315,9 +371,34 @@ private struct Composer: View {
                 AttachmentStrip(attachments: $model.attachments)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            if !model.documents.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: Space.xs) {
+                        ForEach(model.documents) { document in
+                            DocumentChip(name: document.name) { model.documents.removeAll { $0.id == document.id } }
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .scrollIndicators(.hidden)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             bar
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.attachments)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.documents)
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.pdf, .plainText, .text, .rtf, .commaSeparatedText, .json, .html, .xml, .sourceCode],
+                      allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            var read: [PickedDocument] = []
+            for url in urls {
+                switch PickedDocument.read(url) {
+                case .success(let document): read.append(document)
+                case .failure(let why): model.show(why.message, style: .problem)
+                }
+            }
+            model.attach(documents: read)
+        }
         .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(room, 1), selectionBehavior: .ordered, matching: .images)
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
@@ -335,7 +416,7 @@ private struct Composer: View {
             HStack(alignment: .bottom, spacing: Space.s) {
                 actionsMenu
                 HStack(alignment: .bottom, spacing: Space.xs) {
-                    TextField(model.attachments.isEmpty ? "Ask Jarvis" : "Ask about \(model.attachments.count == 1 ? "this picture" : "these pictures")", text: $text, axis: .vertical)
+                    TextField(placeholder, text: $text, axis: .vertical)
                         .lineLimit(1...5)
                         .focused(typing)
                         .submitLabel(.send)
@@ -361,6 +442,12 @@ private struct Composer: View {
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: canSend)
         }
+    }
+
+    private var placeholder: String {
+        if !model.documents.isEmpty { return model.documents.count == 1 && model.attachments.isEmpty ? "Ask about this document" : "Ask about these" }
+        if !model.attachments.isEmpty { return "Ask about \(model.attachments.count == 1 ? "this picture" : "these pictures")" }
+        return model.brain.temporary && model.answersOnPhone ? "Ask Jarvis (temporary)" : "Ask Jarvis"
     }
 
     private func send() {
@@ -399,6 +486,8 @@ private struct Composer: View {
                     Button("Take Photo", systemImage: "camera") { showCamera = true }
                         .disabled(room == 0)
                 }
+                Button("Files", systemImage: "doc") { showFiles = true }
+                    .disabled(model.documents.count >= PickedDocument.limit)
                 if UIPasteboard.general.hasImages {
                     Button("Paste Image", systemImage: "doc.on.clipboard") { pasteImages() }
                         .disabled(room == 0)

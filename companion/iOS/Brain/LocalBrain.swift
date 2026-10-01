@@ -242,6 +242,8 @@ final class LocalBrain {
         var activity: String?
         /// Small copies of the pictures sent with it (JPEG), for the conversation.
         var pictures: [Data] = []
+        /// The names of documents sent with it.
+        var files: [String] = []
     }
 
     /// What's on screen, oldest first.
@@ -261,11 +263,84 @@ final class LocalBrain {
     /// The last ask ended in a problem (no key, the services failed), not an answer or a stop.
     private(set) var lastFailed = false
 
+    /// The chat on screen (kept in ChatStore as it goes, unless it's temporary).
+    private(set) var chatID = UUID()
+    /// A temporary chat: never kept, and nothing in it is remembered.
+    private(set) var temporary = false
+    /// The last ask came by voice: replies stay short and spoken.
+    @ObservationIgnored private var spoken = false
+    @ObservationIgnored private var macName: String?
+
     func clear() {
+        newChat()
+    }
+
+    /// A fresh chat (temporary: kept nowhere).
+    func newChat(temporary: Bool = false) {
         cancel()
         turns = []
         messages = []
         actions = []
+        chatID = UUID()
+        self.temporary = temporary
+        tools.temporary = temporary
+    }
+
+    /// Picks a kept chat up again where it left off.
+    func open(_ chat: SavedChat) {
+        cancel()
+        chatID = chat.id
+        temporary = false
+        tools.temporary = false
+        messages = chat.messages
+        actions = []
+        turns = chat.lines.map { line in
+            Turn(role: line.role == "user" ? .user : line.role == "jarvis" ? .jarvis : .problem,
+                 text: line.text, time: line.time, pictures: line.pictures, files: line.files)
+        }
+    }
+
+    /// Answers the last question again (a fresh try at the reply).
+    @discardableResult
+    func regenerate() -> Task<String?, Never>? {
+        guard !isWorking, let question = messages.lastIndex(where: Self.isPlainUser),
+              let lastUser = turns.lastIndex(where: { $0.role == .user }) else { return nil }
+        let clients = BrainSettings.clients()
+        guard !clients.isEmpty else { return nil }
+        messages.removeSubrange((question + 1)...)
+        turns.removeSubrange((lastUser + 1)...)
+        turns.append(Turn(role: .jarvis, text: "", live: true))
+        isWorking = true
+        lastFailed = false
+        let system = Self.systemPrompt(macName: macName, hasMac: tools.mac != nil, spoken: spoken)
+        let work = Task { await self.run(clients: clients, system: system) }
+        task = work
+        return work
+    }
+
+    /// Takes back the last exchange (to edit the question and send it again): its words.
+    func takeBackLast() -> String? {
+        guard !isWorking, let question = messages.lastIndex(where: Self.isPlainUser),
+              let lastUser = turns.lastIndex(where: { $0.role == .user }) else { return nil }
+        let text = turns[lastUser].text
+        messages.removeSubrange(question...)
+        turns.removeSubrange(lastUser...)
+        keep()
+        return text
+    }
+
+    private static func isPlainUser(_ message: JSONValue) -> Bool {
+        message["role"]?.stringValue == "user"
+            && !(message["content"]?.arrayValue ?? []).contains { $0["type"]?.stringValue == "tool_result" }
+    }
+
+    /// Keeps the chat as it stands (not a temporary one).
+    private func keep() {
+        guard !temporary else { return }
+        ChatStore.shared.keep(id: chatID, messages: messages, lines: turns.filter { !$0.live }.map { turn in
+            SavedChat.Line(role: turn.role == .user ? "user" : turn.role == .jarvis ? "jarvis" : "problem",
+                           text: turn.text, time: turn.time, pictures: turn.pictures, files: turn.files)
+        })
     }
 
     func cancel() {
@@ -283,29 +358,37 @@ final class LocalBrain {
 
     /// Asks; the answer streams into `turns`. Returns the reply (nil when stopped or failed).
     /// images: JPEGs Claude looks at with the question; pictures: their small copies, shown.
-    func ask(_ text: String, images: [Data] = [], pictures: [Data] = [], macName: String?) async -> String? {
+    /// documents: Claude document or text blocks for files sent with it (files: their names).
+    /// spoken: it came by voice, so the reply stays short and plain.
+    func ask(
+        _ text: String, images: [Data] = [], pictures: [Data] = [], documents: [JSONValue] = [], files: [String] = [],
+        spoken: Bool = false, macName: String?
+    ) async -> String? {
         cancel()
         lastFailed = false
+        self.spoken = spoken
+        self.macName = macName
         let clients = BrainSettings.clients()
         guard !clients.isEmpty else {
-            turns.append(Turn(role: .user, text: text, pictures: pictures))
+            turns.append(Turn(role: .user, text: text, pictures: pictures, files: files))
             turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone, so Jarvis can answer here."))
             lastFailed = true
             return nil
         }
         actions = []
-        turns.append(Turn(role: .user, text: text, pictures: pictures))
+        turns.append(Turn(role: .user, text: text, pictures: pictures, files: files))
         turns.append(Turn(role: .jarvis, text: "", live: true))
         isWorking = true
         var content: [JSONValue] = []
         for image in images {
             content.append(["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": .string(image.base64EncodedString())]])
         }
+        content += documents
         content.append(["type": "text", "text": .string(text)])
         messages.append(["role": "user", "content": .array(content)])
         trim()
 
-        let system = Self.systemPrompt(macName: macName, hasMac: tools.mac != nil)
+        let system = Self.systemPrompt(macName: macName, hasMac: tools.mac != nil, spoken: spoken)
         let work = Task { await self.run(clients: clients, system: system) }
         task = work
         let reply = await work.value
@@ -398,6 +481,7 @@ final class LocalBrain {
     }
 
     private func finish(_ reply: String) -> String {
+        defer { keep() }
         isWorking = false
         actions = tools.actions
         if let index = turns.lastIndex(where: { $0.live }) {
@@ -419,6 +503,7 @@ final class LocalBrain {
     }
 
     private func fail(_ message: String) {
+        defer { keep() }
         lastFailed = true
         isWorking = false
         if let index = turns.lastIndex(where: { $0.live }) {
@@ -470,7 +555,7 @@ final class LocalBrain {
         }
     }
 
-    static func systemPrompt(macName: String?, hasMac: Bool) -> String {
+    static func systemPrompt(macName: String?, hasMac: Bool, spoken: Bool = true) -> String {
         let memory = LocalMemory.shared.prompt
         let address = UserDefaults.standard.string(forKey: "brain.address")?.trimmed.nilIfEmpty
         let honorific = address.map { " Address the owner as \"\($0)\" now and then, not in every reply." }
@@ -483,9 +568,15 @@ final class LocalBrain {
 
         Personality: calm, precise, quietly witty, unfailingly helpful. A light touch of dry humour, never at the expense of the answer.
 
-        Your replies are often read aloud, so talk, don't type:
+        \(spoken ? """
+        The owner asked out loud and will hear the reply, so talk, don't type:
         - One to three short spoken sentences unless the owner asks for more.
         - No markdown, bullet lists, tables, code or raw URLs. Say numbers the way a person would.
+        """ : """
+        The owner typed this and will read the reply on screen:
+        - Short answers for simple questions; for longer or technical ones, use markdown where it helps (headings, lists, tables, fenced code blocks with the language).
+        - Cite sources from the web as markdown links.
+        """)
         - Don't narrate tool use; just give the answer.
         - Don't say your own name in replies.
 

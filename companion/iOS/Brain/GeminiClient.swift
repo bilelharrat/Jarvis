@@ -175,9 +175,13 @@ struct GeminiClient: BrainClient {
                 switch block["type"]?.stringValue {
                 case "text":
                     if let text = block["text"]?.stringValue, !text.isEmpty { parts.append(["text": .string(text)]) }
-                case "image":
-                    if let data = block["source"]?["data"]?.stringValue {
+                case "image", "document":
+                    if let data = block["source"]?["data"]?.stringValue, block["source"]?["type"]?.stringValue == "base64" {
                         parts.append(["inlineData": ["mimeType": block["source"]?["media_type"] ?? "image/jpeg", "data": .string(data)]])
+                    } else if let text = block["source"]?["data"]?.stringValue {
+                        parts.append(["text": .string(text)])
+                    } else if let text = block["text"]?.stringValue, !text.isEmpty {
+                        parts.append(["text": .string(text)])  // a picture or document left behind in a kept chat
                     }
                 case "tool_use":
                     var part: [String: JSONValue] = ["functionCall": ["name": block["name"] ?? "", "args": block["input"] ?? [:]]]
