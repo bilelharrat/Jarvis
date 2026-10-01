@@ -63,7 +63,7 @@ from . import lang, utility_model
 from .brain import host_said, url_host
 from .claude_signin import signed_in
 from .config import MAX_BUFFER
-from .loopguard import LoopGuard
+from .loopguard import LoopGuard, fingerprint
 from .prefs import MODELS
 from .proactive import Alert
 
@@ -426,9 +426,12 @@ class BackgroundDesk:
                             task.cost_usd = message.total_cost_usd
                         continue
                     if isinstance(message, AssistantMessage):
+                        seen: set[str] = set()  # the same call twice at once: one step
                         for block in message.content:
                             if isinstance(block, ToolUseBlock):
-                                loop = guard.note(block.name, block.input)
+                                mark = fingerprint(block.name, block.input)
+                                loop = None if mark in seen else guard.note(block.name, block.input)
+                                seen.add(mark)
                                 if loop is not None:  # going nowhere: stop, and say so
                                     log.info("background: task %s looped", task.id)
                                     looped, task.status, task.result = True, "failed", LOOPED

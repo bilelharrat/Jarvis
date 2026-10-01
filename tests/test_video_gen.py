@@ -236,9 +236,9 @@ async def test_even_the_owners_own_words_get_a_card_with_the_estimate(hub):
     assert made["cost"] == "about $1.20 for 8 seconds"
     [alert] = hub.alerts
     assert alert.title == "Video" and alert.text == f"Your video is ready: {made['name']}."
-    await hub._handle({"type": "video_open", "id": made["id"]})
-    await hub._handle({"type": "video_reveal", "id": made["id"]})
-    await hub._handle({"type": "video_open", "id": "not-one-of-ours"})
+    await hub._handle({"type": "veo_open", "id": made["id"]})
+    await hub._handle({"type": "veo_reveal", "id": made["id"]})
+    await hub._handle({"type": "veo_open", "id": "not-one-of-ours"})
     assert hub.opened == [(made["path"],), ("-R", made["path"])]
 
 

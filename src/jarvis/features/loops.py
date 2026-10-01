@@ -25,7 +25,7 @@ from typing import Any
 from claude_agent_sdk import AssistantMessage, ToolUseBlock
 
 from .. import hub as hub_module
-from .. import lang
+from .. import lang, loopguard
 from ..loopguard import Loop, LoopGuard
 
 log = logging.getLogger("jarvis")
@@ -96,9 +96,14 @@ class Loops:
             return
         if getattr(message, "parent_tool_use_id", None):
             return  # a subagent's step: its own business
+        seen: set[str] = set()  # the same call made twice at once is one step, not a loop
         for block in message.content:
             if not isinstance(block, ToolUseBlock):
                 continue
+            fingerprint = loopguard.fingerprint(block.name, block.input)
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
             loop = self.turn.note(block.name, block.input)
             if loop is not None:
                 self.stop_turn(loop)

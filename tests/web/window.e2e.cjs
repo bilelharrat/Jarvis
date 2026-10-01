@@ -7705,7 +7705,7 @@ test('Videos: a finished video on a card with Play and Show in Finder, and Setti
   const card = await js(`(() => { const c = document.querySelector('#cards .vid-card'); return c && { prompt: c.querySelector('.vid-prompt').textContent, mine: c.querySelector('.vid-prompt').hasAttribute('data-no-i18n'), tags: c.querySelectorAll('b, i').length, buttons: [...c.querySelectorAll('.btn')].map((b) => b.textContent) }; })()`);
   assert(card && card.prompt === 'a <i>fox</i>' && card.mine && card.tags === 0 && card.buttons.join() === 'Play,Show in Finder,Dismiss', JSON.stringify(card));
   await js(`[...document.querySelectorAll('#cards .vid-card .btn')].find((b) => b.textContent === 'Play').click(); [...document.querySelectorAll('#cards .vid-card .btn')].find((b) => b.textContent === 'Show in Finder').click(); true`);
-  assert(JSON.stringify(await js(`__sent.map((m) => m.type + ':' + m.id)`)) === '["video_open:v1","video_reveal:v1"]', 'the card did not open the video by its id');
+  assert(JSON.stringify(await js(`__sent.map((m) => m.type + ':' + m.id)`)) === '["veo_open:v1","veo_reveal:v1"]', 'the card did not open the video by its id');
   await js(`[...document.querySelectorAll('#cards .vid-card .btn')].find((b) => b.textContent === 'Dismiss').click(); true`);
   assert(!(await js(`!!document.querySelector('#cards .vid-card')`)), 'Dismiss left the card');
 });

@@ -36,8 +36,8 @@
     card.append(el('div', 'card-kicker', 'Video'), mine(el('div', 'card-title vid-prompt', ev.prompt || '')), saved, price);
     const actions = el('div', 'card-actions');
     actions.append(
-      button('Play', () => send({ type: 'video_open', id: ev.id }), 'btn primary'),
-      button('Show in Finder', () => send({ type: 'video_reveal', id: ev.id })),
+      button('Play', () => send({ type: 'veo_open', id: ev.id }), 'btn primary'),
+      button('Show in Finder', () => send({ type: 'veo_reveal', id: ev.id })),
       button('Dismiss', () => { card.remove(); tidy(); }),
     );
     card.append(actions);
@@ -66,7 +66,7 @@
     input.spellcheck = false;
     input.addEventListener('change', () => send({ type: 'feature_prefs', changes: { video_model: input.value.trim() || (videos && videos.default_model) || '' } }));
     row.append(words, input);
-    section.append(el('h3', '', 'Videos'), status, row, button('Show the Videos folder', () => send({ type: 'videos_folder' })));
+    section.append(el('h3', '', 'Videos'), status, row, button('Show the Videos folder', () => send({ type: 'veo_folder' })));
     const pictures = F.$('pictures-group');
     const last = settings.querySelector('#open-accounts');
     const before = last ? last.closest('section.group') : null;
@@ -92,12 +92,12 @@
     input.placeholder = videos.default_model || '';
   }
 
-  F.on('hello', () => { group(); send({ type: 'videos_state' }); }, { replay: true });
+  F.on('hello', () => { group(); send({ type: 'veo_state' }); }, { replay: true });
   F.on('video_made', showVideo);
   F.on('videos', (ev) => { videos = ev; render(); });
-  F.on('providers', () => send({ type: 'videos_state' }));  // a Gemini key added or removed
+  F.on('providers', () => send({ type: 'veo_state' }));  // a Gemini key added or removed
   F.on('prefs', (p) => {  // the model as kept (a name that isn't one is refused), its price
     const kept = p.features && p.features.video_model;
-    if (videos && kept && kept !== videos.model) send({ type: 'videos_state' });
+    if (videos && kept && kept !== videos.model) send({ type: 'veo_state' });
   });
 })();

@@ -9,8 +9,8 @@ Registers:
   a heads-up (or says why there's none);
 - the setting video_model (prefs.features): the Veo model, veo-3.0-fast-generate-001 unless
   the owner names another;
-- window commands: videos_state (-> videos), video_open {id}, video_reveal {id} (only videos
-  made here), videos_folder (shows the folder in Finder).
+- window commands: veo_state (-> videos), veo_open {id}, veo_reveal {id} (only videos made
+  here; video_open is the video desk's own), veo_folder (shows the folder in Finder).
 Each video goes to the window as a "video_made" event: {id, name, path, prompt, cost}.
 
 Music: not made here. The Gemini API's music model (Lyria RealTime) is a live stream over a
@@ -262,7 +262,7 @@ def install(hub: Any) -> None:
         labels={"generate_video": "Made a video"},
         quiet=("generate_video",),
     )
-    hub.register_command("videos_state", videos.state)
-    hub.register_command("video_open", videos.open_video)
-    hub.register_command("video_reveal", videos.reveal_video)
-    hub.register_command("videos_folder", videos.reveal_folder)
+    hub.register_command("veo_state", videos.state)
+    hub.register_command("veo_open", videos.open_video)
+    hub.register_command("veo_reveal", videos.reveal_video)
+    hub.register_command("veo_folder", videos.reveal_folder)

@@ -173,6 +173,23 @@ async def test_a_turn_making_progress_runs_on_and_each_turn_starts_over(make_hub
     assert not hub.client.interrupted
 
 
+async def test_the_same_call_made_several_times_at_once_is_one_step(make_hub):
+    batch = AssistantMessage(
+        content=[
+            ToolUseBlock(id=f"b{i}", name="mcp__mac__list_events", input={}) for i in range(3)
+        ],
+        model="m",
+    )
+    FakeClient.script = [
+        batch,
+        AssistantMessage(content=[TextBlock(text="Done.")], model="m"),
+        result(),
+    ]
+    hub = make_hub()
+    await hub.start()
+    assert await hub.ask("what's on this week?") == "Done." and not hub.client.interrupted
+
+
 async def test_in_chinese_the_stop_is_said_in_chinese(make_hub):
     FakeClient.script = [tool_use(1), tool_use(2), tool_use(3), result()]
     hub = make_hub()

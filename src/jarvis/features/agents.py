@@ -30,6 +30,7 @@ import asyncio
 import contextlib
 import logging
 import time
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +88,6 @@ TEXTS = {
     "Switched to {name}.": "已切换到{name}。",
     "You're already talking to {name}.": "你已经在和{name}说话了。",
     "Leave incognito first, then switch agents.": "请先退出无痕模式，再切换助手。",
-    "Jarvis": "贾维斯",
 }
 lang.add_texts(TEXTS)
 
@@ -374,7 +374,6 @@ class AgentDesk:
             except OSError as exc:
                 self.publish(error=f"Couldn't save it just now ({exc.strerror or exc}).")
                 return
-            wake.add_names("agents", self._wake_names)
             if agent.id == store.active:
                 await self._reload()  # its tools changed: its conversation gets them now
         self.publish()
@@ -417,7 +416,7 @@ class AgentDesk:
     def install(self) -> None:
         hub = self.hub
         hub.agents = self
-        wake.add_names("agents", self._wake_names)
+        wake.add_names("agents", _weak(self._wake_names))
         hub.add_connect_hook(self.on_connect)
         hub.add_query_hook(self.on_query)
         hub.add_wake_sink(self.on_wake)
@@ -430,6 +429,17 @@ class AgentDesk:
         hub.register_command("agent_save", later(self.save))
         hub.register_command("agent_delete", later(self.delete))
         hub.register_command("agent_use", later(self.use))
+
+
+def _weak(method: Any) -> Any:
+    """A wake-word source that never keeps its hub alive (wake's map is module-level)."""
+    ref = weakref.WeakMethod(method)
+
+    def names() -> list[str]:
+        live = ref()
+        return live() if live is not None else []
+
+    return names
 
 
 def _personas() -> set[str]:
