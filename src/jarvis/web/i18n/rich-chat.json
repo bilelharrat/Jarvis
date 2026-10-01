@@ -1,0 +1,17 @@
+{
+  "strings": {
+    "Copy": "复制",
+    "Copied": "已复制",
+    "Read Aloud": "朗读",
+    "Try Again": "重试",
+    "Good Response": "回答很好",
+    "Bad Response": "回答不好",
+    "What was wrong? (optional)": "哪里不对？（可选）",
+    "Save": "保存",
+    "Cancel": "取消",
+    "Thanks. Noted.": "谢谢，已记下。",
+    "Got it. Jarvis won’t do that again.": "明白了，Jarvis 不会再这样做。",
+    "Noted, but not kept: this conversation is incognito.": "已记下，但不会保存：这是无痕对话。"
+  },
+  "patterns": []
+}

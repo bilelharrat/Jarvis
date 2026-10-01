@@ -1,0 +1,20 @@
+/* The main chat's reply in Markdown, and the buttons under it (features/rich-chat.js). */
+.reply.rc-hidden { display: none; }
+.reply-rich {
+  text-align: left; max-width: 760px; margin-left: auto; margin-right: auto;
+  font-family: inherit; font-size: 17px; line-height: 1.5; max-height: 46vh;
+}
+.reply-rich .cw-md { font-size: inherit; line-height: 1.5; }
+.rc-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 10px auto 0; max-width: 760px; }
+.rc-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid rgb(var(--c-ink) / 0.14); background: rgb(var(--c-ink) / 0.04);
+  color: rgb(var(--c-ink) / 0.8); font: inherit; font-size: 12px; cursor: pointer;
+}
+.rc-btn:hover { background: rgb(var(--c-ink) / 0.1); color: rgb(var(--c-ink)); }
+.rc-btn:focus-visible { outline: 2px solid rgb(var(--c-accent, 0 170 255)); outline-offset: 2px; }
+.rc-icon { font-size: 13px; line-height: 1; }
+.rc-note { display: flex; gap: 6px; justify-content: center; margin: 8px auto 0; max-width: 560px; }
+.rc-note-input { flex: 1; min-width: 0; padding: 6px 10px; border-radius: 10px; border: 1px solid rgb(var(--c-ink) / 0.2); background: transparent; color: rgb(var(--c-ink)); font: inherit; }
+#history li.assistant .cw-md { display: inline-block; vertical-align: top; }
+.rc-bar[hidden], .reply-rich[hidden] { display: none; }
