@@ -59,7 +59,7 @@ struct WelcomeView: View {
             }
             .sheet(isPresented: $showKey) {
                 NavigationStack {
-                    Form {
+                    GlassForm {
                         PhoneBrainSettings()
                     }
                     .navigationTitle("Jarvis on iPhone")

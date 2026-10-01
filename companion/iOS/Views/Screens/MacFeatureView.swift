@@ -73,7 +73,7 @@ struct MacFeatureView: View {
 
     @ViewBuilder
     private func list(_ value: JSONValue) -> some View {
-        List {
+        GlassList {
             switch feature {
             case .memory:
                 addRow(prompt: "Something for Jarvis to remember") { text in

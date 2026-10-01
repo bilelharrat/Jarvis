@@ -17,7 +17,7 @@ struct OutboxSheet: View {
                         Text("Requests you make while your Mac can’t be reached wait here, and go as soon as it’s back.")
                     }
                 } else {
-                    List {
+                    GlassList {
                         Section {
                             ForEach(model.queued) { item in
                                 row(item)

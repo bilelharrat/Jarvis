@@ -30,7 +30,7 @@ struct DigestView: View {
     }
 
     private func list(_ digest: Digest) -> some View {
-        List {
+        GlassList {
             Section {
                 ForEach(Array(digest.sorted.enumerated()), id: \.offset) { _, item in
                     row(item)

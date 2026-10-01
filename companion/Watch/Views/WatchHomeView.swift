@@ -143,7 +143,7 @@ private struct WatchExchangeView: View {
                     .foregroundStyle(Palette.ink2)
             }
             VStack(alignment: .leading, spacing: 3) {
-                HUDText(exchange.problem == nil ? "Jarvis" : "Not sent", color: exchange.problem == nil ? Palette.cyan : Palette.amber)
+                HUDText(exchange.problem == nil ? "Jarvis" : "Not sent", color: exchange.problem == nil ? Palette.ring : Palette.amber)
                 if let problem = exchange.problem {
                     Text(problem)
                         .font(.footnote)
@@ -165,16 +165,18 @@ private struct WatchExchangeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.spaceRaised))
+        .glassCard(cornerRadius: 18)
         .accessibilityElement(children: .combine)
     }
 }
 
 struct WatchBackground: View {
     var body: some View {
+        // The Stark night, as on the iPhone: lit by the reactor from above, a breath of gold below.
         ZStack {
-            Palette.space
-            LinearGradient(colors: [Palette.core[3].opacity(0.35), .clear], startPoint: .top, endPoint: .center)
+            Color(hex: 0x03060D)
+            RadialGradient(colors: [Color(hex: 0x0C3F78), .clear], center: UnitPoint(x: 0.5, y: 0.1), startRadius: 0, endRadius: 170)
+            RadialGradient(colors: [Color(hex: 0x181107), .clear], center: UnitPoint(x: 0.9, y: 1), startRadius: 0, endRadius: 120)
         }
     }
 }

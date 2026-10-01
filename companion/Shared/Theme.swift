@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// The J.A.R.V.I.S. look, the way Apple builds its own apps: the system's semantic colors
-/// (light and dark), SF Pro, grouped lists for content, Liquid Glass only for the controls
-/// that float above it, and one accent, Jarvis blue. The names are the app's vocabulary;
-/// each resolves to a system color, so every screen follows Dark Mode, Increase Contrast
-/// and the owner's text size by itself.
+/// The J.A.R.V.I.S. look: Apple's craft with Stark's materials. SF Pro and Apple's layouts,
+/// every surface Liquid Glass over a night lit by the arc reactor, one accent (reactor blue),
+/// and Stark gold, sparingly, for what needs the owner. Telemetry in small SF Mono caps.
 enum Palette {
     // Surfaces
     /// The canvas behind a screen.
@@ -14,11 +12,11 @@ enum Palette {
     /// An inset well (an approval's exact wording, code).
     static let well = Color.tertiarySystemFill
 
-    // Jarvis blue, the one accent
+    // Reactor blue, the one accent
     static let cyan = Color.accentColor
-    static let ring = Color.accentColor
-    static let ice = Color.accentColor
-    static let deep = Color(hex: 0x0A5BD8)
+    static let ring = Color(hex: 0x8FDBFF)
+    static let ice = Color(hex: 0xD6F3FF)
+    static let deep = Color(hex: 0x0B4FA8)
 
     // Labels
     static let ink = Color.primary
@@ -26,24 +24,29 @@ enum Palette {
     static let muted = Color.secondary
     static let hairline = Color.separatorLine
 
-    /// What needs the owner (approvals, a session waiting): the system's orange.
-    static let champagne = Color.orange
+    /// What needs the owner (approvals, a session waiting): Stark gold.
+    static let champagne = Color(hex: 0xE8C27A)
     static let titanium = Color.secondary
+    /// Hot-rod red, only ever in the backdrop's far corner and for stopping.
+    static let hotRod = Color(hex: 0xB3261E)
 
     // Signals
     static let amber = Color.orange
     static let danger = Color.red
     static let online = Color.green
 
-    /// The orb's light, centre to rim.
-    static let core: [Color] = [0xF4FBFF, 0x9FD8FF, 0x3D9BFF, 0x2A62F5, 0x5B3BE8].map { Color(hex: $0) }
+    /// The reactor's light, centre to rim.
+    static let core: [Color] = [0xF2FBFF, 0xA4E4FF, 0x3FB8F2, 0x1677C9, 0x0A3D84].map { Color(hex: $0) }
 
     /// A filled button.
     static let action = LinearGradient(colors: [Color.accentColor, Color.accentColor], startPoint: .top, endPoint: .bottom)
-    static let champagneFoil = LinearGradient(colors: [Color.orange, Color.orange], startPoint: .top, endPoint: .bottom)
+    static let champagneFoil = LinearGradient(
+        colors: [Color(hex: 0xF3E6C8), Color(hex: 0xC4A876), Color(hex: 0xE9D7B2)],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
 
     /// Ink on a filled (accent) button.
-    static let onAction = Color.white
+    static let onAction = Color(hex: 0x03101C)
 }
 
 extension Color {
@@ -95,8 +98,8 @@ extension Color {
 }
 
 extension Font {
-    /// Small labels over a value (Weather's module headers), in SF Pro.
-    static let hud = Font.footnote.weight(.semibold)
+    /// Telemetry: small SF Mono caps.
+    static let hud = Font.system(.caption2, design: .monospaced).weight(.semibold)
     static let eyebrow = Font.footnote.weight(.semibold)
     static let display = Font.largeTitle.weight(.bold)
     static let serifTitle = Font.title2.weight(.bold)
@@ -105,19 +108,22 @@ extension Font {
     static let voice = Font.body
 }
 
-/// A small label over a value: SF Pro, secondary, the way Apple heads a module.
+/// A telemetry label: SF Mono caps, tracked out, the way a suit's display reads.
 struct HUDText: View {
     let text: String
     var color: Color = Palette.muted
+    var tracking: CGFloat = 1.4
 
-    init(_ text: String, color: Color = Palette.muted, tracking: CGFloat = 0) {
+    init(_ text: String, color: Color = Palette.muted, tracking: CGFloat = 1.4) {
         self.text = text
         self.color = color
+        self.tracking = tracking
     }
 
     var body: some View {
-        Text(text)
+        Text(text.uppercased())
             .font(.hud)
+            .tracking(tracking)
             .foregroundStyle(color)
             .lineLimit(1)
     }
@@ -141,9 +147,8 @@ struct Eyebrow: View {
     }
 }
 
-/// A content card: a raised, continuous-cornered surface on the canvas (content is never
-/// glass; glass is for the controls above it). A tint adds a faint wash and keeps its color
-/// for the edge: orange for what needs you, the accent for Jarvis.
+/// A glass panel: Liquid Glass over the lit night, with a specular rim that catches the
+/// light along its top edge. A tint colours the glass and the rim (gold for what needs you).
 struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat = Radius.card
     var tint: Color = .white
@@ -153,15 +158,32 @@ struct GlassCard: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let neutral = tint == .white
         content
-            .background {
-                shape.fill(Color.secondarySystemGroupedBackground)
-                    .overlay(shape.fill(neutral ? Color.clear : tint.opacity(0.08 * strength)))
-            }
-            .overlay {
-                if !neutral {
-                    shape.strokeBorder(tint.opacity(0.35 * min(strength, 1.5)), lineWidth: 1)
-                }
-            }
+            .glassEffect(neutral ? .regular : .regular.tint(tint.opacity(0.18 * strength)), in: shape)
+            .overlay { SpecularRim(shape: shape, tint: neutral ? .white : tint, strength: strength) }
+    }
+}
+
+/// The edge of a pane of glass: bright where the light hits the top, almost gone below.
+struct SpecularRim<S: InsettableShape>: View {
+    let shape: S
+    var tint: Color = .white
+    var strength: Double = 1
+
+    var body: some View {
+        let neutral = tint == .white
+        shape.strokeBorder(
+            LinearGradient(
+                stops: [
+                    .init(color: tint.opacity(min(1, (neutral ? 0.28 : 0.7) * strength)), location: 0),
+                    .init(color: tint.opacity(neutral ? 0.06 : 0.2), location: 0.45),
+                    .init(color: .white.opacity(0.03), location: 0.8),
+                    .init(color: .white.opacity(0.08), location: 1),
+                ],
+                startPoint: .top, endPoint: .bottom
+            ),
+            lineWidth: 0.8
+        )
+        .allowsHitTesting(false)
     }
 }
 

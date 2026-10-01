@@ -120,7 +120,7 @@ struct HeyJarvisView: View {
     @State private var denied = false
 
     var body: some View {
-        List {
+        GlassList {
             Section {
                 Toggle(isOn: Binding(get: { wakeOn }, set: { on in Task { await setWake(on) } })) {
                     HStack(spacing: Space.s) {

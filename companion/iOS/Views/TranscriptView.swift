@@ -49,15 +49,14 @@ struct TranscriptRow: View {
         HStack {
             Spacer(minLength: 56)
             VStack(alignment: .trailing, spacing: 4) {
+                let bubble = UnevenRoundedRectangle(cornerRadii: .init(topLeading: 20, bottomLeading: 20, bottomTrailing: 6, topTrailing: 20), style: .continuous)
                 Text(line.text)
                     .font(.body)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Palette.ink)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .background(
-                        UnevenRoundedRectangle(cornerRadii: .init(topLeading: 20, bottomLeading: 20, bottomTrailing: 6, topTrailing: 20), style: .continuous)
-                            .fill(line.waiting ? Color.gray : Color.accentColor)
-                    )
+                    .glassEffect(.regular.tint((line.waiting ? Color.gray : Palette.cyan).opacity(0.35)), in: bubble)
+                    .overlay { SpecularRim(shape: bubble, tint: line.waiting ? .white : Palette.ring, strength: 0.7) }
                     .opacity(line.sending ? 0.7 : 1)
                     .textSelection(.enabled)
                 if line.waiting {
@@ -76,10 +75,8 @@ struct TranscriptRow: View {
     private var jarvisReply: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                OrbMark(size: 14, glow: false)
-                Text("Jarvis")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.ink2)
+                OrbMark(size: 12)
+                HUDText("Jarvis", color: Palette.ring)
                 if line.onPhone {
                     Image(systemName: "iphone")
                         .font(.caption2)
@@ -117,6 +114,10 @@ struct TranscriptRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .glassCard(cornerRadius: 22)
+        .padding(.trailing, 28)
     }
 
     private var problem: some View {
@@ -164,9 +165,7 @@ struct EmptyTranscript: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            Text("Try asking")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.muted)
+            HUDText("Try asking")
                 .padding(.leading, 4)
             ForEach(suggestions, id: \.self) { suggestion in
                 Button { onSuggestion(suggestion) } label: {
@@ -176,9 +175,9 @@ struct EmptyTranscript: View {
                             .foregroundStyle(Palette.ink)
                             .multilineTextAlignment(.leading)
                         Spacer(minLength: Space.xs)
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(Color.accentColor)
+                        Image(systemName: "arrow.up.right")
+                            .font(.footnote.weight(.bold))
+                            .foregroundStyle(Palette.cyan)
                     }
                     .padding(.horizontal, Space.m)
                     .padding(.vertical, Space.s)

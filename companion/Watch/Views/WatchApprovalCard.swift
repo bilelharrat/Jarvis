@@ -54,8 +54,7 @@ struct WatchApprovalCard: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.ultraThinMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.amber.opacity(0.55), lineWidth: 1))
+        .glassCard(cornerRadius: 18, tint: Palette.champagne, strength: 0.9)
         .accessibilityElement(children: .contain)
     }
 

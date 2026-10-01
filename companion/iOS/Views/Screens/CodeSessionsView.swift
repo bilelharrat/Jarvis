@@ -38,7 +38,7 @@ struct CodeSessionsView: View {
         let needsYou = sessions.filter { $0.status == .needsYou }
         let working = sessions.filter { $0.status == .working }
         let rest = sessions.filter { !$0.status.isLive }
-        return List {
+        return GlassList {
             section("Needs you", needsYou)
             section("Working", working)
             section("Earlier", rest)

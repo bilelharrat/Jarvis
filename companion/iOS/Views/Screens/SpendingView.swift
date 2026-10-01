@@ -22,7 +22,7 @@ struct SpendingView: View {
 
     private func content(_ spending: Spending) -> some View {
         let currency = spending.limits.currency
-        return List {
+        return GlassList {
             Section {
                 today(spending)
                     .listRowInsets(EdgeInsets(top: Space.m, leading: Space.m, bottom: Space.m, trailing: Space.m))

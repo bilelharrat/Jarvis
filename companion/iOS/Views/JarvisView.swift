@@ -29,11 +29,14 @@ struct JarvisView: View {
                         .transition(.opacity)
                 }
             }
-            .background(SpaceBackground(grouped: false))
+            .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.28)))
             .safeAreaInset(edge: .top, spacing: 0) {
-                if case .unreachable = model.link, model.pairing != nil {
-                    offlineNote
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                VStack(spacing: Space.xs) {
+                    Telemetry()
+                    if case .unreachable = model.link, model.pairing != nil {
+                        offlineNote
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -121,7 +124,7 @@ struct JarvisView: View {
         ScrollView {
             VStack(spacing: Space.l) {
                 Button(action: model.talk) {
-                    ReactorView(mode: model.reactorMode, level: model.speech.level, size: 230)
+                    ReactorView(mode: model.reactorMode, level: model.speech.level, size: 250)
                 }
                 .buttonStyle(OrbButtonStyle())
                 .accessibilityLabel("Talk to Jarvis")
@@ -132,9 +135,7 @@ struct JarvisView: View {
                     Text(Self.greeting())
                         .font(.largeTitle.weight(.bold))
                         .multilineTextAlignment(.center)
-                    Text(model.caption)
-                        .font(.body)
-                        .foregroundStyle(Palette.ink2)
+                    HUDText(model.caption, color: Palette.ring, tracking: 2)
                         .contentTransition(.opacity)
                 }
                 EmptyTranscript(suggestions: suggestions) { suggestion in
@@ -242,7 +243,50 @@ private struct ListeningOverlay: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
+        .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.4)))
+    }
+}
+
+/// One line of telemetry under the title: who's answering, the link, the weather, what's
+/// running. SF Mono caps, the way the suit reads it.
+private struct Telemetry: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(dot)
+                .frame(width: 6, height: 6)
+                .shadow(color: dot.opacity(0.8), radius: 3)
+            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                if index > 0 { HUDText("·", color: Palette.muted.opacity(0.6), tracking: 0) }
+                HUDText(part, color: index == 0 ? Palette.ink2 : Palette.muted)
+            }
+        }
+        .padding(.horizontal, Space.m)
+        .padding(.vertical, 6)
+        .glassEffect(.regular, in: Capsule())
+        .accessibilityElement(children: .combine)
+    }
+
+    private var dot: Color {
+        if model.answersOnPhone { return Palette.cyan }
+        return model.isOffline ? Palette.amber : Palette.online
+    }
+
+    private var parts: [String] {
+        var parts = [model.answersOnPhone ? "iPhone" : (model.pairing?.macLabel ?? "Mac")]
+        if model.pairing != nil, !model.answersOnPhone {
+            parts.append(model.isOffline ? "Offline" : (model.remote?.state.label ?? "Linking"))
+        } else {
+            parts.append("Online")
+        }
+        if let weather = model.remote?.weather, let temp = weather.temp, !model.isOffline {
+            parts.append("\(Int(temp.rounded()))\(weather.unit)")
+        }
+        let tasks = model.remote?.activeTasks.count ?? 0
+        if tasks > 0 { parts.append("\(tasks) task\(tasks == 1 ? "" : "s")") }
+        return parts
     }
 }
 

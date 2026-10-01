@@ -10,7 +10,7 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
-            .foregroundStyle(isEnabled ? Color.white : Color.secondary)
+            .foregroundStyle(isEnabled ? Palette.onAction : Color.secondary)
             .frame(minHeight: 50)
             .background {
                 Capsule().fill(isEnabled ? tint : Color.tertiarySystemFill)
@@ -155,13 +155,50 @@ struct ListFooter: View {
     }
 }
 
+/// A grouped-list row in glass: a thin material over the night, a breath of light on it.
+struct GlassRowBackground: View {
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay(Rectangle().fill(Color.white.opacity(0.045)))
+    }
+}
+
+/// A grouped list, as Settings draws it, every row in glass over the night.
+struct GlassList<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        List {
+            // A Group hands the row background to every section, and so to every row.
+            Group { content }.glassRow()
+        }
+        .listStyle(.insetGrouped)
+        .starkBackdrop(glow: UnitPoint(x: 0.5, y: -0.05))
+    }
+}
+
+/// A Form, the same way.
+struct GlassForm<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Form {
+            Group { content }.glassRow()
+        }
+        .starkBackdrop(glow: UnitPoint(x: 0.5, y: -0.05))
+    }
+}
+
 extension View {
-    /// A grouped list, as Settings draws it.
+    /// A grouped list, as Settings draws it (GlassList brings the night and the glass).
     func glassList() -> some View {
         listStyle(.insetGrouped)
     }
 
+    /// Its rows in glass (on a Section, or a row).
     func glassRow() -> some View {
-        self
+        listRowBackground(GlassRowBackground())
+            .listRowSeparatorTint(Color.white.opacity(0.1))
     }
 }

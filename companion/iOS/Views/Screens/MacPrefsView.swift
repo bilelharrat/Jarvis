@@ -23,7 +23,7 @@ struct MacPrefsView: View {
 
     private func form(_ value: JSONValue) -> some View {
         let choices = value["choices"]
-        return Form {
+        return GlassForm {
             Section("Personality") {
                 if let personas = choices?["persona"]?.arrayValue, !personas.isEmpty {
                     Picker("Persona", selection: binding("persona", "jarvis")) {

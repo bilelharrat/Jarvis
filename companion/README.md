@@ -1,8 +1,10 @@
 # J.A.R.V.I.S. companion (iPhone + Apple Watch)
 
-Native SwiftUI apps for Jarvis, designed the way Apple designs its own: system colors in
-light and dark, SF Pro, grouped lists for content and Liquid Glass for the controls above
-it (iOS 26+, watchOS 26+). Paired with Jarvis on the Mac they reach everything it does;
+Native SwiftUI apps for Jarvis: Apple's craft with Stark's materials (iOS 26+, watchOS 26+).
+SF Pro and Apple's layouts; every surface Liquid Glass (`glassCard`, `GlassList`/`GlassForm`)
+over a dark night lit by the arc reactor (`SpaceBackground`); reactor blue as the one accent,
+Stark gold for what needs you, telemetry in small SF Mono caps (`HUDText`); the reactor is
+a glass sphere in a fine-ticked bezel (`ReactorView`). Always dark. Paired with Jarvis on the Mac they reach everything it does;
 with no Mac (or when it can't be reached) the iPhone runs Jarvis itself on the owner's own
 Claude API key (see Jarvis on iPhone).
 

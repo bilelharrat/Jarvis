@@ -7,7 +7,7 @@ struct LibraryView: View {
     @Binding var showSettings: Bool
 
     var body: some View {
-        List {
+        GlassList {
             if model.pairing != nil {
                 Section("On Your Mac") {
                     link(.conversations, "Conversations for You", symbol: "bubble.left.and.bubble.right.fill", tint: .green, detail: conversationsDetail)
@@ -96,7 +96,7 @@ struct OutboxList: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        List {
+        GlassList {
             Section {
                 ForEach(model.queued) { item in
                     VStack(alignment: .leading, spacing: 3) {
@@ -130,7 +130,7 @@ struct PhoneMemoryView: View {
     @State private var adding = ""
 
     var body: some View {
-        List {
+        GlassList {
             Section {
                 HStack {
                     TextField("Something Jarvis should know", text: $adding)

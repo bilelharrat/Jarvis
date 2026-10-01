@@ -28,7 +28,7 @@ struct PairingView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            Form {
+            GlassForm {
                 if let notice = model.pairingNotice {
                     Section {
                         ErrorCallout(title: "Pair again", message: notice)
@@ -148,7 +148,7 @@ struct PairingView: View {
         }
         .task { await debugPrefill() }
         .onChange(of: browser.macs) { _, macs in
-            if selected == nil, address.isEmpty, macs.count == 1 { selected = macs.first }
+            if selected == nil, address.isEmpty, macs.count == 1, !Self.testServerGiven { selected = macs.first }
             if let current = selected, !macs.contains(current) { selected = nil }
         }
         .onChange(of: address) { _, value in
@@ -440,11 +440,21 @@ struct PairingView: View {
         }
     }
 
+    /// A Debug launch named a test server: never pick a Mac from the network for it.
+    private static var testServerGiven: Bool {
+        #if DEBUG
+        return DebugLaunch.server != nil
+        #else
+        return false
+        #endif
+    }
+
     private func debugPrefill() async {
         #if DEBUG
-        guard !DebugLaunch.prefilled else { return }
+        guard !DebugLaunch.prefilled, let server = DebugLaunch.server else { return }
         DebugLaunch.prefilled = true
-        if let server = DebugLaunch.server, address.isEmpty { address = server }
+        selected = nil
+        address = server
         if let debugCode = DebugLaunch.code, code.isEmpty {
             try? await Task.sleep(for: .seconds(1.5))
             for digit in debugCode.prefix(6) {  // typed, one digit at a time
@@ -454,6 +464,8 @@ struct PairingView: View {
             for _ in 0..<40 where !canPair {  // the certificate check may still be running
                 try? await Task.sleep(for: .milliseconds(250))
             }
+            // Only ever the test server's own address.
+            guard selected == nil, case .found(let url, _) = probe, url == MacAddress.normalize(server) else { return }
             await pair()
         }
         #endif

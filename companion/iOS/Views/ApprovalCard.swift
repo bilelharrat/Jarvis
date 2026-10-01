@@ -59,8 +59,8 @@ struct ApprovalCard: View {
             }
         }
         .padding(Space.m + 2)
-        .background(shape.fill(Color.secondarySystemGroupedBackground))
-        .overlay(shape.strokeBorder(Palette.champagne.opacity(0.45), lineWidth: 1))
+        .glassEffect(.regular.tint(Palette.champagne.opacity(0.12)), in: shape)
+        .overlay { SpecularRim(shape: shape, tint: Palette.champagne, strength: 0.9) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Jarvis needs your OK")
     }
@@ -176,7 +176,7 @@ private struct SecondaryChoice: ViewModifier {
 
     func body(content: Content) -> some View {
         if active {
-            content.background(shape.fill(Color.tertiarySystemFill))
+            content.glassEffect(.regular.interactive(), in: shape)
         } else {
             content
         }

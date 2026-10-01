@@ -39,7 +39,7 @@ struct RoutinesView: View {
     }
 
     private func list(_ routines: [RoutineItem]) -> some View {
-        List {
+        GlassList {
             Section {
                 ForEach(routines) { routine in
                     row(routine)
@@ -104,7 +104,7 @@ struct RoutinesView: View {
 
     /// An older Mac: run what /api/state lists.
     private var legacyList: some View {
-        List {
+        GlassList {
             Section {
                 ForEach(model.remote?.routines ?? []) { routine in
                     HStack(spacing: Space.s) {
@@ -202,7 +202,7 @@ private struct RoutineEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            GlassForm {
                 Section {
                     if edit.editsTime {
                         DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute)

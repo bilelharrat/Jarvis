@@ -38,7 +38,7 @@ struct ConversationsView: View {
     private func list(_ items: [DelegationItem]) -> some View {
         let open = items.filter(\.isOpen)
         let closed = items.filter { !$0.isOpen }
-        return List {
+        return GlassList {
             if !open.isEmpty {
                 Section {
                     ForEach(open) { row($0) }

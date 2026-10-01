@@ -30,7 +30,7 @@ struct TodayView: View {
                 .padding(.horizontal, Space.m)
                 .padding(.bottom, Space.l)
             }
-            .background(SpaceBackground())
+            .background(SpaceBackground(glow: UnitPoint(x: 0.8, y: 0.1)))
             .navigationTitle("Today")
             .navigationSubtitle(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
             .toolbar {
@@ -50,11 +50,11 @@ struct TodayView: View {
 
     private var needsYou: some View {
         Button { open(.home) } label: {
-            card(tint: .orange) {
+            card(tint: Palette.champagne) {
                 HStack(spacing: Space.s) {
                     Image(systemName: "hand.raised.fill")
                         .font(.title2)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.champagne)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(model.visibleApprovals.count == 1 ? "Jarvis needs your OK" : "\(model.visibleApprovals.count) things need your OK")
                             .font(.headline)
@@ -207,15 +207,18 @@ struct TodayView: View {
     private func card<Content: View>(header: String? = nil, symbol: String? = nil, tint: Color = .white, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
             if let header {
-                Label(header.uppercased(), systemImage: symbol ?? "circle")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Palette.muted)
+                HStack(spacing: 6) {
+                    Image(systemName: symbol ?? "circle")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(tint == .white ? Palette.ring : tint)
+                    HUDText(header)
+                }
             }
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Space.m)
-        .glassCard(cornerRadius: 22, tint: tint)
+        .glassCard(cornerRadius: 24, tint: tint)
     }
 }
 
