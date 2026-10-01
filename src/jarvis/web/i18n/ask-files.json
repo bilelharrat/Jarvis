@@ -1,0 +1,7 @@
+{
+  "strings": {
+    "Attach a document": "附加文档",
+    "Up to six attachments per request.": "每个请求最多六个附件。"
+  },
+  "patterns": [["^(.+) is too big to send\\.$", "$1 太大，无法发送。"], ["^(.+) couldn’t be read\\.$", "无法读取 $1。"]]
+}

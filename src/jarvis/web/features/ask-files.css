@@ -1,0 +1,8 @@
+/* The 📎 inside each request box, at its right end (features/ask-files.js). */
+.af-btn {
+  position: absolute; right: 6px; bottom: 3px; z-index: 2; width: 34px; height: 34px; border: 0;
+  border-radius: 50%; background: transparent; font-size: 17px; line-height: 1; cursor: pointer; opacity: 0.7;
+}
+.af-btn:hover, .af-btn:focus-visible { opacity: 1; background: rgb(var(--c-ink) / 0.08); }
+form:has(> .af-btn) { position: relative; }
+form:has(> .af-btn) > input { padding-right: 44px; }
