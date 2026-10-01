@@ -146,7 +146,11 @@ struct ShowJarvisView: View {
     }
 
     private func send() async {
-        guard let photo, let api = model.pairing?.api else { return }
+        guard let photo else { return }
+        if model.answersOnPhone {
+            return await sendToPhone(photo)
+        }
+        guard let api = model.pairing?.api else { return }
         guard let jpeg = PhotoPrep.jpeg(from: photo) else {
             phase = .failed("Couldn’t prepare that photo.")
             return
@@ -174,14 +178,33 @@ struct ShowJarvisView: View {
             }
         }
     }
+
+    /// Jarvis on the iPhone looks at it (no Mac, or it can't be reached).
+    private func sendToPhone(_ photo: UIImage) async {
+        guard let jpeg = PhotoPrep.jpeg(from: photo, longest: 1568, maxBytes: 4 * 1024 * 1024) else {
+            phase = .failed("Couldn’t prepare that photo.")
+            return
+        }
+        phase = .sending
+        let ask = question.trimmed.isEmpty ? "What is this?" : question.trimmed
+        if let reply = await model.brain.ask(ask, image: jpeg, macName: model.pairing?.macLabel) {
+            phase = .answered(reply)
+            Haptics.reply()
+            if model.speakReplies { model.voice.speakLocally(reply) }
+        } else {
+            Haptics.failure()
+            phase = .failed(model.brain.turns.last?.text ?? "Jarvis couldn’t look at it right now.")
+        }
+    }
 }
 
 /// A photo as the Mac takes it: JPEG, the longest side at most 2048 px, well under 8 MB.
+/// For Claude on the iPhone: at most 1568 px (what Claude reads at full detail), under 5 MB.
 enum PhotoPrep {
     static let longest: CGFloat = 2048
     static let maxBytes = 8 * 1024 * 1024
 
-    static func jpeg(from image: UIImage) -> Data? {
+    static func jpeg(from image: UIImage, longest: CGFloat = Self.longest, maxBytes: Int = Self.maxBytes) -> Data? {
         var quality: CGFloat = 0.8
         let scaled = ShareSizing.scaled(image, longest: longest) ?? image
         while quality >= 0.4 {
