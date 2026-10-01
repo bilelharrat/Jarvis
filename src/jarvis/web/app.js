@@ -939,7 +939,127 @@ function toggleSettings(open) {
   $('settings').hidden = !open;
   if (open) { send({ type: 'shortcuts' }); send({ type: 'phone_status' }); send({ type: 'providers_list' }); }
   $('settings-btn').setAttribute('aria-expanded', String(open));
+  // Settings always opens (and leaves) showing everything: a control it's asked to focus,
+  // like the model menu from the model chip, is never filtered out.
+  if ($('settings-search').value) { $('settings-search').value = ''; filterSettings(''); }
 }
+
+// ── search in Settings ──
+// Each section's rows, notes and controls are kept or hidden as the query is typed: a row
+// stays when every word of the query is in it, its section's title or the section's
+// data-keywords (so "dark mode" finds Look, "twilio" the whole of Phone). A section with
+// nothing left goes; the words found are highlighted (CSS custom highlights, so the text
+// itself is never touched: translation and the controls' own updates carry on). The
+// sections features add (window.jarvisFeatures) are searched too: they're read each time.
+// Curly quotes are straightened so "can't" finds "can’t"; the text keeps its length, so
+// a word's place in it is where to highlight.
+function searchText(text) {
+  return String(text || '').toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"');
+}
+
+// Where a query word is found in a text: at the start of a word, so "phone" isn't found in
+// "microphone" (Chinese has no spaces between words: there it's found anywhere).
+function searchHits(text, word) {
+  const out = [];
+  const anywhere = /[^\x00-\x7f]/.test(word[0]);
+  for (let at = text.indexOf(word); at !== -1; at = text.indexOf(word, at + word.length)) {
+    if (anywhere || at === 0 || !/[a-z0-9]/.test(text[at - 1])) out.push(at);
+  }
+  return out;
+}
+
+// A section's parts as searched: its direct children, except a wrapper of rows (Phone's
+// caller options), whose rows are searched one by one.
+function settingsItems(group) {
+  const out = [];
+  for (const child of group.children) {
+    if (child.tagName === 'H3') continue;
+    if (child.tagName === 'DIV' && !child.matches('.row, .segmented, .limits, .folder-form') && child.querySelector(':scope > .row')) {
+      for (const inner of child.children) out.push({ el: inner, parent: child });
+    } else out.push({ el: child, parent: null });
+  }
+  return out;
+}
+
+function settingsHighlight(roots, words) {
+  if (!window.CSS || !CSS.highlights || typeof Highlight === 'undefined') return;
+  if (!words.length) { CSS.highlights.delete('settings-hit'); return; }
+  const ranges = [];
+  for (const root of roots) {
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentElement && n.parentElement.closest('select, option, script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+      const text = searchText(node.data);
+      for (const w of words) {
+        for (const at of searchHits(text, w)) {
+          const r = new Range();
+          r.setStart(node, at);
+          r.setEnd(node, at + w.length);
+          ranges.push(r);
+        }
+      }
+    }
+  }
+  CSS.highlights.set('settings-hit', new Highlight(...ranges));
+}
+
+function filterSettings(query) {
+  const words = searchText(query).split(/\s+/).filter(Boolean);
+  const sheet = $('settings');
+  sheet.classList.toggle('searching', words.length > 0);
+  for (const el of sheet.querySelectorAll('.search-out, .search-lead')) el.classList.remove('search-out', 'search-lead');
+  const shown = [];
+  let groups = 0;
+  for (const group of sheet.querySelectorAll(':scope > section.group')) {
+    if (!words.length) continue;
+    const h3 = group.querySelector(':scope > h3');
+    const context = searchText(`${h3 ? h3.textContent : ''} ${group.dataset.keywords || ''}`);
+    let lead = null;
+    const kept = new Set();
+    for (const { el, parent } of settingsItems(group)) {
+      const text = `${context} ${searchText(el.textContent)} ${searchText(el.dataset.keywords)}`;
+      if (!words.every((w) => searchHits(text, w).length)) { el.classList.add('search-out'); continue; }
+      if (parent) kept.add(parent);
+      if (!lead && !el.hidden && !(parent && parent.hidden)) lead = parent || el;
+      shown.push(el);
+    }
+    // A wrapper with none of its rows left goes too.
+    for (const { parent } of settingsItems(group)) if (parent && !kept.has(parent)) parent.classList.add('search-out');
+    if (!lead) { group.classList.add('search-out'); continue; }
+    lead.classList.add('search-lead');
+    if (h3) shown.push(h3);
+    groups++;
+  }
+  $('settings-no-match').hidden = !words.length || groups > 0;
+  settingsHighlight(shown, words);
+}
+
+$('settings-search').addEventListener('input', (e) => { filterSettings(e.target.value); $('settings').scrollTop = 0; });
+$('settings-search').addEventListener('keydown', (e) => {
+  // Esc clears the search first; with nothing typed it's Esc as anywhere else (Settings closes).
+  if (e.key === 'Escape' && e.target.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.target.value = '';
+    filterSettings('');
+  } else if (e.key === 'Enter') {
+    // Enter goes to the first setting found.
+    e.preventDefault();
+    const first = $('settings').querySelector(':scope > section.group:not(.search-out) :is(.row, .segmented, .folder-form, .limits, details):not(.search-out) :is(button, select, input, textarea, summary):not([hidden])');
+    if (first) first.focus();
+  }
+});
+// ⌘F finds in Settings while it's open (Jarvis Code and the browser keep theirs).
+document.addEventListener('keydown', (e) => {
+  if ($('settings').hidden || !$('cc').hidden || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key.toLowerCase() !== 'f') return;
+  if (browserOpenNow && !$('settings').contains(document.activeElement)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  $('settings').scrollTop = 0;
+  $('settings-search').focus();
+  $('settings-search').select();
+});
 
 $('settings-btn').addEventListener('click', () => toggleSettings($('settings').hidden));
 $('settings-close').addEventListener('click', () => toggleSettings(false));

@@ -1959,6 +1959,22 @@ body[data-look="orb"] .sheet {
 .sheet .group > .btn + .btn { margin-top: -4px; }
 .sheet .group > :is(ul, div):empty { display: none; }
 
+/* search in Settings: a rounded field under the title, as in System Settings. What it
+   filters out is gone (display), its hits are tinted (a CSS custom highlight), and the
+   first row left in a section loses the hairline it had under the section's title. */
+.settings-search { position: relative; margin: -6px 0 16px; }
+.settings-search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.sheet .settings-search input {
+  width: 100%; min-height: 36px; padding: 0 10px 0 33px; font: inherit; font-size: 14px; color: var(--ink);
+  background: var(--s-input); border: 0.5px solid var(--s-line); border-radius: 10px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.sheet .settings-search input::placeholder { color: var(--muted); }
+.sheet .search-out { display: none !important; }
+.sheet .group > .search-lead { border-top: 0; }
+.settings-no-match { text-align: center; padding: 28px 0; }
+::highlight(settings-hit) { background-color: color-mix(in srgb, var(--action) 32%, transparent); }
+
 /* Tools & Accounts: services as soft glass tiles, connections as hairline rows, capsule badges */
 .sheet .sheet-intro { margin: 0 2px 18px; font-size: 13.5px; color: var(--muted); }
 .sheet .group > .empty { margin: 0; }

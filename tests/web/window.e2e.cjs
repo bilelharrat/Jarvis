@@ -7743,6 +7743,52 @@ test('Stark Glass turns white with its Light tone, follows the Mac on Match Mac,
   assert(await js('JSON.stringify(__sent.filter((m) => m.type === "set_prefs").map((m) => m.changes))') === '[{"glass_tone":"light"}]', 'the picker saves the tone');
 });
 
+// ── search in Settings ──
+
+const shownGroups = () => js('[...$("settings").querySelectorAll(":scope > section.group")].filter((g) => g.getClientRects().length).map((g) => (g.querySelector("h3") || {}).textContent || "")');
+const shownRow = (text) => js(`[...$("settings").querySelectorAll(".row")].some((r) => r.getClientRects().length && r.textContent.includes(${JSON.stringify(text)}))`);
+
+test('⌘F in Settings finds a setting: its section and row stay, the rest goes, the words are highlighted', async () => {
+  await js('toggleSettings(true); true');
+  await key('f', { modifiers: 4, text: '' });
+  assert(await js('document.activeElement === $("settings-search")'), '⌘F did not go to the search field');
+  await type('clap');
+  assert(JSON.stringify(await shownGroups()) === '["Voice"]', `clap shows ${await shownGroups()}`);
+  assert(await shownRow('Clap twice for hand control'), 'the clap row is gone');
+  assert(!(await shownRow('Spoken replies')), 'a row without the word stays');
+  assert(await js('document.querySelector("#settings .search-lead").textContent.includes("Clap")'), 'the first row left has no lead mark');
+  assert(await js('CSS.highlights.get("settings-hit").size') >= 1, 'nothing highlighted');
+  assert(await js('$("settings-no-match").hidden'), 'the empty note shows with a hit');
+  // Every word must be found, a section's title and keywords count for its rows
+  await js('$("settings-search").select(); true');
+  await type('dark mode');
+  assert(JSON.stringify(await shownGroups()) === '["Look"]', `dark mode shows ${await shownGroups()}`);
+  await js('$("settings-search").select(); true');
+  await type('phone wake');
+  assert(JSON.stringify(await shownGroups()) === '["Phone"]', `phone wake shows ${await shownGroups()}`);
+  assert(await shownRow('Wake-up call') && !(await shownRow('Twilio Account SID')), 'only the wake-up rows of Phone');
+  await js('$("settings-search").select(); true');
+  await type('callers book');
+  assert(await shownRow('Let callers book a time') && !(await shownRow('Meeting length')), 'a nested row is searched on its own');
+  await js('$("settings-search").select(); true');
+  await type('zzqx');
+  assert((await shownGroups()).length === 0 && !(await js('$("settings-no-match").hidden')), 'no hit: no sections, and the empty note');
+});
+
+test('Esc clears the Settings search before it closes Settings; reopening shows everything', async () => {
+  await js('toggleSettings(true); $("settings-search").focus(); true');
+  await type('twilio');
+  assert(JSON.stringify(await shownGroups()) === '["Phone"]', `twilio shows ${await shownGroups()}`);
+  await key('Escape', { text: '', code: 'Escape', windowsVirtualKeyCode: 27 });
+  assert(await js('!$("settings").hidden && $("settings-search").value === ""'), 'Esc did not just clear the search');
+  assert((await shownGroups()).length > 10, 'clearing did not bring the sections back');
+  assert(await js('CSS.highlights.get("settings-hit") === undefined'), 'highlights left after clearing');
+  await type('twilio');
+  await js('toggleSettings(false); toggleSettings(true); true');
+  assert(await js('$("settings-search").value === "" && !$("settings").classList.contains("searching")'), 'the search outlived closing Settings');
+  assert((await shownGroups()).length > 10, 'reopened Settings is still filtered');
+});
+
 function chosenTests() {
   const only = process.env.WINDOW_TESTS ? new RegExp(process.env.WINDOW_TESTS) : null;
   const list = tests.filter((t) => !only || only.test(t.name));
