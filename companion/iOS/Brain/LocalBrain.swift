@@ -493,9 +493,13 @@ final class LocalBrain {
         throw lastError
     }
 
+    /// The reply so far, as it's written (voice mode speaks it sentence by sentence).
+    @ObservationIgnored var onLiveText: ((String) -> Void)?
+
     private func show(_ text: String) {
         guard isWorking, let index = turns.lastIndex(where: { $0.live }) else { return }
         turns[index].text = text.trimmed
+        onLiveText?(text)
     }
 
     private func showActivity(_ text: String) {

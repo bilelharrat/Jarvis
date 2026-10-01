@@ -35,7 +35,7 @@ struct JarvisView: View {
                     })
                     .transition(.opacity)
                 }
-                if model.speech.isActive {
+                if model.speech.isActive && !model.voiceMode {
                     ListeningOverlay()
                         .transition(.opacity)
                 }
@@ -78,6 +78,9 @@ struct JarvisView: View {
             }
             .sheet(isPresented: $showChats) {
                 NavigationStack { ChatsView() }
+            }
+            .fullScreenCover(isPresented: Binding(get: { model.voiceMode }, set: { if !$0 { model.endVoiceMode() } })) {
+                VoiceModeView()
             }
             .sheet(item: $feedbackLine) { _ in
                 NavigationStack { feedbackSheet }
@@ -442,6 +445,7 @@ private struct Composer: View {
                 .frame(minHeight: 44)
                 .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 micButton
+                if !canSend { voiceModeButton.transition(.scale.combined(with: .opacity)) }
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: canSend)
         }
@@ -480,6 +484,17 @@ private struct Composer: View {
         .accessibilityLabel(model.speech.status == .listening ? "Stop listening and send" : "Talk to Jarvis")
     }
 
+    private var voiceModeButton: some View {
+        Button(action: model.startVoiceMode) {
+            Image(systemName: "waveform")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(width: 44, height: 44)
+        }
+        .glassEffect(.regular.interactive(), in: Circle())
+        .accessibilityLabel("Voice mode")
+    }
+
     private var actionsMenu: some View {
         Menu {
             Section {
@@ -496,6 +511,7 @@ private struct Composer: View {
                         .disabled(room == 0)
                 }
             }
+            Button("Voice Mode", systemImage: "waveform") { model.startVoiceMode() }
             Button("Brief Me", systemImage: "sparkles") { Task { await model.run(.briefing) } }
             Button("What’s Next?", systemImage: "calendar") { Task { await model.send(AppModel.whatsNext) } }
             Button("Show Jarvis", systemImage: "camera.viewfinder") { onCamera() }

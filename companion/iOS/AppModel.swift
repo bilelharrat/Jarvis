@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// A short message over the bottom of the screen.
@@ -387,8 +388,10 @@ final class AppModel {
         talk()
     }
 
-    /// Picks the wake word back up when nothing else is using the microphone.
+    /// Picks the wake word back up when nothing else is using the microphone (in voice mode:
+    /// listens for the owner's next turn).
     func resumeWakeWord() {
+        if voiceMode { return listenInVoiceMode() }
         guard UserDefaults.standard.bool(forKey: Self.wakeKey), speech.status == .idle, !voice.isPlaying else { return }
         wake.start()
     }
@@ -652,9 +655,26 @@ final class AppModel {
     ) async {
         voice.stop()
         speech.cancel()
+        let streaming = voiceMode && speakReplies
+        if streaming {
+            // Voice mode: each sentence is said as soon as it's written, and the owner can cut in.
+            brain.onLiveText = { [weak self] text in
+                guard let self, self.voiceMode else { return }
+                self.voice.stream(text, final: false)
+                if self.bargeIn.isListening { self.bargeIn.update(reply: text) } else if self.voice.isPlaying { self.bargeIn.start(reply: text) }
+            }
+        }
+        defer { brain.onLiveText = nil }
         guard let reply = await brain.ask(text, images: images, pictures: pictures, documents: documents, files: files,
                                           spoken: spoken, macName: pairing?.macLabel) else {
+            if streaming { voice.stop(); bargeIn.stop() }
             resumeWakeWord()
+            return
+        }
+        if streaming, voiceMode {
+            Haptics.reply()
+            voice.stream(reply, final: true)
+            if !bargeIn.isListening, voice.isPlaying { bargeIn.start(reply: reply) }
             return
         }
         announce(reply)
@@ -674,6 +694,87 @@ final class AppModel {
         } else {
             voice.speakLocally(reply)
         }
+        if voiceMode { bargeIn.start(reply: reply) }
+    }
+
+    // MARK: - Voice mode
+
+    /// A spoken conversation, hands free, as the ChatGPT, Gemini and Claude apps have it:
+    /// Jarvis listens, answers aloud (sentence by sentence as it's written, on the iPhone), and
+    /// listens again; talking over a reply stops it. Two silences in a row end it.
+    private(set) var voiceMode = false
+    @ObservationIgnored let bargeIn = BargeIn()
+    @ObservationIgnored private var quietTurns = 0
+
+    func startVoiceMode() {
+        guard !voiceMode else { return }
+        guard OwnerLock.allows else { return voice.speakLocally(OwnerLock.refusal) }
+        voiceMode = true
+        voice.duplex = true
+        quietTurns = 0
+        wake.stop()
+        bargeIn.onSpeech = { [weak self] in self?.cutIn() }
+        Haptics.talkStart()
+        listenInVoiceMode()
+    }
+
+    func endVoiceMode() {
+        guard voiceMode else { return }
+        voiceMode = false
+        bargeIn.stop()
+        speech.cancel()
+        voice.stop()
+        voice.duplex = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        Haptics.talkStop()
+        resumeWakeWord()
+    }
+
+    /// The orb in voice mode: cuts a reply short, or sends what's been said so far.
+    func voiceModeTap() {
+        if voice.isPlaying || brain.isWorking { cutIn() } else if speech.status == .listening { speech.finish() } else if speech.status == .idle { listenInVoiceMode() }
+    }
+
+    /// The owner talked over the reply (or tapped): it stops, and Jarvis listens.
+    private func cutIn() {
+        guard voiceMode else { return }
+        bargeIn.stop()
+        voice.stop()
+        if brain.isWorking { brain.cancel() }
+        Haptics.attention()
+        listenInVoiceMode()
+    }
+
+    private func listenInVoiceMode() {
+        guard voiceMode, speech.status == .idle else { return }
+        bargeIn.stop()  // one listener on the microphone at a time
+        Task {
+            do {
+                try await speech.start { [weak self] heard in self?.heardInVoiceMode(heard) }
+            } catch let problem as SpeechController.Problem {
+                endVoiceMode()
+                show(problem.errorDescription ?? "Can’t listen right now.", style: .problem, opensSettings: problem.needsSettings)
+            } catch {
+                endVoiceMode()
+                show("Couldn’t start listening: \(error.localizedDescription)", style: .problem)
+            }
+        }
+    }
+
+    private func heardInVoiceMode(_ text: String) {
+        guard voiceMode else { return }
+        guard !text.isEmpty else {
+            quietTurns += 1
+            if quietTurns >= 2 {
+                endVoiceMode()
+                show("Voice mode ended.")
+            } else {
+                listenInVoiceMode()
+            }
+            return
+        }
+        quietTurns = 0
+        Task { await send(text, spoken: true) }
     }
 
     // MARK: - Approvals and commands

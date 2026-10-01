@@ -14,9 +14,19 @@ final class VoicePlayer {
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
     /// Called when a reply has finished playing (to listen for "Hey Jarvis" again).
     @ObservationIgnored var onFinish: (() -> Void)?
+    /// Voice mode: the microphone stays open while it speaks (to hear the owner cut in), with
+    /// the session's echo cancellation, and the session stays active between turns.
+    @ObservationIgnored var duplex = false
+    /// A reply spoken as it's written (voice mode): how much of it is queued, and whether
+    /// the whole of it has come.
+    @ObservationIgnored private var streamed = 0
+    @ObservationIgnored private var streaming = false
+    @ObservationIgnored private var streamDone = false
+    @ObservationIgnored private var utterances = 0
 
     init() {
         finishWatcher.onFinish = { [weak self] in self?.finished() }
+        finishWatcher.onUtterance = { [weak self] in self?.utteranceEnded() }
         synthesizer.delegate = finishWatcher
     }
 
@@ -45,18 +55,90 @@ final class VoicePlayer {
     /// The iPhone's own best voice: a British voice for English, the highest quality installed.
     private func speakWithSystemVoice(_ words: String) {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true)
+            try activate()
         } catch {
             return failed("Couldn’t play the reply.")
         }
+        isPlaying = true
+        utter(words)
+    }
+
+    private func utter(_ words: String) {
         let utterance = AVSpeechUtterance(string: words)
         utterance.voice = Self.bestVoice(for: Speakable.voiceLanguage(for: words))
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.02
         utterance.pitchMultiplier = 0.95
-        isPlaying = true
+        utterances += 1
         synthesizer.speak(utterance)
+    }
+
+    /// The audio session for speaking: playback alone, or (voice mode) with the microphone
+    /// open and echo cancelled.
+    private func activate() throws {
+        let session = AVAudioSession.sharedInstance()
+        if duplex {
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP, .duckOthers])
+        } else {
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        }
+        try session.setActive(true)
+    }
+
+    // MARK: - Speaking as it's written (voice mode)
+
+    /// Feeds the reply so far: each finished sentence is spoken at once, in the iPhone's own
+    /// voice; `final` speaks what's left. The first call starts a new reply.
+    func stream(_ text: String, final: Bool) {
+        if !streaming {
+            stop()
+            streaming = true
+            streamed = 0
+            streamDone = false
+            do { try activate() } catch { return failed("Couldn’t play the reply.") }
+        }
+        let (pieces, next) = Self.sentences(in: text, from: streamed, final: final)
+        streamed = next
+        for piece in pieces {
+            let words = Speakable.clean(piece)
+            if !words.isEmpty {
+                isPlaying = true
+                utter(words)
+            }
+        }
+        if final {
+            streamDone = true
+            if utterances == 0 { finished() }
+        }
+    }
+
+    /// The finished sentences of `text` after `start` (all of it when final), and where the
+    /// next one begins. A sentence ends at . ! ? or a line break followed by a space or the end,
+    /// and is long enough to be worth saying alone (short ones join the next).
+    nonisolated static func sentences(in text: String, from start: Int, final: Bool) -> ([String], Int) {
+        let characters = Array(text)
+        guard start < characters.count else { return ([], start) }
+        var pieces: [String] = []
+        var begin = start
+        var index = start
+        while index < characters.count {
+            let c = characters[index]
+            let ends = ".!?。！？\n".contains(c)
+            let followed = index + 1 >= characters.count ? false : characters[index + 1].isWhitespace
+            if ends && (followed || c == "\n") {
+                let piece = String(characters[begin...index]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if piece.count >= 12 || c == "\n" {
+                    if !piece.isEmpty { pieces.append(piece) }
+                    begin = index + 1
+                }
+            }
+            index += 1
+        }
+        if final {
+            let rest = String(characters[begin...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rest.isEmpty { pieces.append(rest) }
+            return (pieces, characters.count)
+        }
+        return (pieces, begin)
     }
 
     static func bestVoice(for language: String) -> AVSpeechSynthesisVoice? {
@@ -97,6 +179,9 @@ final class VoicePlayer {
         fetch?.cancel()
         fetch = nil
         queued = []
+        streaming = false
+        streamDone = false
+        utterances = 0
         if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
         if let player {
             player.stop()
@@ -108,9 +193,7 @@ final class VoicePlayer {
 
     private func play(_ wav: Data) {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true)
+            try activate()
             let player = try AVAudioPlayer(data: wav)
             player.delegate = finishWatcher
             player.prepareToPlay()
@@ -128,7 +211,17 @@ final class VoicePlayer {
         onProblem?(message)
     }
 
+    /// A clip or an utterance ended (an utterance per sentence when streaming).
+    private func utteranceEnded() {
+        utterances = max(0, utterances - 1)
+        if utterances > 0 { return }
+        if streaming && !streamDone { return }  // more of the reply is on its way
+        finished()
+    }
+
     private func finished() {
+        streaming = false
+        streamDone = false
         if !queued.isEmpty {
             play(queued.removeFirst())
             return
@@ -140,12 +233,14 @@ final class VoicePlayer {
     }
 
     private func deactivate() {
+        guard !duplex else { return }  // voice mode listens next, on the same session
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 
 private final class FinishWatcher: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
     var onFinish: (@MainActor () -> Void)?
+    var onUtterance: (@MainActor () -> Void)?
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         let onFinish = onFinish
@@ -153,8 +248,8 @@ private final class FinishWatcher: NSObject, AVAudioPlayerDelegate, AVSpeechSynt
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        let onFinish = onFinish
-        Task { @MainActor in onFinish?() }
+        let onUtterance = onUtterance
+        Task { @MainActor in onUtterance?() }
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
