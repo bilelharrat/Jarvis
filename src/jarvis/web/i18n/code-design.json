@@ -1,0 +1,92 @@
+{
+  "strings": {
+    "Match a design…": "匹配设计…",
+    "Jarvis Code builds it, then compares the page with your picture": "Jarvis Code 先把它做出来，再把页面和你的图片对比",
+    "That picture can’t be used: PNG, JPEG, WebP or GIF, up to 8 MB.": "这张图片无法使用：须为 PNG、JPEG、WebP 或 GIF，最大 8 MB。",
+    "That picture can't be used: PNG, JPEG, WebP or GIF, up to 8 MB.": "这张图片无法使用：须为 PNG、JPEG、WebP 或 GIF，最大 8 MB。",
+    "Design match": "设计匹配",
+    "Close match": "非常接近",
+    "Layout": "布局",
+    "Colour": "颜色",
+    "Design": "设计",
+    "Page": "页面",
+    "The design": "设计图",
+    "The page as built": "做出来的页面",
+    "Design or page": "设计或页面",
+    "Side by side": "并排",
+    "Overlay": "叠加",
+    "Heat-map": "热力图",
+    "See larger": "放大查看",
+    "See smaller": "缩小查看",
+    "Differs most": "差异最大",
+    "Compare again": "再次对比",
+    "Compare now": "立即对比",
+    "Stop matching": "停止匹配",
+    "Not compared": "未对比",
+    "Each round is one more turn of the session, with your go-ahead.": "每一轮都是会话多进行一次，需要你同意。",
+    "Open a session to match a design.": "请先打开一个会话，再匹配设计。",
+    "This session has no design to match.": "这个会话没有要匹配的设计。",
+    "That round is over: refine from the newest comparison.": "这一轮已结束：请从最新的对比继续优化。",
+    "All the refinement rounds are used.": "优化轮次已经用完。",
+    "Wait for the session to finish its turn, then refine.": "请等会话完成这一轮，再继续优化。",
+    "The session couldn't take another message just now.": "会话现在无法接收新消息。",
+    "No dev server is running: start one in the Preview pane, then compare.": "没有正在运行的开发服务器：请在预览面板中启动一个，然后再对比。",
+    "The page is rendered in the J.A.R.V.I.S. app window, and it isn't open.": "页面在 J.A.R.V.I.S. 应用窗口中渲染，但它没有打开。",
+    "The app window didn't answer in time.": "应用窗口没有及时响应。",
+    "The comparison didn't work.": "对比没有成功。",
+    "The design picture isn’t there any more.": "设计图已经不在了。",
+    "The page didn’t finish loading in time.": "页面没有及时加载完成。",
+    "The page couldn’t be pictured.": "无法为页面截图。",
+    "Only a dev server on this Mac is compared.": "只对比这台 Mac 上的开发服务器。"
+  },
+  "patterns": [
+    [
+      "^Refine \\(round (\\d+) of (\\d+)\\)$",
+      "优化（第 $1 轮，共 $2 轮）"
+    ],
+    [
+      "^Refinement round (\\d+) of (\\d+) sent to Jarvis Code\\.$",
+      "第 $1 轮优化（共 $2 轮）已发送给 Jarvis Code。"
+    ],
+    [
+      "^top left (\\d+%)$",
+      "左上 $1"
+    ],
+    [
+      "^top centre (\\d+%)$",
+      "上方中间 $1"
+    ],
+    [
+      "^top right (\\d+%)$",
+      "右上 $1"
+    ],
+    [
+      "^middle left (\\d+%)$",
+      "左侧中间 $1"
+    ],
+    [
+      "^the centre (\\d+%)$",
+      "正中 $1"
+    ],
+    [
+      "^middle right (\\d+%)$",
+      "右侧中间 $1"
+    ],
+    [
+      "^bottom left (\\d+%)$",
+      "左下 $1"
+    ],
+    [
+      "^bottom centre (\\d+%)$",
+      "下方中间 $1"
+    ],
+    [
+      "^bottom right (\\d+%)$",
+      "右下 $1"
+    ],
+    [
+      "^The comparison didn’t work: (.+)$",
+      "对比没有成功：$1"
+    ]
+  ]
+}

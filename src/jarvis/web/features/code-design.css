@@ -1,0 +1,38 @@
+/* Jarvis Code builds from a design (code-design.js): a comparison's card in the transcript. */
+.dm-card { list-style: none; display: flex; flex-direction: column; gap: 7px; background: rgb(var(--c-surface)); border-radius: 14px; box-shadow: var(--shadow-card); padding: 10px 12px; font-size: 13px; max-width: 560px; }
+.dm-card.good { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-success) / 0.7); }
+.dm-card.large { max-width: none; }
+.dm-card.dm-note { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; box-shadow: none; background: rgb(var(--c-fill-3)); padding: 6px 10px; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
+.dm-card.dm-note.problem { flex-direction: column; align-items: flex-start; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-warning) / 0.7); }
+.dm-head { display: flex; align-items: baseline; gap: 8px; }
+.dm-head strong { font-weight: 600; }
+.dm-score { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.dm-close { color: rgb(var(--c-success-ink)); }
+.dm-progress { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--c-ink-2)); font-variant-numeric: tabular-nums; }
+.dm-spark { width: 120px; height: 28px; flex: none; overflow: visible; }
+.dm-spark path { fill: none; stroke: rgb(var(--c-accent)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.dm-delta { font-weight: 600; }
+.dm-delta.up { color: rgb(var(--c-success-ink)); }
+.dm-delta.down { color: rgb(var(--c-danger-ink)); }
+.dm-parts, .dm-where { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 12.5px; }
+.dm-region { color: rgb(var(--c-ink-2)); }
+.dm-region + .dm-region::before { content: '·'; margin-right: 6px; color: rgb(var(--c-subtle)); }
+.dm-viewer { display: flex; flex-direction: column; gap: 6px; }
+.dm-modes { display: flex; align-items: center; gap: 4px; }
+.dm-mode { border: 0; background: transparent; color: rgb(var(--c-ink-2)); font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; cursor: pointer; }
+.dm-mode:hover { background: rgb(var(--c-ink) / 0.05); }
+.dm-mode[aria-selected="true"] { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent-ink)); font-weight: 600; }
+.dm-stage img { display: block; width: 100%; height: auto; border-radius: 9px; background: rgb(var(--c-fill-3)); box-shadow: 0 0 0 0.5px rgb(var(--c-ink) / 0.14); }
+.dm-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dm-pair figure { margin: 0; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dm-pair figcaption { font-size: 11px; color: rgb(var(--c-muted)); text-align: center; }
+.dm-overlay-box { display: flex; flex-direction: column; gap: 6px; }
+.dm-overlay { position: relative; }
+.dm-overlay .dm-over { position: absolute; inset: 0; height: 100%; }
+.dm-split { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgb(var(--c-accent)); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.6); pointer-events: none; }
+.dm-slider { width: 100%; accent-color: rgb(var(--c-accent)); }
+.dm-heat { position: relative; }
+.dm-heat-canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 9px; image-rendering: auto; pointer-events: none; }
+.dm-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.dm-refine { background: rgb(var(--c-accent)); color: #fff; }
+.dm-refine:disabled { opacity: 0.5; }
