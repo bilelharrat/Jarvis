@@ -1,0 +1,28 @@
+{
+  "body": {
+    "items": [
+      {
+        "label": "Dark mode",
+        "name": "dark_mode",
+        "note": null,
+        "on": false,
+        "settable": true
+      },
+      {
+        "label": "Wi-Fi",
+        "name": "wifi",
+        "note": null,
+        "on": true,
+        "settable": false
+      },
+      {
+        "label": "Bluetooth",
+        "name": "bluetooth",
+        "note": "blueutil isn't installed.",
+        "on": null,
+        "settable": true
+      }
+    ]
+  },
+  "status": 200
+}

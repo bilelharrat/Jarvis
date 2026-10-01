@@ -1,0 +1,38 @@
+{
+  "body": {
+    "items": [
+      {
+        "confidence": "high",
+        "created": "2026-09-30T17:43:17",
+        "expires": null,
+        "id": "2e62d008",
+        "kind": "people",
+        "text": "Pepper Potts runs the company",
+        "updated": "2026-09-30T17:43:17"
+      },
+      {
+        "confidence": "high",
+        "created": "2026-09-30T17:43:17",
+        "expires": null,
+        "id": "3167fc1a",
+        "kind": "preferences",
+        "text": "Prefers oat milk in coffee",
+        "updated": "2026-09-30T17:43:17"
+      }
+    ],
+    "people": [
+      "Pepper Potts"
+    ],
+    "promises": [
+      {
+        "due": "2026-09-30",
+        "id": "c3a33546",
+        "made": "2026-09-30T17:43:17",
+        "status": "open",
+        "text": "Send Pepper the deck",
+        "to": "Pepper Potts"
+      }
+    ]
+  },
+  "status": 200
+}

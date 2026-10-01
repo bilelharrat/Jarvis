@@ -1,0 +1,16 @@
+{
+  "body": {
+    "now_playing": {
+      "album": "Kind of Blue",
+      "artist": "Miles Davis",
+      "player": "Music",
+      "state": "playing",
+      "title": "So What"
+    },
+    "playlists": [
+      "Focus",
+      "Road Trip"
+    ]
+  },
+  "status": 200
+}

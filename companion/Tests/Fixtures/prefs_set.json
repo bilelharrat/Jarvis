@@ -1,0 +1,25 @@
+{
+  "body": {
+    "changed": [
+      "humor",
+      "address"
+    ],
+    "ok": true,
+    "prefs": {
+      "address": "Sir",
+      "briefing_enabled": true,
+      "briefing_time": "08:00",
+      "hands_free": false,
+      "humor": 40,
+      "interruptions": "urgent",
+      "language": "en",
+      "owner_name": "",
+      "persona": "jarvis",
+      "proactive": true,
+      "proactive_voice": true,
+      "quiet_hours": "22:00-07:00",
+      "voice_effect": true
+    }
+  },
+  "status": 200
+}

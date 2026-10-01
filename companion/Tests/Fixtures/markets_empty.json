@@ -1,0 +1,37 @@
+{
+  "body": {
+    "alerts": [],
+    "summary": null,
+    "watchlist": [
+      {
+        "price": null,
+        "symbol": "AAPL"
+      },
+      {
+        "price": null,
+        "symbol": "NVDA"
+      },
+      {
+        "price": null,
+        "symbol": "MSFT"
+      },
+      {
+        "price": null,
+        "symbol": "GOOGL"
+      },
+      {
+        "price": null,
+        "symbol": "AMZN"
+      },
+      {
+        "price": null,
+        "symbol": "META"
+      },
+      {
+        "price": null,
+        "symbol": "TSLA"
+      }
+    ]
+  },
+  "status": 200
+}

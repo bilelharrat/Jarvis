@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 from starlette.testclient import TestClient
-from test_companion_api import git, session
+from test_companion_api import fake_the_mac, git, session
 from test_companion_phone import picture
 from test_hub import make_hub
 
@@ -53,8 +53,9 @@ def shape(value, path="$"):
 
 
 @pytest.fixture
-def mac(settings, quiet_speaker, isolated, tmp_path):
+def mac(settings, quiet_speaker, isolated, tmp_path, monkeypatch):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    the_mac = fake_the_mac(hub, monkeypatch, tmp_path)
     hub.remote.host, hub.remote.port, hub.remote.advertiser = "127.0.0.1", 0, None
     companion = hub.remote.extension
     companion.inbox_folder = tmp_path / "Inbox"
@@ -83,6 +84,7 @@ def mac(settings, quiet_speaker, isolated, tmp_path):
         answers=answers,
         fake_ask=remote_ask,
         fixtures={},
+        the_mac=the_mac,
     )
 
 
@@ -369,6 +371,162 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
     assert {r["name"] for r in routines["items"] if r["next_run"] is None} >= {"Portfolio check"}
     keep(mac, "routine_update", post("/api/routines/update", {"id": brief.id, "enabled": False}))
     keep(mac, "error_no_routine", post("/api/routines/run", {"id": "gone"}), 404)
+
+    # ── more from the Mac ──
+    hub.memory.add("Prefers oat milk in coffee", category="preferences")
+    hub.memory.add("Pepper Potts runs the company", category="people")
+    hub.memory_desk.promises.add(
+        "Send Pepper the deck", to="Pepper Potts", due=date.today().isoformat()
+    )
+    keep(mac, "memory", get("/api/memory"))
+    added = keep(mac, "memory_add", post("/api/memory/add", {"text": "Flies out of LAX"}))
+    keep(mac, "memory_forget", post("/api/memory/forget", {"id": added["item"]["id"]}))
+    keep(mac, "error_no_memory", post("/api/memory/forget", {"id": "gone"}), 404)
+    goals = hub.goal_store
+    goal, _ = goals.set_goal("Run a half marathon", "year", "Health")
+    goals.update_goal(goal.id, note="Ran 10 km on Sunday")
+    goals.add_constraint("No meetings before 10", "time")
+    keep(mac, "goals", get("/api/goals"))
+    from jarvis.timers import Timer
+
+    timers = hub.automation_feature.timers
+    clock = timers.now().replace(microsecond=0)
+    timers.add(
+        Timer(
+            "t1",
+            "timer",
+            "pasta",
+            (clock + timedelta(minutes=12)).isoformat(),
+            clock.isoformat(),
+            seconds=720,
+        )
+    )
+    timers.add(
+        Timer(
+            "t2",
+            "reminder",
+            "stretch",
+            (clock + timedelta(minutes=20)).isoformat(),
+            clock.isoformat(),
+            every=1200,
+            until=(clock + timedelta(hours=4)).isoformat(),
+        )
+    )
+    keep(mac, "timers", get("/api/timers"))
+    keep(mac, "timer_cancel", post("/api/timers/cancel", {"id": "t1"}))
+    keep(mac, "reminders", get("/api/reminders"))
+    keep(mac, "reminder_add", post("/api/reminders/add", {"title": "Pick up the suit"}))
+    keep(mac, "reminder_complete", post("/api/reminders/complete", {"id": "r1"}))
+    keep(
+        mac,
+        "error_reminder_bad_due",
+        post("/api/reminders/add", {"title": "x", "due": "soon"}),
+        400,
+    )
+    mac.the_mac.reminders_access = False
+    keep(mac, "reminders_unavailable", get("/api/reminders"))
+    keep(mac, "markets_empty", get("/api/markets"))
+    quote = {
+        "symbol": "AAPL",
+        "name": "Apple",
+        "last": 250.5,
+        "change": 2.5,
+        "pct": 1.01,
+        "status": "open",
+        "yield": False,
+        "after": None,
+    }
+    hub.markets.summary = {
+        "as_of": "2026-09-30T10:00:00",
+        "status": "open",
+        "headline": "Stocks are up: S&P 500 +0.40%.",
+        "indices": [{**quote, "symbol": ".SPX", "name": "S&P 500", "last": 6012.3, "pct": 0.4}],
+        "macro": [],
+        "watchlist": [quote],
+    }
+    hub.stocks.store.add("NVDA", "above", 200.0)
+    hub.stocks.store.add("TSLA", "move", 5.0)
+    keep(mac, "markets", get("/api/markets"))
+    bg = tmp_path / "background"
+    session(
+        hub,
+        7,
+        bg,
+        kind="background",
+        prompt="Find flights to Tokyo in March",
+        status="done",
+        result="Three nonstop options under $1,200.\n\nDetails follow.",
+        cost_usd=0.08,
+        last_action="Done",
+    )
+
+    async def forever():
+        await asyncio.sleep(3600)
+
+    running = session(hub, 8, bg, kind="background", prompt="Compare the two leases")
+    running.handle = asyncio.create_task(forever())
+    keep(mac, "tasks", get("/api/tasks"))
+    monkeypatch.setattr(hub.tasks, "cancel", lambda task_id: True)
+    keep(mac, "task_stop", post("/api/tasks/stop", {"id": 8}))
+    keep(mac, "error_no_task", post("/api/tasks/stop", {"id": 7}), 404)
+    running.handle.cancel()
+    keep(mac, "music", get("/api/music"))
+    keep(mac, "music_control", post("/api/music", {"action": "pause"}))
+    keep(mac, "shortcuts", get("/api/shortcuts"))
+    keep(mac, "shortcut_run", post("/api/shortcuts/run", {"name": "Arrive Home"}))
+    keep(mac, "error_no_shortcut", post("/api/shortcuts/run", {"name": "Nope"}), 404)
+    keep(mac, "switches", get("/api/switches"))
+    keep(mac, "switch_set", post("/api/switches/set", {"name": "dark_mode", "on": True}))
+    keep(
+        mac,
+        "error_switch_wifi",
+        post("/api/switches/set", {"name": "wifi", "on": False}),
+        400,
+    )
+    book = hub.memory_desk.journal
+    book.folder.mkdir(parents=True, exist_ok=True)
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    (book.folder / f"{yesterday}.md").write_text(
+        "# Tuesday\n\nShipped the companion API. Dinner with Pepper at 8.\n"
+    )
+    keep(mac, "journal", get("/api/journal"))
+    keep(mac, "journal_item", get(f"/api/journal/item?day={yesterday}"))
+    mac.the_mac.meetings.mkdir()
+    (mac.the_mac.meetings / "2026-09-30 0900 Design review.md").write_text(
+        "# Design review\n\nWednesday 30 September 2026, 09:00\n\n"
+        "## Decisions\n\n- Ship the suit on Friday.\n\n## Transcript\n\n"
+        "[09:00] You: Let's start.\n[09:01] Them: The suit is ready.\n"
+    )
+    keep(mac, "meetings", get("/api/meetings"))
+    keep(
+        mac,
+        "meeting",
+        client.get(
+            "/api/meetings/item", params={"id": "2026-09-30 0900 Design review"}, headers=auth
+        ),
+    )
+    keep(mac, "error_no_meeting", get("/api/meetings/item?id=..%2F..%2Fetc%2Fpasswd"), 404)
+    mac.the_mac.research.mkdir()
+    (mac.the_mac.research / "2026-09-28 1400 Solid-state batteries.md").write_text(
+        "# Solid-state batteries\n\nThe short answer: not in cars before 2028.\n"
+    )
+    keep(mac, "research", get("/api/research"))
+    keep(
+        mac,
+        "research_item",
+        client.get(
+            "/api/research/item",
+            params={"id": "2026-09-28 1400 Solid-state batteries"},
+            headers=auth,
+        ),
+    )
+    hub.invoicing.clients.save_client(
+        "Stark Industries", "ap@stark.example", "10880 Malibu Point", "USD"
+    )
+    keep(mac, "invoices", get("/api/invoices"))
+    keep(mac, "prefs", get("/api/prefs"))
+    keep(mac, "prefs_set", post("/api/prefs", {"changes": {"humor": 40, "address": "Sir"}}))
+    keep(mac, "error_prefs_key", post("/api/prefs", {"changes": {"remote_enabled": False}}), 400)
 
     # ── what the phone sends ──
     keep(

@@ -1,0 +1,19 @@
+{
+  "body": {
+    "clients": [
+      {
+        "address": "10880 Malibu Point",
+        "currency": "USD",
+        "email": "ap@stark.example",
+        "id": "5cc76a5d",
+        "name": "Stark Industries",
+        "notes": ""
+      }
+    ],
+    "error": "",
+    "recurring": [],
+    "reminders": false,
+    "stripe": "Stripe isn't connected (Tools & Accounts › Stripe)."
+  },
+  "status": 200
+}

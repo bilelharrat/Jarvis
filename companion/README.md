@@ -213,6 +213,38 @@ it; links only ever navigate):
 
 Every approval card (on Home too) has **No, because…**.
 
+## More from your Mac
+
+`/api/state` lists under `features` the groups this Mac answers (`memory`, `goals`,
+`timers`, `reminders`, `markets`, `tasks`, `music`, `shortcuts`, `switches`, `journal`,
+`meetings`, `research`, `invoices`, `prefs`); a route a Mac doesn't have answers 404, and
+the phone hides it. Reads use the `read` budget; anything that changes or runs something on
+the Mac uses `act`. Every answer is a JSON object, lists under `items`.
+
+- **Memory**: `GET /api/memory` (`?q=` searches) with the people and promises it knows;
+  `POST /api/memory/add` `{text, kind?}`, `POST /api/memory/forget` `{id}` (by id only).
+- **Goals**: `GET /api/goals`, ranked, with constraints.
+- **Timers**: `GET /api/timers` (`ends_at`, seconds `left`, ringing);
+  `POST /api/timers/cancel` `{id}`.
+- **Reminders** (Apple Reminders on the Mac): `GET /api/reminders` (`available` false when
+  the Mac hasn't allowed it: the phone never puts the question up there);
+  `POST /api/reminders/add` `{title, due?, list?, notes?, priority?}`,
+  `POST /api/reminders/complete` `{id}` (an open one it listed).
+- **Markets**: `GET /api/markets`: what the Mac last fetched, the watchlist and price alerts.
+- **Background tasks**: `GET /api/tasks`; `POST /api/tasks/stop` `{id}` (a running one).
+- **Music**: `GET /api/music` (now playing, playlists while Music is open);
+  `POST /api/music` `{action: play|pause|next|previous|playlist, name?}`.
+- **Shortcuts**: `GET /api/shortcuts`; `POST /api/shortcuts/run` `{name}` (a listed name).
+- **Switches**: `GET /api/switches`; `POST /api/switches/set` `{name, on}` for dark mode and
+  Bluetooth (never Wi-Fi: it may be how the phone reaches the Mac).
+- **Journal, meetings, research**: `GET /api/journal`, `/api/meetings`, `/api/research`
+  (newest first, with a preview), and one by the id its list gave:
+  `/api/journal/item?day=`, `/api/meetings/item?id=`, `/api/research/item?id=`.
+- **Invoices**: `GET /api/invoices`: clients and recurring invoices.
+- **Settings**: `GET /api/prefs` and `POST /api/prefs` `{changes: {...}}` for a short
+  allowlist (language, names, persona, humor, voice, hands-free, briefing, heads-ups,
+  quiet hours); any other key refuses the whole change.
+
 ## Apple Watch
 
 The Watch app gets its pairing from the iPhone and then talks to the Mac by itself, over

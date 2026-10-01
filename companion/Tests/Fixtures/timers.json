@@ -1,0 +1,29 @@
+{
+  "body": {
+    "items": [
+      {
+        "ends_at": "2026-09-30T17:55:17",
+        "every": null,
+        "id": "t1",
+        "kind": "timer",
+        "label": "pasta",
+        "left": 719,
+        "ringing": false,
+        "until": null,
+        "when": "12-minute timer"
+      },
+      {
+        "ends_at": "2026-09-30T18:03:17",
+        "every": 1200,
+        "id": "t2",
+        "kind": "reminder",
+        "label": "stretch",
+        "left": 1199,
+        "ringing": false,
+        "until": "2026-09-30T21:43:17",
+        "when": "Every 20 minutes until 9:43 PM · next 6:03 PM"
+      }
+    ]
+  },
+  "status": 200
+}

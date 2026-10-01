@@ -85,7 +85,17 @@
     "Arrived at work": "到公司了",
     "Left work": "离开了公司",
     "Checked your health from your iPhone": "查看了 iPhone 上的健康数据",
-    "Followed something on the Lock Screen": "在锁定屏幕上关注了一项内容"
+    "Followed something on the Lock Screen": "在锁定屏幕上关注了一项内容",
+    "Added to memory": "添加到了记忆",
+    "Forgot something in memory": "从记忆中删除了一条",
+    "Cancelled a timer": "取消了计时器",
+    "Added a reminder": "添加了提醒事项",
+    "Completed a reminder": "完成了一条提醒事项",
+    "Stopped a background task": "停止了一个后台任务",
+    "Controlled the music": "控制了音乐",
+    "Ran a shortcut": "运行了一个快捷指令",
+    "Flipped a Mac switch": "切换了 Mac 的开关",
+    "Changed settings": "修改了设置"
   },
   "patterns": [
     [

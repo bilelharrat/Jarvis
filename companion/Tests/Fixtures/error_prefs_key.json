@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "remote_enabled can't be changed from the phone"
+  },
+  "status": 400
+}

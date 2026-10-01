@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "Wi-Fi can't be switched from the phone: it may be how it reaches the Mac."
+  },
+  "status": 400
+}

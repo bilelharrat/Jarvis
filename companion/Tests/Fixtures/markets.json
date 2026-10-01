@@ -1,0 +1,72 @@
+{
+  "body": {
+    "alerts": [
+      {
+        "fired": null,
+        "id": "00740ff5",
+        "kind": "above",
+        "name": "NVDA",
+        "symbol": "NVDA",
+        "value": 200.0
+      },
+      {
+        "fired": null,
+        "id": "6dc6fc7f",
+        "kind": "move",
+        "name": "TSLA",
+        "symbol": "TSLA",
+        "value": 5.0
+      }
+    ],
+    "summary": {
+      "as_of": "2026-09-30T10:00:00",
+      "headline": "Stocks are up: S&P 500 +0.40%.",
+      "indices": [
+        {
+          "change": 2.5,
+          "change_pct": 0.4,
+          "name": "S&P 500",
+          "price": 6012.3,
+          "status": "open",
+          "symbol": ".SPX"
+        }
+      ],
+      "status": "open"
+    },
+    "watchlist": [
+      {
+        "change": 2.5,
+        "change_pct": 1.01,
+        "name": "Apple",
+        "price": 250.5,
+        "status": "open",
+        "symbol": "AAPL"
+      },
+      {
+        "price": null,
+        "symbol": "NVDA"
+      },
+      {
+        "price": null,
+        "symbol": "MSFT"
+      },
+      {
+        "price": null,
+        "symbol": "GOOGL"
+      },
+      {
+        "price": null,
+        "symbol": "AMZN"
+      },
+      {
+        "price": null,
+        "symbol": "META"
+      },
+      {
+        "price": null,
+        "symbol": "TSLA"
+      }
+    ]
+  },
+  "status": 200
+}

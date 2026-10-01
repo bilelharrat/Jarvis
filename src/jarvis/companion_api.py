@@ -1098,8 +1098,10 @@ class Api:
 
 
 def routes(companion: Any, gate: Any) -> list[Route]:
+    from . import companion_more
+
     api = Api(companion, gate)
-    return [
+    return companion_more.routes(api) + [
         Route("/api/push/register", api.push_register, methods=["POST"]),
         Route("/api/push/unregister", api.push_unregister, methods=["POST"]),
         Route("/api/live/register", api.live_register, methods=["POST"]),

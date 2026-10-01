@@ -1,0 +1,30 @@
+{
+  "body": {
+    "available": true,
+    "items": [
+      {
+        "due": "2026-10-01",
+        "id": "r1",
+        "list": "Reminders",
+        "notes": "Before noon",
+        "priority": 1,
+        "title": "Call the dentist"
+      },
+      {
+        "due": null,
+        "id": "r2",
+        "list": "Groceries",
+        "notes": "",
+        "priority": 0,
+        "title": "Buy milk"
+      }
+    ],
+    "lists": [
+      {
+        "default": true,
+        "title": "Reminders"
+      }
+    ]
+  },
+  "status": 200
+}

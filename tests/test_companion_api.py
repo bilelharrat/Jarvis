@@ -27,6 +27,24 @@ GETS = [
     "/api/delegations",
     "/api/spending",
     "/api/routines",
+    "/api/memory",
+    "/api/memory?q=coffee",
+    "/api/goals",
+    "/api/timers",
+    "/api/reminders",
+    "/api/markets",
+    "/api/tasks",
+    "/api/music",
+    "/api/shortcuts",
+    "/api/switches",
+    "/api/journal",
+    "/api/journal/item?day=2026-09-30",
+    "/api/meetings",
+    "/api/meetings/item?id=x",
+    "/api/research",
+    "/api/research/item?id=x",
+    "/api/invoices",
+    "/api/prefs",
 ]
 POSTS = [
     "/api/code/send",
@@ -37,12 +55,121 @@ POSTS = [
     "/api/routines/delete",
     "/api/push/register",
     "/api/push/unregister",
+    "/api/memory/add",
+    "/api/memory/forget",
+    "/api/timers/cancel",
+    "/api/reminders/add",
+    "/api/reminders/complete",
+    "/api/tasks/stop",
+    "/api/music",
+    "/api/shortcuts/run",
+    "/api/switches/set",
+    "/api/prefs",
 ]
 
 
+def fake_the_mac(hub, monkeypatch, tmp_path):
+    """Everything the companion's "more" routes would reach on the real Mac, in memory:
+    Reminders, Shortcuts, Music, the switches, and the meetings and research folders. What
+    was done is kept on the namespace returned."""
+    from jarvis import knowledge, mac_tools, reminders_desk
+
+    mac = SimpleNamespace(
+        reminders=[
+            {
+                "id": "r1",
+                "title": "Call the dentist",
+                "list": "Reminders",
+                "due": "2026-10-01",
+                "priority": 1,
+                "notes": "Before noon",
+            },
+            {
+                "id": "r2",
+                "title": "Buy milk",
+                "list": "Groceries",
+                "due": "",
+                "priority": 0,
+                "notes": "",
+            },
+        ],
+        reminders_access=True,
+        shortcuts=["Arrive Home", "Movie Night"],
+        ran=[],
+        scripts=[],
+        player="Music",
+        playlists=["Focus", "Road Trip"],
+        switches={"dark_mode": False, "wifi": True, "bluetooth": "blueutil isn't installed."},
+        meetings=tmp_path / "Meetings",
+        research=tmp_path / "Research",
+    )
+
+    async def fetch_open(ask=True):
+        assert ask is False  # the phone never puts macOS's question up on the Mac
+        if not mac.reminders_access:
+            return {"error": reminders_desk.NOT_ASKED}
+        return {
+            "reminders": [dict(r) for r in mac.reminders],
+            "lists": [{"title": "Reminders", "default": True, "writable": True}],
+        }
+
+    async def add_reminder(spec):
+        row = {**spec, "id": f"r{len(mac.reminders) + 1}"}
+        mac.reminders.append(row)
+        return {"added": row}
+
+    async def complete_reminder(reminder_id):
+        done = next(r for r in mac.reminders if r["id"] == reminder_id)
+        mac.reminders.remove(done)
+        return {"completed": done}
+
+    async def refresh(force=False):
+        return list(mac.shortcuts)
+
+    async def run_shortcut(name):
+        mac.ran.append(name)
+        return "Welcome home."
+
+    async def applescript(script, *args, timeout=30):
+        mac.scripts.append((script, args))
+        if "user playlists" in script:
+            return "".join(f"{p}\n" for p in mac.playlists)
+        if "player state" in script:
+            return "playing\tSo What\tMiles Davis\tKind of Blue"
+        return ""
+
+    class Switches:
+        async def status(self):
+            return dict(mac.switches)
+
+        async def set_dark_mode(self, on):
+            mac.switches["dark_mode"] = on
+            return "Dark mode is on." if on else "Dark mode is off."
+
+        async def set_bluetooth(self, on):
+            from jarvis.switches import Unavailable
+
+            raise Unavailable("blueutil isn't installed.")
+
+    monkeypatch.setattr(reminders_desk, "fetch_open", fetch_open)
+    monkeypatch.setattr(reminders_desk, "add_reminder", add_reminder)
+    monkeypatch.setattr(reminders_desk, "complete_reminder", complete_reminder)
+    monkeypatch.setattr(hub.shortcuts, "refresh", refresh)
+    monkeypatch.setattr(hub.shortcuts, "run", run_shortcut)
+    monkeypatch.setattr(mac_tools, "run_applescript", applescript)
+    monkeypatch.setattr(mac_tools, "_active_player", lambda: mac.player)
+    monkeypatch.setattr(mac_tools, "app_running", lambda app: app == mac.player)
+    monkeypatch.setattr(hub.music, "run", applescript)
+    monkeypatch.setattr(hub.mac_switches, "switches", Switches())
+    monkeypatch.setattr(knowledge, "MEETINGS_DIR", mac.meetings)
+    monkeypatch.setattr(knowledge, "RESEARCH_DIR", mac.research)
+    return mac
+
+
 @pytest.fixture
-def api(settings, quiet_speaker, isolated):
+def api(settings, quiet_speaker, isolated, monkeypatch, tmp_path):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    mac = fake_the_mac(hub, monkeypatch, tmp_path)
     hub.remote.host, hub.remote.port, hub.remote.advertiser = "127.0.0.1", 0, None
     companion = hub.remote.extension
     client = TestClient(remote.create_remote_app(hub, hub.remote.devices, extension=companion))
@@ -51,6 +178,7 @@ def api(settings, quiet_speaker, isolated):
     ).json()["token"]
     return SimpleNamespace(
         hub=hub,
+        mac=mac,
         companion=companion,
         client=client,
         auth={"Authorization": f"Bearer {token}"},
@@ -631,3 +759,269 @@ def test_routines_on_the_other_schedules_show_their_own_next_run_and_keep_their_
         "event",
         False,
     )
+
+
+# ── more from the Mac (jarvis.companion_more) ──
+
+
+def test_the_state_lists_what_more_this_mac_has(api):
+    from jarvis import companion_more
+
+    features = api.get("/api/state").json()["features"]
+    assert features == list(companion_more.FEATURES)
+    del api.hub.invoicing  # a Mac without invoicing says so, and its route answers 404
+    assert "invoices" not in api.get("/api/state").json()["features"]
+    reply = api.get("/api/invoices")
+    assert reply.status_code == 404 and reply.json() == {"error": "This Mac doesn't have that."}
+
+
+def test_memory_lists_searches_adds_and_forgets_by_id_only(api):
+    hub = api.hub
+    hub.memory.add("Prefers oat milk in coffee", category="preferences")
+    ann = hub.memory.add("Ann Lee is my sister", category="people")
+    body = api.get("/api/memory").json()
+    assert [i["text"] for i in body["items"]] == [
+        "Ann Lee is my sister",
+        "Prefers oat milk in coffee",
+    ]
+    assert body["items"][0]["kind"] == "people" and body["items"][0]["created"]
+    assert body["people"] == ["Ann Lee"] and body["promises"] == []
+    found = api.get("/api/memory?q=coffee").json()["items"]
+    assert [i["text"] for i in found] == ["Prefers oat milk in coffee"]
+
+    added = api.post("/api/memory/add", {"text": "Flies out of LAX"}).json()
+    assert added["ok"] and added["item"]["text"] == "Flies out of LAX" and added["forgotten"] == []
+    assert hub.memory.get(added["item"]["id"]).origin == "iPhone"
+    assert api.post("/api/memory/add", {"text": "  "}).status_code == 400
+    secret = api.post("/api/memory/add", {"text": "my password is hunter2"})
+    assert secret.status_code == 400 and "password" in secret.json()["error"]
+
+    # Words that would match a fact aren't an id: nothing is swept up from the phone.
+    assert api.post("/api/memory/forget", {"id": "Ann"}).status_code == 404
+    assert api.post("/api/memory/forget", {"id": ann.id}).json() == {"ok": True}
+    assert hub.memory.get(ann.id) is None
+    actions = [a["action"] for a in api.companion.audit.recent()]
+    assert actions[-2:] == ["memory_added", "memory_forgot"]
+
+
+def test_goals_and_timers(api):
+    from jarvis.timers import Timer
+
+    hub = api.hub
+    hub.goal_store.set_goal("Run a half marathon", "year", "health")
+    goals = api.get("/api/goals").json()
+    assert [g["text"] for g in goals["items"]] == ["Run a half marathon"]
+    assert goals["items"][0]["rank"] == 1 and goals["constraints"] == []
+
+    timers = hub.automation_feature.timers
+    now = timers.now()
+    due = (now + timedelta(minutes=12)).replace(microsecond=0)
+    timers.add(Timer("t1", "timer", "pasta", due.isoformat(), now.isoformat(), seconds=720))
+    items = api.get("/api/timers").json()["items"]
+    assert [(t["id"], t["label"], t["kind"], t["ringing"]) for t in items] == [
+        ("t1", "pasta", "timer", False)
+    ]
+    assert items[0]["ends_at"] == due.isoformat() and 700 <= items[0]["left"] <= 720
+    assert api.post("/api/timers/cancel", {"id": "pasta"}).status_code == 404  # an id only
+    assert api.post("/api/timers/cancel", {"id": "t1"}).json() == {"ok": True}
+    assert timers.store.items == [] and api.get("/api/timers").json() == {"items": []}
+
+
+def test_reminders_list_add_and_complete_only_what_the_mac_listed(api):
+    body = api.get("/api/reminders").json()
+    assert body["available"] is True
+    assert body["items"][0] == {
+        "id": "r1", "title": "Call the dentist", "list": "Reminders", "due": "2026-10-01",
+        "priority": 1, "notes": "Before noon",
+    }  # fmt: skip
+    assert body["items"][1]["due"] is None
+    assert body["lists"] == [{"title": "Reminders", "default": True}]
+
+    added = api.post("/api/reminders/add", {"title": "Pick up the suit", "due": "2099-01-02"})
+    assert added.json()["item"]["title"] == "Pick up the suit"
+    assert api.post("/api/reminders/add", {"title": ""}).status_code == 400
+    assert api.post("/api/reminders/add", {"title": "x", "due": "tomorrow"}).status_code == 400
+
+    assert api.post("/api/reminders/complete", {"id": "nope"}).status_code == 404
+    assert api.post("/api/reminders/complete", {"id": "r1"}).json() == {"ok": True}
+    assert [r["id"] for r in api.mac.reminders] == ["r2", "r3"]
+
+    api.mac.reminders_access = False  # never asked on the Mac: said, not asked from here
+    body = api.get("/api/reminders").json()
+    assert body["available"] is False and body["items"] == [] and body["reason"]
+
+
+def test_markets_say_what_the_mac_last_fetched_and_the_price_alerts(api):
+    hub = api.hub
+    body = api.get("/api/markets").json()
+    assert body["summary"] is None and body["alerts"] == []
+    assert body["watchlist"][0] == {"symbol": "AAPL", "price": None}
+    quote = {"symbol": "AAPL", "name": "Apple", "last": 250.5, "change": 2.5, "pct": 1.0,
+             "status": "open", "yield": False, "after": None}  # fmt: skip
+    hub.markets.summary = {
+        "as_of": "2026-09-30T10:00:00", "status": "open", "headline": "Stocks are up.",
+        "indices": [{**quote, "symbol": ".SPX", "name": "S&P 500", "spark": [1.0]}],
+        "macro": [], "watchlist": [quote],
+    }  # fmt: skip
+    hub.stocks.store.add("NVDA", "above", 200.0)
+    body = api.get("/api/markets").json()
+    assert body["summary"]["headline"] == "Stocks are up."
+    assert body["summary"]["indices"][0]["symbol"] == ".SPX"
+    assert body["watchlist"][0] == {
+        "symbol": "AAPL", "name": "Apple", "price": 250.5, "change": 2.5, "change_pct": 1.0,
+        "status": "open",
+    }  # fmt: skip
+    assert [(a["symbol"], a["kind"], a["value"]) for a in body["alerts"]] == [
+        ("NVDA", "above", 200.0)
+    ]
+
+
+async def test_background_tasks_listed_and_only_a_running_one_stopped(api, tmp_path):
+    hub = api.hub
+    done = session(hub, 7, tmp_path / "bg", kind="background", status="done", result="Found 3.")
+
+    async def forever():
+        await asyncio.sleep(3600)
+
+    running = session(hub, 8, tmp_path / "bg", kind="background", prompt="Find flights")
+    running.handle = asyncio.create_task(forever())
+    try:
+        items = api.get("/api/tasks").json()["items"]
+        assert [(t["id"], t["status"]) for t in items] == [(8, "running"), (7, "done")]
+        assert items[1]["outcome"] == "Found 3." and items[0]["title"] == "Find flights"
+        assert api.post("/api/tasks/stop", {"id": done.id}).status_code == 404
+        assert api.post("/api/tasks/stop", {"id": 1}).status_code == 404
+        stopped = []
+        api.hub.tasks.cancel = lambda task_id: stopped.append(task_id) or True
+        assert api.post("/api/tasks/stop", {"id": 8}).json() == {"ok": True}
+        assert stopped == [8]
+    finally:
+        running.handle.cancel()
+
+
+def test_music_now_playing_playlists_and_controls(api):
+    body = api.get("/api/music").json()
+    assert body == {
+        "now_playing": {"player": "Music", "state": "playing", "title": "So What",
+                        "artist": "Miles Davis", "album": "Kind of Blue"},
+        "playlists": ["Focus", "Road Trip"],
+    }  # fmt: skip
+    assert api.post("/api/music", {"action": "next"}).json() == {"ok": True}
+    assert api.mac.scripts[-1][0] == 'tell application "Music" to next track'
+    assert api.post("/api/music", {"action": "playlist", "name": "Focus"}).json() == {"ok": True}
+    assert api.mac.scripts[-1][1] == ("Focus",)
+    assert api.post("/api/music", {"action": "playlist", "name": "Foc"}).status_code == 404
+    assert api.post("/api/music", {"action": "volume"}).status_code == 400
+    api.mac.player = None  # nothing open: the list isn't fetched (that would open Music)
+    assert api.get("/api/music").json() == {"now_playing": None, "playlists": []}
+    assert api.post("/api/music", {"action": "pause"}).status_code == 409
+
+
+def test_shortcuts_run_only_by_a_listed_name(api):
+    assert api.get("/api/shortcuts").json() == {
+        "items": [{"name": "Arrive Home"}, {"name": "Movie Night"}]
+    }
+    assert api.post("/api/shortcuts/run", {"name": "Rm -rf"}).status_code == 404
+    assert api.post("/api/shortcuts/run", {"name": "arrive home"}).status_code == 404
+    reply = api.post("/api/shortcuts/run", {"name": "Arrive Home"})
+    assert reply.json() == {"ok": True, "output": "Welcome home."}
+    assert api.mac.ran == ["Arrive Home"]
+
+
+def test_switches_read_and_only_the_safe_ones_set(api):
+    items = {i["name"]: i for i in api.get("/api/switches").json()["items"]}
+    assert items["dark_mode"] == {
+        "name": "dark_mode", "label": "Dark mode", "on": False, "settable": True, "note": None
+    }  # fmt: skip
+    assert items["wifi"]["on"] is True and items["wifi"]["settable"] is False
+    assert items["bluetooth"]["on"] is None and "blueutil" in items["bluetooth"]["note"]
+    reply = api.post("/api/switches/set", {"name": "dark_mode", "on": True})
+    assert reply.json() == {"ok": True, "said": "Dark mode is on."}
+    assert api.mac.switches["dark_mode"] is True
+    assert api.post("/api/switches/set", {"name": "wifi", "on": False}).status_code == 400
+    assert api.post("/api/switches/set", {"name": "dark_mode", "on": "yes"}).status_code == 400
+    assert api.post("/api/switches/set", {"name": "focus", "on": True}).status_code == 400
+    assert api.post("/api/switches/set", {"name": "bluetooth", "on": True}).status_code == 409
+
+
+def test_journal_meetings_and_research_by_their_own_ids_never_a_path(api, tmp_path):
+    book = api.hub.memory_desk.journal
+    book.folder.mkdir(parents=True, exist_ok=True)
+    (book.folder / "2026-09-29.md").write_text("# Tuesday\n\nShipped the companion API.\n")
+    items = api.get("/api/journal").json()["items"]
+    assert items == [{"day": "2026-09-29", "preview": "Shipped the companion API.", "size": 38}]
+    assert api.get("/api/journal/item?day=2026-09-29").json()["text"].startswith("# Tuesday")
+    assert api.get("/api/journal/item?day=../../x").status_code == 404
+
+    meetings = api.mac.meetings
+    meetings.mkdir()
+    (meetings / "2026-09-30 0900 Design review.md").write_text(
+        "# Design review\n\nWednesday 30 September 2026, 09:00\n\n"
+        "Decided to ship Friday.\n\n## Transcript\n\n[09:00] You: Hello\n"
+    )
+    (tmp_path / "secret.md").write_text("# Not a meeting\n")
+    (meetings / "link.md").symlink_to(tmp_path / "secret.md")
+    listed = api.get("/api/meetings").json()["items"]
+    assert listed == [
+        {"id": "2026-09-30 0900 Design review", "title": "Design review",
+         "date": "2026-09-30T09:00:00", "preview": "Decided to ship Friday. [09:00] You: Hello"}
+    ]  # fmt: skip
+    one = api.client.get(
+        "/api/meetings/item", params={"id": "2026-09-30 0900 Design review"}, headers=api.auth
+    ).json()
+    assert one["title"] == "Design review" and "Decided to ship Friday." in one["text"]
+    for bad in ("../secret", "link", "..", "/etc/passwd", "a/b", ".hidden", "", "x" * 300):
+        reply = api.client.get("/api/meetings/item", params={"id": bad}, headers=api.auth)
+        assert reply.status_code == 404, bad
+
+    research = api.mac.research
+    research.mkdir()
+    (research / "2026-09-28 1400 Solid-state batteries.md").write_text(
+        "# Solid-state batteries\n\nThe short answer: not before 2028.\n"
+    )
+    reports = api.get("/api/research").json()["items"]
+    assert reports[0]["title"] == "Solid-state batteries"
+    assert reports[0]["preview"] == "The short answer: not before 2028."
+    item = api.client.get(
+        "/api/research/item", params={"id": reports[0]["id"]}, headers=api.auth
+    ).json()
+    assert item["text"].startswith("# Solid-state batteries")
+    assert api.get("/api/research/item?id=..%2Fsecret").status_code == 404
+
+
+def test_invoices_as_the_mac_shows_them(api):
+    body = api.get("/api/invoices").json()
+    assert set(body) == {"clients", "recurring", "reminders", "stripe", "error"}
+
+
+def test_prefs_read_and_set_only_the_allowlisted_few(api):
+    from jarvis import companion_more
+
+    hub = api.hub
+    body = api.get("/api/prefs").json()
+    assert set(body["prefs"]) == set(companion_more.PREFS)
+    assert body["choices"]["language"] == ["en", "zh"]
+    assert "jarvis" in {p["id"] for p in body["choices"]["persona"]}
+    remote_before = hub.prefs.remote_enabled
+    reply = api.post("/api/prefs", {"changes": {"humor": 30, "address": "Sir"}})
+    assert set(reply.json()["changed"]) == {"humor", "address"}
+    assert reply.json()["prefs"]["humor"] == 30
+    assert (hub.prefs.humor, hub.prefs.address) == (30, "Sir")
+    for refused in (
+        {"remote_enabled": False},  # not one the phone may touch
+        {"control_always": True},
+        {"pay_enabled": True},
+        {"phone_me": "+15550001"},
+        {"documents_folder": "/tmp"},
+        {"humor": "30"},  # the wrong type
+        {"humor": True},
+        {"language": "fr"},  # not a value Settings takes
+        {"briefing_time": "8am"},
+        {"humor": 50, "code_mode": "auto"},  # one refused: nothing applied
+    ):
+        reply = api.post("/api/prefs", {"changes": refused})
+        assert reply.status_code == 400, refused
+    assert hub.prefs.humor == 30 and hub.prefs.remote_enabled == remote_before
+    assert hub.prefs.code_mode == "ask"
+    assert api.post("/api/prefs", {"changes": []}).status_code == 400
+    assert api.post("/api/prefs", {}).status_code == 400

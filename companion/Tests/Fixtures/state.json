@@ -13,7 +13,7 @@
           }
         ],
         "detail": "Dinner at 8",
-        "id": "e789c6eab983",
+        "id": "6cc79d78f834",
         "question": "Send the email to Pepper?",
         "source": "jarvis"
       },
@@ -29,7 +29,7 @@
           }
         ],
         "detail": "$ npm test",
-        "id": "8bac3f79940e",
+        "id": "3b1812b83743",
         "question": "Jarvis Code in suit wants to run a command",
         "source": "code",
         "task_id": 4
@@ -56,14 +56,30 @@
       }
     ],
     "delegations_active": 1,
+    "features": [
+      "memory",
+      "goals",
+      "timers",
+      "reminders",
+      "markets",
+      "tasks",
+      "music",
+      "shortcuts",
+      "switches",
+      "journal",
+      "meetings",
+      "research",
+      "invoices",
+      "prefs"
+    ],
     "history": [
       {
-        "at": "2026-09-30T11:28:25",
+        "at": "2026-09-30T17:43:15",
         "role": "user",
         "text": "What's next on my calendar today?"
       },
       {
-        "at": "2026-09-30T11:28:25",
+        "at": "2026-09-30T17:43:15",
         "role": "assistant",
         "text": "Two meetings tomorrow."
       }
@@ -71,7 +87,7 @@
     "meeting": null,
     "model": "Opus 5.5",
     "next_event": {
-      "begin": "2026-09-30T13:28",
+      "begin": "2026-09-30T19:43",
       "location": "Studio",
       "title": "Design review"
     },
@@ -82,27 +98,27 @@
     },
     "routines": [
       {
-        "id": "ec498415",
+        "id": "ee443624",
         "name": "Morning brief"
       },
       {
-        "id": "244ee707",
+        "id": "68e4df79",
         "name": "Weekly review"
       },
       {
-        "id": "b99b3a2a",
+        "id": "a5168133",
         "name": "Portfolio check"
       },
       {
-        "id": "7e14f1e4",
+        "id": "32747031",
         "name": "Welcome home"
       },
       {
-        "id": "e05cc17b",
+        "id": "e8a20657",
         "name": "Stretch"
       },
       {
-        "id": "cb967cac",
+        "id": "0ba26148",
         "name": "Dentist"
       }
     ],

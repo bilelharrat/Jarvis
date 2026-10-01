@@ -1,0 +1,13 @@
+{
+  "body": {
+    "items": [
+      {
+        "date": "2026-09-30T09:00:00",
+        "id": "2026-09-30 0900 Design review",
+        "preview": "Ship the suit on Friday. [09:00] You: Let's start. [09:01] Them: The suit is ready.",
+        "title": "Design review"
+      }
+    ]
+  },
+  "status": 200
+}

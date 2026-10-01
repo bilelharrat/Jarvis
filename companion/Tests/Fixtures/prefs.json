@@ -1,0 +1,45 @@
+{
+  "body": {
+    "choices": {
+      "interruptions": [
+        "urgent",
+        "all",
+        "off"
+      ],
+      "language": [
+        "en",
+        "zh"
+      ],
+      "persona": [
+        {
+          "id": "jarvis",
+          "name": "JARVIS"
+        },
+        {
+          "id": "tars",
+          "name": "TARS"
+        },
+        {
+          "id": "friday",
+          "name": "FRIDAY"
+        }
+      ]
+    },
+    "prefs": {
+      "address": "",
+      "briefing_enabled": true,
+      "briefing_time": "08:00",
+      "hands_free": false,
+      "humor": 60,
+      "interruptions": "urgent",
+      "language": "en",
+      "owner_name": "",
+      "persona": "jarvis",
+      "proactive": true,
+      "proactive_voice": true,
+      "quiet_hours": "22:00-07:00",
+      "voice_effect": true
+    }
+  },
+  "status": 200
+}
