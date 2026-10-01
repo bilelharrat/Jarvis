@@ -63,7 +63,7 @@ struct ClaudeClient: Sendable {
                 "type": .string("text"), "text": .string(system),
                 "cache_control": .object(["type": .string("ephemeral")]),
             ])]),
-            "messages": .array(messages),
+            "messages": .array(messages.map(\.forClaude)),
             "tools": .array(tools),
             "output_config": .object(["effort": .string(effort)]),
             "fallbacks": .string("default"),
@@ -203,10 +203,22 @@ extension JSONValue {
         return nil
     }
 
-    /// The block without the fields this app adds for itself.
+    /// The block without the fields this app adds for itself (every key starting with _).
     var forAPI: JSONValue {
-        guard case .object(var object) = self else { return self }
-        object.removeValue(forKey: "_invalid_input")
-        return .object(object)
+        guard case .object(let object) = self else { return self }
+        return .object(object.filter { !$0.key.hasPrefix("_") })
+    }
+
+    /// A message as Claude takes it: without Gemini's own record of a turn it wrote (the
+    /// `_gemini` block), the app's own fields, or empty text.
+    var forClaude: JSONValue {
+        guard case .object(var message) = self, let blocks = message["content"]?.arrayValue else { return self }
+        var kept = blocks.filter { block in
+            let type = block["type"]?.stringValue ?? ""
+            return !type.hasPrefix("_") && !(type == "text" && (block["text"]?.stringValue ?? "").isEmpty)
+        }.map(\.forAPI)
+        if kept.isEmpty { kept = [["type": "text", "text": "…"]] }
+        message["content"] = .array(kept)
+        return .object(message)
     }
 }

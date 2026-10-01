@@ -1,66 +1,30 @@
 import SwiftUI
 
-/// Settings › Jarvis on iPhone: the Claude API key, the model, who answers, and what Jarvis
-/// calls you.
+/// Settings › Jarvis on iPhone: the Claude and Gemini API keys, which one goes first, the
+/// models, who answers, and what Jarvis calls you.
 struct PhoneBrainSettings: View {
     @Environment(AppModel.self) private var model
-    @State private var key = ""
-    @State private var editingKey = false
-    @State private var keyError: String?
-    @AppStorage(BrainSettings.modelKey) private var chosenModel = ClaudeClient.defaultModel
+    @AppStorage(BrainSettings.providerKey) private var preferred = BrainProvider.claude.rawValue
+    @AppStorage(BrainProvider.claude.modelKey) private var claudeModel = BrainProvider.claude.defaultModel
+    @AppStorage(BrainProvider.gemini.modelKey) private var geminiModel = BrainProvider.gemini.defaultModel
     @AppStorage("brain.address") private var address = ""
 
     var body: some View {
         Section {
-            if model.hasPhoneKey && !editingKey {
-                LabeledContent {
-                    Button("Change") { editingKey = true }
-                } label: {
-                    HStack(spacing: Space.s) {
-                        IconTile(symbol: "key.fill", tint: .gray)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Claude API Key")
-                            Text("Saved in this iPhone’s Keychain")
-                                .font(.footnote)
-                                .foregroundStyle(Palette.muted)
-                        }
-                    }
-                }
-            } else {
-                HStack(spacing: Space.s) {
-                    IconTile(symbol: "key.fill", tint: .gray)
-                    SecureField("Claude API key (sk-ant-…)", text: $key)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .onSubmit(save)
-                }
-                HStack {
-                    Button("Save Key", action: save)
-                        .disabled(key.trimmed.isEmpty)
-                    if model.hasPhoneKey {
-                        Spacer()
-                        Button("Remove", role: .destructive) {
-                            try? model.setPhoneKey(nil)
-                            editingKey = false
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-            }
-            if let keyError {
-                Text(keyError).font(.footnote).foregroundStyle(Palette.amber)
-            }
-            Picker(selection: $chosenModel) {
-                ForEach(BrainSettings.models, id: \.id) { option in
-                    Text(option.name).tag(option.id)
+            KeyRow(provider: .claude)
+            KeyRow(provider: .gemini)
+            Picker(selection: $preferred) {
+                ForEach(BrainProvider.allCases) { provider in
+                    Text(provider.title).tag(provider.rawValue)
                 }
             } label: {
                 HStack(spacing: Space.s) {
-                    IconTile(symbol: "cpu", tint: .indigo)
-                    Text("Model")
+                    IconTile(symbol: "arrow.up.arrow.down", tint: .teal)
+                    Text("Answer With")
                 }
             }
+            modelPicker(.claude, selection: $claudeModel)
+            modelPicker(.gemini, selection: $geminiModel)
             if model.pairing != nil {
                 Picker(selection: Binding(get: { model.brainMode }, set: { model.setBrainMode($0) })) {
                     ForEach(BrainMode.allCases) { mode in
@@ -85,27 +49,97 @@ struct PhoneBrainSettings: View {
         }
     }
 
+    private func modelPicker(_ provider: BrainProvider, selection: Binding<String>) -> some View {
+        Picker(selection: selection) {
+            ForEach(provider.models, id: \.id) { option in
+                Text(option.name).tag(option.id)
+            }
+        } label: {
+            HStack(spacing: Space.s) {
+                IconTile(symbol: "cpu", tint: provider == .claude ? .indigo : .blue)
+                Text("\(provider.title) Model")
+            }
+        }
+    }
+
     private var footer: String {
-        let key = "Jarvis answers on this iPhone with your own Claude API key (console.anthropic.com), using your calendar, reminders, contacts, location, music, Home and Health, and the web. The key stays in this iPhone’s Keychain and goes only to Anthropic."
-        guard model.pairing != nil else { return key }
-        return key + " Automatic: your Mac answers whenever it can be reached, and this iPhone when it can’t."
+        let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
+        guard model.pairing != nil else { return keys }
+        return keys + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Jarvis Code) to the Mac, opening JARVIS there if it was quit. Without a key, or when both services fail, your Mac answers."
+    }
+}
+
+/// One service's key: saved (with Change), or a field to paste it in.
+private struct KeyRow: View {
+    @Environment(AppModel.self) private var model
+    let provider: BrainProvider
+    @State private var key = ""
+    @State private var editing = false
+    @State private var problem: String?
+
+    private var saved: Bool { model.hasPhoneKey && BrainSettings.key(for: provider) != nil }
+
+    var body: some View {
+        Group {
+            if saved && !editing {
+                LabeledContent {
+                    Button("Change") { editing = true }
+                } label: {
+                    HStack(spacing: Space.s) {
+                        IconTile(symbol: "key.fill", tint: provider == .claude ? .gray : .blue)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(provider.title) API Key")
+                            Text("Saved in this iPhone’s Keychain")
+                                .font(.footnote)
+                                .foregroundStyle(Palette.muted)
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: Space.s) {
+                    IconTile(symbol: "key.fill", tint: provider == .claude ? .gray : .blue)
+                    SecureField(provider.keyPlaceholder, text: $key)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit(save)
+                }
+                if !key.trimmed.isEmpty || saved {
+                    HStack {
+                        Button("Save \(provider.title) Key", action: save)
+                            .disabled(key.trimmed.isEmpty)
+                        if saved {
+                            Spacer()
+                            Button("Remove", role: .destructive) {
+                                try? model.setPhoneKey(nil, for: provider)
+                                editing = false
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+            }
+            if let problem {
+                Text(problem).font(.footnote).foregroundStyle(Palette.amber)
+            }
+        }
     }
 
     private func save() {
         let value = key.trimmed
         guard !value.isEmpty else { return }
-        guard value.hasPrefix("sk-ant-") else {
-            keyError = "That doesn’t look like a Claude API key (they start with sk-ant-)."
+        if let reason = provider.problem(with: value) {
+            problem = reason
             return
         }
         do {
-            try model.setPhoneKey(value)
+            try model.setPhoneKey(value, for: provider)
             key = ""
-            keyError = nil
-            editingKey = false
+            problem = nil
+            editing = false
             Haptics.answered(negative: false)
         } catch {
-            keyError = "The Keychain wouldn’t keep the key: \(error.localizedDescription)"
+            problem = "The Keychain wouldn’t keep the key: \(error.localizedDescription)"
         }
     }
 }

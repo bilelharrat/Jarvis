@@ -6,7 +6,9 @@ over a dark night lit by the arc reactor (`SpaceBackground`); reactor blue as th
 Stark gold for what needs you, telemetry in small SF Mono caps (`HUDText`); the reactor is
 a glass sphere in a fine-ticked bezel (`ReactorView`). Always dark. Paired with Jarvis on the Mac they reach everything it does;
 with no Mac (or when it can't be reached) the iPhone runs Jarvis itself on the owner's own
-Claude API key (see Jarvis on iPhone).
+Claude or Gemini API key (see Jarvis on iPhone). With a key, Automatic is iPhone first: the
+phone answers what it can and hands Mac-only work to the Mac (ask_mac); one service steps in
+when the other fails, and the Mac when both do.
 
 - **Tabs:** Jarvis (the orb, the conversation, approvals, a glass composer with the
   microphone and a + menu, where up to four photos or screenshots go with a question:

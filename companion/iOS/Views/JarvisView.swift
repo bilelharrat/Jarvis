@@ -407,7 +407,7 @@ private struct Composer: View {
             Button("Brief Me", systemImage: "sparkles") { Task { await model.run(.briefing) } }
             Button("What’s Next?", systemImage: "calendar") { Task { await model.send(AppModel.whatsNext) } }
             Button("Show Jarvis", systemImage: "camera.viewfinder") { onCamera() }
-            if model.pairing != nil && !model.answersOnPhone {
+            if model.pairing != nil && model.brainMode != .phone {
                 if model.remote?.meeting != nil {
                     Button("Stop Meeting Notes", systemImage: "stop.circle") { Task { await model.run(.meetingStop) } }
                 } else {

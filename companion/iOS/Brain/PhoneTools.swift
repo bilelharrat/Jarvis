@@ -220,18 +220,35 @@ final class PhoneTools {
             return "The link is showing for the owner to open."
         case "ask_mac":
             guard let mac else { throw ToolProblem(message: "No Mac is paired.") }
-            do {
-                let result = try await mac.ask(try need("request"), timeout: 90)
-                if result.done { return result.reply.isEmpty ? "The Mac did it." : result.reply }
-                return result.approvals.isEmpty
-                    ? "The Mac is still working on it; its answer will show in the app."
-                    : "The Mac needs the owner's OK first; the card is in the app."
-            } catch {
-                throw ToolProblem(message: "The Mac can't be reached right now (\((error as? JarvisError)?.title ?? error.localizedDescription)).")
+            let request = try need("request")
+            var opened = false
+            var waited: TimeInterval = 0
+            while true {
+                do {
+                    let result = try await mac.ask(request, timeout: 90)
+                    if result.done { return result.reply.isEmpty ? "The Mac did it." : result.reply }
+                    return result.approvals.isEmpty
+                        ? "The Mac is still working on it; its answer will show in the app."
+                        : "The Mac needs the owner's OK first; the card is in the app."
+                } catch let error as JarvisError where error.neverDelivered && waited < 20 {
+                    // JARVIS on the Mac may have been quit: open it there, then ask again.
+                    if !opened {
+                        guard await mac.wake() else { throw Self.unreachable(error) }
+                        opened = true
+                    }
+                    try await Task.sleep(for: .seconds(2))
+                    waited += 2
+                } catch {
+                    throw Self.unreachable(error)
+                }
             }
         default:
             throw ToolProblem(message: "There's no tool called \(name).")
         }
+    }
+
+    private static func unreachable(_ error: Error) -> ToolProblem {
+        ToolProblem(message: "The Mac can't be reached right now (\((error as? JarvisError)?.title ?? error.localizedDescription)).")
     }
 
     // MARK: - Calendar and Reminders

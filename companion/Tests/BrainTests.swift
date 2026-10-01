@@ -127,3 +127,130 @@ final class BrainTests: XCTestCase {
         XCTAssertEqual(JarvisVoice.installID, id, "made once")
     }
 }
+
+/// Gemini speaking the conversation the brain keeps in Claude's blocks, and the fallback from
+/// one service to the other.
+final class GeminiTests: XCTestCase {
+    private func json(_ text: String) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+    }
+
+    func testClaudesTurnsGoToGeminiAsPartsWithTheirToolResults() throws {
+        let messages: [JSONValue] = [
+            ["role": "user", "content": [
+                ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": "AAA="]],
+                ["type": "text", "text": "Weather where this is?"],
+            ]],
+            ["role": "assistant", "content": [
+                ["type": "thinking", "thinking": "hmm", "signature": "s"],
+                ["type": "text", "text": "Checking."],
+                ["type": "tool_use", "id": "toolu_1", "name": "weather", "input": ["place": "Paris"]],
+            ]],
+            ["role": "user", "content": [["type": "tool_result", "tool_use_id": "toolu_1", "content": "18°, clear", "is_error": false]]],
+        ]
+        let contents = GeminiClient.contents(messages)
+        XCTAssertEqual(contents.count, 3)
+        XCTAssertEqual(contents[0]["parts"]?.arrayValue?[0]["inlineData"]?["mimeType"]?.stringValue, "image/jpeg")
+        let model = try XCTUnwrap(contents[1]["parts"]?.arrayValue)
+        XCTAssertEqual(contents[1]["role"]?.stringValue, "model")
+        XCTAssertEqual(model.count, 2)  // the thinking stays Claude's
+        XCTAssertEqual(model[1]["functionCall"]?["args"]?["place"]?.stringValue, "Paris")
+        XCTAssertEqual(model[1]["thoughtSignature"]?.stringValue, GeminiClient.unsignedCall)
+        let result = try XCTUnwrap(contents[2]["parts"]?.arrayValue?.first?["functionResponse"])
+        XCTAssertEqual(result["name"]?.stringValue, "weather")
+        XCTAssertEqual(result["response"]?["result"]?.stringValue, "18°, clear")
+        XCTAssertNil(result["id"])  // Claude's id means nothing to Gemini
+    }
+
+    func testGeminisOwnTurnGoesBackExactlyAsItCame() throws {
+        var stream = GeminiStream()
+        XCTAssertTrue(stream.take(try json(#"{"candidates":[{"content":{"role":"model","parts":[{"text":"Let me "}]}}]}"#)))
+        XCTAssertTrue(stream.take(try json(#"{"candidates":[{"content":{"role":"model","parts":[{"text":"check."}]}}]}"#)))
+        XCTAssertFalse(stream.take(try json(#"{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"id":"fc_9","name":"calendar_events","args":{"days":2}},"thoughtSignature":"SIG"}]},"finishReason":"STOP"}]}"#)))
+        XCTAssertEqual(stream.text, "Let me check.")
+        let response = try XCTUnwrap(stream.response)
+        XCTAssertEqual(response.stopReason, "tool_use")
+        XCTAssertEqual(response.text, "Let me check.")
+        let call = try XCTUnwrap(response.content.first { $0["type"]?.stringValue == "tool_use" })
+        XCTAssertEqual(call["id"]?.stringValue, "fc_9")
+        XCTAssertEqual(call["input"]?["days"], .int(2))
+
+        let messages: [JSONValue] = [
+            ["role": "user", "content": [["type": "text", "text": "What's on?"]]],
+            ["role": "assistant", "content": .array(response.content)],
+            ["role": "user", "content": [["type": "tool_result", "tool_use_id": "fc_9", "content": "Standup at 10"]]],
+        ]
+        let contents = GeminiClient.contents(messages)
+        XCTAssertEqual(contents[1]["parts"]?.arrayValue, stream.parts)  // signature and all
+        XCTAssertEqual(contents[1]["parts"]?.arrayValue?.count, 2)  // the pieces of text as one part
+        XCTAssertEqual(contents[2]["parts"]?.arrayValue?.first?["functionResponse"]?["id"]?.stringValue, "fc_9")
+
+        // And Claude, later in the same conversation, never sees Gemini's record of it.
+        let forClaude = messages[1].forClaude["content"]?.arrayValue ?? []
+        XCTAssertEqual(forClaude.compactMap { $0["type"]?.stringValue }, ["text", "tool_use"])
+        XCTAssertNil(forClaude[1]["_gemini_id"])
+    }
+
+    func testTheWebToolsBecomeGooglesOwnAndEmptySchemasAreLeftOut() throws {
+        let tools: [JSONValue] = [
+            ["name": "timers", "description": "Lists timers.", "input_schema": ["type": "object", "properties": [:]]],
+            ["name": "weather", "description": "Weather.", "input_schema": ["type": "object", "properties": ["place": ["type": "string"]]]],
+            ["type": "web_search_20260209", "name": "web_search", "max_uses": 5],
+            ["type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3],
+        ]
+        let declared = GeminiClient.tools(tools, builtIns: true)
+        XCTAssertEqual(declared.count, 3)
+        let functions = try XCTUnwrap(declared[0]["functionDeclarations"]?.arrayValue)
+        XCTAssertNil(functions[0]["parametersJsonSchema"])
+        XCTAssertEqual(functions[1]["parametersJsonSchema"]?["properties"]?["place"]?["type"]?.stringValue, "string")
+        XCTAssertNotNil(declared[1]["googleSearch"])
+        XCTAssertNotNil(declared[2]["urlContext"])
+        XCTAssertEqual(GeminiClient.tools(tools, builtIns: false).count, 1)
+
+        let body = GeminiClient.body(system: "Be brief.", messages: [], tools: tools, builtIns: true, thinkingLevel: "LOW")
+        XCTAssertEqual(body["toolConfig"]?["includeServerSideToolInvocations"], .bool(true))
+        XCTAssertEqual(body["generationConfig"]?["thinkingConfig"]?["thinkingLevel"]?.stringValue, "LOW")
+        XCTAssertEqual(body["systemInstruction"]?["parts"]?.arrayValue?.first?["text"]?.stringValue, "Be brief.")
+    }
+
+    func testGeminiStopsAndErrorsReadAsSomethingToDo() throws {
+        var blocked = GeminiStream()
+        _ = blocked.take(try json(#"{"promptFeedback":{"blockReason":"SAFETY"}}"#))
+        XCTAssertEqual(blocked.response?.stopReason, "refusal")
+        var long = GeminiStream()
+        _ = long.take(try json(#"{"candidates":[{"content":{"parts":[{"text":"…"}]},"finishReason":"MAX_TOKENS"}]}"#))
+        XCTAssertEqual(long.response?.stopReason, "max_tokens")
+        XCTAssertNil(GeminiStream().response)
+
+        XCTAssertEqual(GeminiClient.failure(status: 403, body: Data()), .badKey)
+        XCTAssertEqual(GeminiClient.failure(status: 400, body: Data(#"{"error":{"message":"API key not valid.","status":"INVALID_ARGUMENT"}}"#.utf8)), .badKey)
+        XCTAssertEqual(GeminiClient.failure(status: 429, body: Data()), .rateLimited)
+        XCTAssertEqual(GeminiClient.failure(status: 503, body: Data()), .overloaded)
+        XCTAssertEqual(GeminiClient.failure(status: 400, body: Data(#"{"error":{"message":"bad"}}"#.utf8)), .server(400, "bad"))
+    }
+
+    func testWhenOneServiceFailsTheOtherAnswersAndCarriesTheTurn() async throws {
+        let claude = FakeClient(provider: .claude, result: .failure(ClaudeClient.Failure.overloaded))
+        let gemini = FakeClient(provider: .gemini, result: .success("From Gemini."))
+        let (response, order) = try await LocalBrain.send([claude, gemini], system: "", messages: [], tools: []) { _ in }
+        XCTAssertEqual(response.text, "From Gemini.")
+        XCTAssertEqual(order.map(\.provider), [.gemini, .claude])
+
+        do {
+            _ = try await LocalBrain.send([claude], system: "", messages: [], tools: []) { _ in }
+            XCTFail("one service, failing: the failure comes back")
+        } catch {
+            XCTAssertEqual(error as? ClaudeClient.Failure, .overloaded)
+        }
+    }
+}
+
+private struct FakeClient: BrainClient {
+    let provider: BrainProvider
+    let result: Result<String, Error>
+
+    func send(system: String, messages: [JSONValue], tools: [JSONValue], onText: @escaping @Sendable (String) -> Void) async throws -> ClaudeClient.Response {
+        let text = try result.get()
+        return ClaudeClient.Response(content: [["type": "text", "text": .string(text)]], stopReason: "end_turn")
+    }
+}

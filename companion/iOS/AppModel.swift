@@ -60,7 +60,7 @@ final class AppModel {
     let wake = WakeWordListener()
     /// Which Jarvis answers (Settings).
     private(set) var brainMode: BrainMode = .automatic
-    /// A Claude API key is saved for Jarvis on the iPhone.
+    /// A Claude or Gemini API key is saved for Jarvis on the iPhone.
     private(set) var hasPhoneKey = false
     @ObservationIgnored private let watch = PhoneWatchBridge()
     @ObservationIgnored private let outbox = Outbox.shared
@@ -110,7 +110,7 @@ final class AppModel {
         #endif
         voice.onProblem = { [weak self] message in self?.show(message, style: .problem) }
         brainMode = UserDefaults.standard.string(forKey: BrainSettings.modeKey).flatMap(BrainMode.init) ?? .automatic
-        hasPhoneKey = BrainSettings.apiKey != nil
+        hasPhoneKey = BrainSettings.hasAnyKey
         brain.tools.mac = pairing?.api
         wake.onWake = { [weak self] in self?.wakeHeard() }
         wake.onCommand = { [weak self] command in
@@ -150,19 +150,20 @@ final class AppModel {
         UserDefaults.standard.set(mode.rawValue, forKey: BrainSettings.modeKey)
     }
 
-    func setPhoneKey(_ key: String?) throws {
-        try BrainSettings.setAPIKey(key)
-        hasPhoneKey = BrainSettings.apiKey != nil
+    func setPhoneKey(_ key: String?, for provider: BrainProvider = .claude) throws {
+        try BrainSettings.setKey(key, for: provider)
+        hasPhoneKey = BrainSettings.hasAnyKey
     }
 
     /// The next request is answered on the iPhone: there's no Mac, the owner chose the
-    /// iPhone, or (automatically) the Mac can't be reached and the iPhone can answer.
+    /// iPhone, or (automatically) there's a Claude or Gemini key, so the iPhone answers what
+    /// it can and hands the rest to the Mac.
     var answersOnPhone: Bool {
         guard pairing != nil else { return true }
         switch brainMode {
         case .phone: return true
         case .mac: return false
-        case .automatic: return isOffline && hasPhoneKey
+        case .automatic: return hasPhoneKey
         }
     }
 
@@ -531,7 +532,10 @@ final class AppModel {
         let text = raw.trimmed
         guard !text.isEmpty else { return }
         if answersOnPhone && queuedAt == nil {
-            return await askPhone(text)
+            await askPhone(text)
+            // Automatic: when the key's services fail, the Mac answers instead.
+            guard brain.lastFailed, brainMode == .automatic, pairing != nil else { return }
+            brain.dropFailedAsk()
         }
         guard let api = pairing?.api else { return }
         voice.stop()

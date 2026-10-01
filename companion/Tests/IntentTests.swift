@@ -72,6 +72,21 @@ final class IntentTests: XCTestCase {
         XCTAssertEqual(tries.value, 1 + 8)  // the first, then every 2 s for 15 s
     }
 
+    func testPhoneFirstAnswersOnTheIPhoneAndTheMacOnlyWhenItCant() async {
+        let macAsked = Counter()
+        let mac = client(ask: { _, _ in
+            _ = macAsked.next()
+            return AskResult(reply: "From the Mac.", done: true)
+        })
+        let here = await IntentRunner.ask("Weather?", client: mac, local: { _ in "From the iPhone." }, phoneFirst: true)
+        XCTAssertEqual(here, "From the iPhone.")
+        XCTAssertEqual(macAsked.value, 0)
+        let fallback = await IntentRunner.ask("Weather?", client: mac, local: { _ in nil }, phoneFirst: true)
+        XCTAssertEqual(fallback, "From the Mac.")
+        let macFirst = await IntentRunner.ask("Weather?", client: mac, local: { _ in "From the iPhone." }, phoneFirst: false)
+        XCTAssertEqual(macFirst, "From the Mac.")
+    }
+
     func testBriefingDigestAndCommands() async {
         let briefing = await IntentRunner.brief(client: client(ask: { text, _ in
             XCTAssertEqual(text, "Brief me.")

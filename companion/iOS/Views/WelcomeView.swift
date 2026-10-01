@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// First run: the orb, and two ways in — pair Jarvis on your Mac (everything it does), or
-/// run Jarvis on this iPhone with your own Claude API key. Either can be added later.
+/// run Jarvis on this iPhone with your own Claude or Gemini API key. Either can be added later.
 struct WelcomeView: View {
     @Environment(AppModel.self) private var model
     @State private var showKey = false

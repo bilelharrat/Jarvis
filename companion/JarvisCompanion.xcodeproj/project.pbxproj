@@ -46,6 +46,7 @@
 		1DE7883987F55D8C51BBE818 /* memory_forget.json in Resources */ = {isa = PBXBuildFile; fileRef = C1EC76E338A3928F50E9543A /* memory_forget.json */; };
 		1ECDA8DDF905538640F4FDD2 /* code_session_after.json in Resources */ = {isa = PBXBuildFile; fileRef = 0A43BF69D471577AC1B42044 /* code_session_after.json */; };
 		1EE3BCD4EE0F3C9E2266ED2F /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
+		1F1F5F2781464592F7CE7B3A /* GeminiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 605C8C112D825C443576321F /* GeminiClient.swift */; };
 		1F7C678060B662461C367DAF /* ActionCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A006E2BE3785E82F49638AC /* ActionCards.swift */; };
 		1F89CF8F1D2904A94B23E338 /* SnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */; };
 		213F6D57BFDEB2662E43F844 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 163B94886C70B9BD790D2409 /* PrivacyInfo.xcprivacy */; };
@@ -141,6 +142,7 @@
 		739C8AE1584A57B0491F8FF2 /* error_pair_fingerprint.json in Resources */ = {isa = PBXBuildFile; fileRef = B133FCA0953CE1D742A8EDA5 /* error_pair_fingerprint.json */; };
 		7471CA5FC9DC6FD40370C2C7 /* CodeSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88FE4D0B4F21CBD7AEC47625 /* CodeSessionView.swift */; };
 		748E241B0AF41C4D88CB73AF /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
+		74D99F084AA85AA03DB66766 /* BrainProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541AFF7BFD486FC563042E13 /* BrainProvider.swift */; };
 		7539A7A11846319CF3B47770 /* sensors.json in Resources */ = {isa = PBXBuildFile; fileRef = B194CA217C7C06F09B3BA505 /* sensors.json */; };
 		759C846FFE9D15F9253ADB09 /* contacts_answer.json in Resources */ = {isa = PBXBuildFile; fileRef = B7884C912B5536F6FF45A6D9 /* contacts_answer.json */; };
 		77B7F0BFFC68F898661D6DA1 /* ShareModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D4DBC4B2E981A3EB110F53 /* ShareModel.swift */; };
@@ -450,6 +452,7 @@
 		4E275D34571EE64B33BE24BE /* JarvisActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisActivity.swift; sourceTree = "<group>"; };
 		4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisAPI.swift; sourceTree = "<group>"; };
 		4FD6E44D73309111F8165B58 /* error_no_task.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_no_task.json; sourceTree = "<group>"; };
+		541AFF7BFD486FC563042E13 /* BrainProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainProvider.swift; sourceTree = "<group>"; };
 		551737142658F2F36993883B /* ApprovalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalCard.swift; sourceTree = "<group>"; };
 		565297325CAECF821B58C9CE /* JarvisCompanionUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = JarvisCompanionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		566EE4877D185AFA856CBD13 /* JarvisCompanionWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisCompanionWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -457,6 +460,7 @@
 		5A06774F347CB2BC376C7207 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		5C10CAA1099883096BB500EA /* ReactorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactorView.swift; sourceTree = "<group>"; };
 		5F4E4A91528D6974EDB4343E /* NotificationActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActions.swift; sourceTree = "<group>"; };
+		605C8C112D825C443576321F /* GeminiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiClient.swift; sourceTree = "<group>"; };
 		629C8FBF5FF3022276FF52C5 /* error_prefs_key.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_prefs_key.json; sourceTree = "<group>"; };
 		63DE027A0481F77F71E7176C /* error_no_meeting.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_no_meeting.json; sourceTree = "<group>"; };
 		6473B16C7BA82D54F15DA456 /* music.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = music.json; sourceTree = "<group>"; };
@@ -772,7 +776,9 @@
 		6F3828EC367E6071AEE599C5 /* Brain */ = {
 			isa = PBXGroup;
 			children = (
+				541AFF7BFD486FC563042E13 /* BrainProvider.swift */,
 				86136E46B1FF192F92CF4A92 /* ClaudeClient.swift */,
+				605C8C112D825C443576321F /* GeminiClient.swift */,
 				DE3B89BFB9491135F63F2E88 /* LocalBrain.swift */,
 				8507B5BC74A2BC5278F2F939 /* PhoneTools.swift */,
 			);
@@ -1446,6 +1452,7 @@
 				6143196FAF0E6E4C0BD5B9DC /* ApprovalResponse.swift in Sources */,
 				DDEDDF8140BD31A8B0429053 /* BackgroundRefresh.swift in Sources */,
 				8F32D36C2892E3767CCE209D /* BonjourBrowser.swift in Sources */,
+				74D99F084AA85AA03DB66766 /* BrainProvider.swift in Sources */,
 				8E35476EDCAD16551E652189 /* ClaudeClient.swift in Sources */,
 				BD6E0666E7801FAE18CAAEEA /* CodeDiffView.swift in Sources */,
 				0DFD3E3D020BAC3EEC2CAB87 /* CodeEntryField.swift in Sources */,
@@ -1459,6 +1466,7 @@
 				0DFC948BC5C16B943AE7FC22 /* Decoding.swift in Sources */,
 				72046399198327668EFBE4D1 /* Destination.swift in Sources */,
 				12C35BD9D520A9F7002A58C7 /* DigestView.swift in Sources */,
+				1F1F5F2781464592F7CE7B3A /* GeminiClient.swift in Sources */,
 				7A87977425D352C74CCB318E /* Haptics.swift in Sources */,
 				D2978612301218CE4FC7F114 /* HealthService.swift in Sources */,
 				C7F2B0B294DEE5B12D72D4A9 /* IntentRunner.swift in Sources */,

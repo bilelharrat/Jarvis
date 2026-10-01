@@ -37,23 +37,32 @@ enum IntentRunner {
     /// What a spoken answer is kept to (the whole reply is in the app).
     static let longestSpoken = 900
 
-    static let notPaired = "Open J.A.R.V.I.S. to pair your Mac or add a Claude API key first."
+    static let notPaired = "Open J.A.R.V.I.S. to pair your Mac or add a Claude or Gemini API key first."
 
     /// Answers on the iPhone itself (nil when it can't: no API key).
     typealias Local = @Sendable (String) async -> String?
 
     /// Jarvis on the iPhone, for Siri: answers when there's no Mac or it can't be reached.
     static let phoneAnswer: Local = { text in
-        await MainActor.run { BrainSettings.apiKey != nil } ? await PhoneAnswer.ask(text) : nil
+        await MainActor.run { BrainSettings.hasAnyKey } ? await PhoneAnswer.ask(text) : nil
     }
 
     /// Asks Jarvis and returns what to say: the reply, or why there isn't one yet.
-    static func ask(_ raw: String, client: Client?, local: Local? = nil, stillWorking: String = "Jarvis is still working on that. The answer will be in the app.") async -> String {
+    /// phoneFirst: the iPhone answers first and the Mac only when it can't (nil: as set in
+    /// Settings › Jarvis on iPhone).
+    static func ask(_ raw: String, client: Client?, local: Local? = nil, phoneFirst: Bool? = nil, stillWorking: String = "Jarvis is still working on that. The answer will be in the app.") async -> String {
         let text = raw.trimmed
         guard !text.isEmpty else { return "What should I ask Jarvis?" }
         guard let client else {
             if let local, let reply = await local(text) { return spoken(reply) }
             return notPaired
+        }
+        var triedPhone = false
+        var preferPhone = phoneFirst ?? false
+        if phoneFirst == nil { preferPhone = await MainActor.run { BrainSettings.prefersPhone } }
+        if let local, preferPhone {
+            if let reply = await local(text) { return spoken(reply) }
+            triedPhone = true  // its services failed: the Mac answers
         }
         do {
             let result = try await client.ask(text, waitForReply)
@@ -69,7 +78,7 @@ enum IntentRunner {
             return stillWorking  // the Mac has it and carries on
         } catch let error as JarvisError where error.neverDelivered {
             if let reply = await askOnceOpened(text, client: client, stillWorking: stillWorking) { return reply }
-            if let local, let reply = await local(text) { return spoken(reply) }
+            if !triedPhone, let local, let reply = await local(text) { return spoken(reply) }
             return keep(.ask(text), client: client)
         } catch {
             return problem(error)
@@ -104,8 +113,8 @@ enum IntentRunner {
     }
 
     static func brief(client: Client?, local: Local? = nil) async -> String {
-        if client == nil, let local, let reply = await local(AppModel.phoneBriefing) { return spoken(reply) }
-        return await ask("Brief me.", client: client, local: local, stillWorking: "Your briefing is on its way. It’ll be in J.A.R.V.I.S. in a moment.")
+        if let local, client == nil || BrainSettings.prefersPhone, let reply = await local(AppModel.phoneBriefing) { return spoken(reply) }
+        return await ask("Brief me.", client: client, local: local, phoneFirst: false, stillWorking: "Your briefing is on its way. It’ll be in J.A.R.V.I.S. in a moment.")
     }
 
     static func whatDidIMiss(client: Client?) async -> String {

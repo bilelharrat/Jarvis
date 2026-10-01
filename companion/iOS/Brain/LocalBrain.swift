@@ -55,36 +55,65 @@ final class LocalMemory {
 /// The API key and model for Jarvis on the iPhone. The key lives in the Keychain (this
 /// device only) and never leaves the phone except to Anthropic.
 enum BrainSettings {
-    private static let keyAccount = "brain.anthropic-key"
-    static let modelKey = "brain.model"
     static let modeKey = "brain.mode"
+    static let providerKey = "brain.provider"
+    /// Claude's model setting, where it always was.
+    static let modelKey = BrainProvider.claude.modelKey
 
-    static var apiKey: String? {
-        Keychain.read(keyAccount).flatMap { String(data: $0, encoding: .utf8) }?.trimmed.nilIfEmpty
+    static func key(for provider: BrainProvider) -> String? {
+        Keychain.read(provider.keyAccount).flatMap { String(data: $0, encoding: .utf8) }?.trimmed.nilIfEmpty
     }
 
-    static func setAPIKey(_ key: String?) throws {
+    static func setKey(_ key: String?, for provider: BrainProvider) throws {
         if let key = key?.trimmed.nilIfEmpty {
-            try Keychain.write(Data(key.utf8), account: keyAccount)
+            try Keychain.write(Data(key.utf8), account: provider.keyAccount)
         } else {
-            Keychain.remove(keyAccount)
+            Keychain.remove(provider.keyAccount)
         }
     }
 
-    static var model: String {
-        UserDefaults.standard.string(forKey: modelKey) ?? ClaudeClient.defaultModel
+    /// Claude's key (what the app had before Gemini).
+    static var apiKey: String? { key(for: .claude) }
+
+    static var hasAnyKey: Bool { BrainProvider.allCases.contains { key(for: $0) != nil } }
+
+    /// The one the owner prefers; the other answers when it can't.
+    static var provider: BrainProvider {
+        UserDefaults.standard.string(forKey: providerKey).flatMap(BrainProvider.init) ?? .claude
     }
 
-    static let models: [(id: String, name: String)] = [
-        ("claude-opus-5-5", "Claude Opus 5.5"),
-        ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
-        ("claude-haiku-4-5", "Claude Haiku 4.5"),
-    ]
+    static func model(for provider: BrainProvider) -> String {
+        UserDefaults.standard.string(forKey: provider.modelKey) ?? provider.defaultModel
+    }
+
+    static var model: String { model(for: .claude) }
+
+    static var mode: BrainMode {
+        UserDefaults.standard.string(forKey: modeKey).flatMap(BrainMode.init) ?? .automatic
+    }
+
+    /// Siri and the Action Button ask the iPhone first: there's a key and the owner didn't
+    /// choose the Mac.
+    static var prefersPhone: Bool { mode != .mac && hasAnyKey }
+
+    /// Who answers, in order: the preferred service, then the other, each only with a key.
+    static func clients() -> [any BrainClient] {
+        let order = [provider] + BrainProvider.allCases.filter { $0 != provider }
+        return order.compactMap { provider -> (any BrainClient)? in
+            guard let key = key(for: provider) else { return nil }
+            switch provider {
+            case .claude: return ClaudeClient(apiKey: key, model: model(for: .claude), effort: "low")
+            case .gemini: return GeminiClient(apiKey: key, model: model(for: .gemini))
+            }
+        }
+    }
 }
 
 /// Which Jarvis answers.
 enum BrainMode: String, CaseIterable, Identifiable {
-    /// The Mac whenever it can be reached, else the iPhone.
+    /// The iPhone first, on the owner's own API key: it answers whatever it can and hands
+    /// what needs the Mac to the Mac (ask_mac). The Mac answers without a key, or when the
+    /// key's services fail.
     case automatic
     case mac
     case phone
@@ -93,9 +122,9 @@ enum BrainMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .automatic: "Automatic"
+        case .automatic: "Automatic (iPhone First)"
         case .mac: "Always my Mac"
-        case .phone: "Always this iPhone"
+        case .phone: "Only this iPhone"
         }
     }
 }
@@ -131,7 +160,9 @@ final class LocalBrain {
 
     static let maxTurns = 40
 
-    var hasKey: Bool { BrainSettings.apiKey != nil }
+    var hasKey: Bool { BrainSettings.hasAnyKey }
+    /// The last ask ended in a problem (no key, the services failed), not an answer or a stop.
+    private(set) var lastFailed = false
 
     func clear() {
         cancel()
@@ -157,9 +188,12 @@ final class LocalBrain {
     /// images: JPEGs Claude looks at with the question; pictures: their small copies, shown.
     func ask(_ text: String, images: [Data] = [], pictures: [Data] = [], macName: String?) async -> String? {
         cancel()
-        guard let key = BrainSettings.apiKey else {
+        lastFailed = false
+        let clients = BrainSettings.clients()
+        guard !clients.isEmpty else {
             turns.append(Turn(role: .user, text: text, pictures: pictures))
-            turns.append(Turn(role: .problem, text: "Add your Claude API key in Settings › Jarvis on iPhone, so Jarvis can answer here."))
+            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone, so Jarvis can answer here."))
+            lastFailed = true
             return nil
         }
         actions = []
@@ -174,26 +208,28 @@ final class LocalBrain {
         messages.append(["role": "user", "content": .array(content)])
         trim()
 
-        let client = ClaudeClient(apiKey: key, model: BrainSettings.model, effort: "low")
         let system = Self.systemPrompt(macName: macName, hasMac: tools.mac != nil)
-        let work = Task { await self.run(client: client, system: system) }
+        let work = Task { await self.run(clients: clients, system: system) }
         task = work
         let reply = await work.value
         if task == work { task = nil }
         return reply
     }
 
-    private func run(client: ClaudeClient, system: String) async -> String? {
+    private func run(clients: [any BrainClient], system: String) async -> String? {
         tools.startTurn()
         let definitions = tools.definitions()
         var reply = ""
+        var clients = clients
         do {
             for _ in 0..<12 {  // tool rounds
-                let response = try await client.send(system: system, messages: messages, tools: definitions) { text in
+                let (response, answered) = try await Self.send(clients, system: system, messages: messages, tools: definitions) { text in
                     Task { @MainActor in self.show(reply + text) }
                 }
+                clients = answered  // the one that answered carries the rest of the turn
                 try Task.checkCancellation()
-                messages.append(["role": "assistant", "content": .array(response.content.map(\.forAPI))])
+                // Kept as it came (Gemini's own record of the turn too); each API is sent its part.
+                messages.append(["role": "assistant", "content": .array(response.content)])
                 reply += response.text
                 show(reply)
                 switch response.stopReason {
@@ -233,6 +269,27 @@ final class LocalBrain {
         }
     }
 
+    /// Tries each service in turn: when one fails (a bad key, rate limits, an outage, no
+    /// network to it) the next one answers. Returns the response and the services, the one
+    /// that answered first.
+    static func send(
+        _ clients: [any BrainClient], system: String, messages: [JSONValue], tools: [JSONValue],
+        onText: @escaping @Sendable (String) -> Void
+    ) async throws -> (ClaudeClient.Response, [any BrainClient]) {
+        var lastError: Error = ClaudeClient.Failure.malformed
+        for (index, client) in clients.enumerated() {
+            do {
+                let response = try await client.send(system: system, messages: messages, tools: tools, onText: onText)
+                return (response, Array(clients[index...]) + clients[..<index])
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
     private func show(_ text: String) {
         guard isWorking, let index = turns.lastIndex(where: { $0.live }) else { return }
         turns[index].text = text.trimmed
@@ -255,7 +312,17 @@ final class LocalBrain {
         return reply
     }
 
+    /// Takes back an ask that failed (its question and the problem), so the Mac can answer it
+    /// instead without it showing twice.
+    func dropFailedAsk() {
+        guard lastFailed else { return }
+        if turns.last?.role == .problem { turns.removeLast() }
+        if turns.last?.role == .user { turns.removeLast() }
+        lastFailed = false
+    }
+
     private func fail(_ message: String) {
+        lastFailed = true
         isWorking = false
         if let index = turns.lastIndex(where: { $0.live }) {
             turns[index] = Turn(role: .problem, text: message)
