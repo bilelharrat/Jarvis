@@ -300,7 +300,7 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
     unknown = get("/api/not-yet")  # an endpoint this Mac doesn't have: not JSON
     assert unknown.status_code == 404
     mac.fixtures["error_unknown_endpoint"] = {"status": 404, "text": unknown.text}
-    monkeypatch.setattr(hub.tasks, "send", lambda task_id, text: True)
+    monkeypatch.setattr(hub.tasks, "send", lambda task_id, text, images=None, **_kw: True)
 
     async def interrupt(task_id):
         return True

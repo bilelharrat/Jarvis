@@ -1,5 +1,6 @@
 {
   "body": {
+    "effort": "",
     "entries": [
       {
         "at": "2026-09-30T09:01:05",
@@ -15,6 +16,11 @@
       }
     ],
     "id": 4,
+    "mode": "ask",
+    "model": "",
+    "model_label": "Sonnet",
+    "project": "suit",
+    "queued": [],
     "status": "needs_you",
     "title": "Fix the login bug",
     "todos": [
@@ -28,7 +34,7 @@
       }
     ],
     "waiting": {
-      "approval_id": "8bac3f79940e",
+      "approval_id": "c4582c80a2a1",
       "question": "Jarvis Code in suit wants to run a command"
     }
   },

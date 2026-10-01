@@ -20,6 +20,7 @@ from jarvis.interrupts import Announced, Item
 from jarvis.tasks import ClaudeTask
 
 GETS = [
+    "/api/code/options",
     "/api/code/sessions",
     "/api/code/session?id=1",
     "/api/code/diff?id=1",
@@ -47,6 +48,8 @@ GETS = [
     "/api/prefs",
 ]
 POSTS = [
+    "/api/code/new",
+    "/api/code/action",
     "/api/code/send",
     "/api/code/stop",
     "/api/delegations/stop",
@@ -467,7 +470,9 @@ def test_a_message_goes_to_a_session_as_the_composer_sends_it(api, tmp_path, mon
     session(api.hub, 5, tmp_path / "alpha")
     sent, stopped = [], []
     monkeypatch.setattr(
-        api.hub.tasks, "send", lambda task_id, text: sent.append((task_id, text)) or True
+        api.hub.tasks,
+        "send",
+        lambda task_id, text, images=None, **_kw: sent.append((task_id, text)) or True,
     )
 
     async def interrupt(task_id):

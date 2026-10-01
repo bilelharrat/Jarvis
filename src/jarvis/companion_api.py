@@ -106,6 +106,22 @@ def public_approval(card: dict[str, Any]) -> dict[str, Any]:
     }
     if task_id:
         out["task_id"] = task_id
+    # A Claude question: its options, and whether several or the owner's own words may answer
+    # (choices "pick" and "other", with what was picked or said as the feedback).
+    if card.get("ask_kind") == "question":
+        out["ask_kind"] = "question"
+        out["multi"] = bool(card.get("multi"))
+        out["options"] = [
+            {
+                "label": str(o.get("label") or "")[:200],
+                "description": str(o.get("description") or "")[:300],
+            }
+            for o in card.get("options") or []
+            if isinstance(o, dict)
+        ]
+    free = [c for c in card.get("free_choices") or () if isinstance(c, str)]
+    if free:
+        out["free_choices"] = free
     return out
 
 
@@ -168,7 +184,15 @@ def _entry(entry: dict[str, Any]) -> dict[str, Any] | None:
         out = "note"
     else:
         return None
-    return {"i": entry.get("n"), "role": out, "text": text[:ENTRY_CHARS], "at": entry.get("at", "")}
+    found = {
+        "i": entry.get("n"),
+        "role": out,
+        "text": text[:ENTRY_CHARS],
+        "at": entry.get("at", ""),
+    }
+    if out == "user" and entry.get("uuid"):
+        found["uuid"] = str(entry["uuid"])  # what Rewind goes back to
+    return found
 
 
 def _hunk_lines(block: list[str]) -> list[str]:
@@ -662,6 +686,17 @@ class Api:
                 {"text": _line(t.get("content"), 300), "done": t.get("status") == "completed"}
                 for t in task.todos
             ],
+            # What the phone's session settings show, and the messages still waiting.
+            "mode": task.mode,
+            "model": task.model_ref or "",
+            "model_label": task.model_label or "",
+            "effort": task.effort or "",
+            "project": task.cwd.name,
+            "queued": [
+                {"item": q.get("id"), "text": _line(q.get("text"), 300)}
+                for q in task.inbox.public()
+                if isinstance(q, dict)
+            ],
         }
         if waiting is not None:
             body["waiting"] = waiting
@@ -678,16 +713,24 @@ class Api:
         return JSONResponse({"files": files})
 
     async def code_send(self, request: Request) -> Response:
-        device, data, refused = await self._post(request, "act", CODE_TEXT_BODY)
+        from .companion_code import PICTURES_BODY, _pictures
+
+        pictures = request.headers.get("x-jarvis-pictures") == "1"
+        device, data, refused = await self._post(
+            request, "act", PICTURES_BODY if pictures else CODE_TEXT_BODY, upload=pictures
+        )
         if refused is not None:
             return refused
         task = self._session(data.get("id"))
         if task is None:
             return _bad("no such session", 404)
         text = str(data.get("text") or "").strip()[:CODE_TEXT]
-        if not text:
+        images = _pictures(data) or None
+        if not text and not images:
             return _bad("empty")
-        ok = self.hub.tasks.send(task.id, text)  # queued as the composer queues it
+        steer = data["steer"] if isinstance(data.get("steer"), bool) else None
+        # Queued as the composer queues it; steer: into the running step now.
+        ok = self.hub.tasks.send(task.id, text, images, steer=steer)
         if ok:
             self.companion.record(device, "code_sent", f"#{task.id}")
         return _ok(ok)
@@ -1158,31 +1201,35 @@ class Api:
 
 
 def routes(companion: Any, gate: Any) -> list[Route]:
-    from . import companion_more
+    from . import companion_code, companion_more
 
     api = Api(companion, gate)
-    return companion_more.routes(api) + [
-        Route("/api/push/register", api.push_register, methods=["POST"]),
-        Route("/api/push/unregister", api.push_unregister, methods=["POST"]),
-        Route("/api/live/register", api.live_register, methods=["POST"]),
-        Route("/api/code/sessions", api.code_sessions),
-        Route("/api/code/session", api.code_session),
-        Route("/api/code/diff", api.code_diff),
-        Route("/api/code/send", api.code_send, methods=["POST"]),
-        Route("/api/code/stop", api.code_stop, methods=["POST"]),
-        Route("/api/digest", api.digest),
-        Route("/api/delegations", api.delegations),
-        Route("/api/delegations/stop", api.delegation_stop, methods=["POST"]),
-        Route("/api/spending", api.spending),
-        Route("/api/routines", api.routines),
-        Route("/api/routines/update", api.routine_update, methods=["POST"]),
-        Route("/api/routines/run", api.routine_run, methods=["POST"]),
-        Route("/api/routines/delete", api.routine_delete, methods=["POST"]),
-        Route("/api/location", api.location, methods=["POST"]),
-        Route("/api/share", api.share, methods=["POST"]),
-        Route("/api/health", api.health, methods=["POST"]),
-        Route("/api/photo", api.photo, methods=["POST"]),
-        Route("/api/sensors", api.sensors, methods=["POST"]),
-        Route("/api/contacts/answer", api.contacts_answer, methods=["POST"]),
-        Route("/api/calendar", api.calendar, methods=["POST"]),
-    ]
+    return (
+        companion_more.routes(api)
+        + companion_code.routes(api)
+        + [
+            Route("/api/push/register", api.push_register, methods=["POST"]),
+            Route("/api/push/unregister", api.push_unregister, methods=["POST"]),
+            Route("/api/live/register", api.live_register, methods=["POST"]),
+            Route("/api/code/sessions", api.code_sessions),
+            Route("/api/code/session", api.code_session),
+            Route("/api/code/diff", api.code_diff),
+            Route("/api/code/send", api.code_send, methods=["POST"]),
+            Route("/api/code/stop", api.code_stop, methods=["POST"]),
+            Route("/api/digest", api.digest),
+            Route("/api/delegations", api.delegations),
+            Route("/api/delegations/stop", api.delegation_stop, methods=["POST"]),
+            Route("/api/spending", api.spending),
+            Route("/api/routines", api.routines),
+            Route("/api/routines/update", api.routine_update, methods=["POST"]),
+            Route("/api/routines/run", api.routine_run, methods=["POST"]),
+            Route("/api/routines/delete", api.routine_delete, methods=["POST"]),
+            Route("/api/location", api.location, methods=["POST"]),
+            Route("/api/share", api.share, methods=["POST"]),
+            Route("/api/health", api.health, methods=["POST"]),
+            Route("/api/photo", api.photo, methods=["POST"]),
+            Route("/api/sensors", api.sensors, methods=["POST"]),
+            Route("/api/contacts/answer", api.contacts_answer, methods=["POST"]),
+            Route("/api/calendar", api.calendar, methods=["POST"]),
+        ]
+    )
