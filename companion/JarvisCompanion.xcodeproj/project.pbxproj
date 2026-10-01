@@ -29,6 +29,7 @@
 		12ECC0247C5DB2C053F80D89 /* CodeSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C837DBB77D17F9D3236BD581 /* CodeSessionsView.swift */; };
 		131B8415793886F1E82DD967 /* LiveActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F6D20BB76C3AE137642500 /* LiveActivities.swift */; };
 		139503657A1CC6CC291286AF /* JarvisShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = ED47237DF7DB544D7DCA35AB /* JarvisShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1412678BB049DE5CB26B8C54 /* JarvisVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ECA27370A798BC1A1141CC2 /* JarvisVoice.swift */; };
 		1453DA508178C1F52286DEF4 /* switch_set.json in Resources */ = {isa = PBXBuildFile; fileRef = B698B0E745329393F767C740 /* switch_set.json */; };
 		14C91675104C7897DA1EE458 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43AF13DCCF32B738186BDB9A /* Components.swift */; };
 		158EF8F3D3C503E38DF7C661 /* spending.json in Resources */ = {isa = PBXBuildFile; fileRef = 456E25F31FD69808BFAC0626 /* spending.json */; };
@@ -466,6 +467,7 @@
 		6A006E2BE3785E82F49638AC /* ActionCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionCards.swift; sourceTree = "<group>"; };
 		6B1740E77DD8A854A2A687AC /* state_asks.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = state_asks.json; sourceTree = "<group>"; };
 		6BE5DE502A3F52A1E60A6509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6ECA27370A798BC1A1141CC2 /* JarvisVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisVoice.swift; sourceTree = "<group>"; };
 		70D197DFFFF2B68A02AD7A58 /* ShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareView.swift; sourceTree = "<group>"; };
 		72E5DFCDF4EE110D6769E1F6 /* VoicePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePlayer.swift; sourceTree = "<group>"; };
 		750FD3968992EF82B0C57E89 /* JarvisWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisWidgets.entitlements; sourceTree = "<group>"; };
@@ -633,6 +635,7 @@
 				F43E3B2A670E93A54FE1B823 /* BonjourBrowser.swift */,
 				2A5BA93B90B959C3CD804B40 /* Haptics.swift */,
 				EC82454FE7ABFCAFBA3F2BCE /* HealthService.swift */,
+				6ECA27370A798BC1A1141CC2 /* JarvisVoice.swift */,
 				95F6D20BB76C3AE137642500 /* LiveActivities.swift */,
 				BBBD2E8765035CE5BCB10B3F /* LocationService.swift */,
 				94F8FBF4AE7E22196B838F69 /* PhoneSensors.swift */,
@@ -1461,6 +1464,7 @@
 				941BA50A4EFCCACBD219F5D6 /* JarvisCompanionApp.swift in Sources */,
 				F480C42D8B928BAEA3F53BB8 /* JarvisIntents.swift in Sources */,
 				E3E5E3ED6837B9F3A5C1942D /* JarvisView.swift in Sources */,
+				1412678BB049DE5CB26B8C54 /* JarvisVoice.swift in Sources */,
 				450BC7C891854A8812101F28 /* LibraryView.swift in Sources */,
 				131B8415793886F1E82DD967 /* LiveActivities.swift in Sources */,
 				8FB91CCD6097EC264630E2A1 /* LiveCameraView.swift in Sources */,

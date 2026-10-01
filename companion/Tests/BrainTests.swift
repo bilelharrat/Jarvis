@@ -107,4 +107,23 @@ final class BrainTests: XCTestCase {
             XCTAssertNotNil(tool["description"]?.stringValue)
         }
     }
+
+    func testTheHostedVoiceGetsWholeSentencesUnderItsLimit() {
+        let sentence = "The suit is ready, and the jet is fuelled. "
+        let text = String(repeating: sentence, count: 40)
+        let pieces = JarvisVoice.pieces(of: text)
+        XCTAssertGreaterThan(pieces.count, 1)
+        XCTAssertTrue(pieces.allSatisfy { $0.count <= JarvisVoice.hostedLimit })
+        XCTAssertTrue(pieces.allSatisfy { $0.hasSuffix(".") }, "cut between sentences")
+        XCTAssertEqual(pieces.joined(separator: " ").count, text.trimmingCharacters(in: .whitespaces).count)
+        let long = String(repeating: "a", count: 1500)
+        XCTAssertTrue(JarvisVoice.pieces(of: long).allSatisfy { $0.count <= JarvisVoice.hostedLimit })
+    }
+
+    func testTheInstallIDIsWhatAskedenTakes() {
+        let id = JarvisVoice.installID
+        XCTAssertEqual(id.count, 32)
+        XCTAssertTrue(id.allSatisfy { "0123456789abcdef".contains($0) })
+        XCTAssertEqual(JarvisVoice.installID, id, "made once")
+    }
 }

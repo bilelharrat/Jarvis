@@ -107,6 +107,8 @@ targets:
         com.apple.developer.healthkit.access: []
         # Home accessories and scenes, asked for the first time Jarvis is asked to use them.
         com.apple.developer.homekit: true
+        # Timers Jarvis sets on the iPhone break through Focus when they end.
+        com.apple.developer.usernotifications.time-sensitive: true
 
   JarvisCompanionWatch:
     type: application

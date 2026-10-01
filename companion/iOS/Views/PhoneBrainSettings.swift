@@ -122,6 +122,16 @@ struct HeyJarvisView: View {
     var body: some View {
         GlassList {
             Section {
+                step(1, "Open **Settings › Accessibility › Vocal Shortcuts** and tap **Set Up Vocal Shortcuts** (or **+**).")
+                step(2, "Choose **Shortcut**, then **Jarvis** (J.A.R.V.I.S.).")
+                step(3, "Say **“Jarvis”** three times when asked.")
+            } header: {
+                Text("Say “Jarvis” Anytime")
+            } footer: {
+                Text("Then just say “Jarvis”, wait for “Yes?”, and ask. iOS itself listens for the word, all the time: locked, in your pocket, with J.A.R.V.I.S. closed, even after a restart, with no extra battery. Jarvis answers out loud in its own voice without unlocking, through your Mac, or on this iPhone when the Mac can’t be reached. (Siri’s “Hey Siri, Jarvis” does the same.)")
+            }
+
+            Section {
                 Toggle(isOn: Binding(get: { wakeOn }, set: { on in Task { await setWake(on) } })) {
                     HStack(spacing: Space.s) {
                         IconTile(symbol: "waveform", tint: .purple)
@@ -148,21 +158,11 @@ struct HeyJarvisView: View {
                     }
                 }
             } header: {
-                Text("In the App")
+                Text("While the App Is Open")
             } footer: {
                 Text(WakeWordListener.supported
-                    ? "Say “Hey Jarvis”, or “Hey Jarvis, what’s next?” in one go. Recognition happens on this iPhone; nothing is recorded or sent until Jarvis hears its name. In the background it keeps going (with the orange microphone dot) until a call, Siri or another app takes the microphone, and it uses more battery."
+                    ? "Say “Jarvis”, or “Jarvis, what’s next?” in one go, and the conversation carries on here on screen. Recognition happens on this iPhone; nothing is recorded or sent until Jarvis hears its name. In the background it keeps going (with the orange microphone dot) until a call, Siri or another app takes the microphone, and it uses more battery."
                     : "This iPhone can’t recognise speech on-device, so “Hey Jarvis” in the app isn’t available. Use Vocal Shortcuts below instead.")
-            }
-
-            Section {
-                step(1, "Open **Settings › Accessibility › Vocal Shortcuts** and tap **Set Up Vocal Shortcuts** (or **+**).")
-                step(2, "Choose **Shortcut**, then **Talk to Jarvis** (J.A.R.V.I.S.).")
-                step(3, "Say **“Hey Jarvis”** three times when asked.")
-            } header: {
-                Text("“Hey Jarvis” Anywhere")
-            } footer: {
-                Text("iOS itself listens for the phrase, even on the Lock Screen and with J.A.R.V.I.S. closed, and opens Jarvis listening. This is the way Apple allows an app to have its own wake word.")
             }
 
             Section {
@@ -176,7 +176,7 @@ struct HeyJarvisView: View {
                 Text("Apple keeps the side button for Siri in most countries, so holding it and saying “Jarvis” is the closest to a Jarvis button there; the Action Button can open Jarvis directly.")
             }
         }
-        .navigationTitle("Hey Jarvis")
+        .navigationTitle("“Jarvis”")
         .navigationBarTitleDisplayMode(.inline)
     }
 

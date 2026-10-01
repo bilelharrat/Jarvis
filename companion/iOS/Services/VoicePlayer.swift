@@ -20,12 +20,30 @@ final class VoicePlayer {
         synthesizer.delegate = finishWatcher
     }
 
-    /// Says it in the iPhone's own best voice (no Mac needed): a British voice for English,
-    /// the highest quality one installed.
+    /// The rest of a reply in the hosted JARVIS voice, played one clip after another.
+    @ObservationIgnored private var queued: [Data] = []
+
+    /// Says it without the Mac: in the JARVIS voice from askeden.com when it answers, else
+    /// in the iPhone's own best voice.
     func speakLocally(_ text: String) {
         stop()
         let words = Speakable.clean(text)
         guard !words.isEmpty else { return }
+        isPlaying = true
+        fetch = Task { [weak self] in
+            let clips = await JarvisVoice.clips(for: words, mac: nil)
+            guard !Task.isCancelled, let self else { return }
+            if let clips, !clips.isEmpty {
+                self.queued = Array(clips.dropFirst())
+                self.play(clips[0])
+            } else {
+                self.speakWithSystemVoice(words)
+            }
+        }
+    }
+
+    /// The iPhone's own best voice: a British voice for English, the highest quality installed.
+    private func speakWithSystemVoice(_ words: String) {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
@@ -78,6 +96,7 @@ final class VoicePlayer {
     func stop() {
         fetch?.cancel()
         fetch = nil
+        queued = []
         if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
         if let player {
             player.stop()
@@ -110,6 +129,10 @@ final class VoicePlayer {
     }
 
     private func finished() {
+        if !queued.isEmpty {
+            play(queued.removeFirst())
+            return
+        }
         player = nil
         isPlaying = false
         deactivate()

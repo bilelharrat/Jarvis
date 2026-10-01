@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import SwiftUI
 
 // Siri, Shortcuts, Spotlight and the Action Button. Each runs in the background (the app
 // doesn't open), reaches the Mac over the pinned pairing, and answers with a short dialog,
@@ -20,6 +21,45 @@ struct AskJarvisIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         let reply = await IntentRunner.ask(request, client: .live(), local: IntentRunner.phoneAnswer)
         return .result(value: reply, dialog: "\(reply)")
+    }
+}
+
+/// "Jarvis", and then what you want: hands-free from a Vocal Shortcut (iOS listens for the
+/// word itself, locked or not), Siri, the Action Button or Back Tap. Asks "Yes?", answers
+/// with the Mac (or Jarvis on the iPhone when the Mac can't be reached) and says the reply in
+/// the JARVIS voice, without opening the app; Siri reads it only when that voice can't.
+struct JarvisHandsFreeIntent: AppIntent {
+    static let title: LocalizedStringResource = "Jarvis"
+    static let description = IntentDescription("Say “Jarvis”, then what you want. Jarvis answers out loud in its own voice, even with your iPhone locked. Make it a Vocal Shortcut to call Jarvis by name anytime.")
+
+    @Parameter(title: "Request", requestValueDialog: IntentDialog("Yes?"))
+    var request: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog & ShowsSnippetView {
+        let reply = await IntentRunner.ask(request, client: .live(), local: IntentRunner.phoneAnswer)
+        let mac = PairingStore.load().flatMap { $0.isPinned ? $0.api : nil }
+        if let clips = await JarvisVoice.clips(for: reply, mac: mac) {
+            // Its own voice, carrying on after Siri's sheet goes: Siri stays quiet.
+            ClipQueue.shared.play(clips)
+            return .result(value: reply, dialog: IntentDialog(full: "", supporting: ""), view: ReplySnippet(text: reply))
+        }
+        return .result(value: reply, dialog: "\(reply)", view: ReplySnippet(text: reply))
+    }
+}
+
+/// The reply as Siri's sheet shows it.
+struct ReplySnippet: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            OrbMark(size: 18)
+            Text(text)
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding()
     }
 }
 
@@ -75,8 +115,13 @@ struct JarvisShortcuts: AppShortcutsProvider {
 
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
+            intent: JarvisHandsFreeIntent(),
+            phrases: ["\(.applicationName)", "Hey \(.applicationName)", "OK \(.applicationName)"],
+            shortTitle: "Jarvis", systemImageName: "waveform.circle"
+        )
+        AppShortcut(
             intent: TalkToJarvisIntent(),
-            phrases: ["Hey \(.applicationName)", "Talk to \(.applicationName)", "Open \(.applicationName) and listen", "\(.applicationName) listen"],
+            phrases: ["Talk to \(.applicationName)", "Open \(.applicationName) and listen", "\(.applicationName) listen"],
             shortTitle: "Talk to Jarvis", systemImageName: "waveform"
         )
         AppShortcut(
