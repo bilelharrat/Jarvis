@@ -1,0 +1,19 @@
+{
+  "strings": {
+    "Analysis": "分析",
+    "The code hit an error": "代码出错了",
+    "Made a chart": "生成了一张图表",
+    "Ran Python": "运行了 Python",
+    "more lines": "行未显示",
+    "Files written:": "写入的文件：",
+    "Code": "代码",
+    "Show in Finder": "在访达中显示",
+    "Dismiss": "关闭"
+  },
+  "patterns": [
+    [
+      "^Made (\\d+) charts$",
+      "生成了 $1 张图表"
+    ]
+  ]
+}
