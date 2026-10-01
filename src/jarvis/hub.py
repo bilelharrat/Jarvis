@@ -4541,9 +4541,11 @@ class Hub:
         self.emit("ui", action="hands", on=True)
 
     async def window_apply(self, command: ui.Command) -> None:
-        """Open or close a panel, change the look, turn hand control on or off."""
+        """Open or close a panel, change the look or its tone, turn hand control on or off."""
         if command.action == "look":
             self.set_prefs({"look": command.name})
+        elif command.action == "tone":  # light and dark are Stark Glass's
+            self.set_prefs({"look": "glass", "glass_tone": command.name})
         elif command.action == "panel":
             self.emit("ui", action="panel", name=command.name, open=command.on)
         elif command.action == "hands":

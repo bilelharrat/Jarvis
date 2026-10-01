@@ -240,6 +240,14 @@
       <button type="button" role="radio" data-look="console" aria-checked="false">Command Center</button>
       <button type="button" role="radio" data-look="glass" aria-checked="false">Stark Glass</button>
     </div>
+    <div id="tone-row" hidden>
+      <div class="segmented" id="tone-group" role="radiogroup" aria-label="Stark Glass appearance">
+        <button type="button" role="radio" data-tone="dark" aria-checked="true">Dark</button>
+        <button type="button" role="radio" data-tone="light" aria-checked="false">Light</button>
+        <button type="button" role="radio" data-tone="auto" aria-checked="false">Match Mac</button>
+      </div>
+      <p class="group-note">Stark Glass at night, or in white. Match Mac follows your Mac’s appearance.</p>
+    </div>
     <div class="row"><span><strong>Use my location</strong><small>For local weather and live traffic times. Stays on this Mac until you ask about it.</small></span><button type="button" class="switch" role="switch" id="sw-location" aria-checked="true" aria-label="Use my location"></button></div>
     <label class="row stack" for="weather-city"><span><strong>Weather city</strong><small>Used when location is off, e.g. Lisbon</small></span>
       <input type="text" id="weather-city" maxlength="80" placeholder="Your city"></label>

@@ -787,20 +787,27 @@ function placePanels(look) {
 placePanels(document.body.dataset.look);
 
 // Stark Glass is the Ambient Orb's layout in another material: the orb's rules apply
-// (data-look="orb"), and stark-glass.css dresses it (data-skin="glass").
-function applyLook(look) {
+// (data-look="orb"), and stark-glass.css dresses it (data-skin="glass"), at night or in
+// white (data-tone="light"); "auto" follows the Mac's appearance as it changes.
+const macLight = window.matchMedia('(prefers-color-scheme: light)');
+function applyLook(look, tone = 'dark') {
   const glass = look === 'glass';
   document.body.dataset.look = glass ? 'orb' : look;
   if (glass) document.body.dataset.skin = 'glass';
   else delete document.body.dataset.skin;
+  if (glass && (tone === 'light' || (tone === 'auto' && macLight.matches))) document.body.dataset.tone = 'light';
+  else delete document.body.dataset.tone;
 }
+macLight.addEventListener('change', () => { if (prefs) applyLook(prefs.look || 'orb', prefs.glass_tone); });
 
 function renderPrefs(p) {
   if (!p) return;
   prefs = p;
-  applyLook(p.look || 'orb');
+  applyLook(p.look || 'orb', p.glass_tone);
   placePanels(document.body.dataset.look);
   document.querySelectorAll('#look-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.look === p.look)));
+  $('tone-row').hidden = p.look !== 'glass';
+  document.querySelectorAll('#tone-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tone === (p.glass_tone || 'dark'))));
   document.querySelectorAll('#lang-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.lang === (p.language || 'en'))));
   if (window.jarvisI18n) window.jarvisI18n.setLang(p.language || 'en');
   if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';
@@ -2152,6 +2159,7 @@ function renderLog() {
 }
 
 document.querySelectorAll('#look-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ look: b.dataset.look })));
+document.querySelectorAll('#tone-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ glass_tone: b.dataset.tone })));
 document.querySelectorAll('#lang-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ language: b.dataset.lang })));
 $('weather-city').addEventListener('change', (e) => setPrefs({ weather_city: e.target.value }));
 $('clear-history').addEventListener('click', () => send({ type: 'clear_history' }));

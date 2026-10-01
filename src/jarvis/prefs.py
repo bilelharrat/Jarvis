@@ -73,11 +73,13 @@ _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 LOOKS = ("orb", "hud", "console", "glass")
+GLASS_TONES = ("dark", "light", "auto")  # Stark Glass at night, in white, or as the Mac is
 
 
 @dataclass
 class Prefs:
     look: str = "orb"
+    glass_tone: str = "dark"
     weather_city: str = ""
     use_location: bool = True
     model: str = "opus"
@@ -208,6 +210,8 @@ def _clean(name: str, value: Any) -> Any:
         return value if value in ("builtin", "default") else None
     if name == "look":
         return value if value in LOOKS else None
+    if name == "glass_tone":
+        return value if value in GLASS_TONES else None
     if name == "weather_city":
         return clean_text(value).strip()[:80]
     if name == "model":

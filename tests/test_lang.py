@@ -782,6 +782,9 @@ UI_PAIRS = [
     ("手势控制关", "hands off"),
     ("打開瀏覽器", "open the browser"),
     ("贾维斯，打开浏览器吧", "open the browser"),
+    ("切换到白色模式", "switch to white mode"),
+    ("浅色模式", "light mode"),
+    ("深色模式", "use the dark theme"),
 ]
 
 

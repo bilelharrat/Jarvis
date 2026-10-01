@@ -83,8 +83,8 @@ LOOK_NAMES = {
 
 @dataclass(frozen=True)
 class Command:
-    action: str  # panel | look | hands
-    name: str = ""  # the panel or look
+    action: str  # panel | look | tone | hands
+    name: str = ""  # the panel, look or tone (light | dark)
     on: bool = True  # open/close, hands on/off
     reply: str = ""
 
@@ -96,6 +96,13 @@ _LOOK = re.compile(
     r"^(?:(?:switch|change|go|flip)\s+(?:back\s+)?to|use)\s+(?:the\s+)?(?P<look>[a-z\- ]+?)"
     r"(?:\s+(?:look|view|mode|layout|theme|design))?$"
 )
+# "Light mode", "switch to white mode", "use the dark theme": Stark Glass in white or at night.
+_TONE = re.compile(
+    r"^(?:(?:switch|change|go|flip)\s+(?:back\s+)?to\s+|use\s+|turn\s+on\s+)?(?:the\s+)?"
+    r"(?P<tone>light|white|dark|night)\s+(?:mode|theme|look|version)$"
+)
+TONES = {"light": "light", "white": "light", "dark": "dark", "night": "dark"}
+TONE_REPLIES = {"light": "Stark Glass, in white.", "dark": "Stark Glass, at night."}
 _HANDS = re.compile(
     r"^(?:(?:turn|switch)\s+(?P<a>on|off)\s+(?:the\s+|my\s+)?hand(?:s|\s+control|\s+tracking)?"
     r"|(?P<b>start|stop|enable|disable)\s+(?:the\s+|my\s+)?hand(?:s|\s+control|\s+tracking)?"
@@ -128,6 +135,9 @@ def parse(text: str) -> Command | None:
         panel = _panel(m.group("p"))
         if panel:
             return Command("panel", panel, False, f"Closed {PANEL_NAMES[panel]}.")
+    if m := _TONE.match(t):
+        tone = TONES[m.group("tone")]
+        return Command("tone", tone, True, TONE_REPLIES[tone])
     if m := _LOOK.match(t):
         look = LOOKS.get(m.group("look").strip())
         if look:
@@ -181,6 +191,18 @@ def build_server(apply: Apply):
         return _text(f"Switched to {LOOK_NAMES[look]}.")
 
     @tool(
+        "set_tone",
+        "Light (white) or dark mode: switches to Stark Glass in that tone. tone is light or dark.",
+        {"tone": str},
+    )
+    async def set_tone(args):
+        tone = TONES.get(str(args.get("tone", "")).lower().strip())
+        if not tone:
+            return _text("Tones: light, dark.")
+        await apply(Command("tone", tone))
+        return _text(TONE_REPLIES[tone])
+
+    @tool(
         "hand_control",
         "Turn hand control (the camera tracks the user's hands to steer the app) on or off.",
         {"on": bool},
@@ -191,13 +213,13 @@ def build_server(apply: Apply):
         return _text("Hand control on." if on else "Hand control off.")
 
     return create_sdk_mcp_server(
-        name=SERVER_NAME, version="0.1.0", tools=[show_panel, set_look, hand_control]
+        name=SERVER_NAME, version="0.1.0", tools=[show_panel, set_look, set_tone, hand_control]
     )
 
 
 PROMPT = (
     "\n- The window itself: show_panel opens or closes Jarvis Code, the browser, the "
     "Research Center, Settings, the second brain, the activity log or Tools & Accounts; "
-    "set_look changes the look; hand_control turns hand tracking on or off. When the user "
+    "set_look changes the look; set_tone puts it in light (white) or dark mode; hand_control turns hand tracking on or off. When the user "
     "says 'open Jarvis Code' or 'open the browser', they mean these panels."
 )

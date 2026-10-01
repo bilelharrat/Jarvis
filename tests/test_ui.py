@@ -26,6 +26,11 @@ from jarvis.ui import parse
         ("go back to the orb", "look", "orb", True),
         ("switch to stark glass", "look", "glass", True),
         ("change to the glass look", "look", "glass", True),
+        ("light mode", "tone", "light", True),
+        ("switch to white mode", "tone", "light", True),
+        ("turn on light mode", "tone", "light", True),
+        ("use the dark theme", "tone", "dark", True),
+        ("go back to dark mode", "tone", "dark", True),
         ("turn on hand control", "hands", "", True),
         ("stop hand tracking", "hands", "", False),
         ("hands off", "hands", "", False),
@@ -44,6 +49,8 @@ def test_window_commands(said, action, name, on):
         "open the pod bay doors",
         "what's the weather",
         "switch to the other thing",
+        "go dark",
+        "switch to light",
         "let's code in jarvis",
         "close",
         "open the research center and find me nvidia's latest memo please now",
@@ -74,6 +81,15 @@ async def test_switching_the_look_by_voice(hub):
     assert hub.prefs.look == "hud"
     assert await hub._instant_window("r2", "switch to stark glass")
     assert hub.prefs.look == "glass"
+
+
+async def test_light_and_dark_mode_by_voice_are_stark_glass_tones(hub):
+    hub.emit = lambda *_a, **_k: None
+    assert await hub._instant_window("r1", "switch to the HUD")
+    assert await hub._instant_window("r2", "light mode")
+    assert (hub.prefs.look, hub.prefs.glass_tone) == ("glass", "light")
+    assert await hub._instant_window("r3", "switch to dark mode")
+    assert (hub.prefs.look, hub.prefs.glass_tone) == ("glass", "dark")
 
 
 def test_export_history(hub, tmp_path, monkeypatch):

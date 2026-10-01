@@ -108,3 +108,12 @@ def test_clearing_the_research_center_is_kept(tmp_path):
     assert reread.prefs.update({"research_url": ""}) == ["research_url"]
     reread.save()
     assert PrefsStore(tmp_path / "prefs.json").prefs.research_url == ""
+
+
+def test_stark_glass_tone_is_dark_light_or_auto():
+    p = Prefs()
+    assert p.glass_tone == "dark"
+    assert p.update({"glass_tone": "light"}) == ["glass_tone"]
+    assert p.update({"glass_tone": "auto"}) == ["glass_tone"]
+    assert p.update({"glass_tone": "sepia"}) == []
+    assert p.glass_tone == "auto"

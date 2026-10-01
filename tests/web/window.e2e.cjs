@@ -7715,6 +7715,34 @@ test('Videos: a finished video on a card with Play and Show in Finder, and Setti
 // WINDOW_TESTS=<regex> runs only the tests whose names match (a failure, rerun alone);
 // WINDOW_ORDER=reverse or shuffle[:seed] runs them in another order: no test may lean on
 // what the one before it left behind.
+
+// ── Stark Glass in white: Settings › Look picks dark, light or the Mac's own ──
+test('Stark Glass turns white with its Light tone, follows the Mac on Match Mac, and the tone is Stark Glass’s alone', async () => {
+  const prefs = (extra) => js(`onEvent(Object.assign({ type: 'prefs', language: 'en', models: [], personas: [], humor: 50 }, ${JSON.stringify(extra)})); true`);
+  const tone = () => js('document.body.dataset.tone || ""');
+  const panelInk = () => js('getComputedStyle(document.querySelector("#p-weather")).color');
+  await prefs({ look: 'glass', glass_tone: 'dark' });
+  assert(await tone() === '', 'dark glass is not light');
+  assert(!(await js('$("tone-row").hidden')), 'the tone picker shows under Stark Glass');
+  const darkInk = await panelInk();
+  await prefs({ look: 'glass', glass_tone: 'light' });
+  assert(await tone() === 'light', 'Light makes the glass white');
+  assert(await panelInk() !== darkInk && (await panelInk()).startsWith('rgb(12, 20, 32'), `ink is dark on white: ${await panelInk()}`);
+  assert(await js('document.querySelector("#tone-group [data-tone=light]").getAttribute("aria-checked")') === 'true', 'Light is checked');
+  await prefs({ look: 'hud', glass_tone: 'light' });
+  assert(await tone() === '' && await js('$("tone-row").hidden'), 'other looks have no tone and no picker');
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await prefs({ look: 'glass', glass_tone: 'auto' });
+  assert(await tone() === 'light', 'Match Mac on a light Mac is white');
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+  await frames();
+  assert(await tone() === '', 'Match Mac follows the Mac going dark, without a reload');
+  await cdp('Emulation.setEmulatedMedia', { features: [] });
+  await js('toggleSettings(true); __sent.length = 0; true');
+  await clickAt('#tone-group [data-tone="light"]');
+  assert(await js('JSON.stringify(__sent.filter((m) => m.type === "set_prefs").map((m) => m.changes))') === '[{"glass_tone":"light"}]', 'the picker saves the tone');
+});
+
 function chosenTests() {
   const only = process.env.WINDOW_TESTS ? new RegExp(process.env.WINDOW_TESTS) : null;
   const list = tests.filter((t) => !only || only.test(t.name));

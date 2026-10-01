@@ -1080,6 +1080,12 @@ _LOOK_UI_ZH = re.compile(
     r"(?:切换到|切换成|切换为|切到|换成|换到|换回|改成|改为|变成|使用|用|回到|切回|恢复成?)"
     r"(?P<look>.+?)(?:外观|视图|模式|布局|主题|设计|界面|样式|风格)?"
 )
+_TONE_ZH = re.compile(
+    r"(?:切换到|切换成|切换为|切到|换成|换到|换回|改成|改为|变成|使用|用|打开|开启|回到|切回)?"
+    r"(?P<tone>浅色|白色|亮色|明亮|深色|黑色|暗色|夜间)(?:模式|主题|外观|版本)"
+)
+_TONES_ZH = {"浅色": "light", "白色": "light", "亮色": "light", "明亮": "light"}
+_TONE_REPLIES_ZH = {"light": "斯塔克玻璃，白色模式。", "dark": "斯塔克玻璃，深色模式。"}
 _HANDS_THING = r"(?:手势控制|手势追踪|手势跟踪|手势识别|手部控制|手部追踪|手势)(?:功能)?"
 _HANDS_ZH = re.compile(
     rf"(?P<on>打开|开启|启用|开始|启动|开){_HANDS_THING}"
@@ -1120,6 +1126,9 @@ def parse_ui_zh(text: str) -> ui.Command | None:
     if m := _HANDS_ZH.fullmatch(t):
         on = bool(m.group("on") or m.group("on2"))
         return ui.Command("hands", "", on, "手势控制已开启。" if on else "手势控制已关闭。")
+    if m := _TONE_ZH.fullmatch(t):
+        tone = _TONES_ZH.get(m.group("tone"), "dark")
+        return ui.Command("tone", tone, True, _TONE_REPLIES_ZH[tone])
     if m := _OPEN_PANEL_ZH.fullmatch(t):
         panel = _panel_zh(m.group("p") or m.group("q"))
         if panel:

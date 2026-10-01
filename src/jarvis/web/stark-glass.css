@@ -3,7 +3,9 @@
    data-look="orb" and data-skin="glass"), always dark, every surface Liquid Glass over a
    night lit by the arc reactor, the reactor in a fine-ticked chronograph bezel with Stark
    gold at the quarters, telemetry in small SF Mono caps, and gold for what needs you.
-   html body raises these over the orb's own rules and the features' pop-out glass. */
+   html body raises these over the orb's own rules and the features' pop-out glass.
+   In white (data-tone="light", Settings › Look) the same glass is frosted white over a pale
+   morning sky, the reactor's light still pooling behind the orb. */
 
 html body[data-skin="glass"] {
   --bg: #03060d;
@@ -37,6 +39,12 @@ html body[data-skin="glass"] {
   background-image: none;
   font-family: var(--sans);
 }
+
+/* The markets' colours for the glass at night, whatever the Mac's own appearance. */
+html body[data-skin="glass"] .up .mk-pct { color: #4cd07a; }
+html body[data-skin="glass"] .down .mk-pct { color: #ff7066; }
+html body[data-skin="glass"] .mk-spark.up polyline { stroke: #4cd07a; }
+html body[data-skin="glass"] .mk-spark.down polyline { stroke: #ff7066; }
 
 /* The night, lit by the reactor from above, a breath of gold and hot-rod red low in the
    corners; it drifts slowly so the glass always has something to bend. */
@@ -204,6 +212,128 @@ html body[data-skin="glass"][data-state="transcribing"] .bezel .bz-comet { opaci
 html body[data-skin="glass"][data-state="speaking"] .bezel .bz-comet { opacity: 0.8; animation-duration: 4s; }
 /* The orb's own halo rings would sit on the bezel: the bezel replaces them. */
 html body[data-skin="glass"] .orb { margin: 64px 0 56px; }
+
+/* ═════════════ Stark Glass, in white ═════════════
+   Same layout, same bezel and reactor; the night becomes a pale sky and the glass frosts
+   white. Ink is near-black navy, the reactor blue deepens and the gold darkens so small
+   caps stay readable on white (both at least 4.5:1 on the panels). */
+html body[data-skin="glass"][data-tone="light"] {
+  --bg: #eef2f7;
+  --ink: #0c1420;
+  --ink-2: #3a4656;
+  --muted: #5d6a7c;
+  --line: rgba(16, 32, 56, 0.1);
+  --card: rgba(255, 255, 255, 0.6);
+  --chip-hover: rgba(16, 32, 56, 0.06);
+  --action: #0a6cb3;
+  --action-ink: #ffffff;
+  --warn: #8a5d10;
+  --gold: #8a5d10;
+  --orb-glow: rgba(30, 140, 230, 0.32);
+  --glass: linear-gradient(160deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.5) 60%, rgba(255, 255, 255, 0.62));
+  --glass-blur: blur(26px) saturate(170%);
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(16, 32, 56, 0.04),
+    inset 1px 0 0 rgba(255, 255, 255, 0.6), inset -1px 0 0 rgba(255, 255, 255, 0.4);
+  --glass-shadow: 0 1px 2px rgba(16, 32, 56, 0.05), 0 22px 50px -26px rgba(16, 40, 80, 0.28);
+  --panel-glass: var(--glass);
+  --panel-edge: rgba(255, 255, 255, 0.95);
+  --panel-line: rgba(16, 32, 56, 0.09);
+  --panel-shadow: var(--glass-shadow);
+  --panel-inset: rgba(16, 32, 56, 0.035);
+  color-scheme: light;
+  background: #eef2f7;
+}
+html body[data-skin="glass"][data-tone="light"]::before {
+  background:
+    radial-gradient(50rem 34rem at 50% 32%, rgba(92, 190, 255, 0.34), transparent 70%),
+    radial-gradient(40rem 30rem at 20% 0%, rgba(150, 196, 245, 0.42), transparent 70%),
+    radial-gradient(30rem 22rem at 88% 100%, rgba(232, 194, 122, 0.24), transparent 70%),
+    radial-gradient(26rem 20rem at 6% 100%, rgba(240, 140, 120, 0.14), transparent 70%),
+    linear-gradient(180deg, #f6f9fc, #e9eef5);
+}
+html body[data-skin="glass"][data-tone="light"] .side .panel,
+html body[data-skin="glass"][data-tone="light"] .card,
+html body[data-skin="glass"][data-tone="light"] .chip,
+html body[data-skin="glass"][data-tone="light"] .icon-btn,
+html body[data-skin="glass"][data-tone="light"] .chip-sm,
+html body[data-skin="glass"][data-tone="light"] .pill,
+html body[data-skin="glass"][data-tone="light"] .meeting-pill,
+html body[data-skin="glass"][data-tone="light"] .popover,
+html body[data-skin="glass"][data-tone="light"] .convo-pop,
+html body[data-skin="glass"][data-tone="light"] .mem-pop,
+html body[data-skin="glass"][data-tone="light"] .ops-pop,
+html body[data-skin="glass"][data-tone="light"] .wiki-pop,
+html body[data-skin="glass"][data-tone="light"] .intro-pop,
+html body[data-skin="glass"][data-tone="light"] .offline {
+  background-color: rgba(255, 255, 255, 0.34);
+  border-color: rgba(16, 32, 56, 0.08);
+}
+html body[data-skin="glass"][data-tone="light"] .convo-pop,
+html body[data-skin="glass"][data-tone="light"] .mem-pop,
+html body[data-skin="glass"][data-tone="light"] .ops-pop,
+html body[data-skin="glass"][data-tone="light"] .wiki-pop,
+html body[data-skin="glass"][data-tone="light"] .intro-pop { background-color: rgba(250, 252, 255, 0.78); }
+html body[data-skin="glass"][data-tone="light"] .chip:hover,
+html body[data-skin="glass"][data-tone="light"] .icon-btn:hover { background-color: rgba(255, 255, 255, 0.75); }
+html body[data-skin="glass"][data-tone="light"] .side .panel .kv-grid > div { background: rgba(16, 32, 56, 0.035); border-color: rgba(16, 32, 56, 0.06); }
+html body[data-skin="glass"][data-tone="light"] kbd { background: rgba(255, 255, 255, 0.55); border-color: rgba(16, 32, 56, 0.12); }
+
+html body[data-skin="glass"][data-tone="light"] .sheet {
+  --s-card: rgba(16, 32, 56, 0.04);
+  --s-line: rgba(16, 32, 56, 0.1);
+  --s-track: rgba(120, 120, 128, 0.16);
+  --s-switch: rgba(120, 120, 128, 0.32);
+  --s-seg: #ffffff;
+  --s-seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --s-input: rgba(16, 32, 56, 0.05);
+  --s-tile: rgba(255, 255, 255, 0.66);
+  --s-tile-hover: rgba(255, 255, 255, 0.95);
+  --s-green: #1f9d55;
+  --s-red: #d70015;
+  --s-rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.7);
+  --s-fill: rgba(248, 250, 253, 0.8);
+  --s-sheen: linear-gradient(180deg, rgba(92, 190, 255, 0.08), rgba(255, 255, 255, 0) 200px);
+  --s-shadow: 0 0 0 0.5px rgba(16, 32, 56, 0.1), 0 30px 80px -20px rgba(16, 40, 80, 0.35);
+}
+
+html body[data-skin="glass"][data-tone="light"] .ask input {
+  background-color: rgba(255, 255, 255, 0.45);
+  border-color: rgba(16, 32, 56, 0.1);
+}
+html body[data-skin="glass"][data-tone="light"] .ask input:focus { border-color: rgba(10, 108, 179, 0.5); }
+
+html body[data-skin="glass"][data-tone="light"] .card.needs-ok {
+  background-color: rgba(255, 244, 220, 0.6);
+  border-color: rgba(176, 124, 36, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--glass-shadow);
+}
+
+html body[data-skin="glass"][data-tone="light"] .up .mk-pct { color: #1a8a4a; }
+html body[data-skin="glass"][data-tone="light"] .down .mk-pct { color: #c8281e; }
+html body[data-skin="glass"][data-tone="light"] .mk-spark.up polyline { stroke: #1f9d55; }
+html body[data-skin="glass"][data-tone="light"] .mk-spark.down polyline { stroke: #d93025; }
+
+/* The reactor reads as lit glass on white: a softer halo, a darker rim to hold its edge. */
+html body[data-skin="glass"][data-tone="light"] .orb-core {
+  box-shadow:
+    0 0 0 1px rgba(10, 60, 130, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.4) inset,
+    0 24px 70px var(--orb-glow),
+    0 0 calc(30px + var(--level) * 60px) rgba(30, 150, 240, calc(0.18 + var(--level) * 0.35));
+}
+html body[data-skin="glass"][data-tone="light"] .orb-core { background: radial-gradient(circle at 50% 55%, #2b8fe0 0%, #1561b8 72%, #0f4f9c 100%); }
+html body[data-skin="glass"][data-tone="light"] .orb-core::after {
+  background:
+    radial-gradient(circle at 33% 26%, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0) 34%),
+    radial-gradient(circle at 50% 42%, rgba(0, 0, 0, 0) 56%, rgba(6, 40, 96, 0.22) 80%);
+}
+html body[data-skin="glass"][data-tone="light"] .bezel .bz-rim { stroke: rgba(16, 32, 56, 0.16); }
+html body[data-skin="glass"][data-tone="light"] .bezel .bz-minor { stroke: rgba(16, 32, 56, 0.2); }
+html body[data-skin="glass"][data-tone="light"] .bezel .bz-major { stroke: rgba(16, 32, 56, 0.45); }
+html body[data-skin="glass"][data-tone="light"] .bezel .bz-quarter { stroke: #b88a35; opacity: 1; }
+html body[data-skin="glass"][data-tone="light"] .bezel .bz-comet path { filter: drop-shadow(0 0 3px rgba(30, 150, 240, 0.6)); }
+html body[data-skin="glass"][data-tone="light"] #bz-comet stop { stop-color: #2a9be8; }
+html body[data-skin="glass"][data-tone="light"] #bz-comet stop:last-child { stop-color: #0a6cb3; }
 
 @media (prefers-reduced-motion: reduce) {
   html body[data-skin="glass"]::before,
