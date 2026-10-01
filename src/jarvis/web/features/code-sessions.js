@@ -766,6 +766,8 @@
       row('Ultracode', select([['', 'Jarvis Code’s default'], ['on', 'On'], ['off', 'Off']], own.ultracode === undefined ? '' : own.ultracode ? 'on' : 'off', (v) => set('ultracode', v === '' ? undefined : v === 'on'), 'Ultracode')),
       // Auto-verify (features/code_verify.py): over Settings › Jarvis Code checks, here.
       row('Check each turn’s work', select([['', 'Jarvis Code’s default'], ['on', 'On'], ['off', 'Off']], own.verify === undefined ? '' : own.verify ? 'on' : 'off', (v) => set('verify', v === '' ? undefined : v === 'on'), 'Check each turn’s work')),
+      // Video proof (features/code_video.py): off unless the project turns it on.
+      row('Video proof after UI changes', select([['off', 'Off'], ['on', 'On']], own.video_proof ? 'on' : 'off', (v) => set('video_proof', v === 'on' ? true : undefined), 'Video proof after UI changes')),
     );
     rows.querySelectorAll('select').forEach((s, i) => { if (i && !path) s.disabled = true; });
     if (names.length) rows.firstChild.querySelector('select').querySelectorAll('option').forEach(mine);

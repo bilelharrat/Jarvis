@@ -1,0 +1,30 @@
+{
+  "strings": {
+    "Video proof": "视频证明",
+    "Video proof after UI changes": "界面改动后录制视频证明",
+    "Record a video proof": "录制视频证明",
+    "A few seconds of the dev server’s page, kept with the session": "录下开发服务器页面的几秒钟，保存在会话中",
+    "Play the video proof": "播放视频证明",
+    "The page, recorded": "录下的页面",
+    "The page as it loaded and scrolled, recorded in a hidden preview.": "页面加载和滚动的过程，在隐藏的预览中录制。",
+    "That video isn’t kept anymore.": "这段视频已不再保存。",
+    "Recording a video proof…": "正在录制视频证明…",
+    "Open a session to record its page.": "请先打开一个会话，再录制它的页面。",
+    "No dev server is running: start one in the Preview pane.": "没有正在运行的开发服务器：请在预览面板中启动一个。",
+    "The video is recorded in the J.A.R.V.I.S. app window, and it isn't open.": "视频在 J.A.R.V.I.S. 应用窗口中录制，但它没有打开。",
+    "The video couldn't be kept.": "无法保存这段视频。",
+    "The page didn’t paint anything to record.": "页面没有画出任何可录制的内容。",
+    "The video came out too large to keep.": "视频太大，无法保存。",
+    "This app can’t make videos.": "这个应用无法制作视频。",
+    "The video couldn’t be made.": "无法制作视频。",
+    "Only a dev server on this Mac is recorded.": "只录制这台 Mac 上的开发服务器。",
+    "Off": "关",
+    "On": "开"
+  },
+  "patterns": [
+    [
+      "^The recording didn’t work: (.+)$",
+      "录制没有成功：$1"
+    ]
+  ]
+}
