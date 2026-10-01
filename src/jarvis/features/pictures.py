@@ -329,8 +329,8 @@ def install(hub: Any) -> None:
         "pictures",
         pictures.build_server,
         prompt=PROMPT,
-        labels={"generate_image": "Made a picture"},
-        quiet=("generate_image",),
+        labels={"generate_image": "Made a picture", "edit_image": "Edited a picture"},
+        quiet=("generate_image", "edit_image"),
     )
     hub.register_command("pictures_state", pictures.state)
     hub.register_command("image_open", pictures.open_image)
