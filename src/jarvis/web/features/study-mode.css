@@ -1,0 +1,2 @@
+/* Study mode's switch (features/study-mode.js). */
+.sm-chip.sm-on { border-color: rgb(127 212 255 / 0.7); background: rgb(127 212 255 / 0.14); }

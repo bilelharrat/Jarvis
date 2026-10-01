@@ -125,4 +125,18 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(parts[0]["inlineData"]?["mimeType"]?.stringValue, "application/pdf")
         XCTAssertTrue(parts[1]["text"]?.stringValue?.contains("Buy milk") == true)
     }
+
+    func testStudyModeTutorsAndIsKeptWithTheChat() throws {
+        XCTAssertTrue(LocalBrain.systemPrompt(macName: nil, hasMac: false, spoken: false, study: true).contains("Study mode is on"))
+        XCTAssertFalse(LocalBrain.systemPrompt(macName: nil, hasMac: false, spoken: false).contains("Study mode is on"))
+        let dir = try folder()
+        let store = ChatStore(folder: dir)
+        let id = UUID()
+        store.keep(id: id, messages: [], lines: [line("user", "Teach me derivatives")], study: true)
+        XCTAssertEqual(ChatStore(folder: dir).chat(id)?.study, true)
+        // A chat kept before study mode existed loads with it off.
+        let old = #"[{"id":"\#(UUID().uuidString)","title":"Old","created":0,"updated":0,"pinned":false,"renamed":false,"messages":[],"lines":[]}]"#
+        try Data(old.utf8).write(to: dir.appendingPathComponent("phone-chats.json"))
+        XCTAssertNil(ChatStore(folder: dir).chats.first?.study)
+    }
 }

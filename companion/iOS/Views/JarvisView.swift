@@ -66,7 +66,7 @@ struct JarvisView: View {
                 .padding(.bottom, Space.xs)
             }
             .navigationTitle("Jarvis")
-            .navigationSubtitle(model.brain.temporary && model.answersOnPhone ? "Temporary chat" : model.answererLabel)
+            .navigationSubtitle(model.brain.study && model.answersOnPhone ? "Study mode" : model.brain.temporary && model.answersOnPhone ? "Temporary chat" : model.answererLabel)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
             .animation(.spring(response: 0.45, dampingFraction: 0.86), value: model.visibleApprovals.map(\.id))
@@ -163,6 +163,9 @@ struct JarvisView: View {
             Menu {
                 Button("New Chat", systemImage: "square.and.pencil") { model.brain.newChat() }
                 Button("Temporary Chat", systemImage: "eye.slash") { model.brain.newChat(temporary: true) }
+                Toggle(isOn: Binding(get: { model.brain.study }, set: { model.brain.setStudy($0) })) {
+                    Label("Study Mode", systemImage: "graduationcap")
+                }
                 Button("Chats", systemImage: "list.bullet") { showChats = true }
                 if !model.queued.isEmpty {
                     Button("Waiting to Send (\(model.queued.count))", systemImage: "tray.and.arrow.up") { showOutbox = true }

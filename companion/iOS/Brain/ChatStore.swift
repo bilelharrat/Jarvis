@@ -19,6 +19,8 @@ struct SavedChat: Codable, Identifiable, Equatable {
     var pinned = false
     /// Named by the owner: the title isn't replaced from the first question any more.
     var renamed = false
+    /// Study mode was on (missing in chats kept before it: off).
+    var study: Bool?
     /// The API's view (Claude's blocks; pictures and documents left out to keep it small).
     var messages: [JSONValue]
     var lines: [Line]
@@ -81,17 +83,18 @@ final class ChatStore {
     func search(_ query: String) -> [SavedChat] { chats.filter { $0.matches(query) } }
 
     /// Keeps the chat as it is now (a new one is added).
-    func keep(id: UUID, messages: [JSONValue], lines: [SavedChat.Line]) {
+    func keep(id: UUID, messages: [JSONValue], lines: [SavedChat.Line], study: Bool = false) {
         guard lines.contains(where: { $0.role == "user" }) else { return }
         let firstQuestion = lines.first { $0.role == "user" }?.text ?? ""
         if let index = chats.firstIndex(where: { $0.id == id }) {
             chats[index].messages = SavedChat.slim(messages)
             chats[index].lines = lines
             chats[index].updated = Date()
+            chats[index].study = study
             if !chats[index].renamed { chats[index].title = SavedChat.title(from: firstQuestion) }
         } else {
             chats.append(SavedChat(id: id, title: SavedChat.title(from: firstQuestion), created: Date(), updated: Date(),
-                                   messages: SavedChat.slim(messages), lines: lines))
+                                   study: study, messages: SavedChat.slim(messages), lines: lines))
         }
         if chats.count > 500, let oldest = chats.filter({ !$0.pinned }).min(by: { $0.updated < $1.updated }) {
             chats.removeAll { $0.id == oldest.id }
