@@ -1,0 +1,4 @@
+/* Settings › Oura Ring (features/oura.js). */
+.oura-steps { margin: 6px 0 10px; padding-left: 20px; font-size: 13px; line-height: 1.5; opacity: 0.85; }
+.oura-uri { user-select: all; padding: 1px 5px; border-radius: 5px; background: rgb(var(--c-ink) / 0.08); font-size: 12px; }
+.oura-actions { gap: 8px; margin-top: 8px; }

@@ -359,8 +359,8 @@ class Briefing:
             return f"Reminders: {facts}" if facts else ""
         if section == "code":
             return " ".join(p for p in (mine, ASKS["code"]) if p)
-        if section == "health":
-            return " ".join(p for p in (ASKS["health"], mine) if p)
+        if section == "health":  # the ring's numbers first (features/oura.py), then the phone's
+            return " ".join(p for p in (facts, ASKS["health"], mine) if p)
         base = ASKS.get(section, "")
         return " ".join(p for p in (base, facts, mine) if p)
 
