@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import JarvisCompanion
 
@@ -181,6 +182,53 @@ final class TranscriptTests: XCTestCase {
         XCTAssertEqual(lines.count, 2)
         XCTAssertEqual(lines[1].text, "Good morning")
         XCTAssertTrue(lines[1].live)
+    }
+
+    func testPicturesSentWithAQuestionShowOnItsLine() {
+        let thumbs = [Data([1, 2]), Data([3])]
+        let request = PendingRequest(question: "Compare these", history: [])
+        var lines = Transcript.lines(state: RemoteState(), pending: request, pictures: ["Compare these": thumbs])
+        XCTAssertEqual(lines[0].pictures, thumbs)
+        XCTAssertEqual(lines[1].pictures, [])  // not Jarvis's answer
+
+        var state = RemoteState()
+        state.history = [
+            HistoryItem(role: .user, text: "Hi", at: "2026-09-29T14:00:00"),
+            HistoryItem(role: .assistant, text: "Hello.", at: "2026-09-29T14:00:02"),
+            HistoryItem(role: .user, text: "Compare these", at: "2026-09-29T14:01:00"),
+            HistoryItem(role: .assistant, text: "The left one is newer.", at: "2026-09-29T14:01:09"),
+        ]
+        lines = Transcript.lines(state: state, pending: nil, pictures: ["Compare these": thumbs])
+        XCTAssertEqual(lines.map(\.pictures), [[], [], thumbs, []])  // still there once the Mac has it
+    }
+}
+
+final class PictureTests: XCTestCase {
+    func testSeveralPicturesGoAsOneList() throws {
+        let body = try JarvisAPI.photosBody(jpegs: [Data([0xFF, 0xD8]), Data([0xFF, 0xD9])], question: "  Which is newer? ")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["question"] as? String, "Which is newer?")
+        XCTAssertEqual(json["images_base64"] as? [String], ["/9g=", "/9k="])
+        XCTAssertNil(json["data_base64"])
+
+        let bare = try JarvisAPI.photosBody(jpegs: [Data([1]), Data([2])], question: nil)
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: bare) as? [String: [String]], ["images_base64": ["AQ==", "Ag=="]])
+    }
+
+    func testAQuestionWithOnlyPicturesStillAsksSomething() {
+        XCTAssertEqual(PhotoQuestion.fallback(count: 1), "What is this?")
+        XCTAssertEqual(PhotoQuestion.fallback(count: 3), "What’s in these pictures?")
+    }
+
+    func testAPictureKeepsASmallCopyForTheScreen() throws {
+        let big = UIGraphicsImageRenderer(size: CGSize(width: 2000, height: 1000)).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2000, height: 1000))
+        }
+        let attachment = try XCTUnwrap(Attachment(image: big))
+        let thumb = try XCTUnwrap(UIImage(data: attachment.thumbnail))
+        XCTAssertLessThanOrEqual(max(thumb.size.width, thumb.size.height) * thumb.scale, 240)
+        XCTAssertEqual(attachment.image, big)  // what's sent is prepared from the full picture
     }
 }
 

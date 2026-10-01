@@ -22,14 +22,23 @@ struct TranscriptLine: Identifiable, Equatable {
     var onPhone = false
     /// What Jarvis is doing right now ("Checking your calendar").
     var activity: String?
+    /// Small copies of the pictures sent with a question (JPEG).
+    var pictures: [Data] = []
 }
 
 /// Builds the conversation from the Mac's history, the turn it's working on right now, the
 /// request this phone has in flight, and the questions waiting for the Mac, without showing
 /// anything twice.
 enum Transcript {
-    static func lines(state: RemoteState?, pending: PendingRequest?, queued: [OutboxItem] = []) -> [TranscriptLine] {
+    /// pictures: what this phone sent with a question, by the question (the Mac's history
+    /// keeps only the words).
+    static func lines(state: RemoteState?, pending: PendingRequest?, queued: [OutboxItem] = [], pictures: [String: [Data]] = [:]) -> [TranscriptLine] {
         var lines = conversation(state: state, pending: pending)
+        if !pictures.isEmpty {
+            for index in lines.indices where lines[index].kind == .user {
+                lines[index].pictures = pictures[lines[index].text] ?? []
+            }
+        }
         for item in queued where item.kind == .ask {
             lines.append(TranscriptLine(id: "q:\(item.id)", kind: .user, text: item.question ?? item.label, time: item.createdAt, waiting: true))
         }

@@ -114,6 +114,8 @@ final class LocalBrain {
         var time = Date()
         var live = false
         var activity: String?
+        /// Small copies of the pictures sent with it (JPEG), for the conversation.
+        var pictures: [Data] = []
     }
 
     /// What's on screen, oldest first.
@@ -152,19 +154,20 @@ final class LocalBrain {
     }
 
     /// Asks; the answer streams into `turns`. Returns the reply (nil when stopped or failed).
-    func ask(_ text: String, image: Data? = nil, macName: String?) async -> String? {
+    /// images: JPEGs Claude looks at with the question; pictures: their small copies, shown.
+    func ask(_ text: String, images: [Data] = [], pictures: [Data] = [], macName: String?) async -> String? {
         cancel()
         guard let key = BrainSettings.apiKey else {
-            turns.append(Turn(role: .user, text: text))
+            turns.append(Turn(role: .user, text: text, pictures: pictures))
             turns.append(Turn(role: .problem, text: "Add your Claude API key in Settings › Jarvis on iPhone, so Jarvis can answer here."))
             return nil
         }
         actions = []
-        turns.append(Turn(role: .user, text: text))
+        turns.append(Turn(role: .user, text: text, pictures: pictures))
         turns.append(Turn(role: .jarvis, text: "", live: true))
         isWorking = true
         var content: [JSONValue] = []
-        if let image {
+        for image in images {
             content.append(["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": .string(image.base64EncodedString())]])
         }
         content.append(["type": "text", "text": .string(text)])

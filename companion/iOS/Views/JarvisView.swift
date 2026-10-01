@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// The conversation: the orb when there's nothing yet (tap it, or say "Hey Jarvis"), then
@@ -290,27 +291,57 @@ private struct Telemetry: View {
     }
 }
 
-/// The text field, "+" for the usual things, and the microphone, on Liquid Glass.
+/// The text field, "+" for the usual things (photos and screenshots among them), and the
+/// microphone, on Liquid Glass. Pictures added wait above the field until sent.
 private struct Composer: View {
     @Environment(AppModel.self) private var model
     @Binding var text: String
     var typing: FocusState<Bool>.Binding
     let onCamera: () -> Void
     let onRoutines: () -> Void
+    @State private var showPhotos = false
+    @State private var picked: [PhotosPickerItem] = []
+    @State private var showCamera = false
+
+    private var hasCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    private var canSend: Bool { !text.trimmed.isEmpty || !model.attachments.isEmpty }
+    private var room: Int { max(Attachment.limit - model.attachments.count, 0) }
 
     var body: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: Space.xs) {
+            if !model.attachments.isEmpty {
+                AttachmentStrip(attachments: $model.attachments)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            bar
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.attachments)
+        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(room, 1), selectionBehavior: .ordered, matching: .images)
+        .onChange(of: picked) { _, items in
+            guard !items.isEmpty else { return }
+            picked = []
+            Task { model.attach(await Attachment.load(items)) }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { image in model.attach([image]) }
+                .ignoresSafeArea()
+        }
+    }
+
+    private var bar: some View {
         GlassEffectContainer(spacing: Space.s) {
             HStack(alignment: .bottom, spacing: Space.s) {
                 actionsMenu
                 HStack(alignment: .bottom, spacing: Space.xs) {
-                    TextField("Ask Jarvis", text: $text, axis: .vertical)
+                    TextField(model.attachments.isEmpty ? "Ask Jarvis" : "Ask about \(model.attachments.count == 1 ? "this picture" : "these pictures")", text: $text, axis: .vertical)
                         .lineLimit(1...5)
                         .focused(typing)
                         .submitLabel(.send)
                         .onSubmit(send)
                         .padding(.vertical, 11)
                         .padding(.leading, Space.m)
-                    if !text.trimmed.isEmpty {
+                    if canSend {
                         Button(action: send) {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.system(size: 30))
@@ -327,13 +358,23 @@ private struct Composer: View {
                 .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 micButton
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: text.trimmed.isEmpty)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: canSend)
         }
     }
 
     private func send() {
         typing.wrappedValue = false
         model.sendDraft()
+    }
+
+    /// What's on the clipboard: a screenshot just taken, an image copied in another app.
+    private func pasteImages() {
+        let images = UIPasteboard.general.images ?? []
+        if images.isEmpty {
+            model.show("There’s no picture on the clipboard.")
+        } else {
+            model.attach(images)
+        }
     }
 
     private var micButton: some View {
@@ -350,9 +391,21 @@ private struct Composer: View {
 
     private var actionsMenu: some View {
         Menu {
+            Section {
+                Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
+                    .disabled(room == 0)
+                if hasCamera {
+                    Button("Take Photo", systemImage: "camera") { showCamera = true }
+                        .disabled(room == 0)
+                }
+                if UIPasteboard.general.hasImages {
+                    Button("Paste Image", systemImage: "doc.on.clipboard") { pasteImages() }
+                        .disabled(room == 0)
+                }
+            }
             Button("Brief Me", systemImage: "sparkles") { Task { await model.run(.briefing) } }
             Button("What’s Next?", systemImage: "calendar") { Task { await model.send(AppModel.whatsNext) } }
-            Button("Show Jarvis", systemImage: "camera") { onCamera() }
+            Button("Show Jarvis", systemImage: "camera.viewfinder") { onCamera() }
             if model.pairing != nil && !model.answersOnPhone {
                 if model.remote?.meeting != nil {
                     Button("Stop Meeting Notes", systemImage: "stop.circle") { Task { await model.run(.meetingStop) } }

@@ -345,6 +345,30 @@ struct JarvisAPI: Sendable {
         return try decode(AskResult.self, from: data)
     }
 
+    /// A question about several pictures (photos, screenshots) at once: up to four JPEGs.
+    /// One picture goes the way a single photo always has, so an older Mac still takes it.
+    func photo(jpegs: [Data], question: String?) async throws -> AskResult {
+        if jpegs.count == 1 { return try await photo(jpeg: jpegs[0], question: question) }
+        let data = try await send("api/photo", body: Self.photosBody(jpegs: jpegs, question: question), timeout: 120)
+        return try decode(AskResult.self, from: data)
+    }
+
+    /// {"question": …, "images_base64": ["…", …]}, built without a second copy of each picture.
+    static func photosBody(jpegs: [Data], question: String?) throws -> Data {
+        let question = question?.trimmed ?? ""
+        var body = try JSONValue.object(dropping: ["question": question.isEmpty ? nil : .string(question)]).encoded()
+        body.removeLast()
+        body.append(Data(((body.count > 1 ? "," : "") + #""images_base64":["#).utf8))
+        for (index, jpeg) in jpegs.enumerated() {
+            if index > 0 { body.append(Data(",".utf8)) }
+            body.append(Data("\"".utf8))
+            body.append(jpeg.base64EncodedData())
+            body.append(Data("\"".utf8))
+        }
+        body.append(Data("]}".utf8))
+        return body
+    }
+
     /// Any GET, read as plain JSON (the Mac's feature screens).
     func json(_ path: String, query: [URLQueryItem] = [], timeout: TimeInterval = 15) async throws -> JSONValue {
         let data = try await send(path, query: query, timeout: timeout)

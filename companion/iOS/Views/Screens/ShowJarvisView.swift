@@ -1,7 +1,8 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 
-/// "Show Jarvis": take a photo and ask about it. The photo goes to the Mac only when you
+/// "Show Jarvis": take a photo (or pick one, a screenshot too) and ask about it. The photo goes to the Mac only when you
 /// send it (POST /api/photo), as a silent request there; the reply shows here (and is
 /// spoken, when spoken replies are on).
 struct ShowJarvisView: View {
@@ -10,6 +11,7 @@ struct ShowJarvisView: View {
     @State private var question = ""
     @State private var showCamera = false
     @State private var showLive = false
+    @State private var picked: PhotosPickerItem?
     @AppStorage(SensorSettings.liveCameraKey) private var liveCamera = false
     @State private var phase: Phase = .idle
     @FocusState private var asking: Bool
@@ -56,6 +58,16 @@ struct ShowJarvisView: View {
                 }
             }
         }
+        .onChange(of: picked) { _, item in
+            guard let item else { return }
+            picked = nil
+            Task {
+                if let image = await Attachment.load([item]).first {
+                    photo = image
+                    phase = .idle
+                }
+            }
+        }
         .fullScreenCover(isPresented: $showLive) {
             LiveCameraView()
         }
@@ -73,7 +85,7 @@ struct ShowJarvisView: View {
             Image(systemName: "camera.viewfinder")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(Palette.ice)
-            Text(hasCamera ? "Take a photo, then ask Jarvis about it." : "This device has no camera.")
+            Text("Take a photo or pick one, then ask Jarvis about it.")
                 .font(.system(.title3, design: .serif).weight(.medium))
                 .foregroundStyle(Palette.ink)
                 .multilineTextAlignment(.center)
@@ -91,6 +103,13 @@ struct ShowJarvisView: View {
             .buttonStyle(PrimaryButtonStyle())
             .disabled(!hasCamera)
             .padding(.top, Space.xs)
+            PhotosPicker(selection: $picked, matching: .images) {
+                Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 48)
+            }
+            .buttonStyle(GlassButtonStyle(tint: Palette.cyan))
+            .accessibilityHint("A photo or a screenshot from your library.")
             if liveCamera, hasCamera {
                 Button {
                     showLive = true
@@ -175,6 +194,11 @@ struct ShowJarvisView: View {
 enum PhotoQuestion {
     nonisolated static let fallback = "What is this?"
 
+    /// The question when only pictures were sent.
+    nonisolated static func fallback(count: Int) -> String {
+        count > 1 ? "What’s in these pictures?" : fallback
+    }
+
     static func ask(about photo: UIImage, _ question: String, model: AppModel) async -> ShowJarvisView.Phase {
         let question = question.trimmed.isEmpty ? fallback : question.trimmed
         if model.answersOnPhone {
@@ -204,7 +228,7 @@ enum PhotoQuestion {
         guard let jpeg = PhotoPrep.jpeg(from: photo, longest: 1568, maxBytes: 4 * 1024 * 1024) else {
             return .failed("Couldn’t prepare that photo.")
         }
-        if let reply = await model.brain.ask(question, image: jpeg, macName: model.pairing?.macLabel) {
+        if let reply = await model.brain.ask(question, images: [jpeg], macName: model.pairing?.macLabel) {
             Haptics.reply()
             if model.speakReplies { model.voice.speakLocally(reply) }
             return .answered(reply)
@@ -232,7 +256,7 @@ enum PhotoPrep {
 }
 
 /// The system camera, for one photo.
-private struct CameraPicker: UIViewControllerRepresentable {
+struct CameraPicker: UIViewControllerRepresentable {
     let onPhoto: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
 

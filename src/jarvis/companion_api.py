@@ -300,7 +300,9 @@ def _days(value: Any) -> list[int] | None:
 SHARE_BYTES = 25 * 1024 * 1024  # a shared file or picture, decoded
 SHARE_BODY = SHARE_BYTES * 4 // 3 + 64 * 1024  # ... as base64 in JSON, with the rest
 PHOTO_BYTES = 8 * 1024 * 1024
-PHOTO_BODY = PHOTO_BYTES * 4 // 3 + 16 * 1024
+PHOTOS_MAX = 4  # pictures in one ask (photos or screenshots from the composer)
+PHOTOS_BYTES = 16 * 1024 * 1024  # all of them together, decoded
+PHOTO_BODY = PHOTOS_BYTES * 4 // 3 + 16 * 1024
 TEXT_CHARS = 200_000  # shared text
 PHOTO_EDGE = 1568  # pixels on the long side: what Claude looks at best, and small enough
 ASK_SECONDS = 120  # as remote.ASK_TIMEOUT
@@ -1065,30 +1067,46 @@ class Api:
     # ── a photo, asked about ──
 
     async def photo(self, request: Request) -> Response:
+        """A question about pictures from the phone: one photo (data_base64), or up to
+        PHOTOS_MAX photos and screenshots (images_base64), each a JPEG."""
         device, data, refused = await self._post(request, "ask", PHOTO_BODY, upload=True)
         if refused is not None:
             return refused
-        try:
-            raw = base64.b64decode(str(data.get("data_base64") or ""), validate=True)
-        except (ValueError, TypeError):
-            return _bad("data_base64")
-        if not raw.startswith(b"\xff\xd8\xff"):
+        many = data.get("images_base64")
+        if many is not None:
+            if not isinstance(many, list) or not many:
+                return _bad("images_base64")
+            if len(many) > PHOTOS_MAX:
+                return _bad(f"at most {PHOTOS_MAX} pictures")
+            encoded = many
+        else:
+            encoded = [data.get("data_base64")]
+        raws: list[bytes] = []
+        for item in encoded:
+            try:
+                raws.append(base64.b64decode(str(item or ""), validate=True))
+            except (ValueError, TypeError):
+                return _bad("images_base64" if many is not None else "data_base64")
+        if not all(raw.startswith(b"\xff\xd8\xff") for raw in raws):
             return _bad("not a JPEG")
-        if len(raw) > PHOTO_BYTES:
+        if any(len(raw) > PHOTO_BYTES for raw in raws) or sum(map(len, raws)) > PHOTOS_BYTES:
             return _bad("too big", 413)
         if self._photo_busy.get(device.id):
             return JSONResponse({"error": "Still on your last photo."}, status_code=429)
         self._photo_busy[device.id] = True
         try:
-            picture = await asyncio.to_thread(photo_for_claude, raw)
-            if picture is None:
+            pictures = await asyncio.gather(
+                *(asyncio.to_thread(photo_for_claude, raw) for raw in raws)
+            )
+            if any(picture is None for picture in pictures):
                 return _bad("too big", 413)
             question = " ".join(str(data.get("question") or "").split())[:2000]
             if not question:
                 question = self.companion.words("photo_question")
             self.companion.record(device, "photo")
+            untrusted = "a photo from your phone" if len(raws) == 1 else "pictures from your phone"
             reply = await self.hub.remote_ask(
-                question, ASK_SECONDS, photos=[picture], untrusted="a photo from your phone"
+                question, ASK_SECONDS, photos=list(pictures), untrusted=untrusted
             )
         finally:
             self._photo_busy.pop(device.id, None)

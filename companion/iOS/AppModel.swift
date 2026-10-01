@@ -45,6 +45,10 @@ final class AppModel {
     /// A place to show (from a notification, a widget, a Live Activity); Home opens it.
     var destination: Destination?
     var draft = ""
+    /// Pictures waiting in the composer (photos, screenshots), sent with the draft.
+    var attachments: [Attachment] = []
+    /// Small copies of the pictures sent to the Mac this session, by question.
+    private(set) var sentPictures: [String: [Data]] = [:]
     private var speakSetting = true
 
     let speech = SpeechController()
@@ -180,12 +184,13 @@ final class AppModel {
     }
 
     var transcript: [TranscriptLine] {
-        let mac = pairing == nil ? [] : Transcript.lines(state: remote, pending: pending, queued: queued)
+        let mac = pairing == nil ? [] : Transcript.lines(state: remote, pending: pending, queued: queued, pictures: sentPictures)
         let phone = brain.turns.map { turn in
             TranscriptLine(
                 id: "local:\(turn.id)",
                 kind: turn.role == .user ? .user : turn.role == .jarvis ? .jarvis : .problem,
-                text: turn.text, time: turn.time, live: turn.live, onPhone: true, activity: turn.activity
+                text: turn.text, time: turn.time, live: turn.live, onPhone: true, activity: turn.activity,
+                pictures: turn.pictures
             )
         }
         guard !mac.isEmpty, !phone.isEmpty else { return mac + phone }
@@ -425,9 +430,96 @@ final class AppModel {
 
     func sendDraft() {
         let text = draft.trimmed
-        guard !text.isEmpty else { return }
+        let pictures = attachments
+        guard !text.isEmpty || !pictures.isEmpty else { return }
         draft = ""
-        Task { await send(text) }
+        attachments = []
+        Task {
+            if pictures.isEmpty {
+                await send(text)
+            } else {
+                await send(text, pictures: pictures)
+            }
+        }
+    }
+
+    /// Adds pictures to the composer, up to `Attachment.limit`.
+    func attach(_ images: [UIImage]) {
+        let room = Attachment.limit - attachments.count
+        guard room > 0 else {
+            return show("Up to \(Attachment.limit) pictures at a time.")
+        }
+        let added = images.prefix(room).compactMap(Attachment.init(image:))
+        attachments += added
+        if added.isEmpty, !images.isEmpty {
+            show("Couldn’t read that picture.", style: .problem)
+        } else if images.count > room {
+            show("Up to \(Attachment.limit) pictures at a time, so the first \(room) went in.")
+        }
+    }
+
+    /// A question about pictures (photos, screenshots): Jarvis on the Mac looks at them
+    /// (POST /api/photo), or Jarvis on the iPhone when it's the one answering. They can't wait
+    /// in the outbox: when the Mac can't be reached they go back into the composer.
+    func send(_ raw: String, pictures: [Attachment]) async {
+        let question = raw.trimmed.isEmpty ? PhotoQuestion.fallback(count: pictures.count) : raw.trimmed
+        voice.stop()
+        speech.cancel()
+        if answersOnPhone {
+            let jpegs = pictures.compactMap { PhotoPrep.jpeg(from: $0.image, longest: 1568, maxBytes: 4 * 1024 * 1024) }
+            guard jpegs.count == pictures.count else {
+                return restore(raw, pictures, "Couldn’t prepare those pictures.")
+            }
+            return await askPhone(question, images: jpegs, pictures: pictures.map(\.thumbnail))
+        }
+        guard let api = pairing?.api else { return }
+        let unreachable = "Your Mac can’t be reached, so the pictures stay here. Send them when it’s back."
+        if isOffline { return restore(raw, pictures, unreachable) }
+        // Under the Mac's 16 MB for all of them together.
+        let each = pictures.count > 1 ? 4 * 1024 * 1024 : PhotoPrep.maxBytes
+        let jpegs = pictures.compactMap { PhotoPrep.jpeg(from: $0.image, maxBytes: each) }
+        guard jpegs.count == pictures.count else {
+            return restore(raw, pictures, "Couldn’t prepare those pictures.")
+        }
+        sentPictures[question] = pictures.map(\.thumbnail)
+        let request = PendingRequest(question: question, history: remote?.history ?? [])
+        pending = request
+        restartPolling()
+        do {
+            let result = try await api.photo(jpegs: jpegs, question: question)
+            guard pending?.id == request.id else { return }
+            if result.done {
+                pending?.phase = .answered(result.reply)
+                announce(result.reply)
+            } else {
+                pending?.phase = .waiting
+            }
+        } catch JarvisError.unpaired {
+            return lost()
+        } catch JarvisError.timedOut {
+            if pending?.id == request.id { pending?.phase = .waiting }
+        } catch let error as JarvisError where error.neverDelivered {
+            if pending?.id == request.id { pending = nil }
+            sentPictures[question] = nil
+            return restore(raw, pictures, unreachable)
+        } catch is CancellationError {
+            return
+        } catch {
+            if pending?.id == request.id {
+                pending?.phase = .failed((error as? JarvisError)?.errorDescription ?? error.localizedDescription)
+                Haptics.failure()
+            }
+        }
+        await refresh()
+        resumeWakeWord()
+    }
+
+    /// Puts pictures that didn't go back into the composer, with what was typed.
+    private func restore(_ text: String, _ pictures: [Attachment], _ message: String) {
+        if draft.trimmed.isEmpty { draft = text }
+        attachments = Array((pictures + attachments).prefix(Attachment.limit))
+        Haptics.failure()
+        show(message, style: .problem)
     }
 
     /// `queuedAt`: when it was first asked, for a question that waited in the outbox.
@@ -476,10 +568,10 @@ final class AppModel {
     }
 
     /// Jarvis on the iPhone answers.
-    func askPhone(_ text: String, image: Data? = nil) async {
+    func askPhone(_ text: String, images: [Data] = [], pictures: [Data] = []) async {
         voice.stop()
         speech.cancel()
-        guard let reply = await brain.ask(text, image: image, macName: pairing?.macLabel) else {
+        guard let reply = await brain.ask(text, images: images, pictures: pictures, macName: pairing?.macLabel) else {
             resumeWakeWord()
             return
         }

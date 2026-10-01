@@ -9,7 +9,8 @@ with no Mac (or when it can't be reached) the iPhone runs Jarvis itself on the o
 Claude API key (see Jarvis on iPhone).
 
 - **Tabs:** Jarvis (the orb, the conversation, approvals, a glass composer with the
-  microphone and a + menu), Today (what needs you, weather, calendar, reminders, the Mac),
+  microphone and a + menu, where up to four photos or screenshots go with a question:
+  Photos, Take Photo, Paste Image), Today (what needs you, weather, calendar, reminders, the Mac),
   Code (Jarvis Code, when paired) and Library (everything else, grouped like Settings).
 
 - **iPhone** (`iOS/`): pair with the Mac (its QR code, or Bonjour / typed address +

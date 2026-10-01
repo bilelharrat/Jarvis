@@ -25,6 +25,7 @@
 		0DFC948BC5C16B943AE7FC22 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		0DFD3E3D020BAC3EEC2CAB87 /* CodeEntryField.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48550560333BEA63660AEFB /* CodeEntryField.swift */; };
 		113D827F83877845EC534159 /* JarvisComplications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 264838CF21F86E2CE32D1FA2 /* JarvisComplications.swift */; };
+		11F88E6AD2A05DBE38057CAC /* ComposerPictures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */; };
 		12C35BD9D520A9F7002A58C7 /* DigestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E7E2F21C7F660F782E595D /* DigestView.swift */; };
 		12ECC0247C5DB2C053F80D89 /* CodeSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C837DBB77D17F9D3236BD581 /* CodeSessionsView.swift */; };
 		131B8415793886F1E82DD967 /* LiveActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F6D20BB76C3AE137642500 /* LiveActivities.swift */; };
@@ -493,6 +494,7 @@
 		96E87EB35820E56F8C633663 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		99E41D6AEA26B17319403177 /* memory.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = memory.json; sourceTree = "<group>"; };
 		9ADDD7034FFD82D880217846 /* routine_update.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = routine_update.json; sourceTree = "<group>"; };
+		9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerPictures.swift; sourceTree = "<group>"; };
 		9D52F65E2F756B88700F2903 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		9DB3F292D439ABFFD2304B18 /* LiveActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityTests.swift; sourceTree = "<group>"; };
 		9E34E9124467CF0CDC26B748 /* shortcuts.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = shortcuts.json; sourceTree = "<group>"; };
@@ -610,6 +612,7 @@
 				551737142658F2F36993883B /* ApprovalCard.swift */,
 				E48550560333BEA63660AEFB /* CodeEntryField.swift */,
 				43AF13DCCF32B738186BDB9A /* Components.swift */,
+				9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */,
 				1BB9FC3DBFBEC9BC943067FB /* JarvisView.swift */,
 				B46CDF77E69B96A427B73499 /* MainTabs.swift */,
 				C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */,
@@ -1450,6 +1453,7 @@
 				12ECC0247C5DB2C053F80D89 /* CodeSessionsView.swift in Sources */,
 				290992CE1E88AF781AD2C834 /* CompanionModels.swift in Sources */,
 				14C91675104C7897DA1EE458 /* Components.swift in Sources */,
+				11F88E6AD2A05DBE38057CAC /* ComposerPictures.swift in Sources */,
 				E1D21FDC2A1C2299C7BB7D8C /* ConversationsView.swift in Sources */,
 				2E3274AC6A354721C604EB38 /* DebugLaunch.swift in Sources */,
 				0DFC948BC5C16B943AE7FC22 /* Decoding.swift in Sources */,

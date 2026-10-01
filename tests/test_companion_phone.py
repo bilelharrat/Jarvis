@@ -454,6 +454,38 @@ def test_a_photo_is_checked_and_capped(phone, monkeypatch, tmp_path):
     assert phone.client.post("/api/photo", json={"data_base64": ""}).status_code == 401
 
 
+def test_several_pictures_go_in_one_ask(phone, monkeypatch, tmp_path):
+    monkeypatch.setattr(phone.hub, "remote_ask", phone.fake_ask)
+    raw = base64.b64encode(picture(tmp_path, 40, 30)).decode()
+    reply = phone.post("/api/photo", {"images_base64": [raw, raw], "question": "Compare these"})
+    assert reply.json()["done"] is True
+    [ask] = phone.asked
+    assert ask["text"] == "Compare these" and len(ask["photos"]) == 2
+    assert ask["untrusted"] == "pictures from your phone"
+
+
+def test_several_pictures_are_checked_and_capped(phone, monkeypatch, tmp_path):
+    monkeypatch.setattr(phone.hub, "remote_ask", phone.fake_ask)
+    raw = base64.b64encode(picture(tmp_path, 20, 20)).decode()
+    png = base64.b64encode(picture(tmp_path, 10, 10, "png")).decode()
+    assert phone.post("/api/photo", {"images_base64": []}).status_code == 400
+    assert phone.post("/api/photo", {"images_base64": "x"}).status_code == 400
+    assert phone.post("/api/photo", {"images_base64": [raw] * 5}).json() == {
+        "error": "at most 4 pictures"
+    }
+    assert phone.post("/api/photo", {"images_base64": [raw, "%%%"]}).status_code == 400
+    assert phone.post("/api/photo", {"images_base64": [raw, png]}).json() == {"error": "not a JPEG"}
+    assert phone.asked == []
+
+
+def test_several_pictures_are_capped_together(phone, monkeypatch, tmp_path):
+    monkeypatch.setattr(phone.hub, "remote_ask", phone.fake_ask)
+    raw = base64.b64encode(picture(tmp_path, 20, 20)).decode()
+    monkeypatch.setattr(companion_api, "PHOTOS_BYTES", len(base64.b64decode(raw)) + 10)
+    assert phone.post("/api/photo", {"images_base64": [raw, raw]}).status_code == 413
+    assert phone.asked == []
+
+
 def test_a_busy_jarvis_says_so(phone, monkeypatch, tmp_path):
     async def busy(text, timeout=120, **ask):
         return {"reply": "", "done": False, "approvals": [], "busy": True}

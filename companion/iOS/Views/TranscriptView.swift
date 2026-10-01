@@ -50,6 +50,10 @@ struct TranscriptRow: View {
             Spacer(minLength: 56)
             VStack(alignment: .trailing, spacing: 4) {
                 let bubble = UnevenRoundedRectangle(cornerRadii: .init(topLeading: 20, bottomLeading: 20, bottomTrailing: 6, topTrailing: 20), style: .continuous)
+                if !line.pictures.isEmpty {
+                    SentPictures(pictures: line.pictures)
+                        .opacity(line.sending ? 0.7 : 1)
+                }
                 Text(line.text)
                     .font(.body)
                     .foregroundStyle(Palette.ink)
@@ -144,9 +148,11 @@ struct TranscriptRow: View {
 
     private var accessibilityText: String {
         switch line.kind {
-        case .user: line.waiting ? "Waiting for your Mac: \(line.text)" : "You said: \(line.text)"
-        case .problem: line.text
-        case .jarvis: line.text.isEmpty ? (line.onHold ? "Jarvis is waiting for your OK." : "Jarvis is thinking.") : "Jarvis: \(line.text)"
+        case .user:
+            let pictures = line.pictures.isEmpty ? "" : "With \(line.pictures.count) picture\(line.pictures.count == 1 ? "" : "s"). "
+            return line.waiting ? "Waiting for your Mac: \(line.text)" : "\(pictures)You said: \(line.text)"
+        case .problem: return line.text
+        case .jarvis: return line.text.isEmpty ? (line.onHold ? "Jarvis is waiting for your OK." : "Jarvis is thinking.") : "Jarvis: \(line.text)"
         }
     }
 
