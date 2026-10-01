@@ -1,0 +1,18 @@
+{
+  "strings": {
+    "Video": "视频",
+    "Videos": "视频",
+    "Saved in Documents › Jarvis › Videos as": "已保存到“文稿 › Jarvis › Videos”，文件名是",
+    "Billed to your Gemini key, about:": "记在你的 Gemini 密钥上，大约：",
+    "Play": "播放",
+    "Show in Finder": "在访达中显示",
+    "Dismiss": "关闭",
+    "Video model": "视频模型",
+    "A Google Veo model. Google charges by the second of video; Jarvis shows the estimate and asks before each one.": "一个 Google Veo 模型。Google 按视频秒数收费；每段视频之前，Jarvis 都会显示估价并先问你。",
+    "Show the Videos folder": "显示 Videos 文件夹",
+    "Ask for a short video and Jarvis makes it with Google Veo on your Gemini key, after you OK the estimated price:": "让 Jarvis 做一段短视频，你确认估价后，它会用你的 Gemini 密钥通过 Google Veo 来做：",
+    "To make videos, add a Google Gemini key in Settings › Models.": "要做视频，请在“设置 › 模型”里添加一个 Google Gemini 密钥。",
+    "Made a video": "做了一段视频"
+  },
+  "patterns": []
+}

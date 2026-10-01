@@ -50,8 +50,6 @@
     "Chat apps": "聊天应用",
     "Phone calls": "电话",
     "Calls": "通话",
-    "Pictures": "图片",
-    "Videos": "视频",
     "Music": "音乐",
     "Files on this Mac": "这台 Mac 上的文件",
     "Moving and renaming files": "移动和重命名文件",
@@ -67,7 +65,10 @@
     "Conversations held for you": "替你进行的对话",
     "Meeting notes": "会议记录",
     "Places": "地点",
-    "Memory wiki": "记忆维基"
+    "Memory wiki": "记忆维基",
+    "Making pictures": "画图",
+    "Making videos": "做视频",
+    "Watching videos": "看视频"
   },
   "patterns": [
     [
