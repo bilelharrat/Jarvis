@@ -48,7 +48,26 @@
     "What you said": "你说的话",
     "Fix": "修改",
     "Fix and ask again": "修改并重新提问",
-    "Cancel": "取消"
+    "Cancel": "取消",
+    "Go back or branch…": "回退或分支…",
+    "Rewind to an earlier message, edit one, or branch off": "回到之前的某条消息、改一条，或分出一个分支",
+    "Rewound: say something to carry on from there.": "已回退：说点什么就从那里接着聊。",
+    "A new branch: say something to carry on from there.": "新分支：说点什么就从那里接着聊。",
+    "Branched from": "分支自",
+    "Rewound from": "回退自",
+    "The version from before a rewind": "回退之前的版本",
+    "Branch from here": "从这里分支",
+    "A new conversation from this one as it is; this one stays as it was": "按这段对话现在的样子开一段新对话；这段保持原样",
+    "Rewinding drops what came after from my context. It never undoes what I did, and what I remembered stays.": "回退会把之后的内容从我的上下文里去掉。它不会撤销我做过的事，记住的内容也还在。",
+    "Rewind to before this": "回到这句之前",
+    "Edit": "编辑",
+    "Branch from before this": "从这句之前分支",
+    "Edit your request": "编辑你的请求",
+    "Resend": "重新发送",
+    "Rewind": "回退",
+    "Rewind and undo those": "回退并撤销这些",
+    "Rewind and send": "回退并发送",
+    "Rewind, undo those and send": "回退、撤销这些并发送"
   },
   "patterns": [
     [

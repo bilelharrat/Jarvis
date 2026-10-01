@@ -126,6 +126,18 @@ body[data-look="orb"] .convo-pop {
 }
 .convo-lines .user { align-self: flex-end; background: var(--action); color: var(--action-ink); }
 .convo-lines .assistant { align-self: flex-start; background: var(--convo-inset); box-shadow: inset 0 0 0 1px var(--convo-line); }
+.convo-lines .user .convo-point { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 10px; margin-top: 6px; white-space: normal; }
+.convo-point-btn {
+  padding: 0; border: 0; background: none; font: inherit; font-size: 12px; font-weight: 600; color: inherit; opacity: .78; cursor: pointer;
+}
+.convo-point-btn:hover, .convo-point-btn:focus-visible { opacity: 1; text-decoration: underline; }
+.convo-lines .user.editing { max-width: 100%; width: 100%; box-sizing: border-box; background: var(--convo-inset); color: var(--ink); box-shadow: inset 0 0 0 1px var(--convo-line); }
+.convo-edit textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 10px; border-radius: 10px; font: inherit; font-size: 14px;
+  color: var(--ink); background: var(--panel, transparent); border: 1px solid var(--convo-line);
+}
+.convo-edit .convo-actions { justify-content: flex-end; margin-top: 8px; }
+.convo-row-branch { font-size: 12px; color: var(--action); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .convo-lines .convo-wait { align-self: center; background: transparent; color: var(--muted); font-size: 13px; }
 
 /* ── this conversation: how full its context is ── */

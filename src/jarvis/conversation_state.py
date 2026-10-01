@@ -1,7 +1,9 @@
 """What's kept of JARVIS's own conversation between runs (conversation.json, beside
 prefs.json): which conversation is the current one, and for each recent one what it has read
 (the turn gate's record, so a conversation carried on after a restart is weighed as it was),
-what it has cost and its title (its first request, a line). The words themselves are Claude
+what it has cost and its title (its first request, a line), and where each branch came from
+(a rewind or a fork of another conversation: its parent), with a branch made but not yet
+spoken in (the source carried on up to a point, until Claude Code gives it its own id). The words themselves are Claude
 Code's own record of the session, in its folder for the brain's working folder.
 
 Read defensively: a damaged or hand-edited file never stops the app starting (jsonstore keeps
@@ -26,6 +28,7 @@ KEEP = 300  # conversations whose reads and cost are kept, newest first
 READS_KEPT = 40  # what the gates name as read, per conversation (as the hub keeps it)
 TITLE_CHARS = 100
 SESSION_ID = re.compile(r"[A-Za-z0-9][\w-]{0,79}")
+RELATIONS = ("fork", "rewind")  # how a conversation came from its parent
 # A conversation whose reads aren't known (one from before this record was kept, or a
 # damaged file) counts as having read private data and pages: carrying it on never opens
 # the gates wider than they were.
@@ -71,10 +74,27 @@ def _cost(value: Any) -> float:
     return round(value, 6) if math.isfinite(value) and value >= 0 else 0.0
 
 
+def clean_branch(raw: Any) -> dict[str, Any] | None:
+    """A branch not yet spoken in: {source, at (the message it carries on after; "" for
+    all of it), relation, fresh (from before the first message: a new conversation)}."""
+    if not isinstance(raw, dict) or raw.get("relation") not in RELATIONS:
+        return None
+    source = valid_id(raw.get("source"))
+    if not source:
+        return None
+    return {
+        "source": source,
+        "at": valid_id(raw.get("at")),
+        "relation": raw["relation"],
+        "fresh": raw.get("fresh") is True,
+    }
+
+
 class ConversationState:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.current = ""
+        self.branch: dict[str, Any] | None = None
         self.sessions: dict[str, dict[str, Any]] = {}
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self._load()
@@ -89,6 +109,7 @@ class ConversationState:
         if not isinstance(data, dict):
             return
         self.current = valid_id(data.get("current"))
+        self.branch = clean_branch(data.get("branch"))
         sessions = data.get("sessions")
         for sid, raw in sessions.items() if isinstance(sessions, dict) else []:
             sid = valid_id(sid)
@@ -101,6 +122,9 @@ class ConversationState:
                 "at": at[:25] if isinstance(at, str) else "",
                 "title": title_line(raw.get("title")),
             }
+            parent = valid_id(raw.get("parent"))
+            if parent and parent != sid and raw.get("relation") in RELATIONS:
+                self.sessions[sid].update(parent=parent, relation=raw["relation"])
         self._bound()
 
     def _bound(self) -> None:
@@ -114,6 +138,7 @@ class ConversationState:
         """What's saved, copied: a save in a thread never reads what the loop is changing."""
         return {
             "current": self.current,
+            "branch": dict(self.branch) if self.branch else None,
             "sessions": {
                 sid: {
                     **entry,
@@ -146,6 +171,27 @@ class ConversationState:
             entry["title"] = title_line(title)
         self.current = sid
         self._bound()
+
+    def relate(self, session_id: str, parent: str, relation: str) -> None:
+        """A branch spoke for the first time: where it came from, kept with it."""
+        sid, parent = valid_id(session_id), valid_id(parent)
+        if not sid or not parent or sid == parent or relation not in RELATIONS:
+            return
+        entry = self.sessions.setdefault(sid, {"reads": None, "cost": 0.0, "at": "", "title": ""})
+        entry["parent"], entry["relation"] = parent, relation
+
+    def relation_of(self, session_id: str) -> tuple[str, str]:
+        """(parent, relation) of a branch; ("", "") for one that isn't."""
+        entry = self.sessions.get(valid_id(session_id)) or {}
+        return entry.get("parent") or "", entry.get("relation") or ""
+
+    def rewound(self) -> set[str]:
+        """The conversations a rewind went on from (the version from before it)."""
+        return {
+            e["parent"]
+            for e in self.sessions.values()
+            if e.get("relation") == "rewind" and e.get("parent")
+        }
 
     def titles(self) -> dict[str, str]:
         return {sid: e["title"] for sid, e in self.sessions.items() if e.get("title")}

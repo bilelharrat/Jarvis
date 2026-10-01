@@ -3,7 +3,9 @@
 // restart, or one reopened); and Conversations (a dock app): this conversation (how full its
 // context is, what it has cost, Compact now), and the past ones, searched, read back and
 // carried on after a card; and incognito (a banner at the top while nothing is kept, with
-// Leave; the switch in Conversations and Settings). What the conversations hold (titles,
+// Leave; the switch in Conversations and Settings); rewind, branch and edit-and-resend
+// (conversation_branch: on the owner's requests in a conversation read back, and Branch from
+// here on a whole one; past conversations show where a branch came from). What the conversations hold (titles,
 // what was said) is the owner's data: shown as text, with data-no-i18n.
 (() => {
   const F = window.jarvisFeatures;
@@ -327,9 +329,31 @@
     const secret = button(c.incognito ? 'Leave incognito' : 'Go incognito', 'btn', () => { incognito(!c.incognito); closeSheet(); });
     secret.id = 'convo-incognito-switch';
     secret.title = c.incognito ? 'Back to the conversation from before' : 'A conversation nothing is kept of';
-    actions.append(compact, button('New conversation', 'btn', () => { send({ type: 'reset' }); closeSheet(); }), secret);
+    const back = button('Go back or branch…', 'btn', () => {
+      S.reading = { session_id: c.session_id, title: c.title, live: true, current: true, entries: null };
+      renderSheet();
+      send({ type: 'conversation_open', session_id: c.session_id, live: true });
+    });
+    back.id = 'convo-go-back';
+    back.disabled = !!c.incognito || !c.session_id;
+    back.title = 'Rewind to an earlier message, edit one, or branch off';
+    actions.append(compact, back, button('New conversation', 'btn', () => { send({ type: 'reset' }); closeSheet(); }), secret);
     box.append(actions);
+    if (c.branch) box.append(el('p', 'convo-now-meta', c.branch === 'rewind'
+      ? 'Rewound: say something to carry on from there.'
+      : 'A new branch: say something to carry on from there.'));
     return box;
+  }
+
+  // Where a past conversation came from: a fork, a rewind, or the version from before one.
+  function relationLine(item) {
+    const line = el('span', 'convo-row-branch');
+    if (item.relation === 'fork' || item.relation === 'rewind') {
+      line.append(el('span', '', item.relation === 'fork' ? 'Branched from' : 'Rewound from'));
+      line.append(mine(el('span', '', ` “${item.parent_title || '…'}”`)));
+    } else if (item.rewound) line.append(el('span', '', 'The version from before a rewind'));
+    else return null;
+    return line;
   }
 
   // How full the conversation's context is: a ring, the tokens, what fills it, the cost.
@@ -431,6 +455,8 @@
       if (item.current) side.append(el('span', 'convo-now-tag', 'Now'));
       top.append(side);
       row.append(top);
+      const relation = relationLine(item);
+      if (relation) row.append(relation);
       if (item.preview && item.preview !== item.title) row.append(mine(el('span', 'convo-row-preview', item.preview)));
       row.addEventListener('click', () => openPast(item));
       li.append(row);
@@ -454,7 +480,15 @@
     const meta = [whenText(r.at), costText(r.cost || 0)].filter(Boolean).join(' · ');
     if (meta) box.append(mine(el('div', 'convo-now-meta', meta)));
     const actions = el('div', 'convo-actions');
-    if (r.current) actions.append(el('span', 'convo-now-tag', 'This is the conversation you’re in'));
+    const here = Boolean(r.live || r.current); // the conversation under way: it can be rewound
+    const branchAll = button('Branch from here', 'btn', () => {
+      send({ type: 'conversation_fork', session_id: r.session_id, uuid: '', live: here });
+      closeSheet();
+    });
+    branchAll.id = 'convo-branch';
+    branchAll.title = 'A new conversation from this one as it is; this one stays as it was';
+    branchAll.disabled = !!S.convo.incognito || r.entries === null || !!r.error;
+    if (r.current) actions.append(el('span', 'convo-now-tag', 'This is the conversation you’re in'), branchAll);
     else {
       const go = button('Carry on this conversation', 'btn primary', () => {
         send({ type: 'conversation_resume', session_id: r.session_id });
@@ -462,7 +496,7 @@
       });
       go.id = 'convo-resume';
       go.disabled = !!S.convo.incognito;
-      actions.append(go);
+      actions.append(go, branchAll);
       if (S.convo.incognito) actions.append(el('span', 'convo-now-meta', 'Leave incognito to carry on a past conversation.'));
     }
     box.append(actions);
@@ -472,13 +506,69 @@
     else if (r.error) lines.append(el('li', 'convo-wait', 'This conversation can’t be read.'));
     else {
       lines.append(...r.entries.map((e) => {
-        const li = mine(el('li', e.role === 'user' ? 'user' : 'assistant'));
-        li.textContent = e.text;
+        const li = el('li', e.role === 'user' ? 'user' : 'assistant');
+        if (e.role === 'user' && e.uuid && !S.convo.incognito) {
+          // The words are the owner's (never translated); the buttons under them are ours.
+          li.append(mine(el('span', 'convo-said', e.text)), pointActions(r, e, li, here));
+        } else {
+          mine(li).textContent = e.text;
+        }
         return li;
       }));
     }
     box.append(lines);
+    if (here && r.entries && r.entries.some((e) => e.uuid)) {
+      box.append(el('p', 'convo-cx-note', 'Rewinding drops what came after from my context. It never undoes what I did, and what I remembered stays.'));
+    }
     return box;
+  }
+
+  // Under one of the owner's requests: rewind to before it, edit it, or branch from before it.
+  function pointActions(r, entry, li, here) {
+    const row = el('span', 'convo-point');
+    const point = { session_id: r.session_id, uuid: entry.uuid };
+    if (here) {
+      const back = button('Rewind to before this', 'convo-point-btn', () => {
+        send({ type: 'conversation_rewind', ...point });
+        closeSheet();
+      });
+      const edit = button('Edit', 'convo-point-btn', () => editPoint(r, entry, li));
+      row.append(back, edit);
+    }
+    const fork = button('Branch from before this', 'convo-point-btn', () => {
+      send({ type: 'conversation_fork', ...point, live: here });
+      closeSheet();
+    });
+    row.append(fork);
+    return row;
+  }
+
+  // Edit and resend: the request's words in a box; Resend rewinds to before it and sends them.
+  function editPoint(r, entry, li) {
+    const form = el('form', 'convo-edit');
+    const box = mine(el('textarea'));
+    box.value = entry.text;
+    box.rows = Math.min(6, Math.max(2, Math.ceil(entry.text.length / 48)));
+    box.setAttribute('aria-label', 'Edit your request');
+    const resend = button('Resend', 'btn primary');
+    resend.type = 'submit';
+    const cancel = button('Cancel', 'btn', () => renderSheet());
+    const row = el('div', 'convo-actions');
+    row.append(cancel, resend);
+    form.append(box, row);
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const text = box.value.trim();
+      if (!text) return;
+      send({ type: 'conversation_edit', session_id: r.session_id, uuid: entry.uuid, text });
+      closeSheet();
+    });
+    box.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); form.requestSubmit(); }
+    });
+    li.replaceChildren(form);
+    li.classList.add('editing');
+    box.focus();
   }
 
   function renderSheet() {
@@ -526,7 +616,7 @@
   });
   F.on('conversation_transcript', (ev) => {
     if (!S.reading || S.reading.session_id !== ev.session_id) return;
-    S.reading = { ...S.reading, entries: ev.entries || [], error: ev.error || '', current: !!ev.current };
+    S.reading = { ...S.reading, entries: ev.entries || [], error: ev.error || '', current: !!ev.current, live: !!ev.live };
     renderSheet();
     const lines = $('convo-lines');
     if (lines) lines.scrollTop = lines.scrollHeight;

@@ -109,21 +109,35 @@ def entries(
     folder: Path | None = None,
     *,
     get_messages: Callable[..., Any] | None = None,
+    until: str = "",
 ) -> list[dict[str, str]] | None:
     """A conversation's words, oldest first ({role: user|assistant, text}), its newest
-    SHOWN_ENTRIES; None when its record can't be read."""
+    SHOWN_ENTRIES; None when its record can't be read. Each of the owner's requests also
+    carries its message's id (uuid) and the id of the message before it (before: "" for the
+    first), the points a rewind or a branch starts from. until: only what's up to and
+    including that message (a branch that hasn't spoken yet), nothing when it isn't there."""
     reader = get_messages or _sdk()[1]
     try:
-        messages = reader(session_id, directory=str(folder or workspace()))
+        messages = list(reader(session_id, directory=str(folder or workspace())) or [])
     except Exception:
         log.warning("a past conversation couldn't be read", exc_info=True)
         return None
+    if until:
+        ids = [str(getattr(m, "uuid", "") or "") for m in messages]
+        messages = messages[: ids.index(until) + 1] if until in ids else []
     out: list[dict[str, str]] = []
-    for line in conversation_lines(messages or []):
-        if line.startswith("You: "):
-            out.append({"role": "user", "text": line[5:][:ENTRY_CHARS]})
-        elif line.startswith("Jarvis: "):
-            out.append({"role": "assistant", "text": line[8:][:ENTRY_CHARS]})
+    last = ""
+    for message in messages:
+        uid = str(getattr(message, "uuid", "") or "")
+        for line in conversation_lines([message]):
+            if line.startswith("You: "):
+                entry = {"role": "user", "text": line[5:][:ENTRY_CHARS]}
+                if uid:
+                    entry["uuid"], entry["before"] = uid, last
+                out.append(entry)
+            elif line.startswith("Jarvis: "):
+                out.append({"role": "assistant", "text": line[8:][:ENTRY_CHARS]})
+        last = uid or last
     return out[-SHOWN_ENTRIES:]
 
 

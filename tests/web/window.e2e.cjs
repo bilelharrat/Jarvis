@@ -6632,6 +6632,54 @@ test('Conversations: the past ones are listed, searched, read back and carried o
   assert(await js(`!$('convo-layer').hidden && $('settings').hidden`), 'Settings did not open Conversations');
 });
 
+test('Conversations: rewind, edit and resend, and branch from a message; where a branch came from', async () => {
+  await loadFeatures(...CONVO);
+  await js(`__ev({ type: 'conversation', resume: true, resumed: null, session_id: 'a', title: 'Plan', cost: 0, incognito: false, branch: '' }); __sent.length = 0; true`);
+  await js(`$('convo-btn').click(); true`);
+  assert(await js(`!$('convo-go-back').disabled`), 'Go back or branch was off');
+  await js(`__sent.length = 0; $('convo-go-back').click(); true`);
+  assert(JSON.stringify(await sentOf('conversation_open')) === '[{"type":"conversation_open","session_id":"a","live":true}]', 'the conversation under way was not asked for');
+  await js(`__ev({ type: 'conversation_transcript', session_id: 'a', current: true, live: true, error: '', entries: [
+    { role: 'user', text: 'What is on <b>today</b>?', uuid: 'u1', before: '' }, { role: 'assistant', text: 'Two meetings.' },
+    { role: 'user', text: 'Move lunch to one.', uuid: 'u2', before: 'a1' }, { role: 'assistant', text: 'Done.' }] }); true`);
+  const shown = await js(`[...document.querySelectorAll('.convo-lines li')].map((li) => ({ said: (li.querySelector('.convo-said') || li).textContent,
+    mine: (li.querySelector('.convo-said') || li).hasAttribute('data-no-i18n'), buttons: [...li.querySelectorAll('.convo-point-btn')].map((b) => b.textContent) }))`);
+  const points = ['Rewind to before this', 'Edit', 'Branch from before this'];
+  assert(JSON.stringify(shown) === JSON.stringify([
+    { said: 'What is on <b>today</b>?', mine: true, buttons: points }, { said: 'Two meetings.', mine: true, buttons: [] },
+    { said: 'Move lunch to one.', mine: true, buttons: points }, { said: 'Done.', mine: true, buttons: [] }]), JSON.stringify(shown));
+  assert(await js(`$('convo-body').textContent.includes('It never undoes what I did')`), 'the rewind note is missing');
+  await js(`__sent.length = 0; document.querySelectorAll('.convo-lines li')[2].querySelector('.convo-point-btn').click(); true`);
+  assert(JSON.stringify(await sentOf('conversation_rewind')) === '[{"type":"conversation_rewind","session_id":"a","uuid":"u2"}]', 'Rewind sent nothing');
+  assert(await js(`$('convo-layer').hidden`), 'the sheet stayed over the card');
+  // Edit and resend.
+  await js(`$('convo-btn').click(); $('convo-go-back').click(); __ev({ type: 'conversation_transcript', session_id: 'a', current: true, live: true, error: '',
+    entries: [{ role: 'user', text: 'Move lunch to one.', uuid: 'u2', before: 'a1' }] }); true`);
+  await js(`[...document.querySelectorAll('.convo-point-btn')].find((b) => b.textContent === 'Edit').click(); true`);
+  const editing = await js(`({ value: document.querySelector('.convo-edit textarea').value, focused: document.activeElement === document.querySelector('.convo-edit textarea') })`);
+  assert(editing.value === 'Move lunch to one.' && editing.focused, JSON.stringify(editing));
+  await js(`__sent.length = 0; document.querySelector('.convo-edit textarea').value = ' Move lunch to two. '; document.querySelector('.convo-edit').requestSubmit(); true`);
+  assert(JSON.stringify(await sentOf('conversation_edit')) === '[{"type":"conversation_edit","session_id":"a","uuid":"u2","text":"Move lunch to two."}]', 'Resend sent nothing');
+  // A past conversation: only branching, from a message or all of it.
+  await js(`$('convo-btn').click(); __ev({ type: 'conversation_list', seq: '1', q: '', items: [
+    { session_id: 'c', title: 'Plan', preview: '', at: Date.now(), current: false, cost: 0, relation: 'fork', parent: 'b', parent_title: 'Lisbon <i>trip</i>' },
+    { session_id: 'b', title: 'Lisbon trip', preview: '', at: Date.now() - 1000, current: false, cost: 0, relation: '', parent: '', rewound: true }] }); true`);
+  const relations = await js(`[...document.querySelectorAll('.convo-row-branch')].map((r) => r.textContent)`);
+  assert(JSON.stringify(relations) === JSON.stringify(['Branched from “Lisbon <i>trip</i>”', 'The version from before a rewind']), JSON.stringify(relations));
+  await js(`document.querySelector('[data-session="b"]').click(); __ev({ type: 'conversation_transcript', session_id: 'b', current: false, live: false, error: '',
+    entries: [{ role: 'user', text: 'Plan the trip', uuid: 'o1', before: '' }] }); true`);
+  const past = await js(`[...document.querySelectorAll('.convo-point-btn')].map((b) => b.textContent)`);
+  assert(JSON.stringify(past) === '["Branch from before this"]', JSON.stringify(past));
+  await js(`__sent.length = 0; $('convo-branch').click(); true`);
+  assert(JSON.stringify(await sentOf('conversation_fork')) === '[{"type":"conversation_fork","session_id":"b","uuid":"","live":false}]', 'Branch from here sent nothing');
+  // Incognito: nothing to go back in.
+  await js(`__ev({ type: 'conversation', session_id: '', title: '', incognito: true }); $('convo-btn').click(); true`);
+  assert(await js(`$('convo-go-back').disabled`), 'incognito could go back');
+  await js(`__ev({ type: 'conversation', session_id: 'a', title: 'Plan', incognito: false, branch: 'rewind' }); true`);
+  assert(await js(`$('convo-body').textContent.includes('Rewound: say something to carry on from there.')`), 'a rewind not yet spoken in was not said');
+  await js(`$('convo-close').click(); true`);
+});
+
 test('Conversations: how full this conversation is, what it cost, and Compact now', async () => {
   await loadFeatures(...CONVO);
   await js(`__ev({ type: 'conversation', resume: true, resumed: null, session_id: 'a', title: 'Plan', cost: 0.42 });

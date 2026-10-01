@@ -37,7 +37,9 @@ A short map of what was added; each feature's own Settings group or pane explain
   pane, export, and voice: a supervisor, "catch me up", point
   and speak, reviews by voice.
 - **Conversation:** it carries on after a restart; past conversations; a context meter
-  and Compact now; thinking harder when asked; incognito; a searchable action log;
+  and Compact now; thinking harder when asked; incognito; rewind to an earlier message,
+  edit and resend, and branch off ("go back to before I asked about…", "try that
+  differently"), the original kept; a searchable action log;
   "undo that"; click-to-fix what Jarvis heard; your own personas with their own voice
   and wake word.
 - **Voice:** echo cancellation so you can talk over it (off until you try it), a neural

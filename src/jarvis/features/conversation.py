@@ -26,6 +26,11 @@ owner's view of it.
   退出无痕模式; the window's banner and Conversations). Past conversations can be read in it,
   not carried on.
 
+- Rewind and branches (the conversation_branch feature): a conversation carried on from an
+  earlier message of its own (a rewind) or of another (a fork), as a new Claude Code session;
+  the state keeps where each came from, the listing shows it, and one made but not yet spoken
+  in is carried on up to that point (after a restart too).
+
 Hooks it uses: hub.first_connect, hub.add_connect_hook (a new conversation), hub.add_query_hook
 (its title, the note put away), hub.add_message_sink (each turn's end: its session id, what
 it has read, its cost; a summary made to make room).
@@ -190,6 +195,9 @@ class Conversation:
         self._dirty = False
         self._saver: asyncio.Task | None = None
         self._tasks: set[asyncio.Task] = set()
+        # A branch's first turn: what its source had cost (Claude Code's running total for
+        # a resumed session starts from it), so the branch counts only its own.
+        self.cost_base: float | None = None
 
     # ── the record ──
 
@@ -243,7 +251,9 @@ class Conversation:
         and the app's note (keep: what it already shows stays after them, a notice from
         startup); Claude hears when its last message was."""
         hub = self.hub
-        entries = await asyncio.to_thread(past.entries, sid, None, get_messages=self.get_messages)
+        entries = await asyncio.to_thread(
+            past.entries, sid, None, get_messages=self.get_messages, until=self.until(sid)
+        )
         last = int(getattr(info, "last_modified", 0) or 0)
         when = datetime.fromtimestamp(last / 1000) if last else None
         kept = list(hub.history) if keep else []
@@ -258,6 +268,24 @@ class Conversation:
             )
         title = self._title_of(sid, info)
         self.resumed = {"title": title, "at": when.isoformat(timespec="seconds") if when else ""}
+
+    def until(self, sid: str) -> str:
+        """Where a branch not yet spoken in carries sid on from ("" for all of it): what of
+        it is shown, and what Claude has."""
+        branch = self.state.branch
+        if branch and not branch["fresh"] and branch["source"] == sid:
+            return branch["at"]
+        return ""
+
+    def pending_branch(self) -> bool:
+        """The conversation under way is a branch that hasn't spoken yet: it has no session
+        of its own, and its source isn't the one being spoken in."""
+        branch = self.state.branch
+        return (
+            bool(branch)
+            and not self.hub.incognito
+            and (branch["fresh"] or branch["source"] == self.hub._session_id)
+        )
 
     def _title_of(self, sid: str, info: Any) -> str:
         return (
@@ -311,7 +339,7 @@ class Conversation:
         if hub.incognito:  # carrying one on would end it: the owner leaves it first
             self._toast(self._say("Leave incognito to carry on a past conversation."))
             return
-        if sid == hub._session_id:
+        if sid == hub._session_id and not self.pending_branch():
             self._toast(self._say("That's the conversation you're in."))
             return
         info = await asyncio.to_thread(past.exists, sid, None, get_info=self.get_info)
@@ -334,6 +362,7 @@ class Conversation:
             return
         async with hub._lock:  # after the request being answered, never in the middle of it
             was, reads = hub._session_id, hub._session_reads
+            self.state.branch = None  # a branch not yet spoken in is left for this one
             with contextlib.suppress(Exception):
                 await hub.client.disconnect()
             try:
@@ -383,11 +412,26 @@ class Conversation:
             except Exception:  # the brain's index is being rebuilt: titles alone
                 hits = []
             items = past.matching(items, query, _brain_ids(hits))
-        current = hub._session_id
+        current = "" if self.pending_branch() else hub._session_id
+        titles = {i["session_id"]: i["title"] for i in items}
+        rewound = self.state.rewound()
         shown = []
         for item in items[:LISTED]:
             sid = item["session_id"]
-            shown.append({**item, "current": sid == current, "cost": self.state.cost_of(sid)})
+            parent, relation = self.state.relation_of(sid)
+            shown.append(
+                {
+                    **item,
+                    "current": sid == current,
+                    "cost": self.state.cost_of(sid),
+                    "relation": relation,
+                    "parent": parent,
+                    "parent_title": (titles.get(parent) or self.state.titles().get(parent, ""))
+                    if parent
+                    else "",
+                    "rewound": sid in rewound,
+                }
+            )
         hub.emit("conversation_list", q=query, seq=str(msg.get("seq") or "")[:40], items=shown)
 
     async def open_past(self, msg: dict[str, Any]) -> None:
@@ -395,12 +439,20 @@ class Conversation:
         sid = valid_id(msg.get("session_id"))
         if not sid:
             return
-        entries = await asyncio.to_thread(past.entries, sid, None, get_messages=self.get_messages)
+        # live: the window asked for the conversation under way ("This conversation"), a
+        # branch not yet spoken in as far as it goes; from the list, a session as it is.
+        live = msg.get("live") is True and sid == hub._session_id and not hub.incognito
+        current = live or (sid == hub._session_id and not self.pending_branch())
+        until = self.until(sid) if live else ""
+        entries = await asyncio.to_thread(
+            past.entries, sid, None, get_messages=self.get_messages, until=until
+        )
         hub.emit(
             "conversation_transcript",
             session_id=sid,
             title=self.state.titles().get(sid, ""),
-            current=sid == hub._session_id,
+            current=current,
+            live=live,
             entries=entries or [],
             error="" if entries is not None else "unreadable",
         )
@@ -725,6 +777,8 @@ class Conversation:
         if total is None:
             return 0.0
         before = self.state.cost_of(sid)
+        if self.cost_base is not None:  # a branch's first turn: its source's total before it
+            before, self.cost_base = max(before, self.cost_base), None
         if self._conn_total is None:
             turn = total - before if total >= before else total
         else:
@@ -766,6 +820,10 @@ class Conversation:
             "incognito": hub.incognito,
             "session_id": sid,
             "title": self.state.titles().get(sid, "") if sid and not hub.incognito else "",
+            # A rewind or a fork that hasn't been spoken in yet ("" when none).
+            "branch": (self.state.branch or {}).get("relation", "")
+            if self.pending_branch()
+            else "",
             "cost": self._cost(),
         }
 
