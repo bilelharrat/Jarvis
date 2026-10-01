@@ -9,6 +9,7 @@ struct TodayView: View {
     @Binding var showSettings: Bool
     let open: (Destination) -> Void
     @State private var today = TodayData()
+    private var headsUp: HeadsUpCenter { .shared }
 
     var body: some View {
         NavigationStack {
@@ -16,6 +17,9 @@ struct TodayView: View {
                 VStack(spacing: Space.m) {
                     if !model.visibleApprovals.isEmpty {
                         needsYou
+                    }
+                    if !headsUp.items.isEmpty {
+                        headsUpCard
                     }
                     weatherCard
                     calendarCard
@@ -40,9 +44,13 @@ struct TodayView: View {
             }
             .refreshable {
                 await today.load(macWeather: model.remote?.weather)
+                await headsUp.refresh()
                 await model.refresh()
             }
-            .task { await today.load(macWeather: model.remote?.weather) }
+            .task {
+                await today.load(macWeather: model.remote?.weather)
+                await headsUp.refresh()
+            }
         }
     }
 
@@ -136,6 +144,30 @@ struct TodayView: View {
             } else {
                 Text("Nothing else today.")
                     .foregroundStyle(Palette.ink2)
+            }
+        }
+    }
+
+    /// What Jarvis noticed before you asked.
+    private var headsUpCard: some View {
+        card(header: "Heads-Up", symbol: "sparkles") {
+            VStack(alignment: .leading, spacing: Space.s) {
+                ForEach(headsUp.items.prefix(4)) { item in
+                    HStack(alignment: .top, spacing: Space.s) {
+                        Image(systemName: item.symbol)
+                            .foregroundStyle(item.urgency == .now ? Palette.champagne : Palette.ice)
+                            .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title)
+                                .font(.body.weight(item.urgency == .now ? .semibold : .regular))
+                                .foregroundStyle(Palette.ink)
+                            Text(item.detail)
+                                .font(.footnote)
+                                .foregroundStyle(Palette.ink2)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
             }
         }
     }

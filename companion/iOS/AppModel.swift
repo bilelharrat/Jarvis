@@ -115,6 +115,10 @@ final class AppModel {
         wake.onWake = { [weak self] in self?.wakeHeard() }
         wake.onCommand = { [weak self] command in
             Haptics.attention()
+            guard OwnerLock.allows else {  // the iPhone is locked: it may not be the owner
+                self?.voice.speakLocally(OwnerLock.refusal)
+                return
+            }
             Task { await self?.send(command) }
         }
         voice.onFinish = { [weak self] in self?.resumeWakeWord() }
@@ -377,6 +381,7 @@ final class AppModel {
     private func wakeHeard() {
         guard speech.status == .idle, !voice.isPlaying else { return }
         Haptics.attention()
+        guard OwnerLock.allows else { return voice.speakLocally(OwnerLock.refusal) }
         talk()
     }
 

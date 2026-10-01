@@ -29,6 +29,18 @@ when the other fails, and the Mac when both do.
   companion is on (`jarvis.companion_wake`), same certificate and token. The app shows
   "Opening JARVIS on your Mac…" and what waited in the outbox goes once it answers; Siri
   waits up to 15 s and then asks. A Mac that's asleep or off can't be opened this way.
+- **Learning and judgement** (Jarvis on iPhone): memory sorted into facts, preferences,
+  people, goals and corrections (kept last; the prompt says to save every correction at once),
+  and which contact a short name means ("Ann" → Ann Lee), learned when the owner picks one
+  (`remember_person`, or asking again by the fuller name). Settings › Library › Memory shows
+  and forgets them.
+- **Heads-ups** (`Services/HeadsUp.swift`): from the iPhone's calendar, reminders and Maps,
+  no model calls: when to leave, clashes, back-to-back runs, an early start tomorrow,
+  reminders slipping. On Today; only leaving and a clash within two hours become
+  notifications (switch in Settings), also from background refresh.
+- **Only answer when unlocked** (`OwnerLock`): iOS has no speaker recognition for apps, so
+  with this on Siri, Vocal Shortcuts and "Hey Jarvis" answer only after Face ID or the
+  passcode; Stop always works.
 - **Watch** (`Watch/`): gets the Mac's address, token and certificate fingerprint from the
   iPhone over WatchConnectivity, then talks to the Mac on its own. Reactor → dictation →
   reply, spoken (Digital Crown scrolls, haptic on reply), big Allow / Deny approvals and

@@ -254,3 +254,60 @@ private struct FakeClient: BrainClient {
         return ClaudeClient.Response(content: [["type": "text", "text": .string(text)]], stopReason: "end_turn")
     }
 }
+
+/// What Jarvis on the iPhone learns: facts by kind, corrections it keeps, names it resolves.
+@MainActor
+final class MemoryTests: XCTestCase {
+    private func folder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func testFactsKeptBeforeKindsStillLoadAsFacts() throws {
+        let dir = try folder()
+        try Data(#"[{"id":"7A1C1A52-8D1F-4E0E-9C2A-1B2C3D4E5F60","text":"Takes coffee black","date":0}]"#.utf8)
+            .write(to: dir.appendingPathComponent("phone-memory.json"))
+        let memory = LocalMemory(folder: dir)
+        XCTAssertEqual(memory.facts.map(\.text), ["Takes coffee black"])
+        XCTAssertEqual(memory.facts.first?.category, .fact)
+    }
+
+    func testTheMemoryGoesIntoThePromptByKindWithWhoNamesMean() throws {
+        let memory = LocalMemory(folder: try folder())
+        memory.add("Takes coffee black", kind: .preference)
+        memory.add("Run a half marathon in March", kind: .goal)
+        memory.add("Don't book flights before 8am", kind: .correction)
+        memory.learn("Ann", contactID: "c-1", name: "Ann Lee")
+        let prompt = memory.prompt
+        XCTAssertTrue(prompt.contains("How the owner likes things:\n- Takes coffee black"))
+        XCTAssertTrue(prompt.contains("The owner's goals:\n- Run a half marathon in March"))
+        XCTAssertTrue(prompt.contains("never repeat these mistakes):\n- Don't book flights before 8am"))
+        XCTAssertTrue(prompt.contains("\"ann\" means Ann Lee"))
+
+        let reloaded = LocalMemory(folder: memory.folderForTests)
+        XCTAssertEqual(reloaded.person("ANN ")?.name, "Ann Lee")
+        XCTAssertEqual(reloaded.facts.count, 3)
+    }
+
+    func testANameLearnsWhoItMeansAndCanBeForgotten() throws {
+        let memory = LocalMemory(folder: try folder())
+        memory.learn("Ann", contactID: "c-1", name: "Ann Lee")
+        memory.learn("ann", contactID: "c-1", name: "Ann Lee")
+        XCTAssertEqual(memory.person("Ann")?.uses, 2)
+        memory.learn("Ann", contactID: "c-2", name: "Ann Park")  // the owner said otherwise
+        XCTAssertEqual(memory.person("Ann")?.name, "Ann Park")
+        XCTAssertEqual(memory.person("Ann")?.uses, 1)
+        memory.forgetPerson("Ann")
+        XCTAssertNil(memory.person("Ann"))
+    }
+
+    func testCorrectionsAreTheLastToGo() throws {
+        let memory = LocalMemory(folder: try folder())
+        memory.add("Never call before 9", kind: .correction)
+        for n in 0..<300 { memory.add("Fact \(n)") }
+        XCTAssertEqual(memory.facts.count, 300)
+        XCTAssertTrue(memory.facts.contains { $0.text == "Never call before 9" })
+        XCTAssertFalse(memory.facts.contains { $0.text == "Fact 0" })
+    }
+}

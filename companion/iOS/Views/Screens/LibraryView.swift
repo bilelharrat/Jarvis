@@ -124,10 +124,13 @@ struct OutboxList: View {
     }
 }
 
-/// The facts Jarvis on the iPhone keeps about you; swipe to forget one.
+/// What Jarvis on the iPhone keeps about you, by kind, and who your short names mean;
+/// swipe to forget one.
 struct PhoneMemoryView: View {
     @State private var facts = LocalMemory.shared.facts
+    @State private var people = LocalMemory.shared.people
     @State private var adding = ""
+    @State private var kind = LocalMemory.Fact.Kind.fact
 
     var body: some View {
         GlassList {
@@ -139,25 +142,50 @@ struct PhoneMemoryView: View {
                     Button("Add", action: add)
                         .disabled(adding.trimmed.isEmpty)
                 }
+                Picker("Kind", selection: $kind) {
+                    ForEach(LocalMemory.Fact.Kind.allCases, id: \.self) { kind in
+                        Text(kind.label).tag(kind)
+                    }
+                }
             } footer: {
-                Text("Jarvis on this iPhone also remembers what you tell it to (“remember that I take my coffee black”). Kept on this iPhone only.")
+                Text("Jarvis on this iPhone also remembers on its own: what you tell it to, your preferences and goals, the people who matter to you, and every correction, so you never have to say it twice. Kept on this iPhone only.")
             }
-            if !facts.isEmpty {
-                Section("Remembered") {
-                    ForEach(facts.reversed()) { fact in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(fact.text)
-                            Text(fact.date.formatted(date: .abbreviated, time: .omitted))
-                                .font(.caption)
-                                .foregroundStyle(Palette.muted)
-                        }
-                        .swipeActions {
-                            Button("Forget", role: .destructive) {
-                                LocalMemory.shared.remove(fact)
-                                facts = LocalMemory.shared.facts
+            ForEach(LocalMemory.Fact.Kind.allCases, id: \.self) { kind in
+                let shown = facts.filter { $0.category == kind }
+                if !shown.isEmpty {
+                    Section(kind.label) {
+                        ForEach(shown.reversed()) { fact in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(fact.text)
+                                Text(fact.date.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption)
+                                    .foregroundStyle(Palette.muted)
+                            }
+                            .swipeActions {
+                                Button("Forget", role: .destructive) {
+                                    LocalMemory.shared.remove(fact)
+                                    facts = LocalMemory.shared.facts
+                                }
                             }
                         }
                     }
+                }
+            }
+            if !people.isEmpty {
+                Section {
+                    ForEach(people.sorted { $0.key < $1.key }, id: \.key) { name, person in
+                        LabeledContent("“\(name.capitalized)”", value: person.name)
+                            .swipeActions {
+                                Button("Forget", role: .destructive) {
+                                    LocalMemory.shared.forgetPerson(name)
+                                    people = LocalMemory.shared.people
+                                }
+                            }
+                    }
+                } header: {
+                    Text("Who You Mean")
+                } footer: {
+                    Text("Learned the first time you said which one, so “call Ann” needs no question.")
                 }
             }
         }
@@ -168,7 +196,7 @@ struct PhoneMemoryView: View {
     private func add() {
         let text = adding.trimmed
         guard !text.isEmpty else { return }
-        LocalMemory.shared.add(text)
+        LocalMemory.shared.add(text, kind: kind)
         facts = LocalMemory.shared.facts
         adding = ""
     }

@@ -8,6 +8,8 @@ struct PhoneBrainSettings: View {
     @AppStorage(BrainProvider.claude.modelKey) private var claudeModel = BrainProvider.claude.defaultModel
     @AppStorage(BrainProvider.gemini.modelKey) private var geminiModel = BrainProvider.gemini.defaultModel
     @AppStorage("brain.address") private var address = ""
+    @AppStorage(HeadsUpCenter.notifyKey) private var headsUpNotify = true
+    @AppStorage(OwnerLock.key) private var ownerOnly = false
 
     var body: some View {
         Section {
@@ -42,6 +44,28 @@ struct PhoneBrainSettings: View {
                 TextField("What Jarvis calls you (optional)", text: $address)
                     .submitLabel(.done)
             }
+            Toggle(isOn: $headsUpNotify) {
+                HStack(spacing: Space.s) {
+                    IconTile(symbol: "sparkles", tint: .yellow)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Heads-Ups When It Matters")
+                        Text("When to leave, clashes about to happen")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.muted)
+                    }
+                }
+            }
+            Toggle(isOn: $ownerOnly) {
+                HStack(spacing: Space.s) {
+                    IconTile(symbol: "faceid", tint: .green)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Only Answer When Unlocked")
+                        Text("Face ID first, so only you can ask")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.muted)
+                    }
+                }
+            }
         } header: {
             Text("Jarvis on iPhone")
         } footer: {
@@ -64,8 +88,9 @@ struct PhoneBrainSettings: View {
 
     private var footer: String {
         let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
-        guard model.pairing != nil else { return keys }
-        return keys + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Jarvis Code) to the Mac, opening JARVIS there if it was quit. Without a key, or when both services fail, your Mac answers."
+        let more = " Heads-ups: Jarvis looks ahead at your calendar and reminders and tells you on Today; it only interrupts you (a notification) for what can't wait. Only Answer When Unlocked: Siri, Vocal Shortcuts and “Hey Jarvis” answer only once Face ID or your passcode has unlocked this iPhone (iOS doesn’t let apps recognise a voice, so this is how Jarvis knows it’s you)."
+        guard model.pairing != nil else { return keys + more }
+        return keys + more + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Jarvis Code) to the Mac, opening JARVIS there if it was quit. Without a key, or when both services fail, your Mac answers."
     }
 }
 

@@ -174,6 +174,7 @@
 		8CCE61BB46696C967EBEB654 /* ShareModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D4DBC4B2E981A3EB110F53 /* ShareModel.swift */; };
 		8D0D513FF9B76B06F6B17A87 /* PhoneWatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9350356CCD0A6C3FA4A3865 /* PhoneWatchBridge.swift */; };
 		8D5182A09DE3D94B190424E9 /* switches.json in Resources */ = {isa = PBXBuildFile; fileRef = 42088B2A1308DBD79B7FA57A /* switches.json */; };
+		8D9D0A0B5D8D869445626BCA /* HeadsUpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A7B89F01209381E1445CBA0 /* HeadsUpTests.swift */; };
 		8E0D4CEC6D14A27FD7B68DDB /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
 		8E35476EDCAD16551E652189 /* ClaudeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86136E46B1FF192F92CF4A92 /* ClaudeClient.swift */; };
 		8EB5C47855C4FD630CECA611 /* ask_needs_ok.json in Resources */ = {isa = PBXBuildFile; fileRef = D8ABDBDD45E2FE4956AD00E7 /* ask_needs_ok.json */; };
@@ -184,6 +185,7 @@
 		917F6165DE0AE2A461EC0271 /* MacFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348DE8B0CC6624CF8E182048 /* MacFeature.swift */; };
 		91E2D506B33EBFB9817CE656 /* error_reminder_bad_due.json in Resources */ = {isa = PBXBuildFile; fileRef = DDE6E76D0A3C94862D4DB79D /* error_reminder_bad_due.json */; };
 		9252C93FA523F8D96354F38C /* journal.json in Resources */ = {isa = PBXBuildFile; fileRef = 68591116B8C64D0BF11087FA /* journal.json */; };
+		9372B0C0CC954AFE5D3C6E1F /* HeadsUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD49742A197EED317DEC04F /* HeadsUp.swift */; };
 		939BC155BB7255E44BB2206A /* code_send.json in Resources */ = {isa = PBXBuildFile; fileRef = 46EBCE3FF75B2711CBEC749C /* code_send.json */; };
 		941BA50A4EFCCACBD219F5D6 /* JarvisCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B478E423B94A7981AC6C870A /* JarvisCompanionApp.swift */; };
 		9629108C0AD211ED545AFECF /* PhoneTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8507B5BC74A2BC5278F2F939 /* PhoneTools.swift */; };
@@ -207,6 +209,7 @@
 		AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		AFBEDA7548ED40DFE02C6BB4 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6465A8EA614143D01D94BA /* JSONValue.swift */; };
 		B030F9606EC25C463D82DF34 /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
+		B04CBB752A17D07C427A5A21 /* OwnerLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EBC96F0D0F57C38195E422E /* OwnerLock.swift */; };
 		B144DA7012706010F4FA5600 /* code_sessions.json in Resources */ = {isa = PBXBuildFile; fileRef = 9E54BE6C746D5E1591E665F3 /* code_sessions.json */; };
 		B1B77E9C8F769C154B59CBF2 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		B2CA2A3E416DA6C4554DDD8E /* WatchVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F2A276BE7B399C037C9AC0 /* WatchVoice.swift */; };
@@ -428,13 +431,16 @@
 		2B3A64C12B3C7549AD78C81E /* health.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = health.json; sourceTree = "<group>"; };
 		2D984CF352FF09F993960BEF /* RoutineEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineEditTests.swift; sourceTree = "<group>"; };
 		2E539CF9A09919A62CDFC802 /* WidgetSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshotTests.swift; sourceTree = "<group>"; };
+		2EBC96F0D0F57C38195E422E /* OwnerLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnerLock.swift; sourceTree = "<group>"; };
 		305956617E37433F8E208BF2 /* MacFeatureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFeatureView.swift; sourceTree = "<group>"; };
 		33D4DBC4B2E981A3EB110F53 /* ShareModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareModel.swift; sourceTree = "<group>"; };
 		348DE8B0CC6624CF8E182048 /* MacFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFeature.swift; sourceTree = "<group>"; };
 		3998F6FC21B1867BF767C10D /* JarvisCompanionWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisCompanionWatch.entitlements; sourceTree = "<group>"; };
+		3A7B89F01209381E1445CBA0 /* HeadsUpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadsUpTests.swift; sourceTree = "<group>"; };
 		3C375E2F06BF968C2A1E1BE4 /* error_too_big.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_too_big.json; sourceTree = "<group>"; };
 		3C6887B1353130247F7BA4A8 /* error_no_routine.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_no_routine.json; sourceTree = "<group>"; };
 		3CC9FC3A347981447B741F51 /* task_stop.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = task_stop.json; sourceTree = "<group>"; };
+		3CD49742A197EED317DEC04F /* HeadsUp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadsUp.swift; sourceTree = "<group>"; };
 		3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxTests.swift; sourceTree = "<group>"; };
 		3E2D5B4892F9C5013D6940AD /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
 		418C987D4F3C55B2D7BA96A9 /* journal_item.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = journal_item.json; sourceTree = "<group>"; };
@@ -641,10 +647,12 @@
 				D641D1C0008A03FABA3BC582 /* BackgroundRefresh.swift */,
 				F43E3B2A670E93A54FE1B823 /* BonjourBrowser.swift */,
 				2A5BA93B90B959C3CD804B40 /* Haptics.swift */,
+				3CD49742A197EED317DEC04F /* HeadsUp.swift */,
 				EC82454FE7ABFCAFBA3F2BCE /* HealthService.swift */,
 				6ECA27370A798BC1A1141CC2 /* JarvisVoice.swift */,
 				95F6D20BB76C3AE137642500 /* LiveActivities.swift */,
 				BBBD2E8765035CE5BCB10B3F /* LocationService.swift */,
+				2EBC96F0D0F57C38195E422E /* OwnerLock.swift */,
 				94F8FBF4AE7E22196B838F69 /* PhoneSensors.swift */,
 				C9350356CCD0A6C3FA4A3865 /* PhoneWatchBridge.swift */,
 				95A98DD2F394C6BC77B42ADA /* PushCoordinator.swift */,
@@ -829,6 +837,7 @@
 				A3A2333A360287AAA2927BBE /* CompanionTests.swift */,
 				66EEDDDCF2CFC7A260E78903 /* ContractFixtureTests.swift */,
 				1026D031A91343564AB99990 /* ContractTests.swift */,
+				3A7B89F01209381E1445CBA0 /* HeadsUpTests.swift */,
 				1A940FE619E3F9608364A41E /* IntentTests.swift */,
 				9DB3F292D439ABFFD2304B18 /* LiveActivityTests.swift */,
 				7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */,
@@ -1468,6 +1477,7 @@
 				12C35BD9D520A9F7002A58C7 /* DigestView.swift in Sources */,
 				1F1F5F2781464592F7CE7B3A /* GeminiClient.swift in Sources */,
 				7A87977425D352C74CCB318E /* Haptics.swift in Sources */,
+				9372B0C0CC954AFE5D3C6E1F /* HeadsUp.swift in Sources */,
 				D2978612301218CE4FC7F114 /* HealthService.swift in Sources */,
 				C7F2B0B294DEE5B12D72D4A9 /* IntentRunner.swift in Sources */,
 				B639CB99D62187E7E7DB4398 /* JSONValue.swift in Sources */,
@@ -1491,6 +1501,7 @@
 				BED3476AF4C62D76C3E3F852 /* NotificationActions.swift in Sources */,
 				1A408249BA46C3330C48ADAF /* Outbox.swift in Sources */,
 				802B1721CF8D48B7DF72A12F /* OutboxSheet.swift in Sources */,
+				B04CBB752A17D07C427A5A21 /* OwnerLock.swift in Sources */,
 				656D9209B4D4CCB3CC14F1F7 /* PairingLink.swift in Sources */,
 				B6642ACEF5C7EA82E6CFA27F /* PairingStore.swift in Sources */,
 				F175E0A05CBB0A7433D534A5 /* PairingView.swift in Sources */,
@@ -1538,6 +1549,7 @@
 				BF7F42EB13E252E34C1812B1 /* CompanionTests.swift in Sources */,
 				032E1ACF87B357B8015FBFA4 /* ContractFixtureTests.swift in Sources */,
 				A905455D985AF33F8E9A16DF /* ContractTests.swift in Sources */,
+				8D9D0A0B5D8D869445626BCA /* HeadsUpTests.swift in Sources */,
 				B928340AF5498A79F4346FA4 /* IntentTests.swift in Sources */,
 				2AE5DCF5BF766A7F7680DA59 /* LiveActivityTests.swift in Sources */,
 				5AD99594B7214E63138CD7EC /* NotificationTests.swift in Sources */,

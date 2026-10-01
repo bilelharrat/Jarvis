@@ -19,6 +19,7 @@ enum BackgroundRefresh {
     static func run() async {
         guard !TestHost.isRunningUnitTests else { return }  // the test host stays still
         schedule()
+        await HeadsUpCenter.shared.refresh(foreground: false)  // when to leave, clashes: notified if it matters
         guard let pairing = PairingStore.load(), pairing.isPinned else { return }
         do {
             let state = try await pairing.api.state()

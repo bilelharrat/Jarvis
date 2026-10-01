@@ -19,6 +19,7 @@ struct AskJarvisIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
+        guard await OwnerLock.allows else { return .result(value: OwnerLock.refusal, dialog: "\(OwnerLock.refusal)") }
         let reply = await IntentRunner.ask(request, client: .live(), local: IntentRunner.phoneAnswer)
         return .result(value: reply, dialog: "\(reply)")
     }
@@ -37,6 +38,9 @@ struct JarvisHandsFreeIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog & ShowsSnippetView {
+        guard OwnerLock.allows else {
+            return .result(value: OwnerLock.refusal, dialog: "\(OwnerLock.refusal)", view: ReplySnippet(text: OwnerLock.refusal))
+        }
         let reply = await IntentRunner.ask(request, client: .live(), local: IntentRunner.phoneAnswer)
         let mac = PairingStore.load().flatMap { $0.isPinned ? $0.api : nil }
         if let clips = await JarvisVoice.clips(for: reply, mac: mac) {
@@ -68,6 +72,7 @@ struct BriefMeIntent: AppIntent {
     static let description = IntentDescription("Your briefing from Jarvis: the day ahead, and what needs you.")
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
+        guard await OwnerLock.allows else { return .result(value: OwnerLock.refusal, dialog: "\(OwnerLock.refusal)") }
         let briefing = await IntentRunner.brief(client: .live(), local: IntentRunner.phoneAnswer)
         return .result(value: briefing, dialog: "\(briefing)")
     }
@@ -78,6 +83,7 @@ struct WhatDidIMissIntent: AppIntent {
     static let description = IntentDescription("Texts, emails and calls from the last day, as Jarvis summarized them.")
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
+        guard await OwnerLock.allows else { return .result(value: OwnerLock.refusal, dialog: "\(OwnerLock.refusal)") }
         let digest = await IntentRunner.whatDidIMiss(client: .live())
         return .result(value: digest, dialog: "\(digest)")
     }

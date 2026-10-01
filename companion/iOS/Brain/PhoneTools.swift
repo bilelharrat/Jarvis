@@ -34,6 +34,8 @@ final class PhoneTools {
     private(set) var actions: [PhoneAction] = []
     /// Reaches the Mac for what only the Mac can do; nil when there's no Mac.
     var mac: JarvisAPI?
+    /// Names that matched several contacts lately, waiting to learn which one was meant.
+    private var ambiguous: Set<String> = []
 
     private let events = EKEventStore()
     private let locator = Locator()
@@ -98,9 +100,14 @@ final class PhoneTools {
                 "on": prop("boolean", "For set_power: on (true) or off (false)."),
             ], required: ["action"]),
             tool("health_today", "The owner's activity from Apple Health: today so far and yesterday (steps, sleep, resting heart rate, workouts).", [:]),
-            tool("remember", "Saves a fact about the owner to remember in later conversations.", [
-                "fact": prop("string", "The fact, in a short sentence."),
+            tool("remember", "Saves something about the owner for later conversations: a fact, a preference, a person who matters to them, a goal, or a correction they made (so the mistake never happens again).", [
+                "fact": prop("string", "What to remember, in one short sentence."),
+                "kind": prop("string", "fact, preference, person, goal or correction. Defaults to fact."),
             ], required: ["fact"]),
+            tool("remember_person", "Remembers which contact the owner means by a name (\"Ann\" is Ann Lee), after they've said which, so that name means that person from then on.", [
+                "name": prop("string", "The name as the owner says it, e.g. Ann."),
+                "contact": prop("string", "The contact's full name as in Contacts, e.g. Ann Lee."),
+            ], required: ["name", "contact"]),
             tool("forget", "Forgets a remembered fact, by the words in it.", [
                 "words": prop("string", "Words from the fact."),
             ], required: ["words"]),
@@ -196,8 +203,19 @@ final class PhoneTools {
         case "home": return try await home.perform(action: try need("action"), name: string("name"), on: input["on"]?.boolValue)
         case "health_today": return try await health()
         case "remember":
-            LocalMemory.shared.add(try need("fact"))
+            let kind = string("kind").flatMap { LocalMemory.Fact.Kind(rawValue: $0.lowercased()) } ?? .fact
+            LocalMemory.shared.add(try need("fact"), kind: kind)
             return "Remembered."
+        case "remember_person":
+            let spoken = try need("name")
+            let full = try need("contact")
+            let matches = try await contacts(named: full)
+            guard let contact = matches.first(where: { Self.fullName($0).caseInsensitiveCompare(full) == .orderedSame }) ?? matches.first else {
+                throw ToolProblem(message: "No contact matches \(full).")
+            }
+            LocalMemory.shared.learn(spoken, contactID: contact.identifier, name: Self.fullName(contact))
+            ambiguous.remove(LocalMemory.key(spoken))
+            return "From now on, \(spoken) means \(Self.fullName(contact))."
         case "forget":
             let removed = LocalMemory.shared.forget(matching: try need("words"))
             return removed == 0 ? "Nothing remembered matched that." : "Forgot \(removed) fact\(removed == 1 ? "" : "s")."
@@ -348,12 +366,47 @@ final class PhoneTools {
     private func findContact(_ name: String) async throws -> String {
         let found = try await contacts(named: name)
         guard !found.isEmpty else { return "No contact matches \(name)." }
-        return found.prefix(5).map { contact in
-            let full = [contact.givenName, contact.familyName].filter { !$0.isEmpty }.joined(separator: " ")
+        let known = LocalMemory.shared.person(name)
+        let listed = found.prefix(5).map { contact in
+            let full = Self.fullName(contact)
             let phones = contact.phoneNumbers.map { "\(CNLabeledValue<CNPhoneNumber>.localizedString(forLabel: $0.label ?? "")): \($0.value.stringValue)" }
             let emails = contact.emailAddresses.map { $0.value as String }
-            return ([full.isEmpty ? contact.organizationName : full] + phones + emails).joined(separator: "; ")
+            let usual = known?.contactID == contact.identifier ? " (the one the owner means by \(name))" : ""
+            return ([full + usual] + phones + emails).joined(separator: "; ")
         }.joined(separator: "\n")
+        return listed
+    }
+
+    static func fullName(_ contact: CNContact) -> String {
+        let full = [contact.givenName, contact.familyName].filter { !$0.isEmpty }.joined(separator: " ")
+        return full.isEmpty ? contact.organizationName : full
+    }
+
+    /// Which contact a name means: the one the owner meant by it before, else the only one.
+    /// Several and none learned: the tool says who they are, so Jarvis can pick from context
+    /// or ask, and the name is learned once the choice is made.
+    private func contact(for who: String) async throws -> CNContact {
+        let found = try await contacts(named: who)
+        guard !found.isEmpty else {
+            throw ToolProblem(message: "No contact matches \(who). Ask the owner for the number or address.")
+        }
+        let key = LocalMemory.key(who)
+        if let known = LocalMemory.shared.person(who), let match = found.first(where: { $0.identifier == known.contactID }) {
+            LocalMemory.shared.learn(who, contactID: match.identifier, name: Self.fullName(match))
+            return match
+        }
+        if found.count == 1 {
+            let only = found[0]
+            // Asked by a fuller name after a short one was unclear ("Ann" → "Ann Lee"): learn it.
+            for short in ambiguous where key.hasPrefix(short) || LocalMemory.key(only.givenName) == short || LocalMemory.key(only.nickname) == short {
+                LocalMemory.shared.learn(short, contactID: only.identifier, name: Self.fullName(only))
+                ambiguous.remove(short)
+            }
+            return only
+        }
+        ambiguous.insert(key)
+        let names = found.prefix(5).map(Self.fullName).joined(separator: ", ")
+        throw ToolProblem(message: "Several contacts match \(who): \(names). Pick the one the context points to (people they've mentioned, today's calendar) or ask which one, briefly; then use the full name and call remember_person.")
     }
 
     /// A number or address as given, or the contact's first one.
@@ -361,9 +414,7 @@ final class PhoneTools {
         let digits = who.filter { $0.isNumber || $0 == "+" }
         if wantsPhone, digits.count >= 6 { return who }
         if who.contains("@") { return who }
-        guard let contact = try await contacts(named: who).first else {
-            throw ToolProblem(message: "No contact matches \(who). Ask the owner for the number or address.")
-        }
+        let contact = try await contact(for: who)
         if wantsPhone, let phone = contact.phoneNumbers.first?.value.stringValue { return phone }
         if let email = contact.emailAddresses.first?.value as String? { return email }
         if let phone = contact.phoneNumbers.first?.value.stringValue { return phone }
