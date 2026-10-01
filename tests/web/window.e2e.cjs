@@ -7492,6 +7492,90 @@ test('Browser AI shows a notice on a page whose text talks to an AI, as data, un
   assert(await js('!!document.querySelector("#bai-strip .bai-flag")'), 'the other page has no notice');
 });
 
+// ── Jarvis Code's design match, masked secrets and video proof (code-design.js, code-secrets.js, code-video.js) ──
+
+test('A secret card takes the value in a masked field, sends it once, keeps it nowhere', async () => {
+  await featureScript('code-secrets.js');
+  await open(1);
+  const VALUE = ['made', 'up', '9137', 'value'].join('-');
+  await deliver({ type: 'task_log', id: 1, entry: { n: 5, role: 'secret', text: 'Jarvis Code asks for a secret: $SECRET_STRIPE_KEY.', ask: 'a1b2', name: 'SECRET_STRIPE_KEY',
+    why: '<img src=x onerror="window.__pwned=1"> to test payments', state: 'waiting', project: 'alpha' } });
+  await frames(2);
+  const r = await js(`(() => { const li = document.querySelector('#deck-timeline .sec-card'); const input = li.querySelector('input.sec-input');
+    return { type: input.type, auto: input.autocomplete, text: li.textContent, imgs: li.querySelectorAll('img').length, pwned: !!window.__pwned,
+      radios: [...li.querySelectorAll('input[type=radio]')].map((x) => x.value + (x.checked ? '*' : '')) }; })()`);
+  assert(r.type === 'password' && r.auto === 'new-password' && r.imgs === 0 && !r.pwned, JSON.stringify(r));
+  assert(r.text.includes('$SECRET_STRIPE_KEY') && r.text.includes('<img src=x') && r.radios.join() === 'session*,project', JSON.stringify(r));
+  // Too short: said on the card, nothing sent.
+  await js(`(() => { const i = document.querySelector('.sec-card input.sec-input'); i.value = 'ab'; document.querySelector('.sec-card .sec-save').click(); return true; })()`);
+  assert((await sentOf('sec_answer')).length === 0, 'a too-short value was sent');
+  assert(await js('!document.querySelector(".sec-card .sec-error").hidden'), 'no error on the card');
+  await js(`(() => { const i = document.querySelector('.sec-card input.sec-input'); i.value = ${JSON.stringify(VALUE)};
+    document.querySelector('.sec-card input[value=project]').checked = true; document.querySelector('.sec-card .sec-save').click(); return true; })()`);
+  const answers = await sentOf('sec_answer');
+  assert(answers.length === 1 && answers[0].value === VALUE && answers[0].scope === 'project' && answers[0].ask === 'a1b2', JSON.stringify(answers));
+  assert(await js('document.querySelector(".sec-card input.sec-input").value') === '', 'the field kept the value');
+  await deliver({ type: 'sec_state', id: 1, ask: 'a1b2', state: 'given', scope: 'project' });
+  const after = await js(`(() => { const li = document.querySelector('#deck-timeline .sec-card'); return { form: !!li.querySelector('form'), text: li.textContent, cls: li.className }; })()`);
+  assert(!after.form && after.text.includes('Saved for this project, in the Keychain.') && after.cls.includes('given'), JSON.stringify(after));
+  assert(!(await js(`document.documentElement.outerHTML.includes(${JSON.stringify(VALUE)})`)), 'the value is still in the page');
+  // Decline on another card.
+  await deliver({ type: 'task_log', id: 1, entry: { n: 6, role: 'secret', text: '', ask: 'c3d4', name: 'SECRET_PW', why: '', state: 'waiting' } });
+  await js('__sent.length = 0; true');
+  assert(await clickText('#deck-timeline .sec-card:last-of-type', 'Decline'), 'no Decline');
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'sec_answer', ask: 'c3d4', decline: true }]), JSON.stringify(await js('__sent')));
+});
+
+test('A design comparison shows both pictures three ways, the score’s progression, and refines on a press', async () => {
+  await featureScript('code-design.js');
+  await open(1);
+  const thumb = 'QUJDRA==';
+  await deliver({ type: 'dm_state', id: 1, rounds: 3, refined: 1, compared: 2, scores: [0.62, 0.81], waiting: false, comparing: false });
+  const heat = Array.from({ length: 6 }, (_, i) => i * 50);
+  await deliver({ type: 'task_log', id: 1, entry: { n: 9, role: 'design', text: 'Design match: 81%', status: 'compared', compared: 2, refined: 1, rounds: 3,
+    scores: [0.62, 0.81], score: 0.81, structure: 0.84, colour: 0.74, rows: 2, cols: 3, heat, regions: [['top left', 0.4], ['the centre', 0.12], ['bottom right', 0.01]],
+    url: 'http://localhost:5173/', size: [1440, 900], design_proof: '0123456789abcdef', design_thumb: thumb, render_proof: 'fedcba9876543210', render_thumb: '"><script>', good: false } });
+  await frames(2);
+  let r = await js(`(() => { const li = document.querySelector('#deck-timeline .dm-card');
+    return { text: li.textContent, imgs: [...li.querySelectorAll('.dm-stage img')].map((i) => i.getAttribute('src')), refine: li.querySelector('.dm-refine').textContent,
+      hidden: li.querySelector('.dm-refine').hidden, spark: !!li.querySelector('.dm-spark path') }; })()`);
+  assert(r.text.includes('81%') && r.text.includes('62% → 81%') && r.text.includes('+19 pts') && r.spark, JSON.stringify(r));
+  assert(r.text.includes('top left 40%') && r.text.includes('the centre 12%') && !r.text.includes('bottom right'), JSON.stringify(r));
+  assert(r.imgs[0] === `data:image/jpeg;base64,${thumb}` && r.imgs[1] === '', `a picture that isn't base64 was shown: ${JSON.stringify(r.imgs)}`);
+  assert(r.refine === 'Refine (round 2 of 3)' && !r.hidden, JSON.stringify(r));
+  assert(await clickText('#deck-timeline .dm-card', 'Overlay'), 'no Overlay');
+  r = await js(`(() => { const li = document.querySelector('#deck-timeline .dm-card'); const s = li.querySelector('.dm-slider');
+    s.value = '30'; s.dispatchEvent(new Event('input')); return { clip: li.querySelector('.dm-over').style.clipPath, mode: li.dataset.mode }; })()`);
+  assert(r.mode === 'overlay' && r.clip === 'inset(0px 0px 0px 30%)', JSON.stringify(r));
+  assert(await clickText('#deck-timeline .dm-card', 'Heat-map'), 'no Heat-map');
+  r = await js(`(() => { const c = document.querySelector('#deck-timeline .dm-card .dm-heat-canvas'); const d = c.getContext('2d').getImageData(0, 0, 3, 2).data;
+    return { w: c.width, h: c.height, first: d[3], last: d[23] }; })()`);
+  assert(r.w === 3 && r.h === 2 && r.first === 0 && r.last > 150, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#deck-timeline .dm-card', 'See larger'), 'no See larger');
+  assert(await clickText('#deck-timeline .dm-card', 'Refine (round 2 of 3)'), 'no Refine');
+  const s = await js('__sent');
+  assert(JSON.stringify(s) === JSON.stringify([{ type: 'dm_image', proof: '0123456789abcdef' }, { type: 'dm_image', proof: 'fedcba9876543210' },
+    { type: 'dm_refine', id: 1, compared: 2 }]), JSON.stringify(s));
+  // A newer comparison: this card's Refine goes.
+  await deliver({ type: 'dm_state', id: 1, rounds: 3, refined: 2, compared: 3, scores: [0.62, 0.81, 0.9], waiting: false, comparing: false });
+  assert(await js('document.querySelector("#deck-timeline .dm-card .dm-refine").hidden'), 'an old card still offers Refine');
+});
+
+test('A video proof plays from the window’s own server when its poster is clicked', async () => {
+  await featureScript('code-video.js');
+  await open(1);
+  await deliver({ type: 'task_log', id: 1, entry: { n: 11, role: 'video', text: 'Video proof: 7.9 s', status: 'ok', video: '0123456789abcdef01234567', poster: 'QUJDRA==', seconds: 7.9, url: 'http://localhost:5173/' } });
+  await deliver({ type: 'task_log', id: 1, entry: { n: 12, role: 'video', text: 'Video proof: no app', status: 'problem', why: 'The video is recorded in the J.A.R.V.I.S. app window, and it isn’t open.' } });
+  await frames(2);
+  const before = await js(`(() => { const cards = document.querySelectorAll('#deck-timeline .vp-card'); return { n: cards.length, text: cards[0].textContent, second: cards[1].textContent }; })()`);
+  assert(before.n === 2 && before.text.includes('7.9 s') && before.second.includes('app window'), JSON.stringify(before));
+  expectedErrors = [/code-video/];  // the test server has no video to play
+  await js('document.querySelector("#deck-timeline .vp-poster").click(); true');
+  const src = await js('(document.querySelector("#deck-timeline .vp-card video") || {}).getAttribute ? document.querySelector("#deck-timeline .vp-card video").getAttribute("src") : ""');
+  assert(src === '/f/code-video/0123456789abcdef01234567', `video src: ${src}`);
+});
+
 // ──
 
 // WINDOW_TESTS=<regex> runs only the tests whose names match (a failure, rerun alone);
