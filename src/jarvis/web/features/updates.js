@@ -1,6 +1,6 @@
 // Settings › About: the app's version and, in the J.A.R.V.I.S. people download, Check for
-// updates; when an update has downloaded, a card offers to restart into it (app/features/
-// updates.js is the app's side, which never restarts unasked). In a plain browser, where
+// updates; when an update has downloaded, a card offers to restart into it now (app/features/
+// updates.js is the app's side, which otherwise installs it by itself at a quiet moment). In a plain browser, where
 // there's no app, there's nothing to show.
 (() => {
   // What the group says for the app's state (English; i18n.js translates it as it appears).

@@ -36,6 +36,8 @@ let win = null;
 let backend = null;
 let port = 0;
 let quitting = false;
+let backendFromRepo = false; // uv runs it from the repo (the owner's own install), not the bundle
+let quietRestart = false; // the backend is being restarted on purpose (app/features/follow-repo.js)
 
 // One Jarvis at a time: a second launch (npm start twice, a dev build beside the installed
 // app) brings the running one forward instead of starting a second backend on the same
@@ -133,14 +135,76 @@ function startBackend() {
   // This .app, so a paired iPhone can open it after it's quit (jarvis/companion_wake.py).
   if (app.isPackaged) how.env.JARVIS_APP_BUNDLE = path.resolve(process.execPath, '..', '..', '..');
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''}\n`);
+  backendFromRepo = !how.bundled;
   backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   backend.stdout.pipe(log);
   backend.stderr.pipe(log);
   backend.on('error', (err) => showProblem(`Couldn't start the backend: ${err.message}`));
   backend.on('exit', (code) => {
     backend = null;
-    if (!quitting) restartBackend(code);
+    if (quitting) return;
+    if (quietRestart) {
+      quietRestart = false;
+      reopenBackend();
+      return;
+    }
+    restartBackend(code);
   });
+}
+
+// Back up after a restart on purpose: the window reloads with whatever is new.
+async function reopenBackend() {
+  startBackend();
+  try {
+    await waitForBackend();
+    if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}`);
+  } catch (err) {
+    if (!err.exited) showProblem(`Jarvis couldn't start again: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+  }
+}
+
+// Restarts the backend (onto the repo's newest code); false when there's none running.
+function restartBackendQuietly() {
+  if (!backend) return false;
+  quietRestart = true;
+  backend.kill('SIGTERM');
+  return true;
+}
+
+// Whether the backend has something going that a restart would cut off (/health's busy).
+// Unsure (no answer) counts as busy: nothing is restarted on a guess.
+function backendBusy() {
+  return new Promise((resolve) => {
+    if (!backend || !port) return resolve(true);
+    const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 3000 }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(body).busy !== false); } catch { resolve(true); }
+      });
+    });
+    req.on('error', () => resolve(true));
+    req.on('timeout', () => { req.destroy(); resolve(true); });
+  });
+}
+
+// A quiet update or rebuild reopens the app as it was: hidden when its window was hidden.
+const HIDDEN_MARK = () => path.join(app.getPath('userData'), 'reopen-hidden');
+function relaunchAsItWas() {
+  try {
+    if (win && !win.isDestroyed() && win.isVisible()) fs.rmSync(HIDDEN_MARK(), { force: true });
+    else fs.writeFileSync(HIDDEN_MARK(), String(Date.now()));
+  } catch { /* it just opens as usual */ }
+}
+function reopenHidden() {
+  try {
+    const at = Number(fs.readFileSync(HIDDEN_MARK(), 'utf8'));
+    fs.rmSync(HIDDEN_MARK(), { force: true });
+    return Date.now() - at < 15 * 60_000; // only right after a quiet update
+  } catch {
+    return false;
+  }
 }
 
 // A backend that stops on its own is started again (a few times, a little later each
@@ -223,7 +287,10 @@ function createWindow() {
     // A test window: labelled, never takes focus, and clicks pass through it.
     win.setTitle('J.A.R.V.I.S. (test)');
     win.once('ready-to-show', () => { win.showInactive(); win.setIgnoreMouseEvents(true); });
-  } else win.once('ready-to-show', () => win.show());
+  } else {
+    const hidden = reopenHidden();
+    win.once('ready-to-show', () => { if (!hidden) win.show(); });
+  }
   win.loadFile(path.join(__dirname, 'loading.html'));
 
   // The window only ever shows Jarvis; any other link opens in the browser.
@@ -1245,6 +1312,12 @@ const featureContext = {
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
   backend: () => backend, // the running `jarvis serve` (shell.js waits for it to stop when quitting)
+  backendBusy, // whether a restart now would cut something off (updates.js, follow-repo.js)
+  relaunchAsItWas, // before a quiet update: reopen hidden if the window is hidden
+  backendFromRepo: () => backendFromRepo,
+  restartBackendQuietly,
+  repoHome: () => jarvisHome(),
+  extraPath: EXTRA_PATH,
   // The built-in browser's tabs, for features that work with them (browser-ai.js): the
   // tabs, the one on show while the dock is open, and the page's own menu.
   browser: {

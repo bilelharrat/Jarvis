@@ -28,9 +28,31 @@ def client(settings, quiet_speaker, isolated):
 
 
 def test_page_and_health_are_served(client):
-    assert client.get("/health").json() == {"ok": True}
+    assert client.get("/health").json() == {"ok": True, "busy": False}
     assert "Talk to Jarvis" in client.get("/").text
     assert client.get("/static/app.js").status_code == 200
+
+
+def test_health_says_when_a_restart_would_cut_something_off(settings, quiet_speaker, isolated):
+    # The app's quiet updates wait while JARVIS has something going.
+    hub = Hub(
+        settings,
+        client_factory=FakeClient,
+        speaker=quiet_speaker,
+        transcriber=object(),
+        poll=False,
+        **isolated,
+    )
+    with TestClient(create_app(hub, "s3cret"), base_url=BASE) as c:
+        assert c.get("/health").json()["busy"] is False
+        hub.meeting = object()  # meeting notes running
+        assert c.get("/health").json()["busy"] is True
+        hub.meeting = None
+        hub.state = "speaking"
+        assert c.get("/health").json()["busy"] is True
+        hub.state = "idle"
+        hub.busy = lambda: (_ for _ in ()).throw(RuntimeError("broken"))
+        assert c.get("/health").json()["busy"] is True  # unsure counts as busy
 
 
 def test_window_modules_are_revalidated(client):

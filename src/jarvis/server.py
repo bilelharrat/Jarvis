@@ -101,7 +101,13 @@ def create_app(hub: Hub, token: str) -> Starlette:
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     async def health(_request):
-        return JSONResponse({"ok": True})
+        # busy: whether a restart now would cut something off (the app updates quietly only
+        # when it's false).
+        try:
+            busy = bool(hub.busy())
+        except Exception:
+            busy = True
+        return JSONResponse({"ok": True, "busy": busy})
 
     async def zh_json(_request):
         return JSONResponse(zh_strings(), headers={"Cache-Control": "no-cache"})

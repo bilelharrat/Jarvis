@@ -2001,6 +2001,16 @@ class Hub:
         await self.handle(msg)
         return True
 
+    def busy(self) -> bool:
+        """Something would be lost by a restart right now: a turn, listening or speaking,
+        meeting notes, or a task running or waiting on the owner (the app's quiet updates
+        wait for this to be false)."""
+        if self._lock.locked() or self.state in ("thinking", "speaking", "listening"):
+            return True
+        if self.meeting is not None:
+            return True
+        return any(t.get("status") in ("running", "waiting") for t in self.tasks.public())
+
     def remote_state(self) -> dict[str, Any]:
         return {
             "state": self.state,

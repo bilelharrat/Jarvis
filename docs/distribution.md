@@ -229,18 +229,25 @@ With `JARVIS_UPDATE_URL` set at build time, the feed's address is baked into the
 - `release.json`: Squirrel.Mac's JSON feed, pointing at that zip (next to the feed).
 
 The app (`app/features/updates.js`, Electron's `autoUpdater` with `serverType: 'json'`)
-checks a minute after launch and every 6 hours. It reads the feed itself first and goes on
+checks a minute after launch and every hour. It reads the feed itself first and goes on
 only when the release is newer than the running version (`app/update-feed.js`), so nothing
-older is ever offered; Squirrel then downloads it in the background, and when it's ready the
-window offers to restart (Settings › About, and a card). It never restarts unasked.
+older is ever offered; Squirrel then downloads it in the background. Once it's ready it
+installs itself at a quiet moment: the Mac untouched for ten minutes, the window not in
+front, and nothing going in JARVIS (`/health`'s `busy`: a turn, listening or speaking,
+meeting notes, a task running or waiting). The app reopens as it was, hidden if it was
+hidden. Settings › About's Restart installs it at once; quitting installs it too.
 
 Squirrel.Mac installs an update only if its code signature satisfies the running app's
 designated requirement: the same bundle id, signed by the same Developer ID team
 (9ZSY5R8A5C). That is what keeps anyone else from pushing an update. It can't update a copy
 that isn't in an Applications folder (a translocated one); the app says so instead.
 
-Builds without a feed (`npm run install-app`, `npm start`, `--adhoc` without the variable)
-never look for updates; Settings › About shows the version only.
+Builds without a feed (`npm start`, `--adhoc` without the variable) never look for
+updates; Settings › About shows the version only. The owner's own install (`npm run
+install-app`, backend run from the repo) follows the repo instead (`app/features/
+follow-repo.js`): every five minutes it reads the repo's HEAD, and at a quiet moment after it
+moves the backend restarts on the new code and the window reloads; when `app/` changed too it
+runs `npm run package`, swaps the new app in and reopens it as it was.
 
 ## What a new install gets
 

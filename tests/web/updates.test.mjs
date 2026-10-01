@@ -100,9 +100,10 @@ function squirrel() {
   return s;
 }
 
-function updater({ text = releaseJson('0.2.0'), version = '0.1.0', inApplications = true, url = FEED } = {}) {
+function updater({ text = releaseJson('0.2.0'), version = '0.1.0', inApplications = true, url = FEED, quiet = false } = {}) {
   const auto = squirrel();
   const seen = [];
+  const prepared = [];
   const u = updates.createUpdater({
     version,
     feed: url,
@@ -110,11 +111,38 @@ function updater({ text = releaseJson('0.2.0'), version = '0.1.0', inApplication
     fetchText: async (asked) => { assert.equal(asked, FEED); if (text instanceof Error) throw text; return text; },
     inApplications: () => inApplications,
     onChange: (s) => seen.push(s),
+    isQuiet: async () => (typeof quiet === 'function' ? quiet() : quiet),
+    beforeInstall: () => prepared.push('as it was'),
   });
-  return { u, auto, seen };
+  return { u, auto, seen, prepared };
 }
 
-test('a newer release is downloaded by Squirrel, then offered; it installs only when asked', async () => {
+test('a downloaded update installs itself, but only at a quiet moment', async () => {
+  let calm = false;
+  const { u, auto, prepared } = updater({ quiet: () => calm });
+  assert.equal(await u.quiet(), false); // nothing ready yet
+  await u.check();
+  assert.equal(await u.quiet(), false); // still downloading
+  auto.emit('update-downloaded');
+  assert.equal(await u.quiet(), false); // ready, but the owner is around
+  assert.deepEqual(auto.calls.slice(2), []);
+  calm = true;
+  assert.equal(await u.quiet(), true);
+  assert.deepEqual(auto.calls.at(-1), ['install']);
+  assert.deepEqual(prepared, ['as it was']); // reopens hidden if it was hidden
+});
+
+test('a quiet moment: the Mac untouched ten minutes, the window not in front, JARVIS idle', async () => {
+  const moment = (over) => updates.quietMoment({ idleSeconds: () => 700, windowInFront: () => false, backendBusy: async () => false, ...over });
+  assert.equal(await moment({}), true);
+  assert.equal(await moment({ idleSeconds: () => 120 }), false);
+  assert.equal(await moment({ windowInFront: () => true }), false);
+  assert.equal(await moment({ backendBusy: async () => true }), false); // meeting notes, a task, a turn
+  assert.equal(updates.QUIET_IDLE, 600);
+  assert.equal(updates.CHECK_EVERY, 60 * 60 * 1000);
+});
+
+test('a newer release is downloaded by Squirrel, then offered; Restart installs it at once', async () => {
   const { u, auto, seen } = updater();
   assert.equal(u.state().state, 'idle');
   assert.equal(u.restart(), false); // nothing ready: no restart
@@ -126,7 +154,7 @@ test('a newer release is downloaded by Squirrel, then offered; it installs only 
   assert.equal(auto.calls.length, 2);
   auto.emit('update-downloaded');
   assert.deepEqual({ ...u.state(), notes: undefined }, { version: '0.1.0', enabled: true, state: 'ready', available: '0.2.0', name: 'J.A.R.V.I.S. 0.2.0', notes: undefined });
-  assert.deepEqual(auto.calls.slice(2), []); // downloaded, and still running: never restarted unasked
+  assert.deepEqual(auto.calls.slice(2), []); // downloaded, and still running: not while the owner is around
   assert.equal(u.restart(), true);
   assert.deepEqual(auto.calls.at(-1), ['install']);
   assert.deepEqual(seen.map((s) => s.state), ['checking', 'downloading', 'ready']);
