@@ -1,0 +1,41 @@
+/* Projects for the main chat (features/chat-projects.js). */
+.cp-chip.cp-on { border-color: rgb(127 212 255 / 0.7); background: rgb(127 212 255 / 0.14); }
+.cp-panel {
+  position: fixed; z-index: 1000; right: 24px; bottom: 96px; width: min(380px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 140px)); overflow: auto; padding: 14px; border-radius: 16px;
+  background: var(--card, rgb(30 32 36)); color: rgb(var(--c-ink));
+  border: 1px solid rgb(var(--c-ink) / 0.14); box-shadow: 0 16px 40px rgb(0 0 0 / 0.4);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.cp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cp-head h3 { margin: 0; font-size: 15px; }
+.cp-new, .cp-back { border: 0; background: transparent; color: rgb(127 212 255); font: inherit; cursor: pointer; padding: 4px 6px; border-radius: 8px; }
+.cp-new:hover, .cp-back:hover { background: rgb(var(--c-ink) / 0.08); }
+.cp-empty { margin: 4px 0; color: rgb(var(--c-ink) / 0.65); font-size: 13px; line-height: 1.4; }
+.cp-list, .cp-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cp-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 10px; }
+.cp-row:hover { background: rgb(var(--c-ink) / 0.06); }
+.cp-row.cp-active { background: rgb(127 212 255 / 0.12); }
+.cp-words { flex: 1; min-width: 0; cursor: pointer; }
+.cp-name, .cp-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-name { font-weight: 600; }
+.cp-sub { font-size: 12px; color: rgb(var(--c-ink) / 0.6); }
+.cp-btn {
+  align-self: flex-start; padding: 6px 12px; border-radius: 9px; font: inherit; font-size: 13px; cursor: pointer;
+  border: 1px solid rgb(var(--c-ink) / 0.2); background: rgb(var(--c-ink) / 0.06); color: rgb(var(--c-ink));
+}
+.cp-btn.primary { background: rgb(127 212 255 / 0.2); border-color: rgb(127 212 255 / 0.6); }
+.cp-btn.danger { color: #ff6b6b; margin-top: 8px; }
+.cp-label { font-size: 12px; color: rgb(var(--c-ink) / 0.65); }
+.cp-input, .cp-text {
+  width: 100%; box-sizing: border-box; font: inherit; padding: 7px 9px; border-radius: 9px; resize: vertical;
+  border: 1px solid rgb(var(--c-ink) / 0.22); background: rgb(var(--c-ink) / 0.04); color: rgb(var(--c-ink));
+}
+.cp-section { margin: 10px 0 0; font-size: 13px; }
+.cp-file { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; }
+.cp-file .cp-file-name { flex: 1; min-width: 0; }
+.cp-convo .cp-file-name { cursor: pointer; }
+.cp-convo .cp-file-name:hover { text-decoration: underline; }
+.cp-now { color: rgb(127 212 255); }
+.cp-x { border: 0; background: transparent; color: rgb(var(--c-ink) / 0.5); cursor: pointer; border-radius: 6px; padding: 2px 6px; }
+.cp-x:hover { color: rgb(var(--c-ink)); background: rgb(var(--c-ink) / 0.08); }

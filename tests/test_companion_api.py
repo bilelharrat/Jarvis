@@ -21,6 +21,7 @@ from jarvis.tasks import ClaudeTask
 
 GETS = [
     "/api/chats",
+    "/api/projects",
     "/api/chats/one?id=11111111-2222-3333-4444-555555555555",
     "/api/code/options",
     "/api/code/sessions",
@@ -51,6 +52,12 @@ GETS = [
 ]
 POSTS = [
     "/api/chats/resume",
+    "/api/projects/save",
+    "/api/projects/delete",
+    "/api/projects/use",
+    "/api/projects/file",
+    "/api/projects/unfile",
+    "/api/projects/assign",
     "/api/chats/manage",
     "/api/chats/new",
     "/api/code/new",

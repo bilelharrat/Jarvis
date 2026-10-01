@@ -77,7 +77,9 @@ OPENING_AT_ONCE = 64  # connections still being told apart or shaking hands, all
 OPENING_PER_ADDRESS = 8  # ... from one address
 # Uploads (a shared file, a photo) take longer to send than a request of a few kilobytes:
 # these paths get this long, once their token checks out (the rest are refused at once).
-UPLOAD_PATHS = frozenset({"/api/share", "/api/photo", "/api/code/send", "/api/code/new"})
+UPLOAD_PATHS = frozenset(
+    {"/api/share", "/api/photo", "/api/code/send", "/api/code/new", "/api/projects/file"}
+)
 UPLOAD_SECONDS = 180.0
 PLAIN_PREF = "companion_plain_http"  # Settings: plain HTTP for the old app and web page too
 # Calls a device may make: (a minute's worth, the most at once). A device over its budget
