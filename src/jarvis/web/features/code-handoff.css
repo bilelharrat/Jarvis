@@ -1,0 +1,26 @@
+/* Jarvis Code hand-off: the Machines tab of Jarvis Code settings, and a handed-off session's bar in its header. */
+
+.jch-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.jch-list[hidden] { display: none; }
+.jch-empty { padding: 12px 2px; font-size: 13px; color: rgb(var(--c-muted)); }
+.jch-machine .jcs-p-head, .jch-session .jcs-p-head { flex-wrap: wrap; }
+.jch-status { font-size: 12px; color: rgb(var(--c-muted)); margin-top: 2px; line-height: 1.4; }
+.jch-status.ok { color: rgb(var(--c-success-ink)); }
+.jch-status.bad { color: rgb(var(--c-warning-ink)); }
+.jch-facts, .jch-where { font-size: 12px; color: rgb(var(--c-muted)); margin-top: 2px; }
+.jch-cost { font: 600 12px var(--mono); font-variant-numeric: tabular-nums; color: rgb(var(--c-ink-2)); }
+.jch-add { margin-top: 12px; }
+.jch-add .jcs-row > span:first-child { flex: none; }
+.jch-alias { font-family: var(--mono); font-size: 12.5px; }
+
+.jch-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px; padding: 2px 4px 2px 9px; border-radius: 999px; font-size: 11.5px; color: rgb(var(--c-accent)); background: rgb(var(--c-accent) / 0.1); width: fit-content; max-width: 100%; }
+.jch-bar[hidden] { display: none; }
+.jch-bar.lost { color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
+.jch-bar-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.jch-bar-where { font-weight: 600; }
+.jch-bar-state { color: rgb(var(--c-ink-2)); }
+.jch-bar-cost { font: 600 11.5px var(--mono); font-variant-numeric: tabular-nums; color: rgb(var(--c-ink)); }
+.jch-bar-billed { color: rgb(var(--c-muted)); }
+.jch-bar-btn { border: 0; border-radius: 999px; padding: 2px 8px; font: 600 11px var(--sans, inherit); color: rgb(var(--c-ink)); background: rgb(var(--c-surface) / 0.8); cursor: pointer; }
+.jch-bar-btn:hover { background: rgb(var(--c-surface)); }
+.jch-bar-btn[hidden] { display: none; }

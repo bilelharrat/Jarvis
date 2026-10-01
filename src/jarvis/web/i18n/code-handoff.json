@@ -1,0 +1,39 @@
+{
+  "strings": {
+    "Machines": "机器",
+    "Continue a session on another machine you control, over SSH. JARVIS uses your own SSH config and agent, and never stores keys.": "通过 SSH 在你自己控制的另一台机器上继续会话。JARVIS 用的是你自己的 SSH 配置和 agent，从不保存密钥。",
+    "Sessions on other machines": "在其他机器上的会话",
+    "Host alias from ~/.ssh/config": "~/.ssh/config 里的主机别名",
+    "Host alias": "主机别名",
+    "Add a machine": "添加机器",
+    "A check runs ssh -o BatchMode=yes, then looks for git and Claude Code there. Only the alias is kept.": "检查会运行 ssh -o BatchMode=yes，然后看那里有没有 git 和 Claude Code。只保存别名。",
+    "Runs on another machine use its own Claude sign-in and are billed there. JARVIS’s spending limits can’t meter them; the cost shown is what its Claude Code reported.": "在另一台机器上的运行用的是它自己的 Claude 登录，费用记在那里。JARVIS 的花费上限管不到它们；显示的费用是那里的 Claude Code 报告的。",
+    "Not ready": "未就绪",
+    "Ready: asks you here": "已就绪：会在这里问你",
+    "Ready: Accept edits only": "已就绪：只能自动接受编辑",
+    "No machines yet. Add a host from your SSH config.": "还没有机器。从你的 SSH 配置里添加一台主机吧。",
+    "Continue on…": "在…上继续",
+    "Needs an isolated copy": "需要独立副本",
+    "Another machine, over SSH": "通过 SSH 到另一台机器",
+    "Machines…": "机器…",
+    "Add a machine…": "添加机器…",
+    "Into its isolated copy, ready to land": "带回它的独立副本，随时可以合并",
+    "billed there, outside JARVIS’s limits": "费用记在那里，不受 JARVIS 上限约束",
+    "Ended": "已结束",
+    "Bring it back": "带回来"
+  },
+  "patterns": [
+    [
+      "^On (.+)$",
+      "在 $1 上"
+    ],
+    [
+      "^Bring back from (.+)$",
+      "从 $1 带回来"
+    ],
+    [
+      "^Stop on (.+)$",
+      "在 $1 上停止"
+    ]
+  ]
+}

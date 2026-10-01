@@ -3988,6 +3988,63 @@ test('Claude’s limit: a waiting session counts down in its header, and the set
   assert(await js('document.querySelector(".jcx-limit").hidden'), 'the countdown stayed after the wait');
 });
 
+// ── Jarvis Code hand-off to another machine (web/features/code-handoff.js) ──
+
+test('Hand-off: Continue on… lists the machines, a handed-off session says where it runs and what it reported, and Settings has Machines', async () => {
+  await open(1);
+  await loadFeatures('code-handoff.js', 'code-handoff.css');
+  const menuItem = (label) => js(`(() => { const b = [...document.querySelectorAll('#jc-menu .jc-mi, #jc-submenu .jc-mi')].find((x) => x.querySelector('.mi-label').textContent === ${JSON.stringify(label)}); if (!b) return null; const r = { disabled: b.disabled, note: (b.querySelector('small') || {}).textContent || '' }; b.click(); return r; })()`);
+  const machines = [
+    { alias: 'studio', checked: 1, ok: true, permissions: true, tmux: true, claude_version: '2.1.0 (Claude Code)', problem: '' },
+    { alias: 'pi', checked: 1, ok: false, problem: 'pi isn’t reachable right now.' },
+  ];
+  await js(`__ev({ type: 'code_handoffs', machines: ${JSON.stringify(machines)}, hosts: ['lab'], handoffs: [] })`);
+  // Not in an isolated copy: the item says why and can't be chosen.
+  await js(`__ev({ type: 'tasks', items: [__task(1, { busy: false, status: 'waiting' })] }); $("jc-more").click()`);
+  let item = await menuItem('Continue on…');
+  assert(item && item.disabled && item.note === 'Needs an isolated copy', JSON.stringify(item));
+  await js('closeMenu(); true');
+  await js(`__ev({ type: 'tasks', items: [__task(1, { busy: false, status: 'waiting', workspace: { slug: 's1', branch: 'jarvis/s1', into: 'main' } })] }); $("jc-more").click()`);
+  item = await menuItem('Continue on…');
+  assert(item && !item.disabled, JSON.stringify(item));
+  await frames(2);
+  const pi = await menuItem('pi');
+  assert(pi && pi.note === 'pi isn’t reachable right now.', JSON.stringify(pi));
+  await js('__sent.length = 0; $("jc-more").click()');
+  await menuItem('Continue on…');
+  await frames(2);
+  await menuItem('studio');
+  assert(JSON.stringify(await sentOf('code_handoff')) === JSON.stringify([{ type: 'code_handoff', id: 1, alias: 'studio' }]), JSON.stringify(await js('__sent')));
+  // Handed off: the header says where, how it's doing, and what its Claude reported there.
+  const rec = { id: 's1', alias: 'studio', slug: 's1', project: 'alpha', branch: 'jarvis/s1', task_id: 1, title: 'Session 1', state: 'working', cost: 0.5, lost: false, note: '' };
+  await js(`__ev({ type: 'code_handoffs', machines: ${JSON.stringify(machines)}, hosts: [], handoffs: [${JSON.stringify(rec)}] })`);
+  await frames(2);
+  const bar = await js(`({ hidden: document.querySelector('.jch-bar').hidden, text: document.querySelector('.jch-bar').textContent })`);
+  assert(!bar.hidden && bar.text.includes('On studio') && bar.text.includes('Working') && bar.text.includes('$0.50') && bar.text.includes('outside JARVIS’s limits'), JSON.stringify(bar));
+  await js('__sent.length = 0');
+  assert(await clickText('.jch-bar', 'Stop'), 'no Stop in the bar');
+  assert(await clickText('.jch-bar', 'Bring it back'), 'no Bring it back in the bar');
+  let s = await js('__sent.map((m) => m.type + " " + m.handoff)');
+  assert(JSON.stringify(s) === '["code_handoff_stop s1","code_handoff_back s1"]', JSON.stringify(s));
+  await js(`__ev({ type: 'code_handoffs', machines: ${JSON.stringify(machines)}, hosts: [], handoffs: [${JSON.stringify({ ...rec, lost: true })}] })`);
+  assert(await js('document.querySelector(".jch-bar").classList.contains("lost") && document.querySelector(".jch-bar-state").textContent === "Reconnecting…"'), 'a dropped connection isn’t shown');
+  await js('$("jc-more").click()');
+  assert(await menuItem('Bring back from studio'), 'no Bring back in the More menu');
+  // Settings › Machines: the machines, adding one from the SSH config, the sessions on them.
+  await js(`__ev({ type: 'code_handoffs', machines: ${JSON.stringify(machines)}, hosts: ['lab'], handoffs: [${JSON.stringify({ ...rec, state: 'stopped' })}] })`);
+  await js('openJcSettings("machines"); true');
+  const tab = await js(`({ shown: !$('jcs-machines').hidden, general: $('jcs-general').hidden, machines: [...document.querySelectorAll('.jch-machine strong')].map((n) => n.textContent),
+    status: document.querySelector('.jch-machine .jch-status').textContent, hosts: [...document.querySelectorAll('#jch-hosts option')].map((o) => o.value),
+    sessions: document.querySelectorAll('.jch-session').length })`);
+  assert(tab.shown && tab.general && JSON.stringify(tab.machines) === '["studio","pi"]' && tab.status === 'Ready: asks you here' && JSON.stringify(tab.hosts) === '["lab"]' && tab.sessions === 1, JSON.stringify(tab));
+  await js('__sent.length = 0; (() => { const i = document.querySelector(".jch-alias"); i.value = " lab "; i.closest("form").requestSubmit(); })()');
+  await clickText('.jch-session', 'Forget');
+  s = await js('__sent.filter((m) => m.type.startsWith("code_")).map((m) => m.type + " " + (m.alias || m.handoff))');
+  assert(JSON.stringify(s) === '["code_machine_add lab","code_handoff_forget s1"]', JSON.stringify(s));
+  assert(await js('!document.querySelector(".jch-session button") || ![...document.querySelectorAll(".jch-session button")].some((b) => b.textContent === "Stop")'), 'Stop offered for a stopped one');
+  await js('closeJcSettings(); true');
+});
+
 // ── the Mac and the world: Settings › Markets' price alerts (features/stocks.js) ──
 
 test('Settings › Markets lists price alerts, removes one on a click and sets big-move heads-ups', async () => {

@@ -274,11 +274,16 @@ class Desk:
         for rec in self.handoffs:
             task = self.task_of(rec)
             items.append(
-                rec.public() | {"task_id": task.id if task else 0, "lost": rec.id in self._lost}
+                rec.public()
+                | {
+                    "task_id": task.id if task else 0,
+                    "lost": rec.id in self._lost,
+                    "note": self.tr(rec.note),
+                }
             )
         self.hub.emit(
             "code_handoffs",
-            machines=[m.public() for m in self.machines],
+            machines=[m.public() | {"problem": self.tr(m.problem)} for m in self.machines],
             hosts=[h for h in self.config_hosts() if h not in added][:100],
             handoffs=items,
         )
