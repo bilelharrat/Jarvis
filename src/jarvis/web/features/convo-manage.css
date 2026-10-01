@@ -1,0 +1,18 @@
+/* Rename, pin and delete in Conversations' list (features/convo-manage.js). */
+.cm-row { position: relative; display: flex; align-items: stretch; }
+.cm-row > .convo-row { flex: 1; min-width: 0; }
+.cm-more {
+  flex: none; width: 30px; border: 0; background: transparent; color: rgb(var(--c-ink) / 0.5);
+  font-size: 18px; cursor: pointer; border-radius: 8px;
+}
+.cm-more:hover, .cm-more:focus-visible { color: rgb(var(--c-ink)); background: rgb(var(--c-ink) / 0.08); }
+.cm-pinned .convo-row-title::before { content: "📌"; font-size: 0.85em; margin-right: 6px; }
+.cm-menu {
+  position: fixed; z-index: 1000; display: flex; flex-direction: column;
+  min-width: 140px; padding: 4px; border-radius: 12px; background: var(--card, rgb(30 32 36));
+  border: 1px solid rgb(var(--c-ink) / 0.14); box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+}
+.cm-item { text-align: left; padding: 7px 10px; border: 0; border-radius: 8px; background: transparent; color: rgb(var(--c-ink)); font: inherit; cursor: pointer; }
+.cm-item:hover, .cm-item:focus-visible { background: rgb(var(--c-ink) / 0.08); }
+.cm-item.danger { color: #ff6b6b; }
+.cm-rename { width: 100%; font: inherit; padding: 2px 6px; border-radius: 6px; border: 1px solid rgb(var(--c-ink) / 0.3); background: transparent; color: rgb(var(--c-ink)); }

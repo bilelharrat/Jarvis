@@ -1,0 +1,13 @@
+{
+  "strings": {
+    "Rename": "重命名",
+    "Pin": "置顶",
+    "Unpin": "取消置顶",
+    "Delete": "删除",
+    "More": "更多",
+    "Delete this conversation for good?": "永久删除这个对话？",
+    "That’s the conversation going on now. Start a new one first.": "这是当前正在进行的对话。请先开始一个新对话。",
+    "That conversation couldn’t be deleted.": "这个对话无法删除。"
+  },
+  "patterns": []
+}
