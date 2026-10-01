@@ -185,7 +185,7 @@ function onEvent(ev) {
       if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }  // what it missed
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });
-      if (!$('cc').hidden) { send({ type: 'claude_projects' }); if (deckProject) send({ type: 'claude_sessions', directory: deckProject }); }
+      if (!$('cc').hidden) { send({ type: 'claude_projects' }); send({ type: 'claude_history' }); if (deckProject) send({ type: 'claude_sessions', directory: deckProject }); }
       send({ type: 'connectors' });
       if (app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
       history = ev.history || [];
@@ -284,10 +284,16 @@ function onEvent(ev) {
     case 'status': renderStatus(ev); break;
     case 'tasks': {
       const before = new Set(ccTasks.map((t) => t.id));
+      const liveBefore = ccTasks.map((t) => t.session_id).filter(Boolean);
       renderTasks(ev.items);
       renderCC(ev.items);
       const fresh = ev.items.find((t) => t.kind === 'code' && !before.has(t.id));
       if (fresh && awaitingNewSession) { awaitingNewSession = false; selectTask(fresh.id); }
+      // A session that left the list (pruned) belongs in the history: one the history
+      // doesn't have yet (started since it was read) is fetched again.
+      const liveNow = new Set(ccTasks.map((t) => t.session_id));
+      const known = new Set(codeHistory.map((h) => h.session_id));
+      if (!$('cc').hidden && liveBefore.some((s) => !liveNow.has(s) && !known.has(s))) send({ type: 'claude_history' });
       break;
     }
     case 'task_log': if (ev.id === ccSelected) appendEntry(ev.entry); break;
@@ -316,7 +322,11 @@ function onEvent(ev) {
         notice('Location', 'Turn on location for J.A.R.V.I.S.', 'For local weather and live traffic: switch on J.A.R.V.I.S. under Location Services.', 0, openBtn);
       }
       break;
-    case 'claude_sessions': if (ev.directory === deckProject) { pastSessions = ev.items; renderPast(); } break;
+    case 'claude_sessions':
+      if (ev.directory === deckProject) { pastSessions = ev.items; renderPast(); }
+      mergeHistory(ev.items || []);
+      break;
+    case 'claude_history': codeHistory = sortedHistory(ev.items || []); renderProjects(deckProjects); break;
     case 'task_context': ccContext[ev.id] = ev; renderCC(ccTasks); if (ev.id === ccSelected) renderCtxPop(); break;
     case 'task_finished': onTaskFinished(ev); break;
     case 'muted': setMuted(ev.value); break;
@@ -2269,6 +2279,11 @@ let deckProject = null;
 let deckProjects = [];
 let deckTab = 'active';
 let pastSessions = [];
+// Past sessions in every project, newest first, from Claude Code's own records (the hub's
+// claude_history): the sidebar lists them under each project, so they outlast a restart.
+let codeHistory = [];
+const showAllPast = new Set();  // projects listing all their past sessions, not the latest few
+const PAST_SHOWN = 5;
 let newMode = 'ask';
 let awaitingNewSession = false;
 const pendingApprovals = new Map();
@@ -2279,6 +2294,7 @@ function toggleCC(open) {
   $('cc-btn').setAttribute('aria-expanded', String(open));
   if (open) {
     send({ type: 'claude_projects' });
+    send({ type: 'claude_history' });
     if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }
     requestAnimationFrame(() => { moveGlider(); });
     if (currentPane) renderPaneBody();
@@ -2316,7 +2332,8 @@ function renderProjects(items) {
   if (!deckProject && deckProjects.length) { selectProject((deckProjects.find((p) => p.running) || deckProjects[0]).name); return; }
   const filter = $('deck-filter').value.trim().toLowerCase();
   const shown = [filter, deckProject, ccSelected, voiceFocus && voiceFocus.id, [...openProjects], deckProjects.map((p) => [p.name, p.branch]),
-    ccTasks.map((t) => [t.id, t.folder, t.title || t.prompt, statusOf(t), statusText(t), t.mode])];
+    ccTasks.map((t) => [t.id, t.folder, t.title || t.prompt, statusOf(t), statusText(t), t.mode, t.session_id]),
+    codeHistory.map((h) => [h.session_id, h.folder, h.title, h.modified]), [...showAllPast], new Date().toDateString()];
   if (!changed('projects', shown)) { moveGlider(); return; }
   $('deck-project-list').replaceChildren(...deckProjects.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
     const li = el('li');
@@ -2349,6 +2366,25 @@ function renderProjects(items) {
         item.append(row);
         sessions.append(item);
       }
+      // Its history: past sessions not open now, newest first; a click reopens one with
+      // its conversation so far.
+      const live = new Set(ccTasks.map((t) => t.session_id).filter(Boolean));
+      const past = codeHistory.filter((h) => h.folder === p.name && !live.has(h.session_id));
+      const all = showAllPast.has(p.name);
+      for (const h of all ? past : past.slice(0, PAST_SHOWN)) {
+        const item = el('li');
+        item.append(pastRow(p.name, h));
+        sessions.append(item);
+      }
+      if (past.length > PAST_SHOWN) {
+        const more = el('button', 'jc-session more', all ? 'Show fewer' : `Show ${past.length - PAST_SHOWN} more`);
+        more.type = 'button';
+        more.dataset.key = `m:${p.name}`;
+        more.addEventListener('click', () => { if (all) showAllPast.delete(p.name); else showAllPast.add(p.name); renderProjects(deckProjects); });
+        const moreLi = el('li');
+        moreLi.append(more);
+        sessions.append(moreLi);
+      }
       const add = el('button', 'jc-session add', '+ New session');
       add.type = 'button';
       add.addEventListener('click', () => { deckProject = p.name; newSession(false); });
@@ -2362,6 +2398,49 @@ function renderProjects(items) {
   moveGlider();
 }
 $('deck-filter').addEventListener('input', () => renderProjects(deckProjects));
+
+// A past session in the sidebar: its title and when it was last used.
+function pastRow(folder, h) {
+  const row = el('button', 'jc-session past');
+  row.type = 'button';
+  row.dataset.session = h.session_id;
+  row.dataset.key = `s:${h.session_id}`;
+  if (h.first_prompt) row.title = h.first_prompt;
+  row.append(el('span', 'jc-dot past'), h.title ? mine(el('span', 'jc-stitle', h.title)) : el('span', 'jc-stitle', 'Untitled session'));
+  row.append(mine(el('small', '', [sessionWhen(h), h.branch && `⎇ ${h.branch}`].filter(Boolean).join(' · '))));
+  row.addEventListener('click', () => resumeSession(folder, h));
+  return row;
+}
+
+// Reopens a past session (Claude Code's resume): the hub reads its conversation so far into
+// the transcript, and shows the one already open rather than a copy.
+function resumeSession(folder, h) {
+  awaitingNewSession = true;
+  send({ type: 'task_new', directory: folder, session_id: h.session_id, title: h.title || '', prompt: '' });
+}
+
+// When a session was last used: the time today, the weekday this week, else the date.
+function sessionWhen(h) {
+  const d = new Date(h.modified || h.last_modified);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit' });
+  if (now - d < 6 * 86400000 && now > d) return d.toLocaleDateString(uiLocale(), { weekday: 'short' });
+  return d.toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+}
+
+function sortedHistory(items) {
+  return items.filter((h) => h && h.session_id && h.folder).sort((a, b) => (b.modified || 0) - (a.modified || 0));
+}
+
+// One project's latest sessions (claude_sessions) freshen the history in place.
+function mergeHistory(items) {
+  if (!items.length) return;
+  const byId = new Map(codeHistory.map((h) => [h.session_id, h]));
+  for (const h of items) if (h && h.session_id) byId.set(h.session_id, h);
+  codeHistory = sortedHistory([...byId.values()]);
+  renderProjects(deckProjects);
+}
 
 // The selection pill glides to the selected session, or to the project when none is open,
 // and lifts into place as it lands (the BSH sidebar's levitate).
@@ -2407,7 +2486,7 @@ function renderPast() {
     const b = el('button', 'jc-past-item');
     b.type = 'button';
     b.append(el('span', '', p.title || 'Untitled session'), el('small', '', new Date(p.last_modified).toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' })));
-    b.addEventListener('click', () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, prompt: '' }); });
+    b.addEventListener('click', () => resumeSession(deckProject, p));
     li.append(b);
     return li;
   }));
@@ -3150,7 +3229,7 @@ function resumeMenu() {
     ...pastSessions.slice(0, 12).map((p) => ({
       label: p.title || 'Untitled session', mine: !!p.title,
       note: new Date(p.last_modified).toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }),
-      run: () => { awaitingNewSession = true; send({ type: 'task_new', directory: deckProject, session_id: p.session_id, title: p.title, prompt: '' }); },
+      run: () => resumeSession(deckProject, p),
     })),
   ]);
 }

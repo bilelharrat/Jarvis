@@ -829,6 +829,7 @@
   "⏵⏵⏵ Full auto: runs anything (⇧⇥ to switch)": "⏵⏵⏵ 完全自动：任何操作都直接运行（⇧⇥ 切换）",
   "Listening: just talk (say “exit code mode” to stop), or type…": "正在聆听：直接说话即可（说“exit code mode”退出），或输入…",
   "Untitled session": "未命名会话",
+  "Show fewer": "收起",
   "Background task": "后台任务",
   "No MCP servers in this project.": "此项目中没有 MCP 服务器。",
   "No matches.": "没有匹配项。",

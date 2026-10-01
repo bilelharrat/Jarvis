@@ -607,8 +607,10 @@ function readyDownloads() {
 
 // ── Ad and tracker blocking: Ghostery's engine with EasyList, EasyPrivacy, uBlock Origin's
 // filters, privacy, badware, quick fixes and unbreak lists, and the cookie-banner and
-// annoyance lists; uBlock's scriptlets (which beat in-page ads like YouTube's) and cosmetic
-// hiding included. The compiled engine is cached and rebuilt from fresh lists daily (an old
+// annoyance lists. Requests are blocked here; inside the page, adblock.js runs uBlock's
+// scriptlets (which beat in-page ads like YouTube's) before the page's own scripts, hides
+// ads before the first paint and as they appear, applies procedural rules, and does it in
+// frames too. The compiled engine is cached and rebuilt from fresh lists daily (an old
 // copy is kept if the lists can't be fetched). Never on the Research Center, or a site the
 // user allowed. ──
 const ADBLOCK_DAY = 24 * 60 * 60 * 1000;
@@ -697,13 +699,8 @@ function readyAdblock() {
     if (!shielded(pageOf(details))) { callback({}); return; }
     blocker.onHeadersReceived(details, callback);
   });
-  ses.registerPreloadScript({ type: 'frame', filePath: require.resolve('@ghostery/adblocker-electron-preload') });
-  ipcMain.handle('@ghostery/adblocker/inject-cosmetic-filters', (event, url, msg) => {
-    let top = url;
-    try { top = event.sender.getURL() || url; } catch {}
-    return shielded(top) ? blocker.onInjectCosmeticFilters(event, url, msg) : undefined;
-  });
-  ipcMain.handle('@ghostery/adblocker/is-mutation-observer-enabled', (event) => (blocker ? blocker.onIsMutationObserverEnabled(event) : false));
+  // Inside the page (every frame, before its scripts): adblock.js.
+  require('./adblock').attach(ses, { engine: () => blocker, shielded });
   const refresh = async () => {
     const engine = await buildBlocker();
     if (engine) { blocker = engine; sendBrowserState(); }
@@ -724,6 +721,9 @@ function createTab(opts = {}) {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // Preloads run in frames too (still sandboxed, still no Node): the ad blocker's
+      // reaches ads inside them; page-preload.js acts in the top frame only.
+      nodeIntegrationInSubFrames: true,
     },
   });
   const wc = view.webContents;

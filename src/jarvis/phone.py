@@ -296,7 +296,13 @@ def _refusal(status: int, body: Any, reason: str) -> PhoneError:
     # (identity check not done); only its message tells them apart.
     elif status == 401 and re.search(r"compliance|KYC", said, re.I):
         error = PhoneError(NOT_VERIFIED)
-    elif status == 401 and (not said or re.search(r"authenticat", said, re.I)):
+    # 20003: a wrong token, or an Account SID Twilio doesn't know ("auth account … does
+    # not exist").
+    elif status == 401 and (
+        not said
+        or body.get("code") == 20003
+        or re.search(r"authenticat|does not exist", said, re.I)
+    ):
         error = PhoneError(BAD_SIGN_IN)
     else:
         error = PhoneError(f"Twilio said no: {said or reason}")

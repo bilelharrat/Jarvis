@@ -17,6 +17,7 @@ import logging
 import re
 import shlex
 import subprocess
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -314,7 +315,7 @@ class Vault:
             keyring.delete_password(SERVICE, f"{conn_id}:{key}")
 
     def forget(self, conn_id: str) -> None:
-        for key in ("token", "oauth_tokens", "oauth_client"):
+        for key in ("token", "oauth_tokens", "oauth_expires_at", "oauth_client"):
             self.delete(conn_id, key)
 
 
@@ -347,6 +348,20 @@ class KeychainTokenStorage:
 
     async def set_tokens(self, tokens) -> None:
         self.vault.set(self.conn_id, "oauth_tokens", tokens.model_dump_json(exclude_none=True))
+        # The SDK keeps when a token runs out only in memory; kept here too, so after a
+        # restart an expired token is refreshed rather than sent (see _provider_class).
+        if tokens.expires_in:
+            self.vault.set(self.conn_id, "oauth_expires_at", str(time.time() + tokens.expires_in))
+        else:
+            self.vault.delete(self.conn_id, "oauth_expires_at")
+
+    def expires_at(self) -> float | None:
+        """When the stored token runs out (None: not known, e.g. saved by an older build)."""
+        raw = self.vault.get(self.conn_id, "oauth_expires_at")
+        try:
+            return float(raw) if raw else None
+        except ValueError:
+            return None
 
     async def get_client_info(self):
         from mcp.shared.auth import OAuthClientInformationFull
@@ -356,6 +371,34 @@ class KeychainTokenStorage:
 
     async def set_client_info(self, client_info) -> None:
         self.vault.set(self.conn_id, "oauth_client", client_info.model_dump_json(exclude_none=True))
+
+
+class SignInNeeded(RuntimeError):
+    """A connection needs a fresh browser sign-in the user didn't ask for (reconnecting at
+    launch, or a sign-in that ran out mid-session). The browser isn't opened unasked: the
+    connection shows this, and "Try again" signs in."""
+
+
+def _provider_class():
+    """The SDK's OAuth client, told when a stored token runs out.
+
+    Loading tokens after a restart, the SDK takes them as good for ever: it sends an
+    expired access token, gets a 401 and goes straight to a full browser sign-in without
+    trying the refresh token. With the expiry saved it refreshes first; for a token saved
+    without one (by an older build), the refresh is tried anyway, since it may be stale."""
+    from mcp.client.auth import OAuthClientProvider
+
+    class Provider(OAuthClientProvider):
+        async def _initialize(self) -> None:
+            await super()._initialize()
+            context = self.context
+            if context.token_expiry_time or not context.can_refresh_token():
+                return
+            storage = context.storage
+            expires = storage.expires_at() if isinstance(storage, KeychainTokenStorage) else None
+            context.token_expiry_time = expires or time.time() - 1
+
+    return Provider
 
 
 # ── the browser sign-in callback ──
@@ -461,7 +504,7 @@ def convert_result(result: Any) -> dict[str, Any]:
 class Live:
     """Holds one MCP session open in a background task."""
 
-    def __init__(self, conn: Connection, manager: ConnectorManager) -> None:
+    def __init__(self, conn: Connection, manager: ConnectorManager, asked: bool = True) -> None:
         self.conn = conn
         self.manager = manager
         self.session: Any = None
@@ -471,6 +514,9 @@ class Live:
         self.ready = asyncio.Event()
         self._stop = asyncio.Event()
         self.task: asyncio.Task | None = None
+        # The user just asked to connect (Connect, Try again): a sign-in may open their
+        # browser. Not at launch, and not once connected: those say so instead.
+        self.asked = asked
 
     def start(self) -> None:
         self.task = asyncio.create_task(self._run())
@@ -500,6 +546,7 @@ class Live:
                     self.tools = await _list_all_tools(session)
                     self.session = session
                     self.status, self.error = "connected", ""
+                    self.asked = False
                     self.ready.set()
                     self.manager.changed(tools_changed=True)
                     await self._stop.wait()
@@ -535,7 +582,7 @@ class Live:
                 raise RuntimeError("No token saved. Reconnect and paste one.")
             headers["Authorization"] = f"Bearer {token}"
         elif self.conn.auth in ("oauth", "own_app"):
-            auth = self.manager.oauth_provider(self.conn)
+            auth = self.manager.oauth_provider(self.conn, may_open=lambda: self.asked)
         async with create_mcp_http_client(headers=headers, auth=auth) as client:
             async with streamable_http_client(self.conn.url, http_client=client) as streams:
                 yield streams
@@ -695,18 +742,20 @@ class ConnectorManager:
     # lifecycle
 
     async def start_all(self) -> None:
+        """Reconnects every enabled connection at launch. One whose sign-in has run out
+        says so; it never opens the browser on its own (see SignInNeeded)."""
         for conn in self.connections.values():
             if conn.enabled:
-                self._start(conn)
+                self._start(conn, asked=False)
 
     async def close(self) -> None:
         await asyncio.gather(*(live.stop() for live in self.live.values()), return_exceptions=True)
 
-    def _start(self, conn: Connection) -> Live:
+    def _start(self, conn: Connection, asked: bool = True) -> Live:
         old = self.live.pop(conn.id, None)
         if old is not None:
             asyncio.create_task(old.stop())
-        live = Live(conn, self)
+        live = Live(conn, self, asked=asked)
         self.live[conn.id] = live
         live.start()
         return live
@@ -758,6 +807,7 @@ class ConnectorManager:
             scope=conn.scope or None,
         )
         self.vault.delete(conn.id, "oauth_tokens")
+        self.vault.delete(conn.id, "oauth_expires_at")
         self.vault.set(conn.id, "oauth_client", info.model_dump_json(exclude_none=True))
 
     async def add_custom(self, name: str, target: str, token: str = "") -> Connection:
@@ -819,11 +869,16 @@ class ConnectorManager:
 
     # OAuth
 
-    def oauth_provider(self, conn: Connection):
-        from mcp.client.auth import OAuthClientProvider
+    def oauth_provider(self, conn: Connection, may_open: Callable[[], bool] = lambda: True):
+        """may_open: whether a sign-in may open the browser now (the user asked)."""
         from mcp.shared.auth import AuthorizationCodeResult, OAuthClientMetadata
 
         async def redirect(url: str) -> None:
+            if not may_open():
+                raise SignInNeeded(
+                    f"{conn.name} needs you to sign in again. In Tools & Accounts, press "
+                    "Try again (or Reconnect) to open the sign-in page."
+                )
             self.signing_in[conn.id] = url
             self.changed()
             self.open_url(url)
@@ -844,7 +899,7 @@ class ConnectorManager:
             token_endpoint_auth_method="none",
             scope=conn.scope or None,
         )
-        return OAuthClientProvider(
+        return _provider_class()(
             server_url=conn.url,
             client_metadata=metadata,
             storage=KeychainTokenStorage(self.vault, conn.id),

@@ -1,4 +1,6 @@
 /* Widgets on cards and on the dashboard (widgets.js) */
+/* The dashboard panel is hidden until something is pinned; .panel's display: flex would override [hidden]. */
+.wg-panel[hidden] { display: none; }
 .wg-frame { display: block; width: 100%; border: 0; border-radius: 10px; background: transparent; margin-top: 8px; }
 .wg-card .wg-frame { background: var(--card); border: 1px solid var(--line); }
 .wg-list { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; }

@@ -517,6 +517,42 @@ test('/resume lists the project’s past sessions and resumes the one picked', a
   assert(r.join() === 's-old alpha', `sent ${r}`);
 });
 
+test('Opening Jarvis Code asks for the history; the sidebar lists each project’s past sessions', async () => {
+  await js('toggleCC(false); __sent.length = 0; toggleCC(true)');
+  assert((await sent()).includes('claude_history'), `opening sent ${await sent()}`);
+  await open(1, `onEvent({ type: "tasks", items: [__task(1, { session_id: "s-live" })] });
+    const at = (h) => Date.now() - h * 3600000;
+    onEvent({ type: "claude_history", items: [
+      { session_id: "s-live", folder: "alpha", title: "Open now", modified: at(0) },
+      { session_id: "s-beta", folder: "beta", title: "Other project", modified: at(1) },
+      ...Array.from({ length: 8 }, (_, i) => ({ session_id: "s-" + i, folder: "alpha", title: "Past " + i, modified: at(i + 2), branch: "main" })),
+    ] })`);
+  const rows = () => js('[...document.querySelectorAll("#deck-project-list .jc-session.past")].map((n) => n.dataset.session)');
+  let r = await rows();
+  assert(r.join() === 's-0,s-1,s-2,s-3,s-4', `past rows ${r}`);  // newest first, the open one and beta's not
+  assert((await js('document.querySelector("#deck-project-list .jc-session.more").textContent')) === 'Show 3 more', 'no Show more');
+  await js('document.querySelector("#deck-project-list .jc-session.more").click()');
+  r = await rows();
+  assert(r.length === 8, `after Show more: ${r}`);
+  assert((await js('document.querySelector("#deck-project-list .jc-session.more").textContent')) === 'Show fewer', 'no Show fewer');
+});
+
+test('A past session in the sidebar reopens with its conversation, and leaves the history while open', async () => {
+  await open(1, `onEvent({ type: "claude_history", items: [{ session_id: "s-old", folder: "alpha", title: "Retry refactor", modified: Date.now() - 86400000 }] })`);
+  await clickAt('#deck-project-list .jc-session.past[data-session="s-old"]');
+  const r = await js('__sent.filter((m) => m.type === "task_new").map((m) => [m.session_id, m.directory, m.prompt].join(" "))');
+  assert(r.join() === 's-old alpha ', `sent ${r}`);
+  // The hub opens it: the window selects it, and its conversation so far is replayed.
+  await js(`onEvent({ type: "tasks", items: [__task(2, { session_id: "s-old", title: "Retry refactor", busy: false, status: "waiting" }), __task(1)] })`);
+  assert(await js('ccSelected') === 2, `selected ${await js('ccSelected')}`);
+  assert(!(await js('!!document.querySelector("#deck-project-list .jc-session.past[data-session=\\"s-old\\"]")')), 'still listed as past while open');
+  await js(`onEvent({ type: "task_transcript", id: 2, entries: [
+    { n: 1, role: "user", text: "retry the refactor", past: true, uuid: "u1" },
+    { n: 2, role: "assistant", text: "Done: the refactor is back.", past: true } ] })`);
+  const tl = await js('[...$("deck-timeline").children].map((n) => n.textContent)');
+  assert(tl.length === 2 && tl[0].includes('retry the refactor') && tl[1].includes('Done: the refactor is back.'), `timeline ${tl}`);
+});
+
 test('/agents, /hooks and /todos go to the hub, not to Claude as text', async () => {
   await open(1, '$("deck-input").focus()');
   for (const c of ['/agents', '/hooks', '/todos']) { await typeText(c); await press('Enter'); }

@@ -842,49 +842,56 @@ async function command({ action, args = {} }) {
 // (The main process already drops the mouse and keyboard; this also stops the wheel,
 // which it can't see, and anything that reaches the page some other way.)
 const block = (event) => { if (locked && !typing) { event.preventDefault(); event.stopImmediatePropagation(); } };
-for (const type of ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'dragstart', 'drop', 'contextmenu',
-  'keydown', 'keypress', 'keyup', 'beforeinput', 'paste', 'cut', 'compositionstart']) {
-  window.addEventListener(type, block, { capture: true, passive: false });
-}
 
-// ── the page's alert, confirm and prompt while JARVIS or Jarvis Code acts in this tab ──
-// They go to the app, which hands them to the agent to answer (the page waits for the answer,
-// as it would for the box). Otherwise, and in frames inside the page, they're the page's own
-// box as always. Electron's own box can't be closed once the agent has answered over the
-// DevTools protocol, so the agent never answers that one.
+// Whether the page's alert, confirm and prompt go to the agent (set by its 'dialogs' command).
 let agentDialogs = false;
-try {
-  const own = { alert: window.alert, confirm: window.confirm, prompt: window.prompt };
-  const ask = (type) => (...args) => {
-    if (!agentDialogs) return own[type].apply(window, args); // exactly as the page called it
-    const text = (v) => (v === undefined || v === null ? '' : String(v)).slice(0, 2000);
-    const answer = ipcRenderer.sendSync('page:dialog', { type, message: text(args[0]), value: text(args[1]) });
-    return type === 'alert' ? undefined : answer;
-  };
-  contextBridge.executeInMainWorld({
-    func: (alertFn, confirmFn, promptFn) => {
-      for (const [name, fn] of [['alert', alertFn], ['confirm', confirmFn], ['prompt', promptFn]]) {
-        try { Object.defineProperty(fn, 'name', { value: name }); } catch (e) { /* kept */ }
-        window[name] = fn;
-      }
-    },
-    args: [ask('alert'), ask('confirm'), ask('prompt')],
-  });
-} catch (_) { /* no bridge here: the page keeps its own */ }
 
-ipcRenderer.on('jarvis:hand', (_event, msg) => onHand(msg));
-ipcRenderer.on('jarvis:locked', (_event, value) => {
-  locked = Boolean(value);
-  if (ui) ui.edge.hidden = !locked;
-});
-ipcRenderer.on('jarvis:command', async (_event, { id, action, args }) => {
-  let result;
-  try {
-    result = await command({ action, args });
-  } catch (err) {
-    result = { ok: false, message: String(err && err.message ? err.message : err) };
+// The page itself only: preloads also run in its frames (so the ad blocker reaches them,
+// see adblock-preload.js), and the hand, the lock and the commands are the page's.
+if (window === window.top) {
+  for (const type of ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'dragstart', 'drop', 'contextmenu',
+    'keydown', 'keypress', 'keyup', 'beforeinput', 'paste', 'cut', 'compositionstart']) {
+    window.addEventListener(type, block, { capture: true, passive: false });
   }
-  ipcRenderer.send('page:result', { id, result });
-});
 
-window.addEventListener('DOMContentLoaded', () => overlay());
+  // ── the page's alert, confirm and prompt while JARVIS or Jarvis Code acts in this tab ──
+  // They go to the app, which hands them to the agent to answer (the page waits for the
+  // answer, as it would for the box). Otherwise, and in frames inside the page, they're the
+  // page's own box as always. Electron's own box can't be closed once the agent has answered
+  // over the DevTools protocol, so the agent never answers that one.
+  try {
+    const own = { alert: window.alert, confirm: window.confirm, prompt: window.prompt };
+    const ask = (type) => (...args) => {
+      if (!agentDialogs) return own[type].apply(window, args); // exactly as the page called it
+      const text = (v) => (v === undefined || v === null ? '' : String(v)).slice(0, 2000);
+      const answer = ipcRenderer.sendSync('page:dialog', { type, message: text(args[0]), value: text(args[1]) });
+      return type === 'alert' ? undefined : answer;
+    };
+    contextBridge.executeInMainWorld({
+      func: (alertFn, confirmFn, promptFn) => {
+        for (const [name, fn] of [['alert', alertFn], ['confirm', confirmFn], ['prompt', promptFn]]) {
+          try { Object.defineProperty(fn, 'name', { value: name }); } catch (e) { /* kept */ }
+          window[name] = fn;
+        }
+      },
+      args: [ask('alert'), ask('confirm'), ask('prompt')],
+    });
+  } catch (_) { /* no bridge here: the page keeps its own */ }
+
+  ipcRenderer.on('jarvis:hand', (_event, msg) => onHand(msg));
+  ipcRenderer.on('jarvis:locked', (_event, value) => {
+    locked = Boolean(value);
+    if (ui) ui.edge.hidden = !locked;
+  });
+  ipcRenderer.on('jarvis:command', async (_event, { id, action, args }) => {
+    let result;
+    try {
+      result = await command({ action, args });
+    } catch (err) {
+      result = { ok: false, message: String(err && err.message ? err.message : err) };
+    }
+    ipcRenderer.send('page:result', { id, result });
+  });
+
+  window.addEventListener('DOMContentLoaded', () => overlay());
+}

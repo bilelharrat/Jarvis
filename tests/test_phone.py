@@ -223,6 +223,8 @@ def test_prefs_take_numbers_and_times_but_not_the_date():
         (401, "authentication failed, auth token is not valid for account AC1", phone.BAD_SIGN_IN),
         (401, "Authenticate", phone.BAD_SIGN_IN),
         (401, "", phone.BAD_SIGN_IN),
+        # An Account SID Twilio doesn't know (made-up credentials in the Keychain).
+        (401, "auth account AC00000000000000000000000000000000 does not exist", phone.BAD_SIGN_IN),
         (
             401,
             "Primary compliance profile is not approved. Please refer to documentation and "

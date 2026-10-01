@@ -12,7 +12,7 @@ from conftest import FakeClient
 from jarvis import sms
 from jarvis.features import sms_line
 from jarvis.hub import Hub
-from jarvis.phone import PhoneError
+from jarvis.phone import Keychain, PhoneError
 
 TWILIO = "+14155550100"
 ME = "+14155550199"
@@ -147,9 +147,28 @@ class Twilio:
         return {"messages": list(self.inbox)}
 
 
+class MemoryKeychain:
+    """A keychain backend in a dict: these made-up credentials never reach the login
+    keychain, even run without conftest's guard (they once replaced the owner's real ones,
+    and every call and text failed)."""
+
+    def __init__(self):
+        self.items = {}
+
+    def get_password(self, service, user):
+        return self.items.get((service, user))
+
+    def set_password(self, service, user, secret):
+        self.items[(service, user)] = secret
+
+    def delete_password(self, service, user):
+        self.items.pop((service, user), None)
+
+
 def make_hub(settings, quiet_speaker, isolated):
     hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
     hub.set_prefs({"phone_from": TWILIO, "phone_me": ME, "quiet_hours": "03:00-03:01"})
+    hub.phone._keychain = Keychain(MemoryKeychain())
     hub.phone.keychain.set(SID, TOKEN)
     hub._say = lambda _text: None
     return hub
