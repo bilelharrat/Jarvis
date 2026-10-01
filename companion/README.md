@@ -22,6 +22,11 @@ Claude API key (see Jarvis on iPhone).
   missed, spending), and Settings (Mac address, Speak replies, notifications, sensors,
   send to Watch, Unpair). Around the app: notifications you can answer, widgets, Live
   Activities, Siri and Shortcuts, the share sheet.
+- **Opening JARVIS on the Mac:** when JARVIS was quit, the iPhone (and Siri, the Action
+  Button) asks the Mac's wake listener to open it: port 8764, kept by launchd while the
+  companion is on (`jarvis.companion_wake`), same certificate and token. The app shows
+  "Opening JARVIS on your Mac…" and what waited in the outbox goes once it answers; Siri
+  waits up to 15 s and then asks. A Mac that's asleep or off can't be opened this way.
 - **Watch** (`Watch/`): gets the Mac's address, token and certificate fingerprint from the
   iPhone over WatchConnectivity, then talks to the Mac on its own. Reactor → dictation →
   reply, spoken (Digital Crown scrolls, haptic on reply), big Allow / Deny approvals and

@@ -1942,6 +1942,9 @@ class Hub:
             await self.remote.start()
         else:
             await self.remote.stop()
+            from . import companion_wake
+
+            await asyncio.to_thread(companion_wake.uninstall)  # the phone can't open it now
         self.emit("remote", **self.remote.public())
 
     async def remote_ask(self, text: str, timeout: float = 120, **ask: Any) -> dict[str, Any]:

@@ -130,6 +130,8 @@ function startBackend() {
     extraPath: EXTRA_PATH, uv: findUv, home: jarvisHome, dataDir: DATA_DIR, exists: fs.existsSync,
   });
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
+  // This .app, so a paired iPhone can open it after it's quit (jarvis/companion_wake.py).
+  if (app.isPackaged) how.env.JARVIS_APP_BUNDLE = path.resolve(process.execPath, '..', '..', '..');
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''}\n`);
   backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   backend.stdout.pipe(log);

@@ -7,9 +7,10 @@ final class IntentTests: XCTestCase {
         ask: @escaping @Sendable (String, TimeInterval) async throws -> AskResult = { _, _ in AskResult(reply: "", done: true) },
         command: @escaping @Sendable (MacCommand) async throws -> Void = { _ in },
         digest: @escaping @Sendable () async throws -> Digest = { Digest(items: []) },
-        kept: KeptBox = KeptBox()
+        kept: KeptBox = KeptBox(),
+        wake: @escaping @Sendable () async -> Bool = { false }
     ) -> IntentRunner.Client {
-        IntentRunner.Client(ask: ask, command: command, digest: digest, keep: { item in kept.items.append(item) })
+        IntentRunner.Client(ask: ask, command: command, digest: digest, keep: { item in kept.items.append(item) }, wake: wake, pause: { _ in })
     }
 
     func testAskGivesTheReplyInWordsToSpeak() async {
@@ -45,6 +46,30 @@ final class IntentTests: XCTestCase {
         let reply = await IntentRunner.ask("Remind me to call Pepper", client: client(ask: { _, _ in throw JarvisError.unreachable("down") }, kept: kept))
         XCTAssertEqual(reply, "Your Mac isn’t reachable. I’ll send it when it’s back, within the hour.")
         XCTAssertEqual(kept.items.map(\.question), ["Remind me to call Pepper"])
+    }
+
+    func testAQuitJarvisIsOpenedOnTheMacAndAskedOnceItAnswers() async {
+        let tries = Counter()
+        let reply = await IntentRunner.ask("Weather?", client: client(ask: { _, timeout in
+            let n = tries.next()
+            if n < 3 { throw JarvisError.unreachable("refused") }  // quit, then opening
+            XCTAssertLessThan(timeout, IntentRunner.waitForReply)  // what's left of Siri's wait
+            return AskResult(reply: "Clear, 18°.", done: true)
+        }, wake: { true }))
+        XCTAssertEqual(reply, "Clear, 18°.")
+        XCTAssertEqual(tries.value, 3)
+    }
+
+    func testAMacThatDoesntComeUpInTimeKeepsTheQuestion() async {
+        let kept = KeptBox()
+        let tries = Counter()
+        let reply = await IntentRunner.ask("Remind me", client: client(ask: { _, _ in
+            _ = tries.next()
+            throw JarvisError.unreachable("down")
+        }, kept: kept, wake: { true }))
+        XCTAssertEqual(reply, "Your Mac isn’t reachable. I’ll send it when it’s back, within the hour.")
+        XCTAssertEqual(kept.items.map(\.question), ["Remind me"])
+        XCTAssertEqual(tries.value, 1 + 8)  // the first, then every 2 s for 15 s
     }
 
     func testBriefingDigestAndCommands() async {
@@ -88,4 +113,13 @@ final class KeptBox: @unchecked Sendable {
 
 final class CommandBox: @unchecked Sendable {
     var commands: [MacCommand] = []
+}
+
+/// Counts calls from @Sendable closures.
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    /// The number of calls so far, this one included.
+    func next() -> Int { lock.withLock { count += 1; return count } }
 }

@@ -76,6 +76,10 @@ final class AppModel {
     @ObservationIgnored private var applied = 0
     /// Poll quickly until then (after starting the briefing or a routine on the Mac).
     @ObservationIgnored private var followUntil = Date.distantPast
+    /// When this phone last asked the Mac to open JARVIS (at most once a minute).
+    @ObservationIgnored private var wokeAt = Date.distantPast
+    /// The Mac said it's opening JARVIS, and isn't back yet.
+    private(set) var macOpening = false
 
     private static let speakKey = "speakReplies"
     static let wakeKey = "wake.enabled"
@@ -742,6 +746,7 @@ final class AppModel {
             reloadQueue()
             Haptics.tap()
             show("Your Mac can’t be reached, so this waits here and goes when it’s back (within the hour).")
+            openMac()
         } catch {
             Haptics.failure()
             show("Couldn’t keep that to send later: \(error.localizedDescription)", style: .problem)
@@ -863,6 +868,7 @@ final class AppModel {
             guard ticket > applied, pairing?.token == api.token else { return }  // a newer answer won
             applied = ticket
             if link != .online { link = .online }
+            macOpening = false
             apply(state)
             if let pairing { SnapshotPublisher.shared.publish(state, macName: pairing.macLabel) }
             if foreground { Task { await LiveActivities.shared.sync(state, api: api, inForeground: true) } }
@@ -880,6 +886,22 @@ final class AppModel {
             let reason = (error as? JarvisError)?.message ?? error.localizedDescription
             if link != .unreachable(reason) { link = .unreachable(reason) }
             SnapshotPublisher.shared.markOffline()
+            if foreground, (error as? JarvisError)?.neverDelivered ?? true { openMac() }
+        }
+    }
+
+    /// JARVIS on the Mac isn't answering: maybe it was quit. Its wake listener opens it, and
+    /// polling picks it up (what waits in the outbox then goes).
+    func openMac(force: Bool = false) {
+        guard let api = pairing?.api, force || Date().timeIntervalSince(wokeAt) > 60 else { return }
+        wokeAt = Date()
+        Task {
+            guard await api.wake(), isOffline else { return }
+            macOpening = true
+            show("Opening JARVIS on your Mac…")
+            expectActivity(for: 40)
+            try? await Task.sleep(for: .seconds(40))
+            macOpening = false
         }
     }
 

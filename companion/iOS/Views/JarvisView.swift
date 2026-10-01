@@ -176,6 +176,7 @@ struct JarvisView: View {
     private var offlineNote: some View {
         Button {
             if model.queued.isEmpty {
+                model.openMac(force: true)
                 Task { await model.refresh() }
             } else {
                 showOutbox = true
@@ -183,7 +184,7 @@ struct JarvisView: View {
         } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: "wifi.slash")
-                Text(model.answersOnPhone ? "Mac offline · Jarvis is answering on this iPhone" : "Can’t reach your Mac · Tap to try again")
+                Text(model.answersOnPhone ? "Mac offline · Jarvis is answering on this iPhone" : model.macOpening ? "Opening JARVIS on your Mac…" : "Can’t reach your Mac · Tap to try again")
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 if !model.queued.isEmpty {

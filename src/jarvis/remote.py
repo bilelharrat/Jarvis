@@ -1074,6 +1074,11 @@ class RemoteServer:
             self.advertiser.start(
                 self.port, self.host_name, {"tls": "1", "fp": self.identity.short}
             )
+        # So a paired phone can open JARVIS once it's quit (only the app's own backend).
+        from . import companion_wake
+
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            await asyncio.to_thread(companion_wake.install, None, self.folder)
         return True
 
     def _bind(self) -> socket.socket:

@@ -395,6 +395,27 @@ struct JarvisAPI: Sendable {
         try await send(path, body: body, timeout: timeout)
     }
 
+    // MARK: - Opening JARVIS on the Mac
+
+    /// Where the Mac's wake listener is (jarvis.companion_wake): launchd keeps it while JARVIS
+    /// is quit, on the same address, with the same certificate.
+    static let wakePort = 8764
+
+    /// The same Mac, at its wake listener.
+    var waker: JarvisAPI? {
+        guard var parts = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return nil }
+        parts.port = Self.wakePort
+        return parts.url.map { JarvisAPI(baseURL: $0, token: token, fingerprint: fingerprint) }
+    }
+
+    /// Asks the Mac to open JARVIS (it does nothing when JARVIS is already open). True when
+    /// it's opening. Never throws: a Mac without the listener (older, asleep, the companion
+    /// off) is just a false, and never unpairs this device.
+    func wake() async -> Bool {
+        guard let waker else { return false }
+        return (try? await waker.send("wake", body: Data("{}".utf8), timeout: 6)) != nil
+    }
+
     // MARK: - Plumbing
 
     private func send(
