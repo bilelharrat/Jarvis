@@ -32,7 +32,7 @@
     const saved = el('div', 'card-text vid-saved');
     saved.append(document.createTextNode(F.t('Saved in Documents › Jarvis › Videos as') + ' '), mine(el('span', '', ev.name || '')));
     const price = el('div', 'card-text vid-saved');  // the backend's words, in the owner's language
-    price.append(document.createTextNode(F.t('Billed to your Gemini key, about:') + ' '), mine(el('span', '', ev.cost || '')));
+    price.append(document.createTextNode(F.t('Estimated, billed to your Gemini key:') + ' '), mine(el('span', '', ev.cost || '')));
     card.append(el('div', 'card-kicker', 'Video'), mine(el('div', 'card-title vid-prompt', ev.prompt || '')), saved, price);
     const actions = el('div', 'card-actions');
     actions.append(

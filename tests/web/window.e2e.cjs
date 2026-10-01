@@ -7633,6 +7633,83 @@ test('A video proof plays from the window’s own server when its poster is clic
   assert(src === '/f/code-video/0123456789abcdef01234567', `video src: ${src}`);
 });
 
+// ── The owner's agents (web/features/agents.js, Settings › Agents, and the orb) ──
+
+const AGENTS_EV = (extra = '') => `__ev({ type: 'agents', error: '', active: 'main', max: 6, channels: ['telegram', 'imessage', 'slack', 'discord'],
+  personas: [{ id: 'jarvis', name: 'JARVIS' }, { id: 'friday', name: 'FRIDAY' }],
+  tools: [{ name: 'calendar', label: 'Calendar', account: '' }, { name: 'mail', label: 'Mail', account: '' }, { name: 'acct_work', label: '', account: 'Work Gmail <b>' }],
+  items: [], ${extra} }); true`;
+
+test('Agents: made in Settings under Personality with their persona, tools and chats, and shown on the orb', async () => {
+  await loadFeatures('agents.js', 'agents.css');
+  await js(AGENTS_EV());
+  const shown = await js(`({ after: $('persona-group').closest('section').nextElementSibling.id, rows: [...document.querySelectorAll('.agent-item strong')].map((n) => n.textContent), badge: $('agent-badge').hidden, form: $('agent-form').hidden })`);
+  assert(shown.after === 'agents-group' && shown.rows.join() === 'Jarvis' && shown.badge && shown.form, JSON.stringify(shown));
+  await js(`$('agent-new').click(); true`);
+  const editor = await js(`({ personas: [...$('agent-persona').options].map((o) => o.value), tools: [...document.querySelectorAll('#agent-tools input')].map((c) => c.value + ':' + c.checked), account: [...document.querySelectorAll('.agent-tool span')].pop().getAttribute('data-no-i18n') })`);
+  assert(editor.personas.join() === 'jarvis,friday' && editor.tools.join() === 'calendar:false,mail:false,acct_work:false' && editor.account === '', JSON.stringify(editor));
+  await js(`$('agent-name').value = 'Work Jarvis'; $('agent-persona').value = 'friday';
+    document.querySelector('#agent-tools input[value="mail"]').checked = true; document.querySelector('#agent-tools input[value="acct_work"]').checked = true;
+    [...document.querySelectorAll('.agent-form .btn')].find((b) => b.textContent === 'Add a chat').click();
+    const r = document.querySelector('.agent-route'); r.querySelector('select').value = 'slack'; r.querySelector('input').value = ' T-ACME ';
+    __sent.length = 0; $('agent-form').requestSubmit(); true`);
+  const made = await sentOf('agent_save');
+  assert(JSON.stringify(made) === JSON.stringify([{ type: 'agent_save', agent: { name: 'Work Jarvis', zh_name: '', persona: 'friday', servers: ['mail', 'acct_work'], routes: [{ channel: 'slack', place: 'T-ACME' }] } }]), JSON.stringify(made));
+  await js(AGENTS_EV(`error: 'Another agent has that name.'`).replace("error: '',", ''));
+  assert(await js(`!$('agent-form').hidden && $('agent-error').textContent === 'Another agent has that name.' && !$('agent-save').disabled`), 'an error closed the editor');
+  const work = `{ id: 'work', name: 'Work <i>J</i>', zh_name: '', persona: 'friday', servers: ['mail'], routes: [] }`;
+  await js(`$('agent-form').requestSubmit(); ${AGENTS_EV(`items: [${work}], active: 'work',`).replace("active: 'main', ", '')}`);
+  const listed = await js(`({ form: $('agent-form').hidden, rows: [...document.querySelectorAll('.agent-item strong')].map((n) => n.textContent), sub: document.querySelectorAll('.agent-item small')[1].textContent, inUse: document.querySelector('[data-agent="work"] .agent-in-use') !== null, badge: !$('agent-badge').hidden && $('agent-badge').textContent, italics: document.querySelectorAll('.agent-item i, #agent-badge i').length, below: $('orb').nextElementSibling.id })`);
+  assert(listed.form && listed.rows.join('|') === 'Jarvis|Work <i>J</i>' && listed.sub === 'FRIDAY · 1 tool' && listed.inUse && listed.badge === 'Work <i>J</i>' && listed.italics === 0 && listed.below === 'agent-badge', JSON.stringify(listed));
+  await js(`__sent.length = 0; [...document.querySelectorAll('[data-agent="main"] .btn')].find((b) => b.textContent === 'Use').click(); true`);
+  assert(JSON.stringify(await sentOf('agent_use')) === '[{"type":"agent_use","id":"main"}]', 'Use did not switch back');
+  const press = (label) => js(`[...document.querySelectorAll('[data-agent="work"] .btn')].find((b) => b.textContent === ${JSON.stringify(label)}).click(); true`);
+  await press('Edit');
+  assert(await js(`$('agent-name').value === 'Work <i>J</i>' && $('agent-persona').value === 'friday' && document.querySelector('#agent-tools input[value="mail"]').checked`), 'Edit did not fill the editor');
+  await js(`__sent.length = 0; $('agent-form').requestSubmit(); true`);
+  assert((await sentOf('agent_save'))[0].agent.id === 'work', 'an edit lost its id');
+  await js(`${AGENTS_EV(`items: [${work}],`)}`);
+  await js('__sent.length = 0');
+  await press('Delete');
+  assert((await sentOf('agent_delete')).length === 0, 'one press deleted it');
+  await press('Delete it?');
+  assert(JSON.stringify(await sentOf('agent_delete')) === '[{"type":"agent_delete","id":"work"}]', 'the second press did not delete it');
+  assert(await js(`$('agent-badge').hidden`), 'the everyday Jarvis still showed a badge');
+});
+
+// ── A Jarvis Code session that seems stuck (web/features/loops.js) ──
+
+test('Loops: a stuck Jarvis Code session gets a notice with Stop, and the session is only stopped by it', async () => {
+  await loadFeatures('loops.js', 'loops.css');
+  await js(`window.__loop = featureEntries.get('loop')({ role: 'loop', task_id: 7, kind: 'repeat', times: 3, steps: ['Running <b>tests</b>'] }); document.body.append(__loop); __sent.length = 0; true`);
+  const shown = await js(`({ text: __loop.querySelector('.jc-loop-head').textContent, step: __loop.querySelector('.jc-loop-steps li').textContent, mine: __loop.querySelector('.jc-loop-steps li').hasAttribute('data-no-i18n'), bold: __loop.querySelectorAll('b').length, buttons: [...__loop.querySelectorAll('.btn')].map((b) => b.textContent) })`);
+  assert(/did the same step three times in a row/.test(shown.text) && shown.step === 'Running <b>tests</b>' && shown.mine && shown.bold === 0 && shown.buttons.join() === 'Stop,Let it carry on', JSON.stringify(shown));
+  assert((await js('__sent.length')) === 0, 'the notice sent something by itself');
+  await js(`[...__loop.querySelectorAll('.btn')].find((b) => b.textContent === 'Stop').click(); true`);
+  assert(JSON.stringify(await sentOf('task_interrupt')) === '[{"type":"task_interrupt","id":7}]', 'Stop did not interrupt the session');
+  assert(await js(`__loop.querySelector('.jc-loop-done').textContent === 'Stopped.'`), 'Stop left the buttons up');
+  await js(`window.__loop2 = featureEntries.get('loop')({ role: 'loop', task_id: 8, kind: 'cycle', steps: [] }); __sent.length = 0; [...__loop2.querySelectorAll('.btn')].find((b) => b.textContent === 'Let it carry on').click(); true`);
+  assert(/went round the same few steps/.test(await js(`__loop2.querySelector('.jc-loop-head').textContent`)) && (await js('__sent.length')) === 0, 'carrying on sent something');
+});
+
+// ── Videos (web/features/video_gen.js) ──
+
+test('Videos: a finished video on a card with Play and Show in Finder, and Settings › Videos', async () => {
+  await loadFeatures('video_gen.js', 'video_gen.css');
+  await js(`__ev({ type: 'videos', key: true, model: 'veo-3.0-fast-generate-001', default_model: 'veo-3.0-fast-generate-001', folder: '/x', cost: 'about $1.20 for 8 seconds', per_day: 5 }); true`);
+  const settings = await js(`({ status: $('videos-status').textContent, model: $('video-model').value })`);
+  assert(/after you OK the estimated price: about \$1\.20 for 8 seconds$/.test(settings.status) && settings.model === 'veo-3.0-fast-generate-001', JSON.stringify(settings));
+  await js(`__sent.length = 0; $('video-model').value = 'veo-3.1-generate-preview'; $('video-model').dispatchEvent(new Event('change')); true`);
+  assert(JSON.stringify((await sentOf('feature_prefs'))[0].changes) === '{"video_model":"veo-3.1-generate-preview"}', 'the model was not kept');
+  await js(`__ev({ type: 'video_made', id: 'v1', name: '2026 a <b>fox</b>.mp4', path: '/x/a.mp4', prompt: 'a <i>fox</i>', cost: 'about $1.20 for 8 seconds' }); __sent.length = 0; true`);
+  const card = await js(`(() => { const c = document.querySelector('#cards .vid-card'); return c && { prompt: c.querySelector('.vid-prompt').textContent, mine: c.querySelector('.vid-prompt').hasAttribute('data-no-i18n'), tags: c.querySelectorAll('b, i').length, buttons: [...c.querySelectorAll('.btn')].map((b) => b.textContent) }; })()`);
+  assert(card && card.prompt === 'a <i>fox</i>' && card.mine && card.tags === 0 && card.buttons.join() === 'Play,Show in Finder,Dismiss', JSON.stringify(card));
+  await js(`[...document.querySelectorAll('#cards .vid-card .btn')].find((b) => b.textContent === 'Play').click(); [...document.querySelectorAll('#cards .vid-card .btn')].find((b) => b.textContent === 'Show in Finder').click(); true`);
+  assert(JSON.stringify(await js(`__sent.map((m) => m.type + ':' + m.id)`)) === '["video_open:v1","video_reveal:v1"]', 'the card did not open the video by its id');
+  await js(`[...document.querySelectorAll('#cards .vid-card .btn')].find((b) => b.textContent === 'Dismiss').click(); true`);
+  assert(!(await js(`!!document.querySelector('#cards .vid-card')`)), 'Dismiss left the card');
+});
+
 // ──
 
 // WINDOW_TESTS=<regex> runs only the tests whose names match (a failure, rerun alone);
