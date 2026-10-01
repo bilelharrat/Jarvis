@@ -30,6 +30,9 @@ _LINE_BREAKS = re.compile(r"(?<!\s)\s*\n\s*")
 log = logging.getLogger("jarvis")
 
 EFFECT_RATE = 22050
+LOCAL_RATE = 24000  # the offline voice's (local_voice.LOCAL_RATE)
+# Said once, in the Mac voice, when the offline voice stops working.
+LOCAL_FAILED = "My own voice isn't working right now, so the Mac's voice will do."
 
 
 def clean_for_speech(text: str) -> str:
@@ -518,6 +521,11 @@ class Speaker:
         # The Mac voice to use when the cloud voice fails ("": the voice above). The voice
         # feature picks the best Enhanced or Premium one installed for the language.
         self.fallback_voice = ""
+        # The offline voice (local_voice.LocalVoice): `local` speaks when it's the voice
+        # picked, `local_fallback` when a cloud voice fails. Set by speaking.Speaking.
+        self.local: Any = None
+        self.local_fallback: Any = None
+        self._local_told = False  # the Mac voice took over from it: said once
         self._procs: set[asyncio.subprocess.Process] = set()  # every `say` running
         self._player: asyncio.subprocess.Process | None = None
         self._playing = False
@@ -619,11 +627,43 @@ class Speaker:
                         log.warning("cloud voice failed (%s)", self.cloud_error)
                         if sent:
                             return
+                local = self._local_for(spoken)
+                if local is not None:
+                    src.rate = LOCAL_RATE
+                    async for pcm in self._local_pcm(local, spoken):
+                        src.chunks.put_nowait(pcm)
+                    return
                 audio, rate = await self._mac_voice(spoken, fallback=self.cloud is not None)
                 src.rate = rate
                 src.chunks.put_nowait(to_pcm(audio))
         finally:
             src.chunks.put_nowait(None)
+
+    # ── the offline voice (local_voice.py) ──
+
+    def _local_for(self, spoken: str) -> Any:
+        """The offline voice to say this with: the one picked, or the fallback after a
+        cloud voice failed. None for the Mac voice (Chinese, or not downloaded)."""
+        if self.cloud is None:
+            local = getattr(self, "local", None)
+        else:
+            local = getattr(self, "local_fallback", None)
+        return local if local is not None and local.speaks(spoken) else None
+
+    async def _local_pcm(self, local: Any, spoken: str):
+        """16-bit PCM at LOCAL_RATE, sentence by sentence. A sentence it can't pronounce
+        is said by the Mac voice; when the model fails, the Mac voice says the rest, and
+        the first time it also says why (once, until the voice is set up anew)."""
+        async for kind, value in local.pieces(spoken):
+            if kind == "audio":
+                yield to_pcm(value)
+                continue
+            text = value
+            if local.engine.error and not getattr(self, "_local_told", False):
+                self._local_told = True  # (English only: Chinese never reaches it)
+                text = f"{LOCAL_FAILED} {text}"
+            audio, rate = await self._mac_voice(text, fallback=True)
+            yield resample(to_pcm(audio), rate, LOCAL_RATE)
 
     async def _mac_voice(self, spoken: str, fallback: bool = False) -> tuple[np.ndarray, int]:
         with tempfile.TemporaryDirectory() as tmp:
@@ -722,6 +762,13 @@ class Speaker:
                 ), rate
             except Exception as exc:  # bad key, no credit, offline: fall back to the Mac voice
                 self.cloud_error = str(exc)[:200]
+        local = self._local_for(spoken)
+        if local is not None:
+            pcm = b"".join([chunk async for chunk in self._local_pcm(local, spoken)])
+            audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+            if self.effect and self.player_path is None:
+                audio = await asyncio.to_thread(ai_voice_effect, audio, LOCAL_RATE)
+            return audio, LOCAL_RATE
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "reply.wav"
             fallback = self.cloud is not None

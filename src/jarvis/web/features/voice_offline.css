@@ -1,0 +1,7 @@
+/* Settings › Speaking › JARVIS (on this Mac) (features/voice_offline.js). */
+.voice-offline { display: contents; }
+.voice-offline[hidden], .voice-offline [hidden] { display: none !important; }
+.voice-offline .btn:disabled { opacity: 0.45; cursor: default; }
+.voice-offline progress { width: 100%; height: 6px; accent-color: var(--accent, #0a84ff); }
+.voice-offline-get { gap: 10px; }
+#voice-offline-remove { align-self: flex-start; }

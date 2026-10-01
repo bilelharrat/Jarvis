@@ -27,7 +27,7 @@
       mine(opt);
       if (!groups.has(o.group)) {
         const g = el('optgroup');
-        g.label = o.group === 'mac' ? T('Mac voices') : T(PV.CLOUD_NAMES[o.group]);
+        g.label = o.group === 'mac' ? T('Mac voices') : T(PV.CLOUD_NAMES[o.group] || PV.LOCAL_NAME);
         groups.set(o.group, g);
         nodes.push(g);
       }

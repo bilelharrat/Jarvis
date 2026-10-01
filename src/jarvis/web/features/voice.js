@@ -22,7 +22,7 @@
     send({ type: 'voice_settings', changes });
   }
 
-  const PROVIDERS = [['jarvis', 'JARVIS'], ['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio']];
+  const PROVIDERS = [['jarvis', 'JARVIS'], ['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio'], ['local', 'JARVIS (on this Mac)']];
   // The JARVIS voice is a Fish Audio voice: its optional key is Fish Audio's.
   const keyProvider = () => (state && state.provider === 'jarvis' ? 'fish' : state && state.provider);
   const NAMES = Object.fromEntries(PROVIDERS);
@@ -53,7 +53,7 @@
   provider.setAttribute('aria-label', 'Voice provider');
   provider.append(...PROVIDERS.map(([id, name]) => {
     const b = radio(name, id, 'provider', (v) => change({ voice_provider: v }));
-    b.setAttribute('data-no-i18n', '');
+    if (id !== 'local') b.setAttribute('data-no-i18n', '');  // (brand names; the offline voice's is words)
     return b;
   }));
   const providerNote = el('p', 'small-status');
@@ -162,7 +162,7 @@
   preview.addEventListener('click', () => {
     if (!state) return;
     const cloud = (state.clouds || {})[state.provider];
-    const voice = state.provider === 'say' ? macSelect.value : ((cloud && cloud.voice) || {}).id || '';
+    const voice = state.provider === 'say' ? macSelect.value : state.provider === 'local' ? ((state.local || {}).voice || '') : ((cloud && cloud.voice) || {}).id || '';
     send({ type: 'voice_preview', provider: state.provider, voice });
   });
   const speakingNote = el('p', 'small-status');
@@ -191,7 +191,7 @@
       macAsked = true;
       send({ type: 'voice_list', provider: 'say' });
     }
-    const cloud = p !== 'say' && !jarvis ? (state.clouds || {})[p] || {} : null;
+    const cloud = p === 'elevenlabs' || p === 'fish' ? (state.clouds || {})[p] || {} : null;  // (local: voice_offline.js)
     provider.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.provider === p)));
     providerNote.replaceChildren();
     if (!state.provider_set && !jarvis) providerNote.append(el('span', '', 'From your .env file (never changed here).'));
@@ -199,8 +199,8 @@
     providerNote.hidden = !providerNote.childNodes.length;
 
     macRow.hidden = p !== 'say';
-    for (const node of [cloudRow, idForm, modelRow]) node.hidden = p === 'say' || jarvis;
-    for (const node of [keyRow, keyForm]) node.hidden = p === 'say';
+    for (const node of [cloudRow, idForm, modelRow]) node.hidden = !cloud;
+    for (const node of [keyRow, keyForm]) node.hidden = !cloud && !jarvis;
     if (jarvis) {
       const fish = (state.clouds || {}).fish || {};
       keyNote.textContent = fish.key ? `Your Fish Audio key (${fish.key}): the JARVIS voice, unlimited.`
@@ -244,10 +244,15 @@
     preview.textContent = state.busy === 'preview' ? 'Playing…' : 'Preview';
 
     let note = '';
-    if (jarvis && state.cloud_error) note = `The JARVIS voice wasn't available last time (its daily allowance may be used up); ${state.fallback_voice || state.mac_voice} spoke instead.`;
+    // When a cloud voice (JARVIS's too) fails: the offline voice for English once it's downloaded, else the Mac voice.
+    const offline = !!(state.local && state.local.fallback);
+    const instead = offline ? 'JARVIS (on this Mac)' : state.fallback_voice || state.mac_voice;
+    if (jarvis && state.cloud_error) note = `The JARVIS voice wasn't available last time (its daily allowance may be used up); ${instead} spoke instead.`;
+    else if (jarvis && offline) note = state.jarvis_own_key ? 'Speaking as JARVIS with your own Fish Audio key.' : 'Speaking as JARVIS. If it can’t be reached, JARVIS (on this Mac) speaks.';
     else if (jarvis) note = state.jarvis_own_key ? 'Speaking as JARVIS with your own Fish Audio key.' : 'Speaking as JARVIS. If it can’t be reached, the Mac voice speaks.';
     else if (cloud && !state.cloud_on) note = `${NAMES[p]} needs an API key and a voice; the Mac voice speaks until then.`;
     else if (cloud && state.cloud_error) note = `${NAMES[p]} failed last time; ${state.fallback_voice || state.mac_voice} spoke instead.`;
+    else if (cloud && offline) note = `If ${NAMES[p]} fails, JARVIS (on this Mac) speaks instead.`;
     else if (cloud) note = `If ${NAMES[p]} fails, ${state.fallback_voice || state.mac_voice} speaks instead.`;
     speakingNote.textContent = note;
     speakingNote.title = cloud && state.cloud_error ? state.cloud_error : '';

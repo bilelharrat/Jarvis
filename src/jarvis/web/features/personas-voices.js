@@ -6,9 +6,11 @@
   'use strict';
 
   const CLOUD_NAMES = { elevenlabs: 'ElevenLabs voices', fish: 'Fish Audio voices' };  // (as its group of choices is headed)
+  const LOCAL_NAME = 'JARVIS (on this Mac)';  // the offline voices' group
 
   function valueOf(voice) {
     if (!voice || !voice.provider) return '';
+    if (voice.provider === 'local') return JSON.stringify({ provider: 'local', id: voice.id });
     return voice.provider === 'say' ? JSON.stringify({ provider: 'say', name: voice.name }) : JSON.stringify({ provider: voice.provider, id: voice.id, name: voice.name || voice.id });
   }
 
@@ -29,6 +31,7 @@
       out.push({ group, label, value });
     };
     for (const v of s.mac_voices || []) add('mac', v.name, { provider: 'say', name: v.name });
+    if (s.local && s.local.ready) for (const v of s.local.voices || []) add('local', v.name, { provider: 'local', id: v.id, name: v.name });
     for (const p of Object.keys(CLOUD_NAMES)) {
       const c = (s.clouds || {})[p];
       if (!c || !(c.key || c.env_key)) continue;
@@ -41,7 +44,7 @@
     return out;
   }
 
-  const api = { options, valueOf, fromValue, CLOUD_NAMES };
+  const api = { options, valueOf, fromValue, CLOUD_NAMES, LOCAL_NAME };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   root.jarvisPersonaVoices = api;
 })(typeof window === 'object' ? window : globalThis);

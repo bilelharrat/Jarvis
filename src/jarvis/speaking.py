@@ -12,7 +12,10 @@
   window only ever sees the last four characters. A key from .env still works.
 - Model, speed, and a preview of the voice picked.
 - When the cloud voice fails, the best Enhanced or Premium Mac voice installed for the
-  language speaks instead of the plain default (voices.best_fallback).
+  language speaks instead of the plain default (voices.best_fallback); or JARVIS's own
+  offline voice, once it's downloaded.
+- "JARVIS (on this Mac)": the offline neural voice (local_voice.py), English only,
+  downloaded when the owner presses Download here.
 
 Cost policy: no Claude model is called. Listing voices is one free request to the provider's
 voice list, and a preview one short sentence of speech (a few dozen characters of the
@@ -29,19 +32,23 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import lang, personas, voices
+import numpy as np
+
+from . import lang, local_voice, personas, voices
 from .providers import clean_key, mask
 from .speech import EFFECT_RATE, JARVIS_VOICE_ID, CloudVoice, Speaker, read_wav
 
 log = logging.getLogger("jarvis")
 
-PROVIDERS = ("jarvis", "say", "elevenlabs", "fish")
+PROVIDERS = ("jarvis", "say", "elevenlabs", "fish", "local")
 CLOUD = ("elevenlabs", "fish")
+LOCAL_NAME = "JARVIS (on this Mac)"
 PROVIDER_NAMES = {
     "jarvis": "JARVIS",
     "say": "Mac",
     "elevenlabs": "ElevenLabs",
     "fish": "Fish Audio",
+    "local": LOCAL_NAME,
 }
 JARVIS_MODEL = "s2.1-pro"  # the model the JARVIS voice speaks with on the owner's own key
 # Models offered for each (any other id can be typed).
@@ -123,6 +130,11 @@ def clean_hints(value: Any) -> dict[str, str] | None:
     }
 
 
+def clean_local(value: Any) -> str | None:
+    """The offline voice picked ("bm_george")."""
+    return value if isinstance(value, str) and value in local_voice.VOICES else None
+
+
 def clean_muted(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
@@ -130,7 +142,8 @@ def clean_muted(value: Any) -> bool | None:
 def clean_persona_voice(value: Any) -> dict[str, str] | None:
     """A custom persona's own voice (personas.register_field "voice"): {"provider": "say",
     "name": a Mac voice} or {"provider": "elevenlabs" | "fish", "id", "name"}; {} for the
-    usual voice (kept, so choosing it undoes an earlier pick)."""
+    usual voice (kept, so choosing it undoes an earlier pick); or {"provider": "local",
+    "id", "name"}: one of the offline voices."""
     if value in ("", None) or value == {}:
         return {}
     if not isinstance(value, dict):
@@ -144,6 +157,8 @@ def clean_persona_voice(value: Any) -> dict[str, str] | None:
     if provider in CLOUD:
         voice = _clean_voice(value)
         return {"provider": provider, **voice} if voice is not None else None
+    if provider == "local" and clean_local(value.get("id")):
+        return {"provider": "local", "id": value["id"], "name": local_voice.VOICES[value["id"]][0]}
     return None
 
 
@@ -157,6 +172,7 @@ PREFS = {
     "voice_models": ({}, clean_models),
     "voice_speed": (SPEED_DEFAULT, clean_speed),
     "voice_muted": (False, clean_muted),
+    "voice_local": (local_voice.DEFAULT_VOICE, clean_local),
     "voice_key_hints": ({}, clean_hints),
 }
 
@@ -371,6 +387,10 @@ class Speaking:
                 provider = ""  # (without a key: the usual voice)
         elif own is not None and self.persona_mac(self.language):
             provider = ""  # the persona's Mac voice: no cloud voice over it
+        store = local_voice.store_for(self.hub)
+        own_local = own is not None and own["provider"] == "local" and store.ready()
+        if own_local:
+            provider = ""  # the persona's offline voice: no cloud voice over it
         if provider in CLOUD:
             key, voice = await self._key(provider), self.cloud_voice(provider)["id"]
             if key and voice:
@@ -379,8 +399,15 @@ class Speaking:
             cloud = await self.jarvis_voice(speed)
         if cloud is not None and _same(speaker.cloud, cloud):
             cloud = speaker.cloud  # nothing changed: its warm connection stays
-        changed = speaker.cloud is not cloud
-        if changed:
+        local = fallback = None
+        if store.ready():
+            if own_local and own is not None:
+                local = store.voice(own["id"], speed)
+            elif provider == "local":
+                local = store.voice(self.local_voice(), speed)
+            fallback = store.voice(self.local_voice(), speed)  # when a cloud voice fails
+        changed = self._set_local(speaker, local, fallback) or speaker.cloud is not cloud
+        if speaker.cloud is not cloud:
             old, speaker.cloud, speaker.cloud_error = speaker.cloud, cloud, ""
             client = getattr(old, "_client", None)
             if client is not None and not client.is_closed:
@@ -400,10 +427,40 @@ class Speaking:
             self.hub._spawn(self.hub._prepare_fillers())
         return changed
 
+    def local_voice(self) -> str:
+        return clean_local(self._pref("voice_local")) or local_voice.DEFAULT_VOICE
+
+    @staticmethod
+    def _set_local(speaker: Speaker, local: Any, fallback: Any) -> bool:
+        """The offline voice, kept (model and all) when nothing about it changed. True
+        when the voice speaking changed."""
+        before = getattr(speaker, "local", None)
+        before_fallback = getattr(speaker, "local_fallback", None)
+        if local is not None and local.same(before):
+            local = before
+        if fallback is not None and fallback.same(before_fallback):
+            fallback = before_fallback
+        if local is not before or fallback is not before_fallback:
+            speaker._local_told = False  # set up anew: a failure is said again
+        speaker.local, speaker.local_fallback = local, fallback
+        return local is not before
+
+    async def warm_local(self) -> None:
+        """Load the offline voice's model now, not on the first reply (the app only)."""
+        speaker = self.hub.speaker
+        local = getattr(speaker, "local", None) or getattr(speaker, "local_fallback", None)
+        if local is None:
+            return
+        try:
+            await asyncio.to_thread(local.engine.load, local.voice)
+        except Exception as exc:  # said when it's first used (Speaker._local_pcm)
+            log.warning("offline voice didn't load: %s", exc)
+
     async def setup(self) -> None:
         """At startup (the app only): list the Mac's voices, then speak as Settings say."""
         self.mac_voices = await asyncio.to_thread(voices.list_mac_voices)
         await self.apply()
+        await self.warm_local()
 
     def change(self, changes: dict[str, Any]) -> bool:
         """The pane's changes to the voice; True when any was taken."""
@@ -429,6 +486,8 @@ class Speaking:
                 self.error = "That doesn't look like a model id."
             else:
                 wanted["voice_models"] = {**models, **({provider: model} if model else {})}
+        if "voice_local" in changes and clean_local(changes["voice_local"]) is not None:
+            wanted["voice_local"] = changes["voice_local"]
         if "voice_speed" in changes and clean_speed(changes["voice_speed"]) is not None:
             wanted["voice_speed"] = changes["voice_speed"]
         if wanted:
@@ -484,6 +543,10 @@ class Speaking:
                     if cloud._client is not None:
                         with contextlib.suppress(Exception):
                             await cloud._client.aclose()
+            elif provider == "local":
+                audio, rate = await self._local_preview(text, voice)
+                if audio is None:
+                    return
             else:
                 key = await self._key(provider)
                 voice_id = voice if isinstance(voice, str) and voice else ""
@@ -508,6 +571,22 @@ class Speaking:
             self.error = (
                 "The preview didn't play: the voice service turned it down or is unreachable."
             )
+
+    async def _local_preview(self, text: str, voice: Any) -> tuple[Any, int]:
+        store = local_voice.store_for(self.hub)
+        if not store.ready():
+            self.error = "Download JARVIS’s offline voice first."
+            return None, 0
+        picked = clean_local(voice) or self.local_voice()
+        local = store.voice(picked, self.speed() / 100)
+        if not local.speaks(text):  # the preview in Chinese: the Mac voice says it
+            self.error = "JARVIS’s offline voice speaks English; Chinese uses the Mac voice."
+            return None, 0
+        parts = [audio async for kind, audio in local.pieces(text) if kind == "audio"]
+        if not parts or local.engine.error:
+            self.error = "JARVIS’s offline voice couldn’t load. Download it again."
+            return None, 0
+        return np.concatenate(parts), local_voice.LOCAL_RATE
 
     # ── what the pane shows ──
 
@@ -545,6 +624,12 @@ class Speaking:
             "speed": self.speed(),
             "cloud_on": getattr(speaker, "cloud", None) is not None,
             "cloud_error": getattr(speaker, "cloud_error", ""),
+            "local": {
+                **local_voice.store_for(self.hub).public(),
+                "voice": self.local_voice(),
+                "on": getattr(speaker, "local", None) is not None,
+                "fallback": getattr(speaker, "local_fallback", None) is not None,
+            },
             "speaking_error": self.error,
             "busy": self.busy,
         }
