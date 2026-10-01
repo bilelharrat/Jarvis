@@ -88,6 +88,7 @@
   "Close tools and accounts": "关闭工具与账户",
   "Command": "命令",
   "Command Center": "指挥中心",
+  "Stark Glass": "斯塔克玻璃",
   "Commands Jarvis Code runs here without asking (from “Yes, and don’t ask again”).": "Jarvis Code 在这里无需询问即可运行的命令（来自“是，且不再询问”）。",
   "Computer files": "电脑文件",
   "Connect your accounts through each service’s official connector. Jarvis reads freely and asks before it changes anything, unless you tell it otherwise. Sign-ins and tokens stay in your Mac’s Keychain.": "通过各服务的官方连接器连接你的账户。Jarvis 可以自由读取，但在做任何更改前都会先询问，除非你另有指示。登录信息和令牌都保存在 Mac 的钥匙串中。",

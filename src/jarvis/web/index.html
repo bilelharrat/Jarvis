@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap">
 <link rel="stylesheet" href="/static/app.css">
 <link rel="stylesheet" href="/static/simulator.css">
+<link rel="stylesheet" href="/static/stark-glass.css">
 </head>
 <body data-state="idle" data-look="orb">
 <canvas id="galaxy-canvas" class="galaxy-canvas" aria-hidden="true"></canvas>
@@ -87,6 +88,12 @@
       <circle cx="200" cy="200" r="120" class="r-line faint"/>
       <g class="r-spokes"><line x1="200" y1="32" x2="200" y2="368"/><line x1="54" y1="116" x2="346" y2="284"/><line x1="54" y1="284" x2="346" y2="116"/></g>
       <circle cx="200" cy="200" r="62" class="r-core"/>
+    </svg>
+    <svg class="bezel" viewBox="0 0 400 400" aria-hidden="true">
+      <defs><linearGradient id="bz-comet" gradientUnits="userSpaceOnUse" x1="200" y1="6" x2="337" y2="63"><stop offset="0" stop-color="#8fdbff" stop-opacity="0"/><stop offset="0.75" stop-color="#8fdbff" stop-opacity="0.9"/><stop offset="1" stop-color="#d6f3ff"/></linearGradient></defs>
+      <circle cx="200" cy="200" r="194" class="bz-rim"/>
+      <g class="bz-ticks"><circle cx="200" cy="200" r="186" class="bz-minor"/><circle cx="200" cy="200" r="184" class="bz-major"/><circle cx="200" cy="200" r="182" class="bz-quarter"/></g>
+      <g class="bz-comet"><path d="M 200 6 A 194 194 0 0 1 337 63"/></g>
     </svg>
     <span class="orb-core"></span>
     <span class="orb-sheen"></span>
@@ -231,6 +238,7 @@
       <button type="button" role="radio" data-look="orb" aria-checked="true">Ambient Orb</button>
       <button type="button" role="radio" data-look="hud" aria-checked="false">Stark HUD</button>
       <button type="button" role="radio" data-look="console" aria-checked="false">Command Center</button>
+      <button type="button" role="radio" data-look="glass" aria-checked="false">Stark Glass</button>
     </div>
     <div class="row"><span><strong>Use my location</strong><small>For local weather and live traffic times. Stays on this Mac until you ask about it.</small></span><button type="button" class="switch" role="switch" id="sw-location" aria-checked="true" aria-label="Use my location"></button></div>
     <label class="row stack" for="weather-city"><span><strong>Weather city</strong><small>Used when location is off, e.g. Lisbon</small></span>

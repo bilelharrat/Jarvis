@@ -24,6 +24,8 @@ from jarvis.ui import parse
         ("switch to the HUD", "look", "hud", True),
         ("change to the command center look", "look", "console", True),
         ("go back to the orb", "look", "orb", True),
+        ("switch to stark glass", "look", "glass", True),
+        ("change to the glass look", "look", "glass", True),
         ("turn on hand control", "hands", "", True),
         ("stop hand tracking", "hands", "", False),
         ("hands off", "hands", "", False),
@@ -70,6 +72,8 @@ async def test_switching_the_look_by_voice(hub):
     hub.emit = lambda *_a, **_k: None
     assert await hub._instant_window("r1", "switch to the HUD")
     assert hub.prefs.look == "hud"
+    assert await hub._instant_window("r2", "switch to stark glass")
+    assert hub.prefs.look == "glass"
 
 
 def test_export_history(hub, tmp_path, monkeypatch):

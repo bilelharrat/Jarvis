@@ -1064,8 +1064,14 @@ LOOKS_ZH = {
     "光球": "orb", "环境光球": "orb", "球": "orb", "hud": "hud", "斯塔克hud": "hud",
     "钢铁侠hud": "hud", "抬头显示": "hud", "抬头显示器": "hud", "平视显示": "hud",
     "指挥中心": "console", "控制台": "console",
+    "玻璃": "glass", "斯塔克玻璃": "glass", "全玻璃": "glass", "玻璃风格": "glass",
 }  # fmt: skip
-LOOK_NAMES_ZH = {"orb": "环境光球", "hud": "斯塔克 HUD", "console": "指挥中心"}
+LOOK_NAMES_ZH = {
+    "orb": "环境光球",
+    "hud": "斯塔克 HUD",
+    "console": "指挥中心",
+    "glass": "斯塔克玻璃",
+}
 _UI_OPEN = r"(?:打开|开启|显示|调出|弹出|启动|进入|去|给我看|看看|带我去|拉起|展开|切换到|切到)"
 _UI_CLOSE = r"(?:关闭|关掉|关上|隐藏|收起|退出|离开|关)"
 _OPEN_PANEL_ZH = re.compile(rf"{_UI_OPEN}(?P<p>.+)|把(?P<q>.+?)(?:打开|开启|调出来?|显示出来?)")
@@ -2421,6 +2427,7 @@ VALUES_ZH = {
     "the Ambient Orb": "环境光球",
     "the Stark HUD": "斯塔克 HUD",
     "the Command Center": "指挥中心",
+    "Stark Glass": "斯塔克玻璃",
     "an unusual web address": "一个不常见的网址",
     "this assistant's own project": "这个助手自己的项目",
     "(none yet)": "（暂无）",

@@ -72,7 +72,7 @@ PERSONAS = {
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-LOOKS = ("orb", "hud", "console")
+LOOKS = ("orb", "hud", "console", "glass")
 
 
 @dataclass

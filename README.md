@@ -18,6 +18,10 @@ right, and the Activity drawer bottom left lists every tool call and any Claude 
 tasks, with a Stop button. Closing the window hides it; ⌘Q quits. Backend logs go to
 `~/Library/Logs/Jarvis/backend.log`.
 
+Settings › Look offers four: the Ambient Orb (the default), the Stark HUD, the Command
+Center, and Stark Glass (the orb's layout, always dark, every surface glass over a night lit
+by the reactor, the orb in a ticked bezel with gold quarters; `web/stark-glass.css`).
+
 Under the hood, Electron starts `uv run jarvis serve` on a random local port with a
 fresh token. The window's WebSocket must present that token from the server's own
 origin, so other pages in your browser can't drive your Mac through it.

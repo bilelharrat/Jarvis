@@ -67,8 +67,18 @@ LOOKS = {
     "command center": "console",
     "command centre": "console",
     "console": "console",
+    "glass": "glass",
+    "stark glass": "glass",
+    "the glass look": "glass",
+    "glass look": "glass",
+    "all glass": "glass",
 }
-LOOK_NAMES = {"orb": "the Ambient Orb", "hud": "the Stark HUD", "console": "the Command Center"}
+LOOK_NAMES = {
+    "orb": "the Ambient Orb",
+    "hud": "the Stark HUD",
+    "console": "the Command Center",
+    "glass": "Stark Glass",
+}
 
 
 @dataclass(frozen=True)
@@ -159,14 +169,14 @@ def build_server(apply: Apply):
 
     @tool(
         "set_look",
-        "Change how J.A.R.V.I.S. looks: orb (the Ambient Orb), hud (the Stark HUD) or console "
-        "(the Command Center).",
+        "Change how J.A.R.V.I.S. looks: orb (the Ambient Orb), hud (the Stark HUD), console "
+        "(the Command Center) or glass (Stark Glass).",
         {"look": str},
     )
     async def set_look(args):
         look = LOOKS.get(str(args.get("look", "")).lower().strip())
         if not look:
-            return _text("Looks: orb, hud, console.")
+            return _text("Looks: orb, hud, console, glass.")
         await apply(Command("look", look))
         return _text(f"Switched to {LOOK_NAMES[look]}.")
 

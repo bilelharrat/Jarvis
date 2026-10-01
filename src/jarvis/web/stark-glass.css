@@ -1,0 +1,213 @@
+/* ═════════════ Stark Glass ═════════════
+   Apple's craft with Stark's materials: the Ambient Orb's layout (the look sets
+   data-look="orb" and data-skin="glass"), always dark, every surface Liquid Glass over a
+   night lit by the arc reactor, the reactor in a fine-ticked chronograph bezel with Stark
+   gold at the quarters, telemetry in small SF Mono caps, and gold for what needs you.
+   html body raises these over the orb's own rules and the features' pop-out glass. */
+
+html body[data-skin="glass"] {
+  --bg: #03060d;
+  --ink: #eef3f8;
+  --ink-2: #b8c3d1;
+  --muted: #7f8ca0;
+  --line: rgba(255, 255, 255, 0.09);
+  --card: rgba(255, 255, 255, 0.05);
+  --chip-hover: rgba(255, 255, 255, 0.09);
+  --action: #5cc8f7;
+  --action-ink: #03101c;
+  --warn: #e8c27a;
+  --gold: #e8c27a;
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --serif: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --orb-glow: rgba(40, 150, 235, 0.42);
+  /* The glass: a clear pane with a specular rim, bright where the light hits the top. */
+  --glass: linear-gradient(160deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.02) 60%, rgba(255, 255, 255, 0.04));
+  --glass-blur: blur(26px) saturate(185%);
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    inset 1px 0 0 rgba(255, 255, 255, 0.06), inset -1px 0 0 rgba(255, 255, 255, 0.04);
+  --glass-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.8);
+  --panel-glass: var(--glass);
+  --panel-edge: rgba(255, 255, 255, 0.24);
+  --panel-line: rgba(255, 255, 255, 0.08);
+  --panel-shadow: var(--glass-shadow);
+  --panel-inset: rgba(255, 255, 255, 0.035);
+  color-scheme: dark;
+  background: #03060d;
+  background-image: none;
+  font-family: var(--sans);
+}
+
+/* The night, lit by the reactor from above, a breath of gold and hot-rod red low in the
+   corners; it drifts slowly so the glass always has something to bend. */
+html body[data-skin="glass"]::before {
+  content: '';
+  position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(50rem 34rem at 50% 30%, rgba(20, 102, 184, 0.42), transparent 70%),
+    radial-gradient(40rem 30rem at 20% 0%, rgba(11, 58, 115, 0.5), transparent 70%),
+    radial-gradient(30rem 22rem at 88% 100%, rgba(120, 84, 24, 0.22), transparent 70%),
+    radial-gradient(26rem 20rem at 6% 100%, rgba(140, 28, 20, 0.16), transparent 70%),
+    #03060d;
+  animation: sg-drift 48s ease-in-out infinite alternate;
+}
+@keyframes sg-drift {
+  from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
+  to { transform: translate3d(1.5%, 1.2%, 0) scale(1.04); }
+}
+
+/* ── the glass ── */
+html body[data-skin="glass"] .side .panel,
+html body[data-skin="glass"] .card,
+html body[data-skin="glass"] .chip,
+html body[data-skin="glass"] .icon-btn,
+html body[data-skin="glass"] .chip-sm,
+html body[data-skin="glass"] .pill,
+html body[data-skin="glass"] .meeting-pill,
+html body[data-skin="glass"] .popover,
+html body[data-skin="glass"] .convo-pop,
+html body[data-skin="glass"] .mem-pop,
+html body[data-skin="glass"] .ops-pop,
+html body[data-skin="glass"] .wiki-pop,
+html body[data-skin="glass"] .intro-pop,
+html body[data-skin="glass"] .offline {
+  background: var(--glass);
+  background-color: rgba(8, 14, 26, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+  color: var(--ink);
+}
+html body[data-skin="glass"] .convo-pop,
+html body[data-skin="glass"] .mem-pop,
+html body[data-skin="glass"] .ops-pop,
+html body[data-skin="glass"] .wiki-pop,
+html body[data-skin="glass"] .intro-pop { background-color: rgba(8, 14, 26, 0.62); }
+html body[data-skin="glass"] .side .panel { border-radius: 22px; }
+html body[data-skin="glass"] .chip:hover,
+html body[data-skin="glass"] .icon-btn:hover { background-color: rgba(255, 255, 255, 0.08); }
+html body[data-skin="glass"] .side .panel .kv-grid > div { background: rgba(255, 255, 255, 0.035); border-color: rgba(255, 255, 255, 0.06); }
+
+/* Settings and the other sheets: one dark pane of glass. */
+html body[data-skin="glass"] .sheet {
+  --s-card: rgba(255, 255, 255, 0.05);
+  --s-line: rgba(255, 255, 255, 0.09);
+  --s-track: rgba(0, 0, 0, 0.24);
+  --s-switch: rgba(120, 120, 128, 0.42);
+  --s-seg: rgba(92, 200, 247, 0.22);
+  --s-seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
+  --s-input: rgba(255, 255, 255, 0.05);
+  --s-tile: rgba(255, 255, 255, 0.045);
+  --s-tile-hover: rgba(255, 255, 255, 0.085);
+  --s-green: #30d158;
+  --s-red: #ff453a;
+  --s-rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.09);
+  --s-fill: rgba(8, 14, 26, 0.55);
+  --s-sheen: linear-gradient(180deg, rgba(92, 200, 247, 0.06), rgba(255, 255, 255, 0) 200px);
+  --s-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 30px 80px -20px rgba(0, 0, 0, 0.8);
+  color: var(--ink);
+}
+
+/* ── type: SF Pro to read, SF Mono caps for telemetry ── */
+html body[data-skin="glass"] .wordmark {
+  font-family: var(--sans); font-weight: 600; letter-spacing: 4px; font-size: 18px;
+}
+html body[data-skin="glass"] .side .panel h2,
+html body[data-skin="glass"] .state-line,
+html body[data-skin="glass"] .card-kicker,
+html body[data-skin="glass"] .group h3,
+html body[data-skin="glass"] .meta {
+  font-family: var(--mono); text-transform: uppercase; letter-spacing: 1.6px;
+}
+html body[data-skin="glass"] .side .panel h2 { font-size: 11px; font-weight: 600; color: var(--action); }
+html body[data-skin="glass"] .state-line { font-size: 11.5px; color: var(--action); }
+html body[data-skin="glass"] .meta { font-size: 11.5px; }
+html body[data-skin="glass"] h1 { font-family: var(--serif); font-weight: 700; letter-spacing: -0.8px; font-variation-settings: normal; }
+html body[data-skin="glass"] .reply,
+html body[data-skin="glass"] .card-title { font-family: var(--sans); }
+html body[data-skin="glass"] .reply { font-weight: 500; }
+
+/* ── the composer: a glass capsule ── */
+html body[data-skin="glass"] .ask input {
+  background: var(--glass); background-color: rgba(8, 14, 26, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim); text-align: left;
+}
+html body[data-skin="glass"] .ask input:focus { border-color: rgba(92, 200, 247, 0.5); }
+
+/* ── what needs you: gold glass ── */
+html body[data-skin="glass"] .card.needs-ok {
+  background-color: rgba(60, 44, 14, 0.28);
+  border-color: rgba(232, 194, 122, 0.35);
+  box-shadow: inset 0 1px 0 rgba(232, 194, 122, 0.55), var(--glass-shadow);
+}
+html body[data-skin="glass"] .card.needs-ok .card-kicker { color: var(--gold); }
+
+/* ── the reactor: a glass sphere of turning light inside a ticked bezel ── */
+html body[data-skin="glass"] .orb-core {
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 55%, #1677c9 0%, #0a3d84 70%, #072a5c 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.28) inset,
+    0 24px 80px var(--orb-glow),
+    0 0 calc(30px + var(--level) * 60px) rgba(92, 200, 247, calc(0.25 + var(--level) * 0.4));
+}
+/* The light inside: soft blooms of reactor blue that turn, blurred so they never seam. */
+html body[data-skin="glass"] .orb-core::before {
+  content: ''; position: absolute; inset: -20%;
+  background:
+    radial-gradient(circle at 30% 30%, #a4e4ff 0%, rgba(164, 228, 255, 0) 38%),
+    radial-gradient(circle at 72% 40%, #3fb8f2 0%, rgba(63, 184, 242, 0) 42%),
+    radial-gradient(circle at 45% 78%, #5b7cf0 0%, rgba(91, 124, 240, 0) 40%),
+    radial-gradient(circle at 60% 60%, #f2fbff 0%, rgba(242, 251, 255, 0) 22%);
+  filter: blur(14px);
+  animation: spin 16s linear infinite;
+}
+/* Glass on top: the highlight up and to the left, depth toward the rim. */
+html body[data-skin="glass"] .orb-core::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle at 33% 26%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 32%),
+    radial-gradient(circle at 50% 42%, rgba(0, 0, 0, 0) 52%, rgba(0, 10, 34, 0.38) 78%);
+}
+html body[data-skin="glass"][data-state="listening"] .orb-core::before { animation-duration: 6s; }
+html body[data-skin="glass"][data-state="thinking"] .orb-core::before,
+html body[data-skin="glass"][data-state="transcribing"] .orb-core::before { animation-duration: 2.2s; }
+html body[data-skin="glass"][data-state="speaking"] .orb-core::before { animation-duration: 8s; }
+html body[data-skin="glass"] .orb-sheen { display: none; }
+
+/* Four looks: two by two in the sheet's segmented control. */
+html body[data-skin="glass"] .sheet #look-group,
+.sheet #look-group { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.bezel { display: none; }
+html body[data-skin="glass"] .bezel {
+  display: block; position: absolute; inset: -24%; width: 148%; height: 148%;
+  pointer-events: none; overflow: visible;
+}
+.bezel circle { fill: none; }
+/* The circumference at r=186 is 1168.67: sixty ticks every 19.48, every fifth longer. */
+.bezel .bz-rim { stroke: rgba(255, 255, 255, 0.16); stroke-width: 1; }
+.bezel .bz-minor { stroke: rgba(255, 255, 255, 0.16); stroke-width: 7; stroke-dasharray: 1 18.478; }
+.bezel .bz-major { stroke: rgba(255, 255, 255, 0.38); stroke-width: 11; stroke-dasharray: 1.4 96.0; }
+.bezel .bz-quarter { stroke: #e8c27a; stroke-width: 15; stroke-dasharray: 2.6 289.6; opacity: 0.9; }
+.bezel .bz-ticks { transform: rotate(-90.3deg); transform-origin: 200px 200px; }
+.bezel .bz-comet {
+  transform-origin: 200px 200px; opacity: 0.25;
+  animation: spin 24s linear infinite; transition: opacity 400ms;
+}
+.bezel .bz-comet path { fill: none; stroke: url(#bz-comet); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 4px rgba(143, 219, 255, 0.9)); }
+html body[data-skin="glass"][data-state="listening"] .bezel .bz-comet { opacity: 1; animation-duration: 3s; }
+html body[data-skin="glass"][data-state="thinking"] .bezel .bz-comet,
+html body[data-skin="glass"][data-state="transcribing"] .bezel .bz-comet { opacity: 1; animation-duration: 1.3s; }
+html body[data-skin="glass"][data-state="speaking"] .bezel .bz-comet { opacity: 0.8; animation-duration: 4s; }
+/* The orb's own halo rings would sit on the bezel: the bezel replaces them. */
+html body[data-skin="glass"] .orb { margin: 64px 0 56px; }
+
+@media (prefers-reduced-motion: reduce) {
+  html body[data-skin="glass"]::before,
+  html body[data-skin="glass"] .orb-core,
+  html body[data-skin="glass"] .orb-core::before,
+  .bezel .bz-comet { animation: none !important; }
+}

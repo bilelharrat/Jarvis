@@ -567,7 +567,7 @@ let handsModule = null;
 let handsOn = false;
 let handHover = null;
 let handPoint = { x: 0, y: 0 };
-const LOOK_ORDER = ['orb', 'hud', 'console'];
+const LOOK_ORDER = ['orb', 'hud', 'console', 'glass'];
 const HAND_HELP = {
   page: '✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close',
   galaxy: '☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close',
@@ -786,10 +786,19 @@ function placePanels(look) {
 }
 placePanels(document.body.dataset.look);
 
+// Stark Glass is the Ambient Orb's layout in another material: the orb's rules apply
+// (data-look="orb"), and stark-glass.css dresses it (data-skin="glass").
+function applyLook(look) {
+  const glass = look === 'glass';
+  document.body.dataset.look = glass ? 'orb' : look;
+  if (glass) document.body.dataset.skin = 'glass';
+  else delete document.body.dataset.skin;
+}
+
 function renderPrefs(p) {
   if (!p) return;
   prefs = p;
-  document.body.dataset.look = p.look || 'orb';
+  applyLook(p.look || 'orb');
   placePanels(document.body.dataset.look);
   document.querySelectorAll('#look-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.look === p.look)));
   document.querySelectorAll('#lang-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.lang === (p.language || 'en'))));
