@@ -1,0 +1,65 @@
+/* JARVIS in a call (meeting_agent.js): a clear glass side panel at the right, under the
+   Settings sheet; the transcript scrolls inside it. */
+.ma-panel {
+  position: fixed; right: 18px; top: 72px; z-index: 34; /* over the side widgets, under Settings (35) */
+  width: min(360px, calc(100vw - 36px)); max-height: calc(100vh - 170px);
+  display: flex; flex-direction: column; gap: 10px; min-height: 0;
+  padding: 14px 16px; border-radius: 18px;
+  background: var(--glass-fill-strong, var(--card)); border: 1px solid var(--line);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim, none), var(--glass-edge, none), var(--shadow-sheet, 0 12px 30px rgba(60, 40, 20, 0.1));
+  animation: rise 220ms ease-out;
+}
+.ma-panel.ma-collapsed { max-height: none; }
+.ma-head { display: flex; align-items: center; gap: 8px; }
+.ma-title { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.ma-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; flex: none; animation: ma-pulse 1.6s ease-in-out infinite; }
+.ma-dot.ma-done { background: var(--action); animation: none; }
+.ma-kicker { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.ma-toggle { min-height: 26px; padding: 2px 10px; font-size: 12px; }
+.ma-body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; }
+.ma-consent { margin: 0; font-size: 12px; color: var(--warn); }
+.ma-row { display: flex; gap: 6px; align-items: center; }
+.ma-field, .ma-when {
+  flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--ink);
+  padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card);
+}
+.ma-when { flex: 0 1 auto; font-size: 12px; padding: 4px 6px; }
+.ma-says { display: flex; flex-direction: column; gap: 6px; }
+.ma-say { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--action); }
+.ma-say-pending { border-color: var(--warn); }
+.ma-say-cancelled, .ma-say-failed { border-color: var(--line); opacity: 0.75; }
+.ma-say-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.ma-say-pending .ma-say-head { color: var(--warn); font-weight: 600; }
+.ma-say-left { font-variant-numeric: tabular-nums; }
+.ma-say p { margin: 0; }
+.ma-say-text { font-size: 14px; }
+.ma-say-why { font-size: 12px; color: var(--muted); }
+.ma-cancel { align-self: flex-end; }
+.ma-answers { display: flex; flex-direction: column; gap: 6px; }
+.ma-answer { padding: 8px 10px; border-radius: 12px; background: var(--bg); }
+.ma-answer p { margin: 0; }
+.ma-q { font-size: 12px; color: var(--muted); }
+.ma-a { font-size: 13.5px; }
+.ma-note, .ma-updated { margin: 0; font-size: 12px; color: var(--muted); }
+.ma-live { display: flex; flex-direction: column; gap: 8px; }
+.ma-list h4 { margin: 0 0 3px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.ma-list ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.ma-list .ma-none, .ma-transcript .ma-none { list-style: none; margin-left: -18px; color: var(--muted); }
+.ma-transcript { list-style: none; margin: 0; padding: 8px 0 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 60px; max-height: 260px; font-size: 13px; }
+.ma-transcript .ma-none { margin-left: 0; }
+.ma-line { display: flex; flex-direction: column; gap: 1px; }
+.ma-meta { display: flex; gap: 6px; font-size: 11px; color: var(--muted); }
+.ma-who { text-transform: uppercase; letter-spacing: 0.04em; }
+.ma-you .ma-who { color: var(--ink-2); }
+.ma-jarvis .ma-who { color: var(--action); }
+.ma-meta time { font-variant-numeric: tabular-nums; }
+.ma-after-actions ul { list-style: none; padding-left: 0; gap: 8px; }
+.ma-item { display: flex; flex-direction: column; gap: 4px; }
+.ma-item-actions { flex-wrap: wrap; }
+.ma-end { justify-content: flex-end; }
+.ma-route { font: inherit; font-size: 13px; }
+@keyframes ma-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .ma-dot, .ma-panel { animation: none; } }
+@media (max-width: 720px) { .ma-panel { top: auto; bottom: 96px; } }

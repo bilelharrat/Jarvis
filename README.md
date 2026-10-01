@@ -111,6 +111,14 @@ A short map of what was added; each feature's own Settings group or pane explain
 - **Meeting notes:** "Jarvis, take notes" transcribes the room on the Mac until "stop
   taking notes", then files a summary, decisions and action items in
   ~/Documents/Jarvis/Meetings and the second brain.
+- **In your calls:** "Jarvis, join my next meeting" opens its Zoom, Meet or Teams link
+  (after a card) and starts notes. A side panel shows who said what, with decisions,
+  action items and open questions every minute or so; "what did they just say about
+  pricing?" is answered privately there. "Tell them…" or "answer that" speaks a short
+  reply into the call through a virtual audio route you set up (BlackHole or Loopback,
+  Settings › Meetings); what JARVIS wrote itself shows first with 3 seconds to cancel.
+  Afterwards: action items to Reminders or Calendar, and a follow-up draft. Tell the
+  others notes are being taken.
 - **Home & Shortcuts:** your Shortcuts reach HomeKit. Mark one instant and saying its
   name ("Jarvis, movie mode") runs it straight away.
 - **What's this? (⌥⇧ Space):** JARVIS looks at the screen you're on and explains it.

@@ -6288,6 +6288,71 @@ test('An invitation that clashes says so on a Calendar card, with its reply to c
   assert(JSON.stringify(await sentOf('clash_reply')) === '[{"type":"clash_reply","key":"clash:k2"}]', 'no draft asked for');
 });
 
+// ── the meeting agent (web/features/meeting_agent.js): the call's side panel ──
+
+test('A call’s side panel shows who said what, live notes, and a reply with its Cancel', async () => {
+  await featureScript('meeting_agent.js');
+  await deliver({ type: 'meeting_agent', active: { title: 'Release <b>sync</b>', started: '2026-09-30T10:00:00' } });
+  assert(await js('Boolean($("meeting-agent"))'), 'no panel');
+  assert(await js('$("meeting-agent").querySelector(".ma-consent").textContent').then((t) => t.includes('notes are being taken')), 'no consent line');
+  assert(await js('$("meeting-agent").querySelector(".ma-title strong").textContent') === 'Release <b>sync</b>', 'the title was parsed');
+  await deliver({ type: 'meeting_agent', transcript: [{ t: '10:01', who: 'Them', text: '<img src=x onerror="window.__pwned=1">Ship Friday?' }, { t: '10:01', who: 'You', text: 'Yes.' }] });
+  const lines = await js('[...document.querySelectorAll("#meeting-agent .ma-line")].map((l) => [l.querySelector(".ma-who").textContent, l.querySelector(".ma-words").textContent, l.querySelector(".ma-words").hasAttribute("data-no-i18n")])');
+  assert(JSON.stringify(lines) === JSON.stringify([['Them', '<img src=x onerror="window.__pwned=1">Ship Friday?', true], ['You', 'Yes.', true]]), JSON.stringify(lines));
+  assert(!(await js('window.__pwned')), 'their words ran as markup');
+  await deliver({ type: 'meeting_agent', notes: { decisions: ['Ship Friday'], actions: ['Ann: tag it'], questions: [], at: '10:02' } });
+  assert(await js('document.querySelector("#meeting-agent .ma-decisions li").textContent') === 'Ship Friday', 'no decisions');
+  // The owner asks privately; the answer stays on the panel.
+  await js('__sent.length = 0; $("ma-ask").value = "  what about   pricing "; $("ma-ask").form.requestSubmit(); true');
+  assert(JSON.stringify(await sentOf('meeting_agent_ask')) === JSON.stringify([{ type: 'meeting_agent_ask', text: 'what about pricing' }]), 'no question sent');
+  await deliver({ type: 'meeting_agent', answer: { id: 'a1', q: 'what about pricing', text: 'Up ten percent in March.' } });
+  assert(await js('document.querySelector("#meeting-agent .ma-a").textContent') === 'Up ten percent in March.', 'no answer');
+  // A reply JARVIS wrote: shown first, with its countdown and Cancel.
+  await deliver({ type: 'meeting_agent', say: { id: 's1', text: 'Thursday works.', exact: false, wait: 3, state: 'pending' } });
+  const say = 'document.querySelector("#meeting-agent [data-say=s1]")';
+  assert(await js(`${say}.querySelector(".ma-say-left").textContent`) === '3', 'no countdown');
+  await js(`__sent.length = 0; ${say}.querySelector(".ma-cancel").click(); true`);
+  assert(JSON.stringify(await sentOf('meeting_agent_cancel')) === '[{"type":"meeting_agent_cancel","id":"s1"}]', 'not cancelled');
+  await deliver({ type: 'meeting_agent', say: { id: 's1', text: 'Thursday works.', state: 'cancelled' } });
+  assert(await js(`${say}.querySelector(".ma-say-state").textContent`) === 'Cancelled', 'still pending');
+  assert(await js(`!${say}.querySelector(".ma-cancel")`), 'Cancel after it was cancelled');
+  await js('__sent.length = 0; $("ma-say-box").value = "One moment, please."; $("ma-say-box").form.requestSubmit(); true');
+  assert(JSON.stringify(await sentOf('meeting_agent_say')) === JSON.stringify([{ type: 'meeting_agent_say', text: 'One moment, please.' }]), 'not said');
+});
+
+test('After the call the panel offers each action item to Reminders or Calendar, and a draft', async () => {
+  await featureScript('meeting_agent.js');
+  await deliver({ type: 'meeting_agent', after: { path: '/n/Sync.md', title: 'Sync', summary: ['Shipping Friday'], actions: ['Ann: tag the release'], minutes: 30 } });
+  const item = 'document.querySelector("#meeting-agent .ma-item")';
+  await js(`__sent.length = 0; [...${item}.querySelectorAll("button")][0].click(); true`);
+  assert(JSON.stringify(await sentOf('meeting_agent_item')) === JSON.stringify([{ type: 'meeting_agent_item', path: '/n/Sync.md', index: 0, action: 'reminders' }]), 'no reminder asked for');
+  await deliver({ type: 'meeting_agent', item: { path: '/n/Sync.md', index: 0, action: 'reminders', ok: true, text: 'Added to Reminders.' } });
+  assert(await js(`[...${item}.querySelectorAll("button")][0].disabled`), 'Reminders again after it was added');
+  await js(`__sent.length = 0; ${item}.querySelector(".ma-when").value = "2030-01-02T09:30"; [...${item}.querySelectorAll("button")][1].click(); true`);
+  assert(JSON.stringify(await sentOf('meeting_agent_item')) === JSON.stringify([{ type: 'meeting_agent_item', path: '/n/Sync.md', index: 0, action: 'calendar', start: '2030-01-02T09:30' }]), 'no event asked for');
+  await js('__sent.length = 0; [...document.querySelectorAll("#meeting-agent button")].find((b) => b.textContent === "Draft follow-up").click(); true');
+  assert(JSON.stringify(await sentOf('meeting_followup')) === JSON.stringify([{ type: 'meeting_followup', path: '/n/Sync.md', action: 'email' }]), 'no draft asked for');
+  await js('[...document.querySelectorAll("#meeting-agent button")].find((b) => b.textContent === "Close").click(); true');
+  assert(await js('!$("meeting-agent")'), 'the panel stayed');
+});
+
+test('Settings › Meetings picks the virtual audio route and says when none is there', async () => {
+  await featureScript('proactive.js');
+  await featureScript('meeting_agent.js');
+  await deliver({ ...PREFS, features: {} });
+  assert(await js('$("sw-call-live").closest("section") === $("meetings-group")'), 'not in Meetings');
+  assert(await js('$("sw-call-live").getAttribute("aria-checked")') === 'true', 'live notes off by default');
+  assert(await js('$("sw-call-private-spoken").getAttribute("aria-checked")') === 'false', 'spoken answers on by default');
+  assert((await js('$("call-consent-note").textContent')).includes('Tell the other participants'), 'no consent line');
+  await deliver({ type: 'meeting_agent', routes: { routes: [], route: '', found: false } });
+  assert((await js('$("call-route-status").textContent')).includes('install BlackHole or Loopback'), 'no word on setting one up');
+  await deliver({ type: 'meeting_agent', routes: { routes: ['BlackHole 2ch'], route: '', found: false } });
+  assert(JSON.stringify(await js('[...$("call-route").options].map((o) => o.value)')) === JSON.stringify(['', 'BlackHole 2ch']), 'routes');
+  await js('toggleSettings(true); __sent.length = 0; $("call-route").value = "BlackHole 2ch"; $("call-route").dispatchEvent(new Event("change")); true');
+  assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { call_route: 'BlackHole 2ch' } }]), 'not chosen');
+  await js('toggleSettings(false); true');
+});
+
 // ── What only the owner's install shows (web/features/newuser.js) ──
 
 test('Markets is a button only with a Research Center set; the BSH desk’s switch and chip only with the desk', async () => {
