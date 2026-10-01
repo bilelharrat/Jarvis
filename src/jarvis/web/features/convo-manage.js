@@ -73,6 +73,7 @@
     menu.append(
       item('Rename', () => rename(li, sid)),
       item(pinned ? 'Unpin' : 'Pin', () => F.send({ type: 'conversation_pin', session_id: sid, pinned: !pinned })),
+      item('Export as Markdown', () => F.send({ type: 'conversation_export', session_id: sid })),
     );
     if (!current) {
       menu.append(item('Delete', () => {

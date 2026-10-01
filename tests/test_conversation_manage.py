@@ -82,3 +82,19 @@ def test_delete_removes_it_for_good_but_never_the_one_going_on(tmp_path):
     asyncio.run(manage.delete({"session_id": OTHER}))  # the current conversation
     assert calls == [("delete", SID)]
     assert "going on now" in hub.events[-1][1]["text"]
+
+
+def test_export_writes_markdown_named_for_its_title(tmp_path):
+    from jarvis.features.conversation_manage import write_markdown
+
+    entries = [
+        {"role": "user", "text": "Plan Lisbon"},
+        {"role": "assistant", "text": "Day one: Alfama."},
+    ]
+    path = write_markdown(tmp_path, "Trip: Lisbon/Porto", entries)
+    assert path.name == "Trip LisbonPorto.md"
+    assert (
+        path.read_text()
+        == "# Trip: Lisbon/Porto\n\n**You**\n\nPlan Lisbon\n\n**J.A.R.V.I.S.**\n\nDay one: Alfama.\n"
+    )
+    assert write_markdown(tmp_path, "Trip: Lisbon/Porto", entries).name == "Trip LisbonPorto (2).md"

@@ -6,9 +6,11 @@ window's features/convo-manage.js puts the menu on each row of Conversations' li
 - Pin: kept here (conversation-pins.json beside prefs.json); the window puts pinned ones first.
 - Delete: the conversation's record is removed for good (delete_session: its JSONL and its
   subagents' transcripts), and the app forgets it. Never the one going on now.
+- Export: the conversation as Markdown in ~/Documents/Jarvis/Conversations, shown in Finder.
 
 Window commands: conversation_rename {session_id, title}, conversation_pin {session_id,
-pinned}, conversation_delete {session_id}, conversation_marks {}; each answers with the event
+pinned}, conversation_delete {session_id}, conversation_export {session_id}, conversation_marks {};
+each but export answers with the event
 conversation_marks {pins}, after which the window asks for the list again.
 
 Claude cost policy: no model is called here.
@@ -17,6 +19,7 @@ Claude cost policy: no model is called here.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -129,6 +132,29 @@ class ConversationManage:
             await asyncio.to_thread(self._save_pins)
         self.marks()
 
+    async def export(self, msg: dict[str, Any]) -> Path | None:
+        """The conversation as Markdown beside the current one's exports; its path."""
+        from .. import conversation_past as past
+        from ..hub import CONVERSATIONS_DIR
+
+        hub = self.hub
+        sid = valid_id(msg.get("session_id"))
+        convo = getattr(hub, "conversation", None)
+        if not sid or convo is None:
+            return None
+        entries = await asyncio.to_thread(past.entries, sid, None, get_messages=convo.get_messages)
+        if not entries:
+            hub.emit("toast", title="Conversations", text="That conversation couldn’t be read.")
+            return None
+        title = convo.state.titles().get(sid, "") or "Conversation"
+        path = await asyncio.to_thread(write_markdown, CONVERSATIONS_DIR, title, entries)
+        hub.emit("caption", text=f"Saved “{title}” to {path.name}.")
+        with contextlib.suppress(Exception):
+            from .. import mac_tools
+
+            await mac_tools.run_command("open", "-R", str(path))
+        return path
+
     def install(self) -> None:
         hub = self.hub
         hub.conversation_manage = self
@@ -137,6 +163,24 @@ class ConversationManage:
         hub.register_command("conversation_rename", self.rename, slow=True)
         hub.register_command("conversation_pin", self.pin)
         hub.register_command("conversation_delete", self.delete, slow=True)
+        hub.register_command("conversation_export", self.export, slow=True)
+
+
+def write_markdown(folder: Path, title: str, entries: list[dict[str, Any]]) -> Path:
+    """A conversation's words as Markdown, named for its title (never over another file)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    safe = "".join(c for c in title if c not in '/\\:*?"<>|').strip()[:80] or "Conversation"
+    path = folder / f"{safe}.md"
+    n = 2
+    while path.exists():
+        path = folder / f"{safe} ({n}).md"
+        n += 1
+    lines = [f"# {title}", ""]
+    for entry in entries:
+        who = "You" if entry.get("role") == "user" else "J.A.R.V.I.S."
+        lines += [f"**{who}**", "", str(entry.get("text", "")).strip(), ""]
+    path.write_text("\n".join(lines))
+    return path
 
 
 def install(hub: Any) -> None:
