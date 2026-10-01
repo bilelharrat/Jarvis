@@ -90,13 +90,24 @@ test('ranges as browsers send them', () => {
   assert.equal(parseRange(null), null);
 });
 
-test('without the R2 bucket bound, the download is the GitHub release', async () => {
+test('without the R2 bucket bound, the download is the latest GitHub release', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    currentRelease: '0.1.1',
+    releases: [{ version: '0.1.1', updateTo: { url: 'https://github.com/bilelharrat/Jarvis/releases/latest/download/J.A.R.V.I.S.-0.1.1-mac.zip' } }],
+  }));
   const e = env();
   delete e.DOWNLOADS;
   const r = await get('/download', e);
   assert.equal(r.status, 302);
-  assert.match(r.headers.get('location'), /github\.com\/bilelharrat\/Jarvis\/releases\/latest\/download\/J\.A\.R\.V\.I\.S\.-0\.1\.0\.dmg$/);
-  assert.equal((await (await get('/latest.json', e)).json()).version, '0.1.0');
+  assert.equal(r.headers.get('location'), 'https://github.com/bilelharrat/Jarvis/releases/latest/download/J.A.R.V.I.S.-0.1.1.dmg');
+  assert.equal((await (await get('/latest.json', e)).json()).version, '0.1.1');
+});
+
+test('with the feed unreadable, the download still goes somewhere real', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('offline'); });
+  const e = env();
+  delete e.DOWNLOADS;
+  assert.match((await get('/download', e)).headers.get('location'), /J\.A\.R\.V\.I\.S\.-0\.1\.\d\.dmg$/);
 });
 
 // ── the hosted JARVIS voice ──

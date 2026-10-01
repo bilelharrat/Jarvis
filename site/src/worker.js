@@ -12,8 +12,10 @@
 // disk image is up, so a half-uploaded release is never offered.
 
 const LATEST = 'latest.json';
-// Before the R2 bucket is bound (a deploy without it), the download is the same notarized
-// file from the GitHub release.
+// Before the R2 bucket is bound (a deploy without it), the download is the notarized disk
+// image of the latest GitHub release, found from its update feed (the zip it names, beside
+// the .dmg of the same version); FALLBACK if the feed can't be read.
+const FEED = 'https://github.com/bilelharrat/Jarvis/releases/latest/download/release.json';
 const FALLBACK = {
   version: '0.1.0',
   size: 310650543,
@@ -56,15 +58,28 @@ async function readLatest(env) {
   }
 }
 
+async function fromGitHub() {
+  try {
+    const feed = await (await fetch(FEED, { cf: { cacheTtl: 300, cacheEverything: true } })).json();
+    const version = String(feed.currentRelease || '');
+    const zip = ((feed.releases || []).find((r) => r.version === version) || {}).updateTo?.url || '';
+    if (!/^\d+\.\d+\.\d+$/.test(version) || !zip.endsWith('-mac.zip')) return FALLBACK;
+    const file = `J.A.R.V.I.S.-${version}.dmg`;
+    return { version, size: 0, file, url: zip.replace(/[^/]*$/, file) };
+  } catch {
+    return FALLBACK;
+  }
+}
+
 async function latestInfo(env) {
-  const latest = env.DOWNLOADS ? await readLatest(env) : FALLBACK;
+  const latest = env.DOWNLOADS ? await readLatest(env) : await fromGitHub();
   if (!latest) return json({ error: 'No release yet.' }, 404);
   const { version = '', size = 0, file, published = '' } = latest;
   return json({ version, size, file, published }, 200, { 'cache-control': 'public, max-age=60' });
 }
 
 async function download(request, env) {
-  if (!env.DOWNLOADS) return Response.redirect(FALLBACK.url, 302);
+  if (!env.DOWNLOADS) return Response.redirect((await fromGitHub()).url, 302);
   const latest = await readLatest(env);
   if (!latest) return new Response('No release yet.', { status: 404 });
   const range = parseRange(request.headers.get('range'));
