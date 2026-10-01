@@ -385,3 +385,43 @@ def test_hands_free_hears_two_claps_and_sends_nothing_to_transcribe(monkeypatch)
     listener._run()
     assert claps == [1]
     assert utterances == []
+
+
+def test_a_microphone_opened_before_access_is_granted_is_opened_again(monkeypatch):
+    """A fresh install: the stream that set off macOS's prompt hears only zeros even once
+    access is granted. Nothing-but-zeros reopens it, and the next stream hears."""
+    import numpy as np
+    import sounddevice as sd
+
+    from jarvis import listen
+
+    opened, levels = [], []
+
+    class Mic:
+        def __init__(self, callback, **_kw):
+            self.callback = callback
+
+        def __enter__(self):
+            opened.append(1)
+            if len(opened) == 1:  # before the grant: digital silence, 4 s of it
+                block = np.zeros((800, 1), dtype=np.float32)
+            elif len(opened) == 2:  # after: the room's noise floor
+                block = (np.random.default_rng(1).normal(0, 0.002, (800, 1))).astype(np.float32)
+            else:
+                listener.stop()
+                return self
+            for _ in range(80):
+                self.callback(block, 800, None, None)
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(sd, "InputStream", Mic)
+    monkeypatch.setattr(sd, "query_devices", lambda *_a, **_k: {"name": "Test mic"})
+    monkeypatch.setattr(listen, "STALL_SECONDS", 0.05)
+    monkeypatch.setattr(listen, "pick_input_device", lambda _p: None)
+    listener = listen.ContinuousListener(lambda _a: None, on_level=levels.append)
+    listener._run()
+    assert len(opened) >= 2  # the silent stream was opened again
+    assert any(level > 0 for level in levels)  # and the new one heard the room

@@ -19,6 +19,10 @@ log = logging.getLogger("jarvis")
 SAMPLE_RATE = 16_000
 BLOCK_SECONDS = 0.05
 STALL_SECONDS = 2.0  # no audio at all for this long: the microphone has stalled
+# Nothing but exact zeros for this long: a stream opened before macOS granted the microphone
+# (it never hears anything until it's opened again), or a muted input. A real microphone's
+# noise floor is never exactly zero.
+DEAD_SILENCE_SECONDS = 3.0
 # With a neural voice detector, a voice starts an utterance from this share of the loudness
 # bar (the detector already tells it from noise; a whisper from the next room stays out).
 VOICED_LEVEL = 0.5
@@ -589,6 +593,7 @@ class ContinuousListener:
         """
 
         failures = 0
+        dead = round(DEAD_SILENCE_SECONDS / BLOCK_SECONDS)
         while not self._stop.is_set():
             self._reopen.clear()
             blocks: queue.Queue[np.ndarray] = queue.Queue()
@@ -604,6 +609,7 @@ class ContinuousListener:
                 if failures >= RESET_AFTER_FAILURES:
                     log.info("resetting the audio system to find the microphone again")
                     reset_portaudio()
+                zeros = 0
                 with self._stream(blocks):
                     while not self._stop.is_set():
                         try:
@@ -616,8 +622,19 @@ class ContinuousListener:
                             break
                         if block is None or self._reopen.is_set():
                             break  # opened again (new settings, or the other source ended)
-                        failures = 0  # sound is arriving: this microphone works
                         rms = float(np.sqrt(np.mean(block**2)))
+                        if rms == 0.0:
+                            zeros += 1
+                            if zeros >= dead:
+                                # Opened before access was granted (or a muted input):
+                                # opening it again hears once macOS allows it.
+                                failures += 1
+                                log.warning("microphone sends only silence; reopening it")
+                                self._stop.wait(min(10.0, 0.5 * 2**failures))
+                                break
+                        else:
+                            zeros = 0
+                            failures = 0  # sound is arriving: this microphone works
                         if self.on_level is not None:
                             self.on_level(rms)
                         if self.on_double_clap is not None and claps.feed(

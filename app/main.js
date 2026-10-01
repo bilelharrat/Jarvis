@@ -1,6 +1,6 @@
 // Jarvis desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
 
-const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell, systemPreferences } = require('electron');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -104,6 +104,22 @@ function openBackendLog() {
     if (fs.statSync(file).size > BACKEND_LOG_MAX) fs.renameSync(file, path.join(LOG_DIR, 'backend.1.log'));
   } catch (_) { /* no log yet */ }
   return fs.createWriteStream(file, { flags: 'a' });
+}
+
+// The microphone is asked for here, by the app itself, before the backend first opens it. On a
+// fresh install the backend would otherwise trigger the prompt with a stream already open,
+// and a stream opened before access was granted hears only silence. (listen.py also reopens
+// a microphone that sends nothing but zeros.) At most 60 s: an unanswered prompt never
+// keeps JARVIS from starting.
+async function askForMicrophone() {
+  if (process.platform !== 'darwin' || DEV_URL) return;
+  try {
+    if (systemPreferences.getMediaAccessStatus('microphone') !== 'not-determined') return;
+    await Promise.race([
+      systemPreferences.askForMediaAccess('microphone'),
+      new Promise((resolve) => setTimeout(resolve, 60000)),
+    ]);
+  } catch (_) { /* no prompt to show: the backend's own asking still applies */ }
 }
 
 function startBackend() {
@@ -1263,6 +1279,7 @@ app.whenReady().then(async () => {
     return;
   }
   port = await freePort();
+  await askForMicrophone();
   startBackend();
   try {
     await waitForBackend();
