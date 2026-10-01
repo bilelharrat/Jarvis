@@ -32,6 +32,11 @@ struct ChatsView: View {
                     } label: {
                         Label("New Conversation on Your Mac", systemImage: "square.and.pencil")
                     }
+                    NavigationLink {
+                        MacProjectsView()
+                    } label: {
+                        Label("Projects", systemImage: "folder")
+                    }
                 }
                 MacChatsList(query: query)
             } else {
@@ -47,6 +52,11 @@ struct ChatsView: View {
                     dismiss()
                 } label: {
                     Label("Temporary Chat", systemImage: "eye.slash")
+                }
+                NavigationLink {
+                    PhoneProjectsView(close: { dismiss() })
+                } label: {
+                    Label("Projects", systemImage: "folder")
                 }
             } footer: {
                 Text("A temporary chat isn’t kept here, and Jarvis remembers nothing from it.")
@@ -88,6 +98,21 @@ struct ChatsView: View {
                                 newTitle = chat.title
                                 renaming = chat
                             }
+                            Menu {
+                                ForEach(ProjectStore.shared.projects) { project in
+                                    Button {
+                                        move(chat, to: project.id)
+                                    } label: {
+                                        if chat.project == project.id { Label(project.name, systemImage: "checkmark") } else { Text(project.name) }
+                                    }
+                                }
+                                if chat.project != nil {
+                                    Button("No Project", systemImage: "folder.badge.minus") { move(chat, to: nil) }
+                                }
+                            } label: {
+                                Label("Move to Project", systemImage: "folder")
+                            }
+                            .disabled(ProjectStore.shared.projects.isEmpty)
                             ShareLink(item: Self.transcript(chat), preview: SharePreview(chat.title)) {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
@@ -130,6 +155,10 @@ struct ChatsView: View {
         }
     }
 
+    private func move(_ chat: SavedChat, to project: UUID?) {
+        if chat.id == model.brain.chatID { model.brain.setProject(project) } else { ChatStore.shared.file(chat.id, in: project) }
+    }
+
     private func newOnMac() async {
         guard let api = model.pairing?.api else { return }
         do {
@@ -153,7 +182,7 @@ struct ChatsView: View {
                         .foregroundStyle(Palette.ink)
                         .lineLimit(1)
                 }
-                Text(Self.preview(chat))
+                Text([ProjectStore.shared.project(chat.project).map { "📁 \($0.name)" }, Self.preview(chat).nilIfEmpty].compactMap { $0 }.joined(separator: " · "))
                     .font(.footnote)
                     .foregroundStyle(Palette.muted)
                     .lineLimit(1)

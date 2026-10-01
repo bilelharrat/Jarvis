@@ -21,6 +21,8 @@ struct SavedChat: Codable, Identifiable, Equatable {
     var renamed = false
     /// Study mode was on (missing in chats kept before it: off).
     var study: Bool?
+    /// The phone project it's in (ProjectStore), if any.
+    var project: UUID?
     /// The API's view (Claude's blocks; pictures and documents left out to keep it small).
     var messages: [JSONValue]
     var lines: [Line]
@@ -83,7 +85,7 @@ final class ChatStore {
     func search(_ query: String) -> [SavedChat] { chats.filter { $0.matches(query) } }
 
     /// Keeps the chat as it is now (a new one is added).
-    func keep(id: UUID, messages: [JSONValue], lines: [SavedChat.Line], study: Bool = false) {
+    func keep(id: UUID, messages: [JSONValue], lines: [SavedChat.Line], study: Bool = false, project: UUID? = nil) {
         guard lines.contains(where: { $0.role == "user" }) else { return }
         let firstQuestion = lines.first { $0.role == "user" }?.text ?? ""
         if let index = chats.firstIndex(where: { $0.id == id }) {
@@ -91,10 +93,11 @@ final class ChatStore {
             chats[index].lines = lines
             chats[index].updated = Date()
             chats[index].study = study
+            chats[index].project = project
             if !chats[index].renamed { chats[index].title = SavedChat.title(from: firstQuestion) }
         } else {
             chats.append(SavedChat(id: id, title: SavedChat.title(from: firstQuestion), created: Date(), updated: Date(),
-                                   study: study, messages: SavedChat.slim(messages), lines: lines))
+                                   study: study, project: project, messages: SavedChat.slim(messages), lines: lines))
         }
         if chats.count > 500, let oldest = chats.filter({ !$0.pinned }).min(by: { $0.updated < $1.updated }) {
             chats.removeAll { $0.id == oldest.id }
@@ -119,6 +122,22 @@ final class ChatStore {
 
     func delete(_ id: UUID) {
         chats.removeAll { $0.id == id }
+        save()
+    }
+
+    /// The chats in a project (pinned first, then the most recent).
+    func chats(in project: UUID) -> [SavedChat] { chats.filter { $0.project == project } }
+
+    /// Moves a chat into a project, or out of any (nil).
+    func file(_ id: UUID, in project: UUID?) {
+        guard let index = chats.firstIndex(where: { $0.id == id }) else { return }
+        chats[index].project = project
+        save()
+    }
+
+    /// A deleted project's chats stay, in no project.
+    func unfileAll(from project: UUID) {
+        for index in chats.indices where chats[index].project == project { chats[index].project = nil }
         save()
     }
 
