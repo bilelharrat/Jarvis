@@ -287,10 +287,14 @@ async def test_a_file_that_doesnt_match_its_checksum_is_not_kept(tmp_path):
     assert not (tmp_path / "voice" / "us_gold.json").exists()
 
 
-async def test_nothing_downloads_until_this_build_knows_every_checksum(tmp_path):
+async def test_nothing_downloads_until_this_build_knows_every_checksum(tmp_path, monkeypatch):
+    files = dict(local_voice.OFFLINE_VOICE_FILES)
+    assert local_voice.configured()  # the shipped build has every file pinned
+    files["us_gold.json"] = {**files["us_gold.json"], "sha256": "", "size": 0}  # one unpinned
+    monkeypatch.setattr(local_voice, "OFFLINE_VOICE_FILES", files)
     store = local_voice.Store(tmp_path)
     store.fetch = fake_fetch({})
-    assert not local_voice.configured()  # the lexicons' checksums aren't pinned yet
+    assert not local_voice.configured()
     assert not await store.download()
     assert store.error == "The offline voice isn’t set up in this build."
     model = local_voice.OFFLINE_VOICE_FILES["kokoro.onnx"]

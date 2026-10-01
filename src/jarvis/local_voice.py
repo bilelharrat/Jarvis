@@ -70,10 +70,26 @@ OFFLINE_VOICE_FILES: dict[str, dict[str, Any]] = {
         "sha256": "1d1f21dd8da39c30705cd4c75d039d265e9bc4a2a93ed09bc9e1b1225eb95ba1",
         "size": 522240,
     },
-    "us_gold.json": {"url": f"{_MISAKI}/us_gold.json", "sha256": "", "size": 0},
-    "us_silver.json": {"url": f"{_MISAKI}/us_silver.json", "sha256": "", "size": 0},
-    "gb_gold.json": {"url": f"{_MISAKI}/gb_gold.json", "sha256": "", "size": 0},
-    "gb_silver.json": {"url": f"{_MISAKI}/gb_silver.json", "sha256": "", "size": 0},
+    "us_gold.json": {
+        "url": f"{_MISAKI}/us_gold.json",
+        "sha256": "dc414872a49a28ae6c141463d502fd945f3b2fde040484fdc47d00cc4612686f",
+        "size": 3000469,
+    },
+    "us_silver.json": {
+        "url": f"{_MISAKI}/us_silver.json",
+        "sha256": "de8f67be911bb6c659187b4a65fd966b6a30e56350e0f790d763210b053ac475",
+        "size": 3099517,
+    },
+    "gb_gold.json": {
+        "url": f"{_MISAKI}/gb_gold.json",
+        "sha256": "29e62f4b60261c88f7f3c2c7811ca3825978948090b72d2b27d565b729282f71",
+        "size": 2838552,
+    },
+    "gb_silver.json": {
+        "url": f"{_MISAKI}/gb_silver.json",
+        "sha256": "48131e2d92ccc41655f4543e87e0f938e71463eb5a54be7f0693bb712ebb6bce",
+        "size": 3663898,
+    },
 }
 
 # The voices offered: id -> (the name shown, British?). Kokoro's "b" voices were trained
