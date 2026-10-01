@@ -264,3 +264,4 @@ def test_calendar_rows_say_the_owners_answer_and_whom_to_write_to():
     assert row["reply"] == "pending" and row["organizer_email"] == "ann@example.com"
     assert row["emails"] == ["ann@example.com", "bob@example.com"] and row["online"] is True
     assert row["attendees"] == ["Ann", "mailto:bob@example.com"]
+    assert row["link"] == "https://zoom.us/j/123"  # what "join my next meeting" opens

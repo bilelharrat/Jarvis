@@ -96,6 +96,7 @@ class Calls:
         self.proc: Any = None
         self.reader: asyncio.Task | None = None
         self.meeting: Any = None
+        self.heard_at = 0.0  # when the call last finished saying something (monotonic)
         self._now = datetime.now  # the clock (tests set their own)
 
     def install(self) -> None:
@@ -227,6 +228,7 @@ class Calls:
     async def _add(self, meeting: Any, audio: np.ndarray) -> None:
         """One utterance from the call into the notes as Them: the notes model hears it when
         it's running, else the quick model does now."""
+        self.heard_at = time.monotonic()  # the meeting agent's echo guard (meeting_agent.py)
         if meeting.refining():
             meeting.add(audio, "", speaker="Them")
             return

@@ -111,6 +111,27 @@ def _online(event) -> bool:
     return bool(_CALL_LINK.search(where))
 
 
+_URL = re.compile(r"https://[^\s<>\"'()\[\]{}|\\^`]+", re.IGNORECASE)
+
+
+def call_link(*texts: str) -> str:
+    """The first call link (a Zoom, Meet or Teams https address) in these texts, or ""."""
+    for text in texts:
+        for found in _URL.findall(str(text or "")[:20000]):
+            if _CALL_LINK.search(found):
+                return found.rstrip(".,;:!?>")[:2000]
+    return ""
+
+
+def _link(event) -> str:
+    """The event's call link: its link field first, then its place and its notes."""
+    link = event.URL() if hasattr(event, "URL") else None
+    notes = event.notes() if hasattr(event, "notes") else None
+    return call_link(
+        str(link.absoluteString()) if link else "", str(event.location() or ""), str(notes or "")
+    )
+
+
 def _row(event, details: bool = False) -> dict[str, Any] | None:
     """One event as the app reads it; None for a cancelled one. details adds what a card
     about changing it needs: can its calendar be changed, does it repeat, who organized it."""
@@ -140,8 +161,9 @@ def _row(event, details: bool = False) -> dict[str, Any] | None:
         if organizer is not None and not organizer.isCurrentUser():
             organizer_email = _mail(organizer)
         online = _online(event)
+        link = _link(event) if online else ""
     except Exception:  # an odd organizer or link: not known
-        online = False
+        online, link = False, ""
     calendar = event.calendar()
     row = {
         "attendees": [a for a in attendees if a][:10],
@@ -157,6 +179,7 @@ def _row(event, details: bool = False) -> dict[str, Any] | None:
         "emails": emails[:20],
         "organizer_email": organizer_email,
         "online": online,
+        "link": link,  # the call's own address, for "join my next meeting"
     }
     if details:
         organizer = event.organizer() if hasattr(event, "organizer") else None
