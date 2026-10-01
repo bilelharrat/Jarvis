@@ -60,9 +60,22 @@ def words(text: str) -> list[str]:
 # feature sets where the names come from (configure); without it, it's only "Jarvis".
 _names_source: Callable[[], Iterable[str]] | None = None
 _names_cache: tuple[tuple[str, ...], tuple[bool, tuple[str, ...], tuple[str, ...]]] | None = None
+_extra_sources: dict[str, Callable[[], Iterable[str]]] = {}
 # Greetings that make the next word a call ("Hey Friday"). Not "okay": "Okay, Friday works."
 CALL_GREETINGS = {"hey", "hi", "hello", "yo", "hay"}
 _CALL_PAUSE = re.compile(r"[,.!?;:—–-][\"'”’)]*$")  # "Friday," "Friday." "Friday—"
+
+
+def add_names(key: str, source: Callable[[], Iterable[str]] | None) -> None:
+    """More names that wake it, besides the configured ones, under a key that a later call
+    replaces (None takes them away): the agents feature's, each agent's persona answering
+    to its name whichever agent is in use. Read at each check."""
+    global _names_cache
+    if source is None:
+        _extra_sources.pop(key, None)
+    else:
+        _extra_sources[key] = source
+    _names_cache = None
 
 
 def configure(source: Callable[[], Iterable[str]] | None) -> None:
@@ -80,7 +93,15 @@ def wake_names() -> tuple[str, ...]:
             names = tuple(str(n) for n in _names_source() if str(n).strip())
         except Exception:  # a settings file that can't be read: the name it always had
             names = ()
-    return names or ("Jarvis",)
+    names = names or ("Jarvis",)
+    for source in list(_extra_sources.values()):
+        try:
+            more = tuple(str(n) for n in source() if str(n).strip())
+        except Exception:  # another feature's trouble never costs the owner their own names
+            more = ()
+        seen = {n.casefold() for n in names}
+        names += tuple(n for n in more if n.casefold() not in seen)
+    return names
 
 
 def _key(name: str) -> str:

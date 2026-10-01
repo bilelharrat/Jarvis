@@ -892,6 +892,7 @@ class Hub:
         self._code_hotwords = ""
         self._code_stt: Any = None
         self._turn_text = ""
+        self.turn_origin: dict[str, Any] = {}  # where the running request came from (ask)
         self._turn_reads: dict[str, Any] = {}  # what this turn has read (the turn gate)
         # What the whole conversation has read: it stays in Claude's context after the
         # turn that read it, so the gates count it until the conversation starts afresh.
@@ -1043,6 +1044,7 @@ class Hub:
         # before Claude gets it, and every message of its stream.
         self._connect_hooks: list[Callable[[Any, str], Any]] = []
         self._query_hooks: list[Callable[[str, str], Any]] = []
+        self._wake_sinks: list[Callable[[str, str], Any]] = []
         self._message_sinks: list[Callable[[Any], Any]] = []
         # A feature's own first connect (carrying on the conversation from before a
         # restart): True when it connected, False for a new conversation.
@@ -1291,6 +1293,11 @@ class Hub:
         said or typed it ("" for a routine's or the briefing's). It may be async, and may
         reconnect (the turn's lock is held)."""
         self._query_hooks.append(hook)
+
+    def add_wake_sink(self, sink: Callable[[str, str], Any]) -> None:
+        """Hear each utterance that woke JARVIS hands-free: sink(heard, command), the words
+        as heard (the name that was called among them) and the request after it."""
+        self._wake_sinks.append(sink)
 
     def add_message_sink(self, sink: Callable[[Any], Any]) -> None:
         """Hear every message of the conversation's stream as it's read (the SDK's
@@ -2750,6 +2757,7 @@ class Hub:
         attachments: list[dict[str, str]] | None = None,
         note: str = "",
         voice: Any = None,
+        origin: dict[str, Any] | None = None,
     ) -> str:
         """One request. display: what the window shows instead of text (routines, the
         briefing). silent: say nothing out loud (a routine in quiet hours). screen: send a
@@ -2759,7 +2767,9 @@ class Hub:
         attachments: pictures and files sent with it ({media_type, data, name}: a chat's
         photo or PDF), the owner's private data to the gates. note: where a request from
         elsewhere came from (a chat), told to Claude; such a request never gets a look at
-        the screen by itself. voice: a hands-free request's owner-voice check (running)."""
+        the screen by itself. voice: a hands-free request's owner-voice check (running).
+        origin: where a request from elsewhere came from ({channel, chat, team…}: a chat
+        app's), for the features that route by it (turn_origin while it runs)."""
         text = text.strip()
         if not text:
             return ""
@@ -2794,6 +2804,7 @@ class Hub:
             self._silent = silent
             self._turn_text = text if display is None else ""
             self._turn_voice = voice
+            self.turn_origin = dict(origin or {})
             heard_note = ""
             # The owner's own words, typed or said: never a routine's, and never learned
             # from while incognito.
@@ -2980,6 +2991,7 @@ class Hub:
                     )
                 self._silent = False
                 self._turn_text = ""
+                self.turn_origin = {}
                 if follow_up and not silent:
                     self._arm(seconds=FOLLOW_UP_SECONDS, chime=False)
             return self.turn.get("reply", "")
@@ -3662,6 +3674,8 @@ class Hub:
         language = self.language
         woke, command = lang.find_wake(text, language)
         stop = lang.is_stop(text, language) or (woke and lang.is_stop(command, language))
+        if woke and not stop and self._wake_sinks:
+            self._call_sinks(self._wake_sinks, text, command)
         short = 6 if lang.is_zh(language) else 3  # Chinese counts characters, not words
         if not (stop and len(lang.words(text, language)) <= short) and self._echo(text):
             log.info("ignored: its own voice")
@@ -6608,7 +6622,7 @@ class Hub:
             if routine is not None:
                 self._spawn(self.run_routine(routine))
         elif kind == "memory_forget":
-            if self.memory.forget(str(msg.get("id", ""))):
+            if self.memory.forget(str(msg.get("id", "")), anyone=True):
                 self._memory_changed()
                 self._add_style_note(
                     "the user deleted some remembered facts in Settings; stop using them."

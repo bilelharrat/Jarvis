@@ -904,6 +904,12 @@ class Channels:
                 attachments=prepared.attachments or None,
                 note=prepared.note,
                 untrusted=prepared.untrusted,
+                origin={
+                    "channel": adapter.name,
+                    "chat": str(msg.chat or ""),
+                    "team": str(msg.team or ""),
+                    "group": not msg.direct,
+                },
             )
         except asyncio.CancelledError:
             raise

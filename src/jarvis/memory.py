@@ -19,6 +19,12 @@ Memory 2.0: every fact has
 A fact is edited in place (its provenance stays; `at` says when it last changed), and the
 owner can ask why JARVIS knows something, or have it forget everything learned from one
 source or on one day. Passwords, keys and codes are refused, whoever offers them.
+
+Agents (features.agents): a fact can belong to one of the owner's agents ("work", "family");
+one with no agent is shared. The store's `agent` is the agent in use: what JARVIS reads (the
+prompt, recall, forget, finding by words or id) is the shared facts and that agent's own,
+and what it learns belongs to that agent. With no agents made, every fact is shared and
+nothing changes. Settings sees and edits all of them.
 """
 
 from __future__ import annotations
@@ -207,6 +213,7 @@ class Fact:
     source: str = "before"  # how it was learned: one of SOURCES
     origin: str = ""  # the owner's words it came from, the file, the tool
     learned: str = ""  # when it was first learned (at changes with every edit)
+    agent: str = ""  # the agent it belongs to (features.agents); "" for shared
 
 
 def _words(text: str) -> set[str]:
@@ -393,7 +400,16 @@ def _fact_from(raw: Any) -> Fact | None:
         source=source,
         origin=tidy_origin(raw.get("origin")) if isinstance(raw.get("origin"), str) else "",
         learned=learned[:40] if isinstance(learned, str) and learned else at,
+        agent=_agent_of(raw.get("agent")),
     )
+
+
+_AGENT = re.compile(r"[a-z][a-z0-9-]{0,23}")
+
+
+def _agent_of(value: Any) -> str:
+    """An agent's id as kept on a fact ("" for shared, and for anything that isn't one)."""
+    return value if isinstance(value, str) and _AGENT.fullmatch(value) else ""
 
 
 def _day_of(stamp: str) -> str:
@@ -450,7 +466,15 @@ class MemoryStore:
         self.forgotten: list[Fact] = []  # what the last add() let go to make room
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self.migrated = 0  # facts read from before memory 2.0 (saved in the new form later)
+        self.agent = ""  # the agent in use (features.agents): what it reads and learns
         self.load()
+
+    def mine(self, fact: Fact) -> bool:
+        """Whether the agent in use reads this fact: shared, or its own."""
+        return not fact.agent or fact.agent == self.agent
+
+    def _visible(self) -> list[Fact]:
+        return [f for f in self.facts if self.mine(f)]
 
     def load(self) -> None:
         """The newest MAX_FACTS facts that can be read (a file with more is no slower to
@@ -529,7 +553,7 @@ class MemoryStore:
         before, self.forgotten = list(self.facts), []
         # The same fact said again replaces the old wording rather than piling up.
         new = _words(text)
-        fact = next((f for f in self.facts if _alike(new, _words(f.text))), None)
+        fact = next((f for f in self._visible() if _alike(new, _words(f.text))), None)
         was = replace(fact) if fact is not None else None
         now = _now()
         if fact is not None:
@@ -550,6 +574,7 @@ class MemoryStore:
                 source=source,
                 origin=origin,
                 learned=now,
+                agent=_agent_of(self.agent),
             )
             self.facts.append(fact)
             self.forgotten = self.facts[:-MAX_FACTS]
@@ -593,7 +618,7 @@ class MemoryStore:
             except ValueError:
                 until = ""
             new = _words(text)
-            same = next((f for f in self.facts if _alike(new, _words(f.text))), None)
+            same = next((f for f in self._visible() if _alike(new, _words(f.text))), None)
             if same is not None:  # already known: nothing to add
                 continue
             if not self.room():
@@ -609,6 +634,7 @@ class MemoryStore:
                 source=source if source in SOURCES else "settings",
                 origin=tidy_origin(item.get("origin") or origin),
                 learned=now,
+                agent=_agent_of(self.agent),
             )
             self.facts.append(fact)
             saved.append(fact)
@@ -616,21 +642,23 @@ class MemoryStore:
             self._saved(before)
         return saved, left
 
-    def find(self, key: str) -> list[Fact]:
-        """By id, or the facts containing all the given words (common words don't count)."""
+    def find(self, key: str, anyone: bool = False) -> list[Fact]:
+        """By id, or the facts containing all the given words (common words don't count):
+        the agent in use's (anyone: every agent's, for Settings)."""
         key = (key or "").strip()
         if not key:
             return []
         wanted = _words(key) - _COMMON
-        return [f for f in self.facts if f.id == key or (wanted and wanted <= _match_words(f.text))]
+        facts = self.facts if anyone else self._visible()
+        return [f for f in facts if f.id == key or (wanted and wanted <= _match_words(f.text))]
 
     def get(self, ident: str) -> Fact | None:
         return next((f for f in self.facts if f.id == ident), None)
 
-    def forget(self, key: str) -> list[Fact]:
+    def forget(self, key: str, anyone: bool = False) -> list[Fact]:
         """Remove by id, or the facts containing all the given words (common words don't
-        count). Refuses to sweep up more than a few at once."""
-        gone = self.find(key)
+        count). Refuses to sweep up more than a few at once. anyone: as find's."""
+        gone = self.find(key, anyone)
         if len(gone) > MAX_FORGET:
             raise ValueError(f"That matches {len(gone)} facts; say which one.")
         if gone:
@@ -766,7 +794,7 @@ class MemoryStore:
         if not (kinds or day or since or until):
             return []
         found = []
-        for fact in self.facts:
+        for fact in self._visible():
             learned = _day_of(fact.learned or fact.at)
             if kinds and fact.source not in kinds:
                 continue
@@ -792,7 +820,7 @@ class MemoryStore:
         return gone
 
     def search(self, query: str) -> list[Fact]:
-        live = [f for f in self.facts if not expired(f)]
+        live = [f for f in self._visible() if not expired(f)]
         kind = clean_category(query)
         if kind:  # "people", "preferences": that category's facts
             return [f for f in reversed(live) if f.category == kind]
@@ -805,7 +833,7 @@ class MemoryStore:
     def prompt_block(self) -> str:
         """The newest facts still true, grouped by category, with how sure and until when
         where that isn't plain."""
-        live = [f for f in self.facts if not expired(f)][-PROMPT_FACTS:]
+        live = [f for f in self._visible() if not expired(f)][-PROMPT_FACTS:]
         if not live:
             return ""
         lines: list[str] = []
