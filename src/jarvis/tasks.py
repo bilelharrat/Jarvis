@@ -1016,6 +1016,10 @@ class TaskManager:
         # command): (behavior, rule) for the rule that covers a step, "deny", "ask" or
         # "allow", None when none does. A deny or an ask holds in every mode, Bypass too.
         self.rule_check: Callable[[ClaudeTask, str, dict[str, Any]], Any] | None = None
+        # Feature modules that scrub what a session records (jarvis.features: the owner's
+        # secrets, each replaced by its $placeholder): redactor(task, text) -> the text to
+        # keep. Applied to every transcript entry, tool output, live word and export.
+        self.redactors: list[Callable[[ClaudeTask, str], str]] = []
         self._spawns: deque[float] = deque()  # when the latest Claude Codes were started
         self._open: set[int] = set()  # sessions connecting or connected
         self._changed_at = 0.0
@@ -1612,6 +1616,7 @@ class TaskManager:
                 break
             path = EXPORT_DIR / f"{stem} {n}.md"
         lines = [f"# {task.title or task.prompt or 'Jarvis Code session'}", "", f"_{task.cwd}_", ""]
+        # (each line scrubbed again below: an entry kept before a secret was given)
         for e in task.transcript:
             role, text = e.get("role"), e.get("text", "")
             if role == "user":
@@ -1624,7 +1629,7 @@ class TaskManager:
                 lines += ["**Plan**", "", text, ""]
             elif role in ("system", "note") and text:
                 lines += [f"_{text}_", ""]
-        path.write_text("\n".join(lines), encoding="utf-8")
+        path.write_text(self.redact(task, "\n".join(lines)), encoding="utf-8")
         return path
 
     async def mcp_status(self, task_id: int) -> list[dict[str, str]]:
@@ -1715,9 +1720,32 @@ class TaskManager:
         elif delta.get("type") == "thinking_delta" and delta.get("thinking"):
             self._stream(task, "thinking", delta["thinking"])
 
+    def redact(self, task: ClaudeTask, text: str) -> str:
+        """What the session records, with what the redactors scrub replaced. A redactor that
+        fails withholds the text rather than let it through."""
+        for redactor in self.redactors:
+            try:
+                text = redactor(task, text)
+            except Exception:
+                log.exception("Jarvis Code: a redactor failed")
+                return "(withheld)"
+        return text
+
+    def _scrub(self, task: ClaudeTask, value: Any, depth: int = 0) -> Any:
+        """An entry's field, redacted all the way down (a check's findings, a step's detail)."""
+        if isinstance(value, str):
+            return self.redact(task, value)
+        if depth < 4 and isinstance(value, list):
+            return [self._scrub(task, v, depth + 1) for v in value]
+        if depth < 4 and isinstance(value, dict):
+            return {k: self._scrub(task, v, depth + 1) for k, v in value.items()}
+        return value
+
     def _stream(self, task: ClaudeTask, part: str, text: str) -> None:
         """Live words, batched: a window needs them every frame or so, not every token (50
         sessions writing at once were 5,000 events a second to every window)."""
+        if self.redactors:
+            text = self.redact(task, text)
         if task.stream_buf and task.stream_buf[-1][0] == part:
             task.stream_buf[-1][1].append(text)
         else:
@@ -1775,6 +1803,9 @@ class TaskManager:
         if task.stream_buf:  # the live words so far come first (a reply's entry replaces them)
             self._flush_stream(task)
         task.seq += 1
+        if self.redactors:
+            text = self.redact(task, text)
+            extra = {k: self._scrub(task, v) for k, v in extra.items()}
         entry = {
             "n": task.seq,
             "role": role,
@@ -1801,7 +1832,10 @@ class TaskManager:
         images = image_count(content)  # pictures it returned (a screenshot): the window shows them
         if isinstance(content, list):
             content = "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
-        output = str(content or "")[:2000]
+        output = str(content or "")
+        if self.redactors:
+            output = self.redact(task, output)
+        output = output[:2000]
         status = "failed" if block.is_error else "done"
         shown = task.tool_ids.pop(block.tool_use_id, 0) is None  # a step the timeline shows
         for entry in reversed(task.transcript):
