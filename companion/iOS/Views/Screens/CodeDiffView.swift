@@ -8,6 +8,7 @@ struct CodeDiffView: View {
     @Environment(AppModel.self) private var model
     @State private var state: Loadable<CodeDiff> = .loading
     @State private var open: Set<String> = []
+    @State private var reverting: DiffFile?
 
     var body: some View {
         Group {
@@ -27,6 +28,14 @@ struct CodeDiffView: View {
         }
         .task(id: sessionID) { await load(openFirst: true) }
         .refreshable { await load() }
+        .confirmationDialog("Revert this file?", isPresented: Binding(get: { reverting != nil }, set: { if !$0 { reverting = nil } }), titleVisibility: .visible) {
+            Button("Revert \(reverting.map { ($0.path as NSString).lastPathComponent } ?? "")", role: .destructive) {
+                if let file = reverting { Task { await revert(file) } }
+                reverting = nil
+            }
+        } message: {
+            Text("It goes back to how it was at the last commit. This can’t be undone from the phone.")
+        }
     }
 
     private func content(_ diff: CodeDiff) -> some View {
@@ -78,6 +87,9 @@ struct CodeDiffView: View {
                 .padding(Space.s)
                 .contentShape(Rectangle())
             }
+            .contextMenu {
+                Button("Revert File", systemImage: "arrow.uturn.backward", role: .destructive) { reverting = file }
+            }
             .buttonStyle(.plain)
             .accessibilityLabel("\(file.status.label): \(file.path), \(file.added) added, \(file.removed) removed")
             .accessibilityHint(isOpen ? "Hides the changes" : "Shows the changes")
@@ -114,6 +126,18 @@ struct CodeDiffView: View {
         case .added: Palette.online
         case .deleted: Palette.danger
         case .modified: Palette.amber
+        }
+    }
+
+    private func revert(_ file: DiffFile) async {
+        guard let api = model.pairing?.api else { return }
+        do {
+            let result = try await api.codeAction("revert", session: sessionID, ["path": .string(file.path)], timeout: 35)
+            Haptics.answered(negative: true)
+            if !result.said.isEmpty { model.show(result.said) }
+            await load()
+        } catch {
+            if let problem = model.handle(error) { model.show(problem.message, style: .problem) }
         }
     }
 

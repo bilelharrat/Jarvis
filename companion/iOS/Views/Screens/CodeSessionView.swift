@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// One Jarvis Code session: what it's doing (the transcript's tail, fetched incrementally),
@@ -17,14 +18,33 @@ struct CodeSessionView: View {
     @State private var confirmStop = false
     @State private var showTodos = false
     @FocusState private var composing: Bool
+    @State private var attachments: [CodeAttachment] = []
+    @State private var picked: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var showCommands = false
+    @State private var commandOutput: CommandOutput?
+    @State private var renaming = false
+    @State private var newTitle = ""
+    @State private var confirmClose = false
+    @State private var options: CodeOptions?
+    @State private var rewindTo: CodeEntry?
 
-    enum Tab: Hashable { case activity, changes }
+    enum Tab: Hashable { case activity, changes, git, files }
+
+    struct CommandOutput: Identifiable {
+        let id = UUID()
+        var command: String
+        var output: String
+        var code: Int
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Picker("Show", selection: $tab) {
                 Text("Activity").tag(Tab.activity)
                 Text("Changes").tag(Tab.changes)
+                Text("Git").tag(Tab.git)
+                Text("Files").tag(Tab.files)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, Space.m + 4)
@@ -33,12 +53,15 @@ struct CodeSessionView: View {
             switch tab {
             case .activity: activity
             case .changes: CodeDiffView(sessionID: sessionID)
+            case .git: CodeGitView(sessionID: sessionID)
+            case .files: CodeFilesView(sessionID: sessionID)
             }
         }
         .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
         .navigationTitle(detail?.title ?? "Jarvis Code")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) { settingsMenu }
             if detail?.status.isLive == true {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -55,8 +78,46 @@ struct CodeSessionView: View {
                 }
             }
         }
+        .sheet(isPresented: $showCommands) {
+            NavigationStack {
+                CodeCommandsView(sessionID: sessionID) { name in
+                    showCommands = false
+                    Task { await runCommand(name) }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $commandOutput) { output in
+            NavigationStack { outputSheet(output) }
+                .presentationDetents([.medium, .large])
+        }
+        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: 6, matching: .images)
+        .onChange(of: picked) { _, items in
+            guard !items.isEmpty else { return }
+            picked = []
+            Task { await attach(items) }
+        }
+        .alert("Rename Session", isPresented: $renaming) {
+            TextField("Title", text: $newTitle)
+            Button("Save") { act("rename", ["title": .string(newTitle)]) }
+            Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Close this session?", isPresented: $confirmClose, titleVisibility: .visible) {
+            Button("Close Session", role: .destructive) { act("close") }
+        } message: {
+            Text("It stops and closes on your Mac; the transcript stays there.")
+        }
+        .confirmationDialog("Rewind to here?", isPresented: Binding(get: { rewindTo != nil }, set: { if !$0 { rewindTo = nil } }), titleVisibility: .visible) {
+            Button("Rewind", role: .destructive) {
+                if let uuid = rewindTo?.uuid { act("rewind", ["uuid": .string(uuid)], timeout: 65) }
+                rewindTo = nil
+            }
+        } message: {
+            Text("The conversation and its file changes go back to just before this message.")
+        }
         .task(id: sessionID) {
             var polls = 0
+            if options == nil, let api = model.pairing?.api { options = try? await api.codeOptions() }
             while !Task.isCancelled {
                 if polls % 15 == 0 { await loadInfo() }
                 await load()
@@ -88,6 +149,12 @@ struct CodeSessionView: View {
                 }
                 ForEach(transcript.entries) { entry in
                     CodeEntryRow(entry: entry)
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = entry.text }
+                            if entry.role == .user, entry.uuid != nil {
+                                Button("Rewind to Here", systemImage: "arrow.uturn.backward") { rewindTo = entry }
+                            }
+                        }
                 }
             }
             .padding(.horizontal, Space.m + 4)
@@ -100,6 +167,31 @@ struct CodeSessionView: View {
                 if let waiting = detail?.waiting {
                     waitingCard(waiting)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                if let queued = detail?.queued, !queued.isEmpty {
+                    queuedStrip(queued)
+                }
+                if !attachments.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: Space.xs) {
+                            ForEach(attachments) { item in
+                                Group {
+                                    if let thumb = item.thumbnail { Thumbnail(data: thumb, side: 52) } else { DocumentChip(name: item.name) }
+                                }
+                                .overlay(alignment: .topTrailing) {
+                                    Button {
+                                        attachments.removeAll { $0.id == item.id }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.6))
+                                    }
+                                    .offset(x: 5, y: -5)
+                                    .accessibilityLabel("Remove \(item.name)")
+                                }
+                            }
+                        }
+                        .padding(.top, 6)
+                    }
+                    .scrollIndicators(.hidden)
                 }
                 composer
             }
@@ -149,23 +241,119 @@ struct CodeSessionView: View {
                 source: .code, taskID: sessionID
             )
         if !model.answering.contains(approval.id) {
-            ApprovalCard(approval: approval) { choice in
-                Task { await model.answer(approval, with: choice) }
-            } onReason: { reason in
-                Task { await model.answer(approvalID: approval.id, choices: approval.choices, with: .denyBecause(reason)) }
+            if approval.isQuestion {
+                QuestionCard(approval: approval) { choice, feedback in
+                    Task { await answer(approval, choice: choice, feedback: feedback) }
+                }
+            } else {
+                ApprovalCard(approval: approval) { choice in
+                    Task {
+                        // "Always allow" sets a rule on the Mac: Face ID first.
+                        if choice.id == "always", !(await OwnerCheck.confirm("Always allow this in Jarvis Code")) { return }
+                        await model.answer(approval, with: choice)
+                    }
+                } onReason: { reason in
+                    Task { await model.answer(approvalID: approval.id, choices: approval.choices, with: .denyBecause(reason)) }
+                }
+            }
+        }
+    }
+
+    /// Messages waiting for the step to end: each can go in now, or be taken back.
+    private func queuedStrip(_ queued: [CodeQueued]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Eyebrow("Waiting to send")
+            ForEach(queued) { item in
+                HStack(spacing: Space.xs) {
+                    Text(item.text).font(.footnote).foregroundStyle(Palette.ink2).lineLimit(2)
+                    Spacer(minLength: Space.xs)
+                    Button("Send Now") { act("steer", ["item": .int(item.item)]) }.font(.caption)
+                    Button {
+                        act("unqueue", ["item": .int(item.item)])
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .accessibilityLabel("Don’t send this")
+                }
+            }
+        }
+        .padding(Space.s)
+        .glassCard(cornerRadius: 16)
+    }
+
+    /// Mode, model, effort; rename, pin, archive, export, undo, context, close.
+    private var settingsMenu: some View {
+        Menu {
+            Menu("Permissions: \(CodeOptions.modeName(detail?.mode ?? ""))", systemImage: "lock.shield") {
+                ForEach(options?.modes ?? [], id: \.id) { mode in
+                    Button { setMode(mode.id) } label: {
+                        if detail?.mode == mode.id { Label(mode.name, systemImage: "checkmark") } else { Text(mode.name) }
+                    }
+                }
+            }
+            Menu("Model: \(detail?.modelLabel.nilIfEmpty ?? detail?.model.nilIfEmpty ?? "Default")", systemImage: "cpu") {
+                ForEach(options?.models ?? [], id: \.id) { item in
+                    Button(item.name) { act("model", ["ref": .string(item.id)]) }
+                }
+            }
+            Menu("Effort: \((detail?.effort.nilIfEmpty ?? "default").capitalized)", systemImage: "gauge.with.dots.needle.67percent") {
+                ForEach(options?.efforts ?? [], id: \.self) { level in
+                    Button(level.capitalized) { act("effort", ["effort": .string(level)]) }
+                }
+            }
+            Divider()
+            Button("Commands", systemImage: "slash.circle") { showCommands = true }
+            Button("Context Used", systemImage: "chart.pie") { showContext() }
+            Button("Undo Last Change", systemImage: "arrow.uturn.backward") { act("undo", timeout: 35) }
+            Divider()
+            Button("Rename", systemImage: "pencil") {
+                newTitle = detail?.title ?? ""
+                renaming = true
+            }
+            Button("Pin", systemImage: "pin") { act("meta", ["pinned": .bool(true)]) }
+            Button("Archive", systemImage: "archivebox") { act("meta", ["archived": .bool(true)]) }
+            Button("Export Transcript", systemImage: "square.and.arrow.up") { act("export") }
+            Button("Close Session", systemImage: "xmark.circle", role: .destructive) { confirmClose = true }
+        } label: {
+            Label("Session", systemImage: "ellipsis.circle")
+        }
+    }
+
+    private func outputSheet(_ output: CommandOutput) -> some View {
+        ScrollView([.vertical, .horizontal]) {
+            Text(output.output.isEmpty ? "(no output)" : output.output)
+                .font(.system(.footnote, design: .monospaced))
+                .textSelection(.enabled)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle("$ \(output.command)")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) { Button("Done") { commandOutput = nil } }
+            ToolbarItem(placement: .status) {
+                Text(output.code == 0 ? "Exit 0" : "Exit \(output.code)").font(.caption).foregroundStyle(output.code == 0 ? Palette.online : Palette.danger)
             }
         }
     }
 
     private var composer: some View {
         HStack(spacing: Space.xs) {
-            TextField("", text: $draft, prompt: Text("Message Jarvis Code…").foregroundStyle(Palette.muted), axis: .vertical)
+            Menu {
+                Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
+                Button("Commands", systemImage: "slash.circle") { showCommands = true }
+                Button("Run a Command (!)", systemImage: "terminal") { draft = draft.hasPrefix("!") ? draft : "!" + draft }
+            } label: {
+                Image(systemName: "plus").font(.body.weight(.semibold)).foregroundStyle(Palette.ink2).frame(width: 36, height: 44)
+            }
+            .padding(.leading, 6)
+            .accessibilityLabel("Attach, commands")
+            TextField("", text: $draft, prompt: Text(placeholder).foregroundStyle(Palette.muted), axis: .vertical)
                 .lineLimit(1...4)
                 .focused($composing)
                 .submitLabel(.send)
                 .onSubmit { Task { await send() } }
                 .foregroundStyle(Palette.ink)
-                .padding(.leading, Space.m + 4)
                 .padding(.vertical, Space.s)
                 .accessibilityLabel("Message Jarvis Code")
             Button {
@@ -193,7 +381,12 @@ struct CodeSessionView: View {
         .glass(RoundedRectangle(cornerRadius: 26, style: .continuous), tint: composing ? Palette.cyan : .white, strength: composing ? 0.6 : 1)
     }
 
-    private var canSend: Bool { !draft.trimmed.isEmpty && !sending }
+    private var canSend: Bool { (!draft.trimmed.isEmpty || !attachments.isEmpty) && !sending }
+
+    private var placeholder: String {
+        if draft.hasPrefix("!") { return "A command to run in the project" }
+        return detail?.status == .working ? "Message (waits for this step)…" : "Message Jarvis Code…"
+    }
 
     // MARK: - Talking to the Mac
 
@@ -226,11 +419,23 @@ struct CodeSessionView: View {
 
     private func send() async {
         let text = draft.trimmed
-        guard !text.isEmpty, !sending, let api = model.pairing?.api else { return }
+        guard canSend, let api = model.pairing?.api else { return }
+        if text.hasPrefix("!") {
+            return await bash(String(text.dropFirst()).trimmed)
+        }
+        if text.hasPrefix("/"), attachments.isEmpty {
+            draft = ""
+            return await runCommand(text)
+        }
         sending = true
         defer { sending = false }
         do {
-            _ = try await api.codeSend(id: sessionID, text: text)
+            if attachments.isEmpty {
+                _ = try await api.codeSend(id: sessionID, text: text)
+            } else {
+                _ = try await api.codeSend(id: sessionID, text: text, attachments: attachments, steer: nil)
+                attachments = []
+            }
             draft = ""
             composing = false
             Haptics.tap()
@@ -243,6 +448,91 @@ struct CodeSessionView: View {
                 Haptics.failure()
                 model.show(problem.errorDescription ?? problem.title, style: .problem)
             }
+        }
+    }
+
+    /// A "!" command in the project, on the Mac, after Face ID; its output here.
+    private func bash(_ command: String) async {
+        guard !command.isEmpty, let api = model.pairing?.api else { return }
+        guard await OwnerCheck.confirm("Run “\(command)” on your Mac") else { return }
+        sending = true
+        defer { sending = false }
+        do {
+            let result = try await api.codeAction("bash", session: sessionID, ["command": .string(command)], timeout: 135)
+            draft = ""
+            let found = result["task_bash"]
+            commandOutput = CommandOutput(command: command, output: found?["output"]?.stringValue ?? result.said,
+                                          code: found?["code"]?.intValue ?? -1)
+        } catch {
+            if let problem = model.handle(error) { model.show(problem.message, style: .problem) }
+        }
+    }
+
+    /// A slash command (/plan, /review, the project's own…).
+    private func runCommand(_ text: String) async {
+        guard let api = model.pairing?.api else { return }
+        do {
+            let result = try await api.codeAction("command", session: sessionID, ["text": .string(text)], timeout: 20)
+            Haptics.tap()
+            if !result.said.isEmpty { model.show(result.said) }
+            await load()
+        } catch {
+            if let problem = model.handle(error) { model.show(problem.message, style: .problem) }
+        }
+    }
+
+    private func setMode(_ mode: String) {
+        Task {
+            if CodeOptions.needsOwner(mode: mode), !(await OwnerCheck.confirm("Let this session run everything without asking")) { return }
+            act("mode", ["mode": .string(mode)])
+        }
+    }
+
+    private func showContext() {
+        Task {
+            guard let api = model.pairing?.api else { return }
+            if let result = try? await api.codeAction("context", session: sessionID, timeout: 20),
+               let percent = result["task_context"]?["percent"]?.intValue {
+                model.show("\(percent)% of the context is used.")
+            } else {
+                model.show("The session isn’t running, so there’s no context to measure.")
+            }
+        }
+    }
+
+    /// One of the Mac's session actions, then a fresh look.
+    private func act(_ action: String, _ fields: [String: JSONValue] = [:], timeout: TimeInterval = 30) {
+        Task {
+            guard let api = model.pairing?.api else { return }
+            do {
+                let result = try await api.codeAction(action, session: sessionID, fields, timeout: timeout)
+                (result.ok ? Haptics.tap() : Haptics.failure())
+                if !result.said.isEmpty { model.show(result.said, style: result.ok ? .info : .problem) }
+                await load()
+            } catch {
+                if let problem = model.handle(error) { model.show(problem.message, style: .problem) }
+            }
+        }
+    }
+
+    /// A question's answer: an option, several ("pick"), or the owner's own words ("other").
+    private func answer(_ approval: Approval, choice: String, feedback: String) async {
+        guard let api = model.pairing?.api else { return }
+        do {
+            _ = try await api.approve(id: approval.id, choice: choice, feedback: feedback.isEmpty ? nil : feedback)
+            Haptics.answered(negative: false)
+            await load()
+        } catch {
+            if let problem = model.handle(error) { model.show(problem.message, style: .problem) }
+        }
+    }
+
+    private func attach(_ items: [PhotosPickerItem]) async {
+        for image in await Attachment.load(items) {
+            guard attachments.count < 6,
+                  let jpeg = PhotoPrep.jpeg(from: image, longest: 1568, maxBytes: 4 * 1024 * 1024) else { continue }
+            let thumb = Attachment(image: image)?.thumbnail
+            attachments.append(CodeAttachment(name: "screenshot-\(attachments.count + 1).jpg", mediaType: "image/jpeg", data: jpeg, thumbnail: thumb))
         }
     }
 

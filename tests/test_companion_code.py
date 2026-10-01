@@ -119,3 +119,41 @@ def test_a_question_card_says_how_it_can_be_answered():
     assert shown["multi"] is True and shown["free_choices"] == ["pick", "other"]
     assert shown["options"] == [{"label": "Postgres", "description": "Relational"}]
     assert companion_code.ACTIONS["bash"].by_ref
+
+
+def test_files_and_a_file_come_from_the_real_window_commands(api, tmp_path):  # noqa: F811
+    projects = api.hub.tasks.settings.projects_dir
+    folder = projects / "alpha"
+    (folder / "src").mkdir(parents=True, exist_ok=True)
+    (folder / "src" / "app.py").write_text("print('hi')\n")
+    session(api.hub, 7, folder)
+    files = api.post("/api/code/action", {"id": 7, "action": "files"}).json()
+    assert "src/app.py" in files["project_files"]["files"]
+    one = api.post("/api/code/action", {"id": 7, "action": "file", "path": "src/app.py"}).json()
+    assert one["file_content"]["text"] == "print('hi')\n"
+    secret = api.post("/api/code/action", {"id": 7, "action": "file", "path": "../../etc/passwd"}).json()
+    assert secret["file_content"].get("error")
+
+
+def test_git_state_stage_and_commit_from_the_phone(api):  # noqa: F811
+    import subprocess
+
+    folder = api.hub.tasks.settings.projects_dir / "beta"
+    folder.mkdir(parents=True, exist_ok=True)
+    run = lambda *a: subprocess.run(["git", *a], cwd=folder, check=True, capture_output=True)  # noqa: E731
+    run("init", "-b", "main")
+    run("config", "user.email", "t@example.com")
+    run("config", "user.name", "T")
+    (folder / "a.txt").write_text("one\n")
+    run("add", "a.txt")
+    run("commit", "-m", "first")
+    (folder / "a.txt").write_text("two\n")
+    session(api.hub, 8, folder)
+    state = api.post("/api/code/action", {"id": 8, "action": "git"}).json()["code_git"]
+    assert state["branch"] == "main" and [f["path"] for f in state["unstaged"]] == ["a.txt"]
+    staged = api.post("/api/code/action", {"id": 8, "action": "stage", "all": True}).json()["code_git"]
+    assert [f["path"] for f in staged["staged"]] == ["a.txt"]
+    done = api.post("/api/code/action", {"id": 8, "action": "commit", "message": "Second"}).json()
+    assert done.get("code_git_committed", {}).get("sha") or "ommit" in done.get("said", "")
+    log = subprocess.run(["git", "log", "--format=%s"], cwd=folder, capture_output=True, text=True).stdout
+    assert log.splitlines()[0] == "Second"

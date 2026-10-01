@@ -240,7 +240,17 @@ it; links only ever navigate):
   the question it's waiting on — the card's own choices and **No, because…**, which sends
   `deny` with the reason (a plan's own no, keep planning, when it has no `deny`) — its
   changes (files, counts, hunks; files that may hold secrets listed without lines), a line
-  to send it, and Stop (after a confirmation).
+  to send it, and Stop (after a confirmation). The whole of Jarvis Code works from here
+  (the Mac's `companion_code.py`, which runs the window's own commands from an allowlist):
+  **New Session** (project, task, model, permission mode, effort, isolated copy, pictures);
+  per session a menu for permissions, model, effort, commands, context used, undo, rename,
+  pin, archive, export and close; messages with pictures, queued ones sent now or taken
+  back; slash commands (Jarvis Code's and the project's); `!` commands run in the project
+  with their output shown; Rewind from a request's long press; questions answered with one
+  option, several or your own words; per-file Revert in Changes; a **Git** tab (stage,
+  commit with a written-for-you message, push, new branch, draft/open/merge the pull
+  request) and a **Files** tab (search, read). Face ID first for `!` commands, Bypass
+  permissions and "always allow".
 - **Conversations for you** (delegations): who with, the goal, where it stands; Stop after
   a confirmation.
 - **Routines**: on/off, run now, change the time and days (0 = Monday, the Mac's way), and

@@ -89,6 +89,14 @@ struct Approval: Identifiable, Equatable, Sendable, Decodable {
     var source: Source = .jarvis
     /// The Jarvis Code session it's for.
     var taskID: Int?
+    /// "question": a Claude question, answered with an option (opt<N>), several ("pick") or
+    /// the owner's own words ("other"), as freeChoices allows.
+    var askKind = ""
+    var multi = false
+    var options: [ApprovalOption] = []
+    var freeChoices: [String] = []
+
+    var isQuestion: Bool { askKind == "question" }
 
     static let defaultChoices = [
         ApprovalChoice(id: "allow", label: "Allow"),
@@ -108,8 +116,10 @@ struct Approval: Identifiable, Equatable, Sendable, Decodable {
     }
 
     private enum Key: String, CodingKey {
-        case id, question, detail, choices, source
+        case id, question, detail, choices, source, multi, options
         case taskID = "task_id"
+        case askKind = "ask_kind"
+        case freeChoices = "free_choices"
     }
 
     init(from decoder: Decoder) throws {
@@ -127,12 +137,35 @@ struct Approval: Identifiable, Equatable, Sendable, Decodable {
             source: Source(rawValue: c.text(.source) ?? "") ?? (taskID == nil ? .jarvis : .code),
             taskID: taskID
         )
+        askKind = c.text(.askKind) ?? ""
+        multi = c.flag(.multi) ?? false
+        options = c.list(ApprovalOption.self, .options)
+        freeChoices = ((try? c.decodeIfPresent([String].self, forKey: .freeChoices)) ?? nil) ?? []
     }
 
     /// The yes: the first choice, the one the Mac offers first.
     var primary: ApprovalChoice { choices.first ?? Approval.defaultChoices[0] }
     /// The no: the last choice (what the Mac picks when nobody answers).
     var negative: ApprovalChoice { choices.last ?? Approval.defaultChoices[1] }
+}
+
+/// One option of a Claude question.
+struct ApprovalOption: Equatable, Sendable, Decodable {
+    var label: String
+    var description: String
+
+    init(label: String, description: String = "") {
+        self.label = label
+        self.description = description
+    }
+
+    private enum Key: String, CodingKey { case label, description }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        label = c.text(.label) ?? ""
+        description = c.text(.description) ?? ""
+    }
 }
 
 struct HistoryItem: Equatable, Sendable, Decodable {

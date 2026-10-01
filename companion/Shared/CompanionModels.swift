@@ -164,6 +164,8 @@ struct CodeEntry: Identifiable, Equatable, Sendable, Decodable {
     var role: Role
     var text: String
     var at: Date?
+    /// A request of the owner's: what Rewind goes back to.
+    var uuid: String?
 
     var id: Int { i }
 
@@ -174,7 +176,7 @@ struct CodeEntry: Identifiable, Equatable, Sendable, Decodable {
         self.at = at
     }
 
-    private enum Key: String, CodingKey { case i, role, text, at }
+    private enum Key: String, CodingKey { case i, role, text, at, uuid }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
@@ -185,6 +187,7 @@ struct CodeEntry: Identifiable, Equatable, Sendable, Decodable {
         role = Role(rawValue: c.text(.role) ?? "") ?? .note
         text = c.text(.text) ?? ""
         at = c.date(.at)
+        uuid = c.text(.uuid)
     }
 }
 
@@ -214,11 +217,22 @@ struct CodeSessionDetail: Equatable, Sendable, Decodable {
     var entries: [CodeEntry]
     var todos: [CodeTodo]
     var waiting: CodeWaiting?
+    /// Its settings: permission mode (plan, ask, edits, smart, auto), model, effort.
+    var mode = ""
+    var model = ""
+    var modelLabel = ""
+    var effort = ""
+    var project = ""
+    /// Messages still waiting for it to finish its step.
+    var queued: [CodeQueued] = []
 
     /// The most entries one answer carries: a full page means there may be more.
     static let page = 200
 
-    private enum Key: String, CodingKey { case id, title, status, entries, todos, waiting }
+    private enum Key: String, CodingKey {
+        case id, title, status, entries, todos, waiting, mode, model, effort, project, queued
+        case modelLabel = "model_label"
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
@@ -228,6 +242,30 @@ struct CodeSessionDetail: Equatable, Sendable, Decodable {
         entries = c.list(CodeEntry.self, .entries).sorted { $0.i < $1.i }
         todos = c.list(CodeTodo.self, .todos).filter { !$0.text.trimmed.isEmpty }
         waiting = c.object(CodeWaiting.self, .waiting)
+        mode = c.text(.mode) ?? ""
+        model = c.text(.model) ?? ""
+        modelLabel = c.text(.modelLabel) ?? ""
+        effort = c.text(.effort) ?? ""
+        project = c.text(.project) ?? ""
+        queued = c.list(CodeQueued.self, .queued)
+    }
+}
+
+/// A message waiting for a session's step to end.
+struct CodeQueued: Identifiable, Equatable, Sendable, Decodable {
+    var item: Int
+    var text: String
+    var id: Int { item }
+
+    private enum Key: String, CodingKey { case item, text }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        guard let item = c.integer(.item) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath, debugDescription: "queued without an item"))
+        }
+        self.item = item
+        text = c.text(.text) ?? ""
     }
 }
 

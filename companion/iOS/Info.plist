@@ -66,6 +66,8 @@
 	<string>Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis. With Point and ask on, the camera shows live on your screen and one frame goes to Jarvis only when you ask.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>So Jarvis knows who you mean when you ask it to call or text someone. If you turn on contact lookups, your Mac can ask this iPhone “who is…” one name at a time; your address book is never uploaded.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Before your iPhone runs a command on your Mac in Jarvis Code, or lets a session work without asking, Face ID makes sure it’s you. Also used for “Only answer when unlocked”.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Only if you turn on the daily health summary. Steps, sleep, resting heart rate and workouts go to Jarvis on your Mac for your briefing. Nothing is written to Health.</string>
 	<key>NSHealthUpdateUsageDescription</key>

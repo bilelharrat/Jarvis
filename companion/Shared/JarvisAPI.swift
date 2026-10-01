@@ -418,9 +418,16 @@ struct JarvisAPI: Sendable {
 
     // MARK: - Plumbing
 
+    /// Any call, for the iPhone's own screens (Jarvis Code's): a GET, or a POST with a body.
+    func request(
+        _ path: String, query: [URLQueryItem] = [], body: Data? = nil, timeout: TimeInterval, headers: [String: String] = [:]
+    ) async throws -> Data {
+        try await send(path, query: query, body: body, timeout: timeout, headers: headers)
+    }
+
     private func send(
         _ path: String, query: [URLQueryItem] = [], body: Data? = nil, timeout: TimeInterval,
-        authorized: Bool = true, pairing: Bool = false
+        authorized: Bool = true, pairing: Bool = false, headers: [String: String] = [:]
     ) async throws -> Data {
         guard baseURL.scheme == "https" else { throw JarvisError.notPinned }
         guard let fingerprint = fingerprint.flatMap(CertificatePin.normalize) else { throw JarvisError.notPinned }
@@ -437,6 +444,7 @@ struct JarvisAPI: Sendable {
         if authorized, let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
 
         let delegate = ServerTrustDelegate(.pin(fingerprint))
         let data: Data

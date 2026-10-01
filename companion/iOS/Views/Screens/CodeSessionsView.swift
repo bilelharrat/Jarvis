@@ -5,6 +5,10 @@ import SwiftUI
 struct CodeSessionsView: View {
     @Environment(AppModel.self) private var model
     @State private var state: Loadable<[CodeSession]> = .loading
+    @State private var showNew = false
+    @State private var renaming: CodeSession?
+    @State private var newTitle = ""
+    @State private var closing: CodeSession?
 
     var body: some View {
         Group {
@@ -13,7 +17,10 @@ struct CodeSessionsView: View {
                     ContentUnavailableView {
                         Label("No sessions", systemImage: "chevron.left.forwardslash.chevron.right")
                     } description: {
-                        Text("Jarvis Code sessions you start on your Mac show up here, to follow and answer from anywhere.")
+                        Text("Start a Jarvis Code session here or on your Mac, then follow it, answer it and ship it from anywhere.")
+                    } actions: {
+                        Button("New Session") { showNew = true }
+                            .buttonStyle(PrimaryButtonStyle())
                     }
                 } else {
                     list(sessions)
@@ -25,6 +32,36 @@ struct CodeSessionsView: View {
         .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
         .navigationTitle("Jarvis Code")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showNew = true
+                } label: {
+                    Label("New Session", systemImage: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showNew) {
+            NavigationStack {
+                NewCodeSessionView { id in model.destination = .codeSession(id) }
+            }
+        }
+        .alert("Rename Session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Title", text: $newTitle)
+            Button("Save") {
+                if let session = renaming { act("rename", session, ["title": .string(newTitle)]) }
+                renaming = nil
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
+        .confirmationDialog("Close this session?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }), titleVisibility: .visible) {
+            Button("Close Session", role: .destructive) {
+                if let session = closing { act("close", session) }
+                closing = nil
+            }
+        } message: {
+            Text("It stops and closes on your Mac. Its transcript stays, so it can be picked up again there.")
+        }
         .task {
             while !Task.isCancelled {
                 await load()
@@ -54,11 +91,44 @@ struct CodeSessionsView: View {
                     NavigationLink(value: Destination.codeSession(session.id)) {
                         CodeSessionRow(session: session)
                     }
+                    .swipeActions(edge: .trailing) {
+                        Button("Close", systemImage: "xmark.circle", role: .destructive) { closing = session }
+                        Button("Archive", systemImage: "archivebox") { act("meta", session, ["archived": .bool(true)]) }
+                            .tint(.indigo)
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button("Pin", systemImage: "pin") { act("meta", session, ["pinned": .bool(true)]) }
+                            .tint(.orange)
+                    }
+                    .contextMenu {
+                        Button("Rename", systemImage: "pencil") {
+                            newTitle = session.title
+                            renaming = session
+                        }
+                        Button("Pin", systemImage: "pin") { act("meta", session, ["pinned": .bool(true)]) }
+                        Button("Archive", systemImage: "archivebox") { act("meta", session, ["archived": .bool(true)]) }
+                        Button("Close Session", systemImage: "xmark.circle", role: .destructive) { closing = session }
+                    }
                 }
             } header: {
                 ListHeader(title)
             }
             .glassRow()
+        }
+    }
+
+    /// A session action on the Mac, then the list again.
+    private func act(_ action: String, _ session: CodeSession, _ fields: [String: JSONValue] = [:]) {
+        Task {
+            guard let api = model.pairing?.api else { return }
+            do {
+                let result = try await api.codeAction(action, session: session.id, fields)
+                Haptics.tap()
+                if !result.said.isEmpty { model.show(result.said, style: result.ok ? .success : .problem) }
+                await load()
+            } catch {
+                if let problem = model.handle(error) { model.show(problem.message, style: .problem) }
+            }
         }
     }
 
