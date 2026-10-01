@@ -1,14 +1,16 @@
-// Settings › Chats: talk to Jarvis from Telegram, iMessage, Slack and Discord (the backend is
-// jarvis.channels). Each chat is connected here (a pasted token goes one way, into the
-// Keychain, and the field empties at once), paired with a one-time code, switched on or off,
-// and told what to pass on: heads-ups (urgent only, all, none) and approval cards. Names and
-// addresses the chats bring are shown as data (data-no-i18n), never as markup.
+// Settings › Chats: talk to Jarvis from Telegram, iMessage, WhatsApp, Signal, Slack and
+// Discord (the backend is jarvis.channels). Each chat is connected here (a pasted token goes
+// one way, into the Keychain, and the field empties at once), paired with a one-time code (or,
+// for WhatsApp and Signal, the owner's own linked account), switched on or off, and told what
+// to pass on: heads-ups (urgent only, all, none) and approval cards. Group chats are off until
+// switched on, and each group JARVIS was asked in has its own switch and tool setting. Names
+// and addresses the chats bring are shown as data (data-no-i18n), never as markup.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, send } = F;
 
-  const ORDER = ['telegram', 'imessage', 'slack', 'discord'];
+  const ORDER = ['telegram', 'imessage', 'whatsapp', 'signal', 'slack', 'discord'];
   const STATUS = {
     off: 'Off',
     needs_setup: 'Not set up',
@@ -22,6 +24,8 @@
     telegram: 'In Telegram, message @BotFather, send /newbot and paste the token it gives you here. Then press Pair and send the code to your new bot.',
     slack: 'Make a Slack app of your own (api.slack.com/apps) with Socket Mode on. Give its bot the chat:write, im:history, im:read, files:read and files:write scopes, subscribe it to message.im and turn on its Messages tab. Paste its app-level token (with connections:write) and its bot token. Then press Pair and send the code to the app in a direct message.',
     discord: 'In the Discord Developer Portal, make an application, add a bot and copy its token. Invite the bot to a server you’re in, so you can message it. Then press Pair and send the code to the bot in a direct message.',
+    whatsapp: 'Uses the WhatsApp linked in Tools & Accounts. Message yourself in WhatsApp (the chat with your own number) to talk to Jarvis; its replies start with “Jarvis:”. What anyone else writes to you is never read as yours.',
+    signal: 'Signal works through signal-cli, linked to your account as one of its devices; Jarvis doesn’t install it. In Terminal: brew install signal-cli, then signal-cli link -n Jarvis, and scan the sgnl:// link it prints as a QR code (on your phone: Signal › Settings › Linked devices). Then press Check again. Talk to Jarvis in your Note to Self chat.',
     imessage: 'Pick the conversation Jarvis reads. Note to self: text your own number or email from your iPhone; Jarvis’s replies start with “Jarvis:”, and a note to self doesn’t make your phone buzz. Or sign a second Apple ID in to Messages on this Mac just for Jarvis and text that. In any other conversation, start a message with “Jarvis,” and everyone in it sees the reply. Needs Full Disk Access.',
   };
   const TOKENS = {
@@ -267,6 +271,94 @@
     return box;
   }
 
+  function whatsapp(item) {
+    const box = el('div', 'channel-imessage');
+    box.append(el('p', 'channel-help', HELP.whatsapp));
+    if (!item.linked) {
+      box.append(el('p', 'small-status warn-line', 'Link WhatsApp in Tools & Accounts first.'));
+      box.append(button('Open Tools & Accounts', () => { const open = F.$('open-accounts'); if (open) open.click(); }, 'btn primary'));
+    } else if (item.phone) {
+      const now = el('p', 'small-status');
+      now.append(document.createTextNode('Your number: '), mine(el('strong', '', item.phone)));
+      box.append(now);
+    }
+    return box;
+  }
+
+  function signal(item) {
+    const box = el('div', 'channel-imessage');
+    box.append(el('p', 'channel-help', HELP.signal));
+    if (item.account) {
+      const now = el('p', 'small-status');
+      now.append(document.createTextNode('Using: '), mine(el('strong', '', item.account)));
+      box.append(now);
+    }
+    if (!item.found) box.append(el('p', 'small-status warn-line', 'signal-cli isn’t on this Mac.'));
+    else if (item.problem) box.append(el('p', 'small-status warn-line', 'signal-cli couldn’t list its accounts.'));
+    else if (item.found && !(item.accounts || []).length) box.append(el('p', 'small-status warn-line', 'No account is linked in signal-cli yet.'));
+    const accounts = item.accounts || [];
+    if (accounts.length && accounts.some((a) => a !== item.account)) {
+      const pick = el('label', 'row stack');
+      const words = el('span');
+      words.append(el('strong', '', 'Account'));
+      const select = el('select');
+      select.setAttribute('aria-label', 'Signal account');
+      for (const a of accounts) {
+        const option = mine(el('option', '', a));
+        option.value = a;
+        option.selected = a === item.account;
+        select.append(option);
+      }
+      pick.append(words, select);
+      box.append(pick, button('Use this account', () => {
+        send({ type: 'channels_signal', channel: 'signal', account: select.value });
+        note('signal', 'Checking…', false);
+      }, 'btn primary'));
+    }
+    box.append(button('Check again', () => {
+      send({ type: 'channels_signal', channel: 'signal' });
+      note('signal', 'Checking…', false);
+    }));
+    return box;
+  }
+
+  function groups(item) {
+    const box = el('div', 'channel-forward channel-groups');
+    box.append(toggle('Answer in group chats', item.groups_on, () => prefs(item.id, 'groups', !item.groups_on)));
+    if (!item.groups_on) return box;
+    box.append(el('p', 'channel-help', item.id === 'whatsapp'
+      ? 'In a group, start a message with “Jarvis,” or reply to one of its messages. A group is added here switched off the first time you ask in it; turn it on to let Jarvis answer there from your account.'
+      : 'In a group you’ve added the bot to, mention it or reply to it. It answers only you, everyone there sees the answer, and it never sends, calls or buys anything elsewhere from a group; cards come to your direct chat.'));
+    for (const g of item.groups || []) {
+      const row = el('div', 'channel-group');
+      const head = el('div', 'row');
+      const name = el('span');
+      name.append(mine(el('strong', '', g.name || g.id)));
+      const sw = el('button', 'switch');
+      sw.type = 'button';
+      sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-checked', String(!!g.on));
+      sw.setAttribute('aria-label', 'Answer in this group');
+      sw.addEventListener('click', () => send({ type: 'channels_group', channel: item.id, chat: g.id, on: !g.on }));
+      head.append(name, sw);
+      const seg = el('div', 'segmented channel-tools');
+      seg.setAttribute('role', 'radiogroup');
+      seg.setAttribute('aria-label', 'What Jarvis may use there');
+      for (const [level, label] of [['none', 'No tools'], ['read', 'Read-only'], ['act', 'Can act']]) {
+        const b = el('button', '', label);
+        b.type = 'button';
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(g.tools === level));
+        b.addEventListener('click', () => send({ type: 'channels_group', channel: item.id, chat: g.id, tools: level }));
+        seg.append(b);
+      }
+      row.append(head, seg, button('Forget this group', () => send({ type: 'channels_group', channel: item.id, chat: g.id, forget: true })));
+      box.append(row);
+    }
+    if (!(item.groups || []).length) box.append(el('p', 'small-status', 'No groups yet.'));
+    return box;
+  }
+
   function forwarding(item) {
     const box = el('div', 'channel-forward');
     box.append(el('p', 'small-status', 'Heads-ups sent here'));
@@ -304,6 +396,8 @@
       }
     }
     if (item.id === 'imessage') body.append(imessage(item));
+    else if (item.id === 'whatsapp') body.append(whatsapp(item));
+    else if (item.id === 'signal') body.append(signal(item));
     else if (!item.ready) body.append(setupForm(item));
     else {
       if (item.state === 'error') body.append(setupForm(item)); // a refused token: paste a new one
@@ -311,7 +405,9 @@
     }
     if (item.ready) {
       body.append(forwarding(item));
-      body.append(button(item.id === 'imessage' ? 'Stop using iMessage' : 'Disconnect', () => send({ type: 'channels_disconnect', channel: item.id }), 'btn danger'));
+      if (item.group_chats) body.append(groups(item));
+      const stop = { imessage: 'Stop using iMessage', whatsapp: 'Stop using WhatsApp', signal: 'Stop using Signal' }[item.id] || 'Disconnect';
+      body.append(button(stop, () => send({ type: 'channels_disconnect', channel: item.id }), 'btn danger'));
     }
     const said = notes[item.id];
     const line = el('p', `small-status channel-note${said && said.error ? ' warn-line' : ''}`, said ? said.text : '');
@@ -373,4 +469,11 @@
   F.on('channels_note', (ev) => note(ev.channel, ev.text, ev.error));
   F.on('channels_chats', (ev) => { chats = ev.items || []; chatsError = ev.error || ''; opened.add('imessage'); render(); });
   F.on('hello', () => send({ type: 'channels_status' }), { replay: true });
+  // Signal is found on this Mac (or not) when its card is first opened, never at start-up.
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (!(d instanceof HTMLDetailsElement) || !d.open || d.dataset.channel !== 'signal') return;
+    const item = (state.items || []).find((i) => i.id === 'signal');
+    if (item && !item.looked) send({ type: 'channels_signal', channel: 'signal' });
+  }, true);
 })();

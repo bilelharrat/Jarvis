@@ -64,8 +64,10 @@ A short map of what was added; each feature's own Settings group or pane explain
   Jarvis and Translate in the page's menu, questions across tabs, reader mode, page
   watchers, record and replay, a hand back at passwords and captchas (JARVIS never solves
   them), watch mode on bank, email and health sites, and hidden page text filtered out.
-- **Reach:** Telegram, iMessage, Slack, Discord and WhatsApp (owner only, approvals in
-  chat); the Jarvis number's texts and voicemail summaries; the menu bar, notifications
+- **Reach:** Telegram, iMessage, WhatsApp, Signal (through an installed, linked
+  signal-cli), Slack and Discord (owner only, approvals in chat; in groups only the owner's
+  mentions, read-only tools by default; long requests show one progress message, edited);
+  the Jarvis number's texts and voicemail summaries; the menu bar, notifications
   with actions and `jarvis://` links; the iPhone and Watch app (TLS pinned, QR pairing,
   push approvals, widgets, Live Activities, Siri, share sheet; see `companion/README.md`,
   which also covers TestFlight).

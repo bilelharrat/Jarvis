@@ -2380,6 +2380,39 @@ test('Settings › Chats: iMessage picks a conversation, how Messages is signed 
   ]), JSON.stringify(sent));
 });
 
+test('Settings › Chats: each group has its own switch and tools; WhatsApp and Signal explain their set-up', async () => {
+  await js(`${CHANNELS_JS}; toggleSettings(true); __sent.length = 0; true`);
+  const group = { id: '-100', name: 'Team <img src=x onerror="window.__pwned=1">', on: true, tools: 'read', since: '' };
+  const items = [
+    chatItem('telegram', 'Telegram', { ready: true, on: true, state: 'listening', owner: 'Ann', group_chats: true, groups_on: true, groups: [group] }),
+    chatItem('imessage', 'iMessage'),
+    chatItem('whatsapp', 'WhatsApp', { pairs: false, linked: false, group_chats: true }),
+    chatItem('signal', 'Signal', { pairs: false, found: false, looked: true, accounts: [] }),
+    chatItem('slack', 'Slack'), chatItem('discord', 'Discord')];
+  await js(`featureEvent(${JSON.stringify({ type: 'channels', audit: [], items })}); true`);
+  await js('document.querySelectorAll("details.channel").forEach((d) => { d.open = true; }); true');
+  await frames(2);
+  const shown = await js(`(() => { const g = document.querySelector('.channel-group strong'); const wa = document.querySelector('details.channel[data-channel="whatsapp"]').textContent; const sg = document.querySelector('details.channel[data-channel="signal"]').textContent;
+    return { chats: document.querySelectorAll('details.channel').length, name: g.textContent, data: g.hasAttribute('data-no-i18n'), pwned: !!window.__pwned,
+      tools: document.querySelector('.channel-tools [aria-checked="true"]').textContent, wa: wa.includes('Link WhatsApp in Tools & Accounts first.'), sg: sg.includes('signal-cli isn’t on this Mac.') && sg.includes('brew install signal-cli') }; })()`);
+  assert(shown.chats === 6 && shown.name.startsWith('Team <img') && shown.data && !shown.pwned, JSON.stringify(shown));
+  assert(shown.tools === 'Read-only' && shown.wa && shown.sg, JSON.stringify(shown));
+  await js('__sent.length = 0; true');
+  await clickText('.channel-group', 'Can act');
+  await js('document.querySelector(".channel-group .switch").click(); true');
+  await clickText('.channel-group', 'Forget this group');
+  await clickText('details.channel[data-channel="signal"]', 'Check again');
+  await js('document.querySelector(\'details.channel[data-channel="telegram"] .channel-groups > .row .switch\').click(); true');
+  const sent = await js('__sent');
+  assert(JSON.stringify(sent) === JSON.stringify([
+    { type: 'channels_group', channel: 'telegram', chat: '-100', tools: 'act' },
+    { type: 'channels_group', channel: 'telegram', chat: '-100', on: false },
+    { type: 'channels_group', channel: 'telegram', chat: '-100', forget: true },
+    { type: 'channels_signal', channel: 'signal' },
+    { type: 'feature_prefs', changes: { channels_telegram_groups: false } },
+  ]), JSON.stringify(sent));
+});
+
 // ── Jarvis Code's feature modules (web/features): loaded into the page as features.js
 // loads them, their styles too ──
 

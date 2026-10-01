@@ -23,7 +23,7 @@
 }
 .channel-status.warn { color: var(--warn); white-space: normal; }
 .channel-body { display: flex; flex-direction: column; gap: 12px; padding: 2px 0 16px; }
-.channel-setup, .channel-pairing, .channel-imessage, .channel-forward {
+.channel-setup, .channel-pairing, .channel-imessage, .channel-forward, .channel-group {
   display: flex; flex-direction: column; gap: 10px;
 }
 .channel-help { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
@@ -44,3 +44,10 @@
 .channels-log li span { flex: none; direction: ltr; }
 .channels-log .channel-when { font-variant-numeric: tabular-nums; }
 .channel-body > .btn, .channel-pairing > .btn, .channel-imessage > .btn { align-self: flex-start; }
+.channel-groups { border-top: 1px solid var(--line); padding-top: 10px; }
+.channel-group {
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; gap: 8px;
+}
+.channel-group .row strong { font-weight: 500; overflow-wrap: anywhere; }
+.channel-tools { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.channel-group > .btn, .channel-imessage > .btn + .btn { align-self: flex-start; }
