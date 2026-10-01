@@ -9,7 +9,7 @@ import SwiftUI
 
 struct AskJarvisIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask Jarvis"
-    static let description = IntentDescription("Asks Jarvis on your Mac and gives you the reply.")
+    static let description = IntentDescription("Asks Jarvis and gives you the reply.")
 
     @Parameter(title: "Request", requestValueDialog: IntentDialog("What should I ask Jarvis?"))
     var request: String
@@ -30,7 +30,7 @@ struct AskJarvisIntent: AppIntent {
 /// the JARVIS voice, without opening the app; Siri reads it only when that voice can't.
 struct JarvisHandsFreeIntent: AppIntent {
     static let title: LocalizedStringResource = "Jarvis"
-    static let description = IntentDescription("Say “Jarvis”, then what you want. Jarvis answers out loud in its own voice, even with your iPhone locked. Make it a Vocal Shortcut to call Jarvis by name anytime.")
+    static let description = IntentDescription("Say “Jarvis”, then what you want. Jarvis answers out loud in its own voice, even when locked. Make it a Vocal Shortcut to call Jarvis by name anytime.")
 
     @Parameter(title: "Request", requestValueDialog: IntentDialog("Yes?"))
     var request: String
@@ -85,7 +85,7 @@ struct WhatDidIMissIntent: AppIntent {
 
 struct StopJarvisIntent: AppIntent {
     static let title: LocalizedStringResource = "Stop Jarvis"
-    static let description = IntentDescription("Stops what Jarvis is saying or doing on your Mac.")
+    static let description = IntentDescription("Stops what Jarvis is saying or doing.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         .result(dialog: "\(await IntentRunner.run(.stop, client: .live()))")
@@ -94,7 +94,7 @@ struct StopJarvisIntent: AppIntent {
 
 struct StartMeetingNotesIntent: AppIntent {
     static let title: LocalizedStringResource = "Start meeting notes"
-    static let description = IntentDescription("Jarvis takes notes of the meeting on your Mac.")
+    static let description = IntentDescription("Jarvis takes notes of the meeting.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         .result(dialog: "\(await IntentRunner.run(.meetingStart(title: "Meeting"), client: .live()))")

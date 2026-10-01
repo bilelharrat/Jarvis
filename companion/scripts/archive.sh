@@ -59,6 +59,14 @@ fi
 cd "$companion"
 echo "+ cd $companion"
 
+# App Store Connect refuses an App Intent whose description names an Apple product
+# (ITMS-90626: "cannot contain 'mac'"): catch it here, before a 10-minute archive.
+if grep -rhoE 'IntentDescription\("[^"]*"' "$companion/iOS" "$companion/Activity" \
+    | grep -iwE 'mac|macbook|iphone|ipad|siri|apple|watch|airpods|homepod'; then
+  echo "archive.sh: an App Intent description above names an Apple product; App Store Connect rejects that" >&2
+  exit 65
+fi
+
 # The Xcode project from project.yml, as it is now.
 run xcodegen generate
 
