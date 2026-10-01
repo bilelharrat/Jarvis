@@ -1,5 +1,6 @@
 """The iPhone and Watch companion's feature module: pairing by QR code, push notifications,
-the phone's location (for travel times) and health (for the briefing), and the
+the phone's location (for travel times), health (for the briefing), contacts (a "who is"
+the Mac's Contacts can't answer, asked of the phone) and calendar (its next 14 days), and the
 companion's part of Settings, on top of remote.py's server (jarvis.companion,
 jarvis.companion_api and jarvis.companion_push do the work).
 
@@ -14,8 +15,8 @@ companion.json, and the push key in the Keychain.
 
 Claude cost policy: nothing here calls a model by itself. A photo or a share with a note
 from the phone is one ordinary request of the owner's (as /api/ask is), at most three
-of the phones' at once (hub.REMOTE_TURNS); phone_health is a tool of the main
-conversation, called when the briefing or the owner asks.
+of the phones' at once (hub.REMOTE_TURNS); phone_health, phone_contact and phone_calendar
+are tools of the main conversation, called when the briefing or the owner asks.
 """
 
 from __future__ import annotations

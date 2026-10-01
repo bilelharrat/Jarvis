@@ -27,6 +27,7 @@ from test_hub import make_hub
 
 from jarvis import companion_tls, remote
 from jarvis.answering import Call
+from jarvis.companion_sensors import Ask
 from jarvis.delegate import Delegation
 from jarvis.interrupts import Announced, Item
 
@@ -538,6 +539,52 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
         ),
     )
     keep(mac, "health", post("/api/health", {"day": date.today().isoformat(), "steps": 8123}))
+    keep(mac, "sensors", post("/api/sensors", {"contacts": True, "calendar": True}))
+    soon = now.replace(minute=0, second=0, microsecond=0) + timedelta(days=1)
+    keep(
+        mac,
+        "calendar",
+        post(
+            "/api/calendar",
+            {
+                "events": [
+                    {
+                        "title": "Board meeting",
+                        "start": soon.isoformat(),
+                        "end": (soon + timedelta(hours=1)).isoformat(),
+                        "all_day": False,
+                        "location": "Malibu",
+                        "calendar": "Work",
+                    }
+                ]
+            },
+        ),
+    )
+    sensors = mac.companion.sensors
+    paired_id = hub.remote.devices.items[-1].id
+    who = Ask("contact", "Pepper", {paired_id}, sensors.clock())
+    sensors.asks[who.id] = who
+    asks = keep(mac, "state_asks", get("/api/state"))
+    assert asks["phone_asks"] == [{"id": who.id, "kind": "contact", "name": "Pepper"}]
+    keep(
+        mac,
+        "contacts_answer",
+        post(
+            "/api/contacts/answer",
+            {
+                "id": who.id,
+                "people": [
+                    {
+                        "name": "Pepper Potts",
+                        "organization": "Stark Industries",
+                        "job_title": "CEO",
+                        "phones": [{"label": "mobile", "value": "+1 310 555 0100"}],
+                        "emails": [{"label": "work", "value": "pepper@stark.example"}],
+                    }
+                ],
+            },
+        ),
+    )
     keep(
         mac,
         "live_register",

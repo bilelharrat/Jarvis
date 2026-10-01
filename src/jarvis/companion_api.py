@@ -32,7 +32,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import push
+from . import companion_sensors, push
 
 log = logging.getLogger("jarvis")
 
@@ -1096,6 +1096,48 @@ class Api:
             return self.gate.busy()
         return JSONResponse(reply)
 
+    # ── the phone's contacts and calendar (companion_sensors) ──
+
+    async def sensors(self, request: Request) -> Response:
+        """Which of the phone's sensors the owner turned on there: {"contacts": bool,
+        "calendar": bool}. Turning the calendar off forgets the copy kept here."""
+        device, data, refused = await self._post(request, "report")
+        if refused is not None:
+            return refused
+        if not any(isinstance(data.get(k), bool) for k in companion_sensors.SENSORS):
+            return _bad("contacts or calendar")
+        flags = self.companion.sensors.set_flags(device.id, data)
+        self.companion.record(device, "sensors")
+        return JSONResponse({"ok": True, **flags})
+
+    async def contacts_answer(self, request: Request) -> Response:
+        """The phone's answer to a "who is" ask: at most five people, checked. ok false:
+        the ask is gone (answered by another phone, or too old)."""
+        device, data, refused = await self._post(request, "report")
+        if refused is not None:
+            return refused
+        people = companion_sensors.clean_people(data.get("people"))
+        if isinstance(people, str):
+            return _bad(people)
+        answered = self.companion.sensors.answer(device.id, str(data.get("id") or ""), people)
+        if answered:
+            self.companion.record(device, "contacts_answered")
+        return _ok(answered)
+
+    async def calendar(self, request: Request) -> Response:
+        """The phone's next 14 days of events, kept in place of the last copy."""
+        device, data, refused = await self._post(request, "report", companion_sensors.CALENDAR_BODY)
+        if refused is not None:
+            return refused
+        if not self.companion.sensors.flags().get(device.id, {}).get("calendar"):
+            return _bad("the calendar isn't on for this phone", 409)
+        calendar = companion_sensors.clean_calendar(data, datetime.now())
+        if isinstance(calendar, str):
+            return _bad(calendar)
+        self.companion.sensors.set_calendar(device.id, calendar)
+        self.companion.record(device, "calendar_synced")
+        return JSONResponse({"ok": True, "events": len(calendar["events"])})
+
 
 def routes(companion: Any, gate: Any) -> list[Route]:
     from . import companion_more
@@ -1122,4 +1164,7 @@ def routes(companion: Any, gate: Any) -> list[Route]:
         Route("/api/share", api.share, methods=["POST"]),
         Route("/api/health", api.health, methods=["POST"]),
         Route("/api/photo", api.photo, methods=["POST"]),
+        Route("/api/sensors", api.sensors, methods=["POST"]),
+        Route("/api/contacts/answer", api.contacts_answer, methods=["POST"]),
+        Route("/api/calendar", api.calendar, methods=["POST"]),
     ]

@@ -55,7 +55,7 @@
         "title": "Fix the login bug"
       }
     ],
-    "delegations_active": 1,
+    "delegations_active": 0,
     "features": [
       "memory",
       "goals",
@@ -92,7 +92,13 @@
       "title": "Design review"
     },
     "pending_approvals": 2,
-    "phone_asks": [],
+    "phone_asks": [
+      {
+        "id": "uU2-KuD18g5b",
+        "kind": "contact",
+        "name": "Pepper"
+      }
+    ],
     "push": {
       "enabled": false,
       "registered": true
@@ -125,6 +131,20 @@
     ],
     "state": "idle",
     "tasks": [
+      {
+        "id": 8,
+        "label": "Jarvis Code · background",
+        "last_action": "Starting",
+        "status": "running",
+        "title": "Compare the two leases"
+      },
+      {
+        "id": 7,
+        "label": "Jarvis Code · background",
+        "last_action": "Done",
+        "status": "done",
+        "title": "Find flights to Tokyo in March"
+      },
       {
         "id": 6,
         "label": "Jarvis Code · tidy",

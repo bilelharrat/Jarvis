@@ -52,6 +52,9 @@ ACTIONS = {
     "shared": "Shared something",
     "photo": "Asked about a photo",
     "health": "Sent health data",
+    "sensors": "Changed what the iPhone shares",
+    "contacts_answered": "Looked someone up in the iPhone's contacts",
+    "calendar_synced": "Sent the iPhone's calendar",
     "arrive_home": "Arrived home",
     "leave_home": "Left home",
     "arrive_work": "Arrived at work",
@@ -77,8 +80,19 @@ PROMPT = (
     "their iPhone, when its app sends them. In a morning briefing, call it and mention last "
     "night's sleep and yesterday's steps in one short sentence if there are any; otherwise "
     "only when asked."
+    "\n- iPhone contacts: when find_contact finds no one by a name (or the owner says the "
+    "person is in their phone), phone_contact looks the name up in the owner's iPhone "
+    "contacts, if they turned that on there. It asks the phone, which may take a few seconds."
+    "\n- iPhone calendar: phone_calendar has the owner's iPhone calendars for the next 14 "
+    "days, if they turned that on there. Use it when the Mac's calendar has nothing or "
+    "the owner says their calendar is on their phone; say which calendar it came from only "
+    "when it matters."
 )
-LABELS = {"phone_health": "Checked your health from your iPhone"}
+LABELS = {
+    "phone_health": "Checked your health from your iPhone",
+    "phone_contact": "Looked someone up on your iPhone",
+    "phone_calendar": "Checked your iPhone's calendar",
+}
 
 
 _NOTHING = object()
@@ -387,6 +401,9 @@ class Companion:
         from .companion_live import Live
 
         self.live = Live(self, self.sender)
+        from .companion_sensors import PhoneSensors
+
+        self.sensors = PhoneSensors(self)  # the phone's contacts and calendar
         self.location: dict[str, Any] | None = None  # the phone's latest fix (memory only)
         self.inbox_folder: Path | None = None  # tests: somewhere of their own
 
@@ -506,7 +523,41 @@ class Companion:
         async def phone_health(_args: dict[str, Any]) -> dict[str, Any]:
             return {"content": [{"type": "text", "text": self.health_text()}]}
 
-        return create_sdk_mcp_server(name="companion", version="0.1.0", tools=[phone_health])
+        @tool(
+            "phone_contact",
+            "Look someone up in the owner's iPhone contacts (asks the J.A.R.V.I.S. app on "
+            "the phone, when the owner turned contact lookups on there): name, job, "
+            "organisation, phone numbers and emails. Use after find_contact found no one.",
+            {"name": str},
+        )
+        async def phone_contact(args: dict[str, Any]) -> dict[str, Any]:
+            text = await self.sensors.contact_text(str(args.get("name") or ""))
+            return {"content": [{"type": "text", "text": text}]}
+
+        @tool(
+            "phone_calendar",
+            "The owner's iPhone calendars (sent by the J.A.R.V.I.S. app when they turned "
+            "that on there): events for the next `days` days (1-14, default 7). fresh: ask "
+            "the phone for a new copy first.",
+            {
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "minimum": 1, "maximum": 14},
+                    "fresh": {"type": "boolean"},
+                },
+            },
+        )
+        async def phone_calendar(args: dict[str, Any]) -> dict[str, Any]:
+            days = args.get("days")
+            days = days if isinstance(days, int) and not isinstance(days, bool) else 7
+            text = await self.sensors.calendar_text(days, fresh=args.get("fresh") is True)
+            return {"content": [{"type": "text", "text": text}]}
+
+        return create_sdk_mcp_server(
+            name="companion",
+            version="0.1.0",
+            tools=[phone_health, phone_contact, phone_calendar],
+        )
 
     # ── remote.py's hooks ──
 
@@ -546,6 +597,7 @@ class Companion:
                 "registered": bool(record and record["push"]),
             },
             "features": features(self.hub),  # the /api/... groups this Mac answers
+            "phone_asks": self.sensors.asks_for(device.id),  # contacts, calendar: on demand
         }
 
     def record(self, device: Any, action: str, detail: str = "") -> None:
