@@ -6210,7 +6210,9 @@ class Hub:
                     words = text[:4000].strip()
                     self._spawn(self.ask(words, display=words, silent=silent, untrusted=LINK_WORDS))
                 else:
-                    self._spawn(self.ask(text[:4000], silent=silent))
+                    # Pictures dropped or pasted on the window (a screenshot) go with it.
+                    pictures = self._attachments(msg)
+                    self._spawn(self.ask(text[:4000], silent=silent, attachments=pictures))
         elif kind == "listen":
             self._spawn(self.listen())
         elif kind == "dictate":

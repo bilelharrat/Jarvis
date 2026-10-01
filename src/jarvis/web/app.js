@@ -374,9 +374,23 @@ function talkOrStop() {
   else send({ type: 'stop' });
 }
 
-function ask(text) {
+// images: pictures dropped or pasted for it ({media_type, data, name}); with nothing typed
+// they go with "Take a look at this."
+function ask(text, images = []) {
   text = text.trim();
-  return !text || send({ type: 'ask', text });
+  if (!text && images.length) text = tr('Take a look at this.');
+  return !text || send(images.length ? { type: 'ask', text, images } : { type: 'ask', text });
+}
+
+// What a request box sends: its words and the pictures waiting by it. false when it
+// couldn't be sent (not connected): the words and the pictures stay for another try.
+function askFromBox(input) {
+  if (picsReading.size) { notice('Jarvis', '', 'Still reading the picture. Send it again in a moment.', 4000); return null; }
+  const images = askPics.map((p) => ({ media_type: p.type, data: p.data, name: p.name }));
+  if (!ask(input.value, images)) return false;
+  input.value = '';
+  if (images.length) setAskPics([]);
+  return true;
 }
 
 $('orb').addEventListener('click', talkOrStop);
@@ -386,9 +400,9 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
 }));
 $('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  if (!ask($('ask-input').value)) { notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000); return; }
-  $('ask-input').value = '';
-  $('ask-input').blur();
+  const sent = askFromBox($('ask-input'));
+  if (sent === false) notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
+  if (sent) $('ask-input').blur();
 });
 
 // Controls that answer Space themselves: buttons, links, disclosure rows (every tool row in
@@ -2339,14 +2353,13 @@ function applyUi(ev) {
     default:
   }
 }
-$('chat-form').addEventListener('submit', (e) => { e.preventDefault(); ask($('chat-input').value); $('chat-input').value = ''; });
+$('chat-form').addEventListener('submit', (e) => { e.preventDefault(); askFromBox($('chat-input')); });
 $('term-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const cmd = $('term-input').value.trim().replace(/^jarvis\s+(--ask\s+)?/i, '');
-  if (!cmd) return;
-  $('term-out').textContent = `Running: ${cmd}`;
-  ask(cmd);
-  $('term-input').value = '';
+  if (!cmd && !askPics.length) return;
+  $('term-input').value = cmd;
+  if (askFromBox($('term-input'))) $('term-out').textContent = `Running: ${cmd || tr('Take a look at this.')}`;
 });
 $('t-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('t-voice').addEventListener('click', () => send({ type: 'mute', value: !muted }));
@@ -3652,6 +3665,11 @@ function addFile(file) {
   if (!file) return;
   const kind = fileKind(file);
   if (!kind) { jcNote(`${file.name} can’t be attached: pictures, PDFs and text or code files only.`); return; }
+  // A Retina screenshot is often over the 6 MB limit: it's scaled down first (fitPicture).
+  if (kind === 'image' && file.size > window.JarvisAttach.LIMITS.binary && !fittedPictures.has(file)) {
+    fitPicture(file).then((fitted) => (fitted ? addFile(fitted) : jcNote(`${file.name} couldn’t be read.`)));
+    return;
+  }
   const held = [...attachments, ...reading].map((a) => ({ kind: a.kind, size: a.size || 0 }));
   const why = window.JarvisAttach.check(held, kind, file.size);
   if (why === 'files') { jcNote('Up to six attachments per message.'); return; }
@@ -5943,16 +5961,133 @@ const VIDEO_STATE = { starting: 'Starting…', fetching: 'Fetching…', extracti
 const videoCards = new Map();
 const isMedia = (f) => f.type.startsWith('video/') || f.type.startsWith('audio/') || VIDEO_FILE.test(f.name);
 const dragsFiles = (e) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
-document.addEventListener('dragover', (e) => { if (dragsFiles(e)) e.preventDefault(); });
+const dragsPictures = (e) => [...(e.dataTransfer.items || [])].some((i) => i.kind === 'file' && i.type.startsWith('image/'));
+let dropGlow = 0;
+document.addEventListener('dragover', (e) => {
+  if (!dragsFiles(e)) return;
+  e.preventDefault();
+  // While pictures are dragged over the window, the request box they'll join is outlined
+  // (dragover repeats while the pointer is in the window; leaving it, the outline goes).
+  if (!$('cc').hidden || !dragsPictures(e)) return;
+  document.body.classList.add('drop-pictures');
+  clearTimeout(dropGlow);
+  dropGlow = setTimeout(() => document.body.classList.remove('drop-pictures'), 200);
+});
 document.addEventListener('drop', (e) => {
+  document.body.classList.remove('drop-pictures');
   if (!dragsFiles(e) || (e.target.closest && e.target.closest('#deck-composer'))) return;  // the composer attaches its own
   e.preventDefault();  // never open a dropped file in place of the window
-  const file = [...e.dataTransfer.files].find(isMedia);
+  const files = [...e.dataTransfer.files];
+  addPictures(files.filter(isPicture));
+  const file = files.find(isMedia);
   if (!file) return;
   const path = window.jarvisApp && window.jarvisApp.pathFor ? window.jarvisApp.pathFor(file) : '';
   if (!path) { notice('Video', '', 'Drop the file from Finder.', 5000); return; }
   send({ type: 'video_summarize', path });
 });
+
+// ── pictures: drop or paste a screenshot to ask Jarvis about it ──
+// They wait as thumbnails by the request box (the one the look shows) and go with what's
+// typed there next. With Jarvis Code open they join its composer instead.
+
+const PICTURE_FILE = /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp)$/i;
+const isPicture = (f) => f.type.startsWith('image/') || PICTURE_FILE.test(f.name);
+const PICTURE_EDGE = 2000;  // Claude looks at about 1,600 px on the long side
+const PICTURE_BYTES = 3_500_000;  // under Claude's 5 MB a picture once in base64
+const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+const fittedPictures = new WeakSet();
+
+// A picture as Claude takes it. One already small and in a type Claude reads goes as it is;
+// otherwise (a 5K Retina screenshot is 10 MB and more, a HEIC from the iPhone) it's scaled
+// to PICTURE_EDGE on its long side and saved as PNG, or JPEG when the PNG is still big.
+// null when it can't be read as a picture.
+async function fitPicture(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); } catch { return null; }
+  const scale = Math.min(1, PICTURE_EDGE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= PICTURE_BYTES && PICTURE_TYPES.test(file.type)) { bitmap.close(); return file; }
+  const canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)), Math.max(1, Math.round(bitmap.height * scale)));
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  let blob = await canvas.convertToBlob({ type: 'image/png' });
+  if (blob.size > PICTURE_BYTES) blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.88 });
+  const fitted = new File([blob], file.name, { type: blob.type });
+  fittedPictures.add(fitted);
+  return fitted;
+}
+
+let askPics = [];  // [{ type, data (base64), url, name, size, order }]
+const picsReading = new Set();
+let picsOrder = 0;  // pictures read at once keep the order they were dropped in
+
+function requestBox() {
+  const look = document.body.dataset.look;
+  return $(look === 'console' ? 'chat-input' : look === 'hud' ? 'term-input' : 'ask-input');
+}
+
+function addPictures(files) {
+  if (!files.length) return;
+  if (!$('cc').hidden) { files.forEach((f) => addFile(f)); return; }
+  files.forEach(addAskPicture);
+  requestBox().focus();
+}
+
+async function addAskPicture(file) {
+  if (askPics.length + picsReading.size >= window.JarvisAttach.LIMITS.files) { notice('Jarvis', '', 'Up to six pictures per request.', 5000); return; }
+  const slot = { kind: 'image', size: 0 };
+  const order = picsOrder++;
+  picsReading.add(slot);
+  try {
+    const fitted = await fitPicture(file);
+    if (!fitted) { notice('Jarvis', '', `${file.name} isn’t a picture Jarvis can read.`, 5000); return; }
+    slot.size = fitted.size;
+    const held = [...askPics].map((p) => ({ kind: 'image', size: p.size }));
+    if (window.JarvisAttach.check(held, 'image', fitted.size)) { notice('Jarvis', '', `${file.name} would make this request too big to send.`, 5000); return; }
+    const url = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(fitted);
+    });
+    const pic = { type: fitted.type, data: url.split(',', 2)[1], url, name: file.name, size: fitted.size, order };
+    setAskPics([...askPics, pic].sort((a, b) => a.order - b.order));
+  } catch {
+    notice('Jarvis', '', `${file.name} couldn’t be read.`, 5000);
+  } finally {
+    picsReading.delete(slot);
+  }
+}
+
+function setAskPics(list) {
+  askPics = list;
+  for (const box of document.querySelectorAll('[data-pics]')) {
+    box.hidden = !list.length;
+    box.parentElement.classList.toggle('has-pics', list.length > 0);
+    box.parentElement.style.setProperty('--pics', String(list.length));
+    box.replaceChildren(...list.map((p, i) => {
+      const pic = el('span', 'ask-pic');
+      pic.title = p.name;
+      const img = el('img');
+      img.src = p.url;
+      img.alt = p.name || 'Picture';
+      const x = el('button', 'ask-pic-x', '×');
+      x.type = 'button';
+      x.setAttribute('aria-label', `Remove ${p.name || 'picture'}`);
+      x.addEventListener('click', () => { setAskPics(askPics.filter((_, k) => k !== i)); requestBox().focus(); });
+      pic.append(img, x);
+      return pic;
+    }));
+  }
+}
+
+for (const id of ['ask-input', 'chat-input', 'term-input']) {
+  $(id).addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData ? e.clipboardData.files : [])].filter(isPicture);
+    if (!files.length) return;
+    e.preventDefault();
+    files.forEach(addAskPicture);
+  });
+}
 
 function dropVideoCard(id, card) {
   card.remove();

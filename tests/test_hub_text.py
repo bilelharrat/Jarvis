@@ -148,3 +148,32 @@ def test_the_users_words_are_read_in_linear_time():
     remember = hub_module.FEATURE_ASKED["remember"]
     assert hub_module.user_asked(remember, "ok,   remember \t that I parked on level 3")
     assert not hub_module.user_asked(remember, "do you remember when we met")
+
+
+async def test_pictures_dropped_on_the_window_go_with_the_typed_request(
+    settings, quiet_speaker, isolated
+):
+    sent = []
+    hub = hub_with(
+        settings, quiet_speaker, isolated, stream_events(["A login form."]) + [result()], sent
+    )
+    await hub.start()
+    q = hub.subscribe()
+    shot = {"media_type": "image/png", "data": "iVBORw0KGgo=", "name": "Screenshot.png"}
+    await hub.handle({"type": "ask", "text": "what's this?", "images": [shot, {"data": ""}, "x"]})
+    for _ in range(200):
+        if any(e["type"] == "turn_done" for e in drain(q)):
+            break
+        await asyncio.sleep(0.01)
+    else:
+        raise AssertionError("the turn never finished")
+    assert len(sent) == 1 and not isinstance(sent[0], str)  # a message with content blocks
+    message = [m async for m in sent[0]][0]["message"]
+    blocks = message["content"]
+    assert blocks[0] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="},
+    }
+    assert (
+        len(blocks) == 2 and blocks[-1]["type"] == "text" and "what's this?" in blocks[-1]["text"]
+    )

@@ -7789,6 +7789,72 @@ test('Esc clears the Settings search before it closes Settings; reopening shows 
   assert((await shownGroups()).length > 10, 'reopened Settings is still filtered');
 });
 
+// ── pictures: drop or paste a screenshot to ask about it ──
+
+// A PNG made in the page, dropped on target (or pasted into it with paste: true).
+const PICTURE = `window.__png = async (w, h, name = 'Screenshot 2026-10-01 at 09.41.png') => {
+  const c = new OffscreenCanvas(w, h); const g = c.getContext('2d');
+  g.fillStyle = '#2a7'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.fillRect(8, 8, w / 2, h / 2);
+  return new File([await c.convertToBlob({ type: 'image/png' })], name, { type: 'image/png' });
+};
+window.__dropOn = async (target, files, paste = false) => {
+  const dt = new DataTransfer(); for (const f of files) dt.items.add(f);
+  const at = typeof target === 'string' ? document.querySelector(target) : target;
+  if (paste) at.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  else at.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+}; true`;
+
+test('A screenshot dropped on the window waits by the request box and goes with the question', async () => {
+  await js(PICTURE);
+  await js('__png(320, 200).then((f) => __dropOn("#greeting", [f])); true');
+  assert(await until('askPics.length === 1'), 'the dropped picture was not attached');
+  assert(await js('!document.querySelector("#ask-form [data-pics]").hidden && document.querySelectorAll("#ask-form [data-pics] .ask-pic img").length === 1'), 'no thumbnail by the request box');
+  assert(await js('document.activeElement === $("ask-input")'), 'the request box did not get the focus');
+  await type('what is this');
+  await key('\r', { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  const asked = await js('__sent.filter((m) => m.type === "ask")');
+  assert(asked.length === 1 && asked[0].text === 'what is this', JSON.stringify(asked.map((m) => m.text)));
+  const [pic] = asked[0].images;
+  assert(asked[0].images.length === 1 && pic.media_type === 'image/png' && pic.name.startsWith('Screenshot') && pic.data.startsWith('iVBOR'), 'the picture did not go with it');
+  assert(await js('askPics.length === 0 && document.querySelector("#ask-form [data-pics]").hidden'), 'the thumbnail stayed after sending');
+});
+
+test('A big screenshot is scaled down; pasted with nothing typed it asks Jarvis to take a look', async () => {
+  await js(PICTURE);
+  await js('$("ask-input").focus(); __png(5120, 2880).then((f) => __dropOn("#ask-input", [f], true)); true');
+  assert(await until('askPics.length === 1'), 'the pasted picture was not attached');
+  const size = await js('createImageBitmap(new Blob([Uint8Array.from(atob(askPics[0].data), (c) => c.charCodeAt(0))])).then((b) => [b.width, b.height])');
+  assert(size[0] === 2000 && size[1] === 1125, `scaled to ${size}`);
+  await key('\r', { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  const asked = await js('__sent.filter((m) => m.type === "ask")');
+  assert(asked.length === 1 && asked[0].text === 'Take a look at this.' && asked[0].images.length === 1, JSON.stringify(asked.map((m) => m.text)));
+});
+
+test('Dropped pictures can be taken back, stop at six, and join Jarvis Code’s composer while it is open', async () => {
+  await js(PICTURE);
+  await js('Promise.all([1, 2].map((i) => __png(40, 40, `p${i}.png`))).then((fs) => __dropOn("#greeting", fs)); true');
+  assert(await until('askPics.length === 2'), 'two pictures were not attached');
+  await clickAt('#ask-form [data-pics] .ask-pic:first-child .ask-pic-x');
+  assert(await js('askPics.length === 1 && askPics[0].name === "p2.png"'), 'the remove button did not take the first one back');
+  await js('Promise.all([1, 2, 3, 4, 5, 6].map((i) => __png(40, 40, `q${i}.png`))).then((fs) => __dropOn("#greeting", fs)); true');
+  assert(await until('askPics.length === 6'), 'six did not fit');
+  await sleep(200);
+  assert(await js('askPics.length') === 6, 'more than six were attached');
+  await js('setAskPics([]); true');
+  await open(1);
+  await js('__png(40, 40, "for-code.png").then((f) => __dropOn("#cc", [f])); true');
+  assert(await until('attachments.length === 1'), 'Jarvis Code’s composer did not get the picture');
+  assert(await js('askPics.length === 0'), 'the picture went to the request box too');
+});
+
+test('In Command Center a dropped picture waits by the conversation’s message box', async () => {
+  await js(PICTURE);
+  await js('onEvent({ type: "prefs", look: "console", language: "en", models: [], personas: [], humor: 50 }); true');
+  await js('__png(64, 64).then((f) => __dropOn("#greeting", [f])); true');
+  assert(await until('askPics.length === 1'), 'not attached');
+  assert(await js('document.activeElement === $("chat-input") && $("p-conversation").querySelector("[data-pics] img").getClientRects().length > 0'), 'the thumbnail is not shown by the message box');
+});
+
 function chosenTests() {
   const only = process.env.WINDOW_TESTS ? new RegExp(process.env.WINDOW_TESTS) : null;
   const list = tests.filter((t) => !only || only.test(t.name));
