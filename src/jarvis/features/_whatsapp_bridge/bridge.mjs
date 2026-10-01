@@ -8,7 +8,9 @@
 // Events: qr {qr, image}, status {state: connecting | open | reconnecting | logged_out |
 // replaced | link_expired, me?, code?}, chats {chats, update?}, contacts {contacts},
 // lids {map: [[lid, pn]…]}, messages {messages, live}.
-// Requests: send {to, text}, check {phone}, logout.
+// Requests: send {to, text}, send_file {to, path, name, mimetype, caption}, check {phone},
+// logout. A message Jarvis sends gets an id made here first, and each message of its own
+// comes back marked jarvis: true, so its chat channel never reads its own words as the owner's.
 //
 // Jarvis stays offline on the account (markOnlineOnConnect: false), so the phone keeps
 // getting its notifications. Nothing here reads a message aloud or sends one on its own:
@@ -18,8 +20,10 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  generateMessageID,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
+import { readFile } from 'node:fs/promises';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import readline from 'node:readline';
@@ -40,8 +44,15 @@ function out(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
+const own = new Set(); // ids of what Jarvis sent, newest last
+function ours(id) {
+  own.add(id);
+  while (own.size > 500) own.delete(own.values().next().value);
+  return id;
+}
+
 function sendMessages(list, live) {
-  const messages = (list || []).map(brief).filter(Boolean);
+  const messages = (list || []).map((m) => brief(m, own)).filter(Boolean);
   for (let i = 0; i < messages.length; i += BATCH) {
     out({ type: 'messages', live, messages: messages.slice(i, i + BATCH) });
   }
@@ -169,8 +180,23 @@ async function handle(req) {
     const to = norm(String(req.to || ''));
     const text = String(req.text || '');
     if (!to || !text) return { ok: false, error: 'nothing to send' };
-    const sent = await sock.sendMessage(to, { text });
-    return { ok: true, id: sent && sent.key ? sent.key.id : null };
+    const messageId = ours(generateMessageID());
+    const sent = await sock.sendMessage(to, { text }, { messageId });
+    return { ok: true, id: sent && sent.key ? sent.key.id : messageId };
+  }
+  if (req.type === 'send_file') {
+    const to = norm(String(req.to || ''));
+    const path = String(req.path || '');
+    if (!to || !path) return { ok: false, error: 'nothing to send' };
+    const document = await readFile(path);
+    const messageId = ours(generateMessageID());
+    const sent = await sock.sendMessage(to, {
+      document,
+      fileName: String(req.name || 'file'),
+      mimetype: String(req.mimetype || 'application/octet-stream'),
+      caption: String(req.caption || '') || undefined,
+    }, { messageId });
+    return { ok: true, id: sent && sent.key ? sent.key.id : messageId };
   }
   if (req.type === 'check') {
     const digits = String(req.phone || '').replace(/\D/g, '');

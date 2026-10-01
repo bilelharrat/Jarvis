@@ -7,6 +7,10 @@ Every event is acknowledged the moment it arrives (Slack wants that within three
 and handled after. Cards get Block Kit buttons; a file is fetched only from Slack's own
 file host, the only place the bot token is ever sent besides Slack's API. Slack keeps
 "/" for its own commands, so here commands are written with "!" (!stop, !status, …).
+
+In a channel the app was invited to (with groups switched on in Settings), a message that
+mentions the app, or replies in a thread it started, is the router's to weigh; only the
+owner's count. Progress on a long request is one message, edited (chat.update).
 """
 
 from __future__ import annotations
@@ -75,6 +79,8 @@ class Slack(Channel):
     limit = LIMIT
     buttons = True
     command_mark = "!"
+    edits = True
+    groups = True
     max_file = 100_000_000
     vault_id = "channel-slack"
     secret_keys = ("app_token", "bot_token")
@@ -85,6 +91,8 @@ class Slack(Channel):
         self.connect: Any = None  # tests: a fake socket; else websockets
         self._client: httpx.AsyncClient | None = None
         self._seen: deque[str] = deque(maxlen=500)  # events already handled (Slack retries)
+        self._posts: deque[tuple[str, str]] = deque(maxlen=500)  # (channel, ts) handled
+        self._names: dict[str, str] = {}  # a channel's name, once looked up
         self.backoff = 1.0  # seconds before the next try at connecting
 
     def home_chat(self) -> str | None:
@@ -240,6 +248,8 @@ class Slack(Channel):
                 try:
                     msg = self._event(payload) if kind == "events_api" else self._action(payload)
                     if msg is not None:
+                        if not msg.direct and msg.mentioned and not msg.group_name:
+                            msg.group_name = await self._channel_name(msg.chat)
                         await self.router.receive(msg)
                 except Exception as exc:  # one odd event never stops the rest
                     log.warning("slack: couldn't handle an event (%s)", type(exc).__name__)
@@ -252,7 +262,7 @@ class Slack(Channel):
                 return None
             self._seen.append(event_id)
         event = payload.get("event")
-        if not isinstance(event, dict) or event.get("type") != "message":
+        if not isinstance(event, dict) or event.get("type") not in ("message", "app_mention"):
             return None
         if event.get("bot_id") or event.get("subtype") not in (None, "file_share"):
             return None  # a bot's (JARVIS's own included), an edit, a join
@@ -260,6 +270,23 @@ class Slack(Channel):
         user = str(event.get("user") or "")
         if not user or user == bot:
             return None
+        raw = str(event.get("text") or "")
+        direct = event.get("channel_type") == "im"
+        post = (str(event.get("channel") or ""), str(event.get("ts") or ""))
+        if not direct and post[1]:
+            if post in self._posts:
+                return None  # a mention comes as a message and as app_mention: one is enough
+            self._posts.append(post)
+        mentioned = False
+        if not direct:
+            mark = f"<@{bot}>" if bot else ""
+            mentioned = (
+                event.get("type") == "app_mention"
+                or bool(mark and mark in raw)
+                or bool(bot and event.get("parent_user_id") == bot)
+            )
+            if mark:
+                raw = re.sub(rf"<@{re.escape(str(bot))}(?:\|[^>]*)?>", " ", raw).strip()
         media = []
         for item in event.get("files") or []:
             if not isinstance(item, dict):
@@ -291,12 +318,26 @@ class Slack(Channel):
             chat=str(event.get("channel") or ""),
             sender=user,
             name=user,
-            text=unescape(str(event.get("text") or "")),
+            text=unescape(raw),
             at=at,
-            direct=event.get("channel_type") == "im",
+            direct=direct,
             media=media,
             team=str(payload.get("team_id") or event.get("team") or ""),
+            mentioned=mentioned,
         )
+
+    async def _channel_name(self, chat: str) -> str:
+        """#general for a channel's id (channels:read; "" without it)."""
+        if chat not in self._names:
+            try:
+                found = await self.api("conversations.info", {"channel": chat}, form=True)
+                name = str((found.get("channel") or {}).get("name") or "")
+            except SlackError:
+                name = ""
+            if len(self._names) > 200:
+                self._names.clear()
+            self._names[chat] = f"#{name}" if name else ""
+        return self._names[chat]
 
     def _action(self, payload: dict[str, Any]) -> Inbound | None:
         if payload.get("type") != "block_actions":
@@ -360,6 +401,27 @@ class Slack(Channel):
             if title and i == 0:
                 body = f"*{slack_escape(title)}*\n{body}".strip()
             if body:
+                await self.api(
+                    "chat.postMessage",
+                    {"channel": chat, "text": body, "unfurl_links": False, "unfurl_media": False},
+                )
+
+    async def send_progress(self, chat: str, text: str) -> Any:
+        sent = await self.api(
+            "chat.postMessage",
+            {"channel": chat, "text": slack_escape(text), "unfurl_links": False},
+        )
+        return {"id": str(sent.get("ts") or "")} if sent.get("ts") else None
+
+    async def edit_text(self, chat: str, ref: Any, text: str, *, markup: bool = True) -> None:
+        ts = str(ref.get("id") or "") if isinstance(ref, dict) else ""
+        if not ts:
+            raise SlackError("no_message")
+        for i, chunk in enumerate(split_text(text, LIMIT) or ["…"]):
+            body = slack_mrkdwn(chunk) if markup else slack_escape(chunk)
+            if i == 0:
+                await self.api("chat.update", {"channel": chat, "ts": ts, "text": body or "…"})
+            elif body:
                 await self.api(
                     "chat.postMessage",
                     {"channel": chat, "text": body, "unfurl_links": False, "unfurl_media": False},

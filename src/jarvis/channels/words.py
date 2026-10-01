@@ -102,6 +102,24 @@ HELP_ANSWERS = "When I need your OK, reply yes or no here (or “no, because …
 
 SENT_FILE = "Sent {name}."
 
+# Groups: answered only when the owner mentions JARVIS or replies to it.
+GROUP_OFF = "I'm switched off in “{name}”. Turn me on for it in Settings › Chats on the Mac."
+GROUP_DM_ONLY = "That works in your direct chat with me, not in a group."
+GROUP_HELP = (
+    "In a group I answer only you, when you mention me or reply to me, and everyone here "
+    "sees my answer. {c}stop stops what I'm doing; everything else works in your direct "
+    "chat with me."
+)
+GROUP_ASKED = "From “{name}”: {question}"
+A_GROUP = "a group"
+
+# Progress while a request runs.
+WORKING = "Working on it…"
+WRITING = "Writing the answer…"
+STILL = "Still working: {step}"
+
+TEXT_ONLY = "I can only read text here. Type it, please."
+
 ZH: dict[str, str] = {
     PAIRED: "配对成功。你在这里发的消息会交给我，我的回复也会发回这里。发送 {help} 看看我能做什么。",
     WRONG_CODE: "验证码不对，或者已经过期。请在 Mac 的设置里重新生成。",
@@ -166,6 +184,18 @@ ZH: dict[str, str] = {
     ),
     HELP_ANSWERS: "需要你确认时，直接在这里回复“好”或“不”（也可以回复“不，因为……”）。",
     SENT_FILE: "已发送{name}。",
+    GROUP_OFF: "我在“{name}”里是关闭的。请在 Mac 的设置 › 聊天里为它打开。",
+    GROUP_DM_ONLY: "这个要在你和我的私聊里用，群里不行。",
+    GROUP_HELP: (
+        "在群里我只回复你，而且要你提到我或回复我的消息，群里所有人都能看到我的回答。"
+        "{c}stop 可以停下我正在做的事，其他功能请在和我的私聊里用。"
+    ),
+    GROUP_ASKED: "来自“{name}”：{question}",
+    A_GROUP: "一个群",
+    WORKING: "正在处理…",
+    WRITING: "正在写回答…",
+    STILL: "还在处理：{step}",
+    TEXT_ONLY: "这里我只能读文字，请打字发给我。",
 }
 
 for _english, _chinese in ZH.items():

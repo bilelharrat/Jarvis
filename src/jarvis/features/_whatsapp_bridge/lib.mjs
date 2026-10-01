@@ -50,14 +50,39 @@ export function textOf(message) {
   }
 }
 
-export function brief(msg) {
+// What a message replies to and whom it mentions (its contextInfo), for Jarvis's chat
+// channel: the quoted message's id, author and words, and the mentioned addresses.
+export function contextOf(message) {
+  const content = normalizeMessageContent(message);
+  const type = content && getContentType(content);
+  const info = type && content[type] && typeof content[type] === 'object' ? content[type].contextInfo : null;
+  if (!info) return {};
+  const out = {};
+  if (info.stanzaId) {
+    out.quoted_id = String(info.stanzaId);
+    out.quoted_sender = norm(info.participant);
+    const said = info.quotedMessage ? textOf(info.quotedMessage) : null;
+    if (said != null) out.quoted_text = String(said).slice(0, TEXT_LIMIT);
+  }
+  const mentions = (info.mentionedJid || []).map(norm).filter(Boolean);
+  if (mentions.length) out.mentions = mentions.slice(0, 50);
+  return out;
+}
+
+// own: the ids of the messages Jarvis itself sent (never read back as the owner's).
+export function brief(msg, own) {
   const key = msg && msg.key;
   const chat = norm(key && key.remoteJid);
   if (!chat || chat === 'status@broadcast' || chat.endsWith('@newsletter')) return null;
   const text = textOf(msg.message);
   if (text == null) return null;
   const group = Boolean(isJidGroup(chat));
+  const content = normalizeMessageContent(msg.message);
+  const type = content && getContentType(content);
   return {
+    ...contextOf(msg.message),
+    kind: type === 'conversation' || type === 'extendedTextMessage' ? 'text' : 'media',
+    jarvis: Boolean(own && own.has(key.id)),
     id: key.id,
     chat,
     chat_alt: norm(key.remoteJidAlt),

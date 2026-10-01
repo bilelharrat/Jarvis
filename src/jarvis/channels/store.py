@@ -1,9 +1,11 @@
 """What the chat channels keep between runs: channels.json, beside the settings.
 
-Who each chat is paired with, the bot each token belongs to, where Telegram's updates and
-the watched iMessage conversation got to, that conversation's settings, fingerprints of what
-JARVIS itself sent there (so it's never read back as the owner's), and a short audit log:
-who wrote, when, and what kind of thing it was. Never a token (those are in the Keychain)
+Who each chat is paired with, the bot each token belongs to (for WhatsApp and Signal, the
+owner's own address), where Telegram's updates and the watched iMessage conversation got
+to, that conversation's settings, the group chats JARVIS was asked in (whether it answers
+there, what a request from one may use), fingerprints of what JARVIS itself sent there (so
+it's never read back as the owner's), and a short audit log: who wrote, when, and what
+kind of thing it was. Never a token (those are in the Keychain)
 and never what anyone wrote. A damaged file is set aside and its last good copy read; one
 that can't be read just now is left alone and nothing is saved over it, and every chat
 counts as unpaired until it can be."""
@@ -26,6 +28,10 @@ VERSION = 1
 AUDIT_KEEP = 200
 SENT_KEEP = 300  # fingerprints of JARVIS's own iMessages
 PAIRED = ("telegram", "slack", "discord")
+LINKED = ("whatsapp", "signal")  # the owner's own account: its own address kept in bots
+GROUPS = ("telegram", "slack", "discord", "whatsapp")
+GROUP_TOOLS = ("none", "read", "act")  # what a request from a group may use
+MAX_GROUPS = 50  # per chat app
 _ID = re.compile(r"^[\w.:@+-]{1,80}$")
 
 
@@ -96,6 +102,20 @@ def _imessage(raw: Any) -> dict[str, Any]:
     }
 
 
+def _group(raw: Any) -> dict[str, Any] | None:
+    """A group chat JARVIS was asked in: its name, whether it answers there, and what a
+    request from it may use (read-only unless the owner chose otherwise)."""
+    if not isinstance(raw, dict):
+        return None
+    tools = raw.get("tools")
+    return {
+        "name": _text(raw.get("name"), 80),
+        "on": raw.get("on") is True,
+        "tools": tools if tools in GROUP_TOOLS else "read",
+        "since": _text(raw.get("since"), 25),
+    }
+
+
 class ChannelState:
     def __init__(self, path: Path, clock=datetime.now) -> None:
         self.path = path
@@ -104,6 +124,7 @@ class ChannelState:
         self.bots: dict[str, dict[str, str]] = {}  # the bot each token belongs to: id, name
         self.offsets: dict[str, int] = {}  # telegram: the next update to fetch
         self.imessage: dict[str, Any] = {}
+        self.groups: dict[str, dict[str, dict[str, Any]]] = {}  # app -> chat -> its settings
         self.mark: dict[str, Any] = {}  # imessage: {"row": newest row read, "db": its identity}
         self.sent: deque[tuple[str, float]] = deque(maxlen=SENT_KEEP)  # (fingerprint, when)
         self.audit: deque[dict[str, str]] = deque(maxlen=AUDIT_KEEP)
@@ -126,7 +147,7 @@ class ChannelState:
             if owner is not None:
                 self.owners[name] = owner
         bots = data.get("bots")
-        for name in PAIRED:
+        for name in PAIRED + LINKED:
             raw = bots.get(name) if isinstance(bots, dict) else None
             if isinstance(raw, dict) and _id(raw.get("id")):
                 self.bots[name] = {"id": _id(raw.get("id")), "name": _text(raw.get("name"), 80)}
@@ -136,6 +157,13 @@ class ChannelState:
             if type(value) is int and 0 <= value < 2**53:
                 self.offsets["telegram"] = value
         self.imessage = _imessage(data.get("imessage"))
+        groups = data.get("groups")
+        for name in GROUPS:
+            kept = groups.get(name) if isinstance(groups, dict) else None
+            for chat, raw in list(kept.items())[:MAX_GROUPS] if isinstance(kept, dict) else []:
+                group = _group(raw)
+                if _id(chat) and group is not None:
+                    self.groups.setdefault(name, {})[_id(chat)] = group
         mark = data.get("mark")
         if isinstance(mark, dict) and type(mark.get("row")) is int and mark["row"] >= 0:
             self.mark = {"row": mark["row"], "db": _text(mark.get("db"), 80)}
@@ -164,6 +192,7 @@ class ChannelState:
             "bots": {k: dict(v) for k, v in self.bots.items()},
             "offsets": dict(self.offsets),
             "imessage": dict(self.imessage),
+            "groups": {k: {c: dict(g) for c, g in v.items()} for k, v in self.groups.items()},
             "mark": dict(self.mark),
             "sent": [[h, round(t, 1)] for h, t in self.sent],
             "audit": list(self.audit),

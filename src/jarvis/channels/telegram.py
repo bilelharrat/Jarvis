@@ -7,6 +7,10 @@ Telegram still can't parse it), cut at 4,096 characters as Telegram counts them.
 inline buttons, "No, because…" asks for the reason in a reply box, and "typing…" shows while
 JARVIS works. The token is part of every address Telegram's API uses, so no address, and
 no error that could hold one, is ever logged or shown.
+
+In a group (with groups switched on in Settings), the bot sees what's addressed to it (its
+privacy mode: a mention, a reply to it, a command); the router takes only the owner's.
+Progress on a long request is one message, edited (editMessageText), that becomes the answer.
 """
 
 from __future__ import annotations
@@ -67,6 +71,8 @@ class Telegram(Channel):
     title = "Telegram"
     limit = LIMIT
     buttons = True
+    edits = True
+    groups = True
     typing_every = 4.5
     max_file = 50_000_000
     vault_id = "channel-telegram"
@@ -276,17 +282,43 @@ class Telegram(Channel):
             message.get(k)
             for k in ("forward_origin", "forward_from", "forward_sender_name", "forward_date")
         )
+        text = str(message.get("text") or message.get("caption") or "")
+        direct = chat.get("type") == "private" and not message.get("sender_chat")
+        mentioned, quoted, quoted_by = False, "", ""
+        if not direct:
+            bot = self.router.state.bots.get(self.name, {})
+            handle = str(bot.get("name") or "").lower()
+            replied = reply.get("from") if isinstance(reply.get("from"), dict) else {}
+            to_bot = bool(replied) and str(replied.get("id", "")) == str(bot.get("id", "-"))
+            entities = message.get("entities") or message.get("caption_entities") or []
+            named = handle.startswith("@") and handle in text.lower()
+            pointed = any(
+                isinstance(e, dict)
+                and e.get("type") == "text_mention"
+                and str((e.get("user") or {}).get("id", "")) == str(bot.get("id", "-"))
+                for e in entities
+            )
+            mentioned = to_bot or named or pointed
+            if named:
+                text = re.sub(re.escape(handle), " ", text, flags=re.IGNORECASE).strip()
+            if reply and not to_bot:
+                quoted = str(reply.get("text") or reply.get("caption") or "")
+                quoted_by = _name(replied) if replied else ""
         return Inbound(
             channel=self.name,
             chat=str(chat.get("id", "")),
             sender=str(sender.get("id", "")),
             name=_name(sender),
-            text=str(message.get("text") or message.get("caption") or ""),
+            text=text,
             at=float(message.get("date") or 0),
-            direct=chat.get("type") == "private" and not message.get("sender_chat"),
+            direct=direct,
             media=media,
             forwarded=forwarded,
             reply_to=str(reply.get("message_id", "")) if reply else "",
+            mentioned=mentioned,
+            group_name=str(chat.get("title") or ""),
+            quoted=quoted,
+            quoted_by=quoted_by,
         )
 
     def _button(self, query: dict[str, Any]) -> Inbound:
@@ -370,6 +402,47 @@ class Telegram(Channel):
             body = telegram_html(chunk) if markup else telegram_escape(chunk)
             plain = plain_text(chunk) if markup else chunk
             await self._send_html(chat, (head + body).strip(), (plain_head + plain).strip())
+
+    async def send_progress(self, chat: str, text: str) -> Any:
+        sent = await self.call(
+            "sendMessage",
+            {"chat_id": chat, "text": text, "link_preview_options": {"is_disabled": True}},
+        )
+        return {"id": int((sent or {}).get("message_id") or 0)} if sent else None
+
+    async def _edit(self, chat: str, message_id: int, html_text: str, plain: str) -> None:
+        payload: dict[str, Any] = {
+            "chat_id": chat,
+            "message_id": message_id,
+            "text": html_text,
+            "parse_mode": "HTML",
+            "link_preview_options": {"is_disabled": True},
+        }
+        try:
+            await self.call("editMessageText", payload)
+            return
+        except TelegramError as exc:
+            said = exc.description.lower()
+            if exc.status == 400 and "not modified" in said:
+                return
+            if exc.status != 400 or "pars" not in said:
+                raise
+        payload.pop("parse_mode")
+        payload["text"] = plain
+        await self.call("editMessageText", payload)
+
+    async def edit_text(self, chat: str, ref: Any, text: str, *, markup: bool = True) -> None:
+        message_id = int(ref.get("id") or 0) if isinstance(ref, dict) else 0
+        if not message_id:
+            raise TelegramError(0, "no message to edit")
+        chunks = split_text(text, LIMIT, utf16_len) or [""]
+        for i, chunk in enumerate(chunks):
+            body = telegram_html(chunk) if markup else telegram_escape(chunk)
+            plain = plain_text(chunk) if markup else chunk
+            if i == 0:
+                await self._edit(chat, message_id, body.strip() or "…", plain.strip() or "…")
+            else:
+                await self._send_html(chat, body.strip(), plain.strip())
 
     async def send_card(self, chat: str, card: dict[str, Any], lang: str) -> Any:
         question = clip(str(card.get("question", "")), 500)

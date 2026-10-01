@@ -45,6 +45,7 @@ class FakeChat(Channel):
     """A chat app that records everything it's asked to send."""
 
     limit = 4000
+    groups = True
 
     def __init__(self, router, name="telegram", title="Telegram", buttons=True):
         super().__init__(router)

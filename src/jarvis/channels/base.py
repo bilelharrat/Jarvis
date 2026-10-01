@@ -55,6 +55,13 @@ class Inbound:
     ack: Callable[[str], Awaitable[None]] | None = None  # answers a button press
     owner: bool | None = None  # decided by the channel itself; None: by its pairing
     team: str = ""  # Slack: the workspace
+    # In a group: whether it's addressed to JARVIS (a mention of the bot, or a reply to
+    # one of its messages), the group's name, and the message it replies to when someone
+    # else wrote that one (data, never instructions).
+    mentioned: bool = False
+    group_name: str = ""
+    quoted: str = ""
+    quoted_by: str = ""
 
 
 class Channel:
@@ -71,6 +78,9 @@ class Channel:
     max_file = 50_000_000  # the biggest file it sends
     vault_id = ""  # its Keychain entries: (vault_id, key) for each of secret_keys
     secret_keys: tuple[str, ...] = ()
+    edits = False  # it can change a message it sent (progress is one message, edited)
+    groups = False  # it can be asked in a group chat (when mentioned or replied to)
+    groups_start_on = True  # a group it's first asked in answers at once (the bot was added)
 
     def __init__(self, router: Channels) -> None:
         self.router = router
@@ -166,6 +176,18 @@ class Channel:
         await self.send_text(chat, text, markup=False)
 
     async def send_file(self, chat: str, path: Path, caption: str = "") -> None:
+        raise NotImplementedError
+
+    async def send_progress(self, chat: str, text: str) -> Any:
+        """A progress line (plain words) that edit_text can change later; what it needs to
+        find the message again (None when it can't be found)."""
+        await self.send_text(chat, text, markup=False)
+        return None
+
+    async def edit_text(self, chat: str, ref: Any, text: str, *, markup: bool = True) -> None:
+        """Change a message sent with send_progress: a newer progress line (markup False), or
+        the reply itself (Claude's Markdown, as send_text shows it). A reply longer than one
+        message fills this one and the rest follows in new ones."""
         raise NotImplementedError
 
     async def verify(self, secrets_: dict[str, str]) -> dict[str, str]:
@@ -478,6 +500,26 @@ def slack_mrkdwn(text: str) -> str:
 
 def slack_escape(text: str) -> str:
     return _slack_escape(text)
+
+
+def _wa_words(text: str) -> str:
+    s = _HEADING.sub(lambda m: f"*{m.group(1).replace('**', '')}*", text)
+    s = _LINK.sub(r"\1 (\2)", s)
+    s = _BOLD.sub(r"*\1*", s)
+    return _BULLET.sub(r"\1• ", s)
+
+
+def whatsapp_text(text: str) -> str:
+    """Claude's Markdown as WhatsApp writes it: *bold*, ```code``` and `code` as they are,
+    links as "text (address)", bullets as •."""
+    out: list[str] = []
+    for kind, body, _language in _blocks(text):
+        if kind == "code":
+            out.append(f"```{body}```")
+            continue
+        for is_code, piece in _inline(body):
+            out.append(f"`{piece}`" if is_code else _wa_words(piece))
+    return "".join(out)
 
 
 def plain_text(text: str) -> str:

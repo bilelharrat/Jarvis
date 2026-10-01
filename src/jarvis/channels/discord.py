@@ -9,6 +9,11 @@ session when Discord says so; a refused token stops it until it's connected agai
 message it sends has mentions switched off, so nothing JARVIS writes can ping anyone. Cards
 get buttons, answered over the Gateway. Commands are written with "!" (!stop, !status…):
 Discord keeps "/" for its own.
+
+With groups switched on in Settings it also asks for server messages (GUILD_MESSAGES, not
+the privileged message-content intent: a message's words come only when it mentions the
+bot), and the router takes the owner's that mention the bot or reply to it. Progress on a
+long request is one message, edited, that becomes the answer.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ log = logging.getLogger("jarvis")
 API = "https://discord.com/api/v10"
 QUERY = "?v=10&encoding=json"
 INTENTS = 1 << 12  # DIRECT_MESSAGES
+GUILD_MESSAGES = 1 << 9  # server channels' messages: only with groups on
 LIMIT = 2000
 DETAIL = 1200
 FILE_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")
@@ -91,6 +97,8 @@ class Discord(Channel):
     buttons = True
     typing_every = 8.0
     command_mark = "!"
+    edits = True
+    groups = True
     max_file = 10_000_000
     vault_id = "channel-discord"
     secret_keys = ("token",)
@@ -104,6 +112,11 @@ class Discord(Channel):
         self.me = ""
         self.heartbeat_every = 41.25
         self.backoff = 1.0  # seconds before the next try at connecting
+        self._names: dict[str, str] = {}  # a server channel's name, once looked up
+
+    def intents(self) -> int:
+        """Direct messages; server messages too while groups are on."""
+        return INTENTS | (GUILD_MESSAGES if self.router.groups_on(self.name) else 0)
 
     def home_chat(self) -> str | None:
         owner = self.router.state.owners.get(self.name)
@@ -271,12 +284,13 @@ class Discord(Channel):
                         "op": 2,
                         "d": {
                             "token": token,
-                            "intents": INTENTS,
+                            "intents": self.intents(),
                             "properties": {"os": "macos", "browser": "jarvis", "device": "jarvis"},
                         },
                     }
                 )
             )
+        intents = self.intents()
         acked = asyncio.Event()
         acked.set()
         beat = asyncio.get_running_loop().create_task(self._heartbeat(ws, acked))
@@ -285,6 +299,8 @@ class Discord(Channel):
                 if beat.done():
                     raise Reconnect(True)  # no answer to a heartbeat: a dead connection
                 await self._handle(ws, json.loads(raw), acked)
+                if self.intents() != intents:
+                    raise Reconnect(False)  # groups switched on or off: identify afresh
         finally:
             beat.cancel()
             with contextlib.suppress(BaseException):
@@ -336,6 +352,8 @@ class Discord(Channel):
                 if kind == "MESSAGE_CREATE":
                     msg = self._message(data)
                     if msg is not None:
+                        if not msg.direct and msg.mentioned:
+                            msg.group_name = await self._channel_name(msg.chat)
                         await self.router.receive(msg)
                 else:
                     await self._interaction(data)
@@ -383,6 +401,21 @@ class Discord(Channel):
                     seconds=float(item.get("duration_secs") or 0),
                 )
             )
+        direct = "guild_id" not in data
+        mentioned, quoted, quoted_by = False, "", ""
+        if not direct and me:
+            named = any(
+                isinstance(u, dict) and str(u.get("id")) == me for u in data.get("mentions") or []
+            )
+            replied = data.get("referenced_message")
+            replied = replied if isinstance(replied, dict) else {}
+            replied_by = replied.get("author") if isinstance(replied.get("author"), dict) else {}
+            to_bot = str(replied_by.get("id") or "") == me
+            mentioned = named or to_bot
+            text = re.sub(rf"<@!?{re.escape(me)}>", " ", text).strip()
+            if replied and not to_bot:
+                quoted = str(replied.get("content") or "")
+                quoted_by = str(replied_by.get("global_name") or replied_by.get("username") or "")
         return Inbound(
             channel=self.name,
             chat=str(data.get("channel_id") or ""),
@@ -390,13 +423,29 @@ class Discord(Channel):
             name=str(author.get("global_name") or author.get("username") or author.get("id")),
             text=text,
             at=_time(data.get("timestamp")),
-            direct="guild_id" not in data,
+            direct=direct,
             media=media,
             forwarded=forwarded,
             reply_to=str(reference.get("message_id") or "")
             if reference.get("type", 0) == 0
             else "",
+            mentioned=mentioned,
+            quoted=quoted,
+            quoted_by=quoted_by,
         )
+
+    async def _channel_name(self, chat: str) -> str:
+        """#general for a server channel's id ("" when it can't be read)."""
+        if chat not in self._names:
+            try:
+                found = await self.api("GET", f"/channels/{chat}")
+                name = str((found or {}).get("name") or "")
+            except DiscordError:
+                name = ""
+            if len(self._names) > 200:
+                self._names.clear()
+            self._names[chat] = f"#{name}" if name else ""
+        return self._names[chat]
 
     async def _interaction(self, data: dict[str, Any]) -> None:
         if data.get("type") != 3:  # a button on a message
@@ -536,6 +585,26 @@ class Discord(Channel):
 
     async def typing(self, chat: str) -> None:
         await self.api("POST", f"/channels/{chat}/typing")
+
+    async def send_progress(self, chat: str, text: str) -> Any:
+        sent = await self.api(
+            "POST",
+            f"/channels/{chat}/messages",
+            {"content": discord_safe(text)[:LIMIT], "allowed_mentions": {"parse": []}},
+        )
+        return {"id": str(sent.get("id"))} if sent.get("id") else None
+
+    async def edit_text(self, chat: str, ref: Any, text: str, *, markup: bool = True) -> None:
+        message_id = str(ref.get("id") or "") if isinstance(ref, dict) else ""
+        if not message_id:
+            raise DiscordError(0, "no message to edit")
+        text = text if markup else discord_safe(text)
+        for i, chunk in enumerate(split_text(text, LIMIT, utf16_len) or ["…"]):
+            body = {"content": chunk or "…", "allowed_mentions": {"parse": []}}
+            if i == 0:
+                await self.api("PATCH", f"/channels/{chat}/messages/{message_id}", body)
+            else:
+                await self.api("POST", f"/channels/{chat}/messages", body)
 
     async def send_file(self, chat: str, path: Path, caption: str = "") -> None:
         data = await asyncio.to_thread(path.read_bytes)

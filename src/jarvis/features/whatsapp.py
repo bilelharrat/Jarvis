@@ -54,6 +54,8 @@ LINE_LIMIT = 32 * 1024 * 1024  # a history batch is one line
 SAVE_AFTER = 3.0
 RETRY_FIRST, RETRY_MOST = 2.0, 60.0  # seconds before restarting a bridge that died
 PN = "@s.whatsapp.net"
+# What the bridge says of a live message beyond what the store keeps (for the chat channel).
+LIVE_EXTRAS = ("kind", "jarvis", "quoted_id", "quoted_sender", "quoted_text", "mentions")
 
 STATE_LINES = {
     "off": "Not linked",
@@ -579,6 +581,9 @@ class WhatsApp:
         self._task: asyncio.Task | None = None
         self._save_handle: asyncio.TimerHandle | None = None
         self._lock_fd: int | None = None
+        # Who hears each new live message, with what it replies to and whom it mentions
+        # (the chat channel: jarvis.channels.whatsapp).
+        self.listeners: list[Callable[[dict[str, Any]], None]] = []
 
     # state
 
@@ -743,11 +748,22 @@ class WhatsApp:
         elif kind == "lids":
             self.store.add_lids(event.get("map") or [])
         elif kind == "messages":
-            new = self.store.apply_messages(event.get("messages") or [])
+            raw = [m for m in event.get("messages") or [] if isinstance(m, dict)]
+            new = self.store.apply_messages(raw)
             if event.get("live") and self.announce is not None:
                 for m in new:
                     if not m["from_me"]:
                         self.announce(self._heads_up(m))
+            if event.get("live") and self.listeners:
+                extras = {str(m.get("id")): m for m in raw}
+                for m in new:
+                    extra = extras.get(m["id"], {})
+                    heard = {**m, **{k: extra.get(k) for k in LIVE_EXTRAS}}
+                    for listener in list(self.listeners):
+                        try:
+                            listener(heard)
+                        except Exception:
+                            log.exception("whatsapp: a listener failed")
         else:
             return
         self._save_soon()

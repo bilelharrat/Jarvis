@@ -511,7 +511,9 @@ async def test_the_hooks_ride_along_with_the_gates_own(settings, quiet_speaker, 
     hub = make_hub(settings, quiet_speaker, isolated)
     await hub.start()
     hooks = hub.client.options.hooks
-    assert len(hooks["PreToolUse"]) == 1
+    before = [h.__self__ for m in hooks["PreToolUse"] for h in m.hooks]
+    # undo's, and the chats' check of what a group's request may use (channels.groups)
+    assert [type(o).__name__ for o in before] == ["Actions", "Channels"]
     assert len(hooks["PostToolUse"]) == 2 and len(hooks["PostToolUseFailure"]) == 2
 
 

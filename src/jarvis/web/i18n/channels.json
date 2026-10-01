@@ -98,7 +98,48 @@
   "Discord wants this bot sharded; that isn't supported.": "Discord 要求这个机器人分片运行，目前不支持。",
   "Discord refused the connection (API version).": "Discord 拒绝了连接（API 版本）。",
   "Discord refused the connection (intents).": "Discord 拒绝了连接（intents 设置）。",
-  "Discord refused the connection (an intent that isn't allowed).": "Discord 拒绝了连接（包含不被允许的 intent）。"
+  "Discord refused the connection (an intent that isn't allowed).": "Discord 拒绝了连接（包含不被允许的 intent）。",
+  "Uses the WhatsApp linked in Tools & Accounts. Message yourself in WhatsApp (the chat with your own number) to talk to Jarvis; its replies start with “Jarvis:”. What anyone else writes to you is never read as yours.": "使用在“工具与账户”里关联的 WhatsApp。在 WhatsApp 里给自己发消息（和你自己号码的那个聊天）就能和 Jarvis 对话，它的回复以“Jarvis:”开头。别人发给你的消息永远不会被当成你说的话。",
+  "Signal works through signal-cli, linked to your account as one of its devices; Jarvis doesn’t install it. In Terminal: brew install signal-cli, then signal-cli link -n Jarvis, and scan the sgnl:// link it prints as a QR code (on your phone: Signal › Settings › Linked devices). Then press Check again. Talk to Jarvis in your Note to Self chat.": "Signal 通过 signal-cli 使用，它作为你账户的一台关联设备；Jarvis 不会替你安装。在“终端”里运行：brew install signal-cli，然后运行 signal-cli link -n Jarvis，把它打印的 sgnl:// 链接当作二维码扫描（在手机上：Signal › 设置 › 已关联设备）。然后点“再检查一次”。在你的“备忘”（Note to Self）聊天里和 Jarvis 对话。",
+  "Link WhatsApp in Tools & Accounts first.": "请先在“工具与账户”里关联 WhatsApp。",
+  "Open Tools & Accounts": "打开“工具与账户”",
+  "Your number:": "你的号码：",
+  "Using:": "正在使用：",
+  "signal-cli isn’t on this Mac.": "这台 Mac 上没有 signal-cli。",
+  "signal-cli isn't on this Mac.": "这台 Mac 上没有 signal-cli。",
+  "signal-cli couldn’t list its accounts.": "signal-cli 没能列出它的账户。",
+  "No account is linked in signal-cli yet.": "signal-cli 里还没有关联任何账户。",
+  "Account": "账户",
+  "Signal account": "Signal 账户",
+  "Use this account": "使用这个账户",
+  "Check again": "再检查一次",
+  "Answer in group chats": "在群聊里回复",
+  "In a group, start a message with “Jarvis,” or reply to one of its messages. A group is added here switched off the first time you ask in it; turn it on to let Jarvis answer there from your account.": "在群里，消息以“Jarvis,”开头，或回复它的某条消息。你第一次在某个群里叫它时，这个群会加到这里，默认关闭；打开后 Jarvis 才会用你的账户在那里回复。",
+  "In a group you’ve added the bot to, mention it or reply to it. It answers only you, everyone there sees the answer, and it never sends, calls or buys anything elsewhere from a group; cards come to your direct chat.": "在你拉机器人进去的群里，提到它或回复它。它只回复你，群里所有人都能看到回答；在群里它绝不会往别处发消息、打电话或买东西，确认卡片会发到你和它的私聊里。",
+  "Answer in this group": "在这个群里回复",
+  "What Jarvis may use there": "Jarvis 在那里可以用什么",
+  "No tools": "不用工具",
+  "Read-only": "只读",
+  "Can act": "可以执行操作",
+  "Forget this group": "忘掉这个群",
+  "No groups yet.": "还没有群。",
+  "Use WhatsApp": "使用 WhatsApp",
+  "Use Signal": "使用 Signal",
+  "Stop using WhatsApp": "停止使用 WhatsApp",
+  "Stop using Signal": "停止使用 Signal",
+  "Pick the Signal account below.": "请在下面选择 Signal 账户。",
+  "That account isn't linked in signal-cli.": "这个账户没有在 signal-cli 里关联。",
+  "WhatsApp is linked in another copy of Jarvis that's running.": "WhatsApp 已在另一个正在运行的 Jarvis 里关联。",
+  "WhatsApp is connecting.": "WhatsApp 正在连接。",
+  "connected": "已连接",
+  "group added": "已添加群",
+  "group removed": "已移除群",
+  "group changed": "已修改群设置",
+  "refused in a group": "在群里拒绝了",
+  "request in a group": "群里的请求",
+  "voice note in a group": "群里的语音",
+  "picture in a group": "群里的图片",
+  "file in a group": "群里的文件"
  },
  "patterns": [
   [
@@ -124,6 +165,10 @@
   [
    "^Heads-ups sent to (.+)$",
    "发到 $1 的提醒"
+  ],
+  [
+   "^(/\\w+) in a group$",
+   "$1（群里）"
   ]
  ]
 }

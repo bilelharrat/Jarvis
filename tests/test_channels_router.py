@@ -864,7 +864,18 @@ def test_the_public_state_never_holds_a_token(settings, quiet_speaker, isolated)
     router.adapters["telegram"].connected()
     state = router.public()
     assert "SECRET" not in json.dumps(state)
-    assert [i["id"] for i in state["items"]] == ["telegram", "imessage", "slack", "discord"]
+    assert (
+        [i["id"] for i in state["items"]]
+        == list(routermod.ORDER)
+        == [
+            "telegram",
+            "imessage",
+            "whatsapp",
+            "signal",
+            "slack",
+            "discord",
+        ]
+    )
     assert next(i for i in state["items"] if i["id"] == "telegram")["ready"] is True
 
 
