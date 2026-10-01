@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -37,6 +38,7 @@ class Settings:
     projects_dir: Path = DEFAULT_PROJECTS_DIR
     task_effort: str = "high"
     tts: str = "say"  # say | elevenlabs | fish
+    tts_set: bool = False  # JARVIS_TTS was given (else the built-in JARVIS voice speaks)
     tts_api_key: str = ""
     tts_voice_id: str = ""
     tts_model: str = ""
@@ -65,11 +67,15 @@ def load_settings(env_file: Path | None = None) -> Settings:
     )
 
 
-def _tts_settings(env) -> dict[str, str]:
-    provider = env.get("JARVIS_TTS", "say").strip().lower()
+def _tts_settings(env) -> dict[str, Any]:
+    given = env.get("JARVIS_TTS", "").strip().lower()
+    provider = given or "say"
+    if given == "say":
+        return {"tts": "say", "tts_set": True}
     if provider == "elevenlabs":
         return {
             "tts": provider,
+            "tts_set": True,
             "tts_api_key": env.get("ELEVENLABS_API_KEY", ""),
             "tts_voice_id": env.get("ELEVENLABS_VOICE_ID", ""),
             "tts_model": env.get("ELEVENLABS_MODEL", "eleven_flash_v2_5"),
@@ -77,6 +83,7 @@ def _tts_settings(env) -> dict[str, str]:
     if provider == "fish":
         return {
             "tts": provider,
+            "tts_set": True,
             "tts_api_key": env.get("FISH_AUDIO_API_KEY", ""),
             "tts_voice_id": env.get("FISH_AUDIO_VOICE_ID", ""),
             "tts_model": env.get("FISH_AUDIO_MODEL", "s2.1-pro"),

@@ -98,3 +98,77 @@ test('without the R2 bucket bound, the download is the GitHub release', async ()
   assert.match(r.headers.get('location'), /github\.com\/bilelharrat\/Jarvis\/releases\/latest\/download\/J\.A\.R\.V\.I\.S\.-0\.1\.0\.dmg$/);
   assert.equal((await (await get('/latest.json', e)).json()).version, '0.1.0');
 });
+
+// ── the hosted JARVIS voice ──
+
+import { VoiceQuota, JARVIS_VOICE_ID } from '../src/worker.js';
+
+function quotaEnv(extra = {}) {
+  const store = new Map();
+  const storage = {
+    get: async (k) => (Array.isArray(k) ? new Map(k.filter((x) => store.has(x)).map((x) => [x, store.get(x)])) : store.get(k)),
+    put: async (k, v) => { if (typeof k === 'object') for (const [a, b] of Object.entries(k)) store.set(a, b); else store.set(k, v); },
+    deleteAll: async () => store.clear(),
+  };
+  const object = new VoiceQuota({ storage });
+  return {
+    FISH_API_KEY: 'owner-secret',
+    VOICE_QUOTA: { idFromName: () => 'daily', get: () => ({ fetch: (u, init) => object.fetch(new Request(u, init)) }) },
+    VOICE_DAILY_PER_INSTALL: '30',
+    VOICE_DAILY_PER_NETWORK: '50',
+    VOICE_DAILY_TOTAL: '1000',
+    ...extra,
+  };
+}
+
+const INSTALL = 'ab'.repeat(16);
+const say = (e, text, init = {}) => worker.fetch(new Request('https://askeden.com/api/voice', {
+  method: 'POST',
+  headers: { 'x-jarvis-install': INSTALL, 'cf-connecting-ip': '1.2.3.4', ...(init.headers || {}) },
+  body: JSON.stringify({ text, format: 'pcm', ...(init.body || {}) }),
+}), e);
+
+test('the JARVIS voice: the owner key goes to Fish, never back; audio streams through', async (t) => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    calls.push({ url, init });
+    return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+  });
+  const r = await say(quotaEnv(), 'Good evening.', { body: { speed: 1.2 } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(new Uint8Array(await r.arrayBuffer()), new Uint8Array([1, 2, 3]));
+  assert.equal(calls[0].url, 'https://api.fish.audio/v1/tts');
+  assert.equal(calls[0].init.headers.authorization, 'Bearer owner-secret');
+  const sent = JSON.parse(calls[0].init.body);
+  assert.equal(sent.reference_id, JARVIS_VOICE_ID);
+  assert.equal(sent.format, 'pcm');
+  assert.deepEqual(sent.prosody, { speed: 1.2 });
+  assert.ok(!r.headers.get('authorization'));
+});
+
+test('each install and network has a daily allowance; past it, 429 and no Fish call', async (t) => {
+  let fishCalls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { fishCalls += 1; return new Response('x'); });
+  const e = quotaEnv();
+  assert.equal((await say(e, 'a'.repeat(20))).status, 200);
+  const over = await say(e, 'b'.repeat(20)); // 40 > this install's 30
+  assert.equal(over.status, 429);
+  assert.match((await over.json()).error, /Settings › Speaking/);
+  assert.equal(fishCalls, 1);
+  // another install on the same network: 20 more fit under the network's 50, then no
+  const other = (text) => say(e, text, { headers: { 'x-jarvis-install': 'cd'.repeat(16) } });
+  assert.equal((await other('c'.repeat(20))).status, 200);
+  assert.equal((await other('d'.repeat(20))).status, 429);
+});
+
+test('bad requests are refused before anything is spent', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('no network in tests'); });
+  const e = quotaEnv();
+  assert.equal((await say(e, '')).status, 400);
+  assert.equal((await say(e, 'x'.repeat(601))).status, 413);
+  assert.equal((await say(e, 'hi', { headers: { 'x-jarvis-install': 'nope' } })).status, 400);
+  const get = await worker.fetch(new Request('https://askeden.com/api/voice'), e);
+  assert.equal(get.status, 405);
+  const unset = await say({ ...e, FISH_API_KEY: '' }, 'hi');
+  assert.equal(unset.status, 503);
+});

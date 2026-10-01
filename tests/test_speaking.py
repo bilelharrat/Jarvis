@@ -127,7 +127,9 @@ def vault(hub):
 
 
 async def test_by_default_env_decides_and_nothing_is_written(settings, real_speaker, isolated, mac):
-    env = replace(settings, tts="elevenlabs", tts_api_key="env-key-0000", tts_voice_id="Rachel1")
+    env = replace(
+        settings, tts="elevenlabs", tts_set=True, tts_api_key="env-key-0000", tts_voice_id="Rachel1"
+    )
     real_speaker.cloud = CloudVoice("elevenlabs", "env-key-0000", "Rachel1", "")
     hub = make_hub(env, real_speaker, isolated)
     sent = events(hub)
@@ -396,7 +398,8 @@ async def test_the_persona_in_use_speaks_with_its_own_voice(
     from jarvis import prefs
 
     monkeypatch.setitem(prefs.PERSONAS, "alfred", ("Alfred", "A butler."))
-    hub = make_hub(settings, real_speaker, isolated)
+    # .env says the Mac voice: "the usual voice" here is a Mac one, not the JARVIS voice
+    hub = make_hub(replace(settings, tts="say", tts_set=True), real_speaker, isolated)
     feature = voice_feature.feature_for(hub)
     await feature.speaking.setup()
     usual = real_speaker.voice
@@ -419,3 +422,71 @@ async def test_the_persona_in_use_speaks_with_its_own_voice(
     hub.set_prefs({"persona": "jarvis"})  # back to JARVIS: the usual voice
     await asyncio.sleep(0.01)
     assert real_speaker.cloud is None and real_speaker.voice == usual
+
+
+# ── the JARVIS voice: the default, on the owner's Fish key or through askeden.com ──
+
+
+async def test_with_no_choice_anywhere_the_jarvis_voice_speaks_hosted(
+    settings, real_speaker, isolated, mac
+):
+    from jarvis.speech import JARVIS_VOICE_ID
+
+    hub = make_hub(settings, real_speaker, isolated)
+    sent = events(hub)
+    feature = voice_feature.feature_for(hub)
+    await feature.speaking.apply()
+    cloud = real_speaker.cloud
+    assert (cloud.provider, cloud.voice_id) == ("hosted", JARVIS_VOICE_ID)
+    install = isolated["prefs_store"].path.with_name("install_id").read_text()
+    assert cloud.api_key == install and len(install) == 32  # one id, kept beside the prefs
+    await feature.speaking.apply()
+    assert real_speaker.cloud is cloud  # the same, connection and all
+    await hub._handle({"type": "voice_status"})
+    state = sent[-1][1]
+    assert state["provider"] == "jarvis" and not state["jarvis_own_key"]
+    # Their own Fish key: the JARVIS voice on it, unlimited.
+    await hub._handle({"type": "voice_key", "provider": "fish", "key": "fish-own-key-9876"})
+    cloud = real_speaker.cloud
+    assert (cloud.provider, cloud.api_key, cloud.voice_id) == (
+        "fish",
+        "fish-own-key-9876",
+        JARVIS_VOICE_ID,
+    )
+    assert sent[-1][1]["jarvis_own_key"]
+    await hub._handle({"type": "voice_key_forget", "provider": "fish"})
+    assert real_speaker.cloud.provider == "hosted"
+
+
+async def test_env_and_the_panes_pick_still_come_first(settings, real_speaker, isolated, mac):
+    env = replace(settings, tts="say", tts_set=True)
+    hub = make_hub(env, real_speaker, isolated)
+    await voice_feature.feature_for(hub).speaking.apply()
+    assert real_speaker.cloud is None  # .env said the Mac voice
+    hub2 = make_hub(settings, real_speaker, isolated)
+    await hub2._handle({"type": "voice_settings", "changes": {"voice_provider": "say"}})
+    assert real_speaker.cloud is None  # picked in the pane
+
+
+async def test_the_hosted_voice_asks_askeden_with_the_install_id():
+    import httpx
+
+    from jarvis.speech import HOSTED_VOICE_URL, JARVIS_VOICE_ID
+
+    seen = []
+    wav = (
+        b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\xc0]\x00\x00"
+        b"\x80\xbb\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+    )
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=wav, headers={"content-type": "audio/wav"})
+
+    voice = CloudVoice("hosted", "a" * 32, JARVIS_VOICE_ID, "", 1.2)
+    voice._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    await voice.synthesize("Good evening.")
+    request = seen[0]
+    assert str(request.url) == HOSTED_VOICE_URL and request.headers["x-jarvis-install"] == "a" * 32
+    assert json.loads(request.content) == {"text": "Good evening.", "format": "wav", "speed": 1.2}
+    assert "authorization" not in request.headers  # no key leaves the app for this

@@ -22,7 +22,9 @@
     send({ type: 'voice_settings', changes });
   }
 
-  const PROVIDERS = [['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio']];
+  const PROVIDERS = [['jarvis', 'JARVIS'], ['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio']];
+  // The JARVIS voice is a Fish Audio voice: its optional key is Fish Audio's.
+  const keyProvider = () => (state && state.provider === 'jarvis' ? 'fish' : state && state.provider);
   const NAMES = Object.fromEntries(PROVIDERS);
 
   // A stacked Settings row: its label and note, then the control under them.
@@ -118,13 +120,13 @@
   const keyForget = el('button', 'btn danger', 'Remove key');
   keyForget.type = 'button';
   keyForget.id = 'voice-key-forget';
-  keyForget.addEventListener('click', () => { if (state) send({ type: 'voice_key_forget', provider: state.provider }); });
+  keyForget.addEventListener('click', () => { if (state) send({ type: 'voice_key_forget', provider: keyProvider() }); });
   keyForm.append(keyInput, keySave, keyForget);
   keyForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const key = keyInput.value.trim();
     keyInput.value = '';
-    if (key && state) send({ type: 'voice_key', provider: state.provider, key });
+    if (key && state) send({ type: 'voice_key', provider: keyProvider(), key });
   });
 
   const modelInput = el('input');
@@ -183,20 +185,29 @@
   let macAsked = false;  // the Mac's voices asked for once, if the hub hadn't listed them yet
 
   function renderSpeaking() {
-    const p = state.provider || 'say';
+    const p = state.provider || 'jarvis';
+    const jarvis = p === 'jarvis';
     if (p === 'say' && state.mac_voices === null && !macAsked) {
       macAsked = true;
       send({ type: 'voice_list', provider: 'say' });
     }
-    const cloud = p !== 'say' ? (state.clouds || {})[p] || {} : null;
+    const cloud = p !== 'say' && !jarvis ? (state.clouds || {})[p] || {} : null;
     provider.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.provider === p)));
     providerNote.replaceChildren();
-    if (!state.provider_set) providerNote.append(el('span', '', 'From your .env file (never changed here).'));
+    if (!state.provider_set && !jarvis) providerNote.append(el('span', '', 'From your .env file (never changed here).'));
     else if ((state.env_provider || 'say') !== p) providerNote.append(el('span', '', `Picked here; your .env says ${NAMES[state.env_provider] || 'Mac'}.`), document.createTextNode(' '), useEnv);
     providerNote.hidden = !providerNote.childNodes.length;
 
     macRow.hidden = p !== 'say';
-    for (const node of [cloudRow, idForm, keyRow, keyForm, modelRow]) node.hidden = p === 'say';
+    for (const node of [cloudRow, idForm, modelRow]) node.hidden = p === 'say' || jarvis;
+    for (const node of [keyRow, keyForm]) node.hidden = p === 'say';
+    if (jarvis) {
+      const fish = (state.clouds || {}).fish || {};
+      keyNote.textContent = fish.key ? `Your Fish Audio key (${fish.key}): the JARVIS voice, unlimited.`
+        : fish.env_key ? 'Using the Fish Audio key from your .env file: the JARVIS voice, unlimited.'
+        : 'Optional. Without one, the JARVIS voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.';
+      keyForget.hidden = !fish.key;
+    }
 
     // Mac voices, best first; the one speaking now stays listed even if the list isn't in.
     const voices = state.mac_voices || [];
@@ -233,7 +244,9 @@
     preview.textContent = state.busy === 'preview' ? 'Playing…' : 'Preview';
 
     let note = '';
-    if (cloud && !state.cloud_on) note = `${NAMES[p]} needs an API key and a voice; the Mac voice speaks until then.`;
+    if (jarvis && state.cloud_error) note = `The JARVIS voice wasn't available last time (its daily allowance may be used up); ${state.fallback_voice || state.mac_voice} spoke instead.`;
+    else if (jarvis) note = state.jarvis_own_key ? 'Speaking as JARVIS with your own Fish Audio key.' : 'Speaking as JARVIS. If it can’t be reached, the Mac voice speaks.';
+    else if (cloud && !state.cloud_on) note = `${NAMES[p]} needs an API key and a voice; the Mac voice speaks until then.`;
     else if (cloud && state.cloud_error) note = `${NAMES[p]} failed last time; ${state.fallback_voice || state.mac_voice} spoke instead.`;
     else if (cloud) note = `If ${NAMES[p]} fails, ${state.fallback_voice || state.mac_voice} speaks instead.`;
     speakingNote.textContent = note;

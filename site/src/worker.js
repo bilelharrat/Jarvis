@@ -5,6 +5,7 @@
 //   /jarvis/…               its images
 //   /download, /jarvis/download   the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
+//   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
 //   anything else           back to the page
 //
 // What "latest" is lives in R2 itself: latest.json, written by the release script after the
@@ -24,6 +25,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
+    if (path === '/api/voice') return voice(request, env);
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
     }
@@ -105,4 +107,110 @@ export function parseRange(header) {
 
 function json(body, status, extra = {}) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...extra } });
+}
+
+
+// ── the JARVIS voice, for copies of the app without a Fish Audio key of their own ──
+//
+// The app (speech.CloudVoice "hosted") posts {text, format: "wav" | "pcm", speed?} with its
+// install id in X-Jarvis-Install. The text goes to Fish Audio with the owner's key (the
+// Worker secret FISH_API_KEY: never in the app or the repo) and the public JARVIS voice, and
+// the audio streams back. Each install, each network and everyone together have a daily
+// allowance in characters (VoiceQuota), so the owner's bill has a ceiling; past it the app
+// hears 429 and speaks with the Mac's voice.
+
+export const JARVIS_VOICE_ID = '612b878b113047d9a770c069c8b4fdfe';
+export const LIMITS = { text: 600, install: 20000, network: 40000, everyone: 400000 };
+
+function limits(env) {
+  const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  return {
+    text: n(env.VOICE_MAX_TEXT, LIMITS.text),
+    install: n(env.VOICE_DAILY_PER_INSTALL, LIMITS.install),
+    network: n(env.VOICE_DAILY_PER_NETWORK, LIMITS.network),
+    everyone: n(env.VOICE_DAILY_TOTAL, LIMITS.everyone),
+  };
+}
+
+async function voice(request, env) {
+  if (request.method !== 'POST') return json({ error: 'POST only.' }, 405, { allow: 'POST' });
+  if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The JARVIS voice is not set up here yet.' }, 503);
+  const install = String(request.headers.get('x-jarvis-install') || '');
+  if (!/^[0-9a-f]{32}$/.test(install)) return json({ error: 'Unknown install.' }, 400);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Send JSON.' }, 400);
+  }
+  const cap = limits(env);
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return json({ error: 'Nothing to say.' }, 400);
+  if (text.length > cap.text) return json({ error: `At most ${cap.text} characters at a time.` }, 413);
+  const format = body.format === 'pcm' ? 'pcm' : 'wav';
+  const network = request.headers.get('cf-connecting-ip') || 'unknown';
+  if (env.VOICE_RATE) {
+    const { success } = await env.VOICE_RATE.limit({ key: network });
+    if (!success) return json({ error: 'Too many requests; slow down.' }, 429, { 'retry-after': '60' });
+  }
+  const quota = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName('daily'));
+  const verdict = await (await quota.fetch('https://quota/take', {
+    method: 'POST',
+    body: JSON.stringify({ install, network, chars: text.length, limits: cap }),
+  })).json();
+  if (!verdict.ok) return json({ error: verdict.why, allowance: verdict.which }, 429, { 'retry-after': String(verdict.retryAfter || 3600) });
+  const speed = Number(body.speed);
+  const fish = await fetch('https://api.fish.audio/v1/tts', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${env.FISH_API_KEY}`,
+      model: env.FISH_MODEL || 's2.1-pro',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      text,
+      reference_id: JARVIS_VOICE_ID,
+      format,
+      sample_rate: 24000,
+      latency: 'low',
+      ...(Number.isFinite(speed) && Math.abs(speed - 1) >= 0.01 ? { prosody: { speed: Math.min(2, Math.max(0.5, speed)) } } : {}),
+    }),
+  });
+  if (!fish.ok) return json({ error: `The voice service said ${fish.status}.` }, 502);
+  return new Response(fish.body, {
+    status: 200,
+    headers: { 'content-type': format === 'wav' ? 'audio/wav' : 'application/octet-stream', 'cache-control': 'no-store' },
+  });
+}
+
+// The day's characters, per install, per network and in all: one object for everyone, so
+// every check-and-add is atomic. A new day (UTC) starts from nothing.
+export class VoiceQuota {
+  constructor(state) {
+    this.storage = state.storage;
+  }
+
+  async fetch(request) {
+    const { install, network, chars, limits: cap } = await request.json();
+    const day = new Date().toISOString().slice(0, 10);
+    if ((await this.storage.get('day')) !== day) {
+      await this.storage.deleteAll();
+      await this.storage.put('day', day);
+    }
+    const keys = { install: `i:${install}`, network: `n:${network}`, everyone: 'all' };
+    const used = await this.storage.get(Object.values(keys));
+    const nextMidnight = Math.ceil((Date.parse(`${day}T00:00:00Z`) + 86400000 - Date.now()) / 1000);
+    for (const [which, key] of Object.entries(keys)) {
+      if ((used.get(key) || 0) + chars > cap[which]) {
+        const why = which === 'everyone'
+          ? "Today's JARVIS voice allowance is used up for everyone; it resets at midnight UTC."
+          : "This Mac's JARVIS voice allowance for today is used up; it resets at midnight UTC. Add your own Fish Audio key in Settings › Speaking for unlimited use.";
+        return Response.json({ ok: false, which, why, retryAfter: nextMidnight });
+      }
+    }
+    const next = {};
+    for (const key of Object.values(keys)) next[key] = (used.get(key) || 0) + chars;
+    await this.storage.put(next);
+    return Response.json({ ok: true, left: cap.install - next[keys.install] });
+  }
 }

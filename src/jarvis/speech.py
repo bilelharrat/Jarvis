@@ -160,9 +160,18 @@ def wav_bytes(audio: np.ndarray, rate: int) -> bytes:
     return header + pcm
 
 
+# The JARVIS voice: a public Fish Audio model ("Jarvis (MCU) J.A.R.V.I.S."), spoken with the
+# owner's own Fish key when they have one, else through askeden.com, whose Worker holds a
+# key of its own and caps each install's daily use (site/src/worker.js).
+JARVIS_VOICE_ID = "612b878b113047d9a770c069c8b4fdfe"
+HOSTED_VOICE_URL = "https://askeden.com/api/voice"
+
+
 @dataclass
 class CloudVoice:
-    """ElevenLabs or Fish Audio, with the voice the user picked. Both return WAV."""
+    """ElevenLabs or Fish Audio, with the voice the user picked, or "hosted": the JARVIS
+    voice through askeden.com (api_key is then the install's id, not a secret). All return
+    WAV."""
 
     provider: str
     api_key: str
@@ -192,19 +201,32 @@ class CloudVoice:
 
     async def warm(self) -> None:
         """Open the connection ahead of the first sentence (called when you start talking)."""
-        host = (
-            "https://api.elevenlabs.io"
-            if self.provider == "elevenlabs"
-            else "https://api.fish.audio"
-        )
+        host = {
+            "elevenlabs": "https://api.elevenlabs.io",
+            "hosted": HOSTED_VOICE_URL.rsplit("/api/", 1)[0],
+        }.get(self.provider, "https://api.fish.audio")
         try:
             await self._http().head(host, timeout=5)
         except Exception:  # offline: the real request will say so
             pass
 
+    def _hosted(self, text: str, fmt: str) -> dict[str, Any]:
+        """The request to askeden.com's voice: the text and the install's id (its daily
+        allowance is counted by it)."""
+        body: dict[str, Any] = {"text": text, "format": fmt}
+        if abs(self.speed - 1.0) >= 0.01:
+            body["speed"] = round(min(2.0, max(0.5, self.speed)), 2)
+        return {
+            "url": HOSTED_VOICE_URL,
+            "headers": {"X-Jarvis-Install": self.api_key},
+            "json": body,
+        }
+
     async def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         client = self._http()
-        if self.provider == "elevenlabs":
+        if self.provider == "hosted":
+            response = await client.post(**self._hosted(text, "wav"))
+        elif self.provider == "elevenlabs":
             response = await client.post(
                 f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}",
                 params={"output_format": "wav_22050"},
@@ -242,7 +264,9 @@ class CloudVoice:
         """Raw 16-bit mono PCM chunks as the service generates them (first bytes ~0.6s,
         long before the whole sentence is ready)."""
         client = self._http()
-        if self.provider == "elevenlabs":
+        if self.provider == "hosted":
+            request = client.stream("POST", **self._hosted(text, "pcm"))
+        elif self.provider == "elevenlabs":
             request = client.stream(
                 "POST",
                 f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream",

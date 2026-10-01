@@ -81,7 +81,12 @@
     "Apple's model took too long to load": "Apple 的模型加载太久了",
     "Apple's recognizer fell behind": "Apple 的识别器跟不上了",
     "Apple's recognizer stopped": "Apple 的识别器停止了",
-    "no audio format for the speech model": "语音模型没有可用的音频格式"
+    "no audio format for the speech model": "语音模型没有可用的音频格式",
+    "JARVIS": "JARVIS",
+    "Optional. Without one, the JARVIS voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，JARVIS 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
+    "Using the Fish Audio key from your .env file: the JARVIS voice, unlimited.": "正在使用 .env 文件中的 Fish Audio 密钥：JARVIS 声音，不限量。",
+    "Speaking as JARVIS with your own Fish Audio key.": "正在用你自己的 Fish Audio 密钥以 JARVIS 的声音说话。",
+    "Speaking as JARVIS. If it can’t be reached, the Mac voice speaks.": "正在以 JARVIS 的声音说话。如果无法连接，将使用 Mac 的声音。"
   },
   "patterns": [
     [
@@ -159,6 +164,14 @@
     [
       "^Apple's speech model for (.+) isn't on this Mac$",
       "这台 Mac 上没有 Apple 的 $1 语音模型"
+    ],
+    [
+      "^Your Fish Audio key \\((.+)\\): the JARVIS voice, unlimited\\.$",
+      "你的 Fish Audio 密钥（$1）：JARVIS 声音，不限量。"
+    ],
+    [
+      "^The JARVIS voice wasn't available last time \\(its daily allowance may be used up\\); (.+) spoke instead\\.$",
+      "上次无法使用 JARVIS 声音（可能已用完每日额度），改由 $1 说话。"
     ]
   ]
 }

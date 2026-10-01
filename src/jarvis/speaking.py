@@ -1,8 +1,10 @@
 """Settings › Speaking: which voice Jarvis speaks with, chosen in the window.
 
-- Provider: the Mac's own voice, ElevenLabs or Fish Audio. Until the owner picks one here,
-  the .env settings (JARVIS_TTS and friends) decide, as before; they're shown as the
-  default and never written.
+- Provider: JARVIS (the built-in JARVIS voice), the Mac's own voice, ElevenLabs or Fish
+  Audio. Until the owner picks one here, the .env settings (JARVIS_TTS and friends) decide,
+  as before; with none, the JARVIS voice speaks. It's a public Fish Audio voice: with the
+  owner's own Fish key (saved here, or .env's) it's spoken with that key, unlimited;
+  without one, through askeden.com (speech.HOSTED_VOICE_URL), within a daily allowance.
 - Voice: a Mac voice for each language (Enhanced and Premium ones included), or a cloud
   voice, listed from the owner's account with their key when they ask, or pasted by id.
 - API keys: pasted in the pane, kept in the Keychain (connectors.Vault, entry
@@ -29,13 +31,19 @@ from typing import Any
 
 from . import lang, personas, voices
 from .providers import clean_key, mask
-from .speech import EFFECT_RATE, CloudVoice, Speaker, read_wav
+from .speech import EFFECT_RATE, JARVIS_VOICE_ID, CloudVoice, Speaker, read_wav
 
 log = logging.getLogger("jarvis")
 
-PROVIDERS = ("say", "elevenlabs", "fish")
+PROVIDERS = ("jarvis", "say", "elevenlabs", "fish")
 CLOUD = ("elevenlabs", "fish")
-PROVIDER_NAMES = {"say": "Mac", "elevenlabs": "ElevenLabs", "fish": "Fish Audio"}
+PROVIDER_NAMES = {
+    "jarvis": "JARVIS",
+    "say": "Mac",
+    "elevenlabs": "ElevenLabs",
+    "fish": "Fish Audio",
+}
+JARVIS_MODEL = "s2.1-pro"  # the model the JARVIS voice speaks with on the owner's own key
 # Models offered for each (any other id can be typed).
 MODELS = {
     "elevenlabs": ["eleven_flash_v2_5", "eleven_turbo_v2_5", "eleven_multilingual_v2", "eleven_v3"],
@@ -204,10 +212,38 @@ class Speaking:
         return getattr(self.hub.prefs, "language", "en")
 
     def provider(self) -> str:
-        """The provider speaking: the pane's pick, else .env's."""
+        """The provider speaking: the pane's pick, else .env's, else the JARVIS voice."""
         chosen = self._pref("voice_provider")
-        env = getattr(self.hub.settings, "tts", "say")
-        return chosen or (env if env in PROVIDERS else "say")
+        settings = self.hub.settings
+        if chosen:
+            return chosen
+        if getattr(settings, "tts_set", False) and settings.tts in PROVIDERS:
+            return settings.tts
+        return "jarvis"
+
+    def install_id(self) -> str:
+        """This install's own id, for askeden.com's daily allowance (made once; not a
+        secret, and nothing about the owner is in it)."""
+        import secrets
+
+        path = self.hub.prefs_store.path.with_name("install_id")
+        try:
+            found = path.read_text().strip()
+            if re.fullmatch(r"[0-9a-f]{32}", found):
+                return found
+        except OSError:
+            pass
+        made = secrets.token_hex(16)
+        with contextlib.suppress(OSError):
+            path.write_text(made)
+        return made
+
+    async def jarvis_voice(self, speed: float) -> CloudVoice:
+        """The JARVIS voice: on the owner's own Fish key when there is one, else hosted."""
+        key = await self._key("fish")
+        if key:
+            return CloudVoice("fish", key, JARVIS_VOICE_ID, JARVIS_MODEL, speed)
+        return CloudVoice("hosted", self.install_id(), JARVIS_VOICE_ID, "", speed)
 
     def _env(self, provider: str) -> dict[str, str]:
         """.env's voice and model for a provider (only the one .env picked)."""
@@ -339,6 +375,8 @@ class Speaking:
             key, voice = await self._key(provider), self.cloud_voice(provider)["id"]
             if key and voice:
                 cloud = CloudVoice(provider, key, voice, self.model(provider), speed)
+        elif provider == "jarvis":
+            cloud = await self.jarvis_voice(speed)
         if cloud is not None and _same(speaker.cloud, cloud):
             cloud = speaker.cloud  # nothing changed: its warm connection stays
         changed = speaker.cloud is not cloud
@@ -438,6 +476,14 @@ class Speaking:
                     self.error = "That voice isn't installed on this Mac."
                     return
                 audio, rate = await mac_audio(text, name, getattr(speaker, "rate", 190))
+            elif provider == "jarvis":
+                cloud = await self.jarvis_voice(self.speed() / 100)
+                try:
+                    audio, rate = await cloud.synthesize(text)
+                finally:
+                    if cloud._client is not None:
+                        with contextlib.suppress(Exception):
+                            await cloud._client.aclose()
             else:
                 key = await self._key(provider)
                 voice_id = voice if isinstance(voice, str) and voice else ""
@@ -486,7 +532,12 @@ class Speaking:
         return {
             "provider": provider,
             "provider_set": bool(self._pref("voice_provider")),
-            "env_provider": getattr(self.hub.settings, "tts", "say"),
+            "env_provider": (
+                self.hub.settings.tts if getattr(self.hub.settings, "tts_set", False) else "jarvis"
+            ),
+            # the JARVIS voice on the owner's own Fish key (unlimited), else askeden.com's
+            "jarvis_own_key": getattr(getattr(speaker, "cloud", None), "provider", "") == "fish"
+            and getattr(getattr(speaker, "cloud", None), "voice_id", "") == JARVIS_VOICE_ID,
             "mac_voice": getattr(speaker, "voice", ""),
             "mac_voices": [v.public() for v in mine] if mine is not None else None,
             "fallback_voice": getattr(speaker, "fallback_voice", ""),
