@@ -11,9 +11,49 @@ final class VoicePlayer {
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var fetch: Task<Void, Never>?
     @ObservationIgnored private let finishWatcher = FinishWatcher()
+    @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
+    /// Called when a reply has finished playing (to listen for "Hey Jarvis" again).
+    @ObservationIgnored var onFinish: (() -> Void)?
 
     init() {
         finishWatcher.onFinish = { [weak self] in self?.finished() }
+        synthesizer.delegate = finishWatcher
+    }
+
+    /// Says it in the iPhone's own best voice (no Mac needed): a British voice for English,
+    /// the highest quality one installed.
+    func speakLocally(_ text: String) {
+        stop()
+        let words = Speakable.clean(text)
+        guard !words.isEmpty else { return }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true)
+        } catch {
+            return failed("Couldn’t play the reply.")
+        }
+        let utterance = AVSpeechUtterance(string: words)
+        utterance.voice = Self.bestVoice(for: Speakable.voiceLanguage(for: words))
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.02
+        utterance.pitchMultiplier = 0.95
+        isPlaying = true
+        synthesizer.speak(utterance)
+    }
+
+    static func bestVoice(for language: String) -> AVSpeechSynthesisVoice? {
+        let english = language.hasPrefix("en")
+        let candidates = AVSpeechSynthesisVoice.speechVoices().filter { voice in
+            english ? voice.language.hasPrefix("en") : voice.language.hasPrefix(String(language.prefix(2)))
+        }
+        func score(_ voice: AVSpeechSynthesisVoice) -> Int {
+            var points = voice.quality == .premium ? 300 : voice.quality == .enhanced ? 200 : 0
+            if english, voice.language == "en-GB" { points += 50 }
+            if ["Arthur", "Daniel", "Jamie", "Oliver"].contains(where: voice.name.contains) { points += 20 }
+            if voice.voiceTraits.contains(.isNoveltyVoice) { points -= 1000 }
+            return points
+        }
+        return candidates.max { score($0) < score($1) } ?? AVSpeechSynthesisVoice(language: language)
     }
 
     func speak(_ text: String, using api: JarvisAPI) {
@@ -38,6 +78,7 @@ final class VoicePlayer {
     func stop() {
         fetch?.cancel()
         fetch = nil
+        if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
         if let player {
             player.stop()
             self.player = nil
@@ -72,6 +113,7 @@ final class VoicePlayer {
         player = nil
         isPlaying = false
         deactivate()
+        onFinish?()
     }
 
     private func deactivate() {
@@ -79,10 +121,15 @@ final class VoicePlayer {
     }
 }
 
-private final class FinishWatcher: NSObject, AVAudioPlayerDelegate {
+private final class FinishWatcher: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
     var onFinish: (@MainActor () -> Void)?
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        let onFinish = onFinish
+        Task { @MainActor in onFinish?() }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         let onFinish = onFinish
         Task { @MainActor in onFinish?() }
     }

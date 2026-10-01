@@ -7,6 +7,20 @@ struct JarvisWidgetBundle: WidgetBundle {
         JarvisStatusWidget()
         JarvisCodeWidget()
         JarvisLiveActivityWidget()
+        TalkToJarvisControl()
+    }
+}
+
+/// Control Center, the Lock Screen and the Action Button: one press and Jarvis is listening.
+struct TalkToJarvisControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "com.bshventures.jarvis.companion.talk") {
+            ControlWidgetButton(action: TalkToJarvisIntent()) {
+                Label("Talk to Jarvis", systemImage: "waveform.circle.fill")
+            }
+        }
+        .displayName("Talk to Jarvis")
+        .description("Opens Jarvis, listening.")
     }
 }
 

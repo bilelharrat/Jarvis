@@ -27,6 +27,9 @@ enum DebugLaunch {
     /// "NO" turns spoken replies off for this launch.
     static var speak: Bool? { defaults.object(forKey: "JARVISTestSpeak") == nil ? nil : defaults.bool(forKey: "JARVISTestSpeak") }
 
+    /// Shows the app without pairing or a key (to look at the screens).
+    static var skipSetup: Bool { defaults.bool(forKey: "JARVISSkipSetup") }
+
     /// The pairing prefill runs once per launch, not every time the pairing screen shows.
     @MainActor static var prefilled = false
 }

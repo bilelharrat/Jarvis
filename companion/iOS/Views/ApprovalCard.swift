@@ -20,9 +20,9 @@ struct ApprovalCard: View {
             HStack(spacing: Space.xs) {
                 // A champagne seal: the shield in foil, the tick cut out of it.
                 Image(systemName: "checkmark.shield.fill")
-                    .symbolRenderingMode(.palette)
+                    .symbolRenderingMode(.hierarchical)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Palette.well, Palette.champagneFoil)
+                    .foregroundStyle(Palette.champagne)
                     .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion && chosen == nil)
                 Eyebrow(approval.source == .code ? "Jarvis Code needs your OK" : "Needs your OK", color: Palette.champagne)
                 Spacer()
@@ -48,11 +48,7 @@ struct ApprovalCard: View {
                 }
                 .frame(maxHeight: 150)
                 .fixedSize(horizontal: false, vertical: true)
-                .background(well.fill(Palette.well.opacity(0.55)))
-                .overlay(well.strokeBorder(
-                    LinearGradient(colors: [.black.opacity(0.5), .white.opacity(0.08)], startPoint: .top, endPoint: .bottom),
-                    lineWidth: 0.75
-                ))
+                .background(well.fill(Palette.well))
             }
 
             choices
@@ -63,8 +59,8 @@ struct ApprovalCard: View {
             }
         }
         .padding(Space.m + 2)
-        .glassCard(cornerRadius: Radius.card + 2, tint: Palette.champagne, strength: 0.7)
-        .overlay(shape.strokeBorder(Palette.champagneFoil, lineWidth: 0.75).opacity(0.5))
+        .background(shape.fill(Color.secondarySystemGroupedBackground))
+        .overlay(shape.strokeBorder(Palette.champagne.opacity(0.45), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Jarvis needs your OK")
     }
@@ -89,7 +85,7 @@ struct ApprovalCard: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(reason.trimmed.isEmpty ? Palette.muted : Palette.onAction)
                         .frame(width: 32, height: 32)
-                        .background(Circle().fill(reason.trimmed.isEmpty ? AnyShapeStyle(Color.white.opacity(0.07)) : AnyShapeStyle(Palette.action)))
+                        .background(Circle().fill(reason.trimmed.isEmpty ? Color.tertiarySystemFill : Color.accentColor))
                 }
                 .buttonStyle(PressableStyle())
                 .disabled(reason.trimmed.isEmpty || chosen != nil)
@@ -97,8 +93,7 @@ struct ApprovalCard: View {
                 .padding(.bottom, 6)
                 .accessibilityLabel("Send no, with the reason")
             }
-            .background(well.fill(Palette.well.opacity(0.55)))
-            .overlay(well.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.75))
+            .background(well.fill(Palette.well))
             .transition(.opacity.combined(with: .move(edge: .top)))
         } else {
             Button {
@@ -138,7 +133,7 @@ struct ApprovalCard: View {
 
     private func choiceButton(_ choice: ApprovalChoice) -> some View {
         let primary = choice == approval.primary && !choice.isNegative
-        let shape = RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+        let shape = Capsule()
         return Button {
             guard chosen == nil else { return }
             chosen = choice.id
@@ -161,12 +156,7 @@ struct ApprovalCard: View {
             .foregroundStyle(primary ? Palette.onAction : (choice.isNegative ? Palette.danger : Palette.ink))
             .background {
                 if primary {
-                    shape.fill(Palette.action)
-                        .overlay(shape.strokeBorder(
-                            LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.1)], startPoint: .top, endPoint: .center),
-                            lineWidth: 0.75
-                        ))
-                        .shadow(color: Palette.cyan.opacity(0.35), radius: 14, y: 4)
+                    shape.fill(Color.accentColor)
                 }
             }
             .modifier(SecondaryChoice(active: !primary, shape: shape))
@@ -182,11 +172,11 @@ struct ApprovalCard: View {
 /// The other choices: glass, so the one filled button is the obvious yes.
 private struct SecondaryChoice: ViewModifier {
     let active: Bool
-    let shape: RoundedRectangle
+    let shape: Capsule
 
     func body(content: Content) -> some View {
         if active {
-            content.glass(shape, strength: 1.1)
+            content.background(shape.fill(Color.tertiarySystemFill))
         } else {
             content
         }

@@ -18,6 +18,10 @@ struct TranscriptLine: Identifiable, Equatable {
     var onHold = false
     /// Kept on this iPhone until the Mac can be reached.
     var waiting = false
+    /// Answered by Jarvis on the iPhone.
+    var onPhone = false
+    /// What Jarvis is doing right now ("Checking your calendar").
+    var activity: String?
 }
 
 /// Builds the conversation from the Mac's history, the turn it's working on right now, the

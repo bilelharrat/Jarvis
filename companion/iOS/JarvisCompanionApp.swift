@@ -11,9 +11,7 @@ struct JarvisCompanionApp: App {
             if let model {
                 RootView()
                     .environment(model)
-                    .preferredColorScheme(.dark)
-                    .tint(Palette.cyan)
-                    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility3)
             } else {
                 Palette.space.ignoresSafeArea()
             }
@@ -32,22 +30,23 @@ enum TestHost {
     }()
 }
 
-/// Pairing until there's a Mac, then home. Polls only while the app is in front.
+/// The welcome until there's something to talk to (a Mac, or a key for the iPhone), then
+/// the app. Polls the Mac only while the app is in front.
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
-            if model.pairing == nil {
-                PairingView()
-                    .transition(.opacity.combined(with: .scale(scale: 1.03)))
+            if model.needsSetup {
+                WelcomeView()
+                    .transition(.opacity)
             } else {
-                HomeView()
-                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                MainTabs()
+                    .transition(.opacity)
             }
         }
-        .animation(.spring(response: 0.6, dampingFraction: 0.9), value: model.pairing == nil)
+        .animation(.smooth(duration: 0.5), value: model.needsSetup)
         .onChange(of: scenePhase, initial: true) { _, phase in
             model.setForeground(phase == .active)
         }

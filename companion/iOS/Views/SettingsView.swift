@@ -1,8 +1,8 @@
 import SwiftUI
 import UserNotifications
 
-/// The Mac's address, spoken replies, the Watch, and unpairing: inset grouped, like the
-/// Settings app, on glass.
+/// Your Mac, Jarvis on this iPhone, voice and "Hey Jarvis", notifications, sensors, the
+/// Watch: grouped like the Settings app.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -18,165 +18,82 @@ struct SettingsView: View {
                 Section {
                     identity
                 }
-                .listRowBackground(rowGlass)
-                .listRowSeparatorTint(Palette.hairline)
 
-                Section {
-                    HStack(spacing: Space.s) {
-                        IconTile(symbol: "network")
-                        TextField("Mac address", text: $address)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .submitLabel(.done)
-                            .onSubmit(saveAddress)
-                            .foregroundStyle(Palette.ink)
-                            .accessibilityLabel("Mac address")
-                    }
-                    if address.trimmed != (model.pairing?.address ?? "") {
-                        Button("Use this address", action: saveAddress)
-                            .foregroundStyle(Palette.cyan)
-                    }
-                    if let addressError {
-                        Text(addressError)
-                            .font(.footnote)
-                            .foregroundStyle(Palette.amber)
-                    }
-                    if let fingerprint = model.pairing?.shortFingerprint {
-                        LabeledContent {
-                            Text(fingerprint)
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundStyle(Palette.ink2)
-                                .textSelection(.enabled)
+                if model.pairing != nil {
+                    macSection
+                } else {
+                    Section {
+                        NavigationLink {
+                            PairingView()
                         } label: {
                             HStack(spacing: Space.s) {
-                                IconTile(symbol: "lock.shield.fill")
-                                Text("Certificate")
+                                IconTile(symbol: "desktopcomputer", tint: .blue)
+                                Text("Pair with Your Mac")
                             }
                         }
-                        .accessibilityElement(children: .combine)
+                    } header: {
+                        Text("Your Mac")
+                    } footer: {
+                        Text("With Jarvis on your Mac paired, this iPhone reaches everything it does: Jarvis Code, your files, mail, iMessage, routines and its own voice.")
                     }
-                } header: {
-                    header("Your Mac")
-                } footer: {
-                    footer("Shown in Jarvis on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address.")
                 }
-                .listRowBackground(rowGlass)
-                .listRowSeparatorTint(Palette.hairline)
 
-                Section {
-                    LabeledContent {
-                        Text(notificationText)
-                            .foregroundStyle(Palette.ink2)
-                    } label: {
-                        HStack(spacing: Space.s) {
-                            IconTile(symbol: "bell.badge.fill")
-                            Text("Notifications")
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                    if notifications == .notDetermined {
-                        Button("Turn on notifications") {
-                            Task {
-                                await PushCoordinator.shared.enable()
-                                notifications = await PushCoordinator.shared.authorization()
-                            }
-                        }
-                        .foregroundStyle(Palette.cyan)
-                    } else if notifications == .denied {
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
-                        }
-                        .foregroundStyle(Palette.cyan)
-                    }
-                } header: {
-                    header("Notifications")
-                } footer: {
-                    footer("Approvals, Jarvis Code and heads-ups from your Mac, with Allow, Not now and No, because… right on the notification, here and on your Apple Watch. Allowing needs your iPhone unlocked.")
-                }
-                .listRowBackground(rowGlass)
-                .listRowSeparatorTint(Palette.hairline)
+                PhoneBrainSettings()
 
                 Section {
                     Toggle(isOn: $model.speakReplies) {
                         HStack(spacing: Space.s) {
-                            IconTile(symbol: "waveform")
-                            Text("Speak replies")
+                            IconTile(symbol: "speaker.wave.2.fill", tint: .pink)
+                            Text("Speak Replies")
                         }
                     }
-                    .accessibilityLabel("Speak replies")
+                    NavigationLink {
+                        HeyJarvisView()
+                    } label: {
+                        HStack(spacing: Space.s) {
+                            IconTile(symbol: "waveform", tint: .purple)
+                            Text("“Hey Jarvis” and the Action Button")
+                        }
+                    }
                 } header: {
-                    header("Voice")
+                    Text("Voice")
                 } footer: {
-                    footer("Plays replies to what you ask here in Jarvis’s own voice, made on your Mac. The Mac itself stays quiet.")
+                    Text(model.pairing == nil
+                        ? "Replies are spoken in the iPhone’s best installed voice. For a better one, download an Enhanced or Premium voice in Settings › Accessibility › Spoken Content › Voices."
+                        : "Replies are spoken in Jarvis’s own voice, made on your Mac, or in the iPhone’s best voice when the Mac can’t be reached.")
                 }
-                .listRowBackground(rowGlass)
-                .listRowSeparatorTint(Palette.hairline)
+
+                if model.pairing != nil {
+                    notificationsSection
+                }
 
                 SensorSettings()
 
-                Section {
-                    LabeledContent {
-                        Text(watchText)
-                            .foregroundStyle(Palette.ink2)
-                    } label: {
-                        HStack(spacing: Space.s) {
-                            IconTile(symbol: "applewatch")
-                            Text("Apple Watch")
+                if model.pairing != nil {
+                    watchSection
+                    Section {
+                        Button("Unpair This iPhone", role: .destructive) {
+                            confirmUnpair = true
                         }
+                        .frame(maxWidth: .infinity)
+                    } footer: {
+                        Text("Forgets the Mac on this iPhone and Watch. To shut this phone out for good, also remove it in Jarvis Settings › iPhone & Watch on the Mac.")
                     }
-                    .accessibilityElement(children: .combine)
-                    Button("Send pairing to Watch") { model.resendToWatch() }
-                        .foregroundStyle(model.pairing == nil || !model.watchStatus.installed ? Palette.muted : Palette.cyan)
-                        .disabled(model.pairing == nil || !model.watchStatus.installed)
-                } header: {
-                    header("Watch")
-                } footer: {
-                    footer("The JARVIS Watch app uses this iPhone’s pairing and talks to the Mac on its own.")
                 }
-                .listRowBackground(rowGlass)
-                .listRowSeparatorTint(Palette.hairline)
 
-                Section {
-                    Button(role: .destructive) {
-                        confirmUnpair = true
-                    } label: {
-                        Text("Unpair this iPhone")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(Palette.danger)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .accessibilityLabel("Unpair this iPhone")
-                } footer: {
-                    footer("Forgets the Mac on this iPhone and Watch. To shut this phone out for good, also remove it in Jarvis Settings › iPhone & Watch on the Mac.")
-                }
-                .listRowBackground(rowGlass)
-                .listRowSeparatorTint(Palette.hairline)
-
-                Section {
-                    LabeledContent("Paired as", value: model.pairing?.deviceName ?? "—")
-                    if let date = model.pairing?.pairedAt {
-                        LabeledContent("Since", value: date.formatted(date: .abbreviated, time: .shortened))
+                Section("About") {
+                    if let pairing = model.pairing {
+                        LabeledContent("Paired As", value: pairing.deviceName ?? "iPhone")
+                        LabeledContent("Since", value: pairing.pairedAt.formatted(date: .abbreviated, time: .shortened))
                     }
                     LabeledContent("Version", value: Self.version)
-                } header: {
-                    header("About")
                 }
-                .listRowBackground(rowGlass)
-                .listRowSeparatorTint(Palette.hairline)
             }
-            .scrollContentBackground(.hidden)
-            .listSectionSpacing(Space.l)
-            .environment(\.defaultMinListRowHeight, 52)
-            .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.05)))
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .fontWeight(.semibold)
+                    Button("Done", systemImage: "checkmark") { dismiss() }
                 }
             }
             .confirmationDialog("Unpair this iPhone?", isPresented: $confirmUnpair, titleVisibility: .visible) {
@@ -192,25 +109,115 @@ struct SettingsView: View {
         .task { notifications = await PushCoordinator.shared.authorization() }
     }
 
-    /// The Mac this iPhone belongs to, like the account card at the top of Settings.
+    private var macSection: some View {
+        Section {
+            HStack(spacing: Space.s) {
+                IconTile(symbol: "network", tint: .blue)
+                TextField("Mac address", text: $address)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .onSubmit(saveAddress)
+                    .accessibilityLabel("Mac address")
+            }
+            if model.macFeatures.contains("prefs") {
+                NavigationLink {
+                    MacPrefsView()
+                } label: {
+                    HStack(spacing: Space.s) {
+                        IconTile(symbol: "slider.horizontal.3", tint: .gray)
+                        Text("Jarvis on Your Mac")
+                    }
+                }
+            }
+            if address.trimmed != (model.pairing?.address ?? "") {
+                Button("Use This Address", action: saveAddress)
+            }
+            if let addressError {
+                Text(addressError)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.amber)
+            }
+            if let fingerprint = model.pairing?.shortFingerprint {
+                LabeledContent {
+                    Text(fingerprint)
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                } label: {
+                    HStack(spacing: Space.s) {
+                        IconTile(symbol: "lock.shield.fill", tint: .green)
+                        Text("Certificate")
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            Text("Your Mac")
+        } footer: {
+            Text("Shown in Jarvis on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address.")
+        }
+    }
+
+    private var notificationsSection: some View {
+        Section {
+            LabeledContent {
+                Text(notificationText)
+            } label: {
+                HStack(spacing: Space.s) {
+                    IconTile(symbol: "bell.badge.fill", tint: .red)
+                    Text("Notifications")
+                }
+            }
+            .accessibilityElement(children: .combine)
+            if notifications == .notDetermined {
+                Button("Turn On Notifications") {
+                    Task {
+                        await PushCoordinator.shared.enable()
+                        notifications = await PushCoordinator.shared.authorization()
+                    }
+                }
+            } else if notifications == .denied {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+        } footer: {
+            Text("Approvals, Jarvis Code and heads-ups from your Mac, with Allow, Not now and No, because… right on the notification, here and on your Apple Watch. Allowing needs your iPhone unlocked.")
+        }
+    }
+
+    private var watchSection: some View {
+        Section {
+            LabeledContent {
+                Text(watchText)
+            } label: {
+                HStack(spacing: Space.s) {
+                    IconTile(symbol: "applewatch", tint: .gray)
+                    Text("Apple Watch")
+                }
+            }
+            .accessibilityElement(children: .combine)
+            Button("Send Pairing to Watch") { model.resendToWatch() }
+                .disabled(!model.watchStatus.installed)
+        } footer: {
+            Text("The JARVIS Watch app uses this iPhone’s pairing and talks to the Mac on its own.")
+        }
+    }
+
+    /// Jarvis, like the account card at the top of Settings.
     private var identity: some View {
         HStack(spacing: Space.m) {
-            ZStack {
-                Circle()
-                    .fill(Palette.ring.opacity(0.07))
-                    .frame(width: 66, height: 66)
-                Circle()
-                    .fill(Palette.ring.opacity(0.10))
-                    .frame(width: 54, height: 54)
-                OrbMark(size: 42)
-            }
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(model.pairing?.macLabel ?? "Your Mac")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(2)
+            OrbMark(size: 58)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("J.A.R.V.I.S.")
+                    .font(.title2.weight(.semibold))
                 HStack(spacing: 6) {
-                    StateIndicator(state: model.isOffline ? nil : model.remote?.state)
+                    if model.pairing != nil {
+                        StateIndicator(state: model.isOffline ? nil : model.remote?.state)
+                    }
                     Text(statusText)
                         .font(.subheadline)
                         .foregroundStyle(Palette.ink2)
@@ -218,30 +225,8 @@ struct SettingsView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, Space.xs)
+        .padding(.vertical, Space.xxs)
         .accessibilityElement(children: .combine)
-    }
-
-    private func header(_ text: String) -> some View {
-        Text(text)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(Palette.muted)
-            .textCase(.uppercase)
-            .tracking(0.6)
-    }
-
-    private func footer(_ text: String) -> some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(Palette.muted)
-    }
-
-    /// Glass rows with a specular top edge, grouped by the Form's own continuous corners.
-    private var rowGlass: some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay(Rectangle().fill(Palette.spaceRaised.opacity(0.66)))
-            .overlay(Rectangle().fill(Color.white.opacity(0.035)))
     }
 
     private func saveAddress() {
@@ -255,7 +240,8 @@ struct SettingsView: View {
     }
 
     private var statusText: String {
-        switch model.link {
+        guard model.pairing != nil else { return model.hasPhoneKey ? "On this iPhone" : "Not set up" }
+        return switch model.link {
         case .online: model.remote.map { "Connected · \($0.state.label)" } ?? "Connected"
         case .connecting: "Connecting…"
         case .unreachable: "Can’t reach the Mac"

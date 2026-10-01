@@ -29,7 +29,7 @@ struct WatchApprovalCard: View {
                     .lineLimit(expanded ? nil : 3)
                     .padding(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.3)))
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.well))
                     .onTapGesture { withAnimation { expanded.toggle() } }
                     .accessibilityHint(expanded ? "" : "Tap to read all of it")
             }
@@ -78,7 +78,7 @@ struct WatchApprovalCard: View {
                     .font(.body.weight(.semibold))
             }
             .frame(maxWidth: .infinity)
-            .foregroundStyle(prominent ? Palette.space : (choice.isNegative ? Palette.danger : Palette.ink))
+            .foregroundStyle(prominent ? Color.white : (choice.isNegative ? Palette.danger : Palette.ink))
         }
         .buttonStyle(.borderedProminent)
         .tint(prominent ? Palette.cyan : (choice.isNegative ? Palette.danger.opacity(0.22) : Palette.ring.opacity(0.25)))

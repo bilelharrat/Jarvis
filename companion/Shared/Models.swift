@@ -315,11 +315,13 @@ struct RemoteState: Equatable, Sendable, Decodable {
     var delegationsActive = 0
     var push: Push?
     var tls = false
+    /// The Mac's feature screens it serves (memory, goals, timers…).
+    var features: [String] = []
 
     init() {}
 
     private enum Key: String, CodingKey {
-        case state, turn, approvals, history, weather, tasks, meeting, routines, model, push, tls
+        case state, turn, approvals, history, weather, tasks, meeting, routines, model, push, tls, features
         case nextEvent = "next_event"
         case pendingApprovals = "pending_approvals"
         case codeSessions = "code_sessions"
@@ -343,6 +345,7 @@ struct RemoteState: Equatable, Sendable, Decodable {
         delegationsActive = max(0, c.integer(.delegationsActive) ?? 0)
         push = c.object(Push.self, .push)
         tls = c.flag(.tls) ?? false
+        features = ((try? c.decodeIfPresent([String].self, forKey: .features)) ?? nil) ?? []
     }
 
     var activeTasks: [BackgroundTask] { tasks.filter(\.isActive) }

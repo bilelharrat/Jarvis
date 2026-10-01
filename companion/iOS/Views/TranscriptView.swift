@@ -1,59 +1,31 @@
 import SwiftUI
 
-/// The conversation: You / Jarvis, newest at the bottom, fading out at the top edge.
-/// Jarvis speaks in New York; you in SF Pro. Runs the full width of the screen and brings
-/// its own margins, so the suggestion shelf can bleed off the edges.
+/// The conversation, the way Apple sets one: what you said in bubbles on the right, Jarvis's
+/// answers as plain text on the left, newest at the bottom.
 struct TranscriptView: View {
     let lines: [TranscriptLine]
     var onSuggestion: (String) -> Void = { _ in }
+    var suggestions: [String] = EmptyTranscript.defaultSuggestions
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.l - 2) {
+            LazyVStack(alignment: .leading, spacing: Space.m) {
                 if lines.isEmpty {
-                    EmptyTranscript(onSuggestion: onSuggestion)
+                    EmptyTranscript(suggestions: suggestions, onSuggestion: onSuggestion)
                 }
                 ForEach(lines) { line in
                     TranscriptRow(line: line)
-                        .transition(.opacity)
+                        .id(line.id)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
-            .padding(.horizontal, Space.l)  // the page margin plus a little; the view itself runs edge to edge
-            .padding(.top, Space.l)
-            .padding(.bottom, Space.xs)
-            .animation(.spring(response: 0.45, dampingFraction: 0.86), value: lines.map(\.id))
+            .padding(.horizontal, Space.m + 4)
+            .padding(.vertical, Space.s)
+            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: lines.map(\.id))
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
-        // Newest at the bottom, and it stays there as lines arrive and the room changes (an
-        // approval, the keyboard). The empty state reads from the top.
         .defaultScrollAnchor(lines.isEmpty ? .top : .bottom)
-        // Soft edges, a steady depth however tall it is (but never eating a short one), and
-        // nothing drawn outside.
-        .mask {
-            GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    // Eased, so a line cut by the edge is gone rather than half there.
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black.opacity(0.25), location: 0.5),
-                            .init(color: .black, location: 1),
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    .frame(height: min(Space.xl, geometry.size.height * 0.3))
-                    Rectangle()
-                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: min(Space.xs, geometry.size.height * 0.05))
-                }
-            }
-        }
-        .clipped()
-        // A mask whose frame springs along with the layout can stick at its old size and hide
-        // the lines (an approval arriving shrinks this view), so this view's own frame snaps;
-        // the lines inside still fade in with their own animation.
-        .transaction { $0.animation = nil }
     }
 }
 
@@ -61,112 +33,112 @@ struct TranscriptRow: View {
     let line: TranscriptLine
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 7) {
-                marker
-                Eyebrow(label, color: labelColor)
-                if let time = line.time {
-                    Text(time.formatted(date: .omitted, time: .shortened))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(Palette.muted.opacity(0.75))
-                }
-                if line.sending {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(Palette.muted)
-                }
-                if line.waiting {
-                    Label("Waiting for your Mac", systemImage: "clock")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(Palette.amber)
-                        .labelStyle(.titleAndIcon)
-                        .imageScale(.small)
-                }
+        Group {
+            switch line.kind {
+            case .user: userBubble
+            case .jarvis: jarvisReply
+            case .problem: problem
             }
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
     }
 
-    @ViewBuilder
-    private var marker: some View {
-        switch line.kind {
-        case .jarvis:
-            OrbMark(size: 9)
-        case .user:
-            Circle()
-                .strokeBorder(Palette.muted.opacity(0.8), lineWidth: 1)
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-        case .problem:
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(Palette.amber)
-                .accessibilityHidden(true)
+    private var userBubble: some View {
+        HStack {
+            Spacer(minLength: 56)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(line.text)
+                    .font(.body)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(
+                        UnevenRoundedRectangle(cornerRadii: .init(topLeading: 20, bottomLeading: 20, bottomTrailing: 6, topTrailing: 20), style: .continuous)
+                            .fill(line.waiting ? Color.gray : Color.accentColor)
+                    )
+                    .opacity(line.sending ? 0.7 : 1)
+                    .textSelection(.enabled)
+                if line.waiting {
+                    Label("Waiting for your Mac", systemImage: "clock")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.muted)
+                } else if line.sending {
+                    Text("Sending…")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.muted)
+                }
+            }
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        switch line.kind {
-        case .user:
-            Text(line.text)
-                .font(.callout)
-                .foregroundStyle(Palette.ink2)
-                .lineSpacing(2)
-                .textSelection(.enabled)
-        case .problem:
-            Text(line.text)
-                .font(.callout)
-                .foregroundStyle(Palette.amber)
-        case .jarvis:
+    private var jarvisReply: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                OrbMark(size: 14, glow: false)
+                Text("Jarvis")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.ink2)
+                if line.onPhone {
+                    Image(systemName: "iphone")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.muted)
+                        .accessibilityLabel("On this iPhone")
+                }
+                if let time = line.time, !line.live {
+                    Text(time.formatted(date: .omitted, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(Palette.muted)
+                }
+            }
             if line.live && line.text.isEmpty {
                 if line.onHold {
                     Label("Waiting for your OK above", systemImage: "hand.raised.fill")
                         .font(.callout)
                         .foregroundStyle(Palette.champagne)
+                } else if let activity = line.activity {
+                    HStack(spacing: Space.xs) {
+                        ProgressView().controlSize(.small)
+                        Text(activity)
+                            .font(.callout)
+                            .foregroundStyle(Palette.ink2)
+                    }
                 } else {
-                    ThinkingDots(color: Palette.ice)
+                    ThinkingDots()
                         .padding(.vertical, 5)
                 }
             } else {
                 Text(reply)
-                    .font(.voice)
+                    .font(.body)
                     .foregroundStyle(Palette.ink)
-                    .lineSpacing(4)
+                    .lineSpacing(3)
                     .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
-    /// The reply with a reactor-blue caret while it's still being written.
+    private var problem: some View {
+        Label {
+            Text(line.text)
+                .font(.callout)
+                .foregroundStyle(Palette.ink2)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+        }
+    }
+
+    /// The reply with a caret while it's still being written.
     private var reply: AttributedString {
         var text = Self.markdown(line.text)
         if line.live {
-            var caret = AttributedString(" ▍")
-            caret.foregroundColor = Palette.cyan
+            var caret = AttributedString(" ●")
+            caret.foregroundColor = .accentColor
             text.append(caret)
         }
         return text
-    }
-
-    private var label: String {
-        switch line.kind {
-        case .user: "You"
-        case .jarvis: "Jarvis"
-        case .problem: "Not sent"
-        }
-    }
-
-    private var labelColor: Color {
-        switch line.kind {
-        case .user: Palette.muted
-        case .jarvis: Palette.ice.opacity(0.9)
-        case .problem: Palette.amber
-        }
     }
 
     private var accessibilityText: String {
@@ -184,50 +156,38 @@ struct TranscriptRow: View {
     }
 }
 
-private struct EmptyTranscript: View {
+struct EmptyTranscript: View {
+    var suggestions: [String] = Self.defaultSuggestions
     let onSuggestion: (String) -> Void
-    private let suggestions = ["What’s the weather?", "Anything urgent in my email?", "Remind me to call Pepper at 5"]
+
+    static let defaultSuggestions = ["What’s the weather?", "What’s next today?", "Remind me to call Pepper at 5", "Anything urgent in my email?"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.m) {
-            VStack(alignment: .leading, spacing: Space.xxs + 2) {
-                Text("Ready when you are.")
-                    .font(.serifTitle)
-                    .foregroundStyle(Palette.ink)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Tap the reactor and talk, or type below.")
-                    .font(.callout)
-                    .foregroundStyle(Palette.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // One row that scrolls sideways, bleeding to the screen's edges like a shelf.
-            ScrollView(.horizontal) {
-                HStack(spacing: Space.xs) {
-                    ForEach(suggestions, id: \.self) { suggestion in
-                        Button { onSuggestion(suggestion) } label: {
-                            HStack(spacing: 6) {
-                                Text(suggestion)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(Palette.ink)
-                                    .lineLimit(1)
-                                Image(systemName: "arrow.up.right")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(Palette.cyan)
-                            }
-                            .padding(.horizontal, Space.m - 2)
-                            .frame(minHeight: 40)
-                            .glass(Capsule())
-                        }
-                        .buttonStyle(PressableStyle())
-                        .accessibilityLabel(suggestion)
+        VStack(alignment: .leading, spacing: Space.s) {
+            Text("Try asking")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.muted)
+                .padding(.leading, 4)
+            ForEach(suggestions, id: \.self) { suggestion in
+                Button { onSuggestion(suggestion) } label: {
+                    HStack {
+                        Text(suggestion)
+                            .font(.body)
+                            .foregroundStyle(Palette.ink)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: Space.xs)
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color.accentColor)
                     }
+                    .padding(.horizontal, Space.m)
+                    .padding(.vertical, Space.s)
+                    .glassCard(cornerRadius: 18)
                 }
-                .padding(.vertical, 2)
+                .buttonStyle(.plain)
+                .accessibilityLabel(suggestion)
             }
-            .scrollIndicators(.hidden)
-            .contentMargins(.horizontal, Space.l, for: .scrollContent)
-            .padding(.horizontal, -Space.l)
         }
-        .padding(.vertical, Space.xxs)
+        .padding(.top, Space.xs)
     }
 }

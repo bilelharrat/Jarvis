@@ -27,51 +27,108 @@ struct PairingView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: Space.xl) {
-                        header
-                        if let notice = model.pairingNotice {
-                            ErrorCallout(title: "Pair again", message: notice)
-                        }
-                        scanCard
-                        macSection
-                        codeSection
-                        VStack(spacing: Space.l) {
-                            pairButton
-                                .id(Self.pairID)
-                            footer
-                        }
-                    }
-                    .padding(.horizontal, Space.m + 4)
-                    .padding(.top, Space.xs)
-                    .padding(.bottom, Space.xxl)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.86), value: failure)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.86), value: browser.macs)
-                }
-                .onChange(of: failure) { _, failure in
-                    guard failure != nil else { return }
-                    Task {  // after the keyboard has settled
-                        try? await Task.sleep(for: .milliseconds(350))
-                        withAnimation { proxy.scrollTo(Self.failureID, anchor: .bottom) }
+        ScrollViewReader { proxy in
+            Form {
+                if let notice = model.pairingNotice {
+                    Section {
+                        ErrorCallout(title: "Pair again", message: notice)
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
                     }
                 }
-                // The whole code is in: put the keyboard away so the fingerprint and the Pair
-                // button are both in view, to compare and then pair.
-                .onChange(of: code) { _, value in
-                    guard value.count == 6 else { return }
-                    codeFocused = false
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(350))
-                        withAnimation { proxy.scrollTo(Self.pairID, anchor: .bottom) }
+                Section {
+                    Button {
+                        failure = nil
+                        showScanner = true
+                    } label: {
+                        HStack(spacing: Space.s) {
+                            IconTile(symbol: "qrcode.viewfinder", tint: .blue)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Scan the Pairing Code")
+                                    .foregroundStyle(Palette.ink)
+                                Text("Jarvis Settings › iPhone & Watch on your Mac")
+                                    .font(.footnote)
+                                    .foregroundStyle(Palette.muted)
+                            }
+                        }
                     }
+                    .disabled(working)
+                    .accessibilityHint("Opens the camera. The code is in Jarvis Settings, iPhone and Watch, on your Mac.")
+                } footer: {
+                    Text("The quickest way: the code carries your Mac’s address, a one-time code and its certificate.")
+                }
+
+                Section {
+                    ForEach(browser.macs) { mac in
+                        macRow(mac)
+                    }
+                    if browser.macs.isEmpty {
+                        searchRow
+                    }
+                    addressRow
+                } header: {
+                    Text("Or Pair by Hand")
+                } footer: {
+                    Text("On your Mac, open Jarvis Settings › iPhone & Watch and turn on “Let my phone connect”. Its addresses are listed there.")
+                }
+
+                Section {
+                    CodeEntryField(code: $code, focused: $codeFocused, invalid: isWrongCode)
+                        .listRowInsets(EdgeInsets(top: Space.s, leading: Space.m, bottom: Space.s, trailing: Space.m))
+                    fingerprintRow
+                    LabeledContent("This iPhone") {
+                        TextField("iPhone", text: $deviceName)
+                            .multilineTextAlignment(.trailing)
+                            .submitLabel(.done)
+                            .accessibilityLabel("Name for this iPhone on the Mac")
+                    }
+                } header: {
+                    Text("Pairing Code")
+                } footer: {
+                    Text("On the Mac, tap “Pair a phone” for a six-digit code. It works once, for five minutes.")
+                }
+
+                if let failure {
+                    Section {
+                        ErrorCallout(title: failure.title, message: failure.message, hint: hint(for: failure))
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                            .id(Self.failureID)
+                    }
+                }
+
+                Section {
+                    pairButton
+                        .id(Self.pairID)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                } footer: {
+                    footer.padding(.top, Space.s)
                 }
             }
-            .scrollDismissesKeyboard(.interactively)
-            TopScrim()
+            .animation(.default, value: failure)
+            .animation(.default, value: browser.macs)
+            .onChange(of: failure) { _, failure in
+                guard failure != nil else { return }
+                Task {  // after the keyboard has settled
+                    try? await Task.sleep(for: .milliseconds(350))
+                    withAnimation { proxy.scrollTo(Self.failureID, anchor: .bottom) }
+                }
+            }
+            // The whole code is in: put the keyboard away so the fingerprint and the Pair
+            // button are both in view, to compare and then pair.
+            .onChange(of: code) { _, value in
+                guard value.count == 6 else { return }
+                codeFocused = false
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    withAnimation { proxy.scrollTo(Self.pairID, anchor: .bottom) }
+                }
+            }
         }
-        .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: 0.12)))
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("Pair with Your Mac")
+        .navigationBarTitleDisplayMode(.large)
         .onAppear {
             browser.start()
             if address.isEmpty, let previous = model.previousAddress { address = previous }
@@ -103,110 +160,12 @@ struct PairingView: View {
         }
     }
 
-    // MARK: - Sections
-
-    private var header: some View {
-        VStack(spacing: Space.s) {
-            ReactorView(mode: working ? .thinking : .idle, size: 176)
-                .padding(.bottom, Space.xxs)
-            Text("J.A.R.V.I.S.")
-                .font(.display)
-                .tracking(4)
-                .foregroundStyle(Palette.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Text("Pair this iPhone with Jarvis on your Mac.")
-                .font(.body)
-                .foregroundStyle(Palette.ink2)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.top, Space.xs)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("J.A.R.V.I.S. companion. Pair with your Mac.")
-    }
-
-    /// The quick way: the Mac's QR code carries its address, a code and its certificate.
-    private var scanCard: some View {
-        VStack(spacing: Space.s) {
-            Button {
-                failure = nil
-                showScanner = true
-            } label: {
-                HStack(spacing: Space.s + 2) {
-                    IconTile(symbol: "qrcode.viewfinder", tint: Palette.ice)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Scan the pairing code")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Palette.ink)
-                        Text("In Jarvis Settings › iPhone & Watch on your Mac")
-                            .font(.footnote)
-                            .foregroundStyle(Palette.muted)
-                            .multilineTextAlignment(.leading)
-                    }
-                    Spacer(minLength: Space.xs)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.muted)
-                }
-                .padding(.horizontal, Space.m)
-                .padding(.vertical, Space.s + 2)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GlassButtonStyle(tint: Palette.cyan, cornerRadius: 20))
-            .disabled(working)
-            .accessibilityLabel("Scan the pairing code")
-            .accessibilityHint("Opens the camera. The code is in Jarvis Settings, iPhone and Watch, on your Mac.")
-
-            HStack(spacing: Space.s) {
-                Rectangle().fill(Palette.hairline).frame(height: 0.5)
-                Text("or pair by hand")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.muted)
-                    .fixedSize()
-                Rectangle().fill(Palette.hairline).frame(height: 0.5)
-            }
-            .padding(.top, Space.xs)
-            .accessibilityHidden(true)
-        }
-    }
-
-    private var macSection: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            SectionLabel(number: "01", title: "Your Mac")
-            VStack(spacing: 0) {
-                ForEach(browser.macs) { mac in
-                    macRow(mac)
-                    rowDivider
-                }
-                if browser.macs.isEmpty {
-                    searchRow
-                    rowDivider
-                }
-                addressRow
-            }
-            .glassCard(cornerRadius: 20, tint: addressFocused ? Palette.cyan : .white, strength: addressFocused ? 0.7 : 1)
-
-            footnote("On your Mac, open Jarvis Settings › iPhone & Watch and turn on “Let my phone connect”. Its addresses are listed there.")
-        }
-    }
-
-    private var rowDivider: some View {
-        Rectangle()
-            .fill(Palette.hairline)
-            .frame(height: 0.5)
-            .padding(.leading, 60)
-    }
+    // MARK: - Rows
 
     private var addressRow: some View {
-        HStack(spacing: Space.s + 2) {
-            Image(systemName: "network")
-                .symbolRenderingMode(.hierarchical)
-                .font(.body)
-                .foregroundStyle(addressFocused ? Palette.cyan : Palette.muted)
-                .frame(width: 30)
-                .accessibilityHidden(true)
-            TextField("", text: $address, prompt: Text("Or type its address, e.g. 192.168.1.20").foregroundStyle(Palette.muted))
+        HStack(spacing: Space.s) {
+            IconTile(symbol: "network", tint: .gray)
+            TextField("Address, e.g. 192.168.1.20", text: $address)
                 .keyboardType(.URL)
                 .textContentType(.URL)
                 .textInputAutocapitalization(.never)
@@ -214,20 +173,9 @@ struct PairingView: View {
                 .submitLabel(.next)
                 .focused($addressFocused)
                 .onSubmit { codeFocused = true }
-                .foregroundStyle(Palette.ink)
                 .accessibilityLabel("Mac address")
                 .accessibilityHint("Host name or IP address, with :port if it isn't 8765")
-            if !address.isEmpty {
-                Button { address = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(Palette.muted)
-                }
-                .accessibilityLabel("Clear address")
-            }
         }
-        .padding(.horizontal, Space.m)
-        .frame(minHeight: 54)
     }
 
     private func macRow(_ mac: BonjourBrowser.Mac) -> some View {
@@ -238,91 +186,52 @@ struct PairingView: View {
             addressFocused = false
             codeFocused = code.count < 6
         } label: {
-            HStack(spacing: Space.s + 2) {
-                IconTile(symbol: "desktopcomputer", tint: isSelected ? Palette.ice : Palette.ink)
+            HStack(spacing: Space.s) {
+                IconTile(symbol: "desktopcomputer", tint: .blue)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Self.shortName(mac.name))
-                        .font(.body.weight(.medium))
                         .foregroundStyle(Palette.ink)
-                        .multilineTextAlignment(.leading)
                     Text(mac.host ?? "Found on this network")
                         .font(.footnote)
                         .foregroundStyle(Palette.muted)
                 }
                 Spacer(minLength: Space.xs)
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .symbolRenderingMode(isSelected ? SymbolRenderingMode.palette : .monochrome)
-                    .foregroundStyle(isSelected ? Palette.onAction : Palette.muted.opacity(0.6), Palette.cyan)
-                    .contentTransition(.symbolEffect(.replace))
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
-            .padding(.horizontal, Space.m)
-            .padding(.vertical, Space.s)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityLabel(mac.name)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var searchRow: some View {
-        HStack(spacing: Space.s + 2) {
+        HStack(spacing: Space.s) {
             if let problem = browser.problem {
                 Image(systemName: "wifi.exclamationmark")
                     .foregroundStyle(Palette.amber)
-                    .frame(width: 30)
+                    .frame(width: 29)
                 Text(problem)
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
             } else if searchedAWhile {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .foregroundStyle(Palette.muted)
-                    .frame(width: 30)
+                    .frame(width: 29)
                 Text("No Mac has announced itself yet. Type its address below.")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
             } else {
                 ProgressView()
-                    .tint(Palette.ink2)
-                    .frame(width: 30)
+                    .frame(width: 29)
                 Text("Looking for Jarvis on your network…")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, Space.m)
-        .padding(.vertical, Space.m)
         .accessibilityElement(children: .combine)
-    }
-
-    private var codeSection: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            SectionLabel(number: "02", title: "Pairing code")
-            CodeEntryField(code: $code, focused: $codeFocused, invalid: isWrongCode)
-            fingerprintRow
-            if let failure {
-                ErrorCallout(title: failure.title, message: failure.message, hint: hint(for: failure))
-                    .id(Self.failureID)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            footnote("On the Mac, tap “Pair a phone” for a six-digit code. It works once, for five minutes.")
-            HStack(spacing: Space.s) {
-                Text("This iPhone")
-                    .font(.body)
-                    .foregroundStyle(Palette.ink)
-                TextField("iPhone", text: $deviceName)
-                    .multilineTextAlignment(.trailing)
-                    .foregroundStyle(Palette.ink2)
-                    .font(.body)
-                    .submitLabel(.done)
-                    .accessibilityLabel("Name for this iPhone on the Mac")
-            }
-            .padding(.horizontal, Space.m)
-            .frame(minHeight: 50)
-            .glassCard(cornerRadius: 16)
-            .padding(.top, Space.xxs)
-        }
     }
 
     /// The certificate this iPhone will trust, to compare with the Mac's Settings before
@@ -334,32 +243,22 @@ struct PairingView: View {
             EmptyView()
         case .checking:
             HStack(spacing: Space.s) {
-                ProgressView().tint(Palette.ink2)
+                ProgressView()
                 Text("Checking the Mac’s certificate…")
-                    .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
-                Spacer(minLength: 0)
             }
-            .padding(.horizontal, Space.m)
-            .frame(minHeight: 50)
-            .glassCard(cornerRadius: 16)
             .accessibilityElement(children: .combine)
         case .found(_, let fingerprint):
             let warn = hintDisagrees(with: fingerprint)
             VStack(alignment: .leading, spacing: Space.xs) {
-                HStack(spacing: Space.s) {
-                    Image(systemName: warn ? "exclamationmark.shield.fill" : "lock.shield.fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .font(.title3)
-                        .foregroundStyle(warn ? Palette.amber : Palette.cyan)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Eyebrow("Mac’s fingerprint")
-                        Text(CertificatePin.short(fingerprint))
-                            .font(.system(.title3, design: .monospaced).weight(.semibold))
-                            .foregroundStyle(Palette.ink)
-                            .textSelection(.enabled)
-                    }
-                    Spacer(minLength: 0)
+                LabeledContent {
+                    Text(CertificatePin.short(fingerprint))
+                        .font(.body.monospaced().weight(.semibold))
+                        .foregroundStyle(Palette.ink)
+                        .textSelection(.enabled)
+                } label: {
+                    Label("Mac’s Fingerprint", systemImage: warn ? "exclamationmark.shield.fill" : "lock.shield.fill")
+                        .foregroundStyle(warn ? Palette.amber : Palette.ink)
                 }
                 Text(warn
                     ? "This isn’t the fingerprint the Mac announced on the network. Pair only if it matches the one in Jarvis Settings on your Mac."
@@ -368,26 +267,27 @@ struct PairingView: View {
                     .foregroundStyle(warn ? Palette.amber : Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(Space.m)
-            .glassCard(cornerRadius: 16, tint: warn ? Palette.amber : Palette.cyan, strength: 0.6)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Mac’s fingerprint: \(CertificatePin.short(fingerprint).map { String($0) }.joined(separator: " "))")
         case .failed(let error):
-            ErrorCallout(title: error.title, message: error.message, hint: hint(for: error))
+            VStack(alignment: .leading, spacing: 4) {
+                Label(error.title, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Palette.amber)
+                Text(error.message)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.muted)
+                if let hint = hint(for: error) {
+                    Text(hint)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.muted)
+                }
+            }
         }
     }
 
     private func hintDisagrees(with fingerprint: String) -> Bool {
         guard let hint = selected?.fingerprintHint else { return false }
         return !CertificatePin.shortMatches(hint, fingerprint)
-    }
-
-    private func footnote(_ text: String) -> some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(Palette.muted)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Space.m)
     }
 
     private var pairButton: some View {
@@ -403,9 +303,8 @@ struct PairingView: View {
                 Text(working ? "Pairing…" : "Pair with Mac")
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 56)
         }
-        .buttonStyle(PrimaryButtonStyle(cornerRadius: 18))
+        .buttonStyle(PrimaryButtonStyle())
         .disabled(!canPair || working)
         .accessibilityLabel("Pair with Mac")
         .accessibilityHint(pairHint)
@@ -428,7 +327,6 @@ struct PairingView: View {
         .foregroundStyle(Palette.muted)
         .labelStyle(FooterLabelStyle())
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Space.m)
     }
 
     // MARK: - Pairing

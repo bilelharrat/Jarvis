@@ -30,13 +30,24 @@ enum IntentRunner {
     /// What a spoken answer is kept to (the whole reply is in the app).
     static let longestSpoken = 900
 
-    static let notPaired = "Open J.A.R.V.I.S. and pair it with your Mac first."
+    static let notPaired = "Open J.A.R.V.I.S. to pair your Mac or add a Claude API key first."
+
+    /// Answers on the iPhone itself (nil when it can't: no API key).
+    typealias Local = @Sendable (String) async -> String?
+
+    /// Jarvis on the iPhone, for Siri: answers when there's no Mac or it can't be reached.
+    static let phoneAnswer: Local = { text in
+        await MainActor.run { BrainSettings.apiKey != nil } ? await PhoneAnswer.ask(text) : nil
+    }
 
     /// Asks Jarvis and returns what to say: the reply, or why there isn't one yet.
-    static func ask(_ raw: String, client: Client?, stillWorking: String = "Jarvis is still working on that. The answer will be in the app.") async -> String {
+    static func ask(_ raw: String, client: Client?, local: Local? = nil, stillWorking: String = "Jarvis is still working on that. The answer will be in the app.") async -> String {
         let text = raw.trimmed
         guard !text.isEmpty else { return "What should I ask Jarvis?" }
-        guard let client else { return notPaired }
+        guard let client else {
+            if let local, let reply = await local(text) { return spoken(reply) }
+            return notPaired
+        }
         do {
             let result = try await client.ask(text, waitForReply)
             if result.done {
@@ -50,14 +61,16 @@ enum IntentRunner {
         } catch JarvisError.timedOut, JarvisError.connectionLost {
             return stillWorking  // the Mac has it and carries on
         } catch let error as JarvisError where error.neverDelivered {
+            if let local, let reply = await local(text) { return spoken(reply) }
             return keep(.ask(text), client: client)
         } catch {
             return problem(error)
         }
     }
 
-    static func brief(client: Client?) async -> String {
-        await ask("Brief me.", client: client, stillWorking: "Your briefing is on its way. It’ll be in J.A.R.V.I.S. in a moment.")
+    static func brief(client: Client?, local: Local? = nil) async -> String {
+        if client == nil, let local, let reply = await local(AppModel.phoneBriefing) { return spoken(reply) }
+        return await ask("Brief me.", client: client, local: local, stillWorking: "Your briefing is on its way. It’ll be in J.A.R.V.I.S. in a moment.")
     }
 
     static func whatDidIMiss(client: Client?) async -> String {
@@ -118,5 +131,16 @@ enum IntentRunner {
             return String(head[...end]) + " The rest is in the app."
         }
         return head + "… The rest is in the app."
+    }
+}
+
+/// One question to Jarvis on the iPhone, outside the app's conversation (Siri, Shortcuts).
+@MainActor
+enum PhoneAnswer {
+    private static let brain = LocalBrain()
+
+    static func ask(_ text: String) async -> String? {
+        brain.tools.mac = PairingStore.load().flatMap { $0.isPinned ? $0.api : nil }
+        return await brain.ask(text, macName: PairingStore.load()?.macLabel)
     }
 }

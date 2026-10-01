@@ -27,7 +27,10 @@ final class CompanionUITests: XCTestCase {
         app.launchArguments = ["-JARVISResetPairing", "YES", "-JARVISTestSpeak", "NO"]
         app.launch()
 
-        // Pair by typing.
+        // From the welcome, pair by typing.
+        let pairWithMac = app.buttons["Pair with Your Mac"]
+        XCTAssertTrue(pairWithMac.waitForExistence(timeout: 10), "no welcome")
+        pairWithMac.tap()
         let address = app.textFields["Mac address"]
         XCTAssertTrue(address.waitForExistence(timeout: 10))
         address.tap()
@@ -35,6 +38,7 @@ final class CompanionUITests: XCTestCase {
         app.typeText(code)
         // Typed by hand, pairing waits for a tap, with the Mac's fingerprint shown to compare.
         XCTAssertTrue(element(containing: "Mac’s fingerprint", in: app).waitForExistence(timeout: 15), "no fingerprint")
+        if !app.buttons["Pair with Mac"].isHittable { app.swipeUp() }
         app.buttons["Pair with Mac"].tap()
         let ask = app.textFields["Ask Jarvis"]
         XCTAssertTrue(ask.waitForExistence(timeout: 15), "didn't reach the home screen")
@@ -53,34 +57,37 @@ final class CompanionUITests: XCTestCase {
         XCTAssertTrue(element(containing: "Pepper has the new time", in: app).waitForExistence(timeout: 15), "no reply")
         snapshot("reply")
 
-        // Quick actions.
-        app.buttons["Take notes"].tap()
-        XCTAssertTrue(app.buttons["Stop notes"].waitForExistence(timeout: 10))
-        app.buttons["Stop notes"].tap()
-        XCTAssertTrue(app.buttons["Take notes"].waitForExistence(timeout: 10))
+        // The usual things, from the composer's + menu.
+        quick("Take Meeting Notes", in: app)
+        XCTAssertTrue(waitForMenuItem("Stop Meeting Notes", in: app), "notes didn't start")
+        app.buttons["Stop Meeting Notes"].tap()
+        XCTAssertTrue(waitForMenuItem("Take Meeting Notes", in: app), "notes didn't stop")
+        dismissMenu(app)
 
-        app.buttons["Brief me"].tap()
+        quick("Brief Me", in: app)
         XCTAssertTrue(element(containing: "Two meetings left today", in: app).waitForExistence(timeout: 15), "no briefing")
 
-        app.buttons["Routines"].tap()
+        quick("Routines", in: app)
         let routine = app.buttons["Run Wind down"]
         XCTAssertTrue(routine.waitForExistence(timeout: 5))
         snapshot("routines")
         routine.tap()
+        app.buttons["Done"].tap()
         XCTAssertTrue(element(containing: "Routine · Wind down", in: app).waitForExistence(timeout: 15))
 
-        app.buttons["What’s next?"].tap()
+        quick("What’s Next?", in: app)
         XCTAssertTrue(element(containing: "design review with Happy", in: app).waitForExistence(timeout: 15))
-        app.buttons["Stop"].tap()
+        if app.buttons["Stop"].exists { app.buttons["Stop"].tap() }
 
         // Settings, then unpair.
+        app.buttons["More"].tap()
         app.buttons["Settings"].tap()
-        let speak = app.switches["Speak replies"]
+        let speak = app.switches["Speak Replies"]
         XCTAssertTrue(speak.waitForExistence(timeout: 5))
         snapshot("settings")
         // Unpair sits at the foot of Settings, below the fold on most phones: scroll to it
         // as a person would.
-        let unpair = app.buttons["Unpair this iPhone"]
+        let unpair = app.buttons["Unpair This iPhone"]
         var swipes = 0
         while !(unpair.exists && unpair.isHittable) && swipes < 4 {
             app.swipeUp()
@@ -88,7 +95,30 @@ final class CompanionUITests: XCTestCase {
         }
         unpair.tap()
         app.buttons["Unpair"].tap()
-        XCTAssertTrue(app.textFields["Mac address"].waitForExistence(timeout: 10), "didn't go back to pairing")
+        XCTAssertTrue(app.buttons["Pair with Your Mac"].waitForExistence(timeout: 10), "didn't go back to the welcome")
+    }
+
+    /// Opens the composer's + menu and picks an item.
+    private func quick(_ item: String, in app: XCUIApplication) {
+        app.buttons["More actions"].tap()
+        let button = app.buttons[item]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "no \(item) in the + menu")
+        button.tap()
+    }
+
+    /// Opens the + menu and waits for an item to be offered.
+    private func waitForMenuItem(_ item: String, in app: XCUIApplication) -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            app.buttons["More actions"].tap()
+            if app.buttons[item].waitForExistence(timeout: 1.5) { return true }
+            dismissMenu(app)
+        }
+        return false
+    }
+
+    private func dismissMenu(_ app: XCUIApplication) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
     }
 
     private func element(containing text: String, in app: XCUIApplication) -> XCUIElement {

@@ -1,7 +1,14 @@
 # J.A.R.V.I.S. companion (iPhone + Apple Watch)
 
-Native SwiftUI companion apps for Jarvis on the Mac. They replace the phone web page
-(`/` on the companion server) and the hand-made Watch shortcut, using the same small API.
+Native SwiftUI apps for Jarvis, designed the way Apple designs its own: system colors in
+light and dark, SF Pro, grouped lists for content and Liquid Glass for the controls above
+it (iOS 26+, watchOS 26+). Paired with Jarvis on the Mac they reach everything it does;
+with no Mac (or when it can't be reached) the iPhone runs Jarvis itself on the owner's own
+Claude API key (see Jarvis on iPhone).
+
+- **Tabs:** Jarvis (the orb, the conversation, approvals, a glass composer with the
+  microphone and a + menu), Today (what needs you, weather, calendar, reminders, the Mac),
+  Code (Jarvis Code, when paired) and Library (everything else, grouped like Settings).
 
 - **iPhone** (`iOS/`): pair with the Mac (its QR code, or Bonjour / typed address +
   six-digit code), the reactor as tap-to-talk (on-device speech recognition, ends on
@@ -23,7 +30,7 @@ Native SwiftUI companion apps for Jarvis on the Mac. They replace the phone web 
 
 Bundle IDs: `com.bshventures.jarvis.companion` and
 `com.bshventures.jarvis.companion.watchkitapp`, plus three extensions (see On a device
-and TestFlight); team 9ZSY5R8A5C, automatic signing. iOS 17+, watchOS 10+.
+and TestFlight); team 9ZSY5R8A5C, automatic signing. iOS 26+, watchOS 26+.
 
 ## Build and run
 
@@ -288,6 +295,50 @@ counts approvals waiting.
 On the Watch, iPhone notifications appear by themselves with the same actions (No,
 because… by dictation or Scribble). The Watch app registers the same categories and, when
 an action is delivered to it, answers the Mac itself with the pairing the iPhone gave it.
+
+## Jarvis on iPhone
+
+`iOS/Brain/`: Claude's Messages API over HTTPS (`ClaudeClient`, streamed, its blocks kept
+exactly as they arrive), the phone's own tools (`PhoneTools`: Calendar and Reminders through
+EventKit, Contacts, weather from Open-Meteo, location, travel times and places from MapKit,
+timers as time-sensitive notifications, the Music library, Apple Home, the Health summary,
+facts it remembers, and `ask_mac` while paired), plus Anthropic's web search and fetch.
+Texts, emails and calls are only prepared: the system composer or a Call button finishes
+them with a tap (`ActionCards`).
+
+- The key is the owner's own (Settings › Jarvis on iPhone), kept in the Keychain, sent only
+  to api.anthropic.com. Model: Claude Opus 5.5 by default (Sonnet 5.5, Haiku 4.5 offered),
+  effort low for voice-speed answers, `fallbacks: "default"` for declined requests.
+- **Who answers** (paired only): Automatic (the Mac when it can be reached, else the
+  iPhone), Always my Mac, Always this iPhone. Unpaired, the iPhone always answers.
+- Siri's Ask Jarvis and Brief me fall back to it too, when there's no Mac or it can't be
+  reached (`IntentRunner.phoneAnswer`).
+- Replies are spoken in Jarvis's voice from the Mac when it's there, else the iPhone's best
+  installed voice (British, Premium or Enhanced first).
+
+## “Hey Jarvis”, the side button and the Action Button
+
+iOS gives third-party apps no always-on wake word and keeps the side button for Siri
+(outside Japan), so Jarvis is reachable every way iOS allows (Library › “Hey Jarvis” walks
+through each):
+
+- **In the app** (`WakeWordListener`): on-device speech recognition listening for the name
+  while the app is open; optionally on in the background (audio background mode, the orange
+  dot) until a call, Siri or another app takes the microphone. "Hey Jarvis, what's next?" in
+  one breath sends the request straight away.
+- **Anywhere, Lock Screen included:** Vocal Shortcuts (Settings › Accessibility › Vocal
+  Shortcuts) trained on "Hey Jarvis" runs the **Talk to Jarvis** shortcut.
+- **Talk to Jarvis** (`Activity/TalkToJarvisIntent.swift`) opens the app listening: an App
+  Shortcut ("Hey Siri, talk to Jarvis", so holding the side button and saying it works), a
+  Control (`TalkToJarvisControl`) for Control Center, the Lock Screen and the Action Button,
+  and Back Tap through Shortcuts. `jarvis-companion://listen` does the same.
+
+## More from the Mac's features
+
+Library lists the Mac's feature screens that `/api/state` names in `features` (memory,
+goals, timers, reminders, markets, background tasks, music, Shortcuts & Home, Mac
+controls, journal, meeting notes, research, invoices; `MacFeatureView`), and Settings ›
+Your Mac › Jarvis on Your Mac edits the preferences the Mac allows (`MacPrefsView`).
 
 ## Siri, Shortcuts and the Action Button
 

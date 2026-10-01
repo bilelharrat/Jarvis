@@ -18,7 +18,7 @@ struct AskJarvisIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
-        let reply = await IntentRunner.ask(request, client: .live())
+        let reply = await IntentRunner.ask(request, client: .live(), local: IntentRunner.phoneAnswer)
         return .result(value: reply, dialog: "\(reply)")
     }
 }
@@ -28,7 +28,7 @@ struct BriefMeIntent: AppIntent {
     static let description = IntentDescription("Your briefing from Jarvis: the day ahead, and what needs you.")
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
-        let briefing = await IntentRunner.brief(client: .live())
+        let briefing = await IntentRunner.brief(client: .live(), local: IntentRunner.phoneAnswer)
         return .result(value: briefing, dialog: "\(briefing)")
     }
 }
@@ -75,8 +75,13 @@ struct JarvisShortcuts: AppShortcutsProvider {
 
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
+            intent: TalkToJarvisIntent(),
+            phrases: ["Hey \(.applicationName)", "Talk to \(.applicationName)", "Open \(.applicationName) and listen", "\(.applicationName) listen"],
+            shortTitle: "Talk to Jarvis", systemImageName: "waveform"
+        )
+        AppShortcut(
             intent: AskJarvisIntent(),
-            phrases: ["Ask \(.applicationName)", "Ask \(.applicationName) something", "Talk to \(.applicationName)"],
+            phrases: ["Ask \(.applicationName)", "Ask \(.applicationName) something", "Ask \(.applicationName) a question"],
             shortTitle: "Ask Jarvis", systemImageName: "sparkle"
         )
         AppShortcut(

@@ -1,51 +1,67 @@
 import SwiftUI
 
-/// The J.A.R.V.I.S. look: an obsidian night, one reactor-blue accent, glass with a
-/// specular rim, precise hairlines, and a touch of champagne for what needs you.
+/// The J.A.R.V.I.S. look, the way Apple builds its own apps: the system's semantic colors
+/// (light and dark), SF Pro, grouped lists for content, Liquid Glass only for the controls
+/// that float above it, and one accent, Jarvis blue. The names are the app's vocabulary;
+/// each resolves to a system color, so every screen follows Dark Mode, Increase Contrast
+/// and the owner's text size by itself.
 enum Palette {
-    // Night
-    /// The canvas: near-black with a breath of blue.
-    static let space = Color(hex: 0x05070C)
-    /// A raised surface (rows, wells).
-    static let spaceRaised = Color(hex: 0x0F131B)
-    /// An inset well, darker than the canvas (an approval's exact wording).
-    static let well = Color(hex: 0x020306)
+    // Surfaces
+    /// The canvas behind a screen.
+    static let space = Color.systemBackground
+    /// A card or row on the canvas.
+    static let spaceRaised = Color.secondarySystemBackground
+    /// An inset well (an approval's exact wording, code).
+    static let well = Color.tertiarySystemFill
 
-    // Reactor blue, the one accent
-    static let cyan = Color(hex: 0x5CC8F7)
-    static let ring = Color(hex: 0x7FD4FF)
-    static let ice = Color(hex: 0xD6F3FF)
-    static let deep = Color(hex: 0x1677C9)
+    // Jarvis blue, the one accent
+    static let cyan = Color.accentColor
+    static let ring = Color.accentColor
+    static let ice = Color.accentColor
+    static let deep = Color(hex: 0x0A5BD8)
 
-    // Ink (Apple's dark-mode label ramp, cooled a little)
-    static let ink = Color(hex: 0xF5F6F8)
-    static let ink2 = Color(hex: 0xB9BFCA)
-    static let muted = Color(hex: 0x7D8696)
-    static let hairline = Color.white.opacity(0.09)
+    // Labels
+    static let ink = Color.primary
+    static let ink2 = Color.secondary
+    static let muted = Color.secondary
+    static let hairline = Color.separatorLine
 
-    // Metal: used sparingly, for what needs the owner (approvals) and ownership details
-    static let champagne = Color(hex: 0xD9C49C)
-    static let titanium = Color(hex: 0xA9ADB5)
+    /// What needs the owner (approvals, a session waiting): the system's orange.
+    static let champagne = Color.orange
+    static let titanium = Color.secondary
 
     // Signals
-    static let amber = Color(hex: 0xF4B266)
-    static let danger = Color(hex: 0xFF6259)
-    static let online = Color(hex: 0x3DD68C)
+    static let amber = Color.orange
+    static let danger = Color.red
+    static let online = Color.green
 
-    /// The reactor core, centre to rim (the desktop orb's stops).
-    static let core: [Color] = [0xF2FBFF, 0xA4E4FF, 0x3FB8F2, 0x1677C9, 0x0A3D84].map { Color(hex: $0) }
+    /// The orb's light, centre to rim.
+    static let core: [Color] = [0xF4FBFF, 0x9FD8FF, 0x3D9BFF, 0x2A62F5, 0x5B3BE8].map { Color(hex: $0) }
 
-    /// Filled buttons: lit from above, like the core.
-    static let action = LinearGradient(colors: [Color(hex: 0x9FE3FF), Color(hex: 0x45B4EE)], startPoint: .top, endPoint: .bottom)
+    /// A filled button.
+    static let action = LinearGradient(colors: [Color.accentColor, Color.accentColor], startPoint: .top, endPoint: .bottom)
+    static let champagneFoil = LinearGradient(colors: [Color.orange, Color.orange], startPoint: .top, endPoint: .bottom)
 
-    /// Brushed champagne, for a metallic hairline.
-    static let champagneFoil = LinearGradient(
-        colors: [Color(hex: 0xF3E6C8), Color(hex: 0xC4A876), Color(hex: 0xE9D7B2), Color(hex: 0xB89A68)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
+    /// Ink on a filled (accent) button.
+    static let onAction = Color.white
+}
 
-    /// Ink on a filled (reactor-blue) button.
-    static let onAction = Color(hex: 0x03101C)
+extension Color {
+    #if os(iOS)
+    static let systemBackground = Color(uiColor: .systemBackground)
+    static let secondarySystemBackground = Color(uiColor: .secondarySystemBackground)
+    static let systemGroupedBackground = Color(uiColor: .systemGroupedBackground)
+    static let secondarySystemGroupedBackground = Color(uiColor: .secondarySystemGroupedBackground)
+    static let tertiarySystemFill = Color(uiColor: .tertiarySystemFill)
+    static let separatorLine = Color(uiColor: .separator)
+    #else
+    static let systemBackground = Color.black
+    static let secondarySystemBackground = Color(white: 0.11)
+    static let systemGroupedBackground = Color.black
+    static let secondarySystemGroupedBackground = Color(white: 0.11)
+    static let tertiarySystemFill = Color.white.opacity(0.12)
+    static let separatorLine = Color.white.opacity(0.15)
+    #endif
 }
 
 /// The 8-point grid.
@@ -59,11 +75,11 @@ enum Space {
     static let xxl: CGFloat = 48
 }
 
-/// Continuous corner radii.
+/// Continuous corner radii (the system's own for cards and grouped lists).
 enum Radius {
-    static let control: CGFloat = 14
-    static let card: CGFloat = 22
-    static let sheet: CGFloat = 28
+    static let control: CGFloat = 12
+    static let card: CGFloat = 26
+    static let sheet: CGFloat = 32
 }
 
 extension Color {
@@ -79,40 +95,35 @@ extension Color {
 }
 
 extension Font {
-    /// Telemetry: small uppercase SF Mono; scales with Dynamic Type.
-    static let hud = Font.system(.caption2, design: .monospaced).weight(.semibold)
-    /// Section and card labels: small uppercase SF Pro (Weather's module headers).
-    static let eyebrow = Font.caption.weight(.semibold)
-    /// Display moments in New York, the native cousin of the desktop's Fraunces.
-    static let display = Font.system(.largeTitle, design: .serif).weight(.medium)
-    static let serifTitle = Font.system(.title2, design: .serif).weight(.medium)
-    static let serifHeadline = Font.system(.title3, design: .serif).weight(.medium)
+    /// Small labels over a value (Weather's module headers), in SF Pro.
+    static let hud = Font.footnote.weight(.semibold)
+    static let eyebrow = Font.footnote.weight(.semibold)
+    static let display = Font.largeTitle.weight(.bold)
+    static let serifTitle = Font.title2.weight(.bold)
+    static let serifHeadline = Font.title3.weight(.semibold)
     /// Jarvis's own words.
-    static let voice = Font.system(.body, design: .serif)
+    static let voice = Font.body
 }
 
-/// A telemetry label: uppercase SF Mono with letter-spacing.
+/// A small label over a value: SF Pro, secondary, the way Apple heads a module.
 struct HUDText: View {
     let text: String
     var color: Color = Palette.muted
-    var tracking: CGFloat = 1.6
 
-    init(_ text: String, color: Color = Palette.muted, tracking: CGFloat = 1.6) {
+    init(_ text: String, color: Color = Palette.muted, tracking: CGFloat = 0) {
         self.text = text
         self.color = color
-        self.tracking = tracking
     }
 
     var body: some View {
-        Text(text.uppercased())
+        Text(text)
             .font(.hud)
-            .tracking(tracking)
             .foregroundStyle(color)
             .lineLimit(1)
     }
 }
 
-/// A small uppercase SF Pro label, the way Apple heads a module.
+/// A module header (Weather's "HOURLY FORECAST"): small caps, secondary.
 struct Eyebrow: View {
     let text: String
     var color: Color = Palette.muted
@@ -124,16 +135,15 @@ struct Eyebrow: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(.eyebrow)
-            .tracking(0.9)
+            .font(.caption.weight(.semibold))
             .foregroundStyle(color)
             .lineLimit(1)
     }
 }
 
-/// Glass: a real material, darkened to the night, with a specular rim that catches the
-/// light along its top edge and a soft shadow beneath. A tint colours the rim and a faint
-/// wash (amber for trouble, champagne for approvals); white keeps it neutral.
+/// A content card: a raised, continuous-cornered surface on the canvas (content is never
+/// glass; glass is for the controls above it). A tint adds a faint wash and keeps its color
+/// for the edge: orange for what needs you, the accent for Jarvis.
 struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat = Radius.card
     var tint: Color = .white
@@ -144,31 +154,13 @@ struct GlassCard: ViewModifier {
         let neutral = tint == .white
         content
             .background {
-                shape
-                    .fill(.ultraThinMaterial)
-                    .overlay(shape.fill(Palette.spaceRaised.opacity(0.62)))
-                    .overlay(shape.fill(LinearGradient(
-                        colors: [
-                            (neutral ? Color.white : tint).opacity((neutral ? 0.045 : 0.10) * strength),
-                            (neutral ? Color.white : tint).opacity(neutral ? 0.0 : 0.02 * strength),
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    )))
-                    .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
+                shape.fill(Color.secondarySystemGroupedBackground)
+                    .overlay(shape.fill(neutral ? Color.clear : tint.opacity(0.08 * strength)))
             }
             .overlay {
-                shape.strokeBorder(
-                    LinearGradient(
-                        stops: [
-                            .init(color: (neutral ? Color.white : tint).opacity(min(1, (neutral ? 0.20 : 0.55) * strength)), location: 0),
-                            .init(color: (neutral ? Color.white : tint).opacity(neutral ? 0.07 : 0.18 * strength), location: 0.4),
-                            .init(color: Color.white.opacity(0.04), location: 0.75),
-                            .init(color: Color.white.opacity(0.07), location: 1),
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    ),
-                    lineWidth: 0.75
-                )
+                if !neutral {
+                    shape.strokeBorder(tint.opacity(0.35 * min(strength, 1.5)), lineWidth: 1)
+                }
             }
     }
 }
@@ -178,29 +170,11 @@ extension View {
         modifier(GlassCard(cornerRadius: cornerRadius, tint: tint, strength: strength))
     }
 
-    /// Glass in any shape (circles, capsules).
-    func glass<S: InsettableShape>(_ shape: S, tint: Color = .white, strength: Double = 1) -> some View {
-        let neutral = tint == .white
-        return background {
-            shape
-                .fill(.ultraThinMaterial)
-                .overlay(shape.fill(Palette.spaceRaised.opacity(0.62)))
-                .overlay(shape.fill((neutral ? Color.white : tint).opacity((neutral ? 0.05 : 0.12) * strength)))
-                .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
-        }
-        .overlay {
-            shape.strokeBorder(
-                LinearGradient(
-                    stops: [
-                        .init(color: (neutral ? Color.white : tint).opacity(min(1, (neutral ? 0.22 : 0.6) * strength)), location: 0),
-                        .init(color: Color.white.opacity(0.05), location: 0.5),
-                        .init(color: Color.white.opacity(0.08), location: 1),
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                ),
-                lineWidth: 0.75
-            )
-        }
+    /// Liquid Glass in any shape, for a control floating over content.
+    @ViewBuilder
+    func glass<S: Shape>(_ shape: S, tint: Color = .white, strength: Double = 1, interactive: Bool = true) -> some View {
+        let glass: Glass = tint == .white ? .regular : .regular.tint(tint.opacity(min(0.9, 0.45 * strength)))
+        glassEffect(interactive ? glass.interactive() : glass, in: shape)
     }
 
     /// Fades a horizontally scrolling row out at its edges, so it reads as "there's more".
@@ -215,25 +189,17 @@ extension View {
     }
 }
 
-/// The reactor's core as a small mark (a "J" avatar for Jarvis's lines, a monogram).
+/// Jarvis's mark: a small lit sphere (an avatar for Jarvis's lines, a monogram).
 struct OrbMark: View {
     var size: CGFloat = 10
     var glow = true
 
     var body: some View {
         Circle()
-            .fill(RadialGradient(
-                stops: [
-                    .init(color: Palette.core[0], location: 0),
-                    .init(color: Palette.core[1], location: 0.16),
-                    .init(color: Palette.core[2], location: 0.44),
-                    .init(color: Palette.core[3], location: 0.72),
-                    .init(color: Palette.core[4], location: 1),
-                ],
-                center: UnitPoint(x: 0.36, y: 0.32), startRadius: 0, endRadius: size * 0.9
-            ))
+            .fill(AngularGradient(colors: [Palette.core[2], Palette.core[4], Palette.core[1], Palette.core[3], Palette.core[2]], center: .center))
+            .overlay(Circle().fill(RadialGradient(colors: [.white.opacity(0.85), .white.opacity(0)], center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: size * 0.55)))
             .frame(width: size, height: size)
-            .shadow(color: Palette.cyan.opacity(glow ? 0.55 : 0), radius: size * 0.35)
+            .shadow(color: Palette.core[3].opacity(glow ? 0.45 : 0), radius: size * 0.3)
             .accessibilityHidden(true)
     }
 }

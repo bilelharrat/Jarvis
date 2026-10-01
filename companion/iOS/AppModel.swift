@@ -49,6 +49,15 @@ final class AppModel {
 
     let speech = SpeechController()
     let voice = VoicePlayer()
+    /// Jarvis on the iPhone itself: answers when there's no Mac, the Mac can't be reached,
+    /// or the owner chose it.
+    let brain = LocalBrain()
+    /// Listens for "Hey Jarvis" while the owner has it on.
+    let wake = WakeWordListener()
+    /// Which Jarvis answers (Settings).
+    private(set) var brainMode: BrainMode = .automatic
+    /// A Claude API key is saved for Jarvis on the iPhone.
+    private(set) var hasPhoneKey = false
     @ObservationIgnored private let watch = PhoneWatchBridge()
     @ObservationIgnored private let outbox = Outbox.shared
     @ObservationIgnored private var draining = false
@@ -65,7 +74,10 @@ final class AppModel {
     @ObservationIgnored private var followUntil = Date.distantPast
 
     private static let speakKey = "speakReplies"
+    static let wakeKey = "wake.enabled"
+    static let wakeBackgroundKey = "wake.background"
     static let whatsNext = "What's next on my calendar today?"
+    static let phoneBriefing = "Brief me: what's on my calendar today, the weather, and my open reminders."
 
     init() {
         #if DEBUG
@@ -89,6 +101,18 @@ final class AppModel {
         if let speak = DebugLaunch.speak { speakSetting = speak }
         #endif
         voice.onProblem = { [weak self] message in self?.show(message, style: .problem) }
+        brainMode = UserDefaults.standard.string(forKey: BrainSettings.modeKey).flatMap(BrainMode.init) ?? .automatic
+        hasPhoneKey = BrainSettings.apiKey != nil
+        brain.tools.mac = pairing?.api
+        wake.onWake = { [weak self] in self?.wakeHeard() }
+        wake.onCommand = { [weak self] command in
+            Haptics.attention()
+            Task { await self?.send(command) }
+        }
+        voice.onFinish = { [weak self] in self?.resumeWakeWord() }
+        NotificationCenter.default.addObserver(forName: ListenRequest.notification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.takeListenRequest() }
+        }
         PushCoordinator.shared.onOpen = { [weak self] destination in self?.destination = destination }
         SnapshotPublisher.shared.onChange = { [weak self] snapshot in self?.watch.send(snapshot: snapshot) }
         LiveActivities.shared.resume()
@@ -113,12 +137,64 @@ final class AppModel {
         }
     }
 
+    func setBrainMode(_ mode: BrainMode) {
+        brainMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: BrainSettings.modeKey)
+    }
+
+    func setPhoneKey(_ key: String?) throws {
+        try BrainSettings.setAPIKey(key)
+        hasPhoneKey = BrainSettings.apiKey != nil
+    }
+
+    /// The next request is answered on the iPhone: there's no Mac, the owner chose the
+    /// iPhone, or (automatically) the Mac can't be reached and the iPhone can answer.
+    var answersOnPhone: Bool {
+        guard pairing != nil else { return true }
+        switch brainMode {
+        case .phone: return true
+        case .mac: return false
+        case .automatic: return isOffline && hasPhoneKey
+        }
+    }
+
+    /// The Mac's feature screens (from /api/state).
+    var macFeatures: Set<String> { Set(remote?.features ?? []) }
+
+    /// Nothing to talk to yet: no Mac and no key for the iPhone.
+    var needsSetup: Bool {
+        #if DEBUG
+        if DebugLaunch.skipSetup { return false }
+        #endif
+        return pairing == nil && !hasPhoneKey
+    }
+
+    /// Who's answering, for the screen.
+    var answererLabel: String {
+        if answersOnPhone { return "On this iPhone" }
+        return pairing?.macLabel ?? "Your Mac"
+    }
+
     var visibleApprovals: [Approval] {
         (remote?.approvals ?? []).filter { !answering.contains($0.id) }
     }
 
     var transcript: [TranscriptLine] {
-        Transcript.lines(state: remote, pending: pending, queued: queued)
+        let mac = pairing == nil ? [] : Transcript.lines(state: remote, pending: pending, queued: queued)
+        let phone = brain.turns.map { turn in
+            TranscriptLine(
+                id: "local:\(turn.id)",
+                kind: turn.role == .user ? .user : turn.role == .jarvis ? .jarvis : .problem,
+                text: turn.text, time: turn.time, live: turn.live, onPhone: true, activity: turn.activity
+            )
+        }
+        guard !mac.isEmpty, !phone.isEmpty else { return mac + phone }
+        // Both: in the order they were said (a live line counts as now).
+        return (mac + phone).enumerated().sorted { a, b in
+            let ta = a.element.live ? Date.distantFuture : (a.element.time ?? .distantPast)
+            let tb = b.element.live ? Date.distantFuture : (b.element.time ?? .distantPast)
+            return ta == tb ? a.offset < b.offset : ta < tb
+        }.map(\.element)
     }
 
     var isOffline: Bool {
@@ -128,13 +204,14 @@ final class AppModel {
 
     /// Something is going on that Stop would stop.
     var isBusy: Bool {
-        pending?.isOpen == true || remote?.state.isBusy == true || voice.isPlaying
+        pending?.isOpen == true || remote?.state.isBusy == true || voice.isPlaying || brain.isWorking
     }
 
     var reactorMode: ReactorView.Mode {
         if speech.status == .listening || speech.status == .starting { return .listening }
-        if isOffline { return .offline }
         if voice.isPlaying { return .speaking }
+        if brain.isWorking { return .thinking }
+        if isOffline && !answersOnPhone { return .offline }
         if pending?.isOpen == true { return .thinking }
         switch remote?.state {
         case .thinking: return .thinking
@@ -151,12 +228,13 @@ final class AppModel {
         case .finishing: return "Got it"
         case .idle: break
         }
-        if isOffline { return "Offline" }
         if voice.isPlaying { return "Speaking" }
+        if brain.isWorking { return "Thinking" }
+        if isOffline && !answersOnPhone { return "Mac offline" }
         if pending?.isOpen == true { return visibleApprovals.isEmpty ? "Thinking" : "Waiting for your OK" }
-        if let state = remote?.state, state.isBusy { return "Mac is \(state.label.lowercased())" }
-        if remote == nil { return "Connecting" }
-        return "Tap to talk"
+        if !answersOnPhone, let state = remote?.state, state.isBusy { return "Mac is \(state.label.lowercased())" }
+        if !answersOnPhone, remote == nil { return "Connecting" }
+        return wake.isListening ? "Say “Hey Jarvis”, or tap" : "Tap to talk"
     }
 
     // MARK: - Lifecycle
@@ -167,10 +245,18 @@ final class AppModel {
             reloadQueue(sayExpired: true)
             restartPolling()
             Task { await HealthService.shared.sendIfDue() }
+            resumeWakeWord()
+            takeListenRequest()
+            if listenOnOpen {
+                listenOnOpen = false
+                startListening()
+            }
         } else {
             stopPolling()
             speech.cancel()
-            voice.stop()  // no background audio: iOS would cut it off anyway
+            voice.stop()
+            // "Hey Jarvis" carries on in the background only when the owner turned that on.
+            if !UserDefaults.standard.bool(forKey: Self.wakeBackgroundKey) { wake.stop() }
             if pairing != nil { BackgroundRefresh.schedule() }
         }
     }
@@ -198,6 +284,7 @@ final class AppModel {
         pairingNotice = nil
         previousAddress = nil
         self.pairing = pairing
+        brain.tools.mac = pairing.api
         watch.push(pairing)
         restartPolling()
         pushNudged = false
@@ -208,7 +295,10 @@ final class AppModel {
     /// A URL the app was opened with: a pairing link from the Mac's QR code (asked about
     /// first), or a place in the app.
     func open(_ url: URL) {
-        if let link = PairingLink(url.absoluteString) {
+        if url.scheme == Destination.scheme, url.host == "listen" {
+            // "Hey Jarvis" from Siri or Vocal Shortcuts, the Action Button, a Control.
+            if foreground { startListening() } else { listenOnOpen = true }
+        } else if let link = PairingLink(url.absoluteString) {
             offeredLink = link
         } else if let place = Destination(url: url), pairing != nil {
             destination = place
@@ -235,6 +325,7 @@ final class AppModel {
         pairing.baseURL = url
         try PairingStore.save(pairing)
         self.pairing = pairing
+        brain.tools.mac = pairing.api
         remote = nil
         link = .connecting
         watch.push(pairing)
@@ -252,11 +343,49 @@ final class AppModel {
 
     // MARK: - Talking
 
+    /// Opened by "Hey Jarvis", the Action Button or a Control: listen as soon as the app is in front.
+    @ObservationIgnored var listenOnOpen = false
+
+    /// Listen now (from a shortcut, a control, or the wake word).
+    func startListening() {
+        guard speech.status == .idle else { return }
+        talk()
+    }
+
+    /// "Talk to Jarvis" ran (Siri, a control, the Action Button): listen once the app is in front.
+    func takeListenRequest() {
+        guard ListenRequest.pending else { return }
+        ListenRequest.pending = false
+        if foreground { startListening() } else { listenOnOpen = true }
+    }
+
+    private func wakeHeard() {
+        guard speech.status == .idle, !voice.isPlaying else { return }
+        Haptics.attention()
+        talk()
+    }
+
+    /// Picks the wake word back up when nothing else is using the microphone.
+    func resumeWakeWord() {
+        guard UserDefaults.standard.bool(forKey: Self.wakeKey), speech.status == .idle, !voice.isPlaying else { return }
+        wake.start()
+    }
+
+    func setWakeWord(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.wakeKey)
+        if on {
+            resumeWakeWord()
+        } else {
+            wake.stop()
+        }
+    }
+
     /// The reactor: start listening, or finish and send.
     func talk() {
         switch speech.status {
         case .idle:
             voice.stop()
+            wake.stop()  // one listener at a time
             Haptics.talkStart()
             Task {
                 do {
@@ -282,7 +411,8 @@ final class AppModel {
     private func heard(_ text: String) {
         Haptics.talkStop()
         guard !text.isEmpty else {
-            show("I didn’t catch that. Tap the reactor and try again.")
+            show("I didn’t catch that. Tap the orb and try again.")
+            resumeWakeWord()
             return
         }
         Task { await send(text) }
@@ -298,7 +428,11 @@ final class AppModel {
     /// `queuedAt`: when it was first asked, for a question that waited in the outbox.
     func send(_ raw: String, queuedAt: Date? = nil) async {
         let text = raw.trimmed
-        guard !text.isEmpty, let api = pairing?.api else { return }
+        guard !text.isEmpty else { return }
+        if answersOnPhone && queuedAt == nil {
+            return await askPhone(text)
+        }
+        guard let api = pairing?.api else { return }
         voice.stop()
         speech.cancel()
         if isOffline {  // the last check couldn't reach the Mac: keep it for when it's back
@@ -333,13 +467,34 @@ final class AppModel {
             }
         }
         await refresh()
+        resumeWakeWord()
+    }
+
+    /// Jarvis on the iPhone answers.
+    func askPhone(_ text: String, image: Data? = nil) async {
+        voice.stop()
+        speech.cancel()
+        guard let reply = await brain.ask(text, image: image, macName: pairing?.macLabel) else {
+            resumeWakeWord()
+            return
+        }
+        announce(reply)
     }
 
     /// A reply to a request from this phone is in.
     private func announce(_ reply: String) {
         Haptics.reply()
-        guard speakReplies, foreground, !reply.trimmed.isEmpty, let api = pairing?.api else { return }
-        voice.speak(reply, using: api)
+        let canSpeak = foreground || (wake.isListening || UserDefaults.standard.bool(forKey: Self.wakeBackgroundKey))
+        guard speakReplies, canSpeak, !reply.trimmed.isEmpty else {
+            resumeWakeWord()
+            return
+        }
+        // Jarvis's own voice from the Mac when it's there; the iPhone's best voice otherwise.
+        if let api = pairing?.api, !isOffline {
+            voice.speak(reply, using: api)
+        } else {
+            voice.speakLocally(reply)
+        }
     }
 
     // MARK: - Approvals and commands
@@ -387,12 +542,16 @@ final class AppModel {
     }
 
     func run(_ command: MacCommand) async {
-        guard let api = pairing?.api else { return }
-        Haptics.tap()
         if command == .stop {
             voice.stop()
             speech.cancel()
+            brain.cancel()
         }
+        if answersOnPhone, command == .briefing {
+            return await askPhone(Self.phoneBriefing)
+        }
+        guard let api = pairing?.api else { return }
+        Haptics.tap()
         if isOffline, command.keepsWhenOffline {
             return keep(.command(command, label: label(for: command)))
         }
@@ -674,6 +833,7 @@ final class AppModel {
         HealthService.shared.turnOff()
         queued = []
         pairing = nil
+        brain.tools.mac = nil
         remote = nil
         pending = nil
         answering = []

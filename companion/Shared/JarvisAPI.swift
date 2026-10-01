@@ -329,6 +329,22 @@ struct JarvisAPI: Sendable {
         return try decode(AskResult.self, from: data)
     }
 
+    /// Any GET, read as plain JSON (the Mac's feature screens).
+    func json(_ path: String, query: [URLQueryItem] = [], timeout: TimeInterval = 15) async throws -> JSONValue {
+        let data = try await send(path, query: query, timeout: timeout)
+        do {
+            return try JSONDecoder().decode(JSONValue.self, from: data)
+        } catch {
+            throw JarvisError.notJarvis
+        }
+    }
+
+    /// Any POST, read as plain JSON.
+    func json(post path: String, _ body: JSONValue, timeout: TimeInterval = 15) async throws -> JSONValue {
+        let data = try await post(path, body, timeout: timeout)
+        return (try? JSONDecoder().decode(JSONValue.self, from: data)) ?? .object([:])
+    }
+
     /// Any POST, for requests kept in the outbox.
     func post(_ path: String, _ body: JSONValue, timeout: TimeInterval) async throws -> Data {
         try await send(path, body: try body.encoded(), timeout: timeout)

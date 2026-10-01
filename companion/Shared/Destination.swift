@@ -12,6 +12,10 @@ enum Destination: Hashable, Sendable {
     case spending
     case showJarvis
     case outbox
+    case phoneMemory
+    case heyJarvis
+    /// One of the Mac's features that has its own screen (memory, goals, timers…).
+    case mac(MacFeature)
 
     static let scheme = "jarvis-companion"
 
@@ -30,6 +34,9 @@ enum Destination: Hashable, Sendable {
         case .spending: "spending"
         case .showJarvis: "show-jarvis"
         case .outbox: "outbox"
+        case .phoneMemory: "phone-memory"
+        case .heyJarvis: "hey-jarvis"
+        case .mac(let feature): "mac/\(feature.rawValue)"
         }
     }
 
@@ -51,6 +58,11 @@ enum Destination: Hashable, Sendable {
         case "spending": self = .spending
         case "show-jarvis": self = .showJarvis
         case "outbox": self = .outbox
+        case "phone-memory": self = .phoneMemory
+        case "hey-jarvis": self = .heyJarvis
+        case "mac":
+            guard parts.count > 1, let feature = MacFeature(rawValue: parts[1].lowercased()) else { return nil }
+            self = .mac(feature)
         default: return nil
         }
     }

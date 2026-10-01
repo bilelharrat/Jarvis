@@ -4,9 +4,9 @@ name: JarvisCompanion
 options:
   bundleIdPrefix: com.bshventures.jarvis
   deploymentTarget:
-    iOS: "17.0"
-    watchOS: "10.0"
-  xcodeVersion: "16.0"
+    iOS: "26.0"
+    watchOS: "26.0"
+  xcodeVersion: "26.0"
   createIntermediateGroups: true
   developmentLanguage: en
 settings:
@@ -38,7 +38,7 @@ targets:
       INFOPLIST_FILE: iOS/Info.plist
       GENERATE_INFOPLIST_FILE: false
       TARGETED_DEVICE_FAMILY: "1"
-      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     info:
@@ -55,9 +55,14 @@ targets:
         NSBonjourServices:
           - _jarvis._tcp
         NSSpeechRecognitionUsageDescription: Turns what you say into a request for Jarvis, on your iPhone when it can.
-        NSMicrophoneUsageDescription: Listens after you tap the reactor, so you can talk to Jarvis.
+        NSMicrophoneUsageDescription: Listens when you talk to Jarvis, and for “Hey Jarvis” while you have that turned on.
+        NSCalendarsFullAccessUsageDescription: So Jarvis can tell you what’s on your calendar and add events when you ask, on this iPhone.
+        NSRemindersFullAccessUsageDescription: So Jarvis can read your reminders, add new ones and tick them off when you ask.
+        NSContactsUsageDescription: So Jarvis knows who you mean when you ask it to call or text someone.
+        NSAppleMusicUsageDescription: So Jarvis can play your music when you ask.
+        NSHomeKitUsageDescription: So Jarvis can control your Home accessories and scenes when you ask.
         NSCameraUsageDescription: Scans the pairing code your Mac shows, and takes the photos you choose to show Jarvis.
-        NSLocationWhenInUseUsageDescription: Only if you turn on Share my location. Tells Jarvis on your Mac where you are, for travel times. Only your Mac gets it.
+        NSLocationWhenInUseUsageDescription: For the weather where you are, travel times and places nearby when you ask Jarvis.
         NSLocationAlwaysAndWhenInUseUsageDescription: So Jarvis on your Mac knows when you arrive at or leave home and work, even when J.A.R.V.I.S. isn’t open. Low-power updates only; only your Mac gets it.
         NSHealthShareUsageDescription: Only if you turn on the daily health summary. Steps, sleep, resting heart rate and workouts go to Jarvis on your Mac for your briefing. Nothing is written to Health.
         NSHealthUpdateUsageDescription: J.A.R.V.I.S. never writes to Apple Health. It only reads the daily summary you turn on.
@@ -71,8 +76,6 @@ targets:
               - jarvis-companion
         UILaunchScreen:
           UIColorName: LaunchBackground
-        UIUserInterfaceStyle: Dark
-        UIStatusBarStyle: UIStatusBarStyleLightContent
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
@@ -80,6 +83,8 @@ targets:
         UIBackgroundModes:
           - remote-notification
           - fetch
+          # "Hey Jarvis" in the background, only while the owner has it turned on.
+          - audio
         BGTaskSchedulerPermittedIdentifiers:
           - com.bshventures.jarvis.companion.refresh
         NSSupportsLiveActivities: true
@@ -98,6 +103,8 @@ targets:
         # Read-only: the daily health summary, off until the owner turns it on.
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
+        # Home accessories and scenes, asked for the first time Jarvis is asked to use them.
+        com.apple.developer.homekit: true
 
   JarvisCompanionWatch:
     type: application
@@ -117,7 +124,7 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.watchkitapp
       INFOPLIST_FILE: Watch/Info.plist
       GENERATE_INFOPLIST_FILE: false
-      WATCHOS_DEPLOYMENT_TARGET: "10.0"
+      WATCHOS_DEPLOYMENT_TARGET: "26.0"
       TARGETED_DEVICE_FAMILY: "4"
       SDKROOT: watchos
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -147,7 +154,7 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.widgets
       INFOPLIST_FILE: Widgets/Info.plist
       GENERATE_INFOPLIST_FILE: false
-      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       TARGETED_DEVICE_FAMILY: "1"
       APPLICATION_EXTENSION_API_ONLY: true
     info:
@@ -179,7 +186,7 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.share
       INFOPLIST_FILE: Share/Info.plist
       GENERATE_INFOPLIST_FILE: false
-      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       TARGETED_DEVICE_FAMILY: "1"
       APPLICATION_EXTENSION_API_ONLY: true
     info:
@@ -216,7 +223,7 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.watchkitapp.widgets
       INFOPLIST_FILE: WatchWidgets/Info.plist
       GENERATE_INFOPLIST_FILE: false
-      WATCHOS_DEPLOYMENT_TARGET: "10.0"
+      WATCHOS_DEPLOYMENT_TARGET: "26.0"
       TARGETED_DEVICE_FAMILY: "4"
       SDKROOT: watchos
       APPLICATION_EXTENSION_API_ONLY: true
@@ -244,7 +251,7 @@ targets:
       - target: JarvisCompanion
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.tests
-      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       GENERATE_INFOPLIST_FILE: true
 
   # Runs only against a test server (see README); skips itself otherwise.
@@ -257,7 +264,7 @@ targets:
       - target: JarvisCompanion
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.uitests
-      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       GENERATE_INFOPLIST_FILE: true
 
 schemes:

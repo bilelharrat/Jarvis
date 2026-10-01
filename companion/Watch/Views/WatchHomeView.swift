@@ -79,7 +79,9 @@ struct WatchHomeView: View {
         TextFieldLink(prompt: Text("Ask Jarvis")) {
             VStack(spacing: 6) {
                 ReactorView(mode: model.reactorMode, size: 100)
-                HUDText(model.pending?.isOpen == true ? "Thinking" : "Tap to talk", color: Palette.cyan, tracking: 2)
+                Text(model.pending?.isOpen == true ? "Thinking…" : "Ask Jarvis")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.cyan)
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
@@ -163,8 +165,7 @@ private struct WatchExchangeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.spaceRaised.opacity(0.8)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.ring.opacity(0.25), lineWidth: 0.75))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.spaceRaised))
         .accessibilityElement(children: .combine)
     }
 }
@@ -173,7 +174,7 @@ struct WatchBackground: View {
     var body: some View {
         ZStack {
             Palette.space
-            RadialGradient(colors: [Palette.cyan.opacity(0.22), Palette.deep.opacity(0.08), .clear], center: UnitPoint(x: 0.5, y: 0.25), startRadius: 4, endRadius: 200)
+            LinearGradient(colors: [Palette.core[3].opacity(0.35), .clear], startPoint: .top, endPoint: .center)
         }
     }
 }
