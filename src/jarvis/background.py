@@ -63,6 +63,7 @@ from . import lang, utility_model
 from .brain import host_said, url_host
 from .claude_signin import signed_in
 from .config import MAX_BUFFER
+from .loopguard import LoopGuard
 from .prefs import MODELS
 from .proactive import Alert
 
@@ -78,6 +79,11 @@ PER_DAY = 20
 NOTES_PER_TASK = 3
 REQUEST_LIMIT = 4000
 PURPOSE = "background_task"  # its day's count, in utility_model's daily counts
+# Its result when it went round in circles (loopguard): stopped, and the heads-up says so.
+LOOPED = (
+    "it kept repeating the same steps without getting anywhere, so it stopped itself; ask "
+    "again and say what to try differently"
+)
 
 utility_model.register_purpose(PURPOSE, PER_DAY)
 
@@ -413,10 +419,22 @@ class BackgroundDesk:
             async with self.hub.client_factory(options=self.options(task, job)) as client:
                 task.client = client
                 await client.query(task.prompt)
+                guard, looped = LoopGuard(), False
                 async for message in client.receive_response():
+                    if looped:  # what's left of the stopped run: only its cost counts
+                        if isinstance(message, ResultMessage):
+                            task.cost_usd = message.total_cost_usd
+                        continue
                     if isinstance(message, AssistantMessage):
                         for block in message.content:
                             if isinstance(block, ToolUseBlock):
+                                loop = guard.note(block.name, block.input)
+                                if loop is not None:  # going nowhere: stop, and say so
+                                    log.info("background: task %s looped", task.id)
+                                    looped, task.status, task.result = True, "failed", LOOPED
+                                    with contextlib.suppress(Exception):
+                                        await client.interrupt()
+                                    break
                                 short = block.name.split("__")[-1]
                                 task.last_action = TOOL_WORDS.get(short, "Working")
                                 tm._changed_soon()
@@ -473,10 +491,12 @@ class BackgroundDesk:
             said = outcome(task.result) or self.tr("It's finished.")
             text = self.tr("Your background task is done: {outcome}", outcome=said)
         else:
-            text = self.tr(
-                "Your background task didn't finish: {why}",
-                why=outcome(task.result, 200) or "an error",
+            why = (
+                lang.translate(LOOPED, self.hub.language)
+                if task.result == LOOPED
+                else outcome(task.result, 200) or "an error"
             )
+            text = self.tr("Your background task didn't finish: {why}", why=why)
         if cost:
             text += " " + self.tr("It cost {cost}.", cost=cost)
         self.hub.notify(

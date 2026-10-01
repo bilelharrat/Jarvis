@@ -1,0 +1,11 @@
+{
+  "strings": {
+    "Jarvis Code seems stuck: it went round the same few steps three times without getting anywhere.": "Jarvis Code 好像卡住了：它把同样几步来回做了三遍，却没有进展。",
+    "Jarvis Code seems stuck: it did the same step three times in a row without getting anywhere.": "Jarvis Code 好像卡住了：它连续三次做了同一步，却没有进展。",
+    "Stop": "停止",
+    "Let it carry on": "让它继续",
+    "Stopped.": "已停止。",
+    "Carrying on.": "继续进行。"
+  },
+  "patterns": []
+}

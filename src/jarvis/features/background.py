@@ -53,6 +53,7 @@ ZH = {
     "Your background task is done: {outcome}": "你的后台任务完成了：{outcome}",
     "It's finished.": "已经完成了。",
     "Your background task didn't finish: {why}": "你的后台任务没有完成：{why}",
+    background.LOOPED: "它一直在重复同样的步骤，却没有进展，所以自己停下了；再问一次，并说说要换什么办法",
     "It cost {cost}.": "花了 {cost}。",
     "less than a cent": "不到一美分",
     "{n} cents": "{n} 美分",

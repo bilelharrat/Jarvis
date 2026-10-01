@@ -1,0 +1,7 @@
+/* A Jarvis Code session that seems stuck (loops.js): a calm notice in its timeline, the
+   plan card's glass with the warning tint. */
+.jc-loop { background: rgb(var(--c-surface)); border-radius: 14px; box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-accent) / 0.35); padding: 12px 16px; }
+.jc-loop-head { margin: 0 0 6px; font-size: 13px; }
+.jc-loop-steps { margin: 0 0 10px; padding-left: 18px; font-size: 12px; color: rgb(var(--c-muted)); overflow-wrap: anywhere; }
+.jc-loop-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.jc-loop-done { font-size: 12px; color: rgb(var(--c-muted)); }
