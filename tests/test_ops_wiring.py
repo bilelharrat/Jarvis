@@ -170,7 +170,9 @@ async def test_setup_shows_by_itself_only_on_a_fresh_install(
     assert state["setup"] == {"state": "skipped", "show": False}
 
 
-async def test_an_existing_install_never_gets_setup_by_itself(hub, desk_, tmp_path, monkeypatch):
+async def test_an_existing_install_gets_the_intro_once_unless_it_was_already_through_it(
+    hub, desk_, tmp_path, monkeypatch
+):
     (tmp_path / "prefs.json").write_text("{}")
     monkeypatch.setitem(desk.STARTUP, "folder", None)
     ops.prepare(tmp_path)
@@ -178,8 +180,12 @@ async def test_an_existing_install_never_gets_setup_by_itself(hub, desk_, tmp_pa
     queue = Watch(hub)
     await hub._handle({"type": "ops_state"})
     state = await queue.next("ops_state")
-    assert state["setup"] == {"state": "", "show": False}
+    assert state["setup"] == {"state": "pending", "show": True}
     assert state["app"] is False and state["restored"] is None
+    await hub._handle({"type": "ops_setup", "state": "done"})
+    assert (await queue.next("ops_state"))["setup"] == {"state": "done", "show": False}
+    await hub._handle({"type": "ops_state"})
+    assert (await queue.next("ops_state"))["setup"] == {"state": "done", "show": False}
 
 
 async def test_setups_permission_list_and_claude_sign_in(hub, desk_):

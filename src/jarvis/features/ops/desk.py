@@ -158,15 +158,11 @@ class Ops:
     # ── state and first-run setup ──
 
     def setup_info(self) -> dict[str, Any]:
-        """Setup shows by itself on a fresh install (no prefs.json when the backend
-        started) until it's finished or skipped; it can always be opened from Settings."""
+        """Setup shows by itself on a fresh install, and once on an install from before
+        the intro that has never been through it, until it's finished or skipped; it can
+        always be opened from Settings."""
         state = self.hub.prefs.feature("ops_setup_state") or ""
-        if (
-            state == ""
-            and STARTUP["fresh"]
-            and STARTUP["folder"] is not None
-            and Path(STARTUP["folder"]) == self.data
-        ):
+        if state == "" and STARTUP["folder"] is not None and Path(STARTUP["folder"]) == self.data:
             self.hub.set_feature_prefs({"ops_setup_state": "pending"})
             state = "pending"
         return {"state": state, "show": state == "pending"}
