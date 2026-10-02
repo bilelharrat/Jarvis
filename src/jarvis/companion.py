@@ -55,6 +55,7 @@ ACTIONS = {
     "sensors": "Changed what the iPhone shares",
     "contacts_answered": "Looked someone up in the iPhone's contacts",
     "calendar_synced": "Sent the iPhone's calendar",
+    "brain_keys": "Copied the Mac's API keys to the iPhone",
     "arrive_home": "Arrived home",
     "leave_home": "Left home",
     "arrive_work": "Arrived at work",

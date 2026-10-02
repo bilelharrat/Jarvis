@@ -65,6 +65,9 @@ final class AppModel {
     private(set) var brainMode: BrainMode = .automatic
     /// A Claude or Gemini API key is saved for Jarvis on the iPhone.
     private(set) var hasPhoneKey = false
+    /// Apple's own model can answer on this iPhone (Apple Intelligence on, the model ready):
+    /// looked at again each time the app comes to the front.
+    private(set) var hasAppleBrain = false
     @ObservationIgnored private let watch = PhoneWatchBridge()
     @ObservationIgnored private let outbox = Outbox.shared
     @ObservationIgnored private var draining = false
@@ -114,6 +117,7 @@ final class AppModel {
         voice.onProblem = { [weak self] message in self?.show(message, style: .problem) }
         brainMode = UserDefaults.standard.string(forKey: BrainSettings.modeKey).flatMap(BrainMode.init) ?? .automatic
         hasPhoneKey = BrainSettings.hasAnyKey
+        hasAppleBrain = AppleClient.isAvailable
         brain.tools.mac = pairing?.api
         wake.onWake = { [weak self] in self?.wakeHeard() }
         wake.onCommand = { [weak self] command in
@@ -162,16 +166,40 @@ final class AppModel {
         hasPhoneKey = BrainSettings.hasAnyKey
     }
 
-    /// The next request is answered on the iPhone: there's no Mac, the owner chose the
-    /// iPhone, or (automatically) there's a Claude or Gemini key, so the iPhone answers what
-    /// it can and hands the rest to the Mac.
-    var answersOnPhone: Bool {
-        guard pairing != nil else { return true }
-        switch brainMode {
-        case .phone: return true
-        case .mac: return false
-        case .automatic: return hasPhoneKey
+    /// Copies the Mac's Claude and Gemini API keys into this iPhone's Keychain, so Jarvis
+    /// answers here with them while the Mac can't be reached. What happened, for the screen.
+    func copyMacKeys() async -> String {
+        guard let api = pairing?.api else { return "Pair your Mac first." }
+        let keys: [String: String]
+        do {
+            keys = try await api.brainKeys()
+        } catch {
+            return (error as? JarvisError)?.message ?? error.localizedDescription
         }
+        var copied: [String] = []
+        for provider in BrainProvider.keyed {
+            guard let key = keys[provider.rawValue]?.trimmed, !key.isEmpty, provider.problem(with: key) == nil else { continue }
+            do {
+                try setPhoneKey(key, for: provider)
+                copied.append(provider.title)
+            } catch {
+                return "The Keychain wouldn’t keep the \(provider.title) key: \(error.localizedDescription)"
+            }
+        }
+        guard !copied.isEmpty else {
+            return "Your Mac has no Claude or Gemini API key saved (add one in JARVIS on your Mac, Settings › Models)."
+        }
+        return "Copied your Mac’s \(copied.joined(separator: " and ")) key. Jarvis answers here with it when your Mac can’t be reached."
+    }
+
+    /// Jarvis on the iPhone can answer: with a Claude or Gemini key, or Apple's own model.
+    var phoneCanAnswer: Bool { hasPhoneKey || hasAppleBrain }
+
+    /// The next request is answered on the iPhone: there's no Mac, the Mac can't be reached
+    /// (whatever the mode), the owner chose the iPhone, or (automatically) there's a Claude or
+    /// Gemini key, so the iPhone answers what it can and hands the rest to the Mac.
+    var answersOnPhone: Bool {
+        brainMode.answersOnPhone(paired: pairing != nil, hasKey: hasPhoneKey, canAnswer: phoneCanAnswer, macAway: isOffline)
     }
 
     /// The Mac's feature screens (from /api/state).
@@ -182,7 +210,7 @@ final class AppModel {
         #if DEBUG
         if DebugLaunch.skipSetup { return false }
         #endif
-        return pairing == nil && !hasPhoneKey
+        return pairing == nil && !phoneCanAnswer
     }
 
     /// Who's answering, for the screen.
@@ -259,6 +287,7 @@ final class AppModel {
     func setForeground(_ active: Bool) {
         foreground = active
         if active {
+            hasAppleBrain = AppleClient.isAvailable
             reloadQueue(sayExpired: true)
             restartPolling()
             Task { await HealthService.shared.sendIfDue() }
@@ -493,13 +522,8 @@ final class AppModel {
         voice.stop()
         speech.cancel()
         if answersOnPhone {
-            let jpegs = pictures.compactMap { PhotoPrep.jpeg(from: $0.image, longest: 1568, maxBytes: 4 * 1024 * 1024) }
-            guard jpegs.count == pictures.count else {
-                return restore(raw, pictures, "Couldn’t prepare those pictures.", files)
-            }
-            await askPhone(question, images: jpegs, pictures: pictures.map(\.thumbnail),
-                           documents: files.compactMap(\.block), files: files.map(\.name))
-            guard brain.lastFailed, brainMode == .automatic, pairing != nil else { return }
+            await askPhone(about: question, raw: raw, pictures: pictures, files: files)
+            guard brain.lastFailed, brainMode == .automatic, pairing != nil, !isOffline else { return }
             brain.dropFailedAsk()  // the services failed: the Mac looks at them instead
         }
         guard let api = pairing?.api else { return }
@@ -545,6 +569,8 @@ final class AppModel {
         } catch let error as JarvisError where error.neverDelivered {
             if pending?.id == request.id { pending = nil }
             sentPictures[question] = nil
+            // The Mac can't be reached: Jarvis on the iPhone looks at them instead.
+            if phoneCanAnswer { return await askPhone(about: question, raw: raw, pictures: pictures, files: []) }
             return restore(raw, pictures, unreachable)
         } catch is CancellationError {
             return
@@ -556,6 +582,16 @@ final class AppModel {
         }
         await refresh()
         resumeWakeWord()
+    }
+
+    /// Jarvis on the iPhone looks at pictures (and reads documents) with a question.
+    private func askPhone(about question: String, raw: String, pictures: [Attachment], files: [PickedDocument]) async {
+        let jpegs = pictures.compactMap { PhotoPrep.jpeg(from: $0.image, longest: 1568, maxBytes: 4 * 1024 * 1024) }
+        guard jpegs.count == pictures.count else {
+            return restore(raw, pictures, "Couldn’t prepare those pictures.", files)
+        }
+        await askPhone(question, images: jpegs, pictures: pictures.map(\.thumbnail),
+                       documents: files.compactMap(\.block), files: files.map(\.name))
     }
 
     /// What a long press on a line asked for.
@@ -606,8 +642,8 @@ final class AppModel {
         guard !text.isEmpty else { return }
         if answersOnPhone && queuedAt == nil {
             await askPhone(text, spoken: spoken)
-            // Automatic: when the key's services fail, the Mac answers instead.
-            guard brain.lastFailed, brainMode == .automatic, pairing != nil else { return }
+            // Automatic: when the key's services fail, the Mac answers instead (if it's there).
+            guard brain.lastFailed, brainMode == .automatic, pairing != nil, !isOffline else { return }
             brain.dropFailedAsk()
         }
         guard let api = pairing?.api else { return }
@@ -633,8 +669,10 @@ final class AppModel {
         } catch JarvisError.timedOut {
             if pending?.id == request.id { pending?.phase = .waiting }
         } catch let error as JarvisError where error.neverDelivered {
-            // It never got to the Mac: keep it (with when it was asked) until the Mac is back.
             if pending?.id == request.id { pending = nil }
+            // It never got to the Mac: Jarvis on the iPhone answers when it can (not one that
+            // already waited in the outbox for the Mac); otherwise it waits for the Mac.
+            if queuedAt == nil, phoneCanAnswer { return await askPhone(text, spoken: spoken) }
             keep(.ask(text, at: queuedAt ?? request.sentAt))
         } catch is CancellationError {
             return

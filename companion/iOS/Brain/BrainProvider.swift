@@ -1,9 +1,14 @@
 import Foundation
 
-/// The model APIs Jarvis on the iPhone answers with, on the owner's own keys.
+/// The models Jarvis on the iPhone answers with: Claude and Gemini on the owner's own keys,
+/// and Apple's (AppleClient), which need no key, for when there's neither a key nor a Mac.
 enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
     case claude
     case gemini
+    case apple
+
+    /// The ones that answer on a key of the owner's (Settings' key rows, the order picker).
+    static let keyed: [BrainProvider] = [.claude, .gemini]
 
     var id: String { rawValue }
 
@@ -11,6 +16,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: "Claude"
         case .gemini: "Gemini"
+        case .apple: "Apple Intelligence"
         }
     }
 
@@ -19,6 +25,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: "brain.anthropic-key"
         case .gemini: "brain.gemini-key"
+        case .apple: "brain.apple-key"  // never written: Apple's models take no key
         }
     }
 
@@ -26,6 +33,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: "brain.model"
         case .gemini: "brain.gemini-model"
+        case .apple: "brain.apple-model"
         }
     }
 
@@ -33,6 +41,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: ClaudeClient.defaultModel
         case .gemini: GeminiClient.defaultModel
+        case .apple: "apple"
         }
     }
 
@@ -48,6 +57,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
             ("gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview)"),
             ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
         ]
+        case .apple: [("apple", "Apple Intelligence")]
         }
     }
 
@@ -55,6 +65,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: "Claude API key (sk-ant-…)"
         case .gemini: "Gemini API key (AIza…)"
+        case .apple: ""
         }
     }
 
@@ -63,6 +74,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: "console.anthropic.com"
         case .gemini: "aistudio.google.com"
+        case .apple: ""
         }
     }
 
@@ -71,6 +83,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: key.hasPrefix("sk-ant-") ? nil : "That doesn’t look like a Claude API key (they start with sk-ant-)."
         case .gemini: key.count >= 30 && !key.contains(" ") ? nil : "That doesn’t look like a Gemini API key."
+        case .apple: "Apple Intelligence takes no key."
         }
     }
 }

@@ -37,14 +37,14 @@ enum IntentRunner {
     /// What a spoken answer is kept to (the whole reply is in the app).
     static let longestSpoken = 900
 
-    static let notPaired = "Open J.A.R.V.I.S. to pair your Mac or add a Claude or Gemini API key first."
+    static let notPaired = "Open J.A.R.V.I.S. to pair your Mac or add a Claude or Gemini API key first, or turn on Apple Intelligence."
 
-    /// Answers on the iPhone itself (nil when it can't: no API key).
+    /// Answers on the iPhone itself (nil when it can't: no API key and no Apple Intelligence).
     typealias Local = @Sendable (String) async -> String?
 
     /// Jarvis on the iPhone, for Siri: answers when there's no Mac or it can't be reached.
     static let phoneAnswer: Local = { text in
-        await MainActor.run { BrainSettings.hasAnyKey } ? await PhoneAnswer.ask(text) : nil
+        await MainActor.run { BrainSettings.canAnswer } ? await PhoneAnswer.ask(text) : nil
     }
 
     /// Asks Jarvis and returns what to say: the reply, or why there isn't one yet.

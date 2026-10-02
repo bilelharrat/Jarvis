@@ -240,11 +240,11 @@ struct SettingsView: View {
     }
 
     private var statusText: String {
-        guard model.pairing != nil else { return model.hasPhoneKey ? "On this iPhone" : "Not set up" }
+        guard model.pairing != nil else { return model.phoneCanAnswer ? "On this iPhone" : "Not set up" }
         return switch model.link {
         case .online: model.remote.map { "Connected · \($0.state.label)" } ?? "Connected"
         case .connecting: "Connecting…"
-        case .unreachable: "Can’t reach the Mac"
+        case .unreachable: model.phoneCanAnswer ? "Can’t reach the Mac · iPhone answers" : "Can’t reach the Mac"
         }
     }
 

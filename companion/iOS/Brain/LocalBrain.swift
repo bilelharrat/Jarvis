@@ -172,11 +172,14 @@ enum BrainSettings {
     /// Claude's key (what the app had before Gemini).
     static var apiKey: String? { key(for: .claude) }
 
-    static var hasAnyKey: Bool { BrainProvider.allCases.contains { key(for: $0) != nil } }
+    static var hasAnyKey: Bool { BrainProvider.keyed.contains { key(for: $0) != nil } }
+
+    /// Jarvis on the iPhone can answer: with a key, or with Apple's own model.
+    static var canAnswer: Bool { hasAnyKey || AppleClient.isAvailable }
 
     /// The one the owner prefers; the other answers when it can't.
     static var provider: BrainProvider {
-        UserDefaults.standard.string(forKey: providerKey).flatMap(BrainProvider.init) ?? .claude
+        UserDefaults.standard.string(forKey: providerKey).flatMap(BrainProvider.init).flatMap { BrainProvider.keyed.contains($0) ? $0 : nil } ?? .claude
     }
 
     static func model(for provider: BrainProvider) -> String {
@@ -193,16 +196,21 @@ enum BrainSettings {
     /// choose the Mac.
     static var prefersPhone: Bool { mode != .mac && hasAnyKey }
 
-    /// Who answers, in order: the preferred service, then the other, each only with a key.
-    static func clients() -> [any BrainClient] {
-        let order = [provider] + BrainProvider.allCases.filter { $0 != provider }
-        return order.compactMap { provider -> (any BrainClient)? in
+    /// Who answers, in order: the preferred service, then the other, each only with a key;
+    /// then Apple's model, which runs the phone's tools itself (apple: how), when this
+    /// iPhone has it.
+    static func clients(apple: AppleClient.Runner? = nil) -> [any BrainClient] {
+        let order = [provider] + BrainProvider.keyed.filter { $0 != provider }
+        var clients = order.compactMap { provider -> (any BrainClient)? in
             guard let key = key(for: provider) else { return nil }
             switch provider {
             case .claude: return ClaudeClient(apiKey: key, model: model(for: .claude), effort: "low")
             case .gemini: return GeminiClient(apiKey: key, model: model(for: .gemini))
+            case .apple: return nil
             }
         }
+        if let apple, AppleClient.isAvailable { clients.append(AppleClient(runner: apple)) }
+        return clients
     }
 }
 
@@ -212,6 +220,7 @@ enum BrainMode: String, CaseIterable, Identifiable {
     /// what needs the Mac to the Mac (ask_mac). The Mac answers without a key, or when the
     /// key's services fail.
     case automatic
+    /// The Mac, and the iPhone only while the Mac can't be reached.
     case mac
     case phone
 
@@ -220,8 +229,22 @@ enum BrainMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .automatic: "Automatic (iPhone First)"
-        case .mac: "Always my Mac"
+        case .mac: "My Mac First"
         case .phone: "Only this iPhone"
+        }
+    }
+
+    /// Whether the iPhone answers the next request. paired: a Mac is paired. hasKey: a Claude
+    /// or Gemini key is saved here. canAnswer: the iPhone can answer at all (a key, or Apple's
+    /// model). macAway: the Mac can't be reached right now. Whatever the mode, a Mac that
+    /// can't be reached never leaves a question waiting when the iPhone can answer it.
+    func answersOnPhone(paired: Bool, hasKey: Bool, canAnswer: Bool, macAway: Bool) -> Bool {
+        guard paired else { return true }
+        if macAway && canAnswer { return true }
+        switch self {
+        case .phone: return true
+        case .mac: return false
+        case .automatic: return hasKey
         }
     }
 }
@@ -391,10 +414,12 @@ final class LocalBrain {
         lastFailed = false
         self.spoken = spoken
         self.macName = macName
-        let clients = BrainSettings.clients()
+        let clients = BrainSettings.clients(apple: { [weak self] name, input in
+            await self?.runForApple(name, input) ?? "Jarvis stopped."
+        })
         guard !clients.isEmpty else {
             turns.append(Turn(role: .user, text: text, pictures: pictures, files: files))
-            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone, so Jarvis can answer here."))
+            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone (or turn on Apple Intelligence), so Jarvis can answer here."))
             lastFailed = true
             return nil
         }
@@ -470,6 +495,13 @@ final class LocalBrain {
             fail((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
             return nil
         }
+    }
+
+    /// A tool Apple's model asked for, run as Claude's are (shown as it runs).
+    private func runForApple(_ name: String, _ input: JSONValue) async -> String {
+        showActivity(Self.activity(for: name))
+        let result = await tools.run(name, input: input)
+        return result.isError ? "That didn’t work: \(result.text)" : result.text
     }
 
     /// Tries each service in turn: when one fails (a bad key, rate limits, an outage, no

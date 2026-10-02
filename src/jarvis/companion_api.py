@@ -1042,6 +1042,23 @@ class Api:
         self.companion.set_location(device, fix)
         return _ok()
 
+    # ── Jarvis on the iPhone ──
+
+    async def brain_keys(self, request: Request) -> Response:
+        """The Mac's Claude (Anthropic API) and Gemini keys, for Jarvis on the iPhone to
+        answer with while the Mac can't be reached. Only when the owner asks for them (a
+        button in the phone's Settings), only to a paired phone over the pinned connection,
+        and recorded in the phone's activity on the Mac. A key whose saved address no longer
+        matches (providers.key_of) isn't given."""
+        device, _data, refused = await self._post(request, "act")
+        if refused is not None:
+            return refused
+        providers = self.hub.providers
+        keys = {"claude": providers.key_of("anthropic"), "gemini": providers.key_of("gemini")}
+        keys = {name: key for name, key in keys.items() if key}
+        self.companion.record(device, "brain_keys", ", ".join(sorted(keys)) or "none saved")
+        return JSONResponse({"keys": keys})
+
     # ── sharing to the Mac ──
 
     async def share(self, request: Request) -> Response:
@@ -1227,6 +1244,7 @@ def routes(companion: Any, gate: Any) -> list[Route]:
             Route("/api/routines/run", api.routine_run, methods=["POST"]),
             Route("/api/routines/delete", api.routine_delete, methods=["POST"]),
             Route("/api/location", api.location, methods=["POST"]),
+            Route("/api/brain/keys", api.brain_keys, methods=["POST"]),
             Route("/api/share", api.share, methods=["POST"]),
             Route("/api/health", api.health, methods=["POST"]),
             Route("/api/photo", api.photo, methods=["POST"]),

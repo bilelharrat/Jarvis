@@ -1,3 +1,4 @@
+import FoundationModels
 import XCTest
 @testable import JarvisCompanion
 
@@ -242,6 +243,66 @@ final class GeminiTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? ClaudeClient.Failure, .overloaded)
         }
+    }
+}
+
+/// Jarvis on the iPhone without the Mac: who answers when the Mac can't be reached, and
+/// what Apple's models are given.
+final class OfflineBrainTests: XCTestCase {
+    func testAMacThatCantBeReachedNeverLeavesAQuestionWaitingWhenTheIPhoneCanAnswer() {
+        for mode in BrainMode.allCases {
+            XCTAssertTrue(mode.answersOnPhone(paired: true, hasKey: false, canAnswer: true, macAway: true), "\(mode)")
+            XCTAssertTrue(mode.answersOnPhone(paired: false, hasKey: false, canAnswer: false, macAway: false), "\(mode): no Mac")
+            // Nothing on the iPhone can answer: it waits for the Mac, as before.
+            XCTAssertEqual(mode.answersOnPhone(paired: true, hasKey: false, canAnswer: false, macAway: true), mode == .phone, "\(mode)")
+        }
+        // The Mac is there: the owner's choice, as before (Apple's model alone never takes over).
+        XCTAssertFalse(BrainMode.mac.answersOnPhone(paired: true, hasKey: true, canAnswer: true, macAway: false))
+        XCTAssertFalse(BrainMode.automatic.answersOnPhone(paired: true, hasKey: false, canAnswer: true, macAway: false))
+        XCTAssertTrue(BrainMode.automatic.answersOnPhone(paired: true, hasKey: true, canAnswer: true, macAway: false))
+        XCTAssertTrue(BrainMode.phone.answersOnPhone(paired: true, hasKey: false, canAnswer: true, macAway: false))
+    }
+
+    func testOnlyClaudeAndGeminiTakeKeys() {
+        XCTAssertEqual(BrainProvider.keyed, [.claude, .gemini])
+        XCTAssertNotNil(BrainProvider.apple.problem(with: "anything"))
+    }
+
+    func testAppleIsToldTheQuestionAndWhatItCantSee() {
+        let messages: [JSONValue] = [
+            ["role": "user", "content": [["type": "text", "text": "Hi"]]],
+            ["role": "assistant", "content": [["type": "text", "text": "Hello."], ["type": "tool_use", "id": "t", "name": "weather", "input": [:]]]],
+            ["role": "user", "content": [["type": "tool_result", "tool_use_id": "t", "content": "Sunny"]]],
+            ["role": "user", "content": [
+                ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": "x"]],
+                ["type": "text", "text": "What is this?"],
+            ]],
+        ]
+        let question = AppleClient.question(in: messages)
+        XCTAssertTrue(question.hasPrefix("What is this?"))
+        XCTAssertTrue(question.contains("can’t see"))
+        XCTAssertEqual(AppleClient.history(messages, limit: 1000), "\n\nThe conversation so far:\nOwner: Hi\nJarvis: Hello.")
+        XCTAssertEqual(AppleClient.history(messages, limit: 0), "")
+        XCTAssertEqual(AppleClient.history(messages, limit: 16), "\n\nThe conversation so far:\nJarvis: Hello.", "the newest that fit")
+    }
+
+    @MainActor
+    func testThePhonesToolsBecomeApplesWithTheirSchemas() {
+        let definitions = PhoneTools().definitions()
+        let all = AppleClient.tools(definitions, runner: { _, _ in "" }, everydayOnly: false)
+        let names = Set(all.map(\.name))
+        XCTAssertFalse(names.contains("web_search"), "Anthropic's server tools stay with Claude")
+        XCTAssertTrue(names.isSuperset(of: AppleClient.everyday))
+        XCTAssertEqual(all.count, definitions.filter { $0["type"] == nil }.count, "every tool's schema converts")
+        let everyday = AppleClient.tools(definitions, runner: { _, _ in "" }, everydayOnly: true)
+        XCTAssertEqual(Set(everyday.map(\.name)), AppleClient.everyday)
+        XCTAssertNil(AppleClient.schema(for: ["name": "odd", "input_schema": ["type": "object", "properties": ["x": ["type": "array"]]]]))
+    }
+
+    func testWhatAppleGeneratesIsTheToolsJSONInput() throws {
+        let content = try GeneratedContent(json: #"{"minutes":5,"label":"Tea"}"#)
+        XCTAssertEqual(AppleClient.input(from: content)["label"], "Tea")
+        XCTAssertEqual(AppleClient.input(from: content)["minutes"]?.doubleValue, 5)
     }
 }
 

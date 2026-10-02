@@ -10,13 +10,52 @@ struct PhoneBrainSettings: View {
     @AppStorage("brain.address") private var address = ""
     @AppStorage(HeadsUpCenter.notifyKey) private var headsUpNotify = true
     @AppStorage(OwnerLock.key) private var ownerOnly = false
+    @State private var copying = false
+    @State private var copied: String?
 
     var body: some View {
         Section {
             KeyRow(provider: .claude)
             KeyRow(provider: .gemini)
+            if model.pairing != nil {
+                Button {
+                    Task {
+                        copying = true
+                        copied = await model.copyMacKeys()
+                        copying = false
+                    }
+                } label: {
+                    HStack(spacing: Space.s) {
+                        IconTile(symbol: "laptopcomputer.and.arrow.down", tint: .blue)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Use My Mac’s Keys")
+                                .foregroundStyle(Palette.ink)
+                            Text(copied ?? "Copies the Mac’s Claude and Gemini API keys here")
+                                .font(.footnote)
+                                .foregroundStyle(Palette.muted)
+                        }
+                        Spacer()
+                        if copying { ProgressView() }
+                    }
+                }
+                .disabled(copying || model.isOffline)
+            }
+            LabeledContent {
+                Text(model.hasAppleBrain ? "Ready" : "Off")
+                    .foregroundStyle(model.hasAppleBrain ? Color.green : Palette.muted)
+            } label: {
+                HStack(spacing: Space.s) {
+                    IconTile(symbol: "apple.intelligence", tint: .purple)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Apple Intelligence")
+                        Text("Answers with no key, even offline")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.muted)
+                    }
+                }
+            }
             Picker(selection: $preferred) {
-                ForEach(BrainProvider.allCases) { provider in
+                ForEach(BrainProvider.keyed) { provider in
                     Text(provider.title).tag(provider.rawValue)
                 }
             } label: {
@@ -87,10 +126,10 @@ struct PhoneBrainSettings: View {
     }
 
     private var footer: String {
-        let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
+        let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. With neither, or when both fail, Apple Intelligence answers: Apple’s Private Cloud Compute when there’s internet, the model on this iPhone when there isn’t (it can’t see pictures and knows less). It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
         let more = " Heads-ups: Jarvis looks ahead at your calendar and reminders and tells you on Today; it only interrupts you (a notification) for what can't wait. Only Answer When Unlocked: Siri, Vocal Shortcuts and “Hey Jarvis” answer only once Face ID or your passcode has unlocked this iPhone (iOS doesn’t let apps recognise a voice, so this is how Jarvis knows it’s you)."
         guard model.pairing != nil else { return keys + more }
-        return keys + more + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Jarvis Code) to the Mac, opening JARVIS there if it was quit. Without a key, or when both services fail, your Mac answers."
+        return keys + more + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Jarvis Code) to the Mac, opening JARVIS there if it was quit. Without a key, or when both services fail, your Mac answers. Whatever you choose, when your Mac can’t be reached (you’re away, it’s asleep or off), this iPhone answers instead of waiting for it. Use My Mac’s Keys copies the keys saved in JARVIS on your Mac, over your paired connection."
     }
 }
 

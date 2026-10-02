@@ -318,6 +318,13 @@ struct JarvisAPI: Sendable {
         return okay(data)
     }
 
+    /// The Mac's Claude and Gemini API keys ("claude", "gemini"; only those it has), for
+    /// Jarvis on this iPhone to answer with while the Mac can't be reached.
+    func brainKeys() async throws -> [String: String] {
+        struct Keys: Decodable { var keys: [String: String] }
+        return try decode(Keys.self, from: await post("api/brain/keys", [:], timeout: 15)).keys
+    }
+
     /// The next two weeks of this iPhone's events, in place of the copy the Mac had.
     func sendCalendar(_ events: [PhoneEvent]) async throws {
         _ = try await post("api/calendar", ["events": .array(events.map(\.body))], timeout: 20)

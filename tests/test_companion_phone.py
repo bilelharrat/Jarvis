@@ -547,3 +547,17 @@ def test_a_picture_claude_cant_be_shown_is_read_from_where_it_was_saved(
     assert ask["photos"] is None and reply["saved_as"].rsplit("/", 1)[-1] in ask["text"]
     photo = phone.post("/api/photo", {"data_base64": base64.b64encode(raw).decode()})
     assert photo.status_code == 413
+
+
+# ── Jarvis on the iPhone: the Mac's keys ──
+
+
+def test_the_phone_gets_the_macs_keys_only_paired_and_it_is_recorded(phone):
+    refused = phone.client.post("/api/brain/keys", json={})
+    assert refused.status_code == 401  # no token, no keys
+    assert phone.post("/api/brain/keys", {}).json() == {"keys": {}}  # none saved yet
+    assert phone.companion.audit.items[-1]["action"] == "brain_keys"
+    providers = phone.hub.providers
+    providers.key_of = lambda kind: {"gemini": "AIza-test-key", "anthropic": ""}[kind]
+    assert phone.post("/api/brain/keys", {}).json() == {"keys": {"gemini": "AIza-test-key"}}
+    assert phone.companion.audit.items[-1]["detail"] == "gemini"
