@@ -11,12 +11,25 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs
 
 import httpx
+import pytest
 
 from jarvis.connectors import MemoryVault
 from jarvis.features import oura as oura_module
 from jarvis.features.oura import Oura
 
 TODAY = date(2026, 10, 1)
+
+
+class FixedDate(date):
+    @classmethod
+    def today(cls):
+        return TODAY
+
+
+@pytest.fixture(autouse=True)
+def _the_day_the_data_is_for(monkeypatch):
+    """The fake ring's nights are for TODAY, whatever day the tests run."""
+    monkeypatch.setattr(oura_module, "date", FixedDate)
 
 
 def night(day, hours, start="23:40", end="07:30", kind="long_sleep", **more):
@@ -333,7 +346,7 @@ def test_the_catcher_hands_back_what_comes_after_the_hash():
 def test_a_sleep_question_carries_the_rings_numbers():
     _hub, oura, _server = made()
     oura._cache = None
-    asyncio.run(oura.fetch(today=date.today()))  # what "now" reads
+    asyncio.run(oura.fetch(today=TODAY))
     extra = asyncio.run(
         oura.context("how much sleep did i get last night and whats the score", None)
     )
