@@ -349,6 +349,8 @@ final class LocalBrain {
         var files: [String] = []
         /// A problem the owner fixes by upgrading their Jarvis account (the included AI ran out).
         var offersUpgrade = false
+        /// Who answered when it wasn't the first service asked, and why the others didn't.
+        var note: String?
     }
 
     /// What's on screen, oldest first.
@@ -531,10 +533,17 @@ final class LocalBrain {
         let definitions = tools.definitions()
         var reply = ""
         var clients = clients
+        var skipped: [(BrainProvider, String)] = []
         do {
-            for _ in 0..<12 {  // tool rounds
-                let (response, answered) = try await Self.send(clients, system: system, messages: messages, tools: definitions) { text in
+            for round in 0..<12 {  // tool rounds
+                let (response, answered) = try await Self.send(
+                    clients, system: system, messages: messages, tools: definitions,
+                    onSkip: { provider, why in if round == 0 { skipped.append((provider, why)) } }
+                ) { text in
                     Task { @MainActor in self.show(reply + text) }
+                }
+                if round == 0, let first = answered.first {
+                    note(Self.fallbackNote(answeredBy: first.provider, skipped: skipped))
                 }
                 clients = answered  // the one that answered carries the rest of the turn
                 try Task.checkCancellation()
@@ -590,8 +599,11 @@ final class LocalBrain {
     /// Tries each service in turn: when one fails (a bad key, rate limits, an outage, no
     /// network to it) the next one answers. Returns the response and the services, the one
     /// that answered first.
+    /// onSkip hears each service passed over and why, so the reply can say who answered
+    /// instead (never silently).
     static func send(
         _ clients: [any BrainClient], system: String, messages: [JSONValue], tools: [JSONValue],
+        onSkip: ((BrainProvider, String) -> Void)? = nil,
         onText: @escaping @Sendable (String) -> Void
     ) async throws -> (ClaudeClient.Response, [any BrainClient]) {
         var lastError: Error = ClaudeClient.Failure.malformed
@@ -603,9 +615,18 @@ final class LocalBrain {
                 throw CancellationError()
             } catch {
                 lastError = error
+                onSkip?(client.provider, (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
             }
         }
         throw lastError
+    }
+
+    /// "Answered with Apple Intelligence. Gemini: …" — who answered, and why the ones asked
+    /// first didn't; nil when the first one did.
+    nonisolated static func fallbackNote(answeredBy: BrainProvider, skipped: [(BrainProvider, String)]) -> String? {
+        guard !skipped.isEmpty else { return nil }
+        let reasons = skipped.map { "\($0.0.title): \($0.1)" }.joined(separator: " ")
+        return "Answered with \(answeredBy.title). \(reasons)"
     }
 
     /// The reply so far, as it's written (voice mode speaks it sentence by sentence).
@@ -615,6 +636,11 @@ final class LocalBrain {
         guard isWorking, let index = turns.lastIndex(where: { $0.live }) else { return }
         turns[index].text = text.trimmed
         onLiveText?(text)
+    }
+
+    private func note(_ text: String?) {
+        guard let text, let index = turns.lastIndex(where: { $0.live }) else { return }
+        turns[index].note = text
     }
 
     private func showActivity(_ text: String) {

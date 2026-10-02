@@ -28,6 +28,9 @@ struct TranscriptLine: Identifiable, Equatable {
     var files: [String] = []
     /// A problem upgrading the Jarvis account fixes (the included AI ran out).
     var offersUpgrade = false
+    /// Why another service answered than the first one asked ("Gemini: the key wasn't
+    /// accepted"), shown small under the reply.
+    var note: String?
 }
 
 /// What can be done with a line of the conversation (a long press on it).

@@ -244,6 +244,31 @@ final class GeminiTests: XCTestCase {
             XCTAssertEqual(error as? ClaudeClient.Failure, .overloaded)
         }
     }
+
+    func testAFallbackSaysWhoAnsweredAndWhy() async throws {
+        let gemini = FakeClient(provider: .gemini, result: .failure(GeminiClient.Failure.badKey))
+        let apple = FakeClient(provider: .apple, result: .success("From Apple."))
+        var skipped: [(BrainProvider, String)] = []
+        let (_, order) = try await LocalBrain.send([gemini, apple], system: "", messages: [], tools: [], onSkip: { skipped.append(($0, $1)) }) { _ in }
+        XCTAssertEqual(skipped.map(\.0), [.gemini])
+        let note = try XCTUnwrap(LocalBrain.fallbackNote(answeredBy: order[0].provider, skipped: skipped))
+        XCTAssertTrue(note.hasPrefix("Answered with Apple Intelligence. Gemini: "), note)
+        XCTAssertTrue(note.contains("wasn’t accepted"), note)
+        XCTAssertNil(LocalBrain.fallbackNote(answeredBy: .claude, skipped: []))
+    }
+
+    func testGoogleCloudKeysGoToVertexAndStudioKeysToTheGeminiAPI() {
+        XCTAssertEqual(GeminiClient.endpoints(for: "AQ.Ab8RN6" + String(repeating: "x", count: 40)), [.vertex, .studio])
+        XCTAssertEqual(GeminiClient.endpoints(for: "AIzaSy" + String(repeating: "x", count: 33)), [.studio, .vertex])
+        XCTAssertEqual(GeminiClient.Endpoint.vertex.url(model: "gemini-flash-latest")?.absoluteString,
+                       "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-flash-latest:streamGenerateContent?alt=sse")
+        XCTAssertEqual(GeminiClient.Endpoint.studio.url(model: "gemini-flash-latest")?.host, "generativelanguage.googleapis.com")
+        let key = "AIza-remembered-" + String(repeating: "y", count: 30)
+        GeminiClient.Remembered.set(.vertex, for: key)
+        XCTAssertEqual(GeminiClient.endpoints(for: key), [.vertex, .studio], "the door that took the key last time goes first")
+        XCTAssertTrue(GeminiClient.Failure.server(404, "models/gemini-3.8-flash is not found").isNotFound)
+        XCTAssertNil(BrainProvider.gemini.problem(with: "AQ.Ab8RN6" + String(repeating: "x", count: 40)))
+    }
 }
 
 /// Jarvis on the iPhone without the Mac: who answers when the Mac can't be reached, and

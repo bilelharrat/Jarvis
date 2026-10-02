@@ -53,6 +53,8 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
             ("claude-haiku-4-5", "Claude Haiku 4.5"),
         ]
         case .gemini: [
+            ("gemini-flash-latest", "Gemini Flash (newest)"),
+            ("gemini-pro-latest", "Gemini Pro (newest)"),
             ("gemini-3.8-flash", "Gemini 3.8 Flash"),
             ("gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview)"),
             ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
@@ -64,7 +66,7 @@ enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
     var keyPlaceholder: String {
         switch self {
         case .claude: "Claude API key (sk-ant-…)"
-        case .gemini: "Gemini API key (AIza…)"
+        case .gemini: "Gemini or Google Cloud key (AIza… or AQ.…)"
         case .apple: ""
         }
     }

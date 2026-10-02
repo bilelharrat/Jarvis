@@ -245,7 +245,7 @@ final class AppModel {
                 id: "local:\(turn.id)",
                 kind: turn.role == .user ? .user : turn.role == .jarvis ? .jarvis : .problem,
                 text: turn.text, time: turn.time, live: turn.live, onPhone: true, activity: turn.activity,
-                pictures: turn.pictures, files: turn.files, offersUpgrade: turn.offersUpgrade
+                pictures: turn.pictures, files: turn.files, offersUpgrade: turn.offersUpgrade, note: turn.note
             )
         }
         guard !mac.isEmpty, !phone.isEmpty else { return mac + phone }

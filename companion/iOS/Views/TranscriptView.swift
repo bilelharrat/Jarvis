@@ -154,6 +154,12 @@ struct TranscriptRow: View {
                 RichText(text: line.text, caret: line.live)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if let note = line.note {
+                Label(note, systemImage: "arrow.triangle.branch")
+                    .font(.caption)
+                    .foregroundStyle(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

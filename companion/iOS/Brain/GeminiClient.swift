@@ -16,7 +16,40 @@ struct GeminiClient: BrainClient {
 
     var provider: BrainProvider { .gemini }
 
-    static let defaultModel = "gemini-3.8-flash"
+    /// Google's "-latest" names follow each family's newest model; numbered ones get retired.
+    static let defaultModel = "gemini-flash-latest"
+    /// What a retired or unknown model falls back to once.
+    static let fallbackModel = "gemini-flash-latest"
+
+    /// The two doors a Google key opens: Google AI Studio's Gemini API ("AIza…" keys) and
+    /// Vertex AI in express mode ("AQ.…" keys, from Google Cloud). The same request goes to
+    /// either, with the key in x-goog-api-key.
+    enum Endpoint: String, Sendable {
+        case studio, vertex
+
+        func url(model: String) -> URL? {
+            switch self {
+            case .studio: URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):streamGenerateContent?alt=sse")
+            case .vertex: URL(string: "https://aiplatform.googleapis.com/v1/publishers/google/models/\(model):streamGenerateContent?alt=sse")
+            }
+        }
+    }
+
+    /// Which door to try first for a key: the one that took it last time, else the one its
+    /// shape says.
+    static func endpoints(for key: String) -> [Endpoint] {
+        if let known = Remembered.endpoint(for: key) { return [known, known == .studio ? .vertex : .studio] }
+        return key.hasPrefix("AQ.") ? [.vertex, .studio] : [.studio, .vertex]
+    }
+
+    /// The door that accepted each key, by a hash of it (never the key), for this run.
+    enum Remembered {
+        private static let lock = NSLock()
+        nonisolated(unsafe) private static var doors: [Int: Endpoint] = [:]
+
+        static func endpoint(for key: String) -> Endpoint? { lock.withLock { doors[key.hashValue] } }
+        static func set(_ endpoint: Endpoint, for key: String) { lock.withLock { doors[key.hashValue] = endpoint } }
+    }
     /// What Gemini takes in place of a signature for a tool call it didn't make (one Claude
     /// made earlier in the conversation): the value Google's own Gemini CLI sends.
     static let unsignedCall = "skip_thought_signature_validator"
@@ -43,6 +76,12 @@ struct GeminiClient: BrainClient {
             case .malformed: "Gemini’s answer couldn’t be read."
             }
         }
+
+        /// The model (or the door) doesn't exist for this key.
+        var isNotFound: Bool {
+            if case .server(404, _) = self { return true }
+            return false
+        }
     }
 
     func send(
@@ -52,19 +91,50 @@ struct GeminiClient: BrainClient {
         onText: @escaping @Sendable (String) -> Void
     ) async throws -> ClaudeClient.Response {
         do {
-            return try await request(system: system, messages: messages, tools: tools, builtIns: Self.combinesTools, onText: onText)
+            return try await anyDoor(model: model, system: system, messages: messages, tools: tools, onText: onText)
+        } catch Failure.server(404, _) where model != Self.fallbackModel {
+            // A retired or unknown model name: the newest Flash answers instead.
+            return try await anyDoor(model: Self.fallbackModel, system: system, messages: messages, tools: tools, onText: onText)
+        }
+    }
+
+    /// The key's door first; when that door turns the key away (or doesn't know the model),
+    /// the other one.
+    private func anyDoor(
+        model: String, system: String, messages: [JSONValue], tools: [JSONValue],
+        onText: @escaping @Sendable (String) -> Void
+    ) async throws -> ClaudeClient.Response {
+        let doors = Self.endpoints(for: apiKey)
+        var lastError: Error = Failure.malformed
+        for door in doors {
+            do {
+                let response = try await withSearch(door: door, model: model, system: system, messages: messages, tools: tools, onText: onText)
+                Remembered.set(door, for: apiKey)
+                return response
+            } catch let failure as Failure where failure == .badKey || failure.isNotFound {
+                lastError = failure
+            }
+        }
+        throw lastError
+    }
+
+    private func withSearch(
+        door: Endpoint, model: String, system: String, messages: [JSONValue], tools: [JSONValue],
+        onText: @escaping @Sendable (String) -> Void
+    ) async throws -> ClaudeClient.Response {
+        do {
+            return try await request(door: door, model: model, system: system, messages: messages, tools: tools, builtIns: Self.combinesTools, onText: onText)
         } catch Failure.server(400, let message) where Self.combinesTools && message.localizedCaseInsensitiveContains("tool") {
             Self.combinesTools = false  // this model won't mix Search with the app's tools: without them
-            return try await request(system: system, messages: messages, tools: tools, builtIns: false, onText: onText)
+            return try await request(door: door, model: model, system: system, messages: messages, tools: tools, builtIns: false, onText: onText)
         }
     }
 
     private func request(
-        system: String, messages: [JSONValue], tools: [JSONValue], builtIns: Bool,
+        door: Endpoint, model: String, system: String, messages: [JSONValue], tools: [JSONValue], builtIns: Bool,
         onText: @escaping @Sendable (String) -> Void
     ) async throws -> ClaudeClient.Response {
-        let path = "https://generativelanguage.googleapis.com/v1beta/models/\(model):streamGenerateContent?alt=sse"
-        guard let url = URL(string: path) else { throw Failure.malformed }
+        guard let url = door.url(model: model) else { throw Failure.malformed }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
