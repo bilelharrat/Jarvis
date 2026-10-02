@@ -371,9 +371,14 @@ async def test_look_ahead_has_the_verdict_ready_when_the_utterance_ends(
     audio = speech("guest", 2.0)
     for i in range(0, audio.size, 800):
         listener.on_block(audio[i : i + 800], True)
-    await asyncio.sleep(0.15)
+    # One look at a time: the first (0.6 s of speech) runs, and of the ones asked for
+    # while it ran (1.1 s, 1.6 s) only the newest follows.
+    for _ in range(100):
+        if any(heard >= 1.5 and check.done() for _, heard, check in guard._ahead):
+            break
+        await asyncio.sleep(0.01)
     calls = guard.embedder.calls
-    assert calls == 3  # at 0.6 s, 1.1 s and 1.6 s of speech
+    assert calls == 2 and [round(heard, 1) for _, heard, _ in guard._ahead] == [0.6, 1.6]
     check = guard.start(audio)
     assert check.done() and check.result() is False and guard.embedder.calls == calls
     listener.on_block(audio[:800], False)  # the utterance is over: nothing kept
@@ -382,3 +387,111 @@ async def test_look_ahead_has_the_verdict_ready_when_the_utterance_ends(
     guard._ahead.clear()
     fresh = guard.start(speech("owner", 3.0))
     assert fresh is not None and await fresh is True
+
+
+# ── the owner from across the room (measured: live scores 0.31-0.42 against 0.55) ──
+
+
+class Scored:
+    """A fake embedder whose vector sits at a chosen cosine from the owner's: the canned
+    audio's first sample is the score."""
+
+    def __init__(self):
+        self.calls, self.threads, self.lengths = 0, set(), []
+
+    def __call__(self, audio):
+        import threading
+
+        self.calls += 1
+        self.threads.add(threading.current_thread().name)
+        self.lengths.append(voiceprint.seconds(audio))
+        c = float(audio[0])
+        return voiceprint.unit(c * OWNER + (1 - c * c) ** 0.5 * GUEST)
+
+
+def at_score(score: float, seconds: float = 1.5) -> np.ndarray:
+    audio = np.full(int(voiceprint.SAMPLE_RATE * seconds), 0.01, dtype=np.float32)
+    audio[0] = score
+    return audio
+
+
+def close_clips_guard(hub, scope):
+    """Enrolled from clips read in one sitting, so alike that they'd set a high bar."""
+    guard = voice_id.guard_for(hub)
+    hub.set_feature_prefs({"voice_id_on": True, "voice_id_scope": scope})
+    guard.embedder = Scored()
+    guard.print = voiceprint.enroll([OWNER + 0.01 * GUEST] * 5)
+    guard.loaded = True
+    return guard
+
+
+def test_the_bars_leave_room_for_the_owners_live_voice(tmp_path):
+    owner = voiceprint.enroll([OWNER + 0.01 * GUEST] * 5)
+    assert owner.threshold == pytest.approx(voiceprint.THRESHOLD_HIGH)  # not 0.55 any more
+    judged = {s: owner.judge(s) for s in (0.42, 0.31, 0.25, 0.1)}
+    assert judged == {0.42: "owner", 0.31: "owner", 0.25: "unsure", 0.1: "other"}
+    # A voiceprint saved at the old ceiling is read at the new one: no new enrollment.
+    path = tmp_path / "voiceprint.json"
+    path.write_text(json.dumps({"vector": [1.0] + [0.0] * 63, "threshold": 0.55, "clips": 5}))
+    back = voiceprint.Voiceprint.load(path)
+    assert back is not None and back.threshold == pytest.approx(voiceprint.THRESHOLD_HIGH)
+
+
+@pytest.mark.parametrize("score", [0.31, 0.36, 0.42])
+async def test_everything_mode_answers_the_owner_at_their_measured_scores(
+    settings, quiet_speaker, isolated, score
+):
+    hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
+    hub.transcriber = Words("Jarvis, what's on tomorrow?", 0.05)
+    close_clips_guard(hub, "all")
+    hub._heard.put_nowait(("full", time.monotonic(), at_score(score)))
+    await asyncio.sleep(0.3)
+    assert hub.client.said == ["what's on tomorrow"]
+
+
+async def test_an_unsure_voice_is_answered_but_risky_steps_ask(settings, quiet_speaker, isolated):
+    hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
+    hub.transcriber = Words("Jarvis, send Ben the report", 0.05)
+    close_clips_guard(hub, "all")
+    words = []
+    before = hub._before_query
+
+    async def spy(text, rid):
+        words.append(text)
+        await before(text, rid)
+
+    hub._before_query = spy
+    hub._heard.put_nowait(("full", time.monotonic(), at_score(0.25)))
+    await asyncio.sleep(0.3)
+    hub._heard.put_nowait(("full", time.monotonic(), at_score(0.05)))
+    await asyncio.sleep(0.3)
+    # Unsure: answered (never silence for the owner across the room), but its words aren't
+    # the owner's, so a send asks first. Clearly someone else, with "Everything": ignored.
+    assert hub.client.said == ["send Ben the report"] and words == [""]
+
+
+async def test_checks_run_on_their_own_thread_and_only_on_the_first_seconds(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    guard = close_clips_guard(hub, "all")
+    listener = Listener()
+    guard.attach(listener)
+    long = at_score(0.36, 12.0)  # a long utterance (a monologue, a TV)
+    for i in range(0, long.size, 800):
+        listener.on_block(long[i : i + 800], True)
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        if guard._ahead and all(c.done() for _, _, c in guard._ahead) and not guard._next_look:
+            break
+    looks = guard.embedder.calls
+    # Looked at only over its first LOOK_SECONDS, never more than one at a time: two checks,
+    # where every half second of all twelve used to start one (twenty-three).
+    assert looks == 2 and max(guard.embedder.lengths) == pytest.approx(voice_id.LOOK_SECONDS)
+    full = guard.start(long)
+    assert full is not None and await full is True and guard.embedder.calls == looks
+    fresh = guard._check(at_score(0.36, 12.0))
+    assert await fresh is True
+    assert guard.embedder.lengths[-1] == pytest.approx(voiceprint.MAX_CHECK_SECONDS)
+    assert {name.split("_")[0] for name in guard.embedder.threads} == {"jarvis-voice-check"}

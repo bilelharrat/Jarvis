@@ -9,6 +9,11 @@ The scope setting says what someone else's voice may do:
   deletes and Jarvis Code approvals need the owner's voice. Their words don't count as the
   owner's own, so every gate asks first, and a spoken "yes" to a card from them isn't taken.
 
+A voice the check is unsure of (between the owner's threshold and the "someone else" bar,
+voiceprint.py) is answered in both scopes, but its words aren't the owner's for a risky
+step: the owner from across the room, or through the echo-cancelled microphone, is never
+left unanswered.
+
 Tapping the orb, ⌥Space and typed requests are never checked.
 
 No added latency: the hub starts a check (voiceprint.py's embedding, in a thread) as soon
@@ -40,6 +45,7 @@ import logging
 import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -58,10 +64,22 @@ ENROLL_TRIES = 3  # per sentence, before it gives up
 CHECK_WAIT = 2.0  # a check this late (a busy Mac) allows, as before
 # While someone talks, a look-ahead check of what they've said so far runs every this many
 # seconds of new audio, so the verdict is ready when the utterance ends, even when its
-# words are too (Apple's live recognizer).
+# words are too (Apple's live recognizer). Only over its first LOOK_SECONDS (who spoke
+# shows early) and never while the last look is still running: a busy room or a TV used
+# to start a check every half second of every utterance, on the threads transcription
+# needs too.
 LOOK_AHEAD = 0.5
-MAX_BUFFER = 20.0  # seconds of one utterance kept for look-aheads
+LOOK_SECONDS = 3.0
+MAX_BUFFER = voiceprint.MAX_CHECK_SECONDS  # seconds of one utterance kept for look-aheads
 FOLDER = "voice_id"
+
+# A verdict between the owner's threshold and REJECT (voiceprint.py): answered, but not
+# the owner's word for a risky step.
+UNSURE = voiceprint.UNSURE
+
+# Checks run on a thread of their own, one at a time: they never wait behind other work
+# (a transcription, the file index) and never hold it up.
+_CHECKS = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-voice-check")
 
 REFUSED = "Sorry, only the owner's voice can approve that."
 lang.add_texts({REFUSED: "抱歉，只有主人的声音才能批准这个。"})
@@ -88,6 +106,8 @@ class VoiceGuard:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._heard: list[Any] = []  # the utterance so far (the microphone's thread)
         self._heard_size, self._heard_began, self._looked = 0, 0.0, 0
+        self._looking: asyncio.Future | None = None  # the look-ahead still running
+        self._next_look: tuple[Any, float] | None = None  # the newest one waiting for it
         self._ahead: deque[tuple[float, float, asyncio.Future]] = deque(maxlen=4)
         self.downloading: dict[str, int] | None = None
         self.enrolling: dict[str, Any] | None = None
@@ -149,17 +169,24 @@ class VoiceGuard:
         if not self.active() or length < voiceprint.MIN_SECONDS:
             return None
         began = time.monotonic() - length - 0.5
+        # (less a block: a look covers whole microphone blocks)
+        enough = max(voiceprint.MIN_SECONDS, min(length / 2, LOOK_SECONDS)) - 0.05
         for start, heard, check in reversed(self._ahead):
-            # A look-ahead of this utterance that's done and heard most of it: its verdict.
+            # A look-ahead of this utterance that's done and heard enough of it (half of
+            # it, or its first LOOK_SECONDS): its verdict.
             if (
                 start >= began
-                and heard >= max(voiceprint.MIN_SECONDS, length / 2)
+                and heard >= enough
                 and check.done()
                 and not check.cancelled()
                 and check.result() is not None
             ):
                 return check
-        return asyncio.ensure_future(asyncio.to_thread(self._verdict, audio))
+        return self._check(audio)
+
+    def _check(self, audio: Any) -> asyncio.Future:
+        loop = asyncio.get_running_loop()
+        return asyncio.ensure_future(loop.run_in_executor(_CHECKS, self._verdict, audio))
 
     # ── look-ahead, while the utterance is still being said ──
 
@@ -187,6 +214,8 @@ class VoiceGuard:
         if not speaking or not self.active():
             self._heard, self._heard_size, self._looked = [], 0, 0
             return
+        if self._heard_size >= LOOK_SECONDS * voiceprint.SAMPLE_RATE:
+            return  # enough heard to tell who it is: the rest isn't looked at
         samples = np.array(block, dtype=np.float32).ravel()
         if not self._heard:
             self._heard_began = time.monotonic() - samples.size / voiceprint.SAMPLE_RATE
@@ -195,23 +224,41 @@ class VoiceGuard:
         self._heard.append(samples)
         self._heard_size += samples.size
         rate = voiceprint.SAMPLE_RATE
-        if self._heard_size - self._looked >= LOOK_AHEAD * rate and (
-            self._heard_size >= voiceprint.MIN_SECONDS * rate
-        ):
+        last = self._heard_size >= LOOK_SECONDS * rate  # the last look: who it is, by now
+        if (
+            self._heard_size - self._looked >= LOOK_AHEAD * rate
+            or (last and self._looked < self._heard_size)
+        ) and (self._heard_size >= voiceprint.MIN_SECONDS * rate):
             self._looked = self._heard_size
             audio = np.concatenate(self._heard)
             if self._loop is not None:
                 self._loop.call_soon_threadsafe(self._look_ahead, audio, self._heard_began)
 
     def _look_ahead(self, audio: Any, began: float) -> None:
-        check = asyncio.ensure_future(asyncio.to_thread(self._verdict, audio))
+        if self._looking is not None and not self._looking.done():
+            # One look at a time: the newest waits for the running one (an older waiting
+            # one is dropped), so a busy Mac never piles them up and the verdict on the
+            # most speech heard is still the one ready when the utterance ends.
+            self._next_look = (audio, began)
+            return
+        check = self._check(audio)
+        self._looking = check
         self._ahead.append((began, voiceprint.seconds(audio), check))
+        check.add_done_callback(lambda _done: self._look_next())
 
-    def _verdict(self, audio: Any) -> bool | None:
-        """True: the owner. False: someone else. None: can't tell (then it's allowed)."""
+    def _look_next(self) -> None:
+        waiting, self._next_look = self._next_look, None
+        if waiting is not None:
+            self._look_ahead(*waiting)
+
+    def _verdict(self, audio: Any) -> bool | str | None:
+        """True: the owner. False: someone else. UNSURE: between the bars (answered, not
+        the owner's word for a risky step). None: can't tell (then it's allowed)."""
         embedder, owner = self.embedder, self.print
         if embedder is None or owner is None:
             return None
+        cap = int(voiceprint.MAX_CHECK_SECONDS * voiceprint.SAMPLE_RATE)
+        audio = audio[:cap] if getattr(audio, "size", 0) > cap else audio
         try:
             embedding = embedder(audio)
         except Exception:
@@ -220,10 +267,16 @@ class VoiceGuard:
         if embedding is None:
             return None
         score = owner.score(embedding)
-        same = score >= owner.threshold
-        who = "owner" if same else "not the owner"
-        log.info("voice check: %s (%.2f, needs %.2f)", who, score, owner.threshold)
-        return same
+        judged = owner.judge(score)
+        who = {voiceprint.OWNER: "owner", UNSURE: "unsure", voiceprint.OTHER: "not the owner"}
+        log.info(
+            "voice check: %s (%.2f; owner from %.2f, someone else below %.2f)",
+            who[judged],
+            score,
+            owner.threshold,
+            min(voiceprint.REJECT, owner.threshold),
+        )
+        return {voiceprint.OWNER: True, voiceprint.OTHER: False}.get(judged, UNSURE)
 
     async def allows(self, check: Any, risky: bool = False) -> bool:
         try:
@@ -231,8 +284,10 @@ class VoiceGuard:
         except Exception:  # timed out or failed: never blocks, never refuses
             log.warning("voice recognition: no verdict in time; allowed")
             return True
-        if same is None or same:
+        if same is None or same is True:
             return True
+        if same == UNSURE:  # probably the owner, further away or in another room
+            return not risky
         return not (risky or self.scope() == "all")
 
     def refused(self) -> None:

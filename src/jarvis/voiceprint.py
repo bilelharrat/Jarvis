@@ -50,11 +50,25 @@ SPEAKER_MODEL: dict[str, Any] = {
 MODEL_FILE = "speaker.onnx"
 # Too little speech says little about who spoke: shorter utterances aren't checked.
 MIN_SECONDS = 0.6
-# The cosine threshold: the owner's own clips set it (enroll), kept inside these bounds.
-THRESHOLD = 0.35
-THRESHOLD_LOW, THRESHOLD_HIGH = 0.2, 0.55
+# Who spoke shows in the first seconds: a check embeds at most this much of an utterance,
+# so a long one (a TV, a monologue) costs no more than a short one.
+MAX_CHECK_SECONDS = 6.0
+# Two cosine bars. At or above the owner's threshold: the owner. Below REJECT: someone
+# else. Between them: unsure, which is answered but isn't the owner's word for a risky
+# step. The owner's own clips set the threshold (enroll), kept inside these bounds.
+#
+# Measured on the owner's Mac (2026-10): enrollment clips, read in one sitting close to
+# the microphone, agree at ~0.75 with each other, so the threshold always came out at the
+# old 0.55 ceiling; the owner's live hands-free requests (another distance and room, short
+# commands, sometimes the echo-cancelled microphone) scored 0.31-0.42 against it, and
+# with "Everything" every one of them went unanswered (11,500 refusals in the log).
+THRESHOLD = 0.30
+THRESHOLD_LOW, THRESHOLD_HIGH = 0.25, 0.30
+REJECT = 0.20
 MARGIN = 0.1  # below the weakest of the owner's own enrollment clips
 MIN_CLIPS = 3
+
+OWNER, UNSURE, OTHER = "owner", "unsure", "other"
 
 
 class Unavailable(RuntimeError):
@@ -170,6 +184,12 @@ class Voiceprint:
     def matches(self, embedding: Any) -> bool:
         return self.score(embedding) >= self.threshold
 
+    def judge(self, score: float) -> str:
+        """OWNER, UNSURE or OTHER for a score (see THRESHOLD and REJECT)."""
+        if score >= self.threshold:
+            return OWNER
+        return UNSURE if score >= min(REJECT, self.threshold) else OTHER
+
     def save(self, path: Path) -> None:
         jsonstore.save_json(
             path,
@@ -211,7 +231,8 @@ def forget(path: Path) -> None:
 def enroll(embeddings: list[Any]) -> Voiceprint:
     """The voiceprint of the owner's enrollment clips. Its threshold: a margin below how
     close the least typical of their own clips is to the others (leave one out), kept
-    within sane bounds, so a voice that varies more gets a little more room."""
+    within the bounds above: clips from one sitting agree far more than the owner's live
+    requests do, so the ceiling, not the clips, usually decides it."""
     vectors = [v for v in (unit(e) for e in embeddings) if v is not None]
     if len(vectors) < MIN_CLIPS:
         raise ValueError(f"need at least {MIN_CLIPS} clips, got {len(vectors)}")
