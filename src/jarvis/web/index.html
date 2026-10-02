@@ -249,9 +249,9 @@
     </div>
     <div id="tone-row" hidden>
       <div class="segmented" id="tone-group" role="radiogroup" aria-label="Stark Glass appearance">
-        <button type="button" role="radio" data-tone="dark" aria-checked="true">Dark</button>
+        <button type="button" role="radio" data-tone="dark" aria-checked="false">Dark</button>
         <button type="button" role="radio" data-tone="light" aria-checked="false">Light</button>
-        <button type="button" role="radio" data-tone="auto" aria-checked="false">Match Mac</button>
+        <button type="button" role="radio" data-tone="auto" aria-checked="true">Match Mac</button>
       </div>
       <p class="group-note">Stark Glass at night, or in white. Match Mac follows your Mac’s appearance.</p>
     </div>
@@ -544,10 +544,10 @@
       <button type="button" class="bd-icon" id="br-forward" aria-label="Forward"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></button>
       <button type="button" class="bd-icon" id="br-reload" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 11-1.5-3.6M13 2.5v3h-3"/></svg></button>
       <div class="bd-url">
-        <span id="br-lock" class="bd-lock" hidden title="Only J.A.R.V.I.S. can drive the Research Center: your voice and your hands, not the mouse or keyboard.">
-          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="5.5" width="8" height="5.5" rx="1.4" fill="currentColor"/><path d="M4 5.5V4a2 2 0 014 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
-          <span id="br-lock-text">J.A.R.V.I.S. only</span>
-        </span>
+        <button type="button" id="br-lock" class="bd-lock" hidden aria-pressed="false" title="Your mouse and keyboard work here, and J.A.R.V.I.S. can drive it too. Click to make it J.A.R.V.I.S. only.">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="5.5" width="8" height="5.5" rx="1.4" fill="currentColor"/><path id="br-lock-shackle" d="M4 5.5V4a2 2 0 014 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span id="br-lock-text">You and J.A.R.V.I.S.</span>
+        </button>
         <label for="br-url" class="sr-only">Address</label>
         <input id="br-url" placeholder="Search or enter an address" spellcheck="false" list="br-suggest" autocomplete="off">
         <datalist id="br-suggest"></datalist>

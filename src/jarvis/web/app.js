@@ -5577,6 +5577,7 @@ async function runResearchCmd(ev) {
     if (!app || !app.browser) result = { error: 'The Research Center only opens in the J.A.R.V.I.S. app window.' };
     else if (ev.action === 'open') result = await openResearch(args.path || '/markets');
     else if (ev.action === 'close') { toggleBrowser(false); result = { ok: true }; }
+    else if (ev.action === 'lock') result = { ok: true, locked: await app.browser.researchLock(!!args.on) };
     else if (!browserOpenNow || !browserState.research) result = { error: 'The Research Center is closed. Open it first.' };
     else result = await app.browser.command({ action: ev.action, args });
   } catch (err) {
@@ -5603,6 +5604,8 @@ if (app && app.browser) {
   $('br-forward').addEventListener('click', () => app.browser.nav('forward'));
   $('br-reload').addEventListener('click', () => app.browser.nav('reload'));
   $('br-research').addEventListener('click', () => openResearch(lastResearchPath));
+  // The lock badge: J.A.R.V.I.S. only on the Research Center, or your mouse and keyboard too.
+  $('br-lock').addEventListener('click', () => app.browser.researchLock(!browserState.lockWanted));
   $('br-retry').addEventListener('click', () => {
     $('br-message').hidden = true;
     app.browser.show(slotBounds());
@@ -5614,6 +5617,21 @@ if (app && app.browser) {
     app.browser.nav('go', $('br-url').value);
     $('br-url').blur();
   });
+  // Three states: J.A.R.V.I.S. only (locked), its sign-in page while locked (the user signs
+  // in themselves), or shared (the default: the mouse and keyboard work, and so does Jarvis).
+  function renderResearchLock(st) {
+    const badge = $('br-lock');
+    badge.hidden = !st.research;
+    const shared = !st.lockWanted;
+    badge.classList.toggle('shared', !!st.research && shared);
+    badge.classList.toggle('open', !!st.research && !shared && !st.locked);
+    badge.setAttribute('aria-pressed', String(!shared));
+    $('br-lock-shackle').setAttribute('d', shared ? 'M4 5.5V4a2 2 0 014 0' : 'M4 5.5V4a2 2 0 014 0v1.5');
+    $('br-lock-text').textContent = shared ? 'You and J.A.R.V.I.S.' : st.locked ? 'J.A.R.V.I.S. only' : 'Sign in yourself, then I take over';
+    badge.title = shared
+      ? 'Your mouse and keyboard work here, and J.A.R.V.I.S. can drive it too. Click to make it J.A.R.V.I.S. only.'
+      : 'Only J.A.R.V.I.S. drives the Research Center: your voice and your hands. Click to use your mouse and keyboard too.';
+  }
   app.browser.onState((st) => {
     browserState = st;
     renderTabs(st.tabs || []);
@@ -5621,9 +5639,7 @@ if (app && app.browser) {
     $('br-back').disabled = !st.canBack;
     $('br-forward').disabled = !st.canForward;
     $('bd-progress').hidden = !st.loading;
-    $('br-lock').hidden = !st.research;
-    $('br-lock').classList.toggle('open', !!st.research && !st.locked);
-    $('br-lock-text').textContent = st.locked ? 'J.A.R.V.I.S. only' : 'Sign in yourself, then I take over';
+    renderResearchLock(st);
     $('br-zoom').hidden = !st.zoom || st.zoom === 100;
     $('br-zoom').textContent = `${st.zoom}%`;
     if (st.error) showBrowserError(st.error);

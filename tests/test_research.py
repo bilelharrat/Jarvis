@@ -148,6 +148,32 @@ def test_pressing_something_risky_asks_first():
     assert result["ok"] is False and all(not a.get("force") for _, a in window.calls)
 
 
+def test_the_lock_switches_both_ways_and_says_which():
+    class LockWindow:
+        def __init__(self):
+            self.calls = []
+
+        async def __call__(self, action, args=None):
+            self.calls.append((action, dict(args or {})))
+            return {"ok": True, "locked": bool((args or {}).get("on"))}
+
+    window = LockWindow()
+    off = run(research.set_lock(window, False))
+    on = run(research.set_lock(window, True))
+    assert window.calls == [("lock", {"on": False}), ("lock", {"on": True})]
+    assert "mouse and keyboard work" in off["message"]
+    assert "J.A.R.V.I.S. only" in on["message"]
+
+    async def no_window(_action, _args=None):
+        return {"error": "The Research Center only opens in the J.A.R.V.I.S. app window."}
+
+    assert run(research.set_lock(no_window, False))["error"].startswith("The Research Center")
+
+
+def test_the_prompt_no_longer_says_the_mouse_is_blocked():
+    assert "don't reach it" not in research.PROMPT and "research_lock" in research.PROMPT
+
+
 def test_reading_marks_page_text_as_data():
     text = research.reading(
         {

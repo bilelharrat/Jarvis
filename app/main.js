@@ -338,8 +338,10 @@ ipcMain.handle('jarvis:pick-folder', async () => {
 // A sandboxed page in its own storage partition, docked beside Jarvis. No Node, no access
 // to the app: page-preload.js runs in an isolated world as Jarvis's hand in the page (the
 // cursor, lighting up what it aims at, clicking, scrolling, reading). On the BSH Research
-// Center's own pages the mouse and keyboard don't reach the page at all: only Jarvis drives
-// it, by voice and by hand (its sign-in pages excepted, so the user signs in themselves).
+// Center's own pages the user's mouse and keyboard work as on any page, and Jarvis drives
+// it too, by voice and by hand. The lock badge in the address bar switches it to Jarvis
+// only (researchLock in browser.json): then the mouse and keyboard don't reach the page,
+// except on its sign-in pages, so the user signs in themselves.
 
 const RESEARCH_AUTH = /^\/(login|reset|terms|account\/password)(\/|$)/;
 let browserView = null; // the tab on show; the others keep loading behind it
@@ -396,6 +398,7 @@ function sendBrowserState(extra = {}) {
     canBack: wc.navigationHistory.canGoBack(),
     canForward: wc.navigationHistory.canGoForward(),
     locked: browserLocked,
+    lockWanted: browserStore().researchLock,
     research: onResearch(url),
     zoom: Math.round(wc.getZoomFactor() * 100),
     ...extra,
@@ -404,9 +407,18 @@ function sendBrowserState(extra = {}) {
 
 function updateLock() {
   const wc = browserView.webContents;
-  browserLocked = onResearch(wc.getURL()) && !RESEARCH_AUTH.test(researchPath(wc.getURL()));
+  browserLocked = browserStore().researchLock && onResearch(wc.getURL()) && !RESEARCH_AUTH.test(researchPath(wc.getURL()));
   wc.send('jarvis:locked', browserLocked);
   sendBrowserState();
+}
+
+// The lock badge: Jarvis only on the Research Center, or the user's mouse and keyboard too.
+function setResearchLock(on) {
+  const store = browserStore();
+  store.researchLock = Boolean(on);
+  saveBrowserStore();
+  if (browserView) updateLock();
+  return store.researchLock;
 }
 
 function ensureBrowser() {
@@ -554,6 +566,7 @@ function browserStore() {
     history: Array.isArray(raw.history) ? raw.history.filter((h) => h && typeof h.url === 'string').slice(-2000) : [],
     bookmarks: Array.isArray(raw.bookmarks) ? raw.bookmarks.filter((b) => b && typeof b.url === 'string') : [],
     adblock: raw.adblock !== false,
+    researchLock: raw.researchLock === true, // Jarvis only on the Research Center (off unless asked)
     allow: Array.isArray(raw.allow) ? raw.allow.filter((h) => typeof h === 'string').slice(0, 500) : [],
   };
   return browserData;
@@ -1193,6 +1206,10 @@ ipcMain.handle('browser:find', async (event, { text, forward = true, stop = fals
   const r = await pageCall('find', { text: String(text || ''), forward, stop: stop || !text }, 3000);
   if (win && !stop && text) win.webContents.send('browser:found', { matches: r.matches || 0, active: r.active || 0 });
   return r;
+});
+ipcMain.handle('browser:research-lock', (event, on) => {
+  if (!fromWindow(event)) return false;
+  return setResearchLock(on);
 });
 ipcMain.handle('browser:shields', (event, { action } = {}) => {
   if (!fromWindow(event) || !browserView) return;
