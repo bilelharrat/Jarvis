@@ -38,7 +38,7 @@ from .. import connectors
 log = logging.getLogger("jarvis")
 
 CONN = "oura"
-AUTHORIZE_URL = "https://cloud.ouraring.com/oauth/authorize"
+AUTHORIZE_URL = "https://developer.ouraring.com/authorize"  # as Oura's own example links
 TOKEN_URL = "https://api.ouraring.com/oauth/token"
 API = "https://api.ouraring.com/v2/usercollection"
 SCOPES = "personal daily heartrate session spo2"
@@ -168,12 +168,75 @@ def activity_line(day: str, activity: dict[str, dict[str, Any]]) -> str:
     return ", ".join(parts)
 
 
+# The client-side flow puts the token after a # in the redirect, which only the browser sees:
+# the page at /callback hands it back to /done.
+CATCHER_PAGE = (
+    "<!doctype html><meta charset=utf-8><title>Jarvis</title>"
+    "<body style='font:17px -apple-system,sans-serif;display:grid;place-items:center;"
+    "height:100vh;margin:0;background:#f4f0e8;color:#1c1b19'><p id=m>Connecting to Jarvis…</p>"
+    "<script>const p=new URLSearchParams(location.hash.slice(1));"
+    "new URLSearchParams(location.search).forEach((v,k)=>p.set(k,v));"
+    "fetch('/done?'+p.toString()).then(r=>r.text()).then(t=>{document.getElementById('m')"
+    ".textContent=t;history.replaceState(null,'','/callback')})"
+    ".catch(()=>{document.getElementById('m').textContent='Jarvis stopped waiting. Try Connect again.'})"
+    "</script>"
+)
+
+
+class TokenCatcher:
+    """localhost:47823 (the redirect Oura has for the app) while a sign-in is on."""
+
+    def __init__(self, port: int = connectors.CALLBACK_PORT) -> None:
+        self.port = port
+        self._waiter: asyncio.Future | None = None
+
+    async def wait(self, timeout: float = connectors.SIGN_IN_TIMEOUT) -> dict[str, str]:
+        self._waiter = asyncio.get_running_loop().create_future()
+        server = await asyncio.start_server(self._handle, host=["127.0.0.1", "::1"], port=self.port)
+        try:
+            return await asyncio.wait_for(self._waiter, timeout)
+        finally:
+            server.close()
+            self._waiter = None
+
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            line = await asyncio.wait_for(reader.readline(), 10)
+            parts = line.decode(errors="replace").split()
+            target = urllib.parse.urlparse(parts[1] if len(parts) > 1 else "/")
+            if target.path == "/callback":
+                body, kind = CATCHER_PAGE, "text/html"
+            elif target.path == "/done":
+                found = {k: v[0] for k, v in urllib.parse.parse_qs(target.query).items()}
+                if self._waiter is not None and not self._waiter.done():
+                    self._waiter.set_result(found)
+                ok = "access_token" in found or "code" in found
+                body = (
+                    "Connected to Jarvis. You can close this tab."
+                    if ok
+                    else "The sign-in didn't finish. Try Connect again in Jarvis."
+                )
+                kind = "text/plain"
+            else:
+                body, kind = "Not found.", "text/plain"
+            data = body.encode()
+            writer.write(
+                f"HTTP/1.1 200 OK\r\nContent-Type: {kind}; charset=utf-8\r\n"
+                f"Cache-Control: no-store\r\nContent-Length: {len(data)}\r\n"
+                "Connection: close\r\n\r\n".encode()
+                + data
+            )
+            await writer.drain()
+        finally:
+            writer.close()
+
+
 class Oura:
     def __init__(self, hub: Any, vault: Any = None, transport: Any = None) -> None:
         self.hub = hub
         self.vault = vault or hub.connectors.vault
         self.transport = transport  # tests: an httpx.MockTransport
-        self.callback = connectors.CallbackServer()
+        self.callback = TokenCatcher()
         self.connecting = False
         self.error = ""
         self.last = ""  # when data last came
@@ -200,42 +263,52 @@ class Oura:
     def connected(self) -> bool:
         return bool(self.tokens().get("refresh_token") or self.tokens().get("access_token"))
 
-    def _keep_tokens(self, answer: dict[str, Any]) -> None:
+    def _keep_tokens(self, answer: dict[str, Any], renewable: bool = True) -> None:
         old = self.tokens()
+        refresh = answer.get("refresh_token") or (old.get("refresh_token", "") if renewable else "")
         tokens = {
             "access_token": answer.get("access_token", ""),
-            "refresh_token": answer.get("refresh_token") or old.get("refresh_token", ""),
+            "refresh_token": refresh,
             "expires_at": time.time() + float(answer.get("expires_in") or 86400) - 60,
         }
         self.vault.set(CONN, "oauth_tokens", json.dumps(tokens))
 
+    def days_left(self) -> int | None:
+        """Days until a sign-in that can't renew itself ends (None when it renews)."""
+        tokens = self.tokens()
+        if not tokens or tokens.get("refresh_token"):
+            return None
+        return max(0, int((float(tokens.get("expires_at") or 0) - time.time()) // 86400))
+
     # ── signing in ──
 
     async def save_client(self, msg: dict[str, Any]) -> None:
-        """Keeps the owner's Oura app, once Oura says the ID and secret go together."""
+        """Keeps the owner's Oura app. The secret is optional: without it (or with the ID
+        pasted twice) Connect signs in with the client ID alone."""
         client_id = str(msg.get("client_id") or "").strip()
         client_secret = str(msg.get("client_secret") or "").strip()
-        if not client_id or not client_secret:
-            self.error = "Paste both the client ID and the client secret."
-        elif client_secret == client_id:
-            self.error = (
-                "The secret box has the client ID in it again. On Oura's page, click Copy "
-                "beside Client Secret (it's the longer one), paste it, and save."
+        if client_secret == client_id:
+            client_secret = ""
+        self.error = ""
+        if not client_id:
+            self.error = "Paste your Oura app's client ID."
+        elif client_secret:
+            self.error = await self.check_client(client_id, client_secret)
+        if not self.error:
+            self.vault.set(
+                CONN,
+                "oauth_client",
+                json.dumps({"client_id": client_id, "client_secret": client_secret}),
             )
         else:
-            problem = await self.check_client(client_id, client_secret)
-            if problem:
-                self.error = problem
-            else:
-                self.vault.set(
-                    CONN,
-                    "oauth_client",
-                    json.dumps({"client_id": client_id, "client_secret": client_secret}),
-                )
-                self.error = ""
-        if self.error:
             log.info("oura: the app wasn't saved (%s)", self.error[:80])
         self.emit()
+
+    def secret(self) -> str:
+        """The app's secret, when it's a real one (not the ID again)."""
+        client = self.client()
+        secret = client.get("client_secret", "")
+        return "" if secret == client.get("client_id") else secret
 
     async def check_client(self, client_id: str, client_secret: str) -> str:
         """Why Oura won't take this ID and secret ("" when it does, or can't be asked): a
@@ -262,9 +335,9 @@ class Oura:
             )
         return ""
 
-    def authorize_url(self, state: str) -> str:
+    def authorize_url(self, state: str, implicit: bool = False) -> str:
         query = {
-            "response_type": "code",
+            "response_type": "token" if implicit else "code",
             "client_id": self.client().get("client_id", ""),
             "redirect_uri": connectors.REDIRECT_URI,
             "scope": SCOPES,
@@ -299,38 +372,48 @@ class Oura:
 
     async def connect(self, _msg: dict[str, Any] | None = None) -> None:
         if not self.client().get("client_id"):
-            self.error = "First paste your Oura app's client ID and secret."
+            self.error = "First paste your Oura app's client ID."
             return self.emit()
         if self.connecting:
             return
         client = self.client()
-        problem = await self.check_client(
-            client.get("client_id", ""), client.get("client_secret", "")
-        )
-        if problem:
-            self.error = problem
-            log.info("oura: not connecting (the saved app isn't Oura's)")
-            return self.emit()
+        secret = self.secret()
+        # With a secret Oura takes, the server-side flow (it renews itself); otherwise the
+        # client-side one, which needs only the ID and lasts about a month.
+        implicit = not secret or bool(await self.check_client(client["client_id"], secret))
         self.connecting = True
         self.error = ""
         self.emit()
         state = secrets.token_urlsafe(16)
         try:
-            waiting = asyncio.ensure_future(self.callback.wait_for_code())
+            waiting = asyncio.ensure_future(self.callback.wait())
             await asyncio.sleep(0.2)  # the catcher listens before the browser opens
-            await asyncio.to_thread(webbrowser.open, self.authorize_url(state))
-            code, returned = await waiting
-            if returned != state:
+            await asyncio.to_thread(webbrowser.open, self.authorize_url(state, implicit))
+            found = await waiting
+            if found.get("error"):
+                raise OuraError(
+                    "Oura said: " + (found.get("error_description") or found["error"])[:200]
+                )
+            if found.get("state") != state:
                 raise OuraError("The sign-in came back for a different request; try again.")
-            answer = await self._token(
-                {
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": connectors.REDIRECT_URI,
+            if implicit:
+                if not found.get("access_token"):
+                    raise OuraError("Oura's answer had no token in it.")
+                answer = {
+                    "access_token": found["access_token"],
+                    "expires_in": found.get("expires_in") or 30 * 86400,
                 }
-            )
-            self._keep_tokens(answer)
+            else:
+                answer = await self._token(
+                    {
+                        "grant_type": "authorization_code",
+                        "code": found.get("code", ""),
+                        "redirect_uri": connectors.REDIRECT_URI,
+                    }
+                )
+            self._keep_tokens(answer, renewable=not implicit)
             self._cache = None
+            log.info("oura: connected (%s flow)", "client-side" if implicit else "server-side")
             self.hub.emit(
                 "toast", title="Oura", text="Connected. Your sleep is in the briefing now."
             )
@@ -338,7 +421,7 @@ class Oura:
             self.error = "The sign-in timed out. Try Connect again."
         except OSError:
             self.error = "Another sign-in is using the sign-in catcher; try again in a minute."
-        except (OuraError, RuntimeError, httpx.HTTPError) as exc:
+        except (OuraError, RuntimeError, httpx.HTTPError, ValueError) as exc:
             self.error = str(exc) or "The sign-in didn't finish."
             log.info("oura: connecting failed (%s)", self.error[:120])
         finally:
@@ -360,7 +443,10 @@ class Oura:
             return tokens["access_token"]
         refresh = tokens.get("refresh_token")
         if not refresh:
-            raise OuraError("Oura's sign-in ran out: reconnect in Settings › Oura.")
+            raise OuraError(
+                "Oura's sign-in ran out (it lasts about a month): press Connect with Oura in "
+                "Settings › Oura Ring."
+            )
         try:
             answer = await self._token({"grant_type": "refresh_token", "refresh_token": refresh})
         except OuraError:
@@ -462,11 +548,21 @@ class Oura:
             data = await self.fetch()
         except (OuraError, httpx.HTTPError) as exc:
             self.error = str(exc)
+            if "ran out" in self.error:
+                return "Oura needs reconnecting (Settings › Oura Ring): say so in a few words."
             return ""
         text = self.summary(data, 1)
         if text.startswith("The Oura ring has nothing"):
-            return "The Oura ring hasn't synced last night yet: say so in a few words."
-        return f"From the Oura ring: {text}"
+            text = "The Oura ring hasn't synced last night yet: say so in a few words."
+        else:
+            text = f"From the Oura ring: {text}"
+        left = self.days_left()
+        if left is not None and left <= 3:
+            text += (
+                f" Mention that Oura's sign-in ends in {left} day{'s' if left != 1 else ''}: "
+                "press Connect with Oura in Settings › Oura Ring."
+            )
+        return text
 
     # ── the tool and the window ──
 
@@ -508,6 +604,7 @@ class Oura:
             connecting=self.connecting,
             error=self.error,
             last=self.last,
+            days_left=self.days_left(),
             redirect_uri=connectors.REDIRECT_URI,
             apps_url=APPS_URL,
         )

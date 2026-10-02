@@ -3,7 +3,6 @@
     "Oura Ring": "Oura 戒指",
     "Make a free app on Oura’s developer site (any name) with this redirect URI:": "在 Oura 开发者网站上创建一个免费应用（名称随意），重定向 URI 填写：",
     "Open Oura’s site": "打开 Oura 网站",
-    "Paste its client ID and secret, and save.": "粘贴它的客户端 ID 和密钥，然后保存。",
     "Connect, and allow access on Oura’s page.": "点击连接，并在 Oura 页面上允许访问。",
     "Save": "保存",
     "Connect with Oura": "连接 Oura",
@@ -14,9 +13,22 @@
     "Waiting for you to allow access on Oura’s page in your browser…": "正在等待你在浏览器的 Oura 页面上允许访问…",
     "Connected. Your sleep is in the morning briefing.": "已连接。你的睡眠数据会出现在晨间简报中。",
     "App saved. Now connect, and allow access on Oura’s page.": "应用已保存。现在点击连接，并在 Oura 页面上允许访问。",
-    "Not connected.": "未连接。"
+    "Not connected.": "未连接。",
+    "Paste its client ID and save (the secret is optional: with it the connection renews itself).": "粘贴它的客户端 ID 并保存（密钥可选：有密钥时连接会自动续期）。",
+    "Client secret (optional)": "客户端密钥（可选）"
   },
   "patterns": [
-    ["^Connected\\. Last read at (.+)\\.$", "已连接。最近读取于 $1。"]
+    [
+      "^Connected\\. Last read at (.+)\\.$",
+      "已连接。最近读取于 $1。"
+    ],
+    [
+      "^Connected\\. Last read at (.+)\\. Reconnect within (\\d+) days\\.$",
+      "已连接。最近读取于 $1。请在 $2 天内重新连接。"
+    ],
+    [
+      "^Connected\\. Your sleep is in the morning briefing\\. Reconnect within (\\d+) days\\.$",
+      "已连接。你的睡眠数据会出现在晨间简报中。请在 $1 天内重新连接。"
+    ]
   ]
 }

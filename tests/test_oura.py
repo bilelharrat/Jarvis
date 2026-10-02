@@ -182,51 +182,6 @@ def test_a_token_turned_down_early_is_refreshed_once():
     assert len(server.tokens_given) == 1
 
 
-def test_connecting_exchanges_the_code(monkeypatch):
-    hub, oura, server = made(connected=False)
-    opened = []
-    monkeypatch.setattr(oura_module.webbrowser, "open", opened.append)
-
-    async def code():
-        state = parse_qs(opened[0].split("?", 1)[1])["state"][0]
-        return "the-code", state
-
-    async def go():
-        oura.callback = SimpleNamespace(wait_for_code=lambda: asyncio.ensure_future(_later(code)))
-        await oura.connect()
-
-    async def _later(fn):
-        while not opened:
-            await asyncio.sleep(0.01)
-        return await fn()
-
-    asyncio.run(go())
-    query = parse_qs(opened[0].split("?", 1)[1])
-    assert query["client_id"] == ["cid"] and query["redirect_uri"] == [
-        oura_module.connectors.REDIRECT_URI
-    ]
-    assert server.tokens_given[0]["grant_type"] == ["authorization_code"]
-    assert server.tokens_given[0]["code"] == ["the-code"]
-    assert oura.connected() and not oura.error
-    assert hub.events[-1][1]["connected"] is True
-
-
-def test_a_sign_in_for_another_request_is_refused(monkeypatch):
-    _hub, oura, server = made(connected=False)
-    monkeypatch.setattr(oura_module.webbrowser, "open", lambda url: None)
-
-    async def go():
-        async def wrong():
-            return "code", "not-ours"
-
-        oura.callback = SimpleNamespace(wait_for_code=lambda: asyncio.ensure_future(wrong()))
-        await oura.connect()
-
-    asyncio.run(go())
-    assert not oura.connected() and "different request" in oura.error
-    assert server.tokens_given == []
-
-
 def test_disconnecting_forgets_the_tokens():
     hub, oura, _server = made()
     oura.disconnect()
@@ -258,27 +213,118 @@ def test_the_briefing_puts_the_rings_numbers_in_its_health_section():
     assert "phone_health" in line
 
 
-def test_the_client_id_pasted_as_the_secret_is_caught():
-    hub, oura, _server = made(connected=False)
-    hub.connectors.vault.delete("oura", "oauth_client")
-    asyncio.run(oura.save_client({"client_id": "cid", "client_secret": "cid"}))
-    assert "client ID in it again" in oura.error and oura.client() == {}
-    assert hub.events[-1][1]["error"] == oura.error
-
-
-def test_a_pair_oura_doesnt_know_isnt_kept():
-    hub, oura, _server = made(connected=False)
-    asyncio.run(oura.save_client({"client_id": "cid", "client_secret": "wrong"}))
-    assert "doesn't recognise" in oura.error
-    assert oura.client() == {"client_id": "cid", "client_secret": "secret"}  # the old one stays
-
-
-def test_connect_with_a_bad_saved_app_says_so_before_the_browser(monkeypatch):
-    hub, oura, server = made(connected=False)
-    hub.connectors.vault.set(
-        "oura", "oauth_client", json.dumps({"client_id": "cid", "client_secret": "cid"})
-    )
+def signing_in(oura, monkeypatch, answer):
+    """Connect, with the browser and the catcher faked: answer(state) is what comes back."""
     opened = []
     monkeypatch.setattr(oura_module.webbrowser, "open", opened.append)
-    asyncio.run(oura.connect())
-    assert opened == [] and "doesn't recognise" in oura.error and not oura.connecting
+
+    async def wait():
+        while not opened:
+            await asyncio.sleep(0.01)
+        state = parse_qs(opened[0].split("?", 1)[1])["state"][0]
+        return answer(state)
+
+    async def go():
+        oura.callback = SimpleNamespace(wait=wait)
+        await oura.connect()
+
+    asyncio.run(go())
+    return parse_qs(opened[0].split("?", 1)[1]) if opened else None, opened
+
+
+def test_with_the_secret_it_signs_in_server_side_and_renews(monkeypatch):
+    hub, oura, server = made(connected=False)
+    query, opened = signing_in(
+        oura, monkeypatch, lambda state: {"code": "the-code", "state": state}
+    )
+    assert opened[0].startswith("https://developer.ouraring.com/authorize?")
+    assert query["response_type"] == ["code"] and query["client_id"] == ["cid"]
+    assert query["redirect_uri"] == [oura_module.connectors.REDIRECT_URI]
+    assert server.tokens_given[0]["grant_type"] == ["authorization_code"]
+    assert server.tokens_given[0]["code"] == ["the-code"]
+    assert oura.connected() and not oura.error and oura.days_left() is None
+    assert hub.events[-1][1]["connected"] is True
+
+
+def test_without_a_secret_it_signs_in_with_the_client_id_alone(monkeypatch):
+    hub, oura, server = made(connected=False)
+    asyncio.run(oura.save_client({"client_id": "cid", "client_secret": ""}))
+    query, _ = signing_in(
+        oura,
+        monkeypatch,
+        lambda state: {"access_token": "implicit", "expires_in": "2592000", "state": state},
+    )
+    assert query["response_type"] == ["token"]
+    assert server.tokens_given == []  # no secret, no token endpoint
+    tokens = json.loads(hub.connectors.vault.get("oura", "oauth_tokens"))
+    assert tokens["access_token"] == "implicit" and tokens["refresh_token"] == ""
+    assert oura.days_left() == 29
+    asyncio.run(oura.fetch(1, today=TODAY))
+    assert server.calls[0][1] == "Bearer implicit"
+
+
+def test_the_id_pasted_as_the_secret_still_connects(monkeypatch):
+    hub, oura, _server = made(connected=False)
+    asyncio.run(oura.save_client({"client_id": "cid", "client_secret": "cid"}))
+    assert not oura.error and oura.secret() == ""
+    query, _ = signing_in(oura, monkeypatch, lambda state: {"access_token": "t", "state": state})
+    assert query["response_type"] == ["token"] and oura.connected()
+
+
+def test_a_secret_oura_turns_down_falls_back_to_the_client_id(monkeypatch):
+    hub, oura, _server = made(connected=False)
+    hub.connectors.vault.set(
+        "oura", "oauth_client", json.dumps({"client_id": "cid", "client_secret": "wrong"})
+    )
+    query, _ = signing_in(oura, monkeypatch, lambda state: {"access_token": "t", "state": state})
+    assert query["response_type"] == ["token"] and oura.connected()
+
+
+def test_a_sign_in_for_another_request_or_refused_isnt_kept(monkeypatch):
+    _hub, oura, server = made(connected=False)
+    signing_in(oura, monkeypatch, lambda state: {"code": "code", "state": "not-ours"})
+    assert not oura.connected() and "different request" in oura.error
+    signing_in(oura, monkeypatch, lambda state: {"error": "access_denied", "state": state})
+    assert not oura.connected() and "access_denied" in oura.error
+    assert server.tokens_given == []
+
+
+def test_a_month_long_sign_in_is_mentioned_before_it_ends():
+    hub, oura, _server = made()
+    hub.connectors.vault.set(
+        "oura",
+        "oauth_tokens",
+        json.dumps(
+            {"access_token": "a0", "refresh_token": "", "expires_at": time.time() + 2 * 86400 + 60}
+        ),
+    )
+    facts = asyncio.run(oura.briefing_facts())
+    assert "ends in 2 days" in facts
+    hub.connectors.vault.set(
+        "oura",
+        "oauth_tokens",
+        json.dumps({"access_token": "a0", "refresh_token": "", "expires_at": 0}),
+    )
+    oura._cache = None
+    assert "needs reconnecting" in asyncio.run(oura.briefing_facts())
+
+
+def test_the_catcher_hands_back_what_comes_after_the_hash():
+    async def run():
+        import socket
+
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        catcher = oura_module.TokenCatcher(port=port)
+        waiting = asyncio.ensure_future(catcher.wait(timeout=5))
+        await asyncio.sleep(0.1)
+        async with httpx.AsyncClient() as http:
+            page = await http.get(f"http://127.0.0.1:{port}/callback")
+            done = await http.get(f"http://127.0.0.1:{port}/done?access_token=tok&state=s1")
+        return page.text, done.text, await waiting
+
+    page, done, found = asyncio.run(run())
+    assert "location.hash" in page and "/done?" in page
+    assert done.startswith("Connected to Jarvis")
+    assert found == {"access_token": "tok", "state": "s1"}

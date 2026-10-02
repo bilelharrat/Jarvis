@@ -12,7 +12,10 @@
       if (!s) return '';
       if (s.connecting) return 'Waiting for you to allow access on Oura’s page in your browser…';
       if (s.error) return s.error;
-      if (s.connected) return s.last ? `Connected. Last read at ${s.last}.` : 'Connected. Your sleep is in the morning briefing.';
+      if (s.connected) {
+        const base = s.last ? `Connected. Last read at ${s.last}.` : 'Connected. Your sleep is in the morning briefing.';
+        return typeof s.days_left === 'number' ? `${base} Reconnect within ${s.days_left} days.` : base;
+      }
       if (s.client) return 'App saved. Now connect, and allow access on Oura’s page.';
       return 'Not connected.';
     },
@@ -61,7 +64,7 @@
     uri.id = 'oura-uri';
     uri.setAttribute('data-no-i18n', '');
     one.append(uri, document.createTextNode(' '), button('Open Oura’s site', () => send({ type: 'oura_open_apps' }), 'btn small'));
-    steps.append(one, el('li', '', t('Paste its client ID and secret, and save.')), el('li', '', t('Connect, and allow access on Oura’s page.')));
+    steps.append(one, el('li', '', t('Paste its client ID and save (the secret is optional: with it the connection renews itself).')), el('li', '', t('Connect, and allow access on Oura’s page.')));
     const save = button('Save', () => {
       const id = F.$('oura-client-id').value.trim();
       const secret = F.$('oura-client-secret').value.trim();
@@ -75,7 +78,7 @@
     off.id = 'oura-disconnect';
     actions.append(connect, off);
     section.append(el('h3', '', t('Oura Ring')), status, steps,
-      field('oura-client-id', 'Client ID', 'text'), field('oura-client-secret', 'Client secret', 'password'), save, actions);
+      field('oura-client-id', 'Client ID', 'text'), field('oura-client-secret', 'Client secret (optional)', 'password'), save, actions);
     const last = settings.querySelector('#open-accounts');
     const before = last ? last.closest('section.group') : null;
     if (before) settings.insertBefore(section, before); else settings.append(section);
