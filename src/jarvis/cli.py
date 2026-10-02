@@ -117,6 +117,59 @@ async def say_line(text: str) -> None:
         print(f"The cloud voice failed, so the Mac voice spoke instead: {speaker.cloud_error}")
 
 
+async def pair(port: int) -> int:
+    """Ask a running backend (no window: a cloud server) for an iPhone pairing code, and show
+    its link and QR code in the terminal."""
+    import json
+    import os
+
+    from websockets.asyncio.client import connect
+
+    from . import qr
+    from .packaged import TOKEN_ENV
+
+    token = os.environ.get(TOKEN_ENV, "")
+    if not token:
+        print(f"Set {TOKEN_ENV} to the backend's token.")
+        return 2
+    address = f"127.0.0.1:{port}"
+    async with connect(f"ws://{address}/ws?token={token}", origin=f"http://{address}") as ws:
+        await ws.send(json.dumps({"type": "remote_pair"}))
+        await ws.send(json.dumps({"type": "companion_pairing"}))
+        async with asyncio.timeout(20):
+            async for raw in ws:
+                event = json.loads(raw)
+                if event.get("type") != "companion_pairing":
+                    continue
+                if event.get("error"):
+                    print(event["error"])
+                    return 1
+                url = str(event.get("url") or "")
+                print(qr_text(qr.encode(url)))
+                print(
+                    f"Scan it in J.A.R.V.I.S. on the iPhone (Pair › Scan code) within "
+                    f"{event.get('seconds', 300)} s.\n{url}"
+                )
+                return 0
+    return 1
+
+
+def qr_text(modules: list[list[bool]], quiet: int = 2) -> str:
+    """A QR code for a terminal: two rows of modules a line, dark on a white background."""
+    size = len(modules)
+    grid = [[False] * (size + 2 * quiet) for _ in range(quiet)]
+    grid += [[False] * quiet + list(row) + [False] * quiet for row in modules]
+    grid += [[False] * (size + 2 * quiet) for _ in range(quiet + 1)]
+    lines = []
+    for top, bottom in zip(grid[0::2], grid[1::2], strict=False):
+        cells = "".join(
+            "█" if a and b else "▀" if a else "▄" if b else " "
+            for a, b in zip(top, bottom, strict=True)
+        )
+        lines.append(f"\x1b[30;47m{cells}\x1b[0m")
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="A voice assistant for your Mac.")
     parser.add_argument("--text", action="store_true", help="type instead of speaking")
@@ -124,9 +177,11 @@ def main() -> None:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["serve", "say", "mcp"],
+        choices=["serve", "say", "mcp", "pair"],
         help="serve: run the backend for the app. say: speak a line in JARVIS's voice. mcp: "
-        "JARVIS's tools for Claude Code or Claude Desktop, over stdio (the app must be running)",
+        "JARVIS's tools for Claude Code or Claude Desktop, over stdio (the app must be running). "
+        "pair: a pairing code for the iPhone from a running backend with no window (a cloud "
+        "server; --port is its port, JARVIS_TOKEN its token), shown as a QR code here",
     )
     parser.add_argument("words", nargs="*", help="what to say (with the say command)")
     parser.add_argument("--port", type=int, default=8765, help="port for serve")
@@ -136,6 +191,8 @@ def main() -> None:
 
         mcp_main()  # stdout is the protocol's alone from here
         return
+    if args.command == "pair":
+        sys.exit(asyncio.run(pair(args.port)))
     if args.command == "say":
         asyncio.run(say_line(" ".join(args.words) or "Good evening. All systems are online."))
         return

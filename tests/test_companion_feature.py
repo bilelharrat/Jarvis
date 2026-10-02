@@ -86,6 +86,16 @@ async def test_with_no_local_name_the_code_carries_the_address(hub, monkeypatch)
         await hub.remote.stop()
 
 
+async def test_a_cloud_server_s_code_carries_its_public_address(hub, monkeypatch):
+    monkeypatch.setenv("JARVIS_PUBLIC_HOST", "136.70.26.67")
+    assert await hub.remote.start()
+    try:
+        url = hub.remote.extension.pairing_url("123456")
+        assert url.startswith(f"jarvis-pair://136.70.26.67:{hub.remote.port}?code=123456&fp=")
+    finally:
+        await hub.remote.stop()
+
+
 async def test_settings_show_the_certificate_the_phones_and_their_activity(hub):
     assert await hub.remote.start()
     try:

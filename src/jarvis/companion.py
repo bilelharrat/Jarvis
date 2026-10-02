@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import threading
 import time
@@ -626,7 +627,11 @@ class Companion:
         identity = remote.identity
         if identity is None:
             raise ValueError("the companion isn't on")
-        host = f"{remote.host_name}.local" if remote.host_name else (lan_address() or "")
+        # A Jarvis with no network of its own to share (a cloud server): its public address.
+        public = os.environ.get("JARVIS_PUBLIC_HOST", "").strip()
+        host = public or (
+            f"{remote.host_name}.local" if remote.host_name else (lan_address() or "")
+        )
         if not host:
             raise ValueError("this Mac has no address on the network")
         name = quote(remote.mac_name or remote.host_name or "Mac", safe="")
@@ -650,6 +655,7 @@ class Companion:
         identity = self.hub.remote.identity
         return {
             "qr": qr.rows(matrix),
+            "url": url,
             "short": identity.short if identity else "",
             "seconds": max(0, round(left)),
         }
