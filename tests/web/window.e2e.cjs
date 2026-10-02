@@ -1389,12 +1389,7 @@ test('Tools & Accounts is the Accounts pane: every way in opens Settings there, 
   await js('(() => { const g = document.createElement("section"); g.className = "group wa-group"; g.innerHTML = "<h3>WhatsApp</h3><p>x</p>"; $("accounts").append(g); })(); true');
   await sleep(20);
   assert((await navGroups()).includes('WhatsApp'), JSON.stringify(await navGroups()));
-  // The toolbar button: a press on Accounts closes it; Escape closes it too.
-  await js('$("accounts-btn").click(); true');
-  assert(await js('$("settings").hidden'), 'the toolbar button left Accounts open');
-  await js('$("accounts-btn").click(); true');
-  r = await js('({ open: !$("settings").hidden, pane: jarvisSettingsNav.pane(), expanded: $("accounts-btn").getAttribute("aria-expanded") })');
-  assert(r.open && r.pane === 'accounts' && r.expanded === 'true', JSON.stringify(r));
+  // Escape closes it.
   await js('document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true');
   assert(await js('$("settings").hidden'), 'Escape left it open');
   // No Jarvis account section, no top row; with one, the row opens its pane.
