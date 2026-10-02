@@ -12,8 +12,13 @@
 //   'A' <u32 n> <n bytes of PCM>   play this audio after whatever is queued
 //   'M' <u32 id>                   print "M <id>" once everything before it has played
 //   'S' <u32 0>                    stop now: drop everything queued (barge-in)
+//   'P' <u32 id>                   print "P <id>" once the player has taken in everything
+//                                  before it. Sent when nothing is queued (a sentence's
+//                                  start), it answers within milliseconds, whatever the
+//                                  output's latency, unless the player has stopped playing.
 //
-// It prints "R" if the output device changed and queued audio was lost.
+// It prints "H 1" once its engine runs (it answers 'P'), and "R" when the engine had to be
+// started again (a new output device, or it stopped by itself) and queued audio was lost.
 //
 // AVAudioEngine follows the current output device (AirPods switching modes, a new
 // default output), which PortAudio did not. --effect adds the "AI in the house" sheen
@@ -89,11 +94,25 @@ func emit(_ line: String) {
 if live {
     player.play()  // idle but running: the first buffer plays the moment it's scheduled
 
-    // A new output device stops the engine: start it again and say queued audio is gone.
-    NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { _ in
-        try? engine.start()
+    // The engine stops when the output device changes, and can stop by itself across sleep.
+    // Started again, the player must be stopped and played again too: play() alone does
+    // nothing (it still says it's playing) and it never takes another buffer, so every
+    // reply after that was silent, its sentence markers never came back. Stopping it drops
+    // what was queued: "R" says so.
+    // (The engine is stopped when the notification comes; one already started again by the
+    // read loop isn't stopped twice, which would drop what it has queued since.)
+    let engineLock = NSLock()
+    func revive() {
+        engineLock.lock()
+        defer { engineLock.unlock() }
+        if engine.isRunning { return }
+        do { try engine.start() } catch { return }  // no output now: the next frame tries again
+        player.stop()
         player.play()
         emit("R")
+    }
+    NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { _ in
+        revive()
     }
 
     let silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1)!
@@ -103,9 +122,11 @@ if live {
     let input = FileHandle.standardInput
     var pending = Data()
     var leftover = Data()  // an odd byte of PCM carried to the next audio frame
+    emit("H 1")
     readLoop: while true {
         let data = input.availableData
         if data.isEmpty { break }
+        if !engine.isRunning { revive() }  // stopped without a word: before anything is queued
         pending.append(data)
         while pending.count >= 5 {
             let kind = pending[pending.startIndex]
@@ -136,7 +157,13 @@ if live {
                 pending.removeSubrange(pending.startIndex..<(pending.startIndex + 5))
                 leftover = Data()
                 player.stop()  // drops queued buffers (their markers still report)
-                player.play()
+                if engine.isRunning { player.play() }  // (play() on a stopped engine traps)
+            } else if kind == UInt8(ascii: "P") {
+                pending.removeSubrange(pending.startIndex..<(pending.startIndex + 5))
+                let id = n
+                // Taken in, not heard: the answer doesn't wait out the output's latency
+                // (AirPlay's is seconds). A player that stopped playing never answers.
+                player.scheduleBuffer(silence, completionCallbackType: .dataConsumed) { _ in emit("P \(id)") }
             } else {
                 pending.removeAll()  // out of step: drop it rather than play noise
             }

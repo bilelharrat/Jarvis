@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import subprocess
@@ -364,6 +365,13 @@ def ensure_player() -> Path | None:
 
 
 MARK_SLACK = 10.0  # seconds a sentence's end marker may lag its audio before we give up
+# A player can stop playing while it still runs (its audio engine didn't come back from the
+# Mac sleeping): what's written to it is never heard and its markers never come back. Each
+# sentence that starts on an idle player sends a ping first; an idle player takes it in
+# within milliseconds, whatever the output's latency, so one that doesn't is stuck.
+PING_SECONDS = 1.0  # no answer in this long: started anew, and it plays what wasn't heard
+HELLO_SECONDS = 2.0  # a new player says its engine runs within this, or it's used as it is
+UNHEARD_SECONDS = 120.0  # the most audio kept for playing again on a new player
 
 
 class LivePlayer:
@@ -373,6 +381,10 @@ class LivePlayer:
     engine to spin up and no pre-buffer before each one: the first words play the moment
     they arrive and the next sentence follows without a gap. A marker after each
     sentence tells us when it has actually been heard.
+
+    A player that has stopped playing is found out by the ping at a sentence's start
+    (PING_SECONDS) and started anew; the new one plays what the old one hadn't, markers
+    and all, so a stale player costs a reply about a second rather than the reply.
     """
 
     def __init__(self, path: Path, rate: int, effect: bool) -> None:
@@ -383,10 +395,26 @@ class LivePlayer:
         self._reader: asyncio.Task | None = None
         self._ends_at = 0.0  # when everything written so far should have played
         self._closed = False
+        self.pings = False  # it said hello ("H"): it answers pings
+        self._hello: asyncio.Event | None = None
+        self._ping: tuple[int, asyncio.TimerHandle] | None = None  # the one awaiting its answer
+        self._pinged = 0
+        # Written and not yet heard for sure, with where each marker falls in it: what a
+        # player started anew is given. Trimmed as markers come back.
+        self._unheard = bytearray()
+        self._marked: list[list[int]] = []  # [marker, offset into _unheard], in order
+        self._io = asyncio.Lock()  # one write at a time, and none while it starts anew
+        self._stuck: asyncio.subprocess.Process | None = None  # given up on, until replaced
+        self._revival: asyncio.Task | None = None
+        self._revived = False  # started anew, and not heard from since
 
     @property
     def alive(self) -> bool:
-        return not self._closed and self.proc is not None and self.proc.returncode is None
+        if self._closed:
+            return False
+        if self._revival is not None:
+            return True  # being started anew: what's written meanwhile waits for it
+        return self.proc is not None and self.proc.returncode is None
 
     async def start(self) -> None:
         args = [str(self.path), str(self.rate), "--live"] + (["--effect"] if self.effect else [])
@@ -396,22 +424,43 @@ class LivePlayer:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
+        self._hello = hello = asyncio.Event()
         self._reader = asyncio.create_task(self._read())
+        # It says hello once its engine runs, and from then on answers pings. Audio can't
+        # play any sooner, so waiting for it costs the first words nothing. One that never
+        # says it is used as before, without pings.
+        try:
+            await asyncio.wait_for(hello.wait(), HELLO_SECONDS)
+        except TimeoutError:
+            pass
 
     async def _read(self) -> None:
-        proc = self.proc
+        proc, hello = self.proc, self._hello
         try:
             while proc is not None and (line := await proc.stdout.readline()):
+                if proc is not self.proc or proc is self._stuck:
+                    break  # given up on: what it says no longer counts
                 parts = line.decode(errors="replace").split()
                 if parts[:1] == ["M"] and len(parts) == 2 and parts[1].isdigit():
+                    self._revived = False
                     self._settle(int(parts[1]))
-                elif parts[:1] == ["R"]:  # output device changed: queued audio is gone
+                elif parts[:1] == ["P"] and len(parts) == 2 and parts[1].isdigit():
+                    self._answered(int(parts[1]))
+                elif parts[:1] == ["R"]:  # its engine started again: queued audio is gone
                     self._ends_at = 0.0
                     self._settle_all()
+                    self._forget()
+                elif parts[:1] == ["H"]:
+                    self.pings = True
+                    if hello is not None:
+                        hello.set()
                 else:
                     self._line(parts)
         finally:
-            self._settle_all()  # it exited: nobody waits forever
+            if hello is not None:
+                hello.set()  # it exited: start() stops waiting
+            if proc is self.proc and proc is not self._stuck:
+                self._settle_all()  # it exited: nobody waits forever
 
     def _line(self, parts: list[str]) -> None:
         """A line of the player's this class doesn't know (duplex.DuplexPlayer's)."""
@@ -421,57 +470,202 @@ class LivePlayer:
             future = self._markers.pop(key)
             if not future.done():
                 future.set_result(None)
+        cut = -1  # what it has played needn't be kept for playing again
+        while self._marked and self._marked[0][0] <= marker:
+            cut = self._marked.pop(0)[1]
+        if cut > 0:
+            del self._unheard[:cut]
+            for entry in self._marked:
+                entry[1] -= cut
+        if not self._unheard:  # all of it heard: the next audio starts now, not later
+            self._ends_at = min(self._ends_at, time.monotonic())
 
     def _settle_all(self) -> None:
         self._settle(self._next)
 
+    def _forget(self) -> None:
+        """Nothing it was given needs playing again (dropped on purpose, or lost)."""
+        self._unheard.clear()
+        self._marked.clear()
+
+    def _keep(self, pcm: bytes) -> None:
+        self._unheard += pcm
+        over = len(self._unheard) - int(UNHEARD_SECONDS * self.rate) * 2
+        if over > 0:  # a long stream with no markers (realtime replies): only its end
+            del self._unheard[:over]
+            for entry in self._marked:
+                entry[1] = max(0, entry[1] - over)
+
     def _frame(self, kind: str, value: int, payload: bytes = b"") -> bytes:
         return kind.encode() + value.to_bytes(4, "little") + payload
+
+    # ── pings: is it still playing? ──
+
+    def _send_ping(self) -> None:
+        self._pinged += 1
+        timer = asyncio.get_running_loop().call_later(
+            PING_SECONDS, self._unanswered, self._pinged, self.proc
+        )
+        self._ping = (self._pinged, timer)
+        self.proc.stdin.write(self._frame("P", self._pinged))
+
+    def _answered(self, ping: int) -> None:
+        self._revived = False
+        if self._ping is not None and self._ping[0] <= ping:
+            self._ping[1].cancel()
+            self._ping = None
+
+    def _unanswered(self, ping: int, proc: Any) -> None:
+        """No answer to a ping: it has stopped playing. Started anew once; a new one that
+        doesn't play either is closed (nothing waits on it, and the next sentence tries a
+        fresh player)."""
+        if self._ping is None or self._ping[0] != ping or proc is not self.proc or self._closed:
+            return
+        self._ping = None
+        if self._revived:
+            log.warning("the new voice player isn't playing either; leaving it for now")
+            self.close()
+            return
+        log.warning(
+            "the voice player stopped playing (no answer in %.1fs); starting a new one "
+            "for what it hadn't played",
+            PING_SECONDS,
+        )
+        self._revived = True
+        self._stuck = proc
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        self._revival = asyncio.ensure_future(self._revive())
+
+    async def _revive(self) -> None:
+        """Start it anew and give it what the stuck one hadn't played, each marker where
+        it was: the sentence plays from its start, and whoever waits on a marker still
+        gets it."""
+        try:
+            async with self._io:
+                if self._closed:
+                    return
+                try:
+                    await self.start()
+                except OSError as exc:
+                    log.warning("the voice player didn't start again (%s)", exc)
+                    self.close()
+                    return
+                self._stuck = None
+                if self._closed:
+                    self.close()  # closed while it started: this one goes too
+                    return
+                if self.pings:
+                    self._send_ping()  # the new one is asked too
+                stdin, at = self.proc.stdin, 0
+                for marker, offset in self._marked:
+                    if offset > at:
+                        stdin.write(self._frame("A", offset - at, bytes(self._unheard[at:offset])))
+                    stdin.write(self._frame("M", marker))
+                    at = offset
+                if len(self._unheard) > at:
+                    rest = bytes(self._unheard[at:])
+                    stdin.write(self._frame("A", len(rest), rest))
+                self._ends_at = time.monotonic() + len(self._unheard) / (2 * self.rate)
+                await stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the new one went away too: its reader settles what waits on it
+        finally:
+            self._revival = None
+
+    # ── what the Speaker uses ──
 
     async def write(self, pcm: bytes) -> None:
         if not pcm or not self.alive:
             return
-        self._ends_at = max(self._ends_at, time.monotonic()) + len(pcm) / (2 * self.rate)
-        self.proc.stdin.write(self._frame("A", len(pcm), pcm))
-        await self.proc.stdin.drain()
+        async with self._io:
+            if not self.alive:
+                return
+            now = time.monotonic()
+            idle = (
+                not self._markers
+                and (not self._unheard or self._ends_at <= now)  # all heard, or due to be
+                and self._ping is None
+                and self.proc is not self._stuck
+            )
+            if idle:
+                # Everything before has played (or was dropped). A sentence starts here,
+                # and the ping sent ahead of it says whether the player still plays.
+                self._forget()
+                if self.pings:
+                    self._send_ping()
+            self._keep(pcm)
+            self._ends_at = max(self._ends_at, now) + len(pcm) / (2 * self.rate)
+            if self.proc is self._stuck:
+                return  # starting anew: the new one gets this with the rest
+            try:
+                self.proc.stdin.write(self._frame("A", len(pcm), pcm))
+                await self.proc.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                if self.proc is not self._stuck:
+                    raise
+                # stuck, and killed mid-write: the new one plays this with the rest
 
     async def mark(self) -> None:
         """Wait until everything written so far has been heard.
 
-        Never longer than that audio's length plus MARK_SLACK: a player whose marker
-        doesn't come back is stuck, and waiting on it would hold up every reply after
-        this one. It's closed, and the next sentence starts a fresh one."""
+        Never longer than that audio's length plus MARK_SLACK (a player started anew moves
+        that end later): a player whose marker doesn't come back is stuck, and waiting on
+        it would hold up every reply after this one. It's closed, and the next sentence
+        starts a fresh one."""
         if not self.alive:
             return
-        self._next += 1
         future = asyncio.get_running_loop().create_future()
-        self._markers[self._next] = future
-        self.proc.stdin.write(self._frame("M", self._next))
-        await self.proc.stdin.drain()
-        wait = max(0.0, self._ends_at - time.monotonic()) + MARK_SLACK
-        try:
-            await asyncio.wait_for(future, wait)
-        except TimeoutError:
-            log.warning("the voice player stopped answering; starting a new one")
-            self.close()
+        async with self._io:
+            if not self.alive:
+                return
+            self._next += 1
+            self._markers[self._next] = future
+            self._marked.append([self._next, len(self._unheard)])
+            if self.proc is not self._stuck:
+                try:
+                    self.proc.stdin.write(self._frame("M", self._next))
+                    await self.proc.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    if self.proc is not self._stuck:
+                        raise
+        while not future.done():
+            end = self._ends_at
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(future), max(0.0, end - time.monotonic()) + MARK_SLACK
+                )
+            except TimeoutError:
+                if self._revival is not None or self._ends_at > end:
+                    continue  # started anew: its end is later now
+                log.warning("the voice player stopped answering; starting a new one")
+                self.close()
+                return
 
     def stop_now(self) -> None:
         """Barge-in: silence at once, and nothing waits on what was dropped."""
-        if self.alive:
+        if self.alive and self.proc is not self._stuck:
             try:
                 self.proc.stdin.write(self._frame("S", 0))
             except (BrokenPipeError, ConnectionResetError, RuntimeError):
                 pass
         self._ends_at = 0.0
         self._settle_all()
+        self._forget()
 
     def close(self) -> None:
-        if self.alive:
-            self.proc.kill()
         self._closed = True
+        proc = self.proc
+        if proc is not None and proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
         if self._reader is not None:
             self._reader.cancel()
+        if self._ping is not None:
+            self._ping[1].cancel()
+            self._ping = None
         self._settle_all()
+        self._forget()
 
 
 def resample(pcm: bytes, rate: int, to_rate: int) -> bytes:

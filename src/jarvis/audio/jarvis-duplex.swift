@@ -218,10 +218,13 @@ struct Duplex {
         player.play()
 
         // A new device stops the engine: listen again with its format, start again, and
-        // say queued audio is gone.
+        // say queued audio is gone. The player is stopped and played again too: after the
+        // engine restarts, play() alone leaves it saying it plays while it takes no buffer
+        // (jarvis-player's sentence markers then never came back).
         NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { _ in
             listen()
-            try? engine.start()
+            do { try engine.start() } catch { return }
+            player.stop()
             player.play()
             say("R")
         }
@@ -290,7 +293,7 @@ struct Duplex {
                     pending.removeSubrange(pending.startIndex..<(pending.startIndex + 5))
                     leftover = Data()
                     player.stop()
-                    player.play()
+                    if engine.isRunning { player.play() }  // (play() on a stopped engine traps)
                 } else if kind == UInt8(ascii: "V") {
                     pending.removeSubrange(pending.startIndex..<(pending.startIndex + 5))
                     setVolume(Float(min(n, 1000)) / 1000)
