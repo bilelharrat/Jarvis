@@ -47,7 +47,7 @@ function feedFrom(resourcesPath, packaged, readFile = fs.readFileSync) {
 // The updater's state and what moves it; Electron's pieces are passed in (tests use stand-ins).
 function createUpdater({
   version, feed, autoUpdater, fetchText, inApplications, onChange = () => {}, log = () => {},
-  isQuiet = async () => false, beforeInstall = () => {},
+  isQuiet = async () => false, beforeInstall = () => {}, follows = false,
 }) {
   let state = feed ? { state: 'idle' } : { state: 'off' };
   let offered = null; // the release being downloaded or ready
@@ -58,7 +58,8 @@ function createUpdater({
     state = next;
     onChange(public_());
   };
-  const public_ = () => ({ version, enabled: Boolean(feed), ...state });
+  // follows: the owner's own install, which has no feed and follows the repo (follow-repo.js).
+  const public_ = () => ({ version, enabled: Boolean(feed), ...(!feed && follows ? { follows: true } : {}), ...state });
 
   function wire() {
     if (wired) return;
@@ -182,6 +183,7 @@ function install(ctx) {
       backendBusy: () => ctx.backendBusy(),
     }),
     beforeInstall: () => ctx.relaunchAsItWas(),
+    follows: !ctx.dev && ctx.app.isPackaged && Boolean(ctx.backendFromRepo && ctx.backendFromRepo()),
   });
   ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? updater.state() : null));
   ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? updater.check() : null));

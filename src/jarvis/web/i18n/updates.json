@@ -6,6 +6,7 @@
     "Restart now": "立即重新启动",
     "Later": "稍后",
     "This copy doesn’t check for updates.": "这个版本不检查更新。",
+    "Updates itself from your Jarvis folder whenever main changes.": "每当 main 有更新时，会从你的 Jarvis 文件夹自动更新。",
     "Checking for updates…": "正在检查更新…",
     "Up to date.": "已是最新版本。",
     "Checks for updates every 6 hours.": "每 6 小时检查一次更新。",

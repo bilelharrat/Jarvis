@@ -5,6 +5,7 @@
 (() => {
   // What the group says for the app's state (English; i18n.js translates it as it appears).
   function lineFor(s) {
+    if (s && !s.enabled && s.follows) return 'Updates itself from your Jarvis folder whenever main changes.';
     if (!s || !s.enabled) return 'This copy doesn’t check for updates.';
     switch (s.state) {
       case 'checking': return 'Checking for updates…';

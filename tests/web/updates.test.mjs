@@ -196,6 +196,17 @@ test('without a feed, updates are off and nothing is fetched', async () => {
   assert.deepEqual(auto.calls, []);
 });
 
+test('the owner’s own install, which follows the repo, says so instead of “doesn’t check”', async () => {
+  const u = updates.createUpdater({ version: '0.1.5', feed: '', autoUpdater: squirrel(), fetchText: async () => { throw new Error('fetched'); }, inApplications: () => true, follows: true });
+  const s = await u.check();
+  assert.deepEqual(s, { version: '0.1.5', enabled: false, follows: true, state: 'off' });
+  assert.equal(windowSide.lineFor(s), 'Updates itself from your Jarvis folder whenever main changes.');
+  assert.equal(windowSide.lineFor({ version: '0.1.5', enabled: false, state: 'off' }), 'This copy doesn’t check for updates.');
+  // A feed wins: a downloaded copy never says it follows a folder.
+  const fed = updates.createUpdater({ version: '0.1.5', feed: 'https://example.invalid/release.json', autoUpdater: squirrel(), fetchText: async () => '{}', inApplications: () => true, follows: true });
+  assert.equal(fed.state().follows, undefined);
+});
+
 test('only the window may ask, and the dev window has updates off', () => {
   const handlers = new Map();
   const win = {};
