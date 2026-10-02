@@ -1393,6 +1393,8 @@ body[data-look="hud"] #p-defense { gap: 10px; }
   }
 }
 .pill.dock-app[hidden] { display: none; }
+/* Settings sits past a hairline, as the Trash does in the macOS Dock */
+.dock-sep { align-self: stretch; width: 1px; margin: 8px 2px; background: var(--line); border-radius: 1px; }
 .pill.dock-app svg { width: 21px; height: 21px; }
 .pill.dock-app:hover { transform: translateY(-3px) scale(1.07); }
 .pill.dock-app:active { transform: scale(0.94); }

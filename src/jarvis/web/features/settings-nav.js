@@ -289,6 +289,13 @@
   sheet.classList.add('with-nav');
   show();
 
+  // ⌘, opens and closes Settings, as in every Mac app.
+  document.addEventListener('keydown', (e) => {
+    if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key !== ',') return;
+    e.preventDefault();
+    toggleSettings(sheet.hidden);
+  });
+
   // For the window's tests and the features: which pane, and switching to one.
   window.jarvisSettingsNav = { pane: () => current, choose, paneOf };
 })();

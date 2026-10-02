@@ -1403,6 +1403,23 @@ test('Tools & Accounts is the Accounts pane: every way in opens Settings there, 
   await js('toggleSettings(false); true');
 });
 
+test('Settings is the dock’s last app, past a divider, and ⌘, opens and closes it', async () => {
+  await withSettingsNav();
+  let r = await js('({ inDock: !!document.querySelector(".dock > #settings-btn"), last: document.querySelector(".dock").lastElementChild.id, sep: document.querySelector("#settings-btn").previousElementSibling.className, header: !!document.querySelector("header #settings-btn") })');
+  assert(r.inDock && r.last === 'settings-btn' && r.sep === 'dock-sep' && !r.header, JSON.stringify(r));
+  await js('$("settings-btn").click(); true');
+  assert(await js('!$("settings").hidden && $("settings-btn").getAttribute("aria-expanded") === "true"'), 'the dock button did not open Settings');
+  const cmdComma = async () => {
+    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: ',', code: 'Comma', windowsVirtualKeyCode: 188, modifiers: 4 });
+    await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: ',', code: 'Comma', windowsVirtualKeyCode: 188, modifiers: 4 });
+  };
+  await cmdComma();
+  assert(await js('$("settings").hidden'), '⌘, did not close Settings');
+  await cmdComma();
+  assert(await js('!$("settings").hidden'), '⌘, did not open Settings');
+  await js('toggleSettings(false); true');
+});
+
 test('Settings › search finds in every pane, and a control asked for elsewhere opens its own pane', async () => {
   await withSettingsNav();
   await js('toggleSettings(true); jarvisSettingsNav.choose("general"); true');
