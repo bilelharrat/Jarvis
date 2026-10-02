@@ -47,9 +47,10 @@ BUTTONS = ("left", "right")
 # signed differently the switch there can still show on while the Mac refuses it.
 NOT_PERMITTED = (
     "To steer the Mac with your hands, allow J.A.R.V.I.S. in System Settings › Privacy & "
-    "Security › Accessibility, then turn hand control of the Mac on again. If it's already "
-    "on there, that was an earlier build of J.A.R.V.I.S.: remove it with −, then add it "
-    "again with +."
+    "Security › Accessibility. If it's already on there, macOS is keeping the permission for "
+    "an earlier build of J.A.R.V.I.S. (switching it off and on doesn't renew it): in Terminal "
+    "run  tccutil reset PostEvent com.bshventures.jarvis  then reopen J.A.R.V.I.S. and allow "
+    "it when the Mac asks."
 )
 FAILED = "Hand control of the Mac stopped: the Mac refused a mouse event."
 RECHECK_S = 2.0  # after a refusal, how often the permission is looked at again
@@ -454,6 +455,15 @@ class DesktopHands:
 
     async def watch(self, emit: Callable[[dict[str, Any]], None], interval: float = 0.25) -> None:
         """check() every `interval` for as long as JARVIS runs."""
+        with contextlib.suppress(Exception):  # one line at start: what the Mac allows this backend
+            import os
+
+            log.info(
+                "hand control of the Mac: Accessibility %s for this backend (pid %d, parent %d)",
+                "granted" if self.poster.permitted() else "NOT granted",
+                os.getpid(),
+                os.getppid(),
+            )
         while True:
             await asyncio.sleep(interval)
             try:

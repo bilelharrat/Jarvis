@@ -328,3 +328,18 @@ def test_the_catcher_hands_back_what_comes_after_the_hash():
     assert "location.hash" in page and "/done?" in page
     assert done.startswith("Connected to Jarvis")
     assert found == {"access_token": "tok", "state": "s1"}
+
+
+def test_a_sleep_question_carries_the_rings_numbers():
+    _hub, oura, _server = made()
+    oura._cache = None
+    asyncio.run(oura.fetch(today=date.today()))  # what "now" reads
+    extra = asyncio.run(
+        oura.context("how much sleep did i get last night and whats the score", None)
+    )
+    assert extra["note"].startswith("Live from the owner's Oura ring (connected):")
+    assert extra["reads"] == [("private", "your Oura data")]
+    assert asyncio.run(oura.context("what's on my calendar", None)) is None
+    assert asyncio.run(oura.context("how did I sleep", "words sent on")) is None
+    _hub, oura, _server = made(connected=False)
+    assert asyncio.run(oura.context("how did I sleep", None)) is None

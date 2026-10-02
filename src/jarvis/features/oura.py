@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import secrets
 import time
 import urllib.parse
@@ -48,10 +49,18 @@ CACHE_SECONDS = 15 * 60
 MAX_DAYS = 14
 
 PROMPT = (
-    "The owner's Oura ring: oura_stats gives their sleep (score, hours, stages, efficiency, "
+    "The owner's Oura ring (connected when oura_stats answers: always call it, never go by "
+    "an earlier answer, which may predate connecting): oura_stats gives their sleep (score, hours, stages, efficiency, "
     "lowest heart rate, HRV), readiness and activity by day. Use it for anything about how "
     "they slept or how recovered they are; in a briefing, a sentence or two: the scores, "
     "the hours, and anything notably better or worse than their week."
+)
+
+
+SLEEPY = re.compile(
+    r"\b(sleep|slept|asleep|nap|bed ?time|woke|wake up|readiness|recover(y|ed)|hrv|"
+    r"heart rate variability|resting heart|oura|ring|tired|rested)\b|睡|休息|准备度",
+    re.IGNORECASE,
 )
 
 
@@ -564,6 +573,20 @@ class Oura:
             )
         return text
 
+    async def context(self, text: str, display: str | None) -> dict[str, Any] | None:
+        """A question about sleep or recovery carries the ring's latest numbers, so the answer
+        is today's and quick (and never "Oura isn't connected" from an old turn)."""
+        if display is not None or not SLEEPY.search(text or "") or not self.connected():
+            return None
+        try:
+            data = await self.fetch()
+        except (OuraError, httpx.HTTPError) as exc:
+            return {"note": f"Oura is connected but couldn't be read just now: {exc}"}
+        return {
+            "note": "Live from the owner's Oura ring (connected): " + self.summary(data, 1),
+            "reads": [("private", "your Oura data")],
+        }
+
     # ── the tool and the window ──
 
     def build_server(self):
@@ -645,3 +668,4 @@ def install(hub: Any) -> None:
     hub.register_command("oura_disconnect", oura.disconnect)
     hub.register_command("oura_open_apps", lambda _msg: webbrowser.open(APPS_URL))
     hub.register_loop("oura", oura.loop)
+    hub.add_request_context(oura.context)
