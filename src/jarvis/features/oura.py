@@ -211,19 +211,56 @@ class Oura:
 
     # ── signing in ──
 
-    def save_client(self, msg: dict[str, Any]) -> None:
+    async def save_client(self, msg: dict[str, Any]) -> None:
+        """Keeps the owner's Oura app, once Oura says the ID and secret go together."""
         client_id = str(msg.get("client_id") or "").strip()
         client_secret = str(msg.get("client_secret") or "").strip()
         if not client_id or not client_secret:
             self.error = "Paste both the client ID and the client secret."
-        else:
-            self.vault.set(
-                CONN,
-                "oauth_client",
-                json.dumps({"client_id": client_id, "client_secret": client_secret}),
+        elif client_secret == client_id:
+            self.error = (
+                "The secret box has the client ID in it again. On Oura's page, click Copy "
+                "beside Client Secret (it's the longer one), paste it, and save."
             )
-            self.error = ""
+        else:
+            problem = await self.check_client(client_id, client_secret)
+            if problem:
+                self.error = problem
+            else:
+                self.vault.set(
+                    CONN,
+                    "oauth_client",
+                    json.dumps({"client_id": client_id, "client_secret": client_secret}),
+                )
+                self.error = ""
+        if self.error:
+            log.info("oura: the app wasn't saved (%s)", self.error[:80])
         self.emit()
+
+    async def check_client(self, client_id: str, client_secret: str) -> str:
+        """Why Oura won't take this ID and secret ("" when it does, or can't be asked): a
+        made-up code is turned down as invalid_grant for a real app, invalid_client else."""
+        try:
+            async with self._http() as http:
+                reply = await http.post(
+                    TOKEN_URL,
+                    data={
+                        "grant_type": "authorization_code",
+                        "code": "jarvis-check",
+                        "redirect_uri": connectors.REDIRECT_URI,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                )
+            error = str(reply.json().get("error") or "")
+        except (httpx.HTTPError, ValueError):
+            return ""  # offline: Connect will say
+        if error == "invalid_client":
+            return (
+                "Oura doesn't recognise that client ID and secret together. Copy both again "
+                "from your app's page on Oura's developer site (the secret is the longer one)."
+            )
+        return ""
 
     def authorize_url(self, state: str) -> str:
         query = {
@@ -248,6 +285,12 @@ class Oura:
         async with self._http() as http:
             reply = await http.post(TOKEN_URL, data=form)
         if reply.status_code != 200:
+            with contextlib.suppress(ValueError):
+                if reply.json().get("error") == "invalid_client":
+                    raise OuraError(
+                        "Oura doesn't recognise the saved client ID and secret: paste them "
+                        "again from your app's page (the secret is the longer one)."
+                    )
             raise OuraError(f"Oura turned the sign-in down ({reply.status_code}).")
         answer = reply.json()
         if not answer.get("access_token"):
@@ -260,6 +303,14 @@ class Oura:
             return self.emit()
         if self.connecting:
             return
+        client = self.client()
+        problem = await self.check_client(
+            client.get("client_id", ""), client.get("client_secret", "")
+        )
+        if problem:
+            self.error = problem
+            log.info("oura: not connecting (the saved app isn't Oura's)")
+            return self.emit()
         self.connecting = True
         self.error = ""
         self.emit()
@@ -289,6 +340,7 @@ class Oura:
             self.error = "Another sign-in is using the sign-in catcher; try again in a minute."
         except (OuraError, RuntimeError, httpx.HTTPError) as exc:
             self.error = str(exc) or "The sign-in didn't finish."
+            log.info("oura: connecting failed (%s)", self.error[:120])
         finally:
             self.connecting = False
             self.emit()
@@ -491,7 +543,7 @@ def install(hub: Any) -> None:
         "oura", oura.build_server, prompt=PROMPT, labels={"oura_stats": "Read your Oura ring"}
     )
     hub.register_command("oura_state", oura.emit)
-    hub.register_command("oura_save_client", oura.save_client)
+    hub.register_command("oura_save_client", oura.save_client, slow=True)
     hub.register_command("oura_connect", oura.connect, slow=True)
     hub.register_command("oura_disconnect", oura.disconnect)
     hub.register_command("oura_open_apps", lambda _msg: webbrowser.open(APPS_URL))

@@ -64,8 +64,19 @@ class Server:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.url.path == "/oauth/token":
             form = parse_qs(request.content.decode())
+            if form["client_id"] != ["cid"] or form["client_secret"] != ["secret"]:
+                # As Oura answers: a pair it doesn't know, before anything else.
+                return httpx.Response(
+                    401,
+                    json={
+                        "status": 401,
+                        "error": "invalid_client",
+                        "error_description": "Invalid client",
+                    },
+                )
+            if form.get("code") == ["jarvis-check"]:
+                return httpx.Response(400, json={"error": "invalid_grant"})
             self.tokens_given.append(form)
-            assert form["client_id"] == ["cid"] and form["client_secret"] == ["secret"]
             n = len(self.tokens_given)
             return httpx.Response(
                 200,
@@ -96,7 +107,8 @@ def made(connected=True):
     hub = Hub()
     server = Server()
     oura = Oura(hub, transport=httpx.MockTransport(server))
-    oura.save_client({"client_id": "cid", "client_secret": "secret"})
+    asyncio.run(oura.save_client({"client_id": "cid", "client_secret": "secret"}))
+    assert oura.client() == {"client_id": "cid", "client_secret": "secret"}
     if connected:
         hub.connectors.vault.set(
             "oura",
@@ -244,3 +256,29 @@ def test_the_briefing_puts_the_rings_numbers_in_its_health_section():
     line = asyncio.run(briefing._section("health", [], ""))
     assert line.startswith("From the Oura ring: Last night: sleep score 82.")
     assert "phone_health" in line
+
+
+def test_the_client_id_pasted_as_the_secret_is_caught():
+    hub, oura, _server = made(connected=False)
+    hub.connectors.vault.delete("oura", "oauth_client")
+    asyncio.run(oura.save_client({"client_id": "cid", "client_secret": "cid"}))
+    assert "client ID in it again" in oura.error and oura.client() == {}
+    assert hub.events[-1][1]["error"] == oura.error
+
+
+def test_a_pair_oura_doesnt_know_isnt_kept():
+    hub, oura, _server = made(connected=False)
+    asyncio.run(oura.save_client({"client_id": "cid", "client_secret": "wrong"}))
+    assert "doesn't recognise" in oura.error
+    assert oura.client() == {"client_id": "cid", "client_secret": "secret"}  # the old one stays
+
+
+def test_connect_with_a_bad_saved_app_says_so_before_the_browser(monkeypatch):
+    hub, oura, server = made(connected=False)
+    hub.connectors.vault.set(
+        "oura", "oauth_client", json.dumps({"client_id": "cid", "client_secret": "cid"})
+    )
+    opened = []
+    monkeypatch.setattr(oura_module.webbrowser, "open", opened.append)
+    asyncio.run(oura.connect())
+    assert opened == [] and "doesn't recognise" in oura.error and not oura.connecting
