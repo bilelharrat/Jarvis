@@ -1350,10 +1350,8 @@ let openService = null;
 
 function toggleAccounts(open) {
   $('accounts').hidden = !open;
-  $('accounts-btn').setAttribute('aria-expanded', String(open));
   if (open) { toggleSettings(false); send({ type: 'connectors' }); }
 }
-$('accounts-btn').addEventListener('click', () => toggleAccounts($('accounts').hidden));
 $('accounts-close').addEventListener('click', () => toggleAccounts(false));
 $('open-accounts').addEventListener('click', () => toggleAccounts(true));
 

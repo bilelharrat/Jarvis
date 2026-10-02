@@ -9,7 +9,7 @@
 // pane, with a back button, as on iPhone.
 //
 // Tools & Accounts is a pane here too (Accounts): #accounts' sections move into #settings,
-// and toggleAccounts() (the toolbar button, Jarvis Code's "Open Tools & Accounts", WhatsApp's
+// and toggleAccounts() (Jarvis Code's "Open Tools & Accounts", WhatsApp's
 // pairing) opens Settings on it. The sidebar's top row is the Jarvis account, when its
 // section (features/account.js, #account-group) is there.
 (() => {
@@ -277,20 +277,12 @@
     accounts.hidden = true;
     // Opening Tools & Accounts, from anywhere, is opening Settings on Accounts.
     window.toggleAccounts = (open) => {
-      const btn = $('accounts-btn');
       if (open) {
         if (sheet.hidden) toggleSettings(true);
         choose('accounts');
         send({ type: 'connectors' });
       } else if (!sheet.hidden && current === 'accounts') toggleSettings(false);
-      if (btn) btn.setAttribute('aria-expanded', String(Boolean(open)));
     };
-    // The toolbar button toggles: a second press closes it (app.js asks #accounts, always hidden now).
-    const btn = $('accounts-btn');
-    if (btn) btn.addEventListener('click', (e) => {
-      e.stopImmediatePropagation();
-      window.toggleAccounts(sheet.hidden || current !== 'accounts');
-    }, true);
   }
 
   document.body.dataset.settingsView = 'list';
