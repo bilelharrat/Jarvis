@@ -3,7 +3,8 @@ import Foundation
 
 /// The JARVIS voice, wherever the iPhone is: the Mac's own (`/api/say`, the voice set up
 /// there) while it can be reached, else askeden.com's hosted JARVIS voice (the same Fish
-/// voice the Mac app uses without a key of its own, within a daily allowance per install).
+/// voice the Mac app uses without a key of its own, within a daily allowance per install, or
+/// per Jarvis account when the owner is signed in).
 /// nil means neither could speak it; the caller uses the iPhone's own voice.
 enum JarvisVoice {
     static let hostedURL = URL(string: "https://askeden.com/api/voice")!
@@ -40,6 +41,9 @@ enum JarvisVoice {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue(installID, forHTTPHeaderField: "X-Jarvis-Install")
+        if let token = AccountKeychain.token {  // counted against the account's allowance instead
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text, "format": "wav"])
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200, data.count > 44 else {

@@ -46,6 +46,19 @@ struct MainTabs: View {
         .sheet(isPresented: $showOutbox) {
             OutboxSheet()
         }
+        .sheet(isPresented: Binding(get: { model.showAccount }, set: { model.showAccount = $0 })) {
+            NavigationStack {
+                AccountView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done", systemImage: "checkmark") { model.showAccount = false }
+                        }
+                    }
+            }
+        }
+        .onChange(of: model.showAccount) { _, showing in
+            if showing { showSettings = false }  // one sheet at a time
+        }
         .overlay(alignment: .top) {
             if let toast = model.toast {
                 ToastView(toast: toast, onDismiss: model.dismissToast)

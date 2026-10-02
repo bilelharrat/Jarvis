@@ -13,6 +13,9 @@ struct Pairing: Codable, Equatable, Sendable {
     /// Lowercase hex SHA-256 of the Mac's certificate. Pairings from before the companion
     /// spoke TLS have none, and pair again.
     var fingerprint: String?
+    /// The Mac's device id in the owner's Jarvis account, once it's linked (from the Mac's
+    /// /api/state): which device the encrypted relay connects to. Missing in older pairings.
+    var macDeviceID: String? = nil
 
     var api: JarvisAPI { JarvisAPI(baseURL: baseURL, token: token, fingerprint: fingerprint) }
     var address: String { MacAddress.display(baseURL) }
@@ -132,5 +135,50 @@ enum Keychain {
 
     static func remove(_ account: String) {
         SecItemDelete(query(account) as CFDictionary)
+    }
+
+    // MARK: - Carried by iCloud Keychain
+
+    // The few items the owner's other devices should have too (the sync key): the same
+    // items, but synchronizable, so iCloud Keychain carries them. Never used for tokens.
+
+    private static func syncedQuery(_ account: String) -> [String: Any] {
+        var query = query(account)
+        query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        return query
+    }
+
+    static func readSynced(_ account: String) -> Data? {
+        var query = syncedQuery(account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    static func writeSynced(_ data: Data, account: String) throws {
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            // Synchronizable items can't be this-device-only.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        removeSynced(account)
+        if let group = sharedGroup {
+            var item = syncedQuery(account)
+            item.merge(attributes) { _, new in new }
+            item[kSecAttrAccessGroup as String] = group
+            let status = SecItemAdd(item as CFDictionary, nil)
+            if status == errSecSuccess { return }
+            guard status == errSecMissingEntitlement else { throw Failure(status: status) }
+        }
+        var item = syncedQuery(account)
+        item.merge(attributes) { _, new in new }
+        let status = SecItemAdd(item as CFDictionary, nil)
+        guard status == errSecSuccess else { throw Failure(status: status) }
+    }
+
+    static func removeSynced(_ account: String) {
+        SecItemDelete(syncedQuery(account) as CFDictionary)
     }
 }

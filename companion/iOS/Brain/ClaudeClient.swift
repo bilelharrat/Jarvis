@@ -4,15 +4,58 @@ import Foundation
 /// time, its content blocks rebuilt exactly as they arrived so the turn can go back into
 /// the conversation unchanged (thinking blocks and their signatures included).
 struct ClaudeClient: Sendable {
-    let apiKey: String
+    /// Whose Claude it is: the owner's own API key straight to Anthropic, or their Jarvis
+    /// account through askeden.com (Jarvis Plus, or the trial), which takes the same requests
+    /// with the account's token in place of a key.
+    enum Credential: Sendable, Equatable {
+        case apiKey(String)
+        case account(token: String)
+
+        var endpoint: URL {
+            switch self {
+            case .apiKey: ClaudeClient.endpoint
+            case .account: ClaudeClient.accountEndpoint
+            }
+        }
+
+        var isAccount: Bool {
+            if case .account = self { return true }
+            return false
+        }
+
+        func authorize(_ request: inout URLRequest) {
+            switch self {
+            case .apiKey(let key): request.setValue(key, forHTTPHeaderField: "x-api-key")
+            case .account(let token): request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+        }
+    }
+
+    let credential: Credential
     var model: String = ClaudeClient.defaultModel
     var effort: String = "low"
 
     static let defaultModel = "claude-opus-5-5"
     static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
+    /// askeden.com's Anthropic-compatible proxy, for the AI included with a Jarvis account.
+    static let accountEndpoint = URL(string: "https://askeden.com/api/anthropic/v1/messages")!
+
+    init(apiKey: String, model: String = ClaudeClient.defaultModel, effort: String = "low") {
+        self.init(credential: .apiKey(apiKey), model: model, effort: effort)
+    }
+
+    init(credential: Credential, model: String = ClaudeClient.defaultModel, effort: String = "low") {
+        self.credential = credential
+        self.model = model
+        self.effort = effort
+    }
 
     enum Failure: LocalizedError, Equatable {
         case badKey
+        /// The included AI is spent (402 billing_error): the plan's allowance and the trial.
+        case noAllowance
+        /// askeden.com no longer knows this device's token.
+        case signedOut
         case rateLimited
         case overloaded
         case server(Int, String)
@@ -22,6 +65,8 @@ struct ClaudeClient: Sendable {
         var errorDescription: String? {
             switch self {
             case .badKey: "Your Claude API key wasn’t accepted. Check it in Settings › Jarvis on iPhone."
+            case .noAllowance: "The AI included with your Jarvis account is used up for now. Upgrade to Jarvis Plus for more, or add your own Claude key in Settings › Jarvis on iPhone."
+            case .signedOut: "You’ve been signed out of your Jarvis account. Sign in again in Settings › Account."
             case .rateLimited: "Claude is rate limiting this key right now. Try again in a minute."
             case .overloaded: "Claude is busy right now. Try again in a moment."
             case .server(let status, let message): message.isEmpty ? "Claude couldn’t answer (\(status))." : message
@@ -47,10 +92,10 @@ struct ClaudeClient: Sendable {
         tools: [JSONValue],
         onText: @escaping @Sendable (String) -> Void
     ) async throws -> Response {
-        var request = URLRequest(url: Self.endpoint)
+        var request = URLRequest(url: credential.endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        credential.authorize(&request)
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         // A declined request runs again on the model Anthropic recommends for it.
@@ -83,7 +128,11 @@ struct ClaudeClient: Sendable {
         guard status == 200 else {
             var data = Data()
             for try await byte in bytes { data.append(byte) }
-            throw Self.failure(status: status, body: data)
+            let failure = Self.failure(status: status, body: data, viaAccount: credential.isAccount)
+            if failure == .signedOut, case .account(let token) = credential {
+                await MainActor.run { AccountStore.shared.tokenRejected(token) }
+            }
+            throw failure
         }
 
         var stream = StreamAssembler()
@@ -106,9 +155,13 @@ struct ClaudeClient: Sendable {
         return Response(content: stream.blocks, stopReason: stopReason)
     }
 
-    static func failure(status: Int, body: Data) -> Failure {
-        let message = (try? JSONDecoder().decode(JSONValue.self, from: body))?["error"]?["message"]?.stringValue ?? ""
+    /// viaAccount: the request went through askeden.com on the owner's Jarvis account.
+    static func failure(status: Int, body: Data, viaAccount: Bool = false) -> Failure {
+        let error = (try? JSONDecoder().decode(JSONValue.self, from: body))?["error"]
+        let message = error?["message"]?.stringValue ?? ""
+        if status == 402 || error?["type"]?.stringValue == "billing_error" { return .noAllowance }
         switch status {
+        case 401 where viaAccount: return .signedOut
         case 401, 403: return .badKey
         case 429: return .rateLimited
         case 529: return .overloaded

@@ -40,6 +40,14 @@
 				<string>jarvis-companion</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.bshventures.jarvis.companion.link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>jarvis-link</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>

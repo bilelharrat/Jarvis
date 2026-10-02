@@ -437,8 +437,29 @@ struct JarvisAPI: Sendable {
         authorized: Bool = true, pairing: Bool = false, headers: [String: String] = [:]
     ) async throws -> Data {
         guard baseURL.scheme == "https" else { throw JarvisError.notPinned }
+        guard fingerprint.flatMap(CertificatePin.normalize) != nil else { throw JarvisError.notPinned }
+        // Straight to the Mac, or through the relay when its address can't be reached (MacRoute).
+        let router = MacRoute.router
+        let base = await router?.base(for: baseURL) ?? baseURL
+        let attempt = { (base: URL) in
+            try await perform(path, base: base, relayed: base != baseURL, query: query, body: body, timeout: timeout,
+                              authorized: authorized, pairing: pairing, headers: headers)
+        }
+        do {
+            return try await attempt(base)
+        } catch let error as JarvisError where error.neverDelivered && base == baseURL {
+            // Never got there, so it's safe to send once more, through the relay.
+            guard let router, let relay = await router.directFailed(baseURL) else { throw error }
+            return try await attempt(relay)
+        }
+    }
+
+    private func perform(
+        _ path: String, base: URL, relayed: Bool, query: [URLQueryItem], body: Data?, timeout: TimeInterval,
+        authorized: Bool, pairing: Bool, headers: [String: String]
+    ) async throws -> Data {
         guard let fingerprint = fingerprint.flatMap(CertificatePin.normalize) else { throw JarvisError.notPinned }
-        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
+        var components = URLComponents(url: base.appending(path: path), resolvingAgainstBaseURL: false)
         if !query.isEmpty { components?.queryItems = query }
         guard let url = components?.url else { throw JarvisError.invalidAddress }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
@@ -459,7 +480,15 @@ struct JarvisAPI: Sendable {
         do {
             (data, response) = try await PinnedSessions.session(for: fingerprint).data(for: request, delegate: delegate)
         } catch let error as URLError {
-            throw Self.map(error, delegate: delegate)
+            let mapped = Self.map(error, delegate: delegate)
+            // Through the relay, a connection that broke before the Mac said anything (the
+            // Mac isn't on the relay) never delivered the request: say so, so callers fall
+            // back the way they do when the Mac can't be reached.
+            if relayed, delegate.rejected == false, Self.mayBeRelayRefusal(mapped),
+               let router = MacRoute.router, await router.relayFailed(base) {
+                throw JarvisError.unreachable("Your Mac isn’t connected to the Jarvis relay right now.")
+            }
+            throw mapped
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -468,6 +497,14 @@ struct JarvisAPI: Sendable {
 
         guard let http = response as? HTTPURLResponse else { throw JarvisError.notJarvis }
         return try Self.check(status: http.statusCode, data: data, pairing: pairing)
+    }
+
+    /// The errors a relay stream that closed before the Mac answered shows up as.
+    private static func mayBeRelayRefusal(_ error: Error) -> Bool {
+        switch error as? JarvisError {
+        case .connectionLost?, .notEncrypted?, .unreachable?: true
+        default: false
+        }
     }
 
     /// A status code and body to data, or the error it means.

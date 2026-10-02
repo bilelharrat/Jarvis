@@ -86,6 +86,13 @@ final class AppModel {
     @ObservationIgnored private var wokeAt = Date.distantPast
     /// The Mac said it's opening JARVIS, and isn't back yet.
     private(set) var macOpening = false
+    /// The Mac is reached through the Jarvis relay (its own address can't be).
+    private(set) var viaRelay = false
+    /// Settings › Account, over everything (an Upgrade button, a link code from the Camera).
+    var showAccount = false
+    /// A Mac's link code opened from outside the app (`jarvis-link://…`), for the account
+    /// screen to look up.
+    var pendingLinkCode: String?
 
     private static let speakKey = "speakReplies"
     static let wakeKey = "wake.enabled"
@@ -143,6 +150,10 @@ final class AppModel {
         }
         watch.activate()
         watch.push(pairing)  // on every launch, so the Watch always has the latest
+        // The Jarvis account (optional): the relay route to the Mac, purchases, push, sync.
+        MacRoute.router = MacRouter.shared
+        Task { await MacRouter.shared.reload() }
+        AccountStore.shared.start()
     }
 
     // MARK: - What the screen shows
@@ -192,14 +203,18 @@ final class AppModel {
         return "Copied your Mac’s \(copied.joined(separator: " and ")) key. Jarvis answers here with it when your Mac can’t be reached."
     }
 
-    /// Jarvis on the iPhone can answer: with a Claude or Gemini key, or Apple's own model.
-    var phoneCanAnswer: Bool { hasPhoneKey || hasAppleBrain }
+    /// Jarvis on the iPhone can answer: with a Claude or Gemini key, the AI included with a
+    /// Jarvis account, or Apple's own model.
+    var phoneCanAnswer: Bool { hasPhoneKey || hasAppleBrain || AccountStore.shared.isSignedIn }
+
+    /// Jarvis Plus answers here as readily as the owner's own key would.
+    private var phoneHasPlus: Bool { AccountStore.shared.isSignedIn && AccountStore.shared.account?.plan.isPlus == true }
 
     /// The next request is answered on the iPhone: there's no Mac, the Mac can't be reached
     /// (whatever the mode), the owner chose the iPhone, or (automatically) there's a Claude or
     /// Gemini key, so the iPhone answers what it can and hands the rest to the Mac.
     var answersOnPhone: Bool {
-        brainMode.answersOnPhone(paired: pairing != nil, hasKey: hasPhoneKey, canAnswer: phoneCanAnswer, macAway: isOffline)
+        brainMode.answersOnPhone(paired: pairing != nil, hasKey: hasPhoneKey || phoneHasPlus, canAnswer: phoneCanAnswer, macAway: isOffline)
     }
 
     /// The Mac's feature screens (from /api/state).
@@ -230,7 +245,7 @@ final class AppModel {
                 id: "local:\(turn.id)",
                 kind: turn.role == .user ? .user : turn.role == .jarvis ? .jarvis : .problem,
                 text: turn.text, time: turn.time, live: turn.live, onPhone: true, activity: turn.activity,
-                pictures: turn.pictures, files: turn.files
+                pictures: turn.pictures, files: turn.files, offersUpgrade: turn.offersUpgrade
             )
         }
         guard !mac.isEmpty, !phone.isEmpty else { return mac + phone }
@@ -286,8 +301,10 @@ final class AppModel {
 
     func setForeground(_ active: Bool) {
         foreground = active
+        SyncEngine.shared.setActive(active && AccountStore.shared.isSignedIn)
         if active {
             hasAppleBrain = AppleClient.isAvailable
+            if AccountStore.shared.isSignedIn { Task { await AccountStore.shared.refresh() } }
             reloadQueue(sayExpired: true)
             restartPolling()
             Task { await HealthService.shared.sendIfDue() }
@@ -337,6 +354,7 @@ final class AppModel {
         self.pairing = pairing
         brain.tools.mac = pairing.api
         watch.push(pairing)
+        Task { await MacRouter.shared.reload() }
         restartPolling()
         pushNudged = false
         // Approvals and heads-ups as notifications: ask now, the moment it makes sense.
@@ -351,6 +369,10 @@ final class AppModel {
             if foreground { startListening() } else { listenOnOpen = true }
         } else if let link = PairingLink(url.absoluteString) {
             offeredLink = link
+        } else if let code = LinkCode.fromQR(url.absoluteString) {
+            // A Mac's link code, read by the Camera app: the account screen asks about it.
+            pendingLinkCode = code
+            showAccount = true
         } else if let place = Destination(url: url), pairing != nil {
             destination = place
         }
@@ -380,7 +402,18 @@ final class AppModel {
         remote = nil
         link = .connecting
         watch.push(pairing)
+        Task { await MacRouter.shared.reload() }
         restartPolling()
+    }
+
+    /// The Mac's device id in the owner's Jarvis account (from its /api/state, or from
+    /// linking it here), kept with the pairing for the relay.
+    func learnMacDeviceID(_ id: String?) {
+        guard var pairing, pairing.macDeviceID != id else { return }
+        pairing.macDeviceID = id
+        try? PairingStore.save(pairing)
+        self.pairing = pairing
+        Task { await MacRouter.shared.reload() }
     }
 
     func unpair() {
@@ -611,6 +644,8 @@ final class AppModel {
             show("Thanks. Noted.", style: .success)
         case .bad:
             break  // the screen asks what was wrong (feedback(_:retry:))
+        case .upgrade:
+            showAccount = true
         }
     }
 
@@ -1082,10 +1117,12 @@ final class AppModel {
         let ticket = refreshes
         do {
             let state = try await api.state()
+            let relayed = await MacRouter.shared.isRelaying
             guard ticket > applied, pairing?.token == api.token else { return }  // a newer answer won
             applied = ticket
             if link != .online { link = .online }
             macOpening = false
+            if viaRelay != relayed { viaRelay = relayed }
             apply(state)
             if let pairing { SnapshotPublisher.shared.publish(state, macName: pairing.macLabel) }
             if foreground { Task { await LiveActivities.shared.sync(state, api: api, inForeground: true) } }
@@ -1123,6 +1160,7 @@ final class AppModel {
     }
 
     private func apply(_ state: RemoteState) {
+        if state.accountDeviceID != pairing?.macDeviceID { learnMacDeviceID(state.accountDeviceID) }
         if state.push?.registered == false, !pushNudged {
             pushNudged = true  // the Mac lost this device's token (or never had it)
             Task { await PushCoordinator.shared.sendToken(force: true) }
@@ -1174,6 +1212,8 @@ final class AppModel {
         PhoneSensors.shared.forget()
         queued = []
         pairing = nil
+        viaRelay = false
+        Task { await MacRouter.shared.reload() }
         brain.tools.mac = nil
         remote = nil
         pending = nil

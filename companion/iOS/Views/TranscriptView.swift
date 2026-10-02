@@ -55,6 +55,9 @@ struct TranscriptRow: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
+        .accessibilityActions {
+            if line.offersUpgrade { Button("Upgrade to Jarvis Plus") { onAction(.upgrade) } }
+        }
     }
 
     /// Copy, share, read aloud; on Jarvis's last reply here, try again and feedback; on
@@ -162,9 +165,18 @@ struct TranscriptRow: View {
 
     private var problem: some View {
         Label {
-            Text(line.text)
-                .font(.callout)
-                .foregroundStyle(Palette.ink2)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(line.text)
+                    .font(.callout)
+                    .foregroundStyle(Palette.ink2)
+                if line.offersUpgrade {
+                    Button("Upgrade to Jarvis Plus") { onAction(.upgrade) }
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, Space.s)
+                        .padding(.vertical, 6)
+                        .buttonStyle(GlassButtonStyle(tint: .accentColor))
+                }
+            }
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")
                 .symbolRenderingMode(.multicolor)

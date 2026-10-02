@@ -120,7 +120,7 @@ enum CameraAccess: Equatable {
 }
 
 /// Four corner brackets, like the Camera app's code scanner.
-private struct Viewfinder: View {
+struct Viewfinder: View {
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
@@ -139,7 +139,7 @@ private struct Viewfinder: View {
 }
 
 /// The camera, reading QR codes. Each distinct code is reported once.
-private struct QRCameraView: UIViewRepresentable {
+struct QRCameraView: UIViewRepresentable {
     let onCode: (String) -> Void
 
     func makeUIView(context: Context) -> PreviewView {

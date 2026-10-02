@@ -352,8 +352,19 @@ struct RemoteState: Equatable, Sendable, Decodable {
     var features: [String] = []
     /// What the Mac asks of this iPhone's contacts and calendar (only those turned on).
     var phoneAsks: [PhoneAsk] = []
+    /// The Mac's device id in the owner's Jarvis account, once it's linked (for the relay).
+    var accountDeviceID: String?
 
     init() {}
+
+    /// `"account": {"device_id": "…"}`, only once the Mac is linked to an account.
+    private struct AccountLink: Decodable {
+        var deviceID: String?
+        private enum Key: String, CodingKey { case deviceID = "device_id" }
+        init(from decoder: Decoder) throws {
+            deviceID = try decoder.container(keyedBy: Key.self).text(.deviceID)?.trimmed
+        }
+    }
 
     private enum Key: String, CodingKey {
         case state, turn, approvals, history, weather, tasks, meeting, routines, model, push, tls, features
@@ -362,6 +373,7 @@ struct RemoteState: Equatable, Sendable, Decodable {
         case codeSessions = "code_sessions"
         case delegationsActive = "delegations_active"
         case phoneAsks = "phone_asks"
+        case account
     }
 
     init(from decoder: Decoder) throws {
@@ -383,6 +395,7 @@ struct RemoteState: Equatable, Sendable, Decodable {
         tls = c.flag(.tls) ?? false
         features = ((try? c.decodeIfPresent([String].self, forKey: .features)) ?? nil) ?? []
         phoneAsks = c.list(PhoneAsk.self, .phoneAsks).filter { !$0.id.isEmpty && $0.kind != .unknown }
+        accountDeviceID = c.object(AccountLink.self, .account)?.deviceID.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     var activeTasks: [BackgroundTask] { tasks.filter(\.isActive) }

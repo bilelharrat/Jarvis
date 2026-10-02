@@ -15,6 +15,16 @@ struct PhoneBrainSettings: View {
 
     var body: some View {
         Section {
+            LabeledContent {
+                Text(source.text)
+                    .foregroundStyle(source.ready ? Color.green : Palette.muted)
+            } label: {
+                HStack(spacing: Space.s) {
+                    IconTile(symbol: "sparkles", tint: .purple)
+                    Text("Answers With")
+                }
+            }
+            .accessibilityElement(children: .combine)
             KeyRow(provider: .claude)
             KeyRow(provider: .gemini)
             if model.pairing != nil {
@@ -112,6 +122,21 @@ struct PhoneBrainSettings: View {
         }
     }
 
+    /// What answers on this iPhone right now: the owner's own key, the AI included with
+    /// their Jarvis account, or Apple's model.
+    private var source: (text: String, ready: Bool) {
+        if model.hasPhoneKey { return ("Your key", true) }
+        let store = AccountStore.shared
+        if store.isSignedIn {
+            guard let account = store.account else { return ("Jarvis account", true) }
+            if account.plan.isPlus { return account.usage.leftUSD > 0 ? ("Jarvis Plus", true) : ("Jarvis Plus · used up this month", false) }
+            if account.usage.trialLeftUSD > 0 { return ("Trial: \(account.usage.trialLeftUSD.dollars) left", true) }
+            if model.hasAppleBrain { return ("Apple Intelligence (trial used)", true) }
+            return ("Trial used · upgrade in Account", false)
+        }
+        return model.hasAppleBrain ? ("Apple Intelligence", true) : ("Nothing yet", false)
+    }
+
     private func modelPicker(_ provider: BrainProvider, selection: Binding<String>) -> some View {
         Picker(selection: selection) {
             ForEach(provider.models, id: \.id) { option in
@@ -126,7 +151,7 @@ struct PhoneBrainSettings: View {
     }
 
     private var footer: String {
-        let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. With neither, or when both fail, Apple Intelligence answers: Apple’s Private Cloud Compute when there’s internet, the model on this iPhone when there isn’t (it can’t see pictures and knows less). It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
+        let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. Without a Claude key, a Jarvis account (Settings › Account) brings Claude included: a trial, then Jarvis Plus. With none of these, or when they all fail, Apple Intelligence answers: Apple’s Private Cloud Compute when there’s internet, the model on this iPhone when there isn’t (it can’t see pictures and knows less). It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
         let more = " Heads-ups: Jarvis looks ahead at your calendar and reminders and tells you on Today; it only interrupts you (a notification) for what can't wait. Only Answer When Unlocked: Siri, Vocal Shortcuts and “Hey Jarvis” answer only once Face ID or your passcode has unlocked this iPhone (iOS doesn’t let apps recognise a voice, so this is how Jarvis knows it’s you)."
         guard model.pairing != nil else { return keys + more }
         return keys + more + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Jarvis Code) to the Mac, opening JARVIS there if it was quit. Without a key, or when both services fail, your Mac answers. Whatever you choose, when your Mac can’t be reached (you’re away, it’s asleep or off), this iPhone answers instead of waiting for it. Use My Mac’s Keys copies the keys saved in JARVIS on your Mac, over your paired connection."

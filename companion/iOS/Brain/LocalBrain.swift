@@ -38,6 +38,9 @@ final class LocalMemory {
         var date = Date()
         /// Missing in facts kept before kinds: those are plain facts.
         var kind: Kind?
+        /// The Mac's category for a fact that came by sync (work, health, places…), kept so
+        /// it goes back the way it came.
+        var syncCategory: String?
 
         var category: Kind { kind ?? .fact }
     }
@@ -53,49 +56,106 @@ final class LocalMemory {
     private(set) var facts: [Fact] = []
     /// By the name as the owner says it, lowercased.
     private(set) var people: [String: Person] = [:]
+    /// When each forgotten fact was forgotten, so sync tells the owner's other devices (kept
+    /// 90 days).
+    private(set) var deleted: [UUID: Date] = [:]
     private let url: URL
     private let peopleURL: URL
+    private let deletedURL: URL
     let folderForTests: URL
+
+    /// Posted when the facts change here (not when sync brings them).
+    static let changed = Notification.Name("LocalMemory.changed")
 
     init(folder: URL = AppGroup.directory) {
         folderForTests = folder
         url = folder.appendingPathComponent("phone-memory.json")
         peopleURL = folder.appendingPathComponent("phone-people.json")
+        deletedURL = folder.appendingPathComponent("phone-memory-deleted.json")
         if let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode([Fact].self, from: data) {
             facts = saved
         }
         if let data = try? Data(contentsOf: peopleURL), let saved = try? JSONDecoder().decode([String: Person].self, from: data) {
             people = saved
         }
+        if let data = try? Data(contentsOf: deletedURL), let saved = try? JSONDecoder().decode([UUID: Date].self, from: data) {
+            deleted = saved
+        }
     }
 
     func add(_ text: String, kind: Fact.Kind = .fact) {
-        facts.removeAll { $0.text.caseInsensitiveCompare(text) == .orderedSame }
+        drop { $0.text.caseInsensitiveCompare(text) == .orderedSame }
         facts.append(Fact(text: text, kind: kind == .fact ? nil : kind))
         if facts.count > 300 {  // corrections are the last to go
-            if let oldest = facts.firstIndex(where: { $0.category != .correction }) { facts.remove(at: oldest) } else { facts.removeFirst() }
+            let oldest = facts.firstIndex(where: { $0.category != .correction }) ?? 0
+            let gone = facts[oldest].id
+            drop { $0.id == gone }
         }
         save()
     }
 
     func remove(_ fact: Fact) {
-        facts.removeAll { $0.id == fact.id }
+        drop { $0.id == fact.id }
         save()
     }
 
     @discardableResult
     func forget(matching words: String) -> Int {
         let before = facts.count + people.count
-        facts.removeAll { $0.text.localizedCaseInsensitiveContains(words) }
+        drop { $0.text.localizedCaseInsensitiveContains(words) }
         people = people.filter { !$0.key.localizedCaseInsensitiveContains(words) && !$0.value.name.localizedCaseInsensitiveContains(words) }
         save()
         return before - facts.count - people.count
     }
 
     func removeAll() {
-        facts = []
+        drop { _ in true }
         people = [:]
         save()
+    }
+
+    /// Removes facts, remembering when (a tombstone for sync).
+    private func drop(where gone: (Fact) -> Bool) {
+        let now = Date()
+        for fact in facts where gone(fact) { deleted[fact.id] = now }
+        facts.removeAll(where: gone)
+    }
+
+    // MARK: - Sync
+
+    /// The facts and tombstones as sync carries them.
+    var wireFacts: [SyncItems.WireFact] {
+        let kept = facts.map { fact in
+            let mapped = SyncItems.category(for: fact.category)
+            // A Mac category the iPhone has no kind for goes back as it came.
+            let category = fact.syncCategory.flatMap { SyncItems.kind(for: $0) == fact.category ? $0 : nil } ?? mapped
+            return SyncItems.WireFact(id: fact.id.uuidString.lowercased(), text: fact.text, category: category,
+                                      updated: SyncItems.ms(fact.date))
+        }
+        let gone = deleted.map { id, when in
+            SyncItems.WireFact(id: id.uuidString.lowercased(), text: "", category: "other", updated: SyncItems.ms(when), deleted: true)
+        }.sorted { $0.updated < $1.updated }
+        return kept + gone
+    }
+
+    /// Takes the merged facts from sync (the order of the ones already here is kept).
+    func applySynced(_ wire: [SyncItems.WireFact]) {
+        var kept: [Fact] = []
+        var gone: [UUID: Date] = [:]
+        for item in wire {
+            guard let id = UUID(uuidString: item.id) else { continue }
+            if item.deleted {
+                gone[id] = SyncItems.date(item.updated)
+                continue
+            }
+            let kind = SyncItems.kind(for: item.category)
+            kept.append(Fact(id: id, text: item.text, date: SyncItems.date(item.updated), kind: kind == .fact ? nil : kind,
+                             syncCategory: SyncItems.category(for: kind) == item.category ? nil : item.category))
+        }
+        let position = Dictionary(facts.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        facts = kept.sorted { (position[$0.id] ?? Int.max, $0.date) < (position[$1.id] ?? Int.max, $1.date) }
+        deleted = gone
+        write()
     }
 
     // MARK: - Who a name means
@@ -143,9 +203,17 @@ final class LocalMemory {
     }
 
     private func save() {
+        write()
+        NotificationCenter.default.post(name: Self.changed, object: self)
+    }
+
+    private func write() {
+        let tooOld = Date().addingTimeInterval(-SyncItems.tombstoneLife)
+        deleted = deleted.filter { $0.value > tooOld }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(facts).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         try? JSONEncoder().encode(people).write(to: peopleURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try? JSONEncoder().encode(deleted).write(to: deletedURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 }
 
@@ -174,8 +242,17 @@ enum BrainSettings {
 
     static var hasAnyKey: Bool { BrainProvider.keyed.contains { key(for: $0) != nil } }
 
-    /// Jarvis on the iPhone can answer: with a key, or with Apple's own model.
-    static var canAnswer: Bool { hasAnyKey || AppleClient.isAvailable }
+    /// The AI included with a Jarvis account answers when the owner has no Claude key of
+    /// their own: Claude through askeden.com, on Jarvis Plus or the trial.
+    static var includedAIToken: String? {
+        key(for: .claude) == nil ? AccountKeychain.token : nil
+    }
+
+    static var hasIncludedAI: Bool { includedAIToken != nil }
+
+    /// Jarvis on the iPhone can answer: with a key, the account's included AI, or Apple's
+    /// own model.
+    static var canAnswer: Bool { hasAnyKey || hasIncludedAI || AppleClient.isAvailable }
 
     /// The one the owner prefers; the other answers when it can't.
     static var provider: BrainProvider {
@@ -194,11 +271,11 @@ enum BrainSettings {
 
     /// Siri and the Action Button ask the iPhone first: there's a key and the owner didn't
     /// choose the Mac.
-    static var prefersPhone: Bool { mode != .mac && hasAnyKey }
+    static var prefersPhone: Bool { mode != .mac && (hasAnyKey || (hasIncludedAI && AccountStore.cachedPlus)) }
 
     /// Who answers, in order: the preferred service, then the other, each only with a key;
-    /// then Apple's model, which runs the phone's tools itself (apple: how), when this
-    /// iPhone has it.
+    /// then, without a Claude key, Claude on the owner's Jarvis account; then Apple's model,
+    /// which runs the phone's tools itself (apple: how), when this iPhone has it.
     static func clients(apple: AppleClient.Runner? = nil) -> [any BrainClient] {
         let order = [provider] + BrainProvider.keyed.filter { $0 != provider }
         var clients = order.compactMap { provider -> (any BrainClient)? in
@@ -208,6 +285,9 @@ enum BrainSettings {
             case .gemini: return GeminiClient(apiKey: key, model: model(for: .gemini))
             case .apple: return nil
             }
+        }
+        if let token = includedAIToken {
+            clients.append(ClaudeClient(credential: .account(token: token), model: model(for: .claude), effort: "low"))
         }
         if let apple, AppleClient.isAvailable { clients.append(AppleClient(runner: apple)) }
         return clients
@@ -267,6 +347,8 @@ final class LocalBrain {
         var pictures: [Data] = []
         /// The names of documents sent with it.
         var files: [String] = []
+        /// A problem the owner fixes by upgrading their Jarvis account (the included AI ran out).
+        var offersUpgrade = false
     }
 
     /// What's on screen, oldest first.
@@ -419,7 +501,7 @@ final class LocalBrain {
         })
         guard !clients.isEmpty else {
             turns.append(Turn(role: .user, text: text, pictures: pictures, files: files))
-            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone (or turn on Apple Intelligence), so Jarvis can answer here."))
+            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone, sign in under Settings › Account, or turn on Apple Intelligence, so Jarvis can answer here."))
             lastFailed = true
             return nil
         }
@@ -492,7 +574,8 @@ final class LocalBrain {
         } catch {
             // The question stays, the half-turn doesn't: the next ask starts clean.
             rollBack()
-            fail((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            fail((error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                 upgrade: (error as? ClaudeClient.Failure) == .noAllowance)
             return nil
         }
     }
@@ -561,12 +644,12 @@ final class LocalBrain {
         lastFailed = false
     }
 
-    private func fail(_ message: String) {
+    private func fail(_ message: String, upgrade: Bool = false) {
         defer { keep() }
         lastFailed = true
         isWorking = false
         if let index = turns.lastIndex(where: { $0.live }) {
-            turns[index] = Turn(role: .problem, text: message)
+            turns[index] = Turn(role: .problem, text: message, offersUpgrade: upgrade)
         }
     }
 

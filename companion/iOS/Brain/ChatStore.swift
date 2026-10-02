@@ -72,6 +72,9 @@ final class ChatStore {
     private(set) var chats: [SavedChat] = []
     @ObservationIgnored private let url: URL
 
+    /// Posted when the chats change here (not when sync brings them).
+    static let changed = Notification.Name("ChatStore.changed")
+
     init(folder: URL = AppGroup.directory) {
         url = folder.appendingPathComponent("phone-chats.json")
         if let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode([SavedChat].self, from: data) {
@@ -146,11 +149,36 @@ final class ChatStore {
         save()
     }
 
+    // MARK: - Sync
+
+    /// A chat as another of the owner's iPhones last kept it.
+    func applySynced(_ chat: SavedChat) {
+        if let index = chats.firstIndex(where: { $0.id == chat.id }) {
+            chats[index] = chat
+        } else {
+            chats.append(chat)
+        }
+        sort()
+        write()
+    }
+
+    /// A chat deleted on another of the owner's iPhones.
+    func removeSynced(_ id: UUID) {
+        guard chats.contains(where: { $0.id == id }) else { return }
+        chats.removeAll { $0.id == id }
+        write()
+    }
+
     private func sort() {
         chats.sort { $0.pinned != $1.pinned ? $0.pinned : $0.updated > $1.updated }
     }
 
     private func save() {
+        write()
+        NotificationCenter.default.post(name: Self.changed, object: self)
+    }
+
+    private func write() {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(chats).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }

@@ -60,7 +60,8 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func registerIfAllowed() async {
-        guard PairingStore.load()?.isPinned == true else { return }
+        // Someone to push: the paired Mac, or askeden.com for a Jarvis account.
+        guard PairingStore.load()?.isPinned == true || AccountKeychain.load() != nil else { return }
         switch await authorization() {
         case .authorized, .provisional, .ephemeral:
             UIApplication.shared.registerForRemoteNotifications()
@@ -73,6 +74,7 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
         token = PushToken.hex(deviceToken)
         registrationProblem = nil
         Task { await sendToken(force: false) }
+        Task { await AccountStore.shared.sendPushToken() }
     }
 
     func registrationFailed(_ error: Error) {

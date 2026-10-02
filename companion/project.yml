@@ -9,6 +9,9 @@ options:
   xcodeVersion: "26.0"
   createIntermediateGroups: true
   developmentLanguage: en
+# Lets the Simulator buy Jarvis Plus without App Store Connect (the scheme's run action).
+fileGroups:
+  - Jarvis.storekit
 settings:
   SWIFT_VERSION: "5.10"
   # BSH Ventures' paid Apple Developer Program team (same as the BSH Research apps).
@@ -75,6 +78,10 @@ targets:
           - CFBundleURLName: com.bshventures.jarvis.companion.open
             CFBundleURLSchemes:
               - jarvis-companion
+          # A Mac's account link code (its QR code, read by the Camera app); asked about first.
+          - CFBundleURLName: com.bshventures.jarvis.companion.link
+            CFBundleURLSchemes:
+              - jarvis-link
         UILaunchScreen:
           UIColorName: LaunchBackground
         # The Stark night: Jarvis is always dark.
@@ -110,6 +117,9 @@ targets:
         com.apple.developer.homekit: true
         # Timers Jarvis sets on the iPhone break through Focus when they end.
         com.apple.developer.usernotifications.time-sensitive: true
+        # The optional Jarvis account (askeden.com) signs in with Apple.
+        com.apple.developer.applesignin:
+          - Default
 
   JarvisCompanionWatch:
     type: application
@@ -281,6 +291,7 @@ schemes:
         JarvisCompanionUITests: [test]
     run:
       config: Debug
+      storeKitConfiguration: Jarvis.storekit
     test:
       config: Debug
       targets:

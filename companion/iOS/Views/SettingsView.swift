@@ -19,6 +19,22 @@ struct SettingsView: View {
                     identity
                 }
 
+                Section {
+                    NavigationLink {
+                        AccountView()
+                    } label: {
+                        HStack(spacing: Space.s) {
+                            IconTile(symbol: "person.crop.circle.fill", tint: .blue)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Account")
+                                Text(accountText)
+                                    .font(.footnote)
+                                    .foregroundStyle(Palette.muted)
+                            }
+                        }
+                    }
+                }
+
                 if model.pairing != nil {
                     macSection
                 } else {
@@ -155,7 +171,7 @@ struct SettingsView: View {
         } header: {
             Text("Your Mac")
         } footer: {
-            Text("Shown in Jarvis on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address.")
+            Text("Shown in Jarvis on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address, or link the Mac to your Jarvis account to reach it through the encrypted relay.")
         }
     }
 
@@ -242,10 +258,19 @@ struct SettingsView: View {
     private var statusText: String {
         guard model.pairing != nil else { return model.phoneCanAnswer ? "On this iPhone" : "Not set up" }
         return switch model.link {
+        case .online where model.viaRelay: model.remote.map { "Connected through Jarvis relay · \($0.state.label)" } ?? "Connected through Jarvis relay"
         case .online: model.remote.map { "Connected · \($0.state.label)" } ?? "Connected"
         case .connecting: "Connecting…"
         case .unreachable: model.phoneCanAnswer ? "Can’t reach the Mac · iPhone answers" : "Can’t reach the Mac"
         }
+    }
+
+    private var accountText: String {
+        let store = AccountStore.shared
+        guard store.isSignedIn else { return "Optional: AI included, sync, your Mac from anywhere" }
+        guard let account = store.account else { return "Signed in" }
+        if account.plan.isPlus { return "Jarvis Plus" }
+        return account.usage.trialLeftUSD > 0 ? "Free · trial \(account.usage.trialLeftUSD.dollars) left" : "Free"
     }
 
     private var notificationText: String {

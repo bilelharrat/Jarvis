@@ -1,0 +1,93 @@
+{
+  "identifier" : "4C1F2A7E",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_developerTeamID" : "9ZSY5R8A5C",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21500001",
+      "localizations" : [
+        {
+          "description" : "AI included in Jarvis",
+          "displayName" : "Jarvis Plus",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "Jarvis Plus",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6700000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Claude included each month, and more JARVIS voice.",
+              "displayName" : "Jarvis Plus Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.bshventures.jarvis.plus.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Jarvis Plus Monthly",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "199.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6700000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Claude included each month, and more JARVIS voice. Two months free.",
+              "displayName" : "Jarvis Plus Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.bshventures.jarvis.plus.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Jarvis Plus Yearly",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
