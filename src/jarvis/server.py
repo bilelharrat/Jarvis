@@ -326,6 +326,9 @@ def serve(port: int, token: str) -> None:
     from .config import load_settings
 
     features.prepare_all(APP_SUPPORT)
+    from . import launcher_watch
+
+    launcher_watch.start()  # the app quits or crashes: this backend goes too, lock and all
     app = create_app(Hub(load_settings()), token)
     print(f"JARVIS listening on http://127.0.0.1:{port}/?token={token}", flush=True)
     # Frames up to 64 MiB: a message with its attachments (the composer caps them at 24 MB).
