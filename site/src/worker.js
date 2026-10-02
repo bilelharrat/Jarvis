@@ -1,10 +1,11 @@
-// askeden.com: J.A.R.V.I.S.'s site and the download itself, on Cloudflare (the whole domain;
-// the old Eden site on Vercel is no longer shown there).
+// askeden.com: Eden's site (J.A.R.V.I.S. and Eden Messenger) and the J.A.R.V.I.S. download, on
+// Cloudflare (the whole domain; the old Eden site on Vercel is no longer shown there).
 //
 //   /, /jarvis              the page (./public/jarvis/index.html)
 //   /jarvis/…               its images
 //   /download, /jarvis/download   the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
+//   /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
 //   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
 //   /api/…                  Jarvis accounts (accounts/index.js, docs/accounts.md)
 //   anything else           back to the page
@@ -39,6 +40,7 @@ export default {
       return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
     }
     if (path === '/download' || path === '/jarvis/download') return download(request, env);
+    if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
     if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
     if (path === '/' || path === '/jarvis') {
       // The page itself, at the domain's root and at /jarvis, without a redirect.
@@ -52,6 +54,30 @@ export default {
     return Response.redirect(new URL('/', url).toString(), 302);
   },
 };
+
+// The page's other buttons: each goes wherever its variable in wrangler.toml says (a TestFlight
+// invite, the Messenger's disk image), and until that is set, to a page saying it's on its way.
+const SOON = {
+  '/jarvis/iphone': { variable: 'JARVIS_IPHONE_URL', app: 'J.A.R.V.I.S. for iPhone' },
+  '/messenger/download': { variable: 'MESSENGER_MAC_URL', app: 'Eden Messenger for Mac' },
+  '/messenger/mac': { variable: 'MESSENGER_MAC_URL', app: 'Eden Messenger for Mac' },
+  '/messenger/iphone': { variable: 'MESSENGER_IPHONE_URL', app: 'Eden Messenger for iPhone' },
+};
+
+function elsewhere(path, env) {
+  const { variable, app } = SOON[path];
+  const target = String(env[variable] || '').trim();
+  if (/^https:\/\//.test(target)) return Response.redirect(target, 302);
+  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>${app}: almost ready</title>
+<link rel="icon" type="image/png" href="/jarvis/eden-favicon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300&family=Instrument+Sans:wght@400;600&display=swap">
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0e13;color:#f4f5f7;font:400 17px/1.55 'Instrument Sans',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;text-align:center;padding:24px;box-sizing:border-box}
+h1{margin:0 0 12px;font:300 clamp(34px,6vw,52px)/1.1 Fraunces,Georgia,serif}p{margin:0 auto 28px;max-width:440px;color:rgba(244,245,247,.72)}
+a{display:inline-block;padding:13px 24px;border-radius:999px;border:1px solid rgba(255,255,255,.22);color:#f4f5f7;text-decoration:none;font-weight:600}a:hover{background:rgba(255,255,255,.06)}</style>
+</head><body><main><h1>${app} is almost ready.</h1><p>It isn't out yet. Check back soon: this button will download it.</p><a href="/">Back to askeden.com</a></main></body></html>`;
+  return new Response(page, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+}
 
 async function readLatest(env) {
   if (!env.DOWNLOADS) return null;

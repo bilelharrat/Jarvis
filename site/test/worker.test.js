@@ -183,3 +183,18 @@ test('bad requests are refused before anything is spent', async (t) => {
   const unset = await say({ ...e, FISH_API_KEY: '' }, 'hi');
   assert.equal(unset.status, 503);
 });
+
+test('the other apps\' buttons: "almost ready" until their address is set, then a redirect', async () => {
+  for (const path of ['/jarvis/iphone', '/messenger/download', '/messenger/mac', '/messenger/iphone']) {
+    const soon = await get(path, env());
+    assert.equal(soon.status, 200, path);
+    assert.match(soon.headers.get('content-type'), /text\/html/);
+    assert.match(await soon.text(), /almost ready/);
+  }
+  const e = { ...env(), MESSENGER_MAC_URL: 'https://example.com/Eden-Messenger.dmg', JARVIS_IPHONE_URL: 'http://not-https.example' };
+  const mac = await get('/messenger/download', e);
+  assert.equal(mac.status, 302);
+  assert.equal(mac.headers.get('location'), 'https://example.com/Eden-Messenger.dmg');
+  assert.equal((await get('/jarvis/iphone', e)).status, 200);
+  assert.equal((await get('/messenger/nonsense', e)).status, 302);
+});

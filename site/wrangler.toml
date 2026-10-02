@@ -32,6 +32,11 @@ TRIAL_BUDGET_USD = "1"
 VOICE_DAILY_FREE = "20000"
 VOICE_DAILY_PLUS = "100000"
 APPLE_TEAM_ID = "9ZSY5R8A5C"
+# The page's other download buttons (src/worker.js SOON): https addresses, e.g. a TestFlight
+# public link or the Messenger's notarized .dmg. Empty: the button shows "almost ready".
+JARVIS_IPHONE_URL = ""
+MESSENGER_MAC_URL = ""
+MESSENGER_IPHONE_URL = ""
 
 [[durable_objects.bindings]]
 name = "VOICE_QUOTA"
