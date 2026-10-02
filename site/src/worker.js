@@ -6,10 +6,16 @@
 //   /download, /jarvis/download   the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
 //   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
+//   /api/…                  Jarvis accounts (accounts/index.js, docs/accounts.md)
 //   anything else           back to the page
 //
 // What "latest" is lives in R2 itself: latest.json, written by the release script after the
 // disk image is up, so a half-uploaded release is never offered.
+
+import { api } from './accounts/index.js';
+import { tokenFrom } from './accounts/util.js';
+
+export { Account, Link } from './accounts/index.js';
 
 const LATEST = 'latest.json';
 // Before the R2 bucket is bound (a deploy without it), the download is the notarized disk
@@ -24,10 +30,11 @@ const FALLBACK = {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
     if (path === '/api/voice') return voice(request, env);
+    if (path.startsWith('/api/')) return api(request, env, ctx);
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
     }
@@ -151,7 +158,8 @@ async function voice(request, env) {
   if (request.method !== 'POST') return json({ error: 'POST only.' }, 405, { allow: 'POST' });
   if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The JARVIS voice is not set up here yet.' }, 503);
   const install = String(request.headers.get('x-jarvis-install') || '');
-  if (!/^[0-9a-f]{32}$/.test(install)) return json({ error: 'Unknown install.' }, 400);
+  const account = tokenFrom(request);
+  if (!account && !/^[0-9a-f]{32}$/.test(install)) return json({ error: 'Unknown install.' }, 400);
   let body;
   try {
     body = await request.json();
@@ -168,10 +176,22 @@ async function voice(request, env) {
     const { success } = await env.VOICE_RATE.limit({ key: network });
     if (!success) return json({ error: 'Too many requests; slow down.' }, 429, { 'retry-after': '60' });
   }
+  // Signed in: the account's own daily allowance (more with Jarvis Plus). The everyone-
+  // together ceiling still counts, so the owner's bill keeps its limit.
+  if (account && env.ACCOUNTS) {
+    const answer = await env.ACCOUNTS.get(env.ACCOUNTS.idFromName(account.account)).fetch('https://account/voice', {
+      method: 'POST',
+      headers: { 'x-jarvis-device': account.device, 'x-jarvis-secret': account.secret },
+      body: JSON.stringify({ chars: text.length }),
+    });
+    const verdict = await answer.json().catch(() => ({}));
+    if (answer.status === 401) return json({ error: verdict.error || 'Signed out.', code: 'signed_out' }, 401);
+    if (!verdict.ok) return json({ error: verdict.why || 'No voice allowance left today.', allowance: 'account' }, 429, { 'retry-after': '3600' });
+  }
   const quota = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName('daily'));
   const verdict = await (await quota.fetch('https://quota/take', {
     method: 'POST',
-    body: JSON.stringify({ install, network, chars: text.length, limits: cap }),
+    body: JSON.stringify({ install: account ? `a:${account.account}` : install, network, chars: text.length, limits: account ? { ...cap, install: 1e12, network: 1e12 } : cap }),
   })).json();
   if (!verdict.ok) return json({ error: verdict.why, allowance: verdict.which }, 429, { 'retry-after': String(verdict.retryAfter || 3600) });
   const speed = Number(body.speed);

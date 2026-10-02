@@ -24,19 +24,51 @@ FISH_MODEL = "s2.1-pro-free"  # what the owner's own JARVIS voice uses
 VOICE_DAILY_PER_INSTALL = "20000"
 VOICE_DAILY_PER_NETWORK = "40000"
 VOICE_DAILY_TOTAL = "400000"
+# Jarvis accounts (docs/accounts.md): allowances in dollars of AI at list prices, and the
+# JARVIS voice per account a day. Secrets: ANTHROPIC_API_KEY, APNS_KEY, APNS_KEY_ID, and
+# optionally SIWA_KEY, SIWA_KEY_ID (wrangler secret put NAME).
+PLUS_BUDGET_USD = "20"
+TRIAL_BUDGET_USD = "1"
+VOICE_DAILY_FREE = "20000"
+VOICE_DAILY_PLUS = "100000"
+APPLE_TEAM_ID = "9ZSY5R8A5C"
 
 [[durable_objects.bindings]]
 name = "VOICE_QUOTA"
 class_name = "VoiceQuota"
 
+[[durable_objects.bindings]]
+name = "ACCOUNTS"
+class_name = "Account"
+
+[[durable_objects.bindings]]
+name = "LINKS"
+class_name = "Link"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["VoiceQuota"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Account", "Link"]
 
 [[ratelimits]]
 name = "VOICE_RATE"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
+
+# Linking a Mac: starts per network, lookups per account, polls per code.
+[[ratelimits]]
+name = "LINK_RATE"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
+# Included AI: requests a minute per account.
+[[ratelimits]]
+name = "API_RATE"
+namespace_id = "1003"
+simple = { limit = 120, period = 60 }
 
 # Keep the R2 bucket last: wrangler.nor2.toml is this file up to here (deploys before R2).
 [[r2_buckets]]
