@@ -1,0 +1,3 @@
+/* Jarvis Code in the cloud (features/code-cloud.js). */
+.jcx-cloud-switch.on { border-color: rgb(127 212 255 / 0.7); background: rgb(127 212 255 / 0.14); color: rgb(var(--c-ink)); }
+.jcx-cloud-switch:disabled { opacity: 0.45; cursor: default; }

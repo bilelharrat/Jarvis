@@ -330,8 +330,15 @@ class Desk:
     # ── handing off ──
 
     async def hand_off(
-        self, task: Any, alias: str, instructions: str = "", by_voice: bool = False
+        self,
+        task: Any,
+        alias: str,
+        instructions: str = "",
+        by_voice: bool = False,
+        preapproved: bool = False,
     ) -> str:
+        """preapproved: the owner already said yes for this (a session started in the cloud,
+        "I'm heading out"): no card, unless the secret scan finds something."""
         self.load()
         if task is None or task.kind != "code":
             return "There's no Jarvis Code session to hand off."
@@ -363,16 +370,17 @@ class Desk:
         mode, mode_note = handoff.remote_mode(task.mode, machine.permissions)
         question, detail, choices = self._card(task, copy, machine, plan, mode, mode_note)
         question, detail = self.tr(question), self.tr(detail)
-        if by_voice:
-            self.hub._say(question)
-        choice = await self.hub.request_approval(
-            question,
-            detail,
-            [(c, self.tr(label)) for c, label in choices],
-            context={"task_id": task.id, "tool": "handoff"},
-        )
-        if choice != "go":
-            return "Not handed off."
+        if not (preapproved and not plan["findings"]):
+            if by_voice:
+                self.hub._say(question)
+            choice = await self.hub.request_approval(
+                question,
+                detail,
+                [(c, self.tr(label)) for c, label in choices],
+                context={"task_id": task.id, "tool": "handoff"},
+            )
+            if choice != "go":
+                return "Not handed off."
         self._busy.add(slug)
         try:
             return await self._hand_off_now(task, copy, machine, plan, mode, instructions)

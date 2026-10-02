@@ -1,0 +1,11 @@
+{
+  "strings": {
+    "Cloud": "云端",
+    "Heading out: move every working session to the cloud machine": "要离开了：把所有正在工作的会话移到云端机器",
+    "Add a cloud machine in Jarvis Code settings › Machines to start sessions there.": "在 Jarvis Code 设置 › 机器中添加一台云端机器，即可在那里启动会话。"
+  },
+  "patterns": [
+    ["^Runs on (.+): it keeps working while your Mac sleeps or is shut\\.$", "在 $1 上运行：Mac 睡眠或合上时它仍会继续工作。"],
+    ["^(.+) isn't ready: (.+)$", "$1 还没准备好：$2"]
+  ]
+}
