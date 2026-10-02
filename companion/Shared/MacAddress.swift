@@ -54,6 +54,21 @@ enum MacAddress {
         return url
     }
 
+    /// On this network (a .local name, a private or link-local address, Tailscale's range),
+    /// not out on the internet.
+    static func isLocal(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")) else { return false }
+        if host == "localhost" || host.hasSuffix(".local") || host == "::1" || host.hasPrefix("fe80:") { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4 else { return host.hasPrefix("fd") || host.hasPrefix("fc") }
+        switch (parts[0], parts[1]) {
+        case (10, _), (127, _), (192, 168), (169, 254): return true
+        case (172, 16...31): return true
+        case (100, 64...127): return true  // Tailscale's addresses
+        default: return false
+        }
+    }
+
     /// "192.168.1.20:8765", for showing to people.
     static func display(_ url: URL) -> String {
         var text = url.absoluteString

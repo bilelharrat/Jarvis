@@ -48,6 +48,7 @@
 		1C7AE5CBE826C1176AC9F4BA /* WatchHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC74BF02082BE9C300BE504 /* WatchHomeView.swift */; };
 		1DA35497CD23DAAA8CF873E7 /* code_session.json in Resources */ = {isa = PBXBuildFile; fileRef = B5C1B5CB50F57AB4D35B990B /* code_session.json */; };
 		1DE7883987F55D8C51BBE818 /* memory_forget.json in Resources */ = {isa = PBXBuildFile; fileRef = C1EC76E338A3928F50E9543A /* memory_forget.json */; };
+		1E077A1E1403979F0AC5D014 /* SwitcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F6B1105848275818911C20A /* SwitcherTests.swift */; };
 		1ECDA8DDF905538640F4FDD2 /* code_session_after.json in Resources */ = {isa = PBXBuildFile; fileRef = 0A43BF69D471577AC1B42044 /* code_session_after.json */; };
 		1EE3BCD4EE0F3C9E2266ED2F /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
 		1F1F5F2781464592F7CE7B3A /* GeminiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 605C8C112D825C443576321F /* GeminiClient.swift */; };
@@ -183,6 +184,7 @@
 		808BAB7E313715888C739B9B /* Speakable.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF24A207AB5FD6167B89493 /* Speakable.swift */; };
 		843055C91161B40160CBE620 /* SnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */; };
 		844FDC83E9A3518137536CAD /* unregister.json in Resources */ = {isa = PBXBuildFile; fileRef = 66DAB0DB20F04ABE59E91EE8 /* unregister.json */; };
+		86DC4D0D490B7473E4FBED95 /* JarvisSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C50D3AD496F5AA13AE8896 /* JarvisSwitcher.swift */; };
 		8846E71BA9567B56B8004B11 /* PairingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */; };
 		8855850BF8D19A3EE6B85A30 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C620E39CE7778E786E23849 /* DebugLaunch.swift */; };
 		8A86752F5B8DB272AA6E9F05 /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
@@ -502,6 +504,7 @@
 		4DB0E7A6FB559F093710D2E4 /* SensorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorModels.swift; sourceTree = "<group>"; };
 		4E275D34571EE64B33BE24BE /* JarvisActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisActivity.swift; sourceTree = "<group>"; };
 		4F414526E91AF97BFBE51240 /* SyncItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncItems.swift; sourceTree = "<group>"; };
+		4F6B1105848275818911C20A /* SwitcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwitcherTests.swift; sourceTree = "<group>"; };
 		4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisAPI.swift; sourceTree = "<group>"; };
 		4FD6E44D73309111F8165B58 /* error_no_task.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_no_task.json; sourceTree = "<group>"; };
 		541AFF7BFD486FC563042E13 /* BrainProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainProvider.swift; sourceTree = "<group>"; };
@@ -660,6 +663,7 @@
 		F338EBA17D94127E7F281AE3 /* SensorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorTests.swift; sourceTree = "<group>"; };
 		F370B0F3655380238F7533AC /* JarvisCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = JarvisCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F397381F924EACB84F35D1B6 /* JarvisWatchWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisWatchWidgets.entitlements; sourceTree = "<group>"; };
+		F3C50D3AD496F5AA13AE8896 /* JarvisSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisSwitcher.swift; sourceTree = "<group>"; };
 		F435DCC338F9CBCE075DDA43 /* photo.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = photo.json; sourceTree = "<group>"; };
 		F43E3B2A670E93A54FE1B823 /* BonjourBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourBrowser.swift; sourceTree = "<group>"; };
 		F4D5179DD5680CC400AF3959 /* markets_empty.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = markets_empty.json; sourceTree = "<group>"; };
@@ -694,6 +698,7 @@
 				E48550560333BEA63660AEFB /* CodeEntryField.swift */,
 				43AF13DCCF32B738186BDB9A /* Components.swift */,
 				9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */,
+				F3C50D3AD496F5AA13AE8896 /* JarvisSwitcher.swift */,
 				1BB9FC3DBFBEC9BC943067FB /* JarvisView.swift */,
 				296E1AE937C8851AC210300C /* MacChatsView.swift */,
 				B46CDF77E69B96A427B73499 /* MainTabs.swift */,
@@ -954,6 +959,7 @@
 				F338EBA17D94127E7F281AE3 /* SensorTests.swift */,
 				8DE84B66624B459B350EC2CA /* ShareTests.swift */,
 				933746150CE7AC3ABE4E4374 /* SpeakableTests.swift */,
+				4F6B1105848275818911C20A /* SwitcherTests.swift */,
 				EAE6DEBD548313888D9EF124 /* SyncEngineTests.swift */,
 				CA344294851DB273FE735240 /* VoiceModeTests.swift */,
 				2E539CF9A09919A62CDFC802 /* WidgetSnapshotTests.swift */,
@@ -1620,6 +1626,7 @@
 				FC326BC2706A6832C42685E1 /* JarvisActivity.swift in Sources */,
 				941BA50A4EFCCACBD219F5D6 /* JarvisCompanionApp.swift in Sources */,
 				F480C42D8B928BAEA3F53BB8 /* JarvisIntents.swift in Sources */,
+				86DC4D0D490B7473E4FBED95 /* JarvisSwitcher.swift in Sources */,
 				E3E5E3ED6837B9F3A5C1942D /* JarvisView.swift in Sources */,
 				1412678BB049DE5CB26B8C54 /* JarvisVoice.swift in Sources */,
 				450BC7C891854A8812101F28 /* LibraryView.swift in Sources */,
@@ -1712,6 +1719,7 @@
 				DDFC9CCB75991A3326FB6229 /* SensorTests.swift in Sources */,
 				9F26A0C3779981089E23DDCB /* ShareTests.swift in Sources */,
 				0CF44CB87E18FEE1EC1A20EA /* SpeakableTests.swift in Sources */,
+				1E077A1E1403979F0AC5D014 /* SwitcherTests.swift in Sources */,
 				DC528DBE43A8C3FADA2EE654 /* SyncEngineTests.swift in Sources */,
 				F5135F43E3820C90DC652A91 /* VoiceModeTests.swift in Sources */,
 				BC3072F81E43CC6EDA1F88F0 /* WidgetSnapshotTests.swift in Sources */,

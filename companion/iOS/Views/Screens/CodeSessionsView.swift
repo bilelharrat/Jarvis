@@ -32,7 +32,11 @@ struct CodeSessionsView: View {
         .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
         .navigationTitle("Jarvis Code")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: model.pairing?.baseURL) { Task { await load() } }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                JarvisSwitcherMenu()
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showNew = true

@@ -26,6 +26,8 @@ final class AppModel {
     }
 
     private(set) var pairing: Pairing?
+    /// The other Jarvises this iPhone is paired with, to switch to (a Mac, the cloud Jarvis).
+    private(set) var otherPairings: [Pairing] = PairingStore.others()
     private(set) var remote: RemoteState?
     private(set) var link: Link = .connecting
     private(set) var pending: PendingRequest?
@@ -341,10 +343,45 @@ final class AppModel {
             pairedAt: Date(), fingerprint: CertificatePin.normalize(fingerprint)
         )
         do {
+            if let current = self.pairing, !PairingStore.same(current, pairing) {
+                PairingStore.keepOther(current)  // pairing another Jarvis keeps this one to switch back to
+            }
+            PairingStore.removeOther(pairing)
             try PairingStore.save(pairing)
         } catch {
             show("Paired, but the Keychain wouldn’t keep it, so you’ll need to pair again next time.", style: .problem)
         }
+        otherPairings = PairingStore.others()
+        activate(pairing)
+    }
+
+    /// Switches to another Jarvis this iPhone is paired with (the cloud one while the Mac is
+    /// off): the one in use now is kept to switch back to.
+    func use(_ other: Pairing) {
+        guard let current = pairing, !PairingStore.same(current, other) else { return }
+        do {
+            try PairingStore.save(other)
+        } catch {
+            show("The Keychain wouldn’t switch: try again.", style: .problem)
+            return
+        }
+        PairingStore.removeOther(other)
+        PairingStore.keepOther(current)
+        otherPairings = PairingStore.others()
+        if let api = pairing?.api { Task { await PushCoordinator.shared.unregister(using: api) } }
+        activate(other)
+        Haptics.answered(negative: false)
+        show("Now using \(other.macLabel).", style: .success)
+    }
+
+    /// Forgets another Jarvis (not the one in use).
+    func forgetOther(_ other: Pairing) {
+        PairingStore.removeOther(other)
+        otherPairings = PairingStore.others()
+    }
+
+    /// The pairing in use is this one: everything starts over with it.
+    private func activate(_ pairing: Pairing) {
         remote = nil
         pending = nil
         answering = []

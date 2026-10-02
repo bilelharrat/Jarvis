@@ -43,6 +43,45 @@ enum PairingStore {
         Keychain.remove(account)
     }
 
+    // MARK: Other Jarvises
+
+    /// The other Jarvises this device is paired with (a Mac, the cloud Jarvis), kept to switch
+    /// to: the one in use is always `load()`, which the extensions and the Watch read.
+    private static let othersAccount = "pairing.others.v1"
+    static let othersMax = 4
+
+    static func others() -> [Pairing] {
+        guard let data = Keychain.read(othersAccount) else { return [] }
+        return (try? JSONDecoder().decode([Pairing].self, from: data)) ?? []
+    }
+
+    /// Whether two pairings are the same Jarvis: the same pinned certificate, else the same address.
+    static func same(_ a: Pairing, _ b: Pairing) -> Bool {
+        if let fa = a.fingerprint.flatMap(CertificatePin.normalize), let fb = b.fingerprint.flatMap(CertificatePin.normalize) {
+            return fa == fb
+        }
+        return a.baseURL == b.baseURL
+    }
+
+    /// Keeps a pairing to switch back to (the newest first; one for the same Jarvis replaced).
+    static func keepOther(_ pairing: Pairing) {
+        var list = others().filter { !same($0, pairing) }
+        list.insert(pairing, at: 0)
+        saveOthers(Array(list.prefix(othersMax)))
+    }
+
+    static func removeOther(_ pairing: Pairing) {
+        saveOthers(others().filter { !same($0, pairing) })
+    }
+
+    private static func saveOthers(_ list: [Pairing]) {
+        if list.isEmpty {
+            Keychain.remove(othersAccount)
+        } else if let data = try? JSONEncoder().encode(list) {
+            try? Keychain.write(data, account: othersAccount)
+        }
+    }
+
     /// Once: a pairing saved before the App Group existed moves into its keychain group, so
     /// the share extension can use it too.
     static func shareWithExtensions(_ pairing: Pairing) {

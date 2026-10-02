@@ -37,6 +37,7 @@ struct SettingsView: View {
 
                 if model.pairing != nil {
                     macSection
+                    JarvisSwitcherSection()
                 } else {
                     Section {
                         NavigationLink {
