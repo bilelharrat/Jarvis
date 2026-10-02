@@ -1438,6 +1438,42 @@ test('Settings › search finds in every pane, and a control asked for elsewhere
   await js('toggleSettings(false); true');
 });
 
+// ── The model chip's menu (web/features/model-menu.js) ──
+
+test('The model chip opens a menu of the models; a pick sets the model, Model Settings… opens AI & Models', async () => {
+  await withSettingsNav();
+  const css = fs.readFileSync(path.join(WEB, 'features', 'model-menu.css'), 'utf8');
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(css)}; document.head.append(s); })(); true`);
+  await js(`${fs.readFileSync(path.join(WEB, 'features', 'model-menu.js'), 'utf8')}\n;true`);
+  await js('onEvent({ type: "prefs", ...prefs, model: "opus", models: [{ id: "opus", name: "Opus 5.5" }, { id: "sonnet", name: "Sonnet 5.5" }, { id: "haiku", name: "Haiku 4.5" }] }); __sent.length = 0; true');
+  await clickAt('#model-chip');
+  let r = await js('({ open: !$("model-menu").hidden, settings: !$("settings").hidden, items: [...document.querySelectorAll("#model-menu .mm-item")].map((b) => b.textContent + (b.getAttribute("aria-checked") === "true" ? "*" : "")), focused: document.activeElement.textContent, expanded: $("model-chip").getAttribute("aria-expanded"), below: $("model-menu").getBoundingClientRect().top >= $("model-chip").getBoundingClientRect().bottom })');
+  assert(r.open && !r.settings && r.expanded === 'true' && r.below, JSON.stringify(r));
+  assert(JSON.stringify(r.items) === JSON.stringify(['Opus 5.5*', 'Sonnet 5.5', 'Haiku 4.5', 'Model Settings…']) && r.focused === 'Opus 5.5', JSON.stringify(r));
+  // ↓ and Enter pick Sonnet: the same message as Settings' own menu.
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  r = await js('({ open: !$("model-menu").hidden, sent: __sent.filter((m) => m.type === "set_prefs") })');
+  assert(!r.open && JSON.stringify(r.sent) === JSON.stringify([{ type: 'set_prefs', changes: { model: 'sonnet' } }]), JSON.stringify(r));
+  // Esc closes it and nothing else; a click elsewhere closes it too.
+  await clickAt('#model-chip');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  r = await js('({ open: !$("model-menu").hidden, focused: document.activeElement.id, stops: __sent.filter((m) => m.type === "stop").length })');
+  assert(!r.open && r.focused === 'model-chip' && r.stops === 0, JSON.stringify(r));
+  await clickAt('#model-chip');
+  await clickAt('h1');
+  assert(await js('$("model-menu").hidden'), 'a click elsewhere left it open');
+  // Model Settings… opens Settings on AI & Models.
+  await clickAt('#model-chip');
+  await js('[...document.querySelectorAll("#model-menu .mm-item")].pop().click(); true');
+  r = await js('({ settings: !$("settings").hidden, pane: jarvisSettingsNav.pane(), menu: $("model-menu").hidden })');
+  assert(r.settings && r.pane === 'ai' && r.menu, JSON.stringify(r));
+  await js('toggleSettings(false); true');
+});
+
 // ── First-run intro (web/features/intro.js, put in as features.js would) ──
 
 const INTRO_JS = fs.readFileSync(path.join(WEB, 'features', 'intro.js'), 'utf8');
