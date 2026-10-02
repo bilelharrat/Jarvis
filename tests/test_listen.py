@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from jarvis.listen import EndpointDetector
@@ -55,7 +57,7 @@ def test_listener_resets_portaudio_after_repeated_failures(monkeypatch):
     monkeypatch.setattr(listen, "reset_portaudio", lambda: resets.append(1))
     monkeypatch.setattr(listen, "pick_input_device", lambda _p: None)
     listener = listen.ContinuousListener(lambda _a: None)
-    monkeypatch.setattr(listener._stop, "wait", lambda _t: listener._stop.is_set())
+    monkeypatch.setattr(listener, "_pause", lambda *_a: "")  # no waiting between tries
     listener._run()
     assert len(opened) == 5 and len(resets) == 2  # from the fourth try on
 
@@ -305,11 +307,153 @@ def test_a_microphone_that_stays_quiet_leads_to_a_reset(monkeypatch):
     monkeypatch.setattr(sd, "InputStream", Silent)
     monkeypatch.setattr(sd, "query_devices", lambda *_a, **_k: {"name": "Test mic"})
     monkeypatch.setattr(listen, "STALL_SECONDS", 0.01)
+    monkeypatch.setattr(listen, "BACKOFF_FIRST", 0.01)
     monkeypatch.setattr(listen, "reset_portaudio", lambda: resets.append(1))
     monkeypatch.setattr(listen, "pick_input_device", lambda _p: None)
-    listener = listen.ContinuousListener(lambda _a: None)
+    listener = quiet_probes(listen.ContinuousListener(lambda _a: None))
     listener._run()
     assert len(opened) == 5 and len(resets) == 2  # from the fourth try on
+
+
+def quiet_probes(listener, asleep=False, device=7):
+    """The listener's look at the display and the default input, as fakes."""
+    listener.display_asleep = lambda: asleep
+    listener.default_input = lambda: device
+    return listener
+
+
+class Unavailable:
+    """sd.InputStream for a microphone that can't be had (the display off, the Mac in dark
+    wake): it opens, and nothing ever arrives. Each open is timed."""
+
+    opened: list = []
+    stop_after = 0
+    listener = None
+
+    def __init__(self, **_kw):
+        type(self).opened.append(time.monotonic())
+        if len(self.opened) >= self.stop_after:
+            self.listener.stop()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+@pytest.fixture
+def unavailable(monkeypatch):
+    import sounddevice as sd
+
+    from jarvis import listen
+
+    resets = []
+    monkeypatch.setattr(Unavailable, "opened", [])
+    monkeypatch.setattr(sd, "InputStream", Unavailable)
+    monkeypatch.setattr(sd, "query_devices", lambda *_a, **_k: {"name": "Test mic"})
+    monkeypatch.setattr(listen, "STALL_SECONDS", 0.01)
+    monkeypatch.setattr(listen, "reset_portaudio", lambda: resets.append(1))
+    monkeypatch.setattr(listen, "pick_input_device", lambda _p: None)
+    return resets
+
+
+@pytest.mark.parametrize(
+    ("asleep", "waits"),
+    [(True, [2, 4, 8, 16, 32, 60, 60, 60]), (False, [2, 4, 8, 10, 10, 10, 10, 10])],
+)
+def test_a_microphone_that_cant_be_had_is_tried_less_and_less(
+    unavailable, monkeypatch, asleep, waits
+):
+    """Measured: with the display off it reopened the microphone and reset PortAudio every
+    2.4 s for hours. The first tries are as quick as before (a stall in use, AirPods
+    switching, comes back as fast); then each waits twice as long, to a minute while the
+    display sleeps, ten seconds while it's on, and PortAudio is reset once a try."""
+    from jarvis import listen
+
+    asked = []
+    listener = quiet_probes(listen.ContinuousListener(lambda _a: None), asleep=asleep)
+    monkeypatch.setattr(listener, "_pause", lambda seconds, _watched: asked.append(seconds) or "")
+    Unavailable.listener, Unavailable.stop_after = listener, 12
+    listener._run()
+    assert len(Unavailable.opened) == 12
+    assert asked == waits  # none before the fifth try
+    assert len(unavailable) == 12 - 3  # one reset a try, from the fourth on
+
+
+def test_hands_free_tries_again_at_once_when_the_display_wakes(unavailable, monkeypatch):
+    from jarvis import listen
+
+    monkeypatch.setattr(listen, "BACKOFF_FIRST", 30.0)
+    monkeypatch.setattr(listen, "WATCH_EVERY", 0.02)
+    display = {"asleep": True}
+    listener = listen.ContinuousListener(lambda _a: None)
+    listener.display_asleep = lambda: display["asleep"]
+    listener.default_input = lambda: 7
+    Unavailable.listener, Unavailable.stop_after = listener, 5
+    listener.start()
+    try:
+        deadline = time.monotonic() + 5
+        while len(Unavailable.opened) < 4 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.2)  # the fourth try failed: the fifth waits 30 s
+        assert len(Unavailable.opened) == 4
+        woke = time.monotonic()
+        display["asleep"] = False  # the lid opens
+        listener._thread.join(5)
+        assert len(Unavailable.opened) == 5 and Unavailable.opened[-1] - woke < 1.0
+    finally:
+        listener.stop()
+        listener._thread.join(5)
+
+
+def test_a_wait_between_tries_ends_when_anything_may_bring_the_microphone_back(monkeypatch):
+    from jarvis import listen
+
+    monkeypatch.setattr(listen, "WATCH_EVERY", 0.01)
+    offset = time.time() - time.monotonic()
+
+    def timed(listener, watched):
+        started = time.monotonic()
+        why = listener._pause(5.0, watched)
+        return why, time.monotonic() - started
+
+    # another default input (AirPods connecting, another one picked)
+    listener = quiet_probes(listen.ContinuousListener(lambda _a: None), device=9)
+    why, took = timed(listener, (False, 7, offset))
+    assert why == "another microphone became the default" and took < 1
+    # the display waking
+    listener = quiet_probes(listen.ContinuousListener(lambda _a: None), asleep=False)
+    why, took = timed(listener, (True, 7, offset))
+    assert why == "the display woke" and took < 1
+    # the Mac waking: the wall clock ran on while the monotonic one stood still
+    listener = quiet_probes(listen.ContinuousListener(lambda _a: None))
+    why, took = timed(listener, (False, 7, offset - 600))
+    assert why == "the Mac woke" and took < 1
+    # nothing changed: it waits its time
+    listener = quiet_probes(listen.ContinuousListener(lambda _a: None))
+    started = time.monotonic()
+    assert listener._pause(0.2, (False, 7, offset)) == ""
+    assert time.monotonic() - started >= 0.2
+
+
+@pytest.mark.parametrize("how", ["stop", "reopen"])
+def test_hands_free_switched_or_new_settings_end_a_wait_at_once(how):
+    """Hands-free off (or another microphone, which makes a new listener) mustn't wait out
+    a minute's backoff; a new listener waits for the old one's thread."""
+    import threading
+
+    from jarvis import listen
+
+    listener = quiet_probes(listen.ContinuousListener(lambda _a: None), asleep=True)
+    done = []
+    offset = time.time() - time.monotonic()
+    thread = threading.Thread(target=lambda: done.append(listener._pause(60.0, (True, 7, offset))))
+    thread.start()
+    time.sleep(0.05)
+    getattr(listener, how)()
+    thread.join(1)
+    assert done == [""]
 
 
 def test_a_new_hands_free_listener_waits_for_the_old_one(monkeypatch):

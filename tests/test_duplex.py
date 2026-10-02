@@ -199,6 +199,38 @@ async def test_the_listener_hears_utterances_through_it(
         thread.join(5)
 
 
+class Listening:
+    """The hands-free listener, as far as talk-over sees it: running, reopened when asked."""
+
+    running = True
+
+    def __init__(self):
+        self.reopened = 0
+
+    def reopen(self):
+        self.reopened += 1
+
+
+async def test_with_talk_over_off_the_microphone_is_opened_once(speaking_hub):
+    """Each start of the backend opened the hands-free microphone twice, 0.7 s apart:
+    talk-over, off, still asked the listener it had never touched to reopen."""
+    hub = speaking_hub
+    hub.prefs.features["voice_talk_over"] = False
+    hub._listener = listening = Listening()
+    talk = await on(hub)
+    assert talk.state == "off" and listening.reopened == 0
+
+
+async def test_turned_off_it_hands_the_listener_back_to_the_usual_microphone(speaking_hub, helper):
+    hub = speaking_hub
+    talk = await on(hub)
+    assert talk.state == "on"
+    hub._listener = listening = Listening()
+    hub.prefs.features["voice_talk_over"] = False
+    await talk.refresh()
+    assert talk.state == "off" and listening.reopened == 1
+
+
 # ── what was said over JARVIS (Hub.on_heard) ──
 
 

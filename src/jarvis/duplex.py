@@ -206,13 +206,18 @@ class Duplex:
         self._set("unavailable", why)
 
     async def _stop(self) -> None:
-        """Back to the usual player and microphone (the current reply finishes first)."""
+        """Back to the usual player and microphone (the current reply finishes first).
+        The listener is reopened only if it hears through this (or may be about to): one
+        on its usual microphone already is. Every start with talk-over off reopened the
+        microphone the listener had opened a moment before."""
+        hearing = self._queue is not None or self.state == "on"
         speaker = self.hub.speaker
         if isinstance(speaker, Speaker):
             speaker.player_factory = LivePlayer
         await self._retire(DuplexPlayer)
         self.player = None
-        self._reopen_listener()
+        if hearing or self._queue is not None:
+            self._reopen_listener()
 
     async def _retire(self, kind: type) -> None:
         """Close the Speaker's live player if it's of this kind, once it's done speaking."""

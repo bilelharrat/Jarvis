@@ -8,6 +8,7 @@ import logging
 import queue
 import re
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from typing import Any
@@ -116,6 +117,69 @@ class EndpointDetector:
 # from under a push-to-talk recording.
 PORTAUDIO_LOCK = threading.Lock()
 RESET_AFTER_FAILURES = 3
+# Hands-free tries that heard nothing, past RESET_AFTER_FAILURES in a row, wait before the
+# next: BACKOFF_FIRST, doubling, up to BACKOFF_ASLEEP while the display sleeps or
+# BACKOFF_AWAKE while it's on. Measured: with the display off (the Mac in dark wake or Power
+# Nap, the built-in microphone not to be had) it reopened the microphone and reset PortAudio
+# every 2.4 s for hours, 23,784 times in a day and a half. Whatever may bring it back tries at
+# once: the display or the Mac waking, another default input, hands-free switched, new
+# settings. The first tries after a stall in use (AirPods switching) are as quick as ever.
+BACKOFF_FIRST = 2.0
+BACKOFF_AWAKE = 10.0
+BACKOFF_ASLEEP = 60.0
+WATCH_EVERY = 0.5  # how often a wait looks at the display, the clocks and the default input
+SLEPT_SECONDS = 5.0  # the wall clock ran this much further than the monotonic one: it slept
+
+
+def display_asleep() -> bool | None:
+    """Whether the Mac's main display is asleep (None: can't tell)."""
+    try:
+        import Quartz
+
+        return bool(Quartz.CGDisplayIsAsleep(Quartz.CGMainDisplayID()))
+    except Exception:
+        return None
+
+
+_CORE_AUDIO: Any = None  # CoreAudio's AudioObjectGetPropertyData; False where it can't load
+
+
+def default_input() -> int | None:
+    """The Mac's default input device as CoreAudio numbers it: another number means
+    AirPods connected or another input was picked. None where it can't be read. Asks
+    CoreAudio directly: PortAudio only sees a new device once it's been reset."""
+    global _CORE_AUDIO
+    import ctypes
+
+    if _CORE_AUDIO is None:
+        try:
+            lib = ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
+            call = lib.AudioObjectGetPropertyData
+            call.restype = ctypes.c_int32
+            call.argtypes = [
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_uint32),
+                ctypes.c_void_p,
+            ]
+            _CORE_AUDIO = call
+        except (OSError, AttributeError):
+            _CORE_AUDIO = False
+    if not _CORE_AUDIO:
+        return None
+    # kAudioHardwarePropertyDefaultInputDevice, global scope, main element, asked of
+    # kAudioObjectSystemObject (1).
+    address = (ctypes.c_uint32 * 3)(
+        int.from_bytes(b"dIn ", "big"), int.from_bytes(b"glob", "big"), 0
+    )
+    device, size = ctypes.c_uint32(0), ctypes.c_uint32(4)
+    try:
+        status = _CORE_AUDIO(1, address, 0, None, ctypes.byref(size), ctypes.byref(device))
+    except Exception:
+        return None
+    return int(device.value) if status == 0 else None
 
 
 def reset_portaudio() -> None:
@@ -503,8 +567,12 @@ class ContinuousListener:
         # PortAudio's stream, as always). It puts None in the queue when it ends.
         self.source: Callable[[queue.Queue], Any] | None = None
         self.segmenter: Segmenter | None = None
+        # What a wait between tries looks at for a reason to try again at once.
+        self.display_asleep: Callable[[], bool | None] = display_asleep
+        self.default_input: Callable[[], Any] = default_input
         self._stop = threading.Event()
         self._reopen = threading.Event()
+        self._kick = threading.Event()  # ends a wait between tries
         self._thread: threading.Thread | None = None
 
     @property
@@ -520,11 +588,14 @@ class ContinuousListener:
 
     def stop(self) -> None:
         self._stop.set()
+        self._kick.set()
 
     def reopen(self) -> None:
         """Close the stream and open it again, with the settings as they are now (another
-        voice detector). What was being said is dropped."""
+        voice detector). What was being said is dropped. A microphone that couldn't be
+        had is tried again at once."""
         self._reopen.set()
+        self._kick.set()
 
     def commit(self, number: int) -> bool:
         """End the utterance at early copy `number`: its transcript was enough."""
@@ -593,9 +664,21 @@ class ContinuousListener:
         """
 
         failures = 0
+        wait = 0.0  # before the next try
+        told = 0.0  # the wait last said in the log
+        watched = None  # the display, input and clocks as they were when this try began
         dead = round(DEAD_SILENCE_SECONDS / BLOCK_SECONDS)
         while not self._stop.is_set():
+            if wait > 0:
+                why = self._pause(wait, watched or self._watch())
+                if self._stop.is_set():
+                    break
+                if why:
+                    log.info("%s: trying the microphone again", why)
+            wait = 0.0
             self._reopen.clear()
+            self._kick.clear()
+            watched = self._watch() if failures else None
             blocks: queue.Queue[np.ndarray] = queue.Queue()
             segmenter = Segmenter(
                 silence_seconds=self.silence_seconds,
@@ -630,7 +713,7 @@ class ContinuousListener:
                                 # opening it again hears once macOS allows it.
                                 failures += 1
                                 log.warning("microphone sends only silence; reopening it")
-                                self._stop.wait(min(10.0, 0.5 * 2**failures))
+                                wait = min(10.0, 0.5 * 2**failures)
                                 break
                         else:
                             zeros = 0
@@ -654,7 +737,59 @@ class ContinuousListener:
             except Exception as exc:  # device vanished, permission revoked
                 failures += 1
                 log.warning("microphone error (%s); retrying", exc)
-                self._stop.wait(min(10.0, 0.5 * 2**failures))
+                wait = min(10.0, 0.5 * 2**failures)
+            backoff = self._backoff(failures)
+            if backoff > wait:
+                wait = backoff
+                if wait != told:  # each step once, not every try at the cap
+                    log.info("the microphone still isn't sending; trying it every %.0fs", wait)
+            told = backoff
+
+    def _backoff(self, failures: int) -> float:
+        """The wait before the next try after `failures` in a row that heard nothing:
+        none up to the first PortAudio reset, then doubling to the cap."""
+        steps = failures - RESET_AFTER_FAILURES
+        if steps < 1:
+            return 0.0
+        cap = BACKOFF_ASLEEP if _quietly(self.display_asleep) else BACKOFF_AWAKE
+        return min(cap, BACKOFF_FIRST * 2 ** (steps - 1))
+
+    def _watch(self) -> tuple[bool | None, Any, float]:
+        """The display (asleep?), the default input and the clocks' offset: what a wait
+        compares against to see whether something changed since the try began."""
+        return (
+            _quietly(self.display_asleep),
+            _quietly(self.default_input),
+            time.time() - time.monotonic(),
+        )
+
+    def _pause(self, seconds: float, watched: tuple[bool | None, Any, float]) -> str:
+        """Wait before trying again, but only until something may bring the microphone
+        back: hands-free switched or new settings (stop, reopen), the Mac waking (the
+        wall clock jumps ahead of the monotonic one), the display waking, another default
+        input. Says which, or "" when the time was up or it was asked to."""
+        asleep, device, offset = watched
+        deadline = time.monotonic() + seconds
+        while (left := deadline - time.monotonic()) > 0:
+            if self._kick.wait(min(WATCH_EVERY, left)):
+                return ""
+            if time.time() - time.monotonic() - offset > SLEPT_SECONDS:
+                return "the Mac woke"
+            if asleep and _quietly(self.display_asleep) is False:
+                return "the display woke"
+            if device is not None:
+                now = _quietly(self.default_input)
+                if now is not None and now != device:
+                    return "another microphone became the default"
+        return ""
+
+
+def _quietly(probe: Callable[[], Any]) -> Any:
+    """A probe's answer; None if it fails (it never costs the microphone)."""
+    try:
+        return probe()
+    except Exception:
+        return None
 
 
 class Transcriber:
