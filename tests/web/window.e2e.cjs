@@ -1378,6 +1378,36 @@ test('Settings is one window: a sidebar of categories beside one pane, and every
   assert(r.settings && r.nav && r.scrim, JSON.stringify(r));
 });
 
+test('Tools & Accounts is the Accounts pane: every way in opens Settings there, and later sections join it', async () => {
+  await withSettingsNav();
+  await js('toggleAccounts(true); true');
+  let r = await js('({ settings: !$("settings").hidden, drawer: $("accounts").hidden, pane: jarvisSettingsNav.pane(), title: $("sn-title").textContent, sent: __sent.filter((m) => m.type === "connectors").length, form: getComputedStyle($("custom-form").closest("section.group")).display })');
+  assert(r.settings && r.drawer && r.pane === 'accounts' && r.title === 'Accounts' && r.sent >= 1 && r.form !== 'none', JSON.stringify(r));
+  assert(JSON.stringify(await navGroups()) === JSON.stringify(['', 'Connected', 'Add an account', 'Add any tool']), JSON.stringify(await navGroups()));
+  assert(await js('$("accounts-intro").textContent.includes("official connector")'), 'the intro was lost');
+  // A section a feature adds to #accounts afterwards (WhatsApp, Recent activity) joins the pane.
+  await js('(() => { const g = document.createElement("section"); g.className = "group wa-group"; g.innerHTML = "<h3>WhatsApp</h3><p>x</p>"; $("accounts").append(g); })(); true');
+  await sleep(20);
+  assert((await navGroups()).includes('WhatsApp'), JSON.stringify(await navGroups()));
+  // The toolbar button: a press on Accounts closes it; Escape closes it too.
+  await js('$("accounts-btn").click(); true');
+  assert(await js('$("settings").hidden'), 'the toolbar button left Accounts open');
+  await js('$("accounts-btn").click(); true');
+  r = await js('({ open: !$("settings").hidden, pane: jarvisSettingsNav.pane(), expanded: $("accounts-btn").getAttribute("aria-expanded") })');
+  assert(r.open && r.pane === 'accounts' && r.expanded === 'true', JSON.stringify(r));
+  await js('document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true');
+  assert(await js('$("settings").hidden'), 'Escape left it open');
+  // No Jarvis account section, no top row; with one, the row opens its pane.
+  await js('toggleSettings(true); true');
+  assert(await js('$("sn-account").hidden'), 'the account row showed with no account');
+  await js('(() => { const g = document.createElement("section"); g.className = "group account-group"; g.id = "account-group"; g.dataset.settingsPane = "devices"; g.innerHTML = "<h3>Jarvis account</h3><p>x</p>"; $("settings").append(g); })(); true');
+  await sleep(20);
+  await js('$("sn-account").click(); true');
+  r = await js('({ row: !$("sn-account").hidden, pane: jarvisSettingsNav.pane() })');
+  assert(r.row && r.pane === 'devices', JSON.stringify(r));
+  await js('toggleSettings(false); true');
+});
+
 test('Settings › search finds in every pane, and a control asked for elsewhere opens its own pane', async () => {
   await withSettingsNav();
   await js('toggleSettings(true); jarvisSettingsNav.choose("general"); true');

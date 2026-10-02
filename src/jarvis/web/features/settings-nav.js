@@ -7,6 +7,11 @@
 // focused or scrolled to in another pane (the model chip, a feature's "open in Settings")
 // switches to that pane first. Below 760px wide the sidebar is a list that pushes the
 // pane, with a back button, as on iPhone.
+//
+// Tools & Accounts is a pane here too (Accounts): #accounts' sections move into #settings,
+// and toggleAccounts() (the toolbar button, Jarvis Code's "Open Tools & Accounts", WhatsApp's
+// pairing) opens Settings on it. The sidebar's top row is the Jarvis account, when its
+// section (features/account.js, #account-group) is there.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
@@ -28,6 +33,7 @@
     globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.5 3.6 5.3 3.6 8.5s-1.2 6-3.6 8.5c-2.4-2.5-3.6-5.3-3.6-8.5s1.2-6 3.6-8.5z"/>',
     chart: '<path d="M5 19.5V12M10 19.5V6M15 19.5v-9M20 19.5V4"/>',
     hand: '<path d="M12 3l7 3v5.5c0 4.3-2.9 8-7 9.5-4.1-1.5-7-5.2-7-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/>',
+    at: '<circle cx="12" cy="12" r="3.6"/><path d="M15.6 12v1.4a2.6 2.6 0 0 0 5.2 0V12a8.8 8.8 0 1 0-3.5 7"/>',
     person: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
   };
@@ -36,6 +42,7 @@
     ['general', 'General', 'gear', 'gray'],
     ['voice', 'Voice & Listening', 'wave', 'purple'],
     ['ai', 'AI & Models', 'spark', 'indigo'],
+    ['accounts', 'Accounts', 'at', 'blue'],
     [''],
     ['notifications', 'Notifications', 'bell', 'red'],
     ['briefing', 'Briefing & Travel', 'sun', 'orange'],
@@ -63,11 +70,12 @@
     'bai-settings': 'browser', 'bp-group': 'browser',
     'invoicing-group': 'money', 'orders-group': 'money',
     'ops-group': 'safety',
+    'accounts-intro': 'accounts', 'connections-group': 'accounts', 'catalog-group': 'accounts', 'custom-group': 'accounts',
   };
   const BY_CLASS = [
     ['agents-group', 'ai'], ['skills-group', 'ai'], ['pictures-group', 'ai'], ['oura-group', 'briefing'],
     ['channels-group', 'calls'], ['auto-group', 'automation'], ['mcp-group', 'code'], ['bp-group', 'browser'],
-    ['invoicing-group', 'money'], ['orders-group', 'money'], ['updates-group', 'general'], ['convo-group', 'general'],
+    ['wa-group', 'accounts'], ['conn-activity', 'accounts'], ['invoicing-group', 'money'], ['orders-group', 'money'], ['updates-group', 'general'], ['convo-group', 'general'],
   ];
   const STORE = 'jarvis.settings.pane';
 
@@ -114,11 +122,17 @@
   if (search) nav.append(search);  // the field and its listeners move as they are
   const account = el('button', 'sn-account');
   account.type = 'button';
-  account.id = 'sn-accounts';
+  account.id = 'sn-account';
+  account.hidden = true;  // until the Jarvis account's section is there
   const accountText = el('span', 'sn-account-text');
-  accountText.append(el('strong', '', 'Tools & Accounts'), el('small', '', 'Google, Slack, GitHub and more'));
+  accountText.append(el('strong', '', 'Jarvis Account'), el('small', '', 'Sign in, Plus and sync'));
   account.append(tile('person', 'blue'), accountText, el('span', 'sn-chev', '›'));
-  account.addEventListener('click', () => { const b = $('open-accounts'); if (b) b.click(); });
+  account.addEventListener('click', () => {
+    const g = $('account-group');
+    if (!g) return;
+    choose(paneOf(g));
+    g.scrollIntoView({ block: 'start' });
+  });
   const list = el('ul', 'sn-list');
   list.setAttribute('role', 'tablist');
   list.setAttribute('aria-orientation', 'vertical');
@@ -180,6 +194,7 @@
       b.tabIndex = on || (searching && b.dataset.pane === current) ? 0 : -1;
     }
     title.textContent = searching ? 'Search results' : LABEL[current];
+    account.hidden = !$('account-group');
   }
 
   function choose(id, { focus = false } = {}) {
@@ -230,6 +245,53 @@
     if (!open) document.body.dataset.settingsView = 'list';
     if (open) show();
   }).observe(sheet, { attributes: true, attributeFilter: ['hidden'] });
+
+  // ── Tools & Accounts, as the Accounts pane ──
+
+  const accounts = $('accounts');
+  function adopt() {
+    if (!accounts) return;
+    for (const child of [...accounts.children]) {
+      if (child.classList.contains('drawer-head')) continue;
+      if (child.matches('section.group')) {
+        child.dataset.settingsPane = 'accounts';
+        sheet.append(child);
+      } else if (child.matches('.sheet-intro, #accounts-error')) {
+        let intro = $('accounts-intro');
+        if (!intro) {
+          intro = el('section', 'group accounts-intro');
+          intro.id = 'accounts-intro';
+          intro.dataset.settingsPane = 'accounts';
+          intro.dataset.keywords = 'accounts tools connectors mcp sign in';
+          const first = sheet.querySelector(':scope > section.group[data-settings-pane="accounts"]');
+          sheet.insertBefore(intro, first);
+        }
+        if (child.classList.contains('sheet-intro')) child.classList.add('group-note');
+        intro.append(child);
+      }
+    }
+  }
+  if (accounts) {
+    adopt();
+    new MutationObserver(adopt).observe(accounts, { childList: true });  // WhatsApp, Recent activity…
+    accounts.hidden = true;
+    // Opening Tools & Accounts, from anywhere, is opening Settings on Accounts.
+    window.toggleAccounts = (open) => {
+      const btn = $('accounts-btn');
+      if (open) {
+        if (sheet.hidden) toggleSettings(true);
+        choose('accounts');
+        send({ type: 'connectors' });
+      } else if (!sheet.hidden && current === 'accounts') toggleSettings(false);
+      if (btn) btn.setAttribute('aria-expanded', String(Boolean(open)));
+    };
+    // The toolbar button toggles: a second press closes it (app.js asks #accounts, always hidden now).
+    const btn = $('accounts-btn');
+    if (btn) btn.addEventListener('click', (e) => {
+      e.stopImmediatePropagation();
+      window.toggleAccounts(sheet.hidden || current !== 'accounts');
+    }, true);
+  }
 
   document.body.dataset.settingsView = 'list';
   sheet.classList.add('with-nav');

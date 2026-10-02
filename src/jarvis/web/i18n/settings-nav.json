@@ -1,8 +1,9 @@
 {
  "strings": {
   "Settings categories": "设置类别",
-  "Tools & Accounts": "工具与账户",
-  "Google, Slack, GitHub and more": "Google、Slack、GitHub 等",
+  "Accounts": "账户",
+  "Jarvis Account": "Jarvis 账户",
+  "Sign in, Plus and sync": "登录、Plus 与同步",
   "General": "通用",
   "Voice & Listening": "声音与聆听",
   "AI & Models": "AI 与模型",

@@ -132,3 +132,8 @@ body[data-look="orb"] #settings-nav { padding: 18px 12px 16px; border-left: 0; }
   .sn-item::after { content: '›'; color: var(--muted); font-size: 18px; }
   .sn-item { padding: 9px 10px; font-size: 15px; }
 }
+
+/* Tools & Accounts is the Accounts pane: General's old button to it goes */
+#settings.with-nav #open-accounts { display: none; }
+#settings.with-nav .accounts-intro .sheet-intro { margin: 0; padding: 14px 1px; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; }
+#settings.with-nav .accounts-intro #accounts-error { padding: 0 1px 12px; }
