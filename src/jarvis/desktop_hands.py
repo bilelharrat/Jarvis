@@ -52,6 +52,8 @@ NOT_PERMITTED = (
     "again with +."
 )
 FAILED = "Hand control of the Mac stopped: the Mac refused a mouse event."
+RECHECK_S = 2.0  # after a refusal, how often the permission is looked at again
+RECHECK_FOR_S = 600.0  # and for how long: switching it on in System Settings is noticed
 
 Rect = tuple[float, float, float, float]  # x, y, width, height in global points
 
@@ -198,6 +200,8 @@ class DesktopHands:
         self.yield_at: tuple[float, float] | None = None
         self._displays: list[Rect] = []
         self._displays_at = -math.inf
+        self.blocked_at: float | None = None  # refused for want of Accessibility, since
+        self.rechecked_at = -math.inf
 
     # ── lifecycle ──
 
@@ -210,9 +214,13 @@ class DesktopHands:
             ok = False
         if not ok:
             self.active = False
+            if self.blocked_at is None:
+                log.info("hand control of the Mac: Accessibility not granted to this app yet")
+                self.blocked_at = self.clock()
             with contextlib.suppress(Exception):
                 self.poster.request()
             return {"state": "blocked", "text": NOT_PERMITTED}
+        self.blocked_at = None
         self.active = True
         self.pos = None
         self.yield_until = -math.inf
@@ -413,6 +421,21 @@ class DesktopHands:
 
     def check(self) -> dict[str, Any] | None:
         now = self.clock()
+        if self.blocked_at is not None and now - self.rechecked_at >= RECHECK_S:
+            # Switched on in System Settings meanwhile: say so, so the window carries on
+            # without the owner turning hand control on again.
+            self.rechecked_at = now
+            if now - self.blocked_at > RECHECK_FOR_S:
+                self.blocked_at = None
+            else:
+                try:
+                    ok = self.poster.permitted()
+                except Exception:
+                    ok = False
+                if ok:
+                    self.blocked_at = None
+                    log.info("hand control of the Mac: Accessibility granted")
+                    return {"state": "allowed"}
         if self.held is not None and (
             now - self.last_msg > BUTTON_TIMEOUT or now - self.held_since > MAX_HOLD
         ):

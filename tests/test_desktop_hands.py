@@ -466,3 +466,26 @@ def test_quartz_poster_builds_the_right_events(monkeypatch):
 def test_importing_the_module_does_not_touch_quartz():
     assert not hasattr(dh, "Quartz")
     assert math.isfinite(dh.MOVE_INTERVAL)
+
+
+def test_switching_accessibility_on_meanwhile_is_noticed():
+    hands, poster, clock = rig(permitted=False)
+    assert send(hands, clock, "start")["state"] == "blocked"
+    clock.tick(dh.RECHECK_S)
+    assert hands.check() is None  # still off
+    poster._permitted = True  # the owner flips the switch in System Settings
+    clock.tick(dh.RECHECK_S)
+    assert hands.check() == {"state": "allowed"}
+    clock.tick(dh.RECHECK_S)
+    assert hands.check() is None, "said once"
+    assert send(hands, clock, "start") == {"state": "active"}
+
+
+def test_the_recheck_gives_up_after_a_while():
+    hands, poster, clock = rig(permitted=False)
+    send(hands, clock, "start")
+    clock.tick(dh.RECHECK_FOR_S + 1)
+    hands.check()
+    poster._permitted = True
+    clock.tick(dh.RECHECK_S)
+    assert hands.check() is None
