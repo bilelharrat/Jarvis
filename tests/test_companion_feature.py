@@ -183,3 +183,8 @@ async def test_answers_from_the_phone_are_logged_without_their_words(hub):
     saved = hub.feature_path("companion-audit.json").read_text()
     assert "said_no_because" in saved
     assert "make it 9" not in saved and "Dinner" not in saved and "Ann" not in saved
+
+
+def test_a_jarvis_not_on_a_mac_can_say_its_name(monkeypatch):
+    monkeypatch.setenv("JARVIS_DEVICE_NAME", "Jarvis Cloud")
+    assert remote.computer_name() == "Jarvis Cloud"

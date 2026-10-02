@@ -27,6 +27,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import secrets
 import socket
@@ -657,7 +658,11 @@ def local_host_name() -> str:
 
 
 def computer_name() -> str:
-    """The Mac's name as the owner set it ("Bilel's MacBook Pro"), for the phone to show."""
+    """The Mac's name as the owner set it ("Bilel's MacBook Pro"), for the phone to show;
+    JARVIS_DEVICE_NAME names a Jarvis that isn't on a Mac (the cloud one: "Jarvis Cloud")."""
+    named = os.environ.get("JARVIS_DEVICE_NAME", "").strip()
+    if named:
+        return named[:63]
     try:
         out = subprocess.run(
             ["scutil", "--get", "ComputerName"], capture_output=True, text=True, timeout=3
