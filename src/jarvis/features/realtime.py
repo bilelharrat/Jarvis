@@ -76,7 +76,12 @@ prefs_module.register_feature_pref(
     "realtime_provider", "auto", lambda v: v if v in PROVIDERS else None
 )
 prefs_module.register_feature_pref("realtime_minutes", MINUTES_DEFAULT, _clean_minutes)
-SETTINGS = ("realtime_on", "realtime_provider", "realtime_minutes")
+# Whose voice speaks: JARVIS's own (the cloud voice the Mac speaks with, saying the model's
+# words sentence by sentence; about half a second slower) or the realtime model's.
+prefs_module.register_feature_pref(
+    "realtime_voice", "jarvis", lambda v: v if v in ("jarvis", "model") else None
+)
+SETTINGS = ("realtime_on", "realtime_provider", "realtime_minutes", "realtime_voice")
 
 # What the owner says to end it: "that's all", "that'll be all", "we're done", 就这样.
 FINISHED = re.compile(
@@ -241,8 +246,22 @@ class Realtime:
             "using": self.provider if self.conv is not None else "",
             "state": self.conv.state if self.conv is not None else "",
             "talk_over": bool(self.hub.talk_over()),
+            "voice": self.hub.prefs.feature("realtime_voice"),
+            "jarvis_voice": self.jarvis_voice() is not None,
             "why": why,
         }
+
+    def _voice(self) -> dict[str, Any]:
+        """JARVIS's own voice for the conversation, when it's chosen and there is one."""
+        cloud = self.jarvis_voice()
+        if cloud is None or self.hub.prefs.feature("realtime_voice") == "model":
+            return {}
+        clean = getattr(self.hub.speaker, "clean", None) or (lambda t: t)
+        return {"speak": lambda text: cloud.stream(clean(text)), "speak_rate": cloud.stream_rate}
+
+    def jarvis_voice(self) -> Any:
+        """The cloud voice the Mac speaks with, when there is one."""
+        return getattr(getattr(self.hub, "speaker", None), "cloud", None)
 
     def emit(self) -> None:
         self.hub.emit("realtime", **self.public())
@@ -367,6 +386,7 @@ class Realtime:
             muted=self.muted,
             max_seconds=min(SESSION_MAX, left),
             connect=self.connect,
+            **self._voice(),
         )
         self.conv, self.provider = conv, provider
         before = getattr(listener, "on_block", None)

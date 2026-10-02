@@ -19,9 +19,15 @@
     "Realtime conversation needs hands-free listening on.": "实时对话需要先开启免提聆听。",
     "My voice player isn't ready yet, so I'll listen the usual way.": "我的语音播放器还没准备好，所以我先用平常的方式听。",
     "Realtime conversation · tap the orb to end": "实时对话 · 点按光球结束",
-    "Realtime · talk over me or tap the orb to end": "实时对话 · 直接插话或点按光球结束"
+    "Realtime · talk over me or tap the orb to end": "实时对话 · 直接插话或点按光球结束",
+    "Jarvis’s voice": "Jarvis 的声音",
+    "The model’s voice (fastest)": "模型的声音（最快）",
+    "Realtime voice": "实时语音的声音"
   },
   "patterns": [
-    ["^([\\d.]+) of (\\d+) minutes used today$", "今天已用 $1 / $2 分钟"]
+    [
+      "^([\\d.]+) of (\\d+) minutes used today$",
+      "今天已用 $1 / $2 分钟"
+    ]
   ]
 }

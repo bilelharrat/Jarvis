@@ -232,3 +232,84 @@ def test_gemini_joins_transcript_fragments():
         {"serverContent": {"inputTranscription": {"text": "all"}, "turnComplete": True}}
     )
     assert ("heard", "that's all") in events and events[-1] == ("done",)
+
+
+def test_the_reply_is_cut_into_sentences_as_it_streams():
+    assert realtime.sentences("Good morning, sir. You slept seven", False) == (
+        ["Good morning, sir."],
+        " You slept seven",
+    )
+    assert realtime.sentences("Yes. It's 3.5 degrees outside. And", False) == (
+        ["Yes. It's 3.5 degrees outside."],
+        " And",
+    )  # "Yes." alone is too short to send by itself; 3.5 isn't an end
+    assert realtime.sentences("Two meetings.", True) == (["Two meetings."], "")
+    assert realtime.sentences("", True) == ([], "")
+
+
+@pytest.mark.parametrize("kind", ["openai", "gemini"])
+async def test_jarvis_s_own_voice_says_the_models_words(kind):
+    server = await FakeRealtime.start(kind)
+    asked, player, said = [], FakePlayer(), []
+
+    async def speak(text):
+        said.append(text)
+        yield b"\x02\x00" * 2400  # JARVIS's voice, 0.1 s a chunk
+        yield b"\x02\x00" * 2400
+
+    conv = make(kind, server.url, asked, player, speak=speak, speak_rate=24000)
+    try:
+        run = asyncio.create_task(conv.run())
+        await wait_for(lambda: conv.state == "listening")
+        await say_words(conv)
+        await wait_for(lambda: len(player.written) >= 2)
+        conv.stop()
+        await run
+    finally:
+        await server.stop()
+    assert said == ["Two meetings."]
+    assert all(set(chunk[:4]) == {2, 0} for chunk in player.written)  # none of the model's audio
+
+
+async def test_jarvis_s_voice_talked_over_stops_and_drops_the_rest():
+    player = FakePlayer()
+    started = asyncio.Event()
+
+    async def speak(text):
+        started.set()
+        for _ in range(50):
+            yield b"\x02\x00" * 2400
+            await asyncio.sleep(0.01)
+
+    conv = make("openai", "ws://unused", [], player, speak=speak)
+    speaker = asyncio.create_task(conv._speak_sentences())
+    try:
+        await conv._on_event(("said_delta", "This is a long first sentence. And then"))
+        await asyncio.wait_for(started.wait(), 2)
+        await asyncio.sleep(0.05)
+        await conv._on_event(("barge",))
+        written = len(player.written)
+        await asyncio.sleep(0.1)
+        assert len(player.written) <= written + 1  # stops within a chunk
+        await conv._on_event(("done",))
+        assert conv._words == "" and conv._sentences.empty()  # "And then" went with it
+    finally:
+        speaker.cancel()
+
+
+async def test_a_voice_that_fails_hands_back_to_the_models_audio():
+    player = FakePlayer()
+
+    async def speak(text):
+        raise RuntimeError("voice service down")
+        yield b""
+
+    conv = make("openai", "ws://unused", [], player, speak=speak)
+    speaker = asyncio.create_task(conv._speak_sentences())
+    try:
+        await conv._on_event(("said_delta", "This sentence won't be spoken. "))
+        await wait_for(lambda: conv.speak is None)
+        await conv._on_event(("audio", b"\x01\x00" * 100))
+        assert len(player.written) == 1  # the model's own voice again
+    finally:
+        speaker.cancel()

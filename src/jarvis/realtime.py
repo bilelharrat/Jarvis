@@ -34,7 +34,7 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import numpy as np
@@ -240,6 +240,8 @@ class OpenAIRealtime(Backend):
             return [("barge",)]
         if kind == "conversation.item.input_audio_transcription.completed":
             return [("heard", str(message.get("transcript", "")))]
+        if kind in ("response.output_audio_transcript.delta", "response.audio_transcript.delta"):
+            return [("said_delta", str(message.get("delta", "")))]
         if kind in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
             return [("said", str(message.get("transcript", "")))]
         if kind == "response.function_call_arguments.done":
@@ -344,6 +346,7 @@ class GeminiLive(Backend):
             said = (content.get("outputTranscription") or {}).get("text")
             if said:
                 self._said.append(str(said))
+                events.append(("said_delta", str(said)))
             turn = content.get("modelTurn") or {}
             for part in turn.get("parts") or []:
                 data = (
@@ -424,8 +427,18 @@ class Conversation:
         max_seconds: float = 15 * 60.0,
         connect: Callable[..., Any] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        speak: Callable[[str], AsyncIterator[bytes]] | None = None,
+        speak_rate: int = OUT_RATE,
     ) -> None:
         self.backend = backend
+        # JARVIS's own voice: the model's words (its transcript, as it streams) are spoken
+        # sentence by sentence with speak(text) -> PCM chunks at speak_rate, and the model's
+        # audio is left unplayed. A voice that fails hands back to the model's audio.
+        self.speak = speak
+        self.speak_rate = speak_rate
+        self._words = ""  # the reply's words not yet spoken
+        self._sentences: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
+        self._reply = 0  # bumped when a reply is talked over: its queued sentences go
         self.prompt = prompt
         self.ask = ask
         self.player = player
@@ -545,6 +558,8 @@ class Conversation:
                 asyncio.create_task(self._send_mic()),
                 asyncio.create_task(self._watch()),
             ]
+            if self.speak is not None:
+                tasks.append(asyncio.create_task(self._speak_sentences()))
             done, _ = await asyncio.wait([self._end, *tasks], return_when=asyncio.FIRST_COMPLETED)
             if not self._end.done():  # a task ended first: the socket closed or broke
                 for task in done:
@@ -605,13 +620,25 @@ class Conversation:
     async def _on_event(self, event: tuple[Any, ...]) -> None:
         kind = event[0]
         if kind == "audio":
-            await self._play(event[1])
+            if self.speak is None:
+                await self._play(event[1])
+            else:
+                self._last = self.clock()  # the model is answering; JARVIS's voice says it
+        elif kind == "said_delta":
+            if self.speak is not None and not self._drop:
+                self._words += str(event[1])
+                self._queue_sentences(final=False)
         elif kind in ("barge", "interrupted"):
             self._last = self.clock()
             if kind == "barge":
                 self._drop = self.playing or self._drop
+            self._words = ""
+            self._reply += 1
             self._silence_voice()
         elif kind == "done":
+            if self.speak is not None and not self._drop:
+                self._queue_sentences(final=True)
+            self._words = ""
             self._drop = False
         elif kind == "heard":
             text = str(event[1]).strip()
@@ -627,7 +654,30 @@ class Conversation:
             if len(event) > 2 and event[2]:
                 raise Failed(str(event[1]))
 
-    async def _play(self, pcm: bytes) -> None:
+    def _queue_sentences(self, final: bool) -> None:
+        pieces, rest = sentences(self._words, final)
+        self._words = rest
+        for piece in pieces:
+            self._sentences.put_nowait((self._reply, piece))
+
+    async def _speak_sentences(self) -> None:
+        """Says the queued sentences in JARVIS's voice, one after another."""
+        while True:
+            reply, text = await self._sentences.get()
+            if reply != self._reply or self.speak is None:
+                continue  # talked over meanwhile
+            try:
+                async for chunk in self.speak(text):
+                    if reply != self._reply or self._drop:
+                        break
+                    await self._play(chunk, self.speak_rate)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("realtime: JARVIS's voice failed (%s); the model's voice instead", exc)
+                self.speak = None
+
+    async def _play(self, pcm: bytes, rate_in: int = OUT_RATE) -> None:
         if self._drop or not pcm or self.muted():
             return
         live = self._live
@@ -643,11 +693,11 @@ class Conversation:
             if self._spoke_at:
                 self.latencies.append(now - self._spoke_at)
                 log.info("realtime: first sound %.2fs after you stopped", now - self._spoke_at)
-        self._play_until = max(self._play_until, now) + len(pcm) / (2 * OUT_RATE)
+        self._play_until = max(self._play_until, now) + len(pcm) / (2 * rate_in)
         self._last = self._play_until
         self._set_state("speaking")
         try:
-            await live.write(resample(pcm, OUT_RATE, rate))
+            await live.write(pcm if rate_in == rate else resample(pcm, rate_in, rate))
         except (BrokenPipeError, ConnectionResetError):
             self._live = None
 
@@ -712,6 +762,26 @@ class Conversation:
             self.state = state
             with contextlib.suppress(Exception):
                 self.on_state(state)
+
+
+def sentences(text: str, final: bool) -> tuple[list[str], str]:
+    """The finished sentences in text (all of it when final) and what's left: a sentence ends
+    at . ! ? (or 。！？) followed by a space, or a line break; short ones join the next, so the
+    voice isn't asked for a word at a time."""
+    pieces: list[str] = []
+    start = 0
+    for i, c in enumerate(text):
+        end = c in ".!?。！？" and (i + 1 < len(text) and text[i + 1].isspace() or c in "。！？")
+        if end or c == "\n":
+            piece = text[start : i + 1].strip()
+            if len(piece) >= 12 or (c == "\n" and piece):
+                pieces.append(piece)
+                start = i + 1
+    rest = text[start:]
+    if final and rest.strip():
+        pieces.append(rest.strip())
+        rest = ""
+    return pieces, rest
 
 
 def _decode(raw: Any) -> dict[str, Any]:

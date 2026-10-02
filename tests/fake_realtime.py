@@ -132,6 +132,7 @@ class FakeRealtime:
         delta = base64.b64encode(REPLY).decode()
         for _ in range(3):
             await send({"type": "response.output_audio.delta", "delta": delta})
+        await send({"type": "response.output_audio_transcript.delta", "delta": "Two meetings."})
         await send({"type": "response.output_audio_transcript.done", "transcript": "Two meetings."})
         await send({"type": "response.done"})
 

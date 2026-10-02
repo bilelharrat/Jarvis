@@ -42,6 +42,19 @@
     provider.append(b);
   }
 
+  const voice = el('div', 'segmented');
+  voice.id = 'realtime-voice';
+  voice.setAttribute('role', 'radiogroup');
+  voice.setAttribute('aria-label', 'Realtime voice');
+  for (const [value, text] of [['jarvis', 'Jarvis’s voice'], ['model', 'The model’s voice (fastest)']]) {
+    const b = el('button', '', text);
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.dataset.voice = value;
+    b.addEventListener('click', () => change({ realtime_voice: value }));
+    voice.append(b);
+  }
+
   const minutesRow = el('label', 'row realtime-minutes');
   minutesRow.htmlFor = 'realtime-minutes';
   const minutesLabel = el('span');
@@ -73,7 +86,7 @@
   why.id = 'realtime-why';
   why.setAttribute('role', 'status');
 
-  block.append(head, provider, minutesRow, how, cost, talkOver, why);
+  block.append(head, provider, voice, minutesRow, how, cost, talkOver, why);
 
   function place() {
     if (block.isConnected) return;
@@ -86,6 +99,8 @@
     const on = !!state.on;
     toggle.setAttribute('aria-checked', String(on));
     provider.hidden = minutesRow.hidden = how.hidden = cost.hidden = !on;
+    voice.hidden = !on || !state.jarvis_voice;
+    voice.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.voice === (state.voice || 'jarvis'))));
     provider.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.provider === state.provider)));
     if (document.activeElement !== minutes) minutes.value = String(state.minutes);
     used.textContent = `${state.used} of ${state.minutes} minutes used today`;

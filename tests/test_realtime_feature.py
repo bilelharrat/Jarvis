@@ -267,6 +267,32 @@ async def test_settings_and_status(settings, quiet_speaker, isolated):
     assert state["on"] is True and state["minutes"] == 45 and state["provider"] == "auto"
     assert state["why"] == feature_module.WHY_NO_KEY
     assert state["keys"] == {"openai": False, "gemini": False}
+    assert state["voice"] == "jarvis"  # JARVIS's own voice unless the owner picks the model's
+    await hub.handle({"type": "realtime_settings", "changes": {"realtime_voice": "model"}})
+    assert [e for e in drain(q) if e["type"] == "realtime"][-1]["voice"] == "model"
+
+
+async def test_jarvis_s_cloud_voice_speaks_when_chosen(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    desk = hub.realtime_feature if hasattr(hub, "realtime_feature") else None
+    if desk is None:
+        desk = feature_module.Realtime(hub)
+
+    class Cloud:
+        stream_rate = 24000
+
+        async def stream(self, text):
+            yield text.encode()
+
+    hub.speaker.cloud = None
+    assert desk._voice() == {}  # no cloud voice: the model's
+    hub.speaker.cloud = Cloud()
+    voice = desk._voice()
+    assert voice["speak_rate"] == 24000
+    chunks = [c async for c in voice["speak"]("Hello there.")]
+    assert chunks and b"Hello" in chunks[0]
+    hub.prefs.features["realtime_voice"] = "model"
+    assert desk._voice() == {}
 
 
 def test_backends_are_the_two_providers():
