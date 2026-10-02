@@ -822,3 +822,24 @@ async def test_the_hub_sets_the_caller_name_from_settings(settings, quiet_speake
     await hub._handle({"type": "phone_caller_name", "name": ""})
     status = [e for e in drain(q) if e["type"] == "phone_status"][-1]
     assert names == [phone.CALLER_NAME] and "Contacts as J.A.R.V.I.S." in status["note"]
+
+
+def test_placeholder_credentials_in_the_real_keychain_count_as_none():
+    store = {}
+
+    class Backend:
+        def get_password(self, service, user):
+            return store.get(user)
+
+        def set_password(self, service, user, secret):
+            store[user] = secret
+
+    keychain = phone.Keychain(Backend())
+    keychain.real = True  # as the login keychain is
+    store.update(account_sid="AC" + "0" * 32, auth_token="f" * 32)
+    assert keychain.get() is None
+    with pytest.raises(phone.PhoneError):
+        keychain.set("AC" + "0" * 32, "f" * 32)
+    keychain.set("AC" + "1a2b" * 8, "9f8e7d6c" * 4)
+    assert keychain.get() == ("AC" + "1a2b" * 8, "9f8e7d6c" * 4)
+    assert phone.placeholder("AC" + "0" * 32, "x") and not phone.placeholder("AC12ab", "9f8e")

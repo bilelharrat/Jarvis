@@ -235,10 +235,19 @@ def phone_audio(clips: list[tuple[np.ndarray, int]], pause: float = 1.0) -> byte
     return wav_bytes(np.concatenate(parts), PHONE_RATE)
 
 
+def placeholder(sid: str, token: str) -> bool:
+    """Test values, not an account's: an SID of zeros, a token of one repeated character."""
+    zeros = sid.startswith("AC") and set(sid[2:]) <= {"0"}
+    same = len(token) > 1 and len(set(token)) == 1
+    return bool(sid or token) and (zeros or same)
+
+
 class Keychain:
     """The Twilio credentials, in the login keychain (the same backend the model keys use)."""
 
     def __init__(self, backend: Any = None) -> None:
+        # The login keychain: test values found there (a script once left some) count as none.
+        self.real = backend is None
         if backend is None:
             from keyring.backends import macOS
 
@@ -251,9 +260,13 @@ class Keychain:
             token = self.backend.get_password(SERVICE, "auth_token") or ""
         except Exception:  # a locked or missing keychain
             return None
+        if self.real and placeholder(sid, token):
+            return None
         return (sid, token) if sid and token else None
 
     def set(self, sid: str, token: str) -> None:
+        if self.real and placeholder(sid, token):
+            raise PhoneError("That's a placeholder, not your Twilio Account SID and Auth Token.")
         self.backend.set_password(SERVICE, "account_sid", sid)
         self.backend.set_password(SERVICE, "auth_token", token)
 
