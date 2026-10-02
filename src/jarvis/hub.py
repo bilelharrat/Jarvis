@@ -263,6 +263,29 @@ _HOLD_SPACE = re.compile(r"\s+")
 CODE_ON_SCREEN = "```\n```"
 ANNOUNCE_IN_FULL = 2  # a burst of heads-ups says this many in full; the rest are on screen
 STALE_UTTERANCE = 10.0  # hands-free: speech that ended this long ago is never acted on
+
+
+@dataclasses.dataclass(frozen=True)
+class Stages:
+    """Where a spoken request's time went before its turn began, for the first-sound line:
+    when the owner's last word ended, the quiet waited to be sure they'd finished, the
+    time the utterance waited in line (a busy room ahead of it), and its transcription."""
+
+    spoke_end: float
+    endpoint: float
+    queued: float
+    stt: float
+
+    def line(self, now: float, asked_at: float, voice_wait: float) -> str:
+        answering = now - asked_at
+        return (
+            f"{now - self.spoke_end:.2f}s after you stopped talking "
+            f"(end of speech {self.endpoint:.2f}s, in line {self.queued:.2f}s, "
+            f"transcribing {self.stt:.2f}s, voice check {voice_wait:.2f}s, "
+            f"answering {answering:.2f}s), {answering:.2f}s after the request"
+        )
+
+
 # Talking again this soon after a request ended, before its answer is spoken, is the rest of
 # that request (a longer pause mid-sentence), not a new one that needs the wake word.
 CONTINUE_GAP = 1.5
@@ -1018,6 +1041,11 @@ class Hub:
         self.waiting: list[dict[str, Any]] = []  # requests queued behind the current one
         self._heard_at = 0.0
         self._asked_at = 0.0
+        # A spoken request's stages, for the log's first-sound line (Stages): what happened
+        # between the owner's last word and the request, and the wait for its voice check.
+        self._voice_stages: Stages | None = None
+        self._turn_stages: Stages | None = None
+        self._voice_wait = 0.0
         self._first_sound_logged = True
         self._spoke_this_turn = False
         self._browser_calls: dict[str, asyncio.Future] = {}
@@ -2780,6 +2808,7 @@ class Hub:
         note: str = "",
         voice: Any = None,
         origin: dict[str, Any] | None = None,
+        stages: Stages | None = None,
     ) -> str:
         """One request. display: what the window shows instead of text (routines, the
         briefing). silent: say nothing out loud (a routine in quiet hours). screen: send a
@@ -2853,6 +2882,7 @@ class Hub:
             self.emit("turn", rid=rid, user=display or text)
             self.set_state("thinking")
             self._asked_at = time.monotonic()
+            self._turn_stages, self._voice_wait = stages, 0.0
             self._first_sound_logged = False
             self._spoke_this_turn = False
             if self.speaker.cloud is not None:
@@ -3045,12 +3075,11 @@ class Hub:
             if not self._first_sound_logged:
                 self._first_sound_logged = True
                 now = time.monotonic()
-                since_voice = (
-                    f"{now - self._heard_at:.2f}s after you stopped talking, "
-                    if self._heard_at > self._asked_at - 5
-                    else ""
-                )
-                log.info("first sound %s%.2fs after the request", since_voice, now - self._asked_at)
+                stages = self._turn_stages
+                if stages is not None:
+                    log.info("first sound %s", stages.line(now, self._asked_at, self._voice_wait))
+                else:
+                    log.info("first sound %.2fs after the request", now - self._asked_at)
             self.set_state("speaking")
         elif self.state == "speaking":
             self._spoke_until = time.monotonic()
@@ -3551,6 +3580,7 @@ class Hub:
                 continue
             self._heard_at = time.monotonic()
             self._start_voice_check(audio)
+            transcribing = time.monotonic()
             try:
                 if self.voicecode.focus is not None and self._code_hotwords:
                     stt = (
@@ -3567,6 +3597,12 @@ class Hub:
                 continue
             self._utterance_began = ended - _audio_seconds(audio)
             self._utterance_ended = ended
+            self._voice_stages = Stages(
+                ended - HANDS_FREE_ENDPOINT,
+                HANDS_FREE_ENDPOINT,
+                self._heard_at - ended,
+                time.monotonic() - transcribing,
+            )
             try:
                 if self.meeting is not None and self._meeting_capture(audio, text):
                     continue
@@ -3577,6 +3613,7 @@ class Hub:
                 log.exception("hands-free handling failed")
             finally:
                 self._utterance_began = self._utterance_ended = None
+                self._voice_stages = None
 
     async def _early_utterance(self, number: int, audio: Any, at: float | None = None) -> None:
         """An utterance 0.2s into the silence after it. If it reads as a finished request
@@ -3599,6 +3636,7 @@ class Hub:
         else:
             text = await asyncio.to_thread(self._transcribe, stt, audio)
         text = self.hearing.fix(text)
+        transcribed = time.monotonic()
 
         began = (at or heard_at) - _audio_seconds(audio)
         armed = self._armed(began)
@@ -3614,10 +3652,15 @@ class Hub:
         log.info("answered early (smart endpoint)")
         self._heard_at = heard_at
         self._utterance_began, self._utterance_ended = began, at or heard_at
+        ended = at or heard_at
+        self._voice_stages = Stages(
+            ended - EARLY_ENDPOINT, EARLY_ENDPOINT, heard_at - ended, transcribed - heard_at
+        )
         try:
             await self.on_heard(text)
         finally:
             self._utterance_began = self._utterance_ended = None
+            self._voice_stages = None
 
     async def set_voice_typing(self, on: bool) -> None:
         """Voice typing on or off ("Jarvis, start typing" / "stop typing", or the window)."""
@@ -3755,6 +3798,13 @@ class Hub:
         check, self._turn_voice = self._turn_voice, None
         if check is None:
             return True
+        began = time.monotonic()
+        try:
+            return await self._settle_checked_voice(check)
+        finally:
+            self._voice_wait = time.monotonic() - began
+
+    async def _settle_checked_voice(self, check: Any) -> bool:
         if not await self._voice_allows(check):
             log.info("not the owner's voice: the request is dropped")
             self._silent, self._turn_text = True, ""
@@ -3767,7 +3817,7 @@ class Hub:
     def _ask_by_voice(self, request: str) -> None:
         self.emit("heard", text=request)
         self._last_voice = (request, self._utterance_ended or time.monotonic())
-        self._spawn(self.ask(request, voice=self._heard_voice))
+        self._spawn(self.ask(request, voice=self._heard_voice, stages=self._voice_stages))
 
     async def on_heard(self, text: str) -> None:
         """One hands-free utterance: wake word, barge-in, or ignore. Its own voice coming
