@@ -83,7 +83,7 @@ LOOK_NAMES = {
 
 @dataclass(frozen=True)
 class Command:
-    action: str  # panel | look | tone | hands
+    action: str  # panel | look | tone | hands | voice_typing
     name: str = ""  # the panel, look or tone (light | dark)
     on: bool = True  # open/close, hands on/off
     reply: str = ""
@@ -203,6 +203,22 @@ def build_server(apply: Apply):
         return _text(TONE_REPLIES[tone])
 
     @tool(
+        "voice_typing",
+        "Voice typing: while it's on, everything the user says is typed where their cursor is, "
+        "in whatever app has the focus, until they say 'stop typing'. Turn it on whenever the "
+        "user wants to write, type or dictate by talking ('I'm trying to write with you', 'take "
+        "dictation', 'type what I say', 'let me dictate an email'); then just tell them to go "
+        "ahead. on: false turns it off.",
+        {"on": bool},
+    )
+    async def voice_typing(args):
+        on = args.get("on", True) is not False
+        said = await apply(Command("voice_typing", "", on))
+        if isinstance(said, str):
+            return _text(said)
+        return _text("Voice typing on: what they say next is typed." if on else "Voice typing off.")
+
+    @tool(
         "hand_control",
         "Turn hand control (the camera tracks the user's hands to steer the app) on or off.",
         {"on": bool},
@@ -213,13 +229,16 @@ def build_server(apply: Apply):
         return _text("Hand control on." if on else "Hand control off.")
 
     return create_sdk_mcp_server(
-        name=SERVER_NAME, version="0.1.0", tools=[show_panel, set_look, set_tone, hand_control]
+        name=SERVER_NAME,
+        version="0.1.0",
+        tools=[show_panel, set_look, set_tone, voice_typing, hand_control],
     )
 
 
 PROMPT = (
     "\n- The window itself: show_panel opens or closes Jarvis Code, the browser, the "
     "Research Center, Settings, the second brain, the activity log or Tools & Accounts; "
-    "set_look changes the look; set_tone puts it in light (white) or dark mode; hand_control turns hand tracking on or off. When the user "
+    "set_look changes the look; set_tone puts it in light (white) or dark mode; hand_control turns hand tracking on or off; voice_typing types what the user "
+    "says wherever their cursor is (for writing by voice: an email, a message, a note). When the user "
     "says 'open Jarvis Code' or 'open the browser', they mean these panels."
 )

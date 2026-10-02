@@ -4653,7 +4653,7 @@ class Hub:
         log.info("two claps: hand control on")
         self.emit("ui", action="hands", on=True)
 
-    async def window_apply(self, command: ui.Command) -> None:
+    async def window_apply(self, command: ui.Command) -> str | None:
         """Open or close a panel, change the look or its tone, turn hand control on or off."""
         if command.action == "look":
             self.set_prefs({"look": command.name})
@@ -4663,6 +4663,20 @@ class Hub:
             self.emit("ui", action="panel", name=command.name, open=command.on)
         elif command.action == "hands":
             self.emit("ui", action="hands", on=command.on)
+        elif command.action == "voice_typing":
+            listening = self._listener is not None and getattr(self._listener, "running", False)
+            if command.on and not listening:
+                return (
+                    "Voice typing needs hands-free listening, which is off. The user asked to "
+                    "talk, so turn it on with set_hands_free, then call voice_typing again."
+                )
+            await self.set_voice_typing(command.on)
+            if command.on:
+                return (
+                    "Voice typing is on. Tell the user, briefly, to put their cursor where the "
+                    "words should go and start talking; 'new line', 'scratch that' and 'stop "
+                    "typing' work."
+                )
 
     async def _instant_window(self, rid: str, text: str) -> bool:
         """'Open Jarvis Code', 'close the browser', 'switch to the HUD': done at once."""

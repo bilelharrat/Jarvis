@@ -181,6 +181,7 @@ QUIET_RESULTS = frozenset(
         "mcp__window__show_panel",
         "mcp__window__set_look",
         "mcp__window__hand_control",
+        "mcp__window__voice_typing",
         # Their results carry no one's words: a mode, a status.
         "mcp__interrupts__set_interruptions",
         "mcp__interrupts__interruptions_status",

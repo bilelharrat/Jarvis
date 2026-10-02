@@ -27,6 +27,11 @@ from jarvis import hub as hub_module
         ("开始打字", ("start", "")),
         ("停止打字", ("stop", "")),
         ("输入 我马上到", ("once", "我马上到")),
+        ("let me dictate", ("start", "")),
+        ("I want to type by voice", ("start", "")),
+        ("take dictation", ("start", "")),
+        ("type what I say", ("start", "")),
+        ("help me write by talking", ("start", "")),
         ("write an email to Pepper", None),  # a request for JARVIS, not words to type
         ("what's the weather", None),
         ("type", None),
@@ -148,3 +153,34 @@ async def test_no_accessibility_says_so_and_stops(settings, quiet_speaker, isola
     events = drain(q)
     assert any(e["type"] == "notice" and "Accessibility" in e["text"] for e in events)
     assert not hub.voice_typing.on
+
+
+async def test_jarvis_can_turn_it_on_however_it_was_asked(
+    settings, quiet_speaker, isolated, keyboard
+):
+    """ "Jarvis, I'm trying to write with you" goes to JARVIS, whose voice_typing tool
+    (window_apply) turns it on, but only while hands-free is listening."""
+    from jarvis import ui
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    said = await hub.window_apply(ui.Command("voice_typing", "", True))
+    assert "set_hands_free" in said and not hub.voice_typing.on
+
+    class Running:
+        running = True
+
+    hub._listener = Running()
+    said = await hub.window_apply(ui.Command("voice_typing", "", True))
+    assert hub.voice_typing.on and "start talking" in said
+    await hub.on_heard("Hi Pepper.")
+    assert keyboard == [("text", "Hi Pepper.")]
+    await hub.window_apply(ui.Command("voice_typing", "", False))
+    assert not hub.voice_typing.on
+    hub._listener = None
+
+
+def test_the_tool_is_offered_to_jarvis():
+    from jarvis import ui
+
+    assert "voice_typing" in ui.PROMPT

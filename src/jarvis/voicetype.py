@@ -17,7 +17,14 @@ from dataclasses import dataclass, field
 _START = re.compile(
     r"^(?:please\s+)?(?:(?:start|begin|turn\s+on|switch\s+on)\s+(?:voice\s+)?(?:typing|dictation|dictating)"
     r"|(?:type|dictate|write)\s+(?:for\s+me|what\s+i\s+say)"
-    r"|(?:voice\s+typing|dictation\s+mode|typing\s+mode|talk\s+to\s+type)(?:\s+on)?)$",
+    r"|(?:voice\s+typing|dictation\s+mode|typing\s+mode|talk\s+to\s+type)(?:\s+on)?"
+    # The everyday ways: "let me dictate", "I want to type by voice", "take dictation",
+    # "type what I say", "help me write by talking". Anything else goes to JARVIS, whose
+    # voice_typing tool understands the rest ("I'm trying to write with you").
+    r"|(?:let\s+me|i\s+(?:want|need|would\s+like|'d\s+like)\s+to)\s+(?:dictate|type\s+by\s+(?:voice|talking)|write\s+by\s+(?:voice|talking))"
+    r"|take\s+(?:a\s+|some\s+)?dictation"
+    r"|(?:type|write)\s+(?:what|everything|whatever)\s+i\s+(?:say|tell\s+you)"
+    r"|(?:help\s+me\s+)?(?:type|write)\s+by\s+(?:voice|talking))$",
     re.IGNORECASE,
 )
 _STOP = re.compile(
