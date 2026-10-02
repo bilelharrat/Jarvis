@@ -253,3 +253,11 @@ body[data-look="orb"] .intro-field input, body[data-look="orb"] .intro-time { ba
   .intro-dots li, .intro-bars i, .intro-choice { transition: none; }
 }
 .intro-body > .btn, .intro-body > a.btn { align-self: center; }
+
+/* Only answer my voice: the sentence being read, and the model's download */
+.intro-sentence {
+  margin: 4px 0 12px; padding: 14px 16px; border-radius: 14px; text-align: center;
+  font-size: 19px; line-height: 1.4; color: var(--ink); background: var(--intro-inset);
+  box-shadow: inset 0 0 0 1px var(--intro-line);
+}
+.intro-progress { display: block; width: 100%; height: 6px; margin: 4px 0 12px; accent-color: var(--accent, #0a84ff); }

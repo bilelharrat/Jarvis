@@ -1366,7 +1366,7 @@ test('The intro shows by itself on a fresh install, once; Continue, Back, Not no
   await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
   assert(await js('!$("intro").hidden'), 'the intro did not show');
   let r = await js('({ card: window.jarvisIntro.card(), title: $("intro-title").textContent, back: $("intro-back").hidden, next: $("intro-next").textContent, dots: document.querySelectorAll("#intro-dots li").length, on: document.querySelector("#intro-dots li.on").dataset.section })');
-  assert(r.card === 'welcome' && r.back && r.next === 'Get started' && r.dots === 11 && r.on === 'welcome', JSON.stringify(r));
+  assert(r.card === 'welcome' && r.back && r.next === 'Get started' && r.dots === 12 && r.on === 'welcome', JSON.stringify(r));
   await introNext();
   await js('document.querySelector("#intro-card [data-lang=zh]").click(); true');
   await introNext();  // the microphone
@@ -1413,6 +1413,42 @@ test('Skip setup says so and closes; Escape only closes; Settings › Set up Jar
   await js('$("intro-skip").click(); true');
   r = await js('({ hidden: $("intro").hidden, sent: __sent.filter((m) => m.type === "ops_setup") })');
   assert(r.hidden && JSON.stringify(r.sent) === '[{"type":"ops_setup","state":"skipped"}]', JSON.stringify(r));
+});
+
+test('Intro › Only answer my voice: whose voice, the model, the five sentences, through voice_id’s own messages', async () => {
+  await withIntro();
+  await js('window.jarvisVoiceId = { SENTENCES: ["One.", "Two.", "Three.", "Four.", "Five."] }; true');
+  const vid = (extra) => opsEvent({ type: 'voice_id', on: false, scope: 'risky', configured: true, size: 26534365, model: false, enrolled: false, clips: 0, made: 0, downloading: null, enrolling: null, sentences: 5, why: '', error: '', ...extra });
+  await vid({});
+  await js('window.jarvisIntro.open("voice-id"); true');
+  let r = await js('({ card: window.jarvisIntro.card(), title: $("intro-title").textContent, checked: [...document.querySelectorAll("#intro-card [role=radio]")].map((b) => b.getAttribute("aria-checked")), on: document.querySelector("#intro-dots li.on").dataset.section })');
+  assert(r.card === 'voice-id' && r.title === 'Only answer my voice' && r.checked.join() === 'false,false' && r.on === 'me', JSON.stringify(r));
+  assert((await sentOf('voice_id_status')).length >= 1, 'the card never asked for its state');
+  await js('$("intro-voice-id-all").click(); true');
+  assert(JSON.stringify((await sentOf('voice_id_settings')).pop()) === JSON.stringify({ type: 'voice_id_settings', changes: { voice_id_on: true, voice_id_scope: 'all' } }), 'Only me sent the wrong change');
+  await vid({ on: true, scope: 'all' });
+  assert(await js('$("intro-card").textContent.includes("26.5 MB")'), 'no model size before the download');
+  assert(await clickText('#intro-card', 'Download'), 'no Download');
+  assert((await sentOf('voice_id_download')).length === 1, 'Download sent nothing');
+  await vid({ on: true, scope: 'all', model: true });
+  await js('$("intro-voice-id-teach").click(); true');
+  assert(JSON.stringify((await sentOf('voice_id_enroll')).pop()) === JSON.stringify({ type: 'voice_id_enroll', action: 'start' }), 'Teach sent the wrong message');
+  await vid({ on: true, scope: 'all', model: true, enrolling: { index: 1, again: false } });
+  r = await js('({ line: $("intro-voice-id-sentence").textContent, card: $("intro-card").textContent })');
+  assert(r.line === 'Two.' && r.card.includes('Read sentence 2 of 5 aloud:'), JSON.stringify(r));
+  await vid({ on: true, scope: 'all', model: true, enrolled: true, clips: 5 });
+  r = await js('({ title: $("intro-title").textContent, ok: $("intro-card").dataset.ok, checked: $("intro-voice-id-all").getAttribute("aria-checked") })');
+  assert(r.title === 'Jarvis knows your voice' && r.ok === 'true' && r.checked === 'true', JSON.stringify(r));
+  await js('$("intro-skip").click(); true');
+});
+
+test('Intro › a build without the voice model leaves the Only answer my voice card out', async () => {
+  await withIntro();
+  await opsEvent({ type: 'voice_id', on: false, scope: 'risky', configured: false, size: 0, model: false, enrolled: false, clips: 0, made: 0, downloading: null, enrolling: null, sentences: 5, why: '', error: '' });
+  await js('window.jarvisIntro.open("clap"); true');
+  await introNext();
+  assert((await introCard()) === 'voice', await introCard());
+  await js('$("intro-skip").click(); true');
 });
 
 test('Intro › microphone: the bars follow the hub’s levels, a voice is a success, silence says exactly what to do', async () => {

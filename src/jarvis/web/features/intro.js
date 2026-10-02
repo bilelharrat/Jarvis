@@ -29,6 +29,7 @@
     talk: { phase: '', heard: '', reply: '', rid: '' },
     wake: { phase: '', heard: '', reply: '', rid: '' },
     clap: false,
+    voiceId: null, // the voice_id event: Settings › Listening › Recognise my voice
     hubState: 'idle',
     connectors: null,
     openSvc: '',
@@ -50,12 +51,12 @@
 
   const SECTIONS = [
     ['welcome', 'Welcome'], ['language', 'Language'], ['permissions', 'Permissions'], ['claude', 'Claude'],
-    ['try', 'Try it'], ['voice', 'The voice'], ['accounts', 'Accounts'], ['phone', 'Phone calls'],
+    ['try', 'Try it'], ['me', 'Your voice'], ['voice', 'The voice'], ['accounts', 'Accounts'], ['phone', 'Phone calls'],
     ['models', 'Other AI models'], ['companion', 'iPhone & Watch'], ['done', 'All set'],
   ];
   const SECTION_OF = {
     welcome: 'welcome', language: 'language', mic: 'permissions', permissions: 'permissions', claude: 'claude',
-    talk: 'try', wake: 'try', clap: 'try', voice: 'voice', twilio: 'phone', 'twilio-keys': 'phone',
+    talk: 'try', wake: 'try', clap: 'try', 'voice-id': 'me', voice: 'voice', twilio: 'phone', 'twilio-keys': 'phone',
     'wake-call': 'phone', 'iphone-calls': 'phone', models: 'models', companion: 'companion', done: 'done',
   };
   const GROUPS = {
@@ -221,7 +222,8 @@
 
   function cardIds() {
     const groups = S.connectors ? [...new Set((S.connectors.catalog || []).map((e) => e.category))] : [];
-    return ['welcome', 'language', 'mic', 'permissions', 'claude', 'talk', 'wake', 'clap', 'voice',
+    return ['welcome', 'language', 'mic', 'permissions', 'claude', 'talk', 'wake', 'clap',
+      ...(S.voiceId && S.voiceId.configured === false ? [] : ['voice-id']), 'voice',
       ...(groups.length ? groups.map((g) => `accounts:${g}`) : ['accounts:']),
       'twilio', 'twilio-keys', 'wake-call', 'iphone-calls', 'models', 'companion', 'done'];
   }
@@ -276,6 +278,7 @@
     if (id === 'claude') return claudeCard();
     if (id === 'talk' || id === 'wake') return tryCard(id);
     if (id === 'clap') return clapCard();
+    if (id === 'voice-id') return voiceIdCard();
     if (id === 'voice') return voiceCard();
     if (id.startsWith('accounts:')) return accountsCard(id.slice('accounts:'.length));
     if (id === 'twilio') return twilioCard();
@@ -500,6 +503,66 @@
     return {
       visual: tile('hand', 'amber'), ok, later: true, title: ok ? 'Hand control is on' : 'Clap twice',
       lead: 'Two quick claps turn on hand control: steer the Mac with your hand in front of the camera.', body,
+    };
+  }
+
+  // Only my voice: the owner picks whose voice Jarvis answers, the model downloads (its size
+  // shown first) and they read the five sentences, all through voice_id's own messages.
+  function voiceIdCard() {
+    const v = S.voiceId || {};
+    const p = S.prefs || {};
+    const on = Boolean(v.on);
+    const ok = on && Boolean(v.enrolled);
+    const body = [];
+    const choices = el('div', 'intro-choices');
+    choices.setAttribute('role', 'radiogroup');
+    choices.setAttribute('aria-label', 'Whose voice Jarvis answers');
+    for (const [scope, name, sub] of [
+      ['all', 'Only me', 'Anyone else is ignored.'],
+      ['risky', 'Anyone, but risky steps need me', 'Approvals, sends, purchases and deletes by voice need yours.'],
+    ]) {
+      const b = el('button', 'intro-choice');
+      b.type = 'button';
+      b.id = `intro-voice-id-${scope}`;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(on && v.scope === scope));
+      b.append(el('strong', '', name), el('small', '', sub));
+      b.addEventListener('click', () => F.send({ type: 'voice_id_settings', changes: { voice_id_on: true, voice_id_scope: scope } }));
+      choices.append(b);
+    }
+    body.push(choices);
+    const enrolling = v.enrolling;
+    if (on && v.downloading) {
+      const bar = el('progress', 'intro-progress');
+      bar.max = 1;
+      bar.value = v.downloading.total > 0 ? Math.min(1, v.downloading.done / v.downloading.total) : 0;
+      body.push(el('p', 'intro-status', 'Downloading the voice model…'), bar);
+    } else if (on && !v.model) {
+      const size = v.size > 0 ? `The voice model is ${(v.size / 1e6).toFixed(1)} MB and stays on this Mac.` : 'The voice model stays on this Mac.';
+      body.push(callout('info', [para(size, 'intro-note'), button('Download', 'btn primary intro-small', () => F.send({ type: 'voice_id_download' }))]));
+    } else if (on && enrolling) {
+      const sentences = (window.jarvisVoiceId && window.jarvisVoiceId.SENTENCES) || [];
+      const n = enrolling.index + 1;
+      body.push(el('p', 'intro-status', enrolling.again
+        ? `I didn’t catch that. Read sentence ${n} of ${sentences.length} again:`
+        : `Read sentence ${n} of ${sentences.length} aloud:`));
+      const line = el('p', 'intro-sentence', sentences[enrolling.index] || '');
+      line.id = 'intro-voice-id-sentence';
+      body.push(line, button('Cancel', 'btn intro-small', () => F.send({ type: 'voice_id_enroll', action: 'cancel' })));
+    } else if (on) {
+      body.push(el('p', 'intro-status', v.enrolled ? 'Jarvis knows your voice.' : 'Read five short sentences aloud, in a quiet room. Your voiceprint stays on this Mac.'));
+      const teach = button(v.enrolled ? 'Retrain' : 'Teach Jarvis your voice', v.enrolled ? 'btn intro-small' : 'btn primary intro-small', () => F.send({ type: 'voice_id_enroll', action: 'start' }));
+      teach.id = 'intro-voice-id-teach';
+      body.push(teach);
+    }
+    if (v.error) body.push(callout('bad', [para(v.error, 'intro-note')]));
+    if (on && !p.hands_free) body.push(para('Voices are checked while hands-free listens; turn it on in the Try it cards or Settings › Listening.', 'intro-note intro-center'));
+    body.push(para('Tapping the orb, ⌥ Space and typing always work, whoever you are.', 'intro-note intro-center'));
+    return {
+      visual: tile('wave', 'violet'), ok, later: true, compact: true,
+      title: ok ? 'Jarvis knows your voice' : 'Only answer my voice',
+      lead: 'Jarvis learns what you sound like, so other people and the TV can’t give it orders. It adds no wait to its answers.',
+      body,
     };
   }
 
@@ -876,6 +939,7 @@
     }
     if (id === 'claude') { F.send({ type: 'ops_claude' }); F.send({ type: 'signin_state' }); }
     if (id === 'talk' || id === 'wake') { const t = S[id]; if (t.phase !== 'done') S[id] = { phase: '', heard: '', reply: '', rid: '' }; }
+    if (id === 'voice-id') F.send({ type: 'voice_id_status' });
     if (id === 'voice') F.send({ type: 'voice_status' });
     if (id.startsWith('accounts:')) F.send({ type: 'connectors' });
     if (id === 'twilio' || id === 'twilio-keys' || id === 'wake-call') F.send({ type: 'phone_status' });
@@ -987,6 +1051,7 @@
     if (S.open && S.card === 'claude') fill();
   });
   F.on('ops_voice', (ev) => { S.voiceMuted = Boolean(ev.muted); if (S.open && S.card === 'voice') fill(); });
+  F.on('voice_id', (ev) => { S.voiceId = ev; if (S.open && S.card === 'voice-id') fill(); }, { replay: true });
   F.on('voice', (ev) => { S.voice = ev; S.voiceBusy = false; if (S.open && S.card === 'voice') fill(); });
 
   F.on('ops_mic', (ev) => {

@@ -16,6 +16,8 @@
     'Open the report and read me the first paragraph.',
   ];
 
+  window.jarvisVoiceId = { SENTENCES }; // the intro's "Only answer my voice" card reads them too
+
   let state = null;
 
   function button(label, id, run, cls = 'btn') {

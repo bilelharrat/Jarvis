@@ -189,7 +189,24 @@
   "Under OAuth & Permissions, add this redirect URL:": "在“OAuth & Permissions”中添加这个重定向 URL：",
   "Under User Token Scopes, add what Jarvis may do (search:read.public and chat:write, say).": "在“User Token Scopes”中添加 Jarvis 可以做的事（例如 search:read.public 和 chat:write）。",
   "Install it to your workspace. It stays an internal app, listed nowhere.": "将它安装到你的工作区。它只是内部应用，不会在任何地方公开列出。",
-  "Under Basic Information, copy the Client ID and Client Secret, and paste them below.": "在“Basic Information”中复制 Client ID 和 Client Secret，粘贴到下方。"
+  "Under Basic Information, copy the Client ID and Client Secret, and paste them below.": "在“Basic Information”中复制 Client ID 和 Client Secret，粘贴到下方。",
+  "Your voice": "你的声音",
+  "Only answer my voice": "只回应我的声音",
+  "Jarvis knows your voice": "Jarvis 已认识你的声音",
+  "Jarvis learns what you sound like, so other people and the TV can’t give it orders. It adds no wait to its answers.": "Jarvis 会记住你的声音，这样别人和电视都无法向它下指令。这不会让它的回答变慢。",
+  "Only me": "只有我",
+  "Anyone else is ignored.": "其他人的声音一律忽略。",
+  "Anyone, but risky steps need me": "任何人都可以，但有风险的操作需要我",
+  "Approvals, sends, purchases and deletes by voice need yours.": "语音批准、发送、购买和删除需要你的声音。",
+  "Downloading the voice model…": "正在下载语音模型…",
+  "The voice model stays on this Mac.": "语音模型只保存在这台 Mac 上。",
+  "Voices are checked while hands-free listens; turn it on in the Try it cards or Settings › Listening.": "免提模式聆听时才会核对声音；可在“试一试”卡片或“设置 › 聆听”中开启。",
+  "Tapping the orb, ⌥ Space and typing always work, whoever you are.": "无论是谁，点按光球、⌥ 空格和打字输入始终可用。",
+  "Whose voice Jarvis answers": "Jarvis 回应谁的声音",
+  "Jarvis knows your voice.": "Jarvis 已认识你的声音。",
+  "Read five short sentences aloud, in a quiet room. Your voiceprint stays on this Mac.": "在安静的房间里朗读五个短句。你的声纹只保存在这台 Mac 上。",
+  "Retrain": "重新训练",
+  "Teach Jarvis your voice": "教 Jarvis 认识你的声音"
  },
  "patterns": []
 }
