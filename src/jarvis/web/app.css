@@ -279,6 +279,10 @@ body.galaxy-ambient .orb { opacity: 0.92; }
 .hf { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--action); }
 .hf[hidden] { display: none; }
 .hf .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--action); animation: blink 2.4s ease-in-out infinite; }
+/* Voice typing: a pill that stops it when clicked. */
+.hf.vt { border: 1px solid var(--action); border-radius: 14px; padding: 4px 10px; background: transparent; font: inherit; font-size: 13px; cursor: pointer; -webkit-app-region: no-drag; }
+.hf.vt .dot { animation-duration: 0.9s; }
+.hf.vt .vt-stop { opacity: 0.6; font-size: 11px; }
 @keyframes blink { 50% { opacity: 0.35; } }
 .pills { display: flex; gap: 10px; }
 

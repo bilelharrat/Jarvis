@@ -85,6 +85,11 @@ A short map of what was added; each feature's own Settings group or pane explain
 - **Hands-free (on by default):** say "Jarvis" anywhere in a sentence ("Jarvis, what's
   next?", "What's the weather, Jarvis?"). Talk over it, or say "stop", to interrupt. The
   mic stays on locally; nothing leaves the Mac until you've said the wake word.
+- **Voice typing (with hands-free):** "Jarvis, start typing", and what you say is typed
+  where your cursor is, in any app, until "stop typing" (or click the Typing pill). "New
+  line", "new paragraph", "scratch that" and "press enter" edit as you go; "Jarvis, type on
+  my way" types one line. Nothing goes to Claude; with Voice ID on only your voice types; it turns
+  itself off after five quiet minutes (`voicetype.py`; needs Accessibility).
 - **Voice:** Daniel through a subtle "AI in the house" effect, or any ElevenLabs / Fish
   Audio voice (set `JARVIS_TTS` and the key and voice ID in `.env`). Test it with
   `uv run jarvis say "Good evening."`

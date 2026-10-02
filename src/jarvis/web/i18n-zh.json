@@ -1,5 +1,11 @@
 {
  "strings": {
+  "Typing": "打字中",
+  "Typing what you say · “stop typing” to finish": "正在把你说的话打出来 · 说“停止打字”结束",
+  "Voice typing: what you say is typed where your cursor is. Click, or say “stop typing”, to stop.": "语音打字：你说的话会打在光标所在处。点一下，或说“停止打字”即可停止。",
+  "Voice typing": "语音打字",
+  "Turned off after five quiet minutes.": "五分钟没有说话，已关闭。",
+  "Couldn’t type: allow J.A.R.V.I.S. in System Settings › Privacy & Security › Accessibility.": "无法打字：请在“系统设置 › 隐私与安全性 › 辅助功能”中允许 J.A.R.V.I.S.。",
   "Details ›": "详情 ›",
   "Close weather": "关闭天气",
   "Hourly forecast": "每小时预报",

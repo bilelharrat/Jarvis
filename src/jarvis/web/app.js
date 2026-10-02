@@ -257,6 +257,14 @@ function onEvent(ev) {
       if (galaxyMode === 'ambient') scheduleAmbientEnd();
       break;
     case 'heard': if (!ev.text && state !== 'listening') $('state-line').textContent = 'I didn’t catch that. Tap to try again.'; break;
+    case 'voice_typing':  // "Jarvis, start typing": what's said is typed at the focus
+      $('vt-indicator').hidden = !ev.on;
+      document.body.classList.toggle('voice-typing', !!ev.on);
+      $('state-line').textContent = ev.on ? 'Typing what you say · “stop typing” to finish' : (STATE_LINES[state] || '');
+      break;
+    case 'voice_typed':
+      if (ev.text && !ev.action) $('heard').textContent = ev.text;
+      break;
     case 'reply': {
       $('reply').textContent = ev.text;
       const last = history[history.length - 1];
@@ -2296,6 +2304,7 @@ document.querySelectorAll('#look-group button').forEach((b) => b.addEventListene
 document.querySelectorAll('#tone-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ glass_tone: b.dataset.tone })));
 document.querySelectorAll('#lang-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ language: b.dataset.lang })));
 $('weather-city').addEventListener('change', (e) => setPrefs({ weather_city: e.target.value }));
+$('vt-indicator').addEventListener('click', () => send({ type: 'voice_typing', on: false }));
 $('clear-history').addEventListener('click', () => send({ type: 'clear_history' }));
 $('export-history').addEventListener('click', () => send({ type: 'export_history' }));
 

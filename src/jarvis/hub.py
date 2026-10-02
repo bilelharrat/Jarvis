@@ -75,6 +75,7 @@ from . import (
     transactions,
     ui,
     video,
+    voicetype,
 )
 from .brain import (
     EGRESS_TOOLS,
@@ -694,6 +695,9 @@ class Hub:
         # The latest request heard hands-free and when its utterance ended.
         self._last_voice: tuple[str, float] | None = None
         self._dictating_until = 0.0  # hands-free: the next utterance is typed, not asked
+        # Voice typing ("Jarvis, start typing"): what the owner says is typed at the focus.
+        self.voice_typing = voicetype.VoiceTyping()
+        self._voice_typing_at = 0.0  # when it last typed (it turns itself off when idle)
         self._dictation = 0  # which press of the composer's mic is current
         self._remote_turns: set[asyncio.Task] = set()
         self._listen_gen = 0  # push-to-talk: Stop bumps it, and a stale recording is dropped
@@ -3604,6 +3608,74 @@ class Hub:
         finally:
             self._utterance_began = self._utterance_ended = None
 
+    async def set_voice_typing(self, on: bool) -> None:
+        """Voice typing on or off ("Jarvis, start typing" / "stop typing", or the window)."""
+        if on == self.voice_typing.on:
+            self.emit("voice_typing", on=on)
+            return
+        if on:
+            self.voice_typing.start()
+            self._voice_typing_at = time.monotonic()
+            self._spawn(self._voice_typing_idle())
+            if self.state == "listening":
+                self._armed_until = self._armed_window = 0.0
+                self.set_state("idle")
+            with contextlib.suppress(OSError):
+                subprocess.Popen(
+                    ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+        else:
+            self.voice_typing.stop()
+        log.info("voice typing %s", "on" if on else "off")
+        self.emit("voice_typing", on=on)
+
+    async def _voice_typing_idle(self) -> None:
+        """Turns voice typing off after IDLE_SECONDS with nothing typed."""
+        while self.voice_typing.on:
+            await asyncio.sleep(15)
+            if time.monotonic() - self._voice_typing_at > voicetype.IDLE_SECONDS:
+                await self.set_voice_typing(False)
+                self.emit(
+                    "notice", title="Voice typing", text="Turned off after five quiet minutes."
+                )
+                return
+
+    async def _type_spoken(self, said: str, once: bool = False) -> None:
+        """Types what the owner said at the keyboard focus (or does its spoken edit)."""
+        typing = self.voice_typing
+        action = None if once else voicetype.edit(said)
+        try:
+            if action in ("line", "paragraph"):
+                for _ in range(2 if action == "paragraph" else 1):
+                    await asyncio.to_thread(computer._post_keys, "shift+return")
+                typing.did_break()
+            elif action == "scratch":
+                for _ in range(typing.scratch()):
+                    await asyncio.to_thread(computer._post_keys, "delete")
+            elif action == "enter":
+                await asyncio.to_thread(computer._post_keys, "return")
+                typing.did_break()
+            elif action == "tab":
+                await asyncio.to_thread(computer._post_keys, "tab")
+            else:
+                chunk = typing.chunk(said) if typing.on else said.strip()
+                if chunk:
+                    await asyncio.to_thread(computer._post_text, chunk)
+                    if typing.on:
+                        typing.did_type(chunk)
+        except Exception as exc:  # no Accessibility permission, or no Quartz
+            log.warning("voice typing couldn't type: %s", exc)
+            self.emit(
+                "notice",
+                title="Voice typing",
+                text="Couldn’t type: allow J.A.R.V.I.S. in System Settings › Privacy & Security › Accessibility.",
+            )
+            if typing.on:
+                await self.set_voice_typing(False)
+            return
+        self._voice_typing_at = time.monotonic()
+        self.emit("voice_typed", text=said, action=action or "")
+
     def _arm(self, seconds: float = ARMED_SECONDS, chime: bool = True) -> None:
         self._armed_until = self._armed_window = time.monotonic() + seconds
         self.set_state("listening")
@@ -3712,6 +3784,24 @@ class Hub:
             if self.state == "listening":
                 self.set_state("idle")
             self.emit("dictation", text=text, done=True)
+            return
+        if self.voice_typing.on and (not woke or stop or voicetype.ends(command)):
+            # Voice typing: words are typed where the focus is; "stop typing" (or "Jarvis,
+            # stop") ends it. "Jarvis, <a request>" still goes to JARVIS, below.
+            if (woke and (stop or voicetype.ends(command))) or voicetype.ends(text):
+                await self.set_voice_typing(False)
+            elif await self._voice_allows(risky=True):
+                await self._type_spoken(text)
+            else:
+                log.info("not the owner's voice: not typed")
+            return
+        typing = voicetype.command(command) if woke else None
+        if typing is not None and await self._voice_allows(risky=True):
+            action, words = typing
+            if action == "once":
+                await self._type_spoken(words, once=True)
+            else:
+                await self.set_voice_typing(action == "start")
             return
         if not woke and self.talk_over() and self._overlapped():
             # Said over JARVIS, heard through echo cancellation (Settings › Listening › Talk
@@ -6240,6 +6330,8 @@ class Hub:
             self._spawn(self.listen())
         elif kind == "dictate":
             self._spawn(self.dictate(bool(msg.get("on", True))))
+        elif kind == "voice_typing":
+            await self.set_voice_typing(msg.get("on") is True)
         elif kind == "stop":
             await self.stop()
         elif kind == "approve":
