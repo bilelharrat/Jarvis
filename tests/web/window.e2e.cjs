@@ -1338,6 +1338,64 @@ test('A restore shows what changes, then restores and restarts; the waiting rest
   ]), JSON.stringify(s));
 });
 
+// ── Settings as System Settings (web/features/settings-nav.js, put in as features.js would) ──
+
+const NAV_JS = fs.readFileSync(path.join(WEB, 'features', 'settings-nav.js'), 'utf8');
+const NAV_CSS = fs.readFileSync(path.join(WEB, 'features', 'settings-nav.css'), 'utf8');
+async function withSettingsNav() {
+  await js(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(NAV_CSS)}; document.head.append(s); })(); true`);
+  await js(`try { localStorage.removeItem('jarvis.settings.pane'); } catch (_) {} ${NAV_JS}\n;true`);
+}
+const navGroups = () => js('[...document.querySelectorAll("#settings > section.group")].filter((g) => getComputedStyle(g).display !== "none").map((g) => g.querySelector("h3") ? g.querySelector("h3").textContent : "")');
+
+test('Settings is one window: a sidebar of categories beside one pane, and every section belongs to one', async () => {
+  await withSettingsNav();
+  await js('toggleSettings(true); true');
+  await sleep(300);  // the window's rise
+  let r = await js('({ nav: !$("settings-nav").hidden, scrim: !$("settings-scrim").hidden, title: $("sn-title").textContent, search: $("settings-nav").contains($("settings-search")), selected: document.querySelector(".sn-item[aria-selected=true]").dataset.pane, navRight: $("settings-nav").getBoundingClientRect().right, paneLeft: $("settings").getBoundingClientRect().left })');
+  assert(r.nav && r.scrim && r.title === 'General' && r.search && r.selected === 'general', JSON.stringify(r));
+  assert(Math.abs(r.navRight - r.paneLeft) < 1, `the sidebar and the pane don't meet: ${r.navRight} ${r.paneLeft}`);
+  assert(JSON.stringify(await navGroups()) === JSON.stringify(['Language', 'Look', 'Personality', '']), JSON.stringify(await navGroups()));
+  // Every one of index.html's sections names a pane the sidebar has.
+  const bad = await js('[...document.querySelectorAll("#settings > section.group")].filter((g) => !document.querySelector(`.sn-item[data-pane="${jarvisSettingsNav.paneOf(g)}"]`)).length');
+  assert(bad === 0, `${bad} sections in no pane`);
+  await js('$("sn-calls").click(); true');
+  r = await js('({ title: $("sn-title").textContent, selected: document.querySelector(".sn-item[aria-selected=true]").dataset.pane })');
+  assert(r.title === 'Calls & Messages' && r.selected === 'calls', JSON.stringify(r));
+  assert(JSON.stringify(await navGroups()) === JSON.stringify(['Phone']), JSON.stringify(await navGroups()));
+  // The arrow keys walk the sidebar.
+  await js('$("sn-calls").focus(); true');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+  assert(await js('jarvisSettingsNav.pane()') === 'devices', await js('jarvisSettingsNav.pane()'));
+  // A feature's section lands in its own pane.
+  await js('(() => { const g = document.createElement("section"); g.className = "group"; g.id = "ops-group"; g.innerHTML = "<h3>Health &amp; safety</h3><p>x</p>"; $("settings").append(g); })(); true');
+  await js('jarvisSettingsNav.choose("safety"); true');
+  assert(JSON.stringify(await navGroups()) === JSON.stringify(['Health & safety']), JSON.stringify(await navGroups()));
+  // The scrim closes it, sidebar and all.
+  await js('$("settings-scrim").click(); true');
+  r = await js('({ settings: $("settings").hidden, nav: $("settings-nav").hidden, scrim: $("settings-scrim").hidden })');
+  assert(r.settings && r.nav && r.scrim, JSON.stringify(r));
+});
+
+test('Settings › search finds in every pane, and a control asked for elsewhere opens its own pane', async () => {
+  await withSettingsNav();
+  await js('toggleSettings(true); jarvisSettingsNav.choose("general"); true');
+  await js('$("settings-search").focus(); true');
+  await type('twilio');
+  let r = await js('({ title: $("sn-title").textContent, selected: document.querySelectorAll(".sn-item[aria-selected=true]").length })');
+  assert(r.title === 'Search results' && r.selected === 0, JSON.stringify(r));
+  assert((await navGroups()).includes('Phone'), JSON.stringify(await navGroups()));
+  await js('$("sn-memory").click(); true');
+  r = await js('({ search: $("settings-search").value, title: $("sn-title").textContent })');
+  assert(r.search === '' && r.title === 'Memory & Knowledge', JSON.stringify(r));
+  // The model chip asks for the model menu, in AI & Models.
+  await js('toggleSettings(false); $("model-chip").click(); true');
+  r = await js('({ pane: jarvisSettingsNav.pane(), focused: document.activeElement.id, shown: getComputedStyle($("model-select").closest("section.group")).display })');
+  assert(r.pane === 'ai' && r.focused === 'model-select' && r.shown !== 'none', JSON.stringify(r));
+  await js('toggleSettings(false); true');
+});
+
 // ── First-run intro (web/features/intro.js, put in as features.js would) ──
 
 const INTRO_JS = fs.readFileSync(path.join(WEB, 'features', 'intro.js'), 'utf8');

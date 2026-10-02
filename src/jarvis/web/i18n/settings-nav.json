@@ -1,0 +1,25 @@
+{
+ "strings": {
+  "Settings categories": "设置类别",
+  "Tools & Accounts": "工具与账户",
+  "Google, Slack, GitHub and more": "Google、Slack、GitHub 等",
+  "General": "通用",
+  "Voice & Listening": "声音与聆听",
+  "AI & Models": "AI 与模型",
+  "Notifications": "通知",
+  "Briefing & Travel": "简报与出行",
+  "Memory & Knowledge": "记忆与知识",
+  "Calls & Messages": "通话与消息",
+  "iPhone & Watch": "iPhone 与 Watch",
+  "Automation": "自动化",
+  "Jarvis Code": "Jarvis Code",
+  "Browser": "浏览器",
+  "Markets & Money": "市场与财务",
+  "Privacy & Safety": "隐私与安全",
+  "Search results": "搜索结果",
+  "All settings": "所有设置",
+  "Settings": "设置",
+  "Close settings": "关闭设置"
+ },
+ "patterns": []
+}

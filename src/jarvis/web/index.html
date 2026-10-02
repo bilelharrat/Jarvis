@@ -231,7 +231,7 @@
   </div>
   <p id="settings-no-match" class="empty settings-no-match" hidden role="status">No settings match your search.</p>
 
-  <section class="group" data-keywords="chinese english 中文 translate">
+  <section class="group" data-settings-pane="general" data-keywords="chinese english 中文 translate">
     <h3>Language</h3>
     <div class="segmented" id="lang-group" role="radiogroup" aria-label="Language">
       <button type="button" role="radio" data-lang="en" aria-checked="true" data-no-i18n>English</button>
@@ -240,7 +240,7 @@
     <p class="group-note">Jarvis shows, speaks and listens in the language you pick.</p>
   </section>
 
-  <section class="group" data-keywords="theme appearance dark mode light mode skin style colors weather location">
+  <section class="group" data-settings-pane="general" data-keywords="theme appearance dark mode light mode skin style colors weather location">
     <h3>Look</h3>
     <div class="segmented" id="look-group" role="radiogroup" aria-label="Look">
       <button type="button" role="radio" data-look="orb" aria-checked="true">Ambient Orb</button>
@@ -261,7 +261,7 @@
       <input type="text" id="weather-city" maxlength="80" placeholder="Your city"></label>
   </section>
 
-  <section class="group" data-keywords="speech speak audio sound microphone mic wake word hey jarvis listening gestures">
+  <section class="group" data-settings-pane="voice" data-keywords="speech speak audio sound microphone mic wake word hey jarvis listening gestures">
     <h3>Voice</h3>
     <div class="row"><span><strong>Spoken replies</strong></span><button type="button" class="switch" role="switch" id="sw-voice" aria-checked="true" aria-label="Spoken replies"></button></div>
     <div class="row"><span><strong>AI voice effect</strong><small>A faint doubled, in-the-room sheen</small></span><button type="button" class="switch" role="switch" id="sw-effect" aria-checked="true" aria-label="AI voice effect"></button></div>
@@ -275,7 +275,7 @@
     <ul id="hearing-list" class="folders memory-list"></ul>
   </section>
 
-  <section class="group" data-keywords="ai claude llm gemini model api fallback">
+  <section class="group" data-settings-pane="ai" data-keywords="ai claude llm gemini model api fallback">
     <h3>Brain</h3>
     <label class="row" for="model-select"><span><strong>Model</strong><small>Switch any time, or just say “use Sonnet”</small></span>
       <select id="model-select"></select></label>
@@ -286,7 +286,7 @@
     <button type="button" class="btn" id="fallback-add">Add a Gemini key…</button>
   </section>
 
-  <section class="group" data-keywords="persona humor tone name">
+  <section class="group" data-settings-pane="general" data-keywords="persona humor tone name">
     <h3>Personality</h3>
     <div class="segmented" id="persona-group" role="radiogroup" aria-label="Persona"></div>
     <label class="row stack" for="humor"><span><strong>Humor</strong> <output id="humor-out">60%</output></span>
@@ -297,7 +297,7 @@
       <input type="text" id="owner-name" maxlength="40" placeholder="Your first name"></label>
   </section>
 
-  <section class="group" data-keywords="stocks tickers portfolio finance research invoices">
+  <section class="group" data-settings-pane="money" data-keywords="stocks tickers portfolio finance research invoices">
     <h3>Markets</h3>
     <label class="row stack" for="watchlist"><span><strong>Watchlist</strong><small>Tickers for the Markets panel and “how’s the market?”, separated by spaces or commas</small></span>
       <input type="text" id="watchlist" placeholder="AAPL NVDA MSFT"></label>
@@ -309,7 +309,7 @@
       <textarea id="invoice-payment" rows="2" placeholder="Pay by bank transfer or at pay.example.com"></textarea></label>
   </section>
 
-  <section class="group">
+  <section class="group" data-settings-pane="code">
     <h3>Voice coding</h3>
     <p class="small-status">Say “Jarvis, let’s code in jarvis” and talk to Jarvis Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
     <div class="row"><span><strong>Narrate progress</strong><small>Short notes like “Editing hub dot py” while it works</small></span><button type="button" class="switch" role="switch" id="sw-code-narrate" aria-checked="true" aria-label="Narrate progress"></button></div>
@@ -317,19 +317,19 @@
       <select id="code-sentences"><option value="2">Short (2)</option><option value="3">Normal (3)</option><option value="5">Long (5)</option><option value="8">Everything (8)</option></select></label>
   </section>
 
-  <section class="group" data-keywords="automation schedule">
+  <section class="group" data-settings-pane="automation" data-keywords="automation schedule">
     <h3>Routines</h3>
     <p class="small-status">Things I do on my own schedule. Say “Jarvis, every weekday at 7, brief me” or “tonight at 1, research…”.</p>
     <ul id="routine-list" class="folders routine-list"></ul>
   </section>
 
-  <section class="group" data-keywords="homekit lights smart home shortcuts">
+  <section class="group" data-settings-pane="automation" data-keywords="homekit lights smart home shortcuts">
     <h3>Home &amp; Shortcuts</h3>
     <p class="small-status">Your Shortcuts reach HomeKit: lights, locks, scenes. Instant ones run the moment you say their name (“Jarvis, movie mode”), without asking.</p>
     <ul id="shortcut-list" class="folders shortcut-list"><li class="muted">Loading your shortcuts…</li></ul>
   </section>
 
-  <section class="group" data-keywords="phone companion mobile ios pair apple watch">
+  <section class="group" data-settings-pane="devices" data-keywords="phone companion mobile ios pair apple watch">
     <h3>iPhone &amp; Watch</h3>
     <div class="row"><span><strong>Let my phone connect</strong><small>Opens a companion page on your home network (port 8765). Only phones you pair can use it. On shared Wi-Fi or away from home, use Tailscale.</small></span><button type="button" class="switch" role="switch" id="sw-remote" aria-checked="false" aria-label="Let my phone connect"></button></div>
     <div id="remote-on" class="remote-on" hidden>
@@ -345,7 +345,7 @@
     <p id="remote-error" class="small-status" hidden></p>
   </section>
 
-  <section class="group">
+  <section class="group" data-settings-pane="memory">
     <h3>Memory</h3>
     <p class="small-status">What you've asked me to remember. Say “Jarvis, remember…” or add it here.</p>
     <ul id="memory-list" class="folders memory-list"></ul>
@@ -356,7 +356,7 @@
     </form>
   </section>
 
-  <section class="group">
+  <section class="group" data-settings-pane="memory">
     <h3>Documents</h3>
     <p class="small-status">Memos, letters and reports Jarvis writes for you. Say “Jarvis, draft a cover letter in Word.”</p>
     <label class="row stack" for="documents-folder"><span><strong>Save documents in</strong><small>A folder in your home folder. Empty: Documents › JARVIS. Nothing is ever written over.</small></span>
@@ -364,7 +364,7 @@
     <ul id="document-list" class="folders memory-list"></ul>
   </section>
 
-  <section class="group">
+  <section class="group" data-settings-pane="memory">
     <h3>Goals</h3>
     <p class="small-status">What you’re working toward, and the rules you keep. Jarvis plans around them and points out conflicts. Say “Jarvis, my goal this quarter is…” or add them here.</p>
     <p id="goals-unreadable" class="small-status warn-line" hidden>Your goals file can’t be read right now; nothing will be saved over it.</p>
@@ -389,16 +389,16 @@
     <div class="row"><span><strong>Weekly check-in</strong><small>Sundays at 6 PM, a short look at how the goals are going</small></span><button type="button" class="switch" role="switch" id="sw-goal-review" aria-checked="false" aria-label="Weekly goals check-in"></button></div>
   </section>
 
-  <section class="group">
+  <section class="group" data-settings-pane="notifications">
     <h3>Conversations for you</h3>
     <p class="small-status">Jarvis can text or email someone for you to settle something, like a time to meet, within limits you give it. Every message asks you first unless you said it could go ahead. Say “Jarvis, work out a time with Ann for next week.”</p>
     <ul id="delegation-list" class="itemlist"></ul>
   </section>
 
-  <section class="group" data-keywords="notifications alerts interruptions do not disturb queue">
+  <section class="group" data-settings-pane="notifications" data-keywords="notifications alerts interruptions do not disturb queue">
     <h3>Speaking up</h3>
     <div class="row"><span><strong>Queue messages</strong><small>While Jarvis is answering, what you say or type waits its turn (you can take it back). Off: a new request interrupts the answer.</small></span><button type="button" class="switch" role="switch" id="sw-queue" aria-checked="true" aria-label="Queue messages"></button></div>
-    <div class="row"><span><strong>Queue Jarvis Code follow-ups</strong><small>Messages to a working session wait until its current step ends. Off: they steer it right away, as Claude Code does.</small></span><button type="button" class="switch" role="switch" id="sw-code-queue" aria-checked="true" aria-label="Queue Jarvis Code follow-ups"></button></div>
+    <div class="row"><span><strong>Queue Jarvis Code follow-ups</strong><small>Messages to a working session wait until its current step ends. Off: they steer it right away.</small></span><button type="button" class="switch" role="switch" id="sw-code-queue" aria-checked="true" aria-label="Queue Jarvis Code follow-ups"></button></div>
     <div class="row"><span><strong>Screen awareness</strong><small>Jarvis keeps an eye on your screen so “what’s this error?” just works: a picture every 15 seconds, kept in memory for two minutes, never saved, only sent with your own questions. Needs Screen Recording.</small></span><button type="button" class="switch" role="switch" id="sw-screen" aria-checked="false" aria-label="Screen awareness"></button></div>
     <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Jarvis Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
     <div class="row"><span><strong>Interrupt me for texts and email</strong><small>Urgent only: a VIP, or someone saying it’s urgent. Needs Full Disk Access. “Jarvis, what did I miss?” lists the rest.</small></span></div>
@@ -416,7 +416,7 @@
     <div class="row"><span><strong>Quiet hours</strong><small>Cards only, no voice</small></span><span class="time-range"><input type="time" id="quiet-start" aria-label="Quiet hours start" value="22:00"><input type="time" id="quiet-end" aria-label="Quiet hours end" value="07:00"></span></div>
   </section>
 
-  <section class="group" data-keywords="payments money spending limits shopping buy">
+  <section class="group" data-settings-pane="money" data-keywords="payments money spending limits shopping buy">
     <h3>Purchases</h3>
     <div class="row"><span><strong>Buy, book and pay for me</strong><small>In the built-in browser, with one confirmation: say “confirm purchase” or tap Confirm. Saved payment methods only; I never type card numbers or passwords.</small></span><button type="button" class="switch" role="switch" id="sw-pay" aria-checked="true" aria-label="Buy, book and pay for me"></button></div>
     <div class="row"><span><strong>Enter one-time codes for me</strong><small>When a site sends a verification code to your email, Jarvis reads it from Mail and types it in. Card numbers, passwords and bank sign-ins stay yours.</small></span><button type="button" class="switch" role="switch" id="sw-type-codes" aria-checked="true" aria-label="Enter one-time codes for me"></button></div>
@@ -431,14 +431,14 @@
     <p id="pay-status" class="small-status"></p>
   </section>
 
-  <section class="group" data-keywords="brief morning news schedule">
+  <section class="group" data-settings-pane="briefing" data-keywords="brief morning news schedule">
     <h3>Morning briefing</h3>
     <div class="row"><span><strong>Brief me each morning</strong><small>When Jarvis is running at that time</small></span><button type="button" class="switch" role="switch" id="sw-briefing" aria-checked="true" aria-label="Morning briefing"></button></div>
     <label class="row" for="briefing-time"><span><strong>Time</strong></span><input type="time" id="briefing-time" value="08:00"></label>
     <button type="button" class="btn" id="brief-now">Brief me now</button>
   </section>
 
-  <section class="group" data-keywords="twilio calls calling caller">
+  <section class="group" data-settings-pane="calls" data-keywords="twilio calls calling caller">
     <h3>Phone</h3>
     <p class="small-status">Jarvis calls you, and people you ask it to call, through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can only call numbers verified in Twilio). Your Account SID and Auth Token go into the Mac’s Keychain.</p>
     <label class="row stack" for="phone-sid"><span><strong>Twilio Account SID</strong><small id="phone-signed">Not set up yet</small></span>
@@ -470,7 +470,7 @@
     <ul id="line-calls" class="folders routine-list line-calls"></ul>
   </section>
 
-  <section class="group" data-keywords="index search notes files photos email messages folders">
+  <section class="group" data-settings-pane="memory" data-keywords="index search notes files photos email messages folders">
     <h3>Second brain</h3>
     <div class="row"><span><strong>Apple Notes</strong></span><button type="button" class="switch" role="switch" id="sw-notes" aria-checked="true" aria-label="Apple Notes"></button></div>
     <div class="row"><span><strong>BSH research desk</strong></span><button type="button" class="switch" role="switch" id="sw-bsh" aria-checked="true" aria-label="BSH research desk"></button></div>
@@ -494,7 +494,7 @@
     <p id="brain-status" class="small-status"></p>
   </section>
 
-  <section class="group">
+  <section class="group" data-settings-pane="general">
     <button type="button" class="btn" id="open-accounts">Tools &amp; Accounts…</button>
     <button type="button" class="btn" id="reset-btn">New conversation</button>
   </section>

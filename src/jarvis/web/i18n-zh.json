@@ -447,7 +447,7 @@
   "Memory": "记忆",
   "Message Jarvis": "给 Jarvis 发消息",
   "Message Jarvis Code": "给 Jarvis Code 发消息",
-  "Messages to a working session wait until its current step ends. Off: they steer it right away, as Claude Code does.": "发给正在工作的会话的消息，会等当前步骤结束后再送达。关闭时，消息会立即送达并引导当前步骤，和 Claude Code 一样。",
+  "Messages to a working session wait until its current step ends. Off: they steer it right away.": "发给正在工作的会话的消息，会等当前步骤结束后再送达。关闭时，消息会立即送达并引导当前步骤。",
   "Microphone": "麦克风",
   "Model": "模型",
   "Models, datasets and Spaces.": "模型、数据集和 Spaces。",

@@ -1,0 +1,134 @@
+/* Settings as one window, after macOS System Settings (features/settings-nav.js): the
+   sidebar (#settings-nav) and the pane (#settings) sit side by side, centred, over a dim
+   scrim. Both keep the .sheet material (its --s-* colours, the Glass look's frost). */
+:root {
+  --sn-w: min(1040px, calc(100vw - 48px));
+  --sn-side: 264px;
+  --sn-top: max(24px, 5vh);
+  --sn-radius: 18px;
+}
+
+.settings-scrim {
+  position: fixed; inset: 0; z-index: 34;
+  background: rgba(0, 0, 0, 0.28);
+  animation: sn-fade 180ms ease-out;
+}
+.settings-scrim[hidden] { display: none; }
+
+#settings.with-nav {
+  top: var(--sn-top); bottom: var(--sn-top); right: auto;
+  left: calc(50% - var(--sn-w) / 2 + var(--sn-side));
+  width: calc(var(--sn-w) - var(--sn-side));
+  border-left: 0.5px solid var(--s-line);
+  border-radius: 0 var(--sn-radius) var(--sn-radius) 0;
+  padding: 0 32px 40px;
+  animation: sn-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  scroll-padding-top: 76px;
+}
+#settings-nav {
+  position: fixed; z-index: 35;
+  top: var(--sn-top); bottom: var(--sn-top);
+  left: calc(50% - var(--sn-w) / 2); width: var(--sn-side);
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 18px 12px 16px; overflow-y: auto; overscroll-behavior: contain;
+  border-radius: var(--sn-radius) 0 0 var(--sn-radius);
+  border-left: 0; right: auto;
+  animation: sn-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: var(--s-shadow, 0 30px 80px -20px rgba(0, 0, 0, 0.5));
+}
+/* the sidebar a shade apart from the pane, as in System Settings */
+#settings-nav::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  border-radius: inherit; background: var(--s-card);
+}
+#settings-nav[hidden] { display: none; }
+body[data-look="orb"] #settings-nav { padding: 18px 12px 16px; border-left: 0; }
+
+/* the pane's head: its title large, the close button, sticky as the pane scrolls */
+#settings.with-nav > .drawer-head {
+  position: sticky; top: 0; z-index: 2;
+  margin: 0 -32px 8px; padding: 22px 32px 14px;
+  background: linear-gradient(var(--s-fill, var(--card)) 70%, transparent);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+#settings.with-nav > .drawer-head > h2:not(.sn-title) { display: none; }
+#settings.with-nav .sn-title { flex: 1; margin: 0; font-size: 26px; font-weight: 680; letter-spacing: -0.022em; }
+.sn-back, .sn-head { display: none; }
+.sn-head { align-items: center; justify-content: space-between; padding: 2px 4px 6px; }
+.sn-head h2 { margin: 0; font-size: 26px; font-weight: 680; letter-spacing: -0.022em; }
+.sn-close { width: 32px; height: 32px; border-radius: 50%; background: var(--s-card); border: 0.5px solid var(--s-line); color: var(--ink-2); }
+.sn-back svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* sections a pane doesn't hold */
+#settings.with-nav > section.group.sn-out { display: none; }
+#settings.with-nav > section.group { margin-bottom: 20px; }
+
+/* ── the sidebar's parts ── */
+#settings-nav .settings-search { margin: 0 2px 4px; }
+.sn-account {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 10px 10px; border: 0; border-radius: 12px; text-align: left;
+  background: var(--s-tile); box-shadow: var(--s-rim), 0 0 0 0.5px var(--s-line);
+  color: var(--ink); font: inherit; cursor: pointer;
+}
+.sn-account:hover { background: var(--s-tile-hover); }
+.sn-account .sn-tile { width: 34px; height: 34px; border-radius: 50%; }
+.sn-account .sn-tile svg { width: 20px; height: 20px; }
+.sn-account-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.sn-account-text strong { font-size: 13.5px; font-weight: 600; }
+.sn-account-text small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sn-chev { color: var(--muted); font-size: 18px; line-height: 1; }
+
+.sn-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.sn-gap { height: 10px; }
+.sn-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 5px 8px; border: 0; border-radius: 8px; background: none;
+  color: var(--ink); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.sn-item:hover { background: var(--s-track); }
+.sn-item[aria-selected="true"] { background: #0a6cf0; color: #fff; }
+.sn-item:focus-visible { outline: 2px solid var(--action, #0a84ff); outline-offset: 1px; }
+.sn-item[aria-selected="true"]:focus-visible { outline-color: var(--ink); }
+.sn-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Apple's settings icons: a white glyph on a coloured rounded square */
+.sn-tile {
+  flex: none; display: grid; place-items: center;
+  width: 24px; height: 24px; border-radius: 6.5px; color: #fff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 60%), var(--sn-tone, #8e8e93);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+.sn-tile svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.sn-tile[data-tone="gray"] { --sn-tone: #8e8e93; }
+.sn-tile[data-tone="graphite"] { --sn-tone: #5b5b62; }
+.sn-tile[data-tone="purple"] { --sn-tone: #af52de; }
+.sn-tile[data-tone="indigo"] { --sn-tone: #5e5ce6; }
+.sn-tile[data-tone="red"] { --sn-tone: #ff3b30; }
+.sn-tile[data-tone="orange"] { --sn-tone: #ff9500; }
+.sn-tile[data-tone="pink"] { --sn-tone: #ff2d55; }
+.sn-tile[data-tone="green"] { --sn-tone: #30b54a; }
+.sn-tile[data-tone="blue"] { --sn-tone: #0a7aff; }
+.sn-tile[data-tone="teal"] { --sn-tone: #22a6bf; }
+.sn-tile[data-tone="yellow"] { --sn-tone: #f5b800; }
+
+@keyframes sn-rise { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes sn-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  #settings.with-nav, #settings-nav, .settings-scrim { animation: none; }
+}
+
+/* ── narrow: the sidebar is the list, a pane is pushed over it with a back button ── */
+@media (max-width: 759px) {
+  :root { --sn-top: 0px; --sn-radius: 0px; }
+  #settings-nav, #settings.with-nav { left: 0; width: 100vw; border-radius: 0; }
+  #settings.with-nav { padding: 0 16px 32px; }
+  #settings.with-nav > .drawer-head { margin: 0 -16px 8px; padding: 16px 16px 12px; gap: 8px; }
+  body[data-settings-view="list"] #settings.with-nav { display: none; }
+  body[data-settings-view="pane"] #settings-nav { display: none; }
+  .sn-back { display: inline-grid; place-items: center; }
+  .sn-head { display: flex; }
+  .sn-item[aria-selected="true"] { background: none; color: var(--ink); }
+  .sn-item::after { content: '›'; color: var(--muted); font-size: 18px; }
+  .sn-item { padding: 9px 10px; font-size: 15px; }
+}
