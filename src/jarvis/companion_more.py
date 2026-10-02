@@ -43,9 +43,11 @@ FEATURES = (
     "research",
     "invoices",
     "prefs",
+    "account",  # /api/account and the one-tap link (docs/accounts.md)
 )
 # The hub's piece each group needs ("" for one every Mac has).
 NEEDS = {
+    "account": "account",
     "memory": "memory",
     "goals": "goal_store",
     "timers": "automation_feature",

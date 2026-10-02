@@ -1,0 +1,28 @@
+/* The Jarvis account in Settings › iPhone & Watch (features/account.js). */
+.account-perks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.account-perks li { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font-size: 13.5px; line-height: 1.35; }
+.account-perks strong { font-weight: 600; }
+.account-perks small { color: var(--muted); font-size: 12.5px; }
+.account-start { align-self: flex-start; }
+.account-link { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); text-align: center; }
+/* Dark on white whatever the theme: a camera reads the code by its contrast. */
+.account-link svg { flex: none; width: 184px; height: 184px; border-radius: 10px; background: #fff; }
+.account-link-text { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; max-width: 360px; font-size: 13.5px; line-height: 1.4; }
+.account-link-text small { color: var(--muted); font-size: 12.5px; }
+.account-link-text .need { color: var(--warn); }
+.account-code { font: 600 28px/1.1 var(--mono); letter-spacing: 2px; white-space: nowrap; color: var(--ink); user-select: all; }
+.account-mono { font-family: var(--mono); }
+.account-plan { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.account-plan-name { font-size: 15px; font-weight: 600; }
+.account-plan-lines { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; color: var(--muted); font-size: 12.5px; }
+.account-group small.need { color: var(--warn); }
+.account-devices-box > *:not(summary) { margin-top: 10px; }
+.account-confirm { display: flex; flex-direction: column; gap: 8px; }
+.account-unlink { align-self: flex-start; margin-top: 8px; }
+@media (max-width: 560px) {
+  .account-plan-lines { align-items: flex-start; }
+}
+/* Boxed rows keep their own padding (Settings pads each of a group's rows). */
+.account-group > .account-plan { padding: 10px 12px; margin: 6px 0; }
+.account-group > .account-link { padding: 16px; margin: 6px 0; }
+.account-group > .account-perks { padding: 12px 0; }

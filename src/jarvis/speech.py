@@ -181,6 +181,9 @@ class CloudVoice:
     voice_id: str
     model: str = ""
     speed: float = 1.0  # Settings › Speaking › Speed (1.0 sends nothing: the voice's own)
+    # hosted: the owner's Jarvis account token ("" when the Mac isn't linked), so the voice
+    # counts against the account's allowance rather than the install's.
+    bearer: Callable[[], str] | None = None
 
     _client: Any = None
 
@@ -219,11 +222,16 @@ class CloudVoice:
         body: dict[str, Any] = {"text": text, "format": fmt}
         if abs(self.speed - 1.0) >= 0.01:
             body["speed"] = round(min(2.0, max(0.5, self.speed)), 2)
-        return {
-            "url": HOSTED_VOICE_URL,
-            "headers": {"X-Jarvis-Install": self.api_key},
-            "json": body,
-        }
+        headers = {"X-Jarvis-Install": self.api_key}
+        token = ""
+        if self.bearer is not None:
+            try:
+                token = self.bearer() or ""
+            except Exception:
+                token = ""
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return {"url": HOSTED_VOICE_URL, "headers": headers, "json": body}
 
     async def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         client = self._http()

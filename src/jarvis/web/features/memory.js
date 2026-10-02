@@ -21,6 +21,7 @@
     proposed: 'Suggested after a conversation, and you said yes',
     dream: 'From the Dream diary, and you said yes',
     import: 'Imported',
+    synced: 'Synced from your iPhone',
     before: 'From before Jarvis kept track',
   };
   // Where the owner's own words are the origin (shown as a quote); an import names its file.
@@ -28,7 +29,7 @@
   const FORGET_SOURCES = [
     ['conversations', 'Conversations'], ['settings', 'Settings'], ['suggestions', 'Suggestions you approved'],
     ['dream diary', 'The Dream diary'], ['chatgpt', 'The ChatGPT import'], ['jarvis code', 'The Jarvis Code import'],
-    ['pasted', 'A pasted list'], ['before', 'From before Jarvis kept track'],
+    ['pasted', 'A pasted list'], ['synced', 'Synced from your iPhone'], ['before', 'From before Jarvis kept track'],
   ];
   const TABS = [['facts', 'Facts'], ['suggested', 'Suggested'], ['about', 'About you'], ['intents', 'When… then…'], ['people', 'People'], ['promises', 'Promises'], ['journal', 'Journal'], ['import', 'Import']];
   const WATCH = [['mail', 'Email'], ['message', 'Texts'], ['alert', 'Heads-ups'], ['request', 'What I say']];

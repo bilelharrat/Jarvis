@@ -261,7 +261,7 @@ class PhoneSensors:
 
         companion = self.companion
         try:
-            creds = await companion.keys.get()
+            creds = await companion.sender.route()  # the owner's key, or their account
         except Exception:
             creds = None
         if creds is None:

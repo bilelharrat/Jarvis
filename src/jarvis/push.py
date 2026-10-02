@@ -15,6 +15,10 @@ where other processes could see it. Neither the key nor a token is ever logged.
 What Apple answers decides what happens next: 410 (the app was removed) and a bad or
 misdirected device token drop that device's token; a refused key (403) is shown in
 Settings; an expired token is made again and the push sent once more.
+
+Without a key of the owner's own, a Mac linked to a Jarvis account (account.py) pushes
+through askeden.com instead (POST /push, its Apple key): the same pushes, to the official
+app only, and Apple's answer comes back as askeden.com relayed it, into the same Result.
 """
 
 from __future__ import annotations
@@ -127,6 +131,18 @@ def check(key: Any, key_id: Any, team_id: Any, bundle_id: Any) -> Credentials:
     if len(bundle_id) > 155 or not _BUNDLE.fullmatch(bundle_id):
         raise KeyProblem("The bundle ID looks like com.bshventures.jarvis.companion.")
     return Credentials(pem + "\n", key_id, team_id, bundle_id)
+
+
+@dataclass(frozen=True)
+class AccountRoute:
+    """Pushes through the owner's Jarvis account (askeden.com's Apple key): only the
+    official app's own pushes (askeden.com picks the topic, so a token another bundle
+    registered can't be reached this way)."""
+
+    bundle_id: str = BUNDLE_DEFAULT
+
+    def allows(self, bundle_id: str) -> bool:
+        return bundle_id == self.bundle_id
 
 
 class Keys:
@@ -318,14 +334,47 @@ def parse(code: int, out: bytes) -> Result:
 
 class Sender:
     """Sends pushes with the owner's key: a few at a time, each with the token of the
-    hour. run: how curl is run (tests pass a fake: no network, ever)."""
+    hour; without one, through their Jarvis account when this Mac is linked. run: how curl
+    is run (tests pass a fake: no network, ever). account: gives the account client
+    (account.Account) or None."""
 
-    def __init__(self, keys: Keys, run: Run | None = None, clock=time.time) -> None:
+    def __init__(
+        self,
+        keys: Keys,
+        run: Run | None = None,
+        clock=time.time,
+        account: Callable[[], Any] | None = None,
+    ) -> None:
         self.keys = keys
         self.run = run or run_curl
         self.clock = clock
+        self.account = account or (lambda: None)
         self._token: tuple[tuple[str, str, str], str, float] | None = None
         self._gate = asyncio.Semaphore(AT_ONCE)
+
+    def _linked(self) -> Any:
+        try:
+            account = self.account()
+        except Exception:
+            return None
+        return account if account is not None and getattr(account, "linked", False) else None
+
+    async def route(self) -> Credentials | AccountRoute | None:
+        """How a push would go now: the owner's own key, their Jarvis account, or not at
+        all (None). Each says which apps' tokens it reaches (allows)."""
+        creds = await self.keys.get()
+        if creds is not None:
+            return creds
+        account = self._linked()
+        if account is not None:
+            await account.load()
+            if account.linked:
+                return AccountRoute()
+        return None
+
+    def through_account(self) -> bool:
+        """Settings: no key of the owner's own (as last read), and linked."""
+        return self.keys.status()["configured"] is False and self._linked() is not None
 
     def token(self, creds: Credentials, fresh: bool = False) -> str:
         who = (creds.key_id, creds.team_id, creds.key)
@@ -340,13 +389,22 @@ class Sender:
         return self._token[1]
 
     async def send(self, push: Push) -> Result:
-        creds = await self.keys.get()
-        if creds is None:
+        route = await self.route()
+        if route is None:
             return Result(0, "no key")
         if not _TOKEN.fullmatch(push.device_token) or push.environment not in HOSTS:
             return Result(0, "BadDeviceToken")
         if len(body_bytes(push.payload)) > MAX_PAYLOAD:
             return Result(0, "PayloadTooLarge")
+        if isinstance(route, AccountRoute):
+            async with self._gate:
+                result = await self._relayed(push)
+            if not (result.ok or result.gone):
+                log.info(
+                    "push: not delivered through the account (%s %s)", result.status, result.reason
+                )
+            return result
+        creds = route
         async with self._gate:
             result = await self._once(push, self.token(creds))
             if result.status == 403 and result.reason == "ExpiredProviderToken":
@@ -359,6 +417,27 @@ class Sender:
         elif not result.gone:
             log.info("push: not delivered (%s %s)", result.status, result.reason)
         return result
+
+    async def _relayed(self, push: Push) -> Result:
+        """One push through askeden.com: Apple's status and reason as it relayed them
+        (status 0 when it never got to Apple: offline, signed out, over the account's
+        limit)."""
+        account = self._linked()
+        if account is None:
+            return Result(0, "no key")
+        body: dict[str, Any] = {
+            "apns_token": push.device_token,
+            "apns_env": push.environment,
+            "push_type": push.push_type,
+            "priority": push.priority,
+            "payload": push.payload,
+        }
+        if push.collapse_id:
+            body["collapse_id"] = push.collapse_id
+        if push.expiration:
+            body["expiration"] = push.expiration
+        status, reason = await account.push(body)
+        return Result(status, reason)
 
     async def _once(self, push: Push, token: str) -> Result:
         try:

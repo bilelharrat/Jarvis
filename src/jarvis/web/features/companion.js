@@ -235,7 +235,7 @@
     }
     const test = el('button', 'btn', 'Send a test push');
     test.type = 'button';
-    test.hidden = !(status && status.push && status.push.configured);  // no key: nothing to send with
+    test.hidden = !(status && status.push && (status.push.configured || status.push.via === 'account'));  // nothing to send with
     test.addEventListener('click', () => send({ type: 'companion_push_test', id: d.id }));
     box.append(test);
     return box;
@@ -282,9 +282,13 @@
     const info = (status && status.push) || {};
     const configured = !!info.configured;
     keyForm.hidden = configured && !replacing;
-    pushActions.hidden = !configured;
     keyCancel.hidden = !configured;
-    if (!configured) {
+    pushActions.hidden = !configured && info.via !== 'account';
+    replaceKey.hidden = removeKey.hidden = !configured;
+    if (!configured && info.via === 'account') {
+      // No key of the owner's own: the Jarvis account's (jarvis.features.account) is used.
+      pushStatus.replaceChildren(el('span', '', 'Through your Jarvis account. A push key of your own here would be used instead.'));
+    } else if (!configured) {
       pushStatus.replaceChildren(el('span', '', 'Not set up yet. With Apple’s push key, approvals and heads-ups reach your phone even when its app is closed.'));
     } else if (info.error) {
       const reason = el('code', 'companion-mono', info.error);

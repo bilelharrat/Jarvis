@@ -648,7 +648,8 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
         for name, fixture in mac.fixtures.items():
             text = json.dumps(fixture, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
             (FIXTURES / f"{name}.json").write_text(text)
-    kept = {p.stem for p in FIXTURES.glob("*.json")}
+    # link-seal-vector is the account link's crypto vector (tests/test_account.py), not an answer
+    kept = {p.stem for p in FIXTURES.glob("*.json")} - {"link-seal-vector"}
     assert kept == set(mac.fixtures), (
         "fixtures missing or left over: write them again (see this file's docstring)",
         sorted(kept ^ set(mac.fixtures)),

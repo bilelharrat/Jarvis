@@ -403,7 +403,7 @@ class Notifier:
         """Push this to every phone that wants it (test: to each registered phone, or
         only this one, whatever it wants and wherever the owner is). What happened, by
         device id: "sent", or why not."""
-        creds = await self.sender.keys.get()
+        creds = await self.sender.route()  # the owner's key, or their Jarvis account
         if creds is None:
             return {}
         if not test and not await self.owner_is_away():

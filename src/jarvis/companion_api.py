@@ -1059,6 +1059,44 @@ class Api:
         self.companion.record(device, "brain_keys", ", ".join(sorted(keys)) or "none saved")
         return JSONResponse({"keys": keys})
 
+    # ── the owner's Jarvis account (account.py) ──
+
+    async def account(self, request: Request) -> Response:
+        """Whether this Mac is linked to a Jarvis account, and which account and device it
+        is there (ids only, never the token)."""
+        _device, refused = self._read(request)
+        if refused is not None:
+            return refused
+        account = getattr(self.hub, "account", None)
+        if account is not None:
+            await account.load()
+        linked = account is not None and account.linked
+        return JSONResponse(
+            {
+                "linked": linked,
+                "account_id": account.account_id if linked else None,
+                "device_id": account.device_id if linked else None,
+            }
+        )
+
+    async def account_link(self, request: Request) -> Response:
+        """The phone's one tap: the Mac starts a link and answers its code, which the phone
+        (signed in to the account) approves straight away; the Mac's own poll finishes it."""
+        device, _data, refused = await self._post(request, "act")
+        if refused is not None:
+            return refused
+        account = getattr(self.hub, "account", None)
+        if account is None:
+            return _bad("This Mac doesn't have that.", 404)
+        from .account import AccountError
+
+        try:
+            link = await account.link_start()
+        except AccountError as exc:
+            return _bad(exc.message, 503 if exc.status in (0, 503) or exc.status >= 500 else 502)
+        self.companion.record(device, "account_link")
+        return JSONResponse({"code": link.code})
+
     # ── sharing to the Mac ──
 
     async def share(self, request: Request) -> Response:
@@ -1245,6 +1283,8 @@ def routes(companion: Any, gate: Any) -> list[Route]:
             Route("/api/routines/delete", api.routine_delete, methods=["POST"]),
             Route("/api/location", api.location, methods=["POST"]),
             Route("/api/brain/keys", api.brain_keys, methods=["POST"]),
+            Route("/api/account", api.account),
+            Route("/api/account/link", api.account_link, methods=["POST"]),
             Route("/api/share", api.share, methods=["POST"]),
             Route("/api/health", api.health, methods=["POST"]),
             Route("/api/photo", api.photo, methods=["POST"]),

@@ -13,7 +13,7 @@ Memory 2.0: every fact has
 - an optional last day it holds ("I'm in Tokyo until Friday"): after it the fact goes;
 - its provenance: when it was learned (learned), how (source: said in a conversation, added
   in Settings, noticed after a conversation, a suggestion or a dream the owner approved, an
-  import) and a short excerpt of the owner's words, the file it came from, or the tool
+  import, synced from the owner's iPhone through their Jarvis account) and a short excerpt of the owner's words, the file it came from, or the tool
   (origin). Facts kept before memory 2.0 say so ("before"), with the date they had.
 
 A fact is edited in place (its provenance stays; `at` says when it last changed), and the
@@ -64,7 +64,7 @@ CATEGORY_TITLES = {
 }
 CONFIDENCES = ("high", "medium", "low")
 # How a fact was learned. "before": kept before memory 2.0, where it came from unknown.
-SOURCES = ("said", "settings", "noticed", "proposed", "dream", "import", "before")
+SOURCES = ("said", "settings", "noticed", "proposed", "dream", "import", "synced", "before")
 # The words the owner (or Claude, for them) may use for a source when forgetting by source.
 SOURCE_WORDS: dict[str, tuple[str, ...]] = {
     "conversation": ("said", "noticed", "proposed"),
@@ -86,6 +86,9 @@ SOURCE_WORDS: dict[str, tuple[str, ...]] = {
     "claude code": ("import",),
     "jarvis code": ("import",),
     "pasted": ("import",),
+    "synced": ("synced",),
+    "iphone": ("synced",),
+    "phone": ("synced",),
     "before": ("before",),
     "old": ("before",),
     "legacy": ("before",),
@@ -641,6 +644,60 @@ class MemoryStore:
         if saved:
             self._saved(before)
         return saved, left
+
+    def apply_synced(
+        self, changes: Iterable[dict[str, Any]], gone: Iterable[str]
+    ) -> tuple[list[str], list[str]]:
+        """What the owner's other devices changed (account_sync), in one save: each change
+        ({id, text, category, at}) puts that fact in place, and the ids in gone are removed.
+        A fact of the Mac's own keeps its provenance (source, origin, when learned, how
+        sure, its last day); a new one is "synced". Words the Mac never keeps (a password, a
+        code) are left out, and nothing old is let go to make room: a new fact that doesn't
+        fit waits. Returns (the ids put in place, the ids removed); ValueError when it
+        can't be saved (nothing changes)."""
+        before = [replace(f) for f in self.facts]
+        by_id = {f.id: f for f in self.facts}
+        placed: list[str] = []
+        for change in changes:
+            ident = str(change.get("id") or "")[:40]
+            text = _tidy(change.get("text", ""))
+            if not ident or not text or _SECRET.search(text):
+                continue
+            at = str(change.get("at") or "")[:40] or _now()
+            fact = by_id.get(ident)
+            if fact is not None:
+                if fact.agent:
+                    continue  # an agent's own fact isn't synced
+                fact.text, fact.at = text, at
+                fact.category = clean_category(change.get("category")) or fact.category
+                fact.learned = fact.learned or at
+            else:
+                if not self.room():
+                    continue
+                fact = Fact(
+                    ident,
+                    text,
+                    at,
+                    category=clean_category(change.get("category")) or guess_category(text),
+                    source="synced",
+                    origin=tidy_origin(change.get("origin") or ""),
+                    learned=at,
+                )
+                self.facts.append(fact)
+                by_id[ident] = fact
+            placed.append(ident)
+        drop = {str(i) for i in gone} & {f.id for f in self.facts if not f.agent}
+        if drop:
+            self.facts = [f for f in self.facts if f.id not in drop]
+        if placed or drop:
+            try:
+                self.save(keep_copy=not drop)
+            except OSError as exc:
+                self.facts = before
+                raise ValueError(
+                    f"I couldn't save that just now ({exc.strerror or exc}), so nothing changed."
+                ) from None
+        return placed, sorted(drop)
 
     def find(self, key: str, anyone: bool = False) -> list[Fact]:
         """By id, or the facts containing all the given words (common words don't count):

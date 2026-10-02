@@ -56,6 +56,7 @@ ACTIONS = {
     "contacts_answered": "Looked someone up in the iPhone's contacts",
     "calendar_synced": "Sent the iPhone's calendar",
     "brain_keys": "Copied the Mac's API keys to the iPhone",
+    "account_link": "Linked this Mac to the Jarvis account",
     "arrive_home": "Arrived home",
     "leave_home": "Left home",
     "arrive_work": "Arrived at work",
@@ -397,7 +398,9 @@ class Companion:
         self.audit = AuditLog(hub.feature_path("companion-audit.json"))
         self.store = CompanionStore(hub.feature_path("companion.json"))
         self.keys = push.Keys(hub.connectors.vault)
-        self.sender = push.Sender(self.keys, run=run)
+        # Without a push key of the owner's own, a linked Mac pushes through its Jarvis
+        # account (features.account sets hub.account; looked up at each push).
+        self.sender = push.Sender(self.keys, run=run, account=lambda: getattr(hub, "account", None))
         self.notifier = Notifier(self, self.sender, away=away or owner_away)
         from .companion_live import Live
 
@@ -580,7 +583,13 @@ class Companion:
             (t for t in self.hub.tasks.tasks.values() if t.kind == "code"), key=lambda t: -t.id
         )[:SESSIONS_SHOWN]
         record = self.store.known(device.id)
+        extra: dict[str, Any] = {}
+        account = getattr(self.hub, "account", None)
+        if account is not None and account.linked:
+            # which device of the owner's Jarvis account this Mac is (the phone's relay)
+            extra["account"] = {"device_id": account.device_id}
         return {
+            **extra,
             "approvals": approvals,
             "pending_approvals": len(approvals),
             "code_sessions": [
@@ -594,7 +603,7 @@ class Companion:
             ],
             "delegations_active": sum(1 for d in self.hub.delegations.items if d.is_open),
             "push": {
-                "enabled": await self.keys.get() is not None,
+                "enabled": await self.sender.route() is not None,
                 "registered": bool(record and record["push"]),
             },
             "features": features(self.hub),  # the /api/... groups this Mac answers
@@ -658,7 +667,11 @@ class Companion:
             "tls": public["tls"],
             "plain_http": public["plain_http"],
             "host": f"{remote.host_name}.local" if remote.host_name else "",
-            "push": self.keys.status(),
+            # via "account": no key of the owner's own, and pushes go through their account
+            "push": {
+                **self.keys.status(),
+                "via": "account" if self.sender.through_account() else "",
+            },
             "push_when": self.hub.prefs.feature(WHEN_PREF),
             "devices": [self._device_status(d) for d in remote.devices.items],
             "audit": self.audit.recent(),
@@ -715,7 +728,7 @@ class Companion:
     async def command(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
         if kind == "companion":
-            await self.keys.get()  # read from the Keychain once, off the event loop
+            await self.sender.route()  # the key (and the account) read once, off the loop
             self.emit_status()
         elif kind == "companion_pairing":
             self.hub.emit("companion_pairing", **await self.pairing())

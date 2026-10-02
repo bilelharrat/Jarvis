@@ -284,7 +284,7 @@ class Live:
         """Push what changed. (device id, activity, "update" or "end") for each sent."""
         from .companion import LIVE_HOURS
 
-        creds = await self.sender.keys.get()
+        creds = await self.sender.route()  # the owner's key, or their Jarvis account
         if creds is None:
             return []
         now = self.clock()

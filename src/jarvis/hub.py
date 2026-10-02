@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import dataclasses
 import functools
 import itertools
 import json
@@ -878,6 +879,9 @@ class Hub:
         # reads the current one. Asked again once per turn before it counts as Claude down.
         self._stale_signin = False
         self._signin_retried = False
+        # Words for an error kind in place of Claude Code's own ("" keeps them): Jarvis
+        # Plus's allowance used up says so, not "a billing problem" (features.account).
+        self.claude_error_words: Callable[[str], str] | None = None
         self._claude_said = ""  # ... in Claude Code's words ("You've hit your weekly limit…")
         # When Claude's usage limit resets (epoch seconds), as Claude Code said when it was
         # hit, and when Claude last couldn't answer. 0: never heard.
@@ -3114,6 +3118,13 @@ class Hub:
             return
         if isinstance(message, AssistantMessage):
             error = getattr(message, "error", None)
+            if error and not self._connected_ref and self.claude_error_words is not None:
+                try:
+                    words = self.claude_error_words(error)
+                except Exception:
+                    words = ""
+                if words:  # said instead of Claude Code's own words for it
+                    message = dataclasses.replace(message, content=[TextBlock(text=words)])
             if (
                 error == "authentication_failed"
                 and not self._connected_ref

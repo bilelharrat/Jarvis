@@ -259,7 +259,14 @@ class Speaking:
         key = await self._key("fish")
         if key:
             return CloudVoice("fish", key, JARVIS_VOICE_ID, JARVIS_MODEL, speed)
-        return CloudVoice("hosted", self.install_id(), JARVIS_VOICE_ID, "", speed)
+        return CloudVoice(
+            "hosted", self.install_id(), JARVIS_VOICE_ID, "", speed, bearer=self._account_token
+        )
+
+    def _account_token(self) -> str:
+        """The Jarvis account's token while the Mac is linked (features.account), else ""."""
+        account = getattr(self.hub, "account", None)
+        return account.token if account is not None and account.linked else ""
 
     def _env(self, provider: str) -> dict[str, str]:
         """.env's voice and model for a provider (only the one .env picked)."""
