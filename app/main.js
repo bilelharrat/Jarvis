@@ -134,6 +134,11 @@ function startBackend() {
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
   // This .app, so a paired iPhone can open it after it's quit (jarvis/companion_wake.py).
   if (app.isPackaged) how.env.JARVIS_APP_BUNDLE = path.resolve(process.execPath, '..', '..', '..');
+  // Who the backend watches, so it goes when we do (jarvis/launcher_watch.py). Packaged or
+  // from the repo, because without it the backend guessed — and could take one of Electron's
+  // helper processes for the app. A helper quits while the app runs, and the backend went
+  // with it mid-session, taking the chats, the session list and the steer button.
+  how.env.JARVIS_LAUNCHER_PID = String(process.pid);
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''}\n`);
   backendFromRepo = !how.bundled;
   backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
