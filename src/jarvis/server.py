@@ -26,6 +26,40 @@ from starlette.websockets import WebSocket
 from . import packaged
 from .hub import Hub
 
+
+def end_children(grace: float = 1.0) -> int:
+    """At the end of a stop: every process this one started that's still running (a
+    Jarvis Code process still exiting, a helper) is asked to end, then made to after `grace`
+    seconds, so none is left running on its own. How many there were."""
+    try:
+        import psutil
+
+        children = psutil.Process().children(recursive=True)
+    except Exception:  # psutil missing, or not ours to look at
+        return 0
+    for child in children:
+        with contextlib.suppress(Exception):
+            child.terminate()
+    with contextlib.suppress(Exception):
+        _gone, alive = psutil.wait_procs(children, timeout=grace)
+        for child in alive:
+            with contextlib.suppress(Exception):
+                child.kill()
+    return len(children)
+
+
+# How the backend is served. Frames up to 64 MiB: a message with its attachments (the
+# composer caps them at 24 MB). On a stop (the app quitting sends SIGTERM) open connections
+# get SHUTDOWN_GRACE seconds, then the shutdown goes on without them: the app only hides its
+# window while it waits for the backend, so the window's socket stayed open and the
+# backend's shutdown didn't even begin until the app gave up waiting (5 s) and closed it.
+SHUTDOWN_GRACE = 1.0
+SERVE_OPTIONS: dict[str, Any] = {
+    "log_level": "warning",
+    "ws_max_size": 64 * 1024 * 1024,
+    "timeout_graceful_shutdown": SHUTDOWN_GRACE,
+}
+
 log = logging.getLogger("jarvis")
 # Frames one window's burst may carry before the others get a turn: a single read can hold
 # thousands of small commands, and handling them all in one step starves every pump.
@@ -331,7 +365,9 @@ def serve(port: int, token: str) -> None:
     launcher_watch.start()  # the app quits or crashes: this backend goes too, lock and all
     app = create_app(Hub(load_settings()), token)
     print(f"JARVIS listening on http://127.0.0.1:{port}/?token={token}", flush=True)
-    # Frames up to 64 MiB: a message with its attachments (the composer caps them at 24 MB).
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning", ws_max_size=64 * 1024 * 1024)
+    uvicorn.run(app, host="127.0.0.1", port=port, **SERVE_OPTIONS)
+    left = end_children()  # nothing it started outlives it (hub.close left it behind)
+    if left:
+        log.info("stopping: ended %d process%s still running", left, "" if left == 1 else "es")
     if instance is not None:  # held until the server has stopped
         instance.close()

@@ -263,6 +263,15 @@ _HOLD_SPACE = re.compile(r"\s+")
 CODE_ON_SCREEN = "```\n```"
 ANNOUNCE_IN_FULL = 2  # a burst of heads-ups says this many in full; the rest are on screen
 STALE_UTTERANCE = 10.0  # hands-free: speech that ended this long ago is never acted on
+# Stopping (the app quitting): each step that waits on something else (Jarvis Code's
+# process, the phone link, a connector) gets CLOSE_STEP seconds and all of them CLOSE_BUDGET
+# together, so the backend is gone, its data lock with it, inside the app's five-second
+# wait. Disconnecting Jarvis Code alone could take 20 s (its process given 5 s to exit, then
+# terminated, then killed), and the next Jarvis found its data still held. A step that runs
+# over is named in the log and left behind; server.serve then ends any process still
+# running.
+CLOSE_STEP = 1.5
+CLOSE_BUDGET = 2.5
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2337,39 +2346,61 @@ class Hub:
             )
 
     async def close(self) -> None:
+        began = time.monotonic()
         self.usage.flush()
         self.desktop_hands.release_all()
         from .gemini_proxy import PROXY
 
-        if PROXY.port:
-            with contextlib.suppress(Exception):
-                await PROXY.close()
         self._save_prefs_if_pending()  # a last try at a settings save that failed
         if self._listener is not None:
             self._listener.stop()
         self.screen_watch.stop()
         self.workbench.close()
-        await self.simulator.close()
-        if self.meeting is not None:  # keep every line that was said
+        if self.meeting is not None:  # keep every line that was said (its own ten seconds)
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self.meeting.finish_transcript(), 10)
         if self._build_proc is not None and self._build_proc.returncode is None:
             self._build_proc.kill()  # never leave a rebuild running behind
-        with contextlib.suppress(Exception):
-            await self.video.close()  # stop a transcription (and its afconvert) midway
         for task in list(self._background):
             task.cancel()
         with contextlib.suppress(Exception):
             self.interrupts.close()
         with contextlib.suppress(Exception):
             self.hearing.flush()
-        await self.tasks.close()
-        await self.connectors.close()
-        await self.remote.stop()
+        deadline = time.monotonic() + CLOSE_BUDGET
+        client = self.client
+        steps: list[tuple[str, Callable[[], Any] | None]] = [
+            ("the Gemini proxy", PROXY.close if PROXY.port else None),
+            ("the simulator", self.simulator.close),
+            ("a video transcription", self.video.close),  # and its afconvert, midway
+            ("Jarvis Code's tasks", self.tasks.close),
+            ("the connectors", self.connectors.close),
+            ("the phone link", self.remote.stop),
+        ]
+        for name, step in steps:
+            if step is not None:
+                await self._close_step(name, step, deadline)
         getattr(self.speaker, "shutdown", self.speaker.stop)()
-        if self.client is not None:
-            with contextlib.suppress(Exception):
-                await self.client.disconnect()
+        if client is not None:
+            await self._close_step("Jarvis Code's session", client.disconnect, deadline)
+        took = time.monotonic() - began
+        if took > 1.0:
+            log.info("stopped in %.1fs", took)
+
+    async def _close_step(self, name: str, step: Callable[[], Any], deadline: float) -> None:
+        """One step of close(), within its share of the time. It runs on shielded (a
+        cancelled Claude disconnect could orphan its process; serve ends what's left)."""
+        wait = max(0.05, min(CLOSE_STEP, deadline - time.monotonic()))
+        began = time.monotonic()
+        try:
+            await asyncio.wait_for(asyncio.shield(asyncio.ensure_future(step())), wait)
+        except TimeoutError:
+            log.warning("stopping: %s took over %.1fs; going on without it", name, wait)
+        except Exception:
+            log.exception("stopping: %s failed", name)
+        else:
+            if time.monotonic() - began > 1.0:
+                log.info("stopping: %s took %.1fs", name, time.monotonic() - began)
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
