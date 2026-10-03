@@ -1438,7 +1438,15 @@ def transcribe_options(lang: str, hotwords: str = "") -> dict[str, Any]:
             "initial_prompt": ZH_INITIAL_PROMPT,
             "hotwords": hotwords or WAKE_HINT_ZH,
         }
-    return {"language": "en", "hotwords": hotwords or "Jarvis"}
+    # English: never the wake word among the hotwords. faster-whisper puts them in the
+    # prompt, and with "Jarvis" there Whisper took the name as already said and dropped it
+    # from the start of a request ("Jarvis, what's on my calendar tomorrow?" heard as
+    # "What's on my calendar tomorrow?"), so the request never woke JARVIS. Measured with
+    # scripts/stress_hands_free.py (6 voices, 3 distances): 86/108 calls heard with it,
+    # 10 of 11 such misses heard without it. base.en spells the name right on its own.
+    # Learned words (hearing.hotwords, a code project's names) still go in.
+    words = " ".join(w for w in (hotwords or "").split() if w.strip(",.!?").lower() != "jarvis")
+    return {"language": "en", **({"hotwords": words} if words else {})}
 
 
 # What Whisper's Mandarin mode invents from silence and room noise (video-subtitle

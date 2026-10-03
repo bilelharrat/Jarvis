@@ -890,8 +890,15 @@ def test_whisper_models():
 
 
 def test_transcribe_options():
-    assert lang.transcribe_options("en") == {"language": "en", "hotwords": "Jarvis"}
+    # English: never the wake word as a hotword (Whisper then dropped it from the start of
+    # a request); learned words stay.
+    assert lang.transcribe_options("en") == {"language": "en"}
+    assert lang.transcribe_options("en", "Jarvis") == {"language": "en"}
     assert lang.transcribe_options("en", "useState") == {"language": "en", "hotwords": "useState"}
+    assert lang.transcribe_options("en", "Jarvis Okin Hormuz") == {
+        "language": "en",
+        "hotwords": "Okin Hormuz",
+    }
     zh = lang.transcribe_options("zh")
     assert zh == {"language": "zh", "initial_prompt": lang.ZH_INITIAL_PROMPT, "hotwords": "贾维斯"}
     assert "简体" in zh["initial_prompt"] and "贾维斯" not in zh["initial_prompt"]

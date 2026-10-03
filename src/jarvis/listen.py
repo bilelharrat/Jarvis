@@ -792,6 +792,19 @@ def _quietly(probe: Callable[[], Any]) -> Any:
         return None
 
 
+_GREETING = re.compile(r"^(?:hey|hi|okay|ok|oh|so)\b[\s,.!?]*", re.I)
+
+
+def near_wake(text: str) -> bool:
+    """Whether a transcript's first or last word (after a greeting) could be the wake word
+    misheard: one starting with J ("job is", "JavaS", "Joggers"). Only a hint to listen
+    again: the second hearing still has to say the name."""
+    words = re.findall(r"[A-Za-z']+", _GREETING.sub("", (text or "").strip()))
+    return bool(words) and any(
+        w.lower().startswith("j") and len(w) >= 3 for w in (words[0], words[-1])
+    )
+
+
 class Transcriber:
     """Offline speech-to-text. The model downloads once (~150 MB for base.en) on first use."""
 
@@ -818,22 +831,37 @@ class Transcriber:
         return self._model is not None
 
     def transcribe(self, audio: np.ndarray, hotwords: str = "Jarvis") -> str:
-        # Hotwords bias Whisper toward spelling the wake word "Jarvis". (An initial_prompt
-        # of "Jarvis," made Whisper treat the name as already said and drop it.)
+        """The words of an utterance. In English the wake word isn't among the hotwords
+        (lang.transcribe_options): as one, like an initial_prompt of "Jarvis,", it made
+        Whisper treat the name as already said and drop it from the start of a request.
+        Without it, a name heard from across the room sometimes comes out as a near miss
+        ("job is", "Okay, JavaS"); only then is it heard again with the name as a hint, and
+        the second hearing is kept when the name is in it. Measured with
+        scripts/stress_hands_free.py: 86/108 calls heard with the hint always on, 95/108
+        without it; the second hearing recovers most of the rest, with no false wake in 108
+        sentences that start with a J-word ("John is…", "Just…", "Jason…")."""
+        from . import lang, wake
+
+        text = self._hear(audio, hotwords)
+        if lang.is_zh(self.language) or not near_wake(text) or wake.find_wake(text)[0]:
+            return text
+        again = self._hear(audio, hotwords, name_hint=True)
+        return again if wake.find_wake(again)[0] else text
+
+    def _hear(self, audio: np.ndarray, hotwords: str, name_hint: bool = False) -> str:
         # Audio arrives already cut at speech boundaries, so Whisper's own VAD only trims
         # first words; a short lead-in of silence stops it swallowing the first word.
-        # (Measured with scripts/stress_hands_free.py: 86% -> 88% wake detection.)
         from . import lang
 
+        options = lang.transcribe_options(self.language, "" if hotwords == "Jarvis" else hotwords)
+        if name_hint:  # the second hearing of a near miss: the name as a hint after all
+            options["hotwords"] = f"Jarvis {options.get('hotwords', '')}".strip()
         padded = np.concatenate([np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32), audio])
         segments, _info = self._load().transcribe(
             padded,
             beam_size=1,
             vad_filter=False,
-            # English: language "en" and just the name as a hotword (a longer hint, "Hey
-            # Jarvis, Jarvis", made Whisper treat the phrase as said and drop it: 11/32
-            # woke vs 30/32, measured). Chinese: "zh", 贾维斯 and a Simplified prompt.
-            **lang.transcribe_options(self.language, "" if hotwords == "Jarvis" else hotwords),
+            **options,
             # Faster, and nothing here needs timestamps or the previous utterance.
             without_timestamps=True,
             condition_on_previous_text=False,

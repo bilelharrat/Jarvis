@@ -36,6 +36,11 @@ NEGATIVE = [
     ("I think the meeting went pretty well today.", False),
     ("Can you pass me the salt please?", False),
     ("Travel plans are set for next week.", False),
+    # J-words: a near miss is heard again with the name as a hint (listen.near_wake), so
+    # these must still never wake it.
+    ("John is coming over at six.", False),
+    ("Just let me know when you're done.", False),
+    ("Jason said the deal closed.", False),
 ]
 VOLUMES = [1.0, 0.4, 0.15]  # 0.15 ~ speaking from across the room
 NOISE = 0.004
@@ -43,11 +48,11 @@ NOISE = 0.004
 
 def synth(text: str, voice: str, folder: Path) -> np.ndarray:
     path = folder / "u.wav"
-    subprocess.run(
-        ["say", "-v", voice, "--data-format=LEI16@16000", "-o", str(path), text],
-        check=True,
-        capture_output=True,
-    )
+    command = ["say", "-v", voice, "--data-format=LEI16@16000", "-o", str(path), text]
+    try:
+        subprocess.run(command, check=True, capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:  # macOS's speech service stuck once (10 min): again
+        subprocess.run(command, check=True, capture_output=True, timeout=20)
     audio, rate = read_wav(path)
     assert rate == SAMPLE_RATE
     return audio
