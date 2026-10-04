@@ -27,6 +27,9 @@ from . import jsonstore
 log = logging.getLogger("jarvis")
 
 STORE_LIMIT = 60  # sessions kept: the open ones and the ended ones the list shows
+# Every session ever listed is kept (a chat is never lost): past STORE_LIMIT the ended ones
+# are "let go" from the list but kept on disk, in the history, to reopen as they were.
+KEEP_LIMIT = 2000
 AUDIT_KEEP = 500  # permission decisions kept per session
 QUEUE_KEEP = 50  # messages waiting (tasks.MAX_QUEUED)
 TEXT_LIMIT = 20_000  # a queued message or a draft (the window's own limit for a message)
@@ -50,13 +53,13 @@ class SessionStore:
         self._lock = threading.Lock()
 
     def load(self) -> list[dict[str, Any]]:
-        """Every kept session, oldest first (at most STORE_LIMIT, the newest)."""
+        """Every kept session, oldest first (at most KEEP_LIMIT, the newest)."""
         try:
             paths = sorted(self.folder.glob("*.json"))
         except OSError:
             return []
         records: list[dict[str, Any]] = []
-        for path in paths[: STORE_LIMIT * 3]:
+        for path in paths[: KEEP_LIMIT * 2]:
             key = path.stem
             if not KEY.fullmatch(key):
                 continue
@@ -72,7 +75,7 @@ class SessionStore:
             self.written[key] = _text(record)
             records.append(record)
         records.sort(key=lambda r: (r["created"], r["key"]))
-        return records[-STORE_LIMIT:]
+        return records[-KEEP_LIMIT:]
 
     def save(self, changed: dict[str, dict[str, Any]], keep: set[str]) -> None:
         """Write the sessions that changed, and forget the ones not in keep (no longer
@@ -192,8 +195,10 @@ def clean_record(data: Any, key: str) -> dict[str, Any] | None:
             todos.append({k: _str(item.get(k), 500) for k in ("content", "status", "active")})
     status = data.get("status") if data.get("status") in _ENDED else ""
     created = _when(data.get("created")) or datetime.now().isoformat(timespec="seconds")
+    sid = data.get("id")  # its id in the window, the same after a restart
     return {
         "key": key,
+        "id": sid if isinstance(sid, int) and not isinstance(sid, bool) and 0 < sid < 2**31 else 0,
         "cwd": cwd,
         "session_id": _str(data.get("session_id"), 100),
         "title": _str(data.get("title"), 100),

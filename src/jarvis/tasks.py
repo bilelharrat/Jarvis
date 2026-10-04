@@ -513,6 +513,7 @@ MODE_LABELS = {
     "auto": "Bypass permissions",
 }
 PLAN_APPROVE_EDITS, PLAN_APPROVE, PLAN_KEEP = "plan_edits", "plan_ask", "plan_keep"
+HISTORY_TRIES = 3  # a session's record that can't be read is tried this often before giving up
 IDLE_CLOSE_SECONDS = 60 * 60  # an idle session closes after an hour; it can be resumed
 MAX_ENDED = 20  # ended sessions kept in the list; older ones are let go (still resumable)
 TRANSCRIPT_KEEP = 400  # a session's newest transcript entries, kept for the windows
@@ -777,6 +778,7 @@ class ClaudeTask:
     stream_buf: list[tuple[str, list[str]]] = field(default_factory=list)  # (part, pieces)
     stream_timer: Any = None  # the batch of live words is due
     history_read: bool = False  # a reopened session's earlier conversation has been read in
+    history_job: asyncio.Future | None = None  # that reading, under way (one at a time)
     # ... and while it's read whole, the windows' transcript: its newest entries, read first
     history_preview: list[dict[str, Any]] | None = None
     # What each of its edits wrote and took out (code_changes.EditMark), so its changes can
@@ -793,9 +795,16 @@ class ClaudeTask:
 
     @property
     def steerable(self) -> bool:
-        """Mid-step on the user's turn, with the session open: a message can go into the
-        step now (steering) instead of waiting for it to end."""
-        return self.busy and self.current == "user" and self.client is not None
+        """Mid-step: a message can go into the step now (steering) instead of waiting for
+        it to end. True for the whole of a busy turn (the user's or one Claude Code began
+        itself, and across a reconnect), so Steer never blinks out while it works: a steer
+        sent before Claude Code is open again goes first in the queue (TaskManager._steer)."""
+        return self.kind == "code" and self.busy and not self.ending
+
+    @property
+    def steer_ready(self) -> bool:
+        """Claude Code is open and on a turn: a steer goes into it at once."""
+        return self.busy and self.current in ("user", "claude") and self.client is not None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -997,6 +1006,15 @@ class TaskManager:
         self.more_projects: Callable[[], tuple[dict[str, Path], list[Path]]] | None = None
         self.start_defaults: Callable[[Path, str], dict[str, Any]] | None = None
         self.turn_note: Callable[[ClaudeTask], str] | None = None
+        # Also code_sessions: a kept session let go from the list, back (by its Claude
+        # session id) with its own id and settings; and the kept ones the history adds.
+        self.revive: Callable[[str], int | None] | None = None
+        # features.code_answers: a session's question, seen before it's put to the user
+        # (answered from their earlier choices or memory, or, while they're in a meeting or
+        # Focus, left to the session's own judgment), and each answer the user gave.
+        self.pre_answer: Callable[[ClaudeTask, dict[str, Any]], Awaitable[Any]] | None = None
+        self.answered: Callable[[ClaudeTask, dict[str, Any], str], None] | None = None
+        self.more_history: Callable[[], list[dict[str, Any]]] | None = None
         self.closing = False  # the app is quitting: nothing opens again by itself
         # Set by the isolated-copies feature: prepare(task) runs before a session's first
         # connection (it may move the session into its own copy), and isolated_dir(path)
@@ -1122,6 +1140,8 @@ class TaskManager:
         isolate asks for (True) or against (False) its own isolated copy of the project,
         None leaving it to the owner's default."""
         cwd = self.resolve_dir(directory)
+        if resume and self.revive is not None and self._by_session(resume) is None:
+            self.revive(resume)  # a kept session let go from the list: back as it was
         same = self._by_session(resume) if resume else None
         if same is not None:  # already open here: the same session, never a second copy
             if prompt.strip() or images:
@@ -1240,6 +1260,13 @@ class TaskManager:
         return True
 
     async def _steer(self, task: ClaudeTask, text: str, images: list[dict[str, str]]) -> None:
+        if not task.steer_ready:
+            # Busy but not open to it yet (starting, or reconnecting): first in the queue,
+            # so it's the very next thing Claude Code hears.
+            task.inbox.put(text, images, front=True)
+            task.stirred.set()
+            self._changed()
+            return
         task.steered += 1
         steered = {"text": text, "images": images}
         task.steered_items.append(steered)
@@ -1707,6 +1734,14 @@ class TaskManager:
                 out += self.past_sessions(name, per_project)
             except Exception:  # a folder that's no project now, or a damaged record
                 log.warning("Couldn't list past sessions in %s", name, exc_info=True)
+        if self.more_history is not None:
+            # Kept sessions Claude Code's listing misses (those in isolated copies): every
+            # session ever listed stays findable.
+            seen = {item["session_id"] for item in out}
+            try:
+                out += [h for h in self.more_history() if h["session_id"] not in seen]
+            except Exception:
+                log.warning("Couldn't add the kept sessions to the history", exc_info=True)
         out.sort(key=lambda item: item.get("modified", 0), reverse=True)
         return out
 
@@ -2103,11 +2138,39 @@ class TaskManager:
             self._prune()
 
     async def _read_history(self, task: ClaudeTask) -> None:
+        """Read a reopened session's conversation in (_read_history_once), once: callers
+        at the same time share the one reading. It counts as read only once it was: a
+        record that couldn't be read (busy disk, a write under way) is tried again, here a
+        few times and then at the next open, never left blank for good."""
+        if task.history_read:
+            return
+        job = task.history_job
+        if job is None or job.done():
+            job = task.history_job = asyncio.ensure_future(self._read_history_tries(task))
+        await asyncio.shield(job)
+
+    async def _read_history_tries(self, task: ClaudeTask) -> None:
+        for attempt in range(HISTORY_TRIES):
+            try:
+                await self._read_history_once(task)
+            except Exception:
+                log.warning("Couldn't read session %s's history", task.session_id, exc_info=True)
+                await asyncio.sleep(0.4 * (attempt + 1))
+            else:
+                task.history_read = True
+                return
+        self._log(
+            task,
+            "system",
+            "Its earlier messages couldn't be read just now; they'll load next time it's opened.",
+        )
+        self._changed()
+
+    async def _read_history_once(self, task: ClaudeTask) -> None:
         """A past session reopened (after a restart, from another project's history, or as
         a fork) shows its conversation so far, read from Claude Code's own record of it, as
         though it had been open all along: the messages, what each step did, and a fork
         point at each of the user's messages. Read once, before its first connection."""
-        task.history_read = True
         if task.kind != "code" or not task.session_id:
             return
         # A fork's point, or where the conversation was rewound to in place.
@@ -2134,6 +2197,8 @@ class TaskManager:
                     )
                 finally:
                     task.history_preview = None
+        if past.get("failed"):
+            raise OSError("its record couldn't be read")  # (tried again: _read_history_tries)
         if not past["entries"]:
             if preview is not None:  # (read whole, it had none to show after all)
                 self.emit("task_transcript", id=task.id, entries=list(task.transcript))
@@ -2512,6 +2577,7 @@ class TaskManager:
         if task.turns_pending and not announce:
             task.current = "user"  # the user's turn, its replayed prompt not seen
             task.in_flight = None
+            self._changed_soon()  # (Steer's readiness changed with it)
             return
         task.current, task.injected, task.busy = "claude", True, True
         task.turn_started = time.monotonic()
@@ -2525,7 +2591,7 @@ class TaskManager:
     def _user_turn(self, task: ClaudeTask, uid: str) -> None:
         """The user's own message, as Claude Code takes it up: a point to undo, rewind or
         fork back to, and where the turn's reply and changes begin."""
-        if task.steered and task.current == "user":
+        if task.steered and task.current in ("user", "claude"):
             task.steered -= 1  # sent into the running step: the turn goes on
             if task.steered_items:
                 task.steered_items.pop(0)
@@ -3150,6 +3216,25 @@ class TaskManager:
                 f"{i + 1}. {o.get('label', '')}: {o.get('description', '')}".rstrip(": ")
                 for i, o in enumerate(raw)
             )
+            asked = {
+                "question": question,
+                "header": str(q.get("header") or "")[:40],
+                "options": options,
+                "multi": bool(q.get("multiSelect")),
+            }
+            pre = None
+            if self.pre_answer is not None:
+                try:
+                    pre = await self.pre_answer(task, asked)
+                except Exception:
+                    log.warning("Couldn't look for an answer before asking", exc_info=True)
+            if pre is not None and pre[0] == "answer":  # (pre: ("answer", option, why))
+                answers[question] = pre[1]
+                self._log(task, "system", f"Jarvis answered “{question}” → {pre[1]} ({pre[2]})")
+                continue
+            if pre is not None and pre[0] == "go_on":  # (("go_on", message to Claude Code))
+                self._log(task, "system", f"Not asked now: “{question}”. {pre[2]}")
+                return PermissionResultDeny(message=pre[1])
             task.last_action = "Asking you"
             self._changed_soon()
             asked_at = time.monotonic()
@@ -3180,6 +3265,11 @@ class TaskManager:
                 return PermissionResultDeny(message="The user didn't answer.")
             answers[question] = answer
             self._log(task, "user", f"{question} → {answer}")
+            if self.answered is not None:
+                try:
+                    self.answered(task, asked, answer)
+                except Exception:
+                    log.warning("Couldn't keep the answer", exc_info=True)
         return PermissionResultAllow(updated_input={**tool_input, "answers": answers})
 
     # ── JARVIS's tools for driving tasks ──
@@ -3527,9 +3617,9 @@ def session_history(session_id: str, cwd: Path, until: str = "") -> dict[str, An
     empty: dict[str, Any] = {"entries": [], "fork_points": {}, "last_uuid": ""}
     try:
         messages = get_session_messages(session_id, directory=str(cwd))
-    except Exception:  # an unreadable record: the session opens without its history
+    except Exception:  # an unreadable record: shown without its history, read again later
         log.warning("Couldn't read the history of session %s", session_id, exc_info=True)
-        return empty
+        return {**empty, "failed": True}
     if until:
         ids = [m.uuid for m in messages]
         if until not in ids:

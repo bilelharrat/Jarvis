@@ -70,12 +70,17 @@ def test_a_fork_reads_up_to_its_point_and_an_unknown_point_reads_nothing(monkeyp
     assert session_history("s", tmp_path, until="nowhere")["entries"] == []
 
 
-def test_an_unreadable_record_opens_without_history(monkeypatch, tmp_path):
+def test_an_unreadable_record_says_so_so_it_is_read_again(monkeypatch, tmp_path):
     def broken(sid, directory):
         raise OSError("damaged")
 
     monkeypatch.setattr(tasks_module, "get_session_messages", broken)
-    assert session_history("s", tmp_path) == {"entries": [], "fork_points": {}, "last_uuid": ""}
+    assert session_history("s", tmp_path) == {
+        "entries": [],
+        "fork_points": {},
+        "last_uuid": "",
+        "failed": True,  # (never taken for "no history": _read_history tries again)
+    }
 
 
 def _manager(settings, events):

@@ -154,9 +154,14 @@ window.jarvisFeatures = {
 function onEvent(ev) {
   if (onJarvisCodeEvent(ev)) return;
   switch (ev.type) {
-    case 'hello':
+    case 'hello': {
+      let reselect = null;
       if (hubId !== null && ev.hub_id !== hubId) {
-        // A different backend: its session 1 isn't ours. Nothing of the old one stays.
+        // A different backend: its session 1 isn't ours. Nothing of the old one stays, but
+        // the chat that was open is opened again when it came back (a restart keeps its
+        // id; matched by its Claude session, never just the number).
+        const was = ccTasks.find((t) => t.id === ccSelected);
+        reselect = was && was.session_id ? was.session_id : null;
         ccSelected = null;
         $('deck-timeline').replaceChildren();
         live.text = null;
@@ -183,6 +188,7 @@ function onEvent(ev) {
       (ev.approvals || []).forEach((a) => { approvalShown(a.id); showApproval(a); pendingApprovals.set(a.id, a); });
       renderInlineApprovals();
       if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }  // what it missed
+      if (reselect) { const again = ccTasks.find((t) => t.session_id === reselect); if (again) selectTask(again.id); }
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });
       if (!$('cc').hidden) { send({ type: 'claude_projects' }); send({ type: 'claude_history' }); if (deckProject) send({ type: 'claude_sessions', directory: deckProject }); }
@@ -213,6 +219,7 @@ function onEvent(ev) {
       onMeeting(ev.meeting || { active: false });
       onVoiceCode(ev.voicecode);
       break;
+    }
     case 'memory': renderMemory(ev.items || []); break;
     case 'hearing': renderHearing(ev); break;
     case 'documents': renderDocuments(ev.items || []); break;

@@ -20,6 +20,7 @@ theirs is on, each capped per hour); nothing else here calls a model.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import time
 import uuid
@@ -27,17 +28,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .. import code_asides, code_projects, prefs
+from .. import code_asides, code_projects, prefs, worktrees
 from ..session_store import (
     AUDIT_KEEP,
     FILES_KEEP,
+    KEEP_LIMIT,
     QUEUE_KEEP,
     REMEMBERED_LIMIT,
     STORE_LIMIT,
     TEXT_LIMIT,
     SessionStore,
 )
-from ..tasks import ClaudeTask, auto_capable, session_history
+from ..tasks import MAX_ENDED, ClaudeTask, auto_capable, session_history
 
 log = logging.getLogger("jarvis")
 
@@ -87,6 +89,10 @@ class CodeSessions:
         self._writers: set[asyncio.Future] = set()
         self._printed: dict[str, tuple] = {}  # key -> what its last save was made from
         self.parked: set[str] = set()  # kept sessions whose folder isn't there just now
+        # Kept sessions let go from the list (older than the MAX_ENDED ended ones it shows):
+        # key -> their record, still on disk and in the history, to reopen as they were.
+        self.dormant: dict[str, dict[str, Any]] = {}
+        self.last_record: dict[str, dict[str, Any]] = {}  # key -> its record as last saved
         self._remembered_saved: dict[str, dict[str, Any]] = {}
         self.btw_hour = code_asides.Rate(code_asides.BTW_PER_HOUR, 3600)
         self.btw_day = code_asides.Rate(code_asides.BTW_PER_DAY, 86400)
@@ -105,6 +111,8 @@ class CodeSessions:
         tm.more_projects = self.projects.more
         tm.start_defaults = self.start_defaults
         tm.turn_note = self.turn_note
+        tm.revive = self.revive
+        tm.more_history = self.more_history
         inner_emit = tm.emit
 
         def emit(kind: str, **data: Any) -> None:
@@ -231,6 +239,14 @@ class CodeSessions:
             records = []
         self._remembered_saved = dict(self.remembered)
         restored = 0
+        self._ids_past(records)
+        # The open ones come back, and the newest MAX_ENDED ended ones the list shows; the
+        # rest stay kept, in the history, until one is reopened (revive).
+        ended = [r for r in records if r["ended"]]
+        for record in ended[: max(0, len(ended) - MAX_ENDED)]:
+            self.dormant[record["key"]] = record
+            self.last_record[record["key"]] = record
+        records = [r for r in records if r["key"] not in self.dormant]
         for record in records:
             try:
                 restored += self._restore_one(record)
@@ -241,6 +257,73 @@ class CodeSessions:
             self.tm._changed()
             self.emit_meta(full=True)
         return restored
+
+    def _ids_past(self, records: list[dict[str, Any]]) -> None:
+        """New sessions' ids start past every kept one's, so a kept one's id is its own
+        whenever it comes back: the window's selection outlasts a restart."""
+        top = max((r["id"] for r in records), default=0)
+        nxt = next(self.tm._ids)
+        self.tm._ids = itertools.count(max(nxt, top + 1))
+
+    def _new_id(self, record: dict[str, Any]) -> int:
+        own = record.get("id") or 0
+        if own and own not in self.tm.tasks:
+            return own
+        return next(self.tm._ids)
+
+    def revive(self, session_id: str) -> int | None:
+        """A kept session let go from the list, reopened from the history: back resting,
+        with its own id, settings, queue and filing (not a bare resume elsewhere: one in
+        an isolated copy resumes in its copy). None: not one of the kept ones."""
+        key = next((k for k, r in self.dormant.items() if r["session_id"] == session_id), None)
+        if key is None:
+            return None
+        record = self.dormant.pop(key)
+        try:
+            if self._restore_one(record):
+                self.tm._changed()
+                self.emit_meta(full=True)
+                return next((i for i, k in self.keys.items() if k == key), None)
+        except Exception:
+            log.exception("Jarvis Code: couldn't reopen kept session %s", key)
+        self.dormant[key] = record  # (kept all the same)
+        return None
+
+    def more_history(self) -> list[dict[str, Any]]:
+        """The kept sessions let go from the list, as history entries (tasks.recent_sessions),
+        under the project they belong to (a copy's, its project's)."""
+        copies = None
+        out = []
+        for record in self.dormant.values():
+            if not record["session_id"]:
+                continue
+            cwd = Path(record["cwd"])
+            folder = cwd.name
+            try:
+                if copies is None:
+                    copies = worktrees.CopyStore(self.hub.feature_path("code_copies.json"))
+                copy = copies.by_path(cwd)
+                if copy is not None:
+                    folder = copy.project
+            except Exception:  # no copies kept: the folder's own name
+                pass
+            try:
+                when = datetime.fromisoformat(record["updated"])
+            except ValueError:
+                when = datetime.now()
+            out.append(
+                {
+                    "session_id": record["session_id"],
+                    "title": record["title"] or record["prompt"][:80],
+                    "first_prompt": record["prompt"][:200],
+                    "last_modified": when.isoformat(timespec="minutes"),
+                    "modified": int(when.timestamp() * 1000),
+                    "branch": "",
+                    "folder": folder,
+                    "kept": True,
+                }
+            )
+        return out
 
     def _restore_one(self, record: dict[str, Any]) -> int:
         tm = self.tm
@@ -278,7 +361,7 @@ class CodeSessions:
             mode = "ask"
         ended = record["ended"]
         task = ClaudeTask(
-            id=next(tm._ids),
+            id=self._new_id(record),
             prompt=record["prompt"],
             cwd=cwd,
             mode=mode,
@@ -316,6 +399,7 @@ class CodeSessions:
             task.inbox.put(item["text"], plain=item["plain"])
         tm.tasks[task.id] = task
         self.keys[task.id] = key
+        self.last_record[key] = record
         meta = self._blank_meta(record["created"])
         goal = code_asides.clean_goal(record["goal"])
         if goal is not None and goal["native"] and goal["state"] == "active":
@@ -410,7 +494,15 @@ class CodeSessions:
         tasks = self._code_tasks()
         live = {t.id for t in tasks}
         for task_id in [i for i in self.keys if i not in live]:
-            self.meta.pop(self.keys.pop(task_id), None)  # let go: pruned from the list
+            key = self.keys.pop(task_id)  # let go from the list (pruned): kept, never lost
+            self.meta.pop(key, None)
+            record = self.last_record.get(key)
+            if record is not None:
+                self.dormant[key] = {
+                    **record,
+                    "ended": True,
+                    "status": record["status"] or "stopped",
+                }
         kept = [t for t in tasks if self._worth_keeping(t)]
         # The open ones first, then the newest ended: never more than STORE_LIMIT.
         kept.sort(key=lambda t: (not self._ended(t), t.id), reverse=True)
@@ -423,11 +515,20 @@ class CodeSessions:
             self._remember(task)
             printed = self._print(task, self.meta[key])
             if self._printed.get(key) != printed:
-                changed[key] = self._record(task, key)
+                changed[key] = self.last_record[key] = self._record(task, key)
                 self._printed[key] = printed
         for key in [k for k in self._printed if k not in keep]:
             del self._printed[key]
         keep |= self.parked  # (never rewritten: only not let go)
+        if len(self.dormant) > KEEP_LIMIT:  # (the oldest past thousands, only then)
+            oldest = sorted(self.dormant, key=lambda k: self.dormant[k]["updated"])
+            for key in oldest[: len(self.dormant) - KEEP_LIMIT]:
+                del self.dormant[key]
+        for key, record in self.dormant.items():
+            keep.add(key)
+            if self._printed.get(key) != ("dormant",):  # ended, as it's kept from now
+                changed[key] = record
+                self._printed[key] = ("dormant",)
         remembered = None
         if self.remembered != self._remembered_saved:
             remembered = dict(self.remembered)
@@ -513,6 +614,7 @@ class CodeSessions:
         return {
             "v": 1,
             "key": key,
+            "id": task.id,
             "cwd": str(task.cwd),
             "session_id": task.session_id,
             "title": task.title,
