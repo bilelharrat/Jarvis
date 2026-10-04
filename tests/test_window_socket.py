@@ -70,7 +70,8 @@ async def test_an_event_no_json_can_carry_is_skipped_and_the_window_keeps_hearin
         for _ in range(3):
             hub.emit("odd", counts={(1, 2): 3})  # a tuple key: json.dumps can't write it
         hub.emit("after", n=1)
-        assert await w.event() == {"type": "after", "n": 1}
+        after = await w.event()
+        assert after == {"type": "after", "n": 1, "seq": after["seq"]} and after["seq"] > 0
     assert len([r for r in caplog.records if "can't be sent" in r.getMessage()]) == 1
     await w.leave()
     assert not hub._subscribers
