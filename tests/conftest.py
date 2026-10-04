@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import os
 from dataclasses import replace
 
 import pytest
@@ -13,6 +14,9 @@ from claude_agent_sdk import (
 )
 
 from jarvis.config import Settings
+
+# Every Labs feature on (features/_labs.py): each is tested as if the owner turned it on.
+os.environ.setdefault("JARVIS_LABS", "all")
 from jarvis.speech import Speaker
 
 

@@ -110,13 +110,16 @@ def zh_strings(web_dir: Path = WEB_DIR) -> dict[str, Any]:
     return merged
 
 
-def feature_assets(web_dir: Path = WEB_DIR) -> dict[str, list[str]]:
+def feature_assets(web_dir: Path = WEB_DIR, skip: set[str] | None = None) -> dict[str, list[str]]:
     """The feature modules' window files (web/features/*.js and *.css), in name order, each
-    stamped with its modification time so an edit is never hidden by the cache."""
+    stamped with its modification time so an edit is never hidden by the cache. skip: the
+    stems of Labs features that are off."""
     found: dict[str, list[str]] = {"scripts": [], "styles": []}
     folder = web_dir / "features"
     for kind, suffix in (("scripts", ".js"), ("styles", ".css")):
         for path in sorted(folder.glob(f"*{suffix}")):
+            if skip and path.stem in skip:
+                continue
             try:
                 stamp = int(path.stat().st_mtime)
             except OSError:
@@ -147,7 +150,10 @@ def create_app(hub: Hub, token: str) -> Starlette:
         return JSONResponse(zh_strings(), headers={"Cache-Control": "no-cache"})
 
     async def features_json(_request):
-        return JSONResponse(feature_assets(), headers={"Cache-Control": "no-store"})
+        from .features import _labs
+
+        skip = _labs.web_skipped(getattr(hub, "prefs", None))
+        return JSONResponse(feature_assets(skip=skip), headers={"Cache-Control": "no-store"})
 
     async def inbound_hook(request):
         """POST /hooks/<name>: the owner's local tools telling JARVIS something (the

@@ -92,13 +92,19 @@ def modules() -> list[ModuleType]:
 
 
 def install_all(hub: Any) -> list[str]:
-    """Install every feature on this hub; the names of those that installed."""
+    """Install every feature on this hub; the names of those that installed. Labs ones
+    that are off (_labs) are left out."""
+    from . import _labs
+
+    off = _labs.skipped(getattr(hub, "prefs", None))
     installed: list[str] = []
     for module in modules():
         install = getattr(module, "install", None)
         if not callable(install):
             continue
         name = module.__name__.rsplit(".", 1)[-1]
+        if name in off:
+            continue
         try:
             install(hub)
         except Exception:
