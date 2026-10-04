@@ -1006,6 +1006,7 @@ class TaskManager:
         self.more_projects: Callable[[], tuple[dict[str, Path], list[Path]]] | None = None
         self.start_defaults: Callable[[Path, str], dict[str, Any]] | None = None
         self.turn_note: Callable[[ClaudeTask], str] | None = None
+        self.turn_notes: list[Callable[[ClaudeTask], str]] = []  # other features' notes
         # Also code_sessions: a kept session let go from the list, back (by its Claude
         # session id) with its own id and settings; and the kept ones the history adds.
         self.revive: Callable[[str], int | None] | None = None
@@ -2541,12 +2542,15 @@ class TaskManager:
             and not text.startswith("/")
         ):
             sent = f"{text}\n\nultracode"  # the keyword that turns on workflow orchestration
-        if self.turn_note is not None and text and not plain and not text.startswith("/"):
-            try:
-                note = self.turn_note(task)  # a goal it keeps working toward, say
-            except Exception:
-                log.warning("Couldn't add the session's note to a message", exc_info=True)
-                note = ""
+        notes_from = [n for n in (self.turn_note, *self.turn_notes) if n is not None]
+        if notes_from and text and not plain and not text.startswith("/"):
+            said = []
+            for turn_note in notes_from:  # a goal it keeps working toward, lessons learned
+                try:
+                    said.append(turn_note(task))
+                except Exception:
+                    log.warning("Couldn't add the session's note to a message", exc_info=True)
+            note = " ".join(n for n in said if n)
             if note:  # (the transcript and its history show the message without it)
                 sent = f"[Note from the app: {note}]\n\n{sent}"
         task.turns_pending += 1
