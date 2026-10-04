@@ -20,6 +20,7 @@ import atexit
 import contextlib
 import statistics
 import time
+import weakref
 from datetime import date, timedelta
 from typing import Any
 
@@ -59,8 +60,9 @@ class Quality:
             self.marker.write_text(str(time.time()))
         if self.known:
             now = set(self.chat_keys())
-            self.lost += len([k for k in self.known if k not in now])
-        self.save()
+            lost = len([k for k in self.known if k not in now])
+            self.lost += lost
+        self.save()  # (only once there's something: a crash, a chat, a number)
 
     def quit_cleanly(self) -> None:
         self.save()
@@ -76,6 +78,8 @@ class Quality:
             return []
 
     def save(self) -> None:
+        if not self.latency and not self.days and not self.lost and not self.chat_keys():
+            return  # nothing measured yet
         self.known = self.chat_keys()
         cutoff = (date.today() - timedelta(days=90)).isoformat()
         self.days = {d: v for d, v in self.days.items() if d >= cutoff}
@@ -145,7 +149,8 @@ def install(hub: Any) -> None:
     desk = Quality(hub)
     hub.quality = desk
     desk.started()
-    atexit.register(desk.quit_cleanly)
+    mine = weakref.ref(desk)  # (never what keeps a hub alive)
+    atexit.register(lambda: (d := mine()) is not None and d.quit_cleanly())
     hub.add_event_sink(("state",), desk.state)
     hub.add_notify_sink(desk.headsup)
     hub.register_loop("quality_keeper", desk.keeper)
