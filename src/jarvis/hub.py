@@ -6477,6 +6477,9 @@ class Hub:
         elif kind == "alert_reaction":  # an interruption's card: "opened" or "dismissed"
             key, action = str(msg.get("key") or ""), str(msg.get("action") or "")
             self.interrupts.card_reaction(key, action)
+            quality = getattr(self, "quality", None)  # (features.quality: is it worth it?)
+            if quality is not None:
+                quality.reaction(str(msg.get("kind") or "")[:40], action)
             if action == "opened" and key.startswith("interrupt:"):
                 mail = key.startswith("interrupt:mail:")
                 app = "com.apple.mail" if mail else "com.apple.MobileSMS"

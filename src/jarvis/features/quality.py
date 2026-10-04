@@ -8,7 +8,11 @@
   counting began are crash-free;
 - lost chats, which should stay zero: Jarvis Code's kept chats as the last run knew them,
   any of which is missing from disk at startup;
-- heads-ups a day: what Jarvis interrupted with, lately (fewer, better ones is the aim).
+- heads-ups a day: what Jarvis interrupted with, lately (fewer, better ones is the aim),
+  and per kind how often the owner opened its card or dismissed it. A kind that's nearly
+  always dismissed (QUIET_AFTER shown, QUIET_SHARE of them dismissed, almost none opened)
+  is quieted (a notify gate) and listed in the Health pane, where one click brings it back
+  (quality_unquiet {kind}); what's urgent (a call, a conversation, a session's) never is.
 
 Kept in quality.json beside the settings. No Claude calls; nothing leaves the Mac.
 """
@@ -30,6 +34,10 @@ LATENCY_KEEP = 200
 SLOW_LIMIT = 60.0  # seconds: past this the wait wasn't for an answer
 SAVE_EVERY = 600.0
 DAYS_SHOWN = 30
+QUIET_AFTER = 10  # heads-ups of a kind shown before it can be quieted
+QUIET_SHARE = 0.7  # of those dismissed
+OPENED_FEW = 0.1  # and at most this share opened
+NEVER_QUIET = {"delegate", "call", "voicemail", "task", "meeting", "leave"}
 
 
 class Quality:
@@ -46,6 +54,10 @@ class Quality:
         self.since: str = data.get("since") or date.today().isoformat()
         self.lost: int = int(data.get("lost", 0))
         self.known: list[str] = list(data.get("chat_keys", []))
+        # kind -> {"shown", "opened", "dismissed"}, and the kinds quieted / brought back
+        self.kinds: dict[str, dict[str, int]] = dict(data.get("kinds", {}))
+        self.quiet: list[str] = list(data.get("quiet", []))
+        self.unquiet: list[str] = list(data.get("unquiet", []))
         self.heard_at: float | None = None
 
     def _day(self) -> dict[str, int]:
@@ -78,7 +90,7 @@ class Quality:
             return []
 
     def save(self) -> None:
-        if not self.latency and not self.days and not self.lost and not self.chat_keys():
+        if not (self.latency or self.days or self.lost or self.kinds or self.chat_keys()):
             return  # nothing measured yet
         self.known = self.chat_keys()
         cutoff = (date.today() - timedelta(days=90)).isoformat()
@@ -92,6 +104,9 @@ class Quality:
                     "since": self.since,
                     "lost": self.lost,
                     "chat_keys": self.known,
+                    "kinds": self.kinds,
+                    "quiet": self.quiet,
+                    "unquiet": self.unquiet,
                 },
             )
 
@@ -115,8 +130,43 @@ class Quality:
         elif value in ("idle", "listening"):
             self.heard_at = None
 
-    def headsup(self, _alert: Any) -> None:
+    def headsup(self, alert: Any) -> None:
         self._day()["headsups"] += 1
+        kind = str(getattr(alert, "kind", "") or "")
+        if kind:
+            self.kinds.setdefault(kind, {"shown": 0, "opened": 0, "dismissed": 0})["shown"] += 1
+
+    def reaction(self, kind: str, action: str) -> None:
+        """The window: a heads-up's card was opened or dismissed."""
+        if action not in ("opened", "dismissed") or not kind:
+            return
+        counts = self.kinds.setdefault(kind, {"shown": 0, "opened": 0, "dismissed": 0})
+        counts[action] += 1
+        self._tune(kind)
+
+    def _tune(self, kind: str) -> None:
+        c = self.kinds.get(kind) or {}
+        shown = max(c.get("shown", 0), c.get("opened", 0) + c.get("dismissed", 0))
+        if kind in NEVER_QUIET or kind in self.quiet or kind in self.unquiet or shown < QUIET_AFTER:
+            return
+        if (
+            c.get("dismissed", 0) >= QUIET_SHARE * shown
+            and c.get("opened", 0) <= OPENED_FEW * shown
+        ):
+            self.quiet.append(kind)
+            self.save()
+
+    def gate(self, alert: Any) -> bool:
+        """hub.add_notify_gate: False holds back a quieted kind."""
+        return str(getattr(alert, "kind", "") or "") not in self.quiet
+
+    def unquiet_kind(self, kind: str) -> None:
+        if kind in self.quiet:
+            self.quiet.remove(kind)
+        if kind not in self.unquiet:
+            self.unquiet.append(kind)  # (the owner's say: never quieted again by itself)
+        self.kinds.pop(kind, None)
+        self.save()
 
     # ── the Health pane ──
 
@@ -142,6 +192,15 @@ class Quality:
             "lost_chats": self.lost,
             "chats_kept": len(self.known),
             "headsups_per_day": round(sum(recent) / max(1, len(recent)), 1) if recent else 0,
+            "useful": {
+                k: {
+                    "shown": v.get("shown", 0),
+                    "opened": v.get("opened", 0),
+                    "dismissed": v.get("dismissed", 0),
+                }
+                for k, v in sorted(self.kinds.items())
+            },
+            "quiet": list(self.quiet),
         }
 
 
@@ -154,3 +213,7 @@ def install(hub: Any) -> None:
     hub.add_event_sink(("state",), desk.state)
     hub.add_notify_sink(desk.headsup)
     hub.register_loop("quality_keeper", desk.keeper)
+    hub.add_notify_gate(desk.gate)
+    hub.register_command(
+        "quality_unquiet", lambda msg: desk.unquiet_kind(str(msg.get("kind") or ""))
+    )

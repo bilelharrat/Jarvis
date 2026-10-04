@@ -104,7 +104,17 @@
       list.append(row('Crash-free days', `${q.crash_free_days} of ${q.days}`));
       list.append(row('Lost chats', el('span', q.lost_chats ? 'ch-bad' : '', `${q.lost_chats} (${q.chats_kept} kept)`)));
       list.append(row('Heads-ups a day', String(q.headsups_per_day)));
+      for (const [kind, c] of Object.entries(q.useful || {})) {
+        if (!c.shown) continue;
+        list.append(row(`Heads-ups: ${kind}`, `${c.opened} opened · ${c.dismissed} dismissed of ${c.shown}`));
+      }
       parts.push(el('h3', 'ch-head', 'Quality'), list);
+      for (const kind of q.quiet || []) {
+        const back = button('Bring back', 'jc-mini', () => { F.send({ type: 'quality_unquiet', kind }); answer = null; ask(true); });
+        const line = el('p', 'jc-dim ch-hint', `Quieted: ${kind} heads-ups (nearly always dismissed). `);
+        line.append(back);
+        parts.push(line);
+      }
     }
     const foot = el('div', 'ch-foot');
     foot.append(button('Check again', 'jc-mini', () => { answer = null; draw(body); ask(true); }));

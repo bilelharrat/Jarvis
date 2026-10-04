@@ -99,6 +99,19 @@ class Commitment:
     handle: str = ""
 
 
+LATE_DAYS = 3  # a promise past its day is mentioned once, within this many days
+KEPT_WORDS = 2  # a sent item sharing this many of a promise's words looks like keeping it
+_FILLER = frozenset(
+    "i ill i'll will you your to the a an and or of for on in by it this that send get "
+    "back with me my we our tomorrow today friday monday tuesday wednesday thursday saturday "
+    "sunday next week morning evening tonight later soon".split()
+)
+
+
+def _content_words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9']{3,}", (text or "").lower()) if w not in _FILLER}
+
+
 def tidy(text: Any, limit: int = MAX_TEXT) -> str:
     return " ".join(redact(clean_text(text or "")).split())[:limit]
 
@@ -298,6 +311,14 @@ class CommitmentStore:
             if "due" not in item.reminded and now.date() == due and now.hour >= MORNING_HOUR:
                 out.append((item, "due"))
                 continue
+            if (
+                "late" not in item.reminded
+                and now.date() > due
+                and now.date() - due <= timedelta(days=LATE_DAYS)
+                and now.hour >= MORNING_HOUR
+            ):
+                out.append((item, "late"))  # still open after its day: once, the morning after
+                continue
             eve = datetime.combine(due - timedelta(days=1), datetime.min.time()).replace(
                 hour=EVENING_HOUR
             )
@@ -312,6 +333,28 @@ class CommitmentStore:
                 and promised < eve
             ):
                 out.append((item, "eve"))
+        return out
+
+    def fulfilled(self, sent: list[Sent]) -> list[tuple[Commitment, Sent]]:
+        """Open promises the owner's sent items look like keeping: to the same person (the
+        same handle, else name), after the promise, sharing at least KEPT_WORDS of its
+        words ("the deck" promised; "here's the deck" sent)."""
+        out = []
+        for item in self.open_items():
+            mine = _content_words(item.text)
+            if len(mine) < 1:
+                continue
+            for s in sent:
+                same = (item.handle and s.handle == item.handle) or (
+                    item.to and s.to.lower() == item.to.lower()
+                )
+                if not same or (item.sent and s.at.isoformat(timespec="seconds") <= item.sent):
+                    continue
+                if s.text.strip() == item.quote.strip():
+                    continue  # the promise itself
+                if len(mine & _content_words(s.text)) >= min(KEPT_WORDS, len(mine)):
+                    out.append((item, s))
+                    break
         return out
 
     def reminded(self, item: Commitment, kind: str) -> None:

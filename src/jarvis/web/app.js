@@ -6333,10 +6333,15 @@ function onAlert(ev) {
     // senders are worth it (a card that just times out teaches nothing).
     const open = el('button', 'btn primary', 'Open');
     open.type = 'button';
-    const card = notice(kicker, ev.title, ev.text, 60000, open, () => send({ type: 'alert_reaction', key, action: 'dismissed' }));
+    const card = notice(kicker, ev.title, ev.text, 60000, open, () => send({ type: 'alert_reaction', key, kind: ev.alert_kind, action: 'dismissed' }));
     card.dataset.alert = key;
-    open.addEventListener('click', () => { send({ type: 'alert_reaction', key, action: 'opened' }); card.remove(); syncDismissAll(); });
-  } else if (!['task', 'meeting'].includes(ev.alert_kind)) notice(kicker, ev.title, ev.text, 60000).dataset.alert = key;
+    open.addEventListener('click', () => { send({ type: 'alert_reaction', key, kind: ev.alert_kind, action: 'opened' }); card.remove(); syncDismissAll(); });
+  } else if (!['task', 'meeting'].includes(ev.alert_kind)) {
+    // Dismissed, or clicked into (read): how Jarvis learns which kinds are worth it.
+    const card = notice(kicker, ev.title, ev.text, 60000, null, () => send({ type: 'alert_reaction', key, kind: ev.alert_kind, action: 'dismissed' }));
+    card.dataset.alert = key;
+    card.addEventListener('click', (e) => { if (!e.target.closest('button')) send({ type: 'alert_reaction', key, kind: ev.alert_kind, action: 'opened' }); }, { once: true });
+  }
   if (document.hidden || !document.hasFocus()) {
     // A feature can raise it instead (the app's shell: clicking it opens JARVIS on this card).
     const taken = !window.dispatchEvent(new CustomEvent('jarvis-notify', { cancelable: true, detail: ev }));
