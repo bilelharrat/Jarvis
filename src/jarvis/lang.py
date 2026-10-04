@@ -1068,7 +1068,7 @@ LOOKS_ZH = {
 }  # fmt: skip
 LOOK_NAMES_ZH = {
     "orb": "环境光球",
-    "obsidian": "黑曜石",
+    "obsidian": "黑曜石外观",
     "console": "指挥中心",
     "glass": "斯塔克玻璃",
 }
@@ -1109,9 +1109,15 @@ def _panel_zh(said: str | None) -> str | None:
     return None
 
 
-def _look_zh(said: str) -> str | None:
+def _look_zh(said: str, worded: bool = False) -> str | None:
     key = re.sub(r"^(?:那个|这个|the\s+)", "", said.strip()).strip()
-    return LOOKS_ZH.get(key) or ui.LOOKS.get(key)
+    if look := LOOKS_ZH.get(key):
+        return look
+    # A look named like a Mac app (Obsidian) is the look only with a look word ("切换到Obsidian
+    # 外观"); bare, it's the app, for the Mac's own switching.
+    if key.lower() in ui.APP_NAMED_LOOKS and not worded:
+        return None
+    return ui.LOOKS.get(key) or ui.LOOKS.get(key.lower())
 
 
 def parse_ui_zh(text: str) -> ui.Command | None:
@@ -1138,7 +1144,7 @@ def parse_ui_zh(text: str) -> ui.Command | None:
         if panel:
             return ui.Command("panel", panel, False, f"已关闭{_named(PANEL_NAMES_ZH[panel])}。")
     if m := _LOOK_UI_ZH.fullmatch(t):
-        look = _look_zh(m.group("look"))
+        look = _look_zh(m.group("look"), worded=m.end("look") < len(t))
         if look:
             return ui.Command("look", look, True, f"已切换到{LOOK_NAMES_ZH[look]}。")
     return None
@@ -2442,7 +2448,7 @@ VALUES_ZH = {
     "the activity log": "活动记录",
     "Tools & Accounts": "工具与账户",
     "the Ambient Orb": "环境光球",
-    "Obsidian": "黑曜石",
+    "the Obsidian look": "黑曜石外观",
     "the Command Center": "指挥中心",
     "Stark Glass": "斯塔克玻璃",
     "an unusual web address": "一个不常见的网址",

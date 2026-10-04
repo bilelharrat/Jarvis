@@ -798,11 +798,19 @@ def test_window_commands_match_the_english(said, english):
     assert lang.parse_ui(said, "zh") == zh
 
 
+def test_obsidian_in_chinese_is_the_app_unless_a_look_word_says_otherwise():
+    for said in ("切换到Obsidian", "切到obsidian", "用Obsidian"):
+        assert lang.parse_ui_zh(said) is None, said  # the notes app, for the Mac's switching
+    for said in ("切换到Obsidian外观", "用obsidian主题", "切换到黑曜石"):
+        command = lang.parse_ui_zh(said)
+        assert command is not None and (command.action, command.name) == ("look", "obsidian"), said
+
+
 def test_window_replies_are_chinese():
     assert lang.parse_ui_zh("打开浏览器").reply == "正在打开浏览器。"
     assert lang.parse_ui_zh("关闭浏览器").reply == "已关闭浏览器。"
     assert lang.parse_ui_zh("打开贾维斯代码").reply == "正在打开 Jarvis Code。"
-    assert lang.parse_ui_zh("切换到黑曜石").reply == "已切换到黑曜石。"
+    assert lang.parse_ui_zh("切换到黑曜石").reply == "已切换到黑曜石外观。"
     assert lang.parse_ui_zh("打开手势控制").reply == "手势控制已开启。"
     assert lang.parse_ui_zh("关闭手势控制").reply == "手势控制已关闭。"
 
@@ -1406,7 +1414,7 @@ def test_every_tool_label_and_window_name_is_covered():
     [
         ("Opening the browser.", "正在打开浏览器。"),
         ("Closed the activity log.", "已关闭活动记录。"),
-        ("Switched to Obsidian.", "已切换到黑曜石。"),
+        ("Switched to the Obsidian look.", "已切换到黑曜石外观。"),
         ("Hand control on.", "手势控制已开启。"),
         ("Back.", "返回。"),
         ("Closed the Research Center.", "已关闭研究中心。"),

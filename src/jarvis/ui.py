@@ -1,8 +1,8 @@
 """Voice control of the J.A.R.V.I.S. window itself: open and close its panels, change the
 look, turn hand control on and off.
 
-"Jarvis, open Jarvis Code", "close the browser", "switch to Obsidian", "turn on hand
-control" run at once without asking Claude; Claude has the same as tools for anything
+"Jarvis, open Jarvis Code", "close the browser", "switch to the Obsidian look", "turn on
+hand control" run at once without asking Claude; Claude has the same as tools for anything
 said less directly.
 """
 
@@ -76,7 +76,7 @@ APP_NAMED_LOOKS = {"obsidian"}  # looks named like a Mac app: said with a look w
 LOOK_WORDS = {"look", "view", "mode", "layout", "theme", "design"}
 LOOK_NAMES = {
     "orb": "the Ambient Orb",
-    "obsidian": "Obsidian",
+    "obsidian": "the Obsidian look",  # never the bare app name
     "console": "the Command Center",
     "glass": "Stark Glass",
 }

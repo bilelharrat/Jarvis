@@ -525,34 +525,44 @@
       b.append(k);
     });
   }
-  // ⏎ allows, ⌥⏎ always, esc denies: only while the approval has the focus (a choice keeps its
-  // own Enter), or is the pane's latest and nothing else has the focus (never while typing:
-  // there ⏎ sends and esc stops, as ever).
+  // ⏎ allows, ⌥⏎ always, esc denies, and only for the approval that has the keyboard focus (a
+  // focused choice keeps its own Enter). Never a guess at which one is meant: with the focus
+  // anywhere else (the page, the composer, a menu, the other pane) these keys do what they
+  // always did, and the number keys stay the way to answer from anywhere. On top: never one
+  // the owner can't see (behind the agent board, under a pane a narrow window lays over the
+  // transcript, in the pane split view hides or that isn't the focused one), never while its
+  // reason is being written, never a held key, a key something else already took, or keys
+  // typed into a field a redraw just took away.
   document.addEventListener('keydown', (e) => {
     if (!on() || cc.hidden || e.metaKey || e.ctrlKey || e.shiftKey || e.isComposing) return;
     if (e.key !== 'Enter' && e.key !== 'Escape') return;
-    const sheets = [...tl.querySelectorAll(':scope > .jc-ask[data-approval]')].filter((s) => s.querySelector('.jc-choices'));
-    const sheet = sheets[sheets.length - 1];
-    if (!sheet) return;
+    if (e.defaultPrevented || e.repeat) return;
     const target = e.target instanceof Element ? e.target : null;
-    const inSheet = !!target && !!target.closest('.jc-ask') && target.closest('.jc-ask') === sheet;
-    const control = target && target.closest('input, textarea, select, [contenteditable="true"], button, a[href], summary, [role="button"], [role="menuitem"], [role="slider"], [role="separator"], [role="option"]');
-    if (target && target.closest('.jc-feedback')) return;  // the reason being written
-    if (!inSheet && control) return;
-    if (inSheet && e.key === 'Enter' && !e.altKey && control) return;  // the focused choice's own Enter
-    if (!inSheet && target && target !== document.body && !cc.contains(target)) return;
-    const a = pendingApprovals.get(sheet.dataset.approval);
-    if (!a) return;
-    // The number keys' own safeguards, and the split's: never an approval the owner can't see
-    // (behind the agent board, or the pane narrow split view hides), never the window's own
-    // pane while the right one has the focus, never a held key, one of several at once, a key
-    // something else already took (Esc closing the board) or keys typed into a field a redraw
-    // just took away.
-    if (e.defaultPrevented || e.repeat || a.multi) return;
-    if (typeof typingLost === 'function' && typingLost()) return;
-    if (!sheet.checkVisibility({ visibilityProperty: true })) return;
+    const sheet = target && target.closest('.jc-ask[data-approval]');
+    if (!sheet || sheet.parentElement !== tl || !sheet.querySelector('.jc-choices')) return;
+    if (target.closest('.jc-feedback') || sheet.querySelector('.jc-feedback:not([hidden])')) return;  // a reason
+    // Something open over Jarvis Code (a menu, a popover, the find bar, Settings) takes Esc first,
+    // as jcEscape orders it: the most specific thing.
+    if (['jc-ctx-pop', 'jc-effort-pop', 'jc-menu', 'jc-submenu', 'cc-slash', 'jc-find', 'jc-settings'].some((id) => $(id) && !$(id).hidden)) return;
+    // Out of sight (the board, a pane a narrow window lays over it, the split pane that's hidden
+    // or not in front), the approval answers to nothing: not even a focused choice's own Enter,
+    // which a redraw may have put there.
+    const r = sheet.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, Math.max(r.top + 4, Math.min(r.bottom, root.innerHeight) - 4));
+    const frame = root.frameElement;  // the split's right pane is a frame: is it on show?
     const split = typeof F.splitState === 'function' ? F.splitState() : null;
-    if (!inSheet && split && split.on && split.focus === 'right') return;
+    const unseen = !sheet.checkVisibility({ visibilityProperty: true }) || !top || !sheet.contains(top)
+      || (frame && !frame.checkVisibility({ visibilityProperty: true }))
+      || (split && split.on && split.focus === 'right');
+    if (unseen) {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); }
+      return;
+    }
+    const control = target.closest('input, textarea, select, [contenteditable="true"], button, a[href], summary, [role="button"], [role="menuitem"], [role="slider"], [role="separator"], [role="option"]');
+    if (e.key === 'Enter' && !e.altKey && control) return;  // the focused choice's own Enter
+    const a = pendingApprovals.get(sheet.dataset.approval);
+    if (!a || a.multi) return;
+    if (typeof typingLost === 'function' && typingLost()) return;
     const has = (id) => (a.choices || []).some((c) => c.id === id);
     const choice = e.key === 'Escape' ? 'deny' : e.altKey ? (has('always') ? 'always' : null) : (has('allow') ? 'allow' : null);
     if (!choice || !has(choice)) return;
