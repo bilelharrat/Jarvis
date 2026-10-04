@@ -1,0 +1,16 @@
+{
+  "strings": {
+    "Low risk": "低风险",
+    "Medium risk": "中等风险",
+    "High risk": "高风险",
+    "file changed": "个文件有改动",
+    "files changed": "个文件有改动",
+    "Tests passed": "测试通过",
+    "Tests failed": "测试失败",
+    "No tests run": "没有运行测试",
+    "The page after this turn": "这一轮之后的页面",
+    "Files": "文件",
+    "Try it like a user": "像用户一样试一试",
+    "Jarvis has the session use what it built in the browser or Simulator, then report what broke": "Jarvis 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了"
+  }
+}

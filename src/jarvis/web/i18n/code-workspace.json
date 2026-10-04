@@ -139,7 +139,13 @@
     "Export": "导出",
     "Saved in Documents › Jarvis › Jarvis Code:": "已存到 文稿 › Jarvis › Jarvis Code：",
     "Export the whole session…": "导出整个会话…",
-    "A PDF needs the app's window: export the page instead, or try again in the app.": "PDF 需要应用的窗口：改为导出网页，或在应用里再试一次。"
+    "A PDF needs the app's window: export the page instead, or try again in the app.": "PDF 需要应用的窗口：改为导出网页，或在应用里再试一次。",
+    "Quality": "质量",
+    "Not measured yet": "还没有测量",
+    "Answers in": "回答用时",
+    "Crash-free days": "无崩溃天数",
+    "Lost chats": "丢失的对话",
+    "Heads-ups a day": "每天的提醒数"
   },
   "patterns": [
     [

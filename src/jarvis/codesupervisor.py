@@ -896,6 +896,7 @@ ZH = {
     "The tests passed.": "测试通过了。",
     "The tests failed.": "测试没通过。",
     "{n} tests passed.": "{n}个测试通过了。",
+    "It touches {areas}: worth a look before it's merged.": "它改动了{areas}：合并前值得看一眼。",
     "{n} tests failed.": "{n}个测试没通过。",
     "It says: {result}": "它说：{result}",
     "No session needs you right now.": "现在没有会话在等你。",
@@ -1154,6 +1155,15 @@ def digest_lines(
             lines.append(say("{n} tests failed.", language, n=last.failed_count))
         else:
             lines.append(say("The tests failed.", language))
+    areas = risky_areas(files)
+    if areas:
+        lines.append(
+            say(
+                "It touches {areas}: worth a look before it's merged.",
+                language,
+                areas=" and ".join(areas),
+            )
+        )
     if not failed:
         said = summary or first_sentence(turns[-1].result, 30)
         if said:

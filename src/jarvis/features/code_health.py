@@ -103,6 +103,7 @@ class Health:
             "cw_health",
             id=msg.get("id") or 0,
             session=session_state(task) if task else None,
+            quality=quality.public() if (quality := getattr(self.hub, "quality", None)) else None,
             **engine,
         )
 

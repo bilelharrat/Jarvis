@@ -1,0 +1,12 @@
+{
+  "strings": {
+    "Labs": "实验功能",
+    "Other agents (ACP)": "其他智能体（ACP）",
+    "Run Gemini CLI, Codex and other ACP agents as sessions.": "把 Gemini CLI、Codex 和其他 ACP 智能体作为会话运行。",
+    "Plugins": "插件",
+    "Claude Code plugins: their commands, agents and hooks in sessions.": "Claude Code 插件：会话里可用它们的命令、智能体和钩子。",
+    "Split view": "分屏",
+    "Two live sessions side by side (⌘⇧\\ or /split).": "两个实时会话并排显示（⌘⇧\\ 或 /split）。",
+    "Restart Jarvis to apply.": "重启 Jarvis 后生效。"
+  }
+}

@@ -1,0 +1,151 @@
+"""Jarvis's own quality numbers, kept and shown in the Health pane, so they can be held to:
+
+- how fast Jarvis answers: from the end of the owner's words (listening ends) to Jarvis's
+  first spoken word (speaking), the median and the slowest one in ten of the last
+  LATENCY_KEEP answers;
+- crash-free days: a day the backend ended without quitting cleanly (a marker left from the
+  last run, found at startup) counts as a crash on that day; the rest of the days since
+  counting began are crash-free;
+- lost chats, which should stay zero: Jarvis Code's kept chats as the last run knew them,
+  any of which is missing from disk at startup;
+- heads-ups a day: what Jarvis interrupted with, lately (fewer, better ones is the aim).
+
+Kept in quality.json beside the settings. No Claude calls; nothing leaves the Mac.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import atexit
+import contextlib
+import statistics
+import time
+from datetime import date, timedelta
+from typing import Any
+
+from .. import jsonstore
+
+LATENCY_KEEP = 200
+SLOW_LIMIT = 60.0  # seconds: past this the wait wasn't for an answer
+SAVE_EVERY = 600.0
+DAYS_SHOWN = 30
+
+
+class Quality:
+    def __init__(self, hub: Any) -> None:
+        self.hub = hub
+        self.path = hub.feature_path("quality.json")
+        self.marker = hub.feature_path("quality.running")
+        self.sessions_dir = hub.feature_path("code_sessions")
+        data = {}
+        with contextlib.suppress(jsonstore.Unreadable):
+            data = jsonstore.load_json(self.path, dict) or {}
+        self.latency: list[float] = [float(x) for x in data.get("latency", [])][-LATENCY_KEEP:]
+        self.days: dict[str, dict[str, int]] = dict(data.get("days", {}))
+        self.since: str = data.get("since") or date.today().isoformat()
+        self.lost: int = int(data.get("lost", 0))
+        self.known: list[str] = list(data.get("chat_keys", []))
+        self.heard_at: float | None = None
+
+    def _day(self) -> dict[str, int]:
+        return self.days.setdefault(date.today().isoformat(), {"crashes": 0, "headsups": 0})
+
+    # ── at startup and at a clean quit ──
+
+    def started(self) -> None:
+        if self.marker.exists():  # the last run never quit cleanly
+            self._day()["crashes"] += 1
+        with contextlib.suppress(OSError):
+            self.marker.write_text(str(time.time()))
+        if self.known:
+            now = set(self.chat_keys())
+            self.lost += len([k for k in self.known if k not in now])
+        self.save()
+
+    def quit_cleanly(self) -> None:
+        self.save()
+        with contextlib.suppress(OSError):
+            self.marker.unlink()
+
+    def chat_keys(self) -> list[str]:
+        try:
+            return sorted(
+                p.stem for p in self.sessions_dir.glob("*.json") if p.stem != "remembered"
+            )
+        except OSError:
+            return []
+
+    def save(self) -> None:
+        self.known = self.chat_keys()
+        cutoff = (date.today() - timedelta(days=90)).isoformat()
+        self.days = {d: v for d, v in self.days.items() if d >= cutoff}
+        with contextlib.suppress(OSError):
+            jsonstore.save_json(
+                self.path,
+                {
+                    "latency": self.latency,
+                    "days": self.days,
+                    "since": self.since,
+                    "lost": self.lost,
+                    "chat_keys": self.known,
+                },
+            )
+
+    async def keeper(self) -> None:
+        while True:
+            await asyncio.sleep(SAVE_EVERY)
+            await asyncio.to_thread(self.save)
+
+    # ── what's heard ──
+
+    def state(self, event: dict[str, Any]) -> None:
+        value = event.get("value")
+        if value in ("transcribing", "thinking") and self.heard_at is None:
+            self.heard_at = time.monotonic()  # the owner's words have ended
+        elif value == "speaking" and self.heard_at is not None:
+            waited = time.monotonic() - self.heard_at
+            self.heard_at = None
+            if 0 <= waited <= SLOW_LIMIT:
+                self.latency.append(round(waited, 2))
+                del self.latency[:-LATENCY_KEEP]
+        elif value in ("idle", "listening"):
+            self.heard_at = None
+
+    def headsup(self, _alert: Any) -> None:
+        self._day()["headsups"] += 1
+
+    # ── the Health pane ──
+
+    def public(self) -> dict[str, Any]:
+        today = date.today()
+        start = max(date.fromisoformat(self.since), today - timedelta(days=DAYS_SHOWN - 1))
+        days = (today - start).days + 1
+        crashed = sum(
+            1 for d, v in self.days.items() if d >= start.isoformat() and v.get("crashes")
+        )
+        recent = [
+            v.get("headsups", 0)
+            for d, v in self.days.items()
+            if d >= (today - timedelta(days=6)).isoformat()
+        ]
+        lat = sorted(self.latency)
+        return {
+            "answer_median": round(statistics.median(lat), 2) if lat else None,
+            "answer_p90": lat[min(len(lat) - 1, int(len(lat) * 0.9))] if lat else None,
+            "answers": len(lat),
+            "crash_free_days": days - crashed,
+            "days": days,
+            "lost_chats": self.lost,
+            "chats_kept": len(self.known),
+            "headsups_per_day": round(sum(recent) / max(1, len(recent)), 1) if recent else 0,
+        }
+
+
+def install(hub: Any) -> None:
+    desk = Quality(hub)
+    hub.quality = desk
+    desk.started()
+    atexit.register(desk.quit_cleanly)
+    hub.add_event_sink(("state",), desk.state)
+    hub.add_notify_sink(desk.headsup)
+    hub.register_loop("quality_keeper", desk.keeper)

@@ -97,6 +97,15 @@
     } else if (!F.currentTask()) {
       parts.push(el('p', 'jc-dim', 'Open a session to see how its connection is doing.'));
     }
+    const q = answer.quality;
+    if (q) {
+      const list = el('ul', 'jc-list ch-list');
+      list.append(row('Answers in', q.answer_median == null ? el('span', 'jc-dim', 'Not measured yet') : `${q.answer_median}s median · ${q.answer_p90}s slowest 1 in 10`));
+      list.append(row('Crash-free days', `${q.crash_free_days} of ${q.days}`));
+      list.append(row('Lost chats', el('span', q.lost_chats ? 'ch-bad' : '', `${q.lost_chats} (${q.chats_kept} kept)`)));
+      list.append(row('Heads-ups a day', String(q.headsups_per_day)));
+      parts.push(el('h3', 'ch-head', 'Quality'), list);
+    }
     const foot = el('div', 'ch-foot');
     foot.append(button('Check again', 'jc-mini', () => { answer = null; draw(body); ask(true); }));
     if (answer.sdk) foot.append(mine(el('small', 'jc-dim', `SDK ${answer.sdk}`)));
