@@ -275,6 +275,64 @@ test('A different backend (restarted) never shows its session under the old tran
   assert(r.selected === null && r.rows.length === 0, JSON.stringify(r));
 });
 
+// ── trust: a chat survives a restart, Steer stays, a reconnect resumes ──
+
+test('Trust: a restarted backend reopens the chat that was open when its session came back', async () => {
+  await open(1, 'onEvent({ type: "tasks", items: [__task(1, { session_id: "s-1" })] }); __sent.length = 0');
+  await js('onEvent({ type: "hello", hub_id: "hub-b", state: "idle", muted: true, status: {}, activity: [], tasks: [__task(1, { session_id: "s-1" })], prefs, brain: {}, approvals: [], history: [] })');
+  const r = await js('({ selected: ccSelected, asked: __sent.filter((m) => m.type === "task_transcript" && m.id === 1).length })');
+  assert(r.selected === 1 && r.asked >= 1, `the open chat was lost across the restart: ${JSON.stringify(r)}`);
+});
+
+test('Trust: Steer shows while the session is busy, and across a reconnect', async () => {
+  await open(1, 'onEvent({ type: "tasks", items: [__task(1, { steerable: true })] })');
+  assert(await js('!$("jc-steer").hidden'), 'Steer is hidden on a busy session');
+  await js('onEvent({ type: "hello", hub_id: "hub-a", state: "idle", muted: true, status: {}, activity: [], tasks: [__task(1, { steerable: true })], prefs, brain: {}, approvals: [], history: [] })');
+  assert(await js('!$("jc-steer").hidden'), 'Steer went after a reconnect');
+  await js('onEvent({ type: "tasks", items: [__task(1, { busy: false, steerable: false, status: "waiting" })] })');
+  assert(await js('$("jc-steer").hidden'), 'Steer stayed on an idle session');
+});
+
+test('Trust: a reconnect the hub replays to never asks for the whole transcript again', async () => {
+  await open(1);
+  await js('onEvent({ type: "hello", hub_id: "hub-a", seq: 40, replay: true, state: "idle", muted: true, status: {}, activity: [], tasks: [__task(1)], prefs, brain: {}, approvals: [], history: [] })');
+  await js('onEvent({ type: "task_log", id: 1, seq: 39, entry: { n: 7, role: "assistant", text: "missed while away" } })');
+  const r = await js('({ asked: __sent.filter((m) => m.type === "task_transcript").length, rows: $("deck-timeline").textContent })');
+  assert(r.asked === 0, 'the transcript was fetched again despite the replay');
+  assert(r.rows.includes('missed while away'), 'the replayed entry is missing');
+});
+
+test('Proof: a turn’s receipt is one card with its risk, and Try it like a user asks for a QA pass', async () => {
+  await featureScript('code-receipts.js');
+  await open(1);
+  await js(`onEvent({ type: "task_log", id: 1, entry: { n: 3, role: "system", text: "Proof · Changed 1 file",
+    receipt: { files: ["src/auth.py"], file_count: 1, tests: { command: "pytest", passed: true, passed_count: 4, failed_count: 0 }, check: null, risk: "high", why: "it touches auth", elapsed: 9 } } })`);
+  const r = await js('({ card: !!document.querySelector("#deck-timeline .rc-card.rc-high"), why: (document.querySelector(".rc-why") || {}).textContent })');
+  assert(r.card && r.why === 'it touches auth', `no proof card: ${JSON.stringify(r)}`);
+  await js('document.querySelector(".rc-qa").click()');
+  assert((await sent()).includes('code_qa'), 'Try it like a user sent nothing');
+});
+
+test('Bridge: a pane frame hears the window’s events and sends through the window’s socket', async () => {
+  await featureScript('code-store.js');
+  await js(`$("offline").hidden = true;
+    featureEvent({ type: "hello", hub_id: "hub-a", seq: 3, state: "idle", muted: true, status: {}, activity: [], tasks: [], prefs, brain: {}, approvals: [], history: [] });
+    window.__frameSent = []; send = (m) => { __frameSent.push(m); return true; };
+    window.__frame = document.createElement('iframe'); __frame.src = '/?token=test&bridge=1'; document.body.append(__frame);
+    jarvisCodeStore.attachFrame(__frame); true`);
+  // The frame's own last event of a kind (its jarvisFeatures, as a feature would ask).
+  const last = (kind, field) => js(`(() => { const F = __frame.contentWindow && __frame.contentWindow.jarvisFeatures; if (!F) return null;
+    let got = null; F.on(${JSON.stringify(kind)}, (e) => { got = e; }, { replay: true }); return got && JSON.stringify(got.${'${field}'}); })()`.replace('${field}', field));
+  for (let i = 0; i < 100 && (await last('hello', 'hub_id')) !== '"hub-a"'; i++) await sleep(50);
+  assert(await last('hello', 'hub_id') === '"hub-a"', 'the frame never got the snapshot');
+  await js('featureEvent({ type: "tasks", items: [__task(5)] })');
+  for (let i = 0; i < 40 && !String(await last('tasks', 'items')).includes('"id":5'); i++) await sleep(25);
+  assert(String(await last('tasks', 'items')).includes('"id":5'), 'the frame missed a live event');
+  await js('__frame.contentWindow.send({ type: "task_cancel", id: 5 })');
+  for (let i = 0; i < 40 && !(await js('__frameSent.some((m) => m.type === "task_cancel")')); i++) await sleep(25);
+  assert(await js('__frameSent.some((m) => m.type === "task_cancel" && m.id === 5)'), 'what the frame sent never went up the window’s socket');
+});
+
 // ── the lists the hub resends on every step ──
 
 test('A click survives the task list the hub resends in the middle of it', async () => {
