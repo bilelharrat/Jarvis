@@ -35,7 +35,7 @@ APPLE_TEAM_ID = "9ZSY5R8A5C"
 # The page's other download buttons (src/worker.js SOON): https addresses, e.g. a TestFlight
 # public link or the Messenger's notarized .dmg. Empty: the button shows "almost ready".
 JARVIS_IPHONE_URL = ""
-MESSENGER_MAC_URL = ""
+MESSENGER_MAC_URL = "https://askeden.com/jarvis/eden/Eden-Messenger.dmg"
 MESSENGER_IPHONE_URL = ""
 
 [[durable_objects.bindings]]
