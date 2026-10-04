@@ -6,6 +6,7 @@
 //   /download, /jarvis/download   the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
 //   /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
+//   /messenger, /messenger/…   Eden Messenger itself, at messenger.askeden.com (MESSENGER)
 //   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
 //   /api/…                  Jarvis accounts (accounts/index.js, docs/accounts.md)
 //   anything else           back to the page
@@ -41,6 +42,7 @@ export default {
     }
     if (path === '/download' || path === '/jarvis/download') return download(request, env);
     if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
+    if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
     if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
     if (path === '/' || path === '/jarvis') {
       // The page itself, at the domain's root and at /jarvis, without a redirect.
@@ -54,6 +56,16 @@ export default {
     return Response.redirect(new URL('/', url).toString(), 302);
   },
 };
+
+// Eden Messenger lives at its own host (deploy/gcp in its repo): a redirect, not a proxy, since
+// its session cookie, live events and calls belong to that host. The rest of the path and the
+// query come along (an invite link, a conversation).
+const MESSENGER = 'https://messenger.askeden.com';
+
+function toMessenger(url) {
+  const rest = url.pathname.replace(/^\/messenger\/?/, '');
+  return Response.redirect(`${MESSENGER}/${rest}${url.search}`, 302);
+}
 
 // The page's other buttons: each goes wherever its variable in wrangler.toml says (a TestFlight
 // invite, the Messenger's disk image), and until that is set, to a page saying it's on its way.
