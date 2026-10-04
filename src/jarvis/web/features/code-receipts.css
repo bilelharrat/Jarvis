@@ -1,0 +1,15 @@
+.rc-card { display: block; border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 10px; padding: 8px 10px; }
+.rc-card.rc-high { border-color: #d9534f; }
+.rc-card.rc-medium { border-color: #e0a030; }
+.rc-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.rc-risk { font-weight: 600; font-size: 12px; padding: 1px 6px; border-radius: 6px; }
+.rc-risk.rc-low { background: rgba(60,170,90,.18); }
+.rc-risk.rc-medium { background: rgba(224,160,48,.2); }
+.rc-risk.rc-high { background: rgba(217,83,79,.2); }
+.rc-why { opacity: .8; font-size: 12px; }
+.rc-facts { list-style: none; margin: 6px 0 0; padding: 0; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+.rc-facts .rc-bad { color: #d9534f; }
+.rc-facts .rc-none { opacity: .7; }
+.rc-thumb { display: block; max-width: 240px; margin-top: 6px; border-radius: 6px; }
+.rc-files { margin-top: 4px; font-size: 12px; }
+.rc-qa { margin-top: 6px; font-size: 12px; }
