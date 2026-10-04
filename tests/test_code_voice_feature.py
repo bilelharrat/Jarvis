@@ -289,6 +289,23 @@ async def test_catch_me_up_tells_what_happened_since_you_last_looked(
     close_all(hub)
 
 
+async def test_catch_me_up_fits_in_about_twenty_seconds_and_keeps_the_rest_for_later(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj")
+    long = (
+        "I changed the importer, the exporter, the parser and the tests and every one passes now."
+    )
+    sessions = [session(hub, "proj", f"Job {n}") for n in range(4)]
+    for one in sessions:
+        finish(hub, one, long, ["/p/a.py", "/p/b.py", "/p/c.py"])
+    reply = await hub.ask("catch me up")
+    assert len(reply.split()) <= 75 and "more are on screen" in reply
+    again = await hub.ask("catch me up")  # the ones not said are still news
+    assert "Job 3" in again or "more are on screen" in again
+    close_all(hub)
+
+
 async def test_a_voice_coding_reply_counts_as_heard(settings, quiet_speaker, isolated, tmp_path):
     hub, said = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj")
     await hub.voice_code("proj")
