@@ -1,4 +1,4 @@
-// Jarvis Code's one session store (web/features/code-store.js): sessions, sidebar facts and
+// Jarvis Code's one session store (web/code-store.js): sessions, sidebar facts and
 // transcripts from the window's events, a replay never doubled, a new backend starting clean,
 // and what a pane frame is caught up with. node --test tests/web/
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { createStore } = require('../../src/jarvis/web/features/code-store.js');
+const { createStore } = require('../../src/jarvis/web/code-store.js');
 
 test('the store follows the sessions, their facts and their transcripts', () => {
   const s = createStore();

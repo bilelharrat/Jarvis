@@ -1,4 +1,5 @@
-// Jarvis Code's one session store in the window, and the bridge that feeds pane frames from it.
+// Jarvis Code's one session store in the window (loaded before app.js, which feeds it every
+// event its socket hears, in order; features/code-bridge.js feeds pane frames from it).
 //
 // The window's socket is the only connection: every event it hears (numbered by the hub:
 // seq) goes through here. The store keeps what any view of the sessions needs: each session
@@ -6,12 +7,9 @@
 // the latest of each kind of state event. A view subscribes and reads; it never needs a
 // socket of its own.
 //
-// A pane frame (split view's second pane: app.js in ?bridge=1) is attached with
-// jarvisCodeStore.attachFrame(frame): when it says it's ready it gets the latest state (the
-// snapshot first), then every event in the order the window heard it; what it sends goes
-// up the window's own socket. So both panes always agree, and a reconnect resumes both at
-// once (the hub replays what was missed after its snapshot). Pure logic is exported for
-// node --test (tests/web/code-store.test.mjs).
+// Opening a session draws its transcript from here at once (as far as the window heard it)
+// while the hub's whole copy is on its way. Pure: exported for node --test
+// (tests/web/code-store.test.mjs).
 (function codeStore(root) {
   'use strict';
 
@@ -107,51 +105,6 @@
   }
 
   const api = { createStore, STATE };
-  if (typeof module === 'object' && module.exports) { module.exports = api; return; }
-  const F = root.jarvisFeatures;
-  if (!F) return;
-
-  const store = createStore();
-  // The state kinds: what the window heard before this file loaded (replay), then each new.
-  for (const kind of STATE) F.on(kind, (ev) => store.take(ev), { replay: true });
-
-  const frames = new Map();  // a frame's window -> { ready }
-  let online = false;
-  function post(win, data) { try { win.postMessage(data, location.origin); } catch (_) { /* the frame went */ } }
-
-  F.on('*', (ev) => {
-    if (!STATE.includes(ev.type)) store.take(ev);  // (the state kinds are taken below, once)
-    for (const [win, f] of frames) if (f.ready) post(win, { jarvisBridge: 'event', event: ev });
-  });
-
-  // The window's own connection, as the frames should see it.
-  function setOnline(value) {
-    if (value === online) return;
-    online = value;
-    for (const [win, f] of frames) if (f.ready) post(win, { jarvisBridge: 'online', value });
-  }
-  const offline = F.$('offline');
-  if (offline && typeof MutationObserver !== 'undefined') {
-    new MutationObserver(() => setOnline(offline.hidden)).observe(offline, { attributes: true, attributeFilter: ['hidden'] });
-    online = offline.hidden;
-  }
-
-  window.addEventListener('message', (e) => {
-    if (e.origin !== location.origin || !e.data || !frames.has(e.source)) return;
-    const f = frames.get(e.source);
-    if (e.data.jarvisBridge === 'ready') {
-      f.ready = true;
-      post(e.source, { jarvisBridge: 'online', value: online });
-      for (const ev of store.catchUp()) post(e.source, { jarvisBridge: 'event', event: ev });
-    } else if (e.data.jarvisBridge === 'send' && e.data.msg && typeof e.data.msg.type === 'string') {
-      F.send(e.data.msg);
-    }
-  });
-
-  root.jarvisCodeStore = {
-    store,
-    // A pane frame fed from this window's connection (its src: app's page with ?bridge=1).
-    attachFrame(frame) { if (frame && frame.contentWindow) frames.set(frame.contentWindow, { ready: false }); },
-    detachFrame(frame) { if (frame && frame.contentWindow) frames.delete(frame.contentWindow); },
-  };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.jarvisCodeStoreApi = api;
 })(typeof window === 'object' ? window : globalThis);

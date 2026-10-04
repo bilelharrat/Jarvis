@@ -38,9 +38,12 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 // Every event the hub sends is numbered (seq). Reconnecting, the window says the last it
 // had, and from which backend: it gets the snapshot, then the session events it missed.
 let lastSeq = 0;
+// The window's one Jarvis Code store (code-store.js): every event goes in first, in order.
+const codeStore = window.jarvisCodeStoreApi ? window.jarvisCodeStoreApi.createStore() : null;
 function heard(ev) {
   if (ev && ev.type === 'hello') lastSeq = Number(ev.seq) || 0;
   else if (ev && ev.seq > lastSeq) lastSeq = ev.seq;
+  if (codeStore) codeStore.take(ev);
   onEvent(ev);
   featureEvent(ev);
 }
@@ -160,6 +163,7 @@ window.jarvisFeatures = {
     }
   },
   send: (msg) => send(msg),
+  store: codeStore,  // the one Jarvis Code store (code-store.js), fed by this window's socket
   t: (text) => (window.jarvisI18n ? window.jarvisI18n.t(text) : String(text)),
   el: (tag, cls, text) => el(tag, cls, text),
   $: (id) => $(id),
@@ -2855,6 +2859,9 @@ function selectTask(id) {
   live.thinking = null;
   recall.index = -1;
   closeJcFind();
+  // What the window already heard of it, drawn at once; the hub's whole copy replaces it.
+  const known = codeStore ? codeStore.transcript(id) : [];
+  if (known.length) replayTranscript(known);
   send({ type: 'task_transcript', id });
   send({ type: 'task_context', id });
   renderCC(ccTasks);

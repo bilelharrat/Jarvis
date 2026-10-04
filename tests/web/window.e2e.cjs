@@ -302,6 +302,16 @@ test('Trust: a reconnect the hub replays to never asks for the whole transcript 
   assert(r.rows.includes('missed while away'), 'the replayed entry is missing');
 });
 
+test('Store: a session opened again draws what the window heard of it at once', async () => {
+  await js('onEvent({ type: "tasks", items: [__task(1), __task(2)] }); heard({ type: "tasks", items: [__task(1), __task(2)] })');
+  await open(1);
+  await js('heard({ type: "task_log", id: 1, seq: 5, entry: { n: 1, role: "assistant", text: "first session’s reply" } })');
+  await js('selectTask(2); __sent.length = 0; selectTask(1)');
+  const r = await js('({ rows: $("deck-timeline").textContent, asked: __sent.some((m) => m.type === "task_transcript" && m.id === 1) })');
+  assert(r.rows.includes('first session’s reply'), 'the store’s transcript was not drawn at once');
+  assert(r.asked, 'the hub’s whole copy was not asked for too');
+});
+
 test('Proof: a turn’s receipt is one card with its risk, and Try it like a user asks for a QA pass', async () => {
   await featureScript('code-receipts.js');
   await open(1);
@@ -314,9 +324,9 @@ test('Proof: a turn’s receipt is one card with its risk, and Try it like a use
 });
 
 test('Bridge: a pane frame hears the window’s events and sends through the window’s socket', async () => {
-  await featureScript('code-store.js');
+  await featureScript('code-bridge.js');
   await js(`$("offline").hidden = true;
-    featureEvent({ type: "hello", hub_id: "hub-a", seq: 3, state: "idle", muted: true, status: {}, activity: [], tasks: [], prefs, brain: {}, approvals: [], history: [] });
+    heard({ type: "hello", hub_id: "hub-a", seq: 3, state: "idle", muted: true, status: {}, activity: [], tasks: [], prefs, brain: {}, approvals: [], history: [] });
     window.__frameSent = []; send = (m) => { __frameSent.push(m); return true; };
     window.__frame = document.createElement('iframe'); __frame.src = '/?token=test&bridge=1'; document.body.append(__frame);
     jarvisCodeStore.attachFrame(__frame); true`);
@@ -324,8 +334,8 @@ test('Bridge: a pane frame hears the window’s events and sends through the win
   const last = (kind, field) => js(`(() => { const F = __frame.contentWindow && __frame.contentWindow.jarvisFeatures; if (!F) return null;
     let got = null; F.on(${JSON.stringify(kind)}, (e) => { got = e; }, { replay: true }); return got && JSON.stringify(got.${'${field}'}); })()`.replace('${field}', field));
   for (let i = 0; i < 100 && (await last('hello', 'hub_id')) !== '"hub-a"'; i++) await sleep(50);
-  assert(await last('hello', 'hub_id') === '"hub-a"', 'the frame never got the snapshot');
-  await js('featureEvent({ type: "tasks", items: [__task(5)] })');
+  assert(await last('hello', 'hub_id') === '"hub-a"', `the frame never got the snapshot: ${JSON.stringify(await js('({ bridge: typeof jarvisCodeStore, store: !!jarvisFeatures.store, up: jarvisFeatures.store && jarvisFeatures.store.catchUp().map((e) => e.type), api: typeof jarvisCodeStoreApi })'))}`);
+  await js('heard({ type: "tasks", items: [__task(5)] })');
   for (let i = 0; i < 40 && !String(await last('tasks', 'items')).includes('"id":5'); i++) await sleep(25);
   assert(String(await last('tasks', 'items')).includes('"id":5'), 'the frame missed a live event');
   await js('__frame.contentWindow.send({ type: "task_cancel", id: 5 })');
