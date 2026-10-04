@@ -63,7 +63,7 @@ def test_window_modules_are_revalidated(client):
 def test_the_page_opens_in_the_look_the_owner_chose(client):
     """A look chosen in Settings is kept, and the next window (a reopened app) is drawn in
     it from the first paint, not the default until the socket catches up."""
-    assert 'data-look="orb" data-glass-tone="dark"' in client.get("/").text  # the default
+    assert 'data-look="orb" data-glass-tone="auto"' in client.get("/").text  # the default
     with client.websocket_connect(f"{WS}?token=s3cret", headers={"origin": BASE}) as ws:
         assert ws.receive_json()["type"] == "hello"
         ws.send_json({"type": "set_prefs", "changes": {"look": "obsidian"}})
@@ -76,7 +76,7 @@ def test_the_page_opens_in_the_look_the_owner_chose(client):
         while ws.receive_json()["type"] != "prefs":
             pass
     assert (
-        '<body data-state="idle" data-look="console" data-glass-tone="dark">'
+        '<body data-state="idle" data-look="console" data-glass-tone="auto">'
         in client.get("/").text
     )
 

@@ -887,7 +887,7 @@ function lookIsLight(skin, tone) {
   if (skin === 'obsidian') return macLight.matches;
   return skin === 'glass' && (tone === 'light' || (tone === 'auto' && macLight.matches));
 }
-function applyLook(look, tone = 'dark') {
+function applyLook(look, tone = 'auto') {
   const skin = SKINS.includes(look) ? look : '';
   document.body.dataset.look = skin ? 'orb' : look;
   if (skin) document.body.dataset.skin = skin;
@@ -907,7 +907,7 @@ function renderPrefs(p) {
   placePanels(document.body.dataset.look);
   document.querySelectorAll('#look-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.look === p.look)));
   $('tone-row').hidden = p.look !== 'glass';
-  document.querySelectorAll('#tone-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tone === (p.glass_tone || 'dark'))));
+  document.querySelectorAll('#tone-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tone === (p.glass_tone || 'auto'))));
   document.querySelectorAll('#lang-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.lang === (p.language || 'en'))));
   if (window.jarvisI18n) window.jarvisI18n.setLang(p.language || 'en');
   if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';

@@ -20,7 +20,9 @@ APP_SUPPORT = Path.home() / "Library" / "Application Support" / "Jarvis"
 # 3: operating the Mac without asking became the default, and the owner asked for it on.
 # 4: the Research Center is the owner's own (private to BSH), so a new install has none;
 # a file from before keeps the hosted one it had.
-VERSION = 4
+# 5: Stark Glass matches the Mac's appearance by default. The first build with tones saved
+# "dark" as its default without anyone choosing it, so a file from before follows (once).
+VERSION = 5
 LEGACY_RESEARCH_URL = "http://127.0.0.1:8010"
 HOSTED_RESEARCH_URL = "https://app.bshventures.com/research"
 
@@ -80,7 +82,7 @@ GLASS_TONES = ("dark", "light", "auto")  # Stark Glass at night, in white, or as
 @dataclass
 class Prefs:
     look: str = "orb"
-    glass_tone: str = "dark"
+    glass_tone: str = "auto"
     weather_city: str = ""
     use_location: bool = True
     model: str = "opus"
@@ -474,6 +476,8 @@ class PrefsStore:
             data.get("control_always", False), bool
         ):
             prefs.control_always = True
+        if (not isinstance(version, int) or version < 5) and prefs.glass_tone == "dark":
+            prefs.glass_tone = "auto"
         if how == "restored":
             self.notice = (
                 "Your settings file was damaged, so I went back to its last good copy (the "
