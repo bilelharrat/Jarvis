@@ -463,8 +463,16 @@ async def test_whats_this_looks_at_the_screen(settings, quiet_speaker, isolated,
     monkeypatch.setattr(hub_module, "frontmost_app", lambda: "Xcode")
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
+
+    async def no_picture(_fresh):  # never this Mac's real screen (slow, and a permission)
+        return None
+
+    monkeypatch.setattr(hub.screen_watch, "latest", no_picture)
     await hub.handle({"type": "whats_this"})
-    await asyncio.sleep(0.05)
+    for _ in range(100):  # it runs in the background, behind the start's own first checks
+        if hub.client and hub.client.queries:
+            break
+        await asyncio.sleep(0.02)
     assert "using Xcode" in hub.client.queries[-1] and "see_screen" in hub.client.queries[-1]
     assert hub.history[0]["text"] == "What's this?"
 

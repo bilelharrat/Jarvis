@@ -6,24 +6,19 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'none'; font-src https://fonts.gstatic.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* blob: data:; worker-src 'self' blob:; media-src 'self' blob: mediastream:; img-src 'self' data:">
 <title>Jarvis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;family=Geist:wght@300;400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
 <link rel="stylesheet" href="/static/app.css">
 <link rel="stylesheet" href="/static/simulator.css">
 <link rel="stylesheet" href="/static/stark-glass.css">
+<link rel="stylesheet" href="/static/obsidian.css">
 </head>
 <body data-state="idle" data-look="orb">
 <canvas id="galaxy-canvas" class="galaxy-canvas" aria-hidden="true"></canvas>
 
 <header class="top">
   <div class="brand">
-    <span class="brand-mark" aria-hidden="true"></span>
     <span class="wordmark" id="wordmark">Jarvis</span>
-    <span class="tagline">Just a rather very intelligent system</span>
     <span class="online-pill"><i></i><span id="online-text">Online</span></span>
-  </div>
-  <div class="hud-kv">
-    <div><small>System status</small><strong><i class="ok-dot"></i><span id="sys-status">Optimal</span></strong></div>
-    <div><small>Local time</small><strong id="hud-clock">--:--:--</strong></div>
   </div>
   <div class="console-clock" id="console-clock"></div>
   <div class="meta">
@@ -39,34 +34,28 @@
 <div class="layout">
 <aside class="side left" aria-label="System panels">
   <section class="panel" id="p-system" tabindex="0" aria-label="System stats — open the full picture">
-    <h2><span class="hud-only">System // </span>System stats<span class="wx-more not-hud" aria-hidden="true">Details ›</span></h2>
+    <h2>System stats<span class="wx-more" aria-hidden="true">Details ›</span></h2>
     <div class="meter"><span>CPU</span><b id="v-cpu">–</b><i><em id="bar-cpu"></em></i></div>
     <div class="meter"><span>RAM</span><b id="v-mem">–</b><i><em id="bar-mem"></em></i></div>
     <div class="meter"><span>Storage</span><b id="v-disk">–</b><i><em id="bar-disk"></em></i></div>
     <div class="meter"><span>Battery</span><b id="v-batt">–</b><i><em id="bar-batt"></em></i></div>
   </section>
-  <section class="panel not-hud" id="p-weather">
+  <section class="panel" id="p-weather">
     <h2>Weather<span class="wx-more" aria-hidden="true">Details ›</span></h2>
     <div id="weather-body" class="weather-body"><p class="muted">Set your city in Settings to see the weather.</p></div>
   </section>
-  <section class="panel not-hud" id="p-markets" role="button" tabindex="0" aria-label="Markets — open the BSH Research Center" title="Open the BSH Research Center">
+  <section class="panel" id="p-markets" role="button" tabindex="0" aria-label="Markets — open the BSH Research Center" title="Open the BSH Research Center">
     <h2>Markets <span id="mk-status" class="mk-status">…</span><span class="mk-open" aria-hidden="true">Research Center ↗</span></h2>
     <div id="mk-indices" class="mk-indices"><p class="muted">Loading today’s markets…</p></div>
   </section>
   <section class="panel" id="p-uptime" tabindex="0" aria-label="Session — open Claude usage">
-    <h2><span class="hud-only">System // </span>Session<span class="wx-more not-hud" aria-hidden="true">Usage ›</span></h2>
+    <h2>Session<span class="wx-more" aria-hidden="true">Usage ›</span></h2>
     <div class="kv-grid">
       <div><small>Running for</small><b id="v-uptime">–</b></div>
       <div><small>Requests</small><b id="v-commands">0</b></div>
       <div><small>Model</small><b id="v-model">–</b></div>
       <div class="usage-cell"><small id="v-usage-label">5-hour limit</small><b id="v-usage">–</b><i class="usage-meter" aria-hidden="true"><span id="v-usage-bar"></span></i></div>
     </div>
-  </section>
-  <section class="panel hud-only" id="p-defense">
-    <h2>System // Defense <span class="panel-tag" id="df-score">–/5</span></h2>
-    <div class="df-link"><b id="df-kind">Link</b><span id="df-addr"></span><span class="df-ping" id="df-ping">– ms</span></div>
-    <div class="df-rates"><span>↓ <b id="df-down">–</b></span><span>↑ <b id="df-up">–</b></span></div>
-    <ul class="df-shields" id="df-shields" aria-label="Shields"></ul>
   </section>
 </aside>
 
@@ -76,14 +65,6 @@
   <p id="next-event" class="subline" hidden></p>
 
   <button id="orb" class="orb" type="button" aria-label="Talk to Jarvis">
-    <svg class="reactor" viewBox="0 0 400 400" aria-hidden="true">
-      <circle cx="200" cy="200" r="190" class="r-dash"/>
-      <circle cx="200" cy="200" r="168" class="r-line"/>
-      <g class="r-spin"><path d="M 200 32 A 168 168 0 0 1 262 44" class="r-arc"/><path d="M 200 368 A 168 168 0 0 1 138 356" class="r-arc"/></g>
-      <circle cx="200" cy="200" r="120" class="r-line faint"/>
-      <g class="r-spokes"><line x1="200" y1="32" x2="200" y2="368"/><line x1="54" y1="116" x2="346" y2="284"/><line x1="54" y1="284" x2="346" y2="116"/></g>
-      <circle cx="200" cy="200" r="62" class="r-core"/>
-    </svg>
     <svg class="bezel" viewBox="0 0 400 400" aria-hidden="true">
       <defs><linearGradient id="bz-comet" gradientUnits="userSpaceOnUse" x1="200" y1="6" x2="337" y2="63"><stop offset="0" stop-color="#8fdbff" stop-opacity="0"/><stop offset="0.75" stop-color="#8fdbff" stop-opacity="0.9"/><stop offset="1" stop-color="#d6f3ff"/></linearGradient></defs>
       <circle cx="200" cy="200" r="194" class="bz-rim"/>
@@ -92,10 +73,8 @@
     </svg>
     <span class="orb-core"></span>
     <span class="orb-sheen"></span>
-    <span class="core-text hud-only" id="core-text">Core<br>active</span>
     <span class="dots console-only" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
   </button>
-  <div class="wave hud-only" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
   <p id="state-line" class="state-line">Tap the orb or press ⌥ Space</p>
 
   <section class="caption" aria-live="polite">
@@ -136,31 +115,6 @@
       <input id="chat-input" placeholder="Type a message…">
       <button type="submit" class="send-btn" aria-label="Send"><svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><path d="M2 9l14-6-5 14-2-6z"/></svg></button>
     </form>
-  </section>
-  <section class="panel hud-only" id="p-status">
-    <h2>System // Status</h2>
-    <div class="kv-grid two">
-      <div><small>Power</small><b id="h-power">–</b><i class="bar"><em id="h-power-bar"></em></i></div>
-      <div><small>Voice</small><b id="h-voice">Online</b><i class="bar"><em class="full"></em></i></div>
-    </div>
-    <div class="toggles">
-      <button type="button" class="tg" id="t-handsfree" aria-pressed="false" aria-label="Hands-free"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7.5" y="2" width="5" height="10" rx="2.5"/><path d="M4.5 9.5a5.5 5.5 0 0011 0M10 15v3"/></svg></button>
-      <button type="button" class="tg" id="t-voice" aria-pressed="true" aria-label="Spoken replies"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8v4h3l4 3V5L6 8zM13 7a4 4 0 010 6M15.5 5a7 7 0 010 10"/></svg></button>
-      <button type="button" class="tg" id="t-brain" aria-label="Second brain"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="1.6"/><ellipse cx="8" cy="8" rx="6.5" ry="2.6" transform="rotate(-20 8 8)"/></svg></button>
-      <button type="button" class="tg" id="t-stop" aria-label="Stop"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2v7M5.5 5a7 7 0 109 0"/></svg></button>
-    </div>
-  </section>
-  <section class="panel hud-only grow" id="p-log">
-    <h2>System // Log <span class="panel-tag">RT-LOG</span></h2>
-    <ol id="rt-log" class="rt-log"></ol>
-  </section>
-  <section class="panel hud-only" id="p-terminal">
-    <h2>System // Terminal <span class="panel-tag">root@jarvis</span></h2>
-    <form id="term-form" class="term" autocomplete="off">
-      <label for="term-input" class="sr-only">Command</label>
-      <span aria-hidden="true">&gt;_</span><div class="ask-pics" data-pics hidden aria-label="Pictures to send"></div><input id="term-input" placeholder="jarvis --ask …" spellcheck="false">
-    </form>
-    <p id="term-out" data-no-i18n class="term-out"></p>
   </section>
 </aside>
 </div>
@@ -243,7 +197,7 @@
     <h3>Look</h3>
     <div class="segmented" id="look-group" role="radiogroup" aria-label="Look">
       <button type="button" role="radio" data-look="orb" aria-checked="true">Ambient Orb</button>
-      <button type="button" role="radio" data-look="hud" aria-checked="false">Stark HUD</button>
+      <button type="button" role="radio" data-look="obsidian" aria-checked="false">Obsidian</button>
       <button type="button" role="radio" data-look="console" aria-checked="false">Command Center</button>
       <button type="button" role="radio" data-look="glass" aria-checked="false">Stark Glass</button>
     </div>
@@ -873,6 +827,7 @@
 <script src="/static/attach.js"></script>
 <script src="/static/simulator.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/obsidian.js"></script>
 <script src="/static/features.js"></script>
 </body>
 </html>

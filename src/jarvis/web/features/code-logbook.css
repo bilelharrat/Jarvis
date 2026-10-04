@@ -1,0 +1,369 @@
+/* Logbook (features/code-logbook.js): Jarvis Code as a ship's log, under the Obsidian look
+   only. Every rule but the first block is scoped to body[data-skin="obsidian"], and every
+   colour is one of obsidian.css's tokens (--ink, --ink-2, --muted, --ob-*), so graphite and
+   porcelain (data-tone="light") both follow. Arc is alive (running, focused, edits), brass
+   waits on you, ink runs things, ink-2 reads them. Type: Geist, with Geist Mono for labels,
+   numbers and the ledger. */
+
+/* What the module adds that stays in the page: nothing of it shows in any other look. */
+.lb-meta, .lb-margin, .lb-fold, .lb-margin-btn, .lb-ic, .lb-stop, .lb-tip, .lb-hint { display: none; }
+
+/* ── the deck: flat, its own room ── */
+html body[data-skin="obsidian"] .deck.jc {
+  --lb-gut: 64px;   /* the gutter: № 01, YOU, the time, › */
+  --lb-kind: 56px;  /* READ, EDIT, RUN… */
+  --lb-pad: 32px;
+  --sv-l: 256px;
+}
+html body[data-skin="obsidian"] .deck.jc.side-hidden { --sv-l: 0px; }
+@media (max-width: 900px) { html body[data-skin="obsidian"] .deck.jc { --sv-l: 0px; } }
+html body[data-skin="obsidian"] .deck.jc .jc-main { left: var(--sv-l); container: lbmain / inline-size; }
+html body[data-skin="obsidian"] .deck.jc.side-hidden .jc-main { left: 0; }
+@media (max-width: 900px) { html body[data-skin="obsidian"] .deck.jc .jc-main { left: 0; } }
+
+/* ── 1. the head: the title in large light type, one mono line under it ── */
+html body[data-skin="obsidian"] .deck.jc .jc-toolbar { align-items: flex-end; gap: 12px 20px; padding: 24px var(--lb-pad) 16px; min-height: 0; }
+html body[data-skin="obsidian"] .deck.jc .jc-title { font-family: var(--sans); font-size: 26px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.15; }
+html body[data-skin="obsidian"] .deck.jc .jc-sub { display: none; }
+html body[data-skin="obsidian"] .deck.jc .lb-meta { display: block; margin: 7px 0 0; font: 13px/1.4 var(--sans); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html body[data-skin="obsidian"] .deck.jc .lb-meta .lb-num { font: 12.5px var(--mono); }  /* the numbers, in mono */
+html body[data-skin="obsidian"] .deck.jc .lb-meta:empty { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-capsule { background: transparent; box-shadow: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-capsule .jc-thumb { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-tool { color: var(--ink-2); border-radius: 8px; }
+html body[data-skin="obsidian"] .deck.jc .jc-tool:hover,
+html body[data-skin="obsidian"] .deck.jc .jc-tool[aria-pressed="true"] { background: var(--ob-raised); color: var(--ink); }
+
+@keyframes lb-breathe { 50% { opacity: 0.45; } }
+@keyframes lb-flash { from { background-color: rgba(var(--ob-arc-rgb), 0.16); } to { background-color: transparent; } }
+html body[data-skin="obsidian"] .deck.jc .jc-log > li.lb-flash { animation: lb-flash 1.6s ease-out; }
+/* the margin's button, at the end of the head's tools */
+html body[data-skin="obsidian"] .deck.jc .lb-margin-btn { display: inline-flex; }
+html body[data-skin="obsidian"] .deck.jc .lb-margin-btn[hidden] { display: none; }
+html body[data-skin="obsidian"] .deck.jc .lb-margin-btn[aria-pressed="true"] { color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .lb-margin-btn .lb-ic { display: block; }
+
+/* ── 3. the ledger ── */
+html body[data-skin="obsidian"] .deck.jc .jc-scroll { padding: 10px var(--lb-pad) 20px; }
+html body[data-skin="obsidian"] .deck.jc .jc-column { max-width: 900px; }
+html body[data-skin="obsidian"] .deck.jc .jc-log { gap: 22px; }
+html body[data-skin="obsidian"] .deck.jc .jc-log > li { scroll-margin: 90px 0; }
+html body[data-skin="obsidian"] .deck.jc .lb-gut { display: flex; flex-direction: column; font: 11px/1.5 var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .lb-you { letter-spacing: 0.06em; }
+/* your words: large and light, YOU in the gutter */
+html body[data-skin="obsidian"] .deck.jc .jc-user {
+  align-self: stretch; max-width: none; display: grid; grid-template-columns: var(--lb-gut) minmax(0, 1fr); column-gap: 16px;
+  padding: 0; border-radius: 0; background: none; box-shadow: none;
+}
+html body[data-skin="obsidian"] .deck.jc .jc-user > * { grid-column: 2; }
+html body[data-skin="obsidian"] .deck.jc .jc-user > .lb-gut { grid-column: 1; grid-row: 1 / span 3; padding-top: 7px; }
+html body[data-skin="obsidian"] .deck.jc .jc-user-text { font-size: 21px; font-weight: 300; letter-spacing: -0.01em; line-height: 1.4; color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .jc-user .jc-pics { font: 11.5px var(--mono); color: var(--muted); }
+/* Claude's words: plain, the time in the gutter */
+html body[data-skin="obsidian"] .deck.jc .jc-say { display: grid; grid-template-columns: var(--lb-gut) minmax(0, 1fr); column-gap: 16px; padding-right: 36px; font-size: 14px; color: var(--ob-reply, var(--ink)); }
+html body[data-skin="obsidian"] .deck.jc .jc-say > :not(.lb-gut):not(.jc-copy) { grid-column: 2; max-width: 680px; }
+html body[data-skin="obsidian"] .deck.jc .jc-say > .lb-gut { grid-column: 1; padding-top: 3px; }
+html body[data-skin="obsidian"] .deck.jc .jc-say > .jc-md { padding-left: 0; padding-right: 0; }
+html body[data-skin="obsidian"] .deck.jc .jc-say .jc-copy, html body[data-skin="obsidian"] .deck.jc .jc-mini { background: transparent; box-shadow: none; font: 11px var(--mono); color: var(--muted); border-radius: 6px; }
+html body[data-skin="obsidian"] .deck.jc .jc-say .jc-copy:hover, html body[data-skin="obsidian"] .deck.jc .jc-mini:hover { background: var(--ob-raised); color: var(--ink); }
+/* what isn't a step sits in the text column */
+html body[data-skin="obsidian"] .deck.jc :is(.jc-log > li:has(> .jc-think), .jc-note, .jc-turn, .jc-plan, .jc-inline-todos, .jc-loop) { margin-left: calc(var(--lb-gut) + 16px); }
+html body[data-skin="obsidian"] .deck.jc .jc-turn { align-self: flex-start; font: 11px var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-note { font: 11.5px/1.5 var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-think summary::before { content: "·"; color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-think div { border-left: 1px solid var(--ob-hair-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-plan { background: none; border-radius: 0; box-shadow: inset 2px 0 0 var(--ob-arc); padding: 4px 0 4px 16px; }
+html body[data-skin="obsidian"] .deck.jc .jc-plan-head { font: 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ob-arc); }
+
+/* a step: № 01 · READ · the target on a dotted leader · its result */
+html body[data-skin="obsidian"] .deck.jc .lb-row .jc-tool-row,
+html body[data-skin="obsidian"] .deck.jc .jc-agent.lb-row { background: none; border-radius: 0; box-shadow: none; overflow: visible; padding: 0; }
+html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row { border-top: 1px solid var(--ob-hair); }
+html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row + .lb-row { margin-top: -22px; }
+html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row:not(:has(+ .lb-row)) { border-bottom: 1px solid var(--ob-hair); }
+html body[data-skin="obsidian"] .deck.jc .lb-row :is(summary, .jc-agent-head) {
+  display: grid; grid-template-columns: var(--lb-gut) var(--lb-kind) minmax(0, 1fr) auto; align-items: baseline; gap: 0 16px;
+  padding: 7px 0; font: 12.5px/1.5 var(--mono); color: var(--ink-2); cursor: pointer;
+}
+html body[data-skin="obsidian"] .deck.jc .lb-row summary:hover { background: var(--ob-hover); }
+html body[data-skin="obsidian"] .deck.jc .lb-row summary:focus-visible { outline: 2px solid var(--ob-focus-ring); outline-offset: -2px; }
+html body[data-skin="obsidian"] .deck.jc .lb-row :is(summary, .jc-agent-head) > :is(.jc-ticon, .jc-tlabel, .jc-tstate, .jc-badge) { display: none; }
+html body[data-skin="obsidian"] .deck.jc .lb-n { color: var(--muted); white-space: nowrap; }
+html body[data-skin="obsidian"] .deck.jc .lb-kind { letter-spacing: 0.08em; white-space: nowrap; }
+html body[data-skin="obsidian"] .deck.jc .lb-kind.read { color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .lb-kind.edit { color: var(--ob-arc); }
+html body[data-skin="obsidian"] .deck.jc .lb-kind.run { color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .lb-kind.you { color: var(--ob-brass-text); }
+html body[data-skin="obsidian"] .deck.jc .lb-what { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+html body[data-skin="obsidian"] .deck.jc .lb-target { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html body[data-skin="obsidian"] .deck.jc .lb-row:has(.lb-kind.edit) .lb-target { color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .lb-lead { flex: 1; min-width: 16px; border-bottom: 1px dotted var(--ob-hair-2); transform: translateY(-3px); }
+html body[data-skin="obsidian"] .deck.jc .lb-result { display: inline-flex; gap: 6px; white-space: nowrap; color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .lb-r.add, html body[data-skin="obsidian"] .deck.jc .lb-r.ok { color: var(--ob-signal); }
+html body[data-skin="obsidian"] .deck.jc .lb-r.del, html body[data-skin="obsidian"] .deck.jc .lb-r.bad { color: var(--ob-alert); }
+html body[data-skin="obsidian"] .deck.jc .lb-r.live { color: var(--ob-arc); animation: lb-breathe 1.2s ease-in-out infinite; }
+/* opened: the details, indented behind a hair of arc */
+html body[data-skin="obsidian"] .deck.jc .lb-row .jc-tbody,
+html body[data-skin="obsidian"] .deck.jc .jc-agent.lb-row > :not(.jc-agent-head) {
+  margin: 2px 0 10px calc(var(--lb-gut) + 16px); border: 0; border-left: 1px solid rgba(var(--ob-arc-rgb), 0.35);
+}
+html body[data-skin="obsidian"] .deck.jc .lb-row .jc-code { padding: 6px 0 6px 14px; background: none; font: 12px/1.75 var(--mono); color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-code .add { background: none; color: var(--ob-signal); }
+html body[data-skin="obsidian"] .deck.jc .jc-code .del { background: none; color: var(--ob-alert); }
+html body[data-skin="obsidian"] .deck.jc .jc-code .hunk { color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-agent.lb-row ul { padding-left: 14px; font: 11.5px var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-agent.lb-row > .jc-out { padding-left: 14px; }
+
+/* the live line: three bars of arc in the gutter, what it's doing, its time */
+html body[data-skin="obsidian"] .deck.jc .jc-working { display: grid; grid-template-columns: var(--lb-gut) minmax(0, 1fr) auto; column-gap: 16px; align-items: center; padding: 12px 0 4px; color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-working[hidden] { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-working .jc-spark {
+  width: 12px; height: 14px; border-radius: 0; animation: lb-breathe 1.2s ease-in-out infinite;
+  background: linear-gradient(var(--ob-arc), var(--ob-arc)) 0 60% / 2px 70% no-repeat, linear-gradient(var(--ob-arc), var(--ob-arc)) 5px 100% / 2px 100% no-repeat, linear-gradient(var(--ob-arc), var(--ob-arc)) 10px 100% / 2px 55% no-repeat;
+}
+html body[data-skin="obsidian"] .deck.jc .jc-working .jc-sheen { background: none; color: var(--ink-2); font-weight: 400; animation: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-working .jc-dim { font: 11px var(--mono); color: var(--muted); }
+
+/* ── 7. approvals: brass ledger entries ── */
+html body[data-skin="obsidian"] .deck.jc .jc-log > .jc-ask {
+  display: grid; grid-template-columns: var(--lb-gut) minmax(0, 1fr); column-gap: 16px; padding: 14px 16px 14px 0;
+  border-radius: 0; background: var(--ob-brass-surface); box-shadow: none;
+  border-top: 1px solid var(--ob-brass-line); border-bottom: 1px solid var(--ob-brass-line);
+}
+html body[data-skin="obsidian"] .deck.jc .jc-ask > * { grid-column: 2; min-width: 0; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask > .lb-ask { display: contents; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .lb-ask > .lb-n { grid-column: 1; grid-row: 1 / span 6; padding: 3px 0 0 6px; font: 10.5px var(--mono); color: var(--ob-brass-text); }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .lb-ask-label { grid-column: 2; margin-bottom: 10px; font: 11px var(--mono); letter-spacing: 0.14em; color: var(--ob-brass-text); }
+html body[data-skin="obsidian"] .deck.jc .jc-ask:has(.lb-ask):not([data-lb-ask="question"]) > .jc-ask-head { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask-head { font-weight: 500; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-code { margin: 0 0 12px; padding: 0; max-height: 180px; background: none; border-radius: 0; font: 13px/1.6 var(--mono); color: var(--ink); white-space: pre-wrap; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-choices { gap: 8px; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-choices > button {
+  display: inline-flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; border-radius: 9px;
+  border: 1px solid var(--ob-hair-2); background: var(--ob-surface); color: var(--ink); box-shadow: none; font-size: 13px;
+}
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-choices > button:hover { background: var(--ob-raised); }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-choices > button[data-lb-choice="allow"] { border-color: transparent; background: var(--ob-brass); color: var(--ob-brass-ink); font-weight: 600; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-choices > button[data-lb-choice="deny"] { border-color: transparent; background: transparent; color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-choices > button:focus-visible { outline: 2px solid var(--ob-focus-ring); outline-offset: 2px; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-choices kbd { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .lb-key { font: 400 11px var(--mono); opacity: 0.7; }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-ask-hint { font: 11px var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-ask .jc-feedback .jc-field { background: var(--ob-surface); }
+
+/* ── 4. the margin: TOUCHED, PLAN, CONTEXT ── */
+html body[data-skin="obsidian"] .deck.jc .lb-margin {
+  display: flex; flex-direction: column; gap: 28px; flex: 0 0 248px; box-sizing: border-box; min-height: 0; max-height: 100%; overflow-y: auto;
+  align-self: flex-start;  /* as tall as what it shows, never a tall empty column */
+  padding: 10px 28px 20px 24px; border-left: 1px solid var(--ob-hair);
+}
+html body[data-skin="obsidian"] .deck.jc .lb-margin[hidden], html body[data-skin="obsidian"] .deck.jc .lb-msec[hidden] { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-body:has(> .jc-pane:not([hidden])) > .lb-margin { display: none; }
+@container lbmain (max-width: 980px) { html body[data-skin="obsidian"] .deck.jc :is(.lb-margin, .lb-margin-btn) { display: none; } }  /* (no room: no margin, no button for it) */
+@container lbmain (min-width: 981px) { html body[data-skin="obsidian"] .deck.jc .jc-body:not(:has(> .jc-pane:not([hidden]))) ~ .jc-dock #jc-todos { display: none; } }
+html body[data-skin="obsidian"] .deck.jc .lb-msec { display: flex; flex-direction: column; gap: 10px; }
+html body[data-skin="obsidian"] .deck.jc .lb-mhead { display: flex; justify-content: space-between; margin: 0; font: 400 11px var(--mono); letter-spacing: 0.14em; color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .lb-files { display: flex; flex-direction: column; }
+html body[data-skin="obsidian"] .deck.jc .lb-file {
+  display: flex; flex-direction: column; gap: 5px; margin: 0 -8px; padding: 6px 8px; border: 0; border-radius: 8px;
+  background: transparent; text-align: left; cursor: pointer; color: var(--ink-2);
+}
+html body[data-skin="obsidian"] .deck.jc .lb-file:hover { background: var(--ob-raised); color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .lb-file:focus-visible { outline: 2px solid var(--ob-focus-ring); outline-offset: 0; }
+html body[data-skin="obsidian"] .deck.jc .lb-file-top { display: flex; justify-content: space-between; gap: 8px; width: 100%; font-size: 13px; }
+html body[data-skin="obsidian"] .deck.jc .lb-file-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html body[data-skin="obsidian"] .deck.jc .lb-file-delta { flex: none; font: 11px var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .lb-file-bars { display: flex; gap: 2px; width: 100%; }
+html body[data-skin="obsidian"] .deck.jc .lb-file-bars i { height: 3px; border-radius: 1px; }
+html body[data-skin="obsidian"] .deck.jc .lb-file-bars .add { background: var(--ob-signal); }
+html body[data-skin="obsidian"] .deck.jc .lb-file-bars .del { background: var(--ob-alert); }
+html body[data-skin="obsidian"] .deck.jc .lb-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+html body[data-skin="obsidian"] .deck.jc .lb-todo { display: flex; gap: 10px; color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .lb-todo-mark { flex: none; width: 1ch; font-family: var(--mono); }
+html body[data-skin="obsidian"] .deck.jc .lb-todo.completed { color: var(--muted); text-decoration: line-through; }
+html body[data-skin="obsidian"] .deck.jc .lb-todo.in_progress { color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .lb-todo.in_progress .lb-todo-mark { color: var(--ob-arc); }
+html body[data-skin="obsidian"] .deck.jc .lb-ctxbar { display: flex; height: 6px; border-radius: 1px; overflow: hidden; background: var(--ob-hair); }
+html body[data-skin="obsidian"] .deck.jc .lb-seg { height: 100%; }
+html body[data-skin="obsidian"] .deck.jc .lb-seg.s0 { background: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .lb-seg.s1 { background: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .lb-seg.s2 { background: var(--ob-arc); }
+html body[data-skin="obsidian"] .deck.jc .lb-seg.s3 { background: var(--ob-brass); }
+html body[data-skin="obsidian"] .deck.jc .lb-ctxnames { font: 11px var(--mono); color: var(--muted); }
+
+/* ── 5. the composer: a contained field, its controls as chips inside it ── */
+html body[data-skin="obsidian"] .deck.jc .jc-dock { padding: 0 var(--lb-pad) 14px; }
+html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column { max-width: 900px; }
+html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column > :is(.jc-bg, .jc-todos, .jc-queue, .cs-goal, .cs-asides) { margin-left: calc(var(--lb-gut) + 16px); }
+html body[data-skin="obsidian"] .deck.jc .jc-statusline { display: none; }  /* (the mode chip's tooltip says it) */
+html body[data-skin="obsidian"] .deck.jc .jc-composer {
+  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 10px; border-radius: 14px;
+  background: var(--ob-surface); box-shadow: inset 0 0 0 1px var(--ob-hair-2); -webkit-backdrop-filter: none; backdrop-filter: none;
+  transition: box-shadow 140ms ease;
+}
+html body[data-skin="obsidian"] .deck.jc .jc-composer:focus-within { box-shadow: inset 0 0 0 1px var(--ob-arc), 0 0 0 3px rgba(var(--ob-arc-rgb), 0.14); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer.drag { box-shadow: inset 0 0 0 1px var(--ob-arc), 0 0 0 3px rgba(var(--ob-arc-rgb), 0.24); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer textarea { min-height: 24px; padding: 0 2px; font: 15px/1.5 var(--sans); color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer textarea::placeholder { color: var(--muted); }
+/* the files to send, as chips above the words */
+html body[data-skin="obsidian"] .deck.jc .jc-composer > .jc-attach { margin: 0; gap: 6px; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-file-chip { height: 28px; padding: 0 4px 0 8px; gap: 6px; border-radius: 8px; background: var(--ob-raised); box-shadow: none; font: 12.5px var(--sans); color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-file-chip small { color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-thumb-img { width: 44px; height: 44px; border-radius: 8px; box-shadow: 0 0 0 1px var(--ob-hair-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-file-chip .jc-chip-x { background: transparent; color: var(--muted); }
+/* the row: attach, mode, model, effort … mic, send */
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row { gap: 2px; margin: 0 -6px; font: 13px var(--sans); }
+/* left: attach · mode · model · effort (and a switch or two); right: what it's used · mic · send */
+html body[data-skin="obsidian"] .deck.jc #jc-plus { order: 1; }
+html body[data-skin="obsidian"] .deck.jc #jc-mode-btn { order: 2; }
+html body[data-skin="obsidian"] .deck.jc #jc-model { order: 3; }
+html body[data-skin="obsidian"] .deck.jc #jc-effort { order: 4; }
+html body[data-skin="obsidian"] .deck.jc :is(#jcx-cloud-switch, #jcx-iso-switch) { order: 5; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-spacer { order: 6; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(#cc-meta, #jc-ctx) { order: 7; }
+html body[data-skin="obsidian"] .deck.jc #jc-dictate { order: 8; }
+html body[data-skin="obsidian"] .deck.jc #jc-steer { order: 9; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(.jc-send, .lb-stop) { order: 10; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-pill {
+  height: 30px; padding: 0 8px; gap: 6px; border: 0; border-radius: 8px; background: transparent; box-shadow: none;
+  font: 13px var(--sans); color: var(--ink-2);
+}
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(.jc-pill, .jc-round):hover { background: var(--ob-raised); color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(.jc-pill, .jc-round, .jc-send):focus-visible { outline: 2px solid var(--ob-focus-ring); outline-offset: 1px; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-pill[aria-pressed="true"] { color: var(--ob-arc); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-pill:disabled { display: none; }  /* what can't be had here isn't offered */
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-round { width: 30px; height: 30px; border-radius: 8px; color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row .lb-ic { display: block; flex: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row :is(#jc-mode-label, #jc-effort-label, #jcx-cloud-switch > span, #jcx-iso-switch > span) { display: inline; }  /* (words, however narrow the pane) */
+html body[data-skin="obsidian"] .deck.jc #jc-plus > svg:not(.lb-ic) { display: none; }  /* a paper clip for the plus */
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row :is(#cc-meta, #jc-ctx) { font: 12px var(--sans); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row #jc-ctx { height: 30px; border-radius: 8px; }
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-send {
+  width: 32px; height: 32px; margin-left: 4px; border-radius: 16px; background: var(--ink); color: var(--bg); box-shadow: none;
+}
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-send:hover { background: var(--ink); opacity: 0.86; }
+/* while it works with nothing typed: a stop square where send was */
+html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .lb-stop {
+  width: 32px; height: 32px; margin-left: 4px; border-radius: 16px; background: var(--ink); color: var(--bg);
+}
+html body[data-skin="obsidian"] .deck.jc.lb-busy .jc-composer-row > .lb-stop { display: inline-flex; }
+html body[data-skin="obsidian"] .deck.jc.lb-busy .jc-composer-row > .jc-send { display: none; }
+html body[data-skin="obsidian"] .deck.jc .lb-stop .lb-ic { display: block; }
+/* the mode's words, on hover or focus of its chip */
+html body[data-skin="obsidian"] .deck.jc #jc-mode-btn { position: relative; }
+html body[data-skin="obsidian"] .deck.jc #jc-mode-btn > .lb-tip {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 7; width: max-content; max-width: 320px;
+  padding: 7px 10px; border-radius: 8px; background: var(--ob-raised); color: var(--ink); outline: 1px solid var(--ob-hair-2);
+  font: 12px/1.45 var(--sans); white-space: normal; text-align: left; pointer-events: none;
+  box-shadow: var(--ob-shadow);
+}
+html body[data-skin="obsidian"] .deck.jc #jc-mode-btn:is(:hover, :focus-visible) > .lb-tip:not(:empty) { display: block; }
+html body[data-skin="obsidian"] .deck.jc #jc-mode-btn[aria-expanded="true"] > .lb-tip { display: none; }
+/* ⏎ send · esc stop, under the field while it has the focus */
+html body[data-skin="obsidian"] .deck.jc .jc-composer:focus-within + .lb-hint { display: block; margin: 6px 0 0 2px; font: 12px var(--sans); color: var(--muted); }
+
+/* ── 6. the session index: by day, a glyph and a time on each row ── */
+html body[data-skin="obsidian"] .deck.jc .jc-side { top: 0; left: 0; bottom: 0; width: 256px; box-sizing: border-box; padding: 22px 10px 18px 22px; border-radius: 0; gap: 16px; }
+html body[data-skin="obsidian"] .deck.jc .jc-side.glass-panel::before { background: transparent; box-shadow: inset -1px 0 0 var(--ob-hair); -webkit-backdrop-filter: none; backdrop-filter: none; }
+body.in-app[data-skin="obsidian"] .deck.jc .jc-side { padding-top: 12px; }
+html body[data-skin="obsidian"] .deck.jc .jc-side-head h2 { font: 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-field { background: transparent; box-shadow: inset 0 -1px 0 var(--ob-hair-2); border-radius: 0; padding-left: 0; }
+html body[data-skin="obsidian"] .deck.jc .jc-project { padding: 6px 0; border-radius: 0; }
+html body[data-skin="obsidian"] .deck.jc .jc-pname { font-weight: 500; }
+html body[data-skin="obsidian"] .deck.jc .jc-sessions { margin: 0 0 8px; }
+html body[data-skin="obsidian"] .deck.jc .lb-day { display: flex; justify-content: space-between; padding: 10px 8px 6px 0; font: 11px var(--mono); letter-spacing: 0.14em; color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .lb-day[hidden] { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-sessions .jc-session {
+  grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 10px; align-items: baseline; padding: 8px 8px 8px 0;
+  border-radius: 0; box-shadow: inset 0 1px 0 var(--ob-hair);
+}
+html body[data-skin="obsidian"] .deck.jc .jc-sessions .jc-session:hover { background: var(--ob-hover); }
+html body[data-skin="obsidian"] .deck.jc .jc-session.past .jc-stitle, html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state="done"] .jc-stitle { color: var(--ink-2); }
+html body[data-skin="obsidian"] .deck.jc .jc-session[aria-current="true"] .jc-stitle { color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .jc-session .jc-stitle { font-size: 13.5px; }
+html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state] > small:not(.lb-when) { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-session .lb-when { grid-column: 3; grid-row: 1; font: 11px var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state="running"] .lb-when { color: var(--ob-arc); }
+html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state="needs"] .lb-when { color: var(--ob-brass-text); }
+html body[data-skin="obsidian"] .deck.jc .jc-sessions > li.cs-row:hover .lb-when { visibility: hidden; }  /* (the row's ⋯ there) */
+html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state] .cs-needs { display: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-session .jc-dot { justify-self: center; align-self: center; width: 5px; height: 5px; border-radius: 3px; background: transparent; box-shadow: inset 0 0 0 1px var(--muted); animation: none; }
+html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state="running"] .jc-dot { width: 7px; height: 7px; border-radius: 4px; background: var(--ob-arc); box-shadow: 0 0 8px rgba(var(--ob-arc-rgb), 0.6); }
+html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state="needs"] .jc-dot { width: 7px; height: 7px; border-radius: 0; background: var(--ob-brass); box-shadow: none; transform: rotate(45deg); }
+html body[data-skin="obsidian"] .deck.jc .jc-session[data-lb-state="failed"] .jc-dot { box-shadow: inset 0 0 0 1px var(--ob-alert); }
+html body[data-skin="obsidian"] .deck.jc .jc-glider { background: var(--ob-raised); box-shadow: none; border-radius: 6px; }
+html body[data-skin="obsidian"] .deck.jc .lb-pane { display: none; }
+
+/* folded, in split view: a 64px rail of the glyphs, L and R on the panes' */
+html body[data-skin="obsidian"] .deck.jc.sv-on .lb-fold { display: inline-flex; font: 13px var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc.sv-on .lb-fold[hidden] { display: none; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded:not(.side-hidden) { --sv-l: 64px; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-side { width: 64px; padding: 22px 0 18px; align-items: center; }
+body.in-app[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-side { padding-top: 44px; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-side-head { flex-direction: column; gap: 6px; padding: 0; min-height: 0; }
+body.in-app[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-side-head { padding-left: 0; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-side-head :is(h2, .jc-mark),
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-side > :is(.jc-field, .cs-filter, .cs-pinned, .jc-side-foot),
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded :is(.jc-project, .lb-day, .jc-glider, .jc-session > small, .jc-session.more, .jc-session.add, .cs-row-menu, .cs-badges) { display: none; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .lb-fold, html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded #jc-new { width: 40px; height: 40px; border-radius: 10px; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-projects-wrap { margin: 0; padding: 8px 0 0; border-top: 1px solid var(--ob-hair); width: 40px; overflow-x: hidden; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-sessions { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-sessions .jc-session:not(.add):not(.more) {
+  position: relative; width: 40px; height: 40px; padding: 0; display: grid; grid-template-columns: 1fr; place-items: center;
+  border-radius: 10px; box-shadow: none;
+}
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session .jc-stitle { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session:has(.lb-pane) { background: var(--ob-surface); box-shadow: 0 0 0 1px var(--ob-hair-2); }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session .lb-pane { display: block; position: absolute; right: 3px; bottom: 2px; font: 9px var(--mono); color: var(--ob-arc); }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session[data-lb-state="needs"] .lb-pane { color: var(--ob-brass-text); }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session[aria-current="true"] { box-shadow: 0 0 0 1px var(--ob-arc); }
+
+/* with the index a rail, the window's cards (approvals, notes) sit at the right, not over the left pane */
+html body[data-skin="obsidian"]:has(#cc.sv-on.lb-folded:not([hidden])) #cards { left: auto; right: 22px; bottom: 96px; }
+
+/* ── 8. split view: an arc rule on the focused pane, three dots for the divider, words ── */
+html body[data-skin="obsidian"] .deck.jc .sv-head {
+  height: 34px; margin: 0; padding: 0 8px 0 var(--lb-pad, 32px); border-radius: 0; background: transparent;
+  box-shadow: inset 0 -1px 0 var(--ob-hair); font: 11.5px var(--mono); color: var(--muted);
+}
+html body[data-skin="obsidian"] .deck.jc .sv-pane .sv-head { margin: 0; }
+html body[data-skin="obsidian"] .deck.jc .sv-head.sv-focused { background: transparent; color: var(--ink); box-shadow: inset 0 2px 0 var(--ob-arc), inset 0 -1px 0 var(--ob-hair); }
+html body[data-skin="obsidian"] .deck.jc .sv-head .sv-title { font-weight: 400; }
+html body[data-skin="obsidian"] .deck.jc .sv-head .sv-btn { width: auto; height: 28px; padding: 0 8px; border-radius: 7px; font: 11px var(--mono); color: var(--muted); }
+html body[data-skin="obsidian"] .deck.jc .sv-head .sv-btn:hover:not(:disabled) { background: var(--ob-raised); color: var(--ink); }
+html body[data-skin="obsidian"] .deck.jc .sv-head .sv-btn > svg { display: none; }
+html body[data-skin="obsidian"] .deck.jc .sv-head .sv-word { display: inline; }
+html body[data-skin="obsidian"] .deck.jc .sv-mark.needs { background: transparent; color: var(--ob-brass-text); box-shadow: inset 0 0 0 1px var(--ob-brass-line); }
+html body[data-skin="obsidian"] .deck.jc .sv-mark.new { background: transparent; color: var(--ob-arc); box-shadow: inset 0 0 0 1px rgba(var(--ob-arc-rgb), 0.4); }
+html body[data-skin="obsidian"] .deck.jc .sv-flip { background: transparent; box-shadow: inset 0 0 0 1px var(--ob-hair-2); font: 11px var(--mono); }
+html body[data-skin="obsidian"] .deck.jc .sv-divider::before { display: none; }
+html body[data-skin="obsidian"] .deck.jc .sv-divider::after {
+  width: 3px; height: 15px; margin: -7.5px 0 0 -1.5px; border-radius: 0;
+  background: radial-gradient(circle, var(--ob-hair-2) 1.4px, transparent 1.6px) 0 0 / 3px 6px repeat-y;
+}
+html body[data-skin="obsidian"] .deck.jc .sv-divider:hover::after, html body[data-skin="obsidian"] .deck.jc .sv-divider:focus-visible::after, html body[data-skin="obsidian"] .deck.jc.sv-dragging .sv-divider::after {
+  height: 15px; margin-top: -7.5px; background: radial-gradient(circle, var(--ob-arc) 1.4px, transparent 1.6px) 0 0 / 3px 6px repeat-y;
+}
+/* the drop zones while a session is dragged over */
+html body[data-skin="obsidian"] .deck.jc .sv-drop-half { border-color: var(--ob-hair-2); background: color-mix(in srgb, var(--bg) 70%, transparent); border-radius: 12px; }
+html body[data-skin="obsidian"] .deck.jc .sv-drop-half.on { border-color: var(--ob-arc); background: rgba(var(--ob-arc-rgb), 0.08); }
+html body[data-skin="obsidian"] .deck.jc .sv-drop-label { font: 11px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; background: var(--ob-surface); box-shadow: 0 0 0 1px var(--ob-hair-2); }
+
+/* ── a narrow pane (split view, a small window): a narrower gutter, smaller type ── */
+@container lbmain (max-width: 760px) {
+  html body[data-skin="obsidian"] .deck.jc .jc-main > * { --lb-gut: 44px; --lb-kind: 44px; --lb-pad: 20px; }
+  html body[data-skin="obsidian"] .deck.jc .jc-title { font-size: 19px; font-weight: 400; letter-spacing: -0.015em; }
+  html body[data-skin="obsidian"] .deck.jc .jc-toolbar { flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; }
+  html body[data-skin="obsidian"] .deck.jc .jc-titles { order: -1; flex: 1 0 100%; }  /* the title on its own line, the tools under it */
+  html body[data-skin="obsidian"] .deck.jc .jc-toolbar > #jc-side-toggle { order: 0; }
+  html body[data-skin="obsidian"] .deck.jc .jc-user-text { font-size: 17px; }
+  html body[data-skin="obsidian"] .deck.jc .lb-row :is(summary, .jc-agent-head) { gap: 0 12px; font-size: 12px; }
+  html body[data-skin="obsidian"] .deck.jc :is(.jc-user, .jc-say, .jc-working, .jc-log > .jc-ask) { column-gap: 12px; }
+}
+html body[data-skin="obsidian"].jc-split-pane .deck.jc .sv-head, html body[data-skin="obsidian"] .deck.jc .sv-pane .sv-head { padding-left: 20px; }
+
+@media (prefers-reduced-motion: reduce) {
+  html body[data-skin="obsidian"] .deck.jc :is(.lb-r.live, .jc-working .jc-spark, .jc-log > li.lb-flash) { animation: none; }
+  html body[data-skin="obsidian"] .deck.jc .jc-log > li.lb-flash { box-shadow: inset 2px 0 0 var(--ob-arc); }
+  html body[data-skin="obsidian"] .deck.jc .jc-composer { transition: none; }
+}

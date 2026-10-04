@@ -1,0 +1,32 @@
+{
+ "strings": {
+  "Show only this session": "只显示这个会话",
+  "Close this pane": "关闭这个窗格",
+  "Show the other pane": "显示另一个窗格",
+  "Drag to resize · double-click for half and half": "拖动调整大小 · 双击恢复左右各半",
+  "Resize the panes": "调整窗格大小",
+  "The session beside": "旁边的会话",
+  "Pick a session": "选择一个会话",
+  "No session open": "没有打开的会话",
+  "New reply": "有新回复",
+  "Open in split view": "在分屏中打开",
+  "Open here already": "已在这里打开",
+  "Beside, already": "已在旁边打开",
+  "Another session beside this one": "在旁边再开一个会话",
+  "Split view: open or close": "分屏：打开或关闭",
+  "Split view: another session beside this one · /split close": "分屏：在旁边再开一个会话 · /split close 关闭",
+  "Open a session here": "在这里打开一个会话",
+  "Open here": "在这里打开",
+  "Open beside": "在旁边打开",
+  "Show on the left": "在左边显示",
+  "Show on the right": "在右边显示",
+  "That session is open here already: pick another one to see beside it.": "这个会话已经在这里打开了：另选一个会话放在旁边。",
+  "The session beside has gone, so split view closed.": "旁边的会话已经不在了，所以分屏已关闭。",
+  "Split view is on: /split close closes it, /split swap swaps the sides.": "分屏已打开：/split close 关闭，/split swap 交换左右。",
+  "There’s no split view to close.": "没有可以关闭的分屏。",
+  "Swapping needs a session on each side.": "两边都有会话才能交换。"
+ },
+ "patterns": [
+  ["^No session matches “(.+)”\\.$", "没有与“$1”匹配的会话。"]
+ ]
+}

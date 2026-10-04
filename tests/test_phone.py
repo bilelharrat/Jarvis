@@ -843,3 +843,30 @@ def test_placeholder_credentials_in_the_real_keychain_count_as_none():
     keychain.set("AC" + "1a2b" * 8, "9f8e7d6c" * 4)
     assert keychain.get() == ("AC" + "1a2b" * 8, "9f8e7d6c" * 4)
     assert phone.placeholder("AC" + "0" * 32, "x") and not phone.placeholder("AC12ab", "9f8e")
+
+
+async def test_a_keychain_that_never_answers_never_holds_up_the_windows_next_click(
+    settings, quiet_speaker, isolated
+):
+    """Opening Settings asks for the phone's status, which reads the Keychain. Launched from
+    the app that read can hang for good (a permission macOS can't ask for there); it once
+    held every later command of the window, so no look, no switch, no setting took."""
+    import threading
+
+    from test_hub import make_hub
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    stuck = threading.Event()
+    hub.phone.status = lambda: (
+        stuck.wait(5),
+        {"signed_in": False, "sid_hint": "", "ready": False},
+    )[1]
+    try:
+        await asyncio.wait_for(hub.handle({"type": "phone_status"}), 1)
+        await asyncio.wait_for(
+            hub.handle({"type": "set_prefs", "changes": {"look": "obsidian"}}), 1
+        )
+        assert hub.prefs.look == "obsidian"
+    finally:
+        stuck.set()

@@ -81,6 +81,7 @@
     btw: [],  // side answers: { id, ref, question, state, text }
     defaultsBefore: null,  // the new-session settings at the last prefs event
     project: null,  // the project the composer's defaults were drawn for
+    rowItems: [],  // (id) -> an item more for a session's menu, or null (split view's)
   };
   F.codeSessions = S;  // the board (code-board.js) reads it
   const t = (text) => F.t(text);
@@ -117,7 +118,7 @@
   F.on('claude_projects', () => { if (settingsOpen('projects')) renderProjectsTab(); });
   F.on('code_project_added', (ev) => { openProjects.add(ev.name); selectProject(ev.name); toggleCC(true); });
 
-  function seeing(id) { return id === ccSelected && !$('cc').hidden && !document.hidden && !boardOpen(); }
+  function seeing(id) { return sessionOnScreen(id) && !$('cc').hidden && !document.hidden && !boardOpen(); }
   document.addEventListener('visibilitychange', () => refresh());
   function boardOpen() { return $('cc').classList.contains('cs-board-on'); }
   function forgetGone() {
@@ -228,7 +229,7 @@
       const meta = metaOf(id);
       const li = row.parentElement;
       li.classList.add('cs-row');
-      li.hidden = !rowShown(meta, S.filter, id === ccSelected);
+      li.hidden = !rowShown(meta, S.filter, id === ccSelected || sessionOnScreen(id));
       let badges = row.querySelector('.cs-badges');
       if (!badges) { badges = el('span', 'cs-badges'); row.append(badges); }
       const asks = needsYou(id).length;
@@ -314,14 +315,15 @@
   function renderPinned() {
     const items = ccTasks.filter((x) => metaOf(x.id).pinned && !metaOf(x.id).archived);
     pinned.hidden = !items.length;
-    const key = JSON.stringify([items.map((x) => [x.id, x.title || x.prompt, x.folder, statusOf(x), needsYou(x.id).length, S.unread.has(x.id)]), ccSelected]);
+    const marked = markedSession();  // the open session (split view: the focused pane's)
+    const key = JSON.stringify([items.map((x) => [x.id, x.title || x.prompt, x.folder, statusOf(x), needsYou(x.id).length, S.unread.has(x.id)]), marked]);
     if (pinned.dataset.key === key) return;
     pinned.dataset.key = key;
     const head = el('p', 'cs-pinned-head', 'Pinned');
     pinned.replaceChildren(head, ...items.map((x) => {
       const b = el('button', 'cs-pinned-row');
       b.type = 'button';
-      b.setAttribute('aria-current', String(x.id === ccSelected));
+      b.setAttribute('aria-current', String(x.id === marked));
       const named = x.title || x.prompt;  // the user's words; "New session" is the window's
       b.append(el('span', `jc-dot ${needsYou(x.id).length ? 'needs' : statusOf(x)}`), named ? mine(el('span', 'cs-pinned-title', named)) : el('span', 'cs-pinned-title', 'New session'), mine(el('small', '', x.folder)));
       b.addEventListener('click', () => F.selectTask(x.id));
@@ -334,7 +336,9 @@
     const meta = metaOf(id);
     const task = taskOf(id);
     const live = task && !['stopped', 'failed'].includes(task.status);
+    const more = S.rowItems.map((item) => { try { return item(id); } catch (err) { console.error('session menu item', err); return null; } }).filter(Boolean);
     openMenu(anchor, [
+      ...more, ...(more.length ? ['-'] : []),
       { label: meta.pinned ? 'Unpin' : 'Pin to the top', run: () => F.send({ type: 'code_meta_set', id, pinned: !meta.pinned }) },
       { label: 'Move to group', note: meta.group || '', sub: () => groupItems(id), subKind: 'groups' },
       { label: meta.archived ? 'Unarchive' : 'Archive', note: meta.archived ? '' : 'Hidden from the list; kept', run: () => F.send({ type: 'code_meta_set', id, archived: !meta.archived }) },
@@ -397,6 +401,9 @@
     return typed ? typed.trim() : null;
   }
   async function openFolder(root = false) {
+    // Split view's pane: the main window opens it (with the app's own picker).
+    const host = F.splitPane && window.parent.jarvisFeatures && window.parent.jarvisFeatures.codeSessions;
+    if (host && host.openFolder) return host.openFolder(root);
     const path = await pickFolder(root);
     if (path) F.send({ type: 'code_project_add', path, root });
   }

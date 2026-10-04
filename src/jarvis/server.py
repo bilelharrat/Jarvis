@@ -25,6 +25,7 @@ from starlette.websockets import WebSocket
 
 from . import packaged
 from .hub import Hub
+from .prefs import GLASS_TONES, LOOKS
 
 
 def end_children(grace: float = 1.0) -> int:
@@ -125,6 +126,22 @@ def feature_assets(web_dir: Path = WEB_DIR) -> dict[str, list[str]]:
     return found
 
 
+SKINS = ("glass", "obsidian")  # the orb's elements in another material (app.js applyLook)
+BODY = '<body data-state="idle" data-look="orb">'
+
+
+def body_look(html: str, look: str, glass_tone: str = "dark") -> str:
+    """The saved look on <body> from the first paint, so the window opens in the look the
+    owner chose instead of flashing the default until the socket says otherwise. app.js
+    reads it at once (the tone, which can follow the Mac's appearance) and keeps it after."""
+    if look not in LOOKS:
+        look = "orb"
+    if glass_tone not in GLASS_TONES:
+        glass_tone = "dark"
+    attrs = f'data-look="orb" data-skin="{look}"' if look in SKINS else f'data-look="{look}"'
+    return html.replace(BODY, f'<body data-state="idle" {attrs} data-glass-tone="{glass_tone}">', 1)
+
+
 def create_app(hub: Hub, token: str) -> Starlette:
     async def index(_request):
         # Stamp script and stylesheet links with a version so an update is never hidden by
@@ -132,6 +149,7 @@ def create_app(hub: Hub, token: str) -> Starlette:
         version = str(int(max(f.stat().st_mtime for f in WEB_DIR.iterdir() if f.is_file())))
         html = (WEB_DIR / "index.html").read_text()
         html = re.sub(r'(/static/[\w-]+\.(?:js|css))"', rf'\1?v={version}"', html)
+        html = body_look(html, hub.prefs.look, hub.prefs.glass_tone)
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     async def health(_request):

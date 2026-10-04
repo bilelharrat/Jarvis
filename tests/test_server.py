@@ -60,6 +60,36 @@ def test_window_modules_are_revalidated(client):
     assert client.get("/static/gestures.js").headers["cache-control"] == "no-cache"
 
 
+def test_the_page_opens_in_the_look_the_owner_chose(client):
+    """A look chosen in Settings is kept, and the next window (a reopened app) is drawn in
+    it from the first paint, not the default until the socket catches up."""
+    assert 'data-look="orb" data-glass-tone="dark"' in client.get("/").text  # the default
+    with client.websocket_connect(f"{WS}?token=s3cret", headers={"origin": BASE}) as ws:
+        assert ws.receive_json()["type"] == "hello"
+        ws.send_json({"type": "set_prefs", "changes": {"look": "obsidian"}})
+        while ws.receive_json()["type"] != "prefs":
+            pass
+    assert 'data-look="orb" data-skin="obsidian"' in client.get("/").text
+    with client.websocket_connect(f"{WS}?token=s3cret", headers={"origin": BASE}) as ws:
+        assert ws.receive_json()["prefs"]["look"] == "obsidian"
+        ws.send_json({"type": "set_prefs", "changes": {"look": "console"}})
+        while ws.receive_json()["type"] != "prefs":
+            pass
+    assert (
+        '<body data-state="idle" data-look="console" data-glass-tone="dark">'
+        in client.get("/").text
+    )
+
+
+def test_body_look_keeps_to_known_looks():
+    from jarvis.server import BODY, body_look
+
+    page = f"<html>{BODY}</html>"
+    assert 'data-skin="glass" data-glass-tone="auto"' in body_look(page, "glass", "auto")
+    assert body_look(page, "hud") == body_look(page, "orb")  # never an unknown one
+    assert 'data-glass-tone="dark"' in body_look(page, "glass", "<script>")
+
+
 def test_socket_needs_the_token(client):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect(f"{WS}?token=wrong", headers={"origin": BASE}) as ws:

@@ -1,0 +1,344 @@
+/* ═════════════ Obsidian ═════════════
+   A quiet instrument with one light source. The Ambient Orb's layout in another material
+   (the look sets data-look="orb" and data-skin="obsidian"): flat graphite instead of glass,
+   hairlines instead of rims, the four panels flanking the stage as plain cards. The orb
+   becomes the reactor (obsidian.js): a fine-ticked dial whose ticks follow your voice. Two
+   colours mean something and nothing else glows: arc blue is alive (listening, running,
+   focused), brass needs you. Type is Geist, with Geist Mono caps for labels and readings.
+   It follows the Mac's appearance: graphite at night, porcelain in the day
+   (data-tone="light", set by app.js). Every colour is a token below, the reactor's too. */
+
+html body[data-skin="obsidian"] {
+  --bg: #0a0b0d;
+  --ink: #edeef0;
+  --ink-2: #a7abb3;
+  --muted: #7d828c;
+  --line: rgba(255, 255, 255, 0.08);
+  --card: #111215;
+  --chip-hover: #16181c;
+  --action: #8fd8ff;
+  --action-ink: #06121f;
+  --warn: #e3b76a;
+  --gold: #e3b76a;
+  --sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --serif: var(--sans);
+  --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --orb-glow: transparent;
+  --ob-surface: #111215;
+  --ob-raised: #16181c;
+  --ob-hover: rgba(255, 255, 255, 0.025);
+  --ob-hair: rgba(255, 255, 255, 0.07);
+  --ob-hair-2: rgba(255, 255, 255, 0.12);
+  --ob-field-line: rgba(255, 255, 255, 0.09);
+  --ob-reply: #d9dbdf;
+  --ob-arc: #8fd8ff;
+  --ob-arc-rgb: 143, 216, 255;   /* the reactor's ticks, rings and glow */
+  --ob-ring-rgb: 255, 255, 255;  /* the reactor's faint rims */
+  --ob-core: #f4fbff;            /* the reactor's bright point */
+  --ob-focus-ring: rgba(143, 216, 255, 0.45);
+  --ob-brass: #e3b76a;
+  --ob-brass-text: #e3b76a;
+  --ob-brass-ink: #1a1308;
+  --ob-brass-surface: #15130f;
+  --ob-brass-line: rgba(227, 183, 106, 0.38);
+  --ob-signal: #7ed6a0;
+  --ob-alert: #ff8a7a;
+  --ob-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.9);
+  --ob-tooltip: #16181c;
+  --panel-glass: var(--ob-surface);
+  --panel-edge: transparent;
+  --panel-line: var(--ob-hair);
+  --panel-shadow: none;
+  --panel-inset: rgba(255, 255, 255, 0.03);
+  color-scheme: dark;
+  background: var(--bg);
+  background-image: none;
+  font-family: var(--sans);
+}
+
+/* ── porcelain: the same instrument when the Mac is in light mode ── */
+html body[data-skin="obsidian"][data-tone="light"] {
+  --bg: #f4f5f7;
+  --ink: #111317;
+  --ink-2: #4a4f57;
+  --muted: #646a73;
+  --line: rgba(10, 12, 16, 0.1);
+  --card: #ffffff;
+  --chip-hover: #eceef2;
+  --action: #0a6cb3;
+  --action-ink: #ffffff;
+  --warn: #8a5d10;
+  --gold: #8a5d10;
+  --ob-surface: #ffffff;
+  --ob-raised: #eceef2;
+  --ob-hover: rgba(10, 12, 16, 0.025);
+  --ob-hair: rgba(10, 12, 16, 0.08);
+  --ob-hair-2: rgba(10, 12, 16, 0.14);
+  --ob-field-line: rgba(10, 12, 16, 0.12);
+  --ob-reply: #2a2e35;
+  --ob-arc: #0a6cb3;
+  --ob-arc-rgb: 10, 108, 179;
+  --ob-ring-rgb: 10, 12, 16;
+  --ob-core: #0a3d6b;
+  --ob-focus-ring: rgba(10, 108, 179, 0.45);
+  --ob-brass: #e3b76a;
+  --ob-brass-text: #8a5d10;
+  --ob-brass-ink: #1a1308;
+  --ob-brass-surface: #fbf4e6;
+  --ob-brass-line: rgba(176, 124, 36, 0.4);
+  --ob-signal: #1f8a4c;
+  --ob-alert: #c8281e;
+  --ob-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 22px 50px -26px rgba(16, 24, 40, 0.25);
+  --ob-tooltip: #111317;
+  --panel-inset: rgba(10, 12, 16, 0.03);
+  color-scheme: light;
+}
+
+/* The markets' colours, whatever the Mac's own appearance says to the default look. */
+html body[data-skin="obsidian"] .up .mk-pct { color: var(--ob-signal); }
+html body[data-skin="obsidian"] .down .mk-pct { color: var(--ob-alert); }
+html body[data-skin="obsidian"] .mk-spark.up polyline { stroke: var(--ob-signal); }
+html body[data-skin="obsidian"] .mk-spark.down polyline { stroke: var(--ob-alert); }
+
+/* ── the bar: a spaced mono wordmark, a quiet status, the readings in mono ── */
+html body[data-skin="obsidian"] .brand { gap: 18px; }
+html body[data-skin="obsidian"] .wordmark {
+  font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0.32em; text-transform: uppercase;
+}
+html body[data-skin="obsidian"] .online-pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+html body[data-skin="obsidian"] .online-pill i { width: 6px; height: 6px; border-radius: 3px; background: var(--ob-signal); }
+html body[data-skin="obsidian"] .meta { gap: 14px; font-size: 13px; color: var(--ink-2); }
+html body[data-skin="obsidian"] #clock,
+html body[data-skin="obsidian"] #battery { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+html body[data-skin="obsidian"] .chip-sm,
+html body[data-skin="obsidian"] .icon-btn { background: transparent; border-color: var(--ob-hair-2); border-radius: 10px; color: var(--ink-2); }
+html body[data-skin="obsidian"] .chip-sm:hover,
+html body[data-skin="obsidian"] .icon-btn:hover { background: var(--ob-raised); color: var(--ink); }
+html body[data-skin="obsidian"] .hf { color: var(--ob-arc); }
+html body[data-skin="obsidian"] .hf .dot { background: var(--ob-arc); }
+
+/* ── the panels: the orb's two flanking columns, as plain cards with a hairline edge ── */
+html body[data-skin="obsidian"] .side .panel {
+  background: var(--ob-surface); border: 1px solid var(--ob-hair); border-radius: 16px;
+  box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+html body[data-skin="obsidian"] .side .panel:hover { border-color: var(--ob-hair-2); }
+html body[data-skin="obsidian"] .side .panel h2 {
+  font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--muted);
+}
+html body[data-skin="obsidian"] .side .panel h2 .wx-more,
+html body[data-skin="obsidian"] .side .panel h2 .mk-open {
+  font-family: var(--sans); font-size: 11.5px; letter-spacing: 0; text-transform: none; color: var(--ink-2);
+}
+html body[data-skin="obsidian"] .mk-status { background: transparent; padding: 0; font-family: var(--mono); font-weight: 400; color: var(--muted); }
+html body[data-skin="obsidian"] .side .meter span { color: var(--ink-2); }
+html body[data-skin="obsidian"] .side .meter b,
+html body[data-skin="obsidian"] .side .kv-grid b { font-family: var(--mono); font-weight: 400; font-size: 13px; color: var(--ink); }
+html body[data-skin="obsidian"] .side .panel .meter i { height: 2px; background: var(--ob-hair); }
+html body[data-skin="obsidian"] .side .meter em { background: var(--ink-2); }
+html body[data-skin="obsidian"] .side .panel .kv-grid > div,
+html body[data-skin="obsidian"] .side .panel .weather-body .kv-grid > div {
+  background: var(--panel-inset); border: 1px solid var(--ob-hair); border-radius: 10px;
+}
+html body[data-skin="obsidian"] .side .kv-grid small { color: var(--muted); letter-spacing: 0.02em; }
+html body[data-skin="obsidian"] #p-weather .weather-now b {
+  font-family: var(--sans); font-weight: 300; letter-spacing: -0.02em; color: var(--ink);
+}
+html body[data-skin="obsidian"] .weather-now span { color: var(--ink-2); }
+html body[data-skin="obsidian"] .muted { color: var(--muted); }
+
+/* ── the stage: the reactor first, then what it's doing, the greeting, the reply and the box ── */
+html body[data-skin="obsidian"] .stage { --stage-gap: 18px; }
+html body[data-skin="obsidian"] .orb { order: 1; width: clamp(180px, 31vh, 280px); margin: 34px 0 30px; }
+html body[data-skin="obsidian"] .state-line {
+  order: 2; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+}
+html body[data-skin="obsidian"]:not([data-state="idle"]) .state-line { color: var(--ob-arc); }
+html body[data-skin="obsidian"] h1 {
+  order: 3; font-family: var(--sans); font-weight: 300; font-size: clamp(30px, 4.6vh, 42px);
+  letter-spacing: -0.02em; line-height: 1.1; font-variation-settings: normal;
+}
+html body[data-skin="obsidian"] #next-event { order: 4; margin: -8px 0 0; font-size: 15px; color: var(--ink-2); }
+html body[data-skin="obsidian"] .caption { order: 5; }
+html body[data-skin="obsidian"] .heard { font-size: 15px; color: var(--ink-2); }
+html body[data-skin="obsidian"] .reply { font-family: var(--sans); font-size: 17px; line-height: 1.6; color: var(--ob-reply); }
+html body[data-skin="obsidian"] .ask { order: 6; width: min(560px, 100%); }
+html body[data-skin="obsidian"] .ask-queue { order: 7; }
+html body[data-skin="obsidian"] .chips { order: 8; gap: 2px 4px; }
+html body[data-skin="obsidian"] .console-actions { order: 9; }
+
+html body[data-skin="obsidian"] .ask input,
+html body[data-skin="obsidian"] .ask input:hover {
+  height: 52px; padding: 0 20px; border-radius: 16px; text-align: left;
+  background: var(--ob-surface); border: 1px solid var(--ob-field-line); box-shadow: none;
+}
+html body[data-skin="obsidian"] .ask input:hover { border-color: var(--ob-hair-2); }
+html body[data-skin="obsidian"] .ask input:focus { background: var(--ob-surface); border-color: var(--ob-focus-ring); }
+html body[data-skin="obsidian"] .chip {
+  min-height: 36px; padding: 0 14px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--ink-2); font-size: 14px; box-shadow: none;
+}
+html body[data-skin="obsidian"] .chip:hover { background: var(--ob-raised); color: var(--ink); }
+html body[data-skin="obsidian"] .source {
+  min-height: 32px; border-radius: 8px; border-color: var(--ob-field-line); background: transparent; color: var(--ink-2); font-size: 12.5px;
+}
+html body[data-skin="obsidian"] .source:hover { background: var(--ob-raised); color: var(--ink); }
+
+/* The reactor replaces the orb's sphere, sheen, halo and bezel. Its ticks reach past the
+   orb's box, so the canvas does too. */
+html body[data-skin="obsidian"] .orb-core,
+html body[data-skin="obsidian"] .orb-sheen,
+html body[data-skin="obsidian"] .bezel { display: none; }
+.ob-reactor { display: none; }
+html body[data-skin="obsidian"] .ob-reactor {
+  display: block; position: absolute; inset: -18%; width: 136%; height: 136%; pointer-events: none;
+  transition: filter 300ms ease;
+}
+html body[data-skin="obsidian"] .orb:hover .ob-reactor { filter: brightness(1.15); }
+html body[data-skin="obsidian"][data-tone="light"] .orb:hover .ob-reactor { filter: brightness(0.9); }
+
+/* ── the dock: plain glyphs, no tiles; open or on lights the dot in arc ── */
+html body[data-skin="obsidian"] .pills.dock { gap: 4px; }
+html body[data-skin="obsidian"] .pill.dock-app {
+  --glyph: var(--ink-2);
+  width: 40px; height: 40px; border-radius: 10px;
+  background: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html body[data-skin="obsidian"] .pill.dock-app svg { width: 19px; height: 19px; }
+html body[data-skin="obsidian"] .pill.dock-app:hover { transform: none; background: var(--ob-raised); color: var(--ink); }
+html body[data-skin="obsidian"] .pill.dock-app[aria-expanded="true"],
+html body[data-skin="obsidian"] .pill.dock-app[aria-pressed="true"] { color: var(--ink); }
+html body[data-skin="obsidian"] .dock-app[aria-expanded="true"]::after,
+html body[data-skin="obsidian"] .dock-app[aria-pressed="true"]::after { bottom: -5px; background: var(--ob-arc); }
+html body[data-skin="obsidian"] .dock-app .app-name {
+  background: var(--ob-tooltip); color: #f4f5f7; border: 1px solid var(--ob-hair-2);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html body[data-skin="obsidian"] .app-badge {
+  background: var(--ob-arc); color: var(--action-ink); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html body[data-skin="obsidian"] .dock-sep { background: var(--ob-hair); }
+html body[data-skin="obsidian"] .hint { font-size: 12.5px; color: var(--muted); }
+html body[data-skin="obsidian"] kbd {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  border-color: var(--ob-hair-2); border-radius: 6px; padding: 2px 7px; background: transparent;
+}
+
+/* ── surfaces: flat, a hairline edge, a deep soft shadow; no glass ── */
+html body[data-skin="obsidian"] .card,
+html body[data-skin="obsidian"] .drawer,
+html body[data-skin="obsidian"] .meeting-pill,
+html body[data-skin="obsidian"] .popover,
+html body[data-skin="obsidian"] .convo-pop,
+html body[data-skin="obsidian"] .mem-pop,
+html body[data-skin="obsidian"] .ops-pop,
+html body[data-skin="obsidian"] .wiki-pop,
+html body[data-skin="obsidian"] .intro-pop,
+html body[data-skin="obsidian"] .offline {
+  background: var(--ob-surface); border: 1px solid var(--ob-hair-2); color: var(--ink);
+  -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: var(--ob-shadow);
+}
+html body[data-skin="obsidian"] .card { border-radius: 16px; }
+html body[data-skin="obsidian"] .card-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--muted); }
+html body[data-skin="obsidian"] .card-title { font-family: var(--sans); font-size: 18px; font-weight: 500; letter-spacing: -0.01em; }
+html body[data-skin="obsidian"] .card pre { background: var(--bg); font-family: var(--mono); border: 1px solid var(--ob-hair); }
+html body[data-skin="obsidian"] .btn { border-radius: 12px; border-color: var(--ob-hair-2); }
+html body[data-skin="obsidian"] .btn:hover { background: var(--ob-raised); }
+html body[data-skin="obsidian"] .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 500; }
+html body[data-skin="obsidian"] .btn.primary:hover { filter: brightness(1.1); background: var(--ink); }
+
+/* what needs you is brass: the card, its label and its yes */
+html body[data-skin="obsidian"] .card.needs-ok { background: var(--ob-brass-surface); border-color: var(--ob-brass-line); }
+html body[data-skin="obsidian"] .card.needs-ok .card-kicker { color: var(--ob-brass-text); }
+html body[data-skin="obsidian"] .card.needs-ok .btn.primary { background: var(--ob-brass); border-color: var(--ob-brass); color: var(--ob-brass-ink); font-weight: 600; }
+html body[data-skin="obsidian"] .card.needs-ok .btn.primary:hover { filter: brightness(1.06); }
+
+html body[data-skin="obsidian"] .group h3 { font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: 0.14em; color: var(--muted); }
+
+/* ── at night: Settings, menus, Jarvis Code and the browser in the same graphite. In the
+   day the app's own light material already fits, so only the dark set is replaced. ── */
+html body[data-skin="obsidian"]:not([data-tone="light"]) .sheet {
+  --s-card: rgba(255, 255, 255, 0.035);
+  --s-line: rgba(255, 255, 255, 0.08);
+  --s-track: rgba(255, 255, 255, 0.06);
+  --s-switch: #2a2d33;
+  --s-seg: #23262c;
+  --s-seg-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --s-input: rgba(255, 255, 255, 0.04);
+  --s-tile: rgba(255, 255, 255, 0.035);
+  --s-tile-hover: rgba(255, 255, 255, 0.07);
+  --s-green: #7ed6a0;
+  --s-red: #ff8a7a;
+  --s-rim: inset 0 0 0 0 transparent;
+  --s-fill: #0e0f12;
+  --s-sheen: none;
+  --s-blur: none;
+  --s-shadow: -1px 0 0 rgba(255, 255, 255, 0.06), -30px 0 80px -24px rgba(0, 0, 0, 0.85);
+  background: var(--s-fill);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border-left: 1px solid var(--s-line);
+  box-shadow: var(--s-shadow);
+  color: var(--ink);
+}
+html body[data-skin="obsidian"][data-tone="light"] .sheet {
+  --s-fill: #fbfbfc;
+  --s-sheen: none;
+  --s-blur: none;
+  background: var(--s-fill);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  color: var(--ink);
+}
+html body[data-skin="obsidian"]:not([data-tone="light"]) .model-menu {
+  --mm-fill: rgba(22, 24, 28, 0.97);
+  --mm-line: rgba(255, 255, 255, 0.12);
+  --mm-ink: #edeef0;
+  --mm-muted: #7d828c;
+  --mm-sep: rgba(255, 255, 255, 0.08);
+}
+
+/* Jarvis Code and the browser. Filled buttons keep white text, so their blue is deeper;
+   the arc is for text, rings and glows. */
+html body[data-skin="obsidian"] .deck.jc,
+html body[data-skin="obsidian"] .browser-dock {
+  --wash: none;
+  --sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+html body[data-skin="obsidian"]:not([data-tone="light"]) .deck.jc,
+html body[data-skin="obsidian"]:not([data-tone="light"]) .browser-dock {
+  --c-canvas: 10 11 13; --c-surface: 17 18 21; --c-surface-muted: 20 21 25; --c-raised: 26 28 33;
+  --c-border: 38 40 46; --c-border-strong: 56 59 66;
+  --c-ink: 237 238 240; --c-ink-2: 167 171 179; --c-muted: 125 130 140; --c-subtle: 96 100 108;
+  --c-fill: 40 42 48; --c-fill-2: 32 34 39; --c-fill-3: 26 28 33;
+  --c-accent: 31 127 192; --c-accent-hover: 52 146 208; --c-accent-soft: 18 38 52; --c-accent-ink: 143 216 255; --c-glow: 143 216 255;
+  --c-success: 126 214 160; --c-success-soft: 16 40 28; --c-success-ink: 160 230 186;
+  --c-danger: 255 138 122; --c-danger-soft: 52 22 20; --c-danger-ink: 255 180 170;
+  --c-warning: 227 183 106; --c-warning-soft: 42 33 18; --c-warning-ink: 236 204 146;
+  --glass-fill: rgba(255, 255, 255, 0.035); --glass-fill-strong: #16181c; --glass-pill: rgba(255, 255, 255, 0.08);
+  --glass-rim: inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --glass-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+  --glass-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8);
+  --shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+  --shadow-sheet: 0 0 0 0.5px rgba(255, 255, 255, 0.09), 0 32px 80px -16px rgba(0, 0, 0, 0.8);
+  --shadow-control: 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+  --clear-fill: rgba(255, 255, 255, 0.03);
+  --clear-rim: inset 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+  --menu-fill: rgba(22, 24, 28, 0.97);
+  --pill-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.6);
+}
+html body[data-skin="obsidian"] .deck.jc::before { background: rgb(var(--c-canvas)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* Jarvis Code's mark is the reactor's core: a fine ring of arc around a bright point. */
+html body[data-skin="obsidian"] .jc-mark,
+html body[data-skin="obsidian"] .jc-hero-mark {
+  background: radial-gradient(circle closest-side, var(--ob-core) 0 16%, rgba(var(--ob-arc-rgb), 0.1) 19% 100%);
+  box-shadow: inset 0 0 0 1.5px var(--ob-arc), 0 0 12px rgba(var(--ob-arc-rgb), 0.3);
+}
+html body[data-skin="obsidian"] .jc-hero-mark {
+  box-shadow: inset 0 0 0 1.5px var(--ob-arc), 0 0 0 10px rgba(var(--ob-arc-rgb), 0.05), 0 0 30px rgba(var(--ob-arc-rgb), 0.28);
+}
+
+@media (max-height: 620px) {
+  html body[data-skin="obsidian"] .orb { width: clamp(90px, 18vh, 160px); margin: 20px 0 16px; }
+}

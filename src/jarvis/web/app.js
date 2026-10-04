@@ -8,6 +8,23 @@ const token = new URLSearchParams(location.search).get('token') || '';
 const app = window.jarvisApp || null;
 if (app) document.body.classList.add('in-app');
 
+// Split view's right pane (features/code-split.js): this window again, in a frame of the main
+// one (?pane=code), showing one Jarvis Code session. What a window does for the hub (the
+// built-in browser, PDFs, location, page checks, notifications, the second brain) stays the
+// main window's: the pane drops the hub's asks for it and never answers one, and what's risky
+// is checked by the main window (its Touch ID).
+const inSplitPane = window.parent !== window && new URLSearchParams(location.search).get('pane') === 'code';
+if (inSplitPane) document.body.classList.add('jc-split-pane');
+const SPLIT_PANE_SKIPS = new Set([
+  'browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture',
+  'code_voice_point', 'code_voice_file', 'show_session', 'ui', 'alert', 'desktop_hands', 'remote_code',
+  'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed', 'sources', 'note', 'level',
+]);
+const SPLIT_PANE_QUIET = new Set([
+  'capabilities', 'browser_result', 'research_result', 'pdf_result', 'location_fix', 'cv_page_result',
+  'dm_render_result', 'vp_result', 'code_voice_pointed', 'code_voice_hand', 'galaxy',
+]);
+
 const STATE_LINES = {
   idle: 'Tap the orb or press ⌥ Space',
   listening: 'Listening…',
@@ -38,7 +55,12 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}`);
   ws.onopen = () => { retry = 0; $('offline').hidden = true; };
-  ws.onmessage = (e) => { const ev = JSON.parse(e.data); onEvent(ev); featureEvent(ev); };
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (inSplitPane && ev && SPLIT_PANE_SKIPS.has(ev.type)) return;  // the main window's
+    onEvent(ev);
+    featureEvent(ev);
+  };
   ws.onclose = (e) => {
     $('offline').hidden = false;
     if (e.code === 1009) notice('Jarvis', '', 'A message was too big for the connection and didn’t go.', 8000);
@@ -52,6 +74,7 @@ const MAX_FRAME = 60 * 1024 * 1024;
 // True once the message is on its way. False when there's no connection yet (a restart,
 // the half second of a reconnect) or it's too big to send: the caller keeps the draft.
 function send(msg) {
+  if (inSplitPane && msg && SPLIT_PANE_QUIET.has(msg.type)) return true;  // the main window answers
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   const text = JSON.stringify(msg);
   // Length counts UTF-16 units; UTF-8 needs up to three bytes for one, so measure only then.
@@ -95,6 +118,10 @@ function featureApproval(a, where, answer) {
 // sessions start in it), 'approve' (info: {approval, choice}).
 const featureChecks = [];
 function featureCheck(kind, info) {
+  // Split view's pane: the main window checks (with its Touch ID), never this one on its own.
+  if (inSplitPane) {
+    try { return window.parent.jarvisFeatures.check(kind, info); } catch (err) { console.error('split pane check', err); }
+  }
   for (const check of featureChecks) {
     try {
       const found = check(kind, info);
@@ -149,6 +176,14 @@ window.jarvisFeatures = {
   registerTab(fn) { featureTabs.push(fn); if (browserState.tabs) { tabsShown = ''; renderTabs(browserState.tabs); } },
   registerBookmarks(render) { featureBookmarks = render; },
   unregisterSlash(name) { featureSlash.delete(String(name).toLowerCase()); },
+  // Split view (features/code-split.js): whether this window is its right pane; the split
+  // while it shows (see jcSplit), or null; the window's own pane, whatever has the focus; and
+  // what the pane asks of the window it's in (its checks, its folder picker).
+  splitPane: inSplitPane,
+  registerSplit(view) { jcSplit = view || null; renderProjects(deckProjects); },
+  selectHere: (id) => selectTask(id, true),
+  check: (kind, info) => featureCheck(kind, info),
+  pickFolder: (question) => pickFolderPath(question),
 };
 
 function onEvent(ev) {
@@ -170,7 +205,6 @@ function onEvent(ev) {
       renderStatus(ev.status || {});
       activity = ev.activity || [];
       renderActivity();
-      renderLog();
       renderTasks(ev.tasks || []);
       renderCC(ev.tasks || []);
       renderPrefs(ev.prefs);
@@ -192,7 +226,6 @@ function onEvent(ev) {
       renderHistory();
       if (ev.vitals) renderVitals(ev.vitals);
       if (ev.usage) renderUsage(ev.usage);
-      if (ev.defense) renderDefense(ev.defense);
       renderWeather(ev.weather);
       renderMarkets(ev.markets);
       $('v-accounts').textContent = (ev.accounts || []).length;
@@ -314,7 +347,6 @@ function onEvent(ev) {
     case 'ui': applyUi(ev); break;
     case 'desktop_hands': onDesktopHands(ev); break;
     case 'phone_status': onPhoneStatus(ev); break;
-    case 'defense': renderDefense(ev); break;
     case 'ask_queue': renderAskQueue(ev.items || []); break;
     case 'task_bash': onBang(ev); break;
     case 'task_memory': onMemory(ev); break;
@@ -363,10 +395,7 @@ function setState(next) {
   if (next !== 'listening') document.documentElement.style.setProperty('--level', 0);
   let line = STATE_LINES[next] || '';
   const look = document.body.dataset.look;
-  if (look === 'hud') line = { idle: 'Awaiting command…', listening: 'Listening…', transcribing: 'Processing…', thinking: 'Computing…', speaking: 'Responding…' }[next] || line;
   if (look === 'console') line = { idle: prefs && prefs.hands_free ? '● Listening for wake word…' : '● Ready', listening: '● Listening…', transcribing: '● Transcribing…', thinking: '● Thinking…', speaking: '● Speaking…' }[next] || line;
-  $('core-text').innerHTML = '';
-  $('core-text').append(...({ idle: ['Core', 'active'], listening: ['Voice', 'input'], transcribing: ['Parsing', 'input'], thinking: ['Core', 'computing'], speaking: ['Core', 'output'] }[next] || ['Core', 'active']).flatMap((w, i) => (i ? [el('br'), document.createTextNode(w)] : [document.createTextNode(w)])));
   if (next === 'thinking' && runningTools > 0) line = 'Working on it…';
   if (next === 'idle' && prefs && prefs.hands_free && (!look || look === 'orb')) line = 'Say “Jarvis”, or tap the orb';
   $('state-line').textContent = line;
@@ -460,7 +489,7 @@ document.addEventListener('keydown', (e) => {
 
 if (app) app.onSummon(() => { if (state === 'idle') send({ type: 'listen' }); });
 // ⌥⇧Space: with Jarvis Code open on a session, what's in front goes to that session.
-function whatsThisMessage() { return { type: 'whats_this', session: !$('cc').hidden && ccSelected ? ccSelected : 0 }; }
+function whatsThisMessage() { return { type: 'whats_this', session: !$('cc').hidden && markedSession() ? markedSession() : 0 }; }
 if (app && app.onWhatsThis) app.onWhatsThis(() => send(whatsThisMessage()));
 
 // ── sources & the galaxy ──
@@ -589,7 +618,7 @@ let handsModule = null;
 let handsOn = false;
 let handHover = null;
 let handPoint = { x: 0, y: 0 };
-const LOOK_ORDER = ['orb', 'hud', 'console', 'glass'];
+const LOOK_ORDER = ['orb', 'obsidian', 'console', 'glass'];
 const HAND_HELP = {
   page: '✋ aim · pinch to open · pinch and move to scroll · swipe right for back · two-hand pinch to zoom · hold a fist to close',
   galaxy: '☝ point · pinch a star to open it · pinch and move to spin · two-hand pinch to zoom · open palm to reset · fist to close',
@@ -755,7 +784,6 @@ window.addEventListener('resize', () => galaxy.running && galaxy.resize());
 
 function tickClock() {
   const now = new Date();
-  $('hud-clock').textContent = now.toLocaleTimeString(uiLocale(), { hour12: false });
   $('console-clock').textContent = `${now.toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit', second: '2-digit' })}  |  ${now.toLocaleDateString(uiLocale(), { month: 'long', day: 'numeric', year: 'numeric' })}`;
   $('clock').textContent = now.toLocaleString(uiLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
   const h = now.getHours();
@@ -782,8 +810,6 @@ function renderStatus(status) {
 function setMuted(value) {
   muted = !!value;
   setSwitch('sw-voice', !muted);
-  $('t-voice').setAttribute('aria-pressed', String(!muted));
-  $('h-voice').textContent = muted ? 'Muted' : 'Online';
 }
 
 // ── settings ──
@@ -793,7 +819,8 @@ function setSwitch(id, on) {
 }
 
 // The orb flanks itself with two columns: stats and weather on the left, markets and
-// session on the right. The dashboards keep all four on the left.
+// session on the right (Obsidian keeps the same two columns, as plain cards). The Command
+// Center keeps all four on the left.
 function placePanels(look) {
   const left = document.querySelector('.side.left');
   const right = document.querySelector('.side.right');
@@ -808,19 +835,28 @@ function placePanels(look) {
 }
 placePanels(document.body.dataset.look);
 
-// Stark Glass is the Ambient Orb's layout in another material: the orb's rules apply
-// (data-look="orb"), and stark-glass.css dresses it (data-skin="glass"), at night or in
-// white (data-tone="light"); "auto" follows the Mac's appearance as it changes.
+// Stark Glass and Obsidian are the Ambient Orb's elements in other materials: the orb's
+// rules apply (data-look="orb"), and stark-glass.css or obsidian.css dresses them
+// (data-skin). Glass comes at night or in white (data-tone="light"); "auto" follows the
+// Mac's appearance as it changes. Obsidian always follows the Mac: graphite or porcelain.
+const SKINS = ['glass', 'obsidian'];
 const macLight = window.matchMedia('(prefers-color-scheme: light)');
+function lookIsLight(skin, tone) {
+  if (skin === 'obsidian') return macLight.matches;
+  return skin === 'glass' && (tone === 'light' || (tone === 'auto' && macLight.matches));
+}
 function applyLook(look, tone = 'dark') {
-  const glass = look === 'glass';
-  document.body.dataset.look = glass ? 'orb' : look;
-  if (glass) document.body.dataset.skin = 'glass';
+  const skin = SKINS.includes(look) ? look : '';
+  document.body.dataset.look = skin ? 'orb' : look;
+  if (skin) document.body.dataset.skin = skin;
   else delete document.body.dataset.skin;
-  if (glass && (tone === 'light' || (tone === 'auto' && macLight.matches))) document.body.dataset.tone = 'light';
+  if (lookIsLight(skin, tone)) document.body.dataset.tone = 'light';
   else delete document.body.dataset.tone;
 }
 macLight.addEventListener('change', () => { if (prefs) applyLook(prefs.look || 'orb', prefs.glass_tone); });
+// The page arrives in the saved look (server.body_look): its tone too, before the socket
+// opens, so a window never flashes the default look on its way to the chosen one.
+applyLook(document.body.dataset.skin || document.body.dataset.look || 'orb', document.body.dataset.glassTone || 'dark');
 
 function renderPrefs(p) {
   if (!p) return;
@@ -833,7 +869,6 @@ function renderPrefs(p) {
   document.querySelectorAll('#lang-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.lang === (p.language || 'en'))));
   if (window.jarvisI18n) window.jarvisI18n.setLang(p.language || 'en');
   if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';
-  $('t-handsfree').setAttribute('aria-pressed', String(!!p.hands_free));
   const modelName = (p.models || []).find((m) => m.id === p.model);
   if (modelName) $('v-model').textContent = modelName.name;
   const persona = (p.personas || []).find((x) => x.id === p.persona);
@@ -1481,51 +1516,22 @@ $('custom-form').addEventListener('submit', (e) => {
   $('custom-form').reset();
 });
 
-// ── dashboards (Stark HUD, Command Center) ──
+// ── the panels (and the Command Center's conversation) ──
 
 let history = [];
 
 function bar(id, pct) { $(id).style.width = `${Math.max(0, Math.min(100, pct))}%`; }
 
-// The HUD's Defense panel: the Mac's real shields and link.
-function rate(bytes) {
-  if (!(bytes >= 0)) return '–';
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB/s`;
-  if (bytes >= 1e3) return `${Math.round(bytes / 1e3)} KB/s`;
-  return `${Math.round(bytes)} B/s`;
-}
-
-function renderDefense(d) {
-  const shields = d.shields || [];
-  const up = shields.filter((x) => x.on).length;
-  $('df-score').textContent = shields.length ? `${up}/${shields.length} up` : '–';
-  const link = d.link || {};
-  $('df-kind').textContent = link.name ? `${link.kind} · ${link.name}` : (link.kind || 'Link');
-  $('df-addr').textContent = link.address || '';
-  $('df-ping').textContent = d.latency == null ? 'no route' : `${Math.round(d.latency)} ms`;
-  $('df-ping').classList.toggle('bad', d.latency == null || d.latency > 150);
-  $('df-shields').replaceChildren(...shields.map((x) => {
-    const li = el('li', x.on ? 'on' : x.on === false ? 'off' : 'unknown');
-    li.title = x.detail;
-    li.append(el('b', '', x.name), el('span', '', x.on ? 'On' : x.on === false ? 'Off' : '?'));
-    return li;
-  }));
-}
-
 function renderVitals(v) {
-  if (v.net) { $('df-down').textContent = rate(v.net.down); $('df-up').textContent = rate(v.net.up); }
   $('v-cpu').textContent = `${v.cpu}%`; bar('bar-cpu', v.cpu);
   $('v-mem').textContent = `${v.mem_used} / ${v.mem_total} GB`; bar('bar-mem', v.mem_pct);
   $('v-disk').textContent = `${v.disk_pct}%`; bar('bar-disk', v.disk_pct);
   if (v.battery) {
     $('v-batt').textContent = `${v.battery.percent}%${v.battery.plugged ? ' ⚡' : ''}`; bar('bar-batt', v.battery.percent);
-    $('h-power').textContent = `${v.battery.percent}%`; bar('h-power-bar', v.battery.percent);
   }
   const h = Math.floor(v.uptime / 3600), m = Math.floor((v.uptime % 3600) / 60), sec = v.uptime % 60;
   $('v-uptime').textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   $('v-commands').textContent = v.commands;
-  const busy = v.cpu > 85 || v.mem_pct > 92;
-  $('sys-status').textContent = busy ? 'Under load' : 'Optimal';
 }
 
 let lastWeather = null;  // what the card shows, for its pop-out
@@ -2289,15 +2295,6 @@ function renderHistory() {
   list.scrollTop = list.scrollHeight;
 }
 
-function renderLog() {
-  $('rt-log').replaceChildren(...activity.slice(0, 30).map((a) => {
-    const li = el('li', a.status === 'failed' ? 'failed' : '');
-    li.append(el('time', '', `[${clockText(a.at, 'hms24')}]`),
-      document.createTextNode(`${a.label.toUpperCase()}${a.status === 'running' ? ' …' : a.status === 'failed' ? ' — FAILED' : ''}`));
-    return li;
-  }));
-}
-
 document.querySelectorAll('#look-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ look: b.dataset.look })));
 document.querySelectorAll('#tone-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ glass_tone: b.dataset.tone })));
 document.querySelectorAll('#lang-group button').forEach((b) => b.addEventListener('click', () => setPrefs({ language: b.dataset.lang })));
@@ -2361,17 +2358,6 @@ function applyUi(ev) {
   }
 }
 $('chat-form').addEventListener('submit', (e) => { e.preventDefault(); askFromBox($('chat-input')); });
-$('term-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const cmd = $('term-input').value.trim().replace(/^jarvis\s+(--ask\s+)?/i, '');
-  if (!cmd && !askPics.length) return;
-  $('term-input').value = cmd;
-  if (askFromBox($('term-input'))) $('term-out').textContent = `Running: ${cmd || tr('Take a look at this.')}`;
-});
-$('t-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
-$('t-voice').addEventListener('click', () => send({ type: 'mute', value: !muted }));
-$('t-brain').addEventListener('click', () => setGalaxyMode('open'));
-$('t-stop').addEventListener('click', () => send({ type: 'stop' }));
 $('c-mic').addEventListener('click', talkOrStop);
 $('c-keys').addEventListener('click', () => $('chat-input').focus());
 
@@ -2446,7 +2432,16 @@ let awaitingNewSession = false;
 const pendingApprovals = new Map();
 const MODE_NAMES = { plan: 'Plan', ask: 'Manual', edits: 'Accept edits', smart: 'Auto', auto: 'Bypass permissions' };
 
+// Split view (features/code-split.js) shows a second session beside the open one. While it
+// shows, it says where a session asked for goes (take(id): true when the pane beside took it,
+// so a click in the sidebar opens in the pane with the focus), which session the sidebar marks
+// (the focused pane's) and whether a session is on screen (shows(id)).
+let jcSplit = null;  // { take(id), marked(), shows(id) } while a split shows
+function markedSession() { return jcSplit ? jcSplit.marked() : ccSelected; }
+function sessionOnScreen(id) { return jcSplit ? jcSplit.shows(id) : id === ccSelected; }
+
 function toggleCC(open) {
+  if (inSplitPane && !open) return;  // the split's pane closes from the main window
   $('cc').hidden = !open;
   $('cc-btn').setAttribute('aria-expanded', String(open));
   if (open) {
@@ -2455,7 +2450,7 @@ function toggleCC(open) {
     if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }
     requestAnimationFrame(() => { moveGlider(); });
     if (currentPane) renderPaneBody();
-    setTimeout(() => $('deck-input').focus(), 40);
+    setTimeout(() => { if (!inSplitPane || document.hasFocus()) $('deck-input').focus(); }, 40);
   } else {
     closeMenu();
     if (currentPane === 'sim') closeSimPanel();
@@ -2476,7 +2471,7 @@ function setSide(open) {
 $('jc-side-toggle').addEventListener('click', () => setSide($('cc').classList.contains('side-hidden')));
 try { if (localStorage.getItem('jc.side') === 'closed') setSide(false); } catch (_) { /* private mode */ }
 document.addEventListener('keydown', (e) => {
-  if (!$('cc').hidden && e.metaKey && e.key === '\\') { e.preventDefault(); setSide($('cc').classList.contains('side-hidden')); }
+  if (!$('cc').hidden && e.metaKey && !e.shiftKey && !e.altKey && e.key === '\\') { e.preventDefault(); setSide($('cc').classList.contains('side-hidden')); }  // (⌘⇧\: split view's; ⌥⌘\: Logbook's margin)
 });
 $('cc-close').addEventListener('click', () => toggleCC(false));
 
@@ -2488,7 +2483,8 @@ function renderProjects(items) {
   deckProjects = items || [];
   if (!deckProject && deckProjects.length) { selectProject((deckProjects.find((p) => p.running) || deckProjects[0]).name); return; }
   const filter = $('deck-filter').value.trim().toLowerCase();
-  const shown = [filter, deckProject, ccSelected, voiceFocus && voiceFocus.id, [...openProjects], deckProjects.map((p) => [p.name, p.branch]),
+  const marked = markedSession();  // the open session's row (split view: the focused pane's)
+  const shown = [filter, deckProject, ccSelected, marked, voiceFocus && voiceFocus.id, [...openProjects], deckProjects.map((p) => [p.name, p.branch]),
     ccTasks.map((t) => [t.id, t.folder, t.title || t.prompt, statusOf(t), statusText(t), t.mode, t.session_id]),
     codeHistory.map((h) => [h.session_id, h.folder, h.title, h.modified]), [...showAllPast], new Date().toDateString()];
   if (!changed('projects', shown)) { moveGlider(); return; }
@@ -2514,7 +2510,7 @@ function renderProjects(items) {
         row.type = 'button';
         row.dataset.task = t.id;
         row.dataset.key = `t:${t.id}`;
-        row.setAttribute('aria-current', String(t.id === ccSelected));
+        row.setAttribute('aria-current', String(t.id === marked));
         const title = t.title || t.prompt ? mine(el('span', 'jc-stitle', t.title || t.prompt)) : el('span', 'jc-stitle', 'New session');
         if (voiceFocus && voiceFocus.id === t.id) { const r = el('span', 'jc-mini-reactor'); r.title = 'Voice coding'; title.append(r); }
         row.append(el('span', `jc-dot ${statusOf(t)}`), title, el('small', '', `${statusText(t)} · ${MODE_NAMES[t.mode] || t.mode}`));
@@ -2802,7 +2798,9 @@ $('jc-title').addEventListener('blur', () => {
   if (t && title && title !== (t.title || t.prompt)) send({ type: 'task_rename', id: t.id, title });
 });
 
-function selectTask(id) {
+// here: in this window's own pane, wherever a split has the focus.
+function selectTask(id, here = false) {
+  if (!here && jcSplit && jcSplit.take(id)) return;
   const previous = ccSelected;
   ccSelected = id;
   featureEvent({ type: 'jc_select', id, previous });  // (the composer still holds previous's draft)
@@ -2817,7 +2815,7 @@ function selectTask(id) {
   send({ type: 'task_context', id });
   renderCC(ccTasks);
   if (currentPane) renderPaneBody();
-  $('deck-input').focus();
+  if (!inSplitPane || document.hasFocus()) $('deck-input').focus();  // (split view's pane: only while it has the focus)
 }
 
 function newSession(voice) {
@@ -3661,7 +3659,7 @@ function fileKind(file) {
   if (file.type.startsWith('text/') || TEXT_TYPES.includes(file.type) || TEXT_FILE.test(file.name) || /^(Makefile|Dockerfile|Gemfile|Procfile|LICENSE|README)$/i.test(file.name)) return 'text';
   return '';
 }
-function jcNote(text) { notice('Jarvis Code', '', text, 6000); }
+function jcNote(text) { notice('Jarvis Code', '', text, 6000).classList.add('jc-notecard'); }  // (split view's pane shows only these cards)
 function sizeText(n) { return n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`; }
 
 // Files picked and still being read: they count against the limits like attached ones
@@ -4297,6 +4295,7 @@ $('ep-range').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.pr
 // ── + : files, folders, slash commands, connectors, plugins ──
 
 async function pickFolderPath(question) {
+  if (inSplitPane) { try { return await window.parent.jarvisFeatures.pickFolder(question); } catch (_) { /* its own way */ } }  // the app's picker
   if (app && app.pickFolder) return app.pickFolder();
   const typed = prompt(tr(question));
   return typed ? typed.trim() : null;
@@ -4374,6 +4373,9 @@ $('jc-dictate').addEventListener('click', () => {
   $('deck-input').focus();
 });
 function onDictation(ev) {
+  // The hub tells every window, the split view's other pane too: the words go only to the
+  // composer whose mic took them.
+  if (!dictating) return;
   dictating = false;
   renderComposer();
   const text = String(ev.text || '').trim();
@@ -6045,7 +6047,7 @@ let picsOrder = 0;  // pictures read at once keep the order they were dropped in
 
 function requestBox() {
   const look = document.body.dataset.look;
-  return $(look === 'console' ? 'chat-input' : look === 'hud' ? 'term-input' : 'ask-input');
+  return $(look === 'console' ? 'chat-input' : 'ask-input');
 }
 
 function addPictures(files) {
@@ -6103,7 +6105,7 @@ function setAskPics(list) {
   }
 }
 
-for (const id of ['ask-input', 'chat-input', 'term-input']) {
+for (const id of ['ask-input', 'chat-input']) {
   $(id).addEventListener('paste', (e) => {
     const files = [...(e.clipboardData ? e.clipboardData.files : [])].filter(isPicture);
     if (!files.length) return;
@@ -6352,7 +6354,7 @@ $('chip-meeting').addEventListener('click', () => send({ type: 'meeting_start', 
 function onTaskFinished(ev) {
   if (ev.id === ccSelected) send({ type: 'task_context', id: ev.id });
   // The session on screen shows its own end of turn: a card would only cover its Changes pane.
-  if (ev.task_kind === 'code' && ev.id === ccSelected && !$('cc').hidden) return;
+  if (ev.task_kind === 'code' && sessionOnScreen(ev.id) && !$('cc').hidden) return;
   const title = { done: ev.task_kind === 'research' ? 'Report ready' : 'Finished', stopped: 'Stopped', failed: 'Didn’t finish' }[ev.status] || ev.status;
   let extra = null;
   if (ev.report_path) {
@@ -6365,7 +6367,7 @@ function onTaskFinished(ev) {
 
 // ── activity drawer ──
 
-const ACTIVITY_MAX = 200;  // the hub keeps 60, the drawer shows 40, the HUD log 30
+const ACTIVITY_MAX = 200;  // the hub keeps 60, the drawer shows 40
 let activityFrame = 0;
 
 function onTool(ev) {
@@ -6377,7 +6379,7 @@ function onTool(ev) {
   }
   runningTools = activity.filter((a) => a.status === 'running').length;
   if (state === 'thinking') setState('thinking');
-  if (!activityFrame) activityFrame = requestAnimationFrame(() => { activityFrame = 0; renderLog(); renderActivity(); });
+  if (!activityFrame) activityFrame = requestAnimationFrame(() => { activityFrame = 0; renderActivity(); });
 }
 
 function renderActivity() {

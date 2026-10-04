@@ -151,7 +151,7 @@ class NameCache:
     def __init__(self, read) -> None:
         self.read = read
         self.names: dict[str, str] = {}
-        self.at = 0.0
+        self.at = float("-inf")  # stale from the start: monotonic time counts from boot
         self.task: asyncio.Future | None = None
 
     async def get(self) -> dict[str, str]:

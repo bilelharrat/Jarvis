@@ -322,6 +322,45 @@ async def test_a_change_is_synced_a_few_seconds_later_by_the_loop(world, monkeyp
         await asyncio.gather(task, return_exceptions=True)
 
 
+def test_a_change_without_an_account_lets_the_loop_rest(tmp_path, monkeypatch):
+    """Not linked, a settings change still pokes the loop. The poke used to stay set, so its
+    wait ended at once without ever yielding: the loop spun on the event loop and starved
+    the app (no click in the window was heard after the first). Run on a loop of its own,
+    so a spin fails this test instead of hanging the suite."""
+    import threading
+
+    monkeypatch.setattr(account_sync, "LOOK_SECONDS", 60)
+    seen: dict = {}
+
+    async def scene():
+        world = World(tmp_path)  # never linked
+        seen["linked"] = world.account.linked
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                ticks += 1
+                await asyncio.sleep(0)
+
+        task = asyncio.create_task(world.sync.loop())
+        other = asyncio.create_task(ticker())
+        await asyncio.sleep(0.01)
+        world.sync.poke()
+        await asyncio.sleep(0.1)
+        seen.update(poked=world.sync._poked.is_set(), ticks=ticks, running=not task.done())
+        for t in (task, other):
+            t.cancel()
+        await asyncio.gather(task, other, return_exceptions=True)
+
+    runner = threading.Thread(target=lambda: asyncio.run(scene()), daemon=True)
+    runner.start()
+    runner.join(5)
+    assert not runner.is_alive(), "the sync loop spun and starved its event loop"
+    assert seen["linked"] is False and seen["running"]
+    assert not seen["poked"] and seen["ticks"] > 100  # heard, let go, and the loop stays free
+
+
 async def test_a_new_account_starts_sync_over(world, tmp_path):
     keycheck(world)
     world.memory.add("Ann Lee is my co-founder")

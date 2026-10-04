@@ -433,6 +433,9 @@ SLOW_COMMANDS = frozenset(
         "task_context", "task_undo", "voicecode_start", "voicecode_enter",
         "providers_check", "task_model", "slash_list", "delegation_continue", "files_clear",
         "phone_test", "phone_caller_name", "line_set", "line_book", "line_decline",
+        # Settings › Phone reads and writes the Keychain, which can hold a call indefinitely
+        # (a permission it can't ask for from the app): never ahead of the window's clicks.
+        "phone_status", "phone_credentials", "phone_forget",
     }
 )  # fmt: skip
 
@@ -4771,7 +4774,7 @@ class Hub:
                 )
 
     async def _instant_window(self, rid: str, text: str) -> bool:
-        """'Open Jarvis Code', 'close the browser', 'switch to the HUD': done at once."""
+        """'Open Jarvis Code', 'close the browser', 'switch to the Obsidian look': done at once."""
         command = lang.parse_ui(text, self.language)
         if command is None:
             return False

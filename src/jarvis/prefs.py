@@ -72,7 +72,8 @@ PERSONAS = {
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-LOOKS = ("orb", "hud", "console", "glass")
+LOOKS = ("orb", "obsidian", "console", "glass")
+RETIRED_LOOKS = {"hud": "obsidian"}  # Obsidian took the Stark HUD's place
 GLASS_TONES = ("dark", "light", "auto")  # Stark Glass at night, in white, or as the Mac is
 
 
@@ -209,6 +210,7 @@ def _clean(name: str, value: Any) -> Any:
     if name == "mic":
         return value if value in ("builtin", "default") else None
     if name == "look":
+        value = RETIRED_LOOKS.get(value, value) if isinstance(value, str) else value
         return value if value in LOOKS else None
     if name == "glass_tone":
         return value if value in GLASS_TONES else None
