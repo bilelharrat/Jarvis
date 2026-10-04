@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis · Mockup 05 · Workshop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg0:#0c0907; --bg1:#15100c;
+  --gold:#e2b259; --gold-hi:#f6d488;
+  --gold-2:rgba(226,178,89,.66); --gold-3:rgba(226,178,89,.34); --gold-4:rgba(226,178,89,.16); --gold-5:rgba(226,178,89,.08);
+  --red:#e0412f; --red-hi:#ff6b54; --red-3:rgba(224,65,47,.42);
+  --ink:#f3eadf; --ink-2:#c9baa8; --ink-3:#958676; --ink-4:#6a5e53;
+  --core:#d6f3ff;
+  --mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+  --disp:"Rajdhani", "Space Grotesk", sans-serif;
+  --sans:"Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  --edge:40px; --col:340px; --top:76px; --bot:76px; --rg:20px; --mid:168px; --pad:16px;
+  --S:min(540px, 60vh);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{overflow:hidden;background:var(--bg0);color:var(--ink);font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* ---------- atmosphere ---------- */
+.bg{position:fixed;inset:0;z-index:0;
+  background:
+    radial-gradient(ellipse 30% 36% at 50% 50%, rgba(224,65,47,.075), transparent 72%),
+    radial-gradient(ellipse 72% 78% at 50% 50%, #18120d 0%, var(--bg1) 42%, var(--bg0) 100%)}
+.bg::before{content:"";position:absolute;inset:0;
+  background-image:radial-gradient(rgba(226,178,89,.11) 1px, transparent 1.3px);
+  background-size:24px 24px;background-position:calc(50% + 12px) calc(50% + 12px);
+  -webkit-mask-image:radial-gradient(ellipse 52% 58% at 50% 50%, #000 0%, rgba(0,0,0,.35) 55%, transparent 90%);
+          mask-image:radial-gradient(ellipse 52% 58% at 50% 50%, #000 0%, rgba(0,0,0,.35) 55%, transparent 90%)}
+.fx{position:fixed;inset:0;pointer-events:none;z-index:50}
+.fx::before{content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(180deg, rgba(255,226,190,.022) 0 1px, transparent 1px 3px)}
+.fx::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(ellipse 78% 80% at 50% 50%, transparent 58%, rgba(0,0,0,.52) 100%)}
+
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.caps{font-family:var(--mono);text-transform:uppercase;letter-spacing:.18em}
+.brk{position:relative}
+.brk::before{content:"";position:absolute;inset:-1px;pointer-events:none;
+  --c:var(--gold-2); --s:10px;
+  background:
+    linear-gradient(var(--c) 0 0) left top / var(--s) 1px,
+    linear-gradient(var(--c) 0 0) left top / 1px var(--s),
+    linear-gradient(var(--c) 0 0) right top / var(--s) 1px,
+    linear-gradient(var(--c) 0 0) right top / 1px var(--s),
+    linear-gradient(var(--c) 0 0) left bottom / var(--s) 1px,
+    linear-gradient(var(--c) 0 0) left bottom / 1px var(--s),
+    linear-gradient(var(--c) 0 0) right bottom / var(--s) 1px,
+    linear-gradient(var(--c) 0 0) right bottom / 1px var(--s);
+  background-repeat:no-repeat}
+kbd{font:500 10.5px/1 var(--mono);color:var(--ink-2);border:1px solid var(--gold-4);
+  padding:4px 6px 3px;letter-spacing:.04em;background:rgba(226,178,89,.04)}
+
+/* ---------- top bar ---------- */
+.tb{position:absolute;left:var(--edge);right:var(--edge);top:0;height:var(--top);z-index:6;
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-name{font:600 21px/1 var(--disp);letter-spacing:.34em;color:var(--ink);padding-top:2px}
+.brand-sub{display:flex;align-items:center;gap:8px;font:500 9.5px/1 var(--mono);letter-spacing:.22em;
+  color:var(--gold-2);padding-left:14px;border-left:1px solid var(--gold-4);height:18px}
+.dot-core{width:6px;height:6px;border-radius:50%;background:var(--core);box-shadow:0 0 8px 1px rgba(214,243,255,.8)}
+.clock{justify-self:center;display:flex;align-items:baseline;gap:12px}
+.clock .d{font:500 10px/1 var(--mono);letter-spacing:.22em;color:var(--ink-3);text-transform:uppercase}
+.clock .t{font:600 24px/1 var(--disp);letter-spacing:.06em;color:var(--ink)}
+.clock .t small{font:500 10px var(--mono);letter-spacing:.14em;color:var(--ink-3);margin-left:4px}
+.status{justify-self:end;display:flex;align-items:center;gap:10px}
+.pill{white-space:nowrap;display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 11px;border:1px solid var(--gold-4);
+  font:500 12px/1 var(--sans);color:var(--ink-2);background:rgba(20,14,10,.5)}
+.pill svg{color:var(--gold-2)}
+.pill b{font-weight:500;color:var(--gold-hi)}
+.pill .sep{width:1px;height:12px;background:var(--gold-4)}
+.pill.mono{font:500 11px/1 var(--mono);letter-spacing:.06em}
+.lim{display:inline-flex;align-items:center;gap:7px}
+.lim .bar{width:34px;height:3px;background:rgba(226,178,89,.14);position:relative}
+.lim .bar i{position:absolute;left:0;top:0;bottom:0;width:31%;background:var(--gold)}
+
+/* ---------- stage ---------- */
+.stage{position:absolute;left:var(--edge);right:var(--edge);top:var(--top);bottom:var(--bot);
+  display:grid;grid-template-columns:var(--col) 1fr var(--col);grid-template-rows:1fr var(--mid) 1fr;row-gap:var(--rg)}
+.p-today{grid-area:1/1} .p-mkts{grid-area:1/3}
+.p-turn{grid-area:2/1}  .p-appr{grid-area:2/3}
+.p-code{grid-area:3/1}  .p-wx{grid-area:3/3}
+.core-col{grid-area:1/2/4/3;position:relative;z-index:2}
+
+/* plates */
+.plate{position:relative;z-index:4;display:flex;flex-direction:column;min-height:0;
+  padding:var(--pad) 18px;border:1px solid var(--gold-4);
+  background:
+    linear-gradient(118deg, rgba(255,214,150,.035), transparent 38%),
+    linear-gradient(180deg, rgba(37,26,18,.70), rgba(17,12,9,.62));
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  box-shadow:inset 0 1px 0 rgba(255,222,170,.05), 0 12px 32px rgba(0,0,0,.28)}
+.ph{position:relative;display:flex;align-items:center;gap:10px;flex:none;
+  height:30px;padding-bottom:9px;margin-bottom:6px;border-bottom:1px solid var(--gold-4);
+  font:500 10.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase}
+.ph::after{content:"";position:absolute;left:0;bottom:-1px;width:26px;height:1px;background:var(--gold)}
+.ph b{font-weight:600;color:var(--red-hi);letter-spacing:.06em}
+.ph span{color:var(--gold)}
+.ph em{margin-left:auto;font-style:normal;color:var(--ink-4);letter-spacing:.14em}
+
+/* today */
+.agenda{list-style:none;flex:1;display:flex;flex-direction:column;justify-content:space-between;min-height:0}
+.agenda li{position:relative;display:grid;grid-template-columns:54px 1fr;align-items:start;padding:6px 0}
+.agenda li + li{border-top:1px dashed rgba(226,178,89,.09)}
+.agenda time{font:500 12.5px/18px var(--mono);color:var(--gold)}
+.agenda time small{display:block;font-size:10px;line-height:15px;color:var(--ink-4)}
+.agenda strong{display:block;font:500 14px/18px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agenda .meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px;
+  font:400 12px/16px var(--sans);color:var(--ink-3)}
+.agenda li.next::before{content:"";position:absolute;left:-18px;top:9px;bottom:9px;width:2px;background:var(--red);
+  box-shadow:0 0 8px rgba(224,65,47,.6)}
+.agenda li.solo strong{line-height:18px}
+.flag{flex:none;font:600 9px/15px var(--mono);letter-spacing:.14em;text-transform:uppercase;padding:0 6px;border:1px solid}
+.flag.red{color:var(--red-hi);border-color:var(--red-3);background:rgba(224,65,47,.08)}
+.flag.gold{color:var(--gold-hi);border-color:var(--gold-3);background:rgba(226,178,89,.05)}
+
+/* markets */
+.mk{list-style:none;flex:1;display:flex;flex-direction:column;justify-content:space-between;padding-top:2px}
+.mk li{display:grid;grid-template-columns:1fr 76px 62px;align-items:center;gap:12px;height:28px;padding:0 8px;margin:0 -8px}
+.mk li.lead{background:linear-gradient(90deg, rgba(226,178,89,.10), rgba(226,178,89,0) 85%);box-shadow:inset 1px 0 0 var(--gold)}
+.mk .nm{font:500 13.5px/1 var(--sans);color:var(--ink);white-space:nowrap}
+.mk .tk{font:500 9.5px/1 var(--mono);color:var(--ink-4);letter-spacing:.1em;margin-left:7px}
+.mk .chg{font:500 12.5px/1 var(--mono);text-align:right}
+.up{color:var(--gold-hi)} .dn{color:var(--red-hi)}
+.spark{display:block;width:76px;height:20px;overflow:visible}
+
+/* this turn */
+.turn{list-style:none;flex:1;display:flex;flex-direction:column;justify-content:space-around}
+.turn li{display:grid;grid-template-columns:16px auto 1fr;align-items:center;gap:10px}
+.turn .ok{width:16px;height:16px;border:1px solid var(--gold-3);display:grid;place-items:center;color:var(--gold-hi)}
+.turn .fn{font:500 12px/1 var(--mono);color:var(--ink-2)}
+.turn .res{font:400 12px/1 var(--sans);color:var(--ink-3);text-align:right;white-space:nowrap}
+
+/* approval — the plate that lifts toward you */
+.plate.hot{border-color:rgba(246,212,136,.62);
+  background:
+    linear-gradient(118deg, rgba(255,214,150,.07), transparent 45%),
+    linear-gradient(180deg, rgba(52,36,22,.86), rgba(26,18,12,.82));
+  box-shadow:
+    inset 0 1px 0 rgba(255,228,170,.10),
+    0 0 0 1px rgba(226,178,89,.10),
+    0 0 34px rgba(226,178,89,.16),
+    0 22px 46px rgba(0,0,0,.6);
+  transform:translateX(-14px) scale(1.035);transform-origin:right center}
+.plate.hot::before{--c:var(--gold-hi);--s:14px}
+.plate.hot .ph{border-bottom-color:rgba(226,178,89,.26)}
+.plate.hot .ph span{color:var(--gold-hi)}
+.live{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red-hi);margin-right:8px;
+  box-shadow:0 0 0 3px rgba(224,65,47,.18);vertical-align:1px;animation:blink 1.8s ease-in-out infinite}
+.plate.hot .ph em{color:var(--red-hi)}
+.ap{flex:1;display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:center}
+.ap-ic{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--gold-3);color:var(--gold-hi);background:rgba(226,178,89,.06)}
+.ap strong{display:block;font:500 15px/20px var(--sans);color:var(--ink)}
+.ap q{display:block;font:400 13px/18px var(--sans);color:var(--ink-2);quotes:"\201C" "\201D"}
+.acts{display:flex;gap:8px;flex:none}
+.btn{height:30px;padding:0 14px;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--gold-3);
+  font:500 13px/1 var(--sans);color:var(--ink);background:rgba(226,178,89,.04)}
+.btn.primary{color:#1d1206;border-color:#f6d488;font-weight:600;
+  background:linear-gradient(180deg,#f4d488,#d9a447);box-shadow:0 0 18px rgba(226,178,89,.32), inset 0 1px 0 rgba(255,255,255,.35)}
+.btn.primary kbd{color:#3b2810;border-color:rgba(59,40,16,.35);background:rgba(255,255,255,.18);padding:3px 4px 2px;font-size:10px}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-3);padding:0 8px}
+.btn.sm{height:24px;padding:0 10px;font-size:12px}
+
+/* weather */
+.wx-main{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:16px;margin-top:10px}
+.wx-t{font:600 66px/.9 var(--disp);color:var(--ink);letter-spacing:-.01em;display:flex;align-items:flex-start}
+.wx-t sup{font:500 16px/1 var(--sans);color:var(--ink-3);margin:6px 0 0 2px}
+.wx-d strong{display:block;font:500 14px/20px var(--sans);color:var(--ink)}
+.wx-d span{display:block;font:400 12px/18px var(--sans);color:var(--ink-3)}
+.wx-ic{color:var(--gold-2)}
+.hrly{margin-top:auto}
+.hr-t,.hr-h{display:grid;grid-template-columns:repeat(6,1fr);text-align:center}
+.hr-t span{font:500 11px/1 var(--mono);color:var(--ink-2)} .hr-t .hi{color:var(--gold-hi)}
+.hr-h span{font:500 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-4);text-transform:uppercase}
+.hr-c{position:relative;height:46px;margin:10px 0}
+.hr-c svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.hr-c .fogb{position:absolute;left:0;top:0;bottom:0;width:25%;border-right:1px solid rgba(246,212,136,.6);
+  background:repeating-linear-gradient(135deg, rgba(201,186,168,.15) 0 2px, transparent 2px 6px)}
+.hr-c .fogb b{position:absolute;left:6px;top:5px;font:500 8.5px/1 var(--mono);letter-spacing:.18em;color:var(--ink-3)}
+.hr-c i{position:absolute;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:var(--bg1);border:1px solid var(--gold-hi)}
+.hr-c i.hi{background:var(--gold-hi);box-shadow:0 0 8px rgba(246,212,136,.7)}
+
+/* code */
+.sess{flex:1;display:flex;flex-direction:column;justify-content:center;gap:5px;min-height:0}
+.sess + .sess{border-top:1px dashed rgba(226,178,89,.10)}
+.s-top{display:flex;align-items:center;justify-content:space-between}
+.repo{font:500 11px/1 var(--mono);letter-spacing:.08em;color:var(--gold)}
+.st{display:inline-flex;align-items:center;gap:7px;font:500 9.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase}
+.st i{width:6px;height:6px;border-radius:50%}
+.st.work{color:var(--gold-hi)} .st.work i{background:var(--gold-hi);box-shadow:0 0 8px rgba(246,212,136,.8);animation:blink 1.4s ease-in-out infinite}
+.st.wait{color:var(--red-hi)} .st.wait i{background:var(--red-hi);box-shadow:0 0 8px rgba(255,107,84,.7)}
+.sess strong{font:500 14px/18px var(--sans);color:var(--ink)}
+.s-meta{display:flex;align-items:center;gap:10px;font:400 12px/16px var(--sans);color:var(--ink-3)}
+.s-meta .add{font:500 11.5px/1 var(--mono);color:var(--gold-hi)} .s-meta .del{font:500 11.5px/1 var(--mono);color:var(--red-hi)}
+.diff{display:flex;gap:2px;margin-left:auto}
+.diff i{width:7px;height:7px;background:var(--gold)} .diff i.r{background:var(--red)}
+.prog{height:2px;background:rgba(226,178,89,.12);position:relative;overflow:hidden;margin-top:3px}
+.prog i{position:absolute;top:0;bottom:0;left:0;width:38%;background:linear-gradient(90deg, transparent, var(--gold-hi), transparent);animation:sweep 2.6s ease-in-out infinite}
+.s-meta .btn{margin-left:auto}
+
+/* ---------- reactor ---------- */
+#reactor{position:absolute;left:50%;top:50%;width:var(--S);height:var(--S);transform:translate(-50%,-50%);overflow:visible;cursor:pointer}
+.spin{transform-box:fill-box;transform-origin:center}
+.s1{animation:spin 180s linear infinite}
+.s2{animation:spin 38s linear infinite reverse}
+.s3{animation:spin 64s linear infinite}
+.breath{animation:breath 5.2s ease-in-out infinite}
+.hu{font:500 13.5px var(--sans);letter-spacing:.02em;fill:var(--gold-hi)}
+.hu-k{font:600 9.5px var(--mono);letter-spacing:.26em;fill:var(--red-hi)}
+.hu-s{fill:rgba(226,178,89,.5)}
+.in-l{font:500 8.5px var(--mono);letter-spacing:.34em;fill:rgba(226,178,89,.62)}
+.in-l.ready{fill:#c4ecff}
+
+/* caption */
+.caption{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:min(668px, 100%);text-align:center;padding:12px 18px 0}
+.caption::before{content:"";position:absolute;left:12%;right:12%;top:0;height:1px;
+  background:linear-gradient(90deg, transparent, rgba(226,178,89,.35) 30%, rgba(226,178,89,.35) 70%, transparent)}
+.heard{font:400 14px/20px var(--sans);color:var(--ink-3);margin-bottom:6px;white-space:nowrap}
+.heard .lbl{font:500 9.5px/1 var(--mono);letter-spacing:.24em;color:var(--ink-4);text-transform:uppercase;margin-right:10px;vertical-align:1px}
+.reply{font:400 17.5px/1.5 var(--sans);color:var(--ink);text-shadow:0 0 22px rgba(246,212,136,.10);text-wrap:pretty}
+.reply b{font-weight:500;color:var(--gold-hi)}
+
+/* leaders */
+#leaders{position:fixed;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;overflow:visible}
+#leaders .ln{fill:none;stroke:rgba(226,178,89,.42);stroke-width:1}
+#leaders .ln.hot{stroke:rgba(246,212,136,.85);stroke-dasharray:3 4;animation:flow 1.1s linear infinite}
+#leaders .hot-glow{fill:none;stroke:rgba(246,212,136,.22);stroke-width:4;filter:blur(2px)}
+#leaders .nd{fill:var(--gold-hi)}
+#leaders .halo{fill:var(--bg1);stroke:rgba(226,178,89,.6);stroke-width:1}
+#leaders .port{fill:var(--bg1);stroke:var(--gold);stroke-width:1}
+#leaders .brg{font:500 9px var(--mono);letter-spacing:.12em;fill:rgba(226,178,89,.5)}
+#leaders .brg.hot{fill:var(--gold-hi)}
+
+/* ---------- bottom bar ---------- */
+.bb{position:absolute;left:var(--edge);right:var(--edge);bottom:0;height:var(--bot);z-index:6;
+  display:grid;grid-template-columns:var(--col) 1fr var(--col);align-items:center}
+.dock{display:flex;align-items:center;gap:8px}
+.dock button{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--gold-4);color:var(--gold-2);background:rgba(20,14,10,.5)}
+.dock .div{width:1px;height:20px;background:var(--gold-4);margin:0 4px}
+.ask{justify-self:center;width:min(480px, 100%);height:40px;display:flex;align-items:center;gap:12px;padding:0 8px 0 14px;
+  border:1px solid var(--gold-4);background:rgba(20,14,10,.6)}
+.ask svg{color:var(--gold);flex:none}
+.ask .phd{flex:1;font:400 14px/1 var(--sans);color:var(--ink-4)}
+.ask .hint{display:flex;align-items:center;gap:8px;font:400 12px/1 var(--sans);color:var(--ink-4)}
+.tele{justify-self:end;display:flex;align-items:center;gap:18px}
+.tm{display:flex;flex-direction:column;gap:5px}
+.tm .row{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.tm .k{font:500 9px/1 var(--mono);letter-spacing:.2em;color:var(--ink-4)}
+.tm .v{font:500 11.5px/1 var(--mono);color:var(--ink-2)}
+.tm .bar{width:56px;height:2px;background:rgba(226,178,89,.14);position:relative}
+.tm .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--gold-2)}
+.stamp{position:absolute;right:14px;bottom:7px;z-index:6;font:500 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-4);text-transform:uppercase}
+
+/* ---------- motion ---------- */
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes breath{0%,100%{opacity:1}50%{opacity:.72}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes flow{to{stroke-dashoffset:-14}}
+@keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(270%)}}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+}
+
+/* ---------- smaller windows ---------- */
+@media (max-width:1360px){ :root{--col:304px} }
+@media (max-height:860px){
+  :root{--top:62px;--bot:64px;--rg:14px;--mid:150px;--pad:13px;--S:min(540px, 56vh)}
+  .agenda li{padding:4px 0}
+  .wx-t{font-size:52px}
+  .reply{font-size:16px}
+  .heard{font-size:13px;margin-bottom:4px}
+  .ph{height:28px;padding-bottom:8px}
+}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+
+<!-- ======== top bar ======== -->
+<header class="tb">
+  <div class="brand">
+    <svg width="24" height="24" viewBox="-12 -12 24 24" aria-hidden="true">
+      <circle r="10.5" fill="none" stroke="#e2b259" stroke-width="1"/>
+      <circle r="7" fill="none" stroke="#e2b259" stroke-opacity=".55" stroke-width="2.4" pathLength="100" stroke-dasharray="8.4 1.6"/>
+      <circle r="3.2" fill="#d6f3ff"/>
+    </svg>
+    <span class="brand-name">JARVIS</span>
+    <span class="brand-sub"><i class="dot-core"></i>MK·VII · CORE ACTIVE</span>
+  </div>
+  <div class="clock"><span class="d">Fri · 03 Oct 2026</span><span class="t">08:42<small>AM</small></span></div>
+  <div class="status">
+    <span class="pill">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4.5" width="15" height="11" rx="1"/><path d="M3 5.5l7 5.5 7-5.5"/></svg>
+      4 new <span class="sep"></span><b>1 VIP · Ann Lee</b>
+    </span>
+    <span class="pill mono">Opus 5.5</span>
+    <span class="pill mono lim">5-hr <span class="bar"><i></i></span> 31%</span>
+  </div>
+</header>
+
+<svg id="leaders" aria-hidden="true"></svg>
+
+<!-- ======== orbit ======== -->
+<main class="stage">
+
+  <!-- 01 · Today (upper-left) -->
+  <article class="plate brk p-today" data-angle="160" data-ix="01">
+    <header class="ph"><b>01</b><span>Today</span><em>3 meetings</em></header>
+    <ol class="agenda">
+      <li class="next">
+        <time>10:00<small>11:00</small></time>
+        <div><strong>BSH Investment Committee</strong>
+          <div class="meta"><span>Office · 4 people</span><span class="flag red">Leave 9:35</span></div></div>
+      </li>
+      <li>
+        <time>12:30</time>
+        <div><strong>Lunch with Ann Lee</strong>
+          <div class="meta"><span>Zuni Café</span><span class="flag gold">12:45 pending</span></div></div>
+      </li>
+      <li>
+        <time>15:00</time>
+        <div><strong>Eden Messenger launch review</strong>
+          <div class="meta"><span>Zoom</span></div></div>
+      </li>
+      <li class="solo">
+        <time>17:30</time>
+        <div><strong>Gym</strong></div>
+      </li>
+    </ol>
+  </article>
+
+  <!-- 02 · Markets (upper-right) -->
+  <article class="plate brk p-mkts" data-angle="20" data-ix="02">
+    <header class="ph"><b>02</b><span>Markets</span><em>Premarket</em></header>
+    <ul class="mk">
+      <li><span class="nm">S&amp;P 500<span class="tk">ES</span></span>
+        <svg class="spark" viewBox="0 0 76 20"><line x1="0" y1="14" x2="76" y2="14" stroke="rgba(226,178,89,.22)" stroke-dasharray="2 3"/><path d="M0,14 7,13.5 14,14.5 21,13 28,12 35,12.5 42,11 49,10.5 56,11 63,9.5 70,8.5 76,8 L76,20 0,20Z" fill="rgba(246,212,136,.08)"/><polyline points="0,14 7,13.5 14,14.5 21,13 28,12 35,12.5 42,11 49,10.5 56,11 63,9.5 70,8.5 76,8" fill="none" stroke="#f6d488" stroke-width="1.3" stroke-linejoin="round"/><circle cx="76" cy="8" r="1.8" fill="#f6d488"/></svg>
+        <span class="chg up">+0.48%</span></li>
+      <li><span class="nm">Nasdaq 100<span class="tk">NQ</span></span>
+        <svg class="spark" viewBox="0 0 76 20"><line x1="0" y1="15" x2="76" y2="15" stroke="rgba(226,178,89,.22)" stroke-dasharray="2 3"/><path d="M0,15 7,14 14,14.5 21,12.5 28,13 35,11 42,11.5 49,9.5 56,9 63,8 70,7 76,6 L76,20 0,20Z" fill="rgba(246,212,136,.08)"/><polyline points="0,15 7,14 14,14.5 21,12.5 28,13 35,11 42,11.5 49,9.5 56,9 63,8 70,7 76,6" fill="none" stroke="#f6d488" stroke-width="1.3" stroke-linejoin="round"/><circle cx="76" cy="6" r="1.8" fill="#f6d488"/></svg>
+        <span class="chg up">+0.71%</span></li>
+      <li class="lead"><span class="nm">Nvidia<span class="tk">NVDA</span></span>
+        <svg class="spark" viewBox="0 0 76 20"><line x1="0" y1="17" x2="76" y2="17" stroke="rgba(226,178,89,.22)" stroke-dasharray="2 3"/><path d="M0,17 7,16 14,16.5 21,14 28,13 35,13.5 42,10 49,9 56,7.5 63,6 70,4.5 76,3 L76,20 0,20Z" fill="rgba(246,212,136,.12)"/><polyline points="0,17 7,16 14,16.5 21,14 28,13 35,13.5 42,10 49,9 56,7.5 63,6 70,4.5 76,3" fill="none" stroke="#f6d488" stroke-width="1.5" stroke-linejoin="round"/><circle cx="76" cy="3" r="2" fill="#f6d488"/></svg>
+        <span class="chg up">+2.10%</span></li>
+      <li><span class="nm">Apple<span class="tk">AAPL</span></span>
+        <svg class="spark" viewBox="0 0 76 20"><line x1="0" y1="9" x2="76" y2="9" stroke="rgba(224,65,47,.28)" stroke-dasharray="2 3"/><polyline points="0,9 7,9.5 14,8.5 21,10 28,10.5 35,10 42,11.5 49,12 56,11.5 63,12.5 70,13 76,13.5" fill="none" stroke="#ff6b54" stroke-width="1.3" stroke-linejoin="round"/><circle cx="76" cy="13.5" r="1.8" fill="#ff6b54"/></svg>
+        <span class="chg dn">−0.30%</span></li>
+      <li><span class="nm">Microsoft<span class="tk">MSFT</span></span>
+        <svg class="spark" viewBox="0 0 76 20"><line x1="0" y1="13" x2="76" y2="13" stroke="rgba(226,178,89,.22)" stroke-dasharray="2 3"/><path d="M0,13 7,13.5 14,12 21,12.5 28,11.5 35,12 42,10.5 49,11 56,10 63,10.5 70,9.5 76,9 L76,20 0,20Z" fill="rgba(246,212,136,.08)"/><polyline points="0,13 7,13.5 14,12 21,12.5 28,11.5 35,12 42,10.5 49,11 56,10 63,10.5 70,9.5 76,9" fill="none" stroke="#f6d488" stroke-width="1.3" stroke-linejoin="round"/><circle cx="76" cy="9" r="1.8" fill="#f6d488"/></svg>
+        <span class="chg up">+0.40%</span></li>
+      <li><span class="nm">Bitcoin<span class="tk">BTC</span></span>
+        <svg class="spark" viewBox="0 0 76 20"><line x1="0" y1="14" x2="76" y2="14" stroke="rgba(226,178,89,.22)" stroke-dasharray="2 3"/><path d="M0,14 7,12 14,13.5 21,11 28,12.5 35,10 42,11 49,8.5 56,9.5 63,7 70,8 76,6.5 L76,20 0,20Z" fill="rgba(246,212,136,.08)"/><polyline points="0,14 7,12 14,13.5 21,11 28,12.5 35,10 42,11 49,8.5 56,9.5 63,7 70,8 76,6.5" fill="none" stroke="#f6d488" stroke-width="1.3" stroke-linejoin="round"/><circle cx="76" cy="6.5" r="1.8" fill="#f6d488"/></svg>
+        <span class="chg up">+1.20%</span></li>
+    </ul>
+  </article>
+
+  <!-- 06 · This turn (left, 9 o'clock) -->
+  <article class="plate brk p-turn" data-angle="180" data-ix="06">
+    <header class="ph"><b>06</b><span>This turn</span><em>3 of 3 done</em></header>
+    <ul class="turn">
+      <li><span class="ok"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 5.2 4 7.5 8.5 2.5"/></svg></span><span class="fn">calendar.today</span><span class="res">3 meetings, gym</span></li>
+      <li><span class="ok"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 5.2 4 7.5 8.5 2.5"/></svg></span><span class="fn">maps.traffic</span><span class="res">101 heavy · 24 min</span></li>
+      <li><span class="ok"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 5.2 4 7.5 8.5 2.5"/></svg></span><span class="fn">markets.premarket</span><span class="res">6 symbols</span></li>
+    </ul>
+  </article>
+
+  <!-- 03 · Approval (right, 3 o'clock) — lifts toward the viewer -->
+  <article class="plate brk hot p-appr" data-angle="0" data-ix="03" data-hot>
+    <header class="ph"><b>03</b><span>Needs you</span><em><i class="live"></i>Approval</em></header>
+    <div class="ap">
+      <span class="ap-ic"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4.5" width="15" height="11" rx="1"/><path d="M3 5.5l7 5.5 7-5.5"/></svg></span>
+      <div><strong>Send email to Ann Lee</strong><q>Could we push lunch to 12:45?</q></div>
+    </div>
+    <div class="acts">
+      <button class="btn primary">Send <kbd>↩</kbd></button>
+      <button class="btn">Edit</button>
+      <button class="btn ghost">Not now</button>
+    </div>
+  </article>
+
+  <!-- 05 · Jarvis Code (lower-left) -->
+  <article class="plate brk p-code" data-angle="200" data-ix="05">
+    <header class="ph"><b>05</b><span>Jarvis Code</span><em>2 sessions</em></header>
+    <div class="sess">
+      <div class="s-top"><span class="repo">jarvis</span><span class="st work"><i></i>Working</span></div>
+      <strong>Hands-free wake timing</strong>
+      <div class="s-meta"><span>3 files changed</span><span class="add">+84</span><span class="del">−12</span>
+        <span class="diff"><i></i><i></i><i></i><i></i><i class="r"></i></span></div>
+      <div class="prog"><i></i></div>
+    </div>
+    <div class="sess">
+      <div class="s-top"><span class="repo">bsh-messenger</span><span class="st wait"><i></i>Needs review</span></div>
+      <strong>Push approvals</strong>
+      <div class="s-meta"><span>Waiting for your review</span><button class="btn sm">Review</button></div>
+    </div>
+  </article>
+
+  <!-- 04 · Weather (lower-right) -->
+  <article class="plate brk p-wx" data-angle="-20" data-ix="04">
+    <header class="ph"><b>04</b><span>Weather</span><em>San Francisco</em></header>
+    <div class="wx-main">
+      <div class="wx-t">61<sup>°F</sup></div>
+      <div class="wx-d"><strong>Fog clearing by 11</strong><span>High 72° · Low 56°</span></div>
+      <svg class="wx-ic" width="30" height="30" viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M14 10.5a5.5 5.5 0 0 1 10.6 2"/><path d="M19 3v2M26 6.5l-1.4 1.4M12.6 6.5 14 7.9"/>
+        <path d="M4 16.5h17M7 20.5h19M4 24.5h13" stroke="#c9baa8" stroke-opacity=".75"/>
+      </svg>
+    </div>
+    <div class="hrly">
+      <div class="hr-t"><span>61°</span><span>64°</span><span>69°</span><span class="hi">72°</span><span>68°</span><span>62°</span></div>
+      <div class="hr-c">
+        <span class="fogb"><b>FOG</b></span>
+        <svg viewBox="0 0 600 40" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M50,34 L150,27 L250,16 L350,9 L450,18 L550,32 L550,40 L50,40Z" fill="rgba(246,212,136,.08)"/>
+          <polyline points="50,34 150,27 250,16 350,9 450,18 550,32" fill="none" stroke="#f6d488" stroke-width="1.4" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+        </svg>
+        <i style="left:8.333%;top:34px"></i><i style="left:25%;top:27px"></i><i style="left:41.667%;top:16px"></i><i class="hi" style="left:58.333%;top:9px"></i><i style="left:75%;top:18px"></i><i style="left:91.667%;top:32px"></i>
+      </div>
+      <div class="hr-h"><span>Now</span><span>11a</span><span>1p</span><span>3p</span><span>5p</span><span>7p</span></div>
+    </div>
+  </article>
+
+  <!-- core -->
+  <div class="core-col">
+    <svg id="reactor" viewBox="-270 -270 540 540" role="button" aria-label="Jarvis core. Tap to talk.">
+      <defs>
+        <radialGradient id="gCore">
+          <stop offset="0" stop-color="#ffffff"/>
+          <stop offset=".34" stop-color="#f3fbff"/>
+          <stop offset=".62" stop-color="#d6f3ff"/>
+          <stop offset=".84" stop-color="#a6dbf7" stop-opacity=".5"/>
+          <stop offset="1" stop-color="#8fd0f5" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="gBloom">
+          <stop offset="0" stop-color="#d6f3ff" stop-opacity=".62"/>
+          <stop offset=".45" stop-color="#a8dcf7" stop-opacity=".18"/>
+          <stop offset="1" stop-color="#a8dcf7" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="gBlueRing" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="140">
+          <stop offset=".6" stop-color="#d6f3ff" stop-opacity="0"/>
+          <stop offset=".8" stop-color="#d6f3ff" stop-opacity=".6"/>
+          <stop offset=".95" stop-color="#d6f3ff" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="gCoil" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="134">
+          <stop offset=".687" stop-color="#3a2412"/>
+          <stop offset=".745" stop-color="#93602f"/>
+          <stop offset=".815" stop-color="#e2ad62"/>
+          <stop offset=".875" stop-color="#b17a3f"/>
+          <stop offset=".94" stop-color="#6a4320"/>
+          <stop offset=".985" stop-color="#2a190c"/>
+        </radialGradient>
+        <radialGradient id="gHousing">
+          <stop offset="0" stop-color="#1f1711"/>
+          <stop offset="1" stop-color="#0d0a07"/>
+        </radialGradient>
+        <radialGradient id="gWarm">
+          <stop offset=".55" stop-color="#e0412f" stop-opacity="0"/>
+          <stop offset=".86" stop-color="#e0412f" stop-opacity=".07"/>
+          <stop offset="1" stop-color="#e0412f" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="fGlow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="9" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="fSoft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.4"/></filter>
+        <mask id="mCoil" maskUnits="userSpaceOnUse" x="-140" y="-140" width="280" height="280">
+          <circle r="112" fill="none" stroke="#fff" stroke-width="40" pathLength="100" stroke-dasharray="8.4 1.6"/>
+        </mask>
+        <path id="huPath" d="M -254 0 A 254 254 0 0 1 254 0"/>
+      </defs>
+
+      <!-- far guides, reaching under the plates -->
+      <g fill="none">
+        <circle r="330" stroke="rgba(226,178,89,.08)" stroke-dasharray="2 7"/>
+        <circle r="440" stroke="rgba(226,178,89,.05)"/>
+      </g>
+      <circle r="262" fill="url(#gWarm)"/>
+
+      <!-- heads-up, curved along the outer ring -->
+      <text class="hu"><textPath href="#huPath" startOffset="50%" text-anchor="middle"><tspan class="hu-k">HEADS-UP</tspan><tspan class="hu-s">  ·  </tspan>Leave in 53 min for the investment committee<tspan class="hu-s">  ·  </tspan>24 min drive</textPath></text>
+
+      <!-- outer hairline and lower bezel arc -->
+      <circle r="236" fill="none" stroke="rgba(226,178,89,.42)"/>
+      <g transform="rotate(32)"><circle r="246" fill="none" stroke="rgba(226,178,89,.22)" pathLength="360" stroke-dasharray="116 244"/></g>
+
+      <!-- fine ticks (slow rotation) -->
+      <g class="spin s1">
+        <circle r="222" fill="none" stroke="rgba(226,178,89,.34)" stroke-width="8" pathLength="360" stroke-dasharray=".4 1.6"/>
+        <circle r="222" fill="none" stroke="#f0c879" stroke-opacity=".85" stroke-width="15" pathLength="360" stroke-dasharray=".7 29.3"/>
+      </g>
+
+      <!-- segmented gold ring; three red segments mark the heads-up -->
+      <circle r="213.5" fill="none" stroke="rgba(226,178,89,.2)"/>
+      <circle r="194.5" fill="none" stroke="rgba(226,178,89,.2)"/>
+      <g transform="rotate(5)"><circle r="204" fill="none" stroke="#e2b259" stroke-opacity=".78" stroke-width="7" pathLength="360" stroke-dasharray="8.4 1.6"/></g>
+      <g transform="rotate(255)"><circle r="204" fill="none" stroke="#ff5a43" stroke-width="7" pathLength="360" stroke-dasharray="8.4 1.6 8.4 1.6 8.4 331.6"/></g>
+
+      <!-- rotating arcs -->
+      <g class="spin s2">
+        <circle r="185" fill="none" stroke="rgba(224,65,47,.18)"/>
+        <circle r="185" fill="none" stroke="#e0412f" stroke-width="3" pathLength="360" stroke-dasharray="62 58 16 224"/>
+      </g>
+      <g class="spin s3">
+        <circle r="174" fill="none" stroke="none"/>
+        <circle r="174" fill="none" stroke="#f6d488" stroke-opacity=".7" stroke-width="1.2" pathLength="360" stroke-dasharray="96 84 30 150"/>
+      </g>
+      <circle r="160" fill="none" stroke="rgba(226,178,89,.26)" pathLength="360" stroke-dasharray=".6 2.4"/>
+      <text class="in-l" y="-147" text-anchor="middle">MK·VII</text>
+      <text class="in-l ready" y="154" text-anchor="middle">READY</text>
+
+      <!-- reactor housing -->
+      <circle r="150" fill="url(#gBloom)" class="breath" opacity=".55"/>
+      <circle r="140" fill="url(#gHousing)" stroke="rgba(226,178,89,.38)"/>
+      <circle r="140" fill="url(#gBlueRing)" class="breath"/>
+
+      <!-- copper coils -->
+      <g transform="rotate(236.88)">
+        <circle r="112" fill="none" stroke="url(#gCoil)" stroke-width="40" pathLength="100" stroke-dasharray="8.4 1.6"/>
+        <circle r="112" fill="none" stroke="rgba(26,12,4,.5)" stroke-width="40" pathLength="1000" stroke-dasharray="1.5 3.5" mask="url(#mCoil)"/>
+        <circle r="92.5" fill="none" stroke="#f6d488" stroke-opacity=".55" stroke-width=".8" pathLength="100" stroke-dasharray="8.4 1.6"/>
+        <circle r="131.5" fill="none" stroke="#f6d488" stroke-opacity=".55" stroke-width=".8" pathLength="100" stroke-dasharray="8.4 1.6"/>
+      </g>
+
+      <!-- core -->
+      <circle r="88" fill="#0e0b09" stroke="rgba(214,243,255,.55)" stroke-width="1.2"/>
+      <circle r="80" fill="none" stroke="rgba(214,243,255,.22)" stroke-width="6" filter="url(#fSoft)"/>
+      <circle r="78" fill="url(#gBloom)" class="breath"/>
+      <circle r="54" fill="url(#gCore)" filter="url(#fGlow)"/>
+      <g stroke="#ffffff" fill="none">
+        <circle r="38" stroke-opacity=".55" stroke-width="1"/>
+        <circle r="23" stroke-opacity=".85" stroke-width="1.4"/>
+      </g>
+      <circle r="8" fill="#ffffff"/>
+    </svg>
+
+    <section class="caption">
+      <p class="heard"><span class="lbl">Heard</span>“Jarvis, what’s on today, and how are the markets looking?”</p>
+      <p class="reply">Three meetings today. The investment committee is first, at <b>10</b> — leave by <b>9:35</b>, traffic on 101 is heavy. Futures are up half a percent, and Nvidia’s leading, up <b>2.1%</b> before the open.</p>
+    </section>
+  </div>
+</main>
+
+<!-- ======== bottom bar ======== -->
+<footer class="bb">
+  <nav class="dock" aria-label="Apps">
+    <button title="Activity"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></button>
+    <button title="Second brain"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6" cy="7" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="13" r="2.2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="18" r="2"/><path d="M7.6 8.2l2.8 3.2M16.4 7.3l-2.8 4M10.5 14.6l-3 3M13.7 14.4l2.8 2.4"/></svg></button>
+    <button title="Hands"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10.5V4a1.5 1.5 0 0 1 3 0v6.5"/><path d="M14 10.5V5.5a1.5 1.5 0 0 1 3 0v8c0 4.4-2.6 7.5-6.2 7.5-2.4 0-4-1.2-5.3-3.2l-2.2-3.5a1.5 1.5 0 0 1 2.4-1.7L8 14.5"/></svg></button>
+    <button title="Jarvis Code"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4.5l-3 15"/></svg></button>
+    <button title="Browser"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></button>
+    <span class="div"></span>
+    <button title="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
+  </nav>
+  <div class="ask brk">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3l4 4-4 4"/></svg>
+    <span class="phd">Or type a request…</span>
+    <span class="hint"><kbd>⌥ Space</kbd>to talk</span>
+  </div>
+  <div class="tele">
+    <div class="tm"><div class="row"><span class="k">CPU</span><span class="v">18%</span></div><span class="bar"><i style="width:18%"></i></span></div>
+    <div class="tm"><div class="row"><span class="k">RAM</span><span class="v">62%</span></div><span class="bar"><i style="width:62%"></i></span></div>
+    <div class="tm"><div class="row"><span class="k">BAT</span><span class="v">84%</span></div><span class="bar"><i style="width:84%"></i></span></div>
+  </div>
+</footer>
+<div class="stamp">Mockup 05 · Workshop</div>
+
+<div class="fx" aria-hidden="true"></div>
+
+<script>
+/* Leader lines: tie each plate to its bearing on the reactor's outer ring. */
+(function () {
+  var svg = document.getElementById('leaders');
+  var reactor = document.getElementById('reactor');
+  function el(tag, attrs) {
+    var n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    svg.appendChild(n);
+    return n;
+  }
+  function draw() {
+    svg.innerHTML = '';
+    svg.setAttribute('viewBox', '0 0 ' + innerWidth + ' ' + innerHeight);
+    var r = reactor.getBoundingClientRect();
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 540;
+    document.querySelectorAll('[data-angle]').forEach(function (p) {
+      var deg = +p.dataset.angle, a = deg * Math.PI / 180, b = p.getBoundingClientRect();
+      var hot = p.hasAttribute('data-hot');
+      var right = b.left > cx, edge = right ? b.left : b.right, dir = right ? 1 : -1;
+      var cos = Math.cos(a), sin = Math.sin(a);
+      var nx = cx + 236 * k * cos, ny = cy - 236 * k * sin;      /* node on the outer hairline */
+      var y = ny, d;
+      if (deg % 180 === 0) {
+        d = 'M' + edge + ',' + y + ' H' + nx;
+      } else {
+        /* radial stub off the ring, a 45° run, then level into the plate */
+        var sx = cx + 252 * k * cos, sy = cy - 252 * k * sin;
+        y = Math.min(Math.max(cy - 290 * k * sin, b.top + 28), b.bottom - 28);
+        var tx = sx + dir * Math.abs(y - sy);
+        if (right ? tx > edge - 14 : tx < edge + 14) tx = edge - dir * 14;
+        d = 'M' + edge + ',' + y + ' H' + tx + ' L' + sx + ',' + sy + ' L' + nx + ',' + ny;
+      }
+      if (hot) el('path', { d: d, class: 'hot-glow' });
+      el('path', { d: d, class: 'ln' + (hot ? ' hot' : '') });
+      el('rect', { x: edge - 3, y: y - 3, width: 6, height: 6, class: 'port' });
+      el('circle', { cx: nx, cy: ny, r: 5.5, class: 'halo' });
+      el('circle', { cx: nx, cy: ny, r: 2.4, class: 'nd' });
+      var bearing = ((90 - deg) % 360 + 360) % 360; /* compass-style bearing */
+      var t = el('text', {
+        x: edge - dir * 12, y: (deg < 0 || deg > 180) ? y + 15 : y - 7,
+        'text-anchor': right ? 'end' : 'start',
+        class: 'brg' + (hot ? ' hot' : '')
+      });
+      t.textContent = p.dataset.ix + ' · ' + String(Math.round(bearing)).padStart(3, '0') + '°';
+    });
+  }
+  draw();
+  addEventListener('resize', draw);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis · Mockup 03 · Halo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,200..600&display=swap" rel="stylesheet">
+<style>
+  /* ---------------------------------------------------------------
+     Halo — voice-first minimalism.
+     One scale unit (--s) keeps the centre stage proportional:
+     1px at 1440×900, 0.889px at 1280×800.
+     --------------------------------------------------------------- */
+  :root {
+    --s: min(calc(100vh / 900), calc(100vw / 1440));
+    --halo: #5cc8f7;
+    --halo-hi: #8fdbff;
+    --halo-ice: #d4f2ff;
+    --ink: rgba(236, 242, 248, 0.93);
+    --ink-2: rgba(214, 226, 238, 0.58);
+    --ink-3: rgba(196, 210, 226, 0.38);
+    --ink-4: rgba(186, 202, 220, 0.24);
+    --hair: rgba(255, 255, 255, 0.065);
+    --edge: 36px;
+    --band: 92px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #000; }
+  body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    font-optical-sizing: auto;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+
+  /* ---------- Canvas ---------- */
+  .stage {
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(calc(520 * var(--s)) calc(420 * var(--s)) at 50% calc(196 * var(--s)), rgba(40, 128, 176, 0.11), rgba(40, 128, 176, 0.03) 55%, transparent 75%),
+      linear-gradient(180deg, #000 0%, #020305 55%, #05070a 100%);
+  }
+  .stage::after { /* soft vignette */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  }
+  /* fine grain so the black never bands */
+  .grain { position: fixed; inset: 0; pointer-events: none; opacity: 0.028;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='.9'/></svg>"); }
+
+  /* ---------- Whispered edges ---------- */
+  .edge {
+    position: absolute; left: var(--edge); right: var(--edge);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+    font-size: 11.5px; letter-spacing: 0.01em; line-height: 16px;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .edge.top { top: 30px; }
+  .edge.bottom { bottom: calc(var(--band) + 26px); }
+  .edge .l { justify-self: start; display: flex; align-items: center; gap: 10px; }
+  .edge .c { justify-self: center; display: flex; align-items: center; gap: 9px; }
+  .edge .r { justify-self: end; display: flex; align-items: center; gap: 10px; }
+  .dot-sep { width: 2px; height: 2px; border-radius: 50%; background: currentColor; opacity: 0.7; }
+  .edge svg { display: block; flex: none; }
+  .edge .strong { color: var(--ink-2); }
+
+  .headsup { font-size: 12px; color: var(--ink-2); gap: 10px !important; }
+  .headsup b { font-weight: 500; color: rgba(236, 242, 248, 0.88); }
+  .headsup .muted { color: var(--ink-3); }
+
+  .model { display: flex; align-items: center; gap: 8px; }
+  .model i { width: 5px; height: 5px; border-radius: 50%; background: var(--halo); box-shadow: 0 0 6px rgba(92, 200, 247, 0.7); opacity: 0.85; }
+
+  .key {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 20px; padding: 0 7px; border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.03);
+    color: var(--ink-2); font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
+  }
+  .key svg { display: block; }
+
+  /* ---------- Centre stage ---------- */
+  .center {
+    position: absolute; left: 0; right: 0; top: 0;
+    bottom: calc(var(--band) + 46px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding-top: calc(10 * var(--s));
+    text-align: center;
+  }
+
+  .halo {
+    position: relative;
+    width: calc(300 * var(--s)); height: calc(300 * var(--s));
+    margin: calc(-14 * var(--s)) 0 calc(-26 * var(--s));
+  }
+  .halo svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .halo .lens { /* the faintest light caught inside the ring */
+    position: absolute; inset: 22%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 38%, rgba(92, 200, 247, 0.07), rgba(92, 200, 247, 0.015) 55%, transparent 72%);
+  }
+
+  .ring-g { transform-origin: 150px 150px; animation: speak 2.6s ease-in-out infinite; }
+  .ripple { fill: none; stroke: var(--halo); stroke-width: 1; vector-effect: non-scaling-stroke; transform-origin: 150px 150px; opacity: 0; animation: ripple 3.9s cubic-bezier(0.22, 0.61, 0.36, 1) infinite; }
+  .ripple.r1 { animation-delay: -0.5s; }
+  .ripple.r2 { animation-delay: -1.8s; }
+  .ripple.r3 { animation-delay: -3.1s; }
+  .inner-ring { transform-origin: 150px 150px; animation: drift 24s linear infinite; }
+
+  @keyframes ripple {
+    0%   { transform: scale(1);    opacity: 0.55; }
+    100% { transform: scale(1.46); opacity: 0; }
+  }
+  @keyframes speak {
+    0%, 100% { transform: scale(1); }
+    14% { transform: scale(1.014); }
+    26% { transform: scale(1.004); }
+    41% { transform: scale(1.02); }
+    57% { transform: scale(1.006); }
+    72% { transform: scale(1.016); }
+    86% { transform: scale(1.002); }
+  }
+  @keyframes drift { to { transform: rotate(360deg); } }
+
+  .heard {
+    margin: 0;
+    font-size: max(13px, calc(15 * var(--s)));
+    line-height: 1.5;
+    font-weight: 400;
+    letter-spacing: 0.003em;
+    color: var(--ink-3);
+  }
+  .reply {
+    margin: calc(18 * var(--s)) 0 0;
+    max-width: calc(960 * var(--s));
+    font-size: calc(38 * var(--s));
+    line-height: 1.37;
+    font-weight: 300;
+    letter-spacing: -0.017em;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+  .reply em {
+    font-style: normal;
+    color: var(--halo-hi);
+    text-shadow: 0 0 calc(24 * var(--s)) rgba(92, 200, 247, 0.42);
+  }
+
+  /* ---------- The one card: approval pill ---------- */
+  .approval {
+    margin-top: calc(52 * var(--s));
+    display: inline-flex; align-items: center; gap: 14px;
+    height: 54px; padding: 0 7px 0 8px; border-radius: 999px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025)),
+      rgba(10, 14, 19, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.085);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.4),
+      0 24px 60px -18px rgba(0, 0, 0, 0.9),
+      0 0 0 0.5px rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    text-align: left;
+  }
+  .ap-icon {
+    position: relative;
+    width: 38px; height: 38px; border-radius: 50%; flex: none;
+    display: grid; place-items: center;
+    background: radial-gradient(circle at 50% 35%, rgba(92, 200, 247, 0.16), rgba(92, 200, 247, 0.05));
+    box-shadow: inset 0 0 0 1px rgba(143, 219, 255, 0.24);
+  }
+  .ap-icon::after { /* waiting badge */
+    content: ""; position: absolute; top: 2px; right: 1px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--halo-hi); box-shadow: 0 0 0 2px #0b1016, 0 0 8px rgba(143, 219, 255, 0.8);
+  }
+  .ap-text { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; font-size: 13.5px; letter-spacing: 0.002em; }
+  .ap-title { color: rgba(236, 242, 248, 0.9); font-weight: 500; }
+  .ap-quote { color: var(--ink-2); }
+  .ap-div { width: 1px; height: 22px; background: rgba(255, 255, 255, 0.08); margin: 0 2px 0 6px; }
+  .ap-actions { display: flex; align-items: center; gap: 2px; }
+  .btn {
+    height: 40px; padding: 0 16px; border-radius: 999px;
+    font-size: 13px; font-weight: 500; letter-spacing: 0.005em;
+    color: var(--ink-2);
+    transition: background 0.2s, color 0.2s;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.05); color: var(--ink); }
+  .btn.primary {
+    margin-left: 4px; padding: 0 20px;
+    color: #c9eeff;
+    background: linear-gradient(180deg, rgba(92, 200, 247, 0.24), rgba(92, 200, 247, 0.13));
+    box-shadow: inset 0 0 0 1px rgba(143, 219, 255, 0.36), inset 0 1px 0 rgba(214, 242, 255, 0.18), 0 0 22px -4px rgba(92, 200, 247, 0.35);
+  }
+  .btn.primary:hover { background: linear-gradient(180deg, rgba(92, 200, 247, 0.32), rgba(92, 200, 247, 0.18)); color: #e6f7ff; }
+
+  /* ---------- States strip ---------- */
+  .states {
+    position: absolute; left: 0; right: 0; bottom: 0; height: var(--band);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+    padding: 0 var(--edge);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(255, 255, 255, 0.022));
+  }
+  .states::before {
+    content: ""; position: absolute; top: 0; left: var(--edge); right: var(--edge); height: 1px;
+    background: linear-gradient(90deg, transparent, var(--hair) 12%, var(--hair) 88%, transparent);
+  }
+  .caps {
+    font-size: 9.5px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase;
+    color: rgba(196, 210, 226, 0.28);
+  }
+  .states .cap-l { justify-self: start; }
+  .states .cap-r { justify-self: end; }
+  .st-list { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; }
+  .st-list li { display: flex; align-items: center; gap: 12px; padding: 0 30px; position: relative; }
+  .st-list li + li::before {
+    content: ""; position: absolute; left: 0; top: 50%; width: 1px; height: 26px; transform: translateY(-50%);
+    background: var(--hair);
+  }
+  .st-list svg { width: 48px; height: 48px; display: block; overflow: visible; flex: none; }
+  .st-txt { display: flex; flex-direction: column; gap: 4px; min-width: 92px; }
+  .st-name { font-size: 9.5px; font-weight: 600; letter-spacing: 0.17em; text-transform: uppercase; color: var(--ink-2); display: flex; align-items: center; gap: 7px; }
+  .st-desc { font-size: 11px; color: rgba(196, 210, 226, 0.3); letter-spacing: 0.005em; }
+  .st-list li.now .st-name { color: var(--halo-hi); }
+  .st-list li.now .st-name::after {
+    content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--halo-hi);
+    box-shadow: 0 0 6px rgba(143, 219, 255, 0.9);
+  }
+
+  /* thumbnail motion */
+  .t-idle { transform-origin: 24px 24px; animation: breathe 4.2s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { opacity: 0.45; transform: scale(0.97); } 50% { opacity: 0.9; transform: scale(1.02); } }
+
+  .t-listen { filter: drop-shadow(0 0 1.5px rgba(92, 200, 247, 0.65)); }
+  .t-listen line { stroke: var(--halo-hi); stroke-width: 1.35; stroke-linecap: round; transform-box: fill-box; transform-origin: center; animation: bar 1.1s ease-in-out infinite alternate; }
+  .t-listen .b1 { animation-duration: 0.9s; animation-delay: -0.2s; }
+  .t-listen .b2 { animation-duration: 1.25s; animation-delay: -0.7s; }
+  .t-listen .b3 { animation-duration: 0.7s; animation-delay: -0.4s; }
+  .t-listen .b4 { animation-duration: 1.05s; animation-delay: -0.9s; }
+  @keyframes bar { from { transform: scaleY(0.35); } to { transform: scaleY(1.08); } }
+
+  .t-comet { transform-origin: 24px 24px; transform: rotate(118deg); animation: orbit 1.7s linear infinite; }
+  @keyframes orbit { from { transform: rotate(118deg); } to { transform: rotate(478deg); } }
+
+  .t-rip { fill: none; stroke: var(--halo); stroke-width: 1; vector-effect: non-scaling-stroke; transform-origin: 24px 24px; opacity: 0; animation: tripple 2.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite; }
+  .t-rip.a { animation-delay: -0.3s; }
+  .t-rip.b { animation-delay: -1.17s; }
+  .t-rip.c { animation-delay: -2.04s; }
+  @keyframes tripple { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(2.05); opacity: 0; } }
+
+  /* ---------- Reduced motion: a composed still frame ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .ripple.r1 { opacity: 0.30; transform: scale(1.12); }
+    .ripple.r2 { opacity: 0.15; transform: scale(1.25); }
+    .ripple.r3 { opacity: 0.06; transform: scale(1.39); }
+    .t-idle { opacity: 0.8; }
+    .t-rip.a { opacity: 0.5; transform: scale(1.3); }
+    .t-rip.b { opacity: 0.24; transform: scale(1.62); }
+    .t-rip.c { opacity: 0.09; transform: scale(1.92); }
+  }
+
+  /* ---------- Smaller windows ---------- */
+  @media (max-width: 1360px) {
+    .st-list li { padding: 0 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="stage" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<!-- Top edge: time + weather · heads-up · model -->
+<header class="edge top">
+  <div class="l">
+    <span class="strong">8:42</span>
+    <span class="dot-sep"></span>
+    <span>Friday 3 October</span>
+    <span class="dot-sep"></span>
+    <svg width="16" height="13" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <!-- sun breaking through fog -->
+      <path d="M10.6 2.1a3 3 0 0 1 2.9 4.2"/>
+      <path d="M10.6 0.4v0.6M14.3 1.9l-.45.45M15.6 5.2h-.6"/>
+      <path d="M3.3 7.6a2.5 2.5 0 0 1 2.3-3.4 3.1 3.1 0 0 1 5.6.9"/>
+      <path d="M1.2 9.4h11.6M3.6 11.9h8.6"/>
+    </svg>
+    <span>61° <span class="wx-detail">· Fog clearing by 11</span></span>
+  </div>
+
+  <div class="c headsup">
+    <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+      <circle cx="6.5" cy="6.5" r="5.25" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="1.2"/>
+      <!-- 53 of 60 minutes left -->
+      <circle cx="6.5" cy="6.5" r="5.25" fill="none" stroke="#8fdbff" stroke-width="1.2" stroke-linecap="round"
+              stroke-dasharray="29.1 33" transform="rotate(-90 6.5 6.5)"/>
+    </svg>
+    <span><b>Leave in 53 min</b> for the investment committee <span class="muted">· 24 min drive</span></span>
+  </div>
+
+  <div class="r model"><i></i><span>Opus 5.5</span></div>
+</header>
+
+<!-- Centre stage -->
+<main class="center">
+  <div class="halo" aria-label="Jarvis is speaking">
+    <div class="lens"></div>
+    <svg viewBox="0 0 300 300" aria-hidden="true">
+      <defs>
+        <linearGradient id="ringGrad" x1="0.18" y1="0.02" x2="0.82" y2="0.98">
+          <stop offset="0" stop-color="#e2f6ff"/>
+          <stop offset="0.2" stop-color="#8fdbff"/>
+          <stop offset="0.62" stop-color="#5cc8f7"/>
+          <stop offset="1" stop-color="#2b86bb"/>
+        </linearGradient>
+        <linearGradient id="innerGrad" x1="0.8" y1="0" x2="0.2" y2="1">
+          <stop offset="0" stop-color="#8fdbff" stop-opacity="0.34"/>
+          <stop offset="0.5" stop-color="#5cc8f7" stop-opacity="0.12"/>
+          <stop offset="1" stop-color="#5cc8f7" stop-opacity="0.26"/>
+        </linearGradient>
+        <filter id="bloom" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="near"/>
+          <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="farRaw"/>
+          <feComponentTransfer in="farRaw" result="far"><feFuncA type="linear" slope="2.4"/></feComponentTransfer>
+          <feGaussianBlur in="SourceGraphic" stdDeviation="20" result="hazeRaw"/>
+          <feComponentTransfer in="hazeRaw" result="haze"><feFuncA type="linear" slope="1.6"/></feComponentTransfer>
+          <feMerge>
+            <feMergeNode in="haze"/>
+            <feMergeNode in="far"/>
+            <feMergeNode in="near"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+        <filter id="spark" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="3"/>
+        </filter>
+      </defs>
+
+      <!-- speaking: concentric ripples leaving the ring -->
+      <circle class="ripple r1" cx="150" cy="150" r="84"/>
+      <circle class="ripple r2" cx="150" cy="150" r="84"/>
+      <circle class="ripple r3" cx="150" cy="150" r="84"/>
+
+      <!-- faint inner second ring -->
+      <g class="inner-ring">
+        <circle cx="150" cy="150" r="73" fill="none" stroke="url(#innerGrad)" stroke-width="0.75"/>
+      </g>
+
+      <!-- the halo -->
+      <g class="ring-g">
+        <g filter="url(#bloom)">
+          <circle cx="150" cy="150" r="84" fill="none" stroke="url(#ringGrad)" stroke-width="1.7"/>
+        </g>
+        <!-- specular glint where the light catches -->
+        <path d="M96.9 85.0 A84 84 0 0 1 130.6 68.3" fill="none" stroke="#e8f8ff" stroke-width="3" stroke-linecap="round" opacity="0.55" filter="url(#spark)"/>
+        <path d="M101.5 81.2 A84 84 0 0 1 124.0 70.1" fill="none" stroke="#f2fbff" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+      </g>
+    </svg>
+  </div>
+
+  <p class="heard">“Jarvis, what’s on today, and how are the markets looking?”</p>
+
+  <p class="reply">Three meetings today. The investment committee is first, at&nbsp;<em>10</em> — leave by <em>9:35</em>, traffic on 101 is heavy. Futures are up half a percent, and Nvidia’s leading, up&nbsp;<em>2.1%</em> before the open.</p>
+
+  <div class="approval" role="group" aria-label="Approval needed">
+    <span class="ap-icon" aria-hidden="true">
+      <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="#8fdbff" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round">
+        <rect x="2" y="3.5" width="13" height="10" rx="2.2"/>
+        <path d="M2.8 4.8 8.5 9.1l5.7-4.3"/>
+      </svg>
+    </span>
+    <span class="ap-text">
+      <span class="ap-title">Send email to Ann Lee</span>
+      <span class="ap-quote">“Could we push lunch to 12:45?”</span>
+    </span>
+    <span class="ap-div" aria-hidden="true"></span>
+    <span class="ap-actions">
+      <button class="btn">Not now</button>
+      <button class="btn">Edit</button>
+      <button class="btn primary">Send</button>
+    </span>
+  </div>
+</main>
+
+<!-- Bottom edge: mail · hotkey · Jarvis Code -->
+<div class="edge bottom">
+  <div class="l">
+    <svg width="14" height="11" viewBox="0 0 14 11" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" aria-hidden="true">
+      <rect x="0.8" y="0.8" width="12.4" height="9.4" rx="1.8"/>
+      <path d="M1.6 2 7 6l5.4-4"/>
+    </svg>
+    <span>4 new</span>
+    <span class="dot-sep"></span>
+    <span>1 from <span class="strong">Ann Lee</span></span>
+  </div>
+  <div class="c">
+    <span class="key" aria-label="Option Space">
+      <svg width="11" height="9" viewBox="0 0 11 9" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M0.8 1.2h2.7l3.6 6.6h3.1M6.8 1.2h3.4"/>
+      </svg>Space</span>
+    <span>to talk · or just start typing</span>
+  </div>
+  <div class="r">
+    <svg width="15" height="11" viewBox="0 0 15 11" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4.3 2.2 1 5.5l3.3 3.3M10.7 2.2 14 5.5l-3.3 3.3M8.6 0.9 6.4 10.1"/>
+    </svg>
+    <span>Jarvis Code</span>
+    <span class="dot-sep"></span>
+    <span><span class="strong">bsh-messenger</span> is waiting for review</span>
+  </div>
+</div>
+
+<!-- States strip -->
+<footer class="states">
+  <div class="caps cap-l">Halo states</div>
+
+  <ol class="st-list">
+    <!-- Idle -->
+    <li>
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <defs>
+          <filter id="tglow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" result="g"/>
+            <feComponentTransfer in="g" result="g2"><feFuncA type="linear" slope="1.8"/></feComponentTransfer>
+            <feMerge><feMergeNode in="g2"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <circle cx="24" cy="24" r="12.4" fill="none" stroke="#5cc8f7" stroke-opacity="0.14" stroke-width="0.6"/>
+        <g class="t-idle">
+          <circle cx="24" cy="24" r="15" fill="none" stroke="#5cc8f7" stroke-opacity="0.42" stroke-width="1.1" filter="url(#tglow)"/>
+        </g>
+      </svg>
+      <div class="st-txt"><span class="st-name">Idle</span><span class="st-desc">Dim, breathing</span></div>
+    </li>
+
+    <!-- Listening -->
+    <li>
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <g class="t-listen">
+          <g transform="rotate(0 24 24)"><line class="b1" x1="24" y1="6.85" x2="24" y2="11.15"/></g><g transform="rotate(11.25 24 24)"><line class="b2" x1="24" y1="5.87" x2="24" y2="12.13"/></g><g transform="rotate(22.5 24 24)"><line class="b3" x1="24" y1="4.86" x2="24" y2="13.14"/></g><g transform="rotate(33.75 24 24)"><line class="b4" x1="24" y1="6.1" x2="24" y2="11.9"/></g><g transform="rotate(45 24 24)"><line class="b1" x1="24" y1="6.53" x2="24" y2="11.47"/></g><g transform="rotate(56.25 24 24)"><line class="b2" x1="24" y1="6.07" x2="24" y2="11.93"/></g><g transform="rotate(67.5 24 24)"><line class="b3" x1="24" y1="7.13" x2="24" y2="10.87"/></g><g transform="rotate(78.75 24 24)"><line class="b4" x1="24" y1="7.99" x2="24" y2="10.01"/></g><g transform="rotate(90 24 24)"><line class="b1" x1="24" y1="8.1" x2="24" y2="9.9"/></g><g transform="rotate(101.25 24 24)"><line class="b2" x1="24" y1="8.41" x2="24" y2="9.59"/></g><g transform="rotate(112.5 24 24)"><line class="b3" x1="24" y1="8.44" x2="24" y2="9.56"/></g><g transform="rotate(123.75 24 24)"><line class="b4" x1="24" y1="8.17" x2="24" y2="9.83"/></g><g transform="rotate(135 24 24)"><line class="b1" x1="24" y1="7.62" x2="24" y2="10.38"/></g><g transform="rotate(146.25 24 24)"><line class="b2" x1="24" y1="7.66" x2="24" y2="10.34"/></g><g transform="rotate(157.5 24 24)"><line class="b3" x1="24" y1="6.62" x2="24" y2="11.38"/></g><g transform="rotate(168.75 24 24)"><line class="b4" x1="24" y1="5.49" x2="24" y2="12.51"/></g><g transform="rotate(180 24 24)"><line class="b1" x1="24" y1="6.25" x2="24" y2="11.75"/></g><g transform="rotate(191.25 24 24)"><line class="b2" x1="24" y1="6.05" x2="24" y2="11.95"/></g><g transform="rotate(202.5 24 24)"><line class="b3" x1="24" y1="5.01" x2="24" y2="12.99"/></g><g transform="rotate(213.75 24 24)"><line class="b4" x1="24" y1="6.14" x2="24" y2="11.86"/></g><g transform="rotate(225 24 24)"><line class="b1" x1="24" y1="7.19" x2="24" y2="10.81"/></g><g transform="rotate(236.25 24 24)"><line class="b2" x1="24" y1="6.87" x2="24" y2="11.13"/></g><g transform="rotate(247.5 24 24)"><line class="b3" x1="24" y1="7.66" x2="24" y2="10.34"/></g><g transform="rotate(258.75 24 24)"><line class="b4" x1="24" y1="8.31" x2="24" y2="9.69"/></g><g transform="rotate(270 24 24)"><line class="b1" x1="24" y1="8.41" x2="24" y2="9.59"/></g><g transform="rotate(281.25 24 24)"><line class="b2" x1="24" y1="8.41" x2="24" y2="9.59"/></g><g transform="rotate(292.5 24 24)"><line class="b3" x1="24" y1="8.29" x2="24" y2="9.71"/></g><g transform="rotate(303.75 24 24)"><line class="b4" x1="24" y1="7.72" x2="24" y2="10.28"/></g><g transform="rotate(315 24 24)"><line class="b1" x1="24" y1="6.86" x2="24" y2="11.14"/></g><g transform="rotate(326.25 24 24)"><line class="b2" x1="24" y1="7.03" x2="24" y2="10.97"/></g><g transform="rotate(337.5 24 24)"><line class="b3" x1="24" y1="6.34" x2="24" y2="11.66"/></g><g transform="rotate(348.75 24 24)"><line class="b4" x1="24" y1="5.01" x2="24" y2="12.99"/></g>
+        </g>
+      </svg>
+      <div class="st-txt"><span class="st-name">Listening</span><span class="st-desc">Live waveform</span></div>
+    </li>
+
+    <!-- Thinking -->
+    <li>
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <circle cx="24" cy="24" r="15" fill="none" stroke="#5cc8f7" stroke-opacity="0.13" stroke-width="1"/>
+        <g class="t-comet">
+          <g fill="none" stroke="#8fdbff" stroke-linecap="butt" filter="url(#tglow)">
+            <path d="M16.5 36.99A15 15 0 0 1 15.27 36.2" stroke-opacity="0" stroke-width="0.73"/><path d="M15.4 36.29A15 15 0 0 1 14.24 35.39" stroke-opacity="0.01" stroke-width="0.77"/><path d="M14.36 35.49A15 15 0 0 1 13.28 34.49" stroke-opacity="0.02" stroke-width="0.8"/><path d="M13.39 34.61A15 15 0 0 1 12.41 33.52" stroke-opacity="0.03" stroke-width="0.83"/><path d="M12.51 33.64A15 15 0 0 1 11.62 32.47" stroke-opacity="0.04" stroke-width="0.87"/><path d="M11.71 32.6A15 15 0 0 1 10.93 31.36" stroke-opacity="0.06" stroke-width="0.9"/><path d="M11.01 31.5A15 15 0 0 1 10.34 30.2" stroke-opacity="0.07" stroke-width="0.93"/><path d="M10.41 30.34A15 15 0 0 1 9.85 28.98" stroke-opacity="0.09" stroke-width="0.97"/><path d="M9.9 29.13A15 15 0 0 1 9.47 27.73" stroke-opacity="0.11" stroke-width="1"/><path d="M9.51 27.88A15 15 0 0 1 9.2 26.45" stroke-opacity="0.14" stroke-width="1.03"/><path d="M9.23 26.6A15 15 0 0 1 9.04 25.15" stroke-opacity="0.16" stroke-width="1.07"/><path d="M9.06 25.31A15 15 0 0 1 9 23.84" stroke-opacity="0.19" stroke-width="1.1"/><path d="M9 24A15 15 0 0 1 9.07 22.54" stroke-opacity="0.22" stroke-width="1.13"/><path d="M9.06 22.69A15 15 0 0 1 9.26 21.24" stroke-opacity="0.25" stroke-width="1.17"/><path d="M9.23 21.4A15 15 0 0 1 9.55 19.97" stroke-opacity="0.29" stroke-width="1.2"/><path d="M9.51 20.12A15 15 0 0 1 9.96 18.72" stroke-opacity="0.32" stroke-width="1.23"/><path d="M9.9 18.87A15 15 0 0 1 10.47 17.52" stroke-opacity="0.36" stroke-width="1.27"/><path d="M10.41 17.66A15 15 0 0 1 11.09 16.36" stroke-opacity="0.4" stroke-width="1.3"/><path d="M11.01 16.5A15 15 0 0 1 11.8 15.27" stroke-opacity="0.44" stroke-width="1.33"/><path d="M11.71 15.4A15 15 0 0 1 12.61 14.24" stroke-opacity="0.48" stroke-width="1.37"/><path d="M12.51 14.36A15 15 0 0 1 13.51 13.28" stroke-opacity="0.53" stroke-width="1.4"/><path d="M13.39 13.39A15 15 0 0 1 14.48 12.41" stroke-opacity="0.57" stroke-width="1.43"/><path d="M14.36 12.51A15 15 0 0 1 15.53 11.62" stroke-opacity="0.62" stroke-width="1.47"/><path d="M15.4 11.71A15 15 0 0 1 16.64 10.93" stroke-opacity="0.67" stroke-width="1.5"/><path d="M16.5 11.01A15 15 0 0 1 17.8 10.34" stroke-opacity="0.72" stroke-width="1.53"/><path d="M17.66 10.41A15 15 0 0 1 19.02 9.85" stroke-opacity="0.77" stroke-width="1.57"/><path d="M18.87 9.9A15 15 0 0 1 20.27 9.47" stroke-opacity="0.83" stroke-width="1.6"/><path d="M20.12 9.51A15 15 0 0 1 21.55 9.2" stroke-opacity="0.88" stroke-width="1.63"/><path d="M21.4 9.23A15 15 0 0 1 22.85 9.04" stroke-opacity="0.94" stroke-width="1.67"/><path d="M22.69 9.06A15 15 0 0 1 24 9" stroke-opacity="1" stroke-width="1.7"/>
+          </g>
+          <circle cx="24" cy="9" r="1.7" fill="#e2f6ff" filter="url(#tglow)"/>
+        </g>
+      </svg>
+      <div class="st-txt"><span class="st-name">Thinking</span><span class="st-desc">Comet arc</span></div>
+    </li>
+
+    <!-- Speaking -->
+    <li class="now">
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <circle class="t-rip a" cx="24" cy="24" r="11"/>
+        <circle class="t-rip b" cx="24" cy="24" r="11"/>
+        <circle class="t-rip c" cx="24" cy="24" r="11"/>
+        <circle cx="24" cy="24" r="11" fill="none" stroke="#8fdbff" stroke-width="1.3" filter="url(#tglow)"/>
+      </svg>
+      <div class="st-txt"><span class="st-name">Speaking</span><span class="st-desc">Concentric ripples</span></div>
+    </li>
+  </ol>
+
+  <div class="caps cap-r">Mockup 03 · Halo</div>
+</footer>
+</body>
+</html>

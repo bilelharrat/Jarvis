@@ -1,0 +1,940 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis · Workspace (Mockup 04)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Menlo", monospace;
+
+    --label: #1d1d1f;
+    --label-2: #5f5f66;
+    --label-3: #8a8a90;
+    --label-4: #aeaeb4;
+    --hair: rgba(0,0,0,.075);
+    --hair-2: rgba(0,0,0,.11);
+    --fill: rgba(0,0,0,.045);
+    --fill-2: rgba(0,0,0,.065);
+
+    --accent: #135ea8;
+    --accent-hi: #2a78c6;
+    --accent-tint: rgba(19,94,168,.085);
+    --accent-tint-2: rgba(19,94,168,.14);
+
+    --up: #1b7a43;
+    --down: #c0392f;
+    --warn: #a75400;
+    --warn-ink: #8f4700;
+    --warn-bg: #fff5e9;
+    --warn-line: rgba(196,110,10,.22);
+
+    --card: #ffffff;
+    --pane: #f8f8fa;
+
+    --sidebar-w: 248px;
+    --inspector-w: 300px;
+    --col: 680px;
+  }
+
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html, body{ height: 100%; }
+  body{
+    overflow: hidden;
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.38;
+    color: var(--label);
+    background: #fff;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "kern" 1;
+    letter-spacing: -0.003em;
+  }
+  button{ font: inherit; color: inherit; background: none; border: 0; cursor: default; }
+  svg.i{ width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .tnum{ font-variant-numeric: tabular-nums; }
+  .spacer{ flex: 1; }
+
+  /* ───────── Window ───────── */
+  .window{
+    position: relative;
+    height: 100vh;
+    display: grid;
+    grid-template-columns: var(--sidebar-w) minmax(0,1fr) var(--inspector-w);
+    background: #fff;
+  }
+
+  /* ───────── Sidebar (floating vibrancy panel) ───────── */
+  .sidebar{ position: relative; }
+  .side-panel{
+    position: absolute; inset: 8px 0 8px 8px;
+    display: flex; flex-direction: column;
+    border-radius: 16px;
+    overflow: hidden;
+    background:
+      radial-gradient(120% 60% at 0% 0%, rgba(205,222,245,.55), transparent 60%),
+      radial-gradient(90% 50% at 100% 35%, rgba(232,226,246,.45), transparent 65%),
+      radial-gradient(110% 55% at 10% 100%, rgba(246,232,220,.5), transparent 60%),
+      linear-gradient(180deg, #eff1f5 0%, #eceef2 100%);
+    box-shadow:
+      inset 0 0 0 .5px rgba(255,255,255,.9),
+      0 0 0 .5px rgba(0,0,0,.09),
+      0 1px 2px rgba(0,0,0,.04),
+      0 10px 30px -8px rgba(30,40,70,.12);
+  }
+  .side-panel::before{ /* glass sheen */
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background: linear-gradient(180deg, rgba(255,255,255,.55), rgba(255,255,255,0) 28%);
+  }
+  .side-top{ position: relative; height: 44px; display: flex; align-items: center; padding: 0 12px 0 14px; }
+  .traffic{ display: flex; gap: 8px; }
+  .tl{ width: 12px; height: 12px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.14); }
+  .tl.c{ background: #ff5f57; } .tl.m{ background: #febc2e; } .tl.z{ background: #28c840; }
+  .side-tools{ margin-left: auto; display: flex; gap: 2px; color: var(--label-2); }
+  .icon-btn{ width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; color: var(--label-2); }
+  .icon-btn svg.i{ width: 17px; height: 17px; }
+
+  .search{
+    position: relative; margin: 2px 10px 6px; height: 28px; border-radius: 8px;
+    background: rgba(0,0,0,.05);
+    box-shadow: inset 0 0 0 .5px rgba(0,0,0,.04);
+    display: flex; align-items: center; gap: 6px; padding: 0 6px 0 8px;
+    color: var(--label-3); font-size: 13px;
+  }
+  .search svg.i{ width: 14px; height: 14px; }
+  .search .kbd{ margin-left: auto; }
+
+  .kbd{
+    display: inline-flex; align-items: center; gap: 2px;
+    height: 18px; padding: 0 5px; border-radius: 5px;
+    font-size: 11px; font-weight: 500; color: var(--label-3); letter-spacing: .01em;
+    background: rgba(255,255,255,.75);
+    box-shadow: inset 0 0 0 .5px rgba(0,0,0,.13), 0 .5px 0 rgba(0,0,0,.05);
+    white-space: nowrap;
+  }
+
+  .side-scroll{ position: relative; flex: 1; overflow: hidden; padding: 0 10px; }
+  .sec-h{
+    display: flex; align-items: center; height: 26px; margin-top: 10px; padding: 0 8px;
+    font-size: 11px; font-weight: 600; color: rgba(0,0,0,.42); letter-spacing: .01em;
+  }
+  .sec-h .n{ margin-left: auto; font-weight: 500; color: var(--label-3); }
+  .row{
+    display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px;
+    border-radius: 8px; color: var(--label); font-size: 13px; white-space: nowrap;
+  }
+  .row svg.i{ width: 15px; height: 15px; color: var(--label-3); }
+  .row .t{ overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .row .m{ margin-left: auto; padding-left: 6px; font-size: 11.5px; color: var(--label-3); }
+  .row.sel{ background: var(--accent-tint-2); }
+  .row.sel svg.i{ color: var(--accent); }
+  .row.sel .t{ font-weight: 500; }
+  .row.sel .m{ color: rgba(19,94,168,.8); }
+
+  .row.two{ height: 44px; align-items: flex-start; padding-top: 6px; }
+  .row.two + .row.two{ margin-top: 1px; }
+  .row.two .ic{ width: 15px; height: 17px; flex: none; display: grid; place-items: center; }
+  .row.two .body{ flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .row.two .l1{ display: flex; align-items: baseline; min-width: 0; }
+  .row.two .s{ font-size: 11.5px; color: var(--label-3); overflow: hidden; text-overflow: ellipsis; }
+  .row.two .s b{ font-weight: 500; }
+  .row.sel .s{ color: rgba(19,60,110,.6); }
+  .row .m.wait{ font-size: 11px; font-weight: 500; color: var(--warn-ink); }
+  .add{ color: var(--up); } .del{ color: var(--down); }
+  .sdot{ width: 15px; height: 17px; flex: none; display: grid; place-items: center; }
+  .sdot i{ width: 7px; height: 7px; border-radius: 50%; display: block; position: relative; }
+  .sdot.work i{ background: var(--accent); }
+  .sdot.work i::after{
+    content:""; position: absolute; inset: -3px; border-radius: 50%;
+    border: 1.5px solid var(--accent); opacity: .0; animation: ping 2.4s ease-out infinite;
+  }
+  .sdot.wait i{ background: #e08a1c; }
+  @keyframes ping{ 0%{ transform: scale(.6); opacity: .55; } 80%,100%{ transform: scale(1.5); opacity: 0; } }
+
+  .listen{
+    position: relative; margin: 0 10px 10px; padding: 9px 10px 9px 11px;
+    display: flex; align-items: center; gap: 10px; border-radius: 11px;
+    background: rgba(255,255,255,.6);
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.03);
+  }
+  .listen .body{ min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .listen .t{ font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+  .listen .s{ display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--label-3); }
+  .listen .s .kbd{ height: 16px; font-size: 10.5px; padding: 0 4px; }
+  .lw{ width: 26px; height: 26px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 2px; background: var(--accent-tint); }
+  .lw i{ display: block; width: 2px; border-radius: 1px; background: var(--accent); height: 6px; animation: lw 1.6s ease-in-out infinite; }
+  .lw i:nth-child(1){ height: 5px; animation-delay: -.2s; }
+  .lw i:nth-child(2){ height: 9px; animation-delay: -.6s; }
+  .lw i:nth-child(3){ height: 12px; animation-delay: -1s; }
+  .lw i:nth-child(4){ height: 8px; animation-delay: -.4s; }
+  .lw i:nth-child(5){ height: 5px; animation-delay: -.8s; }
+  @keyframes lw{ 0%,100%{ transform: scaleY(1); } 50%{ transform: scaleY(.55); } }
+  .switch{ margin-left: auto; width: 28px; height: 16px; border-radius: 8px; flex: none; position: relative; background: rgba(0,0,0,.14); }
+  .switch.on{ background: var(--accent); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.12); }
+  .switch::after{ content:""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .switch.on::after{ left: 14px; }
+
+  .dock{
+    position: relative; display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px 9px; border-top: .5px solid rgba(0,0,0,.08);
+  }
+  .dock .icon-btn{ width: 30px; height: 30px; position: relative; }
+  .dock .icon-btn svg.i{ width: 18px; height: 18px; }
+  .dock .div{ width: 1px; height: 16px; background: rgba(0,0,0,.1); }
+  .dock .badge-dot{ position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #e08a1c; box-shadow: 0 0 0 1.5px #eceef2; }
+
+  /* ───────── Center ───────── */
+  .center{ position: relative; display: flex; flex-direction: column; min-width: 0; }
+  .toolbar{
+    position: relative; z-index: 2; height: 52px; flex: none;
+    display: flex; align-items: center; gap: 10px; padding: 0 16px 0 22px;
+  }
+  .tt{ display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .tt .t1{ font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+  .tt .t2{ font-size: 11.5px; color: var(--label-3); }
+  .capsule{
+    display: flex; align-items: center; height: 32px; padding: 0 2px; border-radius: 16px;
+    background: rgba(255,255,255,.8);
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.1), 0 1px 3px rgba(0,0,0,.05), inset 0 1px 0 rgba(255,255,255,.9);
+  }
+  .capsule .icon-btn{ width: 30px; height: 28px; border-radius: 14px; }
+  .capsule .icon-btn.on{ color: var(--accent); background: var(--accent-tint); }
+
+  .thread{
+    position: relative; flex: 1; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22px);
+            mask-image: linear-gradient(180deg, transparent 0, #000 22px);
+  }
+  .col{ width: min(var(--col), calc(100% - 64px)); margin: 0 auto; }
+  .thread .col{ padding-bottom: 14px; }
+
+  /* user turn */
+  .u{ display: flex; flex-direction: column; align-items: flex-end; }
+  .bubble{
+    max-width: 78%;
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 9px 15px 9px 12px;
+    background: #f0f1f4;
+    border-radius: 18px 18px 6px 18px;
+    font-size: 14.5px; line-height: 1.45; color: var(--label);
+  }
+  .bubble .mic{
+    width: 20px; height: 20px; margin-top: 0; flex: none; border-radius: 50%;
+    display: grid; place-items: center; background: var(--accent-tint-2); color: var(--accent);
+  }
+  .bubble .mic svg.i{ width: 12px; height: 12px; stroke-width: 1.7; }
+  .u .meta{ margin-top: 5px; padding-right: 4px; font-size: 11.5px; color: var(--label-3); }
+
+  /* jarvis turn */
+  .j{ margin-top: 18px; }
+  .j-head{ display: flex; align-items: center; gap: 8px; height: 22px; }
+  .j-head b{ font-weight: 600; font-size: 13px; }
+  .j-head .time{ font-size: 11.5px; color: var(--label-3); }
+  .mini-orb{
+    width: 16px; height: 16px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 34% 28%, #fff 0, #cdeeff 9%, #62b9f6 32%, #2584d4 60%, #135ea8 84%, #0d4b8b 100%);
+    box-shadow: inset 0 -1px 2px rgba(4,40,90,.35), 0 0 0 .5px rgba(19,94,168,.35);
+  }
+  .ghost{
+    display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 7px; border-radius: 6px;
+    font-size: 11.5px; color: var(--label-3);
+  }
+  .ghost svg.i{ width: 14px; height: 14px; }
+  .ghost.sq{ width: 24px; padding: 0; justify-content: center; }
+
+  .tools{
+    margin-top: 8px;
+    display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px 0 7px;
+    border-radius: 8px; background: rgba(0,0,0,.028); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.07);
+    font-size: 12.5px; color: var(--label-2);
+  }
+  .tools > svg.i{ width: 12px; height: 12px; color: var(--label-3); stroke-width: 1.8; }
+  .tools .lbl{ font-weight: 500; }
+  .tools .list{ font-family: var(--mono); font-size: 11px; color: var(--label-3); letter-spacing: -.01em; }
+  .tools .ok{ display: inline-flex; align-items: center; gap: 3px; color: var(--up); font-size: 11.5px; }
+  .tools .ok svg.i{ width: 12px; height: 12px; stroke-width: 2; }
+
+  .prose{
+    margin: 10px 0 14px; max-width: 646px;
+    font-size: 15px; line-height: 1.56; letter-spacing: -.008em; color: var(--label);
+  }
+  .prose strong{ font-weight: 600; }
+
+  /* cards */
+  .cards2{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card{
+    background: var(--card); border-radius: 12px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.075), 0 1px 2px rgba(0,0,0,.035), 0 6px 16px -6px rgba(20,30,60,.08);
+    overflow: hidden;
+  }
+  .card-h{
+    height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 12px 0 14px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .card-h > svg.i{ width: 15px; height: 15px; color: var(--accent); }
+  .card-h .ct{ font-weight: 600; font-size: 13px; }
+  .card-h .cm{ font-size: 12px; color: var(--label-3); }
+  .card-h .open{ margin-left: auto; display: inline-flex; align-items: center; gap: 1px; font-size: 12px; color: var(--label-3); }
+  .card-h .open svg.i{ width: 12px; height: 12px; stroke-width: 1.7; }
+
+  /* agenda */
+  .agenda .list{ padding: 3px 0 4px; }
+  .ev{
+    display: grid; grid-template-columns: 38px 3px minmax(0,1fr); column-gap: 10px; align-items: center;
+    height: 37px; padding: 0 14px;
+  }
+  .ev + .ev{ box-shadow: inset 0 1px 0 var(--hair); }
+  .ev .tm{ font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .ev .tm small{ display: block; font-size: 10.5px; font-weight: 400; color: var(--label-3); margin-top: -1px; }
+  .ev .bar{ width: 3px; height: 24px; border-radius: 2px; }
+  .ev .bar.work{ background: var(--accent); }
+  .ev .bar.lunch{ background: #8b63c9; }
+  .ev .bar.me{ background: #3a9a5b; }
+  .ev .tx{ min-width: 0; }
+  .ev .et{ font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.005em; }
+  .ev .es{ display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--label-3); white-space: nowrap; }
+  .ev .es svg.i{ width: 12px; height: 12px; }
+  .ev.go{ height: 30px; background: linear-gradient(90deg, var(--warn-bg), rgba(255,245,233,.0) 92%); }
+  .ev.go .tm{ color: var(--warn); }
+  .ev.go .bar{ height: 14px; width: 0; border-left: 1.5px dotted rgba(224,138,28,.7); border-radius: 0; margin-left: 1px; }
+  .ev.go .et{ display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--warn-ink); font-weight: 600; }
+  .ev.go .et svg.i{ width: 14px; height: 14px; }
+  .ev.go .et span{ font-weight: 400; color: rgba(143,71,0,.72); }
+  .ev.go + .ev{ box-shadow: none; }
+
+  /* markets */
+  .mk .list{ padding: 4px 0 6px; }
+  .mrow{
+    display: grid; grid-template-columns: minmax(0,1fr) 46px 62px 50px; column-gap: 9px; align-items: center;
+    height: 27px; padding: 0 14px;
+  }
+  .mrow .nm{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 500; }
+  .mrow .nm small{ font-size: 11px; font-weight: 400; color: var(--label-3); margin-left: 3px; }
+  .mrow svg.sp{ width: 46px; height: 18px; display: block; overflow: visible; }
+  .mrow .px{ text-align: right; font-size: 12px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+  .mrow .ch{ text-align: right; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .ch.up{ color: var(--up); } .ch.dn{ color: var(--down); }
+  .mk .gap{ height: 1px; margin: 3px 14px; background: var(--hair); }
+  .sp .base{ stroke: rgba(0,0,0,.12); stroke-width: 1; }
+  .sp .ln{ fill: none; stroke: #9ea3ad; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+  .sp .end{ stroke: #fff; stroke-width: 1.5; }
+  .sp .end.up{ fill: var(--up); } .sp .end.dn{ fill: var(--down); }
+
+  /* approval */
+  .approval{ margin-top: 12px; }
+  .ap-h{ display: flex; align-items: center; gap: 9px; padding: 12px 14px 0; }
+  .ap-ic{ width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); }
+  .ap-ic svg.i{ width: 15px; height: 15px; }
+  .ap-h .ct{ font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+  .ap-h .cm{ font-size: 12px; color: var(--label-3); }
+  .pill-wait{
+    margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 8px;
+    border-radius: 11px; background: var(--warn-bg); box-shadow: inset 0 0 0 .5px var(--warn-line);
+    font-size: 11.5px; font-weight: 500; color: var(--warn-ink);
+  }
+  .pill-wait i{ width: 6px; height: 6px; border-radius: 50%; background: #e08a1c; }
+  .mail{
+    margin: 10px 14px 0; border-radius: 10px; background: #fafafb;
+    box-shadow: inset 0 0 0 1px var(--hair);
+  }
+  .mail .hdr{ padding: 8px 12px 7px; border-bottom: 1px solid var(--hair); display: grid; grid-template-columns: 56px 1fr; row-gap: 2px; font-size: 12.5px; }
+  .mail .hdr .k{ color: var(--label-3); }
+  .mail .hdr .v{ display: flex; align-items: center; gap: 6px; color: var(--label); }
+  .mail .hdr .v .addr{ color: var(--label-3); }
+  .mail .bd{ padding: 8px 12px 10px; font-size: 13px; line-height: 1.5; color: #2c2c30; }
+  .mail .bd .sig{ color: var(--label-2); }
+  .ap-f{ display: flex; align-items: center; gap: 8px; padding: 12px 14px 12px; }
+  .ap-f .note{ font-size: 11.5px; color: var(--label-3); display: inline-flex; align-items: center; gap: 6px; }
+  .btn{
+    height: 28px; padding: 0 13px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 500; color: var(--label);
+    background: #fff;
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.16), 0 .5px 1.5px rgba(0,0,0,.08), inset 0 -.5px 0 rgba(0,0,0,.03);
+  }
+  .btn.plain{ background: transparent; box-shadow: none; color: var(--label-2); padding: 0 10px; }
+  .btn.primary{
+    color: #fff; padding: 0 10px 0 14px;
+    background: linear-gradient(180deg, #2a75c2 0%, #135ea8 100%);
+    box-shadow: 0 0 0 .5px rgba(10,60,120,.55), 0 1px 2px rgba(19,94,168,.3), inset 0 .5px 0 rgba(255,255,255,.28);
+  }
+  .btn .k2{ font-size: 11px; font-weight: 500; opacity: .5; letter-spacing: .02em; }
+  .btn.primary .k2{ opacity: .72; }
+
+  /* avatars */
+  .av{
+    width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center; flex: none;
+    font-size: 9.5px; font-weight: 600; color: #fff; letter-spacing: .02em;
+    text-shadow: 0 .5px 0 rgba(0,0,0,.12);
+  }
+  .av.sm{ width: 16px; height: 16px; font-size: 7.5px; }
+  .av.bh{ background: linear-gradient(180deg, #7d9ccc, #5576ab); }
+  .av.mk{ background: linear-gradient(180deg, #a9b78f, #7f8e66); }
+  .av.sr{ background: linear-gradient(180deg, #d8ae80, #b78a5e); }
+  .av.jt{ background: linear-gradient(180deg, #a497cb, #7c6eab); }
+  .av.al{ background: linear-gradient(180deg, #d995a2, #b9707f); }
+
+  /* composer */
+  .composer{ position: relative; flex: none; padding: 4px 0 18px; }
+  .chips{ display: flex; gap: 6px; margin-bottom: 10px; padding: 1px; }
+  .chip{
+    flex: none; height: 28px; padding: 0 12px; border-radius: 14px; display: inline-flex; align-items: center;
+    font-size: 12.5px; color: var(--label-2); background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.09), 0 1px 1.5px rgba(0,0,0,.03);
+    white-space: nowrap;
+  }
+  .field{
+    position: relative; border-radius: 18px; background: #fff;
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,.1),
+      0 1px 2px rgba(0,0,0,.04),
+      0 10px 28px -12px rgba(20,30,60,.16);
+  }
+  .field .ph{ display: flex; align-items: center; height: 46px; padding: 2px 16px 0; font-size: 14.5px; color: var(--label-4); }
+  .caret{ width: 1.5px; height: 18px; background: var(--accent); margin-right: 2px; border-radius: 1px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink{ 50%{ opacity: 0; } }
+  .fbar{ display: flex; align-items: center; gap: 4px; height: 48px; padding: 0 9px 0 9px; }
+  .fbar .icon-btn{ width: 30px; height: 30px; border-radius: 9px; color: var(--label-3); }
+  .fbar .icon-btn svg.i{ width: 17px; height: 17px; }
+  .model{
+    display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 7px 0 9px; border-radius: 8px;
+    font-size: 12px; font-weight: 500; color: var(--label-2);
+    background: rgba(0,0,0,.035); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.07);
+  }
+  .model svg.i{ width: 11px; height: 11px; stroke-width: 1.8; color: var(--label-3); }
+  .talk-hint{ display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; font-size: 11.5px; color: var(--label-3); }
+
+  .orb{
+    position: relative; width: 34px; height: 34px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 34% 28%, #ffffff 0%, #d2f0ff 8%, #6cc0f8 30%, #2b8ad8 56%, #135ea8 80%, #0c4886 100%);
+    box-shadow:
+      inset 0 -3px 5px rgba(3,36,84,.38),
+      inset 0 1px 1.5px rgba(255,255,255,.7),
+      0 0 0 .5px rgba(13,72,134,.55),
+      0 3px 8px -1px rgba(19,94,168,.45);
+  }
+  .orb::after{ /* specular */
+    content:""; position: absolute; left: 22%; top: 9%; width: 44%; height: 28%; border-radius: 50%;
+    background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,0));
+    filter: blur(.3px);
+  }
+  .orb::before{ /* breathing halo */
+    content:""; position: absolute; inset: -4px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(42,138,216,0) 58%, rgba(42,138,216,.2) 72%, rgba(42,138,216,0) 100%);
+    animation: breathe 3.6s ease-in-out infinite;
+  }
+  @keyframes breathe{ 0%,100%{ transform: scale(.94); opacity: .5; } 50%{ transform: scale(1.06); opacity: 1; } }
+
+  /* ───────── Inspector ───────── */
+  .inspector{
+    position: relative; display: flex; flex-direction: column; min-width: 0;
+    background: var(--pane); box-shadow: inset 1px 0 0 var(--hair);
+  }
+  .ins-h{ height: 52px; flex: none; display: flex; align-items: center; padding: 0 12px 0 18px; }
+  .ins-h .tt .t1{ font-size: 13.5px; }
+  .ins-body{ flex: 1; min-height: 0; overflow: hidden; padding: 0 16px; display: flex; flex-direction: column; }
+  .sec{ padding: 14px 2px; }
+  .sec + .sec{ box-shadow: inset 0 1px 0 var(--hair); }
+  .sh{ display: flex; align-items: baseline; margin-bottom: 9px; }
+  .sh .k{ font-size: 11.5px; font-weight: 600; color: var(--label-2); letter-spacing: .005em; }
+  .sh .v{ margin-left: auto; font-size: 11.5px; color: var(--label-3); }
+
+  .callout{
+    margin-top: 2px; margin-bottom: 6px;
+    border-radius: 12px; padding: 12px 14px 12px;
+    background: linear-gradient(180deg, #fff6ea 0%, #fff1df 100%);
+    box-shadow: inset 0 0 0 1px var(--warn-line), 0 1px 2px rgba(150,80,0,.06);
+  }
+  .co-top{ display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--warn); }
+  .co-top svg.i{ width: 15px; height: 15px; }
+  .co-top .v{ margin-left: auto; font-weight: 500; color: rgba(143,71,0,.65); }
+  .co-big{ margin-top: 7px; font-size: 21px; font-weight: 600; letter-spacing: -.02em; color: #2a1a06; font-variant-numeric: tabular-nums; }
+  .co-sub{ margin-top: 1px; font-size: 12.5px; color: #6e4a1e; }
+  .route{ margin-top: 11px; display: flex; gap: 2px; height: 4px; }
+  .route i{ display: block; height: 100%; border-radius: 2px; }
+  .route .ok{ background: #6fb98a; }
+  .route .slow{ background: #e3a03a; }
+  .route .jam{ background: #d9573f; }
+  .route-l{ margin-top: 6px; display: flex; font-size: 11px; color: rgba(110,74,30,.85); }
+  .route-l span:nth-child(2){ margin: 0 auto; color: #a8442e; font-weight: 500; }
+  .co-act{ margin-top: 11px; display: flex; gap: 6px; }
+  .co-act .btn{ height: 26px; font-size: 12px; padding: 0 11px; }
+
+  .wx{ display: flex; align-items: center; gap: 12px; }
+  .wx .glyph{ width: 42px; height: 42px; flex: none; }
+  .wx .temp{ font-size: 32px; font-weight: 300; letter-spacing: -.03em; line-height: 1; }
+  .wx .temp sup{ font-size: 18px; vertical-align: top; position: relative; top: 2px; margin-left: 1px; font-weight: 300; }
+  .wx .desc{ margin-left: auto; text-align: right; font-size: 12.5px; }
+  .wx .desc div + div{ color: var(--label-3); font-size: 11.5px; margin-top: 2px; }
+  .hours{ margin-top: 12px; display: grid; grid-template-columns: repeat(5,1fr); text-align: center; }
+  .hours div{ display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; color: var(--label-3); }
+  .hours div b{ font-size: 12px; font-weight: 500; color: var(--label); font-variant-numeric: tabular-nums; }
+  .hours svg{ width: 18px; height: 18px; }
+  .hours .now{ color: var(--label); font-weight: 600; }
+
+  .mtg-t{ font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+  .mtg-s{ margin-top: 2px; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--label-2); }
+  .mtg-s svg.i{ width: 12px; height: 12px; color: var(--label-3); }
+  .people{ margin-top: 10px; display: flex; align-items: center; gap: 9px; }
+  .stack{ display: flex; }
+  .stack .av{ box-shadow: 0 0 0 2px var(--pane); }
+  .stack .av + .av{ margin-left: -4px; }
+  .people .names{ font-size: 12px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .vip + .vip{ margin-top: 10px; }
+  .vip{ display: grid; grid-template-columns: 22px minmax(0,1fr) auto; column-gap: 9px; align-items: center; }
+  .vip .who{ display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; }
+  .vip .who svg.i{ width: 12px; height: 12px; fill: #e9a21a; stroke: #e9a21a; stroke-width: 1; }
+  .vip .snip{ font-size: 12px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vip .tm{ align-self: start; font-size: 11.5px; color: var(--label-3); padding-top: 1px; }
+  .more{ margin-top: 9px; font-size: 12px; color: var(--label-3); display: flex; align-items: center; gap: 2px; }
+  .more svg.i{ width: 11px; height: 11px; stroke-width: 1.8; }
+
+  .meter-l{ display: flex; align-items: baseline; font-size: 12.5px; }
+  .meter-l b{ margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .meter{ margin-top: 7px; height: 6px; border-radius: 3px; background: rgba(19,94,168,.13); overflow: hidden; }
+  .meter i{ display: block; height: 100%; width: 31%; border-radius: 3px; background: var(--accent); }
+  .meter-s{ margin-top: 6px; font-size: 11.5px; color: var(--label-3); }
+  .sys{ margin-top: 12px; display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
+  .sys div{ padding: 7px 9px 6px; border-radius: 8px; background: #fff; box-shadow: 0 0 0 1px var(--hair); }
+  .sys span{ display: block; font-size: 10.5px; color: var(--label-3); }
+  .sys b{ font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .mock-label{
+    position: absolute; right: 14px; bottom: 9px;
+    font-size: 10px; color: var(--label-4); letter-spacing: .02em;
+  }
+
+  /* ───────── Smaller windows ───────── */
+  @media (max-width: 1360px){
+    :root{ --inspector-w: 280px; }
+    .thread .col, .composer .col{ width: calc(100% - 48px); }
+    .chip:nth-child(5){ display: none; }
+  }
+  @media (max-height: 840px){
+    .u .meta{ margin-top: 3px; }
+    .j{ margin-top: 12px; }
+    .prose{ margin: 8px 0 12px; font-size: 14.5px; line-height: 1.5; }
+    .card-h{ height: 34px; }
+    .ev{ height: 34px; }
+    .ev.go{ height: 27px; }
+    .ev .bar{ height: 22px; }
+    .mrow{ height: 23px; }
+    .agenda .list, .mk .list{ padding: 2px 0 3px; }
+    .approval{ margin-top: 10px; }
+    .ap-h{ padding-top: 10px; }
+    .mail{ margin-top: 8px; }
+    .mail .hdr{ padding: 6px 12px 5px; }
+    .mail .bd{ padding: 6px 12px 8px; }
+    .ap-f{ padding: 10px 14px; }
+    .composer{ padding-bottom: 14px; }
+    .chips{ margin-bottom: 8px; }
+    .field .ph{ height: 42px; }
+    .fbar{ height: 42px; }
+    .sec{ padding: 11px 2px; }
+    .hours{ margin-top: 9px; }
+    .sys{ margin-top: 9px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{ animation: none !important; }
+    .sdot.work i::after{ opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Icon sprite (SF Symbols–style line glyphs, drawn by hand) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-sidebar-l" viewBox="0 0 20 20"><rect x="2.75" y="4" width="14.5" height="12" rx="2.75"/><path d="M7.75 4v12"/></symbol>
+    <symbol id="i-sidebar-r" viewBox="0 0 20 20"><rect x="2.75" y="4" width="14.5" height="12" rx="2.75"/><path d="M12.25 4v12"/></symbol>
+    <symbol id="i-compose" viewBox="0 0 20 20"><path d="M9.5 4.5H6a2.25 2.25 0 0 0-2.25 2.25v7.5A2.25 2.25 0 0 0 6 16.5h7.5a2.25 2.25 0 0 0 2.25-2.25V10.5"/><path d="M14.3 3.7a1.45 1.45 0 0 1 2.05 2.05L10.5 11.6l-2.6.55.55-2.6z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 20 20"><circle cx="8.75" cy="8.75" r="5"/><path d="M12.5 12.5l4 4"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 20 20"><path d="M4 8.5v3M7 6v8M10 3.75v12.5M13 6.5v7M16 8.5v3"/></symbol>
+    <symbol id="i-bubble" viewBox="0 0 20 20"><path d="M5.75 4h8.5a2.25 2.25 0 0 1 2.25 2.25v5.5A2.25 2.25 0 0 1 14.25 14H9.75l-3.5 2.75V14h-.5A2.25 2.25 0 0 1 3.5 11.75v-5.5A2.25 2.25 0 0 1 5.75 4z"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 20 20"><path d="M8 5.5l4.5 4.5L8 14.5"/></symbol>
+    <symbol id="i-chev-ud" viewBox="0 0 20 20"><path d="M6.5 8L10 4.5 13.5 8M6.5 12L10 15.5 13.5 12"/></symbol>
+    <symbol id="i-cal" viewBox="0 0 20 20"><rect x="3" y="4.5" width="14" height="12" rx="2.5"/><path d="M3 8.5h14M7 3v3M13 3v3"/></symbol>
+    <symbol id="i-car" viewBox="0 0 20 20"><path d="M5 9.5l1.3-3.3a1.5 1.5 0 0 1 1.4-1h4.6a1.5 1.5 0 0 1 1.4 1L15 9.5"/><rect x="3.5" y="9.5" width="13" height="4.75" rx="1.6"/><path d="M5.75 14.25V16M14.25 14.25V16"/><circle cx="6.6" cy="11.9" r=".7" fill="currentColor" stroke="none"/><circle cx="13.4" cy="11.9" r=".7" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 20 20"><path d="M3.5 14.5l4.25-4.25 3 3 5.75-5.75"/><path d="M12.5 7.5h4v4"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 20 20"><rect x="2.75" y="4.5" width="14.5" height="11" rx="2.5"/><path d="M3.6 6.3L10 11l6.4-4.7"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 20 20"><path d="M15.2 9.3l-5.4 5.4a3.25 3.25 0 0 1-4.6-4.6l5.9-5.9a2.15 2.15 0 0 1 3.05 3.05l-5.8 5.8a1.08 1.08 0 0 1-1.52-1.52l5.25-5.25"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 20 20"><rect x="7.5" y="2.75" width="5" height="9" rx="2.5"/><path d="M4.75 9.5a5.25 5.25 0 0 0 10.5 0M10 14.75v2.5"/></symbol>
+    <symbol id="i-share" viewBox="0 0 20 20"><path d="M7.25 8H6.5a1.75 1.75 0 0 0-1.75 1.75v5.5A1.75 1.75 0 0 0 6.5 17h7a1.75 1.75 0 0 0 1.75-1.75v-5.5A1.75 1.75 0 0 0 13.5 8h-.75M10 2.75v9M7.25 5.5L10 2.75l2.75 2.75"/></symbol>
+    <symbol id="i-more" viewBox="0 0 20 20"><circle cx="5" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-check" viewBox="0 0 20 20"><path d="M4.75 10.5l3.25 3.25 7.25-7.5"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 20 20"><rect x="7" y="7" width="9.5" height="9.5" rx="2"/><path d="M13 7V5.5a2 2 0 0 0-2-2H5.5a2 2 0 0 0-2 2V11a2 2 0 0 0 2 2H7"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 20 20"><path d="M3.75 8v4h2.75l3.75 3.25V4.75L6.5 8z"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.25 5.25a6.75 6.75 0 0 1 0 9.5"/></symbol>
+    <symbol id="i-retry" viewBox="0 0 20 20"><path d="M15.75 10a5.75 5.75 0 1 1-1.7-4.1"/><path d="M15.5 3.25V6.5h-3.25"/></symbol>
+    <symbol id="i-video" viewBox="0 0 20 20"><rect x="2.75" y="5.75" width="10" height="8.5" rx="2"/><path d="M12.75 9l4-2.25v6.5l-4-2.25"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 20 20"><path d="M10 17s5-4.4 5-8.5a5 5 0 0 0-10 0C5 12.6 10 17 10 17z"/><circle cx="10" cy="8.5" r="1.75"/></symbol>
+    <symbol id="i-building" viewBox="0 0 20 20"><path d="M4.5 16.5V4.25a.75.75 0 0 1 .75-.75h6.5a.75.75 0 0 1 .75.75V16.5M12.5 8h2.75a.75.75 0 0 1 .75.75v7.75M3 16.5h14M7.25 6.5h2.5M7.25 9.5h2.5M7.25 12.5h2.5"/></symbol>
+    <symbol id="i-fork" viewBox="0 0 20 20"><path d="M6.5 3v4.5a1.75 1.75 0 0 0 3.5 0V3M8.25 3v14M14.25 17V3c-1.6.9-2.5 2.9-2.5 5.4 0 1.9.9 2.6 2.5 2.6"/></symbol>
+    <symbol id="i-dumbbell" viewBox="0 0 20 20"><path d="M2.75 10h14.5M5 7v6M7.25 5.5v9M12.75 5.5v9M15 7v6"/></symbol>
+    <symbol id="i-star" viewBox="0 0 20 20"><path d="M10 3.2l2.05 4.15 4.58.67-3.31 3.23.78 4.56L10 13.65l-4.1 2.16.78-4.56L3.37 8.02l4.58-.67z"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 20 20"><path d="M2.75 10.25h3l2-5 4 10 2-5h3.5"/></symbol>
+    <symbol id="i-brain" viewBox="0 0 20 20"><path d="M10 4.5v11.25"/><path d="M10 5.25a2.4 2.4 0 0 0-4.4-.85 2.5 2.5 0 0 0-1.9 3.4 2.6 2.6 0 0 0 .2 4.4 2.5 2.5 0 0 0 2.4 3.4 2.4 2.4 0 0 0 3.7.7"/><path d="M10 5.25a2.4 2.4 0 0 1 4.4-.85 2.5 2.5 0 0 1 1.9 3.4 2.6 2.6 0 0 1-.2 4.4 2.5 2.5 0 0 1-2.4 3.4 2.4 2.4 0 0 1-3.7.7"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 20 20"><path d="M7 10.5V5.25a1.25 1.25 0 0 1 2.5 0V9.5M9.5 9V4a1.25 1.25 0 0 1 2.5 0v5M12 9.25V5.5a1.25 1.25 0 0 1 2.5 0v6.25c0 3-2.1 5.25-5 5.25-1.9 0-3.1-.8-4.2-2.4l-2.2-3.2a1.2 1.2 0 0 1 1.9-1.45L7 12"/></symbol>
+    <symbol id="i-code" viewBox="0 0 20 20"><path d="M7 6.25L3.25 10 7 13.75M13 6.25L16.75 10 13 13.75M11.25 4.5l-2.5 11"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M12.9 7.1l-1.7 4.1-4.1 1.7 1.7-4.1z"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.2"/><circle cx="10" cy="10" r="5.1"/><circle cx="10" cy="10" r="6.9" stroke-width="2.4" stroke-linecap="butt" stroke-dasharray="2.42 3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6.25V10l2.5 1.6"/></symbol>
+
+    <!-- weather (colour) -->
+    <symbol id="w-fog" viewBox="0 0 20 20"><path d="M5.6 11.2h8.4a2.8 2.8 0 0 0 .25-5.6 4.2 4.2 0 0 0-8.1 1A2.3 2.3 0 0 0 5.6 11.2z" fill="#eef0f4" stroke="#9aa1ad" stroke-width="1.2" stroke-linejoin="round"/><path d="M4.25 14h11.5M6.25 16.6h7.5" stroke="#a5abb6" stroke-width="1.3" stroke-linecap="round" fill="none"/></symbol>
+    <symbol id="w-partly" viewBox="0 0 20 20"><circle cx="12.6" cy="7.2" r="3.4" fill="#f5b03f"/><path d="M5 15.5h8.2a2.7 2.7 0 0 0 .2-5.4 4 4 0 0 0-7.7 1A2.2 2.2 0 0 0 5 15.5z" fill="#fff" stroke="#9aa1ad" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+    <symbol id="w-sun" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.6" fill="#f5b03f"/><g stroke="#f5b03f" stroke-width="1.4" stroke-linecap="round"><path d="M10 2.6v1.6M10 15.8v1.6M2.6 10h1.6M15.8 10h1.6M4.8 4.8l1.1 1.1M14.1 14.1l1.1 1.1M4.8 15.2l1.1-1.1M14.1 5.9l1.1-1.1"/></g></symbol>
+  </defs>
+</svg>
+
+<div class="window">
+
+  <!-- ═════════ Sidebar ═════════ -->
+  <aside class="sidebar">
+    <div class="side-panel">
+      <div class="side-top">
+        <div class="traffic"><i class="tl c"></i><i class="tl m"></i><i class="tl z"></i></div>
+        <div class="side-tools">
+          <button class="icon-btn" title="Hide sidebar"><svg class="i"><use href="#i-sidebar-l"/></svg></button>
+          <button class="icon-btn" title="New conversation  ⌘N"><svg class="i"><use href="#i-compose"/></svg></button>
+        </div>
+      </div>
+
+      <div class="search"><svg class="i"><use href="#i-search"/></svg>Search<span class="kbd">⌘K</span></div>
+
+      <nav class="side-scroll">
+        <div class="sec-h">Today</div>
+        <div class="row two sel">
+          <span class="ic"><svg class="i"><use href="#i-wave"/></svg></span>
+          <div class="body"><div class="l1"><span class="t">What’s on today</span><span class="m tnum">8:42</span></div><span class="s">Three meetings today. The investment…</span></div>
+        </div>
+        <div class="row two">
+          <span class="ic"><svg class="i"><use href="#i-wave"/></svg></span>
+          <div class="body"><div class="l1"><span class="t">Morning brief</span><span class="m tnum">7:31</span></div><span class="s">Foggy until 11, four new emails</span></div>
+        </div>
+
+        <div class="sec-h">Earlier</div>
+        <div class="row two">
+          <span class="ic"><svg class="i"><use href="#i-bubble"/></svg></span>
+          <div class="body"><div class="l1"><span class="t">Q3 portfolio memo</span><span class="m">Yesterday</span></div><span class="s">Draft two is in Second brain</span></div>
+        </div>
+        <div class="row two">
+          <span class="ic"><svg class="i"><use href="#i-wave"/></svg></span>
+          <div class="body"><div class="l1"><span class="t">Book flights to Lisbon</span><span class="m">Wed</span></div><span class="s">Two options held, 14–19 Oct</span></div>
+        </div>
+        <div class="row two">
+          <span class="ic"><svg class="i"><use href="#i-bubble"/></svg></span>
+          <div class="body"><div class="l1"><span class="t">Eden launch checklist</span><span class="m">Tue</span></div><span class="s">6 of 9 done · press kit next</span></div>
+        </div>
+        <div class="row two">
+          <span class="ic"><svg class="i"><use href="#i-wave"/></svg></span>
+          <div class="body"><div class="l1"><span class="t">Renew my passport</span><span class="m">28 Sep</span></div><span class="s">Appointment on 9 Oct, 10:20</span></div>
+        </div>
+
+        <div class="sec-h">Jarvis Code <span class="n">2</span></div>
+        <div class="row two">
+          <span class="sdot work"><i></i></span>
+          <div class="body"><div class="l1"><span class="t">Hands-free wake timing</span></div><span class="s">jarvis · 3 files <b class="add">+84</b> <b class="del">−12</b></span></div>
+        </div>
+        <div class="row two">
+          <span class="sdot wait"><i></i></span>
+          <div class="body"><div class="l1"><span class="t">Push approvals</span><span class="m wait">Review</span></div><span class="s">bsh-messenger · waiting for you</span></div>
+        </div>
+      </nav>
+
+      <div class="listen">
+        <span class="lw" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <div class="body">
+          <div class="t">Listening for “Jarvis”</div>
+          <div class="s">Or press <span class="kbd">⌥ Space</span></div>
+        </div>
+        <span class="switch on" role="switch" aria-checked="true" title="Hands-free"></span>
+      </div>
+
+      <div class="dock">
+        <button class="icon-btn" title="Activity"><svg class="i"><use href="#i-activity"/></svg></button>
+        <button class="icon-btn" title="Second brain"><svg class="i"><use href="#i-brain"/></svg></button>
+        <button class="icon-btn" title="Hands"><svg class="i"><use href="#i-hand"/></svg></button>
+        <button class="icon-btn" title="Jarvis Code"><svg class="i"><use href="#i-code"/></svg><span class="badge-dot"></span></button>
+        <button class="icon-btn" title="Browser"><svg class="i"><use href="#i-compass"/></svg></button>
+        <span class="div"></span>
+        <button class="icon-btn" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═════════ Center thread ═════════ -->
+  <main class="center">
+    <header class="toolbar">
+      <div class="tt">
+        <div class="t1">What’s on today</div>
+        <div class="t2">Friday, 3 October · 8:42 AM</div>
+      </div>
+      <span class="spacer"></span>
+      <div class="capsule">
+        <button class="icon-btn" title="Share"><svg class="i"><use href="#i-share"/></svg></button>
+        <button class="icon-btn" title="More"><svg class="i"><use href="#i-more"/></svg></button>
+      </div>
+      <div class="capsule">
+        <button class="icon-btn on" title="Hide inspector  ⌥⌘I"><svg class="i"><use href="#i-sidebar-r"/></svg></button>
+      </div>
+    </header>
+
+    <section class="thread">
+      <div class="col">
+
+        <!-- user (spoken) -->
+        <div class="u">
+          <div class="bubble">
+            <span class="mic" title="Spoken"><svg class="i"><use href="#i-mic"/></svg></span>
+            <span>Jarvis, what’s on today, and how are the markets looking?</span>
+          </div>
+          <div class="meta">Spoken · 8:42 AM</div>
+        </div>
+
+        <!-- jarvis -->
+        <div class="j">
+          <div class="j-head">
+            <span class="mini-orb"></span><b>Jarvis</b><span class="time">8:42 AM</span>
+            <span class="spacer"></span>
+            <button class="ghost"><svg class="i"><use href="#i-speaker"/></svg><span class="tnum">0:11</span></button>
+            <button class="ghost sq" title="Copy"><svg class="i"><use href="#i-copy"/></svg></button>
+            <button class="ghost sq" title="Try again"><svg class="i"><use href="#i-retry"/></svg></button>
+          </div>
+
+          <button class="tools">
+            <svg class="i"><use href="#i-chev-r"/></svg>
+            <span class="lbl">Used 3 tools</span>
+            <span class="list">calendar.today · maps.traffic · markets.premarket</span>
+            <span class="ok"><svg class="i"><use href="#i-check"/></svg></span>
+          </button>
+
+          <p class="prose">Three meetings today. The investment committee is first, at 10 — <strong>leave by 9:35</strong>, traffic on 101 is heavy. Futures are up half a percent, and Nvidia’s leading, up 2.1% before the open.</p>
+
+          <div class="cards2">
+            <!-- agenda -->
+            <article class="card agenda">
+              <header class="card-h">
+                <svg class="i"><use href="#i-cal"/></svg>
+                <span class="ct">Today</span><span class="cm">4 events</span>
+                <span class="open">Calendar<svg class="i"><use href="#i-chev-r"/></svg></span>
+              </header>
+              <div class="list">
+                <div class="ev go">
+                  <div class="tm">9:35</div><span class="bar"></span>
+                  <div class="tx"><div class="et"><svg class="i"><use href="#i-car"/></svg>Leave for the office <span>· 24 min</span></div></div>
+                </div>
+                <div class="ev">
+                  <div class="tm">10:00<small>11:00</small></div><span class="bar work"></span>
+                  <div class="tx"><div class="et">BSH Investment Committee</div><div class="es"><svg class="i"><use href="#i-building"/></svg>Office · 4 people</div></div>
+                </div>
+                <div class="ev">
+                  <div class="tm">12:30</div><span class="bar lunch"></span>
+                  <div class="tx"><div class="et">Lunch with Ann Lee</div><div class="es"><svg class="i"><use href="#i-pin"/></svg>Zuni Café</div></div>
+                </div>
+                <div class="ev">
+                  <div class="tm">15:00</div><span class="bar work"></span>
+                  <div class="tx"><div class="et">Eden Messenger launch review</div><div class="es"><svg class="i"><use href="#i-video"/></svg>Zoom</div></div>
+                </div>
+                <div class="ev">
+                  <div class="tm">17:30</div><span class="bar me"></span>
+                  <div class="tx"><div class="et">Gym</div><div class="es"><svg class="i"><use href="#i-dumbbell"/></svg>Personal</div></div>
+                </div>
+              </div>
+            </article>
+
+            <!-- markets -->
+            <article class="card mk">
+              <header class="card-h">
+                <svg class="i"><use href="#i-chart"/></svg>
+                <span class="ct">Premarket</span><span class="cm tnum">8:42 AM</span>
+                <span class="open">Markets<svg class="i"><use href="#i-chev-r"/></svg></span>
+              </header>
+              <div class="list">
+                <div class="mrow">
+                  <span class="nm">S&amp;P 500<small>futures</small></span>
+                  <svg class="sp" viewBox="0 0 46 18" role="img" aria-label="S&amp;P 500 futures since yesterday's close"><path class="base" d="M0 11.5H46"/><polyline class="ln" points="0,11.5 4,12.4 8,10.9 12,11.6 16,10 19,10.6 23,9 27,9.6 31,8 35,8.6 39,7 42,6.6 46,5.6"/><circle class="end up" cx="46" cy="5.6" r="2.4"/></svg>
+                  <span class="px">7,124.50</span><span class="ch up">+0.48%</span>
+                </div>
+                <div class="mrow">
+                  <span class="nm">Nasdaq 100<small>futures</small></span>
+                  <svg class="sp" viewBox="0 0 46 18" role="img" aria-label="Nasdaq 100 futures since yesterday's close"><path class="base" d="M0 12.5H46"/><polyline class="ln" points="0,12.5 4,12 8,13 12,11 16,11.6 19,9.6 23,10.2 27,8 31,8.6 35,6.6 39,7.2 42,5 46,4.4"/><circle class="end up" cx="46" cy="4.4" r="2.4"/></svg>
+                  <span class="px">26,310.25</span><span class="ch up">+0.71%</span>
+                </div>
+                <div class="gap"></div>
+                <div class="mrow">
+                  <span class="nm">NVDA</span>
+                  <svg class="sp" viewBox="0 0 46 18" role="img" aria-label="Nvidia since yesterday's close"><path class="base" d="M0 14.5H46"/><polyline class="ln" points="0,14.5 4,13.6 8,14 12,11.6 16,12 19,9.6 23,10 27,7.6 31,6.6 35,7 39,5 42,4.4 46,3"/><circle class="end up" cx="46" cy="3" r="2.4"/></svg>
+                  <span class="px">198.42</span><span class="ch up">+2.10%</span>
+                </div>
+                <div class="mrow">
+                  <span class="nm">AAPL</span>
+                  <svg class="sp" viewBox="0 0 46 18" role="img" aria-label="Apple since yesterday's close"><path class="base" d="M0 8.5H46"/><polyline class="ln" points="0,8.5 4,7.8 8,9.2 12,8.6 16,10 19,9.4 23,10.8 27,9.9 31,11.2 35,10.7 39,11.8 42,11.3 46,11.7"/><circle class="end dn" cx="46" cy="11.7" r="2.4"/></svg>
+                  <span class="px">251.18</span><span class="ch dn">−0.30%</span>
+                </div>
+                <div class="mrow">
+                  <span class="nm">MSFT</span>
+                  <svg class="sp" viewBox="0 0 46 18" role="img" aria-label="Microsoft since yesterday's close"><path class="base" d="M0 10.5H46"/><polyline class="ln" points="0,10.5 4,11.3 8,10.3 12,10.8 16,9.4 19,9.9 23,8.8 27,9.3 31,8.3 35,8.8 39,7.8 42,8.2 46,7.3"/><circle class="end up" cx="46" cy="7.3" r="2.4"/></svg>
+                  <span class="px">532.60</span><span class="ch up">+0.40%</span>
+                </div>
+                <div class="mrow">
+                  <span class="nm">BTC</span>
+                  <svg class="sp" viewBox="0 0 46 18" role="img" aria-label="Bitcoin over the last 24 hours"><path class="base" d="M0 12H46"/><polyline class="ln" points="0,12 4,10.2 8,11.2 12,9.2 16,10.2 19,7.8 23,9.2 27,7.2 31,8.2 35,6.2 39,7.2 42,5.7 46,5.6"/><circle class="end up" cx="46" cy="5.6" r="2.4"/></svg>
+                  <span class="px">118,420</span><span class="ch up">+1.20%</span>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- approval -->
+          <article class="card approval">
+            <div class="ap-h">
+              <span class="ap-ic"><svg class="i"><use href="#i-mail"/></svg></span>
+              <span class="ct">Send email to Ann Lee</span>
+              <span class="cm">Reply to her 8:31 email</span>
+              <span class="pill-wait"><i></i>Waiting for you</span>
+            </div>
+            <div class="mail">
+              <div class="hdr">
+                <span class="k">To</span><span class="v"><span class="av sm al">AL</span>Ann Lee <span class="addr">ann@leecapital.com</span></span>
+                <span class="k">Subject</span><span class="v">Re: Lunch today?</span>
+              </div>
+              <div class="bd">Hi Ann, could we push lunch to 12:45? The committee may run a little long. Still Zuni. <span class="sig">— Bilel</span></div>
+            </div>
+            <div class="ap-f">
+              <span class="spacer"></span>
+              <button class="btn plain">Not now<span class="k2">esc</span></button>
+              <button class="btn">Edit<span class="k2">⌘E</span></button>
+              <button class="btn primary">Send<span class="k2">⌘↩</span></button>
+            </div>
+          </article>
+        </div>
+
+      </div>
+    </section>
+
+    <footer class="composer">
+      <div class="col">
+        <div class="chips">
+          <span class="chip">Brief me</span>
+          <span class="chip">What’s next today?</span>
+          <span class="chip">Play focus music</span>
+          <span class="chip">How’s the portfolio?</span>
+          <span class="chip">Look at my screen</span>
+        </div>
+        <div class="field">
+          <div class="ph"><span class="caret"></span>Or type a request…</div>
+          <div class="fbar">
+            <button class="icon-btn" title="Attach"><svg class="i"><use href="#i-clip"/></svg></button>
+            <button class="model">Opus 5.5<svg class="i"><use href="#i-chev-ud"/></svg></button>
+            <span class="spacer"></span>
+            <span class="talk-hint"><span class="kbd">⌥ Space</span>to talk</span>
+            <button class="orb" title="Talk  ⌥ Space" aria-label="Talk"></button>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <!-- ═════════ Inspector ═════════ -->
+  <aside class="inspector">
+    <header class="ins-h">
+      <div class="tt"><div class="t1">Today</div><div class="t2">Friday, 3 October</div></div>
+      <span class="spacer"></span>
+      <button class="icon-btn" title="Customize"><svg class="i"><use href="#i-more"/></svg></button>
+    </header>
+
+    <div class="ins-body">
+      <!-- heads-up -->
+      <section class="callout">
+        <div class="co-top"><svg class="i"><use href="#i-car"/></svg>Heads-up<span class="v tnum">24 min drive</span></div>
+        <div class="co-big">Leave in 53 min</div>
+        <div class="co-sub">for the investment committee</div>
+        <div class="route" aria-label="Route traffic">
+          <i class="ok" style="flex:1.1"></i><i class="slow" style="flex:.7"></i><i class="jam" style="flex:1.3"></i><i class="slow" style="flex:.5"></i><i class="ok" style="flex:1.4"></i>
+        </div>
+        <div class="route-l tnum"><span>Leave 9:35</span><span>Heavy on 101</span><span>Arrive 9:59</span></div>
+        <div class="co-act">
+          <button class="btn">Directions</button>
+          <button class="btn plain" style="padding:0 6px">Remind me at 9:30</button>
+        </div>
+      </section>
+
+      <!-- weather -->
+      <section class="sec">
+        <div class="sh"><span class="k">Weather</span><span class="v">San Francisco</span></div>
+        <div class="wx">
+          <svg class="glyph" viewBox="0 0 42 42" aria-hidden="true">
+            <circle cx="26.5" cy="14" r="7" fill="#f5b03f"/>
+            <path d="M11.5 27.5h16.6a5.6 5.6 0 0 0 .5-11.2 8.4 8.4 0 0 0-16.2 2A4.6 4.6 0 0 0 11.5 27.5z" fill="#fff" stroke="#9aa1ad" stroke-width="1.6" stroke-linejoin="round"/>
+            <path d="M8 32.5h24M13 37h16" stroke="#aab0ba" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <div class="temp tnum">61<sup>°</sup></div>
+          <div class="desc"><div>Fog clearing by 11</div><div class="tnum">H 72°  L 56°</div></div>
+        </div>
+        <div class="hours">
+          <div class="now">Now<svg><use href="#w-fog"/></svg><b>61°</b></div>
+          <div>10 AM<svg><use href="#w-fog"/></svg><b>63°</b></div>
+          <div>11 AM<svg><use href="#w-partly"/></svg><b>66°</b></div>
+          <div>1 PM<svg><use href="#w-sun"/></svg><b>70°</b></div>
+          <div>3 PM<svg><use href="#w-sun"/></svg><b>72°</b></div>
+        </div>
+      </section>
+
+      <!-- next meeting -->
+      <section class="sec">
+        <div class="sh"><span class="k">Next meeting</span><span class="v">in 1 h 18 min</span></div>
+        <div class="mtg-t">BSH Investment Committee</div>
+        <div class="mtg-s tnum"><svg class="i"><use href="#i-clock"/></svg>10:00–11:00 <span style="color:var(--label-4)">·</span> <svg class="i"><use href="#i-building"/></svg>Office</div>
+        <div class="people">
+          <div class="stack"><span class="av bh">BH</span><span class="av mk">MK</span><span class="av sr">SR</span><span class="av jt">JT</span></div>
+          <span class="names">You, Marc, Sofia and James</span>
+        </div>
+      </section>
+
+      <!-- mail -->
+      <section class="sec">
+        <div class="sh"><span class="k">Mail</span><span class="v">4 new · 1 VIP</span></div>
+        <div class="vip">
+          <span class="av al">AL</span>
+          <div style="min-width:0">
+            <div class="who">Ann Lee<svg class="i"><use href="#i-star"/></svg></div>
+            <div class="snip">Lunch today? Still good for 12:30 at Zuni…</div>
+          </div>
+          <span class="tm tnum">8:31</span>
+        </div>
+        <div class="vip">
+          <span class="av mk">MK</span>
+          <div style="min-width:0">
+            <div class="who" style="font-weight:500">Marc Keller</div>
+            <div class="snip">Committee pre-read, final version attached</div>
+          </div>
+          <span class="tm tnum">7:58</span>
+        </div>
+        <div class="more">2 more in Inbox<svg class="i"><use href="#i-chev-r"/></svg></div>
+      </section>
+
+      <!-- usage -->
+      <section class="sec">
+        <div class="sh"><span class="k">Usage</span><span class="v">Opus 5.5</span></div>
+        <div class="meter-l"><span>5-hour limit</span><b>31%</b></div>
+        <div class="meter" role="meter" aria-valuenow="31" aria-valuemin="0" aria-valuemax="100" aria-label="5-hour limit used"><i></i></div>
+        <div class="sys">
+          <div><span>CPU</span><b>18%</b></div>
+          <div><span>Memory</span><b>62%</b></div>
+          <div><span>Battery</span><b>84%</b></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="mock-label">Mockup 04 · Workspace</div>
+  </aside>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis · Island — Mockup 06</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", system-ui, "Inter", "Helvetica Neue", sans-serif;
+    --mono: "SF Mono", ui-monospace, Menlo, Monaco, "JetBrains Mono", monospace;
+    --label: rgba(255,255,255,.94);
+    --label2: rgba(235,235,245,.62);
+    --label3: rgba(235,235,245,.38);
+    --label4: rgba(235,235,245,.22);
+    --blue:#0A84FF; --green:#30D158; --red:#FF453A; --orange:#FF9F0A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0c0c1e}
+  body{font-family:var(--sys);color:var(--label);-webkit-font-smoothing:antialiased;font-size:13px;letter-spacing:-.005em}
+  svg{display:block}
+  .screen{position:relative;width:100vw;height:100vh;overflow:hidden}
+
+  /* ───────────── Wallpaper ───────────── */
+  .wallpaper{position:absolute;inset:0;overflow:hidden;
+    background:
+      radial-gradient(55% 45% at 82% 104%, rgba(255,128,178,.62), rgba(255,128,178,0) 72%),
+      radial-gradient(42% 40% at 6% 96%, rgba(120,92,255,.5), rgba(120,92,255,0) 70%),
+      radial-gradient(48% 42% at 16% 4%, rgba(64,118,255,.5), rgba(64,118,255,0) 72%),
+      radial-gradient(40% 36% at 96% 10%, rgba(150,96,255,.42), rgba(150,96,255,0) 72%),
+      linear-gradient(168deg,#0e1647 0%,#1b1c63 34%,#33227c 62%,#2a1658 84%,#180f3a 100%);}
+  .fold{position:absolute;border-radius:50%;}
+  .fold.a{width:170vw;height:118vh;left:-62vw;top:44vh;transform:rotate(-12deg);
+    background:linear-gradient(180deg,rgba(158,140,255,.52) 0%,rgba(98,70,214,.32) 16%,rgba(36,22,100,0) 52%);
+    box-shadow:inset 0 1.5px 0 rgba(236,228,255,.42), inset 0 46px 80px -34px rgba(214,196,255,.5);}
+  .fold.b{width:150vw;height:112vh;left:-4vw;top:63vh;transform:rotate(-5deg);
+    background:linear-gradient(180deg,rgba(255,150,206,.5) 0%,rgba(186,80,178,.3) 18%,rgba(48,16,76,0) 58%);
+    box-shadow:inset 0 1.5px 0 rgba(255,222,240,.42), inset 0 42px 70px -30px rgba(255,186,224,.46);}
+  .fold.c{width:140vw;height:120vh;left:36vw;top:16vh;transform:rotate(-26deg);
+    background:linear-gradient(180deg,rgba(112,156,255,.42) 0%,rgba(64,86,210,.24) 18%,rgba(20,20,84,0) 52%);
+    box-shadow:inset 0 1.5px 0 rgba(206,224,255,.36), inset 0 52px 90px -42px rgba(168,196,255,.45);}
+  .fold.d{width:150vw;height:104vh;left:-56vw;top:-91vh;transform:rotate(5deg);
+    background:radial-gradient(70% 60% at 50% 30%, rgba(8,10,40,.6), rgba(8,10,40,0) 80%);
+    box-shadow:inset 0 -1.5px 0 rgba(196,210,255,.32), inset 0 -44px 80px -34px rgba(132,154,255,.42);}
+  .fold.e{width:120vw;height:90vh;left:52vw;top:-58vh;transform:rotate(-14deg);
+    background:radial-gradient(70% 60% at 50% 30%, rgba(14,10,46,.45), rgba(14,10,46,0) 80%);
+    box-shadow:inset 0 -1.5px 0 rgba(222,200,255,.28), inset 0 -40px 70px -34px rgba(178,140,255,.36);}
+  .grain{position:absolute;inset:0;opacity:.07;mix-blend-mode:overlay;pointer-events:none}
+  .vignette{position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 40%, rgba(0,0,0,0) 55%, rgba(4,2,20,.45) 100%)}
+
+  /* ───────────── Windows (behind, dimmed) ───────────── */
+  .windows{position:absolute;inset:0;filter:brightness(.74) saturate(.82)}
+  .win{position:absolute;border-radius:11px;overflow:hidden;
+    box-shadow:0 0 0 .5px rgba(0,0,0,.85), inset 0 0 0 .5px rgba(255,255,255,.13), 0 28px 70px rgba(4,2,22,.55), 0 8px 22px rgba(4,2,22,.35)}
+  .lights{display:flex;gap:8px}
+  .lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)}
+  .lights .r{background:#FF5F57}.lights .y{background:#FEBC2E}.lights .g{background:#28C840}
+  .lights.off i{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.06)}
+
+  /* Safari */
+  .safari{left:47vw;top:max(27.5vh,246px);width:48vw;height:51vh;background:#1c1c1e;filter:brightness(.68)}
+  .sf-bar{height:52px;display:flex;align-items:center;gap:14px;padding:0 14px 0 18px;background:#2a2a2d;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.7)}
+  .sf-ico{color:rgba(255,255,255,.4)}
+  .sf-url{flex:1;max-width:380px;margin:0 auto;height:30px;border-radius:8px;background:rgba(255,255,255,.07);display:flex;align-items:center;justify-content:center;gap:6px;color:rgba(255,255,255,.62);font-size:13px}
+  .sf-page{position:absolute;top:52px;left:0;right:0;bottom:0;background:#000}
+  .sf-nav{height:44px;display:flex;align-items:center;gap:22px;padding-left:19vw;background:rgba(22,22,23,.96);font-size:12px;color:rgba(255,255,255,.6);box-shadow:inset 0 -.5px 0 rgba(255,255,255,.1)}
+  .sf-nav b{color:#fff;font-weight:600;font-size:15px;display:flex;align-items:center;gap:4px}
+  .sf-side{position:absolute;top:44px;left:0;bottom:0;width:19vw;background:#111113;box-shadow:inset -.5px 0 0 rgba(255,255,255,.1);padding:18px 14px 0 18px;font-size:12px;color:rgba(255,255,255,.55);overflow:hidden;white-space:nowrap}
+  .sf-side div{height:26px;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis}
+  .sf-side .h{color:#fff;font-weight:600;font-size:13px;margin-bottom:4px}
+  .sf-side .g{color:rgba(255,255,255,.35);font-size:11px;font-weight:600;margin-top:8px}
+  .sf-side .in{padding-left:14px}
+  .sf-side .on{color:#fff;background:rgba(255,255,255,.08);border-radius:6px;margin-left:-8px;padding-left:22px}
+  .sf-doc{position:absolute;top:44px;left:19vw;right:0;bottom:0;padding:26px 30px 0 30px;overflow:hidden}
+  .sf-eyebrow{font-size:12px;color:rgba(255,255,255,.5);margin-bottom:6px}
+  .sf-title{font-size:26px;font-weight:700;letter-spacing:-.02em;color:#fff;margin-bottom:10px}
+  .sf-lede{font-size:16px;line-height:1.45;color:rgba(255,255,255,.82);margin-bottom:14px}
+  .sf-tags{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:rgba(255,255,255,.55);margin-bottom:22px}
+  .sf-h{font-size:20px;font-weight:600;color:#fff;margin:4px 0 10px}
+  .sf-codebox{font-family:var(--mono);font-size:12px;padding:12px 14px;border-radius:10px;background:#1d1d1f;color:#fff;margin-bottom:22px;white-space:nowrap}
+  .sf-codebox .k{color:#FC5FA3}.sf-codebox .t{color:#D0A8FF}
+  .sf-p{font-size:14px;line-height:1.55;color:rgba(255,255,255,.76);margin-bottom:12px}
+  .sf-p code{font-family:var(--mono);font-size:12.5px;color:#fff}
+
+  /* Xcode */
+  .xcode{left:5vw;top:17vh;width:60vw;height:57vh;background:#1F1F24;display:flex}
+  .xc-side{width:232px;flex:none;background:#28282d;box-shadow:inset -.5px 0 0 rgba(0,0,0,.8);display:flex;flex-direction:column}
+  .xc-side-top{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 14px 0 18px}
+  .xc-navbar{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.6), inset 0 .5px 0 rgba(0,0,0,.6)}
+  .xc-navbar svg{color:rgba(255,255,255,.42)}
+  .xc-navbar svg.on{color:var(--blue)}
+  .xc-tree{flex:1;padding:8px 8px 0;font-size:12px;color:rgba(255,255,255,.84);overflow:hidden}
+  .row{height:22px;display:flex;align-items:center;gap:5px;border-radius:5px;padding-left:4px;white-space:nowrap;overflow:hidden}
+  .row .tw{width:9px;color:rgba(255,255,255,.4);flex:none}
+  .row.sel{background:#0A5FCC;color:#fff}
+  .row.l1{padding-left:14px}.row.l2{padding-left:28px}.row.l3{padding-left:42px}
+  .row .m{margin-left:auto;margin-right:8px;font-size:10px;color:rgba(255,255,255,.4);font-weight:600}
+  .row.sel .m{color:rgba(255,255,255,.75)}
+  .fi{width:13px;height:13px;flex:none}
+  .xc-filter{height:34px;display:flex;align-items:center;padding:0 10px;box-shadow:inset 0 .5px 0 rgba(0,0,0,.7)}
+  .xc-filter div{flex:1;height:22px;border-radius:6px;background:rgba(255,255,255,.06);display:flex;align-items:center;gap:6px;padding:0 8px;color:rgba(255,255,255,.32);font-size:12px}
+  .xc-main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .xc-tool{height:52px;display:flex;align-items:center;gap:12px;padding:0 14px;background:#2a2a2f;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.8)}
+  .xc-scheme{display:flex;align-items:center;gap:6px;font-size:12.5px;color:rgba(255,255,255,.86);white-space:nowrap;flex:none}
+  .xc-scheme .sep{color:rgba(255,255,255,.3)}
+  .xc-status{flex:0 1 250px;min-width:0;height:24px;border-radius:7px;background:rgba(255,255,255,.06);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12px;color:rgba(255,255,255,.62);white-space:nowrap;overflow:hidden}
+  .xc-status b{color:rgba(255,255,255,.86);font-weight:500}
+  .xc-status .bar{width:.5px;height:12px;background:rgba(255,255,255,.2)}
+  .xc-tabs{height:28px;display:flex;background:#232328;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.8)}
+  .xc-tab{display:flex;align-items:center;gap:6px;padding:0 14px;font-size:12px;color:rgba(255,255,255,.5);box-shadow:inset -.5px 0 0 rgba(0,0,0,.6);white-space:nowrap}
+  .xc-tab.on{background:#1F1F24;color:rgba(255,255,255,.9)}
+  .xc-jump{height:24px;display:flex;align-items:center;gap:5px;padding:0 12px;font-size:11px;color:rgba(255,255,255,.55);white-space:nowrap;box-shadow:inset 0 -.5px 0 rgba(255,255,255,.05)}
+  .xc-jump .chev{color:rgba(255,255,255,.28)}
+  .xc-code{flex:1;display:flex;font-family:var(--mono);font-size:12px;line-height:18px;padding-top:6px;overflow:hidden}
+  .gut{width:44px;flex:none;text-align:right;padding-right:12px;color:rgba(255,255,255,.26)}
+  .gut span{display:block}
+  .gut .cur{color:rgba(255,255,255,.75)}
+  .src{flex:1;white-space:pre;color:rgba(255,255,255,.86);padding-left:8px}
+  .src span.l{display:block}
+  .src .hl{background:rgba(255,255,255,.055);margin-left:-8px;padding-left:8px}
+  .k{color:#FC5FA3;font-weight:600}.t{color:#D0A8FF}.pt{color:#9EF1DD}.s{color:#FC6A5D}.c{color:#6C7986}
+  .f{color:#A167E6}.pf{color:#67B7A4}.n{color:#D0BF69}.at{color:#BF8555}.d{color:#5DD8FF}
+  .caret{display:inline-block;width:1.5px;height:15px;background:#fff;vertical-align:-3px;margin-left:1px}
+
+  /* ───────────── Menu bar ───────────── */
+  .menubar{position:absolute;top:0;left:0;right:0;height:24px;z-index:60;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 20px;
+    background:rgba(20,16,56,.34);-webkit-backdrop-filter:blur(36px) saturate(1.8);backdrop-filter:blur(36px) saturate(1.8);
+    box-shadow:inset 0 -.5px 0 rgba(255,255,255,.07);color:#fff;font-size:13px;white-space:nowrap}
+  .mb-left{display:flex;align-items:center}
+  .mb-left .apple{margin-right:13px}
+  .mb-left span{padding:0 9.5px;font-weight:400;color:rgba(255,255,255,.96)}
+  .mb-left span.app{font-weight:700}
+  .mb-right{display:flex;align-items:center;gap:15px}
+  .mb-right .clock{font-variant-numeric:tabular-nums;margin-left:3px;letter-spacing:-.01em}
+  .mb-orb{width:16px;height:16px;border-radius:50%;position:relative;
+    background:radial-gradient(circle at 35% 28%, #f2fbff 0%, #9fdcff 16%, #3aaaf2 42%, #1477d6 72%, #0c4fa8 100%);
+    box-shadow:0 0 0 .5px rgba(255,255,255,.35), 0 0 6px rgba(70,170,255,.6)}
+  .mb-orb-wrap{height:20px;padding:0 6px;margin:0 -6px;border-radius:5px;display:flex;align-items:center;background:rgba(255,255,255,.16)}
+
+  /* ───────────── The island ───────────── */
+  .island{position:absolute;top:32px;left:50%;transform:translateX(-50%);width:612px;z-index:55;
+    background:#000;border-radius:32px;padding:16px 20px 16px 16px;
+    box-shadow:0 0 0 .5px rgba(255,255,255,.08), 0 30px 70px -14px rgba(0,0,0,.72), 0 10px 26px rgba(0,0,0,.42), 0 1px 3px rgba(0,0,0,.6)}
+  .island::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    background:radial-gradient(260px 120px at 30px 30px, rgba(40,140,255,.13), rgba(40,140,255,0) 70%)}
+  .isl{position:relative;display:flex;gap:13px}
+  .orb{flex:none;width:38px;height:38px;border-radius:50%;position:relative;
+    background:radial-gradient(circle at 34% 28%, #f4fbff 0%, #b2e4ff 11%, #4ab6f6 32%, #1d8ae2 58%, #0f5fbd 80%, #0a3e8e 100%);
+    box-shadow:0 0 0 .5px rgba(170,220,255,.32), 0 0 18px 1px rgba(36,146,255,.5), inset 0 -5px 9px rgba(4,28,92,.5)}
+  .orb::after{content:"";position:absolute;left:21%;top:9%;width:44%;height:27%;border-radius:50%;
+    background:linear-gradient(180deg,rgba(255,255,255,.88),rgba(255,255,255,0));}
+  .orb.breathe{animation:breathe 4.8s ease-in-out infinite}
+  @keyframes breathe{0%,100%{box-shadow:0 0 0 .5px rgba(170,220,255,.32), 0 0 16px 0 rgba(36,146,255,.42), inset 0 -5px 9px rgba(4,28,92,.5)}
+    50%{box-shadow:0 0 0 .5px rgba(170,220,255,.4), 0 0 24px 3px rgba(36,146,255,.6), inset 0 -5px 9px rgba(4,28,92,.5)}}
+  .isl-main{flex:1;min-width:0}
+  .isl-top{display:flex;align-items:center;justify-content:space-between;gap:12px;height:18px;margin-top:1px}
+  .heard{font-size:12.5px;color:rgba(235,235,245,.46);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hint{flex:none;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--label3)}
+  .kbd{height:18px;padding:0 6px;border-radius:5px;display:inline-flex;align-items:center;gap:3px;font-size:11px;color:rgba(235,235,245,.58);
+    background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12)}
+  .reply{margin-top:6px;font-size:15.5px;line-height:22px;color:#fff;letter-spacing:-.012em;text-wrap:pretty}
+  .chips{display:flex;gap:8px;margin-top:14px}
+  .chip{height:30px;display:inline-flex;align-items:center;gap:7px;padding:0 12px 0 10px;border-radius:15px;white-space:nowrap;
+    background:rgba(255,255,255,.085);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.09);font-size:12.5px;color:var(--label2);font-variant-numeric:tabular-nums}
+  .chip b{color:#fff;font-weight:600}
+  .chip .ic{color:rgba(235,235,245,.62)}
+  .chip .ic.org{color:var(--orange)}
+  .chip .up{color:var(--green);font-weight:600}
+  .chip .mute{color:var(--label3)}
+
+  /* ───────────── Notifications ───────────── */
+  .toasts{position:absolute;top:34px;right:14px;width:344px;z-index:58;display:flex;flex-direction:column;gap:8px}
+  .toast{position:relative;border-radius:19px;padding:12px 14px 12px 12px;
+    background:rgba(44,42,56,.6);-webkit-backdrop-filter:blur(40px) saturate(1.9);backdrop-filter:blur(40px) saturate(1.9);
+    box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16), 0 0 0 .5px rgba(0,0,0,.45), 0 14px 34px rgba(6,2,26,.42), 0 2px 6px rgba(6,2,26,.25)}
+  .t-row{display:flex;gap:11px}
+  .appicon{flex:none;width:38px;height:38px;border-radius:9px;position:relative;display:grid;place-items:center;
+    background:radial-gradient(circle at 50% 34%, #1f3a72 0%, #0d1836 58%, #060b1c 100%);
+    box-shadow:inset 0 0 0 .5px rgba(255,255,255,.2), 0 1px 3px rgba(0,0,0,.45)}
+  .appicon .orb{width:22px;height:22px;box-shadow:0 0 10px rgba(36,146,255,.55), inset 0 -3px 5px rgba(4,28,92,.5)}
+  .appicon.sm{width:32px;height:32px;border-radius:7.5px}
+  .appicon.sm .orb{width:18px;height:18px}
+  .badge{position:absolute;right:-4px;bottom:-4px;width:17px;height:17px;border-radius:50%;background:var(--orange);display:grid;place-items:center;
+    box-shadow:0 0 0 1.5px rgba(44,42,56,1)}
+  .t-body{flex:1;min-width:0}
+  .t-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .t-title{font-size:13px;font-weight:600;color:#fff;letter-spacing:-.01em}
+  .t-time{font-size:11.5px;color:var(--label3);flex:none}
+  .t-quote{margin-top:2px;font-size:13px;line-height:18px;color:rgba(255,255,255,.88)}
+  .t-meta{margin-top:2px;font-size:11.5px;color:var(--label3)}
+  .t-actions{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:7px;margin-top:11px;padding-left:49px}
+  .btn{height:28px;border-radius:8px;display:grid;place-items:center;font-size:12.5px;font-weight:500;color:rgba(255,255,255,.9);
+    background:rgba(255,255,255,.11);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.1)}
+  .btn.primary{background:linear-gradient(180deg,#2a91ff,#0a79f0);color:#fff;font-weight:600;box-shadow:inset 0 .5px 0 rgba(255,255,255,.3), 0 1px 2px rgba(0,0,0,.3)}
+  .toast.compact{padding:10px 14px 10px 12px}
+  .toast.compact .t-row{align-items:center}
+  .t-quote .short{display:none}
+  .toast.compact .t-quote{font-size:12.5px;color:var(--label2);margin-top:1px;line-height:17px}
+
+  /* ───────────── Jarvis Code pill ───────────── */
+  .codepill{position:absolute;right:16px;bottom:16px;z-index:58;height:46px;border-radius:23px;display:flex;align-items:center;gap:10px;padding:0 16px 0 8px;
+    background:rgba(22,20,34,.66);-webkit-backdrop-filter:blur(36px) saturate(1.8);backdrop-filter:blur(36px) saturate(1.8);
+    box-shadow:inset 0 0 0 .5px rgba(255,255,255,.15), 0 0 0 .5px rgba(0,0,0,.45), 0 12px 30px rgba(6,2,26,.42)}
+  .ring{position:relative;width:32px;height:32px;flex:none}
+  .ring > svg{position:absolute;inset:0}
+  .ring .glyph{position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.85)}
+  .cp-t{font-size:12.5px;font-weight:600;color:#fff;letter-spacing:-.01em;white-space:nowrap}
+  .cp-s{font-size:11px;color:var(--label3);white-space:nowrap;margin-top:1px;font-variant-numeric:tabular-nums}
+  .cp-s .add{color:#4bd66f}.cp-s .del{color:#ff6a61}
+  .cp-sep{width:.5px;height:24px;background:rgba(255,255,255,.16);margin:0 2px}
+  .cp-wait{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--label2);white-space:nowrap}
+  .cp-wait i{width:7px;height:7px;border-radius:50%;background:var(--orange);box-shadow:0 0 6px rgba(255,159,10,.7)}
+
+  /* ───────────── Collapsed-state inset ───────────── */
+  .inset{position:absolute;left:16px;bottom:16px;z-index:58;width:388px;border-radius:18px;padding:12px 12px 13px;
+    background:rgba(18,16,34,.62);-webkit-backdrop-filter:blur(36px) saturate(1.7);backdrop-filter:blur(36px) saturate(1.7);
+    box-shadow:inset 0 0 0 .5px rgba(255,255,255,.15), 0 0 0 .5px rgba(0,0,0,.45), 0 14px 34px rgba(6,2,26,.42)}
+  .states{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .mini{position:relative;height:84px;border-radius:10px;overflow:hidden;
+    background:
+      radial-gradient(90% 80% at 100% 110%, rgba(255,128,178,.5), rgba(255,128,178,0) 70%),
+      radial-gradient(80% 70% at 0% 0%, rgba(64,118,255,.45), rgba(64,118,255,0) 70%),
+      linear-gradient(168deg,#141a55,#2c217a 70%,#2a1658);
+    box-shadow:inset 0 0 0 .5px rgba(255,255,255,.1)}
+  .mini::after{content:"";position:absolute;width:260px;height:160px;left:-40px;top:62px;border-radius:50%;transform:rotate(-10deg);
+    background:linear-gradient(180deg,rgba(158,140,255,.45),rgba(98,70,214,0) 40%);box-shadow:inset 0 1px 0 rgba(236,228,255,.4)}
+  .mini-bar{position:absolute;top:0;left:0;right:0;height:21px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;
+    background:rgba(20,16,56,.42);box-shadow:inset 0 -.5px 0 rgba(255,255,255,.07);font-size:11px;color:rgba(255,255,255,.86);z-index:1;white-space:nowrap}
+  .mini-bar .lft{display:flex;align-items:center;gap:8px}
+  .mini-bar .rgt{display:flex;align-items:center;gap:7px}
+  .mini-bar .mo{width:11px;height:11px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#dff4ff,#3aaaf2 45%,#0c4fa8)}
+  .pill{position:absolute;top:29px;left:50%;transform:translateX(-50%);height:28px;border-radius:14px;background:#000;z-index:2;
+    display:flex;align-items:center;gap:7px;padding:0 13px 0 7px;
+    box-shadow:0 0 0 .5px rgba(255,255,255,.08), 0 6px 14px rgba(0,0,0,.45)}
+  .pill .orb{width:16px;height:16px;box-shadow:0 0 8px rgba(36,146,255,.5), inset 0 -2px 4px rgba(4,28,92,.5)}
+  .pill .nm{font-size:12px;font-weight:600;color:#fff;letter-spacing:-.01em}
+  .pill .kb{font-size:10.5px;color:var(--label3);margin-left:2px}
+  .pill.listen{padding-right:12px;gap:9px}
+  .pill.listen .orb{box-shadow:0 0 10px 1px rgba(36,146,255,.75), inset 0 -2px 4px rgba(4,28,92,.5)}
+  .wave{display:flex;align-items:center;gap:2px;height:16px}
+  .wave i{width:2px;border-radius:1px;background:linear-gradient(180deg,#bfe6ff,#3aaaf2);transform-origin:center;animation:wv 1.1s ease-in-out infinite}
+  @keyframes wv{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.45)}}
+  .st-cap{display:flex;justify-content:space-between;align-items:center;margin-top:7px;padding:0 2px;font-size:11.5px;color:rgba(255,255,255,.86);font-weight:500}
+  .st-cap span{color:var(--label3);font-weight:400}
+  .inset-cap{margin-top:11px;padding:10px 2px 0;box-shadow:inset 0 .5px 0 rgba(255,255,255,.1);font-size:11.5px;line-height:16px;color:var(--label2)}
+  .inset-cap b{color:#fff;font-weight:600}
+
+  .mocklabel{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);z-index:58;font-size:10.5px;letter-spacing:.02em;color:rgba(255,255,255,.42);white-space:nowrap}
+
+  @media (max-width:1320px){
+    .island{width:578px}
+    .reply{font-size:15px;line-height:21px}
+    .chips{gap:6px}
+    .chip{padding:0 11px 0 9px;font-size:12px}
+    .toasts{width:322px;right:12px}
+    .t-quote .long{display:none}.t-quote .short{display:inline}
+    .inset{width:360px}
+  }
+  @media (max-height:830px){
+    .xcode{top:18.5vh;height:52vh}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none !important;transition:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="screen">
+
+  <!-- Wallpaper -->
+  <div class="wallpaper" aria-hidden="true">
+    <i class="fold d"></i><i class="fold e"></i><i class="fold c"></i><i class="fold a"></i><i class="fold b"></i>
+    <svg class="grain" width="100%" height="100%"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .9 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>
+    <div class="vignette"></div>
+  </div>
+
+  <!-- Windows the user is working in -->
+  <div class="windows" aria-hidden="true">
+
+    <!-- Safari (inactive, behind) -->
+    <div class="win safari">
+      <div class="sf-bar">
+        <div class="lights off"><i></i><i></i><i></i></div>
+        <svg class="sf-ico" width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x=".65" y=".65" width="16.7" height="12.7" rx="2.6"/><path d="M6 .8v12.4"/></svg>
+        <svg class="sf-ico" width="34" height="14" viewBox="0 0 34 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2 2.5 7 7 12"/><path d="M27 2l4.5 5-4.5 5" opacity=".5"/></svg>
+        <div class="sf-url">
+          <svg width="9" height="11" viewBox="0 0 9 11" fill="currentColor"><path d="M2 4.6V3.3a2.5 2.5 0 0 1 5 0v1.3h.6c.5 0 .9.4.9.9v4.1c0 .5-.4.9-.9.9H1.4a.9.9 0 0 1-.9-.9V5.5c0-.5.4-.9.9-.9H2Zm1.1 0h2.8V3.3a1.4 1.4 0 0 0-2.8 0v1.3Z"/></svg>
+          developer.apple.com
+        </div>
+        <svg class="sf-ico" width="15" height="17" viewBox="0 0 15 17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1v10M4.3 4.2 7.5 1l3.2 3.2"/><path d="M5 7H2.6c-.6 0-1 .4-1 1v7c0 .6.4 1 1 1h9.8c.6 0 1-.4 1-1V8c0-.6-.4-1-1-1H10"/></svg>
+        <svg class="sf-ico" width="13" height="13" viewBox="0 0 13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6.5 1v11M1 6.5h11"/></svg>
+        <svg class="sf-ico" width="17" height="15" viewBox="0 0 17 15" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="4" y=".7" width="12.3" height="10" rx="2"/><path d="M1 4v7.5c0 1.3 1 2.3 2.3 2.3H12"/></svg>
+      </div>
+      <div class="sf-page">
+        <div class="sf-nav">
+          <b><svg width="13" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>Developer</b>
+          <span>Discover</span><span>Design</span><span>Develop</span><span>Distribute</span>
+        </div>
+        <div class="sf-side"><div class="h">User Notifications</div><div class="g">Essentials</div><div>Asking permission to use notifications</div><div>Scheduling a notification locally</div><div class="g">Notification categories</div><div>Declaring your actionable types</div><div class="in">UNNotificationCategory</div><div class="in on">UNNotificationAction</div><div class="in">UNTextInputNotificationAction</div><div class="in">UNNotificationActionIcon</div><div class="g">Remote notifications</div><div>Registering with APNs</div><div>Handling notification responses</div></div>
+        <div class="sf-doc">
+          <div class="sf-eyebrow">User Notifications · Class</div>
+          <div class="sf-title">UNNotificationAction</div>
+          <p class="sf-lede">A task your app performs in response to a notification that the system delivers.</p>
+          <div class="sf-tags"><span>iOS 10.0+</span><span>iPadOS 10.0+</span><span>macOS 10.14+</span><span>watchOS 3.0+</span></div>
+          <div class="sf-h">Declaration</div>
+          <div class="sf-codebox"><span class="k">class</span> UNNotificationAction : <span class="t">NSObject</span></div>
+          <div class="sf-h">Overview</div>
+          <p class="sf-p">Use <code>UNNotificationAction</code> objects to define the actions people can take from a notification’s interface without opening your app.</p>
+          <p class="sf-p">Group related actions into a category, then register the category when your app launches. The system shows the buttons when a notification of that category arrives.</p>
+          <p class="sf-p">Each action has a unique identifier, a title shown on the button, and options such as requiring the device to be unlocked.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Xcode (frontmost app) -->
+    <div class="win xcode">
+      <div class="xc-side">
+        <div class="xc-side-top">
+          <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+          <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1.3"><rect x=".65" y=".65" width="16.7" height="12.7" rx="2.6"/><path d="M6 .8v12.4"/></svg>
+        </div>
+        <div class="xc-navbar">
+          <svg class="on" width="15" height="12" viewBox="0 0 15 12" fill="currentColor"><path d="M1.6 0h3.7c.4 0 .8.2 1.1.5l1 1h5.9c.9 0 1.6.7 1.6 1.6v7.3c0 .9-.7 1.6-1.6 1.6H1.6C.7 12 0 11.3 0 10.4V1.6C0 .7.7 0 1.6 0Z"/></svg>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x=".6" y=".6" width="11.8" height="11.8" rx="2.4"/><path d="M4 4l5 5M9 4 4 9"/></svg>
+          <svg width="10" height="13" viewBox="0 0 10 13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1 1h8v11L5 9.2 1 12Z"/></svg>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="5.4" cy="5.4" r="4.3"/><path d="m8.6 8.6 3.5 3.5"/></svg>
+          <svg width="14" height="13" viewBox="0 0 14 13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M7 1 13 12H1Z"/><path d="M7 5v3.4" stroke-linecap="round"/></svg>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M6.5.8 12.2 6.5 6.5 12.2.8 6.5Z"/></svg>
+          <svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1 1h9.2L13 6l-2.8 5H1Z"/></svg>
+        </div>
+        <div class="xc-tree">
+          <div class="row"><svg class="tw" viewBox="0 0 9 9" fill="currentColor"><path d="M1.5 2.5h6L4.5 7Z"/></svg>
+            <svg class="fi" viewBox="0 0 13 13"><rect x=".5" y=".5" width="12" height="12" rx="3" fill="#2f7cf6"/><path d="M3.5 9.5 6.5 3l3 6.5M4.6 7.4h3.8" stroke="#fff" stroke-width="1.1" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span style="font-weight:600">BSHMessenger</span></div>
+          <div class="row l1"><svg class="tw" viewBox="0 0 9 9" fill="currentColor"><path d="M1.5 2.5h6L4.5 7Z"/></svg>
+            <svg class="fi" viewBox="0 0 15 12"><path d="M1.6 0h3.7c.4 0 .8.2 1.1.5l1 1h5.9c.9 0 1.6.7 1.6 1.6v7.3c0 .9-.7 1.6-1.6 1.6H1.6C.7 12 0 11.3 0 10.4V1.6C0 .7.7 0 1.6 0Z" fill="#4aa3f8"/></svg>BSHMessenger</div>
+          <div class="row l2"><span class="tw"></span>
+            <svg class="fi" viewBox="0 0 13 13"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#f05138"/><path d="M8.9 8.6c.6-1.6-.4-3.6-2.5-5 .9 1.2 1.3 2.5 1 3.3C5.9 6 4.2 4.6 3.5 3.8c.9 1.3 2 2.5 3 3.3-1.2.4-2.6 0-3.5-.6 1 1.3 2.7 2.4 4.6 2.2.7 0 1.2.2 1.4.6.2-.3.1-.5-.1-.7Z" fill="#fff"/></svg>BSHMessengerApp.swift</div>
+          <div class="row l2"><svg class="tw" viewBox="0 0 9 9" fill="currentColor"><path d="M1.5 2.5h6L4.5 7Z"/></svg>
+            <svg class="fi" viewBox="0 0 15 12"><path d="M1.6 0h3.7c.4 0 .8.2 1.1.5l1 1h5.9c.9 0 1.6.7 1.6 1.6v7.3c0 .9-.7 1.6-1.6 1.6H1.6C.7 12 0 11.3 0 10.4V1.6C0 .7.7 0 1.6 0Z" fill="#4aa3f8"/></svg>Approvals</div>
+          <div class="row l3 sel"><svg class="fi" viewBox="0 0 13 13"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#f05138"/><path d="M8.9 8.6c.6-1.6-.4-3.6-2.5-5 .9 1.2 1.3 2.5 1 3.3C5.9 6 4.2 4.6 3.5 3.8c.9 1.3 2 2.5 3 3.3-1.2.4-2.6 0-3.5-.6 1 1.3 2.7 2.4 4.6 2.2.7 0 1.2.2 1.4.6.2-.3.1-.5-.1-.7Z" fill="#fff"/></svg>PushApprovalsView.swift<span class="m">M</span></div>
+          <div class="row l3"><svg class="fi" viewBox="0 0 13 13"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#f05138"/><path d="M8.9 8.6c.6-1.6-.4-3.6-2.5-5 .9 1.2 1.3 2.5 1 3.3C5.9 6 4.2 4.6 3.5 3.8c.9 1.3 2 2.5 3 3.3-1.2.4-2.6 0-3.5-.6 1 1.3 2.7 2.4 4.6 2.2.7 0 1.2.2 1.4.6.2-.3.1-.5-.1-.7Z" fill="#fff"/></svg>ApprovalCard.swift</div>
+          <div class="row l3"><svg class="fi" viewBox="0 0 13 13"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#f05138"/><path d="M8.9 8.6c.6-1.6-.4-3.6-2.5-5 .9 1.2 1.3 2.5 1 3.3C5.9 6 4.2 4.6 3.5 3.8c.9 1.3 2 2.5 3 3.3-1.2.4-2.6 0-3.5-.6 1 1.3 2.7 2.4 4.6 2.2.7 0 1.2.2 1.4.6.2-.3.1-.5-.1-.7Z" fill="#fff"/></svg>ApprovalStore.swift<span class="m">M</span></div>
+          <div class="row l3"><svg class="fi" viewBox="0 0 13 13"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#f05138"/><path d="M8.9 8.6c.6-1.6-.4-3.6-2.5-5 .9 1.2 1.3 2.5 1 3.3C5.9 6 4.2 4.6 3.5 3.8c.9 1.3 2 2.5 3 3.3-1.2.4-2.6 0-3.5-.6 1 1.3 2.7 2.4 4.6 2.2.7 0 1.2.2 1.4.6.2-.3.1-.5-.1-.7Z" fill="#fff"/></svg>Approval.swift</div>
+          <div class="row l2"><svg class="tw" viewBox="0 0 9 9" fill="currentColor"><path d="M2.5 1.5v6L7 4.5Z"/></svg>
+            <svg class="fi" viewBox="0 0 15 12"><path d="M1.6 0h3.7c.4 0 .8.2 1.1.5l1 1h5.9c.9 0 1.6.7 1.6 1.6v7.3c0 .9-.7 1.6-1.6 1.6H1.6C.7 12 0 11.3 0 10.4V1.6C0 .7.7 0 1.6 0Z" fill="#4aa3f8"/></svg>Inbox</div>
+          <div class="row l2"><svg class="tw" viewBox="0 0 9 9" fill="currentColor"><path d="M2.5 1.5v6L7 4.5Z"/></svg>
+            <svg class="fi" viewBox="0 0 15 12"><path d="M1.6 0h3.7c.4 0 .8.2 1.1.5l1 1h5.9c.9 0 1.6.7 1.6 1.6v7.3c0 .9-.7 1.6-1.6 1.6H1.6C.7 12 0 11.3 0 10.4V1.6C0 .7.7 0 1.6 0Z" fill="#4aa3f8"/></svg>Notifications</div>
+          <div class="row l2"><span class="tw"></span>
+            <svg class="fi" viewBox="0 0 13 13"><rect x=".5" y=".5" width="12" height="12" rx="3" fill="#8a8af0"/><rect x="3" y="3" width="3" height="3" rx=".6" fill="#fff"/><rect x="7" y="3" width="3" height="3" rx=".6" fill="#fff" opacity=".7"/><rect x="3" y="7" width="3" height="3" rx=".6" fill="#fff" opacity=".7"/><rect x="7" y="7" width="3" height="3" rx=".6" fill="#fff"/></svg>Assets.xcassets</div>
+          <div class="row l2"><span class="tw"></span>
+            <svg class="fi" viewBox="0 0 13 13"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#9a9aa2"/><path d="M3.5 4h6M3.5 6.5h6M3.5 9h4" stroke="#fff" stroke-width="1"/></svg>Info.plist</div>
+          <div class="row l1"><svg class="tw" viewBox="0 0 9 9" fill="currentColor"><path d="M2.5 1.5v6L7 4.5Z"/></svg>
+            <svg class="fi" viewBox="0 0 15 12"><path d="M1.6 0h3.7c.4 0 .8.2 1.1.5l1 1h5.9c.9 0 1.6.7 1.6 1.6v7.3c0 .9-.7 1.6-1.6 1.6H1.6C.7 12 0 11.3 0 10.4V1.6C0 .7.7 0 1.6 0Z" fill="#4aa3f8"/></svg>BSHMessengerTests</div>
+          <div class="row l1"><svg class="tw" viewBox="0 0 9 9" fill="currentColor"><path d="M2.5 1.5v6L7 4.5Z"/></svg>
+            <svg class="fi" viewBox="0 0 13 13"><path d="M6.5.8 11.8 3.7v5.6L6.5 12.2 1.2 9.3V3.7Z" fill="#c69a5a"/><path d="M1.6 3.9 6.5 6.6l4.9-2.7M6.5 6.6v5.4" stroke="#fff" stroke-width=".9" fill="none" opacity=".75"/></svg>Package Dependencies</div>
+        </div>
+        <div class="xc-filter"><div>
+          <svg width="11" height="10" viewBox="0 0 11 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1 1.5h9M2.8 5h5.4M4.5 8.5h2"/></svg>Filter</div></div>
+      </div>
+
+      <div class="xc-main">
+        <div class="xc-tool">
+          <svg width="12" height="14" viewBox="0 0 12 14" fill="rgba(255,255,255,.88)"><path d="M1 1.6v10.8c0 .7.8 1.2 1.4.8l8.4-5.4c.6-.4.6-1.2 0-1.6L2.4.8C1.8.4 1 .9 1 1.6Z"/></svg>
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="rgba(255,255,255,.3)"><rect width="11" height="11" rx="1.8"/></svg>
+          <div class="xc-scheme" style="margin-left:96px">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect width="14" height="14" rx="3.2" fill="#0d1a3a"/><circle cx="7" cy="7" r="3.6" fill="#2a9bf0"/></svg>
+            BSHMessenger <span class="sep">›</span>
+            <svg width="9" height="13" viewBox="0 0 9 13" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="1.1"><rect x=".6" y=".6" width="7.8" height="11.8" rx="1.8"/></svg>
+            iPhone 17 Pro
+          </div>
+          <div class="xc-status"><b>BSHMessenger</b><span class="bar"></span>Build Succeeded<span class="bar"></span>Today at 8:31 AM</div>
+          <svg width="13" height="13" viewBox="0 0 13 13" stroke="rgba(255,255,255,.55)" stroke-width="1.4" stroke-linecap="round"><path d="M6.5 1v11M1 6.5h11"/></svg>
+          <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1.3"><rect x=".65" y=".65" width="16.7" height="12.7" rx="2.6"/><path d="M12 .8v12.4"/></svg>
+        </div>
+        <div class="xc-tabs">
+          <div class="xc-tab on"><svg class="fi" viewBox="0 0 13 13"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#f05138"/><path d="M8.9 8.6c.6-1.6-.4-3.6-2.5-5 .9 1.2 1.3 2.5 1 3.3C5.9 6 4.2 4.6 3.5 3.8c.9 1.3 2 2.5 3 3.3-1.2.4-2.6 0-3.5-.6 1 1.3 2.7 2.4 4.6 2.2.7 0 1.2.2 1.4.6.2-.3.1-.5-.1-.7Z" fill="#fff"/></svg>PushApprovalsView</div>
+          <div class="xc-tab"><svg class="fi" viewBox="0 0 13 13" opacity=".6"><rect x="1" y=".5" width="11" height="12" rx="2.2" fill="#f05138"/><path d="M8.9 8.6c.6-1.6-.4-3.6-2.5-5 .9 1.2 1.3 2.5 1 3.3C5.9 6 4.2 4.6 3.5 3.8c.9 1.3 2 2.5 3 3.3-1.2.4-2.6 0-3.5-.6 1 1.3 2.7 2.4 4.6 2.2.7 0 1.2.2 1.4.6.2-.3.1-.5-.1-.7Z" fill="#fff"/></svg>ApprovalStore</div>
+        </div>
+        <div class="xc-jump">BSHMessenger <span class="chev">›</span> BSHMessenger <span class="chev">›</span> Approvals <span class="chev">›</span> PushApprovalsView.swift <span class="chev">›</span> <span style="color:rgba(255,255,255,.8)">PushApprovalsView</span></div>
+        <div class="xc-code">
+          <div class="gut"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span class="cur">14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span><span>31</span><span>32</span><span>33</span><span>34</span><span>35</span><span>36</span></div>
+<div class="src"><span class="l"><span class="k">import</span> SwiftUI</span><span class="l"><span class="k">import</span> UserNotifications</span><span class="l"> </span><span class="l"><span class="c">/// Approvals that arrive by push and need a yes or no.</span></span><span class="l"><span class="k">struct</span> <span class="d">PushApprovalsView</span>: <span class="t">View</span> {</span><span class="l">    <span class="at">@Environment</span>(<span class="pt">ApprovalStore</span>.<span class="k">self</span>) <span class="k">private var</span> store</span><span class="l">    <span class="at">@State</span> <span class="k">private var</span> selection: <span class="pt">Approval</span>.<span class="t">ID</span>?</span><span class="l"> </span><span class="l">    <span class="k">var</span> body: <span class="k">some</span> <span class="t">View</span> {</span><span class="l">        <span class="t">List</span>(store.<span class="pf">pending</span>, selection: <span class="pf">$selection</span>) { approval <span class="k">in</span></span><span class="l">            <span class="pt">ApprovalCard</span>(approval: approval)</span><span class="l">                .<span class="f">swipeActions</span>(edge: .<span class="f">trailing</span>) {</span><span class="l">                    <span class="t">Button</span>(<span class="s">"Not now"</span>, role: .<span class="f">cancel</span>) {</span><span class="l hl">                        store.<span class="pf">snooze</span>(approval)<span class="caret"></span></span><span class="l">                    }</span><span class="l">                    <span class="t">Button</span>(<span class="s">"Approve"</span>) {</span><span class="l">                        <span class="t">Task</span> { <span class="k">await</span> store.<span class="pf">approve</span>(approval) }</span><span class="l">                    }</span><span class="l">                    .<span class="f">tint</span>(.<span class="f">blue</span>)</span><span class="l">                }</span><span class="l">        }</span><span class="l">        .<span class="f">overlay</span> {</span><span class="l">            <span class="k">if</span> store.<span class="pf">pending</span>.<span class="f">isEmpty</span> {</span><span class="l">                <span class="t">ContentUnavailableView</span>(<span class="s">"Nothing to approve"</span>,</span><span class="l">                    systemImage: <span class="s">"checkmark.circle"</span>)</span><span class="l">            }</span><span class="l">        }</span><span class="l">        .<span class="f">navigationTitle</span>(<span class="s">"Approvals"</span>)</span><span class="l">        .<span class="f">task</span> { <span class="k">await</span> store.<span class="pf">refresh</span>() }</span><span class="l">    }</span><span class="l">}</span><span class="l"> </span><span class="l"><span class="k">extension</span> <span class="pt">ApprovalStore</span> {</span><span class="l">    <span class="c">/// Buttons shown on the lock screen and in Notification Center.</span></span><span class="l">    <span class="k">static let</span> category = <span class="t">UNNotificationCategory</span>(</span><span class="l">        identifier: <span class="s">"approval"</span>, actions: [<span class="pf">approve</span>, <span class="pf">snooze</span>],</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- macOS menu bar -->
+  <header class="menubar">
+    <div class="mb-left">
+      <svg class="apple" width="14" height="17" viewBox="0 0 24 24" fill="#fff"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+      <span class="app">Xcode</span><span>File</span><span>Edit</span><span>View</span><span>Find</span><span>Navigate</span><span>Editor</span><span>Product</span><span>Debug</span><span>Integrate</span><span>Window</span><span>Help</span>
+    </div>
+    <div class="mb-right">
+      <div class="mb-orb-wrap" title="Jarvis"><div class="mb-orb"></div></div>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".75" y="1.25" width="22" height="10.5" rx="3.2" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1"/><rect x="2.4" y="2.9" width="15.6" height="7.2" rx="1.7" fill="#fff"/><path d="M24.3 4.7v3.6c.8-.3 1.3-1 1.3-1.8s-.5-1.5-1.3-1.8Z" fill="rgba(255,255,255,.5)"/></svg>
+      <svg width="17" height="13" viewBox="0 0 18 13" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round"><path d="M1.6 4.6a10.5 10.5 0 0 1 14.8 0"/><path d="M4.2 7.3a6.8 6.8 0 0 1 9.6 0"/><path d="M9 12.2 6.9 10a3 3 0 0 1 4.2 0Z" fill="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"><circle cx="5.8" cy="5.8" r="4.6"/><path d="m9.3 9.3 3.6 3.6"/></svg>
+      <svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="#fff" stroke-width="1.3"><rect x=".65" y=".9" width="14.7" height="5" rx="2.5"/><circle cx="12.8" cy="3.4" r="1.4" fill="#fff" stroke="none"/><rect x=".65" y="8.1" width="14.7" height="5" rx="2.5"/><circle cx="3.2" cy="10.6" r="1.4" fill="#fff" stroke="none"/></svg>
+      <span class="clock">Fri 3 Oct&nbsp;&nbsp;8:42 AM</span>
+    </div>
+  </header>
+
+  <!-- Jarvis: the island, expanded after answering -->
+  <section class="island" aria-label="Jarvis">
+    <div class="isl">
+      <div class="orb breathe"></div>
+      <div class="isl-main">
+        <div class="isl-top">
+          <p class="heard">“Jarvis, what’s on today, and how are the markets looking?”</p>
+          <span class="kbd">⌥ Space</span>
+        </div>
+        <p class="reply">Three meetings today. The investment committee is first, at 10 — leave by 9:35, traffic on 101 is heavy. Futures are up half a percent, and Nvidia’s leading, up 2.1% before the open.</p>
+        <div class="chips">
+          <span class="chip">
+            <svg class="ic" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25"><rect x=".9" y="2" width="12.2" height="11.1" rx="2.6"/><path d="M.9 5.4h12.2" /><path d="M4.2.7v2.4M9.8.7v2.4" stroke-linecap="round"/><circle cx="4.4" cy="8.4" r=".9" fill="currentColor" stroke="none"/></svg>
+            <b>10:00</b> Investment committee
+          </span>
+          <span class="chip">
+            <svg class="ic org" width="15" height="13" viewBox="0 0 16 14"><path fill="currentColor" fill-rule="evenodd" d="M3.3 2.6C3.6 1.6 4.4 1 5.4 1h5.2c1 0 1.8.6 2.1 1.6l.9 3A2 2 0 0 1 15 7.5V11a1 1 0 0 1-1 1h-.8a1 1 0 0 1-1-1v-.8H3.8v.8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V7.5a2 2 0 0 1 1.4-1.9l.9-3Zm1.6.4-.7 2.6h7.6L11.1 3a.8.8 0 0 0-.8-.6H5.7a.8.8 0 0 0-.8.6ZM3.8 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8.4 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+            Leave by <b>9:35</b>
+          </span>
+          <span class="chip">
+            <b>NVDA</b><span class="up">+2.1%</span>
+            <svg width="42" height="16" viewBox="0 0 42 16" fill="none"><defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#30D158" stop-opacity=".35"/><stop offset="1" stop-color="#30D158" stop-opacity="0"/></linearGradient></defs><path d="M1 12.2 5 11l3.5 1.4 4-3.2 3.5 1.1 3.6-2.9 3.4.9 3.8-3.6 3.2 1.5 4-3.4 3.4.8 3.6-1.9V16H1Z" fill="url(#sg)"/><path d="M1 12.2 5 11l3.5 1.4 4-3.2 3.5 1.1 3.6-2.9 3.4.9 3.8-3.6 3.2 1.5 4-3.4 3.4.8 3.6-1.9" stroke="#30D158" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Notifications -->
+  <aside class="toasts">
+    <div class="toast">
+      <div class="t-row">
+        <div class="appicon"><div class="orb"></div></div>
+        <div class="t-body">
+          <div class="t-head"><span class="t-title">Send email to Ann Lee?</span><span class="t-time">now</span></div>
+          <p class="t-quote">“Could we push lunch to 12:45?”</p>
+          <p class="t-meta">Re: Lunch today · Zuni Café</p>
+        </div>
+      </div>
+      <div class="t-actions"><span class="btn primary">Send</span><span class="btn">Edit</span><span class="btn">Not now</span></div>
+    </div>
+    <div class="toast compact">
+      <div class="t-row">
+        <div class="appicon sm"><div class="orb"></div>
+          <span class="badge"><svg width="10" height="9" viewBox="0 0 16 14"><path fill="#fff" fill-rule="evenodd" d="M3.3 2.6C3.6 1.6 4.4 1 5.4 1h5.2c1 0 1.8.6 2.1 1.6l.9 3A2 2 0 0 1 15 7.5V11a1 1 0 0 1-1 1h-.8a1 1 0 0 1-1-1v-.8H3.8v.8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V7.5a2 2 0 0 1 1.4-1.9l.9-3Zm1.6.4-.7 2.6h7.6L11.1 3a.8.8 0 0 0-.8-.6H5.7a.8.8 0 0 0-.8.6Z"/></svg></span>
+        </div>
+        <div class="t-body">
+          <div class="t-head"><span class="t-title">Leave in 53 min</span><span class="t-time">1m ago</span></div>
+          <p class="t-quote"><span class="long">For the investment committee</span><span class="short">Investment committee</span> · 24 min drive</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Jarvis Code, working in the background -->
+  <div class="codepill">
+    <div class="ring">
+      <svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13.5" fill="none" stroke="rgba(255,255,255,.13)" stroke-width="2.5"/><circle cx="16" cy="16" r="13.5" fill="none" stroke="#0A84FF" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="54.3 84.8" transform="rotate(-90 16 16)"/></svg>
+      <div class="glyph"><svg width="13" height="10" viewBox="0 0 13 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.5 1 5l3 3.5M9 1.5 12 5 9 8.5"/></svg></div>
+    </div>
+    <div>
+      <div class="cp-t">Hands-free wake timing</div>
+      <div class="cp-s">Jarvis Code · jarvis · 3 files <span class="add">+84</span> <span class="del">−12</span></div>
+    </div>
+    <span class="cp-sep"></span>
+    <div class="cp-wait"><i></i>1 to review</div>
+  </div>
+
+  <!-- Inset: what the island looks like at rest -->
+  <figure class="inset">
+    <div class="states">
+      <div>
+        <div class="mini">
+          <div class="mini-bar"><span class="lft"><svg width="10" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg><b>Xcode</b></span><span class="rgt"><i class="mo"></i>8:41 AM</span></div>
+          <div class="pill"><span class="orb"></span><span class="nm">Jarvis</span></div>
+        </div>
+        <div class="st-cap">Idle <span>Ready</span></div>
+      </div>
+      <div>
+        <div class="mini">
+          <div class="mini-bar"><span class="lft"><svg width="10" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg><b>Xcode</b></span><span class="rgt"><i class="mo"></i>8:41 AM</span></div>
+          <div class="pill listen"><span class="orb"></span>
+            <span class="wave">
+              <i style="height:5px;animation-delay:-.1s"></i><i style="height:9px;animation-delay:-.5s"></i><i style="height:14px;animation-delay:-.3s"></i><i style="height:8px;animation-delay:-.8s"></i><i style="height:12px;animation-delay:-.2s"></i><i style="height:16px;animation-delay:-.6s"></i><i style="height:10px;animation-delay:-.4s"></i><i style="height:13px;animation-delay:-.9s"></i><i style="height:7px;animation-delay:-.15s"></i><i style="height:11px;animation-delay:-.7s"></i><i style="height:6px;animation-delay:-.35s"></i><i style="height:9px;animation-delay:-.55s"></i><i style="height:4px;animation-delay:-.25s"></i>
+            </span>
+          </div>
+        </div>
+        <div class="st-cap">Listening <span>Live waveform</span></div>
+      </div>
+    </div>
+    <figcaption class="inset-cap"><b>At rest it shrinks to a slim pill.</b> It sits under the menu bar and opens when you say “Jarvis” or press <span style="white-space:nowrap">⌥ Space</span>.</figcaption>
+  </figure>
+
+  <div class="mocklabel">Mockup 06 · Island</div>
+</div>
+</body>
+</html>

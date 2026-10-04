@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis — UI mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #f4f0e8; --ink: #1c1b19; --ink-2: #4f4b44; --muted: #655f56;
+    --line: #d8d1c3; --card: #fbf8f2; --action: #135ea8;
+    --serif: 'Fraunces', Georgia, serif;
+    --sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 64px 40px 96px; }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; border-bottom: 1px solid var(--line); padding-bottom: 28px; }
+  .seal { width: 34px; height: 34px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 36% 32%, #f2fbff 0%, #a4e4ff 16%, #3fb8f2 44%, #1677c9 72%, #0a3d84 100%);
+    box-shadow: 0 8px 24px rgba(24, 132, 214, 0.34), 0 0 0 6px rgba(56, 176, 240, 0.12); }
+  .title { display: flex; align-items: center; gap: 18px; }
+  h1 { margin: 0; font-family: var(--serif); font-weight: 300; font-size: 44px; letter-spacing: -1px; font-variation-settings: "opsz" 36; }
+  header p { margin: 0; max-width: 460px; color: var(--muted); font-size: 15px; line-height: 1.55; }
+  h2 { font-family: var(--serif); font-weight: 400; font-size: 22px; margin: 56px 0 6px; font-variation-settings: "opsz" 24; }
+  .lede { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+  .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  a.tile { display: block; color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
+    transition: transform 180ms ease, box-shadow 180ms ease; }
+  a.tile:hover { transform: translateY(-2px); box-shadow: 0 18px 40px -22px rgba(28, 27, 25, 0.35); }
+  a.tile:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
+  .shot { aspect-ratio: 1440 / 900; background: #e9e3d7; border-bottom: 1px solid var(--line); overflow: hidden; }
+  .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .meta { padding: 18px 20px 20px; }
+  .meta .row { display: flex; align-items: baseline; gap: 10px; }
+  .num { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); letter-spacing: 0.6px; }
+  .meta h3 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 21px; font-variation-settings: "opsz" 24; }
+  .meta p { margin: 8px 0 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tags span { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+  .grid.three .meta h3 { font-size: 17px; }
+  footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.6; }
+  code { font-size: 12.5px; background: rgba(28, 27, 25, 0.05); padding: 1px 5px; border-radius: 4px; }
+  @media (max-width: 860px) { .grid, .grid.three { grid-template-columns: 1fr; } header { flex-direction: column; align-items: flex-start; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title"><span class="seal" aria-hidden="true"></span><h1>Jarvis, six ways</h1></div>
+    <p>Six directions for the main window. Each one shows the same moment, Friday 8:42 AM, just after Jarvis has answered “what’s on today, and how are the markets looking?”, so you can compare them like for like. Click one to open it full size.</p>
+  </header>
+
+  <h2>New directions</h2>
+  <p class="lede">Static, high-fidelity mockups. Nothing is wired up, and all the data is made up.</p>
+  <div class="grid">
+    <a class="tile" href="01-morning-edition.html">
+      <div class="shot"><img src="shots/01-morning-edition.png" alt="Morning Edition mockup" loading="lazy"></div>
+      <div class="meta">
+        <div class="row"><span class="num">01</span><h3>Morning Edition</h3></div>
+        <p>Grows out of today’s Ambient Orb into a newspaper front page for your day. The reply is the lead story, the agenda and markets run in columns, and the orb becomes a small blue seal.</p>
+        <div class="tags"><span>Light</span><span>Editorial</span><span>Calm</span></div>
+      </div>
+    </a>
+    <a class="tile" href="02-mission-control.html">
+      <div class="shot"><img src="shots/02-mission-control.png" alt="Mission Control mockup" loading="lazy"></div>
+      <div class="meta">
+        <div class="row"><span class="num">02</span><h3>Mission Control</h3></div>
+        <p>A dark bento dashboard where everything is visible at once: voice, agenda timeline, markets, Jarvis Code, activity and system. Amber is the only warm colour, and it only marks things that need you.</p>
+        <div class="tags"><span>Dark</span><span>Dense</span><span>At a glance</span></div>
+      </div>
+    </a>
+    <a class="tile" href="03-halo.html">
+      <div class="shot"><img src="shots/03-halo.png" alt="Halo mockup" loading="lazy"></div>
+      <div class="meta">
+        <div class="row"><span class="num">03</span><h3>Halo</h3></div>
+        <p>Voice first, and almost nothing else. The orb becomes a thin ring of light, the reply is set large, and a single card appears when Jarvis needs you. A strip along the bottom shows the four voice states.</p>
+        <div class="tags"><span>Dark</span><span>Minimal</span><span>Voice states</span></div>
+      </div>
+    </a>
+    <a class="tile" href="04-workspace.html">
+      <div class="shot"><img src="shots/04-workspace.png" alt="Workspace mockup" loading="lazy"></div>
+      <div class="meta">
+        <div class="row"><span class="num">04</span><h3>Workspace</h3></div>
+        <p>A native three-pane Mac app built around the conversation, with past chats and Jarvis Code on the left and rich cards in the thread. A Today inspector on the right holds the context.</p>
+        <div class="tags"><span>Light</span><span>Native macOS</span><span>Keyboard + voice</span></div>
+      </div>
+    </a>
+    <a class="tile" href="05-workshop.html">
+      <div class="shot"><img src="shots/05-workshop.png" alt="Workshop mockup" loading="lazy"></div>
+      <div class="meta">
+        <div class="row"><span class="num">05</span><h3>Workshop</h3></div>
+        <p>The cinematic one: a radial hologram in hot-rod red and Stark gold. Panels orbit the arc reactor on leader lines, and the heads-up runs around the outer ring.</p>
+        <div class="tags"><span>Dark</span><span>Cinematic</span><span>Radial</span></div>
+      </div>
+    </a>
+    <a class="tile" href="06-island.html">
+      <div class="shot"><img src="shots/06-island.png" alt="Island mockup" loading="lazy"></div>
+      <div class="meta">
+        <div class="row"><span class="num">06</span><h3>Island</h3></div>
+        <p>Jarvis with no window at all. A black capsule hangs under the menu bar and opens up to answer, approvals and heads-ups arrive as Mac notifications, and Jarvis Code runs as a small floating pill.</p>
+        <div class="tags"><span>Overlay</span><span>Ambient</span><span>macOS-native</span></div>
+      </div>
+    </a>
+  </div>
+
+  <h2>Today, for reference</h2>
+  <p class="lede">Three of the four looks that ship now (Settings › Look), drawn without live data.</p>
+  <div class="grid three">
+    <a class="tile" href="shots/cur-orb.png">
+      <div class="shot"><img src="shots/cur-orb.png" alt="Current Ambient Orb look" loading="lazy"></div>
+      <div class="meta"><div class="row"><h3>Ambient Orb</h3></div></div>
+    </a>
+    <a class="tile" href="shots/cur-glass.png">
+      <div class="shot"><img src="shots/cur-glass.png" alt="Current Stark Glass look" loading="lazy"></div>
+      <div class="meta"><div class="row"><h3>Stark Glass</h3></div></div>
+    </a>
+    <a class="tile" href="shots/cur-hud.png">
+      <div class="shot"><img src="shots/cur-hud.png" alt="Current Stark HUD look" loading="lazy"></div>
+      <div class="meta"><div class="row"><h3>Stark HUD</h3></div></div>
+    </a>
+  </div>
+
+  <footer>
+    Each mockup is a single self-contained HTML file in <code>docs/mockups/</code>, designed for a 1440×900 window. To re-shoot one:
+    <code>node docs/mockups/shots/shot.mjs "$PWD/docs/mockups/03-halo.html" "$PWD/docs/mockups/shots/03-halo.png" 1440 900</code>
+  </footer>
+</div>
+</body>
+</html>
