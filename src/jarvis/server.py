@@ -199,14 +199,24 @@ def create_app(hub: Hub, token: str) -> Starlette:
             return
         await ws.accept()
         queue = hub.subscribe()
+        at = getattr(hub, "seq", 0)  # what this window's queue starts after
         sender: asyncio.Task | None = None
+        # A window that reconnects says the last event it had (and from which backend):
+        # after the snapshot it gets the session events it missed, when they're all kept.
+        try:
+            since = int(ws.query_params.get("since", "-1"))
+        except ValueError:
+            since = -1
+        missed = None
+        if since >= 0 and ws.query_params.get("hub") == getattr(hub, "instance_id", object()):
+            missed = hub.events_since(since, at)
 
         async def pump() -> None:
             unsendable: set[str] = set()
             try:
                 while (event := await queue.get()) is not None:
                     try:
-                        text = event_text(event)
+                        text = event_text(numbered(event))
                     except Exception:  # no JSON can carry it (a tuple key, absurd nesting)
                         kind = str(event.get("type"))
                         if kind not in unsendable:  # said once per kind, not per event
@@ -221,7 +231,9 @@ def create_app(hub: Hub, token: str) -> Starlette:
                 await ws.close(code=code)
 
         try:
-            await send_event(ws, hub.snapshot())
+            await send_event(ws, {**hub.snapshot(), "seq": at, "replay": missed is not None})
+            for n, event in missed or []:
+                await send_event(ws, {**event, "seq": n})
             sender = asyncio.create_task(pump())
             frames = 0
             while True:
@@ -279,6 +291,12 @@ def _finite(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_finite(v) for v in value]
     return value
+
+
+def numbered(event: dict[str, Any]) -> dict[str, Any]:
+    """The event with its number (hub.Event.seq), as the window gets it."""
+    seq = getattr(event, "seq", 0)
+    return {**event, "seq": seq} if seq else event
 
 
 def event_text(event: dict[str, Any]) -> str:

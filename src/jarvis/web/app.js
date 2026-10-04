@@ -35,10 +35,36 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 
 // ── socket ──
 
+// Every event the hub sends is numbered (seq). Reconnecting, the window says the last it
+// had, and from which backend: it gets the snapshot, then the session events it missed.
+let lastSeq = 0;
+function heard(ev) {
+  if (ev && ev.type === 'hello') lastSeq = Number(ev.seq) || 0;
+  else if (ev && ev.seq > lastSeq) lastSeq = ev.seq;
+  onEvent(ev);
+  featureEvent(ev);
+}
+
+// A pane frame in bridge mode (?bridge=1, e.g. split view's second pane) opens no socket of
+// its own: the window it's in hands it every event and sends what it sends
+// (features/code-store.js), so both panes see one connection's events, in one order.
+const bridged = new URLSearchParams(location.search).get('bridge') === '1' && window.parent !== window;
+let bridgeOnline = false;
+
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}`);
+  if (bridged) {
+    window.addEventListener('message', (e) => {
+      if (e.source !== window.parent || e.origin !== location.origin || !e.data) return;
+      if (e.data.jarvisBridge === 'event') heard(e.data.event);
+      else if (e.data.jarvisBridge === 'online') { bridgeOnline = !!e.data.value; $('offline').hidden = bridgeOnline; }
+    });
+    window.parent.postMessage({ jarvisBridge: 'ready' }, location.origin);
+    return;
+  }
+  const resume = hubId ? `&since=${lastSeq}&hub=${encodeURIComponent(hubId)}` : '';
+  ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}${resume}`);
   ws.onopen = () => { retry = 0; $('offline').hidden = true; };
-  ws.onmessage = (e) => { const ev = JSON.parse(e.data); onEvent(ev); featureEvent(ev); };
+  ws.onmessage = (e) => heard(JSON.parse(e.data));
   ws.onclose = (e) => {
     $('offline').hidden = false;
     if (e.code === 1009) notice('Jarvis', '', 'A message was too big for the connection and didn’t go.', 8000);
@@ -52,6 +78,11 @@ const MAX_FRAME = 60 * 1024 * 1024;
 // True once the message is on its way. False when there's no connection yet (a restart,
 // the half second of a reconnect) or it's too big to send: the caller keeps the draft.
 function send(msg) {
+  if (bridged) {
+    if (!bridgeOnline) return false;
+    window.parent.postMessage({ jarvisBridge: 'send', msg }, location.origin);
+    return true;
+  }
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   const text = JSON.stringify(msg);
   // Length counts UTF-16 units; UTF-8 needs up to three bytes for one, so measure only then.
@@ -187,7 +218,11 @@ function onEvent(ev) {
       for (const id of approvalSeen.keys()) if (!(ev.approvals || []).some((a) => a.id === id)) approvalSeen.delete(id);
       (ev.approvals || []).forEach((a) => { approvalShown(a.id); showApproval(a); pendingApprovals.set(a.id, a); });
       renderInlineApprovals();
-      if (ccSelected) { send({ type: 'task_transcript', id: ccSelected }); send({ type: 'task_context', id: ccSelected }); }  // what it missed
+      if (ccSelected) {
+        // What it missed: the hub sends it after this (replay) when it kept it all.
+        if (!ev.replay) send({ type: 'task_transcript', id: ccSelected });
+        send({ type: 'task_context', id: ccSelected });
+      }
       if (reselect) { const again = ccTasks.find((t) => t.session_id === reselect); if (again) selectTask(again.id); }
       if (ev.turn && ev.turn.user) { currentRid = ev.turn.rid; showHeard(ev.turn.user); $('reply').textContent = ev.turn.reply || ''; }
       send({ type: 'galaxy' });

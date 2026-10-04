@@ -239,6 +239,11 @@ TOOL_LABELS.update(
 )
 
 log = logging.getLogger("jarvis")
+
+REPLAY_KEEP = 3000  # transcript events kept for a window that reconnects
+# What a reconnecting window is sent again: a session's transcript as it grew. Everything
+# else is state the snapshot carries whole.
+REPLAYED = {"task_log", "task_log_update", "task_entry_meta"}
 BRAIN_BUILD_SECONDS = 15 * 60  # a whole rebuild: sources get 5 min, layout and save the rest
 BRAIN_DONE_GRACE = 30  # a rebuild that has said it's done must be gone by then
 
@@ -348,6 +353,13 @@ def _text_size(event: dict[str, Any]) -> int:
     """How big an event is, near enough: its top-level text. The big ones carry their bulk
     there (a terminal's output, a simulator picture, a file's text)."""
     return sum(len(v) for v in event.values() if isinstance(v, str))
+
+
+class Event(dict):
+    """A window event: a dict as before (and equal to one), with the number it was emitted
+    with (Hub.seq), which goes to the window with it."""
+
+    __slots__ = ("seq",)
 
 
 class WindowQueue:
@@ -700,6 +712,11 @@ class Hub:
         self.approvals: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, asyncio.Future] = {}
         self._subscribers: set[WindowQueue] = set()
+        # Every event is numbered (seq): a window that reconnects says the last it had, and
+        # gets the snapshot and then the session events it missed (REPLAYED), from these.
+        self.seq = 0
+        self._recent: deque[tuple[int, dict[str, Any]]] = deque(maxlen=REPLAY_KEEP)
+        self._let_go = 0  # the newest seq of a kept event let go (older can't be replayed)
         self._event_sinks: dict[str, list[Callable[[dict[str, Any]], Any]]] = {}
         self.last_pictures: list[dict[str, str]] = []  # sent with the latest request that had any
         # This run of the backend, in every hello: a window that reconnects to a new one
@@ -2450,8 +2467,23 @@ class Hub:
         if future is not None and not future.done():
             future.set_result({"error": gone})
 
+    def events_since(self, since: int, until: int) -> list[tuple[int, dict[str, Any]]] | None:
+        """The session events numbered after since, up to until, for a window that
+        reconnected; None when they're not all kept any more (the snapshot must do)."""
+        if since >= until:
+            return []
+        if since < self._let_go:
+            return None
+        return [(n, e) for n, e in self._recent if since < n <= until]
+
     def emit(self, kind: str, **data: Any) -> None:
-        event = {"type": kind, **data}
+        self.seq += 1
+        event = Event({"type": kind, **data})
+        event.seq = self.seq
+        if kind in REPLAYED:
+            if len(self._recent) == self._recent.maxlen:
+                self._let_go = self._recent[0][0]
+            self._recent.append((self.seq, event))
         for queue in list(self._subscribers):
             queue.put_nowait(event)
             if queue.cut_off:  # stopped reading: no more events pile up for it
