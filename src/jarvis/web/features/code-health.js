@@ -101,6 +101,7 @@
     if (q) {
       const list = el('ul', 'jc-list ch-list');
       list.append(row('Answers in', q.answer_median == null ? el('span', 'jc-dim', 'Not measured yet') : `${q.answer_median}s median · ${q.answer_p90}s slowest 1 in 10`));
+      if (q.wake_median != null) list.append(row('Hands-free answers in', `${q.wake_median}s median (${q.wake_answers})`));
       list.append(row('Crash-free days', `${q.crash_free_days} of ${q.days}`));
       list.append(row('Lost chats', el('span', q.lost_chats ? 'ch-bad' : '', `${q.lost_chats} (${q.chats_kept} kept)`)));
       list.append(row('Heads-ups a day', String(q.headsups_per_day)));

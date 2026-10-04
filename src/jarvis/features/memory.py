@@ -969,6 +969,9 @@ class MemoryDesk:
         if self.chat_db is not None and handles:
             try:
                 card["texts"] = await asyncio.to_thread(people.texts_with, handles, self.chat_db)
+                card["pictures"] = await asyncio.to_thread(
+                    people.pictures_from, handles, self.chat_db
+                )
             except PermissionError:
                 card["missing"].append("texts (Full Disk Access)")
         mail_db = await asyncio.to_thread(self.mail_db)

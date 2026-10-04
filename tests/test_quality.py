@@ -69,3 +69,13 @@ def test_a_kind_nearly_always_dismissed_is_quieted_until_brought_back(tmp_path):
         desk.headsup(weather)
         desk.reaction("soon", "opened" if n < 4 else "dismissed")
     assert desk.gate(weather) is True  # opened often enough to keep
+
+
+def test_hands_free_answer_time_runs_from_the_heard_request(tmp_path, monkeypatch):
+    desk = quality.Quality(hub(tmp_path))
+    clock = iter([5.0, 5.0, 6.2, 6.2])
+    monkeypatch.setattr(quality.time, "monotonic", lambda: next(clock))
+    desk.woke("Jarvis, lights on", "lights on")
+    desk.state({"value": "thinking"})
+    desk.state({"value": "speaking"})
+    assert desk.wake == [1.2] and desk.public()["wake_median"] == 1.2

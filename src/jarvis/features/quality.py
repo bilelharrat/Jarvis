@@ -2,7 +2,8 @@
 
 - how fast Jarvis answers: from the end of the owner's words (listening ends) to Jarvis's
   first spoken word (speaking), the median and the slowest one in ten of the last
-  LATENCY_KEEP answers;
+  LATENCY_KEEP answers; and, hands-free, from the moment the request with "Jarvis" in it
+  was heard (hub.add_wake_sink) to the first spoken word;
 - crash-free days: a day the backend ended without quitting cleanly (a marker left from the
   last run, found at startup) counts as a crash on that day; the rest of the days since
   counting began are crash-free;
@@ -50,6 +51,8 @@ class Quality:
         with contextlib.suppress(jsonstore.Unreadable):
             data = jsonstore.load_json(self.path, dict) or {}
         self.latency: list[float] = [float(x) for x in data.get("latency", [])][-LATENCY_KEEP:]
+        self.wake: list[float] = [float(x) for x in data.get("wake", [])][-LATENCY_KEEP:]
+        self.woke_at: float | None = None
         self.days: dict[str, dict[str, int]] = dict(data.get("days", {}))
         self.since: str = data.get("since") or date.today().isoformat()
         self.lost: int = int(data.get("lost", 0))
@@ -100,6 +103,7 @@ class Quality:
                 self.path,
                 {
                     "latency": self.latency,
+                    "wake": self.wake,
                     "days": self.days,
                     "since": self.since,
                     "lost": self.lost,
@@ -121,7 +125,13 @@ class Quality:
         value = event.get("value")
         if value in ("transcribing", "thinking") and self.heard_at is None:
             self.heard_at = time.monotonic()  # the owner's words have ended
-        elif value == "speaking" and self.heard_at is not None:
+        if value == "speaking" and self.woke_at is not None:
+            waited = time.monotonic() - self.woke_at
+            self.woke_at = None
+            if 0 <= waited <= SLOW_LIMIT:
+                self.wake.append(round(waited, 2))
+                del self.wake[:-LATENCY_KEEP]
+        if value == "speaking" and self.heard_at is not None:
             waited = time.monotonic() - self.heard_at
             self.heard_at = None
             if 0 <= waited <= SLOW_LIMIT:
@@ -129,6 +139,12 @@ class Quality:
                 del self.latency[:-LATENCY_KEEP]
         elif value in ("idle", "listening"):
             self.heard_at = None
+            if value == "idle":
+                self.woke_at = None  # (answered without a word)
+
+    def woke(self, _heard: str, _command: str) -> None:
+        """hub.add_wake_sink: a hands-free request with Jarvis's name in it was heard."""
+        self.woke_at = time.monotonic()
 
     def headsup(self, alert: Any) -> None:
         self._day()["headsups"] += 1
@@ -183,10 +199,13 @@ class Quality:
             if d >= (today - timedelta(days=6)).isoformat()
         ]
         lat = sorted(self.latency)
+        wake = sorted(self.wake)
         return {
             "answer_median": round(statistics.median(lat), 2) if lat else None,
             "answer_p90": lat[min(len(lat) - 1, int(len(lat) * 0.9))] if lat else None,
             "answers": len(lat),
+            "wake_median": round(statistics.median(wake), 2) if wake else None,
+            "wake_answers": len(wake),
             "crash_free_days": days - crashed,
             "days": days,
             "lost_chats": self.lost,
@@ -212,6 +231,7 @@ def install(hub: Any) -> None:
     atexit.register(lambda: (d := mine()) is not None and d.quit_cleanly())
     hub.add_event_sink(("state",), desk.state)
     hub.add_notify_sink(desk.headsup)
+    hub.add_wake_sink(desk.woke)
     hub.register_loop("quality_keeper", desk.keeper)
     hub.add_notify_gate(desk.gate)
     hub.register_command(

@@ -228,6 +228,48 @@ def texts_with(
     return out[::-1]
 
 
+IMAGE_TYPES = ("image/png", "image/jpeg", "image/heic", "image/gif", "image/webp")
+
+
+def pictures_from(
+    handles: set[str], chat_db: Path, days: int = DAYS, limit: int = 6
+) -> list[dict[str, str]]:
+    """Pictures they texted the owner lately (screenshots, photos), newest first: where
+    each is on this Mac and when it came. Only theirs, one-to-one or in a group."""
+    if not handles:
+        return []
+    if not os.access(chat_db, os.R_OK):
+        raise PermissionError("texts")
+    conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True)
+    try:
+        cutoff = int(((datetime.now() - timedelta(days=days)).timestamp() - APPLE_EPOCH_UNIX) * 1e9)
+        rows = conn.execute(
+            """SELECT a.filename, a.mime_type, m.date, h.id
+               FROM message m
+               JOIN handle h ON m.handle_id = h.ROWID
+               JOIN message_attachment_join j ON j.message_id = m.ROWID
+               JOIN attachment a ON a.ROWID = j.attachment_id
+               WHERE m.is_from_me = 0 AND m.date > ? ORDER BY m.date DESC LIMIT 500""",
+            (cutoff,),
+        ).fetchall()
+    except sqlite3.DatabaseError as exc:
+        raise PermissionError("texts") from exc
+    finally:
+        conn.close()
+    out = []
+    for filename, mime, stamp, handle in rows:
+        if _handle_key(handle) not in handles or (mime or "") not in IMAGE_TYPES or not filename:
+            continue
+        path = Path(str(filename)).expanduser()
+        if not path.is_file():
+            continue
+        when = datetime.fromtimestamp(stamp / 1e9 + APPLE_EPOCH_UNIX).isoformat(timespec="minutes")
+        out.append({"path": str(path), "at": when})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def mail_with(
     handles: set[str], mail_db: Path | None, days: int = DAYS, limit: int = MAX_MAIL
 ) -> list[dict[str, Any]]:
