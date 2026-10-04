@@ -84,8 +84,8 @@ targets:
               - jarvis-link
         UILaunchScreen:
           UIColorName: LaunchBackground
-        # The Stark night: Jarvis is always dark.
-        UIUserInterfaceStyle: Dark
+        # No UIUserInterfaceStyle: Stark Glass keeps the app dark itself (LookRoot), and
+        # Obsidian follows the iPhone's appearance.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:

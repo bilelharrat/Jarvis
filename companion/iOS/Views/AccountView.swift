@@ -539,7 +539,7 @@ private struct UpgradeSheet: View {
             await AccountStore.shared.refresh()
             dismiss()
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(Look.isObsidian ? nil : .dark)
     }
 }
 

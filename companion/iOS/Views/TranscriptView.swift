@@ -99,7 +99,7 @@ struct TranscriptRow: View {
                     .foregroundStyle(Palette.ink)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .glassEffect(.regular.tint((line.waiting ? Color.gray : Palette.cyan).opacity(0.35)), in: bubble)
+                    .surface(.regular.tint((line.waiting ? Color.gray : Palette.cyan).opacity(0.35)), in: bubble, fill: line.waiting ? Obsidian.raised : Obsidian.arc.opacity(0.16))
                     .overlay { SpecularRim(shape: bubble, tint: line.waiting ? .white : Palette.ring, strength: 0.7) }
                     .opacity(line.sending ? 0.7 : 1)
                     .contentShape(.contextMenuPreview, bubble)

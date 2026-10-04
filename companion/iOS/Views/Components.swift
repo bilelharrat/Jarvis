@@ -156,11 +156,16 @@ struct ListFooter: View {
 }
 
 /// A grouped-list row in glass: a thin material over the night, a breath of light on it.
+/// In Obsidian, a plain surface row (the list's hairlines between).
 struct GlassRowBackground: View {
     var body: some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay(Rectangle().fill(Color.white.opacity(0.045)))
+        if Look.isObsidian {
+            Rectangle().fill(Obsidian.surface)
+        } else {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Rectangle().fill(Color.white.opacity(0.045)))
+        }
     }
 }
 
@@ -199,6 +204,6 @@ extension View {
     /// Its rows in glass (on a Section, or a row).
     func glassRow() -> some View {
         listRowBackground(GlassRowBackground())
-            .listRowSeparatorTint(Color.white.opacity(0.1))
+            .listRowSeparatorTint(Look.isObsidian ? Obsidian.hair2 : Color.white.opacity(0.1))
     }
 }

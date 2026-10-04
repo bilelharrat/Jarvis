@@ -11,6 +11,17 @@ struct SpaceBackground: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        if Look.isObsidian {
+            // Obsidian: one flat ground, graphite or porcelain; nothing glows behind it.
+            Obsidian.bg
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+        } else {
+            night
+        }
+    }
+
+    private var night: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 12, paused: reduceMotion)) { timeline in
             let t = Float(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600))
             let gx = Float(glow.x)

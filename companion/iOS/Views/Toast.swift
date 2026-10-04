@@ -68,7 +68,7 @@ struct ToastView: View {
         }
         .padding(.horizontal, Space.m + 2)
         .padding(.vertical, Space.s)
-        .glassEffect(.regular, in: Capsule())
+        .surface(.regular, in: Capsule())
         .onTapGesture(perform: onDismiss)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isStaticText)

@@ -38,7 +38,7 @@ struct VoiceModeView: View {
                     .foregroundStyle(.white)
                     .frame(width: 64, height: 64)
             }
-            .glassEffect(.regular.tint(.red).interactive(), in: Circle())
+            .surface(.regular.tint(.red).interactive(), in: Circle(), fill: Palette.danger)
             .accessibilityLabel("End voice mode")
             .padding(.bottom, Space.l)
         }

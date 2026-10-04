@@ -3,50 +3,65 @@ import SwiftUI
 /// The J.A.R.V.I.S. look: Apple's craft with Stark's materials. SF Pro and Apple's layouts,
 /// every surface Liquid Glass over a night lit by the arc reactor, one accent (reactor blue),
 /// and Stark gold, sparingly, for what needs the owner. Telemetry in small SF Mono caps.
+/// In Obsidian (Look.swift) the same names give the Mac's graphite and porcelain instead:
+/// flat surfaces, arc blue for what's alive, brass for what needs the owner.
 enum Palette {
+    private static var obsidian: Bool { Look.isObsidian }
+
     // Surfaces
     /// The canvas behind a screen.
-    static let space = Color.systemBackground
+    static var space: Color { obsidian ? Obsidian.bg : Color.systemBackground }
     /// A card or row on the canvas.
-    static let spaceRaised = Color.secondarySystemBackground
+    static var spaceRaised: Color { obsidian ? Obsidian.surface : Color.secondarySystemBackground }
     /// An inset well (an approval's exact wording, code).
-    static let well = Color.tertiarySystemFill
+    static var well: Color { obsidian ? Obsidian.raised : Color.tertiarySystemFill }
 
     // Reactor blue, the one accent
-    static let cyan = Color.accentColor
-    static let ring = Color(hex: 0x8FDBFF)
-    static let ice = Color(hex: 0xD6F3FF)
-    static let deep = Color(hex: 0x0B4FA8)
+    static var cyan: Color { obsidian ? Obsidian.arc : Color.accentColor }
+    static var ring: Color { obsidian ? Obsidian.arc : Color(hex: 0x8FDBFF) }
+    static var ice: Color { obsidian ? Obsidian.core : Color(hex: 0xD6F3FF) }
+    static var deep: Color { obsidian ? Obsidian.arc : Color(hex: 0x0B4FA8) }
 
     // Labels
-    static let ink = Color.primary
-    static let ink2 = Color.secondary
-    static let muted = Color.secondary
-    static let hairline = Color.separatorLine
+    static var ink: Color { obsidian ? Obsidian.ink : Color.primary }
+    static var ink2: Color { obsidian ? Obsidian.ink2 : Color.secondary }
+    static var muted: Color { obsidian ? Obsidian.muted : Color.secondary }
+    static var hairline: Color { obsidian ? Obsidian.hair2 : Color.separatorLine }
 
-    /// What needs the owner (approvals, a session waiting): Stark gold.
-    static let champagne = Color(hex: 0xE8C27A)
-    static let titanium = Color.secondary
+    /// What needs the owner (approvals, a session waiting): Stark gold, or Obsidian's brass.
+    static var champagne: Color { obsidian ? Obsidian.brassText : Color(hex: 0xE8C27A) }
+    static var titanium: Color { obsidian ? Obsidian.ink2 : Color.secondary }
     /// Hot-rod red, only ever in the backdrop's far corner and for stopping.
-    static let hotRod = Color(hex: 0xB3261E)
+    static var hotRod: Color { obsidian ? Obsidian.alert : Color(hex: 0xB3261E) }
 
     // Signals
-    static let amber = Color.orange
-    static let danger = Color.red
-    static let online = Color.green
+    static var amber: Color { obsidian ? Obsidian.brassText : Color.orange }
+    static var danger: Color { obsidian ? Obsidian.alert : Color.red }
+    static var online: Color { obsidian ? Obsidian.signal : Color.green }
 
     /// The reactor's light, centre to rim.
-    static let core: [Color] = [0xF2FBFF, 0xA4E4FF, 0x3FB8F2, 0x1677C9, 0x0A3D84].map { Color(hex: $0) }
+    static var core: [Color] {
+        obsidian
+            ? [Obsidian.core, Obsidian.arc, Obsidian.arc, Obsidian.arc.opacity(0.7), Obsidian.arc.opacity(0.4)]
+            : [0xF2FBFF, 0xA4E4FF, 0x3FB8F2, 0x1677C9, 0x0A3D84].map { Color(hex: $0) }
+    }
 
     /// A filled button.
-    static let action = LinearGradient(colors: [Color.accentColor, Color.accentColor], startPoint: .top, endPoint: .bottom)
-    static let champagneFoil = LinearGradient(
-        colors: [Color(hex: 0xF3E6C8), Color(hex: 0xC4A876), Color(hex: 0xE9D7B2)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
+    static var action: LinearGradient {
+        let fill = obsidian ? Obsidian.arc : Color.accentColor
+        return LinearGradient(colors: [fill, fill], startPoint: .top, endPoint: .bottom)
+    }
+    static var champagneFoil: LinearGradient {
+        obsidian
+            ? LinearGradient(colors: [Obsidian.brass, Obsidian.brass], startPoint: .topLeading, endPoint: .bottomTrailing)
+            : LinearGradient(
+                colors: [Color(hex: 0xF3E6C8), Color(hex: 0xC4A876), Color(hex: 0xE9D7B2)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+    }
 
     /// Ink on a filled (accent) button.
-    static let onAction = Color(hex: 0x03101C)
+    static var onAction: Color { obsidian ? Obsidian.actionInk : Color(hex: 0x03101C) }
 }
 
 extension Color {
@@ -155,11 +170,19 @@ struct GlassCard: ViewModifier {
     var strength: Double = 1
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let neutral = tint == .white
-        content
-            .glassEffect(neutral ? .regular : .regular.tint(tint.opacity(0.18 * strength)), in: shape)
-            .overlay { SpecularRim(shape: shape, tint: neutral ? .white : tint, strength: strength) }
+        if Look.isObsidian {
+            // Obsidian: a plain card with a hairline edge, brass-edged when it needs you.
+            let shape = RoundedRectangle(cornerRadius: min(cornerRadius, 18), style: .continuous)
+            content
+                .background(neutral ? Obsidian.surface : Obsidian.brassSurface, in: shape)
+                .overlay { shape.strokeBorder(neutral ? Obsidian.hair : Obsidian.brassLine, lineWidth: 1).allowsHitTesting(false) }
+        } else {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            content
+                .glassEffect(neutral ? .regular : .regular.tint(tint.opacity(0.18 * strength)), in: shape)
+                .overlay { SpecularRim(shape: shape, tint: neutral ? .white : tint, strength: strength) }
+        }
     }
 }
 
@@ -196,7 +219,19 @@ extension View {
     @ViewBuilder
     func glass<S: Shape>(_ shape: S, tint: Color = .white, strength: Double = 1, interactive: Bool = true) -> some View {
         let glass: Glass = tint == .white ? .regular : .regular.tint(tint.opacity(min(0.9, 0.45 * strength)))
-        glassEffect(interactive ? glass.interactive() : glass, in: shape)
+        surface(interactive ? glass.interactive() : glass, in: shape, fill: tint == .white ? nil : tint.opacity(min(0.9, 0.45 * strength)))
+    }
+
+    /// Liquid Glass in Stark Glass; in Obsidian a flat raised fill with a hairline edge (or
+    /// `fill`, for a control that carries a colour). Every floating control goes through here.
+    @ViewBuilder
+    func surface<S: Shape>(_ glass: Glass = .regular, in shape: S, fill: Color? = nil) -> some View {
+        if Look.isObsidian {
+            background(fill ?? Obsidian.raised, in: shape)
+                .overlay { shape.stroke(Obsidian.hair2, lineWidth: 1).allowsHitTesting(false) }
+        } else {
+            glassEffect(glass, in: shape)
+        }
     }
 
     /// Fades a horizontally scrolling row out at its edges, so it reads as "there's more".
@@ -217,6 +252,19 @@ struct OrbMark: View {
     var glow = true
 
     var body: some View {
+        if Look.isObsidian {
+            // A tiny dial: a fine ring around a bright point.
+            Circle()
+                .strokeBorder(Obsidian.arc, lineWidth: max(1, size * 0.11))
+                .overlay(Circle().fill(Obsidian.arc).frame(width: size * 0.3, height: size * 0.3))
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else {
+            sphere
+        }
+    }
+
+    private var sphere: some View {
         Circle()
             .fill(AngularGradient(colors: [Palette.core[2], Palette.core[4], Palette.core[1], Palette.core[3], Palette.core[2]], center: .center))
             .overlay(Circle().fill(RadialGradient(colors: [.white.opacity(0.85), .white.opacity(0)], center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: size * 0.55)))

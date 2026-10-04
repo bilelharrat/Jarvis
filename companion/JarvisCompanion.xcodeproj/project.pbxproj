@@ -61,8 +61,10 @@
 		24911353B86939EACDF082D8 /* SensorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB0E7A6FB559F093710D2E4 /* SensorModels.swift */; };
 		25598C797EFADBBFEDDC8410 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC86D5DE428EECD6B4CA1A05 /* WidgetSnapshot.swift */; };
 		26A634B3BE32B4E3128DC5E5 /* markets.json in Resources */ = {isa = PBXBuildFile; fileRef = C1D91A1774183DD344AE3601 /* markets.json */; };
+		26AC4ADBFECE7BCC8E94CB83 /* ObsidianDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1DC1A89328732AE68D9638 /* ObsidianDial.swift */; };
 		27E22EE9E92819EC4E556C19 /* JarvisLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC642AE209BB1E5406B94E07 /* JarvisLiveActivity.swift */; };
 		27E72CF2D6B981325C504617 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
+		287DF2F8B8AD34F77FD1CD33 /* LookRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553840A16330097567B496CD /* LookRoot.swift */; };
 		28AF46EFF16486951AEDE6F5 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC86D5DE428EECD6B4CA1A05 /* WidgetSnapshot.swift */; };
 		28B2AFCF857820517007207E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 427EE7363E4456123529776B /* SettingsView.swift */; };
 		290992CE1E88AF781AD2C834 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A595BB503334F0561F7F03 /* CompanionModels.swift */; };
@@ -78,6 +80,7 @@
 		33FD1C7CF4D6C1493C4124DD /* Transcript.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB9E5E6712964B7972DDEB5 /* Transcript.swift */; };
 		3426B35DF825AF34E1ED42F9 /* shortcut_run.json in Resources */ = {isa = PBXBuildFile; fileRef = A39CF0F8093D44861D0B8F12 /* shortcut_run.json */; };
 		34413C94E7A5002E04F90D96 /* CompanionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC863DBA3D2B3C37031C5C7F /* CompanionUITests.swift */; };
+		3459E565922674E43350D0A5 /* ObsidianDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1DC1A89328732AE68D9638 /* ObsidianDial.swift */; };
 		34D25F2C7E3A0544E4F42C40 /* delegations.json in Resources */ = {isa = PBXBuildFile; fileRef = A44D64E99938ECC8DB9A9EA8 /* delegations.json */; };
 		351C16CD8554F5F9D681E4ED /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9098CB7F3B55BB1FCB077EB /* Account.swift */; };
 		36A3C789BF100653EFCB085B /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */; };
@@ -103,6 +106,7 @@
 		4E4E6227068D28C0C73C9E46 /* CodeGitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA731768B60D698E8D29F6BE /* CodeGitView.swift */; };
 		4E9A04458448E30689BAE3AF /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBD2E8765035CE5BCB10B3F /* LocationService.swift */; };
 		4F0BCC67037728174D967134 /* AccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5CB4487938F984E2082ABE /* AccountTests.swift */; };
+		4F2F2F48B0BA4D502BA2108F /* LookPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28566D1D0D90FC8C184C4FA2 /* LookPicker.swift */; };
 		4FD5FAB360E672D98BC7A5B8 /* NewCodeSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21437EC6A3A40BE9A469B611 /* NewCodeSessionView.swift */; };
 		50ADBA707178B8C134F7DD36 /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
 		50FF9F8AAE876B35BE1CC781 /* ShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D197DFFFF2B68A02AD7A58 /* ShareView.swift */; };
@@ -111,6 +115,7 @@
 		52E4D6FB8E21B9AA3E03387D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D271D5774776815961B42C /* Models.swift */; };
 		53E69B2B0493344F684B4406 /* MacChatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296E1AE937C8851AC210300C /* MacChatsView.swift */; };
 		5470B84C3FB4072428C8B9FC /* pair.json in Resources */ = {isa = PBXBuildFile; fileRef = F181CA2D304559FE5CB6DAB4 /* pair.json */; };
+		54C489AEDF3E1002CAF66CA9 /* Look.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEC219A294B328D2A13577 /* Look.swift */; };
 		55CF4777F923F40DBC5F003B /* SpendingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64D5961CC8EB971ABD5BF61 /* SpendingView.swift */; };
 		56064213946531FC63966C0E /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4E4A91528D6974EDB4343E /* NotificationActions.swift */; };
 		561C5F498DCD259077F7D5C9 /* SpaceBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AA66376AEED5EBFC8C18E40 /* SpaceBackground.swift */; };
@@ -135,6 +140,7 @@
 		623AA6FAC1C1DB4DC2A271FC /* WatchApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A32E208AF7AE083703E1E3 /* WatchApprovalCard.swift */; };
 		62DEE0851C6E14AEDCBE5642 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D083BC6390ED9CA1FAF28851 /* Destination.swift */; };
 		6360A08FD8BBB0F11C005E86 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D083BC6390ED9CA1FAF28851 /* Destination.swift */; };
+		63B77E1BDED1BEE1A0E329DF /* Look.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEC219A294B328D2A13577 /* Look.swift */; };
 		63BDA91B74E316B8311773BA /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6465A8EA614143D01D94BA /* JSONValue.swift */; };
 		63CDD01888C08B596CD3E198 /* CodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D8A2AB39B39B26C1DB87BF1 /* CodeTests.swift */; };
 		64FA9BE89207F29DFADF36F3 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1B880F8EBFB59008055677DC /* PrivacyInfo.xcprivacy */; };
@@ -232,6 +238,7 @@
 		A905455D985AF33F8E9A16DF /* ContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1026D031A91343564AB99990 /* ContractTests.swift */; };
 		A99F295B7C9227DF31D2E4BA /* PhoneSensors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F8FBF4AE7E22196B838F69 /* PhoneSensors.swift */; };
 		AA52A5A4E2C589A60C6873E7 /* error_unknown_endpoint.json in Resources */ = {isa = PBXBuildFile; fileRef = 266D8B5BA9ECC4EB03BBF947 /* error_unknown_endpoint.json */; };
+		ADA44E75782A044EC025B092 /* ObsidianDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1DC1A89328732AE68D9638 /* ObsidianDial.swift */; };
 		AFBB6F8B2856C8A5F6B056BA /* SyncItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F414526E91AF97BFBE51240 /* SyncItems.swift */; };
 		AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		AFBEDA7548ED40DFE02C6BB4 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6465A8EA614143D01D94BA /* JSONValue.swift */; };
@@ -273,6 +280,7 @@
 		C654352CBFA1B6DB62AA46CC /* music_control.json in Resources */ = {isa = PBXBuildFile; fileRef = D1EAC4D74C2FC01895B0117B /* music_control.json */; };
 		C6873ABCF970D6BAD46BB4D2 /* error_switch_wifi.json in Resources */ = {isa = PBXBuildFile; fileRef = B0B259C7AC86B96EADD1EBA9 /* error_switch_wifi.json */; };
 		C7F2B0B294DEE5B12D72D4A9 /* IntentRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CA106AA6DAAC90628128C0 /* IntentRunner.swift */; };
+		C83AB986DC6716B3FF943283 /* Look.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEC219A294B328D2A13577 /* Look.swift */; };
 		CADA010243792DFEA82D3801 /* error_no_shortcut.json in Resources */ = {isa = PBXBuildFile; fileRef = EABE05550B1576FFE4B31272 /* error_no_shortcut.json */; };
 		CC5526996F2B4288CF562689 /* OwnerCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = E95146213F50C71240A568F1 /* OwnerCheck.swift */; };
 		CCF76D4379050D8183822666 /* approve.json in Resources */ = {isa = PBXBuildFile; fileRef = A922FCA2DBC73122BC8BC69D /* approve.json */; };
@@ -303,6 +311,7 @@
 		E0811EFCEBE665C51E13843C /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
 		E1D21FDC2A1C2299C7BB7D8C /* ConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9550D8815339BFA94123EAFA /* ConversationsView.swift */; };
 		E1DD43A6ECF6F88BF0C2E3FC /* memory_add.json in Resources */ = {isa = PBXBuildFile; fileRef = E584ACD2D27CB1C01F4DCF64 /* memory_add.json */; };
+		E1DE31D91DFB806F046D4ED5 /* ObsidianDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1DC1A89328732AE68D9638 /* ObsidianDial.swift */; };
 		E205631D47A779E2467687C5 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C620E39CE7778E786E23849 /* DebugLaunch.swift */; };
 		E2B8EBB0855FC47C1AA7BED1 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 583BDA61657ECE1FBD413BE5 /* SyncEngine.swift */; };
 		E2C4E4377E721000703C8F79 /* delegation_stop.json in Resources */ = {isa = PBXBuildFile; fileRef = CA9187772B3546FD0CD2B11D /* delegation_stop.json */; };
@@ -317,11 +326,14 @@
 		E62094C1B5B4C4BE793A34F7 /* ReactorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C10CAA1099883096BB500EA /* ReactorView.swift */; };
 		E62FA61C629E12B7E565560D /* prefs.json in Resources */ = {isa = PBXBuildFile; fileRef = F87DA79B9ACA579B9BA2FE84 /* prefs.json */; };
 		E6A314FAE749105D9C6ADDBE /* calendar.json in Resources */ = {isa = PBXBuildFile; fileRef = ECEF4F65734E2BCC044FF2EE /* calendar.json */; };
+		E6ACFF3D170B3A648F0DB746 /* ObsidianDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1DC1A89328732AE68D9638 /* ObsidianDial.swift */; };
 		E965CF2E3E834945263D46DA /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6465A8EA614143D01D94BA /* JSONValue.swift */; };
 		EA82839E58C18FD303C4F0C6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1031BE1284FEA6FEDCEF8146 /* PrivacyInfo.xcprivacy */; };
 		EB19ED7CBDB893F6A3965F8A /* PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */; };
 		EE4E823655E8E4B275A249F6 /* Pinning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9D5708789DADE23BD3F36D /* Pinning.swift */; };
+		EF8C8D08A372B67863FFE1C1 /* Look.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEC219A294B328D2A13577 /* Look.swift */; };
 		F09FEA00EFCBB1255E901D94 /* ProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F606C72014D5748E2104F5 /* ProjectsView.swift */; };
+		F127E3F57A5C3012ACF17AB7 /* Look.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEC219A294B328D2A13577 /* Look.swift */; };
 		F175E0A05CBB0A7433D534A5 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10DA979C0AFFE3D76DA961C /* PairingView.swift */; };
 		F2104B4F21AF08788F039604 /* memory.json in Resources */ = {isa = PBXBuildFile; fileRef = 99E41D6AEA26B17319403177 /* memory.json */; };
 		F27F5D0B7C986F17F5B3B09F /* ChatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7043728A836B23F017D41FAC /* ChatsView.swift */; };
@@ -465,6 +477,7 @@
 		264838CF21F86E2CE32D1FA2 /* JarvisComplications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisComplications.swift; sourceTree = "<group>"; };
 		266D8B5BA9ECC4EB03BBF947 /* error_unknown_endpoint.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_unknown_endpoint.json; sourceTree = "<group>"; };
 		27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRequest.swift; sourceTree = "<group>"; };
+		28566D1D0D90FC8C184C4FA2 /* LookPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookPicker.swift; sourceTree = "<group>"; };
 		28A38549A45A72F4B2858650 /* share_asked.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = share_asked.json; sourceTree = "<group>"; };
 		296E1AE937C8851AC210300C /* MacChatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacChatsView.swift; sourceTree = "<group>"; };
 		29A595BB503334F0561F7F03 /* CompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionModels.swift; sourceTree = "<group>"; };
@@ -509,6 +522,7 @@
 		4FD6E44D73309111F8165B58 /* error_no_task.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_no_task.json; sourceTree = "<group>"; };
 		541AFF7BFD486FC563042E13 /* BrainProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainProvider.swift; sourceTree = "<group>"; };
 		551737142658F2F36993883B /* ApprovalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalCard.swift; sourceTree = "<group>"; };
+		553840A16330097567B496CD /* LookRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookRoot.swift; sourceTree = "<group>"; };
 		565297325CAECF821B58C9CE /* JarvisCompanionUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = JarvisCompanionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		566EE4877D185AFA856CBD13 /* JarvisCompanionWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisCompanionWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		583BDA61657ECE1FBD413BE5 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
@@ -547,6 +561,7 @@
 		8D4809DF873287D0210801F6 /* Decoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Decoding.swift; sourceTree = "<group>"; };
 		8DE84B66624B459B350EC2CA /* ShareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareTests.swift; sourceTree = "<group>"; };
 		908798F9F2CCCD695BF9E730 /* code_diff.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = code_diff.json; sourceTree = "<group>"; };
+		91BEC219A294B328D2A13577 /* Look.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Look.swift; sourceTree = "<group>"; };
 		9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotPublisher.swift; sourceTree = "<group>"; };
 		927BA94D472C48A95AA686BD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		927D0736899E5A00C16997A1 /* error_pair_code.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_pair_code.json; sourceTree = "<group>"; };
@@ -559,6 +574,7 @@
 		96E87EB35820E56F8C633663 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		99E41D6AEA26B17319403177 /* memory.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = memory.json; sourceTree = "<group>"; };
 		9ADDD7034FFD82D880217846 /* routine_update.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = routine_update.json; sourceTree = "<group>"; };
+		9B1DC1A89328732AE68D9638 /* ObsidianDial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianDial.swift; sourceTree = "<group>"; };
 		9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerPictures.swift; sourceTree = "<group>"; };
 		9D52F65E2F756B88700F2903 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		9D5A381E219391CFE4DCD1CA /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
@@ -700,6 +716,8 @@
 				9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */,
 				F3C50D3AD496F5AA13AE8896 /* JarvisSwitcher.swift */,
 				1BB9FC3DBFBEC9BC943067FB /* JarvisView.swift */,
+				28566D1D0D90FC8C184C4FA2 /* LookPicker.swift */,
+				553840A16330097567B496CD /* LookRoot.swift */,
 				296E1AE937C8851AC210300C /* MacChatsView.swift */,
 				B46CDF77E69B96A427B73499 /* MainTabs.swift */,
 				C068EDEBD4E7517A6974A136 /* OutboxSheet.swift */,
@@ -1048,11 +1066,13 @@
 				D083BC6390ED9CA1FAF28851 /* Destination.swift */,
 				4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */,
 				AE6465A8EA614143D01D94BA /* JSONValue.swift */,
+				91BEC219A294B328D2A13577 /* Look.swift */,
 				1A36D13F368B90884D9B34D7 /* MacAddress.swift */,
 				348DE8B0CC6624CF8E182048 /* MacFeature.swift */,
 				DFD848CCE81CBCC050D5342E /* MacRoute.swift */,
 				24D271D5774776815961B42C /* Models.swift */,
 				5F4E4A91528D6974EDB4343E /* NotificationActions.swift */,
+				9B1DC1A89328732AE68D9638 /* ObsidianDial.swift */,
 				A649152CDC719B11909C1BBC /* Outbox.swift */,
 				E828C88E6726C861CCEDF1B1 /* PairingLink.swift */,
 				ECB06E6EA4D7C4FD29609F1C /* PairingStore.swift */,
@@ -1441,11 +1461,13 @@
 				5D8E5F39B4AB6AEF84C27DC9 /* JSONValue.swift in Sources */,
 				3BF701802E556523DCF8BC1C /* JarvisAPI.swift in Sources */,
 				113D827F83877845EC534159 /* JarvisComplications.swift in Sources */,
+				EF8C8D08A372B67863FFE1C1 /* Look.swift in Sources */,
 				D07AD812BE5438D6598E5945 /* MacAddress.swift in Sources */,
 				8C09069F4468CE062B4D2AA5 /* MacFeature.swift in Sources */,
 				B294D962FE0333291D0F62D4 /* MacRoute.swift in Sources */,
 				52E4D6FB8E21B9AA3E03387D /* Models.swift in Sources */,
 				56064213946531FC63966C0E /* NotificationActions.swift in Sources */,
+				E6ACFF3D170B3A648F0DB746 /* ObsidianDial.swift in Sources */,
 				6970AF652C89F75A41F873F9 /* Outbox.swift in Sources */,
 				71BE52615CE0CD9A3B0320A5 /* PairingLink.swift in Sources */,
 				B3EA66B76E6473152068FC42 /* PairingStore.swift in Sources */,
@@ -1476,11 +1498,13 @@
 				7F1711596F846A4CC61C4DF6 /* JarvisActivity.swift in Sources */,
 				27E22EE9E92819EC4E556C19 /* JarvisLiveActivity.swift in Sources */,
 				A534AA4E6C4DEE72E4F408B9 /* JarvisWidgets.swift in Sources */,
+				63B77E1BDED1BEE1A0E329DF /* Look.swift in Sources */,
 				96D74B8F26C69D3925134500 /* MacAddress.swift in Sources */,
 				F88323C1BC22CD3DCC847FA3 /* MacFeature.swift in Sources */,
 				964ED726BD0077793BC22F23 /* MacRoute.swift in Sources */,
 				4CB19D6221D4DB0192848391 /* Models.swift in Sources */,
 				45140952309A197F3AF08A1B /* NotificationActions.swift in Sources */,
+				E1DE31D91DFB806F046D4ED5 /* ObsidianDial.swift in Sources */,
 				583BD54EAC999220D838F80F /* Outbox.swift in Sources */,
 				78FBD38E4586849DF14FD20B /* PairingLink.swift in Sources */,
 				8E0D4CEC6D14A27FD7B68DDB /* PairingStore.swift in Sources */,
@@ -1510,11 +1534,13 @@
 				63BDA91B74E316B8311773BA /* JSONValue.swift in Sources */,
 				1A3CEF5E012ED60A975824B7 /* JarvisAPI.swift in Sources */,
 				B7722CE807343C959211C100 /* JarvisWatchApp.swift in Sources */,
+				F127E3F57A5C3012ACF17AB7 /* Look.swift in Sources */,
 				37A26AC60B4992FB1385403E /* MacAddress.swift in Sources */,
 				C09CCBA7F52D8B783EDF15B2 /* MacFeature.swift in Sources */,
 				A73C7B0A467E7CEF9509F245 /* MacRoute.swift in Sources */,
 				7B7B594D58F10411F91D8E5C /* Models.swift in Sources */,
 				792BE40F20E259259940DCBA /* NotificationActions.swift in Sources */,
+				ADA44E75782A044EC025B092 /* ObsidianDial.swift in Sources */,
 				18218B78E51630B5E3322D78 /* Outbox.swift in Sources */,
 				748E241B0AF41C4D88CB73AF /* PairingLink.swift in Sources */,
 				8846E71BA9567B56B8004B11 /* PairingStore.swift in Sources */,
@@ -1549,11 +1575,13 @@
 				904F1AD44C52E89C2D8BEF0E /* Destination.swift in Sources */,
 				AFBEDA7548ED40DFE02C6BB4 /* JSONValue.swift in Sources */,
 				7EFF4D7A610ECB5E131A5809 /* JarvisAPI.swift in Sources */,
+				C83AB986DC6716B3FF943283 /* Look.swift in Sources */,
 				DA77AE7873ADFA625A56654C /* MacAddress.swift in Sources */,
 				603A5B053E8CEDE24855F3B7 /* MacFeature.swift in Sources */,
 				113D025B350527854597C7A2 /* MacRoute.swift in Sources */,
 				2E5F148EE3C1130EE7C8CE4A /* Models.swift in Sources */,
 				A7F05CDD4553CD6946266D66 /* NotificationActions.swift in Sources */,
+				3459E565922674E43350D0A5 /* ObsidianDial.swift in Sources */,
 				E0811EFCEBE665C51E13843C /* Outbox.swift in Sources */,
 				8A86752F5B8DB272AA6E9F05 /* PairingLink.swift in Sources */,
 				FA1F2F0EE39BF85F79751623 /* PairingStore.swift in Sources */,
@@ -1634,6 +1662,9 @@
 				8FB91CCD6097EC264630E2A1 /* LiveCameraView.swift in Sources */,
 				FCCF4C23005CF91B1B48A4E5 /* LocalBrain.swift in Sources */,
 				4E9A04458448E30689BAE3AF /* LocationService.swift in Sources */,
+				54C489AEDF3E1002CAF66CA9 /* Look.swift in Sources */,
+				4F2F2F48B0BA4D502BA2108F /* LookPicker.swift in Sources */,
+				287DF2F8B8AD34F77FD1CD33 /* LookRoot.swift in Sources */,
 				AFBE18E47B605E9C7F803A70 /* MacAddress.swift in Sources */,
 				53E69B2B0493344F684B4406 /* MacChatsView.swift in Sources */,
 				917F6165DE0AE2A461EC0271 /* MacFeature.swift in Sources */,
@@ -1645,6 +1676,7 @@
 				B71FEA2D9172CE2A3D59B5FF /* Models.swift in Sources */,
 				4FD5FAB360E672D98BC7A5B8 /* NewCodeSessionView.swift in Sources */,
 				BED3476AF4C62D76C3E3F852 /* NotificationActions.swift in Sources */,
+				26AC4ADBFECE7BCC8E94CB83 /* ObsidianDial.swift in Sources */,
 				1A408249BA46C3330C48ADAF /* Outbox.swift in Sources */,
 				802B1721CF8D48B7DF72A12F /* OutboxSheet.swift in Sources */,
 				CC5526996F2B4288CF562689 /* OwnerCheck.swift in Sources */,

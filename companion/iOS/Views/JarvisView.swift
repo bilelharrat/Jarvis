@@ -257,7 +257,7 @@ struct JarvisView: View {
             .foregroundStyle(Palette.ink2)
             .padding(.horizontal, Space.m)
             .padding(.vertical, Space.xs)
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .surface(.regular.interactive(), in: Capsule())
         }
         .buttonStyle(.plain)
         .padding(.top, Space.xxs)
@@ -328,7 +328,7 @@ private struct Telemetry: View {
         }
         .padding(.horizontal, Space.m)
         .padding(.vertical, 6)
-        .glassEffect(.regular, in: Capsule())
+        .surface(.regular, in: Capsule())
         .accessibilityElement(children: .combine)
     }
 
@@ -443,7 +443,7 @@ private struct Composer: View {
                     }
                 }
                 .frame(minHeight: 44)
-                .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .surface(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 micButton
                 if !canSend { voiceModeButton.transition(.scale.combined(with: .opacity)) }
             }
@@ -477,10 +477,10 @@ private struct Composer: View {
             Image(systemName: model.speech.isActive ? "waveform" : "mic.fill")
                 .font(.title3.weight(.semibold))
                 .symbolEffect(.variableColor.iterative, isActive: model.speech.status == .listening)
-                .foregroundStyle(.white)
+                .foregroundStyle(Look.isObsidian ? Obsidian.actionInk : .white)
                 .frame(width: 44, height: 44)
         }
-        .glassEffect(.regular.tint(.accentColor).interactive(), in: Circle())
+        .surface(.regular.tint(.accentColor).interactive(), in: Circle(), fill: Obsidian.arc)
         .accessibilityLabel(model.speech.status == .listening ? "Stop listening and send" : "Talk to Jarvis")
     }
 
@@ -491,7 +491,7 @@ private struct Composer: View {
                 .foregroundStyle(Palette.ink)
                 .frame(width: 44, height: 44)
         }
-        .glassEffect(.regular.interactive(), in: Circle())
+        .surface(.regular.interactive(), in: Circle())
         .accessibilityLabel("Voice mode")
     }
 
@@ -529,7 +529,7 @@ private struct Composer: View {
                 .foregroundStyle(Palette.ink)
                 .frame(width: 44, height: 44)
         }
-        .glassEffect(.regular.interactive(), in: Circle())
+        .surface(.regular.interactive(), in: Circle())
         .accessibilityLabel("More actions")
     }
 }

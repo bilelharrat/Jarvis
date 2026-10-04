@@ -35,6 +35,8 @@ struct SettingsView: View {
                     }
                 }
 
+                LookPicker()
+
                 if model.pairing != nil {
                     macSection
                     JarvisSwitcherSection()

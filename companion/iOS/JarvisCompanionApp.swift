@@ -11,7 +11,7 @@ struct JarvisCompanionApp: App {
             if let model {
                 RootView()
                     .environment(model)
-                    .preferredColorScheme(.dark)
+                    .chosenLook()
                     .dynamicTypeSize(...DynamicTypeSize.accessibility3)
             } else {
                 Palette.space.ignoresSafeArea()

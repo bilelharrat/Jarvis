@@ -4,7 +4,7 @@ import SwiftUI
 /// highlight) inside a fine-ticked bezel, like a chronograph's, with Stark gold at the
 /// quarters. At rest it barely breathes; listening, it swells with your voice and a comet of
 /// light runs round the bezel; thinking, the light turns faster; speaking, it pulses.
-/// Offline it goes quiet and grey.
+/// Offline it goes quiet and grey. In Obsidian it is the dial instead (ObsidianDial).
 /// Purely decorative for VoiceOver; the control around it carries the label.
 struct ReactorView: View {
     enum Mode: Equatable, Sendable {
@@ -21,6 +21,14 @@ struct ReactorView: View {
     @State private var motion = OrbMotion()
 
     var body: some View {
+        if Look.isObsidian {
+            ObsidianDial(mode: mode, level: level, size: size)
+        } else {
+            orb
+        }
+    }
+
+    private var orb: some View {
         Group {
             if reduceMotion || dimmed {
                 OrbFrame(state: .still(mode), size: size)
