@@ -21,7 +21,9 @@ from jarvis.ui import parse
         ("open the second brain", "panel", "brain", True),
         ("hide the activity log", "panel", "activity", False),
         ("open tools and accounts", "panel", "accounts", True),
-        ("switch to the HUD", "look", "hud", True),
+        ("switch to the obsidian look", "look", "obsidian", True),
+        ("change to the obsidian theme", "look", "obsidian", True),
+        ("use the obsidian look", "look", "obsidian", True),
         ("change to the command center look", "look", "console", True),
         ("go back to the orb", "look", "orb", True),
         ("switch to stark glass", "look", "glass", True),
@@ -49,6 +51,8 @@ def test_window_commands(said, action, name, on):
         "open the pod bay doors",
         "what's the weather",
         "switch to the other thing",
+        "switch to obsidian",  # the notes app: only "the Obsidian look" is the window's
+        "go to obsidian",
         "go dark",
         "switch to light",
         "let's code in jarvis",
@@ -77,15 +81,15 @@ async def test_open_jarvis_code_by_voice_needs_no_claude(hub):
 
 async def test_switching_the_look_by_voice(hub):
     hub.emit = lambda *_a, **_k: None
-    assert await hub._instant_window("r1", "switch to the HUD")
-    assert hub.prefs.look == "hud"
+    assert await hub._instant_window("r1", "switch to the obsidian look")
+    assert hub.prefs.look == "obsidian"
     assert await hub._instant_window("r2", "switch to stark glass")
     assert hub.prefs.look == "glass"
 
 
 async def test_light_and_dark_mode_by_voice_are_stark_glass_tones(hub):
     hub.emit = lambda *_a, **_k: None
-    assert await hub._instant_window("r1", "switch to the HUD")
+    assert await hub._instant_window("r1", "switch to the obsidian look")
     assert await hub._instant_window("r2", "light mode")
     assert (hub.prefs.look, hub.prefs.glass_tone) == ("glass", "light")
     assert await hub._instant_window("r3", "switch to dark mode")

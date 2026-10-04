@@ -7969,7 +7969,7 @@ test('Stark Glass turns white with its Light tone, follows the Mac on Match Mac,
   assert(await tone() === 'light', 'Light makes the glass white');
   assert(await panelInk() !== darkInk && (await panelInk()).startsWith('rgb(12, 20, 32'), `ink is dark on white: ${await panelInk()}`);
   assert(await js('document.querySelector("#tone-group [data-tone=light]").getAttribute("aria-checked")') === 'true', 'Light is checked');
-  await prefs({ look: 'hud', glass_tone: 'light' });
+  await prefs({ look: 'console', glass_tone: 'light' });
   assert(await tone() === '' && await js('$("tone-row").hidden'), 'other looks have no tone and no picker');
   await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
   await prefs({ look: 'glass', glass_tone: 'auto' });

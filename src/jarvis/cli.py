@@ -197,9 +197,15 @@ def main() -> None:
         asyncio.run(say_line(" ".join(args.words) or "Good evening. All systems are online."))
         return
     if args.command == "serve":
+        import faulthandler
         import secrets
+        import signal
 
         from .packaged import take_token
+
+        # `kill -USR1 <pid>` writes every thread's stack to the backend's log: what a busy or
+        # stuck backend is doing, without stopping it.
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
         from .server import serve
 
         # The app passes its own token; a manual run gets a fresh one. It's taken out of the

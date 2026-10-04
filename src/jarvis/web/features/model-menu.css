@@ -26,7 +26,6 @@
   }
 }
 /* the dark looks are dark whatever the system says, and Stark Glass has its own tint */
-body[data-look="hud"] .model-menu,
 body[data-look="console"] .model-menu,
 html body[data-skin="glass"] .model-menu {
   --mm-fill: rgba(12, 18, 30, 0.7);

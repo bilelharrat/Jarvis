@@ -658,5 +658,9 @@ class Sync:
                 self._poked.clear()
                 await self.sync()
                 last = loop.time()
+            elif not self.account.linked:
+                # Nothing to sync, so the change is heard and let go: a poke left set would
+                # end every wait below at once, and the loop would spin and starve the app.
+                self._poked.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._poked.wait(), LOOK_SECONDS)

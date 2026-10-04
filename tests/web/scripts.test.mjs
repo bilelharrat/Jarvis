@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 // fileURLToPath, not .pathname: the repo's path has a space in it (%20 in a URL).
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
-const SCRIPTS = ['i18n.js', 'galaxy.js', 'attach.js', 'simulator.js', 'code-store.js', 'app.js', 'features.js']; // in index.html's order
+const SCRIPTS = ['i18n.js', 'galaxy.js', 'attach.js', 'simulator.js', 'code-store.js', 'app.js', 'obsidian.js', 'features.js']; // in index.html's order
 // The feature modules' scripts (web/features/*.js) share that scope too: features.js loads
 // them after app.js, in name order.
 const FEATURES = existsSync(`${WEB}/features`)

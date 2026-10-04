@@ -1,7 +1,7 @@
 """Voice control of the J.A.R.V.I.S. window itself: open and close its panels, change the
 look, turn hand control on and off.
 
-"Jarvis, open Jarvis Code", "close the browser", "switch to the HUD", "turn on hand
+"Jarvis, open Jarvis Code", "close the browser", "switch to Obsidian", "turn on hand
 control" run at once without asking Claude; Claude has the same as tools for anything
 said less directly.
 """
@@ -60,10 +60,9 @@ LOOKS = {
     "orb": "orb",
     "ambient orb": "orb",
     "the orb": "orb",
-    "hud": "hud",
-    "stark hud": "hud",
-    "heads up display": "hud",
-    "heads-up display": "hud",
+    "obsidian": "obsidian",
+    "the obsidian look": "obsidian",
+    "obsidian look": "obsidian",
     "command center": "console",
     "command centre": "console",
     "console": "console",
@@ -73,9 +72,11 @@ LOOKS = {
     "glass look": "glass",
     "all glass": "glass",
 }
+APP_NAMED_LOOKS = {"obsidian"}  # looks named like a Mac app: said with a look word only
+LOOK_WORDS = {"look", "view", "mode", "layout", "theme", "design"}
 LOOK_NAMES = {
     "orb": "the Ambient Orb",
-    "hud": "the Stark HUD",
+    "obsidian": "Obsidian",
     "console": "the Command Center",
     "glass": "Stark Glass",
 }
@@ -139,7 +140,16 @@ def parse(text: str) -> Command | None:
         tone = TONES[m.group("tone")]
         return Command("tone", tone, True, TONE_REPLIES[tone])
     if m := _LOOK.match(t):
-        look = LOOKS.get(m.group("look").strip())
+        said = m.group("look").strip()
+        look = LOOKS.get(said)
+        # Obsidian is a notes app too: "switch to Obsidian" goes to the app, and only "the
+        # Obsidian look" (theme, design…) changes the window.
+        if (
+            look
+            and said.removeprefix("the ") in APP_NAMED_LOOKS
+            and t.split()[-1] not in LOOK_WORDS
+        ):
+            look = None
         if look:
             return Command("look", look, True, f"Switched to {LOOK_NAMES[look]}.")
     if m := _HANDS.match(t):
@@ -179,14 +189,14 @@ def build_server(apply: Apply):
 
     @tool(
         "set_look",
-        "Change how J.A.R.V.I.S. looks: orb (the Ambient Orb), hud (the Stark HUD), console "
+        "Change how J.A.R.V.I.S. looks: orb (the Ambient Orb), obsidian (Obsidian), console "
         "(the Command Center) or glass (Stark Glass).",
         {"look": str},
     )
     async def set_look(args):
         look = LOOKS.get(str(args.get("look", "")).lower().strip())
         if not look:
-            return _text("Looks: orb, hud, console, glass.")
+            return _text("Looks: orb, obsidian, console, glass.")
         await apply(Command("look", look))
         return _text(f"Switched to {LOOK_NAMES[look]}.")
 

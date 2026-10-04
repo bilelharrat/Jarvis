@@ -768,10 +768,10 @@ UI_PAIRS = [
     ("把浏览器关掉", "close the browser"),
     ("打开贾维斯代码", "open Jarvis Code"),
     ("打开 Jarvis Code", "open Jarvis Code"),
-    ("切换到HUD", "switch to the HUD"),
+    ("切换到黑曜石", "switch to the obsidian look"),
     ("切换到指挥中心", "change to the command center look"),
     ("切换到光球", "go back to the orb"),
-    ("用HUD模式", "switch to the HUD"),
+    ("用黑曜石模式", "switch to the obsidian look"),
     ("打开设置", "open settings"),
     ("显示第二大脑", "open the second brain"),
     ("关掉活动记录", "hide the activity log"),
@@ -802,7 +802,7 @@ def test_window_replies_are_chinese():
     assert lang.parse_ui_zh("打开浏览器").reply == "正在打开浏览器。"
     assert lang.parse_ui_zh("关闭浏览器").reply == "已关闭浏览器。"
     assert lang.parse_ui_zh("打开贾维斯代码").reply == "正在打开 Jarvis Code。"
-    assert lang.parse_ui_zh("切换到HUD").reply == "已切换到斯塔克 HUD。"
+    assert lang.parse_ui_zh("切换到黑曜石").reply == "已切换到黑曜石。"
     assert lang.parse_ui_zh("打开手势控制").reply == "手势控制已开启。"
     assert lang.parse_ui_zh("关闭手势控制").reply == "手势控制已关闭。"
 
@@ -826,7 +826,7 @@ def test_not_window_commands(said):
 
 @pytest.mark.parametrize(
     "said",
-    ["open Jarvis Code", "close the browser", "switch to the HUD", "turn on hand control",
+    ["open Jarvis Code", "close the browser", "switch to obsidian", "turn on hand control",
      "hands off", "open safari", "close", "let's code in jarvis", ""],
 )  # fmt: skip
 def test_english_window_commands_are_untouched(said):
@@ -1406,7 +1406,7 @@ def test_every_tool_label_and_window_name_is_covered():
     [
         ("Opening the browser.", "正在打开浏览器。"),
         ("Closed the activity log.", "已关闭活动记录。"),
-        ("Switched to the Stark HUD.", "已切换到斯塔克 HUD。"),
+        ("Switched to Obsidian.", "已切换到黑曜石。"),
         ("Hand control on.", "手势控制已开启。"),
         ("Back.", "返回。"),
         ("Closed the Research Center.", "已关闭研究中心。"),

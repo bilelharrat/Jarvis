@@ -1,0 +1,128 @@
+/* Jarvis Code's split view (features/code-split.js): the window's own pane on the left, a
+   frame of the window on the right, the divider between them, and a slim head on each with
+   its session, its mark and the pane's buttons; the drop zones while a session is dragged
+   over from the sidebar; and the frame's own page, Jarvis Code alone. The Summit Glass tokens
+   of .deck.jc. */
+
+/* The room right of the sidebar (app.css: .jc-main's left), split at --sv-ratio. */
+.deck.jc { --sv-l: 284px; --sv-gap: 8px; --sv-ratio: 0.5; }
+.deck.jc.side-hidden { --sv-l: 0px; }
+@media (max-width: 900px) { .deck.jc { --sv-l: 0px; } }
+.deck.jc.sv-on { --sv-room: calc(100% - var(--sv-l) - var(--sv-gap)); }
+
+.deck.jc.sv-on .jc-main { right: calc(var(--sv-room) * (1 - var(--sv-ratio)) + var(--sv-gap)); container-type: inline-size; transition: left 360ms var(--ease-spring), right 360ms var(--ease-spring); }
+.sv-divider {
+  position: absolute; top: 0; bottom: 0; z-index: 3; width: var(--sv-gap);
+  left: calc(var(--sv-l) + var(--sv-room) * var(--sv-ratio));
+  cursor: col-resize; touch-action: none; outline: none; transition: left 360ms var(--ease-spring);
+}
+.sv-divider::after {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 4px; height: 36px; margin: -18px 0 0 -2px;
+  border-radius: 2px; background: rgb(var(--c-ink) / 0.14); transition: background-color 120ms ease, height 160ms ease;
+}
+.sv-divider::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: 50%; width: 1px; margin-left: -0.5px; background: rgb(var(--c-ink) / 0.07); }
+.sv-divider:hover::after, .sv-divider:focus-visible::after, .deck.jc.sv-dragging .sv-divider::after { background: rgb(var(--c-accent) / 0.75); height: 56px; margin-top: -28px; }
+.sv-divider:focus-visible::before { background: rgb(var(--c-accent) / 0.5); }
+.sv-pane {
+  position: absolute; top: 0; bottom: 0; right: 0; z-index: 1; display: flex; flex-direction: column; min-width: 0;
+  left: calc(var(--sv-l) + var(--sv-room) * var(--sv-ratio) + var(--sv-gap)); transition: left 360ms var(--ease-spring);
+}
+.sv-divider[hidden], .sv-pane[hidden], .sv-head[hidden] { display: none; }
+.sv-frame-wrap { position: relative; flex: 1; min-height: 0; }
+.sv-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; color-scheme: normal; }
+.sv-frame:not(.sv-ready) { visibility: hidden; }  /* till its Jarvis Code is up */
+/* While the divider moves: no lag, no frame swallowing the pointer, no text selected. */
+.deck.jc.sv-dragging, .deck.jc.sv-dragging * { cursor: col-resize; user-select: none; }
+.deck.jc.sv-dragging .sv-frame { pointer-events: none; }
+.deck.jc.sv-dragging .jc-main, .deck.jc.sv-dragging .sv-divider, .deck.jc.sv-dragging .sv-pane { transition: none; }
+
+/* One pane at a time in a window too narrow for two: the focused one, over the whole room. */
+.deck.jc.sv-on.sv-narrow .sv-divider { display: none; }
+.deck.jc.sv-on.sv-narrow .jc-main { right: 0; }
+.deck.jc.sv-on.sv-narrow .sv-pane { left: var(--sv-l); visibility: hidden; pointer-events: none; }
+.deck.jc.sv-on.sv-narrow.sv-right-front .sv-pane { visibility: visible; pointer-events: auto; z-index: 4; }
+.deck.jc.sv-on.sv-narrow.sv-right-front .jc-main { visibility: hidden; }
+
+/* A narrow left pane keeps its workbench pane over the transcript, as a narrow window does. */
+@container (max-width: 760px) {
+  .deck.jc.sv-on .jc-pane { position: absolute; inset: 6px 12px 12px 12px; width: auto; z-index: 4; }
+}
+/* A narrow pane keeps its composer's row on one line: the mode, the effort and the switches
+   show as their icons (each button keeps its name for the pointer and VoiceOver). */
+@container (max-width: 600px) {
+  .deck.jc.sv-on #jc-mode-label, .deck.jc.sv-on #jc-effort-label, .deck.jc.sv-on #jcx-cloud-switch > span, .deck.jc.sv-on #jcx-iso-switch > span { display: none; }
+}
+@media (max-width: 600px) {
+  body.jc-split-pane #jc-mode-label, body.jc-split-pane #jc-effort-label, body.jc-split-pane #jcx-cloud-switch > span, body.jc-split-pane #jcx-iso-switch > span { display: none; }
+}
+
+/* ── the heads ── */
+.sv-head {
+  flex: none; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 6px 0 14px; margin: 6px 10px 0;
+  border-radius: 11px; font-size: 12.5px; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.035);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.07); transition: background-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+.sv-head-left { margin-left: 4px; }
+body.in-app .deck.jc.side-hidden .sv-head-left { margin-left: 84px; }
+@media (max-width: 900px) { body.in-app .sv-head-left { margin-left: 84px; } }
+.sv-head.sv-focused { color: rgb(var(--c-ink)); background: rgb(var(--c-accent) / 0.09); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.38), 0 0 0 3px rgb(var(--c-glow) / 0.1); }
+.sv-head .jc-dot { flex: none; }
+.sv-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.sv-head.sv-focused .sv-title { font-weight: 600; }
+.sv-mark { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.sv-mark[hidden] { display: none; }
+.sv-mark.needs { background: rgb(var(--c-warning)); color: #fff; box-shadow: 0 0 0 3px rgb(var(--c-warning) / 0.2); }
+.sv-mark.new { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent-ink)); }
+.sv-head .sv-btn { width: 26px; height: 26px; flex: none; color: rgb(var(--c-muted)); }
+.sv-head .sv-btn:hover:not(:disabled) { color: rgb(var(--c-ink)); }
+.sv-head .sv-btn:disabled { opacity: 0.35; cursor: default; }
+.sv-head .sv-word { display: none; }  /* (the Logbook look's: code-logbook.css) */
+.sv-head .sv-btn:disabled:hover { background: transparent; }
+.sv-flip {
+  flex: 0 1 auto; min-width: 0; max-width: 46%; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border: 0; border-radius: 999px; font-size: 12px; color: rgb(var(--c-ink-2)); background: var(--glass-pill); box-shadow: var(--shadow-control); cursor: pointer;
+}
+.sv-flip[hidden] { display: none; }
+.sv-flip:hover { color: rgb(var(--c-ink)); }
+.sv-flip svg { flex: none; }
+.sv-flip-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-pane .sv-head { margin: 6px 10px 0 4px; }
+body.in-app .sv-pane .sv-head, body.in-app .deck.jc.sv-on .sv-head-left { margin-top: 8px; }
+
+/* ── dragging a session over from the sidebar ── */
+.sv-drop { position: absolute; top: 0; bottom: 0; right: 0; left: var(--sv-l); z-index: 50; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; }
+.sv-drop[hidden] { display: none; }
+.sv-drop-half {
+  display: flex; align-items: center; justify-content: center; border-radius: 18px;
+  border: 1.5px dashed rgb(var(--c-ink) / 0.16); background: rgb(var(--c-canvas) / 0.55);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); transition: background-color 140ms ease, border-color 140ms ease;
+}
+.sv-drop-half.on { border: 1.5px solid rgb(var(--c-accent) / 0.8); background: rgb(var(--c-accent) / 0.1); }
+.sv-drop-label { padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; color: rgb(var(--c-ink-2)); background: var(--glass-pill); box-shadow: var(--shadow-control); pointer-events: none; }
+.sv-drop-half.on .sv-drop-label { color: rgb(var(--c-accent-ink)); }
+@media (prefers-reduced-motion: reduce) {
+  .deck.jc.sv-on .jc-main, .sv-divider, .sv-pane, .sv-head, .sv-drop-half { transition: none; }
+}
+
+/* ── the frame's own page (app.js: body.jc-split-pane): Jarvis Code alone, no sidebar ── */
+body.jc-split-pane #galaxy-canvas, body.jc-split-pane > .top, body.jc-split-pane > .layout, body.jc-split-pane > .bottom,
+body.jc-split-pane #code-pill, body.jc-split-pane #meeting-pill, body.jc-split-pane #activity, body.jc-split-pane #settings,
+body.jc-split-pane #accounts, body.jc-split-pane #browser, body.jc-split-pane #galaxy, body.jc-split-pane #hand-panel,
+body.jc-split-pane #hand-cursor, body.jc-split-pane .wx-layer { display: none !important; }
+body.jc-split-pane .deck.jc .jc-side, body.jc-split-pane #jc-side-toggle, body.jc-split-pane #cc-close { display: none; }
+body.jc-split-pane .deck.jc .jc-main { left: 0; transition: none; }
+/* (the window's toolbar height, in the app, so the two panes line up) */
+body.jc-split-pane.sv-app .jc-toolbar { padding-top: 6px; min-height: 52px; }
+/* Its cards: only Jarvis Code's own notes (jc-notecard); the window shows the rest. */
+body.jc-split-pane .cards > .card:not(.jc-notecard), body.jc-split-pane .cards-clear { display: none; }
+body.jc-split-pane:has(#cc:not([hidden])) #cards { top: 64px; right: 14px; bottom: auto; left: auto; width: min(300px, calc(100% - 28px)); }
+/* The sessions an empty pane offers, above the welcome's own. */
+.sv-pick { text-align: left; }
+.sv-pick-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.sv-pick-row {
+  width: 100%; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; column-gap: 9px;
+  border: 0; border-radius: 10px; padding: 7px 10px; background: transparent; text-align: left; cursor: pointer; color: rgb(var(--c-ink));
+}
+.sv-pick-row:hover, .sv-pick-row:focus-visible { background: rgb(var(--c-ink) / 0.05); }
+.sv-pick-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-pick-row small { font-size: 11px; color: rgb(var(--c-muted)); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -471,22 +471,20 @@ code { font-family: var(--mono); font-size: 12px; background: var(--bg); border-
 /* ═════════════ Looks ═════════════ */
 .layout { display: flex; min-height: 0; }
 .layout > .stage { flex: 1; }
-.side, .hud-only, .console-only, .reactor, .tagline, .online-pill, .hud-kv, .console-clock,
-.brand-mark, .wave, .core-text, .dots { display: none; }
+.side, .console-only, .online-pill, .console-clock, .dots { display: none; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .weather-chip[hidden] { display: none; }
 .muted { color: var(--muted); font-size: 13px; margin: 0; }
 
-/* shared dashboard pieces (HUD + Command Center) */
-body[data-look="hud"] .layout, body[data-look="console"] .layout {
+/* the Command Center's dashboard */
+body[data-look="console"] .layout {
   display: grid; gap: 22px; padding: 18px 24px 0; overflow: hidden;
 }
-body[data-look="hud"] .side, body[data-look="console"] .side {
+body[data-look="console"] .side {
   display: flex; flex-direction: column; gap: 18px; min-height: 0; overflow-y: auto;
 }
-body[data-look="hud"] .stage, body[data-look="console"] .stage { padding: 0; gap: 18px; }
-body[data-look="hud"] #greeting, body[data-look="hud"] #next-event, body[data-look="hud"] .chips,
-body[data-look="hud"] .ask, body[data-look="console"] #greeting, body[data-look="console"] #next-event,
+body[data-look="console"] .stage { padding: 0; gap: 18px; }
+body[data-look="console"] #greeting, body[data-look="console"] #next-event,
 body[data-look="console"] .chips, body[data-look="console"] .ask, body[data-look="console"] .caption { display: none; }
 .panel { position: relative; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 .panel.grow { flex: 1; min-height: 180px; }
@@ -498,116 +496,13 @@ body[data-look="console"] .chips, body[data-look="console"] .ask, body[data-look
 .meter span { color: var(--ink-2); }
 .meter b { font-weight: 500; font-variant-numeric: tabular-nums; }
 .meter i, .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; display: block; }
-.bar em.full { width: 100%; }
 .meter em, .bar em { display: block; height: 100%; width: 0; background: var(--action); transition: width 600ms ease; }
 .kv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .kv-grid > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; background: var(--chip-hover); }
 .kv-grid small { font-size: 11px; color: var(--muted); letter-spacing: 0.6px; }
 .kv-grid b { font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
 
-/* ─────────── Stark HUD ─────────── */
-body[data-look="hud"] {
-  --bg: #02090e; --ink: #cfeff7; --ink-2: #86bccb; --muted: #4f8898; --line: rgba(34, 211, 238, 0.2);
-  --card: rgba(3, 18, 26, 0.78); --chip-hover: rgba(34, 211, 238, 0.07); --action: #22d3ee; --action-ink: #021016;
-  --warn: #fbbf24; --mono: 'JetBrains Mono', ui-monospace, monospace;
-  font-family: var(--mono);
-  background: radial-gradient(ellipse at 50% 45%, #06202b 0%, #02090e 60%) fixed, #02090e;
-}
-body[data-look="hud"] .top {
-  padding: 12px 24px; border-bottom: 1px solid var(--line); background: rgba(2, 9, 14, 0.9);
-}
-body[data-look="hud"] .brand-mark {
-  display: block; width: 22px; height: 22px; transform: rotate(45deg);
-  border: 1.5px solid var(--action); box-shadow: 0 0 12px rgba(34, 211, 238, 0.5) inset;
-}
-body[data-look="hud"] .wordmark { font-family: var(--mono); font-weight: 700; letter-spacing: 6px; text-transform: uppercase; color: var(--action); font-size: 17px; }
-body[data-look="hud"] .tagline { display: block; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
-body[data-look="hud"] .brand { flex-wrap: wrap; max-width: 280px; row-gap: 2px; }
-body[data-look="hud"] .hud-kv { display: flex; gap: 32px; }
-body[data-look="hud"] .hud-kv div { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
-body[data-look="hud"] .hud-kv small { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
-body[data-look="hud"] .hud-kv strong { font-size: 13px; letter-spacing: 1px; color: var(--action); display: flex; align-items: center; gap: 8px; text-transform: uppercase; font-variant-numeric: tabular-nums; }
-.ok-dot { width: 8px; height: 8px; border-radius: 4px; background: var(--action); box-shadow: 0 0 8px var(--action); display: inline-block; }
-body[data-look="hud"] #clock, body[data-look="hud"] #battery { display: none; }
-body[data-look="hud"] .icon-btn, body[data-look="hud"] .chip-sm { background: transparent; border-color: var(--line); color: var(--ink-2); border-radius: 8px; }
-body[data-look="hud"] .layout { grid-template-columns: 320px minmax(0, 1fr) 320px; }
-body[data-look="hud"] .panel {
-  background: var(--card); border: 1px solid var(--line); border-radius: 2px;
-}
-body[data-look="hud"] .panel::before, body[data-look="hud"] .panel::after {
-  content: ''; position: absolute; width: 12px; height: 12px; border: 2px solid var(--action);
-}
-body[data-look="hud"] .panel::before { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
-body[data-look="hud"] .panel::after { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
-body[data-look="hud"] .panel h2 { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 3px; text-transform: uppercase; color: var(--ink-2); padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-body[data-look="hud"] .hud-only { display: revert; }
-body[data-look="hud"] .panel.hud-only { display: flex; }
-body[data-look="hud"] .meter span { font-size: 12px; }
-body[data-look="hud"] .meter b { color: var(--action); }
-body[data-look="hud"] .kv-grid > div { background: rgba(34, 211, 238, 0.04); border: 1px solid var(--line); border-radius: 2px; }
-body[data-look="hud"] .kv-grid b { color: var(--action); font-size: 14px; }
-.kv-grid.two .bar { margin-top: 6px; }
-.toggles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.tg {
-  min-height: 52px; border: 1px solid var(--line); background: rgba(34, 211, 238, 0.03); color: var(--ink-2);
-  display: flex; align-items: center; justify-content: center; border-radius: 2px;
-}
-.tg[aria-pressed="true"] { color: var(--action); border-color: var(--action); box-shadow: 0 0 14px rgba(34, 211, 238, 0.25) inset; }
-.tg:hover { background: rgba(34, 211, 238, 0.08); }
-.rt-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 11.5px; overflow-y: auto; }
-.rt-log li { color: var(--ink); letter-spacing: 0.3px; }
-.rt-log time { color: var(--muted); margin-right: 8px; }
-.rt-log .failed { color: var(--warn); }
-.term { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); padding: 10px 12px; background: rgba(0, 0, 0, 0.35); }
-.term span { color: var(--action); font-weight: 700; }
-.term input { flex: 1; background: transparent; border: 0; color: var(--ink); font: inherit; font-size: 13px; outline: none; }
-.term-out { margin: 0; font-size: 11.5px; color: var(--muted); font-style: italic; min-height: 16px; }
-body[data-look="hud"] .orb { width: min(46vh, 440px); margin: 0; }
-body[data-look="hud"] .reactor { display: block; position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.reactor .r-dash { fill: none; stroke: var(--action); stroke-opacity: 0.55; stroke-width: 2.5; stroke-dasharray: 9 7; }
-.reactor .r-line { fill: none; stroke: var(--action); stroke-opacity: 0.45; stroke-width: 1.2; }
-.reactor .r-line.faint { stroke-opacity: 0.25; }
-.reactor .r-spokes line { stroke: var(--action); stroke-opacity: 0.14; stroke-width: 1; }
-.reactor .r-arc { fill: none; stroke: var(--action); stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 6px #22d3ee); }
-.reactor .r-core { fill: rgba(34, 211, 238, 0.06); stroke: var(--action); stroke-width: 2; }
-.reactor .r-spin { transform-origin: 200px 200px; animation: spin 14s linear infinite; }
-body[data-state="thinking"] .reactor .r-spin, body[data-state="transcribing"] .reactor .r-spin { animation-duration: 2.4s; }
-body[data-state="listening"] .reactor .r-dash { stroke-opacity: 0.9; }
-body[data-look="hud"] .orb-core {
-  inset: 34.5%; background: radial-gradient(circle, rgba(34, 211, 238, 0.35), rgba(2, 20, 28, 0.9) 70%);
-  box-shadow: 0 0 calc(24px + var(--level) * 60px) rgba(34, 211, 238, 0.45); animation: none;
-}
-body[data-look="hud"] .orb-sheen { display: none; }
-body[data-look="hud"] .core-text {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
-  font-family: var(--mono); font-weight: 700; font-size: 15px; letter-spacing: 2px; text-transform: uppercase;
-  color: var(--action); text-shadow: 0 0 10px rgba(34, 211, 238, 0.8); line-height: 1.35;
-}
-body[data-look="hud"][data-state="speaking"] .orb-core { animation: speak 0.7s ease-in-out infinite alternate; }
-body[data-look="hud"] .wave { display: flex; gap: 4px; align-items: center; height: 36px; }
-.wave i {
-  display: block; width: 4px; border-radius: 2px; background: var(--action);
-  height: calc(6px + var(--level) * 30px * var(--k, 1)); transition: height 90ms linear; opacity: 0.85;
-}
-.wave i:nth-child(1), .wave i:nth-child(11) { --k: 0.3; }
-.wave i:nth-child(2), .wave i:nth-child(10) { --k: 0.5; }
-.wave i:nth-child(3), .wave i:nth-child(9) { --k: 0.8; }
-.wave i:nth-child(4), .wave i:nth-child(8) { --k: 0.6; }
-.wave i:nth-child(5), .wave i:nth-child(7) { --k: 1; }
-.wave i:nth-child(6) { --k: 0.75; }
-body[data-state="speaking"] .wave i { animation: pulse-bar 0.5s ease-in-out infinite alternate; }
-.wave i:nth-child(odd) { animation-delay: 0.15s; }
 @keyframes pulse-bar { from { height: 6px; } to { height: 30px; } }
-body[data-look="hud"] .state-line {
-  font-family: var(--mono); text-transform: uppercase; letter-spacing: 3px; font-size: 12px; color: var(--action);
-  border: 1px solid var(--line); border-radius: 22px; padding: 10px 22px; background: rgba(34, 211, 238, 0.05);
-}
-body[data-look="hud"] .caption { max-width: 560px; }
-body[data-look="hud"] .heard { font-size: 12px; font-family: var(--mono); color: var(--muted); }
-body[data-look="hud"] .reply { font-family: var(--mono); font-size: 15px; line-height: 1.6; color: var(--ink); max-height: 22vh; }
-body[data-look="hud"] .pill { background: transparent; border: 1px solid var(--line); color: var(--ink-2); border-radius: 2px; font-family: var(--mono); font-size: 12px; letter-spacing: 1px; }
-body[data-look="hud"] .hint { font-size: 12px; color: var(--muted); }
-body[data-look="hud"] .bottom { padding-top: 14px; }
 
 /* ─────────── Command Center ─────────── */
 body[data-look="console"] {
@@ -672,8 +567,8 @@ body[data-look="console"] .stage { justify-content: center; }
 body[data-look="console"] .pill { background: var(--card); border: 1px solid var(--line); }
 
 @media (max-width: 1100px) {
-  body[data-look="hud"] .layout, body[data-look="console"] .layout { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
-  body[data-look="hud"] .side, body[data-look="console"] .side { overflow: visible; }
+  body[data-look="console"] .layout { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
+  body[data-look="console"] .side { overflow: visible; }
 }
 
 /* ─────────── Ambient Orb: flanking panels ─────────── */
@@ -715,9 +610,7 @@ body[data-look="orb"] .mk-indices { gap: 11px; }
 }
 
 /* Each look shows only its own panels (beats .panel's display:flex). */
-body[data-look="hud"] .not-hud { display: none !important; }
 body:not([data-look="console"]) .console-only { display: none !important; }
-body:not([data-look="hud"]) .hud-only { display: none !important; }
 
 /* ── Claude Code deck ── */
 .deck {
@@ -856,7 +749,7 @@ body.in-app .deck-head { padding-left: 92px; }
 
 /* Side sheets are solid in every look, so the dashboard never shows through. */
 .sheet { background: var(--bg); }
-body[data-look="hud"] .sheet, body[data-look="console"] .sheet { box-shadow: -24px 0 60px rgba(0, 0, 0, 0.55); }
+body[data-look="console"] .sheet { box-shadow: -24px 0 60px rgba(0, 0, 0, 0.55); }
 
 @media (max-width: 900px) { .galaxy-hint { display: none; } .legend { flex-wrap: wrap; right: 40px; } }
 .deck-empty[hidden] { display: none; }
@@ -1250,8 +1143,8 @@ body:has(#cc:not([hidden])) #code-pill { display: none; }
   .mk-spark.up polyline { stroke: #4cd07a; }
   .mk-spark.down polyline { stroke: #ff7066; }
 }
-body[data-look="console"] .up .mk-pct, body[data-look="hud"] .up .mk-pct { color: #4cd07a; }
-body[data-look="console"] .down .mk-pct, body[data-look="hud"] .down .mk-pct { color: #ff7066; }
+body[data-look="console"] .up .mk-pct { color: #4cd07a; }
+body[data-look="console"] .down .mk-pct { color: #ff7066; }
 
 /* the JARVIS reactor: the voice control, everywhere in Jarvis Code */
 .jc-reactor { display: block; flex: none; overflow: visible; }
@@ -1318,7 +1211,7 @@ body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }
 }
 .ask-pic:hover .ask-pic-x, .ask-pic-x:focus-visible { opacity: 1; }
 /* pictures being dragged over the window: the box they'll join is outlined */
-body.drop-pictures :is(.ask input, .chat-form input, .term input) { outline: 2px dashed var(--action); outline-offset: 3px; }
+body.drop-pictures :is(.ask input, .chat-form input) { outline: 2px dashed var(--action); outline-offset: 3px; }
 .ask-queued { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); font-size: 13px; }
 .ask-queued-kicker { font-size: 11px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: var(--action); }
 .ask-queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
@@ -1330,23 +1223,6 @@ body.drop-pictures :is(.ask input, .chat-form input, .term input) { outline: 2px
 .screen-pill svg { animation: screen-blink 4s ease-in-out infinite; }
 @keyframes screen-blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.15); } }
 @media (prefers-reduced-motion: reduce) { .screen-pill svg { animation: none; } }
-/* HUD: System // Defense */
-.df-link { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
-.df-link b { font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.df-link span { color: var(--muted); font-size: 12px; }
-.df-ping { margin-left: auto; color: var(--action) !important; font-variant-numeric: tabular-nums; }
-.df-ping.bad { color: #f0a458 !important; }
-.df-rates { display: flex; gap: 18px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.df-rates b { color: var(--ink); font-weight: 500; }
-.df-shields { list-style: none; margin: 2px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-.df-shields li { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 1px; border: 1px solid var(--line); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
-.df-shields li b { font-weight: 500; color: var(--ink-2); font-size: 8px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: 100%; }
-.df-shields li span { font-size: 11px; }
-.df-shields li.on span { color: var(--action); text-shadow: 0 0 8px rgba(79, 211, 255, 0.6); }
-.df-shields li.off { border-color: rgba(240, 164, 88, 0.45); }
-.df-shields li.off span { color: #f0a458; }
-.df-shields li.unknown span { color: var(--muted); }
-body[data-look="hud"] #p-defense { gap: 10px; }
 /* Jarvis Code: ! commands and # memories */
 .jc-bang { list-style: none; border-radius: 12px; background: rgb(var(--c-ink) / 0.04); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08); overflow: hidden; }
 .jc-bang-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; font: 12.5px var(--mono); }
@@ -1423,13 +1299,6 @@ body[data-look="hud"] #p-defense { gap: 10px; }
 /* on: the glass lights up a little, and a dot shows under it */
 #hands-pill.dock-app[aria-pressed="true"], .screen-pill.dock-app { --glass-tile: rgba(255, 255, 255, 0.2); }
 .screen-pill.dock-app svg { animation: screen-blink 4s ease-in-out infinite; }
-/* the HUD keeps its own language: outlined cyan squares */
-body[data-look="hud"] .pill.dock-app {
-  background: rgba(79, 211, 255, 0.05); border: 1px solid var(--line); border-radius: 4px; color: var(--ink-2);
-  box-shadow: none; width: 40px; height: 40px; padding: 0; letter-spacing: 0;
-}
-body[data-look="hud"] .pill.dock-app:hover { color: var(--action); border-color: var(--action); transform: none; }
-body[data-look="hud"] .dock-app .app-name { font-family: var(--mono); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; border-radius: 2px; }
 body[data-look="console"] .pill.dock-app { border: 0; }
 
 /* ═════════════ The orb stage fits any window height ═════════════ */
@@ -1600,13 +1469,13 @@ body.browser-open .hand-btn { right: calc(var(--bd-w) + 40px); }
 /* A narrow dashboard beside the dock: the orb stands alone. */
 body.browser-narrow[data-look="orb"] .layout { grid-template-columns: minmax(0, 1fr); }
 body.browser-narrow[data-look="orb"] .side { display: none; }
-body.browser-narrow[data-look="hud"] .layout, body.browser-narrow[data-look="console"] .layout { grid-template-columns: minmax(0, 1fr) !important; }
-body.browser-narrow[data-look="hud"] .side, body.browser-narrow[data-look="console"] .side { display: none; }
+body.browser-narrow[data-look="console"] .layout { grid-template-columns: minmax(0, 1fr) !important; }
+body.browser-narrow[data-look="console"] .side { display: none; }
 .svg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 /* Beside the dock the header and footer keep to one line: fewer extras, never wrapped. */
 body.browser-narrow .top .meta { flex-wrap: nowrap; white-space: nowrap; min-width: 0; }
 body.browser-narrow #clock, body.browser-narrow #battery, body.browser-narrow .hint,
-body.browser-narrow .hud-kv, body.browser-narrow .console-clock, body.browser-narrow .tagline { display: none !important; }
+body.browser-narrow .console-clock { display: none !important; }
 body.browser-narrow .top, body.browser-narrow .bottom { padding-left: 24px; padding-right: 24px; }
 body.browser-narrow.in-app .top { padding-left: 92px; }
 body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: nowrap; }
@@ -1845,8 +1714,7 @@ body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: n
   }
 }
 
-/* Stark HUD and Command Center are dark whatever the system setting, so their sheet uses the dark set */
-body[data-look="hud"] .sheet,
+/* The Command Center is dark whatever the system setting, so its sheet uses the dark set */
 body[data-look="console"] .sheet {
   --s-card: rgba(255, 255, 255, 0.05);
   --s-line: rgba(255, 255, 255, 0.09);
@@ -1862,7 +1730,7 @@ body[data-look="console"] .sheet {
   --s-rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.09);
 }
 
-/* the sheet as one frosted panel (the Glass look; HUD and Console keep their own material) */
+/* the sheet as one frosted panel (the orb's looks; the Command Center keeps its own material) */
 body[data-look="orb"] .sheet {
   background: var(--s-sheen), var(--s-fill);
   -webkit-backdrop-filter: var(--s-blur); backdrop-filter: var(--s-blur);

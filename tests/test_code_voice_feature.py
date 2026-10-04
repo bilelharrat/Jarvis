@@ -407,9 +407,9 @@ async def test_a_feature_command_can_leave_a_message_to_the_built_in_one(
         return False if "look" in msg["changes"] else None
 
     hub.register_command("set_prefs", only_mine)
-    await hub._handle({"type": "set_prefs", "changes": {"look": "hud"}})  # the built-in's too
+    await hub._handle({"type": "set_prefs", "changes": {"look": "obsidian"}})  # the built-in's too
     await hub._handle({"type": "set_prefs", "changes": {"humor": 5}})  # the feature's alone
-    assert hub.prefs.look == "hud" and hub.prefs.humor != 5 and len(seen) == 2
+    assert hub.prefs.look == "obsidian" and hub.prefs.humor != 5 and len(seen) == 2
 
 
 # ── the focused session: its model, ultracode, its files ──

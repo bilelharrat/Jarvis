@@ -1061,14 +1061,14 @@ PANEL_NAMES_ZH = {
     "brain": "第二大脑", "activity": "活动记录", "accounts": "工具与账户", "simulator": "iOS 模拟器",
 }  # fmt: skip
 LOOKS_ZH = {
-    "光球": "orb", "环境光球": "orb", "球": "orb", "hud": "hud", "斯塔克hud": "hud",
-    "钢铁侠hud": "hud", "抬头显示": "hud", "抬头显示器": "hud", "平视显示": "hud",
+    "光球": "orb", "环境光球": "orb", "球": "orb",
+    "黑曜石": "obsidian", "黑曜石风格": "obsidian",
     "指挥中心": "console", "控制台": "console",
     "玻璃": "glass", "斯塔克玻璃": "glass", "全玻璃": "glass", "玻璃风格": "glass",
 }  # fmt: skip
 LOOK_NAMES_ZH = {
     "orb": "环境光球",
-    "hud": "斯塔克 HUD",
+    "obsidian": "黑曜石",
     "console": "指挥中心",
     "glass": "斯塔克玻璃",
 }
@@ -1115,7 +1115,7 @@ def _look_zh(said: str) -> str | None:
 
 
 def parse_ui_zh(text: str) -> ui.Command | None:
-    """ui.parse for Mandarin: 打开浏览器, 关闭浏览器, 打开贾维斯代码, 切换到HUD,
+    """ui.parse for Mandarin: 打开浏览器, 关闭浏览器, 打开贾维斯代码, 切换到黑曜石,
     切换到指挥中心, 打开设置, 打开手势控制, 关闭手势控制. Returns ui.Command objects with
     the same action, name and on as the English phrase gets (replies in Chinese)."""
     if not has_cjk(text):
@@ -2442,7 +2442,7 @@ VALUES_ZH = {
     "the activity log": "活动记录",
     "Tools & Accounts": "工具与账户",
     "the Ambient Orb": "环境光球",
-    "the Stark HUD": "斯塔克 HUD",
+    "Obsidian": "黑曜石",
     "the Command Center": "指挥中心",
     "Stark Glass": "斯塔克玻璃",
     "an unusual web address": "一个不常见的网址",

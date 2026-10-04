@@ -117,3 +117,18 @@ def test_stark_glass_tone_is_dark_light_or_auto():
     assert p.update({"glass_tone": "auto"}) == ["glass_tone"]
     assert p.update({"glass_tone": "sepia"}) == []
     assert p.glass_tone == "auto"
+
+
+def test_the_orb_stays_the_default_and_obsidian_is_a_look():
+    p = Prefs()
+    assert p.look == "orb"
+    assert p.update({"look": "obsidian"}) == ["look"]
+    assert p.update({"look": "neon"}) == [] and p.look == "obsidian"
+    assert p.update({"look": ["hud"]}) == []  # a hand edit of the wrong kind
+
+
+def test_a_saved_stark_hud_opens_in_obsidian_which_took_its_place(tmp_path):
+    path = tmp_path / "prefs.json"
+    path.write_text('{"look": "hud", "humor": 70}')
+    again = PrefsStore(path).prefs
+    assert (again.look, again.humor) == ("obsidian", 70)
