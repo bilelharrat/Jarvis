@@ -985,21 +985,17 @@ class Desk:
 
     # ── the session's messages, while it's there ──
 
-    def send_wrapper(self, inner: Any) -> Any:
-        """TaskManager.send, wrapped: a handed-off session's messages go to its machine."""
-
-        def send(task_id: int, text: str, images: Any = None, **kwargs: Any) -> bool:
-            task = self.hub.tasks.tasks.get(task_id)
-            rec = self.of_task(task) if task is not None and task.kind == "code" else None
-            if rec is None:
-                return inner(task_id, text, images, **kwargs)
-            text = (text or "").strip()
-            if not text:
-                return False
-            self.hub._spawn(self._send_remote(rec, task, text, bool(images)))
-            return True
-
-        return send
+    def route(self, task: Any, text: str, images: Any = None) -> bool | None:
+        """TaskManager.send_routes: a handed-off session's messages go to its machine
+        (None: not handed off, sent as usual)."""
+        rec = self.of_task(task) if task.kind == "code" else None
+        if rec is None:
+            return None
+        text = (text or "").strip()
+        if not text:
+            return False
+        self.hub._spawn(self._send_remote(rec, task, text, bool(images)))
+        return True
 
     async def _send_remote(self, rec: Handoff, task: Any, text: str, pictures: bool) -> None:
         tm = self.hub.tasks
@@ -1405,7 +1401,7 @@ def install(hub: Any) -> None:
     desk = Desk(hub)
     hub.code_handoff = desk  # (for the tests)
     tm = hub.tasks
-    tm.send = desk.send_wrapper(tm.send)
+    tm.send_routes.append(desk.route)
     tm.interrupt = desk.interrupt_wrapper(tm.interrupt)
     tm.reconnect = desk.reconnect_wrapper(tm.reconnect)
     hub.register_command("code_machines", desk.cmd_machines)

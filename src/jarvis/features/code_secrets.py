@@ -614,10 +614,7 @@ def install(hub: Any) -> None:
     hub.tasks.redactors.append(sec.redact)
     tasks.FEATURE_TOOLS[ASK_TOOL] = ("ask you for a secret", None)
 
-    previous = hub.tasks.emit
-
-    def emit(kind: str, **data: Any) -> None:
-        previous(kind, **data)
+    def sessions_changed(kind: str, data: dict[str, Any]) -> None:
         if kind != "tasks":
             return
         try:
@@ -629,7 +626,7 @@ def install(hub: Any) -> None:
         except Exception:
             log.exception("Jarvis Code secrets: couldn't take in the sessions")
 
-    hub.tasks.emit = emit
+    hub.add_task_sink(sessions_changed)
 
     def answer(msg: dict[str, Any]) -> None:
         try:

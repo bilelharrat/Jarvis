@@ -495,16 +495,7 @@ def _log_failure(task: asyncio.Task) -> None:
 def install(hub: Any) -> None:
     dm = DesignMatch(hub)
     hub.code_design = dm
-    previous = hub.tasks.emit
-
-    def emit(kind: str, **data: Any) -> None:
-        previous(kind, **data)
-        try:
-            dm.on_task_event(kind, data)
-        except Exception:
-            log.exception("Design match: couldn't take in %s", kind)
-
-    hub.tasks.emit = emit
+    hub.add_task_sink(dm.on_task_event)  # (a failing sink is logged; the others still hear)
     hub.register_command("task_send", dm.on_task_send)
     hub.register_command("dm_start", dm.cmd_start)
     hub.register_command("dm_compare", dm.cmd_compare)

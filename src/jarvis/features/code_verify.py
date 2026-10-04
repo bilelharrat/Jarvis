@@ -985,16 +985,7 @@ def install(hub: Any) -> None:
     tasks.FEATURE_TOOLS.update(sessionmac.FEATURE_TOOLS)
     hub.tasks.option_hooks.append(_SessionOptions(cv))
 
-    previous = hub.tasks.emit
-
-    def emit(kind: str, **data: Any) -> None:
-        previous(kind, **data)
-        try:
-            cv.on_task_event(kind, data)
-        except Exception:
-            log.exception("Jarvis Code checks: couldn't take in %s", kind)
-
-    hub.tasks.emit = emit
+    hub.add_task_sink(cv.on_task_event)  # (a failing sink is logged; the others still hear)
     hub.register_command("cv_state", cv.cmd_state)
     hub.register_command("cv_server", lambda msg: cv.spawn(cv.cmd_server(msg)))
     hub.register_command("cv_logs", cv.cmd_logs)

@@ -1010,6 +1010,11 @@ class TaskManager:
         # The owner's words when they said no to a step or a plan (code_lessons learns
         # from them): corrected(task, words).
         self.corrected: list[Callable[[ClaudeTask, str], None]] = []
+        # Awaited when the app quits, before any session is stopped (code_sessions saves).
+        self.before_close: list[Callable[[], Awaitable[None]]] = []
+        # A message to a session that runs elsewhere (code_handoff: another machine) goes
+        # there instead: route(task, text, images) -> True/False when it took it, else None.
+        self.send_routes: list[Callable[[ClaudeTask, str, list | None], bool | None]] = []
         # Also code_sessions: a kept session let go from the list, back (by its Claude
         # session id) with its own id and settings; and the kept ones the history adds.
         self.revive: Callable[[str], int | None] | None = None
@@ -1240,6 +1245,10 @@ class TaskManager:
         text = text.strip()
         if task is None or task.kind != "code" or not (text or images):
             return False
+        for route in self.send_routes:
+            taken = route(task, text, images)
+            if taken is not None:
+                return taken
         if steer is None:
             steer = self.steer_now is not None and self.steer_now()
         if steer and not plain and not note and task.steerable:
@@ -1936,6 +1945,11 @@ class TaskManager:
     async def close(self) -> None:
         """The app is quitting: end every session and wait (briefly) for their Claude
         Code processes to go, so none outlives the app."""
+        for hook in list(self.before_close):
+            try:
+                await hook()
+            except Exception:
+                log.exception("Jarvis Code: a hook before quitting failed")
         self.closing = True  # a session ending now must not open again for its queue
         handles = []
         for task in self.tasks.values():

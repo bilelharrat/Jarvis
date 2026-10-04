@@ -304,16 +304,7 @@ def _log_failure(task: asyncio.Task) -> None:
 def install(hub: Any) -> None:
     vp = VideoProof(hub)
     hub.code_video = vp
-    previous = hub.tasks.emit
-
-    def emit(kind: str, **data: Any) -> None:
-        previous(kind, **data)
-        try:
-            vp.on_task_event(kind, data)
-        except Exception:
-            log.exception("Video proof: couldn't take in %s", kind)
-
-    hub.tasks.emit = emit
+    hub.add_task_sink(vp.on_task_event)  # (a failing sink is logged; the others still hear)
     hub.register_command("vp_result", vp.cmd_result)
     hub.register_command("vp_record", vp.cmd_record)
     hub.register_command("vp_state", vp.cmd_state)

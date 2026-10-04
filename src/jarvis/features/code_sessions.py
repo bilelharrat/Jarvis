@@ -113,23 +113,9 @@ class CodeSessions:
         tm.turn_note = self.turn_note
         tm.revive = self.revive
         tm.more_history = self.more_history
-        inner_emit = tm.emit
-
-        def emit(kind: str, **data: Any) -> None:
-            inner_emit(kind, **data)
-            try:
-                self.heard(kind, data)
-            except Exception:  # never the session's events
-                log.exception("Jarvis Code sessions: couldn't take in %s", kind)
-
-        tm.emit = emit
-        inner_close = tm.close
-
-        async def close() -> None:
-            await self.flush(final=True)  # before anything is stopped: as it was
-            await inner_close()
-
-        tm.close = close
+        hub.add_task_sink(self.heard)  # every event of the sessions, as the windows get it
+        # At quit, saved before anything is stopped: as it was.
+        tm.before_close.append(lambda: self.flush(final=True))
         for kind, handler in {
             "code_meta_get": self._cmd_meta,
             "code_session_open": self._cmd_open,
