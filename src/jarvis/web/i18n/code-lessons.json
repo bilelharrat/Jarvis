@@ -1,0 +1,8 @@
+{
+  "strings": {
+    "Why undo it? Jarvis will remember for next time.": "为什么撤销？Jarvis 下次会记住。",
+    "e.g. Never change the public API without asking": "例如：没问过我之前不要改公开接口",
+    "Skip": "跳过",
+    "Remember": "记住"
+  }
+}

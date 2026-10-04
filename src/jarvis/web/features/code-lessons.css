@@ -1,0 +1,3 @@
+.cl-ask { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-width: min(460px, calc(100vw - 32px)); padding: 10px 12px; border-radius: 10px; background: var(--panel, #1c1c1f); border: 1px solid var(--line, rgba(127,127,127,.3)); box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+.cl-label { flex-basis: 100%; font-size: 12px; opacity: .85; }
+.cl-input { flex: 1; min-width: 180px; }

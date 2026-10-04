@@ -5,8 +5,9 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
 
 - what changed: the files, how many;
 - the tests the session ran, and how they ended (codesupervisor's journal);
-- the check after the turn (code_verify), when the session has it on: waited for up to
-  VERIFY_WAIT, with its picture of the page;
+- the check after the turn (code_verify), when the session has it on, with its picture of
+  the page, and the video proof (code_video) when its project records one: both waited
+  for, together, up to VERIFY_WAIT;
 - a risk level: high when it failed, tests failed, the check found problems, or it touched
   auth, billing, the database schema or secrets; medium when it changed many files or
   changed code with no tests run; else low. Said in words, with why.
@@ -111,6 +112,7 @@ class Receipts:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.waiting: dict[int, asyncio.Future] = {}  # task id -> its check's result
+        self.filming: dict[int, asyncio.Future] = {}  # task id -> its video proof's entry
 
     def tests_of(self, task_id: int, since: float) -> list[Any]:
         voice = getattr(self.hub, "code_voice", None)
@@ -125,8 +127,27 @@ class Receipts:
         except Exception:
             return False
 
+    def videoing(self, task: Any, files: list[str]) -> bool:
+        """A video proof is on its way for this turn (code_video records one)."""
+        vp = getattr(self.hub, "code_video", None)
+        if vp is None:
+            return False
+        try:
+            from .code_video import changed_ui
+
+            return bool(changed_ui(files) and vp.enabled(task) and vp.server_url(task))
+        except Exception:
+            return False
+
     def task_event(self, kind: str, data: dict[str, Any]) -> None:
-        """hub.add_task_sink: a code turn that changed files ended."""
+        """hub.add_task_sink: a code turn that changed files ended (and its video proof,
+        when one was recorded)."""
+        entry = data.get("entry") or {}
+        if kind == "task_log" and entry.get("role") == "video":
+            waiter = self.filming.get(data.get("id"))
+            if waiter is not None and not waiter.done():
+                waiter.set_result(entry)
+            return
         if kind != "task_finished" or data.get("task_kind") != "code" or not data.get("files"):
             return
         task = self.hub.tasks.tasks.get(data.get("id"))
@@ -148,17 +169,27 @@ class Receipts:
             waiter.set_result(event.get("last"))
 
     async def write(self, task: Any, data: dict[str, Any], since: float) -> dict[str, Any]:
-        check = None
+        loop = asyncio.get_running_loop()
+        waits: dict[str, asyncio.Future] = {}
         if self.checking(task.id):
-            waiter = self.waiting[task.id] = asyncio.get_running_loop().create_future()
-            try:
-                check = await asyncio.wait_for(waiter, VERIFY_WAIT)
-            except TimeoutError:
-                check = None
-            finally:
-                self.waiting.pop(task.id, None)
+            waits["check"] = self.waiting[task.id] = loop.create_future()
+        if self.videoing(task, [str(f) for f in data.get("files") or []]):
+            waits["video"] = self.filming[task.id] = loop.create_future()
+        if waits:  # the check and the video, together, as long as VERIFY_WAIT at most
+            await asyncio.wait(list(waits.values()), timeout=VERIFY_WAIT)
+        self.waiting.pop(task.id, None)
+        self.filming.pop(task.id, None)
+        got = {k: f.result() for k, f in waits.items() if f.done() and not f.cancelled()}
+        check = got.get("check")
+        video = got.get("video")
         await asyncio.sleep(0)  # (the journal hears the same turn's end on this loop)
         receipt = receipt_of(task, data, self.tests_of(task.id, since), check)
+        if video and video.get("status") == "ok" and video.get("video"):
+            receipt["video"] = {
+                "id": str(video["video"]),
+                "poster": str(video.get("poster") or ""),
+                "seconds": video.get("seconds") or 0,
+            }
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt

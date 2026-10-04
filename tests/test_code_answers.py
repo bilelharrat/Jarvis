@@ -80,3 +80,11 @@ async def test_while_busy_a_session_chooses_for_itself_and_it_is_told_after(tmp_
     fresh = ca.Answers(hub)  # kept on disk
     fresh._load()
     assert fresh.learned[-1]["answer"] == "Spaces" and fresh.chosen
+
+
+async def test_a_calendar_meeting_counts_as_busy_without_focus(tmp_path):
+    hub = Hub(tmp_path, busy=False)
+    hub._in_meeting = lambda: True
+    task = SimpleNamespace(id=1, title="", prompt="x", cwd=Path("/p/web"), workspace={})
+    out = await ca.Answers(hub).pre_answer(task, asked("Tabs or spaces?", ["Tabs", "Spaces"]))
+    assert out[0] == "go_on"

@@ -13,3 +13,4 @@
 .rc-thumb { display: block; max-width: 240px; margin-top: 6px; border-radius: 6px; }
 .rc-files { margin-top: 4px; font-size: 12px; }
 .rc-qa { margin-top: 6px; font-size: 12px; }
+.rc-video { display: block; max-width: 320px; margin-top: 6px; border-radius: 6px; }

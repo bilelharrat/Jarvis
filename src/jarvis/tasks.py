@@ -1007,6 +1007,9 @@ class TaskManager:
         self.start_defaults: Callable[[Path, str], dict[str, Any]] | None = None
         self.turn_note: Callable[[ClaudeTask], str] | None = None
         self.turn_notes: list[Callable[[ClaudeTask], str]] = []  # other features' notes
+        # The owner's words when they said no to a step or a plan (code_lessons learns
+        # from them): corrected(task, words).
+        self.corrected: list[Callable[[ClaudeTask, str], None]] = []
         # Also code_sessions: a kept session let go from the list, back (by its Claude
         # session id) with its own id and settings; and the kept ones the history adds.
         self.revive: Callable[[str], int | None] | None = None
@@ -3051,6 +3054,8 @@ class TaskManager:
                 "denied",
                 f"you said no: {feedback}" if feedback else "you said no",
             )
+            if feedback:
+                self._heard_correction(task, feedback)
             return PermissionResultDeny(
                 message=f"The user said no: {feedback}"
                 if feedback
@@ -3155,6 +3160,13 @@ class TaskManager:
         task = self.tasks.get(task_id)
         return list(task.audit) if task else []
 
+    def _heard_correction(self, task: ClaudeTask, words: str) -> None:
+        for hear in self.corrected:
+            try:
+                hear(task, words)
+            except Exception:
+                log.warning("Couldn't learn from a correction", exc_info=True)
+
     def _unanswered(self, task: ClaudeTask) -> PermissionResultDeny:
         """Nobody answered (the user is away): stop the turn instead of asking again."""
         self._log(task, "system", "No answer, so it stopped here. Send a message to carry on.")
@@ -3186,6 +3198,8 @@ class TaskManager:
         if choice not in (PLAN_APPROVE_EDITS, PLAN_APPROVE):
             if not feedback and time.monotonic() - asked_at >= UNANSWERED_SECONDS:
                 return self._unanswered(task)
+            if feedback.strip():
+                self._heard_correction(task, feedback.strip())
             return PermissionResultDeny(
                 message=f"The user wants to keep planning: {feedback.strip()}. Revise the plan "
                 "with that in mind."

@@ -8,6 +8,13 @@
   const el = F.el;
   const RISK = { low: 'Low risk', medium: 'Medium risk', high: 'High risk' };
 
+  // A picture as the check and the video keep it (base64 JPEG) or an address of the app's.
+  function picture(value) {
+    if (typeof value !== 'string' || !value) return '';
+    if (value.startsWith('/') || value.startsWith('data:image/')) return value;
+    return /^[A-Za-z0-9+/]+={0,2}$/.test(value) ? `data:image/jpeg;base64,${value}` : '';
+  }
+
   function card(e, li) {
     const r = e && e.receipt;
     if (!r || !li) return;
@@ -21,12 +28,24 @@
       t ? (t.passed ? `${F.t('Tests passed')} (${t.passed_count})` : `${F.t('Tests failed')} (${t.failed_count})`) : F.t('No tests run')));
     if (r.check) facts.append(el('li', r.check.status === 'problems' ? 'rc-bad' : 'rc-ok', r.check.text || r.check.status));
     li.replaceChildren(head, facts);
-    const thumb = r.check && r.check.thumb;
-    if (typeof thumb === 'string' && (thumb.startsWith('/') || thumb.startsWith('data:image/'))) {
+    const thumb = picture(r.check && r.check.thumb);
+    if (thumb) {
       const img = el('img', 'rc-thumb');
       img.src = thumb;
       img.alt = F.t('The page after this turn');
       li.append(img);
+    }
+    const v = r.video;
+    if (v && /^[0-9a-f]{24}$/.test(v.id || '')) {
+      const video = el('video', 'rc-video');
+      video.controls = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'none';
+      video.src = `/f/code-video/${v.id}`;
+      const poster = picture(v.poster);
+      if (poster) video.poster = poster;
+      li.append(video);
     }
     const qa = el('button', 'rc-qa', F.t('Try it like a user'));
     qa.type = 'button';

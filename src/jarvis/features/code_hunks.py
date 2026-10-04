@@ -106,8 +106,16 @@ class Hunks:
         if action in ("keep", "unkeep"):
             self.keep(task, [hunk_id], action == "keep")
         elif action == "undo":
-            self.caption(await self.undo(task, which, [hunk_id]))
+            said = await self.undo(task, which, [hunk_id])
+            self.caption(said)
             await self.changes({"id": task.id, "view": which})
+            # (code_lessons hears it: the owner may say what to remember)
+            self.hub.emit(
+                "code_hunk_undone",
+                id=task.id,
+                undone=said.startswith("Undid"),
+                file=str(msg.get("path") or ""),
+            )
 
     def keep(self, task: Any, hunk_ids: list[str], on: bool = True) -> None:
         kept = self.kept.setdefault(task.id, set())

@@ -53,13 +53,16 @@ _GLOBAL = re.compile(
 )
 
 
-def lesson_in(text: str) -> tuple[str, bool] | None:
+def lesson_in(text: str, correcting: bool = False) -> tuple[str, bool] | None:
     """(the rule, for every project) when the owner's message is a correction with a rule
-    in it; None for anything else (a request, a question, code)."""
+    in it; None for anything else (a request, a question, code). correcting: it's a
+    correction already (their words saying no to a step or a plan)."""
     text = " ".join((text or "").split())
     if not text or len(text) > MAX_CHARS or "```" in text or text.endswith("?"):
         return None
-    if len(text.split()) < MIN_WORDS or not _CORRECTING.search(text) or not _RULE.search(text):
+    if len(text.split()) < MIN_WORDS or not _RULE.search(text):
+        return None
+    if not correcting and not _CORRECTING.search(text):
         return None
     rule = re.sub(r"^\s*(no|nope|wrong)[,.!:;\s-]+", "", text, flags=re.IGNORECASE).strip()
     rule = rule[:1].upper() + rule[1:]
@@ -105,9 +108,31 @@ class Lessons:
         entry = data.get("entry") or {}
         if entry.get("role") != "user":
             return
-        found = lesson_in(str(entry.get("text") or ""))
         task = self.hub.tasks.tasks.get(data.get("id"))
-        if found is None or task is None or task.kind != "code":
+        self.learn(task, lesson_in(str(entry.get("text") or "")))
+
+    def corrected(self, task: Any, words: str) -> None:
+        """TaskManager.corrected: the owner said no to a step or a plan, with why."""
+        if self.on():
+            self.learn(task, lesson_in(words, correcting=True))
+
+    def changes_undone(self, event: dict[str, Any]) -> None:
+        """A change the session made was undone (the Changes pane): the window asks the
+        owner, in one optional line, what Jarvis should remember (code_lesson_add)."""
+        if self.on() and event.get("undone"):
+            self.hub.emit("code_lesson_ask", id=event.get("id"), file=str(event.get("file") or ""))
+
+    def _cmd_add(self, msg: dict[str, Any]) -> None:
+        """What the owner typed after undoing a change: kept as they wrote it."""
+        task = self.hub.tasks.tasks.get(msg.get("id"))
+        text = " ".join(str(msg.get("text") or "").split())[:MAX_CHARS]
+        if task is None or len(text.split()) < 2:
+            return
+        self.learn(task, (text[:1].upper() + text[1:], bool(_GLOBAL.search(text))))
+        self.hub.emit("code_lesson_kept", id=task.id, text=text)
+
+    def learn(self, task: Any, found: tuple[str, bool] | None) -> None:
+        if found is None or task is None or getattr(task, "kind", "") != "code":
             return
         rule, everywhere = found
         scope = EVERYWHERE if everywhere else f"project {self._project(task)}"
@@ -145,3 +170,6 @@ def install(hub: Any) -> None:
     hub.code_lessons = desk  # (for the tests)
     hub.add_task_sink(desk.heard)
     hub.tasks.turn_notes.append(desk.turn_note)
+    hub.tasks.corrected.append(desk.corrected)
+    hub.add_event_sink(("code_hunk_undone",), desk.changes_undone)
+    hub.register_command("code_lesson_add", desk._cmd_add)

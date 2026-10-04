@@ -9,7 +9,8 @@ for the answer itself (TaskManager.pre_answer):
 - what the owner told Jarvis (memory): a sure fact that names exactly one of the options and
   shares the question's words ("We use pnpm, never npm" answers "Which package manager?").
 
-Otherwise, while the owner is in a meeting or a Focus mode (hub.quiet_now), a question that
+Otherwise, while the owner is in a meeting (meeting notes on, or a calendar event now:
+hub._in_meeting) or a Focus mode (hub.quiet_now), a question that
 isn't risky isn't put to them at all: the session is told to choose the safest, most
 reversible option itself, say which and why, and carry on. Each such choice is kept, and
 said in one heads-up once the owner is free again, and in the morning briefing ("While you
@@ -191,10 +192,15 @@ class Answers:
         return None
 
     def _busy(self) -> bool:
-        try:
-            return bool(self.hub.quiet_now())
-        except Exception:
-            return False
+        """In a meeting (taking notes, or a calendar event now) or a Focus mode / quiet hours."""
+        for check in ("_in_meeting", "quiet_now"):
+            fn = getattr(self.hub, check, None)
+            try:
+                if fn is not None and fn():
+                    return True
+            except Exception:
+                continue
+        return False
 
     def answered(self, task: Any, asked: dict[str, Any], answer: str) -> None:
         self._load()

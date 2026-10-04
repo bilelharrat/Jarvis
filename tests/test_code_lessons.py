@@ -58,3 +58,18 @@ def test_a_correction_is_kept_once_and_heard_where_it_applies():
     assert desk.turn_note(web) == ""  # heard already: said again only when there's more
     other = desk.turn_note(api)
     assert "changelog" in other and "mock" not in other  # the project's rule stays there
+
+
+def test_saying_no_to_a_step_or_undoing_a_change_teaches_too():
+    desk, hub, web, _api = make()
+    emitted = []
+    hub.emit = lambda kind, **data: emitted.append((kind, data))
+    desk.corrected(web, "use the v2 client instead of raw requests")  # (no "no," needed)
+    assert hub.memory.facts[-1].text == "Use the v2 client instead of raw requests"
+    desk.changes_undone({"id": 1, "undone": True, "file": "api.py"})
+    assert emitted[-1][0] == "code_lesson_ask"
+    desk._cmd_add({"id": 1, "text": "from now on never touch generated files"})
+    assert hub.memory.facts[-1].text == "From now on never touch generated files"
+    assert hub.memory.facts[-1].origin == "Jarvis Code correction (every project)"
+    desk._cmd_add({"id": 1, "text": "x"})  # too little to keep
+    assert len(hub.memory.facts) == 2

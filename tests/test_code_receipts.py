@@ -50,3 +50,39 @@ async def test_a_turn_that_changed_files_gets_its_receipt_in_the_transcript():
     receipt = await desk.write(task, {"files": ["src/auth/login.py"], "status": "done"}, 0)
     assert receipt["risk"] == "high" and logged[0][0] == "system"
     assert logged[0][1].startswith("Proof · Changed 1 file") and logged[0][2]["receipt"] == receipt
+
+
+async def test_the_receipt_waits_for_the_video_proof_and_carries_it(monkeypatch):
+    import asyncio
+
+    logged = []
+    task = NS(id=5)
+    hub = NS(
+        tasks=NS(
+            tasks={5: task},
+            _log=lambda t, role, text, **kw: logged.append(kw),
+            _changed_soon=lambda: None,
+        ),
+    )
+    desk = cr.Receipts(hub)
+    monkeypatch.setattr(desk, "videoing", lambda t, files: True)
+    writing = asyncio.ensure_future(
+        desk.write(task, {"files": ["web/page.tsx"], "status": "done"}, 0)
+    )
+    await asyncio.sleep(0.01)
+    desk.task_event(
+        "task_log",
+        {
+            "id": 5,
+            "entry": {
+                "role": "video",
+                "status": "ok",
+                "video": "a" * 24,
+                "poster": "QUJD",
+                "seconds": 6,
+            },
+        },
+    )
+    receipt = await asyncio.wait_for(writing, 2)
+    assert receipt["video"] == {"id": "a" * 24, "poster": "QUJD", "seconds": 6}
+    assert logged[0]["receipt"]["video"]["id"] == "a" * 24
