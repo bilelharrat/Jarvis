@@ -436,11 +436,32 @@ def test_the_briefing_gets_facts_about_what_ran_while_you_were_away():
     facts = cs.briefing_facts(
         [task(1, "Add a retry"), task(2, "Docs")], {"a2": approval(2)}, j, since=0
     )
-    assert (
-        facts
-        == "“Add a retry” in proj: finished, 2 files changed; “Docs” in proj: needs the user's OK"
+    assert facts == (
+        "1 thing needs the user — “Add a retry” in proj: finished, 2 files changed; "
+        "“Docs” in proj: needs the user's OK"
     )
     assert cs.briefing_facts([task(1, "Add a retry")], {}, j, since=2000) == ""  # too long ago
+
+
+def test_overnight_pull_requests_and_risky_changes_lead_the_briefing():
+    from types import SimpleNamespace as NS
+
+    j = cs.Journal(clock=lambda: 1000.0)
+    j.event(
+        "task_finished",
+        {"id": 1, "task_kind": "code", "status": "done", "result": "x",
+         "files": ["src/auth/session.py"]},
+    )  # fmt: skip
+    prs = {
+        1: NS(state="open", checks="passed", mergeable="clean", draft=False, number=7),
+        2: NS(state="open", checks="failed", mergeable="", draft=False, number=8),
+    }
+    facts = cs.briefing_facts(
+        [task(1, "Login fix"), task(2, "Docs")], {}, j, since=0, pr_of=lambda t: prs.get(t.id)
+    )
+    assert facts.startswith("1 pull request ready, 1 thing needs the user — ")
+    assert "pull request #7 is ready, it touches auth: worth a look" in facts
+    assert "pull request #8's checks are failing" in facts
 
 
 # ── the Chinese ──

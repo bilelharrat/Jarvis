@@ -749,7 +749,11 @@ class CodeVoice:
 
     def briefing_note(self) -> str:
         since = time.time() - BRIEFING_HOURS * 3600
-        facts = cs.briefing_facts(self.code_tasks(), self.hub.approvals, self.journal, since)
+        desk = getattr(self.hub, "code_pr", None)
+        pr_of = desk.record_for if desk is not None else None
+        facts = cs.briefing_facts(
+            self.code_tasks(), self.hub.approvals, self.journal, since, pr_of=pr_of
+        )
         if not facts:
             return ""
         return (

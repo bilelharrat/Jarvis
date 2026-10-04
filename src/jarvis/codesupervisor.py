@@ -1220,22 +1220,53 @@ def which_speech(tasks: list[Any], language: str) -> tuple[str, list[tuple[str, 
     return say("Which session? {options}.", language, options=options), labels
 
 
+# Paths whose changes deserve the owner's eyes before a merge, named in the briefing.
+_RISK_AREAS = (
+    ("auth", re.compile(r"auth|login|session|oauth|jwt|password|permission", re.IGNORECASE)),
+    ("billing", re.compile(r"billing|payment|stripe|invoice|checkout|subscription|price", re.IGNORECASE)),
+    ("the database schema", re.compile(r"migrat|schema|\.sql$", re.IGNORECASE)),
+    ("secrets", re.compile(r"secret|credential|\.env|keychain|token", re.IGNORECASE)),
+)  # fmt: skip
+
+
+def risky_areas(files: set[str] | list[str]) -> list[str]:
+    """The sensitive areas a set of changed files touches ("auth", "billing", ...)."""
+    return [name for name, pattern in _RISK_AREAS if any(pattern.search(f) for f in files)]
+
+
 def briefing_facts(
-    tasks: list[Any], approvals: dict[str, dict[str, Any]], journal: Journal, since: float
+    tasks: list[Any],
+    approvals: dict[str, dict[str, Any]],
+    journal: Journal,
+    since: float,
+    pr_of: Any = None,
 ) -> str:
     """What Jarvis Code did while the user was away, as facts for the morning briefing:
-    each session with news they haven't looked at since `since`, or that needs them."""
+    each session with news they haven't looked at since `since`, or that needs them, its
+    pull request (pr_of(task): its record, or None) and the sensitive areas it touched,
+    led by a count: "2 pull requests ready, 1 session needs the user"."""
     parts = []
+    ready = needs = 0
     for t in sorted((t for t in tasks if getattr(t, "kind", "") == "code"), key=lambda t: t.id):
         turns = journal.unseen(t.id, since)
         pending = pending_of(t, approvals)
-        if not turns and pending is None:
+        pr = None
+        if pr_of is not None:
+            try:
+                pr = pr_of(t)
+            except Exception:
+                pr = None
+        if pr is not None and getattr(pr, "state", "") != "open":
+            pr = None
+        if not turns and pending is None and pr is None:
             continue
         what = []
+        files: set[str] = set()
         if turns:
             done = sum(1 for x in turns if x.status == "done")
             if turns[-1].status == "failed":
                 what.append("stopped with an error")
+                needs += 1
             else:
                 what.append("finished" if done <= 1 else f"finished {done} tasks")
             files = {f for x in turns for f in x.files}
@@ -1244,10 +1275,32 @@ def briefing_facts(
             runs = [r for x in turns for r in x.tests]
             if runs:
                 what.append("tests passed" if runs[-1].passed else "tests failed")
+        if pr is not None:
+            if pr.checks == "failed":
+                what.append(f"pull request #{pr.number}'s checks are failing")
+                needs += 1
+            elif pr.mergeable == "dirty":
+                what.append(f"pull request #{pr.number} has conflicts")
+                needs += 1
+            elif pr.checks in ("passed", "none") and not pr.draft:
+                what.append(f"pull request #{pr.number} is ready")
+                ready += 1
+            files |= set(getattr(t, "files_changed", set()) or ())
+        areas = risky_areas(files)
+        if areas:
+            what.append(f"it touches {' and '.join(areas)}: worth a look before merging")
         if pending is not None:
             what.append("needs the user's OK")
+            needs += 1
         parts.append(f"“{title_of(t) or f'session {t.id}'}” in {t.cwd.name}: {', '.join(what)}")
-    return "; ".join(parts)
+    if not parts:
+        return ""
+    lead = []
+    if ready:
+        lead.append(f"{ready} pull request{'s' if ready != 1 else ''} ready")
+    if needs:
+        lead.append(f"{needs} thing{'s need' if needs != 1 else ' needs'} the user")
+    return (", ".join(lead) + " — " if lead else "") + "; ".join(parts)
 
 
 # ── point and speak: what the owner points at while saying "make this bigger" ──
