@@ -43,6 +43,20 @@ test('the page is the root and /jarvis; its images by path; old addresses go hom
   assert.equal(old.headers.get('location'), 'https://www.askeden.com/');
 });
 
+test('/messenger is Eden Messenger, at messenger.askeden.com; its download buttons stay here', async () => {
+  for (const [path, to] of [
+    ['/messenger', 'https://messenger.askeden.com/'],
+    ['/messenger/', 'https://messenger.askeden.com/'],
+    ['/messenger/settings?invite=abc', 'https://messenger.askeden.com/settings?invite=abc'],
+  ]) {
+    const res = await get(path, env());
+    assert.equal(res.status, 302, path);
+    assert.equal(res.headers.get('location'), to, path);
+  }
+  const button = await get('/messenger/iphone', env());
+  assert.notEqual(button.headers.get('location'), 'https://messenger.askeden.com/iphone');
+});
+
 test('/download and /latest.json work at the root as well', async () => {
   assert.equal((await get('/download', env())).status, 200);
   assert.equal((await (await get('/latest.json', env())).json()).version, '0.1.0');
