@@ -169,6 +169,29 @@ def test_common_word_needs_two_corrections(ear):
     assert ear.apply("go to bed") == "go Tao bed"
 
 
+def test_corrections_in_force_are_worked_out_once_per_look(ear, monkeypatch):
+    """describe() marks the corrections not yet in force (a common word needs two) from one
+    look at them, not one per correction (300 of them took a sixth of a second), and
+    apply() looks once too; what they say is unchanged."""
+    ear.correct("to", "Tao")
+    ear.correct("akin", "Okin")
+    ear.correct("for moose", "Hormuz")
+    looks = []
+    real = Hearing._active
+    monkeypatch.setattr(Hearing, "_active", lambda self: looks.append(1) or real(self))
+    assert ear.describe() == (
+        "Corrections I apply: “for moose” → “Hormuz”; “akin” → “Okin”; “to” → “Tao” (needs "
+        "one more). Words I listen for: Tao, Okin, Hormuz."
+    )
+    assert len(looks) == 1
+    looks.clear()
+    assert ear.apply("go to Akin about for moose") == "go to Okin about Hormuz"
+    assert len(looks) == 1
+    ear.correct("to", "Tao")  # the second time: in force from now on
+    assert ear.apply("go to bed") == "go Tao bed"
+    assert "(needs one more)" not in ear.describe()
+
+
 def test_wake_word_is_never_learned(ear):
     with pytest.raises(ValueError):
         ear.correct("service", "Jarvis")

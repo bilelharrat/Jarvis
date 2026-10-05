@@ -21,6 +21,7 @@ is stored, only the words and mappings learned from them.
 from __future__ import annotations
 
 import difflib
+import functools
 import logging
 import re
 import time
@@ -197,6 +198,10 @@ def _has_wake(text: str) -> bool:
     return any(w in low for w in WAKE_WORDS)
 
 
+# Asked of every correction on each transcript (is it in force yet?), so the answers are
+# kept: they depend on the term alone, and cleaning every term again was most of the time
+# a transcript spent here.
+@functools.lru_cache(maxsize=4096)
 def _common(term: str) -> bool:
     words = _key(term).split()
     if _CJK.search(term):
@@ -352,8 +357,7 @@ class Hearing:
             if c["count"] >= (2 if _common(heard) else 1)
         }
 
-    def _compiled(self) -> re.Pattern[str] | None:
-        active = self._active()
+    def _compiled(self, active: dict[str, str]) -> re.Pattern[str] | None:
         keys = tuple(sorted(active, key=len, reverse=True))
         if keys != self._pattern_for:
             self._pattern_for = keys
@@ -369,10 +373,10 @@ class Hearing:
         replacement is never itself replaced)."""
         if not text or not self._on():
             return text
-        pattern = self._compiled()
+        active = self._active()
+        pattern = self._compiled(active)
         if pattern is None:
             return text
-        active = self._active()
         return pattern.sub(lambda m: active.get(m.group(0).lower(), m.group(0)), text)
 
     def fix(self, text: str) -> str:
@@ -703,8 +707,9 @@ class Hearing:
 
     def describe(self, query: str = "") -> str:
         query = query.strip().lower()
+        active = self._active()  # once, not again for each correction
         fixes = [
-            f"“{h}” → “{c['meant']}”" + (" (needs one more)" if h not in self._active() else "")
+            f"“{h}” → “{c['meant']}”" + (" (needs one more)" if h not in active else "")
             for h, c in reversed(self.corrections.items())
             if not query or query in h or query in c["meant"].lower()
         ]

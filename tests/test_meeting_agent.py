@@ -556,6 +556,21 @@ async def test_afterwards_each_action_item_goes_to_reminders_or_calendar(rig, mo
     assert len(added) == 1 and len(created) == 1
 
 
+async def test_an_action_item_on_a_path_no_notes_can_have_is_refused_quietly(rig):
+    """A path with a NUL in it (or far too long) names no notes: the panel says so, and the
+    path lookup that would fail on it never runs (it raised, logged as a traceback)."""
+    _hub, agent, events, _proc, _model = rig
+    for path in ("/notes/a\x00b.md", "/notes/" + "x" * 5000 + ".md", "\x00"):
+        await agent.item_command({"path": path, "index": 0, "action": "reminders"})
+        assert panel(events, "item")[-1] == {
+            "path": path,
+            "index": 0,
+            "action": "reminders",
+            "ok": False,
+            "text": "Those notes aren't there any more.",
+        }
+
+
 async def test_through_jarvis_a_private_answer_is_never_a_spoken_reply(rig):
     hub, _agent, events, proc, model = rig
     await on_call(hub, ("Them", "The vendor wants the contract signed by Monday."))

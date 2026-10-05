@@ -131,3 +131,40 @@ def test_a_call_unchanged_since_is_not_compared_again(tmp_path, monkeypatch):
     assert m.kept() == first and compared == []
     m.add(None, "one more thing from me", at)
     assert m.kept() == fresh(m) and 0 < len(compared) <= 3  # only the new line's
+
+
+def test_rows_unchanged_since_the_last_look_are_given_again_as_they_were(tmp_path, monkeypatch):
+    # Nothing new since the last look: the same rows, without going over the lines again
+    # (by an hour's call that was 2-3 ms each look). Any change to a line, to who said one,
+    # or to the label of lines added without a speaker gives rows worked out afresh.
+    m = Meeting("Call", tmp_path, now=datetime(2026, 10, 4, 10, 0))
+    m.label = "You"
+    at = datetime(2026, 10, 4, 10, 1)
+    for i in range(40):
+        m.add(None, f"Line {i} about the budget for next quarter.", at, speaker="Them")
+        m.add(None, f"line {i} about the budget for next quarter", at + timedelta(seconds=1))
+        m.add(None, f"my own thought number {i} on pricing", at + timedelta(seconds=3))
+        at += timedelta(seconds=40)
+    sifted = []
+    real = Meeting._sift
+    monkeypatch.setattr(Meeting, "_sift", lambda self, who: sifted.append(1) or real(self, who))
+    first = m.kept()
+    assert first == fresh(m) and len(sifted) == 1
+    first.clear()  # a caller's copy: changing it changes nothing kept
+    assert m.kept() == m.kept() == fresh(m) and len(sifted) == 1
+
+    def changed(change):
+        change()
+        assert m.kept() == fresh(m) and len(sifted) == 2
+        assert m.kept() == fresh(m) and len(sifted) == 2
+        sifted.clear()
+        sifted.append(1)
+
+    changed(lambda: m.add(None, "one more thing from me", at))
+    changed(lambda: m.lines.__setitem__(4, (m.lines[4][0], "the notes model's better line")))
+    changed(lambda: m.lines.__setitem__(1, (m.lines[1][0], "")))  # taken out (meeting_agent)
+    changed(lambda: m.speakers.__setitem__(1, "Them"))
+    changed(lambda: m.lines.append((at, "a line added with no speaker kept")))
+    changed(lambda: setattr(m, "label", "Them"))  # that line's speaker
+    changed(lambda: m.speakers.append("You"))
+    assert [who for _at, text, who in m.kept() if text.startswith("a line added")] == ["You"]

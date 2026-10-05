@@ -292,3 +292,46 @@ def test_the_player_is_built_under_a_temporary_name(monkeypatch, tmp_path):
     path = speech.ensure_player()
     assert path is not None and path.read_bytes() == b"player" and outputs[0] != path
     assert [p.name for p in (tmp_path / "bin").iterdir()] == [path.name]
+
+
+def test_the_voice_given_is_checked_when_first_read_not_when_made(monkeypatch):
+    """`say -v ?` (most of a second of CPU) runs only when the voice is read before anyone
+    set it; the answer is the one checking at once gave."""
+    from jarvis import speech
+
+    asked = []
+    monkeypatch.setattr(speech, "available_voices", lambda: asked.append(1) or {"Daniel", "Ava"})
+    speaker = speech.Speaker("Daniel", 190)
+    assert asked == []  # made without listing the Mac's voices
+    assert speaker.voice == "Daniel" and speaker.voice == "Daniel"
+    assert asked == [1]  # listed once, the first time it was read
+    assert speech.Speaker("Zarvox", 190).voice == ""  # not installed: the default speaks
+    assert len(asked) == 2
+    assert speech.Speaker("", 190).voice == "" and len(asked) == 2  # nothing to look up
+    picked = speech.Speaker("Zarvox", 190)
+    picked.voice = "Ava (Premium)"  # set before anyone read it: taken as set
+    assert picked.voice == "Ava (Premium)" and picked._say_args() == [
+        "say",
+        "-r",
+        "190",
+        "-v",
+        "Ava (Premium)",
+    ]
+    assert len(asked) == 2
+
+
+def test_the_hub_builds_its_speaker_without_listing_the_macs_voices(
+    settings, isolated, monkeypatch
+):
+    """The hub sets its speaker's voice for the language as it's made: the listing the
+    Speaker used to run first (synchronously, as the backend started) was never used."""
+    from test_hub import make_hub
+
+    from jarvis import speech
+
+    asked = []
+    monkeypatch.setattr(speech, "available_voices", lambda: asked.append(1) or set())
+    hub = make_hub(settings, None, isolated=isolated)
+    assert isinstance(hub.speaker, speech.Speaker)
+    assert hub.speaker.voice == settings.voice == "Daniel"  # English's voice, as before
+    assert asked == []

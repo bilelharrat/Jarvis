@@ -927,7 +927,9 @@ class MeetingAgent:
         if action not in ("reminders", "calendar") or type(index) is not int or index < 0:
             return
         part = self.proactive()
-        record = await part.meetings.record_for(path) if part is not None else None
+        # No notes file has a NUL in its name, and the path lookup would fail on it.
+        known = part is not None and "\x00" not in path
+        record = await part.meetings.record_for(path) if known else None
         result = {"path": path, "index": index, "action": action, "ok": False}
         if record is None or index >= len(record["actions"]):
             self.emit(item={**result, "text": self.say("Those notes aren't there any more.")})

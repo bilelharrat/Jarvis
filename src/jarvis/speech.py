@@ -720,7 +720,11 @@ class Speaker:
         effect: bool = False,
         cloud: CloudVoice | None = None,
     ) -> None:
-        self.voice = voice if voice in available_voices() else ""
+        # The voice asked for, kept only while it's installed. Whether it is (`say -v ?`,
+        # most of a second of CPU) is asked when the voice is first read, not here: the hub
+        # sets the voice for its language the moment it's made, so the backend's start
+        # waited on a listing nothing used.
+        self._voice_name, self._voice_unchecked = voice or "", bool(voice)
         self.rate = rate
         self.muted = muted
         # What a text becomes before it's voiced; the hub sets the chosen language's
@@ -746,6 +750,20 @@ class Speaker:
         self._live_lock: asyncio.Lock | None = None
         # What makes the live player (duplex.Duplex's while JARVIS can be talked over).
         self.player_factory: Callable[[Path, int, bool], LivePlayer] = LivePlayer
+
+    @property
+    def voice(self) -> str:
+        """The Mac voice `say` speaks with ("": the Mac's default). The one given when it
+        was made counts only while it's installed (looked up the first time it's read)."""
+        if self._voice_unchecked:
+            self._voice_unchecked = False
+            if self._voice_name not in available_voices():
+                self._voice_name = ""
+        return self._voice_name
+
+    @voice.setter
+    def voice(self, name: str) -> None:
+        self._voice_name, self._voice_unchecked = name, False
 
     @property
     def live_rate(self) -> int:

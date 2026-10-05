@@ -94,6 +94,10 @@ class Meeting:
         # voice loop by an hour's call.
         self._plains = _Recent(_plain)
         self._echoes = _Recent(_alike)
+        # And the rows it gave last, with the lines and speakers they came from: a look
+        # before anything changed (the panel's every two seconds while nobody speaks, the
+        # notes file's, a question's) gets the same rows without comparing anything again.
+        self._kept: Any = None  # (lines, speakers, rows)
         self._pending: asyncio.Queue = asyncio.Queue()
         self._worker: asyncio.Task | None = None
         self._write()
@@ -177,6 +181,13 @@ class Meeting:
         only repeats what the call had just said (its sound through the speakers)."""
         speakers = self.speakers[: len(self.lines)]
         speakers += [self.label] * (len(self.lines) - len(speakers))  # a line added directly
+        last = self._kept
+        if last is None or last[1] != speakers or last[0] != self.lines:
+            last = self._kept = (list(self.lines), speakers, self._sift(speakers))
+        return list(last[2])
+
+    def _sift(self, speakers: list[str]) -> list[tuple[datetime, str, str]]:
+        """kept() worked out from the lines and who said each."""
         rows = [
             (at, text, who) for (at, text), who in zip(self.lines, speakers, strict=True) if text
         ]
