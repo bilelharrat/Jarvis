@@ -378,6 +378,7 @@ async def test_what_jarvis_wrote_waits_for_the_cancel(rig, monkeypatch):
     assert proc.runs[0].stdin_text == "Thursday works."
     _prompt, system = model["prompts"][-1]
     assert "Never agree to pay" in system
+    assert "says it's J.A.R.V.I.S." in system  # its own name, not "Bilel's assistant"
 
 
 async def test_saying_stop_cancels_whats_waiting(rig, monkeypatch):
