@@ -16,7 +16,8 @@ const path = require('path');
 const WEB = process.env.JARVIS_WEB_DIR || path.join(__dirname, '..', '..', 'src', 'jarvis', 'web');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
-app.setPath('userData', fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jarvis-window-test-')));
+const USER_DATA = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jarvis-window-test-'));
+app.setPath('userData', USER_DATA);
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1');
 
 // Widget documents, as the backend serves them on /f/widgets/<id> (features.widgets): the
@@ -732,6 +733,21 @@ test('/rename with nothing after it names the session in place', async () => {
   assert(!(await sent()).includes('task_rename'), 'renamed to nothing');
 });
 
+test('A session’s new name being typed isn’t written over by its steps, and goes when done', async () => {
+  await open(1);
+  await js(`$('jc-title').dispatchEvent(new MouseEvent('dblclick')); true`);
+  await type('Shipped');
+  // The session works on meanwhile: each step sends the list again.
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Editing b.py' })] }); onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Running tests' })] }); true`);
+  assert(await js('$("jc-title").textContent') === 'Shipped', `the name being typed became ${await js('$("jc-title").textContent')}`);
+  await press('Enter');
+  const renamed = await js('__sent.filter((m) => m.type === "task_rename").map((m) => m.id + " " + m.title)');
+  assert(JSON.stringify(renamed) === '["1 Shipped"]', JSON.stringify(renamed));
+  // Done: the steps draw the title again (the hub's, until it has the new name).
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Done' })] }); true`);
+  assert(await js('$("jc-title").textContent') === 'Session 1', `after: ${await js('$("jc-title").textContent')}`);
+});
+
 // ── what JARVIS learns (suggestions, interruptions, your words), documents and videos ──
 
 const clickText = (root, label) => js(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(root)} + ' button')].find((x) => x.textContent === ${JSON.stringify(label)}); if (!b) return false; b.click(); return true; })()`);
@@ -830,6 +846,29 @@ test('A file dropped on the window never replaces it; a video dropped is sent to
 const loadFeature = (name) => js(`${fs.readFileSync(path.join(WEB, 'features', name), 'utf8')}\n;true`);
 // An event as the socket delivers it: to the window, then to the feature modules.
 const deliver = (ev) => js(`(() => { const ev = ${JSON.stringify(ev)}; onEvent(ev); featureEvent(ev); return true; })()`);
+
+test('features.js asks for every module at once and runs them in name order, past one that fails', async () => {
+  const mods = ['a-first', 'b-missing', 'c-third', 'd-fourth'];
+  const docs = ['/features.json', ...mods.map((m) => `/t/features/${m}.js`)];
+  WIDGET_DOCS.set('/features.json', JSON.stringify({ styles: [], scripts: mods.map((m) => `/t/features/${m}.js`) }));
+  // Each says how many of the modules were already asked for when it ran.
+  for (const m of mods.filter((x) => x !== 'b-missing')) {
+    WIDGET_DOCS.set(`/t/features/${m}.js`, `window.__ran.push(${JSON.stringify(m)} + ' ' + document.querySelectorAll('script[src^="/t/features/"]').length);`);
+  }
+  expectedErrors = [/feature script failed: \/t\/features\/b-missing\.js/];
+  try {
+    const ran = await js(`new Promise((resolve) => {
+      window.__ran = [];
+      window.addEventListener('jarvis-features-ready', () => resolve(__ran.slice()), { once: true });
+      const loader = document.createElement('script');
+      loader.src = '/static/features.js';
+      document.body.append(loader);
+    })`);
+    assert(JSON.stringify(ran) === '["a-first 4","c-third 4","d-fourth 4"]', JSON.stringify(ran));
+  } finally {
+    for (const d of docs) WIDGET_DOCS.delete(d);
+  }
+});
 
 test('Jarvis Code tells the backend which session the owner looked at, once in a while', async () => {
   await loadFeature('code-voice.js');
@@ -4838,6 +4877,60 @@ test('A wiki line is edited and forgotten through memory, a conflict settled thr
   assert(after.wiki && after.settings && !after.sent.includes('stop'), JSON.stringify(after));
 });
 
+test('The people map asks for frames while its people move or the picture changes, and none once settled', async () => {
+  // (the map's frames counted: requestAnimationFrame with its own frame function)
+  await js(`window.__mapFrames = 0; const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (fn) => { if (fn && /_tick|stepSim/.test(String(fn))) __mapFrames += 1; return raf(fn); }; true`);
+  await withWiki();
+  await js(`__ev({ type: 'wiki_show', tab: 'map' }); true`);
+  const nodes = [{ id: 'me', title: 'You', kind: 'me', weight: 0 }];
+  const edges = [];
+  for (let i = 1; i < 400; i++) { nodes.push({ id: `person:p${i}`, title: `Person ${i}`, kind: 'person', weight: i % 5 }); edges.push([i % 20 ? i - (i % 20) : 0, i, 'works', 1]); }
+  await js(`__ev(${JSON.stringify({ type: 'wiki_map', nodes, edges, more: 0, missing: [] })}); true`);
+  // Moving: a frame each frame till the people settle (a few hundred steps, 8 ms a frame).
+  await frames(5);
+  assert(await js('__mapFrames') >= 4, `the people didn't move each frame: ${await js('__mapFrames')}`);
+  const picture = () => js('$("wiki-canvas").toDataURL()');
+  let still = '';
+  for (let k = 0; k < 120; k++) {
+    await frames(2);
+    const now = await picture();
+    if (now === still) break;
+    still = now;
+  }
+  await js('__mapFrames = 0; true');
+  await frames(10);
+  assert(await js('__mapFrames') === 0, `${await js('__mapFrames')} frames asked for by a settled map`);
+  assert(await picture() === still, 'the settled map was drawn differently');
+  // The pointer over someone: one frame, and they're picked out.
+  const over = await js(`(() => {
+    const c = $('wiki-canvas'); const r = c.getBoundingClientRect();
+    for (let dx = -150; dx <= 150; dx += 3) for (let dy = -150; dy <= 150; dy += 3) {
+      const x = r.left + r.width / 2 + dx, y = r.top + r.height / 2 + dy;
+      c.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerId: 1 }));
+      if (c.title && c.title !== 'You') return c.title;
+    }
+    return '';
+  })()`);
+  assert(over.startsWith('Person'), `no one under the pointer: ${over}`);
+  await frames(3);
+  assert(await js('__mapFrames') >= 1 && await js('__mapFrames') <= 2, `frames for a hover: ${await js('__mapFrames')}`);
+  assert(await picture() !== still, 'the one under the pointer isn’t picked out');
+  // A zoom: drawn again; then nothing again.
+  const hovered = await picture();
+  await js(`__mapFrames = 0; $('wiki-canvas').dispatchEvent(new WheelEvent('wheel', { deltaY: -200, clientX: 300, clientY: 300, bubbles: true, cancelable: true })); true`);
+  await frames(3);
+  assert(await js('__mapFrames') === 1 && await picture() !== hovered, `the zoom: ${await js('__mapFrames')} frames`);
+  await js('__mapFrames = 0; true');
+  await frames(6);
+  assert(await js('__mapFrames') === 0, 'frames asked for after the zoom was drawn');
+  // Pages, then the map again (twice in one go): one loop, moving nothing new.
+  await js(`document.querySelector('#wiki-pop [data-tab="pages"]').click(); document.querySelector('#wiki-pop [data-tab="map"]').click(); document.querySelector('#wiki-pop [data-tab="pages"]').click(); document.querySelector('#wiki-pop [data-tab="map"]').click(); __mapFrames = 0; true`);
+  await frames(6);
+  assert(await js('__mapFrames') === 0, `${await js('__mapFrames')} frames after showing the map again`);
+  assert(await picture() !== '', 'the map shown again');
+});
+
 test('The people map draws 2,000 people on one canvas, quickly, and a click opens a page', async () => {
   await withWiki();
   await js(`__ev({ type: 'wiki_show', tab: 'map' }); __sent.length = 0; true`);
@@ -7433,6 +7526,47 @@ test('Split view: the slot takes the left half and a pane beside it the right; t
   assert(await js('!!document.querySelector("[data-tab=\\"2\\"] .bp-popout-mark") && document.querySelector("[data-tab=\\"1\\"]").classList.contains("bp-split-left")'), 'the strip doesn’t mark the split or the popped-out tab');
 });
 
+test('Split view with the dock closed asks for no frames, and follows the slot again when it opens', async () => {
+  // (each frame the split pane follows the slot is a requestAnimationFrame(tick): counted)
+  await js(`window.__ticks = 0; const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (fn) => { if (fn && fn.name === 'tick') __ticks += 1; return raf(fn); }; true`);
+  await loadBrowser();
+  await js(`$("browser").hidden = false; applyDockWidth(900); __b.on['feature:browser:split']({ on: true, tab: 7, title: 'Flights', url: 'https://flights.example/' }); true`);
+  await frames(3);
+  const area = () => js('(() => { const a = document.querySelector(".bp-split-area").getBoundingClientRect(); return [a.x, a.y, a.width, a.height].map(Math.round); })()');
+  const told = async () => (await invokedOn('feature:browser:split-bounds')).map((b) => (b ? [b.x, b.y, b.width, b.height].map(Math.round) : null));
+  const first = await told();
+  assert(first.length >= 1 && JSON.stringify(first.at(-1)) === JSON.stringify(await area()), JSON.stringify(first));
+  assert(await js('__ticks') >= 3, `the pane didn't follow the slot each frame: ${await js('__ticks')}`);
+  // The dock closes: the app hears so once, then no frame is asked for.
+  await js('$("browser").hidden = true; true');
+  await frames(3);
+  const closed = await told();
+  assert(closed.length === first.length + 1 && closed.at(-1) === null, JSON.stringify(closed));
+  await js('__ticks = 0; true');
+  await frames(10);
+  assert(await js('__ticks') === 0, `${await js('__ticks')} frames asked for with the dock closed`);
+  // Another tab put in the split meanwhile: its title, and still nothing to follow.
+  await js(`__b.on['feature:browser:split']({ on: true, tab: 8, title: 'Hotels', url: 'https://hotels.example/' }); true`);
+  await frames(5);
+  assert(await js('document.querySelector(".bp-split-title").textContent') === 'Hotels', 'the new title');
+  assert(await js('__ticks') <= 1 && (await told()).length === closed.length, `${await js('__ticks')} frames; ${JSON.stringify(await told())}`);
+  // The dock opens again (sliding in): the page's place, told again, and followed each frame.
+  await js('__ticks = 0; $("browser").hidden = false; true');
+  await frames(4);
+  const open = await told();
+  assert(open.length > closed.length && open.slice(closed.length).every(Boolean) && JSON.stringify(open.at(-1)) === JSON.stringify(await area()), JSON.stringify(open));
+  assert(await js('__ticks') >= 3, `not followed again: ${await js('__ticks')}`);
+  await js('applyDockWidth(700); true');
+  await frames(3);
+  assert(JSON.stringify((await told()).at(-1)) === JSON.stringify(await area()), `the moved slot: ${JSON.stringify((await told()).at(-1))} vs ${JSON.stringify(await area())}`);
+  await js(`__b.on['feature:browser:split']({ on: false }); true`);
+  await frames(2);
+  await js('__ticks = 0; true');
+  await frames(4);
+  assert(await js('__ticks') === 0, 'still following with the split closed');
+});
+
 test('The browser’s settings aren’t offered where there’s no built-in browser (a plain page)', async () => {
   await js(`window.jarvisApp = undefined; ${fs.readFileSync(path.join(WEB, 'features', 'browser.js'), 'utf8')}\n;true`);
   assert(await js('!$("browser-group") && !$("bd-ask") && !$("br-site")'), 'the browser feature loaded without a browser');
@@ -7983,6 +8117,179 @@ test('Stark Glass turns white with its Light tone, follows the Mac on Match Mac,
   assert(await js('JSON.stringify(__sent.filter((m) => m.type === "set_prefs").map((m) => m.changes))') === '[{"glass_tone":"light"}]', 'the picker saves the tone');
 });
 
+// ── at rest: what the window costs while nothing happens ──
+test('At rest Stark Glass turns on the compositor alone, and Obsidian draws its dial only when it changes', async () => {
+  const prefs = (extra) => js(`onEvent(Object.assign({ type: 'prefs', language: 'en', models: [], personas: [], humor: 50 }, ${JSON.stringify(extra)})); true`);
+  await prefs({ look: 'glass', glass_tone: 'dark', screen_aware: true });
+  // The comet, the light in the sphere and the screen pill's eye move as elements of their
+  // own: not as an SVG, not as a pseudo-element of the breathing sphere (either has the page
+  // restyle every frame).
+  const moving = () => js(`document.getAnimations().filter((a) => ['spin', 'screen-blink'].includes(a.animationName) && a.playState === 'running')
+    .map((a) => String(a.effect.target.className.baseVal ?? a.effect.target.className) + (a.effect.pseudoElement || '')).sort()`);
+  const turning = await moving();
+  assert(JSON.stringify(turning) === '["bezel bz-comet","orb-light","screen-eye"]', JSON.stringify(turning));
+  await cdp('Performance.enable', {});
+  const work = async () => {
+    const { metrics } = await cdp('Performance.getMetrics');
+    const m = Object.fromEntries(metrics.map((x) => [x.name, x.value]));
+    return m.RecalcStyleCount + m.LayoutCount;
+  };
+  await sleep(600);  // the look's own transitions settle
+  const before = await work();
+  await sleep(1000);
+  const restyles = (await work()) - before;
+  await cdp('Performance.disable', {});
+  assert(restyles < 20, `${restyles} style and layout passes in a second at rest (every frame would be 120)`);
+  // Reduced motion stills all of them, the eye too.
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await frames();
+  const still = await moving();
+  await cdp('Emulation.setEmulatedMedia', { features: [] });
+  assert(JSON.stringify(still) === '[]', `still moving with reduced motion: ${still}`);
+  // Obsidian at rest: the slow light steps on six times a second; frames between are the same.
+  await prefs({ look: 'obsidian' });
+  await sleep(300);
+  const paints = await js(`new Promise((resolve) => {
+    const clear = CanvasRenderingContext2D.prototype.clearRect;
+    let n = 0;
+    CanvasRenderingContext2D.prototype.clearRect = function (...args) { n += 1; return clear.apply(this, args); };
+    setTimeout(() => { CanvasRenderingContext2D.prototype.clearRect = clear; resolve(n); }, 2000);
+  })`);
+  assert(paints >= 3 && paints <= 16, `the dial was drawn ${paints} times in 2 s at rest (twenty frames a second drew 40)`);
+});
+
+test('Words that didn’t change aren’t written again, and Jarvis Code’s session title always is', async () => {
+  await open(1);
+  const step = (extra) => js(`onEvent({ type: 'tasks', items: [__task(1, ${JSON.stringify(extra)})] }); setState('thinking'); tickClock(); true`);
+  const IDS = ['state-line', 'greeting', 'cc-label', 'cc-mode', 'cc-meta', 'cc-working-text', 'jc-sub', 'jc-mode-label', 'jc-model-label', 'jc-effort-label'];
+  const seen = () => js(`window.__seen = Object.fromEntries(${JSON.stringify(IDS)}.map((id) => [id, $(id).firstChild])); __clock = [$('clock').firstChild, $('clock').textContent]; true`);
+  const rewritten = () => js(`${JSON.stringify(IDS)}.filter((id) => !__seen[id] || __seen[id] !== $(id).firstChild)
+    .concat($('clock').textContent === __clock[1] && $('clock').firstChild !== __clock[0] ? ['clock'] : [])`);
+  await step({ cost_usd: 0.5 });
+  await seen();
+  await js(`window.__titled = 0; new MutationObserver((r) => { __titled += r.length; }).observe($('jc-title'), { childList: true, characterData: true, subtree: true }); true`);
+  await step({ cost_usd: 0.5 });
+  await frames(1);
+  assert(JSON.stringify(await rewritten()) === '[]', `written again unchanged: ${await rewritten()}`);
+  assert(await js('__titled') > 0, 'the title was not written again: features watch it to redraw for the session shown');
+  await step({ cost_usd: 0.5, last_action: 'Editing b.py' });
+  assert(await js(`$('cc-working-text').textContent`) === 'Editing b.py…', 'a change was not shown');
+  assert(JSON.stringify(await rewritten()) === '["cc-working-text"]', `rewritten: ${await rewritten()}`);
+});
+
+test('The clocks follow the Mac’s time zone when it changes while the window is open', async () => {
+  // The window's "now" is __now through the test (the clock's own ticks too, so none of them
+  // comes between two steps with another time); each step sets the Mac's zone (as macOS
+  // telling Chromium of a new one does), shows the clocks at a time and reads what
+  // toLocaleString, made there and then, writes for it.
+  await js('window.__RealDate = Date; window.__now = 0; Date = class extends __RealDate { constructor(...a) { if (a.length) super(...a); else super(__now); } }; true');
+  const CLOCK = { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' };
+  const TIME = { hour: 'numeric', minute: '2-digit', second: '2-digit' };
+  const DATE = { month: 'long', day: 'numeric', year: 'numeric' };
+  const show = async (zone, ms) => {
+    await cdp('Emulation.setTimezoneOverride', { timezoneId: zone });
+    return js(`(() => {
+      __now = ${ms};
+      tickClock();
+      const at = new __RealDate(${ms});
+      return { clock: $('clock').textContent, console: $('console-clock').textContent, greeting: $('greeting').textContent,
+        want: at.toLocaleString(uiLocale(), ${JSON.stringify(CLOCK)}),
+        wantConsole: at.toLocaleTimeString(uiLocale(), ${JSON.stringify(TIME)}) + '  |  ' + at.toLocaleDateString(uiLocale(), ${JSON.stringify(DATE)}) };
+    })()`);
+  };
+  const same = (r, step) => {
+    assert(r.clock === r.want, `${step}: the header's clock says ${r.clock}, not ${r.want}`);
+    assert(r.console === r.wantConsole, `${step}: Command Center's clock says ${r.console}, not ${r.wantConsole}`);
+  };
+  try {
+    // Los Angeles, then Tokyo a second later: the clocks move on with the greeting.
+    const night = Date.UTC(2026, 9, 5, 4, 14);
+    const la = await show('America/Los_Angeles', night);
+    same(la, 'Los Angeles');
+    assert(la.greeting === 'Good evening.', la.greeting);
+    const tokyo = await show('Asia/Tokyo', night + 1000);
+    assert(tokyo.want !== la.clock, `the zone did not change: ${tokyo.want}`);
+    same(tokyo, 'Tokyo');
+    assert(tokyo.greeting === 'Good afternoon.', tokyo.greeting);
+    // Denver to Phoenix in January (both seven hours behind then), and March, when Denver
+    // has gone to summer time and Phoenix hasn't: Phoenix's time, not Denver's.
+    same(await show('America/Denver', Date.UTC(2026, 0, 15, 19, 30)), 'Denver');
+    same(await show('America/Phoenix', Date.UTC(2026, 0, 15, 19, 30, 1)), 'Phoenix in January');
+    const march = Date.UTC(2026, 2, 20, 19, 30);
+    const phoenix = await show('America/Phoenix', march);
+    const denver = await js(`new Intl.DateTimeFormat(uiLocale(), { ...${JSON.stringify(CLOCK)}, timeZone: 'America/Denver' }).format(new __RealDate(${march}))`);
+    assert(phoenix.want !== denver, `Denver and Phoenix agree in March: ${denver}`);
+    same(phoenix, 'Phoenix in March');
+  } finally {
+    await cdp('Emulation.setTimezoneOverride', { timezoneId: '' });
+    await js('Date = __RealDate; true');
+  }
+});
+
+test('The transcript keeps 400 entries before the approval sheets; results and agents’ steps find their own', async () => {
+  await open(1, `onEvent(__approval('ap-1', { task_id: 1 }))`);
+  await js(`for (let n = 1; n <= 405; n++) onEvent({ type: 'task_log', id: 1, entry: n % 3
+    ? { n, role: 'tool', tool: 'Bash', tool_id: 'tool-' + n, text: 'Running', detail: '$ echo ' + n, status: 'running' }
+    : { n, role: 'assistant', text: 'Reply ' + n } }); true`);
+  let r = await js(`(() => { const kids = [...$('deck-timeline').children];
+    return { count: kids.length, sheets: kids.map((k, i) => (k.classList.contains('jc-ask') ? i : -1)).filter((i) => i >= 0).join(), first: kids[0].textContent.slice(0, 7) }; })()`);
+  assert(JSON.stringify(r) === '{"count":401,"sheets":"400","first":"Reply 6"}', JSON.stringify(r));
+  // A step's result goes to its own step, whatever its id is made of; one that's gone is dropped.
+  await js(`onEvent({ type: 'task_log', id: 1, entry: { n: 406, role: 'tool', tool: 'Bash', tool_id: 'toolu_"a] b\\\\', text: 'Running', detail: '$ odd', status: 'running' } });
+    onEvent({ type: 'task_log_update', id: 1, tool_id: 'tool-404', status: 'done', output: 'four oh four' });
+    onEvent({ type: 'task_log_update', id: 1, tool_id: 'toolu_"a] b\\\\', status: 'failed', output: 'odd one' });
+    onEvent({ type: 'task_log_update', id: 1, tool_id: 'tool-1', status: 'done', output: 'gone' });
+    onEvent({ type: 'task_log_update', id: 1, status: 'done', output: 'no id' }); true`);
+  r = await js(`(() => {
+    const step = (id) => [...$('deck-timeline').querySelectorAll('[data-tool-id]')].find((n) => n.dataset.toolId === id);
+    const show = (li) => [li.querySelector('.jc-tstate').className, li.querySelector('.jc-out').textContent, li.querySelector('.jc-out').hidden];
+    return { a: show(step('tool-404')), b: show(step('toolu_"a] b\\\\')), c: show(step('tool-400')) }; })()`);
+  assert(JSON.stringify(r) === JSON.stringify({ a: ['jc-tstate done', 'four oh four', false], b: ['jc-tstate failed', 'odd one', false], c: ['jc-tstate running', '', true] }), JSON.stringify(r));
+  // An agent's steps go under it; one whose agent isn't there stands alone.
+  await js(`onEvent({ type: 'task_log', id: 1, entry: { n: 407, role: 'tool', tool: 'Agent', tool_id: 'agent-1', agent: 'explore', text: 'Agent: look around', status: 'running' } });
+    onEvent({ type: 'task_log', id: 1, entry: { n: 408, role: 'subtool', parent: 'agent-1', text: 'Read a.py' } });
+    onEvent({ type: 'task_log', id: 1, entry: { n: 409, role: 'subtool', parent: 'agent-2', text: 'Read b.py' } }); true`);
+  r = await js(`({ steps: [...document.querySelectorAll('#deck-timeline .jc-agent[data-tool-id="agent-1"] .jc-agent-steps li')].map((n) => n.textContent).join(),
+    alone: [...$('deck-timeline').children].some((n) => n.classList.contains('jc-note') && n.textContent === '↳ Read b.py') })`);
+  assert(r.steps === 'Read a.py' && r.alone, JSON.stringify(r));
+  // ! output goes at the very end, past the sheet: the next entry still goes before the sheet.
+  await js(`runBang(currentTask(), 'ls'); onEvent({ type: 'task_log', id: 1, entry: { n: 410, role: 'assistant', text: 'After the bang' } }); true`);
+  r = await js(`[...$('deck-timeline').children].slice(-3).map((n) => n.className).join()`);
+  assert(r === 'jc-say,jc-ask,jc-bang', r);
+});
+
+test('The iOS Simulator pane counts the frames of the last second, writing the count only when it changes', async () => {
+  await open(1, 'openPane("sim")');
+  await js(`onEvent({ type: 'sim_list', devices: [{ udid: 'U1', name: 'iPhone 17', os: 'iOS 26', state: 'Booted' }] });
+    onEvent({ type: 'sim_status', udid: 'U1', state: 'live', input: true, family: 'iPhone' }); true`);
+  const r = await js(`(() => {
+    const out = [];
+    const frame = (seq) => { onEvent({ type: 'sim_frame', udid: 'U1', seq, width: 1206, height: 2622, orientation: 1, jpeg: '' }); const n = document.querySelector('#jc-pane-body .sim-fps'); out.push([n.textContent, n.firstChild]); };
+    frame(1); frame(2);
+    const now = performance.now();
+    const real = performance.now.bind(performance);
+    performance.now = () => now + 5000;  // a second on: the count drops to the one frame
+    frame(3); frame(4);
+    performance.now = real;
+    return { counts: out.map((o) => o[0]).join(), rewritten: out[0][1] !== out[1][1] && out[2][1] !== out[1][1] && out[3][1] !== out[2][1] };
+  })()`);
+  assert(r.counts === '1 fps,2 fps,1 fps,2 fps' && r.rewritten, JSON.stringify(r));
+  const unchanged = await js(`(() => {
+    const n = document.querySelector('#jc-pane-body .sim-fps');
+    const before = n.firstChild;
+    const real = performance.now.bind(performance);
+    const t = real();
+    // Frames whose count stays the same: two a second apart keep "1 fps" each time.
+    performance.now = () => t + 20000; onEvent({ type: 'sim_frame', udid: 'U1', seq: 5, width: 1206, height: 2622, orientation: 1, jpeg: '' });
+    const mid = n.firstChild;
+    performance.now = () => t + 40000; onEvent({ type: 'sim_frame', udid: 'U1', seq: 6, width: 1206, height: 2622, orientation: 1, jpeg: '' });
+    performance.now = real;
+    return [n.textContent, before !== mid, mid === n.firstChild];
+  })()`);
+  assert(JSON.stringify(unchanged) === '["1 fps",true,true]', JSON.stringify(unchanged));
+  await js('closePane(); true');
+});
+
 // ── search in Settings ──
 
 const shownGroups = () => js('[...$("settings").querySelectorAll(":scope > section.group")].filter((g) => g.getClientRects().length).map((g) => (g.querySelector("h3") || {}).textContent || "")');
@@ -8143,5 +8450,8 @@ app.whenReady().then(async () => {
   console.log(`\n${run.length - failed} passed, ${failed} failed`);
   server.close();
   win.destroy();
+  // The run's own profile (its caches and storage, some ten megabytes) goes with it instead
+  // of staying in the temp folder; only the few small files Electron writes as it quits stay.
+  try { fs.rmSync(USER_DATA, { recursive: true, force: true }); } catch (_) { /* still held: the OS clears temp */ }
   app.exit(failed ? 1 : 0);
 });

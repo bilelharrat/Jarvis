@@ -96,3 +96,42 @@ test('Obsidian flanks the stage with the orb’s panels and follows the Mac’s 
   assert.match(css, /body\[data-skin="obsidian"\]\[data-tone="light"\] \{[^}]*--ob-arc-rgb: 10, 108, 179/);
   assert.match(web('app.js'), /if \(skin === 'obsidian'\) return macLight\.matches;/);
 });
+
+// Everything a frame does to its context, path contents and property values included.
+function recordFrame(state, t, level) {
+  const log = [];
+  const ctx = new Proxy({}, {
+    get: (_, name) => (...args) => log.push([name, ...args.map((a) => (a && a.ops ? a.ops : a))]),
+    set: (_, name, value) => { log.push(['=', name, value]); return true; },
+  });
+  globalThis.Path2D = class { constructor() { this.ops = []; } moveTo(...a) { this.ops.push(['m', ...a]); } lineTo(...a) { this.ops.push(['l', ...a]); } };
+  rx.draw(ctx, 840, state, t, level);
+  return JSON.stringify(log);
+}
+
+test('a still frame’s key: the same key draws the same picture, a new one only when it changes', () => {
+  for (const state of ['listening', 'speaking', 'thinking', 'transcribing']) assert.equal(rx.stillKey(state, 1, 0.3), null);
+  // At rest, over a minute and as the glow settles after listening: frames with one key are
+  // drawn alike, and each change of key is a change of picture.
+  const seen = new Map();
+  let keys = 0;
+  for (let t = 0; t < 60; t += 0.037) {
+    const level = 0.6 * 0.75 ** (t * 20);
+    const key = rx.stillKey('idle', t, level);
+    const frame = recordFrame('idle', t, level);
+    if (seen.has(key)) assert.equal(seen.get(key), frame, `key ${key} drew two pictures`);
+    else { seen.set(key, frame); keys += 1; }
+  }
+  // The light steps on six ticks a second: about 360 pictures in a minute, not 1,600 frames.
+  assert.ok(keys > 300 && keys < 600, keys);
+  assert.equal(new Set(seen.values()).size, keys);
+  assert.equal(rx.stillKey('idle', 10, 0), rx.stillKey('idle', 10 + 1 / 60, 0));  // within one step
+  assert.notEqual(rx.stillKey('idle', 10, 0), rx.stillKey('idle', 10 + 1 / 6, 0));  // the next step
+  assert.notEqual(rx.stillKey('idle', 10, 0), rx.stillKey('idle', 10, 0.2));  // the glow
+});
+
+test('the window draws a still frame once, and again only when the picture changes', () => {
+  const src = readFileSync(new URL('../../src/jarvis/web/obsidian.js', import.meta.url), 'utf8');
+  assert.match(src, /if \(key && key === drawn\) return;/);
+  assert.match(src, /\$\{px\}\|\$\{colors\.arc\}\|\$\{colors\.ring\}\|\$\{colors\.brass\}\|\$\{colors\.core\}\|\$\{still\}/);
+});

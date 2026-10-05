@@ -1220,9 +1220,12 @@ body.drop-pictures :is(.ask input, .chat-form input) { outline: 2px dashed var(-
 .sheet textarea { padding: 8px 10px; resize: vertical; line-height: 1.4; width: 100%; }
 .screen-pill { color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
 .screen-pill[hidden] { display: none; }
-.screen-pill svg { animation: screen-blink 4s ease-in-out infinite; }
+/* The eye blinks every few seconds. Its box blinks, not the <svg>: an SVG's own animation is
+   run by the page every frame (a restyle sixty times a second, for a blink every four), a
+   box's by the compositor alone. */
+.screen-eye { display: flex; animation: screen-blink 4s ease-in-out infinite; }
 @keyframes screen-blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.15); } }
-@media (prefers-reduced-motion: reduce) { .screen-pill svg { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .screen-eye { animation: none; } }
 /* Jarvis Code: ! commands and # memories */
 .jc-bang { list-style: none; border-radius: 12px; background: rgb(var(--c-ink) / 0.04); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08); overflow: hidden; }
 .jc-bang-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; font: 12.5px var(--mono); }
@@ -1298,7 +1301,6 @@ body.drop-pictures :is(.ask input, .chat-form input) { outline: 2px dashed var(-
 .app-badge:empty { display: none; }
 /* on: the glass lights up a little, and a dot shows under it */
 #hands-pill.dock-app[aria-pressed="true"], .screen-pill.dock-app { --glass-tile: rgba(255, 255, 255, 0.2); }
-.screen-pill.dock-app svg { animation: screen-blink 4s ease-in-out infinite; }
 body[data-look="console"] .pill.dock-app { border: 0; }
 
 /* ═════════════ The orb stage fits any window height ═════════════ */

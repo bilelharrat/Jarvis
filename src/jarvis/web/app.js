@@ -440,7 +440,8 @@ function setState(next) {
   if (look === 'console') line = { idle: prefs && prefs.hands_free ? '● Listening for wake word…' : '● Ready', listening: '● Listening…', transcribing: '● Transcribing…', thinking: '● Thinking…', speaking: '● Speaking…' }[next] || line;
   if (next === 'thinking' && runningTools > 0) line = 'Working on it…';
   if (next === 'idle' && prefs && prefs.hands_free && (!look || look === 'orb')) line = 'Say “Jarvis”, or tap the orb';
-  $('state-line').textContent = line;
+  // (Only when it changed: every step of a turn asks again, and new words lay the page out.)
+  setText($('state-line'), line);
   $('orb').setAttribute('aria-label', next === 'idle' ? 'Talk to Jarvis' : 'Stop');
 }
 
@@ -824,12 +825,34 @@ window.addEventListener('resize', () => galaxy.running && galaxy.resize());
 
 // ── header & status ──
 
+// The clock's formats. An Intl formatter is costly to make (toLocaleString with options
+// makes one a call: three a second here), so each is made once and kept. But a formatter
+// keeps the time zone it was made in, and the Mac's can change while the window is open (it
+// sets its own after travel, say): they're made again when the language shown or the zone's
+// offset changes, and at least once a minute, for a move to a zone with the same offset now
+// but another summer time, which would part from it months later.
+const CLOCK_FORMATS = {
+  time: { hour: 'numeric', minute: '2-digit', second: '2-digit' },
+  date: { month: 'long', day: 'numeric', year: 'numeric' },
+  clock: { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' },
+};
+let clockFormats = null;  // { locale, offset, made, time, date, clock }
+
 function tickClock() {
   const now = new Date();
-  $('console-clock').textContent = `${now.toLocaleTimeString(uiLocale(), { hour: 'numeric', minute: '2-digit', second: '2-digit' })}  |  ${now.toLocaleDateString(uiLocale(), { month: 'long', day: 'numeric', year: 'numeric' })}`;
-  $('clock').textContent = now.toLocaleString(uiLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  const locale = uiLocale();
+  const offset = now.getTimezoneOffset();
+  const kept = clockFormats;
+  if (!kept || kept.locale !== locale || kept.offset !== offset || !(Math.abs(now - kept.made) < 60000)) {
+    clockFormats = { locale, offset, made: now.getTime() };
+    for (const [name, options] of Object.entries(CLOCK_FORMATS)) clockFormats[name] = new Intl.DateTimeFormat(locale, options);
+  }
+  // Each is written only when its words change: the header's clock and the greeting stay
+  // the same for a minute or hours, and writing them every second laid the page out again.
+  setText($('console-clock'), `${clockFormats.time.format(now)}  |  ${clockFormats.date.format(now)}`);
+  setText($('clock'), clockFormats.clock.format(now));
   const h = now.getHours();
-  $('greeting').textContent = h < 5 ? 'Good evening.' : h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.';
+  setText($('greeting'), h < 5 ? 'Good evening.' : h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.');
 }
 tickClock();
 setInterval(tickClock, 1000);
@@ -2528,8 +2551,8 @@ function renderProjects(items) {
   const marked = markedSession();  // the open session's row (split view: the focused pane's)
   const shown = [filter, deckProject, ccSelected, marked, voiceFocus && voiceFocus.id, [...openProjects], deckProjects.map((p) => [p.name, p.branch]),
     ccTasks.map((t) => [t.id, t.folder, t.title || t.prompt, statusOf(t), statusText(t), t.mode, t.session_id]),
-    codeHistory.map((h) => [h.session_id, h.folder, h.title, h.modified]), [...showAllPast], new Date().toDateString()];
-  if (!changed('projects', shown)) { moveGlider(); return; }
+    [...showAllPast], new Date().toDateString()];
+  if (!changed('projects', shown, historySignature())) { moveGlider(); return; }
   $('deck-project-list').replaceChildren(...deckProjects.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
     const li = el('li');
     const open = openProjects.has(p.name) || p.name === deckProject;
@@ -2593,6 +2616,18 @@ function renderProjects(items) {
   moveGlider();
 }
 $('deck-filter').addEventListener('input', () => renderProjects(deckProjects));
+
+// The history's part of the sidebar's signature, worked out once for each list the hub
+// sends: it can be thousands of past sessions, and the sidebar is asked again on every step
+// of every session. (The list is replaced, never changed in place.)
+const historySig = { list: null, json: '' };
+function historySignature() {
+  if (historySig.list !== codeHistory) {
+    historySig.list = codeHistory;
+    historySig.json = JSON.stringify(codeHistory.map((h) => [h.session_id, h.folder, h.title, h.modified]));
+  }
+  return historySig.json;
+}
 
 // A past session in the sidebar: its title and when it was last used.
 function pastRow(folder, h) {
@@ -2706,12 +2741,17 @@ const MODE_LINES = {
 const MODEL_LABELS = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-4-5': 'Haiku 4.5', 'claude-fable-5-1': 'Fable 5.1' };
 let ccContext = {};
 let workingSince = 0;
+let renaming = null;  // the session whose new name is being typed in the title
 
 function currentTask() { return ccTasks.find((x) => x.id === ccSelected) || null; }
 
 function renderHeader(t) {
   const p = deckProjects.find((x) => x.name === (t ? t.folder : deckProject));
-  $('jc-title').textContent = t ? (t.title || t.prompt || 'New session') : (deckProject || 'Jarvis Code');
+  // (The title is written every time, changed or not: features watch it to know the header
+  // was drawn again, for another session perhaps with the same title. Not while its new name
+  // is being typed: each step of a session at work wrote the old one back over the typing.)
+  const title = $('jc-title');
+  if (!(title.isContentEditable && t && t.id === renaming)) title.textContent = t ? (t.title || t.prompt || 'New session') : (deckProject || 'Jarvis Code');
   const sub = [];
   if (t || deckProject) sub.push(t ? t.folder : deckProject);
   if (p && p.branch) sub.push(`⎇ ${p.branch}`);
@@ -2719,23 +2759,24 @@ function renderHeader(t) {
   const base = (path) => path.split('/').filter(Boolean).pop();
   if (t && t.add_dirs && t.add_dirs.length) sub.push(`+ ${t.add_dirs.map(base).join(', ')}`);
   if (t && t.plugins && t.plugins.length) sub.push(`plugins: ${t.plugins.map(base).join(', ')}`);
-  $('jc-sub').textContent = sub.join('  ·  ');
+  setText($('jc-sub'), sub.join('  ·  '));
 }
 
 function renderCC(items) {
   ccTasks = (items || []).filter((t) => t.kind === 'code');
   const running = ccTasks.filter((t) => t.busy).length;
   const waiting = ccTasks.filter((t) => !t.busy && t.status === 'waiting').length;
-  $('cc-label').textContent = running ? `Jarvis Code · ${running} working` : ccTasks.length ? `Jarvis Code · ${ccTasks.length}` : 'Jarvis Code';
-  $('deck-summary').textContent = [running && `${running} working`, waiting && `${waiting} waiting for you`].filter(Boolean).join(' · ');
+  // (Written only when it changed: the hub sends the list on every step of every session.)
+  setText($('cc-label'), running ? `Jarvis Code · ${running} working` : ccTasks.length ? `Jarvis Code · ${ccTasks.length}` : 'Jarvis Code');
+  setText($('deck-summary'), [running && `${running} working`, waiting && `${waiting} waiting for you`].filter(Boolean).join(' · '));
   renderProjects(deckProjects);
   const t = currentTask();
   renderHeader(t);
   $('cc-welcome').hidden = !!t && $('deck-timeline').children.length > 0;
   renderComposer();
   if (!t) {
-    $('cc-mode').textContent = 'Pick a session, or start one. ? for shortcuts';
-    $('cc-meta').textContent = '';
+    setText($('cc-mode'), 'Pick a session, or start one. ? for shortcuts');
+    setText($('cc-meta'), '');
     $('cc-working').hidden = true;
     $('jc-todos').hidden = true;
     $('jc-bg').hidden = true;
@@ -2745,17 +2786,17 @@ function renderCC(items) {
     if (changed('queue', null)) renderQueue(null);
     return;
   }
-  $('cc-mode').textContent = `${MODE_LINES[t.mode] || t.mode} · ⇧⇥ to switch${t.ultracode ? ' · ultracode on' : ''}`;
-  $('cc-meta').textContent = [
+  setText($('cc-mode'), `${MODE_LINES[t.mode] || t.mode} · ⇧⇥ to switch${t.ultracode ? ' · ultracode on' : ''}`);
+  setText($('cc-meta'), [
     t.files_changed.length ? `${t.files_changed.length} file${t.files_changed.length === 1 ? '' : 's'}` : '',
     t.cost_usd ? `$${t.cost_usd.toFixed(2)}` : '',
     t.queued ? `${t.queued} queued` : '',
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean).join(' · '));
   setCtx(ccContext[t.id] ? ccContext[t.id].percent : null);
   if (t.busy && !workingSince) workingSince = Date.now();
   if (!t.busy) workingSince = 0;
   $('cc-working').hidden = !t.busy;
-  $('cc-working-text').textContent = `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`;
+  setText($('cc-working-text'), `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`);
   if (changed('todos', [t.id, t.todos])) renderTodos(t.todos || []);
   if (changed('background', [t.id, t.background])) renderBackground(t.background || []);
   if (changed('queue', [t.id, t.queue, t.steerable])) renderQueue(t);
@@ -2823,6 +2864,7 @@ $('jc-title').addEventListener('dblclick', () => {
   const t = currentTask();
   if (!t) return;
   const h = $('jc-title');
+  renaming = t.id;
   h.contentEditable = 'true';
   h.focus();
   document.getSelection().selectAllChildren(h);
@@ -3043,7 +3085,7 @@ function appendEntry(e, replaying = false) {
   } else if (e.role === 'tool' && e.tool) {
     li = toolEntry(e);
   } else if (e.role === 'subtool') {
-    const agent = [...tl.querySelectorAll('.jc-agent')].find((n) => n.dataset.toolId === e.parent);
+    const agent = byToolId(tl, '.jc-agent', e.parent);
     if (agent) { agent.querySelector('.jc-agent-steps').append(mine(el('li', '', e.text))); return; }
     li = el('li', 'jc-note');
     li.append(document.createTextNode('↳ '), mine(el('span', '', e.text)));
@@ -3069,9 +3111,20 @@ function appendEntry(e, replaying = false) {
   }
   tl.insertBefore(li, tl.querySelector(':scope > .jc-ask'));
   $('cc-welcome').hidden = true;
-  // Oldest out first; approval sheets and the live reply sit at the end and stay.
-  const keep = TIMELINE_MAX + tl.querySelectorAll(':scope > .jc-ask').length + (live.text ? 1 : 0) + (live.thinking ? 1 : 0);
+  // Oldest out first; approval sheets and the live reply sit at the end and stay. The sheets
+  // are counted from this entry on (it went in before the first of them), not by a second
+  // walk through the inside of every entry: a transcript is hundreds of them.
+  let sheets = 0;
+  for (let n = li; n; n = n.nextElementSibling) if (n.classList.contains('jc-ask')) sheets++;
+  const keep = TIMELINE_MAX + sheets + (live.text ? 1 : 0) + (live.thinking ? 1 : 0);
   while (tl.childElementCount > keep) tl.firstElementChild.remove();
+}
+
+// The first element under root matching selector whose data-tool-id is id (a string; any
+// other id matches nothing), as [...root.querySelectorAll(selector)].find() would give it,
+// without listing every step of the transcript first.
+function byToolId(root, selector, id) {
+  return typeof id === 'string' ? root.querySelector(`${selector}[data-tool-id="${CSS.escape(id)}"]`) : null;
 }
 
 const ACT_ICONS = {
@@ -3136,7 +3189,7 @@ function onEntryMeta(ev) {
 }
 
 function updateEntry(ev) {
-  const li = [...$('deck-timeline').querySelectorAll('[data-tool-id]')].find((n) => n.dataset.toolId === ev.tool_id);
+  const li = byToolId($('deck-timeline'), '', ev.tool_id);
   if (!li) return;
   toolState(li, ev.status);
   const out = li.querySelector('.jc-out');
@@ -4006,14 +4059,14 @@ function renderComposer() {
   const s = composerState();
   const mode = JC_MODES.find((m) => m.id === s.mode) || JC_MODES[0];
   if ($('jc-mode-btn').dataset.mode !== mode.id) $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
-  $('jc-mode-label').textContent = mode.label;
+  setText($('jc-mode-label'), mode.label);
   $('jc-mode-btn').dataset.mode = mode.id;
   $('jc-bypass').setAttribute('aria-pressed', String(mode.id === 'auto'));
   $('jc-mode-btn').title = `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`;
-  $('jc-model-label').textContent = s.label;
+  setText($('jc-model-label'), s.label);
   $('jc-model').title = `Model: ${s.label} (⌘⇧I)`;
   const stop = effortStop(s);
-  $('jc-effort-label').textContent = `${effortName(stop)}${s.pending ? ' · next step' : ''}`;
+  setText($('jc-effort-label'), `${effortName(stop)}${s.pending ? ' · next step' : ''}`);
   $('jc-effort').classList.toggle('ultra', stop === 5);
   $('jc-effort').title = `Effort: ${effortName(stop)} (⌘⇧E)`;
   $('jc-gauge-fill').style.strokeDashoffset = String(100 - GAUGE[stop]);
@@ -6240,9 +6293,11 @@ function clockText(at, style = 'hm') {
 // lists on every step of every session; rebuilding each time replaced the buttons under
 // the pointer (a click that straddled an update was lost), dropped the keyboard focus and
 // reopened what the user had folded.
+// more: a part of the signature already in JSON, kept apart so a long one isn't escaped
+// again (JSON.stringify writes no line breaks, so the two never run together).
 const drawnParts = new Map();
-function changed(part, data) {
-  const sig = JSON.stringify(data);
+function changed(part, data, more) {
+  const sig = more === undefined ? JSON.stringify(data) : `${JSON.stringify(data)}\n${more}`;
   if (drawnParts.get(part) === sig) return false;
   drawnParts.set(part, sig);
   return true;

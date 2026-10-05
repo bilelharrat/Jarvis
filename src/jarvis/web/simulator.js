@@ -562,7 +562,9 @@
       const now = performance.now();
       state.times.push(now);
       if (state.times.length > 90) state.times.splice(0, state.times.length - 90);
-      footFps.textContent = `${fps(state.times, now)} fps`;
+      // Written when the count changes, not on every frame (each new text is a layout).
+      const rate = `${fps(state.times, now)} fps`;
+      if (footFps.textContent !== rate) footFps.textContent = rate;
       if (sized) { render(); requestBox(false); }
     }
 

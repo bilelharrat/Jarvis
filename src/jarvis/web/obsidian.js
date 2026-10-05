@@ -147,7 +147,22 @@
     ctx.restore();
   }
 
-  const api = { DIAL, TICKS, NIGHT, tickLength, tickBright, ringFor, sweepHead, draw };
+  // What a frame looks like when nothing in it moves on its own (any state but a live one),
+  // as a string, or null in a live state: two frames with the same key are drawn the same.
+  // At rest the dial changes only when the slow light steps on to the next tick, six times a
+  // second, and while the core's glow settles after listening; the window draws twenty
+  // frames a second there, so it skips the ones it has drawn already. It takes in all that
+  // draw() takes from t and the level in such a state: the bright ticks (the lengths and the
+  // ring don't move there) and the core's two figures that follow the level.
+  function stillKey(state, t, level) {
+    if (live(state)) return null;
+    const lv = Math.max(0, Math.min(1, Number(level) || 0));
+    let bright = '';
+    for (let i = 0; i < TICKS; i++) bright += tickBright(i, state, tickLength(i, state, t, level), t) ? '1' : '0';
+    return `${state}|${bright}|${0.07 + lv * 0.08}|${30 + lv * 4}`;
+  }
+
+  const api = { DIAL, TICKS, NIGHT, tickLength, tickBright, ringFor, sweepHead, draw, stillKey };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   root.jarvisReactor = api;
 
@@ -186,13 +201,22 @@
     if (next && next !== px) { px = next; canvas.width = next; canvas.height = next; }
     return px;
   }
+  let drawn = '';  // the still frame the canvas shows (stillKey, with its size and colours)
   function paint(now) {
     if (!fit()) return;
     const target = Number(doc.documentElement.style.getPropertyValue('--level')) || 0;
     level += (target - level) * 0.25;
     const t = reduced.matches ? 0 : (now - t0) / 1000;
-    draw(ctx, px, body.dataset.state || 'idle', t, reduced.matches ? 0 : level, colors);
+    const state = body.dataset.state || 'idle';
+    const lv = reduced.matches ? 0 : level;
+    const still = stillKey(state, t, lv);
+    const key = still === null ? '' : `${px}|${colors.arc}|${colors.ring}|${colors.brass}|${colors.core}|${still}`;
+    if (key && key === drawn) return;  // the same picture as the one there
+    drawn = key;
+    draw(ctx, px, state, t, lv, colors);
   }
+  // A canvas whose context was lost comes back blank: the next frame is drawn whatever it is.
+  canvas.addEventListener('contextrestored', () => { drawn = ''; });
   function tick(now) {
     frame = 0;
     if (!on() || doc.hidden || reduced.matches) return;

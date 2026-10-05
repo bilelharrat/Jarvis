@@ -161,9 +161,13 @@ html body[data-skin="glass"] .orb-core {
     0 24px 80px var(--orb-glow),
     0 0 calc(30px + var(--level) * 60px) rgba(92, 200, 247, calc(0.25 + var(--level) * 0.4));
 }
-/* The light inside: soft blooms of reactor blue that turn, blurred so they never seam. */
-html body[data-skin="glass"] .orb-core::before {
-  content: ''; position: absolute; inset: -20%;
+/* The light inside: soft blooms of reactor blue that turn, blurred so they never seam.
+   An element of its own, not the sphere's ::before: a turning pseudo-element of a breathing
+   element has the page work out both their styles every frame, even at rest, where an
+   element turns on the compositor alone. */
+.orb-light { display: none; }
+html body[data-skin="glass"] .orb-light {
+  display: block; position: absolute; inset: -20%;
   background:
     radial-gradient(circle at 30% 30%, #a4e4ff 0%, rgba(164, 228, 255, 0) 38%),
     radial-gradient(circle at 72% 40%, #3fb8f2 0%, rgba(63, 184, 242, 0) 42%),
@@ -179,10 +183,10 @@ html body[data-skin="glass"] .orb-core::after {
     radial-gradient(circle at 33% 26%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 32%),
     radial-gradient(circle at 50% 42%, rgba(0, 0, 0, 0) 52%, rgba(0, 10, 34, 0.38) 78%);
 }
-html body[data-skin="glass"][data-state="listening"] .orb-core::before { animation-duration: 6s; }
-html body[data-skin="glass"][data-state="thinking"] .orb-core::before,
-html body[data-skin="glass"][data-state="transcribing"] .orb-core::before { animation-duration: 2.2s; }
-html body[data-skin="glass"][data-state="speaking"] .orb-core::before { animation-duration: 8s; }
+html body[data-skin="glass"][data-state="listening"] .orb-light { animation-duration: 6s; }
+html body[data-skin="glass"][data-state="thinking"] .orb-light,
+html body[data-skin="glass"][data-state="transcribing"] .orb-light { animation-duration: 2.2s; }
+html body[data-skin="glass"][data-state="speaking"] .orb-light { animation-duration: 8s; }
 html body[data-skin="glass"] .orb-sheen { display: none; }
 
 /* Four looks: two by two in the sheet's segmented control. */
@@ -201,15 +205,19 @@ html body[data-skin="glass"] .bezel {
 .bezel .bz-major { stroke: rgba(255, 255, 255, 0.38); stroke-width: 11; stroke-dasharray: 1.4 96.0; }
 .bezel .bz-quarter { stroke: #e8c27a; stroke-width: 15; stroke-dasharray: 2.6 289.6; opacity: 0.9; }
 .bezel .bz-ticks { transform: rotate(-90.3deg); transform-origin: 200px 200px; }
-.bezel .bz-comet {
-  transform-origin: 200px 200px; opacity: 0.25;
+/* The comet is a bezel of its own laid over the first, turning as a whole: an SVG turning
+   (a group in it, or the <svg> itself) is run by the page every frame, restyled and painted
+   again sixty times a second even at rest; the box it's in turns on the compositor alone. */
+.bezel.bz-comet {
+  transform-origin: 50% 50%; opacity: 0.25;
   animation: spin 24s linear infinite; transition: opacity 400ms;
 }
-.bezel .bz-comet path { fill: none; stroke: url(#bz-comet); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 4px rgba(143, 219, 255, 0.9)); }
-html body[data-skin="glass"][data-state="listening"] .bezel .bz-comet { opacity: 1; animation-duration: 3s; }
-html body[data-skin="glass"][data-state="thinking"] .bezel .bz-comet,
-html body[data-skin="glass"][data-state="transcribing"] .bezel .bz-comet { opacity: 1; animation-duration: 1.3s; }
-html body[data-skin="glass"][data-state="speaking"] .bezel .bz-comet { opacity: 0.8; animation-duration: 4s; }
+.bezel.bz-comet > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.bezel.bz-comet path { fill: none; stroke: url(#bz-comet); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 4px rgba(143, 219, 255, 0.9)); }
+html body[data-skin="glass"][data-state="listening"] .bezel.bz-comet { opacity: 1; animation-duration: 3s; }
+html body[data-skin="glass"][data-state="thinking"] .bezel.bz-comet,
+html body[data-skin="glass"][data-state="transcribing"] .bezel.bz-comet { opacity: 1; animation-duration: 1.3s; }
+html body[data-skin="glass"][data-state="speaking"] .bezel.bz-comet { opacity: 0.8; animation-duration: 4s; }
 /* The orb's own halo rings would sit on the bezel: the bezel replaces them. */
 html body[data-skin="glass"] .orb { margin: 64px 0 56px; }
 
@@ -331,13 +339,13 @@ html body[data-skin="glass"][data-tone="light"] .bezel .bz-rim { stroke: rgba(16
 html body[data-skin="glass"][data-tone="light"] .bezel .bz-minor { stroke: rgba(16, 32, 56, 0.2); }
 html body[data-skin="glass"][data-tone="light"] .bezel .bz-major { stroke: rgba(16, 32, 56, 0.45); }
 html body[data-skin="glass"][data-tone="light"] .bezel .bz-quarter { stroke: #b88a35; opacity: 1; }
-html body[data-skin="glass"][data-tone="light"] .bezel .bz-comet path { filter: drop-shadow(0 0 3px rgba(30, 150, 240, 0.6)); }
+html body[data-skin="glass"][data-tone="light"] .bezel.bz-comet path { filter: drop-shadow(0 0 3px rgba(30, 150, 240, 0.6)); }
 html body[data-skin="glass"][data-tone="light"] #bz-comet stop { stop-color: #2a9be8; }
 html body[data-skin="glass"][data-tone="light"] #bz-comet stop:last-child { stop-color: #0a6cb3; }
 
 @media (prefers-reduced-motion: reduce) {
   html body[data-skin="glass"]::before,
   html body[data-skin="glass"] .orb-core,
-  html body[data-skin="glass"] .orb-core::before,
-  .bezel .bz-comet { animation: none !important; }
+  html body[data-skin="glass"] .orb-light,
+  .bezel.bz-comet { animation: none !important; }
 }
