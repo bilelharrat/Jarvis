@@ -4,8 +4,9 @@ secret from an address; forgotten one by one or all at once."""
 
 import asyncio
 import json
+import threading
 
-from test_hub import make_hub
+from test_hub import drain, make_hub
 
 from jarvis import brain_sources
 from jarvis.features import brain as brain_feature
@@ -266,3 +267,24 @@ async def test_what_the_owner_saves_is_kept_whether_or_not_memories_are_on(
     assert payload["clips"] == 1 and payload["count"] == 1
     await desk.memories.on_forget({"id": clip["id"], "kind": "clip"})
     assert not memories.clips_kept(folder)
+
+
+async def test_the_list_sent_after_a_page_is_kept_is_read_off_the_hub_s_loop(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """Every kept page is a file (up to MAX_PAGES): the list for Settings is read in a thread,
+    never on the hub's loop, after a page is kept as when it's asked for."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    desk, _, _ = desk_with(hub, read())
+    q = hub.subscribe()
+    where = []
+    real = memories.read_pages
+    monkeypatch.setattr(
+        memories,
+        "read_pages",
+        lambda folder: where.append(threading.current_thread()) or real(folder),
+    )
+    await desk.memories.on_dwell({"url": URL, "tab": 3})
+    sent = [e for e in drain(q) if e["type"] == "browser_ai_memories"]
+    assert len(sent) == 1 and sent[0]["count"] == 1 and sent[0]["recent"][0]["url"] == URL
+    assert where and threading.main_thread() not in where

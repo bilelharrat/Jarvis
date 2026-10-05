@@ -42,7 +42,7 @@ import unicodedata
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
-from functools import cached_property
+from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -63,6 +63,7 @@ MAX_LIMIT = 100_000.0
 MAX_LOG = 2000
 CENT = 0.005
 LABEL_MAX = 48  # the window's labelOf() cuts longer words to 47 and an ellipsis
+KIND_KEPT = 200  # characters: words this long or shorter have their kind kept (_commit_kind)
 
 # The hub gives purchase cards this kind, so a spoken answer counts only when it is the
 # deliberate phrase (is_confirm_phrase), never a bare "yes".
@@ -101,7 +102,10 @@ def _nfkc(text: Any) -> str:
     """Text as it shows: full-width forms read as their plain selves, invisible
     characters are gone, Traditional characters read as Simplified, and curly
     apostrophes are plain."""
-    text = unicodedata.normalize("NFKC", str(text if text is not None else ""))
+    text = str(text if text is not None else "")
+    if text.isascii():  # plain ASCII is that already (most of a page, read before each click)
+        return text
+    text = unicodedata.normalize("NFKC", text)
     text = _INVISIBLE.sub("", text).translate(_TRADITIONAL)
     return text.replace("’", "'").replace("‘", "'")
 
@@ -182,15 +186,19 @@ def js_words(text: Any) -> str:
 
 
 def _units(text: str) -> int:
-    return len(text) + sum(1 for ch in text if ord(ch) > 0xFFFF)  # JavaScript counts UTF-16
+    """Its length as JavaScript counts it (UTF-16): two for a character past U+FFFF."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def _as_label(text: Any) -> str:
     """Words as the window labels a thing (labelOf): spaces run together, and anything
     past 48 characters cut to 47 and an ellipsis."""
     clean = _js_clean(text)
-    if _units(clean) <= LABEL_MAX:
+    if len(clean) <= LABEL_MAX and _units(clean) <= LABEL_MAX:  # (never fewer units than len)
         return clean
+    head = clean[: LABEL_MAX - 1]
+    if len(clean) > LABEL_MAX and max(head) <= "\uffff":  # one unit each: those 47 fit
+        return head + "…"
     out, used = [], 0
     for ch in clean:
         used += 2 if ord(ch) > 0xFFFF else 1
@@ -405,6 +413,7 @@ _SPACED = re.compile(
     r"(?P<suf>€|zł|(?:eur|kr|chf|pln|sek|nok|dkk)(?![a-z]))",
     re.IGNORECASE,
 )
+_DIGIT = re.compile(r"\d")  # (the same digits as the two above: any script's)
 _MINUS = "-−–"
 # Lines where a plain number (no sign, no cents) is still a price.
 _MONEY_CUE = re.compile(
@@ -445,6 +454,8 @@ def _number(whole: str, dec: str | None) -> float:
 def money_in(text: str) -> list[Money]:
     """Every amount in a line of text, with the currencies its sign allows."""
     line = _nfkc(text)
+    if not _DIGIT.search(line):  # every amount has a digit; most lines of a page have none
+        return []
     found: list[Money] = []
     parts, at = [], 0  # the line with the spaced amounts blanked out, built in one pass
     for m in _SPACED.finditer(line):
@@ -493,11 +504,12 @@ def page_lines(page: dict[str, Any] | None) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def _counted(line: str) -> list[Money]:
+def _counted(line: str, found: list[Money] | None = None) -> list[Money]:
     """The numbers on a line that are surely prices: each has a currency sign, or cents,
     or the line is about a price or a total. The line is searched for that once, not once
-    per number: a page line of 7,000 bare numbers took seconds."""
-    found = money_in(line)
+    per number: a page line of 7,000 bare numbers took seconds. found: money_in(line),
+    when it's known already."""
+    found = money_in(line) if found is None else found
     sure = [m for m in found if m.signed or m.decimals == 2]
     if len(sure) < len(found) and _MONEY_CUE.search(line):
         return found
@@ -515,9 +527,14 @@ def amount_on_page(amount: float, currency: str, page: dict[str, Any]) -> bool:
 
 
 def page_currencies(page: dict[str, Any]) -> frozenset[str]:
+    return _currencies_in([money_in(line) for line in page_lines(page)])
+
+
+def _currencies_in(monies: list[list[Money]]) -> frozenset[str]:
+    """page_currencies, from the amounts of each of the page's lines."""
     signs: set[str] = set()
-    for line in page_lines(page):
-        for found in money_in(line):
+    for line in monies:
+        for found in line:
             signs |= found.signs - {"?"}
     return frozenset(signs)
 
@@ -559,23 +576,33 @@ def _total_label(label: str) -> bool:
     return not _NOT_TOTAL.search(re.sub(r"\([^)]*\)", " ", folded))
 
 
-def _priced(line: str) -> list[Money]:
-    return [m for m in money_in(line) if m.signed or m.decimals == 2]
+def _priced(found: list[Money]) -> list[Money]:
+    """Of a line's amounts (money_in), the ones that are surely prices."""
+    return [m for m in found if m.signed or m.decimals == 2]
 
 
 def page_totals(page: dict[str, Any], currency: str | None = None) -> list[float]:
     """The totals the page states ("Order total: $56.26", "Total for 2 nights: $900",
     "合计：¥98", "订单金额：¥98"), in this currency when one is given."""
     lines = page_lines(page)
+    return _totals_in(lines, [money_in(line) for line in lines], currency)
+
+
+def _totals_in(
+    lines: list[str], monies: list[list[Money]], currency: str | None = None
+) -> list[float]:
+    """page_totals, from the page's lines and the amounts of each (each line is read for
+    its amounts once, though a label's price can be on the line after it)."""
+    priced = [_priced(found) for found in monies]
     totals = []
     for i, line in enumerate(lines):
         pairs: list[tuple[str, Money]] = []
         start = 0
-        for price in _priced(line):  # each price with the words just before it
+        for price in priced[i]:  # each price with the words just before it
             pairs.append((line[start : price.start], price))
             start = price.end
         if not pairs and i + 1 < len(lines):  # "Order total" on one line, "$56.26" on the next
-            following = _priced(lines[i + 1])
+            following = priced[i + 1]
             if following and not lines[i + 1][: following[0].start].strip():
                 pairs.append((line, following[0]))
         for label, price in pairs:
@@ -780,8 +807,10 @@ _LEET = re.compile(r"\b(?=\w*[a-z])\w*[01]\w*\b")
 def _skeleton(text: str) -> str:
     """How a label reads to the eye, for sorting only: look-alike letters, accents, and
     a 0 or 1 inside a word ("P1ace 0rder") read as the letters they imitate."""
-    text = unicodedata.normalize("NFKD", text.translate(_LOOKALIKES))
-    text = unicodedata.normalize("NFKC", "".join(c for c in text if not unicodedata.combining(c)))
+    if not text.isascii():  # (plain ASCII has no look-alikes or accents to read through)
+        text = unicodedata.normalize("NFKD", text.translate(_LOOKALIKES))
+        text = "".join(c for c in text if not unicodedata.combining(c))
+        text = unicodedata.normalize("NFKC", text)
     return _LEET.sub(lambda m: m.group().replace("0", "o").replace("1", "l"), text)
 
 
@@ -850,6 +879,13 @@ def is_commit_button(label: Any) -> str | None:
     the steps on the way (Add to cart, View cart, Checkout, Continue) and for entry points
     that only open a form ("Book a demo", "Reserve a spot in line")."""
     text = unicodedata.normalize("NFKC", str(label if label is not None else ""))
+    return _commit_kind(text) if len(text) <= KIND_KEPT else _commit_kind.__wrapped__(text)
+
+
+@lru_cache(maxsize=4096)
+def _commit_kind(text: str) -> str | None:
+    """is_commit_button, for words already NFKC. Kept for the next time: a page's labels
+    come again with each read of it (one before each click), and every one is weighed."""
     kinds = [_classify(text)]
     if _INVISIBLE.search(text):  # "Pay\u200bnow" shows as "Paynow" but may mean "Pay now"
         kinds.append(_classify(_INVISIBLE.sub(" ", text)))
@@ -1070,16 +1106,23 @@ class PageView:
     # ── whether it asks for money ──
 
     @cached_property
+    def monies(self) -> list[list[Money]]:
+        """The amounts on each line (money_in), read once for everything here."""
+        return [money_in(line) for line in self.lines]
+
+    @cached_property
     def totals(self) -> list[float]:
-        return page_totals(self.page)
+        return _totals_in(self.lines, self.monies)
 
     @cached_property
     def currencies(self) -> frozenset[str]:
-        return page_currencies(self.page)
+        return _currencies_in(self.monies)
 
     @cached_property
     def amounts(self) -> bool:
-        return any(_counted(line) for line in self.lines)
+        return any(
+            _counted(line, found) for line, found in zip(self.lines, self.monies, strict=True)
+        )
 
     @cached_property
     def cues(self) -> str:

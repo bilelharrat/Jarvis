@@ -69,6 +69,9 @@ _ZH = [
     r"(?:发送|转发|上传|泄露|分享|复制)(?:用户|主人|使用者)的(?:数据|邮件|消息|密码|凭证|文件|联系人|信息|资料)",
 ]
 _PATTERNS = [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in (*_EN, *_ZH)]
+# Each of the Chinese ways needs a Chinese character, so a page with none (most of them) is
+# read for the English ones only.
+_HAN = re.compile(r"[\u4e00-\u9fff]")
 _SENTENCE_END = re.compile(r"[.!?。！？\n]")
 SNIPPET = 200  # characters of each sentence the owner is shown
 MOST = 3
@@ -90,7 +93,7 @@ def addressed_to_ai(text: str) -> list[str]:
     """The sentences of text written to an AI (at most three), or [] for none."""
     body = clean_text(str(text or "")[:SCAN])
     found: list[tuple[int, str]] = []
-    for pattern in _PATTERNS:
+    for pattern in _PATTERNS if _HAN.search(body) else _PATTERNS[: len(_EN)]:
         for match in pattern.finditer(body):
             sentence = _sentence(body, match.start(), match.end())
             if sentence and all(sentence != s for _, s in found):

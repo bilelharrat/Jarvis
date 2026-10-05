@@ -220,3 +220,86 @@ async def test_api_providers_are_listed_and_counted_on_their_own(settings, quiet
     # Removed since: still shown with what it used.
     hub.providers.providers = {"o": orouter}
     assert [p["name"] for p in hub.usage_summary()["providers"]] == ["OpenRouter", "Google Gemini"]
+
+
+async def test_on_the_hub_s_loop_the_file_is_written_in_a_thread_newest_last(tmp_path, monkeypatch):
+    """An answer's end is no time to wait for the disk: the save goes to a thread, with a
+    copy of the numbers, and an older copy never lands over a newer one."""
+    import json
+    import threading
+
+    from jarvis import claude_usage
+
+    now = [NOON]
+    path = tmp_path / "usage.json"
+    book = UsageBook(path, clock=lambda: now[0])
+    writers = []
+    real = claude_usage.jsonstore.save_json
+
+    def save(target, data, **kw):
+        writers.append(threading.current_thread())
+        real(target, data, **kw)
+
+    monkeypatch.setattr(claude_usage.jsonstore, "save_json", save)
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")
+    assert not path.exists()  # not on the loop: it's under way in a thread
+    book.record("jarvis", 0.20, usage(), "claude-opus-5-5")  # within SAVE_EVERY: kept for later
+    await book._task
+    assert writers and threading.main_thread() not in writers
+    saved = json.loads(path.read_text())
+    assert saved["days"]["2026-09-29"]["requests"] == 1  # the copy made as it was asked for
+    assert book._dirty  # the second answer isn't on disk yet
+    book.flush()  # as the hub closes: the newest, at once
+    assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 2
+    book._write({"days": {}, "limits": {}}, 1)  # a late, older write changes nothing
+    assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 2
+
+
+async def test_a_save_that_fails_in_its_thread_is_tried_again(tmp_path, monkeypatch):
+    from jarvis import claude_usage
+
+    now = [NOON]
+    book = UsageBook(tmp_path / "usage.json", clock=lambda: now[0])
+
+    def full(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(claude_usage.jsonstore, "save_json", full)
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")
+    await book._task
+    assert book._dirty and book._saved_at == 0.0
+    monkeypatch.undo()
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")  # the next answer saves both
+    await book._task
+    assert not book._dirty
+    assert UsageBook(tmp_path / "usage.json").days["2026-09-29"]["requests"] == 2
+
+
+async def test_a_damaged_file_nested_too_deep_to_copy_is_still_saved_and_counted(tmp_path):
+    """A copy of the numbers takes about twice the stack a save does. A damaged usage.json
+    nested past what a copy can follow (its junk kept as it came) is saved at once, as it
+    always was, so an answer and a limit are still counted and nothing raises."""
+    import json
+    import sys
+
+    frames, f = 0, sys._getframe()
+    while f is not None:
+        frames, f = frames + 1, f.f_back
+    deep = (sys.getrecursionlimit() - frames) * 3 // 4  # too deep to copy; not to save
+    path = tmp_path / "usage.json"
+    junk = '{"a":' * deep + "1" + "}" * deep
+    path.write_text('{"days": {}, "limits": {"junk": ' + junk + "}}")
+    now = [NOON]
+    book = UsageBook(path, clock=lambda: now[0])
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")
+    assert book._task is None and not book._dirty  # saved here and now
+    assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 1
+    now[0] += 60
+    book.limit(RateLimitInfo(status="rejected", utilization=1.0, rate_limit_type="five_hour"))
+    assert json.loads(path.read_text())["limits"]["five_hour"]["status"] == "rejected"
+    now[0] += 60
+    book.plan({"seven_day": {"utilization": 0.5, "resets_at": None}})
+    saved = json.loads(path.read_text())
+    assert saved["limits"]["seven_day"]["status"] == "allowed"
+    assert "junk" in saved["limits"] and not book._dirty
+    assert book.summary()["today"]["requests"] == 1

@@ -177,3 +177,30 @@ async def test_jarvis_reads_a_pdf_through_the_hub_s_browser_read(
     again = await seen["browser"]["browser_read"]({"offset": 5})
     assert asked[1][1]["pdfKnown"] == [hashlib.sha1(data, usedforsecurity=False).hexdigest()]
     assert "agreement" in again["content"][0]["text"]
+
+
+async def test_the_file_is_decoded_checked_and_read_off_the_loop_once(monkeypatch):
+    """Up to 25 MB arrives as base64: decoding, hashing and reading it all happen in a thread,
+    once a file; reading on uses the kept text (a scan's "no text" too) as it is."""
+    import threading
+
+    where = []
+    decode, extract = browser_pdf.base64.b64decode, browser_pdf.extract
+
+    def b64decode(*a, **k):
+        where.append(threading.current_thread())
+        return decode(*a, **k)
+
+    def read(data):
+        where.append(threading.current_thread())
+        return extract(data)
+
+    monkeypatch.setattr(browser_pdf.base64, "b64decode", b64decode)
+    monkeypatch.setattr(browser_pdf, "extract", read)
+    scan = tiny_pdf([None, None])
+    first = await browser_pdf.expand(answer(scan))
+    assert len(where) == 2 and threading.main_thread() not in where
+    later = await browser_pdf.expand(answer(scan, offset=5, send=False))
+    assert len(where) == 2  # read on without the file: nothing decoded or read again
+    assert first["text"] == browser_pdf.NO_TEXT and later["text"] == browser_pdf.NO_TEXT[5:]
+    assert later["total"] == len(browser_pdf.NO_TEXT) and later["more"] is False

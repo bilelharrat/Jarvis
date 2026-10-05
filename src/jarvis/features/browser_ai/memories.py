@@ -230,7 +230,7 @@ class Memories:
         }
         await asyncio.to_thread(self._keep, page)
         self._refresh_soon()
-        self.emit()
+        await self.emit_read()
 
     def _keep(self, page: dict[str, Any]) -> None:
         folder = self.folder
@@ -258,7 +258,7 @@ class Memories:
         the brain reads it at once, memories on or not."""
         await asyncio.to_thread(self._keep_clip, item)
         self.hub._spawn(self.refresh())
-        self.emit()
+        await self.emit_read()
 
     def _keep_clip(self, item: dict[str, Any]) -> None:
         now = time.time()
@@ -312,11 +312,13 @@ class Memories:
             ],
         }
 
-    def emit(self) -> None:
-        self.hub.emit("browser_ai_memories", **self.payload())
+    async def emit_read(self) -> None:
+        """browser_ai_memories, with the folder read in a thread: every kept page is a file
+        of its own, up to MAX_PAGES of them, too many to read on the hub's loop."""
+        self.hub.emit("browser_ai_memories", **await asyncio.to_thread(self.payload))
 
     async def on_list(self, _msg: dict[str, Any]) -> None:
-        self.hub.emit("browser_ai_memories", **await asyncio.to_thread(self.payload))
+        await self.emit_read()
 
     async def on_forget(self, msg: dict[str, Any]) -> None:
         """browser_ai_memory_forget: one page or clip (id, kind), or everything (all:
@@ -331,7 +333,7 @@ class Memories:
             where = folder / CLIPS if msg.get("kind") == "clip" else folder
             await asyncio.to_thread(lambda: (where / f"{item}.json").unlink(missing_ok=True))
         self.hub._spawn(self.refresh())
-        self.hub.emit("browser_ai_memories", **await asyncio.to_thread(self.payload))
+        await self.emit_read()
 
     @staticmethod
     def _forget_all(folder: Path) -> None:

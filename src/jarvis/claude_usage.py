@@ -14,8 +14,10 @@ Numbers only; never a word of what was asked.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -171,6 +173,10 @@ class UsageBook:
         self.started = clock()
         self._dirty = False
         self._saved_at = 0.0
+        self._changes = 0  # every change counted, so a write knows whether it's the newest
+        self._on_disk = 0  # the count the file holds (under _writing)
+        self._writing = threading.Lock()
+        self._task: asyncio.Task | None = None
         if path is not None:
             try:
                 data = jsonstore.load_json(path, dict)
@@ -333,14 +339,55 @@ class UsageBook:
 
     def _changed(self) -> None:
         self._dirty = True
-        if self.clock() - self._saved_at >= SAVE_EVERY:
+        self._changes += 1
+        if self.clock() - self._saved_at >= SAVE_EVERY and not self._save_soon():
             self.flush()
+
+    def _save_soon(self) -> bool:
+        """On the hub's loop the file is written in a thread: a save goes all the way to the
+        disk (F_FULLFSYNC), which can take a while on a busy one, and it comes as an answer
+        ends. Its numbers are copied first; the loop goes on changing them. False when it's
+        for the caller to flush at once: no loop (a sync caller), or numbers a copy can't
+        follow."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        if self.path is None or (self._task is not None and not self._task.done()):
+            return True  # the one under way is done in a moment; the next change saves again
+        try:
+            data = copy.deepcopy({"days": self.days, "limits": self.limits})
+        except RecursionError:
+            # A damaged file nested deeper than a copy can follow (a copy takes about twice
+            # the stack a save does): saved at once, as it always was, so counting goes on.
+            return False
+        self._task = asyncio.ensure_future(self._save_later(data, self._changes))
+        return True
+
+    async def _save_later(self, data: dict[str, Any], changes: int) -> None:
+        try:
+            await asyncio.to_thread(self._write, data, changes)
+        except OSError:
+            return  # a full disk: the numbers stay in memory
+        self._dirty = self._changes != self._on_disk  # (a flush may have saved newer since)
+        self._saved_at = self.clock()
+
+    def _write(self, data: dict[str, Any], changes: int) -> None:
+        with self._writing:  # one write at a time, and never an older one over a newer
+            if changes <= self._on_disk:
+                return
+            jsonstore.save_json(self.path, data)
+            self._on_disk = changes
 
     def flush(self) -> None:
         if not self._dirty or self.path is None:
             return
         try:
-            jsonstore.save_json(self.path, {"days": self.days, "limits": self.limits})
+            # After any write under way in a thread, and always the newest. (Straight to the
+            # save, as it always was: a damaged file's deep nesting needs every frame.)
+            with self._writing:
+                jsonstore.save_json(self.path, {"days": self.days, "limits": self.limits})
+                self._on_disk = self._changes
         except OSError:
             return  # a full disk: the numbers stay in memory
         self._dirty = False

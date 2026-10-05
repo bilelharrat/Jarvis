@@ -29,7 +29,8 @@ TEXT_MAX = 2_000_000
 KEEP = 4  # PDFs whose text is kept for reading on
 READ_LIMIT = 20000  # characters per read, as for a page (browser_agent.READ_LIMIT)
 
-_texts: OrderedDict[str, str] = OrderedDict()  # sha1 of the file -> its text
+_texts: OrderedDict[str, str] = OrderedDict()  # sha1 of the file -> its text (or NO_TEXT)
+NO_TEXT = "(This PDF has no text to read: its pages are pictures, such as a scan.)"
 
 
 def ask(request: dict[str, Any]) -> dict[str, Any]:
@@ -56,6 +57,21 @@ def extract(data: bytes) -> str:
     return "\n\n".join(parts)[:TEXT_MAX]
 
 
+def _text_of(raw: str, sha: str) -> str | None:
+    """The text of the PDF sent as raw (base64), NO_TEXT for one with no words on its pages,
+    or None when it didn't arrive whole. Run in a thread, all of it: 25 MB takes a while to
+    decode and hash, and that's once a file, not once a read. Raises what extract raises."""
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if hashlib.sha1(data, usedforsecurity=False).hexdigest() != sha:  # the file's name here
+        return None
+    text = extract(data)
+    words = "".join(line for line in text.splitlines() if not line.startswith("[Page "))
+    return text if words.strip() else NO_TEXT
+
+
 def _failed(r: dict[str, Any], message: str) -> dict[str, Any]:
     out = {k: v for k, v in r.items() if k != "pdf"}
     return {**out, "ok": False, "message": message}
@@ -76,18 +92,14 @@ async def expand(r: dict[str, Any], limit: int = READ_LIMIT) -> dict[str, Any]:
         if len(raw) > PDF_MAX_BYTES * 4 // 3 + 4:
             return _failed(r, "This PDF is too big to read (over 25 MB).")
         try:
-            data = base64.b64decode(raw, validate=True)
-        except (binascii.Error, ValueError):
-            return _failed(r, "The PDF didn't arrive whole. Try reading it again.")
-        if hashlib.sha1(data, usedforsecurity=False).hexdigest() != sha:  # the file's name here
-            return _failed(r, "The PDF didn't arrive whole. Try reading it again.")
-        try:
-            text = await asyncio.to_thread(extract, data)
+            text = await asyncio.to_thread(_text_of, raw, sha)
         except Exception as err:  # a damaged file, a password, pypdf's own limits
             log.info("browser pdf: unreadable (%s)", type(err).__name__)
             return _failed(
                 r, "This PDF couldn't be read: it may be damaged, or locked with a password."
             )
+        if text is None:
+            return _failed(r, "The PDF didn't arrive whole. Try reading it again.")
         _texts[sha] = text
         while len(_texts) > KEEP:
             _texts.popitem(last=False)
@@ -96,9 +108,6 @@ async def expand(r: dict[str, Any], limit: int = READ_LIMIT) -> dict[str, Any]:
         offset = max(0, int(r.get("offset") or 0))
     except (TypeError, ValueError):
         offset = 0
-    words = "".join(line for line in text.splitlines() if not line.startswith("[Page "))
-    if not words.strip():
-        text = "(This PDF has no text to read: its pages are pictures, such as a scan.)"
     piece = text[offset : offset + limit]
     out = {k: v for k, v in r.items() if k != "pdf"}
     out.update(
