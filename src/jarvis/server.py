@@ -381,9 +381,11 @@ FOLDER_WAIT_S = 20.0
 def serve(port: int, token: str) -> None:
     import logging
     import logging.handlers
+    import os
     import sys
 
     from . import jsonstore
+    from .launcher_watch import LAUNCHER_PID
     from .prefs import APP_SUPPORT
 
     # One backend per Mac: two on the same files would save over each other's changes,
@@ -424,6 +426,7 @@ def serve(port: int, token: str) -> None:
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
+    to_stderr = list(logging.getLogger().handlers)
     # And a file of its own, so no line depends on where stderr happens to point.
     log_file = Path.home() / "Library" / "Logs" / "Jarvis" / "jarvis.log"
     with contextlib.suppress(OSError):
@@ -433,6 +436,12 @@ def serve(port: int, token: str) -> None:
         )
         to_file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         logging.getLogger().addHandler(to_file)
+        if os.environ.get(LAUNCHER_PID):
+            # Run by the app, stderr is its backend.log, and jarvis.log has every line: only
+            # warnings and worse go there too, so the day's routine lines never push out the
+            # starts, crashes and tracebacks it's kept for (the app caps it at 5 MB).
+            for handler in to_stderr:
+                handler.setLevel(logging.WARNING)
     for noisy in ("pypdf", "fontTools", "httpx", "httpx2", "mcp"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
 

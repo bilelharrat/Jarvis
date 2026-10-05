@@ -17,6 +17,7 @@ const piece = (name) => {
   return MAIN.slice(start, MAIN.indexOf('\n}\n', start) + 2);
 };
 const state = MAIN.match(/^let browserWritten = .*$/m)[0] + '\n' + MAIN.match(/^let browserWriting = .*$/m)[0];
+const runs = MAIN.match(/^const pagesByItself = .*$/m)[0];
 
 // The store's save and retitle, with the file at `file`, `files` for its writes, and timers
 // the test fires itself.
@@ -27,9 +28,16 @@ function store(file, files = fs.promises) {
     let browserSave = null;
     ${state}
     const browserStore = () => browserData;
+    // A tab here is { id, getTitle, byItself }: byItself, the page it's on came by itself.
+    const parity = { wentByItself: (wc) => Boolean(wc.byItself), isPrivate: () => false };
+    const onResearch = () => false;
+    const RESEARCH_AUTH = /^$/;
+    const researchPath = () => '/';
+    ${runs}
     ${piece('saveBrowserStore')}
+    ${piece('rememberVisit')}
     ${piece('retitleVisit')}
-    return { data: () => browserData, save: saveBrowserStore, retitle: retitleVisit, writing: () => browserWriting };`);
+    return { data: () => browserData, save: saveBrowserStore, visit: rememberVisit, retitle: retitleVisit, writing: () => browserWriting };`);
   const s = make(
     { ...fs, promises: files },
     () => file,
@@ -118,4 +126,33 @@ test('a page’s title is kept on its visit, and saved only when it changed', ()
   s.retitle('https://a.example/', ''); // no title
   assert.equal(s.fire(), 0);
   assert.equal(s.data().history[0].title, 'Hello');
+});
+
+test('a page sending itself somewhere new again and again is one row: the owner’s visits stay', () => {
+  const s = store(join(tmpdir(), 'never-written', 'browser.json'));
+  const history = s.data().history;
+  for (let i = 0; i < 1990; i++) history.push({ url: `https://owner.example/${i}`, title: '', at: i });
+  const tab = { id: 7, byItself: false, getTitle: () => 'Hop' };
+  s.visit('https://hop.example/0', tab); // the owner went there
+  tab.byItself = true;
+  for (let i = 1; i <= 700; i++) s.visit(`https://hop.example/${i}`, tab);
+  assert.equal(history.length, 1992);
+  assert.equal(history.filter((h) => h.url.startsWith('https://owner.example/')).length, 1990);
+  assert.deepEqual(history.slice(-2).map((h) => h.url), ['https://hop.example/0', 'https://hop.example/700']);
+  // Another tab's visit meanwhile: the run's row moves last as it goes on.
+  s.visit('https://other.example/', { id: 8, byItself: false, getTitle: () => 'Other' });
+  s.visit('https://hop.example/701', tab);
+  assert.deepEqual(history.slice(-3).map((h) => h.url), ['https://hop.example/0', 'https://other.example/', 'https://hop.example/701']);
+  assert.equal(history.length, 1993);
+  // The owner sends the tab on: a row of its own, and the page's next run is a new row.
+  tab.byItself = false;
+  s.visit('https://owner.example/next', tab);
+  tab.byItself = true;
+  s.visit('https://hop.example/again', tab);
+  s.visit('https://hop.example/again-2', tab);
+  assert.deepEqual(history.slice(-3).map((h) => h.url), ['https://hop.example/701', 'https://owner.example/next', 'https://hop.example/again-2']);
+  // History cleared: the run starts a new row.
+  s.data().history = [];
+  s.visit('https://hop.example/after-clear', tab);
+  assert.deepEqual(s.data().history.map((h) => h.url), ['https://hop.example/after-clear']);
 });

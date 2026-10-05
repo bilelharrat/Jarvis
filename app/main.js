@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { createAgent } = require('./browser-agent');
-const { backendCommand } = require('./backend-launch'); // the bundled backend, else uv and the repo
+const { backendCommand, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
 const { isCertError } = require('./browser-lib');
 
@@ -97,15 +97,12 @@ function freePort() {
 }
 
 // backend.log keeps the last few starts: past 5 MB it becomes backend.1.log (replacing
-// the one before), so a crash loop or a noisy backend can't fill the disk.
+// the one before), at a start and as the backend runs (backend-launch.js), so a crash loop
+// or a noisy backend can't fill the disk.
 const BACKEND_LOG_MAX = 5 * 1024 * 1024;
 
 function openBackendLog() {
-  const file = path.join(LOG_DIR, 'backend.log');
-  try {
-    if (fs.statSync(file).size > BACKEND_LOG_MAX) fs.renameSync(file, path.join(LOG_DIR, 'backend.1.log'));
-  } catch (_) { /* no log yet */ }
-  return fs.createWriteStream(file, { flags: 'a' });
+  return new BackendLog(path.join(LOG_DIR, 'backend.log'), { max: BACKEND_LOG_MAX });
 }
 
 // The microphone is asked for here, by the app itself, before the backend first opens it. On a
@@ -142,10 +139,12 @@ function startBackend() {
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''}\n`);
   backendFromRepo = !how.bundled;
   backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-  backend.stdout.pipe(log);
-  backend.stderr.pipe(log);
+  // Both into the one log, which ends once both have (the backend gone, its pipes closed).
+  backend.stdout.pipe(log, { end: false });
+  backend.stderr.pipe(log, { end: false });
+  backend.once('close', () => log.end());
   backend.on('error', (err) => showProblem(`Couldn't start the backend: ${err.message}`));
-  backend.on('exit', (code) => {
+  backend.on('exit', (code, signal) => {
     backend = null;
     if (quitting) return;
     if (quietRestart) {
@@ -153,7 +152,7 @@ function startBackend() {
       reopenBackend();
       return;
     }
-    restartBackend(code);
+    restartBackend(code, signal);
   });
 }
 
@@ -213,22 +212,24 @@ function reopenHidden() {
 }
 
 // A backend that stops on its own is started again (a few times, a little later each
-// time), so a crash never leaves Jarvis dead; the log keeps what happened.
+// time), so a crash never leaves Jarvis dead; the log keeps what happened. One ended by a
+// signal (macOS's memory pressure, Force Quit, a crash) has no exit code: the signal is named.
 let restarts = [];
-function restartBackend(code) {
+function restartBackend(code, signal) {
   const now = Date.now();
   restarts = restarts.filter((t) => now - t < 5 * 60_000);
   // 75: another backend holds the data folder (server.serve): one still quitting, or a
   // `jarvis serve` started in a terminal.
   const taken = code === 75;
+  const how = signal ? `was stopped (${signal})` : `stopped (exit ${code})`;
   if (restarts.length >= 3) {
     showProblem(taken
       ? 'Another JARVIS backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Jarvis again.'
-      : `The backend stopped (exit ${code}) three times in five minutes. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+      : `The backend ${how} three times in five minutes. Details are in ~/Library/Logs/Jarvis/backend.log.`);
     return;
   }
   restarts.push(now);
-  showProblem(taken ? 'Another JARVIS backend is still using your data. Waiting for it to finish…' : `The backend stopped (exit ${code}). Starting it again…`);
+  showProblem(taken ? 'Another JARVIS backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
   setTimeout(async () => {
     if (quitting || backend) return;
     startBackend();
@@ -505,16 +506,72 @@ function dropTab(view, url, close = false) {
 // ── Chrome's everyday features: shortcuts, history, bookmarks, find, the page's menu,
 // downloads (always asked first: Jarvis can click in this browser too) ──
 
-async function faviconData(ses, url) {
+// A tab's icon, as data (the window only shows local and data: images). Only an icon's worth
+// is ever read: one bigger than FAVICON_MAX, by its Content-Length or as it arrives, is
+// dropped there and then, so a page pointing its icon at something huge costs the app
+// nothing. '' when there's no icon to show; null when it couldn't be read (stopped, timed
+// out, the network), which is tried again next time.
+const FAVICON_MAX = 64000;
+async function faviconData(ses, url, signal) {
+  const stop = new AbortController();
+  const quit = () => stop.abort();
+  const timer = setTimeout(quit, 5000);
+  if (signal) signal.addEventListener('abort', quit, { once: true });
   try {
-    const res = await ses.fetch(url, { signal: AbortSignal.timeout(5000) });
+    const res = await ses.fetch(url, { signal: stop.signal });
     const type = res.headers.get('content-type') || 'image/x-icon';
-    if (!res.ok || !/^image\//.test(type)) return '';
-    const bytes = Buffer.from(await res.arrayBuffer());
-    return bytes.length > 64000 ? '' : `data:${type.split(';')[0]};base64,${bytes.toString('base64')}`;
+    const fits = /^image\//.test(type) && !(Number(res.headers.get('content-length')) > FAVICON_MAX);
+    if (!res.ok || !fits) {
+      quit();
+      return res.ok ? '' : null;
+    }
+    const parts = [];
+    let size = 0;
+    const reader = res.body ? res.body.getReader() : null;
+    for (;;) {
+      const { done, value } = reader ? await reader.read() : { done: true };
+      if (done) break;
+      size += value.byteLength;
+      if (size > FAVICON_MAX) {
+        quit();
+        reader.cancel().catch(() => {});
+        return '';
+      }
+      parts.push(Buffer.from(value));
+    }
+    return `data:${type.split(';')[0]};base64,${Buffer.concat(parts).toString('base64')}`;
   } catch {
-    return '';
+    return null;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', quit);
   }
+}
+
+// The icons read lately, by profile, so a page swapping between a few (a badge for unread
+// mail) reads each once. A private tab's are kept nowhere.
+const ICONS_KEPT = 64;
+const iconsKept = new WeakMap(); // session -> Map(icon address -> data: URL or ''), the latest used last
+async function tabIcon(wc, url, signal) {
+  const ses = wc.session;
+  let kept = null;
+  if (!parity.isPrivate(wc)) {
+    kept = iconsKept.get(ses);
+    if (!kept) iconsKept.set(ses, (kept = new Map()));
+    if (kept.has(url)) {
+      const icon = kept.get(url);
+      kept.delete(url);
+      kept.set(url, icon);
+      return icon;
+    }
+  }
+  const icon = await faviconData(ses, url, signal);
+  if (icon === null) return '';
+  if (kept) {
+    kept.set(url, icon);
+    if (kept.size > ICONS_KEPT) kept.delete(kept.keys().next().value);
+  }
+  return icon;
 }
 
 function browserShortcut(input) {
@@ -609,13 +666,32 @@ function saveBrowserStore() {
       .catch(() => { if (browserWritten === text) browserWritten = ''; }); // tried again at the next change
   }, 400);
 }
+// A page a tab went on to by itself (a redirect by script, location.replace, a meta refresh:
+// no click or address of the owner's behind it) shares one row of the history with the rest
+// of that run, kept up to date and moved last as it goes. A page sending itself somewhere new
+// again and again is one row, never thousands pushing the owner's own visits out.
+const pagesByItself = new Map(); // webContents id -> the history row its page's own run writes into
 function rememberVisit(url, wc) {
+  const byItself = parity.wentByItself(wc);
+  if (!byItself) pagesByItself.delete(wc.id); // the owner's: a run of the page's own ends
   if (!/^https?:/.test(url) || (onResearch(url) && RESEARCH_AUTH.test(researchPath(url)))) return;
   if (parity.isPrivate(wc)) return; // a private tab's visits are kept nowhere
   const store = browserStore();
+  const run = byItself ? pagesByItself.get(wc.id) : null;
+  const at = run ? store.history.lastIndexOf(run) : -1;
+  if (at >= 0) {
+    if (at < store.history.length - 1) { store.history.splice(at, 1); store.history.push(run); }
+    run.url = url;
+    run.title = wc.getTitle() || '';
+    run.at = Date.now();
+    saveBrowserStore();
+    return;
+  }
   const last = store.history[store.history.length - 1];
   if (last && last.url === url) return;
-  store.history.push({ url, title: wc.getTitle() || '', at: Date.now() });
+  const row = { url, title: wc.getTitle() || '', at: Date.now() };
+  store.history.push(row);
+  if (byItself) pagesByItself.set(wc.id, row);
   if (store.history.length > 2000) store.history.splice(0, store.history.length - 2000);
   saveBrowserStore();
 }
@@ -638,7 +714,7 @@ function pageMenu(view, p) {
   }
   if (p.mediaType === 'image' && p.srcURL) {
     if (/^https?:/.test(p.srcURL)) items.push({ label: 'Open Image in New Tab', click: () => { newTab(p.srcURL, parity.profileOf(wc)); sendBrowserState(); } });
-    items.push({ label: 'Save Image As…', click: () => wc.downloadURL(p.srcURL) });
+    items.push({ label: 'Save Image As…', click: () => { parity.acted(wc); wc.downloadURL(p.srcURL); } }); // (the user's, however long the menu was up)
     items.push({ label: 'Copy Image', click: () => wc.copyImageAt(p.x, p.y) });
     sep();
   }
@@ -676,6 +752,39 @@ let downloadIds = 0;
 let downloadsReady = false;
 const stagingDir = () => path.join(app.getPath('userData'), 'download-staging');
 
+// Which downloads are staged at all. One the user asked for (a click or key in the page a
+// moment ago, JARVIS's own, the page menu's Save Image As…) goes ahead. As in Chrome, a page
+// may start one more by itself, and the rest are refused until the user next acts in it or
+// goes to another page (Chrome asks about "multiple files" there; a page's own a.click() in a
+// loop would otherwise fill the disk with files nobody wanted). However they start, no more
+// than DOWNLOADS_WAITING_MAX wait for Save at once.
+const DOWNLOADS_WAITING_MAX = 10;
+const unaskedDownload = new WeakMap(); // webContents -> the user's last act in it when its page last started one by itself
+let downloadNoted = 0;
+function mayDownload(item, wc) {
+  const page = wc && !wc.isDestroyed() ? wc : null;
+  let waiting = 0;
+  for (const d of downloads.values()) if (!d.saved && !d.failed) waiting += 1;
+  if (waiting >= DOWNLOADS_WAITING_MAX) return refuseDownload(page, 'Downloads are waiting for Save or Cancel. Answer them first, then download again.');
+  if (!page || parity.gesture(page) || item.hasUserGesture()) return true;
+  const since = parity.lastAct(page);
+  if (unaskedDownload.has(page) && unaskedDownload.get(page) === since) {
+    return refuseDownload(page, `${hostOf(page.getURL()) || 'The page'} tried to download more files by itself. Click its link to download one.`);
+  }
+  unaskedDownload.set(page, since);
+  return true;
+}
+// Said in the browser's status line for the tab on show, now and then (a page refused in a
+// loop says it once).
+function refuseDownload(page, text) {
+  const shown = !page || (browserView && page === browserView.webContents);
+  if (shown && win && !win.isDestroyed() && Date.now() - downloadNoted > 3000) {
+    downloadNoted = Date.now();
+    win.webContents.send('browser:note', { text });
+  }
+  return false;
+}
+
 function downloadTarget(name) {
   const dir = app.getPath('downloads');
   const ext = path.extname(name);
@@ -708,7 +817,8 @@ function readyDownloads() {
   if (downloadsReady) return;
   downloadsReady = true;
   fs.rmSync(stagingDir(), { recursive: true, force: true }); // left by a quit mid-download
-  const staging = (_event, item) => {
+  const staging = (event, item, wc) => {
+    if (!mayDownload(item, wc)) { event.preventDefault(); return; } // refused before a byte is written
     const id = ++downloadIds;
     const name = path.basename(item.getFilename() || 'download').replace(/^\.+/, '') || 'download';
     fs.mkdirSync(stagingDir(), { recursive: true });
@@ -861,9 +971,16 @@ function createTab(opts = {}) {
     const popup = parity.windowOpen(wc, details); // a sign-in or payment popup: a real window (browser-parity.js)
     if (popup) return popup;
     const { url } = details;
-    // a link that wants a new window: a new tab (behind, when it came from a tab behind)
-    // (a private page's, or one shown beside the dock's or in a window of its own: a tab in front, in its profile)
-    if (/^https?:\/\//.test(url)) { if (view === browserView || view.private || parity.shownElsewhere(view)) newTab(url, parity.profileOf(wc)); else browserAgent.popup(view, url, parity.profileOf(wc) || {}); }
+    if (!/^https?:\/\//.test(url)) return { action: 'deny' };
+    // a link that wants a new window, clicked a moment ago (by the user, or JARVIS) on a page
+    // on show (the tab on show, one beside it or in a window of its own, a private tab): a new
+    // tab in front, in the page's profile, one per click. Anything else (a tab behind's link, a
+    // page opening windows by itself as it loads) is a tab behind, and none past
+    // browser-agent.js's TABS_MAX: a page opening one more as each loads would otherwise open
+    // tabs without end, each the tab on show.
+    const shown = view === browserView || view.private || parity.shownElsewhere(view);
+    if (shown && parity.gesture(wc, { spend: true })) newTab(url, parity.profileOf(wc));
+    else browserAgent.popup(view, url, parity.profileOf(wc) || {});
     return { action: 'deny' };
   });
   parity.wireTab(view); // per-site permission prompts (browser-parity.js)
@@ -874,16 +991,33 @@ function createTab(opts = {}) {
     if (input.type === 'keyDown' && !browserSynthetic && !agentInput && !parity.poppedOut(view) && browserShortcut(input)) { event.preventDefault(); return; }
     if (active() && browserLocked && !browserSynthetic) event.preventDefault();
   });
-  // The window only shows local and data: images, so the icon comes over as data.
+  // The window only shows local and data: images, so the icon comes over as data. One read
+  // at a time per tab: a newer icon stops the one on its way, and only the latest is shown
+  // (an older, slower one never lands over it).
   wc.on('page-favicon-updated', async (_event, icons) => {
     const url = (icons || []).find((u) => /^(https?:|data:image\/)/.test(u));
-    if (!url) return;
-    view.favicon = url.startsWith('data:') ? url.slice(0, 90000) : await faviconData(wc.session, url);
+    if (!url || (url === view.faviconWant && view.faviconStop)) return; // (that one's on its way)
+    if (view.faviconStop) view.faviconStop.abort();
+    view.faviconStop = null;
+    view.faviconWant = url;
+    let icon = url.slice(0, 90000);
+    if (!url.startsWith('data:')) {
+      const stop = new AbortController();
+      view.faviconStop = stop;
+      icon = await tabIcon(wc, url, stop.signal);
+      if (stop.signal.aborted) return; // a newer icon, or the tab closed
+      view.faviconStop = null;
+    }
+    view.favicon = icon;
     sendBrowserState();
   });
   wc.on('did-navigate', (_event, url) => { blockedOn.set(wc.id, 0); rememberVisit(url, wc); tellLockable(wc); });
   const id = wc.id;
-  wc.once('destroyed', () => blockedOn.delete(id)); // a closed tab's count goes with it
+  wc.once('destroyed', () => { // a closed tab's count, icon read and own run of pages go with it
+    blockedOn.delete(id);
+    if (view.faviconStop) view.faviconStop.abort();
+    pagesByItself.delete(id);
+  });
   wc.on('page-title-updated', () => retitleVisit(wc.getURL(), wc.getTitle()));
   wc.on('enter-html-full-screen', () => { if (active() && win) win.webContents.send('browser:page-fullscreen', true); });
   wc.on('leave-html-full-screen', () => { if (win) win.webContents.send('browser:page-fullscreen', false); });
@@ -1067,6 +1201,8 @@ const parity = createParity({
   dev: Boolean(DEV_URL),
   // A popup's link for a new window, or a new private tab: a tab in the dock.
   openTab: (url, opts) => { ensureBrowser(); newTab(url, opts); sendBrowserState(); if (win && !win.isDestroyed()) win.webContents.send('browser:open'); },
+  // One a popup opens by itself: a tab behind the one on show, kept to TABS_MAX as a tab's are.
+  openTabBehind: (url, opts) => { ensureBrowser(); browserAgent.popup({}, url, opts || {}); },
   // The tabs put back from last time: each an empty tab its page is loaded into.
   restoreTab: () => { const view = createTab(); tabs.push(view); browserAsked = true; return view; },
   select: (view) => { selectTab(view); sendBrowserState(); },

@@ -161,6 +161,8 @@ let boxAnswer = 1;
 const syncBoxes = []; // the leave-page questions
 let syncAnswer = 1;
 const opened = []; // new tabs main.js would have opened
+const openedBehind = []; // ones it would have opened behind the tab on show (a page's own)
+const behindProfiles = []; // the profile each of those would have been in
 const browserData = { bookmarks: [], history: [] }; // main.js's browser.json
 let saves = 0; // its saves
 let savePick = { canceled: true }; // where the Save box says to save
@@ -386,6 +388,58 @@ test('A link for a new window, or a popup a page opens by itself, is a tab as be
   await sleep(500);
   assert(popupsOpen().length - before === 3 && opened.length === 2, `${popupsOpen().length - before} popups, tabs ${JSON.stringify(opened)}`);
   for (const w of popupsOpen()) w.destroy();
+});
+
+test('A popup opening windows by itself puts them behind; one click opens one tab in front', async () => {
+  const view = newTab();
+  active = view;
+  await view.webContents.loadURL(`${base}/opener`);
+  await click(view.webContents, '#pay');
+  const popup = await until(() => popupsOpen().find((w) => w.webContents.getURL() === `${base}/popup`), 10000);
+  assert(popup, 'no popup window');
+  opened.length = 0;
+  openedBehind.length = 0;
+  await popup.webContents.executeJavaScript(`window.open('/other?by-itself'); 1`, true);
+  await until(() => openedBehind.length);
+  assert(JSON.stringify(openedBehind) === JSON.stringify([`${base}/other?by-itself`]) && !opened.length, `in front: ${JSON.stringify(opened)}, behind: ${JSON.stringify(openedBehind)}`);
+  // One click, two windows: the first is the click's, in front; the second goes behind.
+  popup.webContents.emit('before-mouse-event', { preventDefault() {} }, { type: 'mouseDown', x: 5, y: 5, button: 'left' });
+  await popup.webContents.executeJavaScript(`window.open('/other?1'); window.open('/other?2'); 1`, true);
+  await until(() => openedBehind.length > 1);
+  assert(JSON.stringify(opened) === JSON.stringify([`${base}/other?1`]), `in front: ${JSON.stringify(opened)}`);
+  assert(openedBehind[1] === `${base}/other?2`, `behind: ${JSON.stringify(openedBehind)}`);
+  popup.destroy();
+});
+
+test('A page the tab goes to by itself is its own; one the owner sends it to, or clicks to, is the owner’s', async () => {
+  const view = newTab();
+  const wc = view.webContents;
+  const landed = (url) => new Promise((resolve) => { const on = (_e, at) => { if (at === url) { wc.off('did-navigate', on); resolve(); } }; wc.on('did-navigate', on); });
+  await wc.loadURL(`${base}/other`);
+  assert(!parity.wentByItself(wc), 'an address the owner gave counts as the page’s own');
+  const sent = parity.lastAct(wc);
+  assert(sent > 0, 'the owner sending the tab somewhere is no act of theirs');
+  let there = landed(`${base}/?replaced`);
+  await wc.executeJavaScript(`location.replace('/?replaced'); 1`, true);
+  await there;
+  assert(parity.wentByItself(wc), 'a page’s own location.replace counts as the owner’s');
+  assert(parity.lastAct(wc) === sent, 'a page moving on by itself counts as the owner acting');
+  // The owner's click: the page it goes to is theirs, and the click is used up by it.
+  wc.emit('before-mouse-event', { preventDefault() {} }, { type: 'mouseDown', x: 5, y: 5, button: 'left' });
+  there = landed(`${base}/other?clicked`);
+  await wc.executeJavaScript(`location.href = '/other?clicked'; 1`, true);
+  await there;
+  assert(!parity.wentByItself(wc), 'a page the owner clicked to counts as the page’s own');
+  assert(!parity.gesture(wc), 'the click that went to a page could open a tab as well');
+  there = landed(`${base}/?after`);
+  await wc.executeJavaScript(`location.href = '/?after'; 1`, true);
+  await there;
+  assert(parity.wentByItself(wc), 'a page going on by itself after the owner’s click counts as theirs');
+  // The menu's own act (Save Image As…) counts as a click in the page.
+  parity.acted(wc);
+  assert(parity.gesture(wc) && parity.lastAct(wc) > sent, 'the app’s own act on the page is not the owner’s');
+  tabs.splice(tabs.indexOf(view), 1);
+  wc.close();
 });
 
 test('A page with unsaved work asks before it goes: Stay keeps it, Leave goes; with nobody to ask it stays', async () => {
@@ -781,8 +835,15 @@ test('A private tab keeps nothing: its own cookies, no visits, no session, no zo
   // Its new tabs stay private: a link for a new window, or one from a popup it opened.
   assert(parity.profileOf(priv.webContents).partition === PRIVATE_PARTITION && parity.profileOf(normal.webContents) === undefined, 'a private tab’s links would leave it');
   const privPopup = new BrowserWindow({ show: false, webPreferences: { partition: PRIVATE_PARTITION, sandbox: true } });
+  parity.wire(privPopup.webContents); // as a popup the page opened is
+  privPopup.webContents.emit('before-mouse-event', { preventDefault() {} }, { type: 'mouseDown', x: 5, y: 5, button: 'left' }); // the link, clicked
   parity.toTab({ url: `${base}/other?from-private-popup` }, privPopup.webContents);
   assert(active.private === true && active !== priv, 'a private popup’s link opened outside the private profile');
+  // One the popup opens by itself goes behind, private too.
+  openedBehind.length = 0;
+  behindProfiles.length = 0;
+  parity.toTab({ url: `${base}/other?by-itself` }, privPopup.webContents);
+  assert(openedBehind.length === 1 && behindProfiles[0] && behindProfiles[0].partition === PRIVATE_PARTITION, `behind: ${JSON.stringify(behindProfiles)}`);
   tabs.splice(tabs.indexOf(active), 1);
   active.webContents.close();
   privPopup.destroy();
@@ -1036,6 +1097,7 @@ app.whenReady().then(async () => {
     boxSync: (owner, options) => { syncBoxes.push({ owner, options }); return syncAnswer; },
     showPopup: () => {}, // no window is shown here
     openTab: (url, opts) => { opened.push(url); if (opts) { const view = newTab(opts); active = view; } },
+    openTabBehind: (url, opts) => { openedBehind.push(url); behindProfiles.push(opts); },
     restoreTab: () => newTab(),
     select: (view) => { active = view; parity.selected(view); },
     closeTab: (view) => { tabs.splice(tabs.indexOf(view), 1); view.webContents.close(); },

@@ -5,7 +5,9 @@
 //   else the folder scripts/bake-home.js recorded. JARVIS_HOME also wins over a bundled one.
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
+const { Writable } = require('stream');
 
 // The bundled Python, relative to the app's Resources folder.
 const BUNDLED_PYTHON = path.join('backend', 'python', 'bin', 'python3');
@@ -68,4 +70,71 @@ function backendCommand({ packaged, resourcesPath, env, port, token, extraPath, 
   };
 }
 
-module.exports = { backendCommand, bundledEnv, bundledPython, BUNDLED_PYTHON };
+// backend.log, as the backend runs: what it prints (stdout and stderr, piped in) is
+// appended, and past `max` bytes the file becomes <name>.1.log (replacing the one before) and
+// a new one starts, there and then. Not only at a start: closing the window keeps JARVIS
+// running for weeks, and a noisy backend (a retry storm, a traceback over and over) would
+// otherwise fill the disk. Writes go one at a time, so a turn of the file never splits or
+// reorders them, and the backend waits (its pipes do) while the disk catches up. A write the
+// disk refuses (it's full) is dropped: the backend never stops for its log.
+class BackendLog extends Writable {
+  constructor(file, { max, fsys = fs } = {}) {
+    super({ decodeStrings: true });
+    this.file = file;
+    this.older = path.join(path.dirname(file), `${path.basename(file, '.log')}.1.log`);
+    this.max = max;
+    this.fs = fsys;
+    this.fd = null;
+    this.size = 0;
+    let size = 0;
+    try { size = this.fs.statSync(file).size; } catch { /* none yet */ }
+    this.turn(size > max); // the last starts' log, too big already: put aside first
+  }
+
+  // The file opened (again), after putting it aside as <name>.1.log when asked to.
+  turn(aside) {
+    this.closeFile();
+    if (aside) {
+      try { this.fs.renameSync(this.file, this.older); } catch { /* gone meanwhile: a new one starts */ }
+    }
+    try {
+      this.fd = this.fs.openSync(this.file, 'a', 0o644);
+      this.size = this.fs.fstatSync(this.fd).size;
+    } catch {
+      this.closeFile(); // (no folder or no room just now: the next write tries again)
+    }
+  }
+
+  closeFile() {
+    if (this.fd === null) return;
+    try { this.fs.closeSync(this.fd); } catch { /* closed already */ }
+    this.fd = null;
+  }
+
+  _write(chunk, _encoding, done) {
+    const put = (from) => {
+      if (this.fd === null) this.turn(false);
+      if (this.fd === null) { done(); return; } // dropped: nowhere to put it
+      this.fs.write(this.fd, chunk, from, chunk.length - from, null, (err, written) => {
+        if (err || !written) { this.closeFile(); done(); return; } // dropped; opened afresh next time
+        this.size += written;
+        if (from + written < chunk.length) { put(from + written); return; }
+        if (this.size > this.max) this.turn(true);
+        done();
+      });
+    };
+    put(0);
+  }
+
+  _final(done) {
+    this.closeFile();
+    done();
+  }
+
+  _destroy(err, done) {
+    this.closeFile();
+    done(err);
+  }
+}
+
+module.exports = { backendCommand, bundledEnv, bundledPython, BackendLog, BUNDLED_PYTHON };

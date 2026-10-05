@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { SitePermissions, kindsFor, originOf, cleanSites, hostOfOrigin } = require('../../app/site-permissions.js');
+const { SitePermissions, SAME_MAX, kindsFor, originOf, cleanSites, hostOfOrigin } = require('../../app/site-permissions.js');
 
 const MEET = 'https://meet.google.com';
 const cam = { mediaTypes: ['video'] };
@@ -113,6 +113,20 @@ test('a new page drops what the old one asked; a flood of prompts is refused', a
   for (let i = 0; i < 10; i++) flood.push(p.request({ tab: 3, origin: `https://s${i}.example`, permission: 'geolocation' }));
   assert.equal(p.pending.length, 6);
   assert.deepEqual((await Promise.all(flood.slice(6))), [false, false, false, false]);
+});
+
+test('a page asking the same again and again while its prompt is up holds only so many answers', async () => {
+  const p = new SitePermissions();
+  const asks = [];
+  for (let i = 0; i < 5000; i++) asks.push(p.request({ tab: 4, origin: MEET, permission: 'notifications' }));
+  assert.equal(p.pending.length, 1, 'one prompt for all of them');
+  assert.equal(p.pending[0].resolvers.length, SAME_MAX, 'every repeat held an answer');
+  // The repeats past the cap were refused at once; the ones held get the person's answer.
+  const early = await Promise.all(asks.slice(SAME_MAX));
+  assert.ok(early.every((ok) => ok === false));
+  assert.equal(p.answer(p.pending[0].id, 'once'), true);
+  assert.deepEqual(await Promise.all(asks.slice(0, SAME_MAX)), Array(SAME_MAX).fill(true));
+  assert.equal(await p.request({ tab: 4, origin: MEET, permission: 'notifications' }), true, 'allowed this time, asked again');
 });
 
 test('an answer settles the other prompts it decides', async () => {

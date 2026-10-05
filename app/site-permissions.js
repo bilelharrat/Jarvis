@@ -14,6 +14,10 @@ const KINDS = ['camera', 'microphone', 'location', 'notifications', 'clipboard']
 const VALUES = new Set(['allow', 'block']);
 const ORIGINS_MAX = 500;
 const PENDING_MAX = 6; // prompts one tab may have waiting; more are refused at once
+// Asks one prompt may hold while it waits (a page asking the same again and again shares the
+// prompt on show; past this, each repeat is refused at once, so a page asking in a loop holds
+// no more of the main process however long the prompt stays up).
+const SAME_MAX = 20;
 
 // The permission Electron names, as the kinds a person is asked about (null: never asked).
 function kindsFor(permission, details = {}) {
@@ -116,7 +120,11 @@ class SitePermissions {
     if (!open.length) return Promise.resolve(true);
     return new Promise((resolve) => {
       const same = this.pending.find((p) => p.tab === tab && p.origin === origin && sameKinds(p.kinds, open));
-      if (same) { same.resolvers.push(resolve); return; }
+      if (same) {
+        if (same.resolvers.length >= SAME_MAX) resolve(false);
+        else same.resolvers.push(resolve);
+        return;
+      }
       if (this.pending.filter((p) => p.tab === tab).length >= PENDING_MAX) { resolve(false); return; }
       this.pending.push({ id: `${this.prefix}${++this.seq}`, tab, origin, kinds: open, at: this.seq, resolvers: [resolve] });
       this.onChange();
@@ -224,4 +232,4 @@ function sameKinds(a, b) {
   return a.length === b.length && a.every((k) => b.includes(k));
 }
 
-module.exports = { SitePermissions, KINDS, kindsFor, originOf, hostOfOrigin, cleanSites };
+module.exports = { SitePermissions, KINDS, SAME_MAX, kindsFor, originOf, hostOfOrigin, cleanSites };

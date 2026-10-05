@@ -1,12 +1,17 @@
 // Which backend the app starts (app/backend-launch.js): the downloadable app its bundled
 // Python, clean of the user's PYTHON* settings; the owner's own build uv and the repo, as
-// before; JARVIS_HOME always the repo. node --test tests/web/
+// before; JARVIS_HOME always the repo. And its log, kept to its size as it runs.
+// node --test tests/web/
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { backendCommand, bundledEnv } = require('../../app/backend-launch.js');
+const { backendCommand, bundledEnv, BackendLog } = require('../../app/backend-launch.js');
 
 const RES = '/Applications/J.A.R.V.I.S.app/Contents/Resources';
 const PY = `${RES}/backend/python/bin/python3`;
@@ -76,4 +81,78 @@ test('npm start (not packaged) and JARVIS_HOME use uv even beside a bundled back
   const { how } = launch({ env: { JARVIS_HOME: '/Users/owner/jarvis' } });
   assert.equal(how.bundled, false);
   assert.equal(how.args[0], 'run');
+});
+
+// ── backend.log ──
+
+function logFolder(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-backend-log-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function ended(log) {
+  return new Promise((resolve, reject) => { log.on('finish', resolve); log.on('error', reject); });
+}
+
+test('a running backend that prints a lot keeps backend.log near its cap, the newest lines in it', async (t) => {
+  const dir = logFolder(t);
+  const file = path.join(dir, 'backend.log');
+  const log = new BackendLog(file, { max: 64 * 1024 });
+  const out = new PassThrough();
+  const err = new PassThrough();
+  out.pipe(log, { end: false });
+  err.pipe(log, { end: false });
+  const drained = Promise.all([out, err].map((s) => new Promise((resolve) => s.on('end', resolve))));
+  err.write('a warning\n');
+  for (let i = 0; i < 2000; i++) out.write(`line ${i} ${'x'.repeat(200)}\n`);
+  out.end();
+  err.end();
+  await drained; // (the backend gone: main.js ends the log once both pipes have)
+  const done = ended(log);
+  log.end();
+  await done;
+  const size = fs.statSync(file).size;
+  const older = fs.readFileSync(path.join(dir, 'backend.1.log'), 'utf8');
+  assert.ok(size <= 64 * 1024 + 300, `backend.log is ${size} bytes`);
+  assert.ok(fs.readFileSync(file, 'utf8').trimEnd().endsWith(`line 1999 ${'x'.repeat(200)}`));
+  assert.ok(older.length > 60 * 1024 && older.length <= 64 * 1024 + 300);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['backend.1.log', 'backend.log']);
+  // Nothing lost, split or out of order between the two (but what's older than both).
+  const lines = (older + fs.readFileSync(file, 'utf8')).trimEnd().split('\n');
+  const numbers = lines.filter((l) => l.startsWith('line ')).map((l) => Number(l.split(' ')[1]));
+  assert.ok(lines.every((l) => l === 'a warning' || /^line \d+ x{200}$/.test(l)));
+  assert.deepEqual(numbers, numbers.map((_n, i) => numbers[0] + i));
+});
+
+test("a log too big already is put aside when it's opened, as at a start", async (t) => {
+  const dir = logFolder(t);
+  const file = path.join(dir, 'backend.log');
+  fs.writeFileSync(file, 'x'.repeat(2000));
+  const log = new BackendLog(file, { max: 1000 });
+  const done = ended(log);
+  log.end('--- starting\n');
+  await done;
+  assert.equal(fs.readFileSync(file, 'utf8'), '--- starting\n');
+  assert.equal(fs.statSync(path.join(dir, 'backend.1.log')).size, 2000);
+});
+
+test('a disk that refuses the log never stops the backend: its lines are dropped, the next go in', async (t) => {
+  const dir = logFolder(t);
+  const file = path.join(dir, 'backend.log');
+  let full = true;
+  const fsys = {
+    ...fs,
+    write: (fd, buf, off, len, pos, cb) => {
+      if (full) { setImmediate(() => cb(Object.assign(new Error('no space'), { code: 'ENOSPC' }))); return; }
+      fs.write(fd, buf, off, len, pos, cb);
+    },
+  };
+  const log = new BackendLog(file, { max: 1 << 20, fsys });
+  await new Promise((resolve) => log.write('lost\n', resolve));
+  full = false;
+  const done = ended(log);
+  log.end('kept\n');
+  await done;
+  assert.equal(fs.readFileSync(file, 'utf8'), 'kept\n');
 });

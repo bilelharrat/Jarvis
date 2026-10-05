@@ -72,6 +72,9 @@ class BrowserParity {
     this.lastSite = '';
     this.seq = 0;
     this.inputAt = new WeakMap(); // webContents -> the user's last click or key in it
+    this.spent = new WeakMap(); // webContents -> the click or key (its inputAt) a tab or a page it went to used up
+    this.sentAt = new WeakMap(); // webContents -> when the owner last sent it to a page (an address, back, JARVIS's own)
+    this.byItself = new WeakMap(); // webContents -> true while its main frame goes where its page sent it by itself
     this.bursts = new WeakMap(); // webContents -> when it opened its last popups
     this.popups = new Set(); // popup windows open
     this.going = new Map(); // tab id -> the address its main frame is going to
@@ -319,7 +322,15 @@ class BrowserParity {
     wc.on('did-start-navigation', (e, url, inPlace, isMainFrame) => {
       const main = e && typeof e.isMainFrame === 'boolean' ? e.isMainFrame : isMainFrame;
       const same = e && typeof e.isSameDocument === 'boolean' ? e.isSameDocument : inPlace;
-      if (main && !same) this.started(wc, (e && e.url) || url);
+      if (!main || same) return;
+      // Whose doing the coming page is: the owner's (an address typed, back or forward,
+      // JARVIS's own, none of them started by the page; or a link clicked a moment ago, which
+      // uses the click up) or the page's own (a redirect by script, a meta refresh, with no
+      // click behind it), so a page sending itself on and on after one click goes on by itself.
+      const byItself = Boolean(e && e.initiator) && !this.gesture(wc, { spend: true });
+      this.byItself.set(wc, byItself);
+      if (!byItself) this.sentAt.set(wc, Date.now());
+      this.started(wc, (e && e.url) || url);
     });
     wc.on('did-redirect-navigation', (e, url, inPlace, isMainFrame) => {
       const main = e && typeof e.isMainFrame === 'boolean' ? e.isMainFrame : isMainFrame;
@@ -356,6 +367,34 @@ class BrowserParity {
     for (const a of this.auths.get(id) || []) { this.settleAuth(a); changed = true; }
     this.auths.delete(id);
     if (changed) { this.applyCovers(); this.refreshAsk(); }
+  }
+
+  // ── what the owner did: a click or key in the page, a page they went to ──
+
+  // Whether the user's own click or key in this page (JARVIS's too) came a moment ago: what
+  // the page opens now is theirs (Chrome's user activation). spend: what it opens uses the
+  // click up, so one click opens one tab, never a run of them.
+  gesture(wc, { spend = false } = {}) {
+    const at = (wc && this.inputAt.get(wc)) || 0;
+    if (!at || Date.now() - at > GESTURE_MS || this.spent.get(wc) === at) return false;
+    if (spend) this.spent.set(wc, at);
+    return true;
+  }
+
+  // The owner acted on the page through the app (its menu's Save Image As…): as a click in it.
+  acted(wc) {
+    if (wc && !wc.isDestroyed()) this.inputAt.set(wc, Date.now());
+  }
+
+  // When the owner last acted in this page or sent it to another (0: never).
+  lastAct(wc) {
+    return Math.max((wc && this.inputAt.get(wc)) || 0, (wc && this.sentAt.get(wc)) || 0);
+  }
+
+  // Whether the page the tab is on now came by itself (where its page sent it with no click
+  // of the owner's behind it), not the owner's doing.
+  wentByItself(wc) {
+    return Boolean(wc && this.byItself.get(wc));
   }
 
   // ── popups: sign-in and payment windows ──
@@ -411,8 +450,13 @@ class BrowserParity {
     this.showPopup(child);
   }
 
+  // A popup's link for a new window: a tab in the dock, in front after the user's click or
+  // key in the popup (one per click); one the popup opens by itself goes behind the tab on
+  // show, where main.js stops them at browser-agent.js's TABS_MAX.
   toTab({ url }, opener) {
-    if (/^https?:\/\//i.test(String(url || '')) && this.hooks.openTab) this.hooks.openTab(url, this.profileOf(opener));
+    if (!/^https?:\/\//i.test(String(url || ''))) return { action: 'deny' };
+    if (this.hooks.openTabBehind && !this.gesture(opener, { spend: true })) this.hooks.openTabBehind(url, this.profileOf(opener));
+    else if (this.hooks.openTab) this.hooks.openTab(url, this.profileOf(opener));
     return { action: 'deny' };
   }
 
