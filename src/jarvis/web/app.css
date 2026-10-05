@@ -132,13 +132,19 @@ body[data-state="speaking"] .orb-core { animation: speak 0.9s ease-in-out infini
 
 .state-line { margin: 0; font-size: 14px; letter-spacing: 0.4px; color: var(--muted); min-height: 20px; }
 
-.caption { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 760px; text-align: center; }
+.caption { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: min(760px, 100%); text-align: center; }
 .heard { margin: 0; font-size: 16px; color: var(--muted); min-height: 1px; }
 .reply {
   margin: 0; font-family: var(--serif); font-size: clamp(22px, 3.2vh, 28px);
   line-height: 1.38; max-height: 30vh; overflow-y: auto;
 }
 .heard:empty, .reply:empty { display: none; }
+/* What was heard and said never gets wider than the stage: a link or a path with nowhere to
+   break (directions, a search, a pasted URL) wraps wherever it must instead of widening the
+   caption past the stage, which cut off both of its ends. What can't wrap (a line of code, a
+   table) scrolls sideways inside the reply. (.caption > .reply also holds the Markdown reply,
+   .reply-rich, over its own max-width.) */
+.caption > .heard, .caption > .reply { max-width: 100%; overflow-wrap: anywhere; }
 
 .chips { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .chip {

@@ -62,7 +62,9 @@ body[data-state="thinking"] .orb, body[data-state="speaking"] .orb { animation: 
 @keyframes breathe { 50% { transform: scale(1.04); box-shadow: 0 0 0 18px rgba(56, 176, 240, 0.16), 0 0 0 36px rgba(56, 176, 240, 0.07), 0 0 80px rgba(40, 150, 235, 0.6); } }
 @media (prefers-reduced-motion: reduce) { body .orb { animation: none !important; } }
 
-.talk { text-align: center; min-height: 96px; }
+/* a link with nowhere to break (directions, a search) wraps instead of making the page wider
+   than the phone */
+.talk { text-align: center; min-height: 96px; overflow-wrap: anywhere; }
 .heard { margin: 0 0 6px; color: var(--muted); font-size: 14px; }
 .reply { margin: 0; font-size: 19px; line-height: 1.4; }
 
