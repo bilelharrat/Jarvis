@@ -796,6 +796,9 @@
       const b = pageFull || F.$('browser').hidden ? null : { x: r.left, y: r.top, width: r.width, height: r.height };
       const key = b ? [b.x, b.y, b.width, b.height].map(Math.round).join(',') : 'none';
       if (key !== splitSeen) { splitSeen = key; invoke('split-bounds', b); }
+      // The dock closed (and the app told): nothing to follow until it opens again, when its
+      // observer below starts this again; not a frame asked for every frame meanwhile.
+      if (F.$('browser').hidden) { splitWatching = false; return; }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

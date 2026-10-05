@@ -186,8 +186,28 @@
     if (secs < 3600) return `${Math.floor(secs / 60)}m`;
     if (dayKey(ms, now) === 'today') return `${Math.floor(secs / 3600)}h`;
     const d = new Date(ms);
-    if (now - ms < 6 * 86400000) return d.toLocaleDateString(locale, { weekday: 'short' });
-    return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+    return dayText(d, locale, now - ms < 6 * 86400000 ? 'weekday' : 'date');
+  }
+  // A day in words, as toLocaleDateString writes it (Tue; Oct 3), with one format kept for each
+  // language: that makes a new one at every call (some 90 µs), and the index writes every
+  // row's at each redraw. The kept format reads the day the Mac's time zone gives now (the
+  // zone can change while the window is open; a format keeps the one it was made in): that
+  // day, at noon in UTC, in a format set to UTC. (A list of languages, a time that isn't one,
+  // or one whose noon falls past either end of what a Date can hold, is written the old way.)
+  const DAY_WORDS = { weekday: { weekday: 'short' }, date: { month: 'short', day: 'numeric' } };
+  const dayFormats = { weekday: new Map(), date: new Map() };  // kind -> language -> format
+  function dayText(d, locale, kind) {
+    if ((locale !== undefined && typeof locale !== 'string') || Number.isNaN(d.getTime())) return d.toLocaleDateString(locale, DAY_WORDS[kind]);
+    let format = dayFormats[kind].get(locale);
+    if (!format) {
+      format = new Intl.DateTimeFormat(locale, { ...DAY_WORDS[kind], timeZone: 'UTC' });
+      dayFormats[kind].set(locale, format);
+    }
+    const day = new Date(0);
+    day.setUTCFullYear(d.getFullYear(), d.getMonth(), d.getDate());  // (years before 100 too)
+    day.setUTCHours(12);
+    if (Number.isNaN(day.getTime())) return d.toLocaleDateString(locale, DAY_WORDS[kind]);
+    return format.format(day);
   }
 
   // The index's day groups: today, yesterday, else the date (YYYY-MM-DD, local).
@@ -220,9 +240,17 @@
     return 'done';
   }
 
+  // Where the runs of ledger rows start and end, given whether each of the list's children is
+  // a row: after (a row right after another, drawn tight to it) and end (the last of its run,
+  // which takes the closing rule). What .lb-row + .lb-row and .lb-row:not(:has(+ .lb-row))
+  // said in the stylesheet, where every new entry had them restyle the whole ledger.
+  function runEdges(rows) {
+    return rows.map((row, i) => ({ after: Boolean(row && i > 0 && rows[i - 1]), end: Boolean(row && !rows[i + 1]) }));
+  }
+
   const api = {
     stepKind, kindWord, kindClass, metaParts, entryTime, stepTarget, diffStats, ledgerResult,
-    touchStats, clock, span, tokensText, ago, dayKey, contextSegments, rowState,
+    touchStats, clock, span, tokensText, ago, dayKey, contextSegments, rowState, runEdges,
   };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   const F = root.jarvisFeatures;
@@ -455,18 +483,41 @@
       }
     }
   }
+  // Each of the list's rows, as where its run starts and ends (runEdges): the stylesheet's
+  // lb-after and lb-end. Set as the frame is drawn, as lb-row itself is.
+  function markRuns() {
+    const kids = [...tl.children];
+    const edges = runEdges(kids.map((li) => li.classList.contains('lb-row')));
+    kids.forEach((li, i) => {
+      li.classList.toggle('lb-after', edges[i].after);
+      li.classList.toggle('lb-end', edges[i].end);
+    });
+  }
   function gutter(li, lines) {
-    let g = li.querySelector(':scope > .lb-gut');
+    // (its own, kept on the row while it's there: never looked for again at each redraw)
+    let g = li.lbGut && li.lbGut.parentNode === li ? li.lbGut : li.querySelector(':scope > .lb-gut');
     if (!g) { g = extra('span', 'lb-gut'); li.prepend(g); }
+    li.lbGut = g;
     const key = lines.join('|');
     if (g.dataset.key === key) return;
     g.dataset.key = key;
     g.replaceChildren(...lines.filter(Boolean).map((line) => (line === 'YOU' ? el('span', 'lb-you', 'YOU') : mine(el('span', '', line)))));
   }
+  // What a row is drawn from: its number, and these of its entry (stepKind, kindWord,
+  // stepTarget and ledgerResult read nothing else).
+  const ROW_FIELDS = ['approval', 'role', 'tool', 'status', 'output', 'detail', 'text'];
+  function drawnAs(was, entry, n) {
+    if (!was || was.n !== n || was.entry !== entry) return false;
+    for (const f of ROW_FIELDS) if (was[f] !== entry[f]) return false;
+    return true;
+  }
   function row(li, entry, n) {
     const head = li.querySelector(':scope > details > summary') || li.querySelector(':scope > .jc-agent-head');
     if (!head || !entry) return;
     let parts = head.lbParts;
+    // Drawn from the same as last time and still there: as it is (a redraw comes each frame a
+    // session writes, and the ledger can be 400 rows).
+    if (parts && parts.n.isConnected && drawnAs(parts.drawn, entry, n)) return;
     if (!parts || !parts.n.isConnected) {
       const num = extra('span', 'lb-n');
       num.setAttribute('data-no-i18n', '');
@@ -494,6 +545,8 @@
       parts.result.dataset.key = key;
       parts.result.replaceChildren(...res.map((r) => el('span', `lb-r ${r.tone}`, r.text)));
     }
+    parts.drawn = { n, entry };
+    for (const f of ROW_FIELDS) parts.drawn[f] = entry[f];
   }
 
   // ── 7. approvals: brass ledger entries ──
@@ -766,7 +819,7 @@
         plainIndex();
         plainComposer();
         cc.querySelectorAll('.lb-x').forEach((n) => n.remove());
-        tl.querySelectorAll('.lb-row').forEach((n) => n.classList.remove('lb-row'));
+        tl.querySelectorAll('.lb-row').forEach((n) => n.classList.remove('lb-row', 'lb-after', 'lb-end'));
         tl.querySelectorAll('[data-lb-role]').forEach((n) => { n.removeAttribute('role'); n.removeAttribute('aria-label'); n.removeAttribute('data-lb-role'); });
         tl.querySelectorAll('[data-lb-ask], [data-lb-choice]').forEach((n) => { n.removeAttribute('data-lb-ask'); n.removeAttribute('data-lb-choice'); });
         tl.querySelectorAll('[data-tool-id], .jc-agent').forEach((li) => {
@@ -784,6 +837,7 @@
     const list = t ? steps() : [];
     renderMeta(t, list);
     renderLedger(list);
+    markRuns();
     renderMargin(t, list);
     renderComposer(t);
     renderIndex();
@@ -803,6 +857,9 @@
     F.on(type, () => schedule());
   }
   F.on('task_finished', (ev) => { if (ev.id === ccSelected) changesAsked.at = 0; });  // its files, asked for again
+  // (Another backend's hello: the Changes pane let the old one's files go. The new one's
+  // are asked for at the next frame, not up to 20 s later.)
+  F.on('hello', () => { changesAsked.at = 0; });
   // While a session works (or waits on you), its clock and the last tick grow.
   setInterval(() => {
     if (!on() || cc.hidden || document.hidden) return;

@@ -577,9 +577,12 @@
     return { n, x, y, vx, vy, pairs, weights: weights || new Float32Array(n), alpha: 1, cell: 46, steps: 0 };
   }
 
+  // Nothing more to move: cooled down (or no one to move).
+  const settled = (sim) => sim.alpha < 0.004 || sim.n < 2;
+
   function stepSim(sim) {
     const { n, x, y, vx, vy, pairs, cell } = sim;
-    if (sim.alpha < 0.004 || n < 2) return false;
+    if (settled(sim)) return false;
     const a = sim.alpha;
     // Bucket the nodes by cell.
     const grid = new Map();
@@ -674,6 +677,8 @@
       this.panX = 0;
       this.panY = 0;
       this.hover = -1;
+      this._frame = 0;  // the frame asked for, if one is
+      this._loop = () => this._tick();
       this.running = false;
       this.dirty = true;
       this.onSelect = null;
@@ -696,24 +701,41 @@
       this.dirty = true;
     }
 
+    // To be drawn on the next frame, set by whatever changes the picture (new people, a pan,
+    // a zoom, the pointer over someone). While the map shows, that asks for the frame: with
+    // the people settled and nothing changed, none is asked for (not one every frame, to do
+    // nothing) until something is.
+    get dirty() { return this._dirty; }
+
+    set dirty(value) {
+      this._dirty = value;
+      if (value && this.running && !this._frame) this._frame = requestAnimationFrame(this._loop);
+    }
+
     start() {
       if (this.running) return;
       this.running = true;
       this.dirty = true;
-      const loop = () => {
-        if (!this.running) return;
-        const sim = this.sim;
-        if (sim) {
-          const until = performance.now() + 8; // a few milliseconds a frame, never more
-          while (performance.now() < until && stepSim(sim)) this.dirty = true;
-        }
-        if (this.dirty) this.draw();
-        requestAnimationFrame(loop);
-      };
-      requestAnimationFrame(loop);
     }
 
-    stop() { this.running = false; }
+    stop() {
+      this.running = false;
+      if (this._frame) cancelAnimationFrame(this._frame);
+      this._frame = 0;
+    }
+
+    _tick() {
+      this._frame = 0;
+      if (!this.running) return;
+      const sim = this.sim;
+      if (sim) {
+        const until = performance.now() + 8; // a few milliseconds a frame, never more
+        while (performance.now() < until && stepSim(sim)) this._dirty = true;
+      }
+      if (this._dirty) this.draw();
+      // Still moving (out of time this frame): the next frame goes on with it.
+      if (sim && !settled(sim) && !this._frame) this._frame = requestAnimationFrame(this._loop);
+    }
 
     size() {
       const dpr = window.devicePixelRatio || 1;

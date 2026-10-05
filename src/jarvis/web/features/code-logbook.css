@@ -79,8 +79,11 @@ html body[data-skin="obsidian"] .deck.jc .jc-plan-head { font: 11px var(--mono);
 html body[data-skin="obsidian"] .deck.jc .lb-row .jc-tool-row,
 html body[data-skin="obsidian"] .deck.jc .jc-agent.lb-row { background: none; border-radius: 0; box-shadow: none; overflow: visible; padding: 0; }
 html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row { border-top: 1px solid var(--ob-hair); }
-html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row + .lb-row { margin-top: -22px; }
-html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row:not(:has(+ .lb-row)) { border-bottom: 1px solid var(--ob-hair); }
+/* A row right after another (lb-after) and the last of a run (lb-end): classes code-logbook.js
+   keeps as each frame is drawn (runEdges), not the sibling selectors .lb-row + .lb-row and
+   .lb-row:not(:has(+ .lb-row)), which had every new entry restyle the whole ledger. */
+html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row.lb-after { margin-top: -22px; }
+html body[data-skin="obsidian"] .deck.jc .jc-log > .lb-row.lb-end { border-bottom: 1px solid var(--ob-hair); }
 html body[data-skin="obsidian"] .deck.jc .lb-row :is(summary, .jc-agent-head) {
   display: grid; grid-template-columns: var(--lb-gut) var(--lb-kind) minmax(0, 1fr) auto; align-items: baseline; gap: 0 16px;
   padding: 7px 0; font: 12.5px/1.5 var(--mono); color: var(--ink-2); cursor: pointer;
@@ -96,7 +99,10 @@ html body[data-skin="obsidian"] .deck.jc .lb-kind.run { color: var(--ink); }
 html body[data-skin="obsidian"] .deck.jc .lb-kind.you { color: var(--ob-brass-text); }
 html body[data-skin="obsidian"] .deck.jc .lb-what { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 html body[data-skin="obsidian"] .deck.jc .lb-target { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-html body[data-skin="obsidian"] .deck.jc .lb-row:has(.lb-kind.edit) .lb-target { color: var(--ink); }
+/* An edit's target, brighter. (By the kind beside it, not .lb-row:has(.lb-kind.edit): a :has()
+   rule puts .lb-target in what the browser restyles whenever any :has() in the page may have
+   changed, and that was every row of the ledger at each new event.) */
+html body[data-skin="obsidian"] .deck.jc .lb-kind.edit + .lb-what .lb-target { color: var(--ink); }
 html body[data-skin="obsidian"] .deck.jc .lb-lead { flex: 1; min-width: 16px; border-bottom: 1px dotted var(--ob-hair-2); transform: translateY(-3px); }
 html body[data-skin="obsidian"] .deck.jc .lb-result { display: inline-flex; gap: 6px; white-space: nowrap; color: var(--muted); }
 html body[data-skin="obsidian"] .deck.jc .lb-r.add, html body[data-skin="obsidian"] .deck.jc .lb-r.ok { color: var(--ob-signal); }

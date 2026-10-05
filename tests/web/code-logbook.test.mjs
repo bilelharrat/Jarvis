@@ -104,10 +104,74 @@ test('times as the log and the index say them', () => {
   assert.equal(lb.ago(now - 4 * 60000, now), '4m');
   assert.equal(lb.ago(now - 5 * 3600000, now), '5h');
   assert.equal(lb.ago(Number.NaN, now), '');
+  // Before today: the day, as toLocaleDateString writes it, in each language, again and again.
+  for (const locale of [undefined, 'zh-CN', 'en-GB', undefined, 'zh-CN', ['fr-FR']]) {
+    for (const days of [1, 3, 5, 6, 9, 40, 400]) {
+      const then = now - days * 86400000;
+      const d = new Date(then);
+      const want = days < 6 ? d.toLocaleDateString(locale, { weekday: 'short' }) : d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+      assert.equal(lb.ago(then, now, locale), want, `${locale} ${days}`);
+    }
+  }
+  assert.throws(() => lb.ago(now - 9 * 86400000, now, 'not a language!'), RangeError);
   assert.equal(lb.dayKey(now - 3600000, now), 'today');
   assert.equal(lb.dayKey(now - 24 * 3600000, now), 'yesterday');
   assert.equal(lb.dayKey(new Date(2026, 8, 20, 9).getTime(), now), '2026-09-20');
   assert.equal(lb.dayKey(Number.NaN, now), 'earlier');
+});
+
+test('the day of a past session: as toLocaleDateString says it, in the time zone the Mac is in now', () => {
+  const was = process.env.TZ;
+  const want = (then, now, locale) => new Date(then).toLocaleDateString(locale, now - then < 6 * 86400000 ? { weekday: 'short' } : { month: 'short', day: 'numeric' });
+  try {
+    // 23:30 UTC: the 21st in London (summer time) and Tokyo, the 20th in Los Angeles; asked
+    // again after each move (the formats kept from before must follow the zone, as
+    // toLocaleDateString does: one made in London would still say the 21st).
+    const then = Date.UTC(2026, 8, 20, 23, 30);
+    for (const zone of ['Europe/London', 'Asia/Tokyo', 'America/Los_Angeles', 'Asia/Kolkata', 'Pacific/Kiritimati', 'Europe/London']) {
+      process.env.TZ = zone;
+      for (const now of [then + 2 * 86400000, then + 9 * 86400000]) {
+        for (const locale of [undefined, 'en', 'zh-CN', 'th-TH', 'fa-IR', 'ar-SA', 'ja-JP-u-ca-japanese', 'he-IL-u-ca-hebrew']) {
+          assert.equal(lb.ago(then, now, locale), want(then, now, locale), `${zone} ${locale} ${now - then}`);
+        }
+      }
+    }
+    // Other times: a leap day, the first years (Date.UTC would take 50 as 1950), around a DST
+    // change, and one before what a Date can hold.
+    process.env.TZ = 'America/New_York';
+    const days = [new Date(2028, 1, 29, 0, 5), new Date(2026, 2, 8, 1, 30), new Date(2026, 10, 1, 23, 59), new Date(2026, 0, 1, 0, 0)];
+    const early = new Date(2026, 0, 1);
+    early.setFullYear(50);
+    days.push(early);
+    for (const d of days) {
+      const now = d.getTime() + 30 * 86400000;
+      for (const locale of [undefined, 'en-GB', 'zh-CN']) assert.equal(lb.ago(d.getTime(), now, locale), want(d.getTime(), now, locale), `${d} ${locale}`);
+    }
+    const now = Date.now();
+    assert.equal(lb.ago(-9e15, now, 'en'), want(-9e15, now, 'en'));  // (Invalid Date)
+    // The first and last days a Date can hold, behind and ahead of UTC: their noon in UTC
+    // is past what a Date can hold, so they're written the old way (a throw would stop the
+    // index drawing at every frame).
+    for (const zone of ['America/Los_Angeles', 'Pacific/Kiritimati']) {
+      process.env.TZ = zone;
+      for (const [then, at] of [[-8.64e15, now], [-8.64e15 + 3600000, -8.64e15 + 40 * 86400000], [8.64e15 - 3600000, 8.64e15 + 3 * 86400000]]) {
+        for (const locale of [undefined, 'zh-CN']) assert.equal(lb.ago(then, at, locale), want(then, at, locale), `${zone} ${then} ${locale}`);
+      }
+    }
+  } finally {
+    if (was === undefined) delete process.env.TZ; else process.env.TZ = was;
+  }
+});
+
+test('a run of rows: tight after the first, the closing rule on the last', () => {
+  // (true: a ledger row; what the stylesheet's .lb-row + .lb-row and :not(:has(+ .lb-row)) said)
+  const edges = (rows) => lb.runEdges(rows).map((e) => (e.after ? 'a' : '-') + (e.end ? 'e' : '-'));
+  assert.deepEqual(edges([]), []);
+  assert.deepEqual(edges([true]), ['-e']);
+  assert.deepEqual(edges([false]), ['--']);
+  assert.deepEqual(edges([true, true, true]), ['--', 'a-', 'ae']);
+  assert.deepEqual(edges([false, true, true, false, true, false, false, true, true]), ['--', '--', 'ae', '--', '-e', '--', '--', '--', 'ae']);
+  for (const e of lb.runEdges([true, false, true])) assert.ok(typeof e.after === 'boolean' && typeof e.end === 'boolean');
 });
 
 test('the context bar and the index’s glyphs', () => {

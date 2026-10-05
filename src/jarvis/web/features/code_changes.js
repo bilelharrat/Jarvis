@@ -445,6 +445,32 @@
     store.extra.set(`${ev.id}:${ev.path}:${ev.start}`, ev.lines || []);
     render();
   });
+  // What was fetched for a session (its changes, which can be large, and the lines opened
+  // between hunks) goes with it: when it leaves the list (its backend never gives its number
+  // to another), and all of it when another backend says hello (its session 1 may not be
+  // ours). The window stays open for days. Either way it's asked for again when shown.
+  // What the owner made stays: the comments not sent yet, the view, the files opened and the
+  // hunks kept (the hub keeps those only until it restarts). A kept session comes back
+  // under its own id, after a restart or reopened from the history, and they're its own.
+  function forget(live) {
+    const idOf = (key) => Number(String(key).split(':')[0]);
+    for (const map of [store.data, store.extra, asked]) for (const key of [...map.keys()]) if (!live(idOf(key))) map.delete(key);
+  }
+  let hub = null; // (as app.js tells one backend from another)
+  F.on('hello', (ev) => {
+    if (hub !== null && ev.hub_id !== hub) {
+      forget(() => false);
+      // (app.js opened the session again before this: the pane on screen drew the old
+      // backend's changes. It's drawn again, and the new backend asked.)
+      const task = F.currentTask();
+      if (task && showing()) { render(); request(task); }
+    }
+    hub = ev.hub_id || null;
+  }, { replay: true });
+  F.on('tasks', (ev) => {
+    const live = new Set((ev.items || []).map((x) => Number(x.id)));
+    forget((id) => live.has(id));
+  });
   // A turn that ended, or an edit that finished, in the session on screen: look again.
   F.on('task_finished', (ev) => { const task = F.currentTask(); if (task && ev.id === task.id) refreshSoon(); });
   F.on('task_log_update', (ev) => { const task = F.currentTask(); if (task && ev.id === task.id && ev.status === 'done') refreshSoon(); });
