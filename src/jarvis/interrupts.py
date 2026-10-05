@@ -48,6 +48,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import jsonstore
 from .interrupt_learning import ReactionLearner, masked
+from .lang import LazyPattern
 from .prefs import APP_SUPPORT
 from .proactive import Alert, in_quiet_hours
 from .sources import APPLE_EPOCH_UNIX, FULL_DISK_ACCESS, decode_attributed_body
@@ -180,7 +181,7 @@ def language(value: Any) -> str:
 
 # Invisible characters (zero-width spaces and joiners, direction marks, the BOM): they can
 # hide a word from the checks below ("ign\u200bore") or reorder what a card shows.
-_INVISIBLE = re.compile(
+_INVISIBLE = LazyPattern(
     "[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e"
     "\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0]"
 )
@@ -201,14 +202,14 @@ def _blank(match: re.Match[str]) -> str:
     return " " * len(match.group())
 
 
-def _en(pattern: str) -> re.Pattern[str]:
+def _en(pattern: str) -> LazyPattern:
     """English words, whole: "911" isn't in a phone number, "sos" isn't in "sosa"."""
-    return re.compile(rf"(?<![a-z0-9])(?:{pattern})(?![a-z0-9])", re.IGNORECASE)
+    return LazyPattern(rf"(?<![a-z0-9])(?:{pattern})(?![a-z0-9])", re.IGNORECASE)
 
 
 # Urgent words said not to apply ("not urgent", "no emergency", "不急", "不用马上回"):
 # blanked before anything is counted, so a polite "not urgent, but…" never interrupts.
-_NOT_URGENT: list[re.Pattern[str]] = [
+_NOT_URGENT: list[LazyPattern] = [
     _en(
         r"(?:not|no|nothing|none|isn['’]?t|wasn['’]?t|aren['’]?t|non|never)[\s-]+"
         r"(?:(?:a|an|so|very|that|too|super|really|terribly|particularly|remotely|exactly"
@@ -222,7 +223,7 @@ _NOT_URGENT: list[re.Pattern[str]] = [
         r"(?:call|ring)(?:\s+me)?(?:\s+back)?"
     ),
     _en(r"(?:don['’]?t|do\s+not|no)\s+(?:need\s+)?(?:any\s+|your\s+)?help"),
-    re.compile(
+    LazyPattern(
         r"(?:并不|一点[也都]不|不|没有?|别)(?:是|太|很|算|怎么|那么|要|着|用)?"
         r"(?:很|太|那么|特别|什么)?(?:紧急|急事|着急|急)"
         r"|(?:不用|不必|不需要|没必要|用不着)(?:那么|太)?(?:马上|立刻|立即|尽快|急|着急)"
@@ -231,20 +232,20 @@ _NOT_URGENT: list[re.Pattern[str]] = [
 
 # (pattern, weight, label), strongest first. A label counts once, and each match is blanked
 # before weaker patterns look, so 紧急 isn't also counted as 急.
-_URGENCY: list[tuple[re.Pattern[str], int, str]] = [
+_URGENCY: list[tuple[LazyPattern, int, str]] = [
     (_en(r"emergency|911|sos"), 4, "emergency"),
-    (re.compile(r"救命|出事了"), 4, "emergency"),
+    (LazyPattern(r"救命|出事了"), 4, "emergency"),
     (_en(r"urgent(?:ly)?|asap|a\.s\.a\.p|immediately|time[- ]sensitive"), 3, "urgent"),
-    (re.compile(r"紧急|立刻|立即|尽快|急事"), 3, "urgent"),
+    (LazyPattern(r"紧急|立刻|立即|尽快|急事"), 3, "urgent"),
     (_en(r"right\s+now|right\s+away"), 1, "now"),
-    (re.compile(r"马上"), 1, "now"),
+    (LazyPattern(r"马上"), 1, "now"),
     (_en(r"call\s+me|call\s+back|answer\s+(?:your|the)\s+phone"), 1, "call"),
-    (re.compile(r"回电|回个电话|给我打电话|接电话"), 1, "call"),
+    (LazyPattern(r"回电|回个电话|给我打电话|接电话"), 1, "call"),
     (_en(r"help"), 1, "help"),
-    (re.compile(r"帮帮我|需要帮助"), 1, "help"),
+    (LazyPattern(r"帮帮我|需要帮助"), 1, "help"),
     (_en(r"deadline"), 1, "deadline"),
-    (re.compile(r"截止"), 1, "deadline"),
-    (re.compile(r"急"), 1, "hurry"),
+    (LazyPattern(r"截止"), 1, "deadline"),
+    (LazyPattern(r"急"), 1, "hurry"),
 ]
 STRONG = frozenset({"emergency", "urgent"})
 
@@ -266,8 +267,8 @@ def urgency(text: str) -> tuple[int, list[str]]:
     return min(weight, 4), labels
 
 
-_SHORT_CODE = re.compile(r"^\+?\d{3,6}$")
-_CODES = re.compile(
+_SHORT_CODE = LazyPattern(r"^\+?\d{3,6}$")
+_CODES = LazyPattern(
     r"(?<![a-z])(?:verification|security|login|log[- ]in|sign[- ]?in|one[- ]time|2fa|auth"
     r"(?:entication|orization)?|confirmation|access|passcode)\s+(?:code|pin|number)(?![a-z])"
     r"|(?<![a-z])code\s*+(?:is\s*+)?(?:[:：]\s*+)?(?=[a-z-]*\d)[a-z0-9-]{4,10}(?![a-z0-9])"
@@ -278,25 +279,25 @@ _CODES = re.compile(
     r"|^\s*【[^】]{1,24}】|验证码|校验码|动态码|动态密码|取件码|提货码|退订|回复?td?退",
     re.IGNORECASE,
 )
-_NEWSLETTER = re.compile(
+_NEWSLETTER = LazyPattern(
     r"unsubscribe|view\s+(?:this\s+email\s+|it\s+)?in\s+(?:your\s+|a\s+)?browser"
     r"|manage\s+(?:your\s+)?(?:email\s+)?(?:preferences|subscriptions?)"
     r"|you(?:'re|\s+are)\s+receiving\s+this|取消订阅|退订",
     re.IGNORECASE,
 )
-_ROBOT_ANYWHERE = re.compile(
+_ROBOT_ANYWHERE = LazyPattern(
     r"(?:^|[._+-])(?:no[._-]?reply|do[._-]?not[._-]?reply|donotreply|notifications?"
     r"|mailer[._-]?daemon|bounces?)(?:$|[._+-])",
     re.IGNORECASE,
 )
-_ROBOT_START = re.compile(
+_ROBOT_START = LazyPattern(
     r"^(?:news|newsletters?|marketing|digest|updates?|alerts?|automated|auto[._-]?confirm"
     r"|promo(?:tions?)?|offers|deals|postmaster|notify)(?:$|[._+-])",
     re.IGNORECASE,
 )
 # Subdomains that only bulk senders use. Not mail., email., e. or em.: universities and
 # agencies give real people addresses there (jane@mail.utoronto.ca).
-_BULK_DOMAIN = re.compile(
+_BULK_DOMAIN = LazyPattern(
     r"^(?:mailer|mailing|mailings|news|newsletters?|marketing|mkt|notify|notifications?"
     r"|bounces?|updates|campaigns?|promos?|promotions?|offers|deals)\.",
     re.IGNORECASE,
@@ -343,7 +344,7 @@ def newsletter(text: str) -> bool:
     return bool(_NEWSLETTER.search((text or "")[:SCAN_CHARS]))
 
 
-_INJECTION = re.compile(
+_INJECTION = LazyPattern(
     # "ignore all previous instructions", "disregard your system prompt", "ignore the above"
     r"(?:ignore|disregard|forget|override|bypass)\s+(?:(?:all|any|the|your|my|of|these|those)\s+)*"
     r"(?:previous|prior|above|earlier|preceding|system|original|initial|existing|former)\s+"
@@ -394,8 +395,8 @@ def _spaced(handle: str) -> str:
     return re.sub(r"[._+\-@]+", " ", handle or "")
 
 
-_CARD = re.compile(r"(?<![+\d])\d(?:[ -]?\d){12,18}(?!\d)")
-_KEYLIKE = re.compile(
+_CARD = LazyPattern(r"(?<![+\d])\d(?:[ -]?\d){12,18}(?!\d)")
+_KEYLIKE = LazyPattern(
     r"(?<![A-Za-z0-9])(?:sk|pk|rk|ghp|gho|ghs|xox[abprs])[-_][A-Za-z0-9_-]{8,}"
     r"|(?<![A-Za-z0-9])[A-Za-z0-9_\-]{32,}(?![A-Za-z0-9])"
 )
@@ -420,21 +421,21 @@ _FOR_WHAT = (  # "the password for the wifi is …", "the code to the door is �
 # of nothing but spaces after "password is" costs a pass, not a pass per space.
 _SAYS = r"(?:\s*+(?:is|was|are|:|：|=>?|->|→|是|为)|\s++-{1,2}(?=\s))"  # "is:", "->", "是："
 _QUOTE = rf"\s*+(?:{_OPEN}\s*+)?"
-_PASSWORD_SAID = re.compile(  # "my password is: 'hunter2'"
+_PASSWORD_SAID = LazyPattern(  # "my password is: 'hunter2'"
     rf"({_SECRET_NAME}{_FOR_WHAT}{_SAYS}+{_QUOTE})"
     r"(?!(?:is|was|are|what|the)(?!\w)|什么|多少|啥)"
     rf"([^{_STOP}]*[^\W_][^{_STOP}]*)",
     re.IGNORECASE,
 )
-_PASSWORD_BARE = re.compile(  # "wifi password Sunset42", "密码abc123": it has a digit
+_PASSWORD_BARE = LazyPattern(  # "wifi password Sunset42", "密码abc123": it has a digit
     rf"({_SECRET_NAME}\s*)((?=[^{_STOP}]*\d)[A-Za-z0-9!@#$%^&*][^{_STOP}]*)",
     re.IGNORECASE,
 )
-_CODE_VALUE = re.compile(  # "the door code is: 4821", "OTP 482913", "取件码 12-3-4567"
+_CODE_VALUE = LazyPattern(  # "the door code is: 4821", "OTP 482913", "取件码 12-3-4567"
     rf"({_CODE_NAME}{_FOR_WHAT}{_SAYS}*{_QUOTE})((?=[^{_STOP}]*\d)[^{_STOP}]+)",
     re.IGNORECASE,
 )
-_VALUE_FIRST = re.compile(  # "4821 is the door code"; tried only where a word starts
+_VALUE_FIRST = LazyPattern(  # "4821 is the door code"; tried only where a word starts
     rf"(?<![^{_STOP}])((?=[^{_STOP}]*\d)[^{_STOP}:：]{{3,}})"
     r"(\s+(?:is|was)\s+(?:the|my|your|our|his|her|their)\s+(?:[\w-]+\s+){0,2}"
     r"(?:code|pin|password|passcode|otp)(?![a-z]))",
@@ -453,8 +454,8 @@ def redact(text: str, lang: str = "en") -> str:
     return _CODE_VALUE.sub(lambda m: m.group(1) + hidden, text)
 
 
-_URL = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
-_MARKER = re.compile(
+_URL = LazyPattern(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_MARKER = LazyPattern(
     r"^\W*(?:urgent|emergency|asap|911|sos|紧急|急)(?:[\s!！:：,，.。\-–—]+|$)", re.IGNORECASE
 )
 
@@ -495,7 +496,7 @@ def _tokens(text: str) -> list[str]:
 
 
 _HONORIFICS = {"dr", "mr", "mrs", "ms", "miss", "prof", "sir", "madam"}
-_EMAILS = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_EMAILS = LazyPattern(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
 def contact_name(handle: str, names: dict[str, str]) -> str:
@@ -573,8 +574,8 @@ def vip_match(name: str, handle: str, vips: Iterable[Any] | VipList) -> bool:
     return listed.match(name, handle)
 
 
-_CJK_NAME = re.compile(r"[\u3400-\u9fff]{2,4}")
-_NUMBERS = re.compile(r"\+?\d[\d\s().-]{5,}\d")
+_CJK_NAME = LazyPattern(r"[\u3400-\u9fff]{2,4}")
+_NUMBERS = LazyPattern(r"\+?\d[\d\s().-]{5,}\d")
 
 
 @dataclass(frozen=True)
@@ -1975,22 +1976,27 @@ class Interrupter:
                 wanted = [(p.rowid, p.handle) for p in mine]
                 replies = await asyncio.to_thread(first_replies, db, wanted)
         told: list[str] = []
-        for item in pending:
-            read = (states.get(item.source) or {}).get(item.rowid)
-            replied = replies.get(item.rowid) if item.source == "message" else None
-            try:
-                sentence = self.learner.settle(item, replied, read, self.lang())
-            except Exception:
-                log.exception("interruptions: couldn't learn from a reaction")
-                continue
-            if sentence:
-                told.append(sentence)
-                log.info("interruptions: a sender's standing changed")
-                if self._on_learned is not None:
-                    try:
-                        await _maybe_await(self._on_learned(sentence))
-                    except Exception:
-                        log.exception("interruptions: on_learned failed")
+        # What's learned is saved once for the look (each reaction saved on its own made a
+        # look after the Mac slept write the file once per reaction), and always before the
+        # owner is told a sender's standing changed.
+        with self.learner.held():
+            for item in pending:
+                read = (states.get(item.source) or {}).get(item.rowid)
+                replied = replies.get(item.rowid) if item.source == "message" else None
+                try:
+                    sentence = self.learner.settle(item, replied, read, self.lang())
+                except Exception:
+                    log.exception("interruptions: couldn't learn from a reaction")
+                    continue
+                if sentence:
+                    told.append(sentence)
+                    log.info("interruptions: a sender's standing changed")
+                    self.learner.flush()
+                    if self._on_learned is not None:
+                        try:
+                            await _maybe_await(self._on_learned(sentence))
+                        except Exception:
+                            log.exception("interruptions: on_learned failed")
         return told
 
     async def _look(self, names: dict[str, str]) -> _Plan | None:

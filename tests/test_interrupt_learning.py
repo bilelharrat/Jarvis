@@ -251,3 +251,63 @@ async def test_read_quickly_on_the_phone_counts_as_opened(env):
 
 async def _yes(_action, _question):
     return True
+
+
+# ── what a look writes ──
+
+
+async def test_a_look_that_settles_many_reactions_writes_the_file_once(env, monkeypatch):
+    """After the Mac slept, every interruption of the night settles in one look: the file
+    is written once (it was once per reaction, each flushed to the disk, the event loop
+    waiting on every write), and holds just what it held when each was saved."""
+    env.mode = "all"
+    watch = await env.started()
+    handles = [f"+1415555{k:04d}" for k in range(40)]
+    for k, handle in enumerate(handles):
+        rowid = env.chat.send(handle, f"hello {k}", at=env.clock.at)
+        watch.learner.announced(f"message:{rowid}", "message", rowid, handle, f"Someone {k}")
+    env.clock.advance(hours=il.IGNORE_HOURS + 1)
+    saves = []
+    real = il.jsonstore.save_json
+    monkeypatch.setattr(
+        il.jsonstore, "save_json", lambda path, *a, **k: (saves.append(path), real(path, *a, **k))
+    )
+    assert await watch.follow_up() == []
+    assert saves == [watch.learner.path]  # before: 40
+    # The same reactions learned one at a time, each saved: the same file.
+    one_by_one = ReactionLearner(env.tmp / "one.json", now=env.clock)
+    for k, handle in enumerate(handles):
+        one_by_one.learn(person_key("message", handle), f"Someone {k}", "ignored")
+    assert json.loads(watch.learner.path.read_text()) == json.loads(one_by_one.path.read_text())
+    assert len(saves) == 1 + len(handles)  # the reference's own saves: once each
+
+
+async def test_a_standing_that_changed_is_on_disk_before_the_owner_hears_it(env):
+    on_disk = []
+
+    def told(sentence):
+        saved = json.loads((env.tmp / "interrupt_learning.json").read_text())
+        on_disk.append([r["state"] for r in saved["senders"].values()])
+
+    env.mode = "all"
+    watch = await env.started(on_learned=told)
+    for i in range(il.MUTE_AFTER):
+        env.chat.send(BOB, f"lunch plan number {i}", at=env.clock.at)
+        [alert] = await watch.poll()
+        watch.card_reaction(alert.key, "dismissed")
+        env.clock.advance(minutes=il.QUICK_MINUTES + 1)
+        await watch.follow_up()
+    assert on_disk == [["muted"]]
+
+
+def test_held_saves_once_at_the_end_even_when_something_fails(tmp_path):
+    learn = learner(tmp_path)
+    with pytest.raises(RuntimeError), learn.held():
+        react(learn, BOB, "dismissed", n=3)
+        assert not learn.path.exists()  # not yet
+        raise RuntimeError("a reaction that couldn't be read")
+    saved = json.loads(learn.path.read_text())
+    assert [o for o, _ in saved["senders"][person_key("message", BOB)]["log"]] == ["dismissed"] * 3
+    react(learn, BOB, "replied")  # outside held(): saved at once, as always
+    saved = json.loads(learn.path.read_text())
+    assert saved["senders"][person_key("message", BOB)]["log"][-1][0] == "replied"

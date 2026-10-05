@@ -447,7 +447,9 @@ class WeatherWatch:
 
         own = client is None
         if own:
-            client = httpx.AsyncClient(timeout=15, headers={"User-Agent": USER_AGENT})
+            client = httpx.AsyncClient(
+                timeout=15, headers={"User-Agent": USER_AGENT}, verify=forecasts.tls()
+            )
         try:
             await self._fetch(client, severe, air, swings)
         finally:

@@ -45,6 +45,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from . import jsonstore
 from .claude_signin import signed_in
 from .config import MAX_BUFFER
+from .lang import LazyPattern
 from .prefs import APP_SUPPORT
 
 log = logging.getLogger("jarvis")
@@ -137,8 +138,8 @@ class Delegation:
         return asdict(self)
 
 
-_EMAIL_HANDLE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
-_PHONE_HANDLE = re.compile(r"^\+?[\d\s().-]{7,20}$")
+_EMAIL_HANDLE = LazyPattern(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
+_PHONE_HANDLE = LazyPattern(r"^\+?[\d\s().-]{7,20}$")
 _CHANNEL_NAMES = {
     "imessage": "imessage",
     "message": "imessage",
@@ -479,8 +480,8 @@ class Problem(NamedTuple):
     what: str = ""  # the words at fault, or which kind of contact detail
 
 
-_HAN = re.compile(r"[\u4e00-\u9fff]")  # Chinese characters
-_ZERO_WIDTH = re.compile(r"[\u200b-\u200f\u2060\ufeff\u00ad]")
+_HAN = LazyPattern(r"[\u4e00-\u9fff]")  # Chinese characters
+_ZERO_WIDTH = LazyPattern(r"[\u200b-\u200f\u2060\ufeff\u00ad]")
 
 
 def _normal(text: str) -> str:
@@ -499,7 +500,7 @@ def _blank(text: str, spans: list[tuple[int, int]]) -> str:
 
 # secrets
 
-_SECRET_WORDS = re.compile(
+_SECRET_WORDS = LazyPattern(
     r"\bPIN\b|(?i:\bpass(?:word|code|wd|phrase)s?\b|\bpass\s+code\b|\bpin\s+(?:code|number)\b"
     r"|\bone[-\s]time\s+(?:code|password|pin)\b"
     r"|\b(?:verification|security|auth(?:entication|orization)?|login|access|confirmation|sms"
@@ -512,17 +513,17 @@ _SECRET_WORDS = re.compile(
     # 账号 alone is any account or ID ("微信账号", a WeChat ID); a bank or payment account isn't
     r"|(?:银行|銀行|收款|支付宝|支付寶|对公|對公)(?:账号|帳號|账户|帳戶)"
 )
-_CARD = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
-_SSN = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
+_CARD = LazyPattern(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
+_SSN = LazyPattern(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 # A code: a word like "code" and then something with a digit in it ("code is 482913").
 # The spaces after "is" or ":" belong to it: two runs side by side split a long one every
 # way.
-_CODE_AFTER = re.compile(
+_CODE_AFTER = LazyPattern(
     r"(?i)(\b(?:password|passcode|pin|code)\b|密码|密碼|验证码|驗證碼)"
     r"(\s*(?:(?:is|was|:|=|是|为|為|：)\s*)?)(?=[A-Za-z0-9-]{3,})[A-Za-z0-9-]*\d[A-Za-z0-9-]*"
 )
 # A password: whatever follows "password is" or "password:".
-_PASSWORD_AFTER = re.compile(
+_PASSWORD_AFTER = LazyPattern(
     r"(?i)(\bpass(?:word|code|phrase)\b|密码|密碼)(\s*(?:is|was|:|=|是|为|為|：)\s*)"
     r"[^\s,.;!?，。？！]{3,}"
 )
@@ -549,15 +550,15 @@ def secret_problems(text: str) -> list[Problem]:
 
 # Each starts only where a run of its characters does (so "a.a.a…" is read in one pass,
 # not one per letter), and right after Chinese text too ("网址是evil.com").
-_EMAIL = re.compile(r"(?<![A-Za-z0-9_.+'-])[A-Za-z0-9_.+'-]+@[\w-]+(?:\.[\w-]+)+")
-_URL = re.compile(
+_EMAIL = LazyPattern(r"(?<![A-Za-z0-9_.+'-])[A-Za-z0-9_.+'-]+@[\w-]+(?:\.[\w-]+)+")
+_URL = LazyPattern(
     r"(?<![A-Za-z0-9_])(?:https?://|www\.)[^\s<>\"'“”]+"
     r"|(?<![A-Za-z0-9_.-])(?:[a-z0-9-]+\.)+(?:com|org|net|io|co|us|uk|de|cn|me|app|dev|ai|gov"
     r"|edu|info|biz|ly|gl|link|xyz|shop|site)(?:/[^\s<>\"'“”]*)?(?![\w-])(?!\.\w)",
     re.IGNORECASE,
 )
-_PHONE = re.compile(r"(?<![A-Za-z0-9_/:.,$€£¥])\+?\(?\d[\d \t().-]{5,}\d(?![A-Za-z0-9_/:])")
-_DATE_LIKE = re.compile(r"\d{4}[-.]\d{1,2}[-.]\d{1,2}|\d{1,2}[-.]\d{1,2}[-.]\d{2,4}")
+_PHONE = LazyPattern(r"(?<![A-Za-z0-9_/:.,$€£¥])\+?\(?\d[\d \t().-]{5,}\d(?![A-Za-z0-9_/:])")
+_DATE_LIKE = LazyPattern(r"\d{4}[-.]\d{1,2}[-.]\d{1,2}|\d{1,2}[-.]\d{1,2}[-.]\d{2,4}")
 _STREET = (
     r"street|st|avenue|ave|av|road|rd|boulevard|blvd|lane|ln|drive|dr|court|ct|place|pl|way"
     r"|terrace|terr|ter|circle|cir|parkway|pkwy|highway|hwy|square|sq|trail|trl|plaza|plz"
@@ -566,7 +567,7 @@ _STREET = (
 )
 # "12 oak lane" in lower case: an address unless a word between reads like a distance or
 # directions ("5 minutes down the road", "3 blocks up the street").
-_ADDRESS_LOOSE = re.compile(
+_ADDRESS_LOOSE = LazyPattern(
     rf"\b\d{{1,6}}[a-z]?\s+((?:[a-z][\w'-]*\s+){{1,3}}?)(?:{_STREET})\b\.?", re.IGNORECASE
 )
 _NOT_A_STREET_NAME = frozenset(
@@ -585,21 +586,21 @@ _ADDRESS_CUE = (
 )
 _ADDRESSES = [
     # "12 Oak Lane", "221B Baker St", "1600 Pennsylvania Ave NW"
-    re.compile(
+    LazyPattern(
         rf"\b\d{{1,6}}[A-Za-z]?(?:-\d{{1,4}})?\s+(?:[A-Z0-9][\w'.-]*\s+){{0,4}}?(?i:{_STREET})\b\.?"
     ),
     # "his address is 12 oak lane", "pick up from 4 elm street"
-    re.compile(
+    LazyPattern(
         rf"{_ADDRESS_CUE}\s*:?\s*(\d{{1,6}}[a-z]?\s+(?:[\w'-]+\s+){{0,4}}?(?:{_STREET})\b\.?)",
         re.I,
     ),
-    re.compile(r"\bP\.?\s?O\.?\s+Box\s+\d+", re.I),
-    re.compile(r"\b(?:apt|apartment|suite|ste|flat)\.?\s*#?\s*\d+[A-Za-z]?\b", re.I),
-    re.compile(r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b"),  # a state and ZIP code
-    re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b"),  # a UK postcode
-    re.compile(r"[\u4e00-\u9fff]{1,12}?(?:路|街|大道|道|巷|弄|胡同|里)\s*\d+\s*[号號]"),
+    LazyPattern(r"\bP\.?\s?O\.?\s+Box\s+\d+", re.I),
+    LazyPattern(r"\b(?:apt|apartment|suite|ste|flat)\.?\s*#?\s*\d+[A-Za-z]?\b", re.I),
+    LazyPattern(r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b"),  # a state and ZIP code
+    LazyPattern(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b"),  # a UK postcode
+    LazyPattern(r"[\u4e00-\u9fff]{1,12}?(?:路|街|大道|道|巷|弄|胡同|里)\s*\d+\s*[号號]"),
     # (?<!\d): a match only starts where a run of digits does, so a long one stays quick
-    re.compile(
+    LazyPattern(
         r"(?<!\d)\d+\s*[号號]\s*(?:楼|樓|院)|(?<!\d)\d+\s*(?:栋|棟|幢)\s*\d+\s*(?:单元|單元|号|號|室)?"
         r"|(?<!\d)\d+\s*(?:单元|單元)\s*\d+"
     ),
@@ -755,7 +756,7 @@ _TENS = {
 }
 _SCALES = {"hundred": 100, "thousand": 1000, "grand": 1000, "million": 10**6, "billion": 10**9}
 _NUMBER_WORD = "|".join(sorted([*_SMALL, *_TENS, *_SCALES], key=len, reverse=True))
-_WORD_RUN = re.compile(
+_WORD_RUN = LazyPattern(
     rf"\b(?:{_NUMBER_WORD})(?:(?:\s+and\s+|[\s-]+)(?:{_NUMBER_WORD}))*\b", re.IGNORECASE
 )
 _HAN_DIGITS = {
@@ -789,7 +790,7 @@ _HAN_DIGITS = {
 }
 _HAN_UNITS = {"十": 10, "拾": 10, "百": 100, "佰": 100, "千": 1000, "仟": 1000}
 _HAN_SCALES = {"万": 10**4, "萬": 10**4, "亿": 10**8, "億": 10**8}
-_HAN_RUN = re.compile(
+_HAN_RUN = LazyPattern(
     "["
     + "".join(_HAN_DIGITS)
     + "十拾]["
@@ -814,7 +815,7 @@ def _words_value(words: list[str]) -> int:
 
 
 _VAGUE = {"couple": "two ", "few": "five ", "several": "nine "}  # counted high, on purpose
-_CLOCK_AFTER = re.compile(
+_CLOCK_AFTER = LazyPattern(
     r"\s*(?:[ap]\.?m\b\.?|o'?clock\b|in\s+the\s+(?:morning|afternoon|evening)\b|tonight\b"
     r"|this\s+(?:morning|afternoon|evening)\b)",
     re.IGNORECASE,
@@ -900,13 +901,13 @@ def han_to_digits(text: str) -> str:
     return _HAN_RUN.sub(lambda m: str(_han_value(m.group())), text)
 
 
-_NUMBER = re.compile(
+_NUMBER = LazyPattern(
     r"(?<![A-Za-z0-9_.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?"
     r"|\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?(?![\d.])"
     r"|\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:[.,]\d{1,2})?(?![\d.,])"
     r"|\d+(?:[.,]\d+)?)"
 )
-_MULTIPLIER = re.compile(
+_MULTIPLIER = LazyPattern(
     r"\s?(?P<short>k|mm|mn|m|bn|b)(?![A-Za-z])"
     r"|\s*(?P<word>thousand|grand|million|mil|billion|hundred)\b"
     r"|\s*(?P<han>百万|千万|万|萬|千|亿|億|百)",
@@ -934,15 +935,15 @@ _MULTIPLIERS = {
     "億": 1e8,
     "百": 100,
 }
-_CURRENCY_AFTER = re.compile(
+_CURRENCY_AFTER = LazyPattern(
     r"\s*(?:dollars?|bucks?|usd|eur(?:os?)?|gbp|pounds?|quid|yen|jpy|yuan|cny|rmb|renminbi"
     r"|francs?|chf|rupees?|inr|won|krw|pesos?|mxn|cad|aud|nzd|hkd|sgd|kr|kronor|kroner|rand"
     r"|zar|€|£|¥|\$|元|块钱|塊錢|块|塊|圆|圓|人民币|人民幣|美元|美金|欧元|歐元|英镑|英鎊|日元"
     r"|港币|港幣|港元)(?![A-Za-z])",
     re.IGNORECASE,
 )
-_CENTS_AFTER = re.compile(r"\s*(?:cents?|¢)(?![A-Za-z])", re.IGNORECASE)
-_CURRENCY_BEFORE = re.compile(
+_CENTS_AFTER = LazyPattern(r"\s*(?:cents?|¢)(?![A-Za-z])", re.IGNORECASE)
+_CURRENCY_BEFORE = LazyPattern(
     r"(?:(?<![A-Za-z])(?:us|ca|c|au|a|nz|hk|s|r|nt)?\$|€|£|¥|₹|₩|₽|₺|₪|₱|฿"
     r"|(?<![A-Za-z])(?:usd|eur|gbp|jpy|cny|rmb|chf|cad|aud|nzd|hkd|sgd|inr|krw|mxn|brl|zar"
     r"|sek|nok|dkk|pln)|人民币|人民幣|美元|港币|港幣)\s?$",
@@ -957,8 +958,8 @@ _MONEY_WORD_LIST = (
     r"|at\s+most|max(?:imum)?)\b"
     r"|付|价|價|费|費|花了|预算|預算|定金|订金|訂金|押金|租金|报价|報價|出价|出價|多少钱|便宜|贵)"
 )
-_MONEY_WORDS = re.compile(_MONEY_WORD_LIST, re.IGNORECASE)
-_MONEY_CONTEXT = re.compile(_MONEY_WORD_LIST + r"[^.!?\n。！？]{0,20}$", re.IGNORECASE)
+_MONEY_WORDS = LazyPattern(_MONEY_WORD_LIST, re.IGNORECASE)
+_MONEY_CONTEXT = LazyPattern(_MONEY_WORD_LIST + r"[^.!?\n。！？]{0,20}$", re.IGNORECASE)
 _MONTHS = (
     r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
     r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
@@ -980,38 +981,38 @@ _UNITS_ZH = (
 # with a unit, and reference numbers. A \d+ that needs something after it only starts where a
 # run of digits does ((?<![\d.])), so a long run of digits is read in one pass, not n.
 _NOT_MONEY = [
-    re.compile(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", re.I),
-    re.compile(r"\b\d{1,2}(?:[.:]\d{2})?\s*(?:[ap]\.?m\b\.?|o'?clock\b)", re.I),
-    re.compile(r"\d{1,2}\s*(?:点|點|时|時)(?:\s*\d{1,2}\s*分|半|钟|鐘)?"),
+    LazyPattern(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", re.I),
+    LazyPattern(r"\b\d{1,2}(?:[.:]\d{2})?\s*(?:[ap]\.?m\b\.?|o'?clock\b)", re.I),
+    LazyPattern(r"\d{1,2}\s*(?:点|點|时|時)(?:\s*\d{1,2}\s*分|半|钟|鐘)?"),
     # a day and an hour: "Thursday at 1", "tomorrow at 4" (only an hour: "at 450" is no time)
-    re.compile(
+    LazyPattern(
         r"\b(?:(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?s?|today|tomorrow"
         r"|tonight)\.?(?:\s+(?:morning|afternoon|evening|night))?\s+(?:at|@)\s+(?:[01]?\d|2[0-3])"
         r"(?:[:.]\d{2})?\b",
         re.I,
     ),
-    re.compile(
+    LazyPattern(
         r"\b\d{4}-\d{1,2}-\d{1,2}\b|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b|\b\d{1,2}\.\d{1,2}\.\d{2,4}\b"
     ),
-    re.compile(rf"\b(?:{_MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+\d{{4}}\b)?", re.I),
-    re.compile(
+    LazyPattern(rf"\b(?:{_MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+\d{{4}}\b)?", re.I),
+    LazyPattern(
         rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MONTHS})\b\.?(?:,?\s+\d{{4}}\b)?", re.I
     ),
-    re.compile(
+    LazyPattern(
         r"\d{2,4}\s*年(?:\s*\d{1,2}\s*月)?(?:\s*\d{1,2}\s*[日号號])?"
         r"|\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号號])?|\d{1,2}\s*[日号號](?![码碼])"
     ),
-    re.compile(r"\b\d+(?:st|nd|rd|th)\b|第\s*\d+", re.I),
-    re.compile(
+    LazyPattern(r"\b\d+(?:st|nd|rd|th)\b|第\s*\d+", re.I),
+    LazyPattern(
         r"(?<![\d.,])\d+(?:[.,]\d+)?\s*(?:%|percent\b|per\s?cent\b|pct\b)|百分之\s*\d+"
         r"|(?<![\d.])\d+(?:\.\d+)?\s*折",
         re.I,
     ),
-    re.compile(rf"\b\d+(?:[.,]\d+)?\s*-?\s*(?:{_UNITS})\b", re.I),
-    re.compile(rf"(?<![\d.])\d+(?:\.\d+)?\s*(?:{_UNITS_ZH})"),
+    LazyPattern(rf"\b\d+(?:[.,]\d+)?\s*-?\s*(?:{_UNITS})\b", re.I),
+    LazyPattern(rf"(?<![\d.])\d+(?:\.\d+)?\s*(?:{_UNITS_ZH})"),
     # "#4521", "booking ref 88213", "order number 12345", "flight 450". Never a bare
     # "number" or "is": "my final number is 450" and "the ticket is 450" are prices.
-    re.compile(
+    LazyPattern(
         r"#\s*\d[\d-]*"
         r"|\b(?:ref|reference|confirmation|conf|invoice|inv|tracking|case|ticket|order|booking"
         r"|reservation|sku|id|nr|zip|postcode|ext|extension)\b\.?\s*(?:#|number|no\.?|code|id"
@@ -1025,7 +1026,7 @@ _NOT_MONEY = [
 ]
 # A year ("built in 2019", "it's from 2019", "a 2019 model"), unless money came up earlier in
 # the sentence: "a deposit of 2000" and "a price of 1950" are amounts.
-_YEAR = re.compile(
+_YEAR = LazyPattern(
     r"\b(?:in|since|until|till|before|after|year|from|of)\s+(?:19|20)\d{2}\b"
     r"|\b(?:19|20)\d{2}\s+(?:model|version|edition|vintage|release|season)s?\b",
     re.IGNORECASE,
@@ -1053,7 +1054,7 @@ def _to_number(raw: str) -> float:
 
 _HAN_UNIT_VALUES = {"十": 10, "拾": 10, "百": 100, "佰": 100, "千": 1000, "仟": 1000}
 _HAN_UNIT_VALUES.update({"万": 10**4, "萬": 10**4})
-_HAN_TAIL = re.compile(r"(\d{1,4})(?![\d.,])([十拾百佰千仟万萬])?")
+_HAN_TAIL = LazyPattern(r"(\d{1,4})(?![\d.,])([十拾百佰千仟万萬])?")
 
 
 def _han_tail(text: str, unit: float) -> tuple[float, int]:
@@ -1121,7 +1122,7 @@ def _figures(text: str) -> list[Figure]:
     return out
 
 
-_GLUED_CODE = re.compile(
+_GLUED_CODE = LazyPattern(
     r"(?i)\b(usd|eur|gbp|jpy|cny|rmb|chf|cad|aud|nzd|hkd|sgd|inr|krw|mxn|brl|zar|sek|nok|dkk"
     r"|pln)(?=\d)"
 )
@@ -1155,7 +1156,7 @@ def figures(text: str) -> tuple[list[Figure], list[Figure]]:
     return money, others
 
 
-_MONEY_TALK = re.compile(
+_MONEY_TALK = LazyPattern(
     r"(?i:\b(?:price[sd]?|pay|paying|payment|cost|costs|budget|deposit|fees?|charge[sd]?|offer"
     r"|offers|sell|selling|buy|buying|rent|money|cash|cheap|expensive|discount|refund|dollars?"
     r"|bucks?|euros?|pounds?|quid|yuan|yen)\b)"
@@ -1228,15 +1229,15 @@ def _in_currency(f: Figure, currency: str) -> bool:
     return codes is None or currency in codes
 
 
-_PLUS = re.compile(
+_PLUS = LazyPattern(
     r"(?i:\b(?:and|plus|another|additional|extra|more|also|on\s+top|as\s+well|in\s+addition)\b)"
     r"|[+&]|加上|另加|再加|外加|另外|还有|還有|以及|和|加"
 )
-_STRONG_PLUS = re.compile(
+_STRONG_PLUS = LazyPattern(
     r"(?i:\b(?:plus|another|additional|extra|on\s+top|as\s+well|in\s+addition)\b)"
     r"|\+|另加|再加|外加|另外"
 )
-_CLAUSE_END = re.compile(r"[.!?\n。！？,;:，；：]")
+_CLAUSE_END = LazyPattern(r"[.!?\n。！？,;:，；：]")
 
 
 def _adds_up(between: str, same: bool) -> bool:
@@ -1376,7 +1377,7 @@ def commitment_problems(text: str, owner: str = "") -> list[Problem]:
 
 # giving away the brief
 
-_BRIEF = re.compile(
+_BRIEF = LazyPattern(
     r"need_owner|\"reply\"\s*:|system\s+prompt|my\s+(?:instructions|mandate|brief)\b", re.I
 )
 
@@ -1515,8 +1516,8 @@ def quoted(text: Any) -> str:
     return json.dumps(value, ensure_ascii=False).translate(_LINE_BREAKS)
 
 
-_ODD_BREAKS = re.compile(r"\r\n?|[  \x85\x0b\x0c\x1c-\x1e]")
-_CONTROLS = re.compile(r"[\x00-\x08\x0e-\x1b\x1f\x7f￼]")
+_ODD_BREAKS = LazyPattern(r"\r\n?|[  \x85\x0b\x0c\x1c-\x1e]")
+_CONTROLS = LazyPattern(r"[\x00-\x08\x0e-\x1b\x1f\x7f￼]")
 
 
 def _plain_lines(text: str) -> str:
@@ -1770,10 +1771,10 @@ QUIET_NOTICE = {
     "zh": "我替你进行的一个对话需要你看一下。可以让我列出这些对话。",
 }
 _WORD = r"[A-Za-z]+(?:['’][A-Za-z]+)*"  # "Jarvis's" is one word; a quote mark around it isn't
-_LATIN = re.compile(_WORD)
+_LATIN = LazyPattern(_WORD)
 # Tried only where a word begins (not after a letter, or a letter and an apostrophe): from
 # every letter of one long word it was quadratic.
-_JOINED = re.compile(rf"(?<![A-Za-z])(?<![A-Za-z]['’]){_WORD}(?:[-.·_]{_WORD})+")
+_JOINED = LazyPattern(rf"(?<![A-Za-z])(?<![A-Za-z]['’]){_WORD}(?:[-.·_]{_WORD})+")
 
 
 def _replace(text: str, spans: list[tuple[int, int]], other: str) -> str:
@@ -2771,7 +2772,7 @@ PROMPT = (
 #
 # Said to the assistant in any clause: "you don't need to check with me", "no need to run
 # each message by me", "you have my permission", "不用问我", "你自己处理".
-_YOU_GRANTS = re.compile(
+_YOU_GRANTS = LazyPattern(
     r"\byou\s+(?:don't|do\s+not|won't|will\s+not)\s+(?:need|have)\s+to\s+(?:ask|check(?:\s+in)?"
     r"\s+with|run\s+(?:it|them|things|each\s+\w+|every\s+\w+)\s+(?:by|past)|consult|bother"
     r"|clear\s+(?:it|them|things)\s+with)\s+me\b"
@@ -2797,7 +2798,7 @@ _YOU_GRANTS = re.compile(
 # Grants only when they end an instruction to the assistant ("handle it yourself",
 # "negotiate with Dana on your own", "sort it out without asking me", "自己处理吧"), never
 # about someone else ("see if they can manage it on their own").
-_SELF_GRANTS = re.compile(
+_SELF_GRANTS = LazyPattern(
     r"\b(?:(?:all\s+)?by\s+yourself|on\s+your\s+own|autonomously|end\s+to\s+end"
     r"|(?:it|this|that|them|things|everything|the\s+rest|out|up|(?:the\s+)?(?:whole\s+)?"
     r"(?:thing|details|negotiation|conversation|deal)|decide|negotiate|choose)\s+yourself"
@@ -2807,14 +2808,14 @@ _SELF_GRANTS = re.compile(
     r"|(?:自己|自行)(?:去|来|來)?(?:处理|處理|决定|決定|搞定|谈|談|看着办|看著辦)",
     re.IGNORECASE,
 )
-_GRANT_LEAD_IN = re.compile(
+_GRANT_LEAD_IN = LazyPattern(
     r"(?:(?:(?:ok(?:ay)?|hey|hi|alright|right|so|now|well|oh|um|uh|just|please|kindly|jarvis"
     r"|go\s+ahead\s+and|feel\s+free\s+to|i\s+(?:want|need)\s+you\s+to|i'd\s+like\s+you\s+to"
     r"|i\s+would\s+like\s+you\s+to|you\s+(?:can|may|should|could)"
     r"|(?:can|could|would|will)\s+you)\b|好的?|那就?|嗯|请|請|就|直接|你|您)[\s,]*)*",
     re.IGNORECASE,
 )
-_GRANT_VERBS = re.compile(
+_GRANT_VERBS = LazyPattern(
     r"(?:handle|deal|sort|take|manage|run|negotiate|settle|finish|close|do|go|text|message"
     r"|e-?mail|mail|talk|chat|speak|reply|respond|answer|work|figure|arrange|organi[sz]e"
     r"|coordinate|schedule|set|plan|book|pick|find|get|make|carry|continue|keep|follow|reach"
@@ -2824,24 +2825,24 @@ _GRANT_VERBS = re.compile(
     re.IGNORECASE,
 )
 # A grant inside one of these is about something else: "ask whether they can do it without me".
-_SUBORDINATE = re.compile(
+_SUBORDINATE = LazyPattern(
     r"\b(?:if|whether|when|once|unless|until|because|since|in\s+case|as\s+long\s+as)\b"
     r"|如果|要是|假如|是否|能否|看看|问问|問問|问一下|問一下",
     re.IGNORECASE,
 )
-_HEDGE = re.compile(
+_HEDGE = LazyPattern(
     r"\b(?:not|never|no|nor|hate|rather|prefer|avoid|careful|worried|wary)\b|n't"
     r"|不|别|別|没|沒|宁愿|寧願|宁可|寧可",
     re.IGNORECASE,
 )
-_QUESTION = re.compile(
+_QUESTION = LazyPattern(
     r"[?？]\s*$|[吗嗎么麼]\s*$|\bor\s+(?:should|shall|do|would|can|will)\s+(?:i|we|you)\b"
     r"|是不是|能不能|可不可以|要不要|行不行|好不好",
     re.IGNORECASE,
 )
-_GRANT_SENTENCES = re.compile(r"[^.!?。！？\n]+[.!?。！？]*")
-_GRANT_CLAUSES = re.compile(r"[,;:，；：、]|\b(?:and|but|then|also|so|plus)\b", re.IGNORECASE)
-_AUTONOMY_HELD_BACK = re.compile(
+_GRANT_SENTENCES = LazyPattern(r"[^.!?。！？\n]+[.!?。！？]*")
+_GRANT_CLAUSES = LazyPattern(r"[,;:，；：、]|\b(?:and|but|then|also|so|plus)\b", re.IGNORECASE)
+_AUTONOMY_HELD_BACK = LazyPattern(
     r"\b(?:ask|check\s+with|run\s+(?:it|them|things|each\s+\w+|every\s+\w+)\s+(?:by|past)"
     r"|confirm\s+with|clear\s+(?:it|them)\s+with)\s+me\s+(?:first|before)"
     r"|\bbefore\s+(?:you\s+)?(?:send|reply|respond|answer|agree|commit|book|pay|say|accept|confirm)"
@@ -3075,7 +3076,7 @@ def make_send(
 
 # A dash rule is tried from its first dash, and a header line never reaches back over blank
 # lines: a long run of either was tried again from each dash or line.
-_QUOTE_START = re.compile(
+_QUOTE_START = LazyPattern(
     r"\bOn\s[^\n]{0,200}?\bwrote:|\bLe\s[^\n]{0,200}?a\s+écrit\s?:|\bAm\s[^\n]{0,200}?schrieb"
     r"[^\n]{0,60}:|在[^\n]{0,200}?写道[:：]|(?<!-)-{2,}\s*Original Message\s*-{2,}"
     r"|(?<!-)-{2,}\s*原始邮件\s*-{2,}|^[^\S\n]*From:\s|^[^\S\n]*发件人[:：]|\bSent from my \w+",

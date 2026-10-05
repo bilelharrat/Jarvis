@@ -37,6 +37,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import jsonstore
+from .lang import LazyPattern
 from .prefs import APP_SUPPORT
 
 log = logging.getLogger("jarvis")
@@ -79,7 +80,7 @@ class UnreadableFile(OSError):
 # (which can carry hidden bytes too) and the blank Hangul fillers. A goal is shown on
 # approval cards and put in the system prompt, and must read there exactly as it was said.
 _HIDDEN_KINDS = frozenset({"Cc", "Cf", "Co", "Cs", "Cn"})
-_HIDDEN_MARKS = re.compile(
+_HIDDEN_MARKS = LazyPattern(
     "[\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0f\uffa0\U000e0100-\U000e01ef]"
 )
 # Quotes that may wrap the whole of what was said, opening mark to closing mark.
@@ -94,12 +95,12 @@ _PAIRS = {
     "『": "』",
 }
 _QUOTES = "".join(set(_PAIRS) | set(_PAIRS.values()))
-_APOSTROPHE = re.compile(r"(?<=\w)['’](?=\w)")  # don't, Mum’s: not a quote
+_APOSTROPHE = LazyPattern(r"(?<=\w)['’](?=\w)")  # don't, Mum’s: not a quote
 
 # Secrets never go in the file or the prompt. Unlike memory's word list, a goal may name
 # these things ("pay off the credit card", "set up a password manager"); what's refused is
 # one of them written out.
-_SECRET = re.compile(
+_SECRET = LazyPattern(
     # A label, then its value: "password is hunter2", "API key: sk-…".
     r"(?:pass(?:word|code|phrase)s?|passwd|api[ _-]?keys?|secret[ _-]?keys?"
     r"|(?:access|auth|api|bearer|refresh)[ _-]?tokens?)\s*(?:[:=]|\bis\b|\bwas\b)\s*\S"
@@ -149,7 +150,7 @@ _HORIZON_WORDS = _synonyms(
 )
 # Ways into a horizon: "this", "within a", "by the end of the". "next" only leads into a
 # span ("the next 3 months"): next month isn't this month, so "next month" is refused.
-_HORIZON_LEAD = re.compile(
+_HORIZON_LEAD = LazyPattern(
     r"^(?:(?:this|the|a|an|by|within|in|over|for|end\s+of"
     r"|next(?=\s+(?:\d+|one|two|three|seven|twelve|thirty|ninety)\b))\s+)+"
 )
@@ -358,7 +359,7 @@ _COMMON = frozenset(
 _APOSTROPHES = str.maketrans({"’": "'", "‘": "'", "ʼ": "'", "＇": "'"})
 # What can change while it stays the same goal or rule: a number, a time, an amount ("no
 # meetings before 10" -> "before 10:30"). "Emergency fund" -> "vacation fund" is another goal.
-_DETAIL = re.compile(r"\d+(?:st|nd|rd|th|k|km|mi|am|pm|h|hrs?|mins?)?|am|pm", re.IGNORECASE)
+_DETAIL = LazyPattern(r"\d+(?:st|nd|rd|th|k|km|mi|am|pm|h|hrs?|mins?)?|am|pm", re.IGNORECASE)
 
 
 def _fold(text: str) -> str:

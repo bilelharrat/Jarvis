@@ -33,6 +33,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from ... import jsonstore, lang, prefs
+from ...lang import LazyPattern
 from ...proactive import Alert, event_key
 from .briefing import quote
 
@@ -136,10 +137,10 @@ def _part(text: str | None) -> tuple[int, int]:
     return EVENING
 
 
-_EN_RULES: list[tuple[str, re.Pattern[str]]] = [
+_EN_RULES: list[tuple[str, LazyPattern]] = [
     (
         "before",
-        re.compile(
+        LazyPattern(
             rf"\b{_NO}\s+(?:before|until|till)\s+{_T.format(name='t')}"
             rf"(?:\s+on\s+{_days_en()})?",
             re.IGNORECASE,
@@ -147,7 +148,7 @@ _EN_RULES: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "after",
-        re.compile(
+        LazyPattern(
             rf"\b{_NO}\s+(?:after|past|later\s+than)\s+{_T.format(name='t')}"
             rf"(?:\s+on\s+{_days_en()})?"
             rf"|\b(?:done|finished|off|out)\s+by\s+{_T.format(name='t2')}",
@@ -156,7 +157,7 @@ _EN_RULES: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "span",
-        re.compile(
+        LazyPattern(
             rf"\b(?:{_NO}|keep|block|protect|hold)\s+(?:(?:from|between)\s+)?"
             rf"{_T.format(name='a')}\s*(?:-|–|to|and|until)\s*{_T.format(name='b')}"
             rf"(?:\s+(?:free|clear|open|blocked|for\s+\w+))?(?:\s+on\s+{_days_en()})?",
@@ -165,7 +166,7 @@ _EN_RULES: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "part",
-        re.compile(
+        LazyPattern(
             rf"\b(?:keep|protect|block|hold)\s+(?:my\s+)?(?:{_days_en()}\s+)?{_part_en()}\s+"
             rf"(?:free|clear|open|for\s+\w+|meeting[\s-]free)"
             rf"|\b{_NO}\s+(?:in\s+the\s+|on\s+)?(?:{_days_en('days2')}\s+)?{_part_en('part2')}\b",
@@ -174,7 +175,7 @@ _EN_RULES: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "days",
-        re.compile(
+        LazyPattern(
             rf"\b{_NO}\s+(?:on\s+)?{_days_en()}\b(?!\s+(?:mornings?|afternoons?|evenings?))"
             rf"|\b(?:keep|protect|block)\s+(?:my\s+)?{_days_en('days2')}\s+(?:free|clear|open|"
             rf"meeting[\s-]free)|\b{_days_en('days3')}\s+(?:are|stay)\s+(?:free|meeting[\s-]free|off)",
@@ -222,28 +223,28 @@ def _zh_days(text: str | None) -> frozenset[int]:
     return frozenset(ZH_DAYS[c] for c in re.findall(r"[一二三四五六日天]", text))
 
 
-_ZH_RULES: list[tuple[str, re.Pattern[str]]] = [
+_ZH_RULES: list[tuple[str, LazyPattern]] = [
     (
         "span",
-        re.compile(
+        LazyPattern(
             rf"{_ZH_DAYS}?(?:的)?(?:从)?{_ZH_T.format(h='ha', n='na', m='ma')}\s*(?:到|至|-|–)\s*"
             rf"{_ZH_T.format(h='hb', n='nb', m='mb')}(?:之间)?(?:都|也)?{_ZH_NOT}"
         ),
     ),
     (
         "before",
-        re.compile(
+        LazyPattern(
             rf"{_ZH_DAYS}?{_ZH_T.format(h='h', n='n', m='m')}(?:之前|以前|前)(?:都|也)?{_ZH_NOT}"
         ),
     ),
     (
         "after",
-        re.compile(
+        LazyPattern(
             rf"{_ZH_DAYS}?{_ZH_T.format(h='h', n='n', m='m')}(?:之后|以后|后)(?:都|也)?{_ZH_NOT}"
         ),
     ),
-    ("part", re.compile(rf"{_ZH_DAYS}?(?:的)?(?P<part>上午|下午|晚上)(?:都|也)?{_ZH_NOT}")),
-    ("days", re.compile(rf"{_ZH_DAYS}(?:都|也)?{_ZH_NOT}")),
+    ("part", LazyPattern(rf"{_ZH_DAYS}?(?:的)?(?P<part>上午|下午|晚上)(?:都|也)?{_ZH_NOT}")),
+    ("days", LazyPattern(rf"{_ZH_DAYS}(?:都|也)?{_ZH_NOT}")),
 ]
 _ZH_PARTS = {"上午": MORNING, "下午": AFTERNOON, "晚上": EVENING}
 

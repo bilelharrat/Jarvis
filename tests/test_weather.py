@@ -144,3 +144,101 @@ async def test_metric_places_get_kilometres_and_hectopascals():
     )
     assert d["wind_dir"] == "SW" and d["uv"] is None and d["gusts"] is None
     assert w["hours"] == [] and w["days"] == [] and w["sunrise"] == ""
+
+
+class Sky:
+    """Open-Meteo, faked: the geocoder knows Paris and Hillsboro, the forecast answers."""
+
+    def __init__(self) -> None:
+        self.asked: list[httpx.Request] = []
+        self.made: list[dict] = []  # the kwargs of each client the weather made itself
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.asked.append(request)
+        if request.url.host == "geocoding-api.open-meteo.com":
+            name = request.url.params["name"]
+            found = {
+                "Paris": {"name": "Paris", "latitude": 48.85, "longitude": 2.35,
+                          "admin1": "Île-de-France", "country_code": "FR"},
+                "Hillsboro": {"name": "Hillsboro", "latitude": 45.52, "longitude": -122.99,
+                              "admin1": "Oregon", "country_code": "US"},
+            }.get(name)  # fmt: skip
+            return httpx.Response(200, json={"results": [found]} if found else {})
+        p = request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "current": {
+                    "time": "2026-10-05T09:00",
+                    "temperature_2m": float(p["latitude"]),
+                    "relative_humidity_2m": 50,
+                    "apparent_temperature": 20,
+                    "wind_speed_10m": 10,
+                    "weather_code": 3,
+                },
+            },
+        )
+
+    def client(self, real):
+        def make(**kwargs):
+            self.made.append(kwargs)
+            return real(transport=httpx.MockTransport(self.handler))
+
+        return make
+
+    def geocoded(self) -> list[str]:
+        return [
+            r.url.params["name"] for r in self.asked if r.url.host == "geocoding-api.open-meteo.com"
+        ]
+
+
+async def test_a_weather_city_is_looked_up_once_a_day(monkeypatch):
+    """The hub asks for the weather city's weather every minute while the Mac has no
+    location: the city is found once, and every answer is the same as with a lookup each
+    time."""
+    from jarvis import weather
+
+    sky = Sky()
+    monkeypatch.setattr(httpx, "AsyncClient", sky.client(httpx.AsyncClient))
+    monkeypatch.setattr(weather, "_PLACES", {})
+    clock = [1000.0]
+    monkeypatch.setattr(weather.time, "monotonic", lambda: clock[0])
+    first = await current_weather("Paris")
+    assert (first["city"], first["region"], first["temp"], first["unit"]) == (
+        "Paris",
+        "Île-de-France, FR",
+        49,
+        "°C",
+    )
+    for _minute in range(1, 60):
+        clock[0] += 60
+        assert await current_weather(" Paris ") == first
+    assert sky.geocoded() == ["Paris"]
+    assert sum(r.url.host == "api.open-meteo.com" for r in sky.asked) == 60  # each minute
+    # Another city is its own; a day later the city is looked up again.
+    assert (await current_weather("Hillsboro"))["unit"] == "°F"
+    clock[0] += weather.PLACE_SECONDS
+    assert await current_weather("Paris") == first
+    assert sky.geocoded() == ["Paris", "Hillsboro", "Paris"]
+    # A city that isn't found is asked about again next time (it may be found then).
+    for _ in range(2):
+        assert await current_weather("Atlantis") == {
+            "city": "Atlantis",
+            "error": "I couldn't find that place.",
+        }
+    assert sky.geocoded()[-2:] == ["Atlantis", "Atlantis"]
+    # Every client it made for itself shares one TLS setup, httpx's own default.
+    assert len(sky.made) == 64 and all(k["verify"] is weather.tls() for k in sky.made)
+    tls = weather.tls()
+    assert tls.check_hostname and tls.verify_mode.name == "CERT_REQUIRED"
+
+
+async def test_a_callers_own_client_always_asks_the_geocoder(monkeypatch):
+    from jarvis import weather
+
+    sky = Sky()
+    monkeypatch.setattr(weather, "_PLACES", {})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(sky.handler)) as client:
+        for _ in range(3):
+            assert (await current_weather("Paris", client))["city"] == "Paris"
+    assert sky.geocoded() == ["Paris"] * 3 and weather._PLACES == {}

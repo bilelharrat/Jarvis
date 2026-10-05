@@ -23,10 +23,11 @@ for a reaction (the address, to look for a reply) stays in memory.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -156,6 +157,8 @@ class ReactionLearner:
         self.words: dict[str, list[list[str]]] = {}
         self.pending: dict[str, Pending] = {}
         self.unreadable = ""
+        self._held = 0  # learn() within held(): one save for the lot (flush)
+        self._unsaved = False
         self._load()
 
     def on(self) -> bool:
@@ -187,6 +190,7 @@ class ReactionLearner:
                 self.words[word] = _log(raw, WORD_HISTORY)
 
     def _save(self) -> None:
+        self._unsaved = False
         if self.unreadable:
             return
         try:
@@ -195,6 +199,25 @@ class ReactionLearner:
             )
         except OSError as exc:
             log.info("interruptions: couldn't save what was learned (%s)", exc)
+
+    @contextlib.contextmanager
+    def held(self) -> Iterator[None]:
+        """What learn() learns within it is saved once, when it ends or at flush(), not at
+        each reaction: a look that settles many reactions at once (all of a night's, once the
+        Mac wakes) writes the file once, not once each, flushed to the disk every time, with
+        the event loop waiting on every write."""
+        self._held += 1
+        try:
+            yield
+        finally:
+            self._held -= 1
+            if not self._held:
+                self.flush()
+
+    def flush(self) -> None:
+        """Save what was learned and not saved yet (within held())."""
+        if self._unsaved:
+            self._save()
 
     # ── watching for a reaction ──
 
@@ -294,7 +317,10 @@ class ReactionLearner:
             if outcome != "read":
                 self.words[word] = [*self.words.get(word, []), [outcome, stamp]][-WORD_HISTORY:]
         told = self._restate(record, lang)
-        self._save()
+        if self._held:
+            self._unsaved = True
+        else:
+            self._save()
         return told
 
     def _restate(self, record: dict[str, Any], lang: str) -> str | None:

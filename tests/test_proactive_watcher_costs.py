@@ -111,3 +111,43 @@ async def test_a_key_is_still_said_once_within_its_days():
     for minute in range(5):
         await w.tick(NOW + timedelta(minutes=minute))
     assert [a.kind for a in said] == ["soon"]
+
+
+async def test_travel_times_are_forgotten_once_they_cant_be_used_again(monkeypatch):
+    """A month of a meeting somewhere every day keeps the travel times of the last days,
+    not one for every meeting since the app started; and what's said, and each lookup of
+    Maps, is just what it was when they were all kept."""
+
+    def month(forget: bool) -> tuple[Watcher, list[str], list[dict], list[Alert]]:
+        asked: list[str] = []
+        said: list[Alert] = []
+        events: list[dict] = []
+
+        async def read():
+            return list(events)
+
+        async def eta(where):
+            asked.append(where)
+            return 25
+
+        w = Watcher(said.append, events=read, eta=eta, battery=lambda: None, weather=lambda: None)
+        if not forget:
+            monkeypatch.setattr(w, "_forget_etas", lambda _now: None)
+        return w, asked, events, said
+
+    runs = []
+    for forget in (True, False):
+        w, asked, events, said = month(forget)
+        for day in range(30):
+            start = NOW + timedelta(days=day)
+            events[:] = [event(f"Lunch {day}", day * 24 * 60 + 90, f"{day} Market St")]
+            for minute in (0, 5, 12, 40, 60, 95):  # a look within its ten minutes, and after
+                w._events_at = None  # the calendar read again at each look
+                await w.tick(start + timedelta(minutes=minute))
+        runs.append((w, asked, [(a.key, a.text) for a in said]))
+    (kept, asked, said), (old, old_asked, old_said) = runs
+    assert len(old._etas) == 30  # before: one for every meeting somewhere, for ever
+    assert len(kept._etas) <= ANNOUNCED_DAYS + 1
+    assert asked == old_asked and said == old_said
+    assert len(asked) == 30 * 4  # 0, 12, 40 and 60 minutes: one within ten minutes is reused
+    assert sum(text.startswith("Time to leave for Lunch") for _key, text in said) == 30

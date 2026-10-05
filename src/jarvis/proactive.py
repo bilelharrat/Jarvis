@@ -383,7 +383,18 @@ class Watcher:
                     self.trips.pop(key, None)
             out[key] = cached[1]
         self.trips = {k: v for k, v in self.trips.items() if k in out}
+        self._forget_etas(now)
         return out
+
+    def _forget_etas(self, now: datetime) -> None:
+        """A travel time looked up ANNOUNCED_DAYS ago is never used again: one older than
+        ETA_EVERY is looked up afresh before it's said, and no trip is timed for an event
+        that has begun. Kept for weeks, there'd be one for every meeting somewhere since
+        the app started."""
+        cutoff = now - timedelta(days=ANNOUNCED_DAYS)
+        old = [k for k, (at, _minutes) in self._etas.items() if at < cutoff]
+        for key in old:
+            del self._etas[key]
 
     def known_events(self) -> list[dict[str, Any]]:
         """The calendar as last read (the next few hours), for features to look at."""

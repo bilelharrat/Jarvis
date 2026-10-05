@@ -2,10 +2,48 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 GEOCODE = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST = "https://api.open-meteo.com/v1/forecast"
+PLACE_SECONDS = 24 * 3600  # a weather city is looked up again after this long
+PLACES_KEPT = 16
+
+# Where each weather city is, as the geocoder last found it: city -> (when, lat, lon, place).
+# Without a location of its own the hub asks for the weather every minute, and a city
+# doesn't move: one lookup a day instead of one a minute.
+_PLACES: dict[str, tuple[float, Any, Any, dict[str, Any]]] = {}
+_TLS: Any = None  # see tls()
+
+
+def tls() -> Any:
+    """httpx's own default TLS settings (certifi's roots, or SSL_CERT_FILE or SSL_CERT_DIR),
+    made once and shared by the clients the weather makes for itself: each new client would
+    otherwise read and parse the whole bundle of root certificates again, milliseconds on
+    the event loop every time. (Each connection sets its protocols on it: only clients
+    that all speak HTTP/1.1, httpx's default, share it.)"""
+    global _TLS
+    if _TLS is None:
+        import httpx
+
+        _TLS = httpx.create_ssl_context()
+    return _TLS
+
+
+def _known_place(city: str) -> tuple[Any, Any, dict[str, Any]] | None:
+    found = _PLACES.get(city)
+    if found is None or time.monotonic() - found[0] >= PLACE_SECONDS:
+        return None
+    return found[1], found[2], dict(found[3])
+
+
+def _keep_place(city: str, lat: Any, lon: Any, place: dict[str, Any]) -> None:
+    _PLACES.pop(city, None)
+    _PLACES[city] = (time.monotonic(), lat, lon, dict(place))
+    while len(_PLACES) > PLACES_KEPT:  # the oldest go first
+        del _PLACES[next(iter(_PLACES))]
+
 
 # WMO weather codes -> words.
 CODES = {
@@ -94,28 +132,35 @@ async def current_weather(
     lon: float | None = None,
     place: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
-    """Current conditions plus today's outlook, by coordinates (preferred) or city name."""
+    """Current conditions plus today's outlook, by coordinates (preferred) or city name.
+    Without a client of the caller's, a city found is remembered for a day (_PLACES)."""
     import httpx
 
     own = client is None
-    client = client or httpx.AsyncClient(timeout=15)
+    client = client or httpx.AsyncClient(timeout=15, verify=tls())
     try:
         if lat is None or lon is None:
             city = city.strip()
             if not city:
                 return None
-            geo = await client.get(GEOCODE, params={"name": city, "count": 1, "language": "en"})
-            geo.raise_for_status()
-            places = geo.json().get("results") or []
-            if not places:
-                return {"city": city, "error": "I couldn't find that place."}
-            found = places[0]
-            lat, lon = found["latitude"], found["longitude"]
-            place = {
-                "city": found.get("name", city),
-                "region": found.get("admin1", ""),
-                "country": found.get("country_code", ""),
-            }
+            known = _known_place(city) if own else None
+            if known is not None:
+                lat, lon, place = known
+            else:
+                geo = await client.get(GEOCODE, params={"name": city, "count": 1, "language": "en"})
+                geo.raise_for_status()
+                places = geo.json().get("results") or []
+                if not places:
+                    return {"city": city, "error": "I couldn't find that place."}
+                found = places[0]
+                lat, lon = found["latitude"], found["longitude"]
+                place = {
+                    "city": found.get("name", city),
+                    "region": found.get("admin1", ""),
+                    "country": found.get("country_code", ""),
+                }
+                if own:
+                    _keep_place(city, lat, lon, place)
         place = place or {}
         imperial = place.get("country", "") in IMPERIAL
         forecast = await client.get(
