@@ -34,6 +34,7 @@ from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
 from .. import code_ai, code_changes, lang
 from ..computer import is_sensitive
+from ..hub import _msg_int
 
 REVIEW_DIFF = 60_000  # characters of the diff a review reads
 MAX_FINDINGS = 20
@@ -226,10 +227,7 @@ class Reviews:
         return lang.translate(text, self.hub.language)
 
     def _task(self, msg: dict[str, Any]) -> Any:
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         return task if task is not None and task.kind == "code" else None
 
     def publish(self, task_id: int) -> None:

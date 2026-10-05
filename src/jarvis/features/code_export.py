@@ -23,7 +23,7 @@ from typing import Any
 
 from .. import code_records, lang, mac_tools, tasks
 from ..code_export import Anonymizer, entries_from, entries_from_transcript, file_stem, render
-from .code_workspace import session_of
+from .code_workspace import session_of, unopenable
 
 log = logging.getLogger("jarvis")
 
@@ -123,7 +123,10 @@ class Exports:
 
     async def cmd_reveal(self, msg: dict[str, Any]) -> None:
         """An export in Finder: only a file this feature writes to, never a path it's given."""
-        path = Path(str(msg.get("path") or "")).expanduser()
+        given = str(msg.get("path") or "")
+        if unopenable(given):
+            return
+        path = Path(given).expanduser()
         try:
             folder = tasks.EXPORT_DIR.resolve()
             path = path.resolve()

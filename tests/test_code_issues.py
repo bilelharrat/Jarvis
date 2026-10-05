@@ -4,6 +4,7 @@ owner (once, with its text as data and fewer tools), a daily cap, and the pull r
 drafted for the owner's OK when it's done. GitHub is tests/github_fakes.py."""
 
 import asyncio
+import json
 import time
 from dataclasses import replace
 
@@ -247,6 +248,42 @@ async def test_a_rate_limit_loses_no_issue(hub, projects, monkeypatch):
     del hub.fake.fail[("GET", "/repos/acme/app/issues/5")]
     hub.code_pr.client.limited_until = 0
     assert await hub.code_issues.look(entry) == [5]
+
+
+async def test_a_look_that_finds_nothing_new_writes_nothing(hub, projects, monkeypatch):
+    """Each repository is looked at every POLL_EVERY, and most looks find nothing new:
+    those write nothing (it was the same file again, flushed to the disk on the event
+    loop). A look that sees something writes, and so does the first look after a save that
+    failed (a full disk), so nothing seen is lost."""
+    app_project(projects)
+    entry = opted_in(hub)
+    starts(hub, monkeypatch)
+    real = code_issues.jsonstore.save_json
+    writes, full = [], []
+
+    def save(path, data, **kw):
+        if path.name == "code_issues.json":
+            if full:
+                raise OSError(28, "No space left on device")
+            writes.append(json.loads(json.dumps(data)))
+        real(path, data, **kw)
+
+    monkeypatch.setattr(code_issues.jsonstore, "save_json", save)
+    assert await hub.code_issues.look(entry) == []  # (the repository's first look: written)
+    assert writes == [{"seen": {"acme/app": []}}]
+    assert await hub.code_issues.look(entry) == []
+    assert len(writes) == 1  # nothing new: nothing written
+    labelled(hub.fake, 3)
+    full.append(True)
+    assert await hub.code_issues.look(entry) == [3]  # seen, but the disk is full
+    full.clear()
+    assert await hub.code_issues.look(entry) == []  # nothing new, but the last save failed
+    assert writes[-1] == {"seen": {"acme/app": [300]}}
+    count = len(writes)
+    assert await hub.code_issues.look(entry) == []
+    assert len(writes) == count
+    hub.code_issues._seen = None  # (read again from its file)
+    assert hub.code_issues.seen() == {"acme/app": [300]}
 
 
 async def test_without_github_connected_nothing_is_read(hub, projects, monkeypatch):

@@ -36,7 +36,6 @@ model.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import re
 import time
@@ -132,6 +131,7 @@ class Issues:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self._seen: dict[str, list[int]] | None = None
+        self._unsaved = False  # the last save failed (a full disk): the next look tries again
         self._caps: code_ai.Budget | None = None
         self._told_cap = ""
 
@@ -177,8 +177,12 @@ class Issues:
         return self._seen
 
     def save(self) -> None:
-        with contextlib.suppress(OSError):
+        try:
             jsonstore.save_json(self.hub.feature_path("code_issues.json"), {"seen": self.seen()})
+        except OSError:  # a full disk: kept for this run, and saved at a later look
+            self._unsaved = True
+        else:
+            self._unsaved = False
 
     async def publish(self) -> None:
         connected = await self.client.connected()
@@ -321,7 +325,9 @@ class Issues:
         owner, _, name = entry["repo"].partition("/")
         ref = github.RepoRef(owner, name)
         events = await self.client.issue_events(ref)
+        new = entry["repo"] not in self.seen()
         seen = self.seen().setdefault(entry["repo"], [])
+        before = list(seen)
         fresh = []
         for event in reversed(events):  # oldest first
             if not isinstance(event, dict) or event.get("event") != "labeled":
@@ -369,7 +375,10 @@ class Issues:
                     started.append(number)
         finally:
             del seen[:-SEEN_KEPT]
-            self.save()
+            # Most looks (every POLL_EVERY, each repository) find nothing new: those write
+            # nothing, rather than the same file again with a flush to the disk.
+            if new or seen != before or self._unsaved:
+                self.save()
         return started
 
     def _capped(self) -> None:

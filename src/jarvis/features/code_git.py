@@ -27,6 +27,7 @@ from typing import Any
 
 from .. import code_ai, code_changes, lang, secret_scan, worktrees
 from ..code_changes import git
+from ..hub import _msg_int
 
 LOG_COUNT = 50
 BRANCHES = 100
@@ -226,10 +227,7 @@ class GitPanel:
         the key the window knows it by."""
         raw = msg.get("id")
         if raw not in (None, "", 0, "0"):
-            try:
-                task = self.hub.tasks.tasks.get(int(raw))
-            except (TypeError, ValueError):
-                return None
+            task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))  # (not a number: none)
             if task is None or task.kind != "code":
                 return None
             return task.cwd, task, f"id:{task.id}"

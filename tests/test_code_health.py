@@ -77,6 +77,31 @@ async def test_the_engine_the_sign_in_and_the_session_s_connection(hub, tmp_path
     assert len(asked) == 2 * n
 
 
+async def test_asks_while_a_look_is_under_way_share_it(hub):
+    """The pane opened, then another session shown (or two windows): the asks that come
+    while the engine is being looked at share that look, rather than each starting the
+    engine (and its sign-in check) again. A fresh ask still looks again for itself."""
+    asked = engine(hub)
+    desk = desk_for(hub)
+    quick = desk.run
+
+    async def slow(*args, **kw):
+        await asyncio.sleep(0.05)  # (the real engine takes a second or two)
+        return await quick(*args, **kw)
+
+    desk.run = slow
+    seen = record(hub)
+    for _ in range(3):
+        await hub.handle({"type": "cw_health"})
+    first = await answer(seen, 3)
+    assert asked == [("--version",), ("auth", "status", "--json")]  # one look for the three
+    assert [d["engine"] for k, d in seen if k == "cw_health"] == [first["engine"]] * 3
+    await hub.handle({"type": "cw_health"})
+    await hub.handle({"type": "cw_health", "fresh": True})
+    await answer(seen, 5)
+    assert len(asked) == 4  # (the first from what was kept; the fresh one looked again)
+
+
 async def test_not_signed_in_gives_the_command_that_signs_in(hub):
     engine(hub, logged_in=False)
     seen = record(hub)

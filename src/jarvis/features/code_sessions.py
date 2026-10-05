@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import code_asides, code_projects, prefs, worktrees
+from ..hub import _msg_int
 from ..session_store import (
     AUDIT_KEEP,
     FILES_KEEP,
@@ -150,10 +151,7 @@ class CodeSessions:
         return [t for t in self.tm.tasks.values() if t.kind == "code"]
 
     def _task(self, msg: dict[str, Any]) -> ClaudeTask | None:
-        try:
-            task = self.tm.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
+        task = self.tm.tasks.get(_msg_int(msg, "id"))
         return task if task is not None and task.kind == "code" else None
 
     def key_for(self, task: ClaudeTask) -> str:

@@ -90,7 +90,7 @@ class QA:
     def _cmd_qa(self, msg: dict[str, Any]) -> None:
         try:
             task_id = int(msg.get("id") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # (infinity too)
             return
         if not self.start(task_id):
             self.hub.emit("error", text="That session can't take a QA pass just now.")

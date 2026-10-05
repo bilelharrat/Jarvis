@@ -32,6 +32,7 @@ from datetime import datetime
 from typing import Any
 
 from .. import lang, prefs
+from ..hub import _msg_int
 from ..proactive import Alert
 
 PREF = "code_limit_wait"
@@ -189,10 +190,7 @@ class LimitWait:
         return ""
 
     def cmd(self, msg: dict[str, Any]) -> None:
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            task = None
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))  # (not a number: none)
         if task is None or task.hold_until <= 0:
             self.hub.emit("caption", text=self.tr("This session isn't waiting for Claude."))
             return

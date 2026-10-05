@@ -24,6 +24,7 @@ import itertools
 import os
 import signal
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -215,6 +216,8 @@ class BestOf:
 
     async def watch(self, group: Group) -> None:
         desk = getattr(self.hub, "code_desk", None)
+        shown: dict[str, Any] | None = None  # what the windows were last sent from here
+        heard: frozenset[Any] = frozenset()  # the windows connected at the last look
         while True:
             pending = False
             for v in group.variants:
@@ -238,7 +241,19 @@ class BestOf:
                     v.status = "failed" if task.status == "failed" else "done"
                 else:
                     pending = True
-            self.publish(group)
+            # Sent when it changed, not at every look: the variants work for minutes, and
+            # each event redrew the group in every window. And when a window connected since
+            # the last look: one that missed events (cut off for falling behind, its socket
+            # failed, or it was down when the pane asked) always comes back on a new
+            # connection, code_bestof isn't replayed, and nothing else redraws its open pane.
+            # The windows themselves are kept, not their ids, so a new one can't pass for one
+            # that went.
+            windows = frozenset(getattr(self.hub, "_subscribers", ()))
+            public = group.public()
+            if public != shown or not windows <= heard:
+                self.hub.emit("code_bestof", **public)
+                shown = deepcopy(public)
+            heard = windows
             if not pending:
                 break
             await asyncio.sleep(self.poll)
@@ -306,7 +321,7 @@ class BestOf:
     async def _keep(self, msg: dict[str, Any]) -> None:
         try:
             n = int(msg.get("n") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # (infinity too)
             return
         said = await self.keep(str(msg.get("group") or ""), n)
         if said:

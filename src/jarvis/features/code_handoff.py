@@ -57,6 +57,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from .. import code_changes, github, handoff, jsonstore, lang, secret_scan, tasks, worktrees
 from ..code_changes import git
 from ..handoff import Handoff, Machine
+from ..hub import _msg_int
 
 log = logging.getLogger("jarvis")
 
@@ -1085,11 +1086,7 @@ class Desk:
         key = str(msg.get("handoff") or "")
         if key:
             return next((r for r in self.handoffs if r.id == key), None)
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
-        return self.of_task(task)
+        return self.of_task(self.hub.tasks.tasks.get(_msg_int(msg, "id")))
 
     async def bring_back(self, rec: Handoff | None, by_voice: bool = False) -> str:
         if rec is None:
@@ -1281,10 +1278,7 @@ class Desk:
     # ── window commands ──
 
     def _task(self, msg: dict[str, Any]) -> Any:
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         return task if task is not None and task.kind == "code" else None
 
     def cmd_machines(self, _msg: dict[str, Any]) -> None:

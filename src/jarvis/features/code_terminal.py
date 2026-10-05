@@ -32,6 +32,7 @@ from typing import Any
 
 from .. import lang
 from ..code_terminals import BangRun, Shells
+from ..hub import _msg_int
 from .code_workspace import folder_of
 
 log = logging.getLogger("jarvis")
@@ -100,10 +101,7 @@ class Terminals:
 
     def cmd_resize(self, msg: dict[str, Any]) -> None:
         shell = self.shells.get(str(msg.get("term") or ""))
-        try:
-            cols, rows = int(msg.get("cols") or 0), int(msg.get("rows") or 0)
-        except (TypeError, ValueError):
-            return
+        cols, rows = _msg_int(msg, "cols"), _msg_int(msg, "rows")  # (not a number: 0)
         if shell is not None and 0 < cols <= 1000 and 0 < rows <= 1000:
             shell.term.resize(cols, rows)
 

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import code_projects, lang, previewcheck
+from ..hub import _msg_int
 
 log = logging.getLogger("jarvis")
 
@@ -245,18 +246,14 @@ class VideoProof:
 
     def cmd_record(self, msg: dict[str, Any]) -> None:
         """ "Record a video proof" (the More menu): one now, whatever the project's switch."""
-        task = None
-        with contextlib.suppress(TypeError, ValueError):
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         if task is None or task.kind != "code":
             self.hub.emit("vp_error", text="Open a session to record its page.")
             return
         self.spawn(self.record(task, by_owner=True))
 
     def cmd_state(self, msg: dict[str, Any]) -> None:
-        task = None
-        with contextlib.suppress(TypeError, ValueError):
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         if task is not None and task.kind == "code":
             self.hub.emit(
                 "vp_state",

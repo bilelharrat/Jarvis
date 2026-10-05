@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ from typing import Any
 from .. import code_editor, code_memory, code_search, lang, mac_tools
 from ..code_editor import Editors
 from ..code_records import RecordMedia
+from ..hub import _msg_int
 
 log = logging.getLogger("jarvis")
 
@@ -97,7 +99,8 @@ class Workspace:
         """{id, keys: [a message's uuid or a step's tool id], ref?}: the pictures Claude
         Code's record holds for those entries (keys it has none for are left out)."""
         task = self.session(msg)
-        keys = [k for k in msg.get("keys") or [] if isinstance(k, str)][:24]
+        raw = msg.get("keys")
+        keys = [k for k in raw if isinstance(k, str)][:24] if isinstance(raw, list) else []
         ref = str(msg.get("ref") or "")[:40]
         items: dict[str, Any] = {}
         if task is not None and task.session_id and keys:
@@ -237,11 +240,9 @@ class Workspace:
 
 
 def session_of(hub: Any, msg: dict[str, Any]) -> Any:
-    """The Jarvis Code session a window command names (by id), or None."""
-    try:
-        task = hub.tasks.tasks.get(int(msg.get("id") or 0))
-    except (TypeError, ValueError):
-        return None
+    """The Jarvis Code session a window command names (by id), or None (an id that isn't a
+    number, infinity among them, names none)."""
+    task = hub.tasks.tasks.get(_msg_int(msg, "id"))
     return task if task is not None and task.kind == "code" else None
 
 
@@ -253,6 +254,22 @@ def folder_of(hub: Any, msg: dict[str, Any]) -> Path:
     if task is not None:
         return Path(task.cwd)
     return hub.tasks.resolve_dir(str(msg.get("directory") or ""))
+
+
+PATH_MAX = 1024  # the longest path macOS opens
+NAME_MAX = 255  # ...and the longest name in it
+
+
+def unopenable(path: str) -> bool:
+    """A path from a window command that no file or folder can have: a NUL in it, longer
+    than PATH_MAX, or a name in it longer than NAME_MAX. pathlib raises on these ("embedded
+    null character", ENAMETOOLONG) rather than finding nothing there, so they're refused
+    before they reach it."""
+    if "\0" in path:
+        return True
+    if path.startswith("~"):
+        path = os.path.expanduser(path)
+    return len(path) > PATH_MAX or any(len(name) > NAME_MAX for name in path.split("/"))
 
 
 HUNKS_MAX = 60  # hunks a comparison shows

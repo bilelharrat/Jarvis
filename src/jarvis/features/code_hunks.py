@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import code_changes, lang
+from ..hub import _msg_int
 
 VIEWS = ("turn", "session", "branch")
 LINES_AT_ONCE = 200  # unchanged lines a click unfolds
@@ -46,10 +47,7 @@ class Hunks:
         self.kept: dict[int, set[str]] = {}  # session id -> hunk ids the owner kept
 
     def _task(self, msg: dict[str, Any]) -> Any:
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         return task if task is not None and task.kind == "code" else None
 
     def caption(self, text: str) -> None:
@@ -160,7 +158,7 @@ class Hunks:
         try:
             start = max(1, int(msg.get("start") or 1))
             end = min(int(msg.get("end") or start), start + LINES_AT_ONCE - 1)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # (infinity too)
             return
         found = await asyncio.to_thread(read_lines, task.cwd, path, start, end)
         if found is not None:

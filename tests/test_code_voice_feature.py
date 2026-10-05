@@ -764,6 +764,47 @@ async def test_catch_me_up_still_knows_after_a_restart(
     close_all(hub)
 
 
+async def test_a_turn_that_ends_just_before_quitting_is_still_kept_for_catch_me_up(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """The catch-up record is saved JOURNAL_SAVE_AFTER seconds after a change; quitting
+    before then (the owner quits as a session finishes) saves it at once, so after the
+    restart that turn is still news. Nothing waiting: nothing written."""
+    hub, _said = await hub_with(settings, quiet_speaker, isolated, tmp_path, "api")
+    feature = hub.code_voice
+    await feature.load_journal()
+    path = feature.journal_path()
+    await hub.tasks.close()
+    assert not path.exists()  # nothing changed: nothing to save
+    task = session(hub, "api", "retry work", session_id="sid-api")
+    hub.tasks.emit("task_finished", id=task.id, task_kind="code", status="done",
+                   result="Added the retry.", files=["/p/a.py"])  # fmt: skip
+    assert feature._journal_save is not None and not path.exists()  # (due in 2 s)
+    await hub.tasks.close()  # the app quits
+    assert feature._journal_save is None
+    assert "sid-api" in path.read_text()
+    fresh = code_voice.CodeVoice(hub)
+    await fresh.load_journal()
+    back = session(hub, "api", "retry work", session_id="sid-api")
+    (turn,) = fresh.journal.unseen(back.id)
+    assert turn.result == "Added the retry."
+    close_all(hub)
+
+
+def test_an_older_catch_up_save_never_lands_over_a_newer_one(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """Two saves under way at once (the one at quit beside one already started): the
+    newer one's record is what stays on the disk, whichever thread gets there last."""
+    from jarvis.hub import Hub
+
+    hub = Hub(settings, client_factory=object, speaker=quiet_speaker, poll=False, **isolated)
+    feature = hub.code_voice
+    feature._write_journal({"version": 1, "sessions": {"new": {"seen": 2.0, "turns": []}}}, 2)
+    feature._write_journal({"version": 1, "sessions": {"old": {"seen": 1.0, "turns": []}}}, 1)
+    assert "new" in feature.journal_path().read_text()
+
+
 async def test_a_damaged_catch_up_file_is_never_fatal(settings, quiet_speaker, isolated, tmp_path):
     hub, _said = await hub_with(settings, quiet_speaker, isolated, tmp_path)
     hub.code_voice.journal_path().write_text("{not json")

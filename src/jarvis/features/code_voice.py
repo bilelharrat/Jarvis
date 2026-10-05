@@ -50,8 +50,10 @@ cap of HAIKU_PER_HOUR a rolling hour, past which the app's own words are said in
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import re
+import threading
 import time
 import uuid
 from collections import deque
@@ -63,6 +65,7 @@ from .. import codelook, codepeers, jsonstore, lang
 from .. import codesupervisor as cs
 from ..claude_signin import signed_in
 from ..code_vocab import normalize
+from ..hub import _msg_int
 from ..prefs import MODELS
 from ..voicecode import parse as voice_command
 from ..voicecode import speakable
@@ -152,6 +155,11 @@ class CodeVoice:
         self.journal.on_change = self._journal_changed
         self.journal_loaded = False  # saves wait for the kept record, never writing over it
         self._journal_save: asyncio.TimerHandle | None = None
+        # Each save's number, and the newest one written: a save that reaches the disk
+        # after a newer one (the one at quit, beside one already under way) writes nothing.
+        self._journal_seq = itertools.count(1)
+        self._journal_written = 0
+        self._journal_lock = threading.Lock()
         self.limiter = Limiter(HAIKU_PER_HOUR)
         # Haiku, only in the app itself: a test's hub never polls, and never calls a model.
         self.summarize: Any = haiku if getattr(hub, "poll", False) else None
@@ -176,6 +184,7 @@ class CodeVoice:
         hub.register_command("task_new", self.on_task_new)
         hub.tasks.session_extras.append(self.peers.extend)
         hub.register_loop("code_voice_journal", self.load_journal)
+        hub.tasks.before_close.append(self.flush_journal)
 
     # ── the catch-up record, kept across a restart ──
 
@@ -211,11 +220,29 @@ class CodeVoice:
         data = self.journal.snapshot()  # (made here, on the loop; written in a thread)
         self.hub._spawn(self.write_journal(data))
 
+    async def flush_journal(self) -> None:
+        """At quit (TaskManager.before_close): changes still waiting for their save (the
+        last JOURNAL_SAVE_AFTER seconds: a turn that just ended, a session just looked at)
+        are saved now, not left behind with the timer."""
+        if self._journal_save is None:
+            return
+        self._journal_save.cancel()
+        self._journal_save = None
+        await self.write_journal(self.journal.snapshot())
+
     async def write_journal(self, data: dict[str, Any]) -> None:
+        seq = next(self._journal_seq)
         try:
-            await asyncio.to_thread(jsonstore.save_json, self.journal_path(), data, indent=None)
+            await asyncio.to_thread(self._write_journal, data, seq)
         except Exception:
             log.warning("Jarvis Code: couldn't save the catch-up record", exc_info=True)
+
+    def _write_journal(self, data: dict[str, Any], seq: int) -> None:
+        with self._journal_lock:
+            if seq < self._journal_written:
+                return  # a newer one is on the disk already
+            jsonstore.save_json(self.journal_path(), data, indent=None)
+            self._journal_written = seq
 
     # ── words ──
 
@@ -616,10 +643,7 @@ class CodeVoice:
         (msg["session"]); anything else is JARVIS's own What's-this (False)."""
         task = self.hub.voicecode.task
         if task is None:
-            try:
-                task = self.hub.tasks.tasks.get(int(msg.get("session") or 0))
-            except (TypeError, ValueError):
-                task = None
+            task = self.hub.tasks.tasks.get(_msg_int(msg, "session"))
         if task is None or task.kind != "code":
             return False
         seen = await self.capture()
@@ -744,10 +768,7 @@ class CodeVoice:
 
     def on_seen(self, msg: dict[str, Any]) -> None:
         """The window showed the owner a session (they looked at it)."""
-        try:
-            task_id = int(msg.get("id") or 0)
-        except (TypeError, ValueError):
-            return
+        task_id = _msg_int(msg, "id")  # (not a number: 0, which names no session)
         if task_id in self.hub.tasks.tasks:
             self.journal.mark_seen(task_id)
 

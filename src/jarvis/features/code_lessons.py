@@ -124,7 +124,10 @@ class Lessons:
 
     def _cmd_add(self, msg: dict[str, Any]) -> None:
         """What the owner typed after undoing a change: kept as they wrote it."""
-        task = self.hub.tasks.tasks.get(msg.get("id"))
+        try:
+            task = self.hub.tasks.tasks.get(msg.get("id"))
+        except TypeError:  # (an id that can't be one: a list, an object)
+            task = None
         text = " ".join(str(msg.get("text") or "").split())[:MAX_CHARS]
         if task is None or len(text.split()) < 2:
             return

@@ -68,6 +68,7 @@ from typing import Any
 from .. import code_ai, code_changes, code_prs, github, lang, prefs, secret_scan
 from ..code_changes import git
 from ..code_prs import FIX_ATTEMPTS, PullRecord
+from ..hub import _msg_int
 from ..proactive import Alert
 
 log = logging.getLogger("jarvis")
@@ -302,10 +303,7 @@ class PullDesk:
         self.hub._spawn(coro)
 
     def _task(self, msg: dict[str, Any]) -> Any:
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         return task if task is not None and task.kind == "code" else None
 
     def task_for(self, rec: PullRecord) -> Any:

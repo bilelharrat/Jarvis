@@ -14,6 +14,7 @@ Cost policy (Claude): nothing here calls a model (auth status and --version are 
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from pathlib import Path
@@ -58,11 +59,20 @@ class Health:
         self.hub = hub
         self._engine: dict[str, Any] | None = None
         self._at = 0.0
+        self._looking: asyncio.Future | None = None  # a look under way, for others to share
 
     async def engine(self, fresh: bool = False) -> dict[str, Any]:
-        """The engine and the sign-in, from the checkup's Claude check (kept a minute)."""
+        """The engine and the sign-in, from the checkup's Claude check (kept a minute). An
+        ask while a look is under way (the pane opened, then another session shown; two
+        windows) shares that look rather than starting the engine twice more, and a check of
+        the sign-in with it; a fresh ask still starts its own."""
         if self._engine is not None and not fresh and time.monotonic() - self._at < FRESH_SECONDS:
             return self._engine
+        if fresh or self._looking is None or self._looking.done():
+            self._looking = asyncio.ensure_future(self._look())
+        return await asyncio.shield(self._looking)
+
+    async def _look(self) -> dict[str, Any]:
         from .ops import desk_for, doctor
 
         desk = desk_for(self.hub)

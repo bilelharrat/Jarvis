@@ -692,5 +692,5 @@ def install(hub: Any) -> None:
 def _int(value: Any) -> int:
     try:
         return int(value or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # (infinity too)
         return 0

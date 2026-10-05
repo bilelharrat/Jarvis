@@ -202,9 +202,7 @@ class CodeVerify:
     def project_of(self, msg: dict[str, Any]) -> tuple[Path, Any]:
         """The folder a window command is about: its session's (id), else a project by
         name (directory). Raises ValueError."""
-        task = None
-        with contextlib.suppress(TypeError, ValueError):
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
+        task = self.hub.tasks.tasks.get(_int(msg.get("id")))
         if task is not None and task.kind == "code":
             return task.cwd, task
         return self.hub.tasks.resolve_dir(str(msg.get("directory") or "")), None
@@ -265,10 +263,7 @@ class CodeVerify:
 
     def cmd_logs(self, msg: dict[str, Any]) -> None:
         key = str(msg.get("key") or "")
-        try:
-            since = max(0, int(msg.get("since") or 0))
-        except (TypeError, ValueError):
-            since = 0
+        since = max(0, _int(msg.get("since")))
         lines = self.servers.logs(key, since, 1000)
         self.servers.watch(key)
         self.hub.emit("cv_logs", key=key, lines=[[n, t] for n, t in lines])
@@ -806,7 +801,7 @@ def suite_key(suite: codetests.Suite) -> str:
 def _int(value: Any) -> int:
     try:
         return int(value or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # (infinity too)
         return 0
 
 

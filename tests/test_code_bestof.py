@@ -8,6 +8,7 @@ import asyncio
 import time
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import CALENDAR_TURN, FakeClient
@@ -15,6 +16,7 @@ from test_code_changes import git, make_repo
 
 from jarvis import code_ai, worktrees
 from jarvis.features import code_bestof
+from jarvis.tasks import Inbox
 
 
 class Writes(FakeClient):
@@ -223,3 +225,120 @@ async def test_the_test_command_is_stopped_when_it_runs_too_long(tmp_path, monke
     assert (await code_bestof.run_tests("printf 'x%.0s' $(seq 3000)", tmp_path))[
         "tail"
     ] == "x" * 2000
+
+
+async def test_the_windows_hear_a_running_group_when_it_changes_not_at_every_look():
+    """The variants work for minutes, looked at every poll: the group goes to the windows
+    when something in it changed (each event redrew it in every window), and the same
+    events as before otherwise, in the same order."""
+    events = []
+
+    def working(task_id, slug):
+        return SimpleNamespace(
+            id=task_id, status="running", transcript=[], busy=True, inbox=Inbox(),
+            workspace={"slug": slug}, client=object(),
+        )  # fmt: skip
+
+    one, two = working(1, "a-1"), working(2, "b-2")
+    hub = SimpleNamespace(
+        tasks=SimpleNamespace(tasks={1: one, 2: two}),
+        emit=lambda kind, **data: events.append((kind, data)),
+    )
+    best = code_bestof.BestOf(hub)
+    best.poll = 0.01
+    compared = []
+
+    async def compare(group):
+        compared.append(group.id)
+
+    best.compare = compare
+    group = code_bestof.Group(
+        "g1", "proj", "do it", "",
+        [code_bestof.Variant(1, "A", "", "", 1), code_bestof.Variant(2, "B", "", "", 2)],
+    )  # fmt: skip
+    watching = asyncio.ensure_future(best.watch(group))
+
+    async def polls(n):
+        for _ in range(n):
+            await asyncio.sleep(best.poll)
+
+    def done(task):
+        task.busy, task.status = False, "waiting"
+        task.transcript.append({"role": "turn"})
+
+    await polls(5)
+    done(one)
+    await polls(5)
+    done(two)
+    await asyncio.wait_for(watching, 5)
+    sent = [(d["status"], [(v["slug"], v["status"]) for v in d["variants"]]) for _, d in events]
+    assert {k for k, _ in events} == {"code_bestof"}
+    assert sent == [
+        ("running", [("a-1", "working"), ("b-2", "working")]),
+        ("running", [("a-1", "done"), ("b-2", "working")]),
+        ("running", [("a-1", "done"), ("b-2", "done")]),
+        ("comparing", [("a-1", "done"), ("b-2", "done")]),
+    ]
+    assert compared == ["g1"]
+
+
+async def test_a_window_that_comes_back_mid_run_hears_the_group_again():
+    """A window that missed events (cut off for falling behind, or its socket failed) comes
+    back on a new connection, and code_bestof isn't replayed: at the next look it hears the
+    group again, so its open pane doesn't show a finished variant still working until
+    something else changes. Windows that stayed hear nothing twice."""
+    heard = []  # what the window got
+    window = {"queue": object()}
+
+    def working(task_id, slug):
+        return SimpleNamespace(
+            id=task_id, status="running", transcript=[], busy=True, inbox=Inbox(),
+            workspace={"slug": slug}, client=object(),
+        )  # fmt: skip
+
+    def emit(kind, **data):
+        if window["queue"] is not None:
+            heard.append((len(polled), [(v["slug"], v["status"]) for v in data["variants"]]))
+
+    one, two = working(1, "a-1"), working(2, "b-2")
+    hub = SimpleNamespace(
+        tasks=SimpleNamespace(tasks={1: one, 2: two}), emit=emit, _subscribers={window["queue"]}
+    )
+    best = code_bestof.BestOf(hub)
+    best.poll = 0.01
+    polled = []
+
+    async def compare(group):
+        pass
+
+    best.compare = compare
+    group = code_bestof.Group(
+        "g1", "proj", "do it", "",
+        [code_bestof.Variant(1, "A", "", "", 1), code_bestof.Variant(2, "B", "", "", 2)],
+    )  # fmt: skip
+    watching = asyncio.ensure_future(best.watch(group))
+
+    async def polls(n):
+        for _ in range(n):
+            await asyncio.sleep(best.poll)
+            polled.append(1)
+
+    def done(task):
+        task.busy, task.status = False, "waiting"
+        task.transcript.append({"role": "turn"})
+
+    await polls(5)
+    hub._subscribers.discard(window["queue"])  # the socket drops
+    window["queue"] = None
+    done(one)  # and the change happens while it's away
+    await polls(5)
+    window["queue"] = object()  # it reconnects: a new connection
+    hub._subscribers.add(window["queue"])
+    back = len(polled)
+    await polls(10)
+    assert not watching.done()  # two is still working
+    since = [variants for at, variants in heard if at >= back]
+    assert since == [[("a-1", "done"), ("b-2", "working")]]  # once, not at every look
+    done(two)
+    await asyncio.wait_for(watching, 5)
+    assert heard[-1][1] == [("a-1", "done"), ("b-2", "done")]

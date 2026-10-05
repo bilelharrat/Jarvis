@@ -164,7 +164,7 @@ class DesignMatch:
         self.hub.emit("dm_error", text=text)
 
     def code_task(self, task_id: Any) -> Any:
-        with contextlib.suppress(TypeError, ValueError):
+        with contextlib.suppress(TypeError, ValueError, OverflowError):
             task = self.hub.tasks.tasks.get(int(task_id or 0))
             if task is not None and task.kind == "code":
                 return task

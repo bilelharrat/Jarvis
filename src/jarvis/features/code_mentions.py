@@ -61,7 +61,7 @@ class Mentions:
     def on_send(self, msg: dict[str, Any]) -> bool | None:
         try:
             key: Any = int(msg.get("id") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # (infinity too)
             return False
         return self._take(msg, "text", ("send", key))
 

@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any
 
 from .. import code_changes, lang, prefs, secret_scan, worktrees
+from ..hub import _msg_int
 from ..proactive import Alert
+from .code_workspace import unopenable
 
 log = logging.getLogger("jarvis")
 
@@ -175,9 +177,15 @@ class Desk:
     # ── hooks the session manager calls ──
 
     def isolated_dir(self, directory: str) -> Path | None:
-        """A copy's folder, named by its path (a session in it resumed, /clear in it)."""
+        """A copy's folder, named by its path (a session in it resumed, /clear in it). The
+        first thing resolve_dir asks, so a name no folder can have (a NUL in it, too long:
+        a window command's) is refused here, with the ValueError any other folder that
+        isn't a project gets, before pathlib raises something else on it."""
         raw = (directory or "").strip()
-        if not raw.startswith(("/", "~")):
+        absolute = raw.startswith(("/", "~"))
+        if unopenable(raw if absolute else f"{self.hub.settings.projects_dir}/{raw}"):
+            raise ValueError(f"No project folder called {raw[:80]!r}.")
+        if not absolute:
             return None
         copy = self.store().by_path(Path(raw).expanduser())
         if copy is None or not copy.cwd.is_dir():
@@ -599,10 +607,7 @@ class Desk:
     # ── helpers ──
 
     def _task(self, msg: dict[str, Any]) -> Any:
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError):
-            return None
+        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         return task if task is not None and task.kind == "code" else None
 
 
