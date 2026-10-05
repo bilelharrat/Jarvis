@@ -264,3 +264,27 @@ async def test_a_startup_notice_stays_after_the_carried_on_lines(settings, quiet
     await hub.start()
     assert [h["role"] for h in hub.history][-2:] == ["note", "assistant"]
     assert hub.history[-1]["text"] == "Your settings file was damaged."
+
+
+def test_a_save_that_finishes_late_never_puts_back_an_older_record(tmp_path):
+    """A turn's save and a rename's run in threads and can finish in either order: the
+    file keeps the newer, never the record from before the rename. Each is the record as
+    it was saved before (a dict, its keys in their order)."""
+    path = tmp_path / "conversation.json"
+    store = ConversationState(path)
+    store.turn_over(SID, {"private": False, "web": False, "what": []}, 0.25, "hi")
+    older = store.snapshot()  # the turn's save, slow to get going
+    store.sessions[SID]["title"] = "Trip to Lisbon"  # a rename meanwhile
+    newer = store.snapshot()
+    assert older == {"current": SID, "branch": None, "sessions": older["sessions"]}
+    store.save(newer)
+    store.save(older)  # finishes last
+    on_disk = json.loads(path.read_text())
+    assert list(on_disk) == ["current", "branch", "sessions"]
+    assert on_disk["sessions"][SID]["title"] == "Trip to Lisbon"
+    assert ConversationState(path).titles() == {SID: "Trip to Lisbon"}
+    store.sessions[SID]["title"] = "Lisbon"
+    store.save()  # a fresh one is always newer
+    assert ConversationState(path).titles() == {SID: "Lisbon"}
+    store.save({"current": "", "branch": None, "sessions": {}})  # given as it is: written
+    assert ConversationState(path).current == ""

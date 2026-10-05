@@ -14,6 +14,7 @@ import logging
 import math
 import re
 import secrets
+import string
 from pathlib import Path
 from typing import Any
 
@@ -237,10 +238,12 @@ def create_app(hub: Hub, token: str) -> Starlette:
 
         async def pump() -> None:
             unsendable: set[str] = set()
+            heard = at  # the newest number this window has: what it names on reconnecting
             try:
                 while (event := await queue.get()) is not None:
                     try:
-                        text = event_text(numbered(event))
+                        sent = numbered(event, heard)
+                        text = event_text(sent)
                     except Exception:  # no JSON can carry it (a tuple key, absurd nesting)
                         kind = str(event.get("type"))
                         if kind not in unsendable:  # said once per kind, not per event
@@ -248,6 +251,8 @@ def create_app(hub: Hub, token: str) -> Starlette:
                             log.exception("window event %r can't be sent; skipped", kind)
                         continue
                     await ws.send_text(text)
+                    if sent is not event:  # it went with its number
+                        heard = max(heard, sent["seq"])
                 code = 4408  # fell too far behind: it reconnects to a fresh snapshot
             except Exception:  # the socket failed under it: never a window left deaf
                 code = 1011
@@ -317,10 +322,39 @@ def _finite(value: Any) -> Any:
     return value
 
 
-def numbered(event: dict[str, Any]) -> dict[str, Any]:
-    """The event with its number (hub.Event.seq), as the window gets it."""
+def numbered(event: dict[str, Any], heard: int = 0) -> dict[str, Any]:
+    """The event with its number (hub.Event.seq), as the window gets it; heard is the newest
+    number the window has. One that carries a seq of its own keeps it when the window can't
+    take it for a later number than heard: a search's answer (brain_results, wiki_results,
+    action_log, conversation_list) names the window's request by it, and the window drops
+    an answer whose seq isn't the one it asked with. (None of those is replayed on a
+    reconnect.) Its own seq goes no further: the window keeps the highest seq it hears and
+    names it reconnecting, and its own counter ("121") can be past this backend's numbers,
+    for a window that outlived the last one. It would then be told of nothing after 121 and
+    lose the transcript events it missed: that answer goes with its number instead."""
     seq = getattr(event, "seq", 0)
-    return {**event, "seq": seq} if seq else event
+    if not seq or ("seq" in event and not _later_than(event["seq"], heard)):
+        return event
+    return {**event, "seq": seq}
+
+
+# What JavaScript may read as a number (" 0x1F ", "1e3", "-Infinity"): letters, digits,
+# signs, points and spaces. A seq with anything else in it (the brain's "w1:3") is none.
+_NUMBERISH = frozenset(string.ascii_letters + string.digits + "+-.\ufeff")
+
+
+def _later_than(value: Any, heard: int) -> bool:
+    """Whether the window could take value, an event's own seq, for a number after heard. It
+    compares each seq with the newest it had by JavaScript's > (app.js heard(),
+    code-store.js take()), which reads the string "121" as 121. Anything this can't be sure
+    of counts as later."""
+    if isinstance(value, str):
+        if not value or (value.isascii() and value.isdigit()):
+            return int(value or 0) > heard
+        return all(c in _NUMBERISH or c.isspace() for c in value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return not value <= heard  # (NaN too)
+    return True
 
 
 def event_text(event: dict[str, Any]) -> str:

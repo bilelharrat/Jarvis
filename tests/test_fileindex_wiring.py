@@ -44,3 +44,36 @@ async def test_settings_forget_the_index(settings, quiet_speaker, isolated, tmp_
     await hub._handle({"type": "files_clear"})
     status = [e for e in drain(q) if e["type"] == "files_status"][-1]
     assert status["files"] == 0
+
+
+async def test_a_refresh_reads_its_counts_in_its_own_thread_never_on_the_loop(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """files_status during a refresh: the index's counts are read in the indexing thread
+    (they scan the whole index), and only the event goes through the loop."""
+    import asyncio
+    import threading
+
+    root = tmp_path / "docs"
+    root.mkdir()
+    for n in range(3):
+        (root / f"note{n}.md").write_text(f"# Note {n}")
+    index = fileindex.FileIndex(tmp_path / "files3.db", [root], home=tmp_path)
+    read_in: list[str] = []
+    real = index.status
+
+    def status():
+        read_in.append(threading.current_thread().name)
+        return real()
+
+    index.status = status
+    hub = make_hub(settings, quiet_speaker, isolated={**isolated, "file_index": index})
+    await hub.start()
+    q = hub.subscribe()
+    loop_thread = threading.current_thread().name
+    await asyncio.to_thread(index.refresh, hub._files_progress)
+    await asyncio.sleep(0)  # the event, handed to the loop
+    told = [e for e in drain(q) if e["type"] == "files_status"]
+    assert told and told[-1]["files"] in (0, 3)  # as far as the refresh had got
+    assert read_in and loop_thread not in read_in
+    assert index.status()["files"] == 3

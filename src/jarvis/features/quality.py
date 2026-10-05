@@ -23,7 +23,10 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
+import json
+import os
 import statistics
+import threading
 import time
 import weakref
 from datetime import date, timedelta
@@ -62,6 +65,11 @@ class Quality:
         self.quiet: list[str] = list(data.get("quiet", []))
         self.unquiet: list[str] = list(data.get("unquiet", []))
         self.heard_at: float | None = None
+        # What this run last wrote (as JSON) and the file it made: a save of the same, to
+        # the same file, is skipped.
+        self._saved_text = ""
+        self._saved_stamp: tuple[int, int, int] | None = None
+        self._save_lock = threading.Lock()
 
     def _day(self) -> dict[str, int]:
         return self.days.setdefault(date.today().isoformat(), {"crashes": 0, "headsups": 0})
@@ -98,21 +106,27 @@ class Quality:
         self.known = self.chat_keys()
         cutoff = (date.today() - timedelta(days=90)).isoformat()
         self.days = {d: v for d, v in self.days.items() if d >= cutoff}
-        with contextlib.suppress(OSError):
-            jsonstore.save_json(
-                self.path,
-                {
-                    "latency": self.latency,
-                    "wake": self.wake,
-                    "days": self.days,
-                    "since": self.since,
-                    "lost": self.lost,
-                    "chat_keys": self.known,
-                    "kinds": self.kinds,
-                    "quiet": self.quiet,
-                    "unquiet": self.unquiet,
-                },
-            )
+        data = {
+            "latency": self.latency,
+            "wake": self.wake,
+            "days": self.days,
+            "since": self.since,
+            "lost": self.lost,
+            "chat_keys": self.known,
+            "kinds": self.kinds,
+            "quiet": self.quiet,
+            "unquiet": self.unquiet,
+        }
+        # The keeper's save every ten minutes, with nothing new since the last one (an idle
+        # Mac, a night): the file already holds it, so it isn't flushed to the disk again.
+        text = json.dumps(data)
+        with self._save_lock:  # (the keeper saves in a thread): the file noted is its own
+            saved = self._saved_stamp
+            if text == self._saved_text and saved is not None and _stamp(self.path) == saved:
+                return
+            with contextlib.suppress(OSError):
+                jsonstore.save_json(self.path, data)
+                self._saved_text, self._saved_stamp = text, _stamp(self.path)
 
     async def keeper(self) -> None:
         while True:
@@ -221,6 +235,16 @@ class Quality:
             },
             "quiet": list(self.quiet),
         }
+
+
+def _stamp(path: Any) -> tuple[int, int, int] | None:
+    """Which file is at path, and as last written: a save swaps in a new one (a new inode),
+    an edit changes its size or time. None when there's none."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return info.st_ino, info.st_size, info.st_mtime_ns
 
 
 def install(hub: Any) -> None:

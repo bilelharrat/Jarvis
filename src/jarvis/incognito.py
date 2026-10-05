@@ -88,18 +88,19 @@ OFF = _command(
     r"get\s+out\s+of\s+" + _INC,
     r"incognito" + _MODE + r"\s+off",
 )
-# 开启无痕模式, 进入无痕模式, 开始无痕对话; 退出无痕模式, 关闭无痕, 结束无痕对话.
+# 开启无痕模式, 进入无痕模式, 开始无痕对话; 退出无痕模式, 关闭无痕, 结束无痕对话. Compiled the
+# first time they're tried (lang.LazyPattern): only ever in Chinese.
 _LEAD_ZH = r"^(?:(?:好的|好|请|麻烦|帮我|那|嗯|贾维斯|jarvis)[，,\s]*)*"
 _MODE_ZH = r"(?:模式|对话|聊天)?"
 _END_ZH = r"(?:吧|一下|了|好吗|可以吗)?[。！!.？?\s]*$"
-ON_ZH = re.compile(
+ON_ZH = lang.LazyPattern(
     _LEAD_ZH
     + r"(?:开启|打开|进入|开始|切换到|切到|换成|用)(?:一段|一个)?无痕"
     + _MODE_ZH
     + _END_ZH,
     re.IGNORECASE,
 )
-OFF_ZH = re.compile(
+OFF_ZH = lang.LazyPattern(
     _LEAD_ZH + r"(?:关闭|关掉|退出|离开|结束|停止)无痕" + _MODE_ZH + _END_ZH, re.IGNORECASE
 )
 

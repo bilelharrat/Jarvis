@@ -2510,8 +2510,12 @@ class Hub:
 
     def events_since(self, since: int, until: int) -> list[tuple[int, dict[str, Any]]] | None:
         """The session events numbered after since, up to until, for a window that
-        reconnected; None when they're not all kept any more (the snapshot must do)."""
-        if since >= until:
+        reconnected; None when they're not all kept any more (the snapshot must do). A window
+        that names a number this backend hasn't reached yet has it wrong, and which events it
+        has is anyone's guess: the snapshot must do for it too."""
+        if since > until:
+            return None
+        if since == until:
             return []
         if since < self._let_go:
             return None
@@ -5502,15 +5506,20 @@ class Hub:
         self.emit("files", rid=self._rid, items=items)
 
     def _files_progress(self, update: dict[str, Any]) -> None:
-        """From the indexing thread: tell the windows now and then, on the loop's thread."""
+        """From the indexing thread: tell the windows now and then, on the loop's thread.
+        The counts are read here, in that thread: two counts of the whole index (a few ms
+        at 190,000 files) every two seconds of a refresh were time the loop stood still."""
         now = time.monotonic()
         if self._loop is None or (now - self._files_told < 2.0 and not update.get("done")):
             return
         self._files_told = now
+        try:
+            status = self.files.status()
+        except Exception:  # the index's own progress calls would swallow it unsaid
+            log.exception("file index: couldn't read its status")
+            return
         with contextlib.suppress(RuntimeError):  # the app is shutting down
-            self._loop.call_soon_threadsafe(
-                lambda: self.emit("files_status", **self.files.status())
-            )
+            self._loop.call_soon_threadsafe(lambda: self.emit("files_status", **status))
 
     @property
     def language(self) -> str:

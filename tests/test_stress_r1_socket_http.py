@@ -201,10 +201,12 @@ def test_hooks_refuse_web_pages_rebinding_and_floods_without_reading_the_body(cl
     assert client.get("/hooks/x").status_code == 405
 
 
+# (A number past the backend's own is a window's count gone wrong: it gets the snapshot
+# alone, and asks for the whole transcript, rather than be told it missed nothing.)
 @pytest.mark.parametrize(
     ("since", "replayed"),
     [("-1", False), ("-99999999999", False), ("x", False), ("1e5", False), ("", False),
-     ("9" * 5000, False), ("0", True), ("99999999999999999999", True)],
+     ("9" * 5000, False), ("0", True), ("99999999999999999999", False)],
 )  # fmt: skip
 def test_replay_takes_any_since_and_only_from_its_own_backend(client, hub, since, replayed):
     for backend, expect in ((hub.instance_id, replayed), ("another", False), ("", False)):

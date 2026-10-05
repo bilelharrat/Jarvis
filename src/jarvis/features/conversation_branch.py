@@ -117,7 +117,7 @@ REWIND = re.compile(
     re.IGNORECASE,
 )
 # 回到我问机票之前, 退回到我们聊里斯本之前.
-REWIND_ZH = re.compile(
+REWIND_ZH = lang.LazyPattern(
     incognito._LEAD_ZH
     + r"(?:回到|退回到?|倒回到?|回退到)(?:我们?|咱们)?(?:问|聊|说|提到|谈到|讲)?(?:了|过)?"
     + r"(?:关于)?(?P<about>.+?)(?:的(?:时候|事))?之前"
@@ -129,7 +129,7 @@ BRANCH = incognito._command(
     r"(?:branch|fork)(?:\s+(?:the|this|our)\s+conversation)?(?:\s+(?:off\s+)?(?:from\s+)?here)?",
     r"(?:start|make|open)\s+a\s+(?:new\s+)?branch(?:\s+(?:from\s+)?here)?",
 )
-BRANCH_ZH = re.compile(
+BRANCH_ZH = lang.LazyPattern(
     incognito._LEAD_ZH
     + r"(?:从这里|在这里|从这儿)?(?:开(?:一?个)?|分出(?:一?个)?|新建(?:一?个)?)?分支(?:对话)?"
     + incognito._END_ZH,
@@ -141,7 +141,7 @@ TRY_AGAIN = incognito._command(
     r"try\s+again\s+(?:differently|another\s+way|a\s+different\s+way)",
     r"(?:give\s+me|try)\s+a\s+different\s+(?:take|answer|approach)(?:\s+on\s+(?:that|this))?",
 )
-TRY_AGAIN_ZH = re.compile(
+TRY_AGAIN_ZH = lang.LazyPattern(
     incognito._LEAD_ZH
     + r"(?:换(?:个|一个|种|一种)(?:思路|方式|方法|说法|角度)(?:再)?(?:试(?:一)?(?:次|下)|来(?:一次)?|答(?:一次)?))"
     + incognito._END_ZH,

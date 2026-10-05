@@ -1902,6 +1902,58 @@ def test_every_template_and_ask_pattern_compiles():
         assert pattern.flags & re.IGNORECASE
 
 
+def test_a_lazy_pattern_takes_every_argument_the_compiled_one_does():
+    source = r"(\d+)-(\d+)"
+    lazy, eager = lang.LazyPattern(source), re.compile(source)
+    text = "1-2, 30-40 and 500-600"
+    assert lazy.sub(r"\2", text, count=1) == eager.sub(r"\2", text, count=1)
+    assert lazy.sub(lambda m: m.group(1), text) == eager.sub(lambda m: m.group(1), text)
+    assert lazy.split(text, maxsplit=1) == eager.split(text, maxsplit=1)
+    assert lazy.split(text) == eager.split(text)
+    assert [m.span() for m in lazy.finditer(text, 3)] == [m.span() for m in eager.finditer(text, 3)]
+    assert lazy.findall(text, pos=2, endpos=12) == eager.findall(text, pos=2, endpos=12)
+    assert lazy.search(text, pos=4).span() == eager.search(text, pos=4).span()
+    assert lazy.subn("x", text) == eager.subn("x", text) and lazy.groups == eager.groups
+
+
+def _lazy_patterns() -> dict[str, lang.LazyPattern]:
+    """Every module-level pattern compiled on first use: lang's own and the conversation's."""
+    from jarvis import incognito
+    from jarvis.features import conversation_branch
+
+    return {
+        f"{module.__name__}.{name}": value
+        for module in (lang, incognito, conversation_branch)
+        for name, value in vars(module).items()
+        if isinstance(value, lang.LazyPattern)
+    }
+
+
+def test_every_chinese_pattern_compiles_though_none_is_compiled_on_import():
+    """lang's Chinese patterns compile the first time they're tried: one that can't would
+    otherwise be found only when a Chinese request first reached it. An import compiles
+    none of them (the slot pattern only, which builds the sentence templates)."""
+    import subprocess
+    import sys
+
+    patterns = _lazy_patterns()
+    assert len(patterns) > 90
+    for name, pattern in patterns.items():
+        assert isinstance(pattern.compiled(), re.Pattern), name
+    probe = (
+        "from jarvis import lang\n"
+        "from jarvis.features import conversation_branch\n"
+        "from jarvis import incognito\n"
+        "print(','.join(sorted(n for m in (lang, incognito, conversation_branch)"
+        " for n, v in vars(m).items() if isinstance(v, lang.LazyPattern) and v._compiled)))"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120
+    )
+    assert done.returncode == 0, done.stderr
+    assert set(done.stdout.strip().split(",")) <= {"_SLOT", "_OWN_NAMES", ""}
+
+
 def test_templates_are_tried_most_own_words_first():
     """add_texts sorts by a count kept per template; the order is the one counted afresh."""
     weights = [len(lang._SLOT.sub("", key)) for key, *_ in lang._TEMPLATES]

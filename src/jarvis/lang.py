@@ -31,7 +31,9 @@ class LazyPattern:
     search, fullmatch, pattern, flags…). The request patterns (hub._asks, _asks_zh) and the
     sentence templates number in the hundreds and most are never tried in a session:
     compiled when their modules import, they cost every start of the backend (and of every
-    test process) a good part of a second on a busy Mac."""
+    test process) a good part of a second on a busy Mac. This module's own Chinese ones are
+    made so too (some 35 ms of compiling at every import, for an owner who may never speak
+    Chinese); the few English requests try as well are compiled at once (re.compile)."""
 
     __slots__ = ("_compiled", "_flags", "_source")
 
@@ -49,14 +51,26 @@ class LazyPattern:
     def pattern(self) -> str:
         return self._source
 
-    def match(self, string: str, *args: Any) -> re.Match[str] | None:
-        return self.compiled().match(string, *args)
+    def match(self, string: str, *args: Any, **kwargs: Any) -> re.Match[str] | None:
+        return self.compiled().match(string, *args, **kwargs)
 
-    def fullmatch(self, string: str, *args: Any) -> re.Match[str] | None:
-        return self.compiled().fullmatch(string, *args)
+    def fullmatch(self, string: str, *args: Any, **kwargs: Any) -> re.Match[str] | None:
+        return self.compiled().fullmatch(string, *args, **kwargs)
 
-    def search(self, string: str, *args: Any) -> re.Match[str] | None:
-        return self.compiled().search(string, *args)
+    def search(self, string: str, *args: Any, **kwargs: Any) -> re.Match[str] | None:
+        return self.compiled().search(string, *args, **kwargs)
+
+    def sub(self, repl: Any, string: str, *args: Any, **kwargs: Any) -> str:
+        return self.compiled().sub(repl, string, *args, **kwargs)
+
+    def split(self, string: str, *args: Any, **kwargs: Any) -> list[Any]:
+        return self.compiled().split(string, *args, **kwargs)
+
+    def finditer(self, string: str, *args: Any, **kwargs: Any) -> Any:
+        return self.compiled().finditer(string, *args, **kwargs)
+
+    def findall(self, string: str, *args: Any, **kwargs: Any) -> list[Any]:
+        return self.compiled().findall(string, *args, **kwargs)
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):  # never the slots themselves (copying, half made)
@@ -99,8 +113,8 @@ def is_zh(lang: Any) -> bool:
 # ── Chinese text basics ──
 
 _CJK_CHARS = "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
-_CJK = re.compile(f"[{_CJK_CHARS}]")
-_TOKEN = re.compile(f"[{_CJK_CHARS}]|[a-z0-9']+")
+_CJK = re.compile(f"[{_CJK_CHARS}]")  # (has_cjk: English requests ask it too)
+_TOKEN = LazyPattern(f"[{_CJK_CHARS}]|[a-z0-9']+")
 
 
 def has_cjk(text: str | None) -> bool:
@@ -194,6 +208,7 @@ _T2S_PHRASES = {
     "鍊條": "链条", "日圓": "日元",
 }  # fmt: skip
 _PHRASES_S = {key.translate(_T2S): value for key, value in _T2S_PHRASES.items()}
+# (to_simplified: English requests go through it too)
 _PHRASE_RE = re.compile("|".join(map(re.escape, sorted(_PHRASES_S, key=len, reverse=True))))
 
 
@@ -207,7 +222,7 @@ def to_simplified(text: str | None) -> str:
 
 _PUNCT = "，。！？、；：,.!?;:“”‘’\"'…—–-~～()（）《》〈〉「」『』【】[]·•/\\|_*#@^`"
 _PUNCT_ZH = "，。！？、；：“”‘’…（）《》〈〉「」『』【】"
-_PUNCT_RE = re.compile("[\\s\u3000" + re.escape(_PUNCT) + "]+")
+_PUNCT_RE = LazyPattern("[\\s\u3000" + re.escape(_PUNCT) + "]+")
 _EDGE = " \t\u3000,.!?;:-，。！？；：、…—~～"
 
 
@@ -266,7 +281,7 @@ _WAKE_FIRST = {
     "贾": "", "嘉": "", "加": "参增添更再附外追施强叠", "家": "大国专作全回人管商老农住东店行玩画科",
     "佳": "最绝欠上", "甲": "装指盔铠龟护", "杰": "豪英人俊", "捷": "快敏便大报告直",
 }  # fmt: skip
-_WAKE_ZH = re.compile(
+_WAKE_ZH = LazyPattern(
     "|".join(
         (f"(?<![{before}])" if before else "") + f"{first}维[斯思丝司]"
         for first, before in _WAKE_FIRST.items()
@@ -276,18 +291,18 @@ _WAKE_ZH = re.compile(
 WAKE_NAMES_ZH = ("贾维斯", "加维斯", "贾维思", "杰维斯", "嘉维斯", "佳维斯")
 WAKE_HINT_ZH = "贾维斯"  # Whisper's hotword in Mandarin mode
 GREETINGS_ZH = ("你好", "您好", "哈喽", "哈啰", "嘿", "喂", "嗨")
-_LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z'’]*")
-_GREETING_ONLY = re.compile(r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|hey|hi|hello|ok|okay|yo)")
+_LATIN_WORD = LazyPattern(r"[A-Za-z][A-Za-z'’]*")
+_GREETING_ONLY = LazyPattern(r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|hey|hi|hello|ok|okay|yo)")
 # "Jarvis Code" (贾维斯代码), the coding panel: a name JARVIS says itself, never a wake word.
-_PANEL_AFTER = re.compile(r"[ \t]*(?:代码|codes?(?![a-z]))", re.IGNORECASE)
-_LEAD_WORDS = re.compile(
+_PANEL_AFTER = LazyPattern(r"[ \t]*(?:代码|codes?(?![a-z]))", re.IGNORECASE)
+_LEAD_WORDS = LazyPattern(
     r"^(?:(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|嗯|hey|hi|hello|yo)[\s,，.。!！、]*"
     r"|(?:好的|好|那么|那|哎|诶|欸|okay|ok)(?:[\s,，.。!！、]+|$))+",
     re.IGNORECASE,
 )
 # The name said again in front of a command, but never the first word of the panel's name
 # ("贾维斯，Jarvis Code 做完了吗" keeps "Jarvis Code").
-_LEADING_NAMES = re.compile(
+_LEADING_NAMES = LazyPattern(
     rf"^(?:(?:{_WAKE_ZH.pattern}|jarvis)(?![ \t]*(?:代码|codes?(?![a-z])))[\s,，.。!！、]*)+",
     re.IGNORECASE,
 )
@@ -343,10 +358,10 @@ def find_wake_zh(text: str) -> tuple[bool, str]:
     return _named_wake_zh(s)
 
 
-_CALL_GREETING_ZH = re.compile(
+_CALL_GREETING_ZH = LazyPattern(
     r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|(?:hey|hi|hello|yo)(?![a-z]))[\s,，、!！]*", re.I
 )
-_CALL_PAUSE_ZH = re.compile(r"[ \t]*[，,。.！!？?、：:；;—–-]")
+_CALL_PAUSE_ZH = LazyPattern(r"[ \t]*[，,。.！!？?、：:；;—–-]")
 
 
 def _called_name_zh(s: str) -> int:
@@ -381,8 +396,8 @@ def _named_wake_zh(s: str) -> tuple[bool, str]:
     return False, ""
 
 
-_JARVIS_CODE = re.compile(rf"(?:jarvis|{_WAKE_ZH.pattern})[ \t]*(?:code|代码)", re.IGNORECASE)
-_DOTTED_NAME = re.compile(r"(?<![A-Za-z])J\.?\s?A\.?\s?R\.?\s?V\.?\s?I\.?\s?S(?![A-Za-z])\.?")
+_JARVIS_CODE = LazyPattern(rf"(?:jarvis|{_WAKE_ZH.pattern})[ \t]*(?:code|代码)", re.IGNORECASE)
+_DOTTED_NAME = LazyPattern(r"(?<![A-Za-z])J\.?\s?A\.?\s?R\.?\s?V\.?\s?I\.?\s?S(?![A-Za-z])\.?")
 
 
 def speakable_safely_zh(text: str) -> str | None:
@@ -460,22 +475,22 @@ _NOT_A_NO = ("不客气", "不好意思", "不用谢", "对不起", "差不多",
              "没关系", "没事", "没意见")  # fmt: skip
 # A question put as A-not-A ("好不好", "发没发"). Never inside a refusal said twice: the
 # 要不要 in "不要不要" and the 不不 of "不不不" are a no.
-_A_NOT_A = re.compile(
+_A_NOT_A = LazyPattern(
     r"(?<![不没])(?:([^不没])[不没]\1|可不可以|能不能|行不行|好不好|是不是|对不对|要不要|发不发|用不用)"
 )
-_NO_ZH = re.compile(r"不|别|没|甭|否|停|取消|算了|拒绝|放弃|撤销|免了")
+_NO_ZH = LazyPattern(r"不|别|没|甭|否|停|取消|算了|拒绝|放弃|撤销|免了")
 _NO_LATIN = {"no", "nope", "nah", "cancel", "stop", "deny", "dont", "don't", "never", "abort"}
-_HESITATE_ZH = re.compile(
+_HESITATE_ZH = LazyPattern(
     r"(?:让我|我|容我|先让我)?(?:想想|想一想|想一下|考虑一下|考虑考虑|看看|看一下|琢磨一下)(?:吧|啊|再说)?"
     r"|(?:等一下|等一等|等等|稍等|等会儿?|等我一下|一秒|慢着|且慢)(?:吧|啊)?"
     r"|我?(?:不确定|不太确定|不知道|不清楚|还没想好|没想好)(?:呢|啊)?"
     r"|嗯+|呃+|额+"
 )
-_WAITING_ZH = re.compile(
+_WAITING_ZH = LazyPattern(
     r"等一下|等一等|等等|稍等|等会|等我一下|慢着|且慢|我想想|让我想想|考虑一下"
 )
-_ASKING_BACK = re.compile(r"[吗么]$|" + _A_NOT_A.pattern)
-_QUESTION_WORDS_ZH = re.compile(
+_ASKING_BACK = LazyPattern(r"[吗么]$|" + _A_NOT_A.pattern)
+_QUESTION_WORDS_ZH = LazyPattern(
     r"什么|为什么|为啥|怎么|怎样|多久|多少|哪|谁|几(?:点|个|天|次|号|分钟|小时|秒)"
 )
 
@@ -550,36 +565,36 @@ def yes_no_zh(text: str) -> bool | None:
 # Voice answers to approval cards (voicecode.voice_answer's contract, in Chinese).
 # "Always" writes a lasting rule and "all edits" lasts the session: both need saying
 # plainly, never as a question back ("始终允许？").
-_ALWAYS_ZH = re.compile(
+_ALWAYS_ZH = LazyPattern(
     r"(?:好的?|是的?|可以|行|对)?(?:始终|总是|一直|永远|以后都|以后一直)(?:允许|同意|可以|运行|执行|这样)(?:吧|了)?"
     r"|(?:好的?|可以|行)?(?:以后)?(?:不用|别|不要)再问(?:我)?了?(?:吧)?"
     r"|始终"
 )
-_ALL_EDITS_ZH = re.compile(
+_ALL_EDITS_ZH = LazyPattern(
     r"(?:好的?|是的?|可以|行)?(?:允许|接受|同意)(?:所有|全部)的?(?:编辑|修改|改动)(?:吧)?"
     r"|自动接受(?:所有)?(?:编辑|修改|改动)?|自动(?:所有)?(?:编辑|修改|改动)|所有(?:编辑|修改)都允许"
 )
-_AUTO_EDITS_GO_ZH = re.compile(
+_AUTO_EDITS_GO_ZH = LazyPattern(
     r"(?:好的?|可以|行|开始吧?|执行吧?)?(?:并且|然后|并)?"
     r"(?:自动接受(?:所有)?(?:编辑|修改|改动)?|自动(?:所有)?(?:编辑|修改|改动))(?:吧)?"
 )
-_KEEP_PLANNING_ZH = re.compile(
+_KEEP_PLANNING_ZH = LazyPattern(
     r"(?:继续|再)(?:规划|计划|想想|完善)(?:一下)?(?:计划)?(?:吧)?"
     r"|(?:修改|改一下|调整|完善)(?:一下)?(?:这个)?计划(?:吧)?|计划(?:再|还要)?(?:改改|改一下|完善一下)"
 )
-_SKIP_ZH = re.compile(
+_SKIP_ZH = LazyPattern(
     r"跳过(?:这个|这题|这个问题)?(?:吧)?|都不(?:要|选|是|行)?|哪个都不(?:要|选)?|两个都不(?:要|选)?|过吧?|pass|skip"
 )
 _NUMBER_ZH = "[一二三四五六1-6]"
 # An option by its number, said as one: 第二个, 选项三, 方案二, 最后一个. On a yes-or-no
 # card and a plan only these count: "我要一个" or "一号" is not option one (which is allow).
-_CHOICE_EXPLICIT_ZH = re.compile(
+_CHOICE_EXPLICIT_ZH = LazyPattern(
     rf"(?:我)?(?:选|要|用|挑|就|选择|就选)?第(?P<n>{_NUMBER_ZH})(?:个|项|条|种|号)?(?:选项|方案)?(?:吧|的)?"
     rf"|(?:我)?(?:选|要|用|就选)?(?:选项|方案|选择)(?P<m>{_NUMBER_ZH})(?:吧)?"
     r"|(?:我)?(?:选|要|用|就选)?(?P<last>最后)(?:一个|一项|那个|一条|一种|的)?(?:吧)?"
 )
 # In answer to Claude Code's "which one?" a bare number will do too: 二, 选三, 2号.
-_CHOICE_LOOSE_ZH = re.compile(
+_CHOICE_LOOSE_ZH = LazyPattern(
     rf"(?:我)?(?:选|要|用|挑|就|选择)?(?P<n>{_NUMBER_ZH})(?:个|项|条|种|号|个选项)?(?:吧|的)?"
 )
 _CHOICE_NUMBERS = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5}
@@ -599,12 +614,12 @@ _REFUSALS_ONLY = _longest_first(
      "nope", "了", "吧", "啊", "呀"),
 )  # fmt: skip
 _BUT_ZH = ("但是", "不过", "可是", "只是", "而是")
-_FEEDBACK_NO = re.compile(
+_FEEDBACK_NO = LazyPattern(
     r"^(?:不要|不用|不行|不了|不是|不|算了|取消|没有|否|停|别了|no|nope)[\s，,。.！!、；;：:]+(.+)$",
     re.IGNORECASE | re.DOTALL,
 )
-_FEEDBACK_ORDER = re.compile(r"^(?:别|不要|先别|不用|不准|不许)\S")
-_FEEDBACK_BUT = re.compile(r"(?:但是|不过|可是|只是|而是|其实)[，,\s]*(.+)$", re.DOTALL)
+_FEEDBACK_ORDER = LazyPattern(r"^(?:别|不要|先别|不用|不准|不许)\S")
+_FEEDBACK_BUT = LazyPattern(r"(?:但是|不过|可是|只是|而是|其实)[，,\s]*(.+)$", re.DOTALL)
 # Openers that sound like a yes but start something else when more follows: "对了，还有
 # 一件事" (by the way), "是这样的，我想…" (the thing is).
 _OPENERS_ZH = ("对了", "是这样")
@@ -920,7 +935,7 @@ _COMMAND_TAILS = _longest_first(
     ("好不好", "好吗", "可以吗", "行吗", "行不行", "谢谢你", "谢谢", "一下下", "一下", "吧", "啊", "呀",
      "呢", "嘛", "哦", "了", "吗", "啦"),
 )  # fmt: skip
-_COMMAND_PUNCT = re.compile(
+_COMMAND_PUNCT = LazyPattern(
     r"[，。！？、；：,!?;:“”\"‘’…—~～()（）【】《》「」『』]+|(?<!\d)\.|\.(?!\d)"
 )
 
@@ -949,7 +964,7 @@ _AMOUNTS_ZH = {
     "很多": 2.5, "好多": 2.5, "一大段": 2.5, "一大截": 2.5, "多一点": 1, "多点": 1, "多些": 1,
     "一页": 1, "一屏": 1, "一整页": 1, "两页": 2, "二页": 2, "两屏": 2, "三页": 3, "三屏": 3,
 }  # fmt: skip
-_SCROLL_ZH = re.compile(
+_SCROLL_ZH = LazyPattern(
     rf"(?P<pre>稍微|稍稍|多)?(?:(?:向|往|朝)(?P<d1>下|上)|(?P<d2>下|上)(?={_SCROLL_VERB}))"
     rf"(?P<mid>稍微|多)?{_SCROLL_VERB}?"
     rf"(?P<amt>{'|'.join(sorted(_AMOUNTS_ZH, key=len, reverse=True))})?"
@@ -963,35 +978,35 @@ _TOP_ZH = ("顶部", "最顶部", "顶端", "最顶端", "最上面", "最上方
            "页首", "顶")  # fmt: skip
 _BOTTOM_ZH = ("底部", "最底部", "底端", "最底端", "最下面", "最下方", "最下边", "最底下", "结尾", "末尾",
               "最后面", "最后", "页尾", "底")  # fmt: skip
-_EDGE_ZH = re.compile(
+_EDGE_ZH = LazyPattern(
     r"(?:回|返回|滚动?|跳转?|拉|翻|移动?|去|直接|一直|快速)?(?:到|至)?(?:页面|网页|这页)?的?"
     rf"(?P<w>{'|'.join(sorted(_TOP_ZH + _BOTTOM_ZH, key=len, reverse=True))})"
 )
-_BACK_ZH = re.compile(
+_BACK_ZH = LazyPattern(
     r"(?:返回|后退|回退|退回|回去|往回|倒回去?)(?:到)?(?:上一页|上一个页面|上个页面|前一页|之前的页面|上一步)?"
     r"|上一个页面|上个页面|前一页"
 )
-_FORWARD_ZH = re.compile(r"(?:前进|向前|往前进)(?:一页|到下一个页面)?|下一个页面")
+_FORWARD_ZH = LazyPattern(r"(?:前进|向前|往前进)(?:一页|到下一个页面)?|下一个页面")
 _ZOOM_TARGET = r"(?:把)?(?:字体?|文字|页面|网页|屏幕|它|这个|界面)?"
 _ZOOM_SOME = r"(?:一点点?|一些|点|些)?"
-_ZOOM_IN_ZH = re.compile(
+_ZOOM_IN_ZH = LazyPattern(
     rf"{_ZOOM_TARGET}(?:(?:放大|调大|变大|弄大){_ZOOM_SOME}|大(?:一点点?|一些|点|些))"
 )
-_ZOOM_OUT_ZH = re.compile(
+_ZOOM_OUT_ZH = LazyPattern(
     rf"{_ZOOM_TARGET}(?:(?:缩小|调小|变小|弄小){_ZOOM_SOME}|小(?:一点点?|一些|点|些))"
 )
-_ZOOM_RESET_ZH = re.compile(
+_ZOOM_RESET_ZH = LazyPattern(
     r"(?:恢复|重置|还原)(?:缩放|(?:默认|原始|原来|正常)的?大小|到?正常大小|原样)"
     r"|缩放(?:恢复|还原|重置)(?:正常)?|(?:原始|正常|默认)大小"
 )
 _RESEARCH_NAMES = r"(?:研究中心|bsh研究中心|bsh ?research center|研究|市场|市场明细|市场概览|这个页面|页面|它|这个)"
-_CLOSE_RESEARCH_ZH = re.compile(
+_CLOSE_RESEARCH_ZH = LazyPattern(
     rf"(?:关闭|关掉|关上|退出|离开|隐藏|收起){_RESEARCH_NAMES}?|把{_RESEARCH_NAMES}?关(?:掉|上|闭)?"
 )
-_OPEN_PAGE_ZH = re.compile(
+_OPEN_PAGE_ZH = LazyPattern(
     r"(?:打开|开启|显示|给我看|看看|看一下|去|转到|跳到|跳转到|切换到|切到|进入|前往|带我去|导航到|调出|回到)(?P<page>.+)"
 )
-_CLICK_ZH = re.compile(
+_CLICK_ZH = LazyPattern(
     r"(?:点击|点一下|点下|单击|按一下|按下|按|选择|选中|点)(?:一下)?(?:那个|这个)?(?P<text>.+?)"
     r"(?:按钮|链接|标签|选项卡|选项)?"
 )
@@ -1118,20 +1133,20 @@ LOOK_NAMES_ZH = {
 }
 _UI_OPEN = r"(?:打开|开启|显示|调出|弹出|启动|进入|去|给我看|看看|带我去|拉起|展开|切换到|切到)"
 _UI_CLOSE = r"(?:关闭|关掉|关上|隐藏|收起|退出|离开|关)"
-_OPEN_PANEL_ZH = re.compile(rf"{_UI_OPEN}(?P<p>.+)|把(?P<q>.+?)(?:打开|开启|调出来?|显示出来?)")
-_CLOSE_PANEL_ZH = re.compile(rf"{_UI_CLOSE}(?P<p>.+)|把(?P<q>.+?)(?:关掉|关闭|关上|关|隐藏|收起)")
-_LOOK_UI_ZH = re.compile(
+_OPEN_PANEL_ZH = LazyPattern(rf"{_UI_OPEN}(?P<p>.+)|把(?P<q>.+?)(?:打开|开启|调出来?|显示出来?)")
+_CLOSE_PANEL_ZH = LazyPattern(rf"{_UI_CLOSE}(?P<p>.+)|把(?P<q>.+?)(?:关掉|关闭|关上|关|隐藏|收起)")
+_LOOK_UI_ZH = LazyPattern(
     r"(?:切换到|切换成|切换为|切到|换成|换到|换回|改成|改为|变成|使用|用|回到|切回|恢复成?)"
     r"(?P<look>.+?)(?:外观|视图|模式|布局|主题|设计|界面|样式|风格)?"
 )
-_TONE_ZH = re.compile(
+_TONE_ZH = LazyPattern(
     r"(?:切换到|切换成|切换为|切到|换成|换到|换回|改成|改为|变成|使用|用|打开|开启|回到|切回)?"
     r"(?P<tone>浅色|白色|亮色|明亮|深色|黑色|暗色|夜间)(?:模式|主题|外观|版本)"
 )
 _TONES_ZH = {"浅色": "light", "白色": "light", "亮色": "light", "明亮": "light"}
 _TONE_REPLIES_ZH = {"light": "斯塔克玻璃，白色模式。", "dark": "斯塔克玻璃，深色模式。"}
 _HANDS_THING = r"(?:手势控制|手势追踪|手势跟踪|手势识别|手部控制|手部追踪|手势)(?:功能)?"
-_HANDS_ZH = re.compile(
+_HANDS_ZH = LazyPattern(
     rf"(?P<on>打开|开启|启用|开始|启动|开){_HANDS_THING}"
     rf"|(?P<off>关闭|关掉|停用|禁用|停止|结束|关){_HANDS_THING}"
     rf"|{_HANDS_THING}(?P<on2>打开|开启|启用|开)|{_HANDS_THING}(?P<off2>关闭|关掉|停用|关)"
@@ -1258,7 +1273,7 @@ KEYS_ZH = {
     "一": "1", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8",
     "九": "9", "零": "0",
 }  # fmt: skip
-_KEY_NAMES_ZH = re.compile("|".join(sorted(map(re.escape, KEYS_ZH), key=len, reverse=True)))
+_KEY_NAMES_ZH = LazyPattern("|".join(sorted(map(re.escape, KEYS_ZH), key=len, reverse=True)))
 _KEYS_LATIN = {"command": "cmd", "cmd": "cmd", "option": "option", "alt": "option",
                "control": "ctrl", "ctrl": "ctrl", "shift": "shift", "enter": "return",
                "return": "return", "esc": "escape", "escape": "escape", "tab": "tab",
@@ -1274,22 +1289,22 @@ APPS_ZH = {
     "活动监视器": "Activity Monitor", "快捷指令": "Shortcuts", "微信": "WeChat",
     "谷歌浏览器": "Google Chrome", "火狐浏览器": "Firefox", "火狐": "Firefox",
 }  # fmt: skip
-_APP_SUFFIX = re.compile(r"(?:这个)?(?:应用程序|应用|程序|软件|app)$", re.IGNORECASE)
-_SYS_SCROLL_ZH = re.compile(
+_APP_SUFFIX = LazyPattern(r"(?:这个)?(?:应用程序|应用|程序|软件|app)$", re.IGNORECASE)
+_SYS_SCROLL_ZH = LazyPattern(
     r"(?:向|往|朝)?(?P<way>上|下|左|右)(?:滚动|滚|翻|滑动|滑)(?P<amt>一点点?|一些|很多|好多|多一点)?"
     r"|(?:滚动|滚|翻)(?:向|往)(?P<way2>上|下|左|右)(?P<amt2>一点点?|一些|很多|好多|多一点)?"
 )
 _SYS_SCROLL_AMOUNT = {"一点": 4, "一点点": 4, "一些": 4, "很多": 30, "好多": 30, "多一点": 20}
 _SYS_WAYS = {"上": "up", "下": "down", "左": "left", "右": "right"}
-_VOLUME_UP_ZH = re.compile(
+_VOLUME_UP_ZH = LazyPattern(
     r"(?:把)?(?:音量|声音)(?:调|开|加)?(?:大|高)(?:一点|一些|点)?|(?:调|开|加)(?:大|高)(?:音量|声音)"
     r"|大声(?:一)?点|音量加大"
 )
-_VOLUME_DOWN_ZH = re.compile(
+_VOLUME_DOWN_ZH = LazyPattern(
     r"(?:把)?(?:音量|声音)(?:调|关)?(?:小|低)(?:一点|一些|点)?|(?:调|关)(?:小|低)(?:音量|声音)"
     r"|小声(?:一)?点|音量减小"
 )
-_VOLUME_SET_ZH = re.compile(
+_VOLUME_SET_ZH = LazyPattern(
     r"(?:把)?音量(?:调到|调成|设为|设置为|设成|开到)(?:百分之)?(?P<level>[0-9]{1,3}|[零一二两三四五六七八九十百]{1,4})(?:%|的音量)?"
 )
 _POINT_ZH = {
@@ -1297,18 +1312,18 @@ _POINT_ZH = {
     "点一下这里": "click", "点这个": "click", "双击": "double click", "双击这里": "double click",
     "右键": "right click", "右击": "right click", "右键点击": "right click", "右键这里": "right click",
 }  # fmt: skip
-_CLICK_SYS_ZH = re.compile(
+_CLICK_SYS_ZH = LazyPattern(
     r"(?P<how>右键点击|右键单击|右击|双击|点击|单击|点一下|点下)(?:一下)?(?:那个|这个)?(?P<label>.+?)"
     r"(?:按钮|链接|标签页|标签|选项卡|菜单|选项)?"
 )
-_KEYS_SYS_ZH = re.compile(r"(?:按下|按一下|按|敲一下|敲)(?P<keys>.+)")
-_TYPE_ZH = re.compile(
+_KEYS_SYS_ZH = LazyPattern(r"(?:按下|按一下|按|敲一下|敲)(?P<keys>.+)")
+_TYPE_ZH = LazyPattern(
     r"^\s*(?:请|帮我)?(?:输入|键入)(?!法)[：:\s]*(?P<text>.+?)[。.!！]?\s*$", re.DOTALL
 )
-_OPEN_APP_ZH = re.compile(r"(?:打开|启动|运行|开启)(?P<app>.+)")
-_FOCUS_APP_ZH = re.compile(r"(?:切换到|切到|转到)(?P<app>.+)")
-_QUIT_APP_ZH = re.compile(r"(?:退出|关闭|关掉|结束)(?P<app>.+)")
-_HIDE_APP_ZH = re.compile(r"隐藏(?P<app>.+)")
+_OPEN_APP_ZH = LazyPattern(r"(?:打开|启动|运行|开启)(?P<app>.+)")
+_FOCUS_APP_ZH = LazyPattern(r"(?:切换到|切到|转到)(?P<app>.+)")
+_QUIT_APP_ZH = LazyPattern(r"(?:退出|关闭|关掉|结束)(?P<app>.+)")
+_HIDE_APP_ZH = LazyPattern(r"隐藏(?P<app>.+)")
 
 
 def _zh_int(text: str) -> int | None:
@@ -1426,11 +1441,12 @@ def parse_system_zh(text: str):
     return None
 
 
-ABOUT_SCREEN_ZH = re.compile(
+ABOUT_SCREEN_ZH = LazyPattern(
     r"这个|那个|这些|那些|这里|屏幕|窗口|页面|标签页|错误|报错|警告|提示|对话框|弹窗|我在看|显示的|文档|"
     r"文章|邮件|图表|表格|代码|幻灯片|照片|图片|视频|写的什么|说的什么|写了什么|说了什么|读一下|总结一下"
 )
-# livecontext's topics in Chinese: which live data rides along with a request.
+# livecontext's topics in Chinese: which live data rides along with a request (any request,
+# in English too).
 LIVE_TOPICS_ZH = {
     "weather": re.compile(
         r"天气|下雨|雨|雪|温度|几度|冷|热|暖和|凉|刮风|风|湿度|伞|外套|夹克|晴|阴|多云|预报|暴风|雷|外面"
@@ -1462,7 +1478,7 @@ ZH_WHISPER_FAST_MODEL = "base"
 # Steers Whisper to Simplified characters and full punctuation. (Not the name: a prompt
 # with "Jarvis" in it made Whisper treat the name as already said and drop it.)
 ZH_INITIAL_PROMPT = "以下是普通话的句子，使用简体中文。"
-_ENGLISH_ONLY = re.compile(r"\.en$|^distil-", re.IGNORECASE)
+_ENGLISH_ONLY = LazyPattern(r"\.en$|^distil-", re.IGNORECASE)
 
 
 def whisper_model(lang: str, configured: str = "base.en", override: str = "") -> str:
@@ -1513,7 +1529,7 @@ _HALLUCINATION_MARKS = (
     "yoyotelevisionseriesexclusive", "yoyotelevision", "优优独播剧场", "独播剧场",
     "以下是普通话的句子", "使用简体中文",
 )  # fmt: skip
-_HALLUCINATION_RE = re.compile(
+_HALLUCINATION_RE = LazyPattern(
     "|".join(map(re.escape, sorted(_HALLUCINATION_MARKS, key=len, reverse=True)))
 )
 
@@ -1573,8 +1589,8 @@ def _join(a: str, b: str) -> str:
     return a + b if _is_cjk_char(a[-1]) or a[-1] in _STOPS_ZH + _CLOSERS else f"{a} {b}"
 
 
-_STOP_CHAR = re.compile(f"[{re.escape(_STOPS_ZH + _STOPS_EN)}]")
-_SPACES = re.compile(r"\s*")
+_STOP_CHAR = LazyPattern(f"[{re.escape(_STOPS_ZH + _STOPS_EN)}]")
+_SPACES = LazyPattern(r"\s*")
 
 
 def _sentence_end(text: str, final: bool, start: int = 0) -> int | None:
@@ -1647,20 +1663,20 @@ def first_clause_zh(buffer: str, min_chars: int = 12) -> tuple[str, str] | None:
 
 # Each of these scans a run of spaces, brackets or lines once, from its start (never
 # again from inside it): a reply with a long run of either stays linear.
-_CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
+_CODE_BLOCK = LazyPattern(r"```.*?```", re.DOTALL)
 # [text](address), with one level of brackets in the address (Wikipedia's Foo_(bar)).
-_LINK = re.compile(r"\[([^\[\]]+)\]\((?:[^()]|\([^()]*\))+\)")
-_URL = re.compile(r"https?://[^\s，。！？、；：“”（）《》]+")
-_BULLET = re.compile(r"^[ \t]*(?:[-*•][ \t]+|\d+[.)][ \t]+|\d+、)", re.MULTILINE)
-_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]*", re.MULTILINE)
-_LINE_BREAKS = re.compile(r"(?<![ \t\r\f\v])[ \t\r\f\v]*\n\s*")
-_SPACE_BY_CJK = re.compile(
+_LINK = LazyPattern(r"\[([^\[\]]+)\]\((?:[^()]|\([^()]*\))+\)")
+_URL = LazyPattern(r"https?://[^\s，。！？、；：“”（）《》]+")
+_BULLET = LazyPattern(r"^[ \t]*(?:[-*•][ \t]+|\d+[.)][ \t]+|\d+、)", re.MULTILINE)
+_HEADING = LazyPattern(r"^[ \t]*#{1,6}[ \t]*", re.MULTILINE)
+_LINE_BREAKS = LazyPattern(r"(?<![ \t\r\f\v])[ \t\r\f\v]*\n\s*")
+_SPACE_BY_CJK = LazyPattern(
     f"(?<=[{_CJK_CHARS}，。！？])\\s+|(?<!\\s)\\s+(?=[{_CJK_CHARS}，。！？])"
 )
 # Markdown emphasis. A tilde before a number stays: it's a range ("3~5天") or "about"
 # ("~5%"), which spoken_numbers_zh reads.
-_EMPHASIS = re.compile(r"[*_`]+|[~～]+(?!\s*[+\-−]?\d)")
-_CITATION = re.compile(r"(?<!\s)\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
+_EMPHASIS = LazyPattern(r"[*_`]+|[~～]+(?!\s*[+\-−]?\d)")
+_CITATION = LazyPattern(r"(?<!\s)\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]")
 
 
 def clean_for_speech_zh(text: str) -> str:
@@ -1828,8 +1844,8 @@ _MEASURES = (
     r"个|位|名|条|封|件|次|天|周|小时|分钟|秒钟?|年|岁|块|元|美元|欧元|英镑|日元|张|本|只|支|辆|台|部|家|"
     r"份|杯|瓶|公里|千米|英里|公斤|斤|米|倍|首|篇|项|笔|页|股|手|场|点钟|点(?!\d)|层|间|种|句|段|步|分"
 )
-_ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
-_YEAR_MONTH = re.compile(r"(?<![\d\-])(\d{4})-(0?[1-9]|1[0-2])(?![\d\-])")  # 2026-09
+_ISO_DATE = LazyPattern(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
+_YEAR_MONTH = LazyPattern(r"(?<![\d\-])(\d{4})-(0?[1-9]|1[0-2])(?![\d\-])")  # 2026-09
 # Where a number may start: not inside a Latin word, a longer number or a dashed code
 # (GPT-4, INV-2026-004). Chinese right before it is fine ("涨幅3-5%").
 _NUMBER_START = r"(?<![A-Za-z0-9_.:\-−])"
@@ -1840,31 +1856,31 @@ _DIGITS_START = rf"{_NUMBER_START}(?<!\d)"
 # $10-20. A hyphen is one only between two numbers ("3-5", "3 - 5"): in "500 -0.77%" it
 # is a minus sign. The first number takes at most seven groups, so "1,1,1,…" isn't read
 # again from each digit to its end.
-_RANGE = re.compile(
+_RANGE = LazyPattern(
     rf"{_DIGITS_START}(?P<a>[$¥€£]?[-−]?\d+(?:[.,:]\d+){{0,6}})"
     r"(?P<unit>\s*(?:%|°\s*[CF]?|[AaPp]\.?[Mm]\.?(?![A-Za-z])))?"
     r"(?P<sep>\s*[~～–—]\s*|-|\s+-\s+)"
     r"(?P<b>[$¥€£]?[-−]?\d+(?:[.,:]\d+)*)(?P<pct>\s*%)?"
 )
-_DASHED = re.compile(_DIGITS_START + r"\d+(?:[-–]\d+)+(?![A-Za-z0-9_.])")  # 555-0100
+_DASHED = LazyPattern(_DIGITS_START + r"\d+(?:[-–]\d+)+(?![A-Za-z0-9_.])")  # 555-0100
 # ~5%: about 5% ("约~5%" says 约 once).
-_ABOUT = re.compile(r"(?<![A-Za-z0-9_.%°])(?:(约|大约)\s*)?[~～]\s*(?=[+\-−]?\d)")
-_AMPM = re.compile(r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?(?![A-Za-z])")
-_CLOCK = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?![\d:])")
-_YEAR = re.compile(r"(?<![\d.])(\d{4})(?=\s*(?:年|到\s*\d{4}\s*年))")
+_ABOUT = LazyPattern(r"(?<![A-Za-z0-9_.%°])(?:(约|大约)\s*)?[~～]\s*(?=[+\-−]?\d)")
+_AMPM = LazyPattern(r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?(?![A-Za-z])")
+_CLOCK = LazyPattern(r"(?<![\d:])(\d{1,2}):(\d{2})(?![\d:])")
+_YEAR = LazyPattern(r"(?<![\d.])(\d{4})(?=\s*(?:年|到\s*\d{4}\s*年))")
 # A sign only where no number, % or ° comes right before it ("3-5%" is a range).
-_PERCENT = re.compile(rf"(?<![\d%°])([+\-−]?)({_NUM_SHORT})\s*%")
-_MONEY = re.compile(rf"([$¥€£])\s?({_NUM})\s*(万亿|亿|万)?")
+_PERCENT = LazyPattern(rf"(?<![\d%°])([+\-−]?)({_NUM_SHORT})\s*%")
+_MONEY = LazyPattern(rf"([$¥€£])\s?({_NUM})\s*(万亿|亿|万)?")
 _MONEY_SIGNS = {"$": "美元", "¥": "元", "€": "欧元", "£": "英镑"}
-_TEMP = re.compile(r"(?<![\d%°])([+\-−]?\d+(?:\.\d+)?)\s*°\s*([CF])?")
-_NEGATIVE_DEGREES = re.compile(_NUMBER_START + r"[-−](\d+(?:\.\d+)?)(?=\s*度)")  # -5度
-_NEGATIVE = re.compile(_NUMBER_START + r"[-−](?=\d)")
-_ORDINAL = re.compile(r"第\s*(\d+)")
-_BIG = re.compile(r"(?<![\d.,])(\d+(?:\.\d+)?)\s*(万亿|亿|万|千)")
-_MEASURED = re.compile(
+_TEMP = LazyPattern(r"(?<![\d%°])([+\-−]?\d+(?:\.\d+)?)\s*°\s*([CF])?")
+_NEGATIVE_DEGREES = LazyPattern(_NUMBER_START + r"[-−](\d+(?:\.\d+)?)(?=\s*度)")  # -5度
+_NEGATIVE = LazyPattern(_NUMBER_START + r"[-−](?=\d)")
+_ORDINAL = LazyPattern(r"第\s*(\d+)")
+_BIG = LazyPattern(r"(?<![\d.,])(\d+(?:\.\d+)?)\s*(万亿|亿|万|千)")
+_MEASURED = LazyPattern(
     rf"(?<![\d.,])(\d{{1,3}}(?:,\d{{3}})+|\d+)(?=\s*(?:到\s*\d[\d,.]*\s*)?(?:{_MEASURES}))"
 )
-_PLAIN = re.compile(rf"(?<![A-Za-z0-9.\-_])({_NUM})(?![A-Za-z0-9_]|\.\d)")
+_PLAIN = LazyPattern(rf"(?<![A-Za-z0-9.\-_])({_NUM})(?![A-Za-z0-9_]|\.\d)")
 
 
 def _degrees_zh(value: Any, fahrenheit: bool = False) -> str:
@@ -2530,7 +2546,7 @@ _WORD_SLOTS = {"number", "due", "domain"}  # one token: INV-2026-004, 2026-10-29
 # "First request: …" line under it.
 _MULTILINE_SLOTS = {"text", "body", "message", "result", "detail", "error", "request", "task",
                     "topic", "why"}  # fmt: skip
-_SLOT = re.compile(r"\{(\w+)\}")
+_SLOT = LazyPattern(r"\{(\w+)\}")
 # Past this length a text is only matched paragraph by paragraph: sentences with several
 # open slots can take a regex long to rule out, and nothing JARVIS writes is this long.
 _TEMPLATE_MAX = 1200
@@ -2539,7 +2555,7 @@ _TEMPLATE_MAX = 1200
 # its length, so twenty thousand empty lines can't make a long one either.
 _TEMPLATE_BUDGET = 2000
 _TRY_COST = 20
-_TIME_VALUE = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])")
+_TIME_VALUE = LazyPattern(r"(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])")
 
 
 def _template_pattern(template: str) -> LazyPattern:
@@ -2590,7 +2606,7 @@ _TEMPLATES = sorted(
 )
 # The templates as the modules write them ("Send this to {name}?"), for tr(): here their
 # person, shortcut, routine or business is a slot of its own, copied as it is.
-_OWN_NAMES = re.compile(r"\{(person|shortcut|routine|business)\}")
+_OWN_NAMES = LazyPattern(r"\{(person|shortcut|routine|business)\}")
 _TEMPLATE_ALIASES = {
     _OWN_NAMES.sub("{name}", key): (key, m.group(1))
     for key in ZH_TEXTS
@@ -2768,7 +2784,9 @@ _ASK_LEAD_ZH = (
     r"(?:(?>好的|好|那么|那|嗯|哦|喂|嘿|请|麻烦|帮我|帮忙|能不能|能否|可不可以|可以|我想让你|"
     r"我要你|我希望你|我需要你|从现在开始|以后|贾维斯|jarvis|你)[，,\s]*+)*+"
 )
-_CLAUSE_BREAK_ZH = re.compile(r"[。！？；;!?\n]+|然后|接着|还有|并且|而且|同时|另外|顺便|但是|不过")
+_CLAUSE_BREAK_ZH = LazyPattern(
+    r"[。！？；;!?\n]+|然后|接着|还有|并且|而且|同时|另外|顺便|但是|不过"
+)
 # A clause that ends as a question or a report ("…了吗", "…了没有") asks for nothing; a
 # polite tag ("好吗", "可以吗") still does.
 _NOT_DONE_ZH = r"(?!.*(?:(?<![好行以])吗|么|呢|了没有?|过没有?|没有)$)"

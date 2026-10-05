@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -93,6 +94,17 @@ def clean_branch(raw: Any) -> dict[str, Any] | None:
     }
 
 
+class Snapshot(dict):
+    """ConversationState as snapshot() took it: a dict as before (and equal to one), with
+    its number (which snapshot it was), so an older one is never saved over a newer."""
+
+    __slots__ = ("taken",)
+
+    def __init__(self, taken: int, **fields: Any) -> None:
+        super().__init__(fields)
+        self.taken = taken
+
+
 class ConversationState:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -100,6 +112,9 @@ class ConversationState:
         self.branch: dict[str, Any] | None = None
         self.sessions: dict[str, dict[str, Any]] = {}
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
+        self._taken = 0  # snapshots taken, numbered
+        self._written = 0  # the number of the one on disk
+        self._lock = threading.Lock()
         self._load()
 
     def _load(self) -> None:
@@ -139,10 +154,12 @@ class ConversationState:
 
     def snapshot(self) -> dict[str, Any]:
         """What's saved, copied: a save in a thread never reads what the loop is changing."""
-        return {
-            "current": self.current,
-            "branch": dict(self.branch) if self.branch else None,
-            "sessions": {
+        self._taken += 1
+        return Snapshot(
+            self._taken,
+            current=self.current,
+            branch=dict(self.branch) if self.branch else None,
+            sessions={
                 sid: {
                     **entry,
                     "reads": dict(entry["reads"], what=list(entry["reads"]["what"]))
@@ -151,12 +168,22 @@ class ConversationState:
                 }
                 for sid, entry in self.sessions.items()
             },
-        }
+        )
 
     def save(self, data: dict[str, Any] | None = None) -> None:
+        """Write a snapshot (a fresh one when none is given). Saves run in threads (a turn's,
+        a rename's) and can finish in either order: one older than what's already on disk
+        is left out, so the file never goes back to before a change it had."""
         if self.unreadable:
             raise jsonstore.refusal(self.path, self.unreadable)
-        jsonstore.save_json(self.path, data if data is not None else self.snapshot())
+        if data is None:
+            data = self.snapshot()
+        taken = getattr(data, "taken", 0)
+        with self._lock:
+            if taken and taken < self._written:
+                return
+            jsonstore.save_json(self.path, data)
+            self._written = max(self._written, taken)
 
     def turn_over(
         self, session_id: str, reads: dict[str, Any], cost: float, title: str = ""

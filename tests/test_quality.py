@@ -79,3 +79,39 @@ def test_hands_free_answer_time_runs_from_the_heard_request(tmp_path, monkeypatc
     desk.state({"value": "thinking"})
     desk.state({"value": "speaking"})
     assert desk.wake == [1.2] and desk.public()["wake_median"] == 1.2
+
+
+def test_a_save_with_nothing_new_writes_nothing_but_a_change_or_a_lost_file_does(
+    tmp_path, monkeypatch
+):
+    """The keeper saves every ten minutes: with nothing new (an idle night) the file isn't
+    written and flushed again, but anything new is, and so is a file that went missing or
+    was changed on disk since."""
+    from jarvis import jsonstore
+
+    writes = []
+    real = jsonstore.save_json
+    monkeypatch.setattr(
+        jsonstore,
+        "save_json",
+        lambda path, data, **kw: (writes.append(path), real(path, data, **kw)),
+    )
+    desk = quality.Quality(hub(tmp_path))
+    desk.headsup(NS(kind="rain"))
+    desk.save()
+    assert len(writes) == 1
+    desk.save()
+    desk.save()
+    assert len(writes) == 1  # nothing new
+    desk.headsup(NS(kind="rain"))
+    desk.save()
+    assert len(writes) == 2
+    kept = (tmp_path / "quality.json").read_text()
+    (tmp_path / "quality.json").unlink()
+    desk.save()
+    assert len(writes) == 3 and (tmp_path / "quality.json").read_text() == kept
+    (tmp_path / "quality.json").write_text("{}")  # changed behind its back
+    desk.save()
+    assert len(writes) == 4 and (tmp_path / "quality.json").read_text() == kept
+    again = quality.Quality(hub(tmp_path))
+    assert again.kinds == {"rain": {"shown": 2, "opened": 0, "dismissed": 0}}
