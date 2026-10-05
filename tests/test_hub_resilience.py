@@ -680,7 +680,9 @@ async def test_a_long_reply_is_not_resent_whole_for_every_delta(settings, quiet_
             got.append(await q.get())
 
     reader = asyncio.create_task(window())
+    started = time.monotonic()
     await hub.ask("tell me about foxes")
+    took = time.monotonic() - started
     await asyncio.sleep(0.05)
     reader.cancel()
     streamed = [e for e in got if e["type"] in ("reply", "reply_delta")]
@@ -693,7 +695,12 @@ async def test_a_long_reply_is_not_resent_whole_for_every_delta(settings, quiet_
             assert e["at"] == len(shown), "a delta that doesn't follow on from the text shown"
             shown += e["text"]
     assert shown.strip() == text.strip()
-    assert sent < 40 * len(text), f"{sent / 1e6:.1f} MB of reply events for 8 KB of reply"
+    # The text goes at most once every REPLY_EVERY, not with each of its 2,000 deltas (8 MB
+    # of events): about a second's stream, so 40 times the reply at most. A busy Mac
+    # stretches the stream to ten seconds and more, and the sends with it: the bound
+    # follows the time the reply took.
+    sends = max(40, (took / hubmod.REPLY_EVERY + 2) * 1.1)
+    assert sent < sends * len(text), f"{sent / 1e6:.1f} MB of reply events in {took:.1f} s"
 
 
 async def test_updates_come_at_most_every_reply_every_and_the_last_before_turn_done(

@@ -24,11 +24,22 @@ PAGE_CAP = 14_000
 )
 def test_a_number_dense_page_is_read_in_linear_time(line):
     page = {"text": line[: PAGE_CAP * 4]}
-    started = time.perf_counter()
-    t.amount_on_page(99_999.99, "USD", page)
-    t.page_currencies(page)
-    t.charge_currency(99_999.99, "USD", page)
-    assert time.perf_counter() - started < 1.5  # about 0.15 s here; seconds to minutes before
+
+    def cpu() -> float:
+        """This thread's CPU time to read the page: a busy Mac's other work doesn't count
+        (it slowed the wall clock tenfold)."""
+        started = time.thread_time()
+        t.amount_on_page(99_999.99, "USD", page)
+        t.page_currencies(page)
+        t.charge_currency(99_999.99, "USD", page)
+        return time.thread_time() - started
+
+    # Under a second here (0.2 to 0.7 s); seconds to minutes before. Up to three tries: a
+    # busy Mac moves a thread between fast and slow cores.
+    spent = [cpu()]
+    while spent[-1] >= 1.5 and len(spent) < 3:
+        spent.append(cpu())
+    assert min(spent) < 1.5, spent
 
 
 def test_spaced_amounts_still_read_as_before():

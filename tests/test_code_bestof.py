@@ -5,6 +5,7 @@ each changed, the owner's test command in each copy, a judgment from a fake Clau
 fake Claude Code sessions, each writing a file in its own folder."""
 
 import asyncio
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -66,12 +67,16 @@ async def hub(settings, quiet_speaker, isolated, projects):
         await asyncio.wait(handles, timeout=5)
 
 
-async def until(condition, tries=3000):
-    for _ in range(tries):
-        if condition():
-            return True
+async def until(condition, seconds=120.0):
+    """Whether condition() comes true within seconds. Each variant is a real git copy and
+    a test command: a Mac busy with other test runs can take a minute; it returns as soon as
+    the condition holds."""
+    deadline = time.monotonic() + seconds
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
         await asyncio.sleep(0.01)
-    return False
+    return True
 
 
 def latest(hub):

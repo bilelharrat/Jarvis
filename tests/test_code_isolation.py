@@ -51,18 +51,22 @@ def answer(hub, *choices):
     hub.add_approval_sink(sink)
 
 
-async def until(condition, tries=600):
-    for _ in range(tries):
-        if condition():
-            return True
+async def until(condition, seconds=60.0):
+    """Whether condition() comes true within seconds. A session's copy is a real git
+    worktree: a Mac busy with other test runs can take many seconds; it returns as soon as
+    the condition holds."""
+    deadline = time.monotonic() + seconds
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
         await asyncio.sleep(0.01)
-    return False
+    return True
 
 
 async def isolated_session(hub, name="proj", prompt=""):
     task = hub.tasks.start(prompt, name, isolate=True, title="fix the login")
     # (A real git worktree add: on a Mac busy with other test runs it can take seconds.)
-    made = await until(lambda: task.workspace and task.client is not None, tries=3000)
+    made = await until(lambda: task.workspace and task.client is not None, seconds=120.0)
     assert made, task.transcript
     return task
 

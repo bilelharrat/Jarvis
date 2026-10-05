@@ -1085,13 +1085,25 @@ def test_a_link_with_brackets_in_its_address_is_said_as_its_text():
 def test_a_long_reply_splits_in_linear_time():
     import time
 
+    def cpu(size: int) -> float:
+        """This thread's CPU time to split a reply of so many characters: a busy Mac's
+        other work doesn't count (it slowed the wall clock tenfold)."""
+        reply = ("今天天气很好，我们去公园散步。明天要开会，记得带报告。" * 80_000)[:size]
+        started = time.thread_time()
+        sentences, rest = lang.split_sentences_zh(reply, final=True)
+        spent = time.thread_time() - started
+        assert "".join(sentences) == reply and rest == ""
+        assert sentences[:2] == ["今天天气很好，我们去公园散步。", "明天要开会，记得带报告。"]
+        return spent
+
     # Read by position, stop to stop: sliced again after every sentence, 2 MB took 8 s.
-    reply = ("今天天气很好，我们去公园散步。明天要开会，记得带报告。" * 80_000)[:2_000_000]
-    started = time.perf_counter()
-    sentences, rest = lang.split_sentences_zh(reply, final=True)
-    assert time.perf_counter() - started < 2.0  # about 0.3 s here
-    assert "".join(sentences) == reply and rest == ""
-    assert sentences[:2] == ["今天天气很好，我们去公园散步。", "明天要开会，记得带报告。"]
+    # Four times the reply takes about four times as long (0.3 to 0.5 s for 2 MB here),
+    # never sixteen. Each pair is timed back to back, up to three times: a busy Mac moves a
+    # thread between fast and slow cores.
+    pairs: list[tuple[float, float]] = []
+    while len(pairs) < 3 and not any(large / small < 8 and large < 2.0 for small, large in pairs):
+        pairs.append((cpu(500_000), cpu(2_000_000)))
+    assert any(large / small < 8 and large < 2.0 for small, large in pairs), pairs
 
 
 # ── numbers the Mandarin way ──

@@ -80,9 +80,15 @@ def test_a_huge_result_is_read_only_as_far_as_it_is_said():
     import time
 
     # Three sentences are said: a 2 MB result was cleaned and split whole on the hub's loop.
-    started = time.perf_counter()
-    spoken = vc.speakable("The build passed and every test is green. " * 50_000)
-    assert time.perf_counter() - started < 0.05  # about 2 ms here; 0.25 s whole
+    # This thread's CPU time, the best of three (about 2 ms here; 0.25 s whole): a busy
+    # Mac's other work, and a slow core now and then, don't count.
+    result = "The build passed and every test is green. " * 50_000
+    spent = []
+    for _ in range(3):
+        started = time.thread_time()
+        spoken = vc.speakable(result)
+        spent.append(time.thread_time() - started)
+    assert min(spent) < 0.05, spent
     assert spoken == "The build passed and every test is green. " * 3 + "The rest is on screen."
 
 
@@ -416,7 +422,17 @@ async def test_resume_a_past_session_by_name(settings, quiet_speaker, isolated, 
 async def test_typed_slash_commands_answer_in_the_transcript(
     settings, quiet_speaker, isolated, tmp_path
 ):
-    from test_hub import make_hub
+    import time
+
+    from test_hub import drain, make_hub
+
+    async def until(condition, seconds=30.0):
+        """Whether condition() comes true within seconds: typed commands run in the
+        background, and a busy Mac can take far longer than the usual few milliseconds."""
+        deadline = time.monotonic() + seconds
+        while not condition() and time.monotonic() < deadline:
+            await asyncio.sleep(0.005)
+        return bool(condition())
 
     (tmp_path / "proj").mkdir()
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
@@ -426,27 +442,30 @@ async def test_typed_slash_commands_answer_in_the_transcript(
     task = hub.tasks.start("", "proj")
     q = hub.subscribe()
     await hub.handle({"type": "code_command", "id": task.id, "text": "/plan"})
-    await asyncio.sleep(0.01)  # typed commands run in the background: they may be slow
-    assert task.mode == "plan"
+    assert await until(lambda: task.mode == "plan")
     await hub.handle({"type": "code_command", "id": task.id, "text": "/diff"})
-    await asyncio.sleep(0.2)
-    from test_hub import drain
+    notes = []
 
-    notes = [
-        e["entry"]["text"]
-        for e in drain(q)
-        if e["type"] == "task_log" and e["entry"]["role"] == "note"
-    ]
+    def noted():
+        notes.extend(
+            e["entry"]["text"]
+            for e in drain(q)
+            if e["type"] == "task_log" and e["entry"]["role"] == "note"
+        )
+        return len(notes) >= 2
+
+    assert await until(noted)
+    await asyncio.sleep(0.2)  # (anything more would come with these)
+    noted()
     assert notes == [vc.MODE_NAMES["plan"], "No file changes yet in this session."]
     assert spoken == []  # typed commands answer on screen, not out loud
     sent = []
     hub.tasks.send = lambda task_id, text, **_k: sent.append(text) or True
     await hub.handle({"type": "code_command", "id": task.id, "text": "/review-pr 12"})
-    await asyncio.sleep(0.01)
+    assert await until(lambda: sent)
     assert sent == ["/review-pr 12"]  # the project's own commands pass through to Claude Code
     await hub.handle({"type": "voicecode_start", "directory": "proj"})
-    await asyncio.sleep(0.05)
-    assert hub.voicecode.focus == task.id
+    assert await until(lambda: hub.voicecode.focus == task.id)
     task.handle.cancel()
 
 

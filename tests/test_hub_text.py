@@ -144,9 +144,14 @@ def test_the_users_words_are_read_in_linear_time():
     patterns = [*hub_module.FEATURE_ASKED.values(), hub_module.CODE_ASKED, hub_module.MESSAGE_ASKED]
     for pattern in patterns:  # compiled on first use (lang.LazyPattern): time the reading alone
         pattern.match("")
-    started = time.perf_counter()
-    assert not any(hub_module.user_asked(p, said) for p in patterns)
-    assert time.perf_counter() - started < 0.1  # about 1 ms here
+    # This thread's CPU time, the best of three (about 1 ms here): a busy Mac's other work,
+    # and a slow core now and then, don't count.
+    spent = []
+    for _ in range(3):
+        started = time.thread_time()
+        assert not any(hub_module.user_asked(p, said) for p in patterns)
+        spent.append(time.thread_time() - started)
+    assert min(spent) < 0.1, spent
     remember = hub_module.FEATURE_ASKED["remember"]
     assert hub_module.user_asked(remember, "ok,   remember \t that I parked on level 3")
     assert not hub_module.user_asked(remember, "do you remember when we met")

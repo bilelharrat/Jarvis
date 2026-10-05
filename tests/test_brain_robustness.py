@@ -585,6 +585,7 @@ def test_a_reader_gives_up_on_a_document_past_its_time(tmp_path):
         knowledge.read_document = forever
         knowledge.READ_SECONDS = 1
         knowledge._reader_start()
+        from jarvis import fileindex  # (imported by the first read: seconds on a busy Mac)
         started = time.monotonic()
         text = knowledge._read_one(Path({str(doc)!r}))
         print(repr(text), round(time.monotonic() - started, 1))

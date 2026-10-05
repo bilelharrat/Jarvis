@@ -3,6 +3,7 @@ up, crashes with a queue waiting, quitting, a full queue, bursts of switches and
 steps past the kept transcript, and more sessions than should stay open."""
 
 import asyncio
+import time as _time
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -255,17 +256,46 @@ async def test_the_queue_has_a_cap_and_the_list_carries_only_its_head(settings, 
     tm.cancel(task.id)
 
 
+class _HeldClock:
+    """The clock tasks.py reads. Held, it shows the time the test sets, however long a busy
+    Mac takes between two steps (a session that woke a quarter second after a change, the
+    process paused in between, found the burst over and reopened mid-burst). Let go, it
+    runs with the real clock from where it was held."""
+
+    def __init__(self):
+        self.held: float | None = None
+        self.behind = 0.0
+
+    def hold(self) -> None:
+        self.held = self.monotonic()
+
+    def let_go(self) -> None:
+        self.behind = _time.monotonic() - self.held
+        self.held = None
+
+    def monotonic(self) -> float:
+        return self.held if self.held is not None else _time.monotonic() - self.behind
+
+    def __getattr__(self, name):
+        return getattr(_time, name)
+
+
 async def test_a_burst_of_menu_changes_reopens_once_and_changes_that_cancel_out_dont(
     settings, tmp_path, monkeypatch
 ):
     monkeypatch.setattr(tasks_mod, "REOPEN_QUIET", 0.2)
+    clock = _HeldClock()
+    monkeypatch.setattr(tasks_mod, "time", clock)
     (tmp_path / "proj").mkdir()
     tm, _ = manager(settings)
     task = tm.start("", "proj")
     assert await until(lambda: task.status == "waiting")
+    clock.hold()
     for i in range(60):  # a connector toggled over and over, 10 ms apart
+        clock.held += 0.01
         tm.set_mcp(task.id, f"srv{i % 5}", i % 2 == 1)
         await asyncio.sleep(0.01)
+    clock.let_go()
     assert await until(lambda: len(StreamClient.instances) == 2, tries=400)
     await asyncio.sleep(0.4)
     assert len(StreamClient.instances) == 2  # one reopen for the whole burst

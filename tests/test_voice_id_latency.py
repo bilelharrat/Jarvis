@@ -74,20 +74,31 @@ async def first_words(settings, speaker, isolated, check: bool, stt_seconds: flo
 async def test_time_to_first_reply_is_the_same_with_the_check_on(
     settings, quiet_speaker, isolated, stt_seconds, tmp_path
 ):
-    times = {False: [], True: []}
-    for run in range(RUNS * 2):
-        check = bool(run % 2)
-        folder = tmp_path / str(run)
-        folder.mkdir()
-        mine = {**isolated}
-        from jarvis.prefs import PrefsStore
+    from jarvis.prefs import PrefsStore
 
-        mine["prefs_store"] = PrefsStore(folder / "prefs.json")
-        times[check].append(await first_words(settings, quiet_speaker, mine, check, stt_seconds))
-    off, on = statistics.median(times[False]), statistics.median(times[True])
-    print(
-        f"\nvoice check latency ({'Whisper 150 ms' if stt_seconds else 'words already heard'}, "
-        f"embedding {EMBED_SECONDS * 1000:.0f} ms, model {MODEL_SECONDS * 1000:.0f} ms): "
-        f"off {off * 1000:.1f} ms, on {on * 1000:.1f} ms, difference {(on - off) * 1000:+.1f} ms"
-    )
-    assert on - off < 0.01  # within timer noise: the check never sits in the path
+    async def medians(tries: int) -> tuple[float, float]:
+        times = {False: [], True: []}
+        for run in range(RUNS * 2):
+            check = bool(run % 2)
+            folder = tmp_path / f"{tries}-{run}"
+            folder.mkdir()
+            mine = {**isolated, "prefs_store": PrefsStore(folder / "prefs.json")}
+            times[check].append(
+                await first_words(settings, quiet_speaker, mine, check, stt_seconds)
+            )
+        return statistics.median(times[False]), statistics.median(times[True])
+
+    # Within timer noise: the check never sits in the path. A check in the path adds its
+    # 30 ms to every run with it on; a busy Mac that pauses the process now and then can
+    # add that much to one round's runs too, so a round that differs is measured again
+    # (up to three rounds).
+    rounds = []
+    while len(rounds) < 3 and not any(on - off < 0.01 for off, on in rounds):
+        off, on = await medians(len(rounds))
+        rounds.append((off, on))
+        print(
+            f"\nvoice check latency ({'Whisper 150 ms' if stt_seconds else 'words already heard'}, "
+            f"embedding {EMBED_SECONDS * 1000:.0f} ms, model {MODEL_SECONDS * 1000:.0f} ms): "
+            f"off {off * 1000:.1f} ms, on {on * 1000:.1f} ms, difference {(on - off) * 1000:+.1f} ms"
+        )
+    assert any(on - off < 0.01 for off, on in rounds), rounds

@@ -51,12 +51,23 @@ def test_a_held_short_sentence_keeps_the_space_before_the_next_chunk():
 def test_a_long_reply_splits_in_linear_time():
     import time
 
-    # Read by position: sliced again after every sentence, 4 MB took 3.6 s.
-    reply = ("The report is ready, and the team meets at 3:30pm tomorrow. " * 70_000)[:4_000_000]
-    started = time.perf_counter()
-    sentences, rest = split_sentences(reply, final=True)
-    assert time.perf_counter() - started < 0.5  # about 0.06 s here
-    assert " ".join(sentences) == reply.strip() and rest == ""
+    def cpu(size: int) -> float:
+        """This thread's CPU time to split a reply of so many characters: a busy Mac's
+        other work doesn't count (it slowed the wall clock tenfold)."""
+        reply = ("The report is ready, and the team meets at 3:30pm tomorrow. " * 70_000)[:size]
+        started = time.thread_time()
+        sentences, rest = split_sentences(reply, final=True)
+        spent = time.thread_time() - started
+        assert " ".join(sentences) == reply.strip() and rest == ""
+        return spent
+
+    # Read by position: sliced again after every sentence, 4 MB took 3.6 s. Four times the
+    # reply takes about four times as long (0.06 to 0.09 s for 4 MB here), never sixteen.
+    # Each pair is timed back to back, the best of three: a busy Mac moves a thread
+    # between fast and slow cores.
+    pairs = [(cpu(1_000_000), cpu(4_000_000)) for _ in range(3)]
+    assert min(large / small for small, large in pairs) < 8, pairs
+    assert min(large for _small, large in pairs) < 0.5, pairs
 
 
 def test_speech_cleaning_is_linear_on_long_runs():
@@ -70,9 +81,14 @@ def test_speech_cleaning_is_linear_on_long_runs():
     runs += ["[" * 16_000, "[a](b" * 3200]
     for run in runs:
         for clean in (clean_for_speech, speakable):
-            started = time.perf_counter()
-            clean(f"Done.{run}ok")
-            assert time.perf_counter() - started < 0.05, (clean.__name__, run[:5])  # ~3 ms
+            # This thread's CPU time, the best of three (about 3 ms here): a busy Mac's
+            # other work, and a slow core now and then, don't count.
+            spent = []
+            for _ in range(3):
+                started = time.thread_time()
+                clean(f"Done.{run}ok")
+                spent.append(time.thread_time() - started)
+            assert min(spent) < 0.05, (clean.__name__, run[:5], spent)
 
 
 def test_a_link_with_brackets_in_its_address_is_said_as_its_text():
