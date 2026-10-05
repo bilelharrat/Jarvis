@@ -77,24 +77,31 @@ class RuleDesk:
     def project(self, task: Any) -> str:
         return project_of(self.hub, task)
 
+    def rules_of(self, task: Any) -> dict[str, list[str]]:
+        """The rules of a session's project. With none kept for any project that's none,
+        and an isolated copy's project isn't looked up (that follows every copy's folder
+        on the disk, and every step a session asks about is checked)."""
+        book = self.book
+        return book.rules(self.project(task) if book.projects else "")
+
     def check(self, task: Any, tool: str, tool_input: dict[str, Any]) -> tuple[str, str] | None:
         """TaskManager.rule_check."""
         if task.kind != "code":
             return None
-        return coderules.decide(self.book.rules(self.project(task)), tool, tool_input, task.cwd)
+        return coderules.decide(self.rules_of(task), tool, tool_input, task.cwd)
 
     # ── a session's options ──
 
     def key(self, task: Any) -> Any:
         if task.kind != "code":
             return None
-        rules = self.book.rules(self.project(task))
+        rules = self.rules_of(task)
         return (tuple(rules["deny"]), tuple(rules["ask"]))
 
     def apply(self, task: Any, options: Any) -> None:
         if task.kind != "code":
             return
-        rules = self.book.rules(self.project(task))
+        rules = self.rules_of(task)
         self._applied[task.id] = (tuple(rules["deny"]), tuple(rules["ask"]))
         if rules["deny"]:
             options.disallowed_tools = [*options.disallowed_tools, *rules["deny"]]

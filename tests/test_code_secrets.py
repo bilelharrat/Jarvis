@@ -328,3 +328,94 @@ def test_secret_run_gives_the_command_its_value_and_scrubs_its_output():
     )
     assert VALUE.encode() not in stdout.getvalue() + stderr.getvalue()
     assert secret_run.run(["svc", "--"], read=read, stdout=stdout, stderr=stderr) == 2
+
+
+def _old_names_for(sec, task):
+    """names_for as it was before the folder was looked up once a pass: the reference the
+    faster one must agree with."""
+    out = {
+        name: f"code-secret:{code_secrets.project_scope(task.cwd)}:{name}"
+        for name in list(sec.index()["projects"].get(str(task.cwd.resolve()), []))
+    }
+    scope = sec.sessions.get(task.id)
+    for name in sec.session_names.get(task.id, ()):
+        out[name] = f"code-secret:{scope}:{name}"
+    return out
+
+
+def _old_values_for(sec, task):
+    out = {}
+    for name in _old_names_for(sec, task):
+        found = sec.value(sec.scope_of(task, name), name)
+        if found and len(found) >= code_secrets.VALUE_MIN:
+            out[found] = f"${name}"
+    return out
+
+
+def test_live_words_with_no_secret_anywhere_never_look_up_the_folder(hub, task, monkeypatch):
+    """The redaction pass runs on every piece of every session's live words: with no secret
+    given anywhere it mustn't touch the disk (it resolved the folder each time, most of the
+    cost of a streaming session's events)."""
+    looked = []
+    real = code_secrets._folder
+    monkeypatch.setattr(code_secrets, "_folder", lambda cwd: looked.append(cwd) or real(cwd))
+    sec = hub.code_secrets
+    for _ in range(200):
+        assert sec.redact(task, f"plain words {VALUE}") == f"plain words {VALUE}"
+    assert sec.names_for(task) == {} and sec.values_for(task) == {}
+    assert sec.project_names(task.cwd) == []
+    assert looked == []
+    hub.tasks._stream(task, "text", "hello")
+    hub.tasks._flush_stream(task)
+    assert looked == []
+
+
+async def test_one_pass_looks_up_the_folder_once_and_agrees_with_the_old_lookup(
+    hub, task, monkeypatch
+):
+    sec = hub.code_secrets
+    await given(hub, task, name="npm token", scope="project", value=OTHER)
+    await given(hub, task, name="aws key", scope="project", value="aws-" + "k" * 12)
+    await given(hub, task)  # SECRET_STRIPE_KEY, the session's own
+    # The same name kept for the session too: its own wins, in the project's place.
+    sec.save(task, "SECRET_AWS_KEY", "own-" + "a" * 12, "session")
+    other = ClaudeTask(id=7, prompt="y", cwd=task.cwd)  # same project, none of its own
+    elsewhere = ClaudeTask(id=8, prompt="z", cwd=task.cwd.parent)  # another folder
+    hub.tasks.tasks[7], hub.tasks.tasks[8] = other, elsewhere
+    for t in (task, other, elsewhere):
+        assert sec.names_for(t) == _old_names_for(sec, t)
+        assert list(sec.names_for(t)) == list(_old_names_for(sec, t))  # (same order)
+        assert sec.values_for(t) == _old_values_for(sec, t)
+    assert sec.values_for(task) == {
+        OTHER: "$SECRET_NPM_TOKEN",
+        "own-" + "a" * 12: "$SECRET_AWS_KEY",
+        VALUE: "$SECRET_STRIPE_KEY",
+    }
+    looked = []
+    real = code_secrets._folder
+    monkeypatch.setattr(code_secrets, "_folder", lambda cwd: looked.append(cwd) or real(cwd))
+    text = f"a {OTHER} b {VALUE} c own-{'a' * 12} d aws-{'k' * 12}"
+    assert sec.redact(task, text) == (
+        f"a $SECRET_NPM_TOKEN b $SECRET_STRIPE_KEY c $SECRET_AWS_KEY d aws-{'k' * 12}"
+    )
+    assert len(looked) == 1  # (it was six: twice, then twice for each project name)
+    assert sec.redact(other, text) == (
+        f"a $SECRET_NPM_TOKEN b {VALUE} c own-{'a' * 12} d $SECRET_AWS_KEY"
+    )
+    assert sec.redact(elsewhere, text) == text
+
+
+async def test_a_folder_is_checked_for_secrets_with_one_lookup_of_them(hub, task, monkeypatch):
+    await given(hub, task)
+    sec = hub.code_secrets
+    for i in range(40):
+        (task.cwd / f"f{i}.txt").write_text(f"nothing here {i}\n")
+    (task.cwd / "zz.env").write_text(f"KEY={VALUE}\n")
+    calls = []
+    real = sec.values_for
+    monkeypatch.setattr(sec, "values_for", lambda t: calls.append(t) or real(t))
+    assert sec.folder_holds_secret(task, task.cwd) == "$SECRET_STRIPE_KEY"
+    assert len(calls) == 1
+    assert sec.holds_secret(task, task.cwd / "f1.txt") == ""
+    assert sec.holds_secret(task, task.cwd / "zz.env") == "$SECRET_STRIPE_KEY"
+    assert sec.holds_secret(task, task.cwd / "missing.txt") == ""

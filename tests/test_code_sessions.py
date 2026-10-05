@@ -329,3 +329,126 @@ async def test_a_session_whose_folder_is_gone_is_kept_a_while_not_dropped(
     await hub.code_sessions.flush(final=True)
     assert gone.exists() and not stale.exists()  # kept for when it's back; an old one let go
     await end_all(hub)
+
+
+def _old_more_history(cs):
+    """more_history as it was (each kept session looked up through CopyStore.by_path): the
+    reference the faster one must agree with."""
+    from datetime import datetime
+    from pathlib import Path
+
+    from jarvis import worktrees
+
+    copies = None
+    out = []
+    for record in cs.dormant.values():
+        if not record["session_id"]:
+            continue
+        cwd = Path(record["cwd"])
+        folder = cwd.name
+        try:
+            if copies is None:
+                copies = worktrees.CopyStore(cs.hub.feature_path("code_copies.json"))
+            copy = copies.by_path(cwd)
+            if copy is not None:
+                folder = copy.project
+        except Exception:
+            pass
+        when = datetime.fromisoformat(record["updated"])
+        out.append(
+            {
+                "session_id": record["session_id"],
+                "title": record["title"] or record["prompt"][:80],
+                "first_prompt": record["prompt"][:200],
+                "last_modified": when.isoformat(timespec="minutes"),
+                "modified": int(when.timestamp() * 1000),
+                "branch": "",
+                "folder": folder,
+                "kept": True,
+            }
+        )
+    return out
+
+
+async def test_the_kept_history_finds_each_copys_project_with_one_lookup_of_each_copy(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """Thousands of kept sessions, each looked up among the copies: every copy's folder is
+    followed once for the listing (it was once for each kept session), with the same rows."""
+    import pathlib
+
+    from jarvis import worktrees
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated)
+    cs = hub.code_sessions
+    assert cs.more_history() == []  # nothing kept, no copies
+    store = hub.code_desk.store()
+    for i in range(6):
+        checkout = tmp_path / "copies" / "proj" / f"c{i}" / "checkout"
+        (checkout / "app").mkdir(parents=True)
+        store.copies.append(
+            worktrees.Copy(
+                slug=f"c{i}",
+                project=f"proj{i}",
+                repo=str(tmp_path / "proj"),
+                prefix="app" if i == 5 else "",  # (a project in a subfolder of its repo)
+                checkout=str(checkout),
+                branch=f"jarvis/c{i}",
+                base="abc",
+                into="main",
+            )
+        )
+    store.save()
+    link = tmp_path / "linked"
+    link.symlink_to(store.copies[2].cwd)  # a folder that leads to a copy
+    places = [*(c.cwd for c in store.copies), tmp_path / "proj", link, tmp_path / "gone" / "x"]
+    for k in range(120):
+        cs.dormant[f"k{k}"] = {
+            "session_id": f"s{k}" if k % 11 else "",  # (one with no conversation: not listed)
+            "cwd": str(places[k % len(places)]),
+            "title": f"t{k}" if k % 2 else "",
+            "prompt": f"p{k}",
+            "updated": f"2026-10-01T10:{k % 60:02d}:00",
+        }
+    looked = []
+    real = pathlib.Path.resolve
+    monkeypatch.setattr(
+        pathlib.Path, "resolve", lambda self, *a, **k: looked.append(self) or real(self, *a, **k)
+    )
+    rows = cs.more_history()
+    lookups = len(looked)
+    monkeypatch.setattr(pathlib.Path, "resolve", real)
+    assert rows == _old_more_history(cs)
+    listed = [r for r in cs.dormant.values() if r["session_id"]]
+    assert lookups == len(store.copies) + len(listed)  # (it was copies × kept sessions)
+    folders = {r["session_id"]: r["folder"] for r in rows}
+    assert folders["s1"] == "proj1" and folders["s5"] == "proj5"
+    assert folders["s7"] == "proj2"  # through the link
+    assert folders["s6"] == "proj" and folders["s8"] == "x"
+
+
+async def test_the_kept_history_reads_a_snapshot_while_the_loop_lets_more_go(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """The listing runs in a thread (tasks.recent_sessions) while the loop may add to the
+    kept sessions: it lists them as they were when it began, never failing half way."""
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated)
+    cs = hub.code_sessions
+    for k in range(5):
+        cs.dormant[f"k{k}"] = {
+            "session_id": f"s{k}",
+            "cwd": str(tmp_path / "proj"),
+            "title": "",
+            "prompt": f"p{k}",
+            "updated": "2026-10-01T10:00:00",
+        }
+    real = cs._copy_projects
+
+    def meanwhile():
+        cs.dormant["late"] = {**cs.dormant["k0"], "session_id": "s-late"}  # the loop, meanwhile
+        return real()
+
+    monkeypatch.setattr(cs, "_copy_projects", meanwhile)
+    assert [r["session_id"] for r in cs.more_history()] == [f"s{k}" for k in range(5)]

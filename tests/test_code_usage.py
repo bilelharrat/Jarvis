@@ -380,3 +380,85 @@ def test_its_transcript_notes_have_chinese_in_the_window():
         _ENDED["error_max_budget_usd"],
     ]:
         assert translated(note), note
+
+
+async def test_an_isolated_copys_project_is_looked_up_once_a_pass(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """An isolated copy's project is found by following every copy's folder on the disk:
+    each of the meter's passes (the gate, a connection's budget, the windows' figures, a
+    cap changed) looks it up once a session, and gets the project's caps from it."""
+    from types import SimpleNamespace
+
+    from jarvis import worktrees
+    from jarvis.features import code_usage
+    from jarvis.tasks import ClaudeTask
+
+    hub = _fresh(settings, quiet_speaker, isolated, tmp_path, code_budget_project=0.15)
+    store = hub.code_desk.store()
+    sessions = []
+    for i in range(3):
+        checkout = tmp_path / "copies" / "proj" / f"c{i}" / "checkout"
+        checkout.mkdir(parents=True)
+        store.copies.append(
+            worktrees.Copy(
+                slug=f"c{i}",
+                project="proj",
+                repo=str(tmp_path / "proj"),
+                prefix="",
+                checkout=str(checkout),
+                branch=f"jarvis/c{i}",
+                base="abc",
+                into="main",
+            )
+        )
+        task = ClaudeTask(id=50 + i, prompt="x", cwd=checkout.resolve(), kind="code")
+        task.workspace = {"slug": f"c{i}"}
+        hub.tasks.tasks[task.id] = task
+        sessions.append(task)
+    project = str(tmp_path / "proj")
+    meter = hub.code_usage
+    meter.usage.add(project, 0.2)  # the project has spent its cap today
+    looked = []
+    real = code_usage.project_of
+    monkeypatch.setattr(code_usage, "project_of", lambda h, t: looked.append(t.id) or real(h, t))
+    first = sessions[0]
+    assert meter.gate(first) == code_usage.HELD_PROJECT.format(project="proj", cap="$0.15")
+    assert looked == [first.id]
+    looked.clear()
+    options = SimpleNamespace(max_budget_usd=None)
+    meter.apply(first, options)
+    assert options.max_budget_usd == 0.01  # (nothing left: the least it can be)
+    assert meter._applied[first.id] == (0.0, 0.15, 0.0, meter.usage.day())
+    assert looked == [first.id]
+    looked.clear()
+    public = meter.public()
+    assert sorted(looked) == [t.id for t in sessions]
+    assert {s["project"] for s in public["sessions"].values()} == {project}
+    assert public["projects"][project]["today"] == 0.2
+    assert public["projects"][project]["cap"] == 0.15
+    looked.clear()
+    first.client = object()  # an open connection whose caps are as they were
+    meter.caps_changed()
+    assert looked == [first.id]  # (the others have no connection to compare)
+    assert meter.left(first) == 0.15 - 0.2
+    assert meter.key(first) == meter._applied[first.id]
+
+
+async def test_a_save_due_as_the_app_quits_is_written_not_lost(tmp_path, monkeypatch):
+    """A save that comes due while the app quits (its loop's threads already let go) is
+    written there and then, rather than lost to "Executor shutdown has been called"."""
+    path = tmp_path / "code_usage.json"
+    usage = Usage(path)
+    loop = asyncio.get_running_loop()
+
+    def gone(*_args, **_kwargs):
+        raise RuntimeError("Executor shutdown has been called")
+
+    monkeypatch.setattr(loop, "run_in_executor", gone)
+    usage.add("/p", 0.25)
+    usage._timer.cancel()
+    usage._save_now()  # (as its timer would, a moment later)
+    await usage._writer
+    assert Usage(path).today() == 0.25
+    assert not usage._writing

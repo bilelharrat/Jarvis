@@ -20,6 +20,7 @@ theirs is on, each capped per hour); nothing else here calls a model.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import itertools
 import logging
 import time
@@ -277,20 +278,21 @@ class CodeSessions:
 
     def more_history(self) -> list[dict[str, Any]]:
         """The kept sessions let go from the list, as history entries (tasks.recent_sessions),
-        under the project they belong to (a copy's, its project's)."""
-        copies = None
+        under the project they belong to (a copy's, its project's). Read in a thread, while
+        the loop may let more go: the kept ones as they are when it starts."""
+        copies: dict[Path, str] | None = None
         out = []
-        for record in self.dormant.values():
+        for record in list(self.dormant.values()):
             if not record["session_id"]:
                 continue
             cwd = Path(record["cwd"])
             folder = cwd.name
             try:
                 if copies is None:
-                    copies = worktrees.CopyStore(self.hub.feature_path("code_copies.json"))
-                copy = copies.by_path(cwd)
-                if copy is not None:
-                    folder = copy.project
+                    copies = self._copy_projects()
+                found = copies.get(cwd.resolve()) if copies else None
+                if found is not None:
+                    folder = found
             except Exception:  # no copies kept: the folder's own name
                 pass
             try:
@@ -310,6 +312,16 @@ class CodeSessions:
                 }
             )
         return out
+
+    def _copy_projects(self) -> dict[Path, str]:
+        """{each isolated copy's folder, followed on the disk: its project}, the first copy's
+        where two share one (CopyStore.by_path's answer for each folder, with every copy's
+        folder looked up once rather than once for each kept session: thousands of them)."""
+        found: dict[Path, str] = {}
+        for copy in worktrees.CopyStore(self.hub.feature_path("code_copies.json")).copies:
+            with contextlib.suppress(OSError):
+                found.setdefault(copy.cwd.resolve(), copy.project)
+        return found
 
     def _restore_one(self, record: dict[str, Any]) -> int:
         tm = self.tm

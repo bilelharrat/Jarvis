@@ -66,6 +66,16 @@ class SandboxDesk:
     def project(self, task: Any) -> str:
         return project_of(self.hub, task)
 
+    def domains(self, task: Any) -> tuple[str, ...]:
+        """The domains a session's project allows. With none allowed for any project (the
+        usual case) that's none, and an isolated copy's project isn't looked up: that
+        follows every copy's folder on the disk, and the sessions are settled on every
+        change to the list."""
+        book = self.book
+        if not book.projects:
+            return ()
+        return tuple(book.domains(self.project(task)))
+
     def unattended(self, task: Any) -> bool:
         """An unattended run's session ("Run this without me", features.code_unattended)."""
         runs = getattr(getattr(self.hub, "code_runs", None), "active", None)
@@ -85,14 +95,14 @@ class SandboxDesk:
     def key(self, task: Any) -> Any:
         if not self.wanted(task):
             return None
-        return (True, tuple(self.book.domains(self.project(task))))
+        return (True, self.domains(task))
 
     def apply(self, task: Any, options: Any) -> None:
         """TaskManager.option_hooks: the sandbox on this connection, when it's wanted."""
         if task.kind != "code":
             return
         wanted = self.wanted(task)
-        domains = tuple(self.book.domains(self.project(task))) if wanted else ()
+        domains = self.domains(task) if wanted else ()
         if wanted and options.sandbox is None:  # (another feature's own sandbox stands)
             options.sandbox = {
                 "enabled": True,
@@ -117,7 +127,7 @@ class SandboxDesk:
         if task.client is None or applied is None or task.kind != "code":
             return
         wanted = self.wanted(task)
-        same = not wanted or applied[1] == tuple(self.book.domains(self.project(task)))
+        same = not wanted or applied[1] == self.domains(task)
         if applied[0] == wanted and same:
             return
         if task.reopen:

@@ -108,7 +108,17 @@ def clean_name(raw: Any) -> str:
 
 def project_scope(cwd: Path) -> str:
     """The Keychain scope of a project's secrets: its folder, hashed."""
-    return "p-" + hashlib.sha256(str(Path(cwd).resolve()).encode()).hexdigest()[:20]
+    return _scope_of_folder(_folder(cwd))
+
+
+def _folder(cwd: Path) -> str:
+    """A project's folder as its secrets are kept by (symlinks followed): a few file system
+    calls, so it's looked up once per pass, never once per name."""
+    return str(Path(cwd).resolve())
+
+
+def _scope_of_folder(folder: str) -> str:
+    return "p-" + hashlib.sha256(folder.encode()).hexdigest()[:20]
 
 
 def wrap(command: str, names: dict[str, str], python: str | None = None) -> str:
@@ -192,18 +202,31 @@ class Secrets:
         return scope
 
     def project_names(self, cwd: Path) -> list[str]:
-        return list(self.index()["projects"].get(str(Path(cwd).resolve()), []))
+        projects = self.index()["projects"]
+        if not projects:  # (no project has any: where the folder leads needn't be looked up)
+            return []
+        return list(projects.get(_folder(cwd), []))
+
+    def _scopes(self, task: Any, make: bool = False) -> dict[str, Any]:
+        """{NAME: its scope} of a session's secrets: its own, over its project's (the
+        project's folder looked up once). make: a session scope is made if it has none."""
+        out: dict[str, Any] = {}
+        projects = self.index()["projects"]
+        if projects:
+            folder = _folder(task.cwd)
+            names = projects.get(folder)
+            if names:
+                out = dict.fromkeys(names, _scope_of_folder(folder))
+        own = self.session_names.get(task.id)
+        if own:
+            scope = self.session_scope(task.id) if make else self.sessions.get(task.id)
+            for name in own:
+                out[name] = scope
+        return out
 
     def names_for(self, task: Any) -> dict[str, str]:
         """{NAME: Keychain account} of a session's secrets: its own, over its project's."""
-        out = {
-            name: f"{VAULT_PREFIX}{project_scope(task.cwd)}:{name}"
-            for name in self.project_names(task.cwd)
-        }
-        scope = self.sessions.get(task.id)
-        for name in self.session_names.get(task.id, ()):
-            out[name] = f"{VAULT_PREFIX}{scope}:{name}"
-        return out
+        return {name: f"{VAULT_PREFIX}{scope}:{name}" for name, scope in self._scopes(task).items()}
 
     def scope_of(self, task: Any, name: str) -> str:
         if name in self.session_names.get(task.id, ()):
@@ -223,16 +246,19 @@ class Secrets:
     def values_for(self, task: Any) -> dict[str, str]:
         """{value: $NAME} for a session's secrets, for the redaction pass."""
         out: dict[str, str] = {}
-        for name in self.names_for(task):
-            found = self.value(self.scope_of(task, name), name)
+        for name, scope in self._scopes(task, make=True).items():
+            found = self.value(scope, name)
             if found and len(found) >= VALUE_MIN:
                 out[found] = f"${name}"
         return out
 
     def redact(self, task: Any, text: str) -> str:
+        """Every value a session's text holds, replaced by its placeholder. Called for each
+        piece of live words of every session: with no secret given anywhere (the usual
+        case) it touches nothing, not even the disk to see where the folder leads."""
         if not text or task is None or getattr(task, "kind", "") != "code":
             return text
-        if task.id not in self.session_names and not self.project_names(task.cwd):
+        if not self.session_names.get(task.id) and not self.index()["projects"]:
             return text
         for found, placeholder in sorted(
             self.values_for(task).items(), key=lambda vp: len(vp[0]), reverse=True
@@ -460,21 +486,10 @@ class Secrets:
 
     def holds_secret(self, task: Any, path: Path, limit: int = FILE_BYTES) -> str:
         """The placeholder of a secret whose value is in this file, or ""."""
-        values = self.values_for(task)
-        if not values:
-            return ""
-        try:
-            with path.open("rb") as fh:
-                data = fh.read(limit)
-        except OSError:
-            return ""
-        for found, placeholder in values.items():
-            if found.encode() in data:
-                return placeholder
-        return ""
+        return _holding(self.values_for(task), path, limit)
 
     def folder_holds_secret(self, task: Any, folder: Path) -> str:
-        values = self.values_for(task)
+        values = self.values_for(task)  # (once for the folder, not for each of its files)
         if not values:
             return ""
         seen = total = 0
@@ -487,7 +502,7 @@ class Secrets:
                 seen += 1
                 if seen > GREP_FILES or total > GREP_BYTES:
                     return ""
-                if found := self.holds_secret(task, path, FILE_BYTES):
+                if found := _holding(values, path, FILE_BYTES):
                     return found
         return ""
 
@@ -572,6 +587,21 @@ class Secrets:
             )
 
         return can_use_tool
+
+
+def _holding(values: dict[str, str], path: Path, limit: int) -> str:
+    """The placeholder of one of these values found in the file's first limit bytes, or ""."""
+    if not values:
+        return ""
+    try:
+        with path.open("rb") as fh:
+            data = fh.read(limit)
+    except OSError:
+        return ""
+    for found, placeholder in values.items():
+        if found.encode() in data:
+            return placeholder
+    return ""
 
 
 def _text(text: str, error: bool = False) -> dict[str, Any]:

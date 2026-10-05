@@ -126,18 +126,23 @@ class Meter:
     def project(self, task: Any) -> str:
         return project_of(self.hub, task)
 
-    def caps(self, task: Any) -> Caps:
-        return self.usage.caps_for(self.session_key(task), self.project(task), self.defaults())
+    def caps(self, task: Any, project: str | None = None) -> Caps:
+        """The caps that hold for this session. project: its project, when the caller has
+        it (an isolated copy's is found by following every copy's folder on the disk: looked
+        up once a pass, not again for each figure)."""
+        project = self.project(task) if project is None else project
+        return self.usage.caps_for(self.session_key(task), project, self.defaults())
 
-    def left(self, task: Any) -> float | None:
+    def left(self, task: Any, project: str | None = None) -> float | None:
         """What this session may still spend now: the least of what's left of its caps
         (None when no cap holds)."""
-        caps = self.caps(task)
+        project = self.project(task) if project is None else project
+        caps = self.caps(task, project)
         room = []
         if caps.session > 0:
             room.append(caps.session - (task.cost_usd or 0.0))
         if caps.project > 0:
-            room.append(caps.project - self.usage.project_today(self.project(task)))
+            room.append(caps.project - self.usage.project_today(project))
         if caps.day > 0:
             room.append(caps.day - self.usage.today())
         return min(room) if room else None
@@ -147,12 +152,12 @@ class Meter:
         needn't."""
         if task.kind != "code" or other_agent(task):  # (another agent spends nothing on Claude)
             return ""
-        caps = self.caps(task)
+        project = self.project(task)
+        caps = self.caps(task, project)
         if caps.session > 0 and (task.cost_usd or 0.0) >= caps.session - NEAR:
             return HELD_SESSION.format(cap=money(caps.session))
         if caps.day > 0 and self.usage.today() >= caps.day - NEAR:
             return HELD_DAY.format(cap=money(caps.day))
-        project = self.project(task)
         if caps.project > 0 and self.usage.project_today(project) >= caps.project - NEAR:
             return HELD_PROJECT.format(project=Path(project).name, cap=money(caps.project))
         return ""
@@ -166,15 +171,18 @@ class Meter:
             if task.gated:
                 self.hub.tasks.release(task.id)
             applied = self._applied.get(task.id)
-            if task.client is not None and applied is not None and applied != self.key(task):
-                same = applied[:3] == self.key(task)[:3]  # (only the day changed)
+            if task.client is None or applied is None:
+                continue
+            key = self.key(task)
+            if applied != key:
+                same = applied[:3] == key[:3]  # (only the day changed)
                 self.hub.tasks.reopen(task.id, "" if same else CHANGED)
         self.changed()
 
-    def key(self, task: Any) -> tuple:
+    def key(self, task: Any, project: str | None = None) -> tuple:
         """What of the caps only a new connection takes up: the caps, and the day while a
         day's cap holds (a new day has room again)."""
-        caps = self.caps(task)
+        caps = self.caps(task, project)
         day = self.usage.day() if caps.project > 0 or caps.day > 0 else ""
         return (caps.session, caps.project, caps.day, day)
 
@@ -184,8 +192,9 @@ class Meter:
         another feature set (an unattended run's) holds too: the lower one."""
         if task.kind != "code":
             return
-        self._applied[task.id] = self.key(task)
-        left = self.left(task)
+        project = self.project(task)
+        self._applied[task.id] = self.key(task, project)
+        left = self.left(task, project)
         if left is None:
             return
         left = round(max(left, 0.01), 4)
@@ -216,7 +225,7 @@ class Meter:
         cost = money_value(cost) or 0.0
         project = self.project(task)
         before_day, before_project = self.usage.add(project, cost)
-        caps = self.caps(task)
+        caps = self.caps(task, project)
         after = task.cost_usd or 0.0
         marks = [
             (crossed(before_day, before_day + cost, caps.day), 3, "day"),
@@ -344,8 +353,8 @@ class Meter:
         for task in list(self.hub.tasks.tasks.values()):
             if task.kind != "code":
                 continue
-            caps = self.caps(task)
             project = self.project(task)
+            caps = self.caps(task, project)
             sessions[str(task.id)] = {
                 "cost": task.cost_usd or 0.0,
                 "cap": caps.session,
