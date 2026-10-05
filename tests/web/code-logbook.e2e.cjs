@@ -270,6 +270,38 @@ test('What the owner made in the Changes pane outlasts a restart, and a session 
   assert((await pane()).files === 'src/only3.py', JSON.stringify(await pane()));
 });
 
+// The cards' places that hang on what Jarvis Code is showing (a :has() on the body's own child
+// #cc, so a change anywhere else in the page never has it asked again): at the right with the
+// index a rail; at the top of split view's right pane; as before once Jarvis Code is hidden.
+test('With the index a rail the window’s cards sit at the right, and at the top of a split pane', async () => {
+  const cards = () => js('(() => { const s = getComputedStyle($("cards")); return { right: s.right, bottom: s.bottom, top: s.top, width: s.width }; })()');
+  const before = await cards();
+  assert(before.right !== '22px', `the cards are at the right before the index is a rail: ${JSON.stringify(before)}`);
+  await js('$("cc").classList.add("sv-on", "lb-folded"); true');
+  let now = await cards();
+  assert(now.right === '22px' && now.bottom === '96px', `with the index a rail: ${JSON.stringify(now)}`);
+  await js('$("cc").hidden = true; true');
+  now = await cards();
+  assert(now.right !== '22px' && now.bottom !== '96px', `Jarvis Code hidden: ${JSON.stringify(now)}`);
+  await js('$("cc").hidden = false; $("cc").classList.remove("sv-on", "lb-folded"); true');
+  assert(JSON.stringify(await cards()) === JSON.stringify(before), JSON.stringify(await cards()));
+  // Split view's right pane (its own page: body.jc-split-pane), with code-split.css.
+  await js(`new Promise((resolve) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/static/features/code-split.css';
+    link.onload = resolve;
+    document.head.append(link);
+  })`);
+  await js('document.body.classList.add("jc-split-pane"); true');
+  now = await cards();
+  assert(now.top === '64px' && now.right === '14px', `in a split pane: ${JSON.stringify(now)}`);
+  await js('$("cc").hidden = true; true');
+  now = await cards();
+  assert(now.top !== '64px', `in a split pane with Jarvis Code hidden: ${JSON.stringify(now)}`);
+  await js('$("cc").hidden = false; document.body.classList.remove("jc-split-pane"); true');
+});
+
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide();
   const server = await serve();

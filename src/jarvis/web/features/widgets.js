@@ -98,7 +98,13 @@
       item.append(head, frame(w));
       return item;
     });
-    list.replaceChildren(...items);
+    // Put in order in place: one taken out of the page and put back (as replaceChildren does
+    // with each child, even where it already is) loads its widget again. (One listed twice
+    // ends where it's listed last, as replaceChildren left it.)
+    const order = items.filter((n, i) => items.indexOf(n, i + 1) < 0);
+    const wanted = new Set(order);
+    for (const n of [...list.children]) if (!wanted.has(n)) n.remove();
+    order.forEach((item, i) => { if (list.children[i] !== item) list.insertBefore(item, list.children[i] || null); });
     section.hidden = !pinned.length;
     // Each card's button says where its widget is now (a pin refused, one taken off).
     const on = new Set(pinned.map((w) => w.id));

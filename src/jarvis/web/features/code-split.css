@@ -115,7 +115,9 @@ body.jc-split-pane .deck.jc .jc-main { left: 0; transition: none; }
 body.jc-split-pane.sv-app .jc-toolbar { padding-top: 6px; min-height: 52px; }
 /* Its cards: only Jarvis Code's own notes (jc-notecard); the window shows the rest. */
 body.jc-split-pane .cards > .card:not(.jc-notecard), body.jc-split-pane .cards-clear { display: none; }
-body.jc-split-pane:has(#cc:not([hidden])) #cards { top: 64px; right: 14px; bottom: auto; left: auto; width: min(300px, calc(100% - 28px)); }
+/* (#cc is one of the body's own children: > #cc, so the :has() isn't asked again over the whole
+   page after every change in it, each streamed word in this pane) */
+body.jc-split-pane:has(> #cc:not([hidden])) #cards { top: 64px; right: 14px; bottom: auto; left: auto; width: min(300px, calc(100% - 28px)); }
 /* The sessions an empty pane offers, above the welcome's own. */
 .sv-pick { text-align: left; }
 .sv-pick-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }

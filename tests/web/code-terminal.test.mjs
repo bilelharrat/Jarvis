@@ -47,3 +47,22 @@ test('a selection goes to the composer as a code block its backticks can’t clo
   assert.equal(T.selectionBlock('a ``` b', 'look at this'), '\nFrom the terminal:\n````\na ``` b\n````\n');
   assert.equal(T.selectionBlock('x', 'first line\n'), 'From the terminal:\n```\nx\n```\n');
 });
+
+test('a shell’s output reaches the terminal as the very bytes it printed', () => {
+  // What the window decoded them with before (Uint8Array.from with a function), byte for byte.
+  const before = (data) => Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  const all = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
+  const utf8 = Buffer.from('héllo — 你好 \u001b[31mred\u001b[0m\r\n', 'utf8');
+  const big = Buffer.alloc(512 * 1024);
+  for (let i = 0; i < big.length; i += 1) big[i] = (i * 7919) & 255;
+  for (const raw of [Buffer.alloc(0), all, utf8, big]) {
+    const data = raw.toString('base64');
+    const got = T.termBytes(data);
+    assert.ok(got instanceof Uint8Array);
+    assert.deepEqual(Buffer.from(got), raw);
+    assert.deepEqual(got, before(data));
+  }
+  // Not base64: refused as it was (the event is dropped, nothing half-written).
+  assert.throws(() => T.termBytes('not base64!'));
+  assert.throws(() => before('not base64!'));
+});

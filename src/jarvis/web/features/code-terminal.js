@@ -51,7 +51,17 @@
     return `${lead}From the terminal:\n${fence}\n${body}\n${fence}\n`;
   }
 
-  const api = { liveOutput, applyOutput, selectionBlock, LIVE_LINES };
+  // A shell's output as it comes (base64) as the bytes the terminal is given. By a loop:
+  // Uint8Array.from(text, fn) calls fn once a character through the iterator, some twenty
+  // times slower, on every chunk a busy shell prints and on a reopened pane's whole 512 KB.
+  function termBytes(data) {
+    const text = atob(data);
+    const bytes = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i += 1) bytes[i] = text.charCodeAt(i);
+    return bytes;
+  }
+
+  const api = { liveOutput, applyOutput, selectionBlock, termBytes, LIVE_LINES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -380,14 +390,14 @@
     if (!view || view.replayed) return;
     view.replayed = true;
     view.xterm.reset();
-    view.xterm.write(Uint8Array.from(atob(ev.data || ''), (c) => c.charCodeAt(0)));
+    view.xterm.write(termBytes(ev.data || ''));
     if (!ev.alive) view.xterm.write(`\r\n${t('[this shell has ended]')}\r\n`);
   });
 
   F.on('cw_term_data', (ev) => {
     const view = views.get(ev.term);
     if (!view || !view.replayed) return;  // (what came before the replay is in it)
-    view.xterm.write(Uint8Array.from(atob(ev.data), (c) => c.charCodeAt(0)));
+    view.xterm.write(termBytes(ev.data));
   });
 
   F.on('cw_term_exit', (ev) => {

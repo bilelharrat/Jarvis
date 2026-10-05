@@ -324,8 +324,11 @@ html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session .lb-pane { 
 html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session[data-lb-state="needs"] .lb-pane { color: var(--ob-brass-text); }
 html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-session[aria-current="true"] { box-shadow: 0 0 0 1px var(--ob-arc); }
 
-/* with the index a rail, the window's cards (approvals, notes) sit at the right, not over the left pane */
-html body[data-skin="obsidian"]:has(#cc.sv-on.lb-folded:not([hidden])) #cards { left: auto; right: 22px; bottom: 96px; }
+/* with the index a rail, the window's cards (approvals, notes) sit at the right, not over the left pane
+   (#cc is one of the body's own children: the :has() asks only those, > #cc. One that looked
+   through the whole page was asked again after every change anywhere in it, each streamed
+   word of a session, and restyled the page each frame for it.) */
+html body[data-skin="obsidian"]:has(> #cc.sv-on.lb-folded:not([hidden])) #cards { left: auto; right: 22px; bottom: 96px; }
 
 /* ── 8. split view: an arc rule on the focused pane, three dots for the divider, words ── */
 html body[data-skin="obsidian"] .deck.jc .sv-head {
