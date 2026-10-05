@@ -225,21 +225,34 @@ def _rel(project: Path, raw: str, cwd: str = "") -> str:
 
 def parse(checker: Checker, output: str, project: Path) -> list[Problem]:
     """A checker's output -> its problems (unparseable output: none, said by the caller)."""
+    known: dict[tuple[str, str], str] = {}
+
+    def rel(raw: str, cwd: str = "") -> str:
+        # Each file is looked up on disk once, however many problems it has: resolved
+        # for every one, 40,000 lines of a build's errors took five seconds.
+        key = (raw, cwd)
+        if key not in known:
+            known[key] = _rel(project, raw, cwd)
+        return known[key]
+
     match checker.id:
         case "tsc":
-            return _parse_lines(output, _TSC, checker, project, tsc=True)
+            return _parse_lines(output, _TSC, checker, rel, tsc=True)
         case "eslint":
-            return _parse_eslint(output, checker, project)
+            return _parse_eslint(output, checker, rel)
         case "ruff":
-            return _parse_ruff(output, checker, project)
+            return _parse_ruff(output, checker, rel)
         case "pyright":
-            return _parse_pyright(output, checker, project)
+            return _parse_pyright(output, checker, rel)
         case _:
-            return _parse_lines(output, _COMPILER, checker, project)
+            return _parse_lines(output, _COMPILER, checker, rel)
+
+
+Relative = Callable[..., str]  # parse's rel(raw, cwd=""): a path as the project names it
 
 
 def _parse_lines(
-    output: str, pattern: re.Pattern, checker: Checker, project: Path, tsc: bool = False
+    output: str, pattern: re.Pattern, checker: Checker, rel: Relative, tsc: bool = False
 ) -> list[Problem]:
     out: list[Problem] = []
     seen: set[tuple] = set()
@@ -259,7 +272,7 @@ def _parse_lines(
         seen.add(key)
         out.append(
             Problem(
-                file=_rel(project, file, checker.cwd),
+                file=rel(file, checker.cwd),
                 line=int(line),
                 col=int(col) if col else None,
                 severity=severity,
@@ -281,13 +294,13 @@ def _json(output: str) -> Any:
         return None
 
 
-def _parse_eslint(output: str, checker: Checker, project: Path) -> list[Problem]:
+def _parse_eslint(output: str, checker: Checker, rel: Relative) -> list[Problem]:
     data = _json(output)
     out: list[Problem] = []
     for item in data if isinstance(data, list) else []:
         if not isinstance(item, dict):
             continue
-        file = _rel(project, str(item.get("filePath") or ""), checker.cwd)
+        file = rel(str(item.get("filePath") or ""), checker.cwd)
         for m in item.get("messages") or []:
             if not isinstance(m, dict):
                 continue
@@ -305,7 +318,7 @@ def _parse_eslint(output: str, checker: Checker, project: Path) -> list[Problem]
     return out
 
 
-def _parse_ruff(output: str, checker: Checker, project: Path) -> list[Problem]:
+def _parse_ruff(output: str, checker: Checker, rel: Relative) -> list[Problem]:
     data = _json(output)
     out: list[Problem] = []
     for item in data if isinstance(data, list) else []:
@@ -314,7 +327,7 @@ def _parse_ruff(output: str, checker: Checker, project: Path) -> list[Problem]:
         location = item.get("location") if isinstance(item.get("location"), dict) else {}
         out.append(
             Problem(
-                file=_rel(project, str(item.get("filename") or "")),
+                file=rel(str(item.get("filename") or "")),
                 line=location.get("row") if isinstance(location.get("row"), int) else None,
                 col=location.get("column") if isinstance(location.get("column"), int) else None,
                 severity="error" if item.get("code") in (None, "") else "warning",
@@ -326,7 +339,7 @@ def _parse_ruff(output: str, checker: Checker, project: Path) -> list[Problem]:
     return out
 
 
-def _parse_pyright(output: str, checker: Checker, project: Path) -> list[Problem]:
+def _parse_pyright(output: str, checker: Checker, rel: Relative) -> list[Problem]:
     data = _json(output)
     items = data.get("generalDiagnostics") if isinstance(data, dict) else None
     out: list[Problem] = []
@@ -338,7 +351,7 @@ def _parse_pyright(output: str, checker: Checker, project: Path) -> list[Problem
         col = start.get("character")
         out.append(
             Problem(
-                file=_rel(project, str(item.get("file") or "")),
+                file=rel(str(item.get("file") or "")),
                 line=line + 1 if isinstance(line, int) else None,  # pyright counts from 0
                 col=col + 1 if isinstance(col, int) else None,
                 severity=str(item.get("severity") or "error")
@@ -472,7 +485,8 @@ class Diagnostics:
             if self._procs.get(key) is proc:
                 del self._procs[key]
         output = "\n".join(chunks)
-        found = parse(checker, output, project)
+        # Up to 4 MB of output, and a path looked up for each file: never on the loop.
+        found = await asyncio.to_thread(parse, checker, output, project)
         if not found and code not in (0, None) and not proc.stopping:
             tail = " ".join(line for line in chunks[-3:] if line.strip())[:300]
             return (

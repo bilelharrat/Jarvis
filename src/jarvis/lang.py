@@ -25,6 +25,48 @@ from typing import Any
 
 from . import research, ui, wake
 
+
+class LazyPattern:
+    """A regular expression compiled the first time it's used, and used as one (match,
+    search, fullmatch, pattern, flags…). The request patterns (hub._asks, _asks_zh) and the
+    sentence templates number in the hundreds and most are never tried in a session:
+    compiled when their modules import, they cost every start of the backend (and of every
+    test process) a good part of a second on a busy Mac."""
+
+    __slots__ = ("_compiled", "_flags", "_source")
+
+    def __init__(self, source: str, flags: int = 0) -> None:
+        self._source, self._flags = source, flags
+        self._compiled: re.Pattern[str] | None = None
+
+    def compiled(self) -> re.Pattern[str]:
+        pattern = self._compiled
+        if pattern is None:  # two threads at once compile it twice: either copy will do
+            pattern = self._compiled = re.compile(self._source, self._flags)
+        return pattern
+
+    @property
+    def pattern(self) -> str:
+        return self._source
+
+    def match(self, string: str, *args: Any) -> re.Match[str] | None:
+        return self.compiled().match(string, *args)
+
+    def fullmatch(self, string: str, *args: Any) -> re.Match[str] | None:
+        return self.compiled().fullmatch(string, *args)
+
+    def search(self, string: str, *args: Any) -> re.Match[str] | None:
+        return self.compiled().search(string, *args)
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):  # never the slots themselves (copying, half made)
+            raise AttributeError(name)
+        return getattr(self.compiled(), name)
+
+    def __repr__(self) -> str:
+        return repr(self.compiled())
+
+
 # ── the setting ──
 
 LANGUAGES = {"en": "English", "zh": "中文"}
@@ -45,6 +87,8 @@ def clean_language(value: Any) -> str | None:
     Prefs keeps what it had, as it does for its other settings)."""
     if not isinstance(value, str):
         return None
+    if value in _ALIASES:  # "en" and "zh" as saved: asked on every word a reply streams
+        return _ALIASES[value]
     return _ALIASES.get(re.sub(r"\s+", "", value).lower())
 
 
@@ -2498,7 +2542,9 @@ _TRY_COST = 20
 _TIME_VALUE = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])")
 
 
-def _template_pattern(template: str) -> re.Pattern[str]:
+def _template_pattern(template: str) -> LazyPattern:
+    """The regular expression that reads a sentence made from this template, compiled the
+    first time a text gets that far (most templates are never tried in English)."""
     parts = _SLOT.split(template)
     pattern = ""
     for i, part in enumerate(parts):
@@ -2514,7 +2560,7 @@ def _template_pattern(template: str) -> re.Pattern[str]:
             body = "." if part in _MULTILINE_SLOTS else r"[^\n]"
             body += "+" if last else "+?"
         pattern += f"(?P<{part}>{body})"
-    return re.compile(pattern, re.DOTALL)
+    return LazyPattern(pattern, re.DOTALL)
 
 
 def _ends(template: str) -> tuple[str, str]:
@@ -2524,9 +2570,22 @@ def _ends(template: str) -> tuple[str, str]:
     return parts[0], parts[-1]
 
 
+_OWN_WORDS: dict[str, int] = {}  # template -> how many of its characters aren't slots
+
+
+def _by_own_words(item: tuple[str, LazyPattern, str, str]) -> int:
+    """The order templates are tried in: the most words of their own first. Counted once
+    per template: add_texts sorts the whole list again for each feature that adds some."""
+    key = item[0]
+    words = _OWN_WORDS.get(key)
+    if words is None:
+        words = _OWN_WORDS[key] = len(_SLOT.sub("", key))
+    return words
+
+
 _TEMPLATES = sorted(
     ((key, _template_pattern(key), *_ends(key)) for key in ZH_TEXTS if _SLOT.search(key)),
-    key=lambda item: len(_SLOT.sub("", item[0])),
+    key=_by_own_words,
     reverse=True,
 )
 # The templates as the modules write them ("Send this to {name}?"), for tr(): here their
@@ -2612,9 +2671,7 @@ def add_texts(texts: dict[str, str]) -> None:
         return
     ZH_TEXTS.update(fresh)
     added = [(key, _template_pattern(key), *_ends(key)) for key in fresh if _SLOT.search(key)]
-    _TEMPLATES[:] = sorted(
-        [*_TEMPLATES, *added], key=lambda item: len(_SLOT.sub("", item[0])), reverse=True
-    )
+    _TEMPLATES[:] = sorted([*_TEMPLATES, *added], key=_by_own_words, reverse=True)
     _TEMPLATE_ALIASES.update(
         {
             _OWN_NAMES.sub("{name}", key): (key, m.group(1))
@@ -2721,8 +2778,8 @@ _NOT_ASKING_ZH = r"(?!.*(?:在哪|哪里|哪儿|什么时候|几点|为什么|�
 _NOT_PAST_ZH = r"(?![^，,。]*(?:了|过|吗|么|呢|怎么))"
 
 
-def _asks_zh(pattern: str) -> re.Pattern[str]:
-    return re.compile(_ASK_LEAD_ZH + "(?:" + pattern + ")", re.IGNORECASE)
+def _asks_zh(pattern: str) -> LazyPattern:
+    return LazyPattern(_ASK_LEAD_ZH + "(?:" + pattern + ")", re.IGNORECASE)
 
 
 FEATURE_ASKED_ZH = {
@@ -2809,7 +2866,7 @@ MESSAGE_ASKED_ZH = _asks_zh(
 )
 
 
-def user_asked_zh(pattern: re.Pattern[str], text: str) -> bool:
+def user_asked_zh(pattern: re.Pattern[str] | LazyPattern, text: str) -> bool:
     """hub.user_asked for Chinese: a clause of what the user said opens with the request
     ("好的，记住我喜欢咖啡"), not merely mentions it somewhere."""
     clauses = _CLAUSE_BREAK_ZH.split(to_simplified(text))

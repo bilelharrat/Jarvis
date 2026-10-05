@@ -1853,6 +1853,59 @@ def test_speech_clean_up_reads_the_same():
     assert lang.clean_for_speech_zh("  # 标题\n  - 第一项\n  1. 第二项") == "标题。第一项。第二项"
 
 
+# ── compiled when first used ──
+
+
+def test_a_lazy_pattern_reads_as_the_compiled_one_and_compiles_once():
+    source = r"(?P<word>[a-z]+)\s+(\d+)"
+    lazy = lang.LazyPattern(source, re.IGNORECASE)
+    eager = re.compile(source, re.IGNORECASE)
+    assert lazy._compiled is None  # nothing compiled until it's used
+    assert lazy.pattern == eager.pattern
+    assert lazy._compiled is None  # its words are known without compiling
+    for text in ("Hello 42", "  hello 42", "hello 42 more", "", "HELLO   7"):
+        for method in ("match", "fullmatch", "search"):
+            got, want = getattr(lazy, method)(text), getattr(eager, method)(text)
+            assert (got and got.group(0)) == (want and want.group(0)), (method, text)
+        assert lazy.sub("<\\1>", text) == eager.sub("<\\1>", text)
+        assert lazy.findall(text) == eager.findall(text)
+    assert lazy.match("ab 1", 1).group(0) == eager.match("ab 1", 1).group(0)  # pos too
+    assert lazy.flags == eager.flags and lazy.groupindex == eager.groupindex
+    first = lazy.compiled()
+    assert lazy.compiled() is first  # once
+    assert repr(lazy) == repr(eager)
+    with pytest.raises(AttributeError):
+        lazy._missing  # noqa: B018 - its own names are never looked up on the pattern
+
+
+def test_every_template_and_ask_pattern_compiles():
+    """Compiled on first use now: a template or a request pattern that can't compile would
+    otherwise be found only when a sentence first reached it."""
+    for key, pattern, _head, _tail in lang._TEMPLATES:
+        assert isinstance(pattern.compiled(), re.Pattern), key
+    groups = [lang.FEATURE_ASKED_ZH, lang.SEND_ASKED_ZH]
+    patterns = [p for g in groups for p in g.values()] + [lang.CODE_ASKED_ZH, lang.MESSAGE_ASKED_ZH]
+    for pattern in patterns:
+        assert isinstance(pattern.compiled(), re.Pattern)
+        assert pattern.flags & re.IGNORECASE
+
+
+def test_templates_are_tried_most_own_words_first():
+    """add_texts sorts by a count kept per template; the order is the one counted afresh."""
+    weights = [len(lang._SLOT.sub("", key)) for key, *_ in lang._TEMPLATES]
+    assert weights == sorted(weights, reverse=True)
+    keys = [key for key, *_ in lang._TEMPLATES]
+    assert len(keys) == len(set(keys)) and all(lang._SLOT.search(k) for k in keys)
+
+
+def test_each_saved_language_reads_as_it_did():
+    # The aliases are looked up as they're saved, before spaces and case are taken out:
+    # every one must come out as it did through the long way.
+    for key, code in lang._ALIASES.items():
+        assert lang.clean_language(key) == code == lang._ALIASES[re.sub(r"\s+", "", key).lower()]
+    assert lang.clean_language(" EN ") == "en" and lang.clean_language("Zh_CN") == "zh"
+
+
 # ── helpers ──
 
 

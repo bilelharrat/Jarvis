@@ -142,12 +142,52 @@ def test_the_users_words_are_read_in_linear_time():
     # patterns, each trying every way to split the run.
     said = "remember" + " " * 4000 + "when"
     patterns = [*hub_module.FEATURE_ASKED.values(), hub_module.CODE_ASKED, hub_module.MESSAGE_ASKED]
+    for pattern in patterns:  # compiled on first use (lang.LazyPattern): time the reading alone
+        pattern.match("")
     started = time.perf_counter()
     assert not any(hub_module.user_asked(p, said) for p in patterns)
     assert time.perf_counter() - started < 0.1  # about 1 ms here
     remember = hub_module.FEATURE_ASKED["remember"]
     assert hub_module.user_asked(remember, "ok,   remember \t that I parked on level 3")
     assert not hub_module.user_asked(remember, "do you remember when we met")
+
+
+def test_request_patterns_compile_on_first_use_and_read_as_before():
+    import re
+
+    words = r"(?:remind|tell)\s+me\b"
+    lazy = hub_module._asks(words)
+    eager = re.compile(hub_module._LEAD_IN + "(?:" + words + ")", re.IGNORECASE)
+    assert lazy.pattern == eager.pattern and lazy._compiled is None
+    for said in ("please remind me at 5", "Remind   me", "can you tell me", "remind him", ""):
+        assert hub_module.user_asked(lazy, said) == hub_module.user_asked(eager, said), said
+    assert lazy.flags == eager.flags
+    # The hub's own tables all compile, as their old eager selves did at import.
+    for action, pattern in hub_module.FEATURE_ASKED.items():
+        assert isinstance(pattern.compiled(), re.Pattern), action
+    assert hub_module.CODE_ASKED.compiled() and hub_module.MESSAGE_ASKED.compiled()
+
+
+async def test_sinks_that_return_a_coroutine_still_run_and_the_rest_are_called(
+    settings, quiet_speaker, isolated
+):
+    hub = hub_with(settings, quiet_speaker, isolated, [result()], [])
+    heard = []
+
+    async def later(kind, data):
+        heard.append(("async", kind))
+
+    def now(kind, data):
+        heard.append(("sync", kind))
+
+    def falsy(kind, data):
+        heard.append(("falsy", kind))
+        return 0  # not None, not a coroutine: nothing to run
+
+    hub._call_sinks([now, later, falsy], "task_log", {"id": 1})
+    assert heard == [("sync", "task_log"), ("falsy", "task_log")]
+    await asyncio.sleep(0)
+    assert heard[-1] == ("async", "task_log")
 
 
 async def test_pictures_dropped_on_the_window_go_with_the_typed_request(

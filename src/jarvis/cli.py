@@ -6,18 +6,9 @@ import argparse
 import asyncio
 import sys
 
-from claude_agent_sdk import (
-    AssistantMessage,
-    ClaudeSDKClient,
-    CLINotFoundError,
-    ResultMessage,
-    TextBlock,
-    ToolUseBlock,
-)
-
-from .brain import build_options
-from .config import load_settings
-from .speech import Speaker
+# The Agent SDK, the brain and the voice are imported where they're used, not here: Claude
+# Code and Claude Desktop start `jarvis mcp` for each session, and it needs none of them
+# (importing them first took most of a second before it could answer).
 
 EXIT_WORDS = {"q", "quit", "exit", "goodbye", "goodbye jarvis", "shut down"}
 DIM, CYAN, RESET = "\033[2m", "\033[36m", "\033[0m"
@@ -32,6 +23,18 @@ async def ask_line(prompt: str) -> str:
 
 
 async def run(text_mode: bool, muted: bool) -> None:
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeSDKClient,
+        ResultMessage,
+        TextBlock,
+        ToolUseBlock,
+    )
+
+    from .brain import build_options
+    from .config import load_settings
+    from .speech import Speaker
+
     settings = load_settings()
     speaker = Speaker(settings.voice, settings.speech_rate, muted=muted)
     transcriber = None
@@ -95,8 +98,9 @@ async def next_utterance(text_mode: bool, transcriber, silence_seconds: float) -
 
 
 async def say_line(text: str) -> None:
+    from .config import load_settings
     from .prefs import PrefsStore
-    from .speech import cloud_voice_from
+    from .speech import Speaker, cloud_voice_from
 
     settings = load_settings()
     prefs = PrefsStore().prefs
@@ -212,6 +216,8 @@ def main() -> None:
         # environment: nothing this backend starts (sessions, terminals, dev servers) gets it.
         serve(args.port, take_token() or secrets.token_urlsafe(24))
         return
+    from claude_agent_sdk import CLINotFoundError
+
     try:
         asyncio.run(run(text_mode=args.text, muted=args.mute))
     except KeyboardInterrupt:

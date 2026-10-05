@@ -158,6 +158,62 @@ def test_temp_files_a_killed_save_left_are_swept_but_never_a_live_one(tmp_path):
     assert not old.exists() and not old_link.exists() and fresh.exists()
 
 
+def test_reading_a_folder_of_stores_lists_it_once_and_still_sweeps_new_leftovers(
+    tmp_path, monkeypatch
+):
+    """A read looks for its own leftovers; the folder is listed once, not once per store
+    (a thousand kept sessions took seconds), and again as soon as it has changed."""
+    for i in range(50):
+        jsonstore.save_json(tmp_path / f"s{i}.json", {"i": i})
+    listed = []
+    real = os.listdir
+    monkeypatch.setattr(os, "listdir", lambda p: listed.append(p) or real(p))
+    assert [jsonstore.load_json(tmp_path / f"s{i}.json", dict)["i"] for i in range(50)] == list(
+        range(50)
+    )
+    assert len(listed) == 1
+    # A save stopped half way, found after the folder was listed: still swept once old.
+    old = tmp_path / ".s7.json.abc123.tmp"
+    other = tmp_path / ".s70.json.abc123.tmp"  # another store's: never this one's to sweep
+    fresh = tmp_path / ".s7.json.def456.tmp"
+    for leftover in (old, other, fresh):
+        leftover.write_text("{half")
+    hour_ago = time.time() - 3600
+    os.utime(old, (hour_ago, hour_ago))
+    os.utime(other, (hour_ago, hour_ago))
+    assert jsonstore.load_json(tmp_path / "s7.json", dict) == {"i": 7}
+    assert not old.exists() and other.exists() and fresh.exists()
+    jsonstore.load_json(tmp_path / "s8.json", dict)  # listed again: the sweep changed it
+    assert len(listed) == 3
+    # Grown old while nothing in the folder changed: swept from the listing kept.
+    os.utime(fresh, (hour_ago, hour_ago))
+    jsonstore.load_json(tmp_path / "s7.json", dict)
+    assert not fresh.exists() and len(listed) == 3
+
+
+def test_a_folder_on_a_coarse_clock_is_listed_every_time(tmp_path, monkeypatch):
+    """An mtime in whole milliseconds (HFS+, exFAT) may not move for a change in the same
+    tick: such a folder is never trusted to be unchanged."""
+    from types import SimpleNamespace
+
+    jsonstore.save_json(tmp_path / "a.json", {})
+    real_stat = os.stat
+
+    def coarse(path, *args, **kwargs):
+        found = real_stat(path, *args, **kwargs)
+        if os.fspath(path) == os.fspath(tmp_path):
+            return SimpleNamespace(st_mtime_ns=found.st_mtime_ns // 10**9 * 10**9)
+        return found
+
+    monkeypatch.setattr(os, "stat", coarse)
+    listed = []
+    real = os.listdir
+    monkeypatch.setattr(os, "listdir", lambda p: listed.append(p) or real(p))
+    for _ in range(3):
+        jsonstore.load_json(tmp_path / "a.json", dict)
+    assert len(listed) == 3
+
+
 def test_a_save_is_quick(tmp_path, monkeypatch):
     """Measured at 5-7 ms for 200 facts with F_FULLFSYNC and the kept copy; the target is
     10 ms."""

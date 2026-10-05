@@ -60,6 +60,20 @@ def test_window_modules_are_revalidated(client):
     assert client.get("/static/gestures.js").headers["cache-control"] == "no-cache"
 
 
+def test_the_chinese_and_the_feature_list_are_served_as_they_are_made(client, isolated):
+    """Both are made in a thread (some 85 files read for the Chinese): the same answer."""
+    from jarvis.features import _labs
+    from jarvis.server import feature_assets, zh_strings
+
+    zh = client.get("/static/i18n-zh.json")
+    assert zh.status_code == 200 and zh.headers["cache-control"] == "no-cache"
+    assert zh.json() == zh_strings() and zh.json()["strings"]
+    listed = client.get("/features.json")
+    assert listed.status_code == 200 and listed.headers["cache-control"] == "no-store"
+    prefs = isolated["prefs_store"].prefs  # the hub's own
+    assert listed.json() == feature_assets(skip=_labs.web_skipped(prefs))
+
+
 def test_the_page_opens_in_the_look_the_owner_chose(client):
     """A look chosen in Settings is kept, and the next window (a reopened app) is drawn in
     it from the first paint, not the default until the socket catches up."""

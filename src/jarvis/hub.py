@@ -476,11 +476,12 @@ _TELL = (
 )
 
 
-def _asks(pattern: str) -> re.Pattern[str]:
-    return re.compile(_LEAD_IN + "(?:" + pattern + ")", re.IGNORECASE)
+def _asks(pattern: str) -> lang.LazyPattern:
+    """A request's words after its lead-ins, compiled the first time it's tried."""
+    return lang.LazyPattern(_LEAD_IN + "(?:" + pattern + ")", re.IGNORECASE)
 
 
-def user_asked(pattern: re.Pattern[str], text: str) -> bool:
+def user_asked(pattern: re.Pattern[str] | lang.LazyPattern, text: str) -> bool:
     """True when a clause of what the user said opens with the request itself. Its spaces
     are made single first: a pattern tried a long run of them every way it could split."""
     return any(
@@ -1335,7 +1336,9 @@ class Hub:
         for sink in list(sinks):
             try:
                 result = sink(*args)
-                if asyncio.iscoroutine(result):
+                # Most return None: asking asyncio about that (an ABC check) cost more than
+                # the sinks themselves, twenty of them on every Jarvis Code event.
+                if result is not None and asyncio.iscoroutine(result):
                     self._spawn(result)
             except Exception:
                 log.exception("a feature's sink failed")

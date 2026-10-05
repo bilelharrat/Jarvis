@@ -29,6 +29,13 @@ log = logging.getLogger("jarvis")
 Shape = type | tuple[type, ...] | Callable[[Any], bool]
 _BAD = object()  # a file that can't be used (None is a value JSON can hold)
 STALE_SECONDS = 600  # a temp file this old is one a killed save left behind
+# Each folder's temp files as last listed: folder -> (its mtime when listed, their names).
+# A read looks for its own file's leftovers; listing the folder for each one made reading
+# a folder of many stores (Jarvis Code's kept sessions, a file each) take time growing
+# with the square of their number: seconds for a thousand. A folder is listed again once
+# its mtime moves (something in it was added, removed or renamed).
+_LEFTOVERS: dict[Path, tuple[int, tuple[str, ...]]] = {}
+_LEFTOVERS_KEPT = 256  # folders remembered; past that the memory starts over
 
 
 class Unreadable(OSError):
@@ -255,13 +262,37 @@ def _keep_previous(path: Path, tmp: str) -> None:
 
 def _sweep(path: Path) -> None:
     """Temp files that a save stopped half way (the app killed) left behind: never read,
-    only litter. Old ones only, so a save under way is never touched."""
+    only litter. Old ones only, so a save under way is never touched. (Those named
+    .<name>.*.tmp*, as a glob of the folder would find them.)"""
     cutoff = time.time() - STALE_SECONDS
-    with contextlib.suppress(OSError):
-        for leftover in path.parent.glob(f".{path.name}.*.tmp*"):
+    try:
+        names = _leftovers(path.parent)
+    except OSError:
+        return
+    prefix = f".{path.name}."
+    for name in names:
+        if name.startswith(prefix) and ".tmp" in name[len(prefix) :]:
+            leftover = path.parent / name
             with contextlib.suppress(OSError):
                 if leftover.stat().st_mtime < cutoff:
                     leftover.unlink()
+
+
+def _leftovers(folder: Path) -> tuple[str, ...]:
+    """The names of the temp files in a folder (hidden ones with .tmp in them): listed
+    once, and again only after the folder has changed."""
+    stamp = os.stat(folder).st_mtime_ns  # before listing: a change after it moves it
+    known = _LEFTOVERS.get(folder)
+    if known is not None and known[0] == stamp:
+        return known[1]
+    names = tuple(n for n in os.listdir(folder) if n.startswith(".") and ".tmp" in n)
+    # A disk whose clock keeps whole milliseconds or less (HFS+, exFAT) can leave the mtime
+    # unmoved by a change in the same tick: such a folder is listed afresh every time.
+    if stamp % 1_000_000:
+        if len(_LEFTOVERS) >= _LEFTOVERS_KEPT:
+            _LEFTOVERS.clear()
+        _LEFTOVERS[folder] = (stamp, names)
+    return names
 
 
 def _sync_folder(folder: Path) -> None:

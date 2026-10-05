@@ -128,6 +128,47 @@ def test_each_checkers_report_becomes_problems(tmp_path):
     assert diagnostics.parse(eslint, "Oops! Something went wrong!", tmp_path) == []
 
 
+def test_a_long_build_log_looks_each_file_up_once(tmp_path, monkeypatch):
+    """40,000 errors across a few files: each file's path is resolved once, and every
+    problem is read as it was one by one."""
+    (tmp_path / "src").mkdir()
+    lines = [
+        f"src/f{i % 4}.c:{n}:3: error: something is wrong [-Wfoo]"
+        for i in range(4)
+        for n in range(50)
+    ]
+    lines.append(f"{tmp_path}/src/f1.c:9:1: warning: said by its whole path")
+    looked = []
+    real = diagnostics._rel
+    monkeypatch.setattr(
+        diagnostics,
+        "_rel",
+        lambda project, raw, cwd="": looked.append(raw) or real(project, raw, cwd),
+    )
+    swift = Checker("swift", "swift build", ("swift", "build"))
+    found = diagnostics.parse(swift, "\n".join(lines), tmp_path)
+    assert len(found) == 201 and sorted(looked) == sorted(
+        {*(f"src/f{i}.c" for i in range(4)), f"{tmp_path}/src/f1.c"}
+    )
+    assert {p.file for p in found} == {f"src/f{i}.c" for i in range(4)}
+    assert [(p.line, p.col, p.code) for p in found[:2]] == [(0, 3, "-Wfoo"), (1, 3, "-Wfoo")]
+
+
+async def test_a_checkers_report_is_read_off_the_event_loop(tmp_path, monkeypatch):
+    import threading
+
+    where = []
+    real = diagnostics.parse
+    monkeypatch.setattr(
+        diagnostics,
+        "parse",
+        lambda *a: where.append(threading.current_thread() is threading.main_thread()) or real(*a),
+    )
+    checker = Checker("mypy", "mypy", (sys.executable, "-c", "print('a.py:1:1: error: x  [misc]')"))
+    check = await Diagnostics(lambda kind, **d: None, env=plain_env).run(tmp_path, [checker])
+    assert [p.code for p in check.problems] == ["misc"] and where == [False]
+
+
 def test_fix_message_marks_the_output_as_data():
     problems = [
         Problem("src/a.ts", 3, 7, "error", "Type 'x' is not assignable", "tsc", "TS2322")

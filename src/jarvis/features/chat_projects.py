@@ -145,6 +145,14 @@ class ChatProjects:
                 texts[f["name"]] = self._text_path(project["id"], index).read_text()
         return texts
 
+    def _file_text(self, pid: str, indexes: list[int]) -> str | None:
+        """A file's text as _read_texts has it: the last of its copies that can be read
+        (one name has one file, unless the list was edited by hand)."""
+        for index in reversed(indexes):
+            with contextlib.suppress(OSError):
+                return self._text_path(pid, index).read_text()
+        return None
+
     def _write_texts(self, project: dict[str, Any], texts: dict[str, str]) -> None:
         folder = self._dir(project["id"])
         folder.mkdir(parents=True, exist_ok=True)
@@ -307,13 +315,20 @@ class ChatProjects:
         if project["instructions"].strip():
             parts.append(f"The owner's instructions for this project:\n{project['instructions']}")
         sent = self.sent.get(session_id, set()) if session_id else set()
-        texts = self._read_texts(project)
+        # Only the files that go are read: this runs on every request, and once each file
+        # has gone with one, none is.
+        where: dict[str, list[int]] = {}
+        for index, f in enumerate(project["files"]):
+            where.setdefault(f["name"], []).append(index)
         carried: list[str] = []
         room = NOTE_CHARS
         for f in project["files"]:
-            if f["name"] in sent or f["name"] not in texts:
+            if f["name"] in sent:
                 continue
-            text = texts[f["name"]][:room]
+            whole = self._file_text(project["id"], where[f["name"]])
+            if whole is None:
+                continue
+            text = whole[:room]
             if not text:
                 break
             parts.append(f"Project file “{f['name']}”:\n<file>\n{text}\n</file>")

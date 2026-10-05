@@ -165,13 +165,19 @@ def create_app(hub: Hub, token: str) -> Starlette:
         return JSONResponse({"ok": True, "busy": busy})
 
     async def zh_json(_request):
-        return JSONResponse(zh_strings(), headers={"Cache-Control": "no-cache"})
+        # Some 85 files read, merged and written out again (15 ms or so): in a thread, so
+        # a window opening in Chinese never holds up the other windows' events.
+        return await asyncio.to_thread(
+            lambda: JSONResponse(zh_strings(), headers={"Cache-Control": "no-cache"})
+        )
 
     async def features_json(_request):
         from .features import _labs
 
         skip = _labs.web_skipped(getattr(hub, "prefs", None))
-        return JSONResponse(feature_assets(skip=skip), headers={"Cache-Control": "no-store"})
+        return await asyncio.to_thread(
+            lambda: JSONResponse(feature_assets(skip=skip), headers={"Cache-Control": "no-store"})
+        )
 
     async def inbound_hook(request):
         """POST /hooks/<name>: the owner's local tools telling JARVIS something (the

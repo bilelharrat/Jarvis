@@ -96,6 +96,27 @@ def test_files_go_once_per_conversation_and_again_when_changed(tmp_path):
     assert desk.find(pid)["files"][0]["chars"] == len("Ship on Monday.")
 
 
+def test_a_request_reads_only_the_files_that_go_with_it(tmp_path):
+    """Asked on every request: files a conversation already has aren't read from disk
+    again, and one whose text is gone is left out while the rest still go."""
+    hub, desk = made(tmp_path)
+    pid = desk.save({"name": "Docs"})["id"]
+    for name, text in (("a.txt", "alpha"), ("b.txt", "beta"), ("c.txt", "gamma")):
+        asyncio.run(desk.add_file({"id": pid, "name": name, "text": text}))
+    desk._text_path(pid, 1).unlink()  # b.txt's text gone from disk
+    read = []
+    real = desk._file_text
+    desk._file_text = lambda p, indexes: read.append(indexes) or real(p, indexes)
+    first = ask(hub)["note"]
+    assert "alpha" in first and "beta" not in first and "gamma" in first
+    assert read == [[0], [1], [2]]
+    finish(hub, SID)
+    read.clear()
+    second = ask(hub)["note"]
+    assert "alpha" not in second and "given earlier in this conversation: a.txt, c.txt" in second
+    assert read == [[1]]  # only the one that hasn't gone yet (and still can't be read)
+
+
 def test_a_pdf_is_read_to_text(tmp_path, monkeypatch):
     from jarvis.features import chat_projects
 
