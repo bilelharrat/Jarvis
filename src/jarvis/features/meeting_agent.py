@@ -396,6 +396,11 @@ def next_call(events: list[dict[str, Any]], now: datetime) -> dict[str, Any] | N
     return min(found, key=lambda e: e["begin"], default=None)
 
 
+def _rows(lines: list[tuple[datetime, str, str]]) -> list[dict[str, str]]:
+    """The panel's transcript rows."""
+    return [{"t": f"{at:%H:%M}", "who": who, "text": text} for at, text, who in lines]
+
+
 class MeetingAgent:
     """One hub's meeting agent."""
 
@@ -478,23 +483,22 @@ class MeetingAgent:
             }
         )
 
-    def rows(self) -> list[dict[str, str]]:
+    def _lines(self) -> list[tuple[datetime, str, str]]:
         meeting = self.hub.meeting
-        if meeting is None:
-            return []
-        return [
-            {"t": f"{at:%H:%M}", "who": who, "text": text}
-            for at, text, who in meeting.kept()[-ROWS_MAX:]
-        ]
+        return meeting.kept()[-ROWS_MAX:] if meeting is not None else []
+
+    def rows(self) -> list[dict[str, str]]:
+        return _rows(self._lines())
 
     def push_transcript(self) -> bool:
-        """The transcript to the panel when it changed: True when it was sent."""
-        rows = self.rows()
-        sig = (len(rows), hash(tuple((r["who"], r["text"]) for r in rows)))
+        """The transcript to the panel when it changed: True when it was sent. Compared
+        before the rows are made: every two seconds, it's mostly the same."""
+        lines = self._lines()
+        sig = (len(lines), hash(tuple((who, text) for _at, text, who in lines)))
         if sig == self._sig:
             return False
         self._sig = sig
-        self.emit(transcript=rows)
+        self.emit(transcript=_rows(lines))
         return True
 
     async def loop(self) -> None:

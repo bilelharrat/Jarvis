@@ -88,6 +88,12 @@ class Meeting:
         self.label = ""  # the speaker of a line added without one (on a call: "You")
         self._dirty = False  # the file lacks a better line, or one an append missed
         self._written_at = 0.0  # when the whole file was last written
+        # What kept() worked out, kept for its next call: each line's words as compared,
+        # and whether a microphone line repeats a call line. The panel asks for the notes
+        # every two seconds, and comparing every line again took a third of a second of the
+        # voice loop by an hour's call.
+        self._plains = _Recent(_plain)
+        self._echoes = _Recent(_alike)
         self._pending: asyncio.Queue = asyncio.Queue()
         self._worker: asyncio.Task | None = None
         self._write()
@@ -174,23 +180,20 @@ class Meeting:
         rows = [
             (at, text, who) for (at, text), who in zip(self.lines, speakers, strict=True) if text
         ]
-        them = sorted((at, _plain(text)) for at, text, who in rows if who == "Them")
+        plain, echoes = self._plains.turn(), self._echoes.turn()
+        them = sorted((at, plain(text)) for at, text, who in rows if who == "Them")
         if not them:
             return rows
         times = [at for at, _ in them]
         window = timedelta(seconds=ECHO_SECONDS)
         kept = []
         for at, text, who in rows:
-            said = _plain(text)
-            if who == "You" and len(said) >= 8:
+            if who == "You" and len(said := plain(text)) >= 8:
                 lo, hi = (
                     bisect.bisect_left(times, at - window),
                     bisect.bisect_right(times, at + window),
                 )
-                if any(
-                    difflib.SequenceMatcher(None, said, line).ratio() >= ECHO_ALIKE
-                    for _, line in them[lo:hi]
-                ):
+                if any(echoes(said, line) for _, line in them[lo:hi]):
                     continue
             kept.append((at, text, who))
         return kept
@@ -251,6 +254,41 @@ def _who(speaker: str) -> str:
 
 def _plain(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def _alike(said: str, line: str) -> bool:
+    """Whether a microphone line only repeats a call line. The quick bounds go first: each
+    is at least ratio(), so one below the bar settles it without the full comparison."""
+    match = difflib.SequenceMatcher(None, said, line)
+    return (
+        match.real_quick_ratio() >= ECHO_ALIKE
+        and match.quick_ratio() >= ECHO_ALIKE
+        and match.ratio() >= ECHO_ALIKE
+    )
+
+
+class _Recent:
+    """A function's answers, worked out once and kept while they're still asked for:
+    turn() starts a new round, and what the round before didn't ask again is let go (a
+    line the notes model rewrote, one taken out as an echo)."""
+
+    def __init__(self, work: Callable[..., Any]) -> None:
+        self._work = work
+        self._now: dict[Any, Any] = {}
+        self._before: dict[Any, Any] = {}
+
+    def turn(self) -> Callable[..., Any]:
+        self._before, self._now = self._now, {}
+        return self
+
+    def __call__(self, *key: Any) -> Any:
+        try:
+            return self._now[key]
+        except KeyError:
+            pass
+        found = self._before.pop(key) if key in self._before else self._work(*key)
+        self._now[key] = found
+        return found
 
 
 _NOTHING = re.compile(

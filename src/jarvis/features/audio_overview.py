@@ -18,6 +18,7 @@ import re
 import subprocess
 import tempfile
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ MAX_LINES = 120
 MAX_LINE = 1200
 PAUSE_SECONDS = 0.35
 RATE = 22050
+RENDERERS = 4  # lines voiced at once (each `say` mostly keeps one core busy)
 # Two hosts, a contrast in voice: the best installed first.
 HOST_A = ("Ava (Premium)", "Zoe (Premium)", "Ava (Enhanced)", "Samantha", "Flo", "Shelley")
 HOST_B = ("Evan (Premium)", "Nathan (Premium)", "Evan (Enhanced)", "Daniel", "Reed", "Eddy")
@@ -96,18 +98,34 @@ def file_name(title: str, where: Path) -> Path:
     return path
 
 
+def _voice_line(voice: str, words: str, part: Path) -> None:
+    subprocess.run(
+        ["/usr/bin/say", "-v", voice, "--file-format=WAVE", f"--data-format=LEI16@{RATE}",
+         "-o", str(part), "--", words],
+        check=True, capture_output=True, timeout=120,
+    )  # fmt: skip
+
+
 def render(lines: list[tuple[int, str]], voices: tuple[str, str], out: Path) -> Path:
-    """Voices each line, joins them with a pause, and writes out (an .m4a). Blocking."""
+    """Voices each line, joins them with a pause, and writes out (an .m4a). Blocking.
+
+    RENDERERS lines are voiced at once, each into a file of its own: one after another, an
+    overview of a hundred lines took minutes. They're joined in their order as before, and
+    the first line that fails (in that order) is the error, as it was."""
     with tempfile.TemporaryDirectory() as tmp:
-        parts = []
-        for i, (host, words) in enumerate(lines):
-            part = Path(tmp) / f"{i:03d}.wav"
-            subprocess.run(
-                ["/usr/bin/say", "-v", voices[host], "--file-format=WAVE", f"--data-format=LEI16@{RATE}",
-                 "-o", str(part), "--", words],
-                check=True, capture_output=True, timeout=120,
-            )  # fmt: skip
-            parts.append(part)
+        parts = [Path(tmp) / f"{i:03d}.wav" for i in range(len(lines))]
+        with ThreadPoolExecutor(RENDERERS, thread_name_prefix="jarvis-overview") as pool:
+            jobs = [
+                pool.submit(_voice_line, voices[host], words, part)
+                for (host, words), part in zip(lines, parts, strict=True)
+            ]
+            try:
+                for job in jobs:
+                    job.result()
+            except BaseException:
+                for job in jobs:
+                    job.cancel()  # what hasn't started never does; the rest finish first
+                raise
         joined = Path(tmp) / "all.wav"
         silence = b"\x00\x00" * int(RATE * PAUSE_SECONDS)
         with wave.open(str(joined), "wb") as dest:

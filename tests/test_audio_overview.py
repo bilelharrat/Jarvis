@@ -67,3 +67,71 @@ def test_it_really_voices_the_lines(tmp_path, monkeypatch):
     assert out.exists() and out.stat().st_size > 1000
     assert out.read_bytes()[4:8] == b"ftyp"  # an MPEG-4 audio file
     assert not list(Path(tmp_path).glob("*.wav"))  # the parts were temporary
+
+
+class FakeTools:
+    """`say` and `afconvert` as render() runs them, without voicing anything: each line's
+    part holds its number as its samples (and as many of them), and afconvert copies the
+    joined file. Counts how many lines are voiced at once."""
+
+    def __init__(self, fail: tuple[int, ...] = ()) -> None:
+        import threading
+
+        self.fail = fail
+        self.lock = threading.Lock()
+        self.running = self.most = 0
+        self.voices: dict[int, str] = {}
+
+    def __call__(self, args, **_kwargs):
+        import subprocess
+        import time
+        import wave
+
+        if args[0].endswith("afconvert"):
+            shutil.copyfile(args[-2], args[-1])
+            return subprocess.CompletedProcess(args, 0)
+        part = Path(args[args.index("-o") + 1])
+        number = int(part.stem)
+        with self.lock:
+            self.running += 1
+            self.most = max(self.most, self.running)
+        try:
+            time.sleep(0.05 if number % 2 else 0.01)  # later lines can finish first
+            if number in self.fail:
+                raise subprocess.CalledProcessError(1, args, stderr=f"line {number}".encode())
+            self.voices[number] = args[args.index("-v") + 1]
+            with wave.open(str(part), "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(ao.RATE)
+                out.writeframes(((number + 1).to_bytes(2, "little")) * (number + 1))
+        finally:
+            with self.lock:
+                self.running -= 1
+        return subprocess.CompletedProcess(args, 0)
+
+
+def test_lines_are_voiced_at_once_and_joined_in_order(tmp_path, monkeypatch):
+    import wave
+
+    tools = FakeTools()
+    monkeypatch.setattr(ao.subprocess, "run", tools)
+    lines = [(i % 2, f"Line {i}.") for i in range(9)]
+    out = ao.render(lines, ("Ava", "Evan"), tmp_path / "Overview.m4a")
+    assert 1 < tools.most <= ao.RENDERERS
+    assert tools.voices == {i: ("Evan" if i % 2 else "Ava") for i in range(9)}
+    with wave.open(str(out), "rb") as joined:
+        frames = joined.readframes(joined.getnframes())
+    pause = b"\x00\x00" * int(ao.RATE * ao.PAUSE_SECONDS)
+    assert frames == b"".join(((i + 1).to_bytes(2, "little")) * (i + 1) + pause for i in range(9))
+
+
+def test_the_first_line_that_fails_is_the_error(tmp_path, monkeypatch):
+    import subprocess
+
+    tools = FakeTools(fail=(2, 5))
+    monkeypatch.setattr(ao.subprocess, "run", tools)
+    with pytest.raises(subprocess.CalledProcessError) as failed:
+        ao.render([(0, f"Line {i}.") for i in range(12)], ("Ava", "Evan"), tmp_path / "x.m4a")
+    assert failed.value.stderr == b"line 2"
+    assert not (tmp_path / "x.m4a").exists()
