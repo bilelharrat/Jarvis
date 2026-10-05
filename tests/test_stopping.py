@@ -9,6 +9,7 @@ keeps a window's socket open while Jarvis Code's disconnect hangs, and is stoppe
 quit stops it."""
 
 import asyncio
+import contextlib
 import logging
 import subprocess
 import sys
@@ -80,24 +81,41 @@ async def test_close_never_waits_past_its_budget(settings, quiet_speaker, isolat
 
 def test_nothing_it_started_outlives_a_stop(tmp_path):
     # In a process of its own (ending children here would end pytest's): it starts a
-    # process that ignores the polite ask, stops, and says what it had started.
+    # process that ignores the polite ask, stops, and says what it had started and how
+    # long the stop took. The stubborn one says when it ignores the ask: asked before
+    # that, it simply ended, and the wait and the kill after it went untried.
     script = tmp_path / "stopper.py"
     script.write_text(
         textwrap.dedent(
             """
-            import subprocess, sys
+            import subprocess, sys, time
             from jarvis.server import end_children
             stubborn = subprocess.Popen(
                 [sys.executable, "-c",
-                 "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"]
+                 "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                 "print(flush=True); time.sleep(60)"],
+                stdout=subprocess.PIPE,
             )
+            stubborn.stdout.readline()  # it ignores the polite ask from here on
             quick = subprocess.Popen(["sleep", "60"])
-            print(stubborn.pid, quick.pid, end_children(grace=0.5), flush=True)
+            began = time.monotonic()
+            ended = end_children(grace=0.5)
+            print(stubborn.pid, quick.pid, ended, time.monotonic() - began, flush=True)
             """
         )
     )
-    out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=30)
-    stubborn, quick, ended = (int(x) for x in out.stdout.split())
-    assert ended == 2
-    for pid in (stubborn, quick):
+    stopper = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True)
+    try:
+        out, _ = stopper.communicate(timeout=300)  # importing the server: a minute when busy
+    except subprocess.TimeoutExpired:
+        # Nothing of the test's own outlives it either.
+        for proc in [*psutil.Process(stopper.pid).children(recursive=True), stopper]:
+            with contextlib.suppress(psutil.Error, ProcessLookupError):
+                proc.kill()
+        stopper.communicate()
+        raise
+    stubborn, quick, ended, took = out.split()
+    assert int(ended) == 2
+    assert float(took) >= 0.45  # the grace waited out: the stubborn one had to be killed
+    for pid in (int(stubborn), int(quick)):
         assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE

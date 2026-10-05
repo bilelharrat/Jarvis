@@ -195,12 +195,22 @@ def test_a_long_command_is_looked_through_in_linear_time(tmp_path):
     import time
 
     rules = {"deny": ["Bash(git push:*)"]}
-    started = time.perf_counter()
-    long = "sudo " + "git " * 20000 + "status"
-    assert decide(rules, "Bash", {"command": long}, tmp_path) is None
-    assert decide(rules, "Bash", {"command": long + " push"}, tmp_path)[0] == "deny"
-    # About 0.2 s here, and seconds on a busy Mac; a quadratic look would take minutes.
-    assert time.perf_counter() - started < 5.0
+
+    def cpu(words: int) -> float:
+        """This thread's CPU time to look through a command of so many words: a busy Mac's
+        other work doesn't count (it slowed the wall clock tenfold)."""
+        long = "sudo " + "git " * words + "status"
+        started = time.thread_time()
+        assert decide(rules, "Bash", {"command": long}, tmp_path) is None
+        assert decide(rules, "Bash", {"command": long + " push"}, tmp_path)[0] == "deny"
+        return time.thread_time() - started
+
+    # Four times the words take about four times as long (0.08 s for 20,000 here); a
+    # quadratic look takes sixteen times as long, and minutes. Each pair is timed back to
+    # back, the best of three: a busy Mac moves a thread between fast and slow cores.
+    pairs = [(cpu(5000), cpu(20000)) for _ in range(3)]
+    assert min(large / small for small, large in pairs) < 8, pairs
+    assert min(large for _small, large in pairs) < 5.0, pairs
 
 
 # ── JARVIS's own rules, and Claude Code's settings files ──

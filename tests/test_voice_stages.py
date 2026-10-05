@@ -29,15 +29,19 @@ async def test_a_spoken_request_carries_its_stages(settings, quiet_speaker, isol
 
     hub.ask = fake_ask
     # The utterance ended half a second ago: something ahead of it held it in line.
-    hub._heard.put_nowait(("full", time.monotonic() - 0.5, speech("owner")))
-    for _ in range(200):
-        if asked:
-            break
+    ended = time.monotonic() - 0.5
+    hub._heard.put_nowait(("full", ended, speech("owner")))
+    deadline = time.monotonic() + 30  # a busy Mac can take seconds over it
+    while not asked and time.monotonic() < deadline:
         await asyncio.sleep(0.01)
+    asked_by = time.monotonic()
     ((request, stages),) = asked
     assert request == "what's on tomorrow"
     assert stages.endpoint == hub_module.HANDS_FREE_ENDPOINT
-    assert 0.45 <= stages.queued < 1.5 and 0.2 <= stages.stt < 1.5
+    # In line from when it ended (not from when it left the line), then the transcriber's
+    # 0.2 s; together never more than the time it has really been since it ended.
+    assert stages.queued >= 0.45 and stages.stt >= 0.2
+    assert stages.queued + stages.stt <= asked_by - ended
     hub._heard.put_nowait(None)
 
 

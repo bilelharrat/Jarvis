@@ -346,6 +346,10 @@ class Duplex:
         player.close()
         if player is not self.player or self.state != "on":
             return
+        if getattr(self.hub.speaker, "_live", None) is not player:
+            # The Speaker let it go (quitting): not a crash. Taken for one, the helper and
+            # the Mac's microphone started again while the app quit.
+            return
         now = time.monotonic()
         self._crashes = [t for t in self._crashes if now - t < CRASH_WINDOW] + [now]
         if len(self._crashes) >= CRASHES:

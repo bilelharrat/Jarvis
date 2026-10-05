@@ -191,6 +191,7 @@ async def test_the_model_downloads_only_when_asked(
         if data.get("apple", {}).get("state") == "downloading"
     ]
     assert progress and max(progress) == 1.0
+    ears._stop()  # its helper doesn't outlive the test
 
 
 async def test_an_utterance_apple_heard_isnt_transcribed_again(

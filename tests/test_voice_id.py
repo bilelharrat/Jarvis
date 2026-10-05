@@ -5,6 +5,7 @@ arrays and a fake embedder only: no microphone, no model, no network."""
 import asyncio
 import hashlib
 import json
+import threading
 import time
 
 import numpy as np
@@ -71,6 +72,28 @@ async def hands_free(hub):
 async def hear(hub, who, settle=0.3):
     hub._heard.put_nowait(("full", time.monotonic(), speech(who)))
     await asyncio.sleep(settle)
+
+
+async def until(condition, seconds=10.0):
+    """Whether condition() comes true within seconds (generous: a busy Mac is slow)."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        await asyncio.sleep(0.005)
+    return bool(condition())
+
+
+class Held(FakeEmbedder):
+    """A check that answers only once let go: a Mac far too busy to check in time."""
+
+    def __init__(self):
+        super().__init__(0)
+        self.go = threading.Event()
+
+    def __call__(self, audio):
+        self.go.wait(30)
+        return super().__call__(audio)
 
 
 # ── voiceprint.py ──
@@ -320,6 +343,9 @@ async def test_fallbacks_behave_as_before(settings, quiet_speaker, isolated, why
     hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
     hub.transcriber = Words("Jarvis, what's on tomorrow?")
     guard = enrolled_guard(hub, "all")
+    # Never blocking: without a check, or with a failed one, the answer comes long before
+    # a check could time out; a slow check times out at once, while it's still running.
+    monkeypatch.setattr(voice_id, "CHECK_WAIT", 0.05 if why == "slow" else 60.0)
     if why == "off":
         hub.set_feature_prefs({"voice_id_on": False})
     elif why == "not_enrolled":
@@ -329,12 +355,20 @@ async def test_fallbacks_behave_as_before(settings, quiet_speaker, isolated, why
     elif why == "fails":
         guard.embedder = lambda _audio: 1 / 0
     elif why == "slow":
-        monkeypatch.setattr(voice_id, "CHECK_WAIT", 0.05)
-        guard.embedder = FakeEmbedder(0.5)
+        guard.embedder = Held()
     audio = speech("guest", 0.3 if why == "too_short" else 1.5)
     hub._heard.put_nowait(("full", time.monotonic(), audio))
-    await asyncio.sleep(0.2)
-    assert hub.client.said == ["what's on tomorrow"]  # answered, as without the check
+    try:
+        # Answered, as without the check (a guest's voice, with "Everything" chosen).
+        assert await until(lambda: hub.client is not None and hub.client.said)
+        assert hub.client.said == ["what's on tomorrow"]
+        if why == "slow":
+            assert guard.embedder.calls == 0  # the check hadn't answered yet
+    finally:
+        if why == "slow":
+            guard.embedder.go.set()
+    if why == "slow":  # its verdict, had it come in time: not the owner
+        assert await asyncio.wait_for(asyncio.shield(hub._heard_voice), 30) is False
 
 
 async def test_typed_and_push_to_talk_requests_are_never_checked(settings, quiet_speaker, isolated):

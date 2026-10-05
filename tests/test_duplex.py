@@ -6,6 +6,7 @@ tests/fake_duplex.py (the same protocol, a scripted microphone): nothing is comp
 audio plays, no microphone opens."""
 
 import asyncio
+import logging
 import queue
 import stat
 import sys
@@ -42,15 +43,29 @@ def commands(log):
 
 
 @pytest.fixture
-def speaking_hub(settings, quiet_speaker, isolated, tmp_path):
-    """A hub whose speaker plays through a live player (the fake), hands-free on."""
+async def speaking_hub(settings, quiet_speaker, isolated, tmp_path, monkeypatch):
+    """A hub whose speaker plays through a live player (the fake), hands-free on. Every
+    helper a test started is gone when it ends: one left running kept writing its
+    "microphone" into a pipe its reader thread never let go of, for the rest of the run."""
     quiet_speaker.muted, quiet_speaker.rate = False, 190
     quiet_speaker.player_path = tmp_path / "jarvis-player"  # never run: talk-over's is
     isolated["prefs_store"].prefs.hands_free = True
     # Talk over Jarvis is off until the owner turns it on (Settings › Listening): on here.
     isolated["prefs_store"].prefs.features["voice_talk_over"] = True
     hub = Hub(settings, client_factory=FakeClient, speaker=quiet_speaker, poll=False, **isolated)
-    return hub
+    started = []
+    start = duplex.DuplexPlayer.start
+
+    async def start_and_keep(self):
+        await start(self)
+        started.append(self)
+
+    monkeypatch.setattr(duplex.DuplexPlayer, "start", start_and_keep)
+    yield hub
+    quiet_speaker.shutdown()
+    for player in started:
+        player.close()
+        await asyncio.wait_for(player.proc.wait(), 30)
 
 
 async def until(check, seconds=20.0):
@@ -151,6 +166,22 @@ async def test_a_helper_that_dies_is_started_again_then_given_up_on(speaking_hub
     talk.player.proc.kill()
     assert await until(lambda: talk.state == "unavailable")
     assert "kept stopping" in talk.why and hub.speaker.player_factory is LivePlayer
+
+
+async def test_quitting_starts_no_helper_again(speaking_hub, helper, caplog):
+    """Quitting closes the helper with the voice. Its microphone's end was taken for a
+    crash: the helper, and the Mac's microphone with it, started again as the app quit."""
+    hub = speaking_hub
+    talk = await on(hub)
+    player = talk.player
+    ended = []
+    on_end = talk._ended
+    talk._ended = lambda gone: (ended.append(gone), on_end(gone))
+    with caplog.at_level(logging.INFO, logger="jarvis"):
+        await hub.close()
+        assert await until(lambda: ended == [player])  # its microphone's end, seen
+    assert talk._crashes == [] and not player.alive
+    assert not any("starting it again" in r.getMessage() for r in caplog.records)
 
 
 def _drain(blocks):

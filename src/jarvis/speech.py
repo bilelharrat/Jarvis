@@ -370,6 +370,7 @@ MARK_SLACK = 10.0  # seconds a sentence's end marker may lag its audio before we
 # sentence that starts on an idle player sends a ping first; an idle player takes it in
 # within milliseconds, whatever the output's latency, so one that doesn't is stuck.
 PING_SECONDS = 1.0  # no answer in this long: started anew, and it plays what wasn't heard
+PING_LATE = 0.1  # a deadline the event loop reached later than this is looked at again
 HELLO_SECONDS = 2.0  # a new player says its engine runs within this, or it's used as it is
 UNHEARD_SECONDS = 120.0  # the most audio kept for playing again on a new player
 
@@ -520,6 +521,14 @@ class LivePlayer:
         doesn't play either is closed (nothing waits on it, and the next sentence tries a
         fresh player)."""
         if self._ping is None or self._ping[0] != ping or proc is not self.proc or self._closed:
+            return
+        loop = asyncio.get_running_loop()
+        if loop.time() - self._ping[1].when() > PING_LATE:
+            # The event loop was busy past the deadline (a slow step, a busy Mac), and an
+            # answer that came meanwhile reaches the reader only after this runs: a player
+            # that plays was started anew, its sentence said again. Looked at again once the
+            # loop has caught up.
+            self._ping = (ping, loop.call_later(PING_LATE, self._unanswered, ping, proc))
             return
         self._ping = None
         if self._revived:

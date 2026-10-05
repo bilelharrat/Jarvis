@@ -193,7 +193,8 @@ PROBE = (
     "printf 'jarvis-probe\\n'; "
     "if command -v git >/dev/null 2>&1; then printf 'git: %s\\n' \"$(git --version)\"; fi; "
     "c=$(command -v claude 2>/dev/null); "
-    f"for p in {' '.join(CLAUDE_PLACES)}; do "
+    # Each place quoted: a home with a space in it would otherwise split into two words.
+    f"for p in {' '.join(f'"{place}"' for place in CLAUDE_PLACES)}; do "
     'if [ -z "$c" ] && [ -x "$p" ]; then c="$p"; fi; done; '
     'if [ -n "$c" ]; then printf \'claude: %s\\n\' "$c"; '
     'printf \'claude-version: %s\\n\' "$("$c" --version 2>/dev/null | head -n 1)"; '
@@ -372,8 +373,12 @@ echo "$C" > "$D/claude.pid"
 wait "$C"
 S=$?
 kill "$T" 2>/dev/null
-rm -f "$D/in.fifo"
-echo "$S" > "$D/exit.code"
+# Stopped and slow to quit, a run may end after a newer one has started in this folder:
+# its exit code (and the pipe) are then the newer run's to leave, or that one reads as over.
+if [ "$(cat "$D/claude.pid" 2>/dev/null)" = "$C" ]; then
+  rm -f "$D/in.fifo"
+  echo "$S" > "$D/exit.code"
+fi
 """
 
 

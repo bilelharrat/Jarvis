@@ -359,19 +359,56 @@ async def test_the_words_in_chinese(tmp_path):
 
 
 async def test_the_clock_fires_on_time_without_polling(tmp_path):
-    timers, heard, _played = make(tmp_path, datetime.now)
+    import time
+
+    looks: list[float] = []  # each time the clock reads the time
+
+    def now():
+        looks.append(time.monotonic())
+        return datetime.now()
+
+    timers, heard, _played = make(tmp_path, now)
+    fired: list[float] = []
+    notify = timers.notify
+    timers.notify = lambda alert, busy: (fired.append(time.monotonic()), notify(alert, busy))
+    # How late the event loop itself ran while the timer was set: what a busy Mac adds to
+    # any timer, however it waits.
+    stalls: list[float] = []
+
+    async def probe():
+        while True:
+            before = time.monotonic()
+            await asyncio.sleep(0.02)
+            stalls.append(max(0.0, time.monotonic() - before - 0.02))
+
+    async def until(condition, seconds):
+        deadline = time.monotonic() + seconds
+        while not condition() and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        return condition()
+
     loop = asyncio.create_task(timers.run())
-    await asyncio.sleep(0.05)
-    started = datetime.now()
-    timers.add(tk.new_timer(1, "quick", datetime.now()))
-    for _ in range(40):
-        if heard:
-            break
-        await asyncio.sleep(0.05)
-    assert heard and heard[0][0].text == "Your quick timer is done."
-    assert (datetime.now() - started).total_seconds() < 1.8
-    timers.stop()
-    loop.cancel()
+    watch = asyncio.create_task(probe())
+    try:
+        assert await until(lambda: looks, 10)  # nothing set: asleep, for up to a minute
+        asleep = len(looks)
+        stalls.clear()
+        due = time.monotonic() + 1
+        timers.add(tk.new_timer(1, "quick", datetime.now()))
+        assert await until(lambda: heard, 10), "the clock slept on through the change"
+        assert heard[0][0].text == "Your quick timer is done."
+        # On time: never early, and late only by as long as the loop itself was held up.
+        late = fired[0] - due
+        assert -0.06 < late < 0.3 + sum(stalls), (late, sum(stalls))
+        # Without polling: it read the clock when the change woke it and again when the
+        # timer was due (three readings), not every so often in between.
+        assert len(looks) - asleep <= 4, [round(t - due, 3) for t in looks[asleep:]]
+    finally:
+        timers.stop()
+        timers.close()
+        loop.cancel()
+        watch.cancel()
+        await asyncio.gather(loop, watch, return_exceptions=True)
 
 
 # ── the tools, the gates and the window ──

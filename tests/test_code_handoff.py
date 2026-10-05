@@ -6,10 +6,13 @@ over stdio when its --help says it can). Real git, in temp repositories."""
 import asyncio
 import json
 import os
+import shlex
 import signal
 import stat
+import subprocess
 import sys
 import textwrap
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,7 +22,7 @@ from test_code_changes import git, make_repo, numbered
 from jarvis import handoff
 from jarvis.handoff import Handoff, Machine
 
-FAKE_SSH = """#!{python}
+FAKE_SSH = """\
 import os, sys
 args = sys.argv[1:]
 i = 0
@@ -38,7 +41,7 @@ env = {{"HOME": home, "PATH": os.path.join(home, "bin") + ":/usr/bin:/bin", "LC_
 os.execve("/bin/sh", ["sh", "-c", command], env)
 """
 
-FAKE_CLAUDE = """#!{python}
+FAKE_CLAUDE = """\
 import json, os, sys
 args = sys.argv[1:]
 home = os.environ["HOME"]
@@ -130,16 +133,24 @@ def executable(path: Path, text: str) -> Path:
     return path
 
 
+def python_executable(path: Path, code: str) -> Path:
+    """An executable that runs code with this Python. A sh line that execs it, never a
+    '#!<python>' line: the kernel cuts a shebang at its first space, and this Python's path
+    may have one (this repository's folder does)."""
+    run = f'exec {shlex.quote(sys.executable)} -c {shlex.quote(code)} "$@"\n'
+    return executable(path, "#!/bin/sh\n" + run)
+
+
 @pytest.fixture
 def remotes(tmp_path):
     """Remote homes: studio (claude that asks), quiet (claude that can't ask, and tmux),
-    bare (no claude); ghost is in the SSH config but nowhere."""
-    root = tmp_path / "remotes"
-    py = sys.executable
+    bare (no claude); ghost is in the SSH config but nowhere. Their folder has a space in it,
+    so every script run there copes with a home that has one."""
+    root = tmp_path / "remote homes"
     for name in ("studio", "quiet", "bare"):
         (root / name / "bin").mkdir(parents=True)
     for name in ("studio", "quiet"):
-        executable(root / name / "bin" / "claude", FAKE_CLAUDE.format(python=py))
+        python_executable(root / name / "bin" / "claude", FAKE_CLAUDE.format())
     (root / "quiet" / ".no-perms").write_text("")
     executable(root / "quiet" / "bin" / "tmux", FAKE_TMUX)
     yield root
@@ -151,10 +162,13 @@ def remotes(tmp_path):
 
 
 @pytest.fixture
-def ssh(tmp_path, remotes):
-    return executable(
-        tmp_path / "fake-ssh", FAKE_SSH.format(python=sys.executable, root=str(remotes))
-    )
+def ssh(tmp_path, remotes, monkeypatch):
+    # A command there starts a Python or three (this ssh; a claude's --version and --help), and
+    # on a busy Mac that can outlast the wait meant for a real ssh: what these tests prove
+    # isn't how long JARVIS waits.
+    monkeypatch.setattr(handoff, "CHECK_SECONDS", 120.0)
+    monkeypatch.setattr(handoff, "WRITE_SECONDS", 120.0)
+    return python_executable(tmp_path / "fake ssh" / "ssh", FAKE_SSH.format(root=str(remotes)))
 
 
 @pytest.fixture
@@ -219,7 +233,8 @@ def answer(hub, *choices):
     hub.add_approval_sink(sink)
 
 
-async def until(condition, seconds=20.0):
+async def until(condition, seconds=90.0):
+    # Generous: a step there starts a Python or two, which on a busy Mac takes seconds.
     for _ in range(int(seconds / 0.02)):
         if condition():
             return True
@@ -229,7 +244,7 @@ async def until(condition, seconds=20.0):
 
 async def isolated_session(hub, name="proj"):
     task = hub.tasks.start("", name, isolate=True, title="fix the login")
-    made = await until(lambda: task.workspace and task.client is not None, seconds=60)
+    made = await until(lambda: task.workspace and task.client is not None)
     assert made, task.transcript
     task.session_id = "local-session-1"
     return task
@@ -268,6 +283,75 @@ def test_the_remote_mode_is_never_bypass():
     assert "--resume" not in handoff.runner("/x/claude", "plan", False, resume="bad id;rm")
 
 
+def wait_for(condition, seconds=90.0):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.05)
+    return condition()
+
+
+def test_a_run_that_quits_late_leaves_the_one_started_after_it_running(tmp_path):
+    """Stopped, a CLI that takes a while to quit can end after a message has started it there
+    again: its exit code isn't the newer run's, which still reads as running, and still says
+    how it ended itself. The remote's scripts run here with sh, in a home with a space."""
+    home = tmp_path / "a home"
+    rec = Handoff(id="late", alias="studio", slug="late", project="p", branch="b", base="c")
+    folder = home / handoff.ROOT / rec.id
+    (folder / "repo").mkdir(parents=True)
+    # Reads what it's sent until it's told to stop, then quits only once let-go is there.
+    let_go = home / "let-go"
+    fake = (
+        "#!/bin/sh\n"
+        "trap 'while [ ! -f \"$HOME/let-go\" ]; do sleep 0.1; done; exit 143' TERM\n"
+        'touch "$HOME/listening.$$"\n'
+        "while read -r line; do :; done\n"
+    )
+    run_sh = handoff.runner(str(executable(home / "claude", fake)), "default", False)
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+
+    def there(script, given=b""):
+        done = subprocess.run(
+            ["sh", "-c", script], input=given, env=env, capture_output=True, timeout=60
+        )
+        return done.stdout.decode().strip()
+
+    def started(before=""):
+        pid = folder / "claude.pid"
+        assert wait_for(lambda: pid.exists() and pid.read_text().strip() not in ("", before))
+        return pid.read_text().strip()
+
+    def alive(pid):
+        try:
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    there(handoff.start_script(rec, run_sh), handoff.inbox_bytes(["{}"]))
+    first = started()
+    ps = ["ps", "-o", "ppid=", "-p", first]
+    runner = subprocess.run(ps, capture_output=True, text=True).stdout.strip()
+    second = ""
+    try:
+        assert wait_for(lambda: (home / f"listening.{first}").exists())
+        os.kill(int(first), signal.SIGTERM)  # stopped, and the stop's wait for it ran out
+        there(handoff.start_script(rec, run_sh), handoff.inbox_bytes(["{}"]))  # a message
+        second = started(first)
+        let_go.write_text("")  # the first quits now, with the newer one under way
+        assert wait_for(lambda: not alive(first) and not alive(runner))  # and is over
+        assert there(handoff.status_script(rec)) == "running"
+        assert not (folder / "exit.code").exists() and (folder / "in.fifo").exists()
+        os.kill(int(second), signal.SIGKILL)
+        assert wait_for(lambda: (folder / "exit.code").exists())
+        assert (folder / "exit.code").read_text().strip() == "137"
+    finally:
+        for pid in (first, second):
+            if pid and alive(pid):
+                os.kill(int(pid), signal.SIGKILL)
+
+
 # ── machines ──
 
 
@@ -284,6 +368,13 @@ async def test_adding_a_machine_checks_ssh_git_and_claude(hub, remotes):
     quiet = desk.machine("quiet")
     assert quiet.ok and quiet.tmux and not quiet.permissions
     assert "needs the Claude Code CLI on bare" in await desk.add_machine("bare")
+    # Off the PATH of a non-interactive shell, it's found where the installer puts it (in a
+    # home whose path has a space).
+    installed = python_executable(remotes / "bare" / ".local" / "bin" / "claude", "print('2.1.0')")
+    assert await desk.test_machine("bare") == "bare is ready."
+    assert desk.machine("bare").claude == str(installed)
+    installed.unlink()
+    assert "needs the Claude Code CLI on bare" in await desk.test_machine("bare")
     assert "ghost can't be found" in await desk.add_machine("ghost")
     (remotes / "studio" / ".down").write_text("")
     assert await desk.test_machine("studio") == "studio isn't reachable right now."
@@ -398,8 +489,14 @@ async def test_without_a_shared_remote_it_goes_as_a_bundle_and_a_cli_that_cant_a
 
 
 async def test_a_dropped_connection_reconnects_and_reads_on_from_where_it_was(
-    hub, projects, remotes
+    hub, projects, remotes, monkeypatch
 ):
+    from jarvis.features import code_handoff
+
+    # A try every 2 s: the reconnecting waits double (to a minute) while the machine is away,
+    # and on a busy Mac its turn there can keep it away long enough to push the next try past
+    # the wait below. When it reconnects isn't what this proves; that it does, and reads on.
+    monkeypatch.setattr(code_handoff, "RETRY_MAX", 2.0)
     make_repo(projects / "proj", {"a.py": numbered(5)})
     desk = hub.code_handoff
     await desk.add_machine("studio")
@@ -422,7 +519,7 @@ async def test_a_dropped_connection_reconnects_and_reads_on_from_where_it_was(
     assert await until(lambda: "Lost the connection to studio" in " ".join(said(task)))
     assert await until(lambda: len((folder / "out.jsonl").read_text().splitlines()) >= seen + 2)
     (remotes / "studio" / ".down").unlink()
-    assert await until(lambda: rec.turns >= 2, seconds=30), said(task)
+    assert await until(lambda: rec.turns >= 2), said(task)
     assert "Reconnected to studio." in said(task)
     assert said(task).count("Done with turn 1 there.") == 1  # nothing read twice
 
@@ -464,7 +561,7 @@ async def test_after_a_restart_it_reattaches_and_asks_again_what_nobody_answered
 
 
 async def test_stop_and_a_message_starts_it_there_again_on_the_same_conversation(
-    hub, projects, remotes
+    hub, projects, remotes, monkeypatch
 ):
     make_repo(projects / "proj", {"a.py": numbered(5)})
     desk = hub.code_handoff
@@ -474,12 +571,50 @@ async def test_stop_and_a_message_starts_it_there_again_on_the_same_conversation
     await desk.hand_off(task, "studio", "hello")
     rec = desk.of_task(task)
     assert await until(lambda: rec.turns >= 1)
+    # Its reader hears the run end before the stop's answer comes back: that end is the stop.
+    run = handoff.run
+
+    async def answered_late(ssh, alias, script, **kwargs):
+        done = await run(ssh, alias, script, **kwargs)
+        if script == handoff.stop_script(rec):
+            await until(lambda: desk._followers[rec.id].done())
+        return done
+
+    monkeypatch.setattr(handoff, "run", answered_late)
     assert await desk.stop(rec) == "Stopped it on studio."
     assert rec.state == "stopped" and task.status == "waiting"
+    assert not [t for t in said(task) if "ended (exit" in t], said(task)
     assert hub.tasks.send(task.id, "and now this")
     assert await until(lambda: rec.turns >= 2), said(task)
     lines = (remotes / "studio" / "claude-args.jsonl").read_text().splitlines()
     assert "--resume" in json.loads(lines[-1]) and "remote-session-1" in json.loads(lines[-1])
+
+
+async def test_the_stopped_runs_end_heard_late_never_ends_the_run_after_it(hub, projects, remotes):
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk = hub.code_handoff
+    await desk.add_machine("studio")
+    task = await isolated_session(hub)
+    answer(hub, "go")
+    await desk.hand_off(task, "studio", "hello")
+    rec = desk.of_task(task)
+    assert await until(lambda: rec.turns >= 1)
+    assert await desk.stop(rec) == "Stopped it on studio."
+    # Its reader hasn't passed on the stopped run's end yet (a slow connection, a busy Mac),
+    # and does only once a message has started it there again.
+    late = asyncio.Event()
+
+    async def still_reading():
+        await late.wait()
+        await desk._ended(rec, "143")  # what reading that run's JARVIS-EXIT does
+
+    desk._followers.pop(rec.id).cancel()
+    desk._followers[rec.id] = hub._spawn(still_reading())
+    assert hub.tasks.send(task.id, "and now this")
+    assert await until(lambda: rec.state == "working")  # started there again
+    late.set()
+    assert await until(lambda: rec.turns >= 2), said(task)
+    assert rec.live and not [t for t in said(task) if "ended (exit" in t]
 
 
 async def test_what_cant_be_handed_off_says_why(hub, projects, remotes):

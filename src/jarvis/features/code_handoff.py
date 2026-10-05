@@ -189,6 +189,7 @@ class Desk:
         self._lost: set[str] = set()
         self._notes: dict[int, str] = {}  # session -> a note for its next message
         self._busy: set[str] = set()
+        self._stopping: set[str] = set()  # hand-offs being stopped: the end heard is the stop's
         self._interrupts = itertools.count(1)
         self.booted = time.time()
 
@@ -882,7 +883,7 @@ class Desk:
     async def _ended(self, rec: Handoff, code: str) -> None:
         """The run there is over (stopped, finished with its input, crashed or the machine
         restarted): the session waits; a message starts it there again."""
-        was = rec.state
+        stopped = rec.state == "stopped" or rec.id in self._stopping
         if rec.state != "stopped":
             rec.state = "ended"
         for asked in list(self._asks.pop(rec.id, {}).values()):
@@ -890,7 +891,7 @@ class Desk:
         rec.pending = []
         self._lost.discard(rec.id)
         task = self.task_of(rec)
-        if was != "stopped" and task is not None:
+        if not stopped and task is not None:
             if code == "?":
                 self.note(task, f"Claude Code on {rec.alias} isn't running any more.")
             elif code not in ("0", ""):
@@ -1024,6 +1025,11 @@ class Desk:
                 self.note(task, problem)
                 return
             self.save()
+            # A reader still on the last run could yet hear that run's end and take this one
+            # for over (and leave it unread): a new reader reads on from where that one got to.
+            stale = self._followers.pop(rec.id, None)
+            if stale is not None:
+                stale.cancel()
             self._follow(rec)
         rec.state = "working"
         task.busy, task.status = True, "running"
@@ -1116,6 +1122,7 @@ class Desk:
         if rec.id in self._busy:
             return "It's already being handed off."
         self._busy.add(rec.id)
+        self._stopping.add(rec.id)
         try:
             stopped = await handoff.run(
                 self.ssh, alias, handoff.stop_script(rec), timeout=handoff.CHECK_SECONDS
@@ -1151,6 +1158,7 @@ class Desk:
                     commits = landed
         finally:
             self._busy.discard(rec.id)
+            self._stopping.discard(rec.id)
         if rec in self.handoffs:
             self.handoffs.remove(rec)
         self._lost.discard(rec.id)
@@ -1216,9 +1224,13 @@ class Desk:
             return "That session isn't on another machine."
         if not rec.live:
             return f"It isn't running on {rec.alias}."
-        done = await handoff.run(
-            self.ssh, rec.alias, handoff.stop_script(rec), timeout=handoff.CHECK_SECONDS
-        )
+        self._stopping.add(rec.id)  # its reader may hear it end before the answer comes
+        try:
+            done = await handoff.run(
+                self.ssh, rec.alias, handoff.stop_script(rec), timeout=handoff.CHECK_SECONDS
+            )
+        finally:
+            self._stopping.discard(rec.id)
         if not done.ok:
             return handoff.ssh_problem(rec.alias, done)
         rec.state = "stopped"

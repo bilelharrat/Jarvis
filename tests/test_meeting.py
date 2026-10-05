@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import datetime
 
 from jarvis.meeting import Meeting, count_items
@@ -68,6 +69,16 @@ def test_count_items():
     assert count_items(NOTES) == {"decisions": 2, "actions": 1}
 
 
+async def until(check, seconds=30.0):
+    """True as soon as check() is (a busy Mac can take seconds over the voice loop)."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        await asyncio.sleep(0.02)
+    return False
+
+
 async def test_hub_meeting_mode(settings, quiet_speaker, isolated, tmp_path):
     from test_hub import make_hub
 
@@ -109,8 +120,9 @@ async def test_hub_meeting_mode(settings, quiet_speaker, isolated, tmp_path):
     for line in ["We need the deck by Thursday.", "Ann will own the financials."] * 8:
         await hub._heard.put(line)
     await hub._heard.put("Jarvis what time is it")  # addressed to JARVIS: not notes
-    await asyncio.sleep(0.2)
-    assert hub.meeting.words() > 25
+    # Heard in order: once the last is asked, every line before it is in the notes.
+    assert await until(lambda: hub.client is not None and hub.client.said)
+    assert len(hub.meeting.lines) == 16 and hub.meeting.words() > 25
     assert "what time" not in hub.meeting.transcript()
     assert hub.client.said[-1] == "what time is it"
     reply = await hub.stop_meeting()
@@ -149,15 +161,17 @@ async def test_a_failing_notes_model_keeps_the_quick_lines(tmp_path):
 
 
 async def test_a_long_meeting_appends_each_line(tmp_path):
-    import time
-
     # The whole file was written again for every line: 6,000 lines (a long day) took 30 s
-    # and wrote 1.6 GB, on the voice loop.
+    # and wrote 1.6 GB, on the voice loop. Counted rather than timed (a busy Mac took 6 s
+    # over what takes 0.3 s): no line writes the file whole, or goes over the lines before.
     m = Meeting("All day", tmp_path)
-    started = time.perf_counter()
+    whole, gone_over = [], []
+    m._write = lambda *a: whole.append(a)
+    m.kept = lambda: gone_over.append(1) or []
     for i in range(6000):
         m.add(None, f"line {i} of what was said in the room")
-    assert time.perf_counter() - started < 2.0  # about 0.3 s here
+    del m._write, m.kept  # the class's own again
+    assert whole == [] and gone_over == []
     text = m.path.read_text()
     assert text.count("\n[") == 6000 and text.endswith("line 5999 of what was said in the room\n")
     m._write()

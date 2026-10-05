@@ -25,6 +25,7 @@ import sys
 import tempfile
 import termios
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,9 @@ OUTPUT_EVERY = 0.03  # seconds between messages while output streams
 OUTPUT_PAUSE = 1024 * 1024  # this much unsent and reading stops: the programs writing wait
 INPUT_LIMIT = 8 * 1024 * 1024  # typing and pastes the shell hasn't taken yet
 SIM_WATCH_SECONDS = 30 * 60  # a simulator picture stream stops by itself after this
+HANG_UP_SECONDS = 3  # a closed terminal's shell gets this long to go before it's killed
+STARTING_SECONDS = 60  # and a job it was still starting, at most this long to start
+Program = tuple[str, ...] | None  # what a process runs (its command line), None unreadable
 
 
 class Terminal:
@@ -186,20 +190,54 @@ class Terminal:
 
 def _hang_up(proc: subprocess.Popen) -> None:
     session = proc.pid  # the shell leads its own session and process group
-    for pid in _session_members(session):
-        with contextlib.suppress(OSError):
-            os.kill(pid, signal.SIGHUP)
+    first = _hang_up_on(_session_members(session) or [session], {})
 
-    def reap() -> None:
+    def reap(hung_up: dict[int, Program]) -> None:
+        # A job the shell was still starting when the hang-up came (forked, so still running
+        # the shell's own program, not yet the job's) can lose the signal in the shell's own
+        # handling of it, then run on as the job with nothing left to end it. So until the
+        # shell is reaped and no job is still starting, whatever in the session is new, or
+        # has become another program since, is hung up on too. What was hung up on and
+        # stayed (nohup) is left be, as a terminal would.
+        shell = hung_up.get(session)
+        started = time.monotonic()
+        while True:
+            if proc.poll() is None:
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(timeout=0.2)
+            else:
+                time.sleep(0.2)
+            waited = time.monotonic() - started
+            gone = proc.poll() is not None  # (its pid may be another process's now)
+            if not gone and waited >= HANG_UP_SECONDS:  # the shell ignores hang-ups
+                with contextlib.suppress(OSError):
+                    os.killpg(session, signal.SIGKILL)
+            members = [pid for pid in _session_members(session) if not (gone and pid == session)]
+            hung_up = _hang_up_on(members, hung_up)
+            starting = shell is not None and any(
+                program == shell for pid, program in hung_up.items() if pid != session
+            )
+            if (gone and not starting) or waited >= STARTING_SECONDS:
+                break
+
+    threading.Thread(target=reap, args=(first,), name="jarvis-terminal-reaper", daemon=True).start()
+
+
+def _hang_up_on(members: list[int], before: dict[int, Program]) -> dict[int, Program]:
+    """SIGHUP to each member that wasn't hung up on before as the program it runs now.
+    Returns what each member runs, for the next look."""
+    import psutil
+
+    programs: dict[int, Program] = {}
+    for pid in members:
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
+            programs[pid] = tuple(psutil.Process(pid).cmdline())
+        except (psutil.Error, OSError):
+            programs[pid] = None
+        if pid not in before or before[pid] != programs[pid]:
             with contextlib.suppress(OSError):
-                os.killpg(session, signal.SIGKILL)
-            with contextlib.suppress(Exception):
-                proc.wait(timeout=3)
-
-    threading.Thread(target=reap, name="jarvis-terminal-reaper", daemon=True).start()
+                os.kill(pid, signal.SIGHUP)
+    return programs
 
 
 def _session_members(session: int) -> list[int]:
@@ -207,11 +245,11 @@ def _session_members(session: int) -> list[int]:
     import psutil
 
     members = []
-    for p in psutil.process_iter(["pid"]):
+    for pid in psutil.pids():
         with contextlib.suppress(OSError):
-            if os.getsid(p.info["pid"]) == session:
-                members.append(p.info["pid"])
-    return members or [session]
+            if os.getsid(pid) == session:
+                members.append(pid)
+    return members
 
 
 class Workbench:

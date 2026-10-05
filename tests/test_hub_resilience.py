@@ -542,13 +542,16 @@ async def test_stop_while_transcribing_asks_nothing(settings, quiet_speaker, iso
 
 
 async def _stream_through(hub, text, chunk):
+    """(the event loop's CPU time for the reply, how many pieces were voiced before its
+    end, what was voiced). The loop thread's own time: a busy Mac's other work doesn't
+    count, and it slowed the wall clock tenfold."""
     spoken: list[str] = []
     hub._speak = spoken.append
     hub._rid = rid = "r1"
     hub.turn = {"rid": rid, "user": "q", "reply": ""}
     hub._stream_buf, hub._streamed, hub._spoke_this_turn = "", False, False
     before_end = 0
-    started = time.perf_counter()
+    started = time.thread_time()
     hub._on_stream(rid, {"type": "content_block_start", "content_block": {"type": "text"}})
     for i in range(0, len(text), chunk):
         hub._on_stream(
@@ -560,7 +563,22 @@ async def _stream_through(hub, text, chunk):
         )
     before_end = len(spoken)
     hub._on_stream(rid, {"type": "content_block_stop"})
-    return time.perf_counter() - started, before_end, spoken
+    return time.thread_time() - started, before_end, spoken
+
+
+async def _stream_scaling(hub, text, chunk):
+    """(ratio, took, before_end, spoken): how many times a quarter of the reply's CPU time
+    all of it takes, the best of three pairs timed back to back (a busy Mac moves a thread
+    between fast and slow cores); the least CPU time for all of it; and what the last
+    stream of all of it voiced. Linear is about four; rescanning the reply so far for each
+    delta, sixteen."""
+    pairs = []
+    for _ in range(3):
+        quarter = (await _stream_through(hub, text[: len(text) // 4], chunk))[0]
+        took, before_end, spoken = await _stream_through(hub, text, chunk)
+        pairs.append((quarter, took))
+    ratio = min(took / quarter for quarter, took in pairs)
+    return ratio, min(took for _quarter, took in pairs), before_end, spoken
 
 
 async def test_a_long_chinese_reply_without_full_stops_streams_in_linear_time(
@@ -568,7 +586,8 @@ async def test_a_long_chinese_reply_without_full_stops_streams_in_linear_time(
 ):
     hub = make(settings, quiet_speaker, isolated, language="zh")
     text = ("我查了一下你的日程今天下午有三个会议" * 500)[:8000]
-    took, before_end, spoken = await _stream_through(hub, text, 2)
+    ratio, took, before_end, spoken = await _stream_scaling(hub, text, 2)
+    assert ratio < 8, f"a reply four times as long took {ratio:.1f} times the event loop's time"
     assert took < 0.5, f"{took:.2f}s of the event loop for one 8,000-character reply"
     assert before_end > 0, "nothing was voiced until the reply ended"
     assert "".join(spoken).replace(" ", "") == text
@@ -579,7 +598,8 @@ async def test_a_long_english_list_without_periods_streams_in_linear_time(
 ):
     hub = make(settings, quiet_speaker, isolated)
     text = ("item one of the list\n" * 3100)[:64000]
-    took, before_end, spoken = await _stream_through(hub, text, 4)
+    ratio, took, before_end, spoken = await _stream_scaling(hub, text, 4)
+    assert ratio < 8, f"a reply four times as long took {ratio:.1f} times the event loop's time"
     assert took < 1.0, f"{took:.2f}s of the event loop for one 64,000-character reply"
     assert before_end > 0, "nothing was voiced until the reply ended"
     assert " ".join(" ".join(spoken).split()) == " ".join(text.split())
@@ -686,23 +706,27 @@ async def test_updates_come_at_most_every_reply_every_and_the_last_before_turn_d
     await hub.start()
     q = hub.subscribe()
     got: list = []
+    # When the hub sent each update, by the clock its throttle keeps. The window's own
+    # clock lags on a busy Mac: two updates it reads together looked a moment apart.
+    sent: list[float] = []
+    hub.add_event_sink(["reply"], lambda _event: sent.append(hub._reply_sent))
 
     async def window():
         while True:
-            event = await q.get()
-            got.append((time.monotonic(), event))  # when it arrived
+            got.append(await q.get())
 
     reader = asyncio.create_task(window())
     await hub.ask("tell me about foxes")
-    await asyncio.sleep(0.05)
+    assert await _until(lambda: any(e["type"] == "turn_done" for e in got), 10)
     reader.cancel()
-    kinds = [e["type"] for _, e in got]
-    replies = [(t, e) for t, e in got if e["type"] == "reply"]
-    assert replies[-1][1]["text"] == text.strip()
+    kinds = [e["type"] for e in got]
+    replies = [e for e in got if e["type"] == "reply"]
+    assert replies[-1]["text"] == text.strip()
     assert kinds.index("turn_done") > max(i for i, k in enumerate(kinds) if k == "reply")
-    gaps = [b[0] - a[0] for a, b in zip(replies, replies[1:-1], strict=False)]
+    assert len(sent) == len(replies)
+    gaps = [b - a for a, b in zip(sent, sent[1:-1], strict=False)]
     assert all(g >= every * 0.8 for g in gaps), gaps
-    assert len(replies) <= 2 + (replies[-1][0] - replies[0][0]) / (every * 0.8)
+    assert len(sent) <= 2 + (sent[-1] - sent[0]) / (every * 0.8)
 
 
 # ── queue_requests off ──

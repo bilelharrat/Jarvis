@@ -96,12 +96,22 @@ def test_jarvis_code_is_the_panel_not_the_wake_word():
 def test_the_panels_name_said_over_and_over_is_read_in_linear_time():
     import time
 
-    # The word after each name is looked up, not gathered again from all the rest: these
-    # took 2 s.
-    started = time.perf_counter()
-    assert find_wake("jarvis code " * 4000) == (False, "")
-    assert find_wake("Jarvis code " * 4000 + "Jarvis, what time is it") == (True, "what time is it")
-    assert time.perf_counter() - started < 0.5  # about 0.08 s here
+    def cpu(names: int) -> float:
+        """This thread's CPU time to read the name said so many times: a busy Mac's other
+        work doesn't count (it slowed the wall clock tenfold)."""
+        started = time.thread_time()
+        assert find_wake("jarvis code " * names) == (False, "")
+        said = "Jarvis code " * names + "Jarvis, what time is it"
+        assert find_wake(said) == (True, "what time is it")
+        return time.thread_time() - started
+
+    # The word after each name is looked up, not gathered again from all the rest (that
+    # took 2 s): four times the names take about four times as long (0.06 s for 4,000
+    # here), never sixteen. Each pair is timed back to back, the best of three: a busy Mac
+    # moves a thread between fast and slow cores.
+    pairs = [(cpu(1000), cpu(4000)) for _ in range(3)]
+    assert min(large / small for small, large in pairs) < 8, pairs
+    assert min(large for _small, large in pairs) < 0.5, pairs
 
 
 def test_greetings_only_count_at_the_start():

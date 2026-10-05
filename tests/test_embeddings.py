@@ -5,6 +5,7 @@ keyword search when anything is missing. A fake embedder stands in for Apple's m
 import hashlib
 import math
 import os
+import shlex
 import stat
 import sys
 from datetime import datetime, timedelta
@@ -412,11 +413,21 @@ def test_day_of_reads_the_dates_notes_carry():
 
 def fake_helper(tmp_path, body):
     """A stand-in for jarvis-embed serve: a Python script speaking its line protocol."""
-    script = tmp_path / "fake-embed"
-    script.write_text(f"#!{sys.executable}\n{body}")
-    script.chmod(script.stat().st_mode | stat.S_IXUSR)
-    return script
+    script = tmp_path / "fake-embed.py"
+    script.write_text(body)
+    # Started through a shell wrapper, not a #! line naming Python: the interpreter's path
+    # may have a space in it (this repo's does), and a #! line's path ends at the first one.
+    tool = tmp_path / "fake-embed"
+    tool.write_text(
+        f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(script))} "$@"\n'
+    )
+    tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
+    return tool
 
+
+# How long a test waits for the fake helper's answers: only one that stalls ever waits this
+# long, and a busy Mac can take seconds just to start it.
+ANSWER_SECONDS = 30
 
 ANSWERS = """
 import base64, json, struct, sys
@@ -432,7 +443,7 @@ for line in sys.stdin:
 
 
 def test_the_helper_answers_each_text_by_its_id(tmp_path):
-    embedder = embeddings.HelperEmbedder(fake_helper(tmp_path, ANSWERS), timeout=10)
+    embedder = embeddings.HelperEmbedder(fake_helper(tmp_path, ANSWERS), ANSWER_SECONDS)
     try:
         out = embedder.embed(["one", "", "two"])
         assert out[1] == "empty"
@@ -454,7 +465,7 @@ STRICT = ANSWERS.replace(
 def test_half_an_emoji_in_a_passage_never_stalls_the_helper(tmp_path):
     """A passage cut in the middle of an emoji (half of a surrogate pair) is sent as its
     replacement character: the helper answers it, and every passage after it."""
-    embedder = embeddings.HelperEmbedder(fake_helper(tmp_path, STRICT), timeout=5)
+    embedder = embeddings.HelperEmbedder(fake_helper(tmp_path, STRICT), ANSWER_SECONDS)
     try:
         out = embedder.embed(["cut emoji \ud83d", "fine"])
         assert out[0][0] == "m1" and out[1][0] == "m1"

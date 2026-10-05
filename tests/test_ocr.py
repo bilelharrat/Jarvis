@@ -216,12 +216,12 @@ def test_a_damaged_cache_is_started_afresh(tmp_path):
 
 
 def test_the_helper_reader_speaks_the_line_protocol(tmp_path):
+    import shlex
     import stat
     import sys
 
-    script = tmp_path / "fake-ocr"
+    script = tmp_path / "fake-ocr.py"
     script.write_text(
-        f"#!{sys.executable}\n"
         "import json, sys\n"
         "for line in sys.stdin:\n"
         "    item = json.loads(line)\n"
@@ -230,8 +230,14 @@ def test_the_helper_reader_speaks_the_line_protocol(tmp_path):
         "    else:\n"
         "        print(json.dumps({'id': item['id'], 'text': 'Hello from ' + item['path'][-5:]}), flush=True)\n"
     )
-    script.chmod(script.stat().st_mode | stat.S_IXUSR)
-    reader = ocr.HelperReader(script, timeout=10)
+    # Started through a shell wrapper, not a #! line naming Python: the interpreter's path
+    # may have a space in it (this repo's does), and a #! line's path ends at the first one.
+    tool = tmp_path / "fake-ocr"
+    tool.write_text(
+        f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(script))} "$@"\n'
+    )
+    tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
+    reader = ocr.HelperReader(tool, timeout=30)  # a busy Mac can be slow to start it
     try:
         assert reader(tmp_path / "a.png") == "Hello from a.png"
         assert reader(tmp_path / "bad.png") == ""
