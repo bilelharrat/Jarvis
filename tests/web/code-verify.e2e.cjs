@@ -7,7 +7,7 @@
 //   app/node_modules/.bin/electron tests/web/code-verify.e2e.cjs      (about 15 s; exit 1 on a failure)
 'use strict';
 
-const { app, BrowserWindow, nativeImage } = require('electron');
+const { app, BrowserWindow, WebContentsView, nativeImage } = require('electron');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
@@ -99,6 +99,29 @@ test('Two checks at once share the preview, and it stops drawing once both are d
   assert(a.ok && b.ok && a.shot && b.shot, JSON.stringify([a.error, b.error]));
   const open = previews();
   assert(open.length === 1 && open[0].webContents.isPainting() === false, `${open.length} previews, drawing: ${open.map((w) => w.webContents.isPainting())}`);
+});
+
+test('A tab that can’t be pictured goes to the preview, which waits undrawn even when its picture fails', async () => {
+  verify.closeAll();
+  // A browser tab on the dev server that isn't on show (no window: it can't be pictured).
+  const tab = new WebContentsView({ webPreferences: { partition: 'persist:jarvis-browser', sandbox: true, contextIsolation: true } });
+  await tab.webContents.loadURL(`${base}/`);
+  const proto = Object.getPrototypeOf(tab.webContents);
+  const capture = proto.capturePage;
+  try {
+    const r = await verify.check({ url: `${base}/`, settle: 300 });
+    assert(r.ok && r.source === 'tab' && r.shot, JSON.stringify(r.error || r.errors));
+    assert(previews().length === 1 && previews()[0].webContents.isPainting() === false, 'the preview that took the picture keeps drawing');
+    // The preview's picture failing (its page gone): it still waits undrawn, and closes when idle.
+    proto.capturePage = function (...args) { return this.isOffscreen() ? Promise.reject(new Error('the page is gone')) : capture.apply(this, args); };
+    const failed = await verify.check({ url: `${base}/`, settle: 300 });
+    assert(/the page is gone/.test(failed.error || ''), JSON.stringify(failed));
+    const open = previews();
+    assert(open.length === 1 && open[0].webContents.isPainting() === false, `${open.length} previews, drawing: ${open.map((w) => w.webContents.isPainting())}`);
+  } finally {
+    proto.capturePage = capture;
+    tab.webContents.close();
+  }
 });
 
 test('Only a dev server on this Mac is checked, and closing ends the previews', async () => {

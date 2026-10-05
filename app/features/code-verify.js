@@ -222,12 +222,15 @@ async function check({ url, reload = true, width = 1280, height = 800, settle = 
     if (!shot && source === 'tab') {
       // A tab that isn't on show can't be pictured: the hidden preview takes it.
       const pwc = preview(origin, width, height).win.webContents;
-      const pdone = loaded(pwc, LOAD_MS);
-      pwc.loadURL(url).catch(() => {});
-      await pdone;
-      await new Promise((r) => setTimeout(r, Math.min(settle, 1000)));
-      shot = await picture(pwc);
-      keepAlive(origin);
+      try {
+        const pdone = loaded(pwc, LOAD_MS);
+        pwc.loadURL(url).catch(() => {});
+        await pdone;
+        await new Promise((r) => setTimeout(r, Math.min(settle, 1000)));
+        shot = await picture(pwc);
+      } finally {
+        keepAlive(origin); // its picture failing too: it still stops drawing and closes when idle
+      }
     }
     return { ok: true, url: wc.getURL(), title: wc.getTitle(), status: collector.status, source, errors: collector.errors, ...(shot || {}) };
   } catch (err) {

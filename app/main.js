@@ -417,11 +417,25 @@ function updateLock() {
   sendBrowserState();
 }
 
+// Whether a page may ever be locked: any on the Research Center (its sign-in pages too, since
+// it moves on from them without loading again), or, while its address isn't known yet, any
+// page at all when the lock is wanted. page-preload.js takes the wheel and touch blockers away
+// from the others, so their scroll never waits for their scripts; a page keeps them until it's
+// told, so a page that may be locked always has them in place before the lock comes.
+function mayLock(url) {
+  return researchBase ? onResearch(url) : browserStore().researchLock;
+}
+
+function tellLockable(wc) {
+  if (wc && !wc.isDestroyed()) wc.send('jarvis:lockable', mayLock(wc.getURL()));
+}
+
 // The lock badge: Jarvis only on the Research Center, or the user's mouse and keyboard too.
 function setResearchLock(on) {
   const store = browserStore();
   store.researchLock = Boolean(on);
   saveBrowserStore();
+  for (const view of tabs) tellLockable(view.webContents);
   if (browserView) updateLock();
   return store.researchLock;
 }
@@ -807,7 +821,10 @@ function readyAdblock() {
       callback(response);
     });
   });
-  ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
+  // Only a page's or a frame's own headers are ever changed here (their CSP, for $csp filters):
+  // the engine answers every other response with no change, so a page's pictures, scripts and
+  // the rest don't wait for this thread on their way in (tests/web/adblock-network.test.mjs).
+  ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'], types: ['mainFrame', 'subFrame'] }, (details, callback) => {
     if (!shielded(pageOf(details))) { callback({}); return; }
     blocker.onHeadersReceived(details, callback);
   });
@@ -864,7 +881,7 @@ function createTab(opts = {}) {
     view.favicon = url.startsWith('data:') ? url.slice(0, 90000) : await faviconData(wc.session, url);
     sendBrowserState();
   });
-  wc.on('did-navigate', (_event, url) => { blockedOn.set(wc.id, 0); rememberVisit(url, wc); });
+  wc.on('did-navigate', (_event, url) => { blockedOn.set(wc.id, 0); rememberVisit(url, wc); tellLockable(wc); });
   const id = wc.id;
   wc.once('destroyed', () => blockedOn.delete(id)); // a closed tab's count goes with it
   wc.on('page-title-updated', () => retitleVisit(wc.getURL(), wc.getTitle()));
@@ -1078,7 +1095,10 @@ async function runBrowserCommand({ action, args = {} }) {
   switch (action) {
     case 'research':
       win.webContents.send('browser:open');
-      if (/^https?:\/\//.test(String(args.base || ''))) researchBase = args.base;
+      if (/^https?:\/\//.test(String(args.base || '')) && args.base !== researchBase) {
+        researchBase = args.base;
+        for (const view of tabs) tellLockable(view.webContents); // before any lock on its pages
+      }
       if (!researchBase) return { error: 'No Research Center address is set.' };
       await researchOpen(String(args.path || '/markets')); // (may switch to the tab it's on)
       await waitForLoad(browserView.webContents, 15000);

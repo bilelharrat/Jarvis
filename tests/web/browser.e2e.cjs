@@ -57,6 +57,9 @@ console.error('boom at load'); fetch('/missing.json').catch(() => {}); setTimeou
 <input type="file" id="f" style="display:none"><button onclick="document.getElementById('f').click()">Choose file</button>
 </main></body>`,
   '/other.html': '<!doctype html><title>Other</title><body><h1>Another page</h1><a href="/shop.html">Back to shop</a></body>',
+  // Bands of colour a picture's middle tells apart: which one shows says whether it scrolled.
+  '/tall.html': `<!doctype html><title>Tall</title><style>html,body{margin:0}</style><body>${Array.from({ length: 40 },
+    (_, i) => `<div style="height:100px;background:rgb(${(i * 40) % 256},${(i * 90) % 256},${(i * 150) % 256})"></div>`).join('')}</body>`,
   '/form.html': `<!doctype html><title>Form</title><body>
 <div id="banner" style="position:fixed;bottom:0;left:0;right:0;background:#fee">We use cookies. <button>Accept</button></div>
 <div role="dialog" aria-labelledby="dt" style="position:fixed;top:20px;left:20px;background:#fff"><h2 id="dt">Sign in</h2><p>Welcome back</p></div>
@@ -388,6 +391,90 @@ test('A page behind the one on show opens its new tab in its own profile (a sign
   } finally {
     tabs.splice(tabs.indexOf(opener), 1);
     opener.webContents.close();
+  }
+});
+
+// page-preload.js in a page that draws (an offscreen window: its frames come as pictures).
+// The wheel and touch blockers are in place from the page's start, so a lock that comes
+// while the page is busy still stops a scroll made before the page caught up; a page main.js
+// says can't be locked (told as it navigates, as main.js does) scrolls without waiting for
+// its busy scripts, and one told it may be locked again is blocked again.
+test('A page that may be locked is blocked from the lock on, even mid-stall; another scrolls at once', async () => {
+  const paper = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { offscreen: true, partition: 'browser-test',
+    preload: path.join(__dirname, '..', '..', 'app', 'page-preload.js'), sandbox: true, contextIsolation: true, backgroundThrottling: false } });
+  const wc = paper.webContents;
+  let lockable = null; // what main.js would tell this page as it navigates (null: nothing)
+  wc.on('did-navigate', () => { if (lockable !== null) wc.send('jarvis:lockable', lockable); });
+  try {
+    wc.setFrameRate(60);
+    let frames = [];
+    wc.on('paint', (_e, _dirty, image) => {
+      const { width, height } = image.getSize();
+      const px = image.toBitmap();
+      const i = (Math.floor(height / 2) * width + Math.floor(width / 2)) * 4;
+      frames.push({ at: Date.now(), colour: `${px[i + 2]},${px[i + 1]},${px[i]}` });
+    });
+    const wheel = () => { for (let k = 0; k < 3; k++) wc.sendInputEvent({ type: 'mouseWheel', x: 400, y: 300, deltaX: 0, deltaY: -120, canScroll: true }); };
+    const stall = (ms) => page(paper, `setTimeout(() => { const end = Date.now() + ${ms}; while (Date.now() < end) {} window.busyEnd = Date.now(); }, 0); true`);
+    const scrolled = () => page(paper, 'scrollY');
+
+    // A page told nothing: the lock comes 100 ms into a stall, the wheel 200 ms after it.
+    await paper.loadURL(`${base}/tall.html`);
+    await sleep(400);
+    await stall(1500);
+    await sleep(100);
+    wc.send('jarvis:locked', true);
+    await sleep(200);
+    wheel();
+    await sleep(1800);
+    assert((await scrolled()) === 0, `a page locked mid-stall scrolled to ${await scrolled()}`);
+    // The lock and the wheel in the same moment, on a page at rest.
+    wc.send('jarvis:locked', false);
+    await sleep(200);
+    wc.send('jarvis:locked', true);
+    wheel();
+    await sleep(600);
+    assert((await scrolled()) === 0, `a page locked as the wheel came scrolled to ${await scrolled()}`);
+    wc.send('jarvis:locked', false);
+    await sleep(300);
+    wheel();
+    await sleep(600);
+    assert((await scrolled()) > 0, 'the page didn’t scroll once unlocked');
+
+    // A page main.js says can't be locked: its scroll doesn't wait for its busy scripts.
+    lockable = false;
+    await paper.loadURL(`${base}/tall.html?free`); // (another address: a reload would keep the scroll)
+    await sleep(500);
+    const top = frames.length ? frames[frames.length - 1].colour : '';
+    assert(top, 'the page drew nothing');
+    await stall(2500);
+    await sleep(200);
+    frames = [];
+    wheel();
+    const busyEnd = await page(paper, 'new Promise((r) => setTimeout(() => r(window.busyEnd), 300))');
+    const moved = frames.find((f) => f.colour !== top);
+    assert(moved, 'the page never scrolled');
+    assert(moved.at < busyEnd, `the scroll waited ${moved.at - busyEnd + 2300} ms for the page's scripts`);
+
+    // Told it may be locked after all: blocked again, mid-stall too.
+    wc.send('jarvis:lockable', true);
+    await page(paper, 'scrollTo(0, 0); true');
+    await sleep(300);
+    await stall(1500);
+    await sleep(100);
+    wc.send('jarvis:locked', true);
+    await sleep(200);
+    wheel();
+    await sleep(1800);
+    assert((await scrolled()) === 0, `a page told it may be locked scrolled to ${await scrolled()} under the lock`);
+    // A locked page keeps its blockers whatever it's told until it's unlocked.
+    wc.send('jarvis:lockable', false);
+    await sleep(300);
+    wheel();
+    await sleep(600);
+    assert((await scrolled()) === 0, `a locked page scrolled to ${await scrolled()}`);
+  } finally {
+    paper.destroy();
   }
 });
 

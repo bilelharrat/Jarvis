@@ -846,10 +846,29 @@ const block = (event) => { if (locked && !typing) { event.preventDefault(); even
 // Whether the page's alert, confirm and prompt go to the agent (set by its 'dialogs' command).
 let agentDialogs = false;
 
+// The wheel and touch blockers. A wheel or touch listener on the window that may cancel
+// (passive: false) makes every scroll of the page wait for the page's own scripts first: on a
+// busy page (a video site loading, a feed filling in) the trackpad did nothing until they let
+// go. So the app takes them away from a page that can't be locked (any but the Research
+// Center's: main.js's 'jarvis:lockable') and puts them back if that changes. Every page
+// starts with them, though, and a lock always puts them back: Chromium's compositor learns of
+// a new one only at the page's next frame, so added at the lock itself, a scroll while a busy
+// page caught up would get through and move a page that's locked.
+let scrollBlocked = false;
+function blockScrolling(on) {
+  if (on === scrollBlocked) return;
+  scrollBlocked = on;
+  for (const type of ['wheel', 'mousewheel', 'touchstart', 'touchmove']) {
+    if (on) window.addEventListener(type, block, { capture: true, passive: false });
+    else window.removeEventListener(type, block, { capture: true });
+  }
+}
+
 // The page itself only: preloads also run in its frames (so the ad blocker reaches them,
 // see adblock-preload.js), and the hand, the lock and the commands are the page's.
 if (window === window.top) {
-  for (const type of ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'dragstart', 'drop', 'contextmenu',
+  blockScrolling(true);
+  for (const type of ['dragstart', 'drop', 'contextmenu',
     'keydown', 'keypress', 'keyup', 'beforeinput', 'paste', 'cut', 'compositionstart']) {
     window.addEventListener(type, block, { capture: true, passive: false });
   }
@@ -881,8 +900,10 @@ if (window === window.top) {
   ipcRenderer.on('jarvis:hand', (_event, msg) => onHand(msg));
   ipcRenderer.on('jarvis:locked', (_event, value) => {
     locked = Boolean(value);
+    if (locked) blockScrolling(true);
     if (ui) ui.edge.hidden = !locked;
   });
+  ipcRenderer.on('jarvis:lockable', (_event, value) => blockScrolling(Boolean(value) || locked));
   ipcRenderer.on('jarvis:command', async (_event, { id, action, args }) => {
     let result;
     try {

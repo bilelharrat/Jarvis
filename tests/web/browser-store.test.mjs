@@ -49,6 +49,38 @@ test('quitting writes a save still waiting, and nothing when none is', () => {
   assert.equal(store.timer, null, 'the waiting save is done with');
 });
 
+test('a save with nothing changed writes nothing; a write that failed is tried again', () => {
+  const fs = require('fs');
+  const dir = mkdtempSync(join(tmpdir(), 'browser-store-'));
+  const file = join(dir, 'browser-state.json');
+  const store = new BrowserStore(file, { delay: 60_000 });
+  const writes = [];
+  const write = fs.writeFileSync;
+  fs.writeFileSync = (...args) => { writes.push(args[0]); return write(...args); };
+  try {
+    store.data.engine = 'kagi';
+    assert.equal(store.flush(), true);
+    assert.equal(store.flush(), true, 'nothing to write is no failure');
+    store.save();
+    assert.equal(store.flushPending(), true);
+    assert.equal(writes.length, 1, 'the same tabs and settings were written again');
+    store.data.session = { tabs: [{ url: 'https://a.example/', title: 'A', pinned: false, entries: [], index: -1 }], active: 0 };
+    assert.equal(store.flush(), true);
+    assert.equal(writes.length, 2, 'a change wasn’t written');
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).session.tabs[0].url, 'https://a.example/');
+    // The disk refused it: the same store is written at the next save.
+    store.data.engine = 'brave';
+    fs.writeFileSync = () => { throw new Error('ENOSPC: no space left on device'); };
+    assert.equal(store.flush(), false);
+    fs.writeFileSync = (...args) => { writes.push(args[0]); return write(...args); };
+    assert.equal(store.flush(), true);
+    assert.equal(writes.length, 3, 'the refused write wasn’t tried again');
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).engine, 'brave');
+  } finally {
+    fs.writeFileSync = write;
+  }
+});
+
 test('the session and zoom kept are read defensively; reopening tabs is on unless turned off', () => {
   const { cleanSession, cleanZoom, TABS_MAX, ENTRIES_MAX } = require('../../app/browser-store.js');
   assert.equal(clean({}).restore, true);

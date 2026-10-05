@@ -73,6 +73,7 @@ class BrowserStore {
     this.file = file;
     this.delay = delay;
     this.timer = null;
+    this.written = ''; // the text last written: an unchanged store isn't written again
     let raw = {};
     try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none yet, or damaged: defaults */ }
     this.data = clean(raw);
@@ -89,13 +90,19 @@ class BrowserStore {
     return this.timer ? this.flush() : true;
   }
 
+  // (The tabs are written down a moment after every page a tab moves to, and a page that only
+  // rewrites its address in place (history.replaceState, as many do while they're read) would
+  // write the same tabs again each time: on the app's main thread, where every tab's input waits.)
   flush() {
     clearTimeout(this.timer);
     this.timer = null;
     try {
+      const text = JSON.stringify(this.data);
+      if (text === this.written) return true;
       const tmp = `${this.file}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(this.data));
+      fs.writeFileSync(tmp, text);
       fs.renameSync(tmp, this.file);
+      this.written = text;
       return true;
     } catch {
       return false;
