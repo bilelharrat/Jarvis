@@ -150,6 +150,15 @@ def _signed(value: Any, limit: float = 1.0) -> float:
     return min(limit, max(-limit, v))
 
 
+def _count(value: Any) -> int:
+    """A click's count, 1 to 3. Infinity is refused like words are (ValueError): a malformed
+    message, not a refused mouse event that would stop hand control."""
+    try:
+        return max(1, min(3, int(value)))
+    except OverflowError:
+        raise ValueError("not a count") from None
+
+
 def place(x: float, y: float, displays: list[Rect], span: str = "all") -> tuple[float, float]:
     """(x, y) in 0..1 as a point on the displays: across all of them ("all": their
     bounding box, then into the nearest display, so a gap between screens of different
@@ -316,7 +325,7 @@ class DesktopHands:
         button = msg.get("button", "left")
         if button not in BUTTONS:
             raise ValueError("unknown button")
-        count = max(1, min(3, int(msg.get("count", 1))))  # checked before anything is posted
+        count = _count(msg.get("count", 1))  # checked before anything is posted
         if self._yielding(now) or not self._may_press(now):
             return None
         if self.held is not None:

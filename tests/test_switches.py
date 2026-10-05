@@ -116,6 +116,34 @@ async def test_switches_read_and_set_through_their_commands(mac):
     assert await s.find_focus("Work", False) == "Focus Off"  # "Focus Off" ends any of them
 
 
+async def test_the_switches_are_read_at_once_and_said_in_order(mac):
+    """An AppleScript, networksetup twice and blueutil: none waits for another to finish
+    (each here waits until all three reads have begun, which one after another never do)."""
+    import asyncio
+
+    begun: set[str] = set()
+    every = asyncio.Event()
+
+    def started(what):
+        begun.add(what)
+        if len(begun) == 3:
+            every.set()
+
+    async def command(*argv, timeout=30, stdin=None):
+        started("bluetooth" if "blueutil" in argv[0] else "wifi")
+        await asyncio.wait_for(every.wait(), 5)
+        return await mac.command(*argv)
+
+    async def applescript(script, *argv, timeout=30):
+        started("dark_mode")
+        await asyncio.wait_for(every.wait(), 5)
+        return await mac.applescript(script, *argv)
+
+    s = Switches(command=command, applescript=applescript)
+    found = await s.status()
+    assert list(found.items()) == [("dark_mode", False), ("wifi", True), ("bluetooth", False)]
+
+
 async def test_without_blueutil_it_says_how_to_get_it(mac, monkeypatch):
     monkeypatch.setattr(switches_module, "blueutil", lambda: None)
     s = Switches(command=mac.command, applescript=mac.applescript)

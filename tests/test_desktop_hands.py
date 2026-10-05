@@ -484,6 +484,19 @@ def test_malformed_messages_post_nothing_and_never_raise(msg):
     assert poster.events == []
 
 
+@pytest.mark.parametrize("count", [float("inf"), float("-inf"), float("nan"), [2], None])
+def test_a_count_that_isnt_a_number_drops_that_click_only(count, caplog):
+    # A window's JSON can carry Infinity (Python's json reads it). It used to stop hand
+    # control as if the Mac had refused a mouse event, with a traceback in the log.
+    hands, poster, clock = rig()
+    send(hands, clock, "start")
+    assert send(hands, clock, "click", x=0.5, y=0.5, count=count) is None
+    assert poster.events == [] and hands.active
+    assert not [r for r in caplog.records if r.exc_info]
+    send(hands, clock, "click", x=0.5, y=0.5, count=2)
+    assert [e[4] for e in poster.events if e[0] == "down"] == [2]
+
+
 def test_click_count_is_kept_between_one_and_three():
     hands, poster, clock = rig()
     send(hands, clock, "start")

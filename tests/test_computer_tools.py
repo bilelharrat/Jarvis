@@ -110,3 +110,86 @@ def test_sensitive_paths_are_judged_as_before():
     assert seen[True] and seen[False]
     assert computer.is_sensitive(Path("/Users/ann/LIBRARY/KEYCHAINS/login.keychain-db"))
     assert not computer.is_sensitive(Path("/Users/ann/Documents/keychains-notes.txt"))
+
+
+# ── the size of a screenshot, and broad file searches ──
+
+
+def _png(width: int, height: int) -> bytes:
+    """A PNG's signature and header chunk (all a size needs; the pixels don't matter)."""
+    import struct
+    import zlib
+
+    head = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    crc = struct.pack(">I", zlib.crc32(b"IHDR" + head) & 0xFFFFFFFF)
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", len(head)) + b"IHDR" + head + crc
+
+
+def test_a_pngs_size_is_read_from_its_header():
+    assert computer.png_size(_png(1280, 831)) == (1280, 831)
+    assert computer.png_size(_png(1280, 831) + b"rest of the file") == (1280, 831)
+    assert computer.png_size(b"png") is None  # not a PNG: sips is asked
+    assert computer.png_size(_png(0, 831)) is None
+    assert computer.png_size(b"\xff\xd8\xff\xe0" + bytes(40)) is None  # a JPEG
+
+
+async def test_a_screenshot_is_measured_without_starting_sips_for_it(monkeypatch):
+    from pathlib import Path
+
+    ran = []
+
+    async def run(*cmd, **_k):
+        ran.append(cmd)
+        if cmd[0] == "screencapture":
+            Path(cmd[-1]).write_bytes(_png(1280, 831) + b"pixels")
+        if cmd[:2] == ("sips", "-g"):
+            return "pixelWidth: 1\npixelHeight: 1"  # never asked: the header says
+        return ""
+
+    monkeypatch.setattr(computer, "run_command", run)
+    screen = computer.Screen()
+    screen.points = lambda: (1512.0, 982.0)
+    data, width, height = await screen.capture()
+    assert (width, height, screen.size) == (1280, 831, (1280, 831))
+    assert screen.scale == pytest.approx(1512 / 1280)
+    assert [c[:2] for c in ran] == [("screencapture", "-x"), ("sips", "-Z")]
+    import base64
+
+    assert base64.b64decode(data) == _png(1280, 831) + b"pixels"  # the picture as it was
+
+
+async def test_find_files_weighs_only_as_many_as_it_shows(mac, monkeypatch):
+    """A broad name can find tens of thousands of files: the first 25 that may be shown are
+    the answer, as before, without judging the rest."""
+    from pathlib import Path
+
+    lines = []
+    for i in range(5000):
+        lines.append(f"/Users/ann/Documents/note {i}.md")
+        if i % 7 == 0:
+            lines += [f"/Users/ann/.ssh/id_{i}", f"/Users/ann/Library/x{i}", f"/Users/ann/k{i}.pem"]
+    out = "\n".join(lines)
+
+    async def run(*cmd, **_k):
+        return out
+
+    judged = []
+    real = computer.is_sensitive
+    monkeypatch.setattr(computer, "run_command", run)
+    monkeypatch.setattr(computer, "is_sensitive", lambda p: judged.append(p) or real(p))
+    found = (await mac["tools"]["find_files"]({"query": "note"}))["content"][0]["text"]
+    expected = [
+        p
+        for p in out.splitlines()
+        if p and "/Library/" not in p and "/." not in p and not real(Path(p))
+    ][:25]
+    assert found.splitlines() == expected and len(expected) == 25
+    assert len(judged) < 40  # not all ~5,700
+
+    async def nothing(*cmd, **_k):
+        return "/Users/ann/.ssh/id_rsa\n/Users/ann/Library/Keychains/x"
+
+    monkeypatch.setattr(computer, "run_command", nothing)
+    assert (await mac["tools"]["find_files"]({"query": "x"}))["content"][0]["text"] == (
+        "Nothing found."
+    )

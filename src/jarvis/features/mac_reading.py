@@ -26,7 +26,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .. import mac_reading, mac_tools
-from ..computer import parse_sips_size
+from ..computer import parse_sips_size, png_size
 from ..hands_guard import front_app
 from ..mac_reading import CHROMIUM, SAFARI, Unreadable
 
@@ -110,12 +110,13 @@ class Reading:
                             "running JARVIS in System Settings > Privacy & Security."
                         )
                     await self.command("sips", "-Z", str(ALL_SCREENS_WIDTH), str(path))
-                    width, height = parse_sips_size(
+                    raw = path.read_bytes()
+                    width, height = png_size(raw) or parse_sips_size(  # sips only if no header
                         await self.command(
                             "sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)
                         )
                     )
-                    data = base64.b64encode(path.read_bytes()).decode()
+                    data = base64.b64encode(raw).decode()
                 except (mac_tools.ToolFailure, KeyError, ValueError, OSError) as exc:
                     return _error(f"Display {screen['index']} couldn't be captured: {exc}")
                 main = " (main)" if screen["main"] else ""
@@ -158,9 +159,14 @@ class Reading:
         return _text("\n".join(lines))
 
     async def page(self, browser: str) -> dict[str, Any]:
-        front = await asyncio.to_thread(self.front)
         names = [SAFARI[0], *(name for name, _ in CHROMIUM.values())]
-        running = {n for n in names if await asyncio.to_thread(self.running, n)}
+        # The app in front (two lsappinfo) and which browsers run (a pgrep each), asked all
+        # at once rather than one after another: on a busy Mac each takes a quarter of a
+        # second or more.
+        front, *up = await asyncio.gather(
+            asyncio.to_thread(self.front), *(asyncio.to_thread(self.running, n) for n in names)
+        )
+        running = {n for n, on in zip(names, up, strict=True) if on}
         which = mac_reading.browser_for(browser, str(front.get("bundle") or ""), running)
         if not which:
             return _error("Neither Safari nor Chrome is open.")

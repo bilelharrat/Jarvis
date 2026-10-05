@@ -14,6 +14,7 @@ Every command here is run through the run_command passed in, so tests run none.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import shutil
@@ -141,18 +142,22 @@ class Switches:
         return (await self.command(tool, "--power")).strip() == "1"
 
     async def status(self) -> dict[str, Any]:
-        """Each switch it can read: True, False, or why it can't say."""
-        out: dict[str, Any] = {}
-        for name, read in (
+        """Each switch it can read: True, False, or why it can't say. The three are read at
+        once (an AppleScript, networksetup twice, blueutil), not one after another."""
+        reads = (
             ("dark_mode", self.dark_mode),
             ("wifi", self.wifi),
             ("bluetooth", self.bluetooth),
-        ):
+        )
+
+        async def one(read: Callable[[], Awaitable[bool]]) -> Any:
             try:
-                out[name] = await read()
+                return await read()
             except (Unavailable, mac_tools.ToolFailure) as exc:
-                out[name] = str(exc)
-        return out
+                return str(exc)
+
+        found = await asyncio.gather(*(one(read) for _, read in reads))
+        return {name: value for (name, _), value in zip(reads, found, strict=True)}
 
     # ── changing ──
 

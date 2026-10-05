@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import itertools
 import json
 import re
+import struct
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -209,9 +211,11 @@ class Screen:
                     "JARVIS in System Settings > Privacy & Security."
                 )
             await run_command("sips", "-Z", str(SHOT_WIDTH), str(path))
-            size = await run_command("sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path))
-            width, height = parse_sips_size(size)
-            data = base64.b64encode(path.read_bytes()).decode()
+            raw = path.read_bytes()
+            width, height = png_size(raw) or parse_sips_size(
+                await run_command("sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path))
+            )
+            data = base64.b64encode(raw).decode()
         if where is None:
             points_w, _ = self.points()
             self.origin = (0.0, 0.0)
@@ -240,6 +244,19 @@ class Screen:
 
 GRID = 1000
 SETTLE = 0.35  # seconds after an action, so the next look sees what it did
+
+
+_PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def png_size(data: bytes) -> tuple[int, int] | None:
+    """A PNG's width and height in pixels from its header (the IHDR chunk, always first),
+    as `sips -g pixelWidth -g pixelHeight` reads them, without starting sips for it. None
+    when it isn't a PNG with a size: then sips is asked, as before."""
+    if len(data) < 24 or data[:8] != _PNG or data[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", data[16:24])
+    return (width, height) if width and height else None
 
 
 def parse_sips_size(out: str) -> tuple[int, int]:
@@ -537,11 +554,17 @@ def build_server(screen: Screen | None = None, guard: Any = None):
             out = await run_command(*cmd, timeout=20)
         except ToolFailure as exc:
             return _error(str(exc))
-        paths = [
-            p
-            for p in out.splitlines()
-            if p and "/Library/" not in p and "/." not in p and not is_sensitive(Path(p))
-        ][:25]
+        # The first 25 that may be shown, looked at in order until there are 25: a broad
+        # name can find tens of thousands, and weighing every one of them on the event loop
+        # took about 75 ms for 50,000.
+        paths = itertools.islice(
+            (
+                p
+                for p in out.splitlines()
+                if p and "/Library/" not in p and "/." not in p and not is_sensitive(Path(p))
+            ),
+            25,
+        )
         return _text("\n".join(paths) or "Nothing found.")
 
     @tool(

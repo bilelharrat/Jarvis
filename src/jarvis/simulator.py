@@ -56,6 +56,7 @@ URL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:\S+$")
 MAX_IN_FLIGHT = 2  # frames sent to the window and not yet acknowledged
 ACK_GRACE = 3.0  # s: a frame unanswered this long counts as lost (the window dropped it)
 FRAME_POLL = 1 / 60  # s between looks at the framebuffer's seed
+IDLE_WAIT = 1.0  # s at most a bridge with nothing to stream sleeps (a stream or quit wakes it)
 FRAME_SIDE = (120, 2400)  # the pixel box a window may ask frames to fit
 DEFAULT_BOX = (600, 1300)
 JPEG_QUALITY = 0.72
@@ -664,7 +665,7 @@ class Controller:
 
     def _on_sim_ack(self, msg: dict[str, Any]) -> None:
         if self.stream is not None:
-            with contextlib.suppress(TypeError, ValueError):
+            with contextlib.suppress(TypeError, ValueError, OverflowError):  # (infinity too)
                 self.stream.ack(int(msg.get("seq", 0)))
 
     def _live(self) -> Stream | None:
@@ -799,12 +800,13 @@ class Controller:
 
 
 def _clamp_box(width: Any, height: Any) -> tuple[int, int]:
-    """The pixel box frames are scaled to fit: the picture's size in the window."""
+    """The pixel box frames are scaled to fit: the picture's size in the window. A side
+    that isn't a number (null, words, a list, infinity) is the default one."""
     box = []
     for value, default in ((width, DEFAULT_BOX[0]), (height, DEFAULT_BOX[1])):
         try:
             side = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             side = default
         box.append(max(FRAME_SIDE[0], min(FRAME_SIDE[1], side)))
     return box[0], box[1]
@@ -966,6 +968,10 @@ class Bridge:
         self._ci: Any = None
         self._space: Any = None
         self.quit = threading.Event()
+        # Set by a stream turned on and by quit: the frame loop, with no stream to watch (a
+        # Jarvis Code session's bridge, for input and pictures), waits on it instead of
+        # looking sixty times a second for nothing.
+        self.wake = threading.Event()
 
     # ── output ──
 
@@ -1130,6 +1136,7 @@ class Bridge:
             self.orient(int(op.get("orientation", 1)))
         elif name == "stream":
             self.streaming = bool(op.get("on"))
+            self.wake.set()
             box = op.get("box") or DEFAULT_BOX
             self.box = _clamp_box(box[0], box[1])
             self.quality = min(0.95, max(0.3, float(op.get("quality", JPEG_QUALITY))))
@@ -1142,6 +1149,7 @@ class Bridge:
                 self.say(event="shot", ok=ok, path=str(op.get("path", "")))
         elif name == "quit":
             self.quit.set()
+            self.wake.set()
 
     def _press(self, usage: int, modifiers: list[int]) -> None:
         for m in modifiers:
@@ -1165,6 +1173,7 @@ class Bridge:
             if self.quit.is_set():
                 break
         self.quit.set()
+        self.wake.set()
 
     def run(self, stdin: Any) -> None:
         message, can_input = "", True
@@ -1183,13 +1192,18 @@ class Bridge:
         )
         threading.Thread(target=self.commands, args=(stdin,), daemon=True).start()
         while not self.quit.is_set():
+            if not self.streaming:
+                # Nothing to send until a stream is asked for (or a quit): wait for that
+                # rather than waking every FRAME_POLL to do nothing.
+                self.wake.wait(IDLE_WAIT)
+                self.wake.clear()
+                continue
             sent = False
-            if self.streaming:
-                try:
-                    sent = self.frame()
-                except Exception as exc:
-                    self.say(event="error", message=f"frame: {exc}"[:300])
-                    self.quit.wait(1.0)
+            try:
+                sent = self.frame()
+            except Exception as exc:
+                self.say(event="error", message=f"frame: {exc}"[:300])
+                self.quit.wait(1.0)
             self.quit.wait(0.0 if sent else FRAME_POLL)
 
 

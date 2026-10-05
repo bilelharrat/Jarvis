@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from jarvis import video
-from jarvis.video import Segment, VideoDesk, VideoError
+from jarvis.video import Segment, VideoDesk, VideoError, VideoJob
 
 FIXTURES = Path(__file__).parent / "fixtures" / "video"
 RATE = video.SAMPLE_RATE
@@ -648,6 +648,18 @@ async def test_transcript_parts(tmp_path):
         assert "Part 1 of" in first and "part=2" in first
         last = text_of(await t["video_transcript"]({"job": 1, "part": 99}))
         assert "the end" in last
+        assert text_of(await t["video_transcript"]({"job": 1, "part": float("inf")})) == first
+
+
+@pytest.mark.parametrize("odd", [float("inf"), float("-inf"), float("nan"), [1], {"id": 1}, "x"])
+async def test_a_window_id_that_isnt_a_number_names_no_job(tmp_path, odd):
+    # A window's JSON can carry Infinity and NaN (Python's json reads them): no traceback.
+    desk = desk_for(tmp_path)
+    job = VideoJob(id=1, source="/x/long.mov", title="long", kind="file", state="transcribing")
+    desk.jobs[1] = job
+    assert desk.job(odd) is None
+    assert desk.cancel(odd) is None and not job.stop.is_set()
+    assert desk.job(1) is job and desk.job() is job
 
 
 async def test_save_video_summary_shows_and_files_it(tmp_path):

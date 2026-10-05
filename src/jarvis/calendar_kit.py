@@ -20,13 +20,15 @@ starts at a time; which of those a request means is decided here in the app (cho
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import sys
 import time
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # only for the lock's annotation (see _run)
+    import asyncio
 
 NO_ACCESS = (
     "Calendar access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Calendars)."
@@ -522,6 +524,8 @@ async def add_event(event: dict[str, Any]) -> dict:
 async def _helper(*argv: str, timeout: float = 70) -> dict:
     """One helper at a time: while macOS shows the access prompt, a second would only
     wait on it too."""
+    import asyncio  # (here, not at the top: see _run)
+
     global _lock, _lock_loop, _denied_until
     if _lock is None or _lock_loop is not asyncio.get_running_loop():
         _lock, _lock_loop = asyncio.Lock(), asyncio.get_running_loop()
@@ -535,6 +539,10 @@ async def _helper(*argv: str, timeout: float = 70) -> dict:
 
 
 async def _run(argv: tuple[str, ...], timeout: float) -> dict:
+    # asyncio is imported here, not at the top: the helper process this module also runs as
+    # never needs it, and it was most of the helper's own import time (~13 ms a start).
+    import asyncio
+
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",

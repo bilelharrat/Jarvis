@@ -240,6 +240,57 @@ async def test_every_display_at_once(desk):
     ]
 
 
+async def test_every_display_is_measured_from_its_picture_without_sips(desk):
+    import struct
+    import zlib
+
+    def png(width, height):
+        head = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        crc = struct.pack(">I", zlib.crc32(b"IHDR" + head) & 0xFFFFFFFF)
+        return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + head + crc
+
+    async def command(*cmd, **_k):
+        desk.ran.append(cmd)
+        if cmd[0] == "screencapture":
+            Path(cmd[-1]).write_bytes(png(1024, 665 if cmd[3] == "1" else 576))
+        return ""
+
+    desk.command = command
+    out = await desk.tools["see_all_screens"]({})
+    texts = [c["text"] for c in out["content"] if c["type"] == "text"]
+    assert texts[0].endswith("this picture is 1024x665.")
+    assert texts[1].endswith("this picture is 1024x576.")
+    assert not [c for c in desk.ran if c[:2] == ("sips", "-g")]  # the header said
+
+
+async def test_the_front_app_and_the_browsers_are_asked_at_once(desk):
+    """Two lsappinfo and a pgrep per browser: none waits for another (each would wait here
+    for all six to have been asked, and time out if asked one after another)."""
+    import threading
+
+    asked = threading.Barrier(6, timeout=5)
+    seen = []
+
+    def front():
+        asked.wait()
+        return {"app": "Finder", "bundle": "com.apple.finder"}
+
+    def running(name):
+        seen.append(name)
+        asked.wait()
+        return name in ("Safari", "Google Chrome")
+
+    async def applescript(script, *argv, timeout=30):
+        return "https://news.example\nNews\nThe news."
+
+    desk.front, desk.running, desk.applescript = front, running, applescript
+    out = await desk.tools["browser_tab_text"]({})
+    assert out["content"][0]["text"].startswith("The page open in the user's Safari: “News”")
+    assert sorted(seen) == sorted(
+        ["Safari", "Google Chrome", "Microsoft Edge", "Brave Browser", "Arc"]
+    )
+
+
 async def test_an_empty_screenshot_asks_for_screen_recording(desk):
     async def command(*cmd, **_k):
         return ""  # no file written

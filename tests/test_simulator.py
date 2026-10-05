@@ -186,6 +186,13 @@ def test_clamp_box_keeps_frames_sensible():
     assert simulator._clamp_box("x", None) == simulator.DEFAULT_BOX
 
 
+@pytest.mark.parametrize("odd", [float("inf"), float("-inf"), float("nan"), [600], {"w": 1}])
+def test_clamp_box_takes_the_default_for_a_side_that_isnt_a_number(odd):
+    # A window's JSON can carry Infinity and NaN (Python's json reads them): no traceback.
+    assert simulator._clamp_box(odd, 900) == (simulator.DEFAULT_BOX[0], 900)
+    assert simulator._clamp_box(400, odd) == (400, simulator.DEFAULT_BOX[1])
+
+
 # ── the bridge's pipe ──
 
 
@@ -497,6 +504,22 @@ async def test_acks_reach_the_stream(tmp_path):
     await ctl.close()
 
 
+async def test_odd_numbers_from_the_window_are_ignored_not_errors(tmp_path):
+    ctl, emit, bridge, _run, spawned = await watching(tmp_path=tmp_path)
+    for _ in range(3):
+        bridge.frame()
+    await settle()
+    for seq in (float("inf"), float("-inf"), float("nan"), [1], None):
+        assert await ctl.handle("sim_ack", {"seq": seq})  # handled: no traceback
+    assert len(emit.of("sim_frame")) == 2  # none of them counted as an answer
+    await ctl.handle("sim_stream", {"udid": UDID, "width": float("inf"), "height": 900})
+    await settle()
+    assert spawned == [UDID]  # the same device: only its box changed, to the default width
+    assert bridge.ops("stream")[-1]["box"] == [simulator.DEFAULT_BOX[0], 900]
+    assert not emit.of("sim_error")
+    await ctl.close()
+
+
 async def test_screenshot_through_the_bridge(tmp_path):
     ctl, emit, bridge, _run, _ = await watching(tmp_path=tmp_path)
     await ctl.handle("sim_screenshot", {})
@@ -594,6 +617,7 @@ def bare_bridge(orientation=1):
     bridge._edge = simulator.EDGE_NONE
     bridge._force = False
     bridge.quit = __import__("threading").Event()
+    bridge.wake = __import__("threading").Event()
     return bridge
 
 
@@ -629,3 +653,55 @@ def test_bridge_quit_command_sets_quit():
     bridge = bare_bridge()
     bridge.handle({"op": "quit"})
     assert bridge.quit.is_set()
+
+
+def test_a_bridge_with_nothing_to_stream_waits_instead_of_polling(monkeypatch):
+    """A Jarvis Code session's bridge (input and pictures, no frames) used to wake sixty
+    times a second for nothing. It now sleeps until a stream or a quit; a stream asked for
+    starts at once, and a quit (or the hub going away) still ends it at once."""
+    import io
+    import os
+    import threading
+    import time
+
+    class Counted(threading.Event):
+        def __init__(self):
+            super().__init__()
+            self.waits = 0
+
+        def wait(self, timeout=None):
+            self.waits += 1
+            return super().wait(timeout)
+
+    monkeypatch.setattr(simulator, "IDLE_WAIT", 60.0)  # only a stream or a quit wakes it
+    bridge = bare_bridge()
+    bridge.quit, bridge.wake = Counted(), Counted()
+    bridge.out, bridge.out_lock = io.BytesIO(), threading.Lock()
+    bridge.points, bridge.pixels = (393, 852), (1179, 2556)
+    bridge.scale, bridge.family = 3.0, "iPhone"
+    bridge.streaming = False
+    bridge.hid.connect = lambda: None
+    looked = []
+    bridge.frame = lambda: looked.append(time.monotonic()) and False
+    read, write = os.pipe()
+    stdin, hub = os.fdopen(read), os.fdopen(write, "w")
+    loop = threading.Thread(target=bridge.run, args=(stdin,), daemon=True)
+    loop.start()
+    began = time.monotonic()
+    while not bridge.wake.waits and time.monotonic() - began < 10:
+        time.sleep(0.005)  # until the loop is waiting
+    time.sleep(0.3)
+    assert bridge.quit.waits == 0 and bridge.wake.waits == 1  # not ~18 looks
+    assert not looked
+    asked = time.monotonic()
+    hub.write(json.dumps({"op": "stream", "on": True, "box": [600, 1300]}) + "\n")
+    hub.flush()
+    while not looked and time.monotonic() - asked < 10:
+        time.sleep(0.005)
+    assert looked  # woken by the stream, long before the minute's wait was up
+    hub.write(json.dumps({"op": "stream", "on": False}) + "\n")
+    hub.flush()
+    time.sleep(0.1)
+    hub.close()  # the hub went away: stdin ends, and the waiting loop with it
+    loop.join(10)
+    assert not loop.is_alive() and bridge.quit.is_set()

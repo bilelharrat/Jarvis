@@ -19,15 +19,17 @@ its id.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import sys
 import time
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .reminders_kit import NO_ACCESS
+
+if TYPE_CHECKING:  # only for the lock's annotation (see _run)
+    import asyncio
 
 NOT_ASKED = "not asked"  # --no-ask on a Mac that hasn't answered the access question yet
 MAX_TITLE = 200
@@ -396,6 +398,8 @@ async def delete_reminder(reminder_id: str) -> dict[str, Any]:
 
 
 async def _helper(*argv: str, timeout: float = 70) -> dict[str, Any]:
+    import asyncio  # (here, not at the top: see _run)
+
     global _lock, _lock_loop, _denied_until
     if _lock is None or _lock_loop is not asyncio.get_running_loop():
         _lock, _lock_loop = asyncio.Lock(), asyncio.get_running_loop()
@@ -409,6 +413,10 @@ async def _helper(*argv: str, timeout: float = 70) -> dict[str, Any]:
 
 
 async def _run(argv: tuple[str, ...], timeout: float) -> dict[str, Any]:
+    # asyncio is imported here, not at the top: the helper process this module also runs as
+    # never needs it, and it was most of the helper's own import time (~13 ms a start).
+    import asyncio
+
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",

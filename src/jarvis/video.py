@@ -605,9 +605,10 @@ class VideoDesk:
         return next((j for j in self.jobs.values() if j.active), None)
 
     def job(self, job_id: Any = None) -> VideoJob | None:
-        """The job asked for, or the newest one."""
+        """The job asked for, or the newest one. A window's id that isn't a number (words,
+        a list, infinity) names no job, as hub._msg_int reads one."""
         if job_id not in (None, "", 0):
-            with contextlib.suppress(TypeError, ValueError):
+            with contextlib.suppress(TypeError, ValueError, OverflowError):
                 return self.jobs.get(int(job_id))
             return None
         return max(self.jobs.values(), key=lambda j: j.id, default=None)
@@ -1179,7 +1180,7 @@ def build_tools(
             return _text(desk.status_lines(), error=job.state in ("failed", "cancelled"))
         try:
             part = int(args.get("part") or 1)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             part = 1
         return _text(desk.transcript_part(job, part))
 

@@ -17,7 +17,6 @@ object. macOS asks once for location access, on behalf of the J.A.R.V.I.S. app.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import math
 import re
@@ -283,6 +282,10 @@ def geocode(query: str, lat: float | None = None, lon: float | None = None) -> d
 
 async def run_helper(*args: str, timeout: float = 25) -> dict[str, Any]:
     """Run this module as a helper process from the app and parse its answer."""
+    # asyncio is imported here, not at the top: the helper process itself never needs it,
+    # and it was most of the helper's own import time (~13 ms a start).
+    import asyncio
+
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
