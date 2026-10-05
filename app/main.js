@@ -562,6 +562,8 @@ function zoomBy(factor) {
 // sign-in pages: their addresses can carry a reset token).
 let browserData = null;
 let browserSave = null;
+let browserWritten = ''; // the text last written: an unchanged store isn't written again
+let browserWriting = Promise.resolve(); // the write under way (they take turns: one .tmp file)
 const browserFile = () => path.join(app.getPath('userData'), 'browser.json');
 function browserStore() {
   if (browserData) return browserData;
@@ -576,14 +578,21 @@ function browserStore() {
   };
   return browserData;
 }
+// Written off the main thread (a sync write of a long history held up every tab's input and
+// IPC while the disk was busy), a moment after the last change.
 function saveBrowserStore() {
   clearTimeout(browserSave);
   browserSave = setTimeout(() => {
-    try {
-      const tmp = `${browserFile()}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(browserData));
-      fs.renameSync(tmp, browserFile());
-    } catch {}
+    let text;
+    try { text = JSON.stringify(browserData); } catch { return; }
+    if (text === browserWritten) return;
+    browserWritten = text;
+    const file = browserFile();
+    const tmp = `${file}.tmp`;
+    browserWriting = browserWriting
+      .then(() => fs.promises.writeFile(tmp, text))
+      .then(() => fs.promises.rename(tmp, file))
+      .catch(() => { if (browserWritten === text) browserWritten = ''; }); // tried again at the next change
   }, 400);
 }
 function rememberVisit(url, wc) {
@@ -599,7 +608,7 @@ function rememberVisit(url, wc) {
 function retitleVisit(url, title) {
   const store = browserStore();
   const last = store.history[store.history.length - 1];
-  if (last && last.url === url && title) { last.title = title; saveBrowserStore(); }
+  if (last && last.url === url && title && last.title !== title) { last.title = title; saveBrowserStore(); }
 }
 
 // The page's own menu, as in Chrome. App features add to it (menu(fn): fn(items, view, p)).
@@ -856,6 +865,8 @@ function createTab(opts = {}) {
     sendBrowserState();
   });
   wc.on('did-navigate', (_event, url) => { blockedOn.set(wc.id, 0); rememberVisit(url, wc); });
+  const id = wc.id;
+  wc.once('destroyed', () => blockedOn.delete(id)); // a closed tab's count goes with it
   wc.on('page-title-updated', () => retitleVisit(wc.getURL(), wc.getTitle()));
   wc.on('enter-html-full-screen', () => { if (active() && win) win.webContents.send('browser:page-fullscreen', true); });
   wc.on('leave-html-full-screen', () => { if (win) win.webContents.send('browser:page-fullscreen', false); });

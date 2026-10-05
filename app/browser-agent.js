@@ -937,9 +937,11 @@ class BrowserAgent {
       await sleep(ms);
       return { ok: true, message: `Waited ${(ms / 1000).toFixed(1)} s.`, ...this.where(view) };
     }
+    // The page's words are read only when they're waited on: innerText lays out and walks the
+    // whole page, every look (five a second), in the page's own thread.
+    const words = args.text || args.gone ? "const low = ((document.body && document.body.innerText) || '').toLowerCase();" : '';
     const check = `(() => {
-      const body = (document.body && document.body.innerText) || '';
-      const low = body.toLowerCase();
+      ${words}
       let sel = null;
       ${args.selector ? `try { const el = document.querySelector(${JSON.stringify(String(args.selector))}); sel = Boolean(el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden'); } catch (e) { sel = 'bad'; }` : ''}
       return { text: ${args.text ? `low.includes(${JSON.stringify(String(args.text).toLowerCase())})` : 'true'},

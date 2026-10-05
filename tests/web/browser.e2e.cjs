@@ -211,6 +211,38 @@ test('Waiting for text, and refs going stale on a new page', async () => {
   assert(url.ok, url.message);
 });
 
+test('Waiting for an element reads the page’s words only when they’re waited on', async () => {
+  const snap = await fresh();
+  // What the waits ask the page, as the agent sends it.
+  const tab = agent.state.get(shown.webContents.id);
+  const asked = [];
+  const send = tab.cdp.send.bind(tab.cdp);
+  tab.cdp.send = (method, params, opts) => {
+    if (method === 'Runtime.evaluate') asked.push(String(params.expression || ''));
+    return send(method, params, opts);
+  };
+  try {
+    const later = await run('act', { kind: 'click', ref: refOf(snap, /button "Save slowly"/) });
+    assert(later.ok, later.message);
+    const shows = await run('wait', { selector: '#done', ms: 5000 });
+    assert(shows.ok && /#done showing/.test(shows.message), shows.message);
+    const checks = asked.filter((e) => e.includes('querySelector("#done")'));
+    assert(checks.length && checks.every((e) => !e.includes('innerText')), 'a wait for an element read the whole page’s text');
+    const nope = await run('wait', { selector: '#nowhere', ms: 400 });
+    assert(!nope.ok && /Still not #nowhere showing/.test(nope.message), nope.message);
+    const bad = await run('wait', { selector: 'p[', ms: 400 });
+    assert(!bad.ok && /isn't a valid CSS selector/.test(bad.message), bad.message);
+    asked.length = 0;
+    const both = await run('wait', { selector: '#done', text: 'saved at LAST', ms: 2000 });
+    assert(both.ok, both.message);
+    const gone = await run('wait', { gone: 'Count me', ms: 400 });
+    assert(!gone.ok && /Still not “Count me” gone/.test(gone.message), gone.message);
+    assert(asked.some((e) => e.includes('innerText') && e.includes('querySelector("#done")')), 'a wait for words didn’t read them');
+  } finally {
+    delete tab.cdp.send; // its own again
+  }
+});
+
 test('A tab behind the one on show takes snapshots and clicks, and refs stay with their tab', async () => {
   const onShow = await fresh();
   const behind = newTab();

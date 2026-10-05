@@ -118,6 +118,8 @@ function preview(origin, width, height) {
   let entry = previews.get(origin);
   if (entry && !entry.win.isDestroyed()) {
     entry.win.setContentSize(width, height);
+    entry.checks += 1;
+    if (!entry.win.webContents.isPainting()) entry.win.webContents.startPainting();
     return entry;
   }
   const win = new BrowserWindow({
@@ -139,18 +141,23 @@ function preview(origin, width, height) {
   const stay = (event, url) => { if (originOf(url) !== origin) event.preventDefault(); };
   wc.on('will-navigate', stay);
   wc.on('will-redirect', stay);
-  entry = { win, timer: null };
+  entry = { win, timer: null, checks: 1 };  // checks: the ones using it now
   previews.set(origin, entry);
   win.on('closed', () => { if (previews.get(origin) === entry) previews.delete(origin); });
   return entry;
 }
 
+// A check is done with the preview: it waits for the next one undrawn. Its page runs on as
+// before, but an offscreen window otherwise copies out every frame its animations change,
+// for nobody, until it closes (pictures still come fresh: preview() draws it again).
 function keepAlive(origin) {
   const entry = previews.get(origin);
   if (!entry) return;
   clearTimeout(entry.timer);
   entry.timer = setTimeout(() => { if (!entry.win.isDestroyed()) entry.win.destroy(); }, IDLE_CLOSE_MS);
   if (entry.timer.unref) entry.timer.unref();
+  entry.checks = Math.max(0, entry.checks - 1);
+  if (!entry.checks && !entry.win.isDestroyed()) entry.win.webContents.stopPainting();
 }
 
 function closeAll() {
