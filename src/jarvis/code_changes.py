@@ -121,6 +121,24 @@ def head_commit(top: Path) -> str:
     return found.out.strip() if found.ok else ""
 
 
+_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")  # a commit's id (SHA-1, or SHA-256)
+
+
+def _repo_and_head(cwd: Path) -> tuple[Repo | None, str | None]:
+    """repo_of(cwd) and HEAD's commit, from one git call where both answer plainly (a
+    checkout with commits: a view of the changes is made after every step while the pane
+    shows, and each git started costs some milliseconds). Anything else (no commits yet, no
+    checkout, an answer of another shape) is repo_of's own, with None for HEAD: head_commit
+    reads it then, as before."""
+    found = git(
+        cwd, "rev-parse", "--show-toplevel", "--show-prefix", "--verify", "-q", "HEAD^{commit}"
+    )
+    lines = found.out.splitlines()
+    if found.ok and len(lines) == 3 and lines[0] and _SHA.fullmatch(lines[2]):
+        return Repo(Path(lines[0]), lines[1]), lines[2]
+    return repo_of(cwd), None
+
+
 def default_branch(top: Path) -> str:
     """The branch work lands in: the remote's default (origin/HEAD) if there is one, else a
     local main or master, else ""."""
@@ -377,12 +395,19 @@ def _diff_args() -> list[str]:
 
 
 def diff_files(
-    repo: Repo, base: str, *, untracked: bool = True, cached: bool = False, worktree: bool = True
+    repo: Repo,
+    base: str,
+    *,
+    untracked: bool = True,
+    cached: bool = False,
+    worktree: bool = True,
+    only: set[str] | None = None,
 ) -> list[FileDiff]:
     """Every file that differs between base and the working tree (or, cached, between base
     and the index; worktree False with cached: the index against base only), within the
     session's folder, plus untracked files as new ones. Credentials show as changed, never
-    with their lines; an untracked link shows as new, never with what it points to."""
+    with their lines; an untracked link shows as new, never with what it points to. only:
+    the untracked files wanted, by root-relative path (untracked_files)."""
     spec = repo.prefix or "."
     args = [*_diff_args(), "-U3", "--no-color", "--no-ext-diff", "--no-textconv", "-M"]
     if cached:
@@ -395,16 +420,22 @@ def diff_files(
         if is_sensitive(repo.top / f.path):
             f.sensitive, f.hunks = True, []
     if untracked and worktree:
-        files += untracked_files(repo)
+        files += untracked_files(repo, only)
     return files
 
 
-def untracked_files(repo: Repo) -> list[FileDiff]:
+def untracked_files(repo: Repo, only: set[str] | None = None) -> list[FileDiff]:
+    """The untracked files (the first MAX_UNTRACKED git lists), each as a new file with its
+    lines. only: the root-relative paths wanted, of those; the rest are left out unread (a
+    session's own view keeps the files its edits touched alone, and reading every other
+    untracked file in the project, after every step, was for nothing)."""
     listed = git(
         repo.top, "ls-files", "--others", "--exclude-standard", "-z", "--", repo.prefix or "."
     )
     out: list[FileDiff] = []
     for rel in [p for p in listed.out.split("\0") if p][:MAX_UNTRACKED]:
+        if only is not None and rel not in only:
+            continue
         path = repo.top / rel
         f = FileDiff(rel, status="?", new_mode="100644")
         out.append(f)
@@ -596,7 +627,11 @@ def _relative(raw: str, root: Path) -> str | None:
 
 def scope(files: list[FileDiff], marks: list[EditMark], top: Path) -> list[FileDiff]:
     """Only the session's: files its edits touched, and in them only the hunks it made."""
-    by_file = marks_by_file(marks, top)
+    return _scoped(files, marks_by_file(marks, top))
+
+
+def _scoped(files: list[FileDiff], by_file: dict[str, list[EditMark]]) -> list[FileDiff]:
+    """scope, with the marks by file already worked out (marks_by_file)."""
     kept: list[FileDiff] = []
     for f in files:
         mine = by_file.get(f.path) or (by_file.get(f.old_path) if f.old_path else None)
@@ -858,15 +893,28 @@ def session_view(
     """What the session changed: against base (HEAD when ""), only the hunks its own edits
     made when scoped (a shared folder), else everything (its own isolated copy). None when
     the folder isn't in a git repository."""
-    repo = repo_of(cwd)
+    return _session_view(cwd, marks, base=base, scoped=scoped)[0]
+
+
+def _session_view(
+    cwd: Path, marks: list[EditMark], *, base: str = "", scoped: bool = True
+) -> tuple[View | None, str | None]:
+    """session_view, and HEAD's commit when it was read on the way (None when it wasn't),
+    for a branch view made right after it."""
+    repo, head = _repo_and_head(cwd)
     if repo is None:
-        return None
-    base = base or head_commit(repo.top) or EMPTY_TREE
-    files = diff_files(repo, base)
-    if scoped:
-        files = scope(files, marks, repo.top)
+        return None, None
+    if not base:
+        if head is None:
+            head = head_commit(repo.top)
+        base = head or EMPTY_TREE
+    if scoped:  # (an untracked file is the session's only when its edits touched it)
+        by_file = marks_by_file(marks, repo.top)
+        files = _scoped(diff_files(repo, base, only=set(by_file)), by_file)
+    else:
+        files = diff_files(repo, base)
     files = spoken_order(files)
-    return View(repo, base, files, number(files))
+    return View(repo, base, files, number(files)), head
 
 
 def turn_marks(task: Any) -> list[EditMark]:
@@ -890,11 +938,17 @@ def view_for(
     on the branch it goes back into, anyone's, plus the work not committed yet). Numbers
     are always the session view's, so "change 3" is the same hunk in every view; with
     nothing of its own yet (its changes came from commands, say), the branch's."""
-    session = session_view(cwd, marks, base=base, scoped=scoped)
+    session, head = _session_view(cwd, marks, base=base, scoped=scoped)
     if session is None:
         return None
+    # The branch's own view, for the branch view alone: a session or turn view with nothing
+    # of the session's own has no files, so none of its hunks takes a number from the
+    # branch's (making it anyway cost a dozen gits and a whole diff after every step of a
+    # session that has committed its work, or has only run commands).
     branch = (
-        branch_view(session.repo, branch_into) if which == "branch" or not session.files else None
+        branch_view(session.repo, branch_into, head=head)
+        if which not in ("session", "turn")
+        else None
     )
     numbers = session.numbers if session.files or branch is None else branch.numbers
     if which == "session":
@@ -902,15 +956,16 @@ def view_for(
     if which == "turn":
         files = scope(session.files, turn, session.repo.top)
         return View(session.repo, session.base, files, numbers)
-    branch = branch or branch_view(session.repo, branch_into)
+    branch = branch or branch_view(session.repo, branch_into, head=head)
     return View(branch.repo, branch.base, branch.files, numbers)
 
 
-def branch_view(repo: Repo, into: str = "") -> View:
+def branch_view(repo: Repo, into: str = "", *, head: str | None = None) -> View:
     """Everything on this branch that isn't on the one it goes into (anyone's), plus the
-    work not committed yet: on that branch itself, just the uncommitted work."""
+    work not committed yet: on that branch itself, just the uncommitted work. head: HEAD's
+    commit when the caller has just read it (None: read here)."""
     into = into or default_branch(repo.top)
-    head = head_commit(repo.top)
+    head = head_commit(repo.top) if head is None else head
     fork = merge_base(repo.top, head, into) if into and head else ""
     base = fork or head or EMPTY_TREE
     files = spoken_order(diff_files(repo, base))

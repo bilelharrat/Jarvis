@@ -114,7 +114,7 @@ class Peers:
     def _session(self, number: Any) -> Any:
         try:
             task = self.hub.tasks.tasks.get(int(number))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # (infinity is no session's number)
             return None
         return task if task is not None and task.kind == "code" else None
 
@@ -228,7 +228,7 @@ class Peers:
         target = self._session(m.group(1)) if m else None
         try:
             origin = self.hub.tasks.tasks.get(int(origin_id or 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             origin = None
         if target is None or (origin is not None and origin.id == target.id):
             return None

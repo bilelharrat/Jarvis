@@ -18,6 +18,7 @@ over.
 from __future__ import annotations
 
 import contextlib
+import json
 import re
 import time
 from dataclasses import asdict, dataclass, field, fields
@@ -132,6 +133,7 @@ class PullStore:
         self.path = path
         self.items: list[PullRecord] = []
         self.unreadable = ""
+        self._written: str | None = None  # what it last wrote (as JSON), to skip a same save
         try:
             data = jsonstore.load_json(path, dict) or {}
         except jsonstore.Unreadable as exc:
@@ -144,11 +146,19 @@ class PullStore:
                 self.items.append(rec)
 
     def save(self, now: float | None = None) -> None:
+        """Written when what it holds differs from what this store last wrote: the watcher
+        saves after every look at a pull request (every half minute while its checks run),
+        and most looks change nothing; each write is a flush to the disk on the event loop."""
         if self.unreadable:
             return
         self.prune(now)
-        with contextlib.suppress(OSError):  # a full disk: kept for this run
-            jsonstore.save_json(self.path, {"pulls": [asdict(r) for r in self.items]})
+        data = {"pulls": [asdict(r) for r in self.items]}
+        text = json.dumps(data)  # (compared as written: 1, 1.0 and true each count apart)
+        if text == self._written:
+            return
+        with contextlib.suppress(OSError):  # a full disk: kept for this run, and tried again
+            jsonstore.save_json(self.path, data)
+            self._written = text
 
     def prune(self, now: float | None = None) -> None:
         now = time.time() if now is None else now

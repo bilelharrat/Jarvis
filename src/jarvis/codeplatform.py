@@ -33,10 +33,11 @@ def other_agent(task: Any) -> bool:
 
 
 def code_task(hub: Any, msg: dict[str, Any]) -> Any:
-    """The Jarvis Code session a window command names by its id, or None."""
+    """The Jarvis Code session a window command names by its id, or None (for an id that
+    isn't a number too: null, words, a list, infinity, as hub._msg_int reads one)."""
     try:
         task = hub.tasks.tasks.get(int(msg.get("id") or 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return task if task is not None and task.kind == "code" else None
 

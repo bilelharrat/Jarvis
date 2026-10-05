@@ -632,6 +632,72 @@ def test_the_store_keeps_what_it_can_read_and_never_guesses_a_merge(tmp_path):
     assert PullStore(path).items == [] and PullStore(path).unreadable == ""  # (no good copy)
 
 
+def test_the_store_writes_only_when_what_it_holds_changed(tmp_path, monkeypatch):
+    path = tmp_path / "code_prs.json"
+    store = PullStore(path)
+    writes = []
+    real = code_prs.jsonstore.save_json
+
+    def counting(where, data, **kw):
+        writes.append(where)
+        return real(where, data, **kw)
+
+    def full(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(code_prs.jsonstore, "save_json", counting)
+    rec = PullRecord(repo="acme/app", number=7, url="u", title="t", branch="b", base="main",
+                     remote="origin", folder="/p", project="p", opened=1.0)  # fmt: skip
+    store.items.append(rec)
+    store.save()
+    store.save()  # (nothing changed: nothing written)
+    assert len(writes) == 1
+    rec.checks = "pending"
+    store.save()
+    store.save()
+    assert len(writes) == 2 and PullStore(path).items[0].checks == "pending"
+    rec.opened = 1  # the same number written another way is written
+    store.save()
+    assert len(writes) == 3 and path.read_text().count('"opened": 1,') == 1
+    rec.title = "new"
+    monkeypatch.setattr(code_prs.jsonstore, "save_json", full)
+    store.save()  # a full disk: kept for this run...
+    monkeypatch.setattr(code_prs.jsonstore, "save_json", counting)
+    store.save()  # ... and written at the next save, though nothing more changed
+    assert len(writes) == 4 and PullStore(path).items[0].title == "new"
+    rec.state = "closed"
+    store.save(now=1.0 + 86400)  # (closed a day after it opened: kept a while)
+    store.save(now=1.0 + 2 * 86400)
+    assert len(writes) == 5 and PullStore(path).items[0].state == "closed"
+    store.save(now=1.0 + (code_prs.DONE_DAYS + 1) * 86400)  # let go of: written
+    assert len(writes) == 6 and PullStore(path).items == []
+
+
+async def test_polls_that_change_nothing_write_nothing(hub, tmp_path, projects, monkeypatch):
+    repo, _bare = github_project(tmp_path, projects)
+    session(hub, repo)
+    sends(hub, monkeypatch)
+    rec = watched(hub, repo)
+    desk = hub.code_pr
+    hub.fake.run("head1", "tests", status="queued")
+    written = []
+    real = code_prs.jsonstore.save_json
+
+    def counting(where, data, **kw):
+        if where.name == "code_prs.json":
+            written.append(data)
+        return real(where, data, **kw)
+
+    monkeypatch.setattr(code_prs.jsonstore, "save_json", counting)
+    for _ in range(4):
+        await desk.poll(rec)
+    assert len(written) == 1 and rec.checks == "pending"  # (the first look: checks pending)
+    hub.fake.run("head1", "tests", conclusion="success")
+    await desk.poll(rec)
+    await desk.poll(rec)
+    assert len(written) == 2 and written[-1]["pulls"][0]["checks"] == "passed"
+
+
 def test_the_words_mark_what_github_wrote_as_data():
     rec = PullRecord(repo="acme/app", number=7, url="u", title="t", branch="b", base="main",
                      remote="origin", folder="/p", project="p")  # fmt: skip

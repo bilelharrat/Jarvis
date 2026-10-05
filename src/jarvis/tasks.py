@@ -3591,9 +3591,12 @@ def _history_said(text: str) -> tuple[str, str]:
     return "user", text.strip()
 
 
-def _history_step(block: dict[str, Any], cwd: Path) -> dict[str, Any] | None:
+def _history_step(
+    block: dict[str, Any], cwd: Path, worded: list[tuple[dict[str, Any], str, Any]] | None = None
+) -> dict[str, Any] | None:
     """One block of what Claude said or did, as a transcript entry (as _on_task_message
-    logs it live)."""
+    logs it live). worded: a step's words (what it did, its detail) are left to be worked
+    out once it's known to be among the entries kept, its (entry, tool, input) put here."""
     kind = block.get("type")
     if kind == "text":
         text = str(block.get("text") or "").strip()
@@ -3625,6 +3628,11 @@ def _history_step(block: dict[str, Any], cwd: Path) -> dict[str, Any] | None:
             "agent": str(args.get("subagent_type", "general-purpose")),
             "status": "done",
         }
+    if worded is not None:  # (its words in the same places, once it's kept)
+        entry = {"role": "tool", "text": "", "tool": name, "tool_id": tool_id, "detail": "",
+                 "status": "done"}  # fmt: skip
+        worded.append((entry, name, args))
+        return entry
     return {
         "role": "tool",
         "text": describe_tool(name, args),
@@ -3633,6 +3641,13 @@ def _history_step(block: dict[str, Any], cwd: Path) -> dict[str, Any] | None:
         "detail": approval_detail(name, args, cwd)[:4000],
         "status": "done",
     }
+
+
+def _output_text(out: Any) -> str:
+    """A step's result as its entry keeps it: its text, the first 2000 characters."""
+    if isinstance(out, list):
+        out = "\n".join(str(c.get("text", "")) for c in out if isinstance(c, dict))
+    return str(out or "")[:2000]
 
 
 # Past sessions' histories as session_history read them, by their record as it was then.
@@ -3756,9 +3771,14 @@ def _history_blocks(message: Any) -> list[dict[str, Any]]:
 def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]:
     """session_history's reading of a conversation's messages. before: the message before
     the first of them (the fork point of the first of the user's messages), when they're
-    only its newest."""
+    only its newest.
+
+    Only the newest TRANSCRIPT_KEEP entries are kept, so a step's words (describe_tool,
+    approval_detail) and its result's text are worked out for those alone: a long session's
+    thousands of steps were each described, and their outputs joined, to be let go."""
     entries: list[dict[str, Any]] = []
     steps: dict[str, dict[str, Any]] = {}  # tool id -> its entry, for its result
+    worded: list[tuple[dict[str, Any], str, Any]] = []  # steps whose words are due once kept
     fork_points: dict[str, str] = {}
     checkpoints: list[str] = []  # the user's messages in order: points to rewind files to
     changed: dict[str, set[str]] = {}  # ... and the files each of their rounds changed
@@ -3768,7 +3788,7 @@ def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]
         blocks = _history_blocks(message)
         if message.type == "assistant":
             for block in blocks:
-                if (entry := _history_step(block, cwd)) is not None:
+                if (entry := _history_step(block, cwd, worded)) is not None:
                     entries.append(entry)
                     if entry.get("tool_id"):
                         steps[entry["tool_id"]] = entry
@@ -3790,12 +3810,8 @@ def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]
                         out = block.get("content")
                         if image_count(out):
                             step["images"] = image_count(out)
-                        if isinstance(out, list):
-                            out = "\n".join(
-                                str(c.get("text", "")) for c in out if isinstance(c, dict)
-                            )
                         step["status"] = "failed" if block.get("is_error") else "done"
-                        step["output"] = str(out or "")[:2000]
+                        step["output"] = out  # (as it came: its text once it's kept)
                 elif kind == "text":
                     said.append(str(block.get("text") or ""))
                 elif kind == "image":
@@ -3816,7 +3832,15 @@ def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]
                 entries.append({"role": role, "text": text})
         last = message.uuid or last
     kept = entries[-TRANSCRIPT_KEEP:]
+    if worded:
+        kept_ids = {id(entry) for entry in kept}
+        for entry, name, args in worded:
+            if id(entry) in kept_ids:
+                entry["text"] = describe_tool(name, args)
+                entry["detail"] = approval_detail(name, args, cwd)[:4000]
     for entry in kept:
+        if "output" in entry:
+            entry["output"] = _output_text(entry["output"])
         entry["text"] = entry["text"][:8000]
         entry["past"] = True
     shown = {e["uuid"] for e in kept if e.get("uuid")}
