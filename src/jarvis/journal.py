@@ -86,6 +86,12 @@ def _one_line(text: Any, limit: int = MAX_TEXT) -> str:
     return " ".join(redact(clean_text(text or "")).split())[:limit]
 
 
+class _Payload(dict):
+    """What a save of the day's log writes (the file as it is), and which copy it is."""
+
+    number = 0
+
+
 class DayLog:
     """The last few days' requests and actions, as they happened."""
 
@@ -95,6 +101,11 @@ class DayLog:
         self.seen: list[str] = []
         self.dirty = False
         self.unreadable = ""
+        # Each copy made for a save is numbered: one older than a copy already on disk is
+        # never written over it (a thread's save still under way as the app quits).
+        self._made = 0
+        self._written = 0
+        self._saving = threading.Lock()
         self.load()
 
     def load(self) -> None:
@@ -183,14 +194,23 @@ class DayLog:
             }
             for day, e in self.days.items()
         }
-        return {"days": days, "seen": list(self.seen)}
+        self._made += 1
+        out = _Payload(days=days, seen=list(self.seen))
+        out.number = self._made
+        return out
 
     def write(self, payload: dict[str, Any]) -> None:
-        try:
-            jsonstore.save_json(self.path, payload)
-        except OSError as exc:
-            self.dirty = True  # tried again at the next save
-            log.warning("the day's log couldn't be saved: %s", exc)
+        number = getattr(payload, "number", 0)
+        with self._saving:
+            if number and number <= self._written:
+                return  # a newer copy is on disk already
+            try:
+                jsonstore.save_json(self.path, payload)
+            except OSError as exc:
+                self.dirty = True  # tried again at the next save
+                log.warning("the day's log couldn't be saved: %s", exc)
+                return
+            self._written = max(self._written, number)
 
     def flush(self) -> None:
         """Saved when something changed."""
@@ -450,7 +470,9 @@ class Journal:
         except OSError:
             return ""
 
-    def recent(self, n: int = 14) -> list[dict[str, Any]]:
+    def _newest(self, n: int) -> list[tuple[str, int]]:
+        """The days of the newest n notes in the folder, each with its size (one that can't
+        be looked at is left out)."""
         try:
             names = sorted(
                 (p.name for p in self.folder.iterdir() if NOTE_NAME.match(p.name)), reverse=True
@@ -464,10 +486,19 @@ class Journal:
                 size = self.path_for(day).stat().st_size
             except OSError:
                 continue
-            out.append(
-                {"day": day, "size": size, "mine": day in self.written and not self.owners(day)}
-            )
+            out.append((day, size))
         return out
+
+    def recent(self, n: int = 14) -> list[dict[str, Any]]:
+        return [
+            {"day": day, "size": size, "mine": day in self.written and not self.owners(day)}
+            for day, size in self._newest(n)
+        ]
+
+    def days(self, n: int = 14) -> list[str]:
+        """The days recent() lists, without reading each note to tell whether it's still as
+        Jarvis wrote it (for those that read the notes themselves: the wiki)."""
+        return [day for day, _size in self._newest(n)]
 
     def dream_notes(self, morning: date) -> list[tuple[str, str]]:
         """The notes of the DREAM_NOTES days before this morning that are there: (day, text)."""

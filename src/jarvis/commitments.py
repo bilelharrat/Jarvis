@@ -371,10 +371,12 @@ class CommitmentStore:
         late = [c for c in self.open_items() if c.due and c.due < today.isoformat()]
         return due, late
 
-    def public(self) -> list[dict[str, Any]]:
+    def public(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Open ones first, the soonest due first; limit: only the first so many made (the
+        window's list shows 150 of up to 300, and each is a copy)."""
         order = {"open": 0, "done": 1, "dismissed": 2}
         items = sorted(self.items, key=lambda c: (order[c.status], c.due or "9999", c.sent))
-        return [asdict(c) for c in items]
+        return [asdict(c) for c in items[:limit]]
 
 
 # ── reading what the owner sent ──

@@ -333,3 +333,27 @@ def test_only_promise_like_words_go_anywhere():
         "我明天发给你",
         "Will send the contract by EOD",
     ]
+
+
+def test_the_windows_list_is_the_first_150_made_and_no_more(tmp_path, hub, desk):
+    """memory_state shows 150 of up to 300 promises: the same ones, in the same order, as
+    the whole list cut to 150, with only those copied."""
+    store = CommitmentStore(tmp_path / "commitments.json")
+    statuses = ("open", "done", "dismissed")
+    for n in range(commitments.MAX_ITEMS):
+        store.items.append(
+            commitments.Commitment(
+                id=f"c{n}",
+                text=f"Send the deck number {n}",
+                to="Ann Lee",
+                due="" if n % 4 == 0 else f"2026-10-{1 + n % 28:02d}",
+                sent=f"2026-09-{1 + n % 28:02d}T10:00:00",
+                status=statuses[n % 3],
+                reminded=["eve"] if n % 5 == 0 else [],
+            )
+        )
+    assert store.public(150) == store.public()[:150]
+    assert len(store.public(150)) == 150 and len(store.public()) == commitments.MAX_ITEMS
+    assert store.public(None) == store.public()
+    desk._stores["promises"] = store
+    assert desk.state()["promises"] == store.public()[:150]

@@ -177,6 +177,18 @@ async def test_the_galaxys_search_returns_filtered_results_to_the_window(hub):
     assert len(emitted(hub, "brain_results")[-1]["q"]) == 400
 
 
+@pytest.mark.parametrize("k", [float("inf"), float("-inf"), float("nan"), None, [3], {"k": 1}])
+async def test_a_search_with_an_odd_count_gets_the_usual_results(hub, k, caplog):
+    """The window's frame is JSON, which Python reads with Infinity and NaN: a count that
+    isn't one is the usual thirty, never a traceback in the log and no results."""
+    hub.kb.build(NOTES)
+    await hub._handle({"type": "brain_search", "q": "board meeting", "seq": "odd", "k": k})
+    await feature_task(hub)
+    [result] = emitted(hub, "brain_results")
+    assert result["seq"] == "odd" and {i["id"] for i in result["items"]} >= {"notes:1", "mail:1"}
+    assert not [r for r in caplog.records if r.exc_info]
+
+
 async def test_a_switch_keeps_its_setting_and_rebuilds_only_its_source(hub):
     rebuilt = []
 
@@ -287,6 +299,24 @@ async def test_its_status_counts_the_vectors_and_notices_when_theyre_behind(hub)
     bad.write(path)
     await hub._handle({"type": "brain_semantic_status"})
     assert emitted(hub, "brain_semantic")[-1]["state"] == "unavailable"
+
+
+@pytest.mark.parametrize("vectors", ["lots", float("inf"), float("nan"), [3], {"n": 1}])
+async def test_a_damaged_vectors_file_still_gives_a_status(hub, vectors):
+    """The vectors file's counts as a damaged or hand-edited one has them (its meta is JSON,
+    read with Infinity and NaN): 0, and the status is still said."""
+    import numpy as np
+
+    hub.set_feature_prefs({"brain_semantic": True})
+    hub.kb.build(NOTES)
+    path = embeddings.vectors_path(hub.kb.store)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {"built_at": hub.kb.built_at, "vectors": vectors, "wanted": vectors, "error": ""}
+    with open(path, "wb") as fh:
+        np.savez(fh, meta=np.array(json.dumps(meta)))
+    await hub._handle({"type": "brain_semantic_status"})
+    status = emitted(hub, "brain_semantic")[-1]
+    assert status["vectors"] == 0 and status["wanted"] == 0 and status["state"] == "ready"
 
 
 def test_the_query_helper_is_never_built_inside_a_search(hub, monkeypatch, tmp_path):

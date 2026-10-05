@@ -30,7 +30,6 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -290,12 +289,14 @@ def find_habits(history: list[dict[str, Any]], now: datetime) -> list[Habit]:
     once lately at least."""
     # A request joins the first group whose key is its own or alike. Groups are only ever
     # added after it, so a key joins the same group each time it comes up (it's looked for
-    # once), and a group can only be alike when its key shares a word: only those are
-    # compared, by how many words they share. Every request against every group took 400 ms
-    # of the event loop for a full history of mostly one-off requests.
+    # once). An alike group shares at least 3 in 4 of the key's words (need), so it has one
+    # of any size - need + 1 of them: only the groups of its rarest words are compared, by
+    # how many words they share. Every request against every group took 400 ms of the
+    # event loop for a full history of mostly one-off requests, and every group sharing a
+    # word with it 30 ms when a few common words ("email", "send") came up again and again.
     groups: list[tuple[str, list[tuple[datetime, str]]]] = []
     joined: dict[str, int] = {}  # key -> the group it joins
-    sizes: list[int] = []  # the words in each group's key
+    kept: list[set[str]] = []  # the words in each group's key
     by_word: dict[str, list[int]] = {}  # word -> the groups whose key has it, in order
     oldest = timedelta(days=HISTORY_DAYS)
     for entry in history:
@@ -309,15 +310,18 @@ def find_habits(history: list[dict[str, Any]], now: datetime) -> list[Habit]:
         n = joined.get(key)
         if n is None:
             words = set(key.split())
-            shared = Counter(chain.from_iterable(by_word.get(word, ()) for word in words))
+            size = len(words)
+            need = (3 * size + 3) // 4  # the fewest words an alike group can share
+            rarest = sorted(words, key=lambda word: len(by_word.get(word, ())))
+            near = sorted({g for word in rarest[: size - need + 1] for g in by_word.get(word, ())})
             n = next(
-                (g for g in sorted(shared) if _alike_counts(shared[g], sizes[g], len(words))),
+                (g for g in near if _alike_counts(len(words & kept[g]), len(kept[g]), size)),
                 None,
             )
             if n is None:
                 n = len(groups)
                 groups.append((key, []))
-                sizes.append(len(words))
+                kept.append(words)
                 for word in words:
                     by_word.setdefault(word, []).append(n)
             joined[key] = n
@@ -328,18 +332,7 @@ def find_habits(history: list[dict[str, Any]], now: datetime) -> list[Habit]:
         if len(days) < MIN_DAYS:
             continue
         ordered = sorted(items)
-        minutes = [at.hour * 60 + at.minute for at, _ in ordered]
-        # The time of day most of them cluster around (one per day counts). A time that
-        # came up before finds the same ones again, never more.
-        best: list[tuple[datetime, str]] = []
-        for centre in dict.fromkeys(at.hour * 60 + at.minute for at, _ in items):
-            near = {
-                item[0].date(): item
-                for item, minute in zip(ordered, minutes, strict=True)
-                if abs(minute - centre) <= WINDOW_MIN
-            }
-            if len(near) > len(best):
-                best = list(near.values())
+        best = _clustered(ordered, [at.hour * 60 + at.minute for at, _ in items])
         if len(best) < MIN_DAYS:
             continue
         if now - max(at for at, _ in best) > timedelta(days=RECENT_DAYS):
@@ -357,6 +350,42 @@ def find_habits(history: list[dict[str, Any]], now: datetime) -> list[Habit]:
         latest = max(best)[1]
         habits.append(Habit(key, latest, times[len(times) // 2], pattern, len(best)))
     return habits
+
+
+def _clustered(
+    ordered: list[tuple[datetime, str]], minutes: list[int]
+) -> list[tuple[datetime, str]]:
+    """The requests (in time order) near the time of day most of them cluster around, one
+    a day: its latest within WINDOW_MIN. Each time a request came at (minutes, as they came
+    up) is a candidate, the first of those that the most days have one near winning. How
+    many days each has is counted in one sweep across the times of day, in order: looking
+    around every time in turn went over every request each time (a request asked a few
+    times a day for two months: a million looks)."""
+    centres = list(dict.fromkeys(minutes))
+    points = sorted((at.hour * 60 + at.minute, at.date()) for at, _ in ordered)
+    inside: Counter[date] = Counter()  # the days with a request near the time, and how many
+    days_near: dict[int, int] = {}
+    low = high = 0
+    for centre in sorted(centres):
+        while high < len(points) and points[high][0] <= centre + WINDOW_MIN:
+            inside[points[high][1]] += 1
+            high += 1
+        # Never past the request at the centre itself, so never past `high`.
+        while points[low][0] < centre - WINDOW_MIN:
+            day = points[low][1]
+            inside[day] -= 1
+            if not inside[day]:
+                del inside[day]
+            low += 1
+        days_near[centre] = len(inside)
+    most = max(days_near.values())
+    centre = next(c for c in centres if days_near[c] == most)
+    near = {
+        item[0].date(): item
+        for item in ordered
+        if abs(item[0].hour * 60 + item[0].minute - centre) <= WINDOW_MIN
+    }
+    return list(near.values())
 
 
 def _today_fits(pattern: str, day: date) -> bool:

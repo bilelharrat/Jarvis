@@ -183,6 +183,25 @@ async def test_adding_one_brings_its_models_and_starts_the_relay(
     assert events[1][0] == "providers_error" and len(hub.providers.providers) == 1
 
 
+@pytest.mark.parametrize("port", [float("inf"), float("-inf"), float("nan"), None, "x", [1234]])
+async def test_an_odd_port_from_the_window_adds_nothing_and_says_so(
+    settings, quiet_speaker, isolated, port, caplog
+):
+    """The window's frame is JSON, which Python reads with Infinity and NaN: a port that
+    isn't a number names no server found (as hub._msg_int reads a window's numbers), and
+    the owner is told to look again; nothing is added and no traceback is logged."""
+    hub = make_hub(settings, quiet_speaker, isolated)
+    finder = local_models.LocalModels(hub, local_client({1234: ["qwen3-coder"]}))
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    await finder.scan()
+    events.clear()
+    await finder.add({"port": port})
+    assert events == [("providers_error", {"text": "Look for it again first: it isn't running."})]
+    assert not hub.providers.providers
+    assert not [r for r in caplog.records if r.exc_info]
+
+
 def test_the_feature_registers_its_commands_and_the_relay_keeper(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated)
     assert "local_models_scan" in hub._commands and "local_models_add" in hub._commands

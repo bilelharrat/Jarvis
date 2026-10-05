@@ -430,3 +430,244 @@ async def test_conversations_and_journal_feed_pages(hub, desk, monkeypatch):
     assert {s["kind"] for s in page["statements"]} >= {"fact", "journal", "conversation"}
     out = said({"content": [{"type": "text", "text": desk.wiki.page_text("person:ann-lee")}]})
     assert "daily note of 2026-09-28" in out and "conversation “Ann's deck”" in out
+
+
+# ── past conversations, listed again only when Claude Code's records of them change ──
+
+
+def _record(folder, ask, name=None):
+    """A session record as Claude Code keeps one: the owner's request and the reply."""
+    import uuid
+
+    path = folder / f"{name or uuid.uuid4()}.jsonl"
+    lines = [
+        {
+            "type": role,
+            "sessionId": path.stem,
+            "timestamp": "2026-10-01T10:00:00Z",
+            "message": {"role": role, "content": text},
+        }
+        for role, text in (("user", ask), ("assistant", "Sure."))
+    ]
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    return path
+
+
+def test_past_conversations_are_listed_again_only_when_their_records_change(tmp_path, monkeypatch):
+    """Listing reads every record's first and last 64 KB (a tenth of a second for a few
+    hundred, every ten minutes): with the same records, the same files, sizes and times, the
+    last listing is the listing; anything written, added or removed is listed again, and
+    what comes back is always what the SDK itself lists."""
+    import os
+
+    from claude_agent_sdk import list_sessions
+    from claude_agent_sdk._internal import sessions as sdk
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))  # never the real ~/.claude
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    where = str(workspace)
+    calls = []
+
+    def counted(**kw):
+        calls.append(kw)
+        return list_sessions(**kw)
+
+    cached = feature.SessionList(counted)
+
+    def listed():
+        return cached(directory=where, limit=200, include_worktrees=False)
+
+    def fresh():
+        return list_sessions(directory=where, limit=200, include_worktrees=False)
+
+    assert listed() == [] and len(calls) == 1  # no records yet
+    folder = sdk._get_project_dir(sdk._canonicalize_path(where))
+    folder.mkdir(parents=True)
+    first = _record(folder, "what's the weather")
+    second = _record(folder, "send Ann the deck")
+    assert {s.first_prompt for s in listed()} == {"what's the weather", "send Ann the deck"}
+    assert len(calls) == 2
+    assert listed() == fresh() and len(calls) == 2  # nothing changed: nothing read
+    (folder / "notes.txt").write_text("not a record")
+    assert listed() == fresh() and len(calls) == 2
+    with first.open("a") as handle:  # the conversation went on
+        handle.write(json.dumps({"type": "user", "message": {"content": "and tomorrow?"}}) + "\n")
+    assert listed() == fresh() and len(calls) == 3
+    third = _record(folder, "play some jazz")
+    assert listed() == fresh() and len(calls) == 4
+    assert third.stem in {s.session_id for s in listed()} and len(calls) == 4
+    second.unlink()
+    assert listed() == fresh() and len(calls) == 5
+    later = os.stat(first).st_mtime + 60  # written again, the same size
+    os.utime(first, (later, later))
+    assert listed() == fresh() and len(calls) == 6
+    first.write_text(first.read_text().replace("weather", "WEATHER"))  # the same size again
+    os.utime(first, (later + 60, later + 60))
+    assert listed() == fresh() and len(calls) == 7
+    assert "what's the WEATHER" in {s.first_prompt for s in listed()} and len(calls) == 7
+    os.chmod(third, 0)  # unreadable now: the SDK leaves it out, though nothing was written
+    try:
+        assert listed() == fresh() and len(calls) == 8
+        assert third.stem not in {s.session_id for s in listed()}
+    finally:
+        os.chmod(third, 0o600)
+    assert listed() == fresh() and len(calls) == 9
+    assert listed() is not listed()  # a copy each time: a caller's changes stay its own
+
+
+def test_listings_the_records_cant_vouch_for_are_read_each_time(tmp_path, monkeypatch):
+    """Worktrees (another folder's records count too), no folder, or an SDK that doesn't say
+    where it keeps them: every listing is the lister's own, as before."""
+    from claude_agent_sdk._internal import sessions as sdk
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    calls = []
+
+    def lister(**kw):
+        calls.append(kw)
+        return []
+
+    cached = feature.SessionList(lister)
+    for _ in range(2):
+        cached(directory=str(tmp_path), limit=200, include_worktrees=True)
+        cached(limit=200)
+    assert len(calls) == 4
+
+    def lost(_path):
+        raise AttributeError("no such helper in this SDK")
+
+    monkeypatch.setattr(sdk, "_find_project_dir", lost)
+    for _ in range(2):
+        cached(directory=str(tmp_path), limit=200, include_worktrees=False)
+    assert len(calls) == 6
+
+
+async def test_the_wiki_lists_past_conversations_through_its_cache(hub, desk, monkeypatch):
+    seen = []
+
+    def listing(*_a, **kw):
+        seen.append(kw.get("list_sessions"))
+        return []
+
+    monkeypatch.setattr(conversation_past, "listing", listing)
+    await desk.refresh(force=True)
+    assert seen == [desk.sessions] and isinstance(desk.sessions, feature.SessionList)
+
+
+async def test_the_wiki_reads_each_daily_note_once(hub, desk, monkeypatch):
+    """The pages read the newest notes for mentions: each note is read once a look, never
+    read again to tell whether it's still as Jarvis wrote it (the wiki doesn't ask)."""
+    from jarvis.journal import Journal
+
+    md = desk.memory_desk
+    md.journal.write("2026-09-27", "# Sunday\n\n- Lunch with Bob Stone\n")
+    md.journal.write("2026-09-28", "# Monday\n\n- Called Ann about the deck\n")
+    reads, looked = [], []
+    real_read = Journal.read
+
+    def read(self, day, limit=20_000):
+        reads.append(day)
+        return real_read(self, day, limit)
+
+    monkeypatch.setattr(Journal, "read", read)
+    monkeypatch.setattr(Journal, "owners", lambda self, day: looked.append(day) or False)
+    await desk.refresh(force=True)
+    assert reads == ["2026-09-28", "2026-09-27"] and looked == []
+    assert [day for day, _text in desk._notes] == ["2026-09-28", "2026-09-27"]
+
+
+def _sdk_reached(monkeypatch):
+    """Every way past conversation_past's seam to Claude Code's records, each recorded:
+    the SDK's own list_sessions and where it says the records are kept."""
+    import claude_agent_sdk
+    from claude_agent_sdk._internal import sessions as sdk
+
+    reached = []
+
+    def listed(**kw):
+        reached.append(("list_sessions", kw))
+        return []
+
+    def found(path):
+        reached.append(("_find_project_dir", path))
+        return None
+
+    monkeypatch.setattr(claude_agent_sdk, "list_sessions", listed)
+    monkeypatch.setattr(sdk, "_find_project_dir", found)
+    return reached
+
+
+async def test_the_wikis_listing_goes_through_conversation_pasts_seam(
+    hub, desk, tmp_path, monkeypatch
+):
+    """The tests' blank stand-in for the SDK (conftest) is what the wiki lists with: the
+    owner's ~/.claude is never listed, nor even looked at, from a test."""
+    reached = _sdk_reached(monkeypatch)
+    workspace = tmp_path / "workspace"  # a brain's folder that's there, so it's listed
+    workspace.mkdir()
+    monkeypatch.setattr(conversation_past, "workspace", lambda: workspace)
+    asked = []
+
+    def stand_in(**kw):
+        asked.append(kw)
+        return []
+
+    monkeypatch.setattr(conversation_past, "_sdk", lambda: (stand_in, stand_in, stand_in))
+    await desk.refresh(force=True)
+    assert asked == [
+        {"directory": str(workspace), "limit": 200, "offset": 0, "include_worktrees": False}
+    ]
+    assert reached == []
+
+
+def test_a_stand_in_lister_is_asked_every_time(tmp_path, monkeypatch):
+    """A session list with no lister of its own lists through conversation_past's seam; for
+    anything there but the SDK's own list_sessions, nothing is kept and no record is
+    looked at."""
+    reached = _sdk_reached(monkeypatch)
+    asked = []
+
+    def stand_in(**kw):
+        asked.append(kw)
+        return [kw["directory"]]
+
+    monkeypatch.setattr(conversation_past, "_sdk", lambda: (stand_in, stand_in, stand_in))
+    cached = feature.SessionList()
+    for _ in range(3):
+        assert cached(directory=str(tmp_path), limit=200, include_worktrees=False) == [
+            str(tmp_path)
+        ]
+    assert len(asked) == 3 and reached == []
+
+
+def test_the_sdks_own_lister_found_through_the_seam_is_kept(tmp_path, monkeypatch):
+    """As the app runs: conversation_past's seam gives the SDK's own list_sessions, and an
+    unchanged folder of records isn't listed again."""
+    import claude_agent_sdk
+    from claude_agent_sdk import list_sessions
+    from claude_agent_sdk._internal import sessions as sdk
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))  # never the real ~/.claude
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def counted(**kw):
+        calls.append(kw)
+        return list_sessions(**kw)
+
+    monkeypatch.setattr(claude_agent_sdk, "list_sessions", counted)  # the SDK's own, counted
+    monkeypatch.setattr(conversation_past, "_sdk", lambda: (counted, counted, counted))
+    folder = sdk._get_project_dir(sdk._canonicalize_path(str(workspace)))
+    folder.mkdir(parents=True)
+    _record(folder, "what's the weather")
+    cached = feature.SessionList()
+
+    def listed():
+        return cached(directory=str(workspace), limit=200, include_worktrees=False)
+
+    assert [s.first_prompt for s in listed()] == ["what's the weather"] and len(calls) == 1
+    assert [s.first_prompt for s in listed()] == ["what's the weather"] and len(calls) == 1
+    _record(folder, "play some jazz")
+    assert len(listed()) == 2 and len(calls) == 2

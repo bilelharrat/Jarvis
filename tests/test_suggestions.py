@@ -193,6 +193,76 @@ def test_a_full_history_of_one_off_requests_is_quick(monkeypatch):
     assert calls < 60_000
 
 
+@pytest.mark.parametrize("seed", range(40))
+def test_common_words_and_favourite_requests_find_the_same_habits(seed):
+    """Keys that share common words (most of the vocabulary in most keys, or a few words
+    much more often than the rest), and a few favourite requests asked many times at many
+    times of day: the same habits, wording, time, days and count as the one-by-one look."""
+    import random
+
+    rng = random.Random(1000 + seed)
+    vocab = [f"w{n}" for n in range(rng.choice((4, 8, 20, 300)))]
+    weights = [1 / (n + 1) for n in range(len(vocab))]  # a few words far more common
+    favourites = [" ".join(sorted(set(rng.choices(vocab, k=rng.randint(1, 3))))) for _ in "abc"]
+    history = []
+    for _ in range(rng.randint(50, 900)):
+        at = NOW - timedelta(minutes=rng.randint(0, 70 * 24 * 60))
+        if rng.random() < 0.4:  # mornings and around midnight, some exactly 45 minutes apart
+            at = at.replace(hour=rng.choice((0, 7, 8, 8, 23)), minute=rng.choice((0, 15, 45, 59)))
+            key = rng.choice(favourites)
+        else:
+            words = set()
+            while len(words) < rng.randint(1, min(8, len(vocab))):
+                words.add(rng.choices(vocab, weights)[0])
+            key = " ".join(sorted(words))
+        history.append({"k": key, "t": rng.choice((key, f"{key}?", "")), "at": at.isoformat()})
+    if seed % 2:
+        history.sort(key=lambda h: h["at"])
+    assert find_habits(history, NOW) == _habits_one_by_one(history, NOW)
+
+
+def test_a_request_asked_many_times_a_day_is_quick():
+    """One request (the weather) asked 1,500 times over two months, at all hours: the time
+    it clusters around is found in one sweep across the times of day, not by looking at
+    every request around each time it came at (a million looks, 50 ms of the event loop
+    every five minutes)."""
+    import random
+    import time
+
+    rng = random.Random(2)
+
+    def history(n):
+        return sorted(
+            (
+                {
+                    "k": "weather",
+                    "t": "what's the weather",
+                    "at": (NOW - timedelta(minutes=rng.randint(0, 59 * 24 * 60))).isoformat(),
+                }
+                for _ in range(n)
+            ),
+            key=lambda h: h["at"],
+        )
+
+    full = history(sg.MAX_HISTORY)
+    assert find_habits(full, NOW) == _habits_one_by_one(full, NOW)
+
+    def cpu(items):
+        """This thread's CPU time (a busy Mac's other work doesn't count), best of three."""
+        spent = []
+        for _ in range(3):
+            started = time.thread_time()
+            find_habits(items, NOW)
+            spent.append(time.thread_time() - started)
+        return min(spent)
+
+    # Ten times the requests take about ten times as long; looking around every time of
+    # day in turn took nearly a hundred times as long.
+    small, large = history(sg.MAX_HISTORY // 10), full
+    ratios = [cpu(large) / max(cpu(small), 1e-4) for _ in range(3)]
+    assert min(ratios) < 40, ratios
+
+
 @pytest.mark.parametrize(
     "text, due",
     [

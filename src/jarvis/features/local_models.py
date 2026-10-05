@@ -104,7 +104,7 @@ class LocalModels:
         """The owner's click: the server found on this port, added with its models."""
         try:
             port = int(msg.get("port", 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # null, words, infinity: no server
             port = 0
         store = self.hub.providers
         if port not in self.found:

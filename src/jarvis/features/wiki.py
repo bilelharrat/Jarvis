@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from collections import deque
@@ -107,6 +108,92 @@ def desk_for(hub: Any) -> WikiDesk | None:
     return getattr(hub, "wiki_desk", None)
 
 
+def _records_state(directory: str) -> tuple[Any, ...] | None:
+    """Claude Code's records of the conversations in this folder as they are now, without
+    reading any: each record's name, which file it is, its size, when it was last written
+    and when anything about it last changed (who may read it too: a stat each). None when
+    where they're kept can't be told: the SDK keeps that to itself, and one that doesn't say
+    has every listing read them all, as before."""
+    try:
+        from claude_agent_sdk._internal import sessions
+
+        folder = sessions._find_project_dir(sessions._canonicalize_path(directory))
+    except Exception:
+        return None
+    if folder is None:  # no records at all (the SDK lists none) until the folder is made
+        return ("",)
+    records: list[tuple[Any, ...]] = []
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                if not entry.name.endswith(".jsonl"):
+                    continue
+                try:
+                    info = entry.stat()  # through a link, as the SDK opens it
+                except OSError:
+                    records.append((entry.name,))  # unreadable now: changed once it's read
+                    continue
+                records.append(
+                    (entry.name, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+                )
+    except OSError:
+        return None
+    return (str(folder), *sorted(records))
+
+
+def _claude_codes(lister: Any) -> bool:
+    """Whether a lister is the SDK's own list_sessions, the one that reads the records a
+    snapshot describes. Any other (the tests' blank stand-in) lists something else: it's
+    asked every time, and Claude Code's records are never looked at for it."""
+    try:
+        from claude_agent_sdk import list_sessions
+    except Exception:
+        return False
+    return lister is list_sessions
+
+
+class SessionList:
+    """Claude Code's list_sessions for the brain's folder (conversation_past.listing's
+    lister), read again only when its records changed. A listing opens every record and
+    reads its first and last 64 KB: a tenth of a second for a few hundred conversations,
+    every ten minutes whether or not the wiki is ever opened. A record only changes by being
+    written (or made unreadable), which moves its times, so the same names, files, sizes
+    and times give the very same listing."""
+
+    def __init__(self, lister: Any = None) -> None:
+        # A lister given here lists the records a snapshot describes (a test's, around the
+        # SDK's own). None: conversation_past's, found at each listing.
+        self.lister = lister
+        self._kept: tuple[tuple[Any, ...], tuple[Any, ...], list[Any]] | None = None
+
+    def __call__(
+        self,
+        directory: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+        include_worktrees: bool = True,
+    ) -> list[Any]:
+        lister, vouched = self.lister, True
+        if lister is None:
+            # Through conversation_past's seam, as its listing() finds one, so a stand-in put
+            # there (the tests' blank one) is what lists: never the SDK's straight past it.
+            lister = conversation_past._sdk()[0]
+            vouched = _claude_codes(lister)
+        call = (directory, limit, offset, include_worktrees)
+        # Another worktree's records could change it too: only one folder's are looked at.
+        looked = vouched and not include_worktrees
+        state = _records_state(directory) if looked and directory else None
+        kept = self._kept
+        if state is not None and kept is not None and kept[:2] == (call, state):
+            return list(kept[2])
+        found = lister(
+            directory=directory, limit=limit, offset=offset, include_worktrees=include_worktrees
+        )
+        # The state taken before the listing: a record written meanwhile is read again next.
+        self._kept = (call, state, list(found or [])) if state is not None else None
+        return found
+
+
 def _text(text: str, error: bool = False) -> dict[str, Any]:
     out: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
     if error:
@@ -126,6 +213,7 @@ class WikiDesk:
         self._built_at = 0.0
         self._built_for = ""
         self._notes: list[tuple[str, str]] = []
+        self.sessions = SessionList()  # past conversations, listed again when they changed
         self._conversations: tuple[float, list[dict[str, Any]]] = (0.0, [])
         self._counts: tuple[float, dict[str, dict[str, int]], list[str]] = (0.0, {}, [])
         self._hour: dict[str, deque[float]] = {}
@@ -165,14 +253,14 @@ class WikiDesk:
         known = people.known_people(facts, promises, intents, hub.prefs.vips)
         notes: list[tuple[str, str]] = []
         if desk is not None:
-            for note in desk.journal.recent(wiki.MAX_JOURNAL_DAYS):
-                text = desk.journal.read(note["day"], 20_000)
+            for day in desk.journal.days(wiki.MAX_JOURNAL_DAYS):
+                text = desk.journal.read(day, 20_000)
                 if text.strip():
-                    notes.append((note["day"], text))
+                    notes.append((day, text))
         now = time.monotonic()
         at, convos = self._conversations
         if not at or now - at > CONVERSATIONS_EVERY:
-            convos = conversation_past.listing()
+            convos = conversation_past.listing(list_sessions=self.sessions)
             self._conversations = (now, convos)
         at, counts, missing = self._counts
         if not at or now - at > COUNTS_EVERY:

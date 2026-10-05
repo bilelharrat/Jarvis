@@ -343,7 +343,7 @@ class MemoryDesk:
             "suggestions": self.inbox.public(),
             "about": self.about.public(),
             "intents": self.intents.public(),
-            "promises": self.promises.public()[:150],
+            "promises": self.promises.public(150),
             "people": people.known_people(
                 store.facts, self.promises.items, self.intents.items, self.hub.prefs.vips
             ),
@@ -446,10 +446,25 @@ class MemoryDesk:
     # ── the loop ──
 
     async def loop(self) -> None:
-        await asyncio.sleep(START_AFTER)
-        while True:
-            await self.tick()
-            await asyncio.sleep(TICK)
+        try:
+            await asyncio.sleep(START_AFTER)
+            while True:
+                await self.tick()
+                await asyncio.sleep(TICK)
+        finally:
+            self._keep_log()
+
+    def _keep_log(self) -> None:
+        """The loop stopped (the app is quitting): what the day's log took in since the last
+        look's save is saved now, or the evening's note would never have it. A save still
+        under way on a thread is an older copy, and never lands over this one."""
+        if "daylog" not in self._stores:  # never opened: nothing heard, nothing to keep
+            return
+        try:
+            self._log_activity()
+            self.daylog.flush()
+        except Exception:
+            log.exception("memory: the day's log couldn't be kept")
 
     async def tick(self, now: datetime | None = None) -> None:
         now = now or datetime.now()

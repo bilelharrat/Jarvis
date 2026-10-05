@@ -333,6 +333,82 @@ def test_the_log_is_copied_before_a_thread_writes_it(tmp_path):
     ]
 
 
+def test_an_older_copy_of_the_log_never_lands_over_a_newer_one(tmp_path):
+    """A thread's save still under way as a newer copy is saved (the app quitting): the
+    older one, finishing last, never goes over it; the file is the log's own shape."""
+    today = date.today().isoformat()
+    log = DayLog(tmp_path / "journal_log.json")
+    log.request("what's on today?", at(date.today(), 9))
+    older = log.payload()
+    log.request("and tomorrow?", at(date.today(), 10))
+    log.flush()  # the newer copy
+    log.write(older)  # the thread's, last
+    assert [r[1] for r in DayLog(log.path).day(today)["requests"]] == [
+        "what's on today?",
+        "and tomorrow?",
+    ]
+    asked = [["09:00", "what's on today?"], ["10:00", "and tomorrow?"]]
+    assert json.loads(log.path.read_text()) == {
+        "days": {today: {"requests": asked, "actions": []}},
+        "seen": [],
+    }
+    assert not log.dirty
+
+
+async def test_what_the_days_log_took_in_is_kept_when_the_app_quits(hub, desk, monkeypatch):
+    """The loop saves the day's log at each look, a minute apart; the app quitting stops it
+    between two: what was asked and done since the last look is saved as it stops, so the
+    evening's note still has it."""
+    import asyncio
+
+    from jarvis.features import memory as feature
+
+    monkeypatch.setattr(feature, "START_AFTER", 0)
+    monkeypatch.setattr(feature, "TICK", 3600)
+    today = date.today().isoformat()
+    path = desk.daylog.path
+    await desk.heard("what's on my calendar today?")
+    task = asyncio.create_task(desk.loop())
+    for _ in range(500):  # the first look saves what it has
+        await asyncio.sleep(0.01)
+        if path.exists() and DayLog(path).day(today)["requests"]:
+            break
+    await desk.heard("and the weather tomorrow?")  # after that look
+    hub.activity.appendleft(
+        {
+            "id": "t9",
+            "label": "Checked the weather",
+            "status": "done",
+            "at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    assert len(DayLog(path).day(today)["requests"]) == 1
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    kept = DayLog(path).day(today)
+    assert [r[1] for r in kept["requests"]] == [
+        "what's on my calendar today?",
+        "and the weather tomorrow?",
+    ]
+    assert [a[1] for a in kept["actions"]] == ["Checked the weather"]
+
+
+async def test_a_loop_that_never_heard_anything_saves_no_log(hub, desk, monkeypatch):
+    import asyncio
+
+    from jarvis.features import memory as feature
+
+    monkeypatch.setattr(feature, "START_AFTER", 3600)
+    task = asyncio.create_task(desk.loop())
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert "daylog" not in desk._stores
+    assert not hub.feature_path("journal_log.json").exists()
+
+
 def test_a_log_that_couldnt_be_saved_is_tried_again(tmp_path, monkeypatch):
     log = DayLog(tmp_path / "journal_log.json")
     log.request("hello there", at(date.today(), 9))
@@ -363,6 +439,25 @@ def test_the_journal_lists_recent_notes_and_whose_they_are(tmp_path):
     listed = notes.recent()
     assert [(n["day"], n["mine"]) for n in listed] == [("2026-09-28", True), ("2026-09-27", False)]
     assert Journal(tmp_path / "Journal", tmp_path / "journal_state.json").written == notes.written
+
+
+def test_the_days_are_the_ones_recent_lists_without_reading_a_note(tmp_path, monkeypatch):
+    """days(): the wiki reads the notes itself, so it's given recent()'s days (the newest n,
+    one that can't be looked at left out) without each note read to tell whose it is."""
+    notes = Journal(tmp_path / "Journal", tmp_path / "journal_state.json")
+    for day in ("2026-09-25", "2026-09-26", "2026-09-28"):
+        notes.write(day, f"ours, {day}\n")
+    (tmp_path / "Journal" / "2026-09-27.md").write_text("the owner's own\n")
+    (tmp_path / "Journal" / "notes.md").write_text("not a daily note\n")
+    (tmp_path / "Journal" / "2026-09-29.md").symlink_to(tmp_path / "gone.md")  # can't be read
+    for n in (0, 1, 2, 3, 14):
+        assert notes.days(n) == [note["day"] for note in notes.recent(n)]
+    assert notes.days() == ["2026-09-28", "2026-09-27", "2026-09-26", "2026-09-25"]
+    looked = []
+    monkeypatch.setattr(Journal, "owners", lambda self, day: looked.append(day))
+    notes.days(14)
+    assert looked == []
+    assert Journal(tmp_path / "nowhere", tmp_path / "state.json").days() == []
 
 
 # ── the second brain reads them ──

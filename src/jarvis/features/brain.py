@@ -145,8 +145,8 @@ class SemanticControl:
         meta = _vector_meta(embeddings.vectors_path(hub.kb.store))
         out: dict[str, Any] = {
             "on": on,
-            "vectors": int(meta.get("vectors") or 0),
-            "wanted": int(meta.get("wanted") or 0),
+            "vectors": _count(meta.get("vectors")),
+            "wanted": _count(meta.get("wanted")),
         }
         if not on:
             return {**out, "state": "off", "detail": ""}
@@ -233,6 +233,15 @@ def _vector_meta(path: Path) -> dict[str, Any]:
     return meta if isinstance(meta, dict) else {}
 
 
+def _count(value: Any) -> int:
+    """A count the vectors file's meta gives: 0 for one that isn't (a damaged file's words,
+    a list, infinity), so Settings still says where search by meaning is."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def research_file(value: Any) -> Path | None:
     """A report or its PDF or web page, directly in the research folder; None otherwise."""
     try:
@@ -268,7 +277,7 @@ def install(hub: Any) -> None:
         query = str(msg.get("q") or "")[:400]
         try:
             k = max(1, min(MAX_RESULTS, int(msg.get("k") or 30)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # words, a list, infinity: the usual
             k = 30
         hits = await asyncio.to_thread(
             hub.kb.search,
