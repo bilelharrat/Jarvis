@@ -246,7 +246,8 @@ async def media_control(args):
     command = MEDIA_ACTIONS.get(args["action"].strip().lower())
     if command is None:
         raise ValueError(f"action must be one of {', '.join(MEDIA_ACTIONS)}")
-    player = _active_player() or "Music"
+    # pgrep twice: off the event loop, which a busy Mac would hold up for a moment.
+    player = await asyncio.to_thread(_active_player) or "Music"
     await run_applescript(f'tell application "{player}" to {command}')
     return f"{player}: {args['action']}."
 
@@ -254,7 +255,7 @@ async def media_control(args):
 @tool("now_playing", "What song is playing in Spotify or Apple Music.", {})
 @_guarded
 async def now_playing(_args):
-    player = _active_player()
+    player = await asyncio.to_thread(_active_player)
     if player is None:
         return "No music app is open."
     script = f'''tell application "{player}"

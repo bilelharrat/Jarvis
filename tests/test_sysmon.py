@@ -1,8 +1,13 @@
 """System stats' pop-out: Activity Monitor's numbers, parsed from the Mac's own tools."""
 
 import asyncio
+import contextlib
+import subprocess
 import time
+import types
 
+import psutil
+import pytest
 from test_hub import make_hub
 
 from jarvis import sysmon
@@ -63,6 +68,92 @@ def test_energy_impact_is_read_from_tops_second_sample():
     assert [r["name"] for r in rows] == ["WindowServer", "Claude Helper", "J.A.R.V.I.S Help"]
     assert rows[0] == {"pid": 428, "name": "WindowServer", "energy": 62.1}
     assert energy_impact("") == []
+
+
+def test_memory_pressure_is_read_in_this_process_as_sysctl_says_it(monkeypatch):
+    """It's in every two-second sample: read with sysctlbyname, never a `sysctl` child, and
+    the same number `sysctl -n` prints (100 minus the level; it moves, so near enough)."""
+    if not sysmon._libc_sysctl():
+        pytest.skip("no sysctlbyname here")
+    ran = []
+    monkeypatch.setattr(sysmon, "_run", lambda *cmd, **_kw: ran.append(cmd) or "")
+    pressure = sysmon.memory_pressure()
+    assert ran == []
+    out = subprocess.run(
+        ["sysctl", "-n", "kern.memorystatus_level"], capture_output=True, text=True
+    ).stdout.strip()
+    if out.isdigit():
+        assert pressure is not None and 0 <= pressure <= 100
+        assert abs(pressure - (100 - int(out))) <= 10
+
+
+def test_memory_pressure_without_sysctlbyname_asks_the_command(monkeypatch):
+    monkeypatch.setattr(sysmon, "_sysctlbyname", False)
+    said = {("sysctl", "-n", "kern.memorystatus_level"): "38\n"}
+    monkeypatch.setattr(sysmon, "_run", lambda *cmd, **_kw: said.get(cmd, ""))
+    assert sysmon.memory_pressure() == 62
+    said.clear()
+    assert sysmon.memory_pressure() is None
+    monkeypatch.setattr(sysmon, "_sysctlbyname", lambda *_args: -1)  # no such name here
+    assert sysmon.memory_pressure() is None
+
+
+class FakeProc:
+    def __init__(self, pid, cpu, memory, name, gone=False):
+        self.pid, self._cpu, self._memory, self._name, self.gone = pid, cpu, memory, name, gone
+        self.named = 0
+
+    @contextlib.contextmanager
+    def oneshot(self):
+        yield
+
+    def cpu_percent(self, interval=None):
+        return self._cpu
+
+    def memory_info(self):
+        return types.SimpleNamespace(rss=self._memory)
+
+    def num_threads(self):
+        return self.pid % 3 + 1
+
+    def name(self):
+        self.named += 1
+        if self.gone:
+            raise psutil.NoSuchProcess(self.pid)
+        return self._name
+
+    def username(self):
+        return "root" if self.pid % 2 else "owner"
+
+
+def test_names_are_read_for_the_rows_shown_only(monkeypatch):
+    """A Mac runs well over a thousand processes: a look reads every one's CPU, memory and
+    threads, but names and users only for the rows the tab shows, in the same order, and a
+    process gone before its name was read gives its place to the next."""
+    procs = [FakeProc(pid, pid % 7 + 0.5, pid * 4096 % 70001, f"app{pid}") for pid in range(1, 400)]
+    procs[5].gone = True  # pid 6: among the busiest
+    monkeypatch.setattr(sysmon.psutil, "process_iter", lambda: iter(procs))
+    m = SystemMonitor()
+    rows = m._processes()
+    assert len(rows) == len(procs) and sum(r["threads"] for r in rows) == sum(
+        p.num_threads() for p in procs
+    )
+    for key in ("cpu", "memory"):
+        shown = m._top(rows, key)
+        live = [p for p in procs if not p.gone]
+        expected = [
+            {
+                "pid": p.pid,
+                "name": p._name,
+                "cpu": round(p._cpu, 1),
+                "memory": p._memory,
+                "threads": p.num_threads(),
+                "user": p.username(),
+            }
+            for p in sorted(live, key=lambda p: -(p._cpu if key == "cpu" else p._memory))
+        ][: sysmon.TOP_PROCESSES]
+        assert shown == expected
+    assert sum(p.named for p in procs) <= 2 * (sysmon.TOP_PROCESSES + 1)
 
 
 def test_samples_become_rates_and_history(monkeypatch):

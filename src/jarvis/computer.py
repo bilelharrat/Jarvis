@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,10 @@ SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".ppk
 _SSH_KEYS = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519")
 # .env.example and friends are the shareable templates of the real thing.
 _ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template", ".env.dist", ".env.defaults"}
+# SENSITIVE_PARTS as is_sensitive looks for them: lowered once, in one pattern. The file
+# index asks about every file and folder it walks, and this is about twice as fast as
+# lowering each part and looking for it on every call.
+_SENSITIVE_PART = re.compile("|".join(re.escape(part.lower()) for part in SENSITIVE_PARTS))
 
 KEYCODES = {
     "return": 36,
@@ -135,7 +140,7 @@ def is_sensitive(path: Path) -> bool:
     """Credentials and private data: never read or shown, however it's asked for."""
     text = str(path).lower()  # (APFS ignores case: ~/library/Keychains is ~/Library/Keychains)
     name = path.name.lower()
-    if any(part.lower() in text for part in SENSITIVE_PARTS) or name in SENSITIVE_NAMES:
+    if name in SENSITIVE_NAMES or _SENSITIVE_PART.search(text):
         return True
     if name.startswith(".env.") and name not in _ENV_TEMPLATES:  # .env.local, .env.production
         return True

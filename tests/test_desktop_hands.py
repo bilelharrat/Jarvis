@@ -356,6 +356,81 @@ def test_async_watch_emits_the_watchdog_events():
     assert seen and seen[0]["state"] == "released"
 
 
+def test_the_watchdog_rests_until_the_window_says_something():
+    """With nothing held, held back or refused it doesn't tick at all; a press wakes it, a
+    hold the window then goes quiet on is still let go of, and it rests again after."""
+    hands, poster, clock = rig()
+    checks = []
+    check = hands.check
+    hands.check = lambda: checks.append(clock.t) or check()
+    seen = []
+
+    async def run():
+        task = asyncio.create_task(hands.watch(seen.append, interval=0.001))
+        await asyncio.sleep(0.03)
+        assert checks == [], "at rest: no ticks"
+        send(hands, clock, "start")
+        send(hands, clock, "press", x=0.5, y=0.5)
+        clock.tick(5)  # the window goes quiet with the button down
+        for _ in range(200):
+            await asyncio.sleep(0.002)
+            if seen:
+                break
+        assert seen and seen[0]["state"] == "released" and hands.held is None
+        await asyncio.sleep(0.01)
+        rested = len(checks)
+        await asyncio.sleep(0.03)
+        assert len(checks) == rested, "nothing held: at rest again"
+        task.cancel()
+
+    asyncio.run(run())
+    assert poster.kinds()[-1] == "up"
+
+
+def test_the_watchdogs_first_look_at_the_permission_is_off_the_loop():
+    """watch() starts with the hub: its line in the log asks about the permission in a
+    worker thread (the real first look imports Quartz, a third of a second), never on the
+    loop the hub is starting on."""
+    import threading
+
+    hands, poster, _clock = rig()
+    asked_on = []
+    poster.permitted = lambda: asked_on.append(threading.current_thread()) or True
+
+    async def run():
+        task = asyncio.create_task(hands.watch(lambda _e: None, interval=0.001))
+        for _ in range(100):
+            await asyncio.sleep(0.002)
+            if asked_on:
+                break
+        task.cancel()
+
+    asyncio.run(run())
+    assert asked_on and asked_on[0] is not threading.main_thread()
+
+
+def test_a_refusal_keeps_the_watchdog_looking_for_the_permission():
+    """Refused for want of Accessibility, the watchdog looks again until it's granted, as
+    it did when it ticked all the time."""
+    hands, poster, clock = rig(permitted=False)
+    seen = []
+
+    async def run():
+        task = asyncio.create_task(hands.watch(seen.append, interval=0.001))
+        await asyncio.sleep(0.01)
+        assert send(hands, clock, "start")["state"] == "blocked"
+        poster._permitted = True
+        clock.tick(dh.RECHECK_S + 0.1)
+        for _ in range(200):
+            await asyncio.sleep(0.002)
+            if seen:
+                break
+        task.cancel()
+
+    asyncio.run(run())
+    assert seen == [{"state": "allowed"}] and hands.blocked_at is None
+
+
 # ── the real mouse wins ──
 
 

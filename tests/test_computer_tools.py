@@ -72,3 +72,41 @@ async def test_scroll_goes_where_it_is_pointed(mac):
     assert mac["scroll"] == [-5, 3] and len(mac["mouse"]) == 1
     bad = await scroll({"amount": "lots"})
     assert bad["is_error"]
+
+
+def _sensitive_as_it_was(path):
+    """is_sensitive before its parts were lowered once into one pattern: the reference."""
+    text = str(path).lower()
+    name = path.name.lower()
+    if any(p.lower() in text for p in computer.SENSITIVE_PARTS) or name in computer.SENSITIVE_NAMES:
+        return True
+    if name.startswith(".env.") and name not in computer._ENV_TEMPLATES:
+        return True
+    if name.startswith(computer._SSH_KEYS) and not name.endswith(".pub"):
+        return True
+    return path.suffix.lower() in computer.SENSITIVE_SUFFIXES or name.startswith("client_secret")
+
+
+def test_sensitive_paths_are_judged_as_before():
+    """The file index asks about every file it walks: the faster check says what the old one
+    said, for every folder in the list (in any case) and every kind of name."""
+    from pathlib import Path
+
+    folders = ["/Users/ann", "/Users/ann/Documents/work", "/Volumes/Drive/stuff"]
+    folders += [f"/Users/ann{part.rstrip('/')}" for part in computer.SENSITIVE_PARTS]
+    folders += [f"/Users/ann{part.upper().rstrip('/')}/deeper" for part in computer.SENSITIVE_PARTS]
+    folders += ["/Users/ann/.sshkeys", "/Users/ann/Library/Mailboxes", "/Users/ann/aws"]
+    names = [
+        "notes.md", "id_rsa", "id_rsa.pub", "ID_ED25519", ".env", ".ENV.local", ".env.example",
+        "key.pem", "deck.KEY", "credentials.json", "Login Data", "client_secret_1.json",
+        "report.pdf", ".npmrc", "x.kdbx", "plain",
+    ]  # fmt: skip
+    seen = {True: 0, False: 0}
+    for folder in folders:
+        for name in names:
+            path = Path(folder) / name
+            assert computer.is_sensitive(path) == _sensitive_as_it_was(path), path
+            seen[computer.is_sensitive(path)] += 1
+    assert seen[True] and seen[False]
+    assert computer.is_sensitive(Path("/Users/ann/LIBRARY/KEYCHAINS/login.keychain-db"))
+    assert not computer.is_sensitive(Path("/Users/ann/Documents/keychains-notes.txt"))

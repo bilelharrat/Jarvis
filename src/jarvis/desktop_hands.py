@@ -175,7 +175,7 @@ def place(x: float, y: float, displays: list[Rect], span: str = "all") -> tuple[
 class DesktopHands:
     """One window's hands on the Mac's cursor. handle() takes the window's messages and
     returns a status event for the window (or None); check() is the watchdog, called a
-    few times a second (watch() does that)."""
+    few times a second while anything is held or waiting (watch() does that)."""
 
     def __init__(
         self,
@@ -203,10 +203,12 @@ class DesktopHands:
         self._displays_at = -math.inf
         self.blocked_at: float | None = None  # refused for want of Accessibility, since
         self.rechecked_at = -math.inf
+        self._wake: asyncio.Event | None = None  # the watchdog, waiting for work (watch)
 
     # ── lifecycle ──
 
     def start(self) -> dict[str, Any]:
+        self._poke()
         self.stopped = False
         try:
             ok = self.poster.permitted()
@@ -264,6 +266,7 @@ class DesktopHands:
     # ── messages ──
 
     def handle(self, msg: dict[str, Any]) -> dict[str, Any] | None:
+        self._poke()  # whatever it does, the watchdog looks again
         op = msg.get("op")
         now = self.clock()
         self.last_msg = now
@@ -453,18 +456,40 @@ class DesktopHands:
                 return {"state": "error", "text": FAILED}
         return None
 
+    def _resting(self) -> bool:
+        """Nothing for check() to do: no button down, no move held back, no refusal to look
+        at again. Only a message from the window (handle) changes that."""
+        return (
+            self.held is None
+            and self.blocked_at is None
+            and (self.pending is None or not self.active)
+        )
+
+    def _poke(self) -> None:
+        if self._wake is not None:
+            self._wake.set()
+
     async def watch(self, emit: Callable[[dict[str, Any]], None], interval: float = 0.25) -> None:
-        """check() every `interval` for as long as JARVIS runs."""
+        """check() every `interval` for as long as JARVIS runs, while there's something to
+        watch: at rest (hand control off, or nothing held) it waits for the window's next
+        message instead of waking four times a second for nothing."""
         with contextlib.suppress(Exception):  # one line at start: what the Mac allows this backend
             import os
 
+            # Asked in a worker thread: the first look imports Quartz, a third of a second on
+            # a busy Mac, and on the loop that held up everything else the hub was starting.
+            granted = await asyncio.to_thread(self.poster.permitted)
             log.info(
                 "hand control of the Mac: Accessibility %s for this backend (pid %d, parent %d)",
-                "granted" if self.poster.permitted() else "NOT granted",
+                "granted" if granted else "NOT granted",
                 os.getpid(),
                 os.getppid(),
             )
+        self._wake = asyncio.Event()
         while True:
+            if self._resting():
+                self._wake.clear()
+                await self._wake.wait()
             await asyncio.sleep(interval)
             try:
                 event = self.check()

@@ -57,10 +57,46 @@ def vm_stat(text: str | None = None) -> dict[str, int]:
     }
 
 
+_sysctlbyname: Any = None  # libc's, looked up on first use; False where there's none
+
+
+def _libc_sysctl() -> Any:
+    global _sysctlbyname
+    if _sysctlbyname is None:
+        import ctypes
+
+        try:
+            fn = ctypes.CDLL(None).sysctlbyname
+        except (OSError, AttributeError):  # not a Mac (nor a BSD)
+            fn = False
+        else:
+            fn.argtypes = [
+                ctypes.c_char_p,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_size_t),
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+            ]
+            fn.restype = ctypes.c_int
+        _sysctlbyname = fn
+    return _sysctlbyname
+
+
 def memory_pressure() -> int | None:
-    """0-100, as Activity Monitor's graph: how much of memory the system counts as used."""
-    out = _run("sysctl", "-n", "kern.memorystatus_level").strip()
-    return 100 - int(out) if out.isdigit() else None
+    """0-100, as Activity Monitor's graph: how much of memory the system counts as used.
+    It's in every two-second sample, so it's read in this process (sysctlbyname) rather
+    than by starting `sysctl` each time; the command only where libc has no sysctlbyname."""
+    sysctlbyname = _libc_sysctl()
+    if not sysctlbyname:
+        out = _run("sysctl", "-n", "kern.memorystatus_level").strip()
+        return 100 - int(out) if out.isdigit() else None
+    import ctypes
+
+    level = ctypes.c_int(0)
+    size = ctypes.c_size_t(ctypes.sizeof(level))
+    if sysctlbyname(b"kern.memorystatus_level", ctypes.byref(level), ctypes.byref(size), None, 0):
+        return None  # no such name on this macOS: as `sysctl -n` printing nothing
+    return 100 - level.value if level.value >= 0 else None
 
 
 def battery_health(text: str | None = None) -> dict[str, Any]:
@@ -185,7 +221,7 @@ class SystemMonitor:
                 "processes": len(procs),
                 "threads": sum(p["threads"] for p in procs),
             }
-            out["processes"] = sorted(procs, key=lambda p: -p["cpu"])[:TOP_PROCESSES]
+            out["processes"] = self._top(procs, "cpu")
         elif tab == "memory":
             procs = self._processes()
             out["memory"] = {
@@ -196,7 +232,7 @@ class SystemMonitor:
                 "pressure": memory_pressure(),
                 **vm_stat(),
             }
-            out["processes"] = sorted(procs, key=lambda p: -p["memory"])[:TOP_PROCESSES]
+            out["processes"] = self._top(procs, "memory")
         elif tab == "energy":
             battery = psutil.sensors_battery()
             info: dict[str, Any] = {}
@@ -305,7 +341,10 @@ class SystemMonitor:
 
     def _processes(self) -> list[dict[str, Any]]:
         """Every process with its CPU (since the last look), memory and threads. The same
-        Process objects are kept between looks: that's what CPU % is measured against."""
+        Process objects are kept between looks: that's what CPU % is measured against.
+        Names and users are read by _top, for the rows shown only: on a Mac running well
+        over a thousand processes they were most of the cost of a look (another kernel
+        call each, and one more for every name longer than 15 characters)."""
         seen: dict[int, psutil.Process] = {}
         rows = []
         for proc in psutil.process_iter():
@@ -315,11 +354,9 @@ class SystemMonitor:
                     rows.append(
                         {
                             "pid": proc.pid,
-                            "name": proc.name(),
                             "cpu": round(proc.cpu_percent(interval=None), 1),
                             "memory": proc.memory_info().rss,
                             "threads": proc.num_threads(),
-                            "user": proc.username(),
                         }
                     )
                 seen[proc.pid] = proc
@@ -327,3 +364,30 @@ class SystemMonitor:
                 continue
         self._procs = seen
         return rows
+
+    def _top(self, rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+        """The TOP_PROCESSES rows with the most `key` (cpu or memory), each with its name
+        and user. One that has gone meanwhile is left out, and the next one shown."""
+        top = []
+        for row in sorted(rows, key=lambda p: -p[key]):
+            proc = self._procs.get(row["pid"])
+            if proc is None:
+                continue
+            try:
+                with proc.oneshot():
+                    name, user = proc.name(), proc.username()
+            except (psutil.Error, OSError):
+                continue
+            top.append(
+                {
+                    "pid": row["pid"],
+                    "name": name,
+                    "cpu": row["cpu"],
+                    "memory": row["memory"],
+                    "threads": row["threads"],
+                    "user": user,
+                }
+            )
+            if len(top) >= TOP_PROCESSES:
+                break
+        return top

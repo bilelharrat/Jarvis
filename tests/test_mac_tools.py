@@ -96,6 +96,37 @@ async def test_tool_failures_become_error_results(monkeypatch):
     assert "Not authorized" in result["content"][0]["text"]
 
 
+async def test_media_tools_find_the_player_off_the_event_loop(calls, monkeypatch):
+    """Which player is open is two pgreps: they run in a worker thread, never on the loop,
+    and the tools say the same as before."""
+    import threading
+
+    asked_on = []
+
+    def player(found):
+        def active():
+            asked_on.append(threading.current_thread() is threading.main_thread())
+            return found
+
+        return active
+
+    monkeypatch.setattr(mac_tools, "_active_player", player("Spotify"))
+    result = await mac_tools.media_control.handler({"action": "pause"})
+    assert result["content"][0]["text"] == "Spotify: pause."
+    assert calls[-1][1] == 'tell application "Spotify" to pause'
+    monkeypatch.setattr(mac_tools, "_active_player", player(None))
+    result = await mac_tools.media_control.handler({"action": "next"})
+    assert calls[-1][1] == 'tell application "Music" to next track'
+    assert (await mac_tools.now_playing.handler({}))["content"][0]["text"] == (
+        "No music app is open."
+    )
+    monkeypatch.setattr(mac_tools, "_active_player", player("Music"))
+    calls.fake.result = "So What by Miles Davis"
+    out = await mac_tools.now_playing.handler({})
+    assert out["content"][0]["text"] == "Music is playing So What by Miles Davis."
+    assert asked_on == [False, False, False, False]
+
+
 async def test_list_emails_formats_rows(calls):
     calls.fake.result = "Ann <a@x.com>\tLunch?\tMonday\tfalse\nBob\tInvoice\tTuesday\ttrue"
     result = await mac_tools.list_emails.handler({"count": 2})
