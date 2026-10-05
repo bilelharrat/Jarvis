@@ -18,6 +18,7 @@ HTML into .docx, .rtf and .odt.
 from __future__ import annotations
 
 import asyncio
+import bisect
 import contextlib
 import html
 import logging
@@ -68,11 +69,80 @@ Opener = Callable[[Path], None]
 
 
 # ── Markdown to HTML (enough for memos, letters and reports) ──
+#
+# Every step takes time in proportion to the line, whatever never closes. Italics, links,
+# headings and a table's separator line used to be regexes that scanned the rest of the
+# line from each place they could start (a lazy .+?, a [^\]]+, two \s* side by side):
+# quadratic over a long line, cubic for spaces mid-heading. The regex engine keeps the
+# GIL all the while, so even from a worker thread one stalled the voice loop for seconds.
+# They're found by the helpers below instead, each closing mark looked for once.
 
 _CODE = re.compile(r"`([^`]+)`")
 _BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
-_ITALIC = re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)")
-_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+|mailto:[^\s)]+)\)")
+# An opening * or _ isn't inside a word (nor, for *, right after another *) or before a
+# space; the closing one isn't after a space or before a word.
+_ITALIC_OPEN = re.compile(r"(?<![\w*])\*(?!\s)|(?<!\w)_(?!\s)")
+_STAR_OPEN = re.compile(r"(?<![\w*])\*(?!\s)")
+_ITALIC_CLOSE = {"*": re.compile(r"(?<!\s)\*(?!\w)"), "_": re.compile(r"(?<!\s)_(?!\w)")}
+_LINK_SCHEMES = ("http://", "https://", "mailto:")
+_LINK_STOP = re.compile(r"[\s)]")  # what ends a link's address
+
+
+def _emphasis(text: str, opener: re.Pattern[str], wrap: Callable[[str], str]) -> str:
+    """Each span an opening mark starts and the first closing one of the same mark ends,
+    with something between, wrapped; left to right, as a regex with a lazy span would
+    find them. Where each mark can close is listed once, so a mark that never closes
+    costs a lookup, not a scan of the rest of the line."""
+    closers: dict[str, list[int]] = {}
+    out: list[str] = []
+    last = 0
+    for found in opener.finditer(text):
+        start = found.start()
+        if start < last:
+            continue  # inside the span just wrapped
+        mark = text[start]
+        if mark not in closers:
+            closers[mark] = [m.start() for m in _ITALIC_CLOSE[mark].finditer(text)]
+        ends = closers[mark]
+        k = bisect.bisect_left(ends, start + 2)
+        if k == len(ends):
+            continue
+        out += (text[last:start], wrap(text[start + 1 : ends[k]]))
+        last = ends[k] + 1
+    out.append(text[last:])
+    return "".join(out)
+
+
+def _links(text: str, render: Callable[[str, str], str], schemes: tuple[str, ...] = ()) -> str:
+    """[label](address) links, rendered: the label runs to the first ] after the [ (a
+    character at least), the address from the ( to the first space or ) (a character at
+    least, and it must be the ")"), starting with one of `schemes` when given. The next ]
+    and the next space or ) are each found once and kept while they're still ahead, so a
+    [ or an address that never closes costs a lookup, not a scan of the rest of the line."""
+    out: list[str] = []
+    last = at = 0
+    close = stop = -1
+    while (start := text.find("[", at)) >= 0:
+        at = start + 1
+        if close < at:
+            close = text.find("]", at)
+            if close < 0:
+                break  # no ] after this [, so none after any later one
+        begin = close + 2
+        if close == at or not text.startswith("(", close + 1):
+            continue
+        scheme = next((s for s in schemes if text.startswith(s, begin)), None)
+        if schemes and scheme is None:
+            continue
+        if stop < begin:
+            found = _LINK_STOP.search(text, begin)
+            stop = found.start() if found else len(text)
+        if stop <= begin + len(scheme or "") or stop == len(text) or text[stop] != ")":
+            continue
+        out += (text[last:start], render(text[start + 1 : close], text[begin:stop]))
+        last = at = stop + 1
+    out.append(text[last:])
+    return "".join(out)
 
 
 def _inline(text: str) -> str:
@@ -80,16 +150,35 @@ def _inline(text: str) -> str:
     out = html.escape(text, quote=False)
     out = _CODE.sub(r"<code>\1</code>", out)
     out = _BOLD.sub(lambda m: f"<b>{m.group(1) or m.group(2)}</b>", out)
-    out = _ITALIC.sub(lambda m: f"<i>{m.group(1) or m.group(2)}</i>", out)
-    return _LINK.sub(
-        lambda m: f'<a href="{m.group(2).replace(chr(34), "%22")}">{m.group(1)}</a>', out
+    out = _emphasis(out, _ITALIC_OPEN, lambda words: f"<i>{words}</i>")
+    return _links(
+        out,
+        lambda label, url: f'<a href="{url.replace(chr(34), "%22")}">{label}</a>',
+        _LINK_SCHEMES,
     )
 
 
 _LIST = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
-_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _RULE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
-_TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)*\|?\s*$")
+_SEP_CELL = re.compile(r":?-{2,}:?")
+
+
+def _heading(line: str) -> tuple[int, str] | None:
+    """A heading's level and text: one to six #s and a space, then the text, with the
+    spaces and closing #s after it taken off."""
+    level = len(line) - len(line.lstrip("#"))
+    if not 1 <= level <= 6 or not line[level : level + 1].isspace():
+        return None
+    return level, line[level:].strip().rstrip("#").rstrip()
+
+
+def _table_sep(line: str) -> bool:
+    """The line under a table's header row (|---|:--:|): cells of two or more dashes, a
+    colon at either end of one if it likes, between |s (the outer ones may be left off)."""
+    cells = line.strip()
+    cells = cells[1:] if cells.startswith("|") else cells
+    cells = cells[:-1] if cells.endswith("|") else cells
+    return all(_SEP_CELL.fullmatch(cell.strip()) for cell in cells.split("|"))
 
 
 def markdown_html(markdown: str, title: str = "") -> str:
@@ -128,11 +217,11 @@ def markdown_html(markdown: str, title: str = "") -> str:
             close_lists()
             i += 1
             continue
-        if m := _HEADING.match(line):
+        if heading := _heading(line):
             close_para()
             close_lists()
-            level = len(m.group(1))
-            body.append(f"<h{level}>{_inline(m.group(2))}</h{level}>")
+            level, words = heading
+            body.append(f"<h{level}>{_inline(words)}</h{level}>")
         elif _RULE.match(line):
             close_para()
             close_lists()
@@ -146,7 +235,7 @@ def markdown_html(markdown: str, title: str = "") -> str:
                 i += 1
             body.append("<blockquote><p>" + "<br>".join(map(_inline, quote)) + "</p></blockquote>")
             continue
-        elif "|" in line and i + 1 < len(lines) and _TABLE_SEP.match(lines[i + 1]):
+        elif "|" in line and i + 1 < len(lines) and _table_sep(lines[i + 1]):
             close_para()
             close_lists()
             rows = [_cells(line)]
@@ -198,14 +287,15 @@ def markdown_text(markdown: str) -> str:
     """Plain text from Markdown: the markers gone, the words and layout kept."""
     out = []
     for line in clean_text(markdown).split("\n"):
-        if line.strip().startswith("```") or _TABLE_SEP.match(line) and "-" in line:
+        if line.strip().startswith("```") or _table_sep(line):
             continue
-        line = _HEADING.sub(lambda m: m.group(2), line)
+        if heading := _heading(line):
+            line = heading[1]
         line = re.sub(r"^(\s*)[-*+]\s+", r"\1• ", line)
-        line = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), line)
-        line = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)", r"\1", line)
-        line = re.sub(r"`([^`]+)`", r"\1", line)
-        line = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r"\1 (\2)", line)
+        line = _BOLD.sub(lambda m: m.group(1) or m.group(2), line)
+        line = _emphasis(line, _STAR_OPEN, lambda words: words)
+        line = _CODE.sub(r"\1", line)
+        line = _links(line, lambda label, url: f"{label} ({url})")
         line = re.sub(r"^\s*>\s?", "", line)
         out.append(line.rstrip())
     return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip() + "\n"

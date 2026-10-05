@@ -1155,6 +1155,22 @@ def _drop_and_create(conn: sqlite3.Connection) -> None:
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
+SQLITE_CORRUPT = 11
+SQLITE_NOTADB = 26
+
+
+def _damaged(exc: BaseException) -> bool:
+    """Whether SQLite said the database itself is damaged ("database disk image is malformed",
+    "file is not a database"): by its primary code, so SQLITE_CORRUPT_VTAB (a damaged
+    full-text index) counts too. A busy or unreadable disk is not damage."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    return (
+        isinstance(exc, sqlite3.DatabaseError)
+        and isinstance(code, int)
+        and code & 0xFF in (SQLITE_CORRUPT, SQLITE_NOTADB)
+    )
+
+
 # Columns the files table gained after its version was last raised. An index made before
 # them is only missing them: they're added in place, and the index is kept (a rebuild of a
 # big one takes minutes). Without them every refresh failed ("no such column: retry_at").
@@ -1248,6 +1264,7 @@ class FileIndex:
         self._schema_lock = threading.Lock()
         self._refresh_lock = threading.Lock()
         self._cancel = threading.Event()
+        self._damage = threading.Event()  # a read found the database damaged: it starts again
         self._run: _Run | None = None  # the refresh in progress
 
     def _spotlight(self, path: str) -> str:
@@ -1264,7 +1281,8 @@ class FileIndex:
     ) -> dict[str, Any]:
         """Bring the index up to date. Safe in a background thread: searches carry on while it
         runs. Returns what it did; {"busy": True} when another refresh is already running, in
-        this process or another (a command-line run)."""
+        this process or another (a command-line run). An index found damaged, by this
+        refresh or a search since the last, starts again and is filled from the files."""
         if not self._refresh_lock.acquire(blocking=False):
             return {"busy": True}
         try:
@@ -1274,6 +1292,8 @@ class FileIndex:
                 if not held:
                     return {"busy": True}
                 stats = self._refresh(progress, should_stop)
+                if self._damage.is_set():  # it found the index damaged: this one starts it again
+                    stats = self._refresh(progress, should_stop)
         finally:
             self._refresh_lock.release()
         self.last = stats
@@ -1290,6 +1310,8 @@ class FileIndex:
         # so a Documents folder at the cap can't leave Desktop and Downloads out.
         reserve = self.max_files // (ROOT_RESERVE * max(1, len(self.roots)))
         try:
+            if self._damage.is_set():  # this refresh, the last one or a search found it so
+                self._start_again()
             with self._db() as conn:
                 for i, root in enumerate(self.roots):
                     if run.halted():
@@ -1853,15 +1875,26 @@ class FileIndex:
         self._cancel.set()
         erased = False
         try:
-            with self._refresh_lock, self._process_lock(wait=True), self._db() as conn:
-                conn.execute("PRAGMA secure_delete = ON")
-                with _transaction(conn):
-                    _drop_and_create(conn)
-                with contextlib.suppress(sqlite3.Error):
-                    conn.execute("VACUUM")
-                # Until a checkpoint gets through, the old pages are still in files.db: one
-                # blocked by a reader returns "busy" rather than failing, so it's checked.
-                erased = _checkpointed(conn)
+            with self._refresh_lock, self._process_lock(wait=True):
+                try:
+                    with self._db() as conn:
+                        conn.execute("PRAGMA secure_delete = ON")
+                        with _transaction(conn):
+                            _drop_and_create(conn)
+                        with contextlib.suppress(sqlite3.Error):
+                            conn.execute("VACUUM")
+                        # Until a checkpoint gets through, the old pages are still in files.db:
+                        # one blocked by a reader returns "busy" rather than failing, so it's
+                        # checked.
+                        erased = _checkpointed(conn)
+                except sqlite3.DatabaseError as exc:
+                    if not _damaged(exc):
+                        raise
+                    # Dropping a damaged index's tables reads them, and fails: an empty one
+                    # is copied over it instead, and the checkpoint puts that in its place.
+                    self._start_again()
+                    with self._db() as conn:
+                        erased = _checkpointed(conn)
         finally:
             self._cancel.clear()
         self.last = {}
@@ -1917,6 +1950,10 @@ class FileIndex:
             # refresh made it (it otherwise stays at its largest).
             conn.execute("PRAGMA journal_size_limit = 67108864")
             yield conn
+        except sqlite3.DatabaseError as exc:
+            if _damaged(exc):  # pages it can't read: the next refresh starts the index again
+                self._damage.set()
+            raise
         finally:
             conn.close()
 
@@ -1930,7 +1967,7 @@ class FileIndex:
             try:
                 self._create()
             except sqlite3.DatabaseError as exc:
-                if getattr(exc, "sqlite_errorname", "") not in ("SQLITE_NOTADB", "SQLITE_CORRUPT"):
+                if not _damaged(exc):
                     raise
                 # The index is only a cache of what's on disk: a damaged one starts again.
                 log.warning("file index: the database was damaged; starting it again")
@@ -1975,6 +2012,34 @@ class FileIndex:
                 with contextlib.suppress(FileNotFoundError):
                     os.unlink(f"{self.path}{suffix}")
             return True
+
+    def _start_again(self) -> None:
+        """A damaged index is only a cache of what's on disk, so it starts again. A disk error
+        or a crash mid-write can damage pages that are only read later (the header and the
+        schema still open), and dropping the tables would read them too, so an empty index is
+        copied over the damaged one, page for page, by SQLite's own backup: a search reading
+        meanwhile sees the old one or the new, never a file deleted from under it. With the
+        first page damaged as well there's nothing to copy into, and its files go, as on a
+        first open. The caller holds the process lock."""
+        log.warning("file index: the database was damaged; starting it again")
+        try:
+            with (
+                self._db() as conn,
+                contextlib.closing(sqlite3.connect(":memory:", isolation_level=None)) as empty,
+            ):
+                page = int(conn.execute("PRAGMA page_size").fetchone()[0])
+                empty.execute(f"PRAGMA page_size = {page}")  # a copy into WAL must match it
+                for statement in SCHEMA:
+                    empty.execute(statement)
+                empty.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                empty.backup(conn)
+        except sqlite3.DatabaseError as exc:
+            if not _damaged(exc):
+                raise
+            with self._schema_lock:
+                self._ready = False
+            self._ensure_schema()
+        self._damage.clear()
 
 
 def _many(conn: sqlite3.Connection, match: str) -> bool:
