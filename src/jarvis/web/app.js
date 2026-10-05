@@ -373,10 +373,15 @@ function onEvent(ev) {
       const fresh = ev.items.find((t) => t.kind === 'code' && !before.has(t.id));
       if (fresh && awaitingNewSession) { awaitingNewSession = false; selectTask(fresh.id); }
       // A session that left the list (pruned) belongs in the history: one the history
-      // doesn't have yet (started since it was read) is fetched again.
+      // doesn't have yet (started since it was read) is fetched again. (The history, often
+      // thousands of sessions, is only gone through when one has left: this runs on every
+      // step of every session.)
       const liveNow = new Set(ccTasks.map((t) => t.session_id));
-      const known = new Set(codeHistory.map((h) => h.session_id));
-      if (!$('cc').hidden && liveBefore.some((s) => !liveNow.has(s) && !known.has(s))) send({ type: 'claude_history' });
+      const gone = $('cc').hidden ? [] : liveBefore.filter((s) => !liveNow.has(s));
+      if (gone.length) {
+        const known = new Set(codeHistory.map((h) => h.session_id));
+        if (gone.some((s) => !known.has(s))) send({ type: 'claude_history' });
+      }
       break;
     }
     case 'task_log': if (ev.id === ccSelected) appendEntry(ev.entry); break;
@@ -2748,10 +2753,23 @@ function currentTask() { return ccTasks.find((x) => x.id === ccSelected) || null
 function renderHeader(t) {
   const p = deckProjects.find((x) => x.name === (t ? t.folder : deckProject));
   // (The title is written every time, changed or not: features watch it to know the header
-  // was drawn again, for another session perhaps with the same title. Not while its new name
-  // is being typed: each step of a session at work wrote the old one back over the typing.)
+  // was drawn again, for another session perhaps with the same title. The same title goes
+  // into its one text node as it stands, which tells them just the same but lays nothing
+  // out: a new text node had the header laid out again, about a millisecond, on every step
+  // of every session. Unless the selection is in the title: a rename selects all of it, and
+  // only a new text node lets that selection go, so the title isn't left highlighted (and
+  // copied by ⌘C) after Esc, or after a name kept as it was. Not written at all while its
+  // new name is being typed: each step of a session at work wrote the old one back over
+  // the typing.)
   const title = $('jc-title');
-  if (!(title.isContentEditable && t && t.id === renaming)) title.textContent = t ? (t.title || t.prompt || 'New session') : (deckProject || 'Jarvis Code');
+  if (!(title.isContentEditable && t && t.id === renaming)) {
+    const text = t ? (t.title || t.prompt || 'New session') : (deckProject || 'Jarvis Code');
+    const node = title.firstChild;
+    const sel = document.getSelection();
+    const selected = !!sel && (title.contains(sel.anchorNode) || title.contains(sel.focusNode));
+    if (!selected && node && node === title.lastChild && node.nodeType === Node.TEXT_NODE && node.data === text) node.data = text;
+    else title.textContent = text;
+  }
   const sub = [];
   if (t || deckProject) sub.push(t ? t.folder : deckProject);
   if (p && p.branch) sub.push(`⎇ ${p.branch}`);

@@ -56,6 +56,7 @@ class Galaxy {
     this.visibleStamp = 0;
     this.interactive = false;
     this.running = false;
+    this.pending = 0; // the frame the loop has asked for
     this.onSelect = null;
     this.sprites = {};
     this.last = 0;
@@ -122,13 +123,16 @@ class Galaxy {
       if (!this.running) return;
       // Behind the dashboard (ambient), 30 frames a second is plenty.
       if (this.interactive || (tick++ & 1) === 0) this.frame(t);
-      requestAnimationFrame(loop);
+      this.pending = requestAnimationFrame(loop);
     };
-    requestAnimationFrame(loop);
+    this.pending = requestAnimationFrame(loop);
   }
 
+  // The frame the loop has asked for is taken back: a start before it came (closed and shown
+  // again at once) otherwise left two loops going, each drawing every frame from then on.
   stop() {
     this.running = false;
+    cancelAnimationFrame(this.pending);
   }
 
   resize() {

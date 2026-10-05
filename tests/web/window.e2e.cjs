@@ -8177,6 +8177,124 @@ test('Words that didn’t change aren’t written again, and Jarvis Code’s ses
   assert(JSON.stringify(await rewritten()) === '["cc-working-text"]', `rewritten: ${await rewritten()}`);
 });
 
+test('Jarvis Code, Settings and Tools & Accounts still move the stage, asking only the body’s own children', async () => {
+  // The sheets and Jarvis Code are the body's children: the rules that follow them look
+  // there only, not through the whole page on every change in it.
+  assert(await js(`['cc', 'settings', 'accounts'].every((id) => $(id).parentElement === document.body)`), 'a panel is no longer a child of the body');
+  await js(`toggleCC(false); $('code-pill').hidden = false; true`);
+  const stage = () => js(`(() => { const cs = (id) => getComputedStyle($(id)); return [cs('orb').visibility, cs('code-pill').display, cs('cards').left, cs('cards').right,
+    getComputedStyle(document.body).getPropertyValue('--sheet-w').trim()].join(' | '); })()`);
+  const closed = await stage();
+  assert(/^visible \| (?!none)\S+ \| \S+ \| 40px \| 0px$/.test(closed), `all closed: ${closed}`);
+  await js('toggleCC(true); true');
+  const code = await stage();
+  assert(/^hidden \| none \| 22px \| /.test(code), `Jarvis Code open: ${code}`);
+  await js('toggleCC(false); toggleSettings(true); true');
+  assert(/\| 440px \| min\(400px, 100vw\)$/.test(await stage()), `Settings open: ${await stage()}`);
+  await js('toggleSettings(false); toggleAccounts(true); true');
+  assert(/\| 760px \| min\(720px, 100vw\)$/.test(await stage()), `Tools & Accounts open: ${await stage()}`);
+  await js('toggleAccounts(false); true');
+  assert(await stage() === closed, `closed again: ${await stage()}`);
+});
+
+test('Jarvis Code’s title, the same on a step, is told again in its own text node', async () => {
+  await open(1);
+  await js(`window.__node = $('jc-title').firstChild; window.__recs = 0;
+    new MutationObserver((r) => { __recs += r.length; }).observe($('jc-title'), { childList: true, characterData: true, subtree: true }); true`);
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Editing b.py' })] }); true`);
+  await frames(1);
+  assert(await js(`$('jc-title').firstChild === __node && $('jc-title').childNodes.length === 1 && $('jc-title').textContent === 'Session 1'`), 'the same title went into a new text node (the header laid out again)');
+  assert(await js('__recs') > 0, 'the features watching the title were not told it was drawn again');
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { title: 'Renamed' })] }); true`);
+  assert(await js(`$('jc-title').textContent`) === 'Renamed', 'a new title was not shown');
+  // A title holding more than its text (a line break left by a rename) is written whole.
+  await js(`$('jc-title').append(document.createElement('br')); onEvent({ type: 'tasks', items: [__task(1, { title: 'Renamed' })] }); true`);
+  assert(await js(`$('jc-title').childNodes.length === 1 && $('jc-title').textContent === 'Renamed'`), `left: ${await js('$("jc-title").innerHTML')}`);
+});
+
+test('A rename called off with Esc, or kept as it was, leaves the title unselected', async () => {
+  // A rename selects the whole title; drawing it again lets that selection go, so the title
+  // isn't left highlighted (and copied by ⌘C) once the name is no longer being typed.
+  const selection = () => js(`(() => { const s = document.getSelection(); return s.isCollapsed + ' ' + JSON.stringify(s.toString()); })()`);
+  await open(1);  // (a session at work, so Esc doesn't close Jarvis Code)
+  await js(`$('jc-title').dispatchEvent(new MouseEvent('dblclick')); true`);
+  assert(await selection() === 'false "Session 1"', `the rename did not select the title: ${await selection()}`);
+  await press('Escape');
+  assert(!(await js('$("jc-title").isContentEditable')), 'Esc did not call the rename off');
+  assert(await selection() === 'true ""', `after Esc the title is still selected: ${await selection()}`);
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Editing c.py' })] }); true`);
+  assert(await selection() === 'true ""', `after a step the title is selected again: ${await selection()}`);
+  // Enter with the name unchanged: nothing is renamed, and the next step lets the selection go.
+  await js(`$('jc-title').dispatchEvent(new MouseEvent('dblclick')); true`);
+  await press('Enter');
+  assert(!(await sent()).includes('task_rename'), `renamed to the same name: ${await sent()}`);
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Running tests' })] }); true`);
+  assert(await selection() === 'true ""', `after Enter and a step the title is still selected: ${await selection()}`);
+  assert(await js('$("jc-title").textContent') === 'Session 1', `title: ${await js('$("jc-title").textContent')}`);
+  // With the selection elsewhere, the same title stays in its text node again.
+  await js(`document.getSelection().removeAllRanges(); window.__node = $('jc-title').firstChild;
+    onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Reading d.py' })] }); true`);
+  assert(await js(`$('jc-title').firstChild === __node`), 'the same title went into a new text node with nothing selected');
+});
+
+test('A session that leaves the list fetches the history again only when the history lacks it', async () => {
+  await open(1, `onEvent({ type: 'tasks', items: [__task(1, { session_id: 's-a' }), __task(2, { session_id: 's-b' }), __task(3, { session_id: 's-c' })] });
+    onEvent({ type: 'claude_history', items: [{ session_id: 's-b', folder: 'alpha', title: 'B', modified: Date.now() }] })`);
+  const asked = async (items) => {
+    await js(`__sent.length = 0; onEvent({ type: 'tasks', items: ${items} }); true`);
+    return (await sent()).filter((t) => t === 'claude_history').length;
+  };
+  assert(await asked(`[__task(1, { session_id: 's-a' }), __task(3, { session_id: 's-c' })]`) === 0, 'asked again for a session the history has');
+  assert(await asked(`[__task(1, { session_id: 's-a' })]`) === 1, 'not asked for one the history lacks');
+  assert(await asked(`[__task(1, { session_id: 's-a' })]`) === 0, 'asked again with nothing gone');
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { session_id: 's-a' }), __task(4, { session_id: 's-d' })] }); toggleCC(false); true`);
+  assert(await asked(`[__task(1, { session_id: 's-a' })]`) === 0, 'asked with Jarvis Code closed');
+});
+
+test('Obsidian wakes the window only for frames that can draw: fewer at rest, hardly any under Jarvis Code, a new state at once', async () => {
+  await js(`onEvent({ type: 'prefs', look: 'obsidian', language: 'en', models: [], personas: [], humor: 50 }); true`);
+  await sleep(300);
+  const count = (ms) => js(`new Promise((resolve) => {
+    const raf = window.requestAnimationFrame, clear = CanvasRenderingContext2D.prototype.clearRect;
+    let frames = 0, draws = 0;
+    window.requestAnimationFrame = (f) => { frames += 1; return raf.call(window, f); };
+    CanvasRenderingContext2D.prototype.clearRect = function (...a) { draws += 1; return clear.apply(this, a); };
+    setTimeout(() => { window.requestAnimationFrame = raf; CanvasRenderingContext2D.prototype.clearRect = clear; resolve({ frames, draws }); }, ${ms});
+  })`);
+  const rest = await count(1000);
+  assert(rest.frames <= 45 && rest.draws >= 2, `at rest: ${JSON.stringify(rest)} (asking every frame was 60 a second)`);
+  await js('toggleCC(true); true');
+  await sleep(700);  // the reactor looks at the orb twice a second, and finds it hidden
+  const under = await count(1000);
+  assert(under.frames <= 6 && under.draws === 0, `under Jarvis Code: ${JSON.stringify(under)} (asking every frame was 60 a second)`);
+  await js('toggleCC(false); true');
+  const drawn = await js(`new Promise((resolve) => {
+    const clear = CanvasRenderingContext2D.prototype.clearRect;
+    let n = 0;
+    CanvasRenderingContext2D.prototype.clearRect = function (...a) { n += 1; return clear.apply(this, a); };
+    setState('listening');
+    requestAnimationFrame(() => requestAnimationFrame(() => { CanvasRenderingContext2D.prototype.clearRect = clear; resolve(n); }));
+  })`);
+  assert(drawn >= 1, 'listening was not drawn at the next frame');
+});
+
+test('The galaxy closed and shown again before a frame keeps one loop going, not two', async () => {
+  await js(`galaxy.setData({ nodes: [{ id: 'n1', source: 'notes', title: 'A', p: [0, 0, 0] }], edges: [], clusters: [] }); setGalaxyMode('open'); true`);
+  await frames(3);
+  const drawn = await js(`new Promise((resolve) => {
+    setGalaxyMode('off');
+    setGalaxyMode('open');
+    const real = galaxy.frame;
+    let n = 0;
+    galaxy.frame = function (t) { n += 1; return real.call(this, t); };
+    let k = 10;
+    const f = () => { if (--k) requestAnimationFrame(f); else { galaxy.frame = real; resolve(n); } };
+    requestAnimationFrame(f);
+  })`);
+  await js(`setGalaxyMode('off'); true`);
+  assert(drawn <= 11, `the galaxy drew ${drawn} times in 10 frames (one loop draws 10)`);
+});
+
 test('The clocks follow the Mac’s time zone when it changes while the window is open', async () => {
   // The window's "now" is __now through the test (the clock's own ticks too, so none of them
   // comes between two steps with another time); each step sets the Mac's zone (as macOS

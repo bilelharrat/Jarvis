@@ -180,6 +180,7 @@
   let px = 0;
   let level = 0;
   let frame = 0;
+  let rest = 0;  // the timer that stands in for frames nothing would be drawn in (see tick)
   let last = 0;
   let checked = 0;
   let shown = true;
@@ -225,9 +226,19 @@
     // at rest the light moves slowly, so twenty frames a second is plenty
     const idle = (body.dataset.state || 'idle') === 'idle';
     if (shown && (!idle || now - last > 50)) { last = now; paint(now); }
-    frame = root.requestAnimationFrame(tick);
+    // The frames before the next one that can draw (or look again, while the orb is hidden)
+    // would do nothing: a timer waits them out, and the window isn't woken sixty times a
+    // second for them. The frame it then asks for is the first one past that moment, the one
+    // that drew before. (Rounded up: a timer takes whole milliseconds, and one that rounds
+    // down asks a frame too early, which would only wait again.)
+    const next = !shown ? checked + 500 : idle ? last + 50 : 0;
+    if (next) rest = setTimeout(() => { rest = 0; frame = root.requestAnimationFrame(tick); }, Math.ceil(next - performance.now()));
+    else frame = root.requestAnimationFrame(tick);
   }
+  // A change (the look, the state, the window shown again) is drawn at the next frame, as
+  // it was while the loop asked for every one: a wait at rest gives way to it.
   function wake() {
+    if (rest) { clearTimeout(rest); rest = 0; }
     if (on()) readColors();
     if (!on()) { if (frame) root.cancelAnimationFrame(frame); frame = 0; return; }
     if (reduced.matches) { paint(performance.now()); return; }
