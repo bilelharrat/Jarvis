@@ -273,6 +273,9 @@ class Stream:
         self.input_tokens = input_tokens
         self.output_tokens = 0
         self.blocks: list[dict[str, Any]] = []  # the whole message, for a non-streamed reply
+        # The open text block's pieces, its text once it closes (added to a string piece by
+        # piece, a long reply copied all of itself again for each piece: 1.5 s for a MB).
+        self._words: list[str] = []
 
     @staticmethod
     def event(kind: str, data: dict[str, Any]) -> str:
@@ -295,6 +298,8 @@ class Stream:
         if not self.open_text:
             return ""
         self.open_text = False
+        self.blocks[-1]["text"] = "".join(self._words)
+        self._words = []
         return self.event("content_block_stop", {"index": self.index})
 
     def chunk(self, data: dict[str, Any]) -> str:
@@ -323,7 +328,7 @@ class Stream:
                                 },
                             )
                         )
-                    self.blocks[-1]["text"] += part["text"]
+                    self._words.append(part["text"])
                     out.append(
                         self.event(
                             "content_block_delta",
@@ -398,6 +403,8 @@ class Stream:
         )
 
     def message(self) -> dict[str, Any]:
+        if self.open_text:  # (a whole reply: its text block is never closed)
+            self.blocks[-1]["text"] = "".join(self._words)
         return {
             "id": _new_id("msg"),
             "type": "message",

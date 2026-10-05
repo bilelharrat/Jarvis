@@ -255,3 +255,87 @@ async def test_the_save_after_a_change_is_written_off_the_event_loop(tmp_path, m
     assert json.loads(wa.store.path.read_text())["chats"][f"1{PN}"]["name"] == "Ben"
     assert emitted == ["whatsapp"]  # the window's unread count, as before
     await wa.shutdown()
+
+
+def _whole(store):
+    """store.json's text as the store wrote it before: one json.dumps of all of it."""
+    return json.dumps(
+        {
+            "chats": store.chats,
+            "contacts": store.contacts,
+            "lids": store.lids,
+            "messages": store.messages,
+        },
+        ensure_ascii=False,
+    )
+
+
+def test_each_save_is_the_text_one_dump_of_the_whole_store_makes(tmp_path, monkeypatch):
+    """A save puts the text together from each chat's messages as an earlier save encoded
+    them: after any mix of new messages, hidden addresses renamed, chats merged and chats
+    let go, it's the very text a json.dumps of the whole store makes."""
+    monkeypatch.setattr(whatsapp, "KEEP_PER_CHAT", 6)
+    monkeypatch.setattr(whatsapp, "KEEP_CHATS", 9)  # chats let go mid-run too
+    for seed in range(30):
+        rng = random.Random(seed)
+        store = Store(tmp_path / f"store-{seed}.json")
+        for step, (kind, data) in enumerate(_events(rng, 80)):
+            if kind == "messages":
+                store.apply_messages(data)
+            elif kind == "lids":
+                store.add_lids(data)
+            elif kind == "contacts":
+                store.apply_contacts(data)
+            else:
+                store.apply_chats(data)
+            if rng.random() < 0.5:
+                assert store.taken()[0] == _whole(store), (seed, step)
+        store.save()
+        assert store.path.read_text() == _whole(store)
+        again = Store(store.path)
+        again.load()  # read back: the same, and saved again the same
+        assert again.taken()[0] == _whole(again) == store.path.read_text()
+        again.apply_messages([{"id": "z", "chat": f"1{PN}", "sender": None, "ts": 1, "text": "é"}])
+        assert again.taken()[0] == _whole(again)
+
+
+def test_a_chat_given_new_messages_wholesale_is_encoded_again():
+    store = Store(None)
+    store.apply_messages([{"id": "1", "chat": f"1{PN}", "sender": None, "ts": 1, "text": "a"}])
+    store.taken()
+    store.messages[f"1{PN}"] = [
+        {"id": "2", "chat": f"1{PN}", "from_me": True, "sender": None, "ts": 2, "text": "b"}
+    ]
+    store.messages[f"2{PN}"] = []
+    assert store.taken()[0] == _whole(store)
+    store.clear()
+    empty = '{"chats": {}, "contacts": {}, "lids": {}, "messages": {}}'
+    assert store.taken()[0] == _whole(store) == empty
+
+
+def test_a_save_encodes_only_the_chats_that_changed(monkeypatch):
+    """A live message on a full store: its chat's messages are encoded again, the other
+    599 chats' are as the last save left them (the whole store took 60-120 ms on the
+    event loop, at every save)."""
+    store = _big_store(chats=600, each=20)
+    store.taken()
+    encoded = []
+    real = json.dumps
+
+    def dumps(value, *args, **kwargs):
+        if isinstance(value, list):
+            encoded.append(value)
+        return real(value, *args, **kwargs)
+
+    monkeypatch.setattr(whatsapp.json, "dumps", dumps)
+    mine = f"1555{7:07d}{PN}"
+    store.apply_messages([{"id": "live", "chat": mine, "sender": mine, "ts": 99, "text": "new"}])
+    text, _place = store.taken()
+    assert [id(v) for v in encoded] == [id(store.messages[mine])]
+    monkeypatch.setattr(whatsapp.json, "dumps", real)
+    assert text == _whole(store)
+    encoded.clear()
+    monkeypatch.setattr(whatsapp.json, "dumps", dumps)
+    store.add_lids([[f"{7}@lid", mine]])  # nothing sent from it: nothing to encode again
+    store.taken()
+    assert encoded == []

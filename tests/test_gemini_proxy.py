@@ -252,6 +252,49 @@ async def test_a_streamed_reply_with_a_tool_call_comes_out_as_anthropic_events()
     )
 
 
+def test_a_long_answer_streams_piece_by_piece_and_reads_whole():
+    """Thousands of small pieces of text: each goes out as it comes, and the message holds
+    every piece, in order (each was added to a string once, which copied the whole reply
+    again for each piece: 1.5 s on the event loop for a megabyte)."""
+    words = [f"w{i} " for i in range(5_000)]
+    stream = gemini_proxy.Stream("gemini-flash-latest", Signatures())
+    out = stream.start()
+    for word in words:
+        out += stream.chunk({"candidates": [{"content": {"parts": [{"text": word}]}}]})
+    out += stream.chunk(
+        {"candidates": [{"content": {"parts": [{"functionCall": {"name": "a", "args": {}}}]}}]}
+    )
+    out += stream.chunk({"candidates": [{"content": {"parts": [{"text": "after"}]}}]})
+    out += stream.end()
+    said = [
+        d["delta"]["text"]
+        for k, d in events_of(out)
+        if k == "content_block_delta" and d["delta"]["type"] == "text_delta"
+    ]
+    assert said == [*words, "after"]
+    assert [b.get("text") for b in stream.message()["content"]] == ["".join(words), None, "after"]
+    whole = gemini_proxy.Stream("m", Signatures())  # a reply not streamed: never closed
+    whole.chunk(
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "one "},
+                            {"text": "two"},
+                            {"functionCall": {"name": "a", "args": {"x": 1}}},
+                            {"text": "three"},
+                        ]
+                    }
+                }
+            ]
+        }
+    )
+    first = whole.message()
+    assert [b.get("text") for b in first["content"]] == ["one two", None, "three"]
+    assert whole.message()["content"] == first["content"]  # asked twice: the same
+
+
 async def test_a_whole_reply_when_not_streaming():
     relay, _ = fake_google(
         reply={"candidates": [{"content": {"parts": [{"text": "OK."}]}, "finishReason": "STOP"}]}

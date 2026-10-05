@@ -142,11 +142,19 @@ class Store:
         self._taken = 0  # texts taken to save, numbered
         self._written = 0  # the newest of them on disk
         self._cleared = 0  # clear()s so far: a text taken before one is never written
+        # Each chat's messages as store.json has them (the list they're of, and its line of
+        # JSON, the chat's id first), kept from one save to the next, and the chats whose
+        # messages changed since: a save encodes again only those (a full store's messages
+        # took 60-140 ms to encode, on the event loop, at every save). The messages change
+        # only through this class.
+        self._texts: dict[str, tuple[list[dict[str, Any]], str]] = {}
+        self._changed: set[str] = set()
 
     # on disk
 
     def load(self) -> None:
         self.loaded = True
+        self._texts, self._changed = {}, set()
         if self.path is None or not self.path.exists():
             return
         try:
@@ -180,15 +188,36 @@ class Store:
     def taken(self) -> tuple[str, tuple[int, int]]:
         """The store as store.json holds it, and its place in line for write(). Taken on the
         event loop, where the store changes. json.dumps, not json.dump: dump encodes in
-        Python, piece by piece, several times slower for a store of hundreds of chats; the
-        text is the same."""
-        data = {
-            "chats": self.chats,
-            "contacts": self.contacts,
-            "lids": self.lids,
-            "messages": self.messages,
-        }
-        text = json.dumps(data, ensure_ascii=False)
+        Python, piece by piece, several times slower for a store of hundreds of chats. The
+        text is json.dumps's of the whole store, put together from each chat's messages as
+        encoded at an earlier save when they haven't changed since."""
+        head = json.dumps(
+            {"chats": self.chats, "contacts": self.contacts, "lids": self.lids},
+            ensure_ascii=False,
+        )
+        if all(isinstance(chat, str) for chat in self.messages):
+            texts: dict[str, tuple[list[dict[str, Any]], str]] = {}
+            parts = [head[:-1], ', "messages": {']
+            for chat, kept in self.messages.items():
+                known = self._texts.get(chat)
+                if known is None or known[0] is not kept or chat in self._changed:
+                    encoded = json.dumps(kept, ensure_ascii=False)
+                    known = (kept, f"{json.dumps(chat, ensure_ascii=False)}: {encoded}")
+                texts[chat] = known
+                parts += (known[1], ", ")
+            if texts:
+                parts.pop()  # (no comma after the last)
+            parts.append("}}")
+            self._texts, self._changed = texts, set()
+            text = "".join(parts)
+        else:  # (a key that isn't text: json.dumps writes it as text, so it does it all)
+            data = {
+                "chats": self.chats,
+                "contacts": self.contacts,
+                "lids": self.lids,
+                "messages": self.messages,
+            }
+            text = json.dumps(data, ensure_ascii=False)
         self._taken += 1
         return text, (self._taken, self._cleared)
 
@@ -213,6 +242,7 @@ class Store:
         with self._write_lock:  # a write under way finishes first, and none follows
             self._cleared += 1
             self.chats, self.contacts, self.lids, self.messages = {}, {}, {}, {}
+            self._texts, self._changed = {}, set()
             self.loaded = False  # a save now writes nothing back; the next use starts afresh
             if self.path is not None:
                 with contextlib.suppress(FileNotFoundError):
@@ -251,11 +281,12 @@ class Store:
         """Messages sent from a hidden address, now from its phone number."""
         if not renames:
             return
-        for kept in self.messages.values():
+        for chat, kept in self.messages.items():
             for m in kept:
                 new = renames.get(m.get("sender"))
                 if new is not None:
                     m["sender"] = new
+                    self._changed.add(chat)
 
     def _merge(self, old: str, new: str) -> None:
         """What was kept under a hidden address moves to its phone number (its messages in
@@ -375,6 +406,7 @@ class Store:
         kept = self.messages.setdefault(chat, [])
         if any(k["id"] == message["id"] for k in kept):
             return False
+        self._changed.add(chat)
         kept.append(message)
         kept.sort(key=lambda k: k["ts"])
         del kept[:-KEEP_PER_CHAT]
