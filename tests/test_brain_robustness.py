@@ -19,6 +19,7 @@ from test_hub import make_hub
 
 from jarvis import (
     fileindex,  # noqa: F401 - imported up front, not timed in a test
+    jsonstore,
     knowledge,
 )
 from jarvis import hub as hub_module
@@ -195,6 +196,8 @@ def test_nothing_waits_for_a_load_or_a_build(tmp_path, monkeypatch):
         return real(cls, notes)
 
     monkeypatch.setattr(knowledge._Index, "of", classmethod(slow))
+    # The load has to index here: the words kept beside the index would spare it that.
+    knowledge.words_path(kb.store).unlink()
     for work in (kb.load, lambda: kb.build({"files": CORPUS[:3]})):
         indexing.clear()
         release.clear()
@@ -210,6 +213,216 @@ def test_nothing_waits_for_a_load_or_a_build(tmp_path, monkeypatch):
         release.set()
         worker.join(10)
     assert kb.summary()["notes"] == 3  # and then the new index is the one in use
+
+
+# ── the words kept beside the index ──
+
+MIXED = [
+    *CORPUS,
+    note(7, "预算会议", "预算会议在周三下午，讨论第四季度的预算。"),
+    note(8, "Résumé", "Résumé für Zürich: café crème, naïve façade; ＱＵＡＲＴＥＲ three."),
+    note(9, "Short", "a an the"),  # no words worth indexing
+    note(10, "Long", "\n\n".join(f"Paragraph {i} about budgets and runs." for i in range(400))),
+    note(11, "Statement", "Account statement", source="mail"),
+]
+
+
+def _same_index(a, b):
+    assert type(a.terms) is type(b.terms) and dict(a.terms) == dict(b.terms)
+    for name in ("starts", "ids", "tfs", "chunk_note", "chunk_pos", "chunk_len", "note_day"):
+        x, y = getattr(a, name), getattr(b, name)
+        assert x.dtype == y.dtype and np.array_equal(x, y, equal_nan=True), name
+    assert (a.by_id, a.by_source, a.avg_len) == (b.by_id, b.by_source, b.avg_len)
+
+
+def _never_indexed(monkeypatch):
+    def refuse(cls, notes):
+        raise AssertionError("indexed the words again")
+
+    monkeypatch.setattr(knowledge._Index, "of", classmethod(refuse))
+
+
+@pytest.mark.parametrize("notes", [MIXED, []], ids=["notes", "empty"])
+def test_a_load_reads_the_words_kept_for_its_index(tmp_path, monkeypatch, notes):
+    """Indexing every word again took seconds of the app's start with a big brain: a load
+    reads the words its save kept beside it, the very index indexing would make."""
+    kb = KnowledgeBase(tmp_path / "brain" / "index.json")
+    kb.build({"files": notes})
+    kb.save()
+    kept = knowledge.words_path(kb.store)
+    assert kept.name == "index.words.npz" and kept.stat().st_mode & 0o777 == 0o600
+    again = KnowledgeBase(kb.store)
+    with monkeypatch.context() as patched:
+        _never_indexed(patched)
+        assert again.load()
+    _same_index(again._index, knowledge._Index.of(again.notes))
+    for query in ("sourdough bread", "预算", "zurich resume", "quarter", "paragraph 399"):
+        assert again.search(query) == kb.search(query)
+    assert again.summary() == kb.summary()
+    assert not [p for p in kept.parent.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_words_kept_for_another_index_are_never_read(tmp_path, monkeypatch):
+    """Words are read only for the very text they were made from: an index changed since (a
+    restore, a hand edit, another app's rebuild) is indexed again, and its own words kept."""
+    store = _saved(tmp_path)
+    data = json.loads(store.read_text())
+    data["notes"][0]["text"] = "Kombucha needs a scoby and sweet tea."
+    store.write_text(json.dumps(data))
+    kb = KnowledgeBase(store)
+    assert kb.load()
+    assert kb.search("kombucha") and not kb.search("flour")
+    again = KnowledgeBase(store)
+    with monkeypatch.context() as patched:
+        _never_indexed(patched)
+        assert again.load() and again.search("kombucha")
+
+
+def test_words_made_by_other_code_are_never_read(tmp_path, monkeypatch):
+    """Another version of the app (another way of cutting words) never reads these."""
+    store = _saved(tmp_path)
+    kb = KnowledgeBase(store)
+    made = []
+    real = knowledge._Index.of.__func__
+    monkeypatch.setattr(knowledge, "_RECIPE", knowledge._RECIPE + b" and a change")
+    monkeypatch.setattr(
+        knowledge._Index, "of", classmethod(lambda cls, notes: made.append(1) or real(cls, notes))
+    )
+    assert kb.load() and made == [1] and kb.search("marathon")
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        lambda path, key: path.write_bytes(path.read_bytes()[: len(path.read_bytes()) // 2]),
+        lambda path, key: path.write_bytes(b"not an npz at all"),
+        lambda path, key: (path.unlink(), path.mkdir()),  # a folder where the file was
+        lambda path, key: np.savez(  # its key, but arrays that can't be this index's
+            path,
+            key=np.frombuffer(key, np.uint8),
+            words=np.frombuffer(b"sourdough\nbread", np.uint8),
+            starts=np.zeros(5, np.int64),
+            ids=np.zeros(0, np.int32),
+            tfs=np.zeros(0, np.uint16),
+            chunk_note=np.zeros(0, np.int32),
+            chunk_pos=np.zeros(0, np.int32),
+            chunk_len=np.zeros(0, np.float32),
+        ),
+        lambda path, key: np.savez(  # the right shapes, chunks of notes that aren't there
+            path,
+            key=np.frombuffer(key, np.uint8),
+            words=np.frombuffer(b"sourdough", np.uint8),
+            starts=np.array([0, 1], np.int64),
+            ids=np.array([0], np.int32),
+            tfs=np.array([1], np.uint16),
+            chunk_note=np.array([99], np.int32),
+            chunk_pos=np.array([0], np.int32),
+            chunk_len=np.array([1.0], np.float32),
+        ),
+    ],
+)
+def test_damaged_words_are_indexed_again(tmp_path, spoil):
+    store = _saved(tmp_path)
+    path = knowledge.words_path(store)
+    spoil(path, knowledge._fingerprint(store.read_text()))
+    kb = KnowledgeBase(store)
+    assert kb.load()
+    _same_index(kb._index, knowledge._Index.of(kb.notes))
+    assert kb.search("sourdough") and kb.search("marathon")
+
+
+def test_words_that_cant_be_kept_never_fail_a_save_or_a_load(tmp_path, monkeypatch):
+    def full(*_args, **_kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(np, "savez", full)
+    monkeypatch.setattr(np, "savez_compressed", full)
+    kb = KnowledgeBase(tmp_path / "index.json")
+    kb.build({"files": CORPUS})
+    kb.save()  # the index itself is saved
+    again = KnowledgeBase(kb.store)
+    assert again.load() and again.search("sourdough")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["index.json"]
+
+
+def test_writes_of_the_words_killed_half_way_leave_no_litter(tmp_path):
+    """A rebuild killed while it writes the words (the app quitting, or the build out of
+    time) never runs its cleanup: each such process left a temp file of its own, up to
+    11 MB, in the brain folder for good. The next load or save sweeps the old ones, and
+    leaves alone one that another process is still writing."""
+    store = tmp_path / "brain" / "index.json"
+    script = textwrap.dedent(
+        f"""
+        import os
+        from pathlib import Path
+        import numpy as np
+        from jarvis.knowledge import KnowledgeBase, Note
+
+        def killed(fh, **_arrays):
+            fh.write(b"PK and then nothing")
+            fh.flush()
+            os._exit(0)  # as a SIGKILL would: no finally runs
+
+        np.savez_compressed = killed
+        kb = KnowledgeBase(Path({str(store)!r}))
+        kb.build({{"files": [Note(id="files:1", source="files", title="Bread",
+                                  text="Bake the sourdough bread.", ref="1")]}})
+        kb.save()
+        """
+    )
+    env = {**os.environ, "HOME": str(tmp_path)}
+    for _ in range(2):
+        run = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=120, env=env
+        )
+        assert run.returncode == 0, run.stderr[-2000:]
+    folder = store.parent
+    left = [p for p in folder.iterdir() if p.name != "index.json"]
+    assert len(left) == 2, left  # each killed writer's own
+    assert all(p.name.startswith(".index.words.npz.") and p.name.endswith(".tmp") for p in left)
+    stale = time.time() - jsonstore.STALE_SECONDS - 60
+    for path in left:
+        os.utime(path, (stale, stale))
+    under_way = folder / ".index.words.npz.writing.tmp"  # another process's write, going on
+    under_way.write_bytes(b"PK")
+
+    kb = KnowledgeBase(store)
+    assert kb.load() and kb.search("sourdough")
+    assert sorted(p.name for p in folder.iterdir()) == [
+        under_way.name,
+        "index.json",
+        "index.words.npz",
+    ]
+    os.utime(under_way, (stale, stale))  # that one was killed too, long ago
+    kb.save()
+    assert sorted(p.name for p in folder.iterdir()) == ["index.json", "index.words.npz"]
+    again = KnowledgeBase(store)
+    assert again.load() and again.search("sourdough")
+
+
+def test_two_writers_of_the_words_never_share_a_temp_file(tmp_path, monkeypatch):
+    """Two loads in one process that both index (the app's start and a reload after a
+    rebuild) once wrote through the same temp name, and one's bytes could land in the
+    other's file. Each write has its own now."""
+    kb = KnowledgeBase(tmp_path / "index.json")
+    kb.build({"files": CORPUS})
+    files, both_open = [], threading.Barrier(2, timeout=10)
+    real = np.savez
+
+    def meet(fh, **arrays):
+        files.append(os.fstat(fh.fileno()).st_ino)
+        both_open.wait()  # the two temp files are open at once
+        real(fh, **arrays)
+
+    monkeypatch.setattr(np, "savez", meet)
+    key = knowledge._fingerprint("an index")
+    path = knowledge.words_path(kb.store)
+    with ThreadPoolExecutor(2) as pool:
+        for done in [pool.submit(kb._index.write, path, key) for _ in range(2)]:
+            done.result(timeout=30)
+    assert len(set(files)) == 2
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["index.words.npz"]
+    _same_index(knowledge._Index.read(path, key, kb.notes), kb._index)
 
 
 def test_the_index_leaves_the_garbage_collector_little_to_walk(tmp_path):

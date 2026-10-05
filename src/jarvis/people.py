@@ -15,6 +15,7 @@ A first name that fits more than one person is asked about rather than guessed.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -45,6 +46,10 @@ _STOP = frozenset(
 _PLACE_WORDS = frozenset({"in", "at", "near", "from", "on"})
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _PHONE = re.compile(r"\+?\d[\d ()./-]{6,}\d")
+_WORD = re.compile(r"[a-z0-9]+")
+_CJK = re.compile(r"[㐀-鿿]")
+_TOKEN = re.compile(r"[A-Za-z][A-Za-z'’-]*|\S")
+_POSSESSIVE = re.compile(r"['’]s$")
 
 
 def line(text: Any, limit: int = 200) -> str:
@@ -52,22 +57,29 @@ def line(text: Any, limit: int = 200) -> str:
 
 
 def tokens(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", (text or "").lower())
+    return _WORD.findall((text or "").lower())
 
 
 def _cjk(text: str) -> bool:
-    return bool(re.search(r"[㐀-鿿]", text or ""))
+    return bool(_CJK.search(text or ""))
 
 
 def names_in(text: str) -> list[str]:
     """People's names in a sentence: runs of words written with a capital (common words
     aside), wherever they are ("Ann Lee is the user's co-founder" -> Ann Lee). One right
     after "in", "at", "near", "from" or "on" is a place ("lives in Denver"), not a person."""
+    return list(_names_in(text or ""))
+
+
+@functools.lru_cache(maxsize=2048)
+def _names_in(text: str) -> tuple[str, ...]:
+    """names_in, kept for the facts' texts: the memory panel reads every fact's names each
+    time it's drawn, and the facts seldom change."""
     found: list[str] = []
     run: list[str] = []
     before = ""
-    for token in re.findall(r"[A-Za-z][A-Za-z'’-]*|\S", text or "") + [""]:
-        word = re.sub(r"['’]s$", "", token).strip("'’-")
+    for token in _TOKEN.findall(text) + [""]:
+        word = _POSSESSIVE.sub("", token).strip("'’-")
         possessive = token != word and token.endswith(("'s", "’s"))
         if word[:1].isupper() and word.lower() not in _STOP and len(word) > 1:
             if not run and before in _PLACE_WORDS:
@@ -81,16 +93,27 @@ def names_in(text: str) -> list[str]:
                 found.append(name)
             run = []
         before = token.lower()
-    return found
+    return tuple(found)
+
+
+def _wanted(name: str) -> list[str]:
+    """A name's words, as matches_name looks for them."""
+    return [t for t in tokens(name) if len(t) > 1]
+
+
+def _have(text: str) -> set[str]:
+    """A text's words, as matches_name finds a name among them."""
+    have = set(tokens(text))
+    have |= {t[:-1] for t in have if t.endswith("s")}  # Ann's -> anns -> ann
+    return have
 
 
 def matches_name(name: str, text: str) -> bool:
     """Every word of the name is a word in the text (a Chinese name: in it as written)."""
     if _cjk(name):
         return name in (text or "")
-    wanted = [t for t in tokens(name) if len(t) > 1]
-    have = set(tokens(text))
-    have |= {t[:-1] for t in have if t.endswith("s")}  # Ann's -> anns -> ann
+    wanted = _wanted(name)
+    have = _have(text)
     return bool(wanted) and all(t in have for t in wanted)
 
 
@@ -110,9 +133,22 @@ def known_people(
     for intent in intents:
         names += list(getattr(intent, "people", []) or [])
     names += [v for v in vips if v and not _EMAIL.fullmatch(v) and not _PHONE.fullmatch(v)]
+    # A name folds into one kept before it that has all its words (matches_name): found
+    # through the kept names each word is in, not by reading every kept name again for each
+    # (a few hundred names took 60 ms of the event loop each time the memory panel was drawn).
     out: list[str] = []
+    holding: dict[str, set[int]] = {}  # word -> the kept names that have it (_have)
     for name in sorted({line(n, 60) for n in names if n}, key=lambda n: -len(n)):
-        if not any(matches_name(name, other) for other in out):
+        if _cjk(name):
+            folded = any(name in other for other in out)
+        else:
+            wanted = _wanted(name)
+            folded = bool(wanted) and bool(
+                set.intersection(*(holding.get(t, set()) for t in wanted))
+            )
+        if not folded:
+            for word in _have(name):
+                holding.setdefault(word, set()).add(len(out))
             out.append(name)
     return sorted(out, key=str.lower)[:200]
 

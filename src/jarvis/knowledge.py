@@ -4,11 +4,14 @@ research reports, indexed locally for search and laid out in 3D as a "knowledge 
 Everything stays on this Mac. Search is BM25 over ~1,200-character chunks, fused with
 search by meaning when that's on (jarvis.embeddings, through KnowledgeBase.semantic). Galaxy
 positions come from TF-IDF vectors projected down to three dimensions, so notes about
-similar things drift together.
+similar things drift together. The index (brain/index.json) keeps the notes; the words BM25
+searches are kept beside it (index.words.npz), so a start needn't index them again.
 """
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import heapq
 import json
 import logging
@@ -17,6 +20,8 @@ import os
 import re
 import stat
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -31,6 +36,7 @@ from typing import Any
 
 import numpy as np
 
+from .jsonstore import _sweep
 from .prefs import APP_SUPPORT
 
 log = logging.getLogger("jarvis")
@@ -531,6 +537,127 @@ class _Index:
         start, end = self.starts[row], self.starts[row + 1]
         return self.ids[start:end], self.tfs[start:end]
 
+    def write(self, path: Path, key: bytes, *, compress: bool = False) -> None:
+        """The words and postings in a file of their own beside the index (index.words.npz),
+        for the next load of this same index (key: _fingerprint) to read instead of making
+        them again. Readable by the owner alone, like what it's made from. compress: a third
+        of the size, for a second of work (a rebuild's, in its own process).
+
+        It's written to a temp file of its own (two writers, in one process or two, never
+        share one) named as jsonstore names its own, so the leftover of a write that was
+        killed half way (a rebuild stopped as the app quits or runs out of time) is swept
+        by the same rule (sweep_words)."""
+        words = "\n".join(self.terms).encode("utf-8", "surrogatepass")  # no word has a \n
+        path.parent.mkdir(parents=True, exist_ok=True)
+        sweep_words(path)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                (np.savez_compressed if compress else np.savez)(
+                    fh,
+                    key=np.frombuffer(key, dtype=np.uint8),
+                    words=np.frombuffer(words, dtype=np.uint8),
+                    **{name: getattr(self, name) for name in _SAVED},
+                )
+            os.replace(tmp, path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+
+    @classmethod
+    def read(cls, path: Path, key: bytes, notes: list[Note]) -> _Index | None:
+        """What write() kept for this very index, checked, with the rest made from its notes
+        (as of() makes them); None when there's none, or it's damaged or another index's."""
+        from .embeddings import day_of
+
+        try:
+            with np.load(path, allow_pickle=False) as data:
+                if data["key"].tobytes() != key:
+                    return None
+                arrays = {name: data[name] for name in _SAVED}
+                words = data["words"].tobytes().decode("utf-8", "surrogatepass")
+        except FileNotFoundError:
+            return None
+        except Exception as exc:  # cut short, not an npz, written by another version
+            log.info("second brain: the saved words can't be used (%s)", type(exc).__name__)
+            return None
+        listed = words.split("\n") if words else []
+        terms = _Vocab(zip(listed, range(len(listed)), strict=True))
+        starts, ids, chunk_note = arrays["starts"], arrays["ids"], arrays["chunk_note"]
+        n_chunks = len(chunk_note)
+        if not (
+            all(a.ndim == 1 and a.dtype == _SAVED[name] for name, a in arrays.items())
+            and len(starts) == len(terms) + 1
+            and starts[0] == 0
+            and starts[-1] == len(ids) == len(arrays["tfs"])
+            and bool(np.all(starts[1:] >= starts[:-1]))
+            and len(arrays["chunk_pos"]) == len(arrays["chunk_len"]) == n_chunks
+            and (not n_chunks or 0 <= chunk_note.min() <= chunk_note.max() < len(notes))
+            and (not len(ids) or 0 <= ids.min() <= ids.max() < n_chunks)
+        ):
+            log.info("second brain: the saved words don't fit the index; indexing again")
+            return None
+        lengths = arrays["chunk_len"]
+        return cls(
+            by_id={n.id: i for i, n in enumerate(notes)},
+            by_source=dict(Counter(n.source for n in notes)),
+            terms=terms,
+            **arrays,
+            avg_len=float(lengths.mean()) if len(lengths) else 1.0,
+            note_day=np.array([day_of(n.modified) for n in notes], dtype=np.float64),
+        )
+
+
+# What _Index.write keeps, and each array's type.
+_SAVED = {
+    "starts": np.dtype(np.int64),
+    "ids": np.dtype(np.int32),
+    "tfs": np.dtype(np.uint16),
+    "chunk_note": np.dtype(np.int32),
+    "chunk_pos": np.dtype(np.int32),
+    "chunk_len": np.dtype(np.float32),
+}
+
+
+def words_path(store: Path) -> Path:
+    """Where the index's words are kept: index.words.npz beside index.json."""
+    return Path(store).with_suffix(".words.npz")
+
+
+def sweep_words(path: Path) -> None:
+    """The temp files beside the words (path) that writes killed half way left behind: a
+    killed process's finally never runs, so each would stay for good, up to 11 MB apiece.
+    Old ones only (jsonstore.STALE_SECONDS), so a write under way in another process is
+    never touched."""
+    _sweep(path)
+
+
+def _recipe() -> bytes:
+    """What makes the words: this module's code, the Python it runs on (with its Unicode
+    tables) and numpy. Words saved by anything else are never read; b"" (the code can't be
+    read) keeps none."""
+    try:
+        code = Path(__file__).read_bytes()
+    except OSError:
+        return b""
+    made_by = (sys.version, unicodedata.unidata_version, np.__version__)
+    return b"\0".join([code, *(part.encode() for part in made_by)])
+
+
+# Read as the module is imported: the code that's running, even if the file changes later.
+_RECIPE = _recipe()
+
+
+def _fingerprint(text: str) -> bytes | None:
+    """index.json's text and what makes its words (_RECIPE), as a key: saved words are read
+    only for the very index they were made from."""
+    if not _RECIPE:
+        return None
+    digest = hashlib.blake2b(_RECIPE, digest_size=16)
+    for start in range(0, len(text), 1 << 24):  # never a second whole copy of a big index
+        digest.update(text[start : start + (1 << 24)].encode("utf-8", "surrogatepass"))
+    return digest.digest()
+
 
 class KnowledgeBase:
     def __init__(self, store: Path | None = None) -> None:
@@ -587,19 +714,43 @@ class KnowledgeBase:
                 "edges": self.edges,
                 "clusters": self.clusters,
             }
+            index = self._index
         self.store.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps(data)
         tmp = self.store.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data))
+        tmp.write_text(text)
         tmp.replace(self.store)
+        self._keep_words(index, _fingerprint(text), compress=True)
+
+    def _keep_words(self, index: _Index, key: bytes | None, *, compress: bool = False) -> None:
+        """The index's words kept beside it, for the next load. Only ever a shortcut: one
+        that can't be written is indexed again then."""
+        if key is None:
+            return
+        try:
+            index.write(words_path(self.store), key, compress=compress)
+        except Exception as exc:  # a full disk, a folder that isn't writable
+            log.info("second brain: its words couldn't be kept (%s)", type(exc).__name__)
 
     def load(self) -> bool:
         """Read the saved index. It's only a cache of the sources: one that can't be read,
         or that another version of the app wrote in a shape this one doesn't know, leaves
-        the brain as it was (the next rebuild writes a good one) instead of raising."""
+        the brain as it was (the next rebuild writes a good one) instead of raising.
+
+        Its words are read from beside it (index.words.npz) when they were kept for this
+        very index; else they're made again, which took seconds of the app's start for a big
+        brain, and kept for next time."""
         try:
-            data = json.loads(self.store.read_text())
+            sweep_words(words_path(self.store))  # a load that writes nothing sweeps too
+            text = self.store.read_text()
+            key = _fingerprint(text)
+            data = json.loads(text)
+            del text  # what's parsed is all that's needed now
             notes, positions, edges, clusters = _saved_state(data)
-            index = _Index.of(notes)
+            index = _Index.read(words_path(self.store), key, notes) if key else None
+            if index is None:
+                index = _Index.of(notes)
+                self._keep_words(index, key)
         except Exception as exc:  # unreadable, a shape this version doesn't know, too deep
             if not isinstance(exc, FileNotFoundError):
                 log.warning("second brain: the saved index can't be used (%s)", type(exc).__name__)

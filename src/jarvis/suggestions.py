@@ -25,9 +25,12 @@ import hashlib
 import inspect
 import logging
 import re
+import threading
+from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -226,6 +229,11 @@ def _alike(a: str, b: str) -> bool:
     return bool(sa and sb) and len(sa & sb) / len(sa | sb) >= 0.75
 
 
+def _alike_counts(both: int, a: int, b: int) -> bool:
+    """_alike for two keys sharing `both` of their words, with a and b words each."""
+    return both / (a + b - both) >= 0.75
+
+
 def _clock(minutes: float, lang: str) -> str:
     h, m = divmod(int(round(minutes)) % 1440, 60)
     if lang == "zh":
@@ -280,33 +288,55 @@ class Habit:
 def find_habits(history: list[dict[str, Any]], now: datetime) -> list[Habit]:
     """Requests asked on MIN_DAYS different days within WINDOW_MIN of one time of day,
     once lately at least."""
+    # A request joins the first group whose key is its own or alike. Groups are only ever
+    # added after it, so a key joins the same group each time it comes up (it's looked for
+    # once), and a group can only be alike when its key shares a word: only those are
+    # compared, by how many words they share. Every request against every group took 400 ms
+    # of the event loop for a full history of mostly one-off requests.
     groups: list[tuple[str, list[tuple[datetime, str]]]] = []
+    joined: dict[str, int] = {}  # key -> the group it joins
+    sizes: list[int] = []  # the words in each group's key
+    by_word: dict[str, list[int]] = {}  # word -> the groups whose key has it, in order
+    oldest = timedelta(days=HISTORY_DAYS)
     for entry in history:
         try:
             at = datetime.fromisoformat(entry["at"])
         except (KeyError, TypeError, ValueError):
             continue
-        if now - at > timedelta(days=HISTORY_DAYS) or not entry.get("k"):
+        if now - at > oldest or not entry.get("k"):
             continue
-        for key, items in groups:
-            if key == entry["k"] or _alike(key, entry["k"]):
-                items.append((at, str(entry.get("t") or "")))
-                break
-        else:
-            groups.append((entry["k"], [(at, str(entry.get("t") or ""))]))
+        key = entry["k"]
+        n = joined.get(key)
+        if n is None:
+            words = set(key.split())
+            shared = Counter(chain.from_iterable(by_word.get(word, ()) for word in words))
+            n = next(
+                (g for g in sorted(shared) if _alike_counts(shared[g], sizes[g], len(words))),
+                None,
+            )
+            if n is None:
+                n = len(groups)
+                groups.append((key, []))
+                sizes.append(len(words))
+                for word in words:
+                    by_word.setdefault(word, []).append(n)
+            joined[key] = n
+        groups[n][1].append((at, str(entry.get("t") or "")))
     habits = []
     for key, items in groups:
         days = {at.date() for at, _ in items}
         if len(days) < MIN_DAYS:
             continue
-        mins = [at.hour * 60 + at.minute for at, _ in items]
-        # The time of day most of them cluster around (one per day counts).
+        ordered = sorted(items)
+        minutes = [at.hour * 60 + at.minute for at, _ in ordered]
+        # The time of day most of them cluster around (one per day counts). A time that
+        # came up before finds the same ones again, never more.
         best: list[tuple[datetime, str]] = []
-        for centre in mins:
+        for centre in dict.fromkeys(at.hour * 60 + at.minute for at, _ in items):
             near = {
-                at.date(): (at, text)
-                for at, text in sorted(items)
-                if abs(at.hour * 60 + at.minute - centre) <= WINDOW_MIN
+                item[0].date(): item
+                for item, minute in zip(ordered, minutes, strict=True)
+                if abs(minute - centre) <= WINDOW_MIN
             }
             if len(near) > len(best):
                 best = list(near.values())
@@ -449,6 +479,11 @@ class Suggester:
         self.shown: dict[str, str] = {}  # key -> when (today's): never the same one twice
         self.open: dict[str, Suggestion] = {}  # on screen, awaiting a reaction
         self.unreadable = ""
+        # Each save writes a numbered copy; one older than a copy already written never
+        # goes over it (a request's save runs on a thread: see _save_soon).
+        self._saving = threading.Lock()
+        self._copies = 0
+        self._written = 0
         self._load()
 
     # ── on disk ──
@@ -503,20 +538,51 @@ class Suggester:
     def _save(self) -> None:
         if self.unreadable:
             return
+        self._write(*self._copy())
+
+    def _save_soon(self) -> None:
+        """Saved on a thread when this runs on the event loop, else now. The hub notes each
+        request as its turn starts, and a save is the whole history (up to MAX_HISTORY
+        requests) and a flush to the disk: 40 ms of the loop, and far more on a busy disk."""
+        if self.unreadable:
+            return
+        copy = self._copy()
         try:
-            jsonstore.save_json(
-                self.path,
-                {
-                    "version": 1,
-                    "history": self.history,
-                    "topics": self.topics,
-                    "kinds": self.kinds,
-                    "shown": self.shown,
-                },
-                indent=1,
-            )
-        except OSError as exc:
-            log.info("suggestions: couldn't save (%s)", exc)
+            asyncio.get_running_loop().run_in_executor(None, self._write_quietly, *copy)
+        except RuntimeError:  # no loop running here, or it's closing: saved now
+            self._write(*copy)
+
+    def _copy(self) -> tuple[int, dict[str, Any]]:
+        """What a save writes, numbered, and copied where it changes: a thread may write it
+        while more requests come in."""
+        self._copies += 1
+        return self._copies, {
+            "version": 1,
+            "history": [dict(h) for h in self.history],
+            "topics": {k: dict(v) for k, v in self.topics.items()},
+            "kinds": {
+                k: {f: list(x) if isinstance(x, list) else x for f, x in v.items()}
+                for k, v in self.kinds.items()
+            },
+            "shown": dict(self.shown),
+        }
+
+    def _write(self, number: int, data: dict[str, Any]) -> None:
+        with self._saving:
+            if number <= self._written:  # a newer copy is on disk already
+                return
+            self._written = number
+            try:
+                jsonstore.save_json(self.path, data, indent=1)
+            except OSError as exc:
+                log.info("suggestions: couldn't save (%s)", exc)
+
+    def _write_quietly(self, number: int, data: dict[str, Any]) -> None:
+        """_write on a thread, where nobody would hear it fail."""
+        try:
+            self._write(number, data)
+        except Exception:
+            log.exception("suggestions: couldn't note a request")
 
     def _on(self) -> bool:
         try:
@@ -551,7 +617,7 @@ class Suggester:
         self.history.append({"k": key, "t": text, "at": now.isoformat(timespec="minutes")})
         cutoff = (now - timedelta(days=HISTORY_DAYS)).isoformat(timespec="minutes")
         self.history = [h for h in self.history if h["at"] >= cutoff][-MAX_HISTORY:]
-        self._save()
+        self._save_soon()
 
     # ── looking ──
 

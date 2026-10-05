@@ -80,6 +80,119 @@ def test_stale_habit_is_dropped():
     assert find_habits(history, NOW) == []
 
 
+def _alike_as_written(a, b):
+    sa, sb = set(a.split()), set(b.split())
+    return bool(sa and sb) and len(sa & sb) / len(sa | sb) >= 0.75
+
+
+def _habits_one_by_one(history, now):
+    """find_habits as it was first written: every request compared with every group, every
+    time. The quick one must find exactly what this finds."""
+    groups = []
+    for entry in history:
+        try:
+            at = datetime.fromisoformat(entry["at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if now - at > timedelta(days=sg.HISTORY_DAYS) or not entry.get("k"):
+            continue
+        for key, items in groups:
+            if key == entry["k"] or _alike_as_written(key, entry["k"]):
+                items.append((at, str(entry.get("t") or "")))
+                break
+        else:
+            groups.append((entry["k"], [(at, str(entry.get("t") or ""))]))
+    habits = []
+    for key, items in groups:
+        days = {at.date() for at, _ in items}
+        if len(days) < sg.MIN_DAYS:
+            continue
+        mins = [at.hour * 60 + at.minute for at, _ in items]
+        best = []
+        for centre in mins:
+            near = {
+                at.date(): (at, text)
+                for at, text in sorted(items)
+                if abs(at.hour * 60 + at.minute - centre) <= sg.WINDOW_MIN
+            }
+            if len(near) > len(best):
+                best = list(near.values())
+        if len(best) < sg.MIN_DAYS:
+            continue
+        if now - max(at for at, _ in best) > timedelta(days=sg.RECENT_DAYS):
+            continue
+        weekdays = {at.weekday() for at, _ in best}
+        if len(weekdays) == 1 and len(best) >= sg.MIN_DAYS:
+            pattern = str(next(iter(weekdays)))
+        elif weekdays <= {0, 1, 2, 3, 4}:
+            pattern = "weekdays"
+        elif weekdays <= {5, 6}:
+            pattern = "weekends"
+        else:
+            pattern = "daily"
+        times = sorted(at.hour * 60 + at.minute for at, _ in best)
+        latest = max(best)[1]
+        habits.append(sg.Habit(key, latest, times[len(times) // 2], pattern, len(best)))
+    return habits
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_find_habits_finds_what_comparing_every_group_finds(seed):
+    """Groups found through their words, each key looked for once: the same habits, with the
+    same wording, time, days and count, as comparing each request with every group."""
+    import random
+
+    rng = random.Random(seed)
+    vocab = "weather jazz play email news stocks ann budget deck lights timer report gym".split()
+    phrases = [" ".join(rng.sample(vocab, rng.randint(1, 5))) for _ in range(rng.randint(3, 40))]
+    # Keys a word or two apart (alike or not, around the 3-in-4 line), blank ones and junk.
+    phrases += ["a b c d", "a b c e", "a b c", "a b c d e", " ", "  "]
+    history = []
+    for _ in range(rng.randint(0, 600)):
+        at = NOW - timedelta(minutes=rng.randint(0, 70 * 24 * 60))
+        if rng.random() < 0.5:  # most mornings around eight, a few minutes apart
+            at = at.replace(hour=8, minute=rng.choice((0, 0, 5, 30, 59)))
+        key = rng.choice(phrases)
+        history.append({"k": key, "t": rng.choice((key, f"{key}?", "")), "at": at.isoformat()})
+    history += [
+        {"k": "weather", "at": "not a time"},
+        {"t": "no key"},
+        {"k": "", "at": NOW.isoformat()},
+    ]
+    rng.shuffle(history)
+    assert find_habits(history, NOW) == _habits_one_by_one(history, NOW)
+
+
+def test_a_full_history_of_one_off_requests_is_quick(monkeypatch):
+    """1,500 requests, nearly all different: each is compared only with the few groups that
+    share a word with it, not with every group (that took 400 ms of the event loop)."""
+    import random
+
+    rng = random.Random(1)
+    vocab = [f"w{n}" for n in range(400)]
+    history = [
+        {
+            "k": " ".join(sorted(rng.sample(vocab, 4))),
+            "t": "something",
+            "at": (NOW - timedelta(minutes=40 * i)).isoformat(timespec="minutes"),
+        }
+        for i in range(sg.MAX_HISTORY)
+    ]
+    expected = _habits_one_by_one(history, NOW)
+    calls = 0
+    alike = sg._alike_counts
+
+    def counted(*args):
+        nonlocal calls
+        calls += 1
+        return alike(*args)
+
+    monkeypatch.setattr(sg, "_alike_counts", counted)
+    assert find_habits(history, NOW) == expected
+    # Comparing with every group: about a million comparisons.
+    assert calls < 60_000
+
+
 @pytest.mark.parametrize(
     "text, due",
     [
@@ -327,6 +440,95 @@ def test_history_is_saved_capped_and_owner_only(tmp_path):
     assert len(again.history) == sg.MAX_HISTORY
     again.forget_history()
     assert again.history == []
+
+
+async def _saved(path, until, seconds=30.0):
+    """The file once a thread's save has made `until(data)` true."""
+    deadline = asyncio.get_running_loop().time() + seconds
+    while True:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            data = None
+        if data is not None and until(data):
+            return data
+        assert asyncio.get_running_loop().time() < deadline, "the save never came"
+        await asyncio.sleep(0.02)
+
+
+async def test_a_request_is_saved_off_the_event_loop(tmp_path, monkeypatch):
+    """The hub notes each request as its turn starts: the history and a flush to the disk
+    (40 ms, more on a busy disk) are written on a thread, never on the event loop, and what
+    the thread writes is the history as it was when the request was noted."""
+    import threading
+
+    from jarvis import jsonstore
+
+    loop_thread = threading.get_ident()
+    writers = []
+    real_save = jsonstore.save_json
+
+    def save(path, data, **kw):
+        writers.append(threading.get_ident())
+        real_save(path, data, **kw)
+
+    monkeypatch.setattr(jsonstore, "save_json", save)
+    s, _ = make(tmp_path)
+    s.note_request("play some jazz")
+    s.history.append({"k": "later", "t": "later", "at": NOW.isoformat(timespec="minutes")})
+    data = await _saved(tmp_path / "suggestions.json", lambda d: d["history"])
+    assert [h["t"] for h in data["history"]] == ["play some jazz"]  # the copy, not "later"
+    assert writers and loop_thread not in writers
+    again, _ = make(tmp_path)
+    assert [h["t"] for h in again.history] == ["play some jazz"]
+
+
+async def test_an_older_save_never_lands_over_a_newer_one(tmp_path):
+    """A request's save still waiting for its thread, then forgetting saved at once: the
+    newer copy is what stays on disk, though the older write comes last."""
+    import threading
+
+    gate, done = threading.Event(), threading.Event()
+    s, _ = make(tmp_path)
+    write = s._write_quietly
+
+    def held_back(*copy):
+        gate.wait(10)
+        write(*copy)
+        done.set()
+
+    s._write_quietly = held_back
+    s.note_request("play some jazz")  # its save waits on its thread
+    s.forget_history()  # saved at once: the newer copy
+    assert json.loads((tmp_path / "suggestions.json").read_text())["history"] == []
+    gate.set()
+    assert await asyncio.to_thread(done.wait, 30)
+    assert json.loads((tmp_path / "suggestions.json").read_text())["history"] == []
+
+
+async def test_a_burst_of_requests_leaves_the_newest_history_on_disk(tmp_path):
+    """Requests one after another, each saved on a thread as it comes: whichever thread
+    finishes last, the file ends with every request."""
+    s, _ = make(tmp_path)
+    asked = [f"play track number {i}" for i in range(60)]
+    for text in asked:
+        s.note_request(text)
+    data = await _saved(tmp_path / "suggestions.json", lambda d: len(d["history"]) == 60)
+    assert [h["t"] for h in data["history"]] == asked == [h["t"] for h in s.history]
+    for _ in range(10):  # nothing older lands after it
+        await asyncio.sleep(0.05)
+    assert json.loads((tmp_path / "suggestions.json").read_text()) == data
+
+
+def test_saves_in_any_order_keep_the_newest_copy(tmp_path):
+    s, _ = make(tmp_path)
+    s.note_request("play some jazz")  # no event loop here: saved at once
+    first = s._copy()
+    s.forget_history()
+    second = s._copy()
+    s._write(*second)
+    s._write(*first)  # older: never over the newer one
+    assert json.loads((tmp_path / "suggestions.json").read_text())["history"] == []
 
 
 def test_damaged_file_is_kept_aside(tmp_path):

@@ -169,3 +169,65 @@ def test_names_in_a_sentence():
     assert people.names_in("The user's daughter Maya turns 7.") == ["Maya"]
     assert people.names_in("Ann's birthday is in May.") == ["Ann"]
     assert people.names_in("Dad lives in Denver near Golden.") == ["Dad"]
+
+
+def _known_one_by_one(facts, promises, intents, vips):
+    """known_people as first written: each name checked against every name kept, reading
+    both again each time. The quick one must keep exactly these."""
+    names = []
+    for fact in facts:
+        if getattr(fact, "category", "") == "people":
+            names += people.names_in(getattr(fact, "text", ""))
+    names += [getattr(p, "to", "") for p in promises if getattr(p, "to", "")]
+    for intent in intents:
+        names += list(getattr(intent, "people", []) or [])
+    names += [
+        v for v in vips if v and not people._EMAIL.fullmatch(v) and not people._PHONE.fullmatch(v)
+    ]
+    out = []
+    for name in sorted({people.line(n, 60) for n in names if n}, key=lambda n: -len(n)):
+        if not any(people.matches_name(name, other) for other in out):
+            out.append(name)
+    return sorted(out, key=str.lower)[:200]
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_the_people_list_is_what_checking_every_pair_gives(seed):
+    """Every kept name's words read once: the same people, folded the same way, as checking
+    each name against every other one (a few hundred names took 60 ms per drawing)."""
+    import random
+    from types import SimpleNamespace
+
+    rng = random.Random(seed)
+    first = ["Ann", "Bob", "Carla", "Dan", "Eve", "Jo", "Al", "Anns", "Mo", "Li"]
+    last = ["Lee", "Stone", "Diaz", "Wu", "O'Neil", "Van Dyke", "Lees"]
+    chinese = ["王芳", "李伟", "王芳芳", "张"]
+
+    def someone():
+        roll = rng.random()
+        if roll < 0.15:
+            return rng.choice(chinese)
+        if roll < 0.35:
+            return rng.choice(first)
+        return f"{rng.choice(first)} {rng.choice(last)}"
+
+    facts = [
+        SimpleNamespace(
+            category=rng.choice(["people", "people", "work"]),
+            text=rng.choice(
+                [
+                    f"{someone()} is the user's colleague and {someone()}'s friend.",
+                    f"{someone()}'s birthday is in May; lives in Denver near Golden.",
+                    f"The user met {someone()} at BSH Ventures with {someone()}.",
+                    f"{someone()}和{someone()}是同事。",
+                ]
+            ),
+        )
+        for _ in range(rng.randint(0, 120))
+    ]
+    promises = [SimpleNamespace(to=rng.choice([someone(), ""])) for _ in range(rng.randint(0, 30))]
+    intents = [SimpleNamespace(people=[someone() for _ in range(2)]) for _ in range(5)]
+    vips = [someone(), "cy@x.com", "+1 510 555 0100", "", "Q"]
+    got = people.known_people(facts, promises, intents, vips)
+    assert got == _known_one_by_one(facts, promises, intents, vips)
+    assert people.known_people(facts, promises, intents, vips) == got  # names kept, the same

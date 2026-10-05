@@ -125,6 +125,27 @@ async def test_the_report_tools_answer_follow_ups_from_the_report(tmp_path):
     assert "No research reports yet" in (await empty["list_reports"]({}))["content"][0]["text"]
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"# Title\r\nline one\r\n\r\n" * 3000,  # Windows line ends, across every boundary
+        b"# Old Mac\rline\r" * 5000,
+        b"# Bad bytes \xff\xfe and a cut \xe2\x82 sequence\n" * 2000,
+        ("# Café\n" + "é" * 5000 + "\r\n").encode(),
+        "# 锂的供应\n第二行\n".encode() * 3000,
+        b"",
+    ],
+)
+def test_a_report_is_read_only_as_far_as_needed(tmp_path, raw):
+    """A listing reads each report's first lines for its title, never the whole report, and
+    gets exactly what reading it whole and cutting it gave."""
+    path = tmp_path / "report.md"
+    path.write_bytes(raw)
+    for chars in (1, 7, 4000, reports.MAX_REPORT_CHARS):
+        assert reports._read(path, chars) == path.read_text(errors="replace")[:chars]
+    assert reports.read_report(path) == path.read_text(errors="replace")[: reports.MAX_REPORT_CHARS]
+
+
 # ── the owner's own material ──
 
 
