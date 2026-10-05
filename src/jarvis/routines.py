@@ -95,12 +95,13 @@ class Routine:
             return f"{schedules.days_zh(sorted(self.days)) or '每周'}{clock}"
         return f"仅一次，{self.date} {clock}"
 
-    def latest(self, now: datetime) -> datetime | None:
-        """The most recent scheduled time at or before now (none for one on a trigger)."""
+    def latest(self, now: datetime, since: datetime | None = None) -> datetime | None:
+        """The most recent scheduled time at or before now (none for one on a trigger).
+        since: only a time from then on is wanted (schedules.latest)."""
         if self.kind == triggers.KIND:
             return None
         if self.kind in schedules.KINDS:
-            return schedules.latest(self.kind, self.spec, self.time, now)
+            return schedules.latest(self.kind, self.spec, self.time, now, since=since)
         hour, minute = map(int, self.time.split(":"))
         if self.kind == "once":
             try:
@@ -124,7 +125,7 @@ class Routine:
     def due(self, now: datetime) -> datetime | None:
         if not self.enabled:
             return None
-        when = self.latest(now)
+        when = self.latest(now, since=now - GRACE)
         if when is None or now - when > GRACE:
             return None
         if self.last_run and datetime.fromisoformat(self.last_run) >= when:

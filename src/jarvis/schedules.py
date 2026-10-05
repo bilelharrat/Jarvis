@@ -12,6 +12,7 @@ next time after now (for Settings and the phone).
 from __future__ import annotations
 
 import calendar
+import functools
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, tzinfo
@@ -384,7 +385,14 @@ def _cron_field(
 
 def parse_cron(text: Any) -> Cron:
     """A five-field cron expression (or @daily, @hourly…); ValueError says what's wrong."""
-    raw = " ".join(str(text or "").lower().split())
+    return _parse_cron(" ".join(str(text or "").lower().split()))
+
+
+@functools.lru_cache(maxsize=64)
+def _parse_cron(raw: str) -> Cron:
+    """parse_cron, once for each expression (a Cron can't be changed): the routine clock
+    reads every cron routine's schedule each half minute. One that's wrong isn't kept, so
+    it says why each time."""
     raw = _MACROS.get(raw, raw)
     fields = raw.split(" ")
     if len(fields) != 5 or not all(fields):
@@ -459,11 +467,20 @@ def _here(when: datetime, zone: tzinfo | None, local: tzinfo | None) -> datetime
 
 
 def _cron_latest(
-    spec: dict[str, Any], now: datetime, local: tzinfo | None = None
+    spec: dict[str, Any],
+    now: datetime,
+    local: tzinfo | None = None,
+    since: datetime | None = None,
 ) -> datetime | None:
     cron, zone = parse_cron(spec["cron"]), _zone(spec)
     there = _there(now, zone, local).replace(second=0, microsecond=0)
-    for back in range(LOOK_BACK_DAYS):
+    days = LOOK_BACK_DAYS
+    if since is not None:
+        # Nothing on a day before the one since falls on (in the schedule's zone, with a
+        # day to spare for a clock change) comes from since on: no need to look there.
+        first = _there(since, zone, local).date() - timedelta(days=1)
+        days = min(days, max(0, (there.date() - first).days + 1))
+    for back in range(days):
         day = there.date() - timedelta(days=back)
         if not cron.day_matches(day):
             continue
@@ -551,15 +568,23 @@ def clean(kind: str, spec: Any) -> dict[str, Any]:
 
 
 def latest(
-    kind: str, spec: dict[str, Any], at: str, now: datetime, local: tzinfo | None = None
+    kind: str,
+    spec: dict[str, Any],
+    at: str,
+    now: datetime,
+    local: tzinfo | None = None,
+    since: datetime | None = None,
 ) -> datetime | None:
-    """The most recent time the schedule was due, at or before now (this Mac's time)."""
+    """The most recent time the schedule was due, at or before now (this Mac's time).
+    since: only a time from then on is wanted (the routine clock's grace), so a cron
+    schedule due once a year isn't looked for a year back every half minute; it may give
+    None, or an earlier time, when the latest is before since."""
     if kind == INTERVAL:
         return _interval_latest(spec, now)
     if kind == MONTHLY:
         return _monthly_latest(spec, at, now)
     if kind == CRON:
-        return _cron_latest(spec, now, local)
+        return _cron_latest(spec, now, local, since)
     return None
 
 

@@ -35,6 +35,11 @@ SOON_MIN = 10
 NEAR_MIN = 3  # an ETA this short means you're basically there
 RAIN_CHANCE = 60
 RAINY_CODES = 51  # WMO weather codes from 51 up are drizzle, rain, snow, showers, storms
+# An alert key said this long ago is forgotten: each carries its event's start or its day,
+# and no rule raises one for an event that has begun or a day that's over. The battery's
+# keys are the exception (the same two every time), kept until the Mac is charging.
+ANNOUNCED_DAYS = 2
+BATTERY_KEYS = ("battery:10", "battery:5")
 
 _VIRTUAL = re.compile(
     r"(https?://|zoom\.us|meet\.google|teams\.microsoft|microsoft teams|webex|facetime|"
@@ -278,7 +283,7 @@ class Watcher:
         self._battery_fn, self._weather_fn = battery, weather
         self._enabled = enabled
         self._files_fn = files  # the file index: a meeting's files, before it starts
-        self.announced: set[str] = set()
+        self.announced: dict[str, datetime] = {}  # alert key: when it was said
         self._events: list[dict[str, Any]] = []
         self._events_at: datetime | None = None
         self._etas: dict[str, tuple[datetime, int | None]] = {}
@@ -307,17 +312,39 @@ class Watcher:
         alerts += rain_alerts(self._weather_fn(), now)
         if self._files_fn is not None:
             try:
-                alerts += await self._files_fn(self._events, now)
+                alerts += await self._files_fn(self._files_unsaid(), now)
             except Exception as exc:  # an index being rebuilt: next time
                 log.info("proactive: no meeting files (%s)", exc)
         power = self._battery_fn() or {}
         if power.get("plugged") or power.get("percent", 100) > 10:
-            self.announced -= {"battery:10", "battery:5"}  # charging: warn again next time
+            for key in BATTERY_KEYS:  # charging: warn again next time
+                self.announced.pop(key, None)
         fresh = [a for a in alerts if a.key not in self.announced]
         for alert in fresh:
-            self.announced.add(alert.key)
+            self.announced[alert.key] = now
             self.notify(alert)
+        self._forget_said(now)
         return fresh
+
+    def _files_unsaid(self) -> list[dict[str, Any]]:
+        """The events whose files haven't been announced (fileindex.meeting_alerts keys its
+        alerts "files:" + event_key). One that was isn't looked up again: each look is a
+        full-text search of the index, every minute of the half hour before the meeting."""
+        out = []
+        for e in self._events:
+            try:
+                said = f"files:{event_key(e)}" in self.announced
+            except (KeyError, TypeError, ValueError):  # no start or title: the index decides
+                said = False
+            if not said:
+                out.append(e)
+        return out
+
+    def _forget_said(self, now: datetime) -> None:
+        cutoff = now - timedelta(days=ANNOUNCED_DAYS)
+        old = [k for k, at in self.announced.items() if at < cutoff and k not in BATTERY_KEYS]
+        for key in old:
+            del self.announced[key]
 
     async def _refresh_events(self, now: datetime) -> None:
         if self._events_at and (now - self._events_at).total_seconds() < EVENTS_EVERY:

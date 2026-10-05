@@ -34,6 +34,7 @@ import logging
 import os
 import re
 import sqlite3
+import threading
 import time
 import unicodedata
 from collections import deque
@@ -1495,6 +1496,11 @@ class Interrupter:
         self._people_from: dict[str, str] | None = None
         self._paused = False
         self._dirty = False
+        # Saves: each numbered as its state is taken, so a slower write of an older state
+        # never lands over a newer one (a look's save runs in a thread).
+        self._write_lock = threading.Lock()
+        self._saves = 0
+        self._written = 0
         self._digests = 0  # digests taken: a look settled after one has nothing to decide
         self._lock = asyncio.Lock()  # the state: waiting, told, marks
         self._polling = asyncio.Lock()  # one look at a time
@@ -1674,24 +1680,53 @@ class Interrupter:
         if data.get("mode") in MODES:
             self._mode = data["mode"]
 
-    def _save(self) -> None:
-        if not self._dirty or self.unreadable:
-            return
+    def _snapshot(self) -> dict[str, Any]:
+        """What the file holds, copied: it may be written from a thread while the state
+        moves on."""
         hold = None
         if self._hold is not None:
             hold = {"mode": self._hold[0], "until": self._hold[1].isoformat(timespec="seconds")}
-        data = {
+        return {
             "version": 1,
-            "sources": {k: vars(m) for k, m in self._marks.items()},
+            "sources": {k: dict(vars(m)) for k, m in self._marks.items()},
             "told": list(self._told),
             "hold": hold,
             "mode": self._mode,
         }
-        try:
+
+    def _write(self, data: dict[str, Any], number: int) -> None:
+        """One save's state to the file, unless a newer one is there already."""
+        with self._write_lock:
+            if number < self._written:
+                return
             jsonstore.save_json(self.path, data, indent=1)
+            self._written = number
+
+    def _save(self) -> None:
+        if not self._dirty or self.unreadable:
+            return
+        self._saves += 1
+        try:
+            self._write(self._snapshot(), self._saves)
             self._dirty = False
         except OSError as exc:
             log.info("interruptions: couldn't save state (%s)", exc)
+
+    async def _save_in_thread(self) -> None:
+        """_save for a look: the write (flushed to the disk itself, tens of milliseconds and
+        more on a busy disk) in a thread, so the window and the voice never wait on it. It's
+        awaited, so the file is written by the time the look goes on."""
+        if not self._dirty or self.unreadable:
+            return
+        data = self._snapshot()
+        self._saves += 1
+        try:
+            await asyncio.to_thread(self._write, data, self._saves)
+        except OSError as exc:
+            log.info("interruptions: couldn't save state (%s)", exc)
+            return
+        if self._snapshot() == data:  # nothing changed while it was written
+            self._dirty = False
 
     def _tell(self, key: str) -> None:
         if key in self._told_keys:
@@ -1893,7 +1928,7 @@ class Interrupter:
                     return await self._settle(plan, verdicts)
                 finally:
                     self.current_mode(plan.now)  # an expired hold is cleared (and saved)
-                    self._save()
+                    await self._save_in_thread()
 
     # ── learning from how the owner reacts ──
 
@@ -1979,7 +2014,7 @@ class Interrupter:
             items += await self._sort_out(batch, source, vips, people, now)
         mode = self.current_mode(now)
         if not items:
-            self._save()
+            await self._save_in_thread()
             return None
         for item in items:
             self._learned(item)
@@ -2099,7 +2134,7 @@ class Interrupter:
         for item in (best, *also):  # what the user heard about; the rest keep waiting
             self._waiting.pop(item.key, None)
             self._tell(item.key)
-        self._save()
+        await self._save_in_thread()
         cutoff = plan.now - timedelta(minutes=COOLDOWN_MINUTES)
         self._last_alert = {p: v for p, v in self._last_alert.items() if v[0] > cutoff}
         self._last_alert[best.person] = (plan.now, best.score)
@@ -2166,7 +2201,7 @@ class Interrupter:
         for source, mark in self._marks.items():
             if source in self._restored and mark.seen is not None and mark.digest_from != mark.seen:
                 mark.digest_from, self._dirty = mark.seen, True
-        self._save()
+        await self._save_in_thread()
         return sorted(items, key=lambda i: i.at)
 
     async def _still_unread(self, items: list[Item]) -> list[Item]:

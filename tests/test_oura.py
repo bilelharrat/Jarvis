@@ -356,3 +356,152 @@ def test_a_sleep_question_carries_the_rings_numbers():
     assert asyncio.run(oura.context("how did I sleep", "words sent on")) is None
     _hub, oura, _server = made(connected=False)
     assert asyncio.run(oura.context("how did I sleep", None)) is None
+
+
+class SingleUseServer(Server):
+    """Oura as it is on the network: answers take a moment, and a refresh token works once
+    (spending it again is turned down)."""
+
+    def __init__(self):
+        super().__init__()
+        self.live = {"r0"}
+        self.refreshes = []
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.01)
+        if request.url.path == "/oauth/token":
+            form = parse_qs(request.content.decode())
+            spent = form.get("refresh_token", [""])[0]
+            self.refreshes.append(spent)
+            if spent not in self.live:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            self.live.discard(spent)
+            reply = super().__call__(request)
+            self.live.add(reply.json()["refresh_token"])
+            return reply
+        return super().__call__(request)
+
+
+def test_reads_that_find_the_token_run_out_together_renew_it_once():
+    """A fetch makes four reads at once; when the access token has run out, all four find
+    that. One renews it and the others use the new one: spending the single-use refresh
+    token four times failed the briefing's fetch with "reconnect" every day it ran out."""
+    hub = Hub()
+    server = SingleUseServer()
+    oura = Oura(hub, transport=httpx.MockTransport(server))
+    hub.connectors.vault.set(
+        "oura", "oauth_client", json.dumps({"client_id": "cid", "client_secret": "secret"})
+    )
+    hub.connectors.vault.set(
+        "oura",
+        "oauth_tokens",
+        json.dumps({"access_token": "a0", "refresh_token": "r0", "expires_at": 0}),
+    )
+    data = asyncio.run(oura.fetch(today=TODAY))
+    assert server.refreshes == ["r0"]
+    assert data["daily_sleep"]
+    assert {auth for _kind, auth in server.calls} == {"Bearer access1"}
+    kept = json.loads(hub.connectors.vault.get("oura", "oauth_tokens"))
+    assert kept["refresh_token"] == "refresh1"
+
+
+class StalledTokenServer(Server):
+    """Oura's token endpoint on a stalled network: a refresh hangs a while, then fails
+    (turned down, or timed out)."""
+
+    def __init__(self, timed_out):
+        super().__init__()
+        self.timed_out = timed_out
+        self.refreshes = 0
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/oauth/token":
+            return super().__call__(request)
+        self.refreshes += 1
+        await asyncio.sleep(0.05)
+        if self.timed_out:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(503)
+
+
+@pytest.mark.parametrize("timed_out", [False, True])
+def test_reads_waiting_on_a_refresh_that_fails_fail_with_it(timed_out):
+    """A fetch's other three reads wait while one renews the token. When that refresh
+    failed, each tried again in turn, a timeout apiece after the fetch had already failed,
+    and the next fetch (the briefing, the oura_stats tool) waited behind them all. They
+    share its answer now, and the next fetch tries once, straight away."""
+    hub = Hub()
+    server = StalledTokenServer(timed_out)
+    oura = Oura(hub, transport=httpx.MockTransport(server))
+    hub.connectors.vault.set(
+        "oura", "oauth_client", json.dumps({"client_id": "cid", "client_secret": "secret"})
+    )
+    hub.connectors.vault.set(
+        "oura",
+        "oauth_tokens",
+        json.dumps({"access_token": "a0", "refresh_token": "r0", "expires_at": 0}),
+    )
+    failure = httpx.ReadTimeout if timed_out else oura_module.OuraError
+
+    async def two_fetches():
+        with pytest.raises(failure) as first:
+            await oura.fetch(today=TODAY)
+        assert server.refreshes == 1
+        with pytest.raises(failure):
+            await oura.fetch(today=TODAY)
+        assert server.refreshes == 2
+        # The reads gather left running when a fetch failed: none of them tries again.
+        left = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+        await asyncio.gather(*left, return_exceptions=True)
+        assert server.refreshes == 2
+        return first.value
+
+    error = asyncio.run(two_fetches())
+    if not timed_out:
+        assert "reconnect" in str(error)
+    assert not server.calls  # no data was asked for with the old token
+
+
+class CountingVault(MemoryVault):
+    def __init__(self):
+        super().__init__()
+        self.reads = 0
+
+    def get(self, conn_id, key):
+        self.reads += 1
+        return super().get(conn_id, key)
+
+
+def test_the_keychain_is_read_once_per_look():
+    """Each read is a call into the Keychain on the event loop: once is enough."""
+    hub = Hub()
+    hub.connectors.vault = vault = CountingVault()
+    oura = Oura(hub)
+    vault.set("oura", "oauth_client", json.dumps({"client_id": "cid"}))
+    vault.set(
+        "oura",
+        "oauth_tokens",
+        json.dumps({"access_token": "a0", "refresh_token": "", "expires_at": time.time() + 9e5}),
+    )
+    assert oura.connected() and vault.reads == 1
+    vault.reads = 0
+    oura.emit()
+    assert vault.reads == 2  # the app and the tokens
+    _kind, sent = hub.events[-1]
+    assert sent["client"] and sent["connected"] and sent["days_left"] == 10
+
+
+def test_the_morning_loop_leaves_the_keychain_alone_at_night(monkeypatch):
+    hub = Hub()
+    hub.connectors.vault = vault = CountingVault()
+    oura = Oura(hub)
+    oura._attached = True
+    monkeypatch.setattr(oura_module.time, "localtime", lambda: SimpleNamespace(tm_hour=23))
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(oura_module.asyncio, "sleep", stop)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(oura.loop())
+    assert vault.reads == 0

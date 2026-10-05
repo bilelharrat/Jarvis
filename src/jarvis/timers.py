@@ -663,6 +663,7 @@ class Timers:
             log.exception("timers: on_rang failed")
         if not loud:
             return
+        self._forget_old(now)  # what rang long ago can't be snoozed: kept for weeks it piles up
         self.recent[timer.id] = (timer, now)
         task = self._start(self._ring(timer))
         if task is not None:

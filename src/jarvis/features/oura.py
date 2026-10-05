@@ -240,6 +240,21 @@ class TokenCatcher:
             writer.close()
 
 
+def _connected(tokens: dict[str, Any]) -> bool:
+    return bool(tokens.get("refresh_token") or tokens.get("access_token"))
+
+
+def _days_left(tokens: dict[str, Any]) -> int | None:
+    if not tokens or tokens.get("refresh_token"):
+        return None
+    return max(0, int((float(tokens.get("expires_at") or 0) - time.time()) // 86400))
+
+
+def _fresh(tokens: dict[str, Any]) -> bool:
+    """An access token that hasn't run out."""
+    return bool(tokens.get("access_token")) and time.time() < float(tokens.get("expires_at") or 0)
+
+
 class Oura:
     def __init__(self, hub: Any, vault: Any = None, transport: Any = None) -> None:
         self.hub = hub
@@ -251,6 +266,11 @@ class Oura:
         self.last = ""  # when data last came
         self._cache: tuple[float, dict[str, Any]] | None = None
         self._lock = asyncio.Lock()
+        # One refresh at a time: Oura's refresh tokens are single-use, so the four reads of
+        # a fetch, all finding the token run out, must not each spend the same one.
+        self._refreshing = asyncio.Lock()
+        self._refreshes = 0  # refreshes finished, so a waiting read knows one ran meanwhile
+        self._failed: tuple[str, BaseException] | None = None  # the last one, if it failed
         self._attached = False
 
     # ── the Keychain ──
@@ -270,7 +290,7 @@ class Oura:
         return self._json("oauth_tokens")
 
     def connected(self) -> bool:
-        return bool(self.tokens().get("refresh_token") or self.tokens().get("access_token"))
+        return _connected(self.tokens())
 
     def _keep_tokens(self, answer: dict[str, Any], renewable: bool = True) -> None:
         old = self.tokens()
@@ -284,10 +304,7 @@ class Oura:
 
     def days_left(self) -> int | None:
         """Days until a sign-in that can't renew itself ends (None when it renews)."""
-        tokens = self.tokens()
-        if not tokens or tokens.get("refresh_token"):
-            return None
-        return max(0, int((float(tokens.get("expires_at") or 0) - time.time()) // 86400))
+        return _days_left(self.tokens())
 
     # ── signing in ──
 
@@ -448,7 +465,20 @@ class Oura:
         tokens = self.tokens()
         if not tokens:
             raise OuraError("Oura isn't connected (Settings › Oura).")
-        if tokens.get("access_token") and time.time() < float(tokens.get("expires_at") or 0):
+        if _fresh(tokens):
+            return tokens["access_token"]
+        tried = self._refreshes
+        async with self._refreshing:
+            return await self._renewed(tried)
+
+    async def _renewed(self, tried: int) -> str:
+        """A fresh access token, by the refresh token (under _refreshing). Read again here:
+        another read may have renewed it while this one waited. `tried` is how many refreshes
+        had finished when this read began to wait."""
+        tokens = self.tokens()
+        if not tokens:
+            raise OuraError("Oura isn't connected (Settings › Oura).")
+        if _fresh(tokens):
             return tokens["access_token"]
         refresh = tokens.get("refresh_token")
         if not refresh:
@@ -456,10 +486,24 @@ class Oura:
                 "Oura's sign-in ran out (it lasts about a month): press Connect with Oura in "
                 "Settings › Oura Ring."
             )
+        failed = self._failed
+        if failed and failed[0] == refresh and self._refreshes != tried:
+            # The same refresh failed while this read waited, so its answer is this read's
+            # too, as when the reads all tried at once. Trying again in turn held the lock a
+            # timeout per read, and the next fetch's reads waited behind them all.
+            raise failed[1]
+        self._failed = None
         try:
             answer = await self._token({"grant_type": "refresh_token", "refresh_token": refresh})
         except OuraError:
-            raise OuraError("Oura's sign-in ran out: reconnect in Settings › Oura.") from None
+            error = OuraError("Oura's sign-in ran out: reconnect in Settings › Oura.")
+            self._failed = (refresh, error)
+            raise error from None
+        except Exception as exc:  # offline or timed out: the waiting reads would be too
+            self._failed = (refresh, exc)
+            raise
+        finally:
+            self._refreshes += 1
         self._keep_tokens(answer)
         return answer["access_token"]
 
@@ -620,14 +664,15 @@ class Oura:
         return create_sdk_mcp_server(name="oura", version="0.1.0", tools=[oura_stats])
 
     def emit(self, _msg: dict[str, Any] | None = None) -> None:
+        tokens = self.tokens()  # each Keychain read is a call into the Security framework
         self.hub.emit(
             "oura",
             client=bool(self.client().get("client_id")),
-            connected=self.connected(),
+            connected=_connected(tokens),
             connecting=self.connecting,
             error=self.error,
             last=self.last,
-            days_left=self.days_left(),
+            days_left=_days_left(tokens),
             redirect_uri=connectors.REDIRECT_URI,
             apps_url=APPS_URL,
         )
@@ -650,7 +695,7 @@ class Oura:
         self.attach()
         while True:
             hour = time.localtime().tm_hour
-            if self.connected() and 4 <= hour < 12:
+            if 4 <= hour < 12 and self.connected():  # the clock first: no Keychain at night
                 with contextlib.suppress(Exception):
                     await self.fetch()
             await asyncio.sleep(CACHE_SECONDS)
