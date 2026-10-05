@@ -989,3 +989,39 @@ async def test_a_request_note_tells_claude_where_it_came_from(
     await settle(router)
     assert hub.client.queries[-1].startswith("[Note from the app: ")
     assert "send_file_to_chat" in hub.client.queries[-1]
+
+
+async def test_a_slow_save_never_lands_over_a_newer_one(settings, quiet_speaker, isolated):
+    """On a busy disk a save can still be writing when the next change's save starts: they
+    go one at a time, in order, so channels.json ends with the newest (where Telegram's
+    updates got to, who's paired), never the older one written last."""
+    import threading
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    router = hub.chat_channels
+    state = router.state
+    real = state.write
+    first_started, release = threading.Event(), threading.Event()
+    order = []
+
+    def write(snapshot):
+        order.append(snapshot["offsets"].get("telegram"))
+        if len(order) == 1:
+            first_started.set()
+            release.wait(10)  # the first write, stuck on the disk a while
+        real(snapshot)
+
+    state.write = write
+    state.offsets["telegram"] = 1
+    state.dirty = True
+    older = asyncio.create_task(router.flush())
+    await asyncio.to_thread(first_started.wait, 10)
+    state.offsets["telegram"] = 2
+    state.dirty = True
+    newer = asyncio.create_task(router.flush())
+    await asyncio.sleep(0.05)
+    assert order == [1]  # the newer waits its turn
+    release.set()
+    await asyncio.gather(older, newer)
+    assert order == [1, 2]
+    assert json.loads(Path(state.path).read_text())["offsets"] == {"telegram": 2}

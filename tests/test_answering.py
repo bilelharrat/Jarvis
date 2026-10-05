@@ -1235,6 +1235,38 @@ async def test_a_new_claude_key_goes_up_to_the_function_again(tmp_path):
     assert not d.desk._line_stale()
 
 
+async def test_the_half_minute_look_reads_the_key_off_the_event_loop(tmp_path):
+    """The Keychain can take a while (or ask): the loop's look at whether the Function is
+    current reads the key in a thread, and a new key still goes up."""
+    import threading
+
+    d = Desk(tmp_path).on()
+    threads = []
+
+    def key():
+        threads.append(threading.current_thread())
+        return KEY
+
+    d.desk.claude_key = key
+    turned = []
+
+    async def turn_on():
+        turned.append(True)
+        return "Answering is on."
+
+    async def no_calls(_creds):
+        return []
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    d.desk.turn_on, d.desk._collect_locked, d.desk.sleep = turn_on, no_calls, stop
+    with pytest.raises(asyncio.CancelledError):
+        await d.desk.run()
+    assert turned == [True] and d.desk.note == "Answering is on."
+    assert threads and threading.main_thread() not in threads
+
+
 # ── the voice callers hear ──
 
 FISH = {"provider": "fish", "key": "fish-" + "f" * 30, "id": "jarvis-voice", "model": "s2.1-pro"}

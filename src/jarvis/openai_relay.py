@@ -229,12 +229,15 @@ class Stream:
         self.model = model
         self.index = -1
         self.open_text = False
-        self.calls: dict[int, dict[str, Any]] = {}  # OpenAI's index -> {id, name, args}
+        # OpenAI's index -> {id, name, args}: args as the pieces streamed, joined once whole
+        # (added to a string piece by piece, a long call copied it all again for each piece).
+        self.calls: dict[int, dict[str, Any]] = {}
         self.used_tools = False
         self.finish = ""
         self.input_tokens = input_tokens
         self.output_tokens = 0
         self.blocks: list[dict[str, Any]] = []  # the whole message, for a non-streamed reply
+        self._words: list[str] = []  # the open text block's pieces, its text once it closes
 
     @staticmethod
     def event(kind: str, data: dict[str, Any]) -> str:
@@ -257,6 +260,8 @@ class Stream:
         if not self.open_text:
             return ""
         self.open_text = False
+        self.blocks[-1]["text"] = "".join(self._words)
+        self._words = []
         return self.event("content_block_stop", {"index": self.index})
 
     def _text(self, text: str) -> str:
@@ -271,7 +276,7 @@ class Stream:
                     {"index": self.index, "content_block": {"type": "text", "text": ""}},
                 )
             )
-        self.blocks[-1]["text"] += text
+        self._words.append(text)
         out.append(
             self.event(
                 "content_block_delta",
@@ -283,7 +288,7 @@ class Stream:
     def _call(self, position: int, delta: dict[str, Any]) -> None:
         raw = delta.get("index")
         key = raw if isinstance(raw, int) and not isinstance(raw, bool) else position
-        call = self.calls.setdefault(key, {"id": "", "name": "", "args": ""})
+        call = self.calls.setdefault(key, {"id": "", "name": "", "args": []})
         if delta.get("id"):
             call["id"] = str(delta["id"])
         function = delta.get("function") if isinstance(delta.get("function"), dict) else {}
@@ -291,9 +296,9 @@ class Stream:
             call["name"] = str(function["name"])
         arguments = function.get("arguments")
         if isinstance(arguments, str):
-            call["args"] += arguments
+            call["args"].append(arguments)
         elif isinstance(arguments, dict):  # a server that sends the object itself
-            call["args"] = json.dumps(arguments)
+            call["args"] = [json.dumps(arguments)]
 
     def _flush_calls(self) -> str:
         """The tool calls gathered so far, each as a whole content block."""
@@ -307,7 +312,7 @@ class Stream:
             self.index += 1
             self.used_tools = True
             call_id = call["id"] or _new_id("toolu")
-            args = _json_object(call["args"])
+            args = _json_object("".join(call["args"]))
             self.blocks.append(
                 {"type": "tool_use", "id": call_id, "name": call["name"], "input": args}
             )
@@ -551,7 +556,7 @@ class OpenAIRelay:
         converter = Stream(model)
         if not stream:
             try:
-                raw = b""
+                raw = bytearray()
                 async for piece in response.aiter_bytes():
                     raw += piece
                     if len(raw) > REPLY_LIMIT:

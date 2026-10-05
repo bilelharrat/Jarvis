@@ -133,11 +133,22 @@ class SmsLine:
         }
         return self.state
 
-    def _save(self) -> None:
-        if self.state is None:
+    async def _save(self) -> None:
+        """After every look (each half minute while either is on): a copy taken here,
+        written in a thread, so the event loop never waits on the disk for it."""
+        state = self.state
+        if state is None:
             return
+        copy = {
+            "seen": list(state["seen"]),
+            "texts": list(state["texts"]),
+            "looked": state["looked"],
+        }
+        await asyncio.to_thread(self._write, copy)
+
+    def _write(self, state: dict[str, Any]) -> None:
         try:
-            jsonstore.save_json(self.path, self.state)
+            jsonstore.save_json(self.path, state)
         except OSError as exc:
             log.warning("jarvis number: couldn't save (%s)", exc)
 
@@ -189,7 +200,7 @@ class SmsLine:
                     state["texts"] = (state["texts"] + [m])[-sms.KEEP :]
                     self._tell(m)
                     told += 1
-        self._save()
+        await self._save()
         if told:
             self.publish()
         return told

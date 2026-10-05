@@ -219,6 +219,9 @@ class Channels:
         self._publish_at: asyncio.TimerHandle | None = None
         self._last_publish = 0.0
         self._saving: asyncio.TimerHandle | None = None
+        # One write at a time, in order: a write still under way on a slow disk when the next
+        # change's flush came would race it, and the older could land last.
+        self._writing = asyncio.Lock()
         from .discord import Discord
         from .imessage import IMessage
         from .signal import Signal
@@ -321,14 +324,15 @@ class Channels:
     async def flush(self) -> None:
         """Save what changed (off the event loop)."""
         self._saving = None
-        if not self.state.dirty:
-            return
-        snapshot = self.state.snapshot()
-        self.state.dirty = False
-        try:
-            await asyncio.to_thread(self.state.write, snapshot)
-        except OSError as exc:
-            log.warning("channels: couldn't save (%s)", exc.strerror or exc)
+        async with self._writing:
+            if not self.state.dirty:
+                return
+            snapshot = self.state.snapshot()
+            self.state.dirty = False
+            try:
+                await asyncio.to_thread(self.state.write, snapshot)
+            except OSError as exc:
+                log.warning("channels: couldn't save (%s)", exc.strerror or exc)
 
     def _save_now_quietly(self) -> None:
         try:

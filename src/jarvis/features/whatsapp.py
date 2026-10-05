@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -134,6 +135,13 @@ class Store:
         self.lids: dict[str, str] = {}  # a hidden (LID) address -> its phone-number one
         self.messages: dict[str, list[dict[str, Any]]] = {}
         self.loaded = False
+        # A save's text is taken on the event loop and may be written in a thread
+        # (WhatsApp._save_later): one write at a time, an older text never over a newer one,
+        # and none after clear(), so a forgotten store never comes back on disk.
+        self._write_lock = threading.Lock()
+        self._taken = 0  # texts taken to save, numbered
+        self._written = 0  # the newest of them on disk
+        self._cleared = 0  # clear()s so far: a text taken before one is never written
 
     # on disk
 
@@ -167,25 +175,48 @@ class Store:
     def save(self) -> None:
         if self.path is None:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.write(*self.taken())
+
+    def taken(self) -> tuple[str, tuple[int, int]]:
+        """The store as store.json holds it, and its place in line for write(). Taken on the
+        event loop, where the store changes. json.dumps, not json.dump: dump encodes in
+        Python, piece by piece, several times slower for a store of hundreds of chats; the
+        text is the same."""
         data = {
             "chats": self.chats,
             "contacts": self.contacts,
             "lids": self.lids,
             "messages": self.messages,
         }
-        partial = self.path.with_suffix(".partial")
-        fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, ensure_ascii=False)
-        os.replace(partial, self.path)
+        text = json.dumps(data, ensure_ascii=False)
+        self._taken += 1
+        return text, (self._taken, self._cleared)
+
+    def write(self, text: str, place: tuple[int, int]) -> None:
+        """Puts a taken text on disk (any thread); left out when a newer one is there
+        already, or the store was cleared since it was taken."""
+        if self.path is None:
+            return
+        number, cleared = place
+        with self._write_lock:
+            if cleared != self._cleared or number <= self._written:
+                return
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            partial = self.path.with_suffix(".partial")
+            fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(text)
+            os.replace(partial, self.path)
+            self._written = number
 
     def clear(self) -> None:
-        self.chats, self.contacts, self.lids, self.messages = {}, {}, {}, {}
-        self.loaded = False  # a save now writes nothing back; the next use starts afresh
-        if self.path is not None:
-            with contextlib.suppress(FileNotFoundError):
-                self.path.unlink()
+        with self._write_lock:  # a write under way finishes first, and none follows
+            self._cleared += 1
+            self.chats, self.contacts, self.lids, self.messages = {}, {}, {}, {}
+            self.loaded = False  # a save now writes nothing back; the next use starts afresh
+            if self.path is not None:
+                with contextlib.suppress(FileNotFoundError):
+                    self.path.unlink()
 
     # from the bridge
 
@@ -193,6 +224,15 @@ class Store:
         return self.lids.get(jid, jid) if jid else ""
 
     def add_lids(self, pairs: list[Any]) -> None:
+        renames: dict[str, str] = {}
+        self._add_lids(pairs, renames)
+        self._rename_senders(renames)
+
+    def _add_lids(self, pairs: list[Any], renames: dict[str, str]) -> None:
+        """Each new pair's chat, contact and messages move to its number at once; the
+        messages it sent in other chats are renamed with the rest of the batch's
+        (_rename_senders: one pass over every message kept, where a pass for each pair took
+        a history sync's hundreds of pairs times every message)."""
         for pair in pairs:
             if not (isinstance(pair, list | tuple) and len(pair) == 2):
                 continue
@@ -200,11 +240,26 @@ class Store:
             if not (isinstance(lid, str) and isinstance(pn, str)):
                 continue
             if lid.endswith("@lid") and pn.endswith(PN) and self.lids.get(lid) != pn:
+                if lid in renames:  # the same address again: its earlier number's turn first
+                    self._rename_senders(renames)
+                    renames.clear()
                 self.lids[lid] = pn
                 self._merge(lid, pn)
+                renames[lid] = pn
+
+    def _rename_senders(self, renames: dict[str, str]) -> None:
+        """Messages sent from a hidden address, now from its phone number."""
+        if not renames:
+            return
+        for kept in self.messages.values():
+            for m in kept:
+                new = renames.get(m.get("sender"))
+                if new is not None:
+                    m["sender"] = new
 
     def _merge(self, old: str, new: str) -> None:
-        """What was kept under a hidden address moves to its phone number."""
+        """What was kept under a hidden address moves to its phone number (its messages in
+        other chats are renamed by _rename_senders)."""
         if old in self.chats:
             chat = self.chats.pop(old)
             into = self.chats.setdefault(new, {"id": new})
@@ -225,10 +280,6 @@ class Store:
         if old in self.messages:
             for m in self.messages.pop(old):
                 self._keep(new, {**m, "chat": new})
-        for kept in self.messages.values():
-            for m in kept:
-                if m.get("sender") == old:
-                    m["sender"] = new
 
     def apply_chats(self, chats: list[Any], update: bool = False) -> None:
         for c in chats:
@@ -255,6 +306,7 @@ class Store:
         self._trim_chats()
 
     def apply_contacts(self, contacts: list[Any]) -> None:
+        renames: dict[str, str] = {}
         for c in contacts:
             if not isinstance(c, dict) or not isinstance(c.get("id"), str):
                 continue
@@ -262,27 +314,29 @@ class Store:
             pn = c.get("pn") if isinstance(c.get("pn"), str) else None
             jid = c["id"]
             if jid.endswith("@lid") and pn:
-                self.add_lids([[jid, pn]])
+                self._add_lids([[jid, pn]], renames)
             elif lid and jid.endswith(PN):
-                self.add_lids([[lid, jid]])
+                self._add_lids([[lid, jid]], renames)
             key = self.canon(pn or jid)
             entry = self.contacts.setdefault(key, {})
             if c.get("name"):
                 entry["name"] = str(c["name"])[:200]
             if c.get("notify"):
                 entry["notify"] = str(c["notify"])[:200]
+        self._rename_senders(renames)
 
     def apply_messages(self, messages: list[Any]) -> list[dict[str, Any]]:
         """Keep these; returns the ones new here."""
         new: list[dict[str, Any]] = []
+        renames: dict[str, str] = {}
         for m in messages:
             if not isinstance(m, dict) or not m.get("id") or not isinstance(m.get("chat"), str):
                 continue
             chat_alt, sender_alt = m.get("chat_alt"), m.get("sender_alt")
             if isinstance(chat_alt, str) and m["chat"].endswith("@lid"):
-                self.add_lids([[m["chat"], chat_alt]])
+                self._add_lids([[m["chat"], chat_alt]], renames)
             if isinstance(sender_alt, str) and isinstance(m.get("sender"), str):
-                self.add_lids([[m["sender"], sender_alt]])
+                self._add_lids([[m["sender"], sender_alt]], renames)
             chat = self.canon(m["chat"])
             sender = self.canon(m.get("sender")) or None
             kept = {
@@ -299,14 +353,22 @@ class Store:
                 new.append(kept)
                 entry = self.chats.setdefault(chat, {"id": chat})
                 entry["ts"] = max(entry.get("ts", 0), kept["ts"])
+        self._rename_senders(renames)
         self._trim_chats()
         # Only what's still kept: a later message in the batch can push an earlier one out,
-        # and a hidden address learned mid-batch moves its chat to the number.
-        still = {(c, k["id"]) for c, kept_list in self.messages.items() for k in kept_list}
+        # and a hidden address learned mid-batch moves its chat to the number. Only the
+        # chats these came in are looked at (every kept message was, for each live message).
+        still: dict[str, set[str]] = {}
+
+        def kept_in(chat: str) -> set[str]:
+            if chat not in still:
+                still[chat] = {k["id"] for k in self.messages.get(chat, [])}
+            return still[chat]
+
         return [
             {**m, "chat": self.canon(m["chat"]), "sender": self.canon(m["sender"]) or None}
             for m in new
-            if (self.canon(m["chat"]), m["id"]) in still
+            if m["id"] in kept_in(self.canon(m["chat"]))
         ]
 
     def _keep(self, chat: str, message: dict[str, Any]) -> bool:
@@ -782,7 +844,27 @@ class WhatsApp:
         except RuntimeError:
             self._save_now()
             return
-        self._save_handle = loop.call_later(SAVE_AFTER, self._save_now)
+        self._save_handle = loop.call_later(SAVE_AFTER, self._save_later)
+
+    def _save_later(self) -> None:
+        """The save a few seconds after a change: its text is taken here, on the event loop
+        where the store changes, and written in a thread (megabytes, for a store of hundreds
+        of chats: the window and JARVIS never wait on the disk for it). Store.write keeps
+        an older text from landing over a newer one, and any after the store is forgotten."""
+        self._save_handle = None
+        if not self.store.loaded:
+            return
+        if self.store.path is not None:
+            text, place = self.store.taken()
+            asyncio.get_running_loop().run_in_executor(None, self._write, text, place)
+        if self.state == "connected":
+            self.publish()  # the window's unread count
+
+    def _write(self, text: str, place: tuple[int, int]) -> None:
+        try:
+            self.store.write(text, place)
+        except Exception:
+            log.exception("whatsapp: couldn't save the store")
 
     def _save_now(self) -> None:
         if self._save_handle is not None:

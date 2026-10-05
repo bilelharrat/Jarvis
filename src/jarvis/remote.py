@@ -33,6 +33,7 @@ import secrets
 import socket
 import ssl
 import subprocess
+import threading
 import time
 import unicodedata
 import uuid
@@ -134,6 +135,12 @@ class Devices:
         # Wrong codes per address: someone else on the network can't lock the owner out.
         self.failures: dict[str, deque[float]] = {}
         self.all_failures: deque[float] = deque()  # and a cap for many addresses at once
+        # When a phone was last seen is written in a thread (seen()): one write at a time,
+        # and a list taken earlier never lands over one written since (a phone just paired
+        # or removed stays so on disk).
+        self._write_lock = threading.Lock()
+        self._taken = 0  # lists taken to save, numbered
+        self._written = 0  # the newest of them on disk
         try:
             rows = jsonstore.load_json(self.path, list)
         except jsonstore.Unreadable as exc:
@@ -185,8 +192,23 @@ class Devices:
 
         if self.unreadable:
             raise jsonstore.refusal(self.path, self.unreadable)
+        self._write(*self._taken_rows(), keep_copy)
+
+    def _taken_rows(self) -> tuple[list[Any], int]:
+        """The file's rows as they are now (taken on the event loop), and their number."""
         rows = [{**self.extra.get(d.id, {}), **asdict(d)} for d in self.items] + self.broken
-        jsonstore.save_json(self.path, rows, backup=keep_copy)
+        self._taken += 1
+        return rows, self._taken
+
+    def _write(self, rows: list[Any], number: int, keep_copy: bool = True) -> None:
+        """Rows onto the disk (any thread); left out when newer ones are there already."""
+        from . import jsonstore
+
+        with self._write_lock:
+            if number <= self._written:
+                return
+            jsonstore.save_json(self.path, rows, backup=keep_copy)
+            self._written = number
 
     def start_pairing(self) -> str:
         self.code = f"{secrets.randbelow(10**6):06d}"
@@ -256,8 +278,22 @@ class Devices:
         now = datetime.now().isoformat(timespec="minutes")
         if device.last_seen != now:
             device.last_seen = now
-            with contextlib.suppress(OSError):  # only when it was last seen: never worth a failure
-                self.save()
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is None or self.unreadable:
+                # Only when it was last seen: never worth a failure.
+                with contextlib.suppress(OSError):
+                    self.save()
+                return
+            # In a thread: the request that saw it never waits on the disk (a save flushes
+            # the drive's cache, which a busy disk can take a good while over).
+            loop.run_in_executor(None, self._write_quietly, *self._taken_rows())
+
+    def _write_quietly(self, rows: list[Any], number: int) -> None:
+        with contextlib.suppress(OSError):  # only when it was last seen: never worth a failure
+            self._write(rows, number)
 
     def remove(self, device_id: str) -> bool:
         """Unpaired at once, even when the file can't be saved (the error says so)."""

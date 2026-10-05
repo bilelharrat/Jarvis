@@ -319,6 +319,40 @@ def test_a_whole_reply_reads_into_one_message():
     assert message["usage"] == {"input_tokens": 9, "output_tokens": 4}
 
 
+def test_a_long_answer_and_a_long_call_come_through_whole():
+    """A model writing a big file: its words and the call's arguments arrive in thousands of
+    small pieces. Each word goes out as it comes; the call goes out whole, and the blocks
+    hold every piece, in order."""
+    content = "".join(chr(0x61 + i % 26) for i in range(60_000))
+    body = json.dumps({"path": "big.py", "content": content})
+    stream = Stream("qwen3")
+    out = stream.start()
+    words = [f"w{i} " for i in range(5_000)]
+    for word in words:
+        out += stream.chunk(chunk(word))
+    out += stream.chunk(
+        chunk(calls=[{"index": 0, "id": "c1", "function": {"name": "Write", "arguments": ""}}])
+    )
+    for i in range(0, len(body), 7):
+        out += stream.chunk(chunk(calls=[{"index": 0, "function": {"arguments": body[i : i + 7]}}]))
+    out += stream.end()
+    events = events_of(out)
+    said = [e["delta"]["text"] for e in events if e.get("delta", {}).get("type") == "text_delta"]
+    assert said == words
+    [call] = [e for e in events if e.get("delta", {}).get("type") == "input_json_delta"]
+    assert json.loads(call["delta"]["partial_json"]) == {"path": "big.py", "content": content}
+    assert stream.blocks[0] == {"type": "text", "text": "".join(words)}
+    assert stream.blocks[1]["input"]["content"] == content
+    again = Stream("m")  # a text block opened again after a call starts empty
+    again.chunk(chunk("one"))
+    again.chunk(
+        chunk(calls=[{"index": 0, "id": "c", "function": {"name": "a", "arguments": "{}"}}])
+    )
+    again.chunk(chunk("two"))
+    again.end()
+    assert [b.get("text") for b in again.blocks] == ["one", None, "two"]
+
+
 # ── the calls, against a stand-in for the provider ──
 
 

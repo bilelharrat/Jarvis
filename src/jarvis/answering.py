@@ -1258,6 +1258,7 @@ class Answering:
         p = self.prefs()
         minutes = self.minutes()
         now = datetime.fromtimestamp(self.clock())
+        talking = await asyncio.to_thread(self.talking)  # the key: from the Keychain
         # Times still to come that callers asked for and the owner hasn't answered: held.
         held: dict[str, datetime] = {}
         for c in self.log.calls:
@@ -1275,7 +1276,7 @@ class Answering:
             "waiting": {c.number: c.said for c in waiting},
             # Talking: whether to, what callers may be told about the owner, the owner's
             # time zone, and their own number (a call from it is the owner).
-            "talk": self.talking(),
+            "talk": talking,
             "about": re.sub(r"\s+", " ", str(getattr(p, "line_about", "") or "")).strip()[:500],
             "tz": local_zone(),
             "owner_number": str(getattr(p, "phone_me", "") or ""),
@@ -1324,7 +1325,8 @@ class Answering:
         Claude key or voice changed in Settings, and a newer Function, go up to Twilio."""
         while True:
             try:
-                if self.log.line and self._line_stale():
+                # In a thread: it reads the Claude key from the Keychain, and the Function.
+                if self.log.line and await asyncio.to_thread(self._line_stale):
                     self._resetup_at = self.clock()
                     try:
                         self.note = await self.turn_on()

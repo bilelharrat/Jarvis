@@ -376,3 +376,41 @@ async def test_a_test_hub_never_reaches_twilio(settings, quiet_speaker, isolated
     hub.set_feature_prefs({"sms_line_on": True})
     assert hub.sms_line.on() and not hub.sms_line.approvals()
     assert "aren't being read" not in hub.sms_line.recent(3)
+
+
+async def test_each_look_is_kept_on_disk_without_the_event_loop_waiting(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """Every half minute's look is saved (when it looked, and what it saw), written in a
+    thread: a restart catches up from the last look, as before."""
+    import json
+    import threading
+
+    from jarvis import jsonstore
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"sms_line_on": True})
+    twilio = Twilio()
+    twilio.text_in("+15550001111", "old news")
+    line = line_for(hub, twilio)
+    threads = []
+    real = jsonstore.save_json
+
+    def save_json(*args, **kwargs):
+        threads.append(threading.current_thread())
+        real(*args, **kwargs)
+
+    monkeypatch.setattr(jsonstore, "save_json", save_json)
+    await line.look()
+    line.time[0] += 30
+    twilio.text_in("+15550001111", "On my way")
+    assert await line.look() == 1
+    assert len(threads) == 2 and threading.main_thread() not in threads
+    kept = json.loads(line.path.read_text())
+    assert list(kept) == ["seen", "texts", "looked"]
+    assert kept["seen"] == ["SM1", "SM2"] and kept["looked"] == line.time[0]
+    assert [t["body"] for t in kept["texts"]] == ["On my way"]
+    again = line_for(hub, twilio)  # a restart: it picks up where it left off
+    again.time[0] = line.time[0] + 30
+    twilio.text_in("+15550001111", "Here now")
+    assert await again.look() == 1
