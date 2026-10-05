@@ -164,6 +164,36 @@ async def test_a_damaged_or_unreadable_session_file_never_stops_the_rest(
         locked.chmod(0o600)
 
 
+async def test_a_remembered_file_that_fails_to_read_never_costs_the_kept_sessions(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """The sessions come back and their files stay when how past sessions were set can't be
+    read; that file isn't saved over either."""
+    from jarvis.session_store import SessionStore
+
+    (tmp_path / "proj").mkdir()
+    folder = tmp_path / "code_sessions"
+    folder.mkdir()
+    proj = str((tmp_path / "proj").resolve())
+    kept = folder / "bbbbbbbbbbbbbbbb.json"
+    kept.write_text(json.dumps({"cwd": proj, "session_id": "s-ok"}))
+    remembered = folder / "remembered.json"
+    remembered.write_text('{"s-old": {"mode": "plan"}}')
+
+    def broken(_self):
+        raise RuntimeError("a field nobody expected")
+
+    monkeypatch.setattr(SessionStore, "load_remembered", broken)
+    hub = make_hub(settings, quiet_speaker, isolated)
+    assert await hub.code_sessions.restore() == 1
+    [back] = hub.tasks.tasks.values()
+    assert back.session_id == "s-ok"
+    hub.code_sessions.remembered["s-new"] = {"mode": "ask"}
+    await hub.code_sessions.flush(final=True)
+    assert json.loads(kept.read_text())["session_id"] == "s-ok"
+    assert json.loads(remembered.read_text()) == {"s-old": {"mode": "plan"}}
+
+
 async def test_nothing_is_saved_before_the_kept_sessions_are_read_back(
     settings, quiet_speaker, isolated, tmp_path
 ):

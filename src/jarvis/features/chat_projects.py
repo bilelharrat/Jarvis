@@ -62,6 +62,19 @@ def _file_name(value: Any) -> str:
     return name[:120]
 
 
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _whole(value: Any) -> int:
+    """A count or a time as a whole number; 0 for one a hand edit (or another build) left
+    as something else: one odd field never loses the projects."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _pdf_text(data: bytes) -> str:
     from ..browser_pdf import extract
 
@@ -76,13 +89,16 @@ class ChatProjects:
         self.hub = hub
         self.folder = folder or APP_SUPPORT
         self.path = self.folder / STATE_FILE
+        self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         try:
             raw = jsonstore.load_json(self.path, dict)
-        except jsonstore.Unreadable:
+        except jsonstore.Unreadable as exc:
+            self.unreadable = exc.strerror or "it can't be read"
+            log.warning("chat projects: %s can't be read (%s)", self.path.name, exc)
             raw = {}
         raw = raw if isinstance(raw, dict) else {}
         self.projects: list[dict[str, Any]] = [
-            p for p in (self._clean(x) for x in raw.get("projects") or []) if p
+            p for p in (self._clean(x) for x in _list(raw.get("projects"))) if p
         ][:MAX_PROJECTS]
         active = str(raw.get("active") or "")
         self.active = active if self.find(active) else ""
@@ -102,23 +118,23 @@ class ChatProjects:
         if not pid.isalnum() or not name:
             return None
         files = []
-        for f in raw.get("files") or []:
+        for f in _list(raw.get("files")):
             if isinstance(f, dict) and _file_name(f.get("name")):
                 files.append(
                     {
                         "name": _file_name(f.get("name")),
-                        "chars": int(f.get("chars") or 0),
-                        "added": int(f.get("added") or 0),
+                        "chars": _whole(f.get("chars")),
+                        "added": _whole(f.get("added")),
                     }
                 )
-        sessions = [s for s in (valid_id(x) for x in raw.get("sessions") or []) if s]
+        sessions = [s for s in (valid_id(x) for x in _list(raw.get("sessions"))) if s]
         return {
             "id": pid,
             "name": name,
             "instructions": str(raw.get("instructions") or "")[:INSTRUCTIONS_MAX],
             "files": files[:MAX_FILES],
             "sessions": sessions[-MAX_SESSIONS:],
-            "created": int(raw.get("created") or 0),
+            "created": _whole(raw.get("created")),
         }
 
     def find(self, pid: Any) -> dict[str, Any] | None:
@@ -130,6 +146,8 @@ class ChatProjects:
     def _save(self) -> None:
         from .. import jsonstore
 
+        if self.unreadable:
+            raise jsonstore.refusal(self.path, self.unreadable)
         jsonstore.save_json(self.path, {"active": self.active, "projects": self.projects})
 
     def _dir(self, pid: str) -> Path:

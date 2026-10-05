@@ -292,7 +292,12 @@ class Hearing:
             return
         if not data:
             return
-        for heard, raw in list((data.get("corrections") or {}).items())[-MAX_CORRECTIONS:]:
+        # A section that isn't a mapping (hand-edited, another build's) is left out: the Hub
+        # makes this store as it starts, so nothing in the file may stop that.
+        corrections, words = data.get("corrections"), data.get("words")
+        corrections = corrections if isinstance(corrections, dict) else {}
+        words = words if isinstance(words, dict) else {}
+        for heard, raw in list(corrections.items())[-MAX_CORRECTIONS:]:
             if not isinstance(raw, dict):
                 continue
             heard, meant = _key(heard), _term(raw.get("meant"))
@@ -303,7 +308,7 @@ class Hearing:
                     "at": str(raw.get("at") or "")[:25],
                     "via": str(raw.get("via") or "voice")[:8],
                 }
-        for key, raw in list((data.get("words") or {}).items())[-MAX_WORDS:]:
+        for key, raw in list(words.items())[-MAX_WORDS:]:
             if isinstance(raw, dict) and (word := _term(raw.get("word"))):
                 self.words[_key(key) or word.lower()] = {
                     "word": word,

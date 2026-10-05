@@ -220,10 +220,17 @@ class CodeSessions:
             return 0
         try:
             records = await asyncio.to_thread(self.store.load)
-            self.remembered = await asyncio.to_thread(self.store.load_remembered)
         except Exception:
             log.exception("Jarvis Code: couldn't read the kept sessions")
             records = []
+        # Read on its own: the sessions read above count as read (the store saves over and
+        # lets go of what it has read), so dropping them for this file's sake had the next
+        # save delete every kept session. A remembered.json that can't be read stays as it is.
+        try:
+            self.remembered = await asyncio.to_thread(self.store.load_remembered)
+        except Exception:
+            log.exception("Jarvis Code: couldn't read how past sessions were set")
+            self.store.remembered_unreadable = "it couldn't be read"
         self._remembered_saved = dict(self.remembered)
         restored = 0
         self._ids_past(records)

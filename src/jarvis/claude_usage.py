@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import math
 import subprocess
 import threading
 import time
@@ -150,6 +151,39 @@ def _add(into: dict[str, Any], cost: float, tokens: dict[str, int]) -> None:
         into[kind] = int(into.get(kind) or 0) + tokens[kind]
 
 
+def _finite(value: Any) -> float | None:
+    """A number as a float; None for one that isn't, is past what a float holds, or isn't
+    finite."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        value = float(value)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _bucket(raw: dict[str, Any]) -> dict[str, Any]:
+    """A day's (or a source's) numbers as read back: one that isn't a count is 0."""
+    out = _blank()
+    out["cost"] = round(max(0.0, _finite(raw.get("cost")) or 0.0), 6)
+    for kind in ("requests", *TOKEN_KINDS):
+        value = raw.get(kind)
+        out[kind] = value if type(value) is int and value >= 0 else 0
+    return out
+
+
+def _day(raw: dict[str, Any]) -> dict[str, Any]:
+    day: dict[str, Any] = _bucket(raw)
+    for part in ("sources", "models", "providers"):
+        named = raw.get(part)
+        if isinstance(named, dict):
+            day[part] = {k: _bucket(v) for k, v in named.items() if isinstance(v, dict)}
+        elif part != "providers":  # (a day has providers only once one was used)
+            day[part] = {}
+    return day
+
+
 def _total(bucket: dict[str, Any]) -> int:
     return sum(int(bucket.get(k) or 0) for k in TOKEN_KINDS)
 
@@ -177,15 +211,26 @@ class UsageBook:
         self._on_disk = 0  # the count the file holds (under _writing)
         self._writing = threading.Lock()
         self._task: asyncio.Task | None = None
+        # Why the file can't be read now: counted afresh in memory, and the file is left as
+        # it is (a save over it would lose its days for good).
+        self.unreadable = ""
         if path is not None:
             try:
                 data = jsonstore.load_json(path, dict)
-            except jsonstore.Unreadable:
-                data = None  # counted afresh; the unreadable file is left as it is
+            except jsonstore.Unreadable as exc:
+                self.unreadable = exc.strerror or "it can't be read"
+                data = None
             if isinstance(data, dict):
                 days = data.get("days")
                 limits = data.get("limits")
-                self.days = days if isinstance(days, dict) else {}
+                # Each day's numbers as they're counted: a day that isn't one, or a number
+                # that isn't (a hand edit, a whole number past a float), would stop every
+                # answer from being counted, and the Usage card from showing.
+                self.days = (
+                    {key: _day(day) for key, day in days.items() if isinstance(day, dict)}
+                    if isinstance(days, dict)
+                    else {}
+                )
                 self.limits = limits if isinstance(limits, dict) else {}
 
     # ── recording ──
@@ -255,10 +300,12 @@ class UsageBook:
         limits = []
         for kind, label in LIMITS.items():
             entry = self.limits.get(kind)
-            if not entry:
+            if not entry or not isinstance(entry, dict):
                 continue
             resets = entry.get("resets_at")
-            if isinstance(resets, (int, float)) and resets > 1e12:
+            if isinstance(resets, (int, float)):
+                resets = _finite(resets)  # past what a float holds: when isn't known
+            if isinstance(resets, float) and resets > 1e12:
                 resets = resets / 1000  # milliseconds
             stale = isinstance(resets, (int, float)) and resets < now
             used = entry.get("utilization")
@@ -353,7 +400,9 @@ class UsageBook:
             asyncio.get_running_loop()
         except RuntimeError:
             return False
-        if self.path is None or (self._task is not None and not self._task.done()):
+        if self.path is None or self.unreadable:
+            return True  # nothing to save to: the numbers stay in memory
+        if self._task is not None and not self._task.done():
             return True  # the one under way is done in a moment; the next change saves again
         try:
             data = copy.deepcopy({"days": self.days, "limits": self.limits})
@@ -380,7 +429,7 @@ class UsageBook:
             self._on_disk = changes
 
     def flush(self) -> None:
-        if not self._dirty or self.path is None:
+        if not self._dirty or self.path is None or self.unreadable:
             return
         try:
             # After any write under way in a thread, and always the newest. (Straight to the

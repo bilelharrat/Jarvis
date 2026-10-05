@@ -50,6 +50,7 @@ class SessionStore:
         self.folder = folder
         self.written: dict[str, str] = {}  # key -> the JSON last written or read
         self.unreadable: set[str] = set()  # keys whose file couldn't be read: never saved over
+        self.remembered_unreadable = ""  # why remembered.json can't be read: never saved over
         self._lock = threading.Lock()
 
     def load(self) -> list[dict[str, Any]]:
@@ -59,6 +60,9 @@ class SessionStore:
         except OSError:
             return []
         records: list[dict[str, Any]] = []
+        # Taken as read only once all are: a reading stopped half way never has the next
+        # save let go of the files it got through (as no longer listed).
+        written: dict[str, str] = {}
         for path in paths[: KEEP_LIMIT * 2]:
             key = path.stem
             if not KEY.fullmatch(key):
@@ -72,8 +76,9 @@ class SessionStore:
             record = clean_record(data, key)
             if record is None:
                 continue
-            self.written[key] = _text(record)
+            written[key] = _text(record)
             records.append(record)
+        self.written.update(written)
         records.sort(key=lambda r: (r["created"], r["key"]))
         return records[-KEEP_LIMIT:]
 
@@ -102,7 +107,8 @@ class SessionStore:
         history, one starts that way again)."""
         try:
             data = jsonstore.load_json(self.folder / "remembered.json", dict) or {}
-        except jsonstore.Unreadable:
+        except jsonstore.Unreadable as exc:
+            self.remembered_unreadable = exc.strerror or "it can't be read"
             return {}
         kept: dict[str, dict[str, Any]] = {}
         for session_id, fields in list(data.items())[-REMEMBERED_LIMIT:]:
@@ -129,8 +135,11 @@ class SessionStore:
         return kept
 
     def save_remembered(self, remembered: dict[str, dict[str, Any]]) -> None:
+        path = self.folder / "remembered.json"
+        if self.remembered_unreadable:
+            raise jsonstore.refusal(path, self.remembered_unreadable)
         with self._lock:
-            jsonstore.save_json(self.folder / "remembered.json", remembered, indent=None)
+            jsonstore.save_json(path, remembered, indent=None)
 
 
 def _text(record: dict[str, Any]) -> str:
@@ -154,6 +163,17 @@ def _strings(value: Any, limit: int, each: int = 1000) -> list[str]:
     return [v[:each] for v in value[:limit] if isinstance(v, str) and v]
 
 
+def _amount(value: Any) -> float | None:
+    """A finite number, or None (a whole number past what a float holds is no amount)."""
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return None
+    try:
+        value = float(value)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) else None
+
+
 def _when(value: Any) -> str:
     if isinstance(value, str):
         try:
@@ -171,9 +191,7 @@ def clean_record(data: Any, key: str) -> dict[str, Any] | None:
     cwd = data.get("cwd")
     if not isinstance(cwd, str) or not cwd.startswith("/") or "\x00" in cwd or len(cwd) > 1000:
         return None
-    cost = data.get("cost_usd")
-    if not isinstance(cost, int | float) or isinstance(cost, bool) or not math.isfinite(cost):
-        cost = None
+    cost = _amount(data.get("cost_usd"))
     commands = data.get("commands")
     queue = []
     for item in data.get("queue") if isinstance(data.get("queue"), list) else []:

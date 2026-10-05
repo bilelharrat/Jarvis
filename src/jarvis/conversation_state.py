@@ -70,7 +70,10 @@ def title_line(value: Any) -> str:
 def _cost(value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return 0.0
-    value = float(value)
+    try:
+        value = float(value)
+    except OverflowError:  # a whole number past what a float holds (a hand edit)
+        return 0.0
     return round(value, 6) if math.isfinite(value) and value >= 0 else 0.0
 
 

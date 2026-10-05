@@ -272,11 +272,21 @@ def _timer_from(raw: Any) -> Timer | None:
         timer.every = MIN_EVERY
     timer.until = timer.until if isinstance(timer.until, str) and _when(timer.until) else ""
     timer.phone = timer.phone is True
+    try:
+        # Its time on the wall as an instant: a day this Mac's clock can't place (the first
+        # of January of year 1) would stop the clock each time it looked for what's due.
+        wall = timer.due_at.timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
     at = timer.at
-    at = float(at) if type(at) in (int, float) and math.isfinite(at) and at > 0 else 0.0
+    try:
+        at = float(at) if type(at) in (int, float) else 0.0
+    except OverflowError:  # a whole number past what a float holds (a hand edit)
+        at = 0.0
+    at = at if math.isfinite(at) and at > 0 else 0.0
     # An instant far from its time on the wall (due changed by hand, or by a build that
     # doesn't keep it): the wall's time decides.
-    timer.at = at if at and abs(at - timer.due_at.timestamp()) <= 7200 else 0.0
+    timer.at = at if at and abs(at - wall) <= 7200 else 0.0
     return timer
 
 
