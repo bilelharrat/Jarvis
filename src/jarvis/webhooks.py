@@ -186,7 +186,9 @@ class Webhooks:
             found = await asyncio.to_thread(self.vault.get, VAULT_PREFIX + name, "token")
             if not found:
                 return None
-            self._tokens[name] = found
+            # A new token made while the Keychain was being read wins: the old one it just
+            # read must not come back to life.
+            self._tokens.setdefault(name, found)
         return self._tokens[name]
 
     async def _new_token(self, name: str) -> str:
@@ -284,6 +286,13 @@ class Webhooks:
             offered = request.query_params.get("token", "")
         hook = self.find(name)
         expected = await self.token(name) if hook is not None else None
+        # Reading the token from the Keychain can wait, and other calls run meanwhile: the
+        # clock and the lockout are read again after it, so guesses that arrive together
+        # can't slip in under a lockout they started, and the hour's calls are counted in
+        # the order of their stamps.
+        stamp = self.mono()
+        if stamp < self._locked_until:
+            return 429, {"error": "too many wrong tokens; try again later"}
         good = expected is not None and secrets.compare_digest(
             offered.encode(errors="replace"), expected.encode()
         )
@@ -301,13 +310,26 @@ class Webhooks:
         if declared and declared.isdigit() and int(declared) > MAX_BYTES:
             self._note(hook, "too big", int(declared))
             return 413, {"error": f"at most {MAX_BYTES // 1024} KB"}
-        body = bytearray()
-        async for chunk in request.stream():
-            body += chunk
-            if len(body) > MAX_BYTES:
-                self._note(hook, "too big", len(body))
-                return 413, {"error": f"at most {MAX_BYTES // 1024} KB"}
+        # The call takes its place in the hour now, before its body is read: reading it can
+        # wait on the sender (a streamed upload, Expect: 100-continue, a slow link), and
+        # calls that arrive together would otherwise all see the same count and all get in.
+        # A call that turns out too big, whose sender hangs up, or whose hook was deleted or
+        # given a new token while it arrived, gives its place back.
         recent.append(stamp)
+        accepted = False
+        try:
+            body = bytearray()
+            async for chunk in request.stream():
+                body += chunk
+                if len(body) > MAX_BYTES:
+                    self._note(hook, "too big", len(body))
+                    return 413, {"error": f"at most {MAX_BYTES // 1024} KB"}
+            if self.find(name) is not hook or self._tokens.get(name) != expected:
+                return 401, {"error": "unauthorized"}  # as if it had come a moment later
+            accepted = True
+        finally:
+            if not accepted and stamp in recent:
+                recent.remove(stamp)
         text = self._text(bytes(body))
         self._note(hook, "accepted", len(body))
         try:

@@ -128,8 +128,13 @@ class Routine:
         when = self.latest(now, since=now - GRACE)
         if when is None or now - when > GRACE:
             return None
-        if self.last_run and datetime.fromisoformat(self.last_run) >= when:
-            return None
+        if self.last_run:
+            ran = datetime.fromisoformat(self.last_run)
+            # A run is marked with its slot, never later than the clock read then, so one far
+            # ahead of now is from a clock set wrong since put right (or local time moved back,
+            # flying west): it holds nothing back, as with the trigger engine's last fires.
+            if when <= ran <= now + triggers.STALE_AHEAD:
+                return None
         return when
 
     def next_run(self, now: datetime) -> datetime | None:

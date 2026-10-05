@@ -315,7 +315,9 @@ class TriggerEngine:
     battery(): {"percent", "plugged"} or None. locked(): the screen's lock state or None.
     busy(): meeting notes running (a run waits). on_event(name, data): the script hooks
     hear arrive, leave, wake, unlock. unlock_wanted(): something besides a routine (a
-    script hook) waits on unlocking, so the lock state is polled."""
+    script hook) waits on unlocking, so the lock state is polled. known(): the ids of every
+    routine there is, or None while they can't be read (by default, routines()'s ids): what's
+    kept about one that's gone (its last fire, its day's count) is let go."""
 
     def __init__(
         self,
@@ -332,8 +334,10 @@ class TriggerEngine:
         mono: Callable[[], float] = time.monotonic,
         on_event: Callable[[str, dict[str, Any]], Any] = lambda _n, _d: None,
         unlock_wanted: Callable[[], bool] = lambda: False,
+        known: Callable[[], set[str] | None] | None = None,
     ) -> None:
         self.routines = routines
+        self.known = known or (lambda: {r.id for r in self.routines()})
         self.fire = fire
         self.path = state_path
         self.now = now
@@ -444,7 +448,8 @@ class TriggerEngine:
 
     async def tick(self, now: datetime | None = None) -> None:
         now = now or self.now()
-        for check in (self._flush, self._messages, self._wake, self._unlock, self._battery_check):
+        checks = (self._forget_gone, self._flush, self._messages, self._wake, self._unlock)
+        for check in (*checks, self._battery_check):
             try:
                 result = check(now)
                 if asyncio.iscoroutine(result):
@@ -456,6 +461,26 @@ class TriggerEngine:
         except Exception:
             log.exception("triggers: the calendar check failed")
         self.save()
+
+    def _forget_gone(self, _now: datetime) -> None:
+        """Let go of the last fires and the day's counts of routines that are gone (deleted),
+        as the calendar's fired keys go after FIRED_KEPT_DAYS: kept, every email rule that
+        ever fired would stay in the file for good. While the routines can't be read
+        (known() gives None), nothing is let go: it would lift every debounce and cap."""
+        state = self.state
+        if not (state["last"] or state["counts"] or self._inside):
+            return
+        known = self.known()
+        if known is None:
+            return
+        for table in (state["last"], state["counts"]):
+            gone = [k for k in table if k not in known]
+            for key in gone:
+                del table[key]
+            if gone:
+                self._dirty = True
+        for key in [k for k in self._inside if k not in known]:
+            del self._inside[key]
 
     def _flush(self, now: datetime) -> None:
         if not self.deferred or self.busy():

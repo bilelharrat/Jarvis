@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -263,6 +264,16 @@ def quiet_hours_now(
 Notify = Callable[[Alert], None]
 
 
+def _look_again(at: datetime, mono_at: float, now: datetime, every: float) -> bool:
+    """Whether something looked at `at` (mono_at on the monotonic clock) is looked at again
+    now: `every` seconds have passed on the wall clock (it runs on over the Mac's sleep, when
+    the monotonic one stops) or on the monotonic one (it never moves back), or the wall clock
+    has moved back past it (flying west, a wrong clock put right), when what was read holds
+    the old clock's times."""
+    passed = (now - at).total_seconds()
+    return passed < 0 or passed >= every or time.monotonic() - mono_at >= every
+
+
 class Watcher:
     """Runs the rules on a clock. Everything it needs comes in as callables, so tests can
     drive it with fakes."""
@@ -285,8 +296,11 @@ class Watcher:
         self._files_fn = files  # the file index: a meeting's files, before it starts
         self.announced: dict[str, datetime] = {}  # alert key: when it was said
         self._events: list[dict[str, Any]] = []
-        self._events_at: datetime | None = None
-        self._etas: dict[str, tuple[datetime, int | None]] = {}
+        self._events_at: datetime | None = None  # None: read the calendar at the next look
+        self._events_mono = 0.0  # when it was read, on the monotonic clock
+        # A travel time per event key: when it was looked up (the wall clock's reading and
+        # the monotonic one's) and the minutes.
+        self._etas: dict[str, tuple[datetime, float, int | None]] = {}
         # A feature's trip planner, used instead of eta when set: plan(event) gives
         # {minutes, mode, early, depart} or None (the proactive feature's commute profile).
         self.plan: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]] | None = None
@@ -347,9 +361,11 @@ class Watcher:
             del self.announced[key]
 
     async def _refresh_events(self, now: datetime) -> None:
-        if self._events_at and (now - self._events_at).total_seconds() < EVENTS_EVERY:
+        if self._events_at is not None and not _look_again(
+            self._events_at, self._events_mono, now, EVENTS_EVERY
+        ):
             return
-        self._events_at = now
+        self._events_at, self._events_mono = now, time.monotonic()
         try:
             events = await self._events_fn()
         except Exception as exc:  # no calendar access
@@ -364,7 +380,7 @@ class Watcher:
         for e in needs_eta(self._events, now):
             key = event_key(e)
             cached = self._etas.get(key)
-            if cached is None or (now - cached[0]).total_seconds() >= ETA_EVERY:
+            if cached is None or _look_again(cached[0], cached[1], now, ETA_EVERY):
                 trip = None
                 try:
                     if self.plan is not None:
@@ -375,13 +391,13 @@ class Watcher:
                 except Exception:
                     minutes = None
                 usable = isinstance(minutes, int | float) and not isinstance(minutes, bool)
-                cached = (now, round(minutes) if usable else None)
+                cached = (now, time.monotonic(), round(minutes) if usable else None)
                 self._etas[key] = cached
                 if trip:
                     self.trips[key] = trip
                 else:
                     self.trips.pop(key, None)
-            out[key] = cached[1]
+            out[key] = cached[2]
         self.trips = {k: v for k, v in self.trips.items() if k in out}
         self._forget_etas(now)
         return out
@@ -390,9 +406,10 @@ class Watcher:
         """A travel time looked up ANNOUNCED_DAYS ago is never used again: one older than
         ETA_EVERY is looked up afresh before it's said, and no trip is timed for an event
         that has begun. Kept for weeks, there'd be one for every meeting somewhere since
-        the app started."""
+        the app started. One looked up ahead of now (the wall clock has moved back since)
+        would be looked up afresh too, and kept, it would outlive the rest by the jump."""
         cutoff = now - timedelta(days=ANNOUNCED_DAYS)
-        old = [k for k, (at, _minutes) in self._etas.items() if at < cutoff]
+        old = [k for k, (at, _mono, _minutes) in self._etas.items() if not cutoff <= at <= now]
         for key in old:
             del self._etas[key]
 

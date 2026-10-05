@@ -256,6 +256,7 @@ class Automation:
             busy=lambda: hub.meeting is not None,
             on_event=self.hook,
             unlock_wanted=lambda: self.has_scripts("unlock"),
+            known=self._routine_ids,
         )
         self.webhooks = webhook_kit.Webhooks(
             hub.feature_path("webhooks.json"),
@@ -427,6 +428,16 @@ class Automation:
         """A trigger went off: the routine runs in the background."""
         self.hub._spawn(self.runner.run(routine, cause))
 
+    def _routine_ids(self) -> set[str] | None:
+        """The id of every routine in the file, those this build can't schedule (kept for
+        another) included; None while the file can't be read, when none is known to be gone
+        and what's kept about each (its fires, its runs) is left be."""
+        store = self.hub.routines
+        if store.unreadable:
+            return None
+        kept = (raw.get("id") for raw in store.broken if isinstance(raw, dict))
+        return {r.id for r in store.items} | {i for i in kept if isinstance(i, str)}
+
     async def _calendar(self) -> list[dict[str, Any]]:
         from .. import calendar_kit
 
@@ -469,7 +480,8 @@ class Automation:
         return {"running": dict(self.runner.running), "last_runs": last}
 
     def send_state(self, _msg: dict[str, Any] | None = None) -> None:
-        self.history.forget({r.id for r in self.hub.routines.items})
+        if (ids := self._routine_ids()) is not None:
+            self.history.forget(ids)
         self.hub.emit("automation", **self.state())
 
     def send_timers(self) -> None:
