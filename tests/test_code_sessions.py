@@ -482,3 +482,100 @@ async def test_the_kept_history_reads_a_snapshot_while_the_loop_lets_more_go(
 
     monkeypatch.setattr(cs, "_copy_projects", meanwhile)
     assert [r["session_id"] for r in cs.more_history()] == [f"s{k}" for k in range(5)]
+
+
+# ── what's held of a kept session, and a wait for Claude's limit across a restart ──
+
+
+async def test_a_session_let_go_from_the_list_is_saved_ended_then_held_as_its_line(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    (tmp_path / "proj").mkdir()
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    cs, tm = hub.code_sessions, hub.tasks
+    await cs.restore()
+    task = tm.start("tidy the imports", "proj")
+    assert await until(lambda: task.status == "waiting" and task.session_id == "s")
+    tm._audit(task, "Edit", {"file_path": "a.py"}, "auto", "inside the project")
+    await cs.flush()
+    key = cs.keys[task.id]
+    tm.cancel(task.id)
+    await end_all(hub)
+    del tm.tasks[task.id]  # let go from the list (past the ended ones it shows)
+    await cs.flush()
+    # On disk whole and ended; in memory, its line in the history alone.
+    saved = json.loads((tmp_path / "code_sessions" / f"{key}.json").read_text())
+    assert saved["ended"] and saved["status"] == "stopped" and saved["audit"]
+    assert set(cs.dormant[key]) == {"key", "session_id", "title", "prompt", "cwd", "updated"}
+    assert not cs.letting_go and key not in cs.last_record
+    assert [h["session_id"] for h in cs.more_history()] == ["s"]
+    # Reopened from the history, it's read back whole.
+    back = tm.start("", "proj", resume="s")
+    assert back.audit and back.audit[-1]["tool"] == "Edit"
+    assert key not in cs.dormant and cs.keys[back.id] == key
+    await end_all(hub)
+
+
+async def test_a_session_let_go_is_saved_ended_once_the_disk_has_room_again(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated)
+    cs, tm = hub.code_sessions, hub.tasks
+    await cs.restore()
+    task = tm.start("tidy the imports", "proj")
+    assert await until(lambda: task.status == "waiting" and task.session_id == "s")
+    await cs.flush()
+    key = cs.keys[task.id]
+    tm.cancel(task.id)
+    await end_all(hub)
+    del tm.tasks[task.id]
+    real = cs.store.save
+
+    def full(changed, keep):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(cs.store, "save", full)
+    await cs.flush()
+    assert key in cs.letting_go  # kept whole till it's saved
+    monkeypatch.setattr(cs.store, "save", real)
+    await cs.flush()
+    saved = json.loads((tmp_path / "code_sessions" / f"{key}.json").read_text())
+    assert saved["ended"] and not cs.letting_go and key in cs.dormant
+    await end_all(hub)
+
+
+async def test_a_wait_for_claudes_limit_that_ended_while_the_app_was_closed_carries_on(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    import time
+
+    (tmp_path / "proj").mkdir()
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    await hub.code_sessions.restore()
+    task = hub.tasks.start("migrate the database", "proj")
+    assert await until(lambda: task.status == "waiting" and task.session_id == "s")
+    hub.code_limit.hold(task, time.time() + 3600)
+    assert hub.tasks.send(task.id, "and then the docs")
+    await hub.code_sessions.flush(final=True)
+    await end_all(hub)
+    hub.code_limit.forget()
+    [path] = [p for p in (tmp_path / "code_sessions").glob("*.json") if p.stem != "remembered"]
+    saved = json.loads(path.read_text())
+    assert saved["hold_until"] > time.time() and saved["held_since"] > 0
+    saved["hold_until"] = time.time() - 60  # the limit reset while the app was closed
+    path.write_text(json.dumps(saved))
+
+    Stream.instances = []
+    again = make_hub(settings, quiet_speaker, isolated)
+    await again.code_sessions.restore()
+    [back] = again.tasks.tasks.values()
+    sent = lambda: [q for client in Stream.instances for q in client.queries]  # noqa: E731
+    assert await until(lambda: len(sent()) == 2)
+    note, then = sent()
+    assert note.startswith("[Note from the app: Claude's usage limit stopped this session at")
+    assert then == "and then the docs" and back.hold_until == 0
+    await end_all(again)
+    again.code_limit.forget()

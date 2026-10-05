@@ -5,6 +5,8 @@ each changed, the owner's test command in each copy, a judgment from a fake Clau
 fake Claude Code sessions, each writing a file in its own folder."""
 
 import asyncio
+import shlex
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -225,6 +227,18 @@ async def test_the_test_command_is_stopped_when_it_runs_too_long(tmp_path, monke
     assert (await code_bestof.run_tests("printf 'x%.0s' $(seq 3000)", tmp_path))[
         "tail"
     ] == "x" * 2000
+
+
+async def test_the_end_of_a_test_runs_output_keeps_whole_characters(tmp_path):
+    # Read in pieces and only its end kept: a character of several bytes cut in two where
+    # the kept bytes begin never shows as a broken one.
+    for char in ("é", "中", "\U0001f600"):
+        script = tmp_path / "say.py"
+        script.write_text(f"import sys; sys.stdout.write({char!r} * 50_000 + 'end')")
+        command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+        result = await code_bestof.run_tests(command, tmp_path)
+        assert result["code"] == 0
+        assert result["tail"] == char * (code_bestof.TEST_OUTPUT - 3) + "end"
 
 
 async def test_the_windows_hear_a_running_group_when_it_changes_not_at_every_look():

@@ -131,6 +131,7 @@ ZH = {
     "Its folder on {alias} is gone.": "它在 {alias} 上的文件夹不见了。",
     "Pictures don't go to {alias}; only the words were sent.": "图片不会发到 {alias}；只发了文字。",
     "Couldn't reach {alias}: the message wasn't sent. Try again when it's back.": "连不上 {alias}：消息没有发出去。等它恢复后再试。",
+    "It came back from {alias} before this message went there: send it again to carry on here.": "这条消息发过去之前，它已经从 {alias} 带回来了：请再发一次，在这里继续。",
     "{alias} isn't on your machines any more: bring the session back, or add it again.": "{alias} 已经不在你的机器列表里了：请把会话带回来，或重新添加它。",
     "Allow this step on {alias}?": "允许在 {alias} 上执行这一步吗？",
     "Approve the plan on {alias}?": "批准在 {alias} 上的计划吗？",
@@ -187,6 +188,9 @@ class Desk:
         self._followers: dict[str, asyncio.Task] = {}
         self._asks: dict[str, dict[str, asyncio.Task]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        # One message at a time to each hand-off (apart from _write's lock, which they take):
+        # a message sent while the last one starts the run there goes into that run.
+        self._sending: dict[str, asyncio.Lock] = {}
         self._lost: set[str] = set()
         self._notes: dict[int, str] = {}  # session -> a note for its next message
         self._busy: set[str] = set()
@@ -798,11 +802,7 @@ class Desk:
                 task.result = str(block["text"]).strip()
                 tm._log(task, "assistant", task.result)
             elif kind == "tool_use" and name == "TodoWrite":
-                task.todos = [
-                    {"content": str(t.get("content", "")), "status": str(t.get("status", "pending")),
-                     "active": str(t.get("activeForm", ""))}
-                    for t in (given.get("todos") or [])[:30] if isinstance(t, dict)
-                ]  # fmt: skip
+                task.todos = tasks.todo_items(given.get("todos"))
                 tm._log(task, "todos", "", todos=task.todos)
             elif kind == "tool_use":
                 tool_id = str(block.get("id") or "")
@@ -810,7 +810,7 @@ class Desk:
                 if name == "Bash":
                     task.commands += 1
                 if name in tasks.AGENT_TOOLS:
-                    task.last_action = f"Agent: {given.get('description', 'working')}"
+                    task.last_action = tasks.agent_action(given)
                     tm._log(
                         task, "tool", task.last_action, tool="Agent", tool_id=tool_id,
                         detail=str(given.get("prompt", ""))[:4000],
@@ -1004,39 +1004,53 @@ class Desk:
         tm._log(task, "user", text)
         if pictures:
             self.note(task, f"Pictures don't go to {rec.alias}; only the words were sent.")
-        if rec.live:
-            if not await self._write(rec, [handoff.user_line(text)]):
+        # In the order they were sent, one at a time: a message that comes while the last one
+        # starts the run there (an SSH round trip, seconds) waits, then goes into that run.
+        # Started again, a second run would write a fresh inbox (the first message lost) and
+        # replace the first run, or, without tmux, run beside it where Stop can't reach.
+        async with self._sending.setdefault(rec.id, asyncio.Lock()):
+            if rec not in self.handoffs:  # brought back (or forgotten) while it waited
                 self.note(
                     task,
-                    f"Couldn't reach {rec.alias}: the message wasn't sent. Try again when it's back.",
+                    f"It came back from {rec.alias} before this message went there: send it "
+                    "again to carry on here.",
                 )
                 return
-        else:
-            machine = self.machine(rec.alias)
-            if machine is None:
-                self.note(
-                    task,
-                    f"{rec.alias} isn't on your machines any more: bring the session back, or add "
-                    "it again.",
-                )
-                return
-            first = [handoff.init_line(), handoff.user_line(text)]
-            problem = await self._start(rec, machine, first, resume=rec.remote_session)
-            if problem:
-                self.note(task, problem)
-                return
-            self.save()
-            # A reader still on the last run could yet hear that run's end and take this one
-            # for over (and leave it unread): a new reader reads on from where that one got to.
-            stale = self._followers.pop(rec.id, None)
-            if stale is not None:
-                stale.cancel()
-            self._follow(rec)
-        rec.state = "working"
-        task.busy, task.status = True, "running"
-        task.last_action = self.tr(f"Working on {rec.alias}")
-        tm._changed()
-        self.publish()
+            if rec.live:
+                if not await self._write(rec, [handoff.user_line(text)]):
+                    self.note(
+                        task,
+                        f"Couldn't reach {rec.alias}: the message wasn't sent. Try again when "
+                        "it's back.",
+                    )
+                    return
+            else:
+                machine = self.machine(rec.alias)
+                if machine is None:
+                    self.note(
+                        task,
+                        f"{rec.alias} isn't on your machines any more: bring the session back, "
+                        "or add it again.",
+                    )
+                    return
+                first = [handoff.init_line(), handoff.user_line(text)]
+                problem = await self._start(rec, machine, first, resume=rec.remote_session)
+                if problem:
+                    self.note(task, problem)
+                    return
+                self.save()
+                # A reader still on the last run could yet hear that run's end and take this
+                # one for over (and leave it unread): a new reader reads on from where that
+                # one got to.
+                stale = self._followers.pop(rec.id, None)
+                if stale is not None:
+                    stale.cancel()
+                self._follow(rec)
+            rec.state = "working"
+            task.busy, task.status = True, "running"
+            task.last_action = self.tr(f"Working on {rec.alias}")
+            tm._changed()
+            self.publish()
 
     def interrupt_wrapper(self, inner: Any) -> Any:
         async def interrupt(task_id: int) -> bool:

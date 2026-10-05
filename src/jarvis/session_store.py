@@ -5,6 +5,7 @@ feature keeps beside prefs.json): where it runs, its Claude Code conversation, h
 (mode, model, effort, ultracode, folders, plugins, connectors), what's queued for it, the
 unsent draft, its latest permission decisions, how it's filed in the sidebar and its goal.
 Pictures and files attached to a queued message stay in memory: only the words are kept.
+A session waiting out Claude's usage limit keeps until when (and since when) it waits.
 
 Everything read back is checked field by field: a file edited by hand or cut short never
 stops the app from starting. A damaged file is set aside (jsonstore) and its last good copy
@@ -13,6 +14,7 @@ used; one that can't be read at all is left alone and never saved over.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -48,7 +50,9 @@ class SessionStore:
 
     def __init__(self, folder: Path) -> None:
         self.folder = folder
-        self.written: dict[str, str] = {}  # key -> the JSON last written or read
+        # key -> a digest of the JSON last written or read (thousands of kept sessions, each
+        # up to hundreds of KB: only enough to tell an unchanged one)
+        self.written: dict[str, bytes] = {}
         self.unreadable: set[str] = set()  # keys whose file couldn't be read: never saved over
         self.remembered_unreadable = ""  # why remembered.json can't be read: never saved over
         self._lock = threading.Lock()
@@ -62,7 +66,7 @@ class SessionStore:
         records: list[dict[str, Any]] = []
         # Taken as read only once all are: a reading stopped half way never has the next
         # save let go of the files it got through (as no longer listed).
-        written: dict[str, str] = {}
+        written: dict[str, bytes] = {}
         for path in paths[: KEEP_LIMIT * 2]:
             key = path.stem
             if not KEY.fullmatch(key):
@@ -76,7 +80,7 @@ class SessionStore:
             record = clean_record(data, key)
             if record is None:
                 continue
-            written[key] = _text(record)
+            written[key] = _digest(record)
             records.append(record)
         self.written.update(written)
         records.sort(key=lambda r: (r["created"], r["key"]))
@@ -89,11 +93,11 @@ class SessionStore:
             for key, record in changed.items():
                 if key in self.unreadable or not KEY.fullmatch(key) or key not in keep:
                     continue
-                text = _text(record)
-                if self.written.get(key) == text:
+                digest = _digest(record)
+                if self.written.get(key) == digest:
                     continue
                 jsonstore.save_json(self.folder / f"{key}.json", record, indent=None)
-                self.written[key] = text
+                self.written[key] = digest
             for key in [k for k in self.written if k not in keep]:
                 for path in (self.folder / f"{key}.json", self.folder / f"{key}.json.bak"):
                     try:
@@ -101,6 +105,18 @@ class SessionStore:
                     except OSError as exc:
                         log.warning("Jarvis Code: couldn't let go of session %s (%s)", key, exc)
                 del self.written[key]
+
+    def read(self, key: str) -> dict[str, Any] | None:
+        """One kept session read back whole (one let go from the list, reopened), or None
+        when there's none to use."""
+        if not KEY.fullmatch(key) or key in self.unreadable:
+            return None
+        try:
+            data = jsonstore.load_json(self.folder / f"{key}.json", dict)
+        except jsonstore.Unreadable as exc:
+            log.warning("Jarvis Code: session %s can't be read (%s)", key, exc.strerror)
+            return None
+        return clean_record(data, key)
 
     def load_remembered(self) -> dict[str, dict[str, Any]]:
         """How sessions were set, by Claude Code session id, oldest first (resumed from the
@@ -142,8 +158,9 @@ class SessionStore:
             jsonstore.save_json(path, remembered, indent=None)
 
 
-def _text(record: dict[str, Any]) -> str:
-    return json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+def _digest(record: dict[str, Any]) -> bytes:
+    text = json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.blake2b(text.encode("utf-8", "surrogatepass"), digest_size=16).digest()
 
 
 # ── reading a record back: every field checked, anything odd left at its default ──
@@ -172,6 +189,12 @@ def _amount(value: Any) -> float | None:
     except OverflowError:
         return None
     return value if math.isfinite(value) else None
+
+
+def _moment(value: Any) -> float:
+    """A time (seconds since the epoch), or 0 for none."""
+    amount = _amount(value)
+    return amount if amount is not None and amount > 0 else 0.0
 
 
 def _when(value: Any) -> str:
@@ -252,6 +275,9 @@ def clean_record(data: Any, key: str) -> dict[str, Any] | None:
         else 0,
         "fork": _bool(data.get("fork")),
         "resume_at": _str(data.get("resume_at"), 100),
+        # Waiting out Claude's usage limit (features.code_limit): until when, since when.
+        "hold_until": _moment(data.get("hold_until")),
+        "held_since": _moment(data.get("held_since")),
         "created": created,
         "updated": _when(data.get("updated")) or created,
         "pinned": _bool(data.get("pinned")),

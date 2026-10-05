@@ -635,21 +635,34 @@ class Inbox:
         images: list[dict[str, str]] | None = None,
         *,
         front: bool = False,
+        steer: bool = False,
         plain: bool = False,
         note: bool = False,
     ) -> int:
         """plain: sent as it is (a git command's wording), never with the ultracode
         keyword. note: the app's own words to Claude Code (carrying on after a move to the
-        fallback model), sent as they are and never shown as the user's."""
+        fallback model), sent as they are and never shown as the user's. front: first of
+        all (the app's note, messages a closed connection gives back). steer: a message
+        for the running step that can't go into it yet: ahead of the messages waiting
+        their turn, but behind what's already ahead of them (earlier steers among them),
+        so a burst of steers keeps the order it was sent in."""
         item = {
             "id": next(self._ids),
             "text": text,
             "images": list(images or []),
             "plain": plain or note,
             "note": note,
+            "ahead": front or steer,
         }
         if front:
             self._items.appendleft(item)
+        elif steer:
+            at = 0
+            for waiting in self._items:
+                if not waiting.get("ahead"):
+                    break
+                at += 1
+            self._items.insert(at, item)
         else:
             self._items.append(item)
         return item["id"]
@@ -806,6 +819,13 @@ class ClaudeTask:
         """Claude Code is open and on a turn: a steer goes into it at once."""
         return self.busy and self.current in ("user", "claude") and self.client is not None
 
+    @property
+    def untaken(self) -> int:
+        """Messages Claude Code hasn't taken up: the queue, and those sent into the step and
+        not taken up yet (a closed connection gives them back to the queue). MAX_QUEUED
+        caps the two together."""
+        return self.inbox.qsize() + len(self.steered_items)
+
     def public(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -865,6 +885,32 @@ def describe_tool(name: str, tool_input: dict[str, Any]) -> str:
     if name == "WebFetch":
         return f"Reading {_domain(str(tool_input.get('url', '')))}"
     return name
+
+
+TODOS_KEEP = 30  # a to-do list's items, as the windows show them
+TODO_TEXT = 500  # one item's words (as session_store reads them back)
+
+
+def todo_items(given: Any) -> list[dict[str, str]]:
+    """A TodoWrite's list as a session keeps and shows it: at most TODOS_KEEP items, each
+    cut like every other transcript field. Claude writes them, so one item can't make
+    every list of sessions the windows get megabytes long."""
+    items = given if isinstance(given, list) else []
+    return [
+        {
+            "content": str(t.get("content", ""))[:TODO_TEXT],
+            "status": str(t.get("status", "pending"))[:20],
+            "active": str(t.get("activeForm", ""))[:TODO_TEXT],
+        }
+        for t in items[:TODOS_KEEP]
+        if isinstance(t, dict)
+    ]
+
+
+def agent_action(tool_input: dict[str, Any]) -> str:
+    """An Agent step as the sessions list shows it: its description is a few words (Claude
+    writes it), cut like describe_tool's."""
+    return f"Agent: {str(tool_input.get('description') or 'working')[:80]}"
 
 
 # Feature modules' session tools (jarvis.features), as approval cards and Activity show them:
@@ -1251,14 +1297,16 @@ class TaskManager:
                 return taken
         if steer is None:
             steer = self.steer_now is not None and self.steer_now()
-        if steer and not plain and not note and task.steerable:
-            # Into the running step: Claude Code takes it up after the tool it's on.
-            asyncio.create_task(self._steer(task, text, (images or [])[:6]))
-            return True
-        if task.inbox.qsize() >= MAX_QUEUED:
+        # A steer counts against the cap too: one Claude Code hasn't taken up comes back to
+        # the queue if the connection closes first.
+        if task.untaken >= MAX_QUEUED:
             self._log(task, "system", f"Not queued: {MAX_QUEUED} messages are already waiting.")
             self._changed()
             return False
+        if steer and not plain and not note and task.steerable:
+            # Into the running step: Claude Code takes it up after the tool it's on.
+            self._take_steer(task, text, (images or [])[:6])
+            return True
         if task.fell_back_from and not note and self.claude_back is not None and self.claude_back():
             self._back_from_fallback(task)  # the message goes to Claude again
         # The app's note goes first: what it says (a move to the fallback) comes before
@@ -1273,25 +1321,42 @@ class TaskManager:
         return True
 
     async def _steer(self, task: ClaudeTask, text: str, images: list[dict[str, str]]) -> None:
+        """A message into the running step (see _take_steer), written once this returns."""
+        write = self._take_steer(task, text, images)
+        if write is not None:
+            await write
+
+    def _take_steer(
+        self, task: ClaudeTask, text: str, images: list[dict[str, str]]
+    ) -> asyncio.Task | None:
+        """A message into the running step. Its place is taken now, as it's sent: a burst
+        of steers keeps the order it was sent in and counts against MAX_QUEUED as it
+        comes. Only the write to Claude Code waits (the task returned; None when it waits
+        in the queue instead)."""
         if not task.steer_ready:
-            # Busy but not open to it yet (starting, or reconnecting): first in the queue,
-            # so it's the very next thing Claude Code hears.
-            task.inbox.put(text, images, front=True)
+            # Busy but not open to it yet (starting, or reconnecting): ahead of the messages
+            # waiting their turn, so it's the next thing Claude Code hears after the step.
+            task.inbox.put(text, images, steer=True)
             task.stirred.set()
             self._changed()
-            return
+            return None
         task.steered += 1
-        steered = {"text": text, "images": images}
+        steered = {"text": text, "images": images, "written": False}
         task.steered_items.append(steered)
         self._log(task, "user", text, **attachment_counts(images))
         self._changed()
+        return asyncio.create_task(self._write_steer(task, task.client, steered))
+
+    async def _write_steer(self, task: ClaudeTask, client: Any, steered: dict[str, Any]) -> None:
+        text, images = steered["text"], steered["images"]
         try:
-            await task.client.query(_with_images(text, images) if images else text)
+            await client.query(_with_images(text, images) if images else text)
+            steered["written"] = True  # Claude Code has it (an interrupt from now drops it)
         except Exception:  # the connection just went: send it as a normal follow-up
             if any(s is steered for s in task.steered_items):  # (unless its end requeued it)
                 task.steered_items = [s for s in task.steered_items if s is not steered]
                 task.steered = max(0, task.steered - 1)
-                task.inbox.put(text, images, front=True)
+                task.inbox.put(text, images, steer=True)
                 task.stirred.set()
 
     def steer_queued(self, task_id: int, item_id: int) -> bool:
@@ -1302,7 +1367,7 @@ class TaskManager:
         item = task.inbox.pop(item_id)
         if item is None:
             return False
-        asyncio.create_task(self._steer(task, item["text"], item["images"]))
+        self._take_steer(task, item["text"], item["images"])  # (moved, not added: within the cap)
         self._changed()
         return True
 
@@ -2451,9 +2516,8 @@ class TaskManager:
             task.background.clear()
             self._log(task, "system", "Background tasks ended with the connection.")
         again = [] if idle else list(task.steered_items)
-        if idle and task.steered_items:
-            dropped = "; ".join(s["text"][:80] for s in task.steered_items)
-            self._log(task, "system", f"Never taken up, so not sent: {dropped}")
+        if idle:
+            self._drop_steers(task, list(task.steered_items), "Never taken up")
         if task.in_flight is not None:
             again.append(task.in_flight)
             task.in_flight = None
@@ -2469,6 +2533,17 @@ class TaskManager:
             task.stirred.set()
         task.steered_items.clear()
         task.steered = 0
+
+    def _drop_steers(self, task: ClaudeTask, dropped: list[dict[str, Any]], why: str) -> None:
+        """Messages sent into a step that Claude Code will never take up (an interrupt
+        dropped them, or an hour went by): said in the transcript, never sent unasked, and
+        no longer awaited, so the next message's turn is never taken for one of theirs."""
+        if not dropped:
+            return
+        said = "; ".join(s["text"][:80] or "an attachment" for s in dropped)
+        self._log(task, "system", f"{why}, so not sent: {said}")
+        task.steered_items = [s for s in task.steered_items if not any(s is d for d in dropped)]
+        task.steered = len(task.steered_items)
 
     async def _read(self, task: ClaudeTask, client: Any) -> None:
         """Everything Claude Code says, as it says it: replies to the user's turns and
@@ -2687,6 +2762,11 @@ class TaskManager:
         task.busy = task.turns_pending > 0 or task.injected
         task.restarts, task.last_active = 0, time.monotonic()
         stopped = str(getattr(message, "terminal_reason", "") or "").startswith("aborted")
+        if stopped:
+            # An interrupt drops what was waiting in Claude Code: the steers it had are gone.
+            # (One still being written reaches it after, and comes as a turn of its own.)
+            written = [s for s in task.steered_items if s.get("written", True)]
+            self._drop_steers(task, written, "Stopped before it was taken up")
         status = "stopped" if stopped else "failed" if message.is_error else "done"
         origin = getattr(message, "origin", None)
         self._turn_finished(
@@ -2819,11 +2899,7 @@ class TaskManager:
                 if isinstance(block, TextBlock) and parent:
                     continue  # the agent's own words come back as its result
                 if isinstance(block, ToolUseBlock) and block.name == "TodoWrite":
-                    task.todos = [
-                        {"content": str(t.get("content", "")), "status": str(t.get("status", "pending")),
-                         "active": str(t.get("activeForm", ""))}
-                        for t in (block.input.get("todos") or [])[:30]
-                    ]  # fmt: skip
+                    task.todos = todo_items(block.input.get("todos"))
                     self._log(task, "todos", "", todos=task.todos)
                     self._changed_soon()
                     continue
@@ -2832,7 +2908,7 @@ class TaskManager:
                     if len(task.tool_ids) > 500:
                         del task.tool_ids[next(iter(task.tool_ids))]
                 if isinstance(block, ToolUseBlock) and block.name in AGENT_TOOLS:
-                    task.last_action = f"Agent: {block.input.get('description', 'working')}"
+                    task.last_action = agent_action(block.input)
                     self._log(
                         task,
                         "tool",
@@ -3345,7 +3421,7 @@ class TaskManager:
                 "Sent."
                 if ok
                 else f"Not sent: {MAX_QUEUED} messages are already waiting for that session."
-                if task is not None and task.inbox.qsize() >= MAX_QUEUED
+                if task is not None and task.untaken >= MAX_QUEUED
                 else "No Jarvis Code session with that number."
             )
             return {"content": [{"type": "text", "text": text}], "is_error": not ok}
@@ -3610,18 +3686,13 @@ def _history_step(
     args = block.get("input") if isinstance(block.get("input"), dict) else {}
     tool_id = str(block.get("id") or "")
     if name == "TodoWrite":
-        todos = [
-            {"content": str(t.get("content", "")), "status": str(t.get("status", "pending")),
-             "active": str(t.get("activeForm", ""))}
-            for t in (args.get("todos") or [])[:30] if isinstance(t, dict)
-        ]  # fmt: skip
-        return {"role": "todos", "text": "", "todos": todos}
+        return {"role": "todos", "text": "", "todos": todo_items(args.get("todos"))}
     if name == "ExitPlanMode" and str(args.get("plan") or "").strip():
         return {"role": "plan", "text": str(args["plan"]).strip()}
     if name in AGENT_TOOLS:
         return {
             "role": "tool",
-            "text": f"Agent: {args.get('description', 'working')}",
+            "text": agent_action(args),
             "tool": "Agent",
             "tool_id": tool_id,
             "detail": str(args.get("prompt", ""))[:4000],

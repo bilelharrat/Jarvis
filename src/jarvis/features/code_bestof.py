@@ -28,7 +28,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from .. import code_ai, code_changes, lang, prefs, worktrees
+from .. import code_ai, code_changes, lang, prefs, runproc, worktrees
 
 POLL_SECONDS = 2.0
 TEST_SECONDS = 600
@@ -401,14 +401,22 @@ async def run_tests(command: str, cwd: Any) -> dict[str, Any]:
         )
     except OSError as exc:
         return {"code": -1, "tail": str(exc)[:TEST_OUTPUT]}
+
+    async def finish() -> str:
+        # Only its end is kept as it's read: a suite logging for TEST_SECONDS can print
+        # gigabytes (a variant's runaway loop, a runner that doesn't capture output).
+        assert proc.stdout is not None
+        text = await runproc.output_end(proc.stdout, TEST_OUTPUT)
+        await proc.wait()
+        return text
+
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), TEST_SECONDS)
+        text = await asyncio.wait_for(finish(), TEST_SECONDS)
     except TimeoutError:
         with contextlib.suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGTERM)
         await proc.wait()
         return {"code": -1, "tail": f"(stopped after {TEST_SECONDS} seconds)"}
-    text = out.decode(errors="replace")
     return {"code": proc.returncode, "tail": text[-TEST_OUTPUT:]}
 
 

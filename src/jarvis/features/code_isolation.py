@@ -20,6 +20,7 @@ No Claude calls here: none of this costs anything.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import time
 from pathlib import Path
@@ -119,6 +120,12 @@ class Desk:
         self.leftovers: list[str] = []
         self._locks: dict[str, asyncio.Lock] = {}
         self._told: set[str] = set()  # leftovers already mentioned in a heads-up
+        # Copies being made just now, in any project: they count toward MAX_COPIES before
+        # they're on the list, so sessions started together can't each pass the cap.
+        self.making = 0
+        # Spent copies the sweeper is taking away just now: no session is moved into one
+        # until it's done.
+        self.going: set[str] = set()
 
     # ── the list of copies ──
 
@@ -206,11 +213,12 @@ class Desk:
             log.exception("couldn't sort out an isolated copy for session %s", task.id)
 
     async def _prepare(self, task: Any) -> None:
-        store = self.store()
-        copy = store.by_path(task.cwd)
-        if copy is None and task.session_id:
-            found = store.by_session(task.session_id)
-            copy = found if found is not None and found.cwd.is_dir() else None
+        copy = self._copy_of(task)
+        if copy is not None and copy.slug in self.going:
+            # The sweeper is taking it away just now (spent, with no session in it): once
+            # it's done, it's there still, or it's gone as if before this session started.
+            async with self.lock("sweep"):
+                copy = self._copy_of(task)
         if copy is not None:
             self.bind(task, copy)
             return
@@ -223,6 +231,16 @@ class Desk:
                 want = await self.offer(task)
         if want:
             await self.isolate(task)
+
+    def _copy_of(self, task: Any) -> worktrees.Copy | None:
+        """The copy a session starts in (its folder is one, or its Claude Code session ran
+        in one), if any."""
+        store = self.store()
+        copy = store.by_path(task.cwd)
+        if copy is None and task.session_id:
+            found = store.by_session(task.session_id)
+            copy = found if found is not None and found.cwd.is_dir() else None
+        return copy
 
     def others_working(self, task: Any) -> list[Any]:
         """Other sessions at work in the same folder right now (not in copies of their
@@ -267,32 +285,41 @@ class Desk:
         names = set(self.hub.prefs.feature(PREF_ENV) or [])
         linked = set(self.hub.prefs.feature(PREF_LINK) or [])
         store = self.store()
-        if len(store.copies) >= worktrees.MAX_COPIES:
+        # The ones being made count too, and this one counts from here on (no await in
+        # between): a burst of isolated starts (Best of N, say) never makes more than the cap.
+        had = len(store.copies) + self.making
+        if had >= worktrees.MAX_COPIES:
             self.hub.tasks._log(
                 task,
                 "system",
-                f"There are already {len(store.copies)} isolated copies; land or discard some. "
+                f"There are already {had} isolated copies; land or discard some. "
                 "This session works in the project folder itself.",
             )
             return
-        async with self.lock(str(project_dir)):
-            try:
-                copy, notes = await asyncio.to_thread(
-                    worktrees.create,
-                    project_dir,
-                    self.root,
-                    task.title or task.prompt or "session",
-                    taken=store.slugs(),
-                    copy_env=project_dir.name in names,
-                    link_deps=project_dir.name in linked,
-                )
-            except worktrees.CopyError as exc:
-                self.hub.tasks._log(
-                    task, "system", f"{exc} This session works in the project folder itself."
-                )
-                task.last_action = "Starting"
-                return
-        store.copies.append(copy)
+        self.making += 1
+        try:
+            async with self.lock(str(project_dir)):
+                try:
+                    copy, notes = await asyncio.to_thread(
+                        worktrees.create,
+                        project_dir,
+                        self.root,
+                        task.title or task.prompt or "session",
+                        taken=store.slugs(),
+                        copy_env=project_dir.name in names,
+                        link_deps=project_dir.name in linked,
+                        making=store.making,
+                    )
+                except worktrees.CopyError as exc:
+                    self.hub.tasks._log(
+                        task, "system", f"{exc} This session works in the project folder itself."
+                    )
+                    task.last_action = "Starting"
+                    return
+            store.copies.append(copy)
+            store.making.pop(copy.slug, None)  # (on the list now: the sweeper sees it there)
+        finally:
+            self.making -= 1
         self.save()
         self.bind(task, copy)
         self.hub.tasks._log(
@@ -512,11 +539,14 @@ class Desk:
             return "That discarded copy isn't there any more."
         async with self.lock(str(item.get("repo"))):
             try:
-                copy = await asyncio.to_thread(worktrees.restore, item, self.root, store.slugs())
+                copy = await asyncio.to_thread(
+                    worktrees.restore, item, self.root, store.slugs(), store.making
+                )
             except worktrees.CopyError as exc:
                 return str(exc)
         store.trash.remove(item)
         store.copies.append(copy)
+        store.making.pop(copy.slug, None)
         self.save()
         return f"Brought it back as {copy.branch}."
 
@@ -576,9 +606,33 @@ class Desk:
 
     async def sweep(self, now: float | None = None) -> worktrees.Swept:
         store = self.store()
-        live = self.live_slugs()
+        loop = asyncio.get_running_loop()
+
+        def may_remove(copy: worktrees.Copy) -> bool:
+            # (In the sweep's thread, just before a spent copy goes.) Asked on the loop,
+            # where sessions are moved into copies. A loop that doesn't answer (the app
+            # quitting) keeps it.
+            try:
+                return asyncio.run_coroutine_threadsafe(self._let_go(copy.slug), loop).result(10)
+            except (TimeoutError, RuntimeError, concurrent.futures.CancelledError):
+                return False
+
         async with self.lock("sweep"):
-            report = await asyncio.to_thread(worktrees.sweep, store, self.root, live, now)
+            # The copies it may take away are the ones listed now with no session in them
+            # now, both read at once: a copy made while it runs is never one of them.
+            live, listed = self.live_slugs(), list(store.copies)
+            try:
+                report = await asyncio.to_thread(
+                    worktrees.sweep,
+                    store,
+                    self.root,
+                    live,
+                    now,
+                    listed=listed,
+                    may_remove=may_remove,
+                )
+            finally:
+                self.going.clear()
         self.save()
         self.leftovers = report.leftovers
         fresh = [s for s in report.leftovers if s not in self._told]
@@ -603,6 +657,15 @@ class Desk:
             )
         await self.publish()
         return report
+
+    async def _let_go(self, slug: str) -> bool:
+        """Whether the sweeper may take a spent copy away now: no session is in it (one
+        may have started there since the sweep began). One it may is going: no session is
+        moved into it until the sweep is done."""
+        if slug in self.live_slugs():
+            return False
+        self.going.add(slug)
+        return True
 
     # ── helpers ──
 

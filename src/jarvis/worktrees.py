@@ -36,6 +36,7 @@ import secrets
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,9 @@ BRANCH_PREFIX = "jarvis/"
 TRASH_PREFIX = "refs/jarvis/trash/"
 TRASH_DAYS = 30
 CREATE_SECONDS = 300.0  # checking out a big repository takes a while
+# A copy whose folder was made this long ago and still isn't on the list never will be (its
+# session went away while it was made): the sweeper may take it in then.
+MAKING_SECONDS = 2 * CREATE_SECONDS
 MAX_COPIES = 60  # copies kept on the list (a runaway, past this, is refused)
 ENV_FILES = 30
 ENV_BYTES = 1_000_000
@@ -141,6 +145,10 @@ class CopyStore:
         self.copies: list[Copy] = []
         self.trash: list[dict[str, Any]] = []
         self.unreadable = ""
+        # Copies being made just now (slug -> when, time.monotonic()), from before their
+        # folder is until the feature has them on the list: the sweeper, in its thread,
+        # never takes one in as a copy the list lost.
+        self.making: dict[str, float] = {}
         try:
             data = jsonstore.load_json(path, dict) or {}
         except jsonstore.Unreadable as exc:
@@ -209,9 +217,12 @@ def create(
     taken: set[str],
     copy_env: bool = False,
     link_deps: bool = False,
+    making: dict[str, float] | None = None,
 ) -> tuple[Copy, list[str]]:
     """A new copy of the project at its current commit, on a branch of its own. Returns the
-    copy and notes for the owner (what was linked or copied, and what wasn't and why)."""
+    copy and notes for the owner (what was linked or copied, and what wasn't and why).
+    making: the store's copies being made; this one is in it from before its folder is
+    (the caller takes it out once the copy is on the list), unless it couldn't be made."""
     project = project_dir.name
     repo = code_changes.repo_of(project_dir)
     if repo is None:
@@ -228,9 +239,12 @@ def create(
     slug = slug_for(title, taken | {b.removeprefix(BRANCH_PREFIX) for b in branches.out.split()})
     folder = root / project / slug
     checkout = folder / repo.top.name
+    if making is not None:
+        making[slug] = time.monotonic()
     try:
         folder.mkdir(parents=True, exist_ok=False)
     except OSError as exc:
+        _not_making(making, slug)
         raise CopyError(f"Couldn't make a folder for the copy: {exc.strerror or exc}") from exc
     branch = BRANCH_PREFIX + slug
     made = git(
@@ -238,6 +252,7 @@ def create(
     )
     if not made.ok:
         shutil.rmtree(folder, ignore_errors=True)
+        _not_making(making, slug)
         why = (made.err.strip().splitlines() or ["git refused"])[-1][:300]
         raise CopyError(f"Couldn't make an isolated copy of {project}: {why}")
     copy = Copy(
@@ -258,6 +273,11 @@ def create(
     if link_deps:
         notes += link_dependencies(repo, copy)
     return copy, notes
+
+
+def _not_making(making: dict[str, float] | None, slug: str) -> None:
+    if making is not None:
+        making.pop(slug, None)
 
 
 def _ignored(checkout: Path, rel: str) -> bool:
@@ -588,18 +608,34 @@ def land(copy: Copy, message: str) -> Landed:
     )
 
 
-def remove(copy: Copy, root: Path) -> str:
+def remove(copy: Copy, root: Path, force: bool = True) -> str:
     """The copy's folder and branch gone (the caller has made sure nothing in them is lost:
-    landed, or kept in the trash). "" when done, else what's left and why."""
+    landed, or kept in the trash). "" when done, else what's left and why. Not forced (the
+    sweeper's), only a spent copy goes, as it is at that moment: git refuses one with
+    anything in it that isn't committed, and its branch goes only at the commit found
+    landed. Work written or committed in it since it was looked at is never lost: what
+    holds it stays."""
     problems: list[str] = []
     checkout = Path(copy.checkout)
+    ref = f"refs/heads/{copy.branch}"
+    landed = ""
+    if not force:
+        landed = _rev(copy.repo, ref)
+        if landed and not _is_ancestor(copy.repo, landed, _rev(copy.repo, copy.into)):
+            return f"{copy.branch} has commits that aren't in {copy.into}"
     if checkout.exists():
-        gone = git(copy.repo, "worktree", "remove", "--force", str(checkout), timeout=120)
+        args = ["worktree", "remove", *(["--force"] if force else []), str(checkout)]
+        gone = git(copy.repo, *args, timeout=120)
         if not gone.ok:
+            if not force:
+                return gone.err.strip()[:200] or "git wouldn't remove it"
             problems.append(gone.err.strip()[:200])
     git(copy.repo, "worktree", "prune")
-    if _rev(copy.repo, f"refs/heads/{copy.branch}"):
-        deleted = git(copy.repo, "branch", "-D", copy.branch)
+    if _rev(copy.repo, ref):
+        if force:
+            deleted = git(copy.repo, "branch", "-D", copy.branch)
+        else:  # only as it was found landed: one committed to since stays
+            deleted = git(copy.repo, "update-ref", "-d", ref, landed)
         if not deleted.ok:
             problems.append(deleted.err.strip()[:200])
     folder = copy.folder
@@ -676,8 +712,11 @@ def discard(copy: Copy, root: Path) -> dict[str, Any]:
     }
 
 
-def restore(item: dict[str, Any], root: Path, taken: set[str]) -> Copy:
-    """A discarded copy back, from its recovery ref, on a new branch (the ref then goes)."""
+def restore(
+    item: dict[str, Any], root: Path, taken: set[str], making: dict[str, float] | None = None
+) -> Copy:
+    """A discarded copy back, from its recovery ref, on a new branch (the ref then goes).
+    making: as create's."""
     repo, ref = str(item.get("repo") or ""), str(item.get("ref") or "")
     if not repo or not ref or not _rev(repo, ref):
         raise CopyError("That discarded copy isn't there any more.")
@@ -685,7 +724,13 @@ def restore(item: dict[str, Any], root: Path, taken: set[str]) -> Copy:
     slug = slug_for(stem, taken)
     folder = root / str(item.get("project") or Path(repo).name) / slug
     checkout = folder / Path(repo).name
-    folder.mkdir(parents=True, exist_ok=True)
+    if making is not None:
+        making[slug] = time.monotonic()
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        _not_making(making, slug)
+        raise
     made = git(
         repo,
         "worktree",
@@ -698,6 +743,7 @@ def restore(item: dict[str, Any], root: Path, taken: set[str]) -> Copy:
     )
     if not made.ok:
         shutil.rmtree(folder, ignore_errors=True)
+        _not_making(making, slug)
         raise CopyError(f"Couldn't bring it back: {made.err.strip()[:300]}")
     git(repo, "update-ref", "-d", ref)
     into = str(item.get("into") or "") or code_changes.default_branch(Path(repo)) or "main"
@@ -726,18 +772,38 @@ class Swept:
     adopted: list[str] = field(default_factory=list)  # copies found on disk, not on the list
 
 
+def _being_made(store: CopyStore, slug: str) -> bool:
+    """Whether a copy is being made in the folder just now (it's not on the list yet). One
+    made so long ago that it never will be is let go of: it's a copy the list lost."""
+    since = store.making.get(slug)
+    if since is None:
+        return False
+    if time.monotonic() - since < MAKING_SECONDS:
+        return True
+    store.making.pop(slug, None)
+    return False
+
+
 def adopt(store: CopyStore, root: Path) -> list[str]:
     """Copies on disk that aren't on the list (a lost or damaged list): put back on it, so
-    they're shown, never forgotten. Only worktrees on a jarvis/ branch."""
+    they're shown, never forgotten. Only worktrees on a jarvis/ branch, and never one being
+    made just now (it goes on the list once it's made)."""
     found: list[str] = []
     if not root.is_dir():
         return found
     for project in sorted(p for p in root.iterdir() if p.is_dir()):
         for folder in sorted(p for p in project.iterdir() if p.is_dir()):
             slug = folder.name
-            if store.find(slug) is not None or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,60}", slug):
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,60}", slug):
                 continue
-            checkouts = [c for c in folder.iterdir() if c.is_dir() and (c / ".git").is_file()]
+            # Being made is asked first: a copy is that from before its folder is until
+            # it's on the list, so one this sees is always one or the other.
+            if _being_made(store, slug) or store.find(slug) is not None:
+                continue
+            try:
+                checkouts = [c for c in folder.iterdir() if c.is_dir() and (c / ".git").is_file()]
+            except OSError:  # removed meanwhile (landed or discarded)
+                continue
             if not checkouts:
                 continue
             checkout = checkouts[0]
@@ -759,26 +825,45 @@ def adopt(store: CopyStore, root: Path) -> list[str]:
     return found
 
 
-def sweep(store: CopyStore, root: Path, live: set[str], now: float | None = None) -> Swept:
+def sweep(
+    store: CopyStore,
+    root: Path,
+    live: set[str],
+    now: float | None = None,
+    *,
+    listed: list[Copy] | None = None,
+    may_remove: Callable[[Copy], bool] | None = None,
+) -> Swept:
     """Startup's and each day's tidy-up. A copy with a session in it (live) is left alone.
     One with no session that's spent (nothing uncommitted, its branch already landed) is
     removed; one with work in it is a leftover, listed for Land or Discard, never deleted.
-    Recovery refs older than TRASH_DAYS go."""
+    Recovery refs older than TRASH_DAYS go.
+
+    listed: the copies on the list when live was taken (the list as it is now, if not
+    given), and the ones it takes in as lost are all it looks at: a copy made while it runs
+    is never one (a brand-new copy is spent: nothing in it, its branch at its base).
+    may_remove(copy) is asked just before a spent one goes: False keeps it (a session has
+    started in it since). A copy that goes is removed without force, so work written in it
+    since it was looked at keeps it, as a leftover."""
     now = time.time() if now is None else now
     report = Swept()
+    looked = list(store.copies) if listed is None else list(listed)
     report.adopted = adopt(store, root)
-    for repo in sorted({c.repo for c in store.copies}):
+    looked += [c for c in store.copies if c.slug in report.adopted]
+    for repo in sorted({c.repo for c in looked}):
         git(repo, "worktree", "prune")
-    for copy in list(store.copies):
+    for copy in looked:
         if copy.slug in live:
             continue
         found = state(copy)
         if not found.exists and not found.branch:
-            store.copies.remove(copy)  # nothing of it left anywhere
+            _forget(store, copy)  # nothing of it left anywhere
             report.removed.append(copy.slug)
         elif found.spent:
-            if not remove(copy, root):
-                store.copies.remove(copy)
+            if may_remove is not None and not may_remove(copy):
+                continue
+            if not remove(copy, root, force=False):
+                _forget(store, copy)
                 report.removed.append(copy.slug)
             else:
                 report.leftovers.append(copy.slug)
@@ -802,6 +887,12 @@ def sweep(store: CopyStore, root: Path, live: set[str], now: float | None = None
                 git(repo, "update-ref", "-d", ref)
                 report.expired.append(ref.removeprefix(TRASH_PREFIX))
     return report
+
+
+def _forget(store: CopyStore, copy: Copy) -> None:
+    """A copy off the list (landed or discarded meanwhile, it's off it already)."""
+    with contextlib.suppress(ValueError):
+        store.copies.remove(copy)
 
 
 def root_for(feature_path: Path) -> Path:

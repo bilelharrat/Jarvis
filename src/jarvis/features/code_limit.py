@@ -10,7 +10,9 @@ messages the owner sends meanwhile wait there, shown as queued, with a countdown
 session's header. When the limit resets (the time Claude Code gave with its limit, or half
 an hour later when it gave none, and then again), the session is told to carry on from
 where it stopped, and the queued messages follow. The owner can try Claude again at once,
-or move it to the fallback model after all, from the header.
+or move it to the fallback model after all, from the header. The wait outlasts a restart
+(code_sessions keeps until when it waits): the session comes back waiting, and carries on
+when the limit resets, at once if it reset while the app was closed.
 
 Only Claude's usage limit waits: an outage, an overload or a sign-in problem still goes to
 the fallback, and a session on another provider's model isn't Claude's to wait for.
@@ -60,6 +62,7 @@ ZH = {
     "This session isn't waiting for Claude.": "这个会话没有在等 Claude。",
     "There's no fallback model to move it to.": "没有可以换过去的备用模型。",
     "Claude's usage limit": "Claude 的用量上限",
+    "Back after the restart: it still waits for Claude's usage limit to reset, until {time}, and carries on then.": "重启后回来了：它仍在等 Claude 的用量上限重置，等到{time}，然后接着做。",
 }
 lang.add_texts(ZH)
 
@@ -153,6 +156,29 @@ class LimitWait:
                 Alert(f"code-limit:{marker}", "task", self.tr("Claude's usage limit"), text),
                 speak=False,
             )
+
+    def resume(self, task: Any, until: float, since: float) -> None:
+        """A session that was waiting when the app quit, brought back (code_sessions): it
+        waits on, quietly (it was said, and the heads-up given, then), and carries on when
+        the limit resets: at once, if it already has."""
+        now = time.time()
+        until = min(until, now + LONGEST)
+        task.hold_until = until
+        self.since[task.id] = since if 0 < since <= now else now
+        if until > now:
+            self.hub.tasks._log(
+                task,
+                "system",
+                self.say(
+                    "Back after the restart: it still waits for Claude's usage limit to reset, "
+                    "until {time}, and carries on then.",
+                    time=_clock(until, lang.is_zh(self.hub.language)),
+                ),
+            )
+        old = self.waits.pop(task.id, None)
+        if old is not None:
+            old.cancel()
+        self.waits[task.id] = self.hub._spawn(self._wait(task, until))
 
     async def _wait(self, task: Any, until: float) -> None:
         while (left := until - time.time() - EARLY) > 0:

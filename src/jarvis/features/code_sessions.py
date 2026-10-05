@@ -4,7 +4,11 @@
   back "resting", with their settings, queue, draft, latest permission decisions, sidebar
   filing and goal. None starts Claude Code by itself: a resting session reads its
   conversation back when it's opened, and resumes (within TaskManager's cap on open
-  processes) when it's sent a message, or when it's opened with messages waiting.
+  processes) when it's sent a message, or when it's opened with messages waiting. One
+  that was waiting out Claude's usage limit still waits (code_limit), and carries on when
+  the limit resets, as it would have.
+- Kept sessions let go from the list are held as their lines in the history alone; the
+  whole record is read back from disk when one is reopened.
 - Rewind in place: the conversation goes back to just before one of the user's messages
   (Claude Code resumes the same session at that point: ClaudeAgentOptions.resume_session_at,
   without forking), the files too if asked, and edit-and-resend sends new words from there
@@ -37,7 +41,6 @@ from ..session_store import (
     KEEP_LIMIT,
     QUEUE_KEEP,
     REMEMBERED_LIMIT,
-    STORE_LIMIT,
     TEXT_LIMIT,
     SessionStore,
 )
@@ -92,8 +95,11 @@ class CodeSessions:
         self._printed: dict[str, tuple] = {}  # key -> what its last save was made from
         self.parked: set[str] = set()  # kept sessions whose folder isn't there just now
         # Kept sessions let go from the list (older than the MAX_ENDED ended ones it shows):
-        # key -> their record, still on disk and in the history, to reopen as they were.
+        # key -> their line in the history (_line), on disk whole, to reopen as they were.
+        # Thousands of them, each with its permission decisions: only the line is held.
         self.dormant: dict[str, dict[str, Any]] = {}
+        # Ones let go just now: key -> the whole record, ended, until it's saved so.
+        self.letting_go: dict[str, dict[str, Any]] = {}
         self.last_record: dict[str, dict[str, Any]] = {}  # key -> its record as last saved
         self._remembered_saved: dict[str, dict[str, Any]] = {}
         self.btw_hour = code_asides.Rate(code_asides.BTW_PER_HOUR, 3600)
@@ -236,8 +242,7 @@ class CodeSessions:
         # rest stay kept, in the history, until one is reopened (revive).
         ended = [r for r in records if r["ended"]]
         for record in ended[: max(0, len(ended) - MAX_ENDED)]:
-            self.dormant[record["key"]] = record
-            self.last_record[record["key"]] = record
+            self.dormant[record["key"]] = _line(record)  # (saved ended already)
         records = [r for r in records if r["key"] not in self.dormant]
         for record in records:
             try:
@@ -270,15 +275,20 @@ class CodeSessions:
         key = next((k for k, r in self.dormant.items() if r["session_id"] == session_id), None)
         if key is None:
             return None
-        record = self.dormant.pop(key)
+        # Whole: as it was let go (not saved yet), else read back from its file.
+        record = self.letting_go.get(key) or self.store.read(key)
+        if record is None:
+            return None  # (its file can't be read just now: kept, in the history)
+        line = self.dormant.pop(key)
         try:
             if self._restore_one(record):
+                self.letting_go.pop(key, None)
                 self.tm._changed()
                 self.emit_meta(full=True)
                 return next((i for i, k in self.keys.items() if k == key), None)
         except Exception:
             log.exception("Jarvis Code: couldn't reopen kept session %s", key)
-        self.dormant[key] = record  # (kept all the same)
+        self.dormant[key] = line  # (kept all the same)
         return None
 
     def more_history(self) -> list[dict[str, Any]]:
@@ -421,16 +431,20 @@ class CodeSessions:
             notes.append(
                 "Pictures and files attached to a waiting message didn't outlast the restart."
             )
-        if record["was_working"] and not ended:
+        waiting = getattr(self.hub, "code_limit", None)
+        held = record["hold_until"] > 0 and not ended and waiting is not None
+        if record["was_working"] and not ended and not held:
             notes.append(
                 "JARVIS restarted while this session was working. Send a message to carry on."
             )
-        elif not ended:
+        elif not ended and not held:
             notes.append(
                 "Back after the restart: it picks up where it left off with your next message."
             )
         for note in notes:
             tm._log(task, "system", note)
+        if held:  # waiting out Claude's usage limit still: it carries on when that resets
+            waiting.resume(task, record["hold_until"], record["held_since"])
         return 1
 
     def save_soon(self) -> None:
@@ -462,6 +476,8 @@ class CodeSessions:
             log.warning("Jarvis Code: couldn't save the sessions (%s)", exc)
             for key in changed:
                 self._printed.pop(key, None)
+        else:
+            self._saved(changed)
         finally:
             self._saving = False
             if self._again:
@@ -490,6 +506,15 @@ class CodeSessions:
             await asyncio.to_thread(self._write_all, changed, keep, remembered)
         except Exception as exc:
             log.warning("Jarvis Code: couldn't save the sessions (%s)", exc)
+        else:
+            self._saved(changed)
+
+    def _saved(self, changed: dict[str, dict[str, Any]]) -> None:
+        """The records of sessions let go from the list are on disk, ended: only their lines
+        are held from now on."""
+        for key, record in changed.items():
+            if self.letting_go.get(key) is record:
+                del self.letting_go[key]
 
     def snapshot(self) -> tuple[dict[str, dict[str, Any]], set[str], dict | None]:
         """(the records changed since the last save, every key kept, the remembered
@@ -499,17 +524,17 @@ class CodeSessions:
         for task_id in [i for i in self.keys if i not in live]:
             key = self.keys.pop(task_id)  # let go from the list (pruned): kept, never lost
             self.meta.pop(key, None)
-            record = self.last_record.get(key)
+            record = self.last_record.pop(key, None)
             if record is not None:
-                self.dormant[key] = {
-                    **record,
-                    "ended": True,
-                    "status": record["status"] or "stopped",
-                }
+                record = {**record, "ended": True, "status": record["status"] or "stopped"}
+                self.letting_go[key] = record
+                self.dormant[key] = _line(record)
+        # Every session the list shows, however many: the list itself lets the ended ones go
+        # (TaskManager._prune, past MAX_ENDED), and those are kept above, as dormant. Cut
+        # here, a listed one would be neither, and the store would delete its file: open
+        # sessions come back resting at each restart and are never pruned, so past
+        # STORE_LIMIT of them the oldest (drafts, queues, goals) were lost.
         kept = [t for t in tasks if self._worth_keeping(t)]
-        # The open ones first, then the newest ended: never more than STORE_LIMIT.
-        kept.sort(key=lambda t: (not self._ended(t), t.id), reverse=True)
-        kept = kept[:STORE_LIMIT]
         changed: dict[str, dict[str, Any]] = {}
         keep: set[str] = set()
         for task in kept:
@@ -527,11 +552,9 @@ class CodeSessions:
             oldest = sorted(self.dormant, key=lambda k: self.dormant[k]["updated"])
             for key in oldest[: len(self.dormant) - KEEP_LIMIT]:
                 del self.dormant[key]
-        for key, record in self.dormant.items():
-            keep.add(key)
-            if self._printed.get(key) != ("dormant",):  # ended, as it's kept from now
-                changed[key] = record
-                self._printed[key] = ("dormant",)
+                self.letting_go.pop(key, None)
+        keep.update(self.dormant)
+        changed.update(self.letting_go)  # ended, as they're kept from now (till saved so)
         remembered = None
         if self.remembered != self._remembered_saved:
             remembered = dict(self.remembered)
@@ -603,6 +626,7 @@ class CodeSessions:
             task.commands,
             task.fork,
             task.resume_at,
+            task.hold_until,
             len(task.transcript),
             last.get("n"),
             meta.get("version"),
@@ -649,6 +673,7 @@ class CodeSessions:
             "commands": task.commands,
             "fork": task.fork,
             "resume_at": task.resume_at,
+            **self._held(task, ended),
             "created": meta["created"],
             "updated": meta["updated"],
             "pinned": meta["pinned"],
@@ -656,6 +681,14 @@ class CodeSessions:
             "group": meta["group"],
             "goal": meta["goal"],
         }
+
+    def _held(self, task: ClaudeTask, ended: bool) -> dict[str, float]:
+        """Until when a session waits out Claude's usage limit, and since when (code_limit):
+        kept, so after a restart it still waits, and carries on when the limit resets."""
+        waiting = getattr(self.hub, "code_limit", None)
+        if ended or waiting is None or task.hold_until <= 0:
+            return {"hold_until": 0.0, "held_since": 0.0}
+        return {"hold_until": task.hold_until, "held_since": waiting.since.get(task.id, 0.0)}
 
     def _remember(self, task: ClaudeTask) -> None:
         """How a session is set, by its Claude Code session id: resumed later from the
@@ -714,7 +747,8 @@ class CodeSessions:
         if idle and not task.history_read and task.session_id:
             await self.tm._read_history(task)
             self.emit_meta()
-        if idle and task.status == "resting" and not task.inbox.empty():
+        held = task.hold_until > time.time()  # (waiting out Claude's limit: it carries on then)
+        if idle and task.status == "resting" and not task.inbox.empty() and not held:
             self._wake(task)
 
     def _wake(self, task: ClaudeTask) -> None:
@@ -1236,6 +1270,12 @@ class CodeSessions:
         self.projects.forget()
         self.hub.emit("claude_projects", items=await self.hub._projects_overview())
         self.hub.emit("code_projects", **self.projects_event())
+
+
+def _line(record: dict[str, Any]) -> dict[str, Any]:
+    """A kept session let go from the list, as much of it as the history shows and finds it
+    again by: the whole of it stays on disk (SessionStore.read)."""
+    return {k: record[k] for k in ("key", "session_id", "title", "prompt", "cwd", "updated")}
 
 
 def _count_lines(paths: list[str]) -> int:

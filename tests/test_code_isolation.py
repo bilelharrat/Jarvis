@@ -6,6 +6,7 @@ Real git in temp repositories; fake Claude Code sessions."""
 
 import asyncio
 import subprocess
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -350,6 +351,118 @@ async def test_the_sweeper_removes_only_spent_copies_and_lists_the_rest(hub, pro
         listed[committed.slug]["state"]["ahead"] == 1
         and not listed[live.workspace["slug"]]["leftover"]
     )
+
+
+async def test_the_sweeper_keeps_a_spent_copy_a_session_is_resumed_in_while_it_runs(
+    hub, projects, monkeypatch
+):
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    desk = hub.code_desk
+    store = desk.store()
+    spent, _ = worktrees.create(repo, desk.root, "spent", taken=store.slugs())
+    store.copies.append(spent)
+    looking, go_on = threading.Event(), threading.Event()
+    real_state = worktrees.state
+
+    def slow_state(copy):  # the sweep has found it spent, with no session in it…
+        found = real_state(copy)
+        looking.set()
+        go_on.wait(30)
+        return found
+
+    monkeypatch.setattr(worktrees, "state", slow_state)
+    sweep = asyncio.ensure_future(desk.sweep())
+    try:
+        assert await until(looking.is_set, 10)
+        # …when the owner opens a session in it from the Copies pane.
+        task = hub.tasks.start("", str(spent.cwd), title="spent")
+        assert await until(lambda: task.workspace and task.client is not None)
+    finally:
+        go_on.set()
+        report = await sweep
+    assert report.removed == [] and spent.cwd.is_dir() and store.find(spent.slug) is spent
+    assert not desk.going
+
+
+async def test_no_session_is_moved_into_a_copy_while_the_sweeper_removes_it(
+    hub, projects, monkeypatch
+):
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    desk = hub.code_desk
+    store = desk.store()
+    spent, _ = worktrees.create(repo, desk.root, "spent", taken=store.slugs())
+    store.copies.append(spent)
+    removing, go_on = threading.Event(), threading.Event()
+    real_remove = worktrees.remove
+
+    def slow_remove(copy, root, force=True):
+        removing.set()
+        go_on.wait(30)
+        return real_remove(copy, root, force)
+
+    monkeypatch.setattr(worktrees, "remove", slow_remove)
+    sweep = asyncio.ensure_future(desk.sweep())
+    try:
+        assert await until(removing.is_set, 10)
+        task = hub.tasks.start("", str(spent.cwd), title="spent")
+        await asyncio.sleep(0.2)
+        assert not task.workspace  # it waits for the sweep to be done
+    finally:
+        go_on.set()
+        report = await sweep
+    assert report.removed == [spent.slug] and not spent.cwd.exists()
+    assert await until(lambda: task.id in desk.prepared and task.client is not None, 10)
+    assert not task.workspace and spent.slug not in desk.bound.values()
+
+
+async def test_work_written_after_the_sweeper_looked_keeps_the_copy(hub, projects, monkeypatch):
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    desk = hub.code_desk
+    store = desk.store()
+    written, _ = worktrees.create(repo, desk.root, "written", taken=store.slugs())
+    committed, _ = worktrees.create(repo, desk.root, "committed", taken=store.slugs())
+    store.copies += [written, committed]
+    real_state = worktrees.state
+
+    def then_worked(copy):  # found spent; then something is written, or committed, in it
+        found = real_state(copy)
+        if (copy.cwd / "notes.md").exists():
+            return found  # (looked at again for the Copies pane)
+        (copy.cwd / "notes.md").write_text("half a plan\n")
+        if copy is committed:
+            git(copy.cwd, "add", "-A")
+            git(copy.cwd, "commit", "-qm", "a plan")
+        return found
+
+    monkeypatch.setattr(worktrees, "state", then_worked)
+    report = await desk.sweep()
+    assert report.removed == [] and sorted(report.leftovers) == sorted(
+        [written.slug, committed.slug]
+    )
+    assert (written.cwd / "notes.md").read_text() == "half a plan\n"
+    assert git(repo, "log", "-1", "--format=%s", committed.branch).strip() == "a plan"
+    assert store.find(written.slug) is written and store.find(committed.slug) is committed
+
+
+def test_a_copy_being_made_is_never_taken_in_as_one_the_list_lost(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path / "proj", {"a.py": "x = 1\n"})
+    root = tmp_path / "worktrees"
+    store = worktrees.CopyStore(tmp_path / "code_copies.json")
+    copy, _ = worktrees.create(repo, root, "new work", taken=set(), making=store.making)
+    # Made, and not on the list yet: the feature puts it there once create returns.
+    assert copy.slug in store.making
+    assert worktrees.adopt(store, root) == [] and store.copies == []
+    # One whose session went away while it was made never goes on the list that way: in
+    # time it's taken in as a copy the list lost.
+    monkeypatch.setattr(worktrees, "MAKING_SECONDS", 0)
+    assert worktrees.adopt(store, root) == [copy.slug] and copy.slug not in store.making
+    # One that couldn't be made isn't left as being made.
+    monkeypatch.setattr(worktrees, "slug_for", lambda title, taken: "taken-0000")
+    (root / "proj" / "taken-0000").mkdir(parents=True)
+    making = {}
+    with pytest.raises(worktrees.CopyError):
+        worktrees.create(repo, root, "x", taken=set(), making=making)
+    assert making == {}
 
 
 # ── what a copy starts with ──
