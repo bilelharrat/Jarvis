@@ -186,4 +186,5 @@ def write_markdown(folder: Path, title: str, entries: list[dict[str, Any]]) -> P
 def install(hub: Any) -> None:
     if getattr(hub, "conversation", None) is None:  # the conversation feature is left out
         return
-    ConversationManage(hub).install()
+    # Beside prefs.json, as every feature's files are (a test's hub: its own folder's).
+    ConversationManage(hub, folder=hub.feature_path(PINS_FILE).parent).install()

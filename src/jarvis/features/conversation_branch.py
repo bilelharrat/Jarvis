@@ -13,7 +13,10 @@ their own in tasks.py): going back to an earlier message, branching off, and edi
 - Fork: a parallel conversation from a chosen message (or from here: all of it), the original
   kept as it is ("branch from here", 从这里分支; the window's Branch buttons, on this or a past
   conversation). "Try that differently" (换个思路再试一次) branches from just before the last
-  request and asks it again there, the first answer kept in the original.
+  request and asks it again there, the first answer kept in the original. Words that weren't
+  the owner's own (a jarvis:// link's, a forwarded message, a routine's) go again as they
+  first went, someone else's to every gate; so does a request heard before a restart, as
+  Claude Code's record doesn't say who wrote it.
 - Edit and resend: rewind to before a request and send the edited words (the window's Edit).
 - The branch is the source's session id until Claude Code gives the branch its own, at its
   first turn's end; until then every connect carries the source on up to the point (a restart
@@ -151,6 +154,9 @@ TRY_AGAIN_NOTE = (
     "the user asked you to try this request again a different way, in a branch of the "
     "conversation that leaves your first answer out: take another approach than the obvious one"
 )
+# How approval cards name a request tried again that isn't known to be the owner's own words
+# (a link's or a forwarded message's, a routine's, one from before a restart).
+AGAIN_WORDS = "a request tried again that may not be in your own words"
 # Words of "before I asked about …" that don't say which message.
 _FILLER = frozenset(
     "the a an my your our about that this it when where what you i we me us asked question "
@@ -226,11 +232,18 @@ class Branching:
 
     def on_query(self, text: str, _rid: str) -> None:
         """Each request Claude gets, with the turn it came in (undo.py's count), for the
-        actions a rewind would leave behind."""
+        actions a rewind would leave behind, and whether it was the owner's own words (text
+        is "" for anyone else's: a link's, a forwarded message, a routine's), for Try Again."""
         if self.hub.incognito:
             return
         self._turns.append(
-            {"sid": "", "turn": int(self.hub.commands), "text": _norm(text), "open": True}
+            {
+                "sid": "",
+                "turn": int(self.hub.commands),
+                "text": _norm(text),
+                "own": bool(text),
+                "open": True,
+            }
         )
         del self._turns[:-TURNS_KEPT]
 
@@ -266,6 +279,14 @@ class Branching:
     def _live_sid(self) -> str:
         """The session of the conversation under way, "" when it has none to go back in."""
         return "" if self.hub.incognito else self.hub._session_id
+
+    def owner_asked(self, sid: str, text: str) -> bool:
+        """The newest of sid's requests was the owner's own words, and these. Claude Code's
+        record keeps no say in who wrote a request, so only one heard this run counts: a
+        link's or a forwarded message's words, a routine's, and anything from before a
+        restart aren't known to be theirs."""
+        turns = [t for t in self._turns if t["sid"] == sid and not t["open"]]
+        return bool(turns) and turns[-1].get("own") is True and turns[-1]["text"] == _norm(text)
 
     def dropped_actions(self, sid: str, text: str) -> list[Any]:
         """What JARVIS did in the turns a rewind to before that request leaves behind and
@@ -430,6 +451,12 @@ class Branching:
         """A branch of sid from before entry (None: all of it), the original kept (the
         hub's lock held): whether it was made, and what's said about it."""
         hub, state = self.hub, self.convo.state
+        if hub.incognito:  # gone incognito while it waited: nothing is branched into it
+            return False, self._say(
+                "An incognito conversation keeps no record, so it can't be rewound or branched."
+                if live
+                else "Leave incognito to branch a past conversation."
+            )
         title = state.titles().get(sid, "") or next(
             (e["text"] for e in entries if e.get("role") == "user"), ""
         )
@@ -598,10 +625,19 @@ class Branching:
             self.convo._spawn(self._after_turn())
             return said
         last = asked[-1]
+        words = last["text"]
+        own = self.owner_asked(sid, words)
         ok, said = await self.fork_locked(sid, last, entries, True)
         if not ok:
             return said
-        self.convo._spawn(self._after_turn(hub.ask(last["text"], note=TRY_AGAIN_NOTE)))
+        if own:
+            again = hub.ask(words, note=TRY_AGAIN_NOTE)
+        else:
+            # Words not known to be the owner's stay so when tried again: shown as they are,
+            # never the owner's to the gates (no instant command, nothing counts as them
+            # asking to remember, forget or change a routine), outside content read.
+            again = hub.ask(words, display=words, untrusted=AGAIN_WORDS, note=TRY_AGAIN_NOTE)
+        self.convo._spawn(self._after_turn(again))
         return self._say(
             "Trying that again in a new branch; the first answer stays in the original."
         )

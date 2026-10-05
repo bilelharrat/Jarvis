@@ -46,6 +46,26 @@ async def test_settings_forget_the_index(settings, quiet_speaker, isolated, tmp_
     assert status["files"] == 0
 
 
+async def test_forgetting_the_index_that_fails_says_so(settings, quiet_speaker, isolated, tmp_path):
+    import sqlite3
+
+    index = fileindex.FileIndex(tmp_path / "files2.db", [tmp_path], home=tmp_path)
+
+    def broken():
+        raise sqlite3.OperationalError("disk I/O error")
+
+    index.clear = broken
+    hub = make_hub(settings, quiet_speaker, isolated={**isolated, "file_index": index})
+    await hub.start()
+    q = hub.subscribe()
+    await hub._handle({"type": "files_clear"})
+    told = drain(q)
+    assert [e["text"] for e in told if e["type"] == "error"] == [
+        "Your file index couldn't be erased (disk I/O error). Try again in a moment."
+    ]
+    assert not [e for e in told if e["type"] == "files_status"]  # (it isn't empty)
+
+
 async def test_a_refresh_reads_its_counts_in_its_own_thread_never_on_the_loop(
     settings, quiet_speaker, isolated, tmp_path
 ):

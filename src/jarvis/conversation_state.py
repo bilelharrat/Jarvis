@@ -202,6 +202,34 @@ class ConversationState:
         self.current = sid
         self._bound()
 
+    def note_reads(self, session_id: str, reads: dict[str, Any]) -> bool:
+        """What a conversation has read so far, kept before its turn is over (the app quitting
+        in the middle of one: what that turn read is in Claude Code's record of the session,
+        so the gates weigh it when it's carried on after the restart). Added to what's on
+        record, never taking anything away. True when that changed the record."""
+        sid = valid_id(session_id)
+        reads = clean_reads(reads)
+        if not sid or reads is None:
+            return False
+        if sid not in self.sessions and not (reads["private"] or reads["web"]):
+            return False  # nothing to add: one not on record still counts as UNKNOWN_READS
+        entry = self.sessions.setdefault(sid, {"reads": None, "cost": 0.0, "at": "", "title": ""})
+        kept = entry.get("reads") or {"private": False, "web": False, "what": []}
+        merged = {
+            "private": kept["private"] or reads["private"],
+            "web": kept["web"] or reads["web"],
+            "what": [*kept["what"], *(w for w in reads["what"] if w not in kept["what"])][
+                -READS_KEPT:
+            ],
+        }
+        if merged == entry.get("reads"):
+            return False
+        entry["reads"] = merged
+        if not entry["at"]:
+            entry["at"] = datetime.now().isoformat(timespec="seconds")
+        self._bound()
+        return True
+
     def relate(self, session_id: str, parent: str, relation: str) -> None:
         """A branch spoke for the first time: where it came from, kept with it."""
         sid, parent = valid_id(session_id), valid_id(parent)

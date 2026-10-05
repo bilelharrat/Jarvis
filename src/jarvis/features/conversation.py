@@ -33,7 +33,9 @@ owner's view of it.
 
 Hooks it uses: hub.first_connect, hub.add_connect_hook (a new conversation), hub.add_query_hook
 (its title, the note put away), hub.add_message_sink (each turn's end: its session id, what
-it has read, its cost; a summary made to make room).
+it has read, its cost; a tool's result: what it has read so far; a summary made to make
+room), hub.add_quit_hook (at quit: what it has read, a turn cut short included, and a save
+still waiting, written there and then).
 
 Window commands: conversation_state (-> conversation), conversation_list {q, seq} (->
 conversation_list), conversation_open {session_id} (-> conversation_transcript),
@@ -59,7 +61,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from claude_agent_sdk import ResultMessage, SystemMessage
+from claude_agent_sdk import ResultMessage, SystemMessage, UserMessage
 
 from .. import conversation_past as past
 from .. import incognito, lang, prefs
@@ -230,6 +232,35 @@ class Conversation:
         task.add_done_callback(self._tasks.discard)
         return task
 
+    def at_quit(self) -> None:
+        """The app is quitting (hub.add_quit_hook): what the conversation has read so far is
+        kept, a turn cut short included (its reads are in Claude Code's record of it, carried
+        on after the restart), and a save still waiting is written now. Nothing in the
+        background runs after this, and a turn's own save would have been cancelled."""
+        if self._state is None:  # never read: nothing said, nothing to keep
+            return
+        if self._keep_reads():
+            self._dirty = True
+        if not self._dirty and (self._saver is None or self._saver.done()):
+            return
+        self._dirty = False
+        try:
+            self.state.save()
+        except OSError as exc:  # a full disk: what the last save kept stands
+            log.warning("conversation: couldn't save at quit (%s)", exc)
+
+    def _keep_reads(self) -> bool:
+        """What the conversation under way has read so far, onto its record before its turn
+        is over (True when that changed it): a turn that read something and never ended (the
+        app quit, or the backend stopped, in the middle of it) still counts after a restart,
+        its reads being in Claude Code's record of the session. Not while incognito (nothing
+        of it is kept), nor for a branch that hasn't spoken: its turn isn't what's carried on."""
+        hub = self.hub
+        sid = valid_id(hub._session_id)
+        if not sid or hub.incognito or self.pending_branch():
+            return False
+        return self.state.note_reads(sid, hub._session_reads)
+
     async def flush(self) -> None:
         """Wait for everything this feature started in the background: saves, the context,
         a card being answered (tests)."""
@@ -361,6 +392,9 @@ class Conversation:
         if choice != "allow":
             return
         async with hub._lock:  # after the request being answered, never in the middle of it
+            if hub.incognito:  # gone incognito while the card was up: it stays incognito
+                self._toast(self._say("Leave incognito to carry on a past conversation."))
+                return
             was, reads = hub._session_id, hub._session_reads
             self.state.branch = None  # a branch not yet spoken in is left for this one
             with contextlib.suppress(Exception):
@@ -556,6 +590,14 @@ class Conversation:
         self.emit()
         await self.context()
 
+    def _turn_done(self, _event: dict[str, Any]) -> None:
+        """A request that asked for thought ended without Claude's answer (stopped before
+        Claude had it, or Claude Code failed): back to everyday thinking all the same, as
+        after an answer."""
+        if self._hard_turn:
+            self._hard_turn = self._hard = False
+            self._spawn(self._think_less())
+
     async def set_thinking(self, msg: dict[str, Any]) -> None:
         """Settings' thinking level: kept, and the connection made again with it, between
         requests (while incognito, from its next conversation: a connection made again
@@ -583,6 +625,8 @@ class Conversation:
                 self._spawn(self.context())
         elif isinstance(message, SystemMessage) and message.subtype == "compact_boundary":
             self._summed_up(message.data or {})
+        elif isinstance(message, UserMessage) and self._keep_reads():
+            self._save_soon()  # a tool's result is in: what it read outlasts a crash too
 
     def _summed_up(self, data: dict[str, Any]) -> None:
         """Claude Code summed up the conversation to make room (compact_boundary): a note in
@@ -837,6 +881,8 @@ class Conversation:
         hub.add_connect_hook(self.on_connect)
         hub.add_query_hook(self.on_query)
         hub.add_message_sink(self.on_message)
+        hub.add_quit_hook(self.at_quit)
+        hub.add_event_sink(("turn_done",), self._turn_done)
 
         def later(work: Any) -> Any:
             """A command whose work reads files or waits on a card runs in the background:

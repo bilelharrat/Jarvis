@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import threading
 import time
@@ -68,6 +69,7 @@ from . import (
     openai_relay,
     phone,
     research,
+    runproc,
     screenwatch,
     sources,
     suggestions,
@@ -1147,6 +1149,7 @@ class Hub:
         self._query_hooks: list[Callable[[str, str], Any]] = []
         self._wake_sinks: list[Callable[[str, str], Any]] = []
         self._message_sinks: list[Callable[[Any], Any]] = []
+        self._quit_hooks: list[Callable[[], Any]] = []  # what must outlast the run, at quit
         # A feature's own first connect (carrying on the conversation from before a
         # restart): True when it connected, False for a new conversation.
         self.first_connect: Callable[[], Any] | None = None
@@ -1407,6 +1410,13 @@ class Hub:
         assistant, user, system and result messages)."""
         self._message_sinks.append(sink)
 
+    def add_quit_hook(self, hook: Callable[[], Any]) -> None:
+        """Keep what must outlast the run when the app quits: hook() runs in close(), before
+        the background work is stopped (a save waiting its turn, a turn under way), and does
+        its work there and then: nothing it started in the background would ever run. One
+        that fails is logged and the others still run."""
+        self._quit_hooks.append(hook)
+
     async def _before_query(self, text: str, rid: str) -> None:
         for hook in list(self._query_hooks):
             try:
@@ -1529,7 +1539,11 @@ class Hub:
         options.include_partial_messages = True
         if resume:
             options.resume = resume
-        else:  # a new conversation: nothing earlier is in its context
+        else:
+            # A new conversation: nothing earlier is in its context, and it has no session
+            # until its first reply, so a connect made again before then (thinking, a tools
+            # reload, a retry) never carries the one before it on with this empty record.
+            self._session_id = ""
             self._session_reads = {"private": False, "web": False, "what": []}
         for hook in list(self._connect_hooks):
             try:
@@ -2208,6 +2222,20 @@ class Hub:
             untrusted=untrusted,
         )
 
+    def _keep_notes(self, carried: tuple[list[str], bool, list[tuple[float, str]]] | None) -> None:
+        """A request stopped before Claude had it: the Settings notes and heads-ups it was
+        to carry go with the next request instead, ahead of any that came since."""
+        if carried is None:
+            return
+        notes, dropped, alerts = carried
+        since, self._style_notes = self._style_notes, []
+        self._style_dropped = dropped or self._style_dropped
+        for note in [*notes, *since]:
+            self._add_style_note(note)
+        later = list(self._alert_notes)
+        self._alert_notes.clear()
+        self._alert_notes.extend([*alerts, *later])  # the newest are kept when they're many
+
     def _add_style_note(self, note: str) -> None:
         """A note for the next request (something changed in Settings). Only the latest
         STYLE_NOTES are kept word for word and older ones are summed up in a line, so the
@@ -2419,6 +2447,13 @@ class Hub:
                 await asyncio.wait_for(self.meeting.finish_transcript(), 10)
         if self._build_proc is not None and self._build_proc.returncode is None:
             self._build_proc.kill()  # never leave a rebuild running behind
+        # What must outlast the run is kept before the work under way is stopped: a save
+        # waiting its turn would be cancelled before it ever ran.
+        for hook in list(self._quit_hooks):
+            try:
+                hook()
+            except Exception:
+                log.exception("a feature's quit hook failed")
         for task in list(self._background):
             task.cancel()
         with contextlib.suppress(Exception):
@@ -3013,6 +3048,8 @@ class Hub:
             try:
                 if not owner:
                     pass  # someone else's voice, with "Everything": no answer at all
+                elif self._stopping:
+                    pass  # stopped while the voice was weighed: nothing of it is carried out
                 elif instant and (
                     await self._instant_research(rid, text)
                     or await self._instant_feature(rid, text)
@@ -3087,8 +3124,10 @@ class Hub:
                         notes.append(f"{livecontext.INTRO}: " + "; ".join(live))
                         if private:
                             self.mark_turn_untrusted("your calendar")
+                    carried = None  # the hub's own notes this request carries
                     if notes:
                         query = f"[Note from the app: {' '.join(notes)}]\n\n{text}"
+                        carried = (self._style_notes, self._style_dropped, list(self._alert_notes))
                         self._style_note, self._style_notes, self._style_dropped = "", [], False
                         self._alert_notes.clear()
                     self._claude_down, self._claude_said = "", ""
@@ -3097,29 +3136,33 @@ class Hub:
                         self._main_ref() != self._connected_ref
                     ):  # the fallback's time is up (or began)
                         await self._reconnect()
-                    await self._before_query(self._turn_text, rid)
-                    await self._run_query(rid, query, images)
-                    if self._stale_signin:
+                    # Stop pressed while the request was being prepared (a feature's context
+                    # for it, a connection made for thinking: seconds, at times) stops it
+                    # before it reaches Claude: an interrupt stops only a turn that's begun.
+                    if not self._stopping:
+                        await self._before_query(self._turn_text, rid)
+                    if self._stopping:
+                        self._keep_notes(carried)  # Claude never had them: the next one does
+                    else:
+                        await self._run_query(rid, query, images)
+                    if self._stale_signin and not self._stopping:
                         self._stale_signin = False
                         log.warning("Claude's sign-in went stale: a fresh session, and again")
-                        with contextlib.suppress(Exception):
-                            await self.client.disconnect()
-                        await self._connect(resume=self._session_id)
+                        await self._reconnect()
                         await self._run_query(rid, query, images)
-                    if self._claude_down:
+                    if self._claude_down and not self._stopping:
                         await self._carry_on(rid, query, images)
             except Exception as exc:  # the Claude Code process died: reconnect and retry once
                 # Once a tool ran, a card went up or words came out, the same request again
-                # would do it all twice: reconnect, and say it was cut off instead.
-                retry = not self._turn_progress
+                # would do it all twice: reconnect, and say it was cut off instead. A
+                # stopped one isn't asked again, nor said to be cut off: the owner stopped it.
+                retry = not self._turn_progress and not self._stopping
                 log.warning("query failed (%s); reconnecting%s", exc, " and retrying" * retry)
                 try:
-                    with contextlib.suppress(Exception):
-                        await self.client.disconnect()
-                    await self._connect(resume=self._session_id)
+                    await self._reconnect()
                     if retry:
                         await self._run_query(rid, query, images)
-                    else:
+                    elif not self._stopping:
                         self.emit("error", text=PART_WAY)
                 except Exception as exc2:  # network or sign-in trouble
                     log.error("query failed again: %s", exc2)
@@ -3443,6 +3486,7 @@ class Hub:
         self._armed_until = self._armed_window = 0.0
         self._stream_buf, self._in_code, self._code_tail = "", False, ""
         self.speech.clear()
+        self._deny_turn_cards()
         if self._lock.locked() and self.client is not None:
             with contextlib.suppress(Exception):
                 await self.client.interrupt()
@@ -3455,6 +3499,19 @@ class Hub:
                 self._dictation_cancel.set()  # the composer's mic: nothing is typed
                 self.emit("dictation", text="", done=True)
             self.set_state("idle")
+
+    def _deny_turn_cards(self) -> None:
+        """Stop ends the turn under way, cards and all: each card it put up (not a Jarvis
+        Code session's) is answered with its last choice, the "no" its timeout would give.
+        A turn waiting on one of its own (a spoken rewind's) then ends at once instead of
+        holding every request after it, and a yes pressed after the stop lets nothing go."""
+        rid = self._rid
+        if not rid:
+            return
+        for approval_id, card in list(self.approvals.items()):
+            choices = card.get("choices") or []
+            if card.get("rid") == rid and not card.get("task_id") and choices:
+                self.resolve(approval_id, str(choices[-1].get("id", "")))
 
     async def reset(self) -> None:
         await self.stop()
@@ -3475,9 +3532,7 @@ class Hub:
         await asyncio.sleep(1.5)  # let a burst of changes settle
         async with self._lock:
             self._reload_pending = False
-            with contextlib.suppress(Exception):
-                await self.client.disconnect()
-            await self._connect(resume=self._session_id)
+            await self._reconnect()
         self.emit("tools_reloaded", accounts=self.connectors.connected_names())
 
     async def _apply_pending_model(self) -> None:
@@ -4707,9 +4762,16 @@ class Hub:
         except OSError as exc:  # the folder went away: the window's "Running…" still ends
             self.emit("task_bash", ref=ref, command=command, output=str(exc), code=-1)
             return
+
+        async def finish() -> str:
+            # Only its end is kept as it's read: a command can print gigabytes in its time.
+            assert proc.stdout is not None
+            text = await runproc.output_end(proc.stdout, BASH_OUTPUT)
+            await proc.wait()
+            return text
+
         try:
-            out, _ = await asyncio.wait_for(proc.communicate(), BASH_SECONDS)
-            output = out.decode(errors="replace")
+            output = await asyncio.wait_for(finish(), BASH_SECONDS)
         except TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGTERM)
@@ -5998,9 +6060,17 @@ class Hub:
         await openai_relay.ready(self.providers, ref)  # an OpenAI-compatible one: its relay
 
     async def _reconnect(self) -> None:
+        """Make the conversation's connection again, carrying it on (new tools, the fallback
+        model, a retry). What it has read stays weighed by the gates: before its first reply
+        a conversation has no session to resume, and a connect without one would count as a
+        new conversation that had read nothing while its request is still in the context."""
+        reads = self._session_reads
         with contextlib.suppress(Exception):
             await self.client.disconnect()
-        await self._connect(resume=self._session_id)
+        try:
+            await self._connect(resume=self._session_id)
+        finally:
+            self._session_reads = reads
 
     async def _fall_back(self) -> bool:
         """Claude couldn't answer: on to the fallback model until Claude's limit resets (at
@@ -6941,7 +7011,17 @@ class Hub:
                     "the user deleted some remembered facts in Settings; stop using them."
                 )
         elif kind == "files_clear":
-            erased = await asyncio.to_thread(self.files.clear)
+            try:
+                erased = await asyncio.to_thread(self.files.clear)
+            except (sqlite3.Error, OSError) as exc:
+                # The owner asked for it to be forgotten: told it wasn't, never only logged.
+                log.warning("file index: couldn't forget it (%s)", exc)
+                self.emit(
+                    "error",
+                    text=f"Your file index couldn't be erased ({str(exc)[:200]}). Try again "
+                    "in a moment.",
+                )
+                return
             self._shown_files.clear()
             self.emit("files_status", **self.files.status())
             if not erased:

@@ -45,6 +45,9 @@ A feature registers what it adds through the hub instead of editing its core tab
   stream; hub.first_connect, when set, makes the first connect at startup (True: it
   connected). hub.incognito is True while the conversation is incognito: a feature that
   keeps or learns from what's said in it (memory, notes, logs, indexes) keeps nothing then.
+- hub.add_quit_hook(hook): keep what must outlast the run when the app quits; hook() runs in
+  close() before the background work is stopped, and saves there and then (a save it
+  started in the background would be cancelled before it ran).
 - hub.feature_path(name): where the feature keeps its files, beside prefs.json (a temp folder
   in tests, never the user's real data there).
 - hub.register_route(path, endpoint, methods): an address of the feature's own on the window's

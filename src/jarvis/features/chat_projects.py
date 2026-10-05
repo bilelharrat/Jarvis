@@ -403,4 +403,6 @@ class ChatProjects:
 
 
 def install(hub: Any) -> None:
-    ChatProjects(hub).install()
+    # Beside prefs.json, as every feature's files are: a hub on a folder of its own (a test's,
+    # a stress script's) never reads or rewrites the app's own projects.
+    ChatProjects(hub, folder=hub.feature_path(STATE_FILE).parent).install()

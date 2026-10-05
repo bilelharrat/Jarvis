@@ -153,6 +153,20 @@ class LogRing:
         return [text for _, text in list(self.lines)[-n:]] if n > 0 else []
 
 
+async def output_end(stream: asyncio.StreamReader, chars: int) -> str:
+    """What a process prints, read to its end, as text: only its last `chars` characters
+    are wanted, so only the bytes they can take (four a character, at most) are held as it's
+    read. A command printing gigabytes costs this much, not its whole output, twice over
+    (gathered, then decoded). Longer than `chars` when there was more."""
+    keep = chars * 4 + 4  # (and a character cut in two at the start, left out)
+    kept = bytearray()
+    while chunk := await stream.read(65536):
+        kept += chunk
+        if len(kept) > keep:
+            del kept[: len(kept) - keep]
+    return kept.decode(errors="replace")
+
+
 # ── the owner's environment ──
 
 _env_cache: dict[str, str] | None = None
