@@ -488,7 +488,10 @@ def parse_amount(value: Any) -> tuple[float, frozenset[str]]:
     if isinstance(value, bool) or value is None:
         raise ValueError("no amount")
     if isinstance(value, int | float):
-        number, signs = float(value), frozenset()
+        try:
+            number, signs = float(value), frozenset()
+        except OverflowError:  # an int past any float (JSON allows 10**400)
+            raise ValueError("out of range") from None
     else:
         found = money_in(str(value))
         if len(found) != 1:

@@ -101,8 +101,12 @@ def write_clipboard(text: str) -> None:
 
 def _plain_path(raw: str | Path) -> Path:
     """The path as given, made absolute, without following a symlink at its end (a link is
-    moved as a link, never swapped for what it points to)."""
-    return Path(os.path.abspath(os.path.expanduser(str(raw).strip())))
+    moved as a link, never swapped for what it points to). A NUL can't be in a path on disk
+    (the system calls raise on one), so a path with one is refused here, in words."""
+    text = str(raw).strip()
+    if "\x00" in text:
+        raise Refused("That path has a character no file's path can have.")
+    return Path(os.path.abspath(os.path.expanduser(text)))
 
 
 def _fold(text: str) -> str:

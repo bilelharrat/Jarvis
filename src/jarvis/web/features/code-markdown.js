@@ -20,7 +20,10 @@
   // ── blocks ──
 
   const FENCE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
-  const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
+  // A heading's opening #s (on a line with no other line break in it); its text and closing
+  // #s are read by heading(), with loops: a regex for them backtracks over a long run of
+  // spaces mid-line, quadratic in the line's length.
+  const HEADING = /^ {0,3}(#{1,6})(?=[ \t]|$)(?!.*[\r\u2028\u2029])/;
   const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
   const QUOTE = /^ {0,3}>/;
   const ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+|$)(.*)$/;
@@ -39,6 +42,25 @@
       i += 1;
     }
     return line.slice(i);
+  }
+
+  // `s` without its trailing spaces and tabs (/[ \t]+$/ backtracks quadratically when a long
+  // run of them is followed by more text).
+  function trimTabs(s) {
+    let end = s.length;
+    while (end > 0 && (s[end - 1] === ' ' || s[end - 1] === '\t')) end -= 1;
+    return s.slice(0, end);
+  }
+
+  // A heading line's level and text (without the closing #s), or null.
+  function heading(line) {
+    const m = HEADING.exec(line);
+    if (!m) return null;
+    let text = trimTabs(line.slice(m[0].length)).replace(/^[ \t]+/, '');
+    let end = text.length;
+    while (end > 0 && text[end - 1] === '#') end -= 1;
+    if (end < text.length && end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t')) text = trimTabs(text.slice(0, end));
+    return { level: m[1].length, text: text.trim() };
   }
 
   // A table row's cells: split on | outside `code` (and not \|).
@@ -121,8 +143,8 @@
         blocks.push({ type: 'code', info, text: body.join('\n'), open: !closed });
         continue;
       }
-      m = HEADING.exec(line);
-      if (m) { flush(); blocks.push({ type: 'heading', level: m[1].length, text: (m[2] || '').trim() }); i += 1; continue; }
+      const titled = heading(line);
+      if (titled) { flush(); blocks.push({ type: 'heading', ...titled }); i += 1; continue; }
       if (RULE.test(line)) { flush(); blocks.push({ type: 'rule' }); i += 1; continue; }
       if (QUOTE.test(line)) {
         flush();
@@ -250,17 +272,35 @@
       if (k - j > SPAN_MAX) return null;
     }
     if (k >= text.length) return null;
-    const inside = text.slice(j + 2, k).trim();
-    const target = inside.replace(/\s+(?:"[^"]*"|'[^']*')$/, '');
+    const target = untitled(text.slice(j + 2, k).trim());
     return { label: text.slice(i + 1, j), target, end: k + 1 };
+  }
+
+  // A link's target without its "title" (or 'title'), found from the end: the regex for it,
+  // /\s+(?:"[^"]*"|'[^']*')$/, backtracks over every space before a quote mid-target.
+  function untitled(inside) {
+    const q = inside[inside.length - 1];
+    if (q !== '"' && q !== "'") return inside;
+    const open = inside.lastIndexOf(q, inside.length - 2);
+    if (open < 1 || !/\s/.test(inside[open - 1])) return inside;
+    let end = open;
+    while (end > 0 && /\s/.test(inside[end - 1])) end -= 1;
+    return inside.slice(0, end);
   }
 
   const BARE_URL = /^https?:\/\/[^\s<>"'`]+/i;
 
+  // A bare address without the punctuation after it, and without the ) that closes words
+  // around it rather than its own (. Counted once, not per ) taken off: a long run of them
+  // would make that quadratic, as /[.,;:!?*_~]+$/ is over a long run of dots mid-address.
   function trimUrl(url) {
-    let out = url.replace(/[.,;:!?*_~]+$/, '');
-    while (out.endsWith(')') && (out.match(/\(/g) || []).length < (out.match(/\)/g) || []).length) out = out.slice(0, -1);
-    return out;
+    let end = url.length;
+    while (end > 0 && '.,;:!?*_~'.includes(url[end - 1])) end -= 1;
+    const out = url.slice(0, end);
+    const opens = (out.match(/\(/g) || []).length;
+    let closes = (out.match(/\)/g) || []).length;
+    while (end > 0 && out[end - 1] === ')' && opens < closes) { end -= 1; closes -= 1; }
+    return out.slice(0, end);
   }
 
   function inline(text, depth = 0) {
@@ -292,13 +332,15 @@
         }
         if (close < 0) { buf += ticks; i += run; continue; }
         let code = src.slice(i + run, close).replace(/\n/g, ' ');
-        if (/^ .*[^ ].* $/.test(code)) code = code.slice(1, -1);
+        // (one space each side comes off, unless it's all spaces: tested without a regex,
+        // since /^ .*[^ ].* $/ backtracks quadratically over a long span)
+        if (code.length > 2 && code[0] === ' ' && code[code.length - 1] === ' ' && /[^ ]/.test(code)) code = code.slice(1, -1);
         push({ t: 'code', v: code });
         i = close + run;
         continue;
       }
       if (c === '\n') {
-        buf = buf.replace(/[ \t]+$/, '');
+        buf = trimTabs(buf);
         push({ t: 'br' });
         i += 1;
         while (src[i] === ' ' || src[i] === '\t') i += 1;

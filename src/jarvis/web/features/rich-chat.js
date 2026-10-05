@@ -13,10 +13,29 @@
 
   const TRY_AGAIN = 'Give me a different answer.';
 
+  // A [label](target) somewhere in s, in one pass: as a regex, /\[[^\]]+\]\([^)]+\)/ scans
+  // to the end from every "[" (or "[a](") that doesn't close, quadratic in a long reply, and
+  // this runs again on every streamed word.
+  function hasLink(s) {
+    const lastClose = s.lastIndexOf(')');
+    let open = -1;  // the first "[" since the last "]"
+    for (let i = 0; i < s.length; i += 1) {
+      const c = s[i];
+      if (c === '[') {
+        if (open < 0) open = i;
+      } else if (c === ']') {
+        if (open >= 0 && open < i - 1 && s[i + 1] === '(' && i + 2 < s.length && s[i + 2] !== ')' && lastClose > i + 2) return true;
+        open = -1;
+      }
+    }
+    return false;
+  }
+
   const helpers = {
     // Worth drawing as Markdown: anything with a mark Markdown uses (plain sentences stay text).
     looksMarked(text) {
-      return /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|\|.*\|)|\*\*|__|`[^`]+`|\[[^\]]+\]\([^)]+\)/.test(String(text || ''));
+      const s = String(text || '');
+      return /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|\|.*\|)|\*\*|__|`[^`]+`/.test(s) || hasLink(s);
     },
     // The buttons a reply gets: none while it's being written or empty.
     actionsFor(text, state) {
