@@ -15,6 +15,7 @@ import math
 import re
 import secrets
 import string
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -378,6 +379,18 @@ def event_text(event: dict[str, Any]) -> str:
 FOLDER_WAIT_S = 20.0
 
 
+def thread_lock_for_progress_bars() -> None:
+    """tqdm (the progress bars of a voice model's download) makes a multiprocessing lock
+    the first time it draws one: a named semaphore that nothing unlinks, so every quit
+    after a download warned of "leaked semaphore objects". One process draws them here, so
+    a thread lock does the same job."""
+    try:
+        from tqdm import tqdm
+    except ImportError:  # no tqdm: nothing draws progress bars
+        return
+    tqdm.set_lock(threading.RLock())
+
+
 def serve(port: int, token: str) -> None:
     import logging
     import logging.handlers
@@ -444,6 +457,7 @@ def serve(port: int, token: str) -> None:
                 handler.setLevel(logging.WARNING)
     for noisy in ("pypdf", "fontTools", "httpx", "httpx2", "mcp"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
+    thread_lock_for_progress_bars()
 
     # Feature modules' work that must come before any store reads its file (a restored
     # backup put in place), while this process holds the folder.

@@ -241,3 +241,27 @@ async def test_background_tasks_that_finish_are_not_logged_as_failed_commands(
     failed = [r for r in caplog.records if "background task" in r.getMessage()]
     assert len(failed) == 1 and "kaput" in caplog.text
     assert not hub._command_failures
+
+
+def test_progress_bars_never_make_a_semaphore_that_no_quit_unlinks(monkeypatch, tmp_path):
+    """A voice model's download draws tqdm progress bars; with a multiprocessing lock behind
+    them every quit warned of leaked semaphores. The backend gives tqdm a thread lock."""
+    import threading
+    from multiprocessing import resource_tracker
+
+    from tqdm import tqdm
+
+    from jarvis.server import thread_lock_for_progress_bars
+
+    made = []
+    real = resource_tracker.register
+    monkeypatch.setattr(
+        resource_tracker, "register", lambda name, kind: made.append(kind) or real(name, kind)
+    )
+    monkeypatch.delattr(tqdm, "_lock", raising=False)  # as before any bar was drawn
+    thread_lock_for_progress_bars()
+    with open(tmp_path / "bars", "w") as out:
+        for _ in tqdm(range(3), file=out):
+            pass
+    assert "semaphore" not in made
+    assert isinstance(tqdm.get_lock(), type(threading.RLock()))
