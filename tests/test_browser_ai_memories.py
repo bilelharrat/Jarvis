@@ -278,13 +278,91 @@ async def test_the_list_sent_after_a_page_is_kept_is_read_off_the_hub_s_loop(
     desk, _, _ = desk_with(hub, read())
     q = hub.subscribe()
     where = []
-    real = memories.read_pages
+    real = memories._read_light  # what reads the folder for Settings' list
     monkeypatch.setattr(
         memories,
-        "read_pages",
-        lambda folder: where.append(threading.current_thread()) or real(folder),
+        "_read_light",
+        lambda *args: where.append(threading.current_thread()) or real(*args),
     )
     await desk.memories.on_dwell({"url": URL, "tab": 3})
     sent = [e for e in drain(q) if e["type"] == "browser_ai_memories"]
     assert len(sent) == 1 and sent[0]["count"] == 1 and sent[0]["recent"][0]["url"] == URL
     assert where and threading.main_thread() not in where
+
+
+def test_settings_list_reads_a_file_again_only_once_it_has_changed(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """The list is made after every page kept, from up to MAX_PAGES files of up to 12,000
+    characters: only the files new or changed since it was last made are read again, and
+    it's the same list a full read gives."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    desk, _, _ = desk_with(hub, read())
+    clock = iter(range(1000, 2000))
+    monkeypatch.setattr(memories.time, "time", lambda: next(clock))
+    for n in range(3):
+        desk.memories._keep({"url": f"https://news.example/{n}", "title": f"Page {n}",
+                             "site": "News", "text": ARTICLE})  # fmt: skip
+    reads = []
+    real = memories._page
+    monkeypatch.setattr(memories, "_page", lambda raw: reads.append(raw) or real(raw))
+    folder = folder_for(hub.kb.store)
+
+    def full():
+        pages = memories.read_pages(folder)
+        clips = memories.read_clips(folder)
+        latest = sorted([*pages, *clips], key=lambda p: p["last"], reverse=True)[:12]
+        keys = ("id", "kind", "url", "title", "site", "last")
+        return len(pages), len(clips), [{k: p[k] for k in keys} for p in latest]
+
+    def listed():
+        payload = desk.memories.payload()
+        return payload["count"], payload["clips"], payload["recent"]
+
+    assert listed() == full() and len(reads) == 3 + 3  # (and the full read's own three)
+    reads.clear()
+    assert listed()[0] == 3 and reads == []  # nothing changed: nothing read
+    edited = memories._file(folder, "https://news.example/1")
+    page = json.loads(edited.read_text())
+    edited.write_text(json.dumps({**page, "title": "Page one, edited", "last": 5000}))
+    (folder / "0123456789abcdef01234567.json").write_text("{torn")
+    memories._file(folder, "https://news.example/0").unlink()
+    reads.clear()
+    count, clips, recent = listed()
+    assert len(reads) == 1  # the edited one (the torn one isn't JSON: it never reaches _page)
+    assert count == 2 and recent[0]["title"] == "Page one, edited"
+    assert (count, clips, recent) == full()
+
+
+async def test_under_the_cap_keeping_a_page_reads_no_other(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """Below MAX_PAGES files there's nothing to drop: keeping a page reads only its own
+    earlier copy. Past it, only the files new since the last look are read to find the
+    oldest."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    desk, _, _ = desk_with(hub, read())
+    clock = iter(range(1000, 2000))
+    monkeypatch.setattr(memories.time, "time", lambda: next(clock))
+    reads = []
+    real = memories._page
+    monkeypatch.setattr(memories, "_page", lambda raw: reads.append(raw) or real(raw))
+
+    def keep(n):
+        desk.memories._keep({"url": f"https://news.example/{n}", "title": f"Page {n}",
+                             "site": "News", "text": ARTICLE})  # fmt: skip
+
+    for n in range(3):
+        keep(n)
+    assert reads == []  # new pages, no earlier copies, and the cap is far off
+    keep(1)
+    assert len(reads) == 1  # its own earlier copy, for its first visit and count
+    monkeypatch.setattr(memories, "MAX_PAGES", 3)
+    reads.clear()
+    keep(3)  # four files: the oldest goes, every page read once to find it
+    assert len(reads) == 4
+    reads.clear()
+    keep(4)  # only the new one is read now
+    assert len(reads) == 1
+    kept = [p["url"] for p in read_pages(folder_for(hub.kb.store))]
+    assert kept == ["https://news.example/4", "https://news.example/3", "https://news.example/1"]

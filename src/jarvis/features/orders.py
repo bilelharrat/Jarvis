@@ -205,7 +205,7 @@ class Orders:
             if quiet and full:
                 self.book.mark["backlog"] = True  # more of it waits: the next look is quiet too
             self.book.tidy(self.now())
-            await asyncio.to_thread(self.book.save)
+            await asyncio.to_thread(self.book.save_changed)  # (Mail had nothing new: no write)
         if changed:
             self.publish()
         return changed

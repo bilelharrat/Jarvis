@@ -17,6 +17,7 @@ import asyncio
 import copy
 import json
 import math
+import os
 import subprocess
 import threading
 import time
@@ -188,6 +189,20 @@ def _total(bucket: dict[str, Any]) -> int:
     return sum(int(bucket.get(k) or 0) for k in TOKEN_KINDS)
 
 
+def _as_left(path: Path) -> tuple[Any, ...]:
+    """The file and its .bak as they are now (None for one that isn't there): a write since,
+    or an edit or removal by anything else, moves one of them."""
+    out: list[Any] = []
+    for each in (path, path.with_name(path.name + ".bak")):
+        try:
+            s = os.stat(each)
+        except OSError:
+            out.append(None)
+        else:
+            out.append((s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns))
+    return tuple(out)
+
+
 def model_name(model: str) -> str:
     """claude-opus-5-5 -> Opus 5.5; others as they are."""
     parts = str(model or "").removeprefix("claude-").split("-")
@@ -209,6 +224,13 @@ class UsageBook:
         self._saved_at = 0.0
         self._changes = 0  # every change counted, so a write knows whether it's the newest
         self._on_disk = 0  # the count the file holds (under _writing)
+        self._real = 0  # the count at the newest change but when the plan was last seen
+        # Whether the file's .bak holds every change the file does but when the plan was
+        # seen (the write before the last one had them too), and the file and .bak as the
+        # last write left them (under _writing). A plan look found as it was writes only
+        # when one of them is otherwise, as every look used to write.
+        self._settled = False
+        self._left: tuple[Any, ...] | None = None
         self._writing = threading.Lock()
         self._task: asyncio.Task | None = None
         # Why the file can't be read now: counted afresh in memory, and the file is left as
@@ -232,6 +254,8 @@ class UsageBook:
                     else {}
                 )
                 self.limits = limits if isinstance(limits, dict) else {}
+            if not self.unreadable:
+                self._left = _as_left(path)  # as read: what the first write replaces
 
     # ── recording ──
 
@@ -275,10 +299,15 @@ class UsageBook:
         self._changed()
 
     def plan(self, windows: dict[str, dict[str, Any]]) -> None:
-        """The plan's windows as the usage endpoint gave them (fetch_plan)."""
+        """The plan's windows as the usage endpoint gave them (fetch_plan). They're asked for
+        every few minutes while a window is open, and mostly come back as they were: then
+        only when they were seen has moved, and that isn't written for itself (the file goes
+        all the way to the disk) once the file is as saved (_as_saved). The next save, or the
+        flush as the hub closes, takes it."""
+        moved = False
         for kind, window in windows.items():
             used = window.get("utilization") or 0.0
-            self.limits[kind] = {
+            entry = {
                 "status": "rejected"
                 if used >= 1
                 else "allowed_warning"
@@ -288,8 +317,16 @@ class UsageBook:
                 "resets_at": window.get("resets_at"),
                 "seen": self.clock(),
             }
-        if windows:
+            before = self.limits.get(kind)
+            if not isinstance(before, dict) or {**before, "seen": entry["seen"]} != entry:
+                moved = True
+            self.limits[kind] = entry
+        if moved:
             self._changed()
+        elif windows and not self._as_saved():
+            self._changed(real=False)
+        elif windows:
+            self._touched()
 
     # ── reading ──
 
@@ -384,11 +421,36 @@ class UsageBook:
         for key in [k for k in self.days if k < cutoff]:
             del self.days[key]
 
-    def _changed(self) -> None:
+    def _touched(self) -> None:
+        """A change kept in memory without a write of its own: counted, so a write under way
+        leaves the book dirty, and the next save or the flush at close takes it along."""
         self._dirty = True
         self._changes += 1
+
+    def _changed(self, real: bool = True) -> None:
+        """A change saved now, or soon: within SAVE_EVERY of the last write it waits for the
+        next change, which a plan look (_as_saved) or the flush at close also is. real False
+        for a write that only catches the file up (see _as_saved)."""
+        self._touched()
+        if real:
+            self._real = self._changes
         if self.clock() - self._saved_at >= SAVE_EVERY and not self._save_soon():
             self.flush()
+
+    def _as_saved(self) -> bool:
+        """Whether the file holds every change but when the plan was last seen, its .bak (a
+        damaged file comes back from it) holds them too, and nothing else has written,
+        changed or removed either since. Until then a plan look writes, as every look used
+        to: an answer counted within SAVE_EVERY of a write is saved by the look after it,
+        and the look after a change leaves a .bak with that change."""
+        if self.path is None or self.unreadable:
+            return True  # nothing to save to: the numbers stay in memory
+        return (
+            self._real <= self._on_disk
+            and self._settled
+            and self._left is not None
+            and _as_left(self.path) == self._left  # (two stats, on a look found as it was)
+        )
 
     def _save_soon(self) -> bool:
         """On the hub's loop the file is written in a thread: a save goes all the way to the
@@ -410,23 +472,32 @@ class UsageBook:
             # A damaged file nested deeper than a copy can follow (a copy takes about twice
             # the stack a save does): saved at once, as it always was, so counting goes on.
             return False
-        self._task = asyncio.ensure_future(self._save_later(data, self._changes))
+        self._task = asyncio.ensure_future(self._save_later(data, self._changes, self._real))
         return True
 
-    async def _save_later(self, data: dict[str, Any], changes: int) -> None:
+    async def _save_later(self, data: dict[str, Any], changes: int, real: int) -> None:
         try:
-            await asyncio.to_thread(self._write, data, changes)
+            await asyncio.to_thread(self._write, data, changes, real)
         except OSError:
             return  # a full disk: the numbers stay in memory
         self._dirty = self._changes != self._on_disk  # (a flush may have saved newer since)
         self._saved_at = self.clock()
 
-    def _write(self, data: dict[str, Any], changes: int) -> None:
+    def _write(self, data: dict[str, Any], changes: int, real: int) -> None:
         with self._writing:  # one write at a time, and never an older one over a newer
             if changes <= self._on_disk:
                 return
-            jsonstore.save_json(self.path, data)
-            self._on_disk = changes
+            self._put(data, changes, real)
+
+    def _put(self, data: dict[str, Any], changes: int, real: int) -> None:
+        """The save itself (under _writing), and what it leaves: the file it replaces is the
+        .bak, which has every change but seen when that file had them all and nothing else
+        wrote over it."""
+        untouched = self._left is not None and _as_left(self.path) == self._left
+        jsonstore.save_json(self.path, data)
+        self._settled = untouched and self._on_disk >= real
+        self._on_disk = changes
+        self._left = _as_left(self.path)
 
     def flush(self) -> None:
         if not self._dirty or self.path is None or self.unreadable:
@@ -435,8 +506,7 @@ class UsageBook:
             # After any write under way in a thread, and always the newest. (Straight to the
             # save, as it always was: a damaged file's deep nesting needs every frame.)
             with self._writing:
-                jsonstore.save_json(self.path, {"days": self.days, "limits": self.limits})
-                self._on_disk = self._changes
+                self._put({"days": self.days, "limits": self.limits}, self._changes, self._real)
         except OSError:
             return  # a full disk: the numbers stay in memory
         self._dirty = False

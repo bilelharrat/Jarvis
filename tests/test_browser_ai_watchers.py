@@ -422,3 +422,188 @@ def test_the_tools_and_what_their_results_count_as(settings, quiet_speaker, isol
     assert result_kind("mcp__browser_ai__stop_watch") == "none"
     assert result_kind("mcp__browser_ai__read_tabs") == "web"
     assert "browser_watches" in [name for name, _ in hub._loops]
+
+
+def _watch(watch_id, last):
+    return {"id": watch_id, "url": SHOP, "host": "shop.example", "title": "Kettle",
+            "kind": "change", "below": None, "currency": "", "every": 1.0, "via": "fetch",
+            "made": last, "last": last, "told": 0, "failures": 0, "paused": False,
+            "done": False, "price": None, "anchor": "", "stock": None, "lines": [],
+            "result": ""}  # fmt: skip
+
+
+def _counted(monkeypatch, wait=0.0):
+    """Every write of the watch file, as it was written (each taking wait seconds)."""
+    saves = []
+    real = watchers.jsonstore.save_json
+
+    def save(path, data, **kw):
+        time.sleep(wait)
+        saves.append([w["id"] for w in data])
+        return real(path, data, **kw)
+
+    monkeypatch.setattr(watchers.jsonstore, "save_json", save)
+    return saves
+
+
+def _sent(q):
+    return [[w["id"] for w in e["items"]] for e in drain(q) if e["type"] == "browser_ai_watches"]
+
+
+async def test_a_round_with_nothing_to_look_at_writes_and_sends_nothing(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """Every five minutes a round of checks: one that leaves the list as the file and its
+    .bak hold it (it looked at nothing and dropped nothing) neither writes the file (all the
+    way to the disk) nor sends the window the same list again. The round after a change
+    still writes it once more, as every round used to, so a damaged file comes back from
+    its .bak with the change; the first round writes what was read (a fresh install's empty
+    list too), and a save that failed is tried again."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    desk = browser_ai.desk_for(hub)
+    w = desk.watchers
+    q = hub.subscribe()
+    saves = _counted(monkeypatch)
+    counting = watchers.jsonstore.save_json
+    await w.tick()  # a fresh install: the empty list is written, as it always was
+    assert saves == [[]] and json.loads(w.path.read_text()) == []
+    assert _sent(q) == [[]]
+    await w.tick()  # once more, for its .bak
+    await w.tick()
+    assert saves == [[], []] and _sent(q) == [[]]  # then nothing written or sent
+    now = time.time()
+    watch = _watch("w1", now)
+    w.watches().append(watch)
+    await w.save()  # (as watch_page does)
+    await w.tick()  # not due yet, but its .bak hasn't got it
+    await w.tick()
+    assert saves == [[], [], ["w1"], ["w1"]] and _sent(q) == [["w1"]]
+    assert json.loads(w.path.with_name(w.path.name + ".bak").read_text())[0]["id"] == "w1"
+    looked = []
+
+    async def check(found):
+        looked.append(found["id"])
+        found["last"] = time.time()
+
+    w.check = check
+    watch["last"] = now - 7200  # due now
+    await w.tick()
+    assert looked == ["w1"] and len(saves) == 5
+    assert _sent(q) == [["w1"]]
+
+    def full(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(watchers.jsonstore, "save_json", full)
+    watch.update(done=True, last=now - watchers.DONE_KEPT - 1)  # dropped this round
+    await w.tick()
+    assert w.watches() == [] and json.loads(w.path.read_text())[0]["id"] == "w1"
+    monkeypatch.setattr(watchers.jsonstore, "save_json", counting)
+    drain(q)
+    await w.tick()  # the failed save, tried again
+    assert len(saves) == 6 and saves[-1] == [] and json.loads(w.path.read_text()) == []
+    assert _sent(q) == [[]]
+
+
+async def test_a_watch_added_while_another_save_has_its_turn_is_saved_by_the_next_round(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """watch_page adds the watch and saves. When another save has the turn and the ask is
+    cut short while it waits, the one under way may have the list from before: the next
+    round writes the list as it is and sends it to the window, as every round used to. So
+    does one after a save cut short while its thread was writing."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    w = browser_ai.desk_for(hub).watchers
+    q = hub.subscribe()
+    saves = _counted(monkeypatch, wait=0.05)
+    for _ in range(3):
+        await w.tick()
+    assert saves == [[], []]
+    first = asyncio.create_task(w.save())  # (stop, the window's Remove or a round)
+    await asyncio.sleep(0.01)
+    w.watches().append(_watch("w1", time.time()))
+    added = asyncio.create_task(w.save())
+    await asyncio.sleep(0.005)
+    added.cancel()  # the turn was interrupted while it waited
+    await asyncio.gather(first, added, return_exceptions=True)
+    assert saves[-1] == [] and json.loads(w.path.read_text()) == []
+    drain(q)
+    await w.tick()
+    assert json.loads(w.path.read_text())[0]["id"] == "w1" and _sent(q) == [["w1"]]
+    await w.tick()
+    await w.tick()
+    w.watches().append(_watch("w2", time.time()))
+    cut = asyncio.create_task(w.save())
+    await asyncio.sleep(0.01)  # its thread is writing
+    cut.cancel()
+    await asyncio.gather(cut, return_exceptions=True)
+    drain(q)
+    await w.tick()  # (after that thread's write)
+    assert [x["id"] for x in json.loads(w.path.read_text())] == ["w1", "w2"]
+    assert _sent(q) == [["w1", "w2"]]
+    await w.tick()
+    assert _sent(q) == []
+
+
+async def test_a_damaged_or_removed_watch_file_comes_back_with_the_latest_watch(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """A damaged browser_watches.json comes back from its .bak, the file the last save
+    replaced; every round used to write, so after a round that held the watch added last,
+    and a round with nothing to do still writes until it does. A file removed or edited
+    while the app runs is written again at the next round."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    w = browser_ai.desk_for(hub).watchers
+    saves = _counted(monkeypatch)
+    now = time.time()
+    w.watches().append(_watch("w1", now))
+    await w.save()
+    w.watches().append(_watch("w2", now))
+    await w.save()
+    await w.tick()
+    await w.tick()
+    assert len(saves) == 3
+    w.path.write_text("[{")  # damaged
+    restored = watchers.jsonstore.load_json(w.path, list)
+    assert [x["id"] for x in restored] == ["w1", "w2"]
+    await w.tick()  # (the damaged file was set aside: written again)
+    assert len(saves) == 4 and [x["id"] for x in json.loads(w.path.read_text())] == ["w1", "w2"]
+    await w.tick()
+    await w.tick()
+    w.path.unlink()  # removed by hand
+    await w.tick()
+    assert len(saves) == 6 and w.path.exists()
+    await w.tick()
+    await w.tick()
+    w.path.write_text("[]")  # edited by hand
+    await w.tick()
+    assert len(saves) == 8 and len(json.loads(w.path.read_text())) == 2
+
+
+async def test_a_page_that_comes_in_many_pieces_is_read_up_to_the_cap(
+    settings, quiet_speaker, isolated
+):
+    """A watched page is read as it arrives, piece by piece, and no further than MAX_BYTES
+    (the piece that crosses it is the last one taken)."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    w = browser_ai.desk_for(hub).watchers
+    piece = 1000
+    head = "<html><head><title>Long page</title></head><body>"
+    line = "<p>Another line of a very long page, said again and again.</p>"
+    pulled = []
+
+    async def pieces():
+        yield head.encode()
+        n = 0
+        while True:
+            n += 1
+            pulled.append(n)
+            yield (line * (piece // len(line) + 1)).encode()[:piece]
+
+    def answer(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=pieces())
+
+    w.transport = httpx.MockTransport(answer)
+    page = await w.fetch(SHOP)
+    assert page["title"] == "Long page" and page["text"].startswith("Another line")
+    assert len(pulled) == (watchers.MAX_BYTES - len(head)) // piece + 1

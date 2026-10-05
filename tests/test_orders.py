@@ -397,3 +397,94 @@ async def test_a_test_hub_reads_no_mail_and_calls_no_model(settings, quiet_speak
     with pytest.raises(RuntimeError):
         await hub.orders._haiku("x")
     assert "orders" in hub._feature_servers()
+
+
+async def test_a_look_with_nothing_new_writes_nothing(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """Mail is looked at every ten minutes, mostly with nothing new: then the list isn't
+    written again (each save goes all the way to the disk) once the file and its .bak hold
+    it. Anything new is, and so is the look after it (as every look used to write), as is a
+    look after the list was saved some other way, and a save that failed is tried again."""
+    import json
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    inbox = Inbox(tmp_path / "Envelope Index")
+    inbox.add(
+        "ship@acme.com", "Acme", "Your Acme order A-100 has shipped", "UPS 1Z999AA10123456784"
+    )
+    desk = desk_for(hub, inbox)
+    writes = []
+    real = orders.jsonstore.save_json
+
+    def save(path, data, **kw):
+        writes.append(json.loads(json.dumps(data)))
+        return real(path, data, **kw)
+
+    monkeypatch.setattr(orders.jsonstore, "save_json", save)
+    assert await desk.look() == 1 and len(writes) == 1  # the first look writes what it read
+    await desk.look()  # and the next once more, so the .bak has it too
+    await desk.look()
+    await desk.look()
+    assert len(writes) == 2 and writes[1] == writes[0]  # nothing new in Mail: nothing written
+    path = desk.book.path
+    assert json.loads(path.read_text()) == writes[0]
+    assert json.loads(path.with_name("orders.json.bak").read_text()) == writes[0]
+    inbox.add("x@y.com", "Someone", "Lunch on Friday?", "see you")  # not an order, but read
+    assert await desk.look() == 0 and len(writes) == 3  # how far Mail was read moved
+    assert writes[2]["mark"]["seen"] > writes[1]["mark"]["seen"]
+    await desk.look()
+    await desk.look()
+    assert len(writes) == 4
+    await desk.command({"type": "orders_forget", "id": desk.book.orders[0].id})
+    assert len(writes) == 5 and writes[4]["orders"][0]["hidden"] is True
+    await desk.look()  # after a save of another kind, a look writes once more
+    assert len(writes) == 6 and writes[5] == writes[4]
+    await desk.look()
+    assert len(writes) == 6
+
+    def full(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(orders.jsonstore, "save_json", full)
+    inbox.add("x@y.com", "Someone", "And Saturday?", "")
+    with pytest.raises(OSError):
+        await desk.look()
+    monkeypatch.setattr(orders.jsonstore, "save_json", save)
+    await desk.look()  # tried again
+    assert len(writes) == 7 and json.loads(path.read_text()) == writes[6]
+
+
+def test_a_damaged_list_comes_back_with_the_latest_and_a_removed_one_is_written_again(
+    tmp_path, monkeypatch
+):
+    """A damaged orders.json comes back from its .bak, the file the last save replaced.
+    Every look used to write, so after a look with nothing new that held the latest order
+    and how far Mail was read; a look with nothing new still writes until it does. (An
+    older one would put Mail's last rows back to read, and a heads-up already given could
+    come again.) A file removed or edited while the app runs is written again too."""
+    path = tmp_path / "orders.json"
+    book = orders.Book(path)
+    book.load()
+    book.apply(orders.Found("order", "Acme", status="ordered", number="A-1"), RECEIVED)
+    book.mark = {"ident": "x", "seen": 10}
+    assert book.save_changed()
+    book.apply(orders.Found("order", "Globex", status="shipped", number="G-7"), RECEIVED)
+    book.mark = {"ident": "x", "seen": 11}
+    assert book.save_changed()
+    assert book.save_changed()  # nothing new, but the .bak is the book before G-7
+    assert not book.save_changed()  # now the file and its .bak both have it
+    path.write_text('{"orders": [')  # damaged
+    again = orders.Book(path)
+    again.load()
+    assert [o.number for o in again.orders] == ["A-1", "G-7"] and again.mark["seen"] == 11
+    # (the damaged file was set aside: the book writes it again, and once more for its .bak)
+    assert book.save_changed() and book.save_changed() and not book.save_changed()
+    path.unlink()  # removed by hand
+    assert book.save_changed() and path.exists()
+    assert book.save_changed() and not book.save_changed()
+    path.write_text("{}")  # edited by hand
+    assert book.save_changed() and book.save_changed() and not book.save_changed()
+    again = orders.Book(path)
+    again.load()
+    assert [o.number for o in again.orders] == ["A-1", "G-7"]

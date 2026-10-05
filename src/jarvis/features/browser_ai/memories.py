@@ -143,6 +143,51 @@ def _read(folder: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _count(folder: Path) -> int:
+    """How many files _read would read there (none when the folder can't be listed)."""
+    try:
+        return sum(1 for _ in folder.glob("*.json"))
+    except OSError:
+        return 0
+
+
+def _read_light(
+    folder: Path, known: dict[str, tuple[Any, Any]], fresh: dict[str, tuple[Any, Any]]
+) -> list[dict[str, Any]]:
+    """_read(folder) without the text (Settings' list and the cap need only the rest), each
+    file read only when it's new or changed since it was read last (known: path -> its
+    inode, size and times, and what it held). What's read goes in fresh; a file that
+    couldn't be read isn't kept there, so it's tried again next time."""
+    out = []
+    try:
+        files = list(folder.glob("*.json"))
+    except OSError:
+        return []
+    for path in files:
+        try:
+            st = path.stat()
+        except OSError:
+            continue  # gone (or a broken link): it couldn't be read either
+        stamp = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+        before = known.get(str(path))
+        if before is not None and before[0] == stamp:
+            item = before[1]
+        else:
+            try:
+                found = _page(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+            item = None
+            if found is not None:
+                item = {k: found[k] for k in ("kind", "url", "title", "site", "last")}
+                item["id"] = path.stem
+        fresh[str(path)] = (stamp, item)
+        if item is not None:
+            out.append(item)
+    out.sort(key=lambda p: p["last"], reverse=True)
+    return out
+
+
 def read_pages(folder: Path) -> list[dict[str, Any]]:
     """Every kept page, the latest first. A damaged file is skipped, never fatal."""
     return [p for p in _read(folder) if p["kind"] == "page"]
@@ -187,6 +232,9 @@ class Memories:
         self.bridge = bridge
         self.sites = sites
         self._refresh_task: asyncio.Task | None = None
+        # Each folder's files as last read (_read_light): path -> (its stat, the page or clip
+        # without its text). Made afresh with each read, so a file gone is forgotten.
+        self._seen: dict[Path, dict[str, tuple[Any, Any]]] = {}
 
     @property
     def folder(self) -> Path:
@@ -248,9 +296,10 @@ class Memories:
             "visits": (before["visits"] + 1) if before else 1,
         }
         jsonstore.save_json(path, page, indent=None, backup=False)
-        pages = read_pages(folder)
-        for old in pages[MAX_PAGES:]:  # the oldest past the cap
-            _file(folder, old["url"]).unlink(missing_ok=True)
+        if _count(folder) > MAX_PAGES:  # (no more files than the cap: no more pages either)
+            pages = [p for p in self._light(folder) if p["kind"] == "page"]
+            for old in pages[MAX_PAGES:]:  # the oldest past the cap
+                _file(folder, old["url"]).unlink(missing_ok=True)
 
     async def clip(self, item: dict[str, Any]) -> None:
         """Keep what the owner saved on purpose (the page's menu): {url (what it points at:
@@ -279,8 +328,10 @@ class Memories:
         jsonstore.save_json(
             folder / f"{_id(f'{url}\n{text}')}.json", clip, indent=None, backup=False
         )
-        for old in read_clips(self.folder)[MAX_PAGES:]:
-            (folder / f"{old['id']}.json").unlink(missing_ok=True)
+        if _count(folder) > MAX_PAGES:
+            clips = [c for c in self._light(folder) if c["kind"] == "clip"]
+            for old in clips[MAX_PAGES:]:
+                (folder / f"{old['id']}.json").unlink(missing_ok=True)
 
     def _refresh_soon(self) -> None:
         """The brain reads the new pages a few minutes from now (one refresh for a run of
@@ -299,9 +350,18 @@ class Memories:
 
     # ── the window ──
 
+    def _light(self, folder: Path) -> list[dict[str, Any]]:
+        """The folder's pages or clips without their text, the latest first: only the files
+        new or changed since its last read are read again (it's read after every page kept,
+        up to MAX_PAGES files of up to TEXT_MAX characters each)."""
+        fresh: dict[str, tuple[Any, Any]] = {}
+        found = _read_light(folder, self._seen.get(folder, {}), fresh)
+        self._seen[folder] = fresh
+        return found
+
     def payload(self) -> dict[str, Any]:
-        pages = read_pages(self.folder)
-        clips = read_clips(self.folder)
+        pages = [p for p in self._light(self.folder) if p["kind"] == "page"]
+        clips = [c for c in self._light(self.folder / CLIPS) if c["kind"] == "clip"]
         latest = sorted([*pages, *clips], key=lambda p: p["last"], reverse=True)[:LIST_MAX]
         return {
             "on": self.on(),

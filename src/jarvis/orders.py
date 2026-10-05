@@ -11,7 +11,9 @@ words: data for the list, never instructions to anyone.
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta
@@ -452,6 +454,20 @@ def _key(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
 
 
+def _as_left(path: Path) -> tuple[Any, ...]:
+    """The file and its .bak as they are now (None for one that isn't there): a write since,
+    or an edit or removal by anything else, moves one of them."""
+    out: list[Any] = []
+    for each in (path, path.with_name(path.name + ".bak")):
+        try:
+            s = os.stat(each)
+        except OSError:
+            out.append(None)
+        else:
+            out.append((s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns))
+    return tuple(out)
+
+
 def _load(kind: type, raw: Any) -> Any:
     if not isinstance(raw, dict):
         return None
@@ -485,6 +501,14 @@ class Book:
     subscriptions: list[Subscription] = field(default_factory=list)
     mark: dict[str, Any] = field(default_factory=dict)
     loaded: bool = False
+    # What the last save wrote, whether its .bak holds the same (the save before it wrote
+    # that too), and the file and .bak as it left them: a look writes only when one of them
+    # is otherwise (save_changed). Saves go one at a time: each writes the book as it is
+    # when its turn comes, so an older one never lands over a newer one.
+    _written: str | None = field(default=None, repr=False, compare=False)
+    _settled: bool = field(default=False, repr=False, compare=False)
+    _left: tuple[Any, ...] | None = field(default=None, repr=False, compare=False)
+    _saving: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def load(self) -> None:
         if self.loaded:
@@ -503,15 +527,37 @@ class Book:
         mark = data.get("mark")
         self.mark = mark if isinstance(mark, dict) else {}
 
+    def _data(self) -> dict[str, Any]:
+        return {
+            "orders": [asdict(o) for o in self.orders],
+            "subscriptions": [asdict(s) for s in self.subscriptions],
+            "mark": self.mark,
+        }
+
     def save(self) -> None:
-        jsonstore.save_json(
-            self.path,
-            {
-                "orders": [asdict(o) for o in self.orders],
-                "subscriptions": [asdict(s) for s in self.subscriptions],
-                "mark": self.mark,
-            },
-        )
+        self._save(always=True)
+
+    def save_changed(self) -> bool:
+        """save(), unless the file is just as it would be written and its .bak holds the
+        same: Mail is looked at every ten minutes, mostly with nothing new, and each save
+        goes all the way to the disk. Every look used to write, so the look after a change
+        still writes once more (the .bak a damaged file comes back from then has the change
+        too), as does one after the file or its .bak was changed or removed by anything
+        else. Whether it wrote."""
+        return self._save(always=False)
+
+    def _save(self, always: bool) -> bool:
+        with self._saving:
+            data = self._data()
+            text = json.dumps(data, ensure_ascii=False)
+            untouched = self._left is not None and _as_left(self.path) == self._left
+            same = untouched and text == self._written  # the file holds it already
+            if same and self._settled and not always:
+                return False
+            self._written = None  # (until it's written: a save that fails is tried again)
+            jsonstore.save_json(self.path, data)
+            self._written, self._settled, self._left = text, same, _as_left(self.path)
+            return True
 
     def apply(self, found: Found, received: datetime) -> tuple[Any, str]:
         """Put what an email says on the list: (the order or subscription, what changed:

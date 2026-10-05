@@ -31,7 +31,9 @@ import hashlib
 import ipaddress
 import json
 import logging
+import os
 import re
+import threading
 import time
 import uuid
 from html.parser import HTMLParser
@@ -401,6 +403,20 @@ def _load_shape(value: Any) -> bool:
     return isinstance(value, list)
 
 
+def _as_left(path: Any) -> tuple[Any, ...]:
+    """The file and its .bak as they are now (None for one that isn't there): a write since,
+    or an edit or removal by anything else, moves one of them."""
+    out: list[Any] = []
+    for each in (path, path.with_name(path.name + ".bak")):
+        try:
+            s = os.stat(each)
+        except OSError:
+            out.append(None)
+        else:
+            out.append((s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns))
+    return tuple(out)
+
+
 class Watchers:
     def __init__(self, hub: Any, bridge: Any, sites: Sites, page: Any) -> None:
         self.hub = hub
@@ -410,6 +426,16 @@ class Watchers:
         self.transport: httpx.AsyncBaseTransport | None = None  # tests hand one in
         self._watches: list[dict[str, Any]] | None = None
         self.unreadable = ""  # the file is there but can't be read: nothing is saved over it
+        # What the last save wrote, whether its .bak holds the same (the save before it wrote
+        # that too), and the file and .bak as it left them (under _writing): a round of
+        # checks writes, and sends the window the list, only when one of them is otherwise.
+        # Saves go one at a time, each with the list as it is when its turn comes; _writing
+        # also holds back the next while the thread of one cancelled half way runs on.
+        self._written: str | None = None
+        self._settled = False
+        self._left: tuple[Any, ...] | None = None
+        self._saving = asyncio.Lock()
+        self._writing = threading.Lock()
 
     # ── the list ──
 
@@ -472,15 +498,35 @@ class Watchers:
             "result": str(raw.get("result") or "")[:200],
         }
 
-    async def save(self) -> None:
-        if self.unreadable:
-            log.warning("page watcher: not saved over a file that can't be read")
-            return
-        data = list(self.watches())
-        try:
-            await asyncio.to_thread(jsonstore.save_json, self.path, data, indent=None)
-        except OSError:
-            log.warning("page watcher: the watches couldn't be saved")
+    async def save(self, always: bool = True) -> bool:
+        """The list to the disk. make, stop and the window's Remove always write; a round of
+        checks (always False) only when the file or its .bak doesn't hold the list as it is
+        now, or either was changed or removed since by anything else. Whether it was saved
+        or tried (then the window is sent the list too); False when it was as saved."""
+        async with self._saving:
+            if self.unreadable:
+                log.warning("page watcher: not saved over a file that can't be read")
+                return True
+            data = list(self.watches())
+            try:
+                return await asyncio.to_thread(self._store, data, always)
+            except OSError:
+                log.warning("page watcher: the watches couldn't be saved")
+                return True
+
+    def _store(self, data: list[dict[str, Any]], always: bool) -> bool:
+        """save() in its thread. Every round used to write, so the round after a change still
+        writes once more: the .bak a damaged file comes back from then has the change too."""
+        with self._writing:
+            text = json.dumps(data, ensure_ascii=False)
+            untouched = self._left is not None and _as_left(self.path) == self._left
+            same = untouched and text == self._written  # the file holds it already
+            if same and self._settled and not always:
+                return False
+            self._written = None  # (until it's written: a save that fails is tried again)
+            jsonstore.save_json(self.path, data, indent=None)
+            self._written, self._settled, self._left = text, same, _as_left(self.path)
+            return True
 
     def payload(self) -> dict[str, Any]:
         items = []
@@ -533,7 +579,7 @@ class Watchers:
                     kind = response.headers.get("content-type", "")
                     if kind and "html" not in kind:
                         return None
-                    body = b""
+                    body = bytearray()  # (grown in place: bytes would be copied whole per piece)
                     async for chunk in response.aiter_bytes():
                         body += chunk
                         if len(body) > MAX_BYTES:
@@ -762,12 +808,17 @@ class Watchers:
         now = time.time()
         watches = self.watches()
         kept = [w for w in watches if not (w["done"] and now - w["last"] > DONE_KEPT)]
-        if len(kept) != len(watches):
+        dropped = len(kept) != len(watches)
+        if dropped:
             self._watches = kept
-        for watch in self.due(now):
+        due = self.due(now)
+        for watch in due:
             await self.check(watch)
-        await self.save()
-        self.emit()
+        # A round that leaves the list as the file and its .bak hold it (it looked at nothing
+        # and dropped nothing, and the round after a change wrote that change once more)
+        # writes nothing and sends nothing: not every five minutes for nothing.
+        if await self.save(always=bool(due or dropped)):
+            self.emit()
 
     async def check(self, watch: dict[str, Any]) -> None:
         seen = await self.look(watch)

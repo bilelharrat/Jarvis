@@ -251,7 +251,7 @@ async def test_on_the_hub_s_loop_the_file_is_written_in_a_thread_newest_last(tmp
     assert book._dirty  # the second answer isn't on disk yet
     book.flush()  # as the hub closes: the newest, at once
     assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 2
-    book._write({"days": {}, "limits": {}}, 1)  # a late, older write changes nothing
+    book._write({"days": {}, "limits": {}}, 1, 1)  # a late, older write changes nothing
     assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 2
 
 
@@ -303,3 +303,162 @@ async def test_a_damaged_file_nested_too_deep_to_copy_is_still_saved_and_counted
     assert saved["limits"]["seven_day"]["status"] == "allowed"
     assert "junk" in saved["limits"] and not book._dirty
     assert book.summary()["today"]["requests"] == 1
+
+
+def _counted(monkeypatch):
+    """Every write of usage.json, as it was written."""
+    import json
+
+    from jarvis import claude_usage
+
+    writes = []
+    real = claude_usage.jsonstore.save_json
+
+    def save(target, data, **kw):
+        writes.append(json.loads(json.dumps(data)))
+        real(target, data, **kw)
+
+    monkeypatch.setattr(claude_usage.jsonstore, "save_json", save)
+    return writes
+
+
+async def test_a_plan_found_as_it_was_waits_for_the_next_save_or_the_flush(tmp_path, monkeypatch):
+    """The plan's windows are asked for every few minutes while a window is open. Found as
+    they were, only when they were seen moves: once the file and its .bak hold everything
+    else, that's no write of its own, but the next save takes it along, and so does the
+    flush as the hub closes (a write under way when it came leaves the book dirty)."""
+    import json
+
+    now = [NOON]
+    path = tmp_path / "usage.json"
+    book = UsageBook(path, clock=lambda: now[0])
+    writes = _counted(monkeypatch)
+    window = {"five_hour": {"utilization": 0.25, "resets_at": NOON + 3600}}
+    book.plan(window)
+    await book._task
+    assert json.loads(path.read_text())["limits"]["five_hour"]["seen"] == NOON
+    now[0] += 180
+    book.plan(window)  # as it was, but the .bak hasn't got it yet: written once more
+    await book._task
+    assert len(writes) == 2 and not book._dirty
+    bak = json.loads(path.with_name("usage.json.bak").read_text())
+    assert bak["limits"]["five_hour"]["utilization"] == 0.25
+    now[0] += 180
+    book.plan(window)  # as it was, and so are the file and its .bak: no write
+    await book._task
+    assert len(writes) == 2
+    assert book.limits["five_hour"]["seen"] == NOON + 360 and book._dirty
+    assert book.summary()["limits"][0]["utilization"] == 0.25
+    book.flush()  # as the hub closes
+    assert json.loads(path.read_text())["limits"]["five_hour"]["seen"] == NOON + 360
+    now[0] += 180
+    moved = {"five_hour": {"utilization": 0.3, "resets_at": NOON + 3600}}
+    book.plan(moved)  # it moved
+    await book._task
+    saved = json.loads(path.read_text())["limits"]["five_hour"]
+    assert saved["utilization"] == 0.3 and saved["seen"] == NOON + 540
+    now[0] += 180
+    book.plan(moved)
+    await book._task
+    now[0] += 180
+    book.plan(moved)
+    await book._task
+    assert len(writes) == 5  # the move, and the look after it; not the one after that
+    # A look that finds it as it was while a write is under way: still kept for later.
+    now[0] += 180
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")
+    book.plan(moved)
+    await book._task
+    assert book._dirty
+    book.flush()
+    assert json.loads(path.read_text())["limits"]["five_hour"]["seen"] == NOON + 1080
+    # Anything else in the entry (a limit Claude Code reported) makes it a change.
+    now[0] += 180
+    book.limit(RateLimitInfo(status="allowed", utilization=0.3, rate_limit_type="five_hour"))
+    await book._task
+    now[0] += 180
+    book.plan(moved)
+    await book._task
+    assert json.loads(path.read_text())["limits"]["five_hour"]["seen"] == NOON + 1440
+
+
+async def test_an_answer_counted_just_after_a_write_is_saved_by_the_next_plan_look(
+    tmp_path, monkeypatch
+):
+    """An answer that ends within SAVE_EVERY of a write (the limit Claude Code reported on
+    the same turn, say) isn't written for itself: the plan look after it writes it, found
+    as it was or not, so a crash after that never loses it."""
+    import json
+
+    now = [NOON]
+    path = tmp_path / "usage.json"
+    book = UsageBook(path, clock=lambda: now[0])
+    window = {"five_hour": {"utilization": 0.25, "resets_at": NOON + 3600}}
+    for _ in range(3):  # (the file and its .bak as they'd be after a while)
+        book.plan(window)
+        await book._task
+        now[0] += 180
+    writes = _counted(monkeypatch)
+    book.limit(RateLimitInfo(status="allowed", utilization=0.25, rate_limit_type="five_hour"))
+    await book._task
+    now[0] += 2
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")
+    assert len(writes) == 1 and book._dirty  # within SAVE_EVERY of the limit's write
+    now[0] += 45  # PLAN_AFTER_ANSWER
+    book.plan(window)
+    await book._task
+    assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 1
+    assert len(writes) == 2 and not book._dirty
+    # The same with no limit before it: an answer just after a plan look's own write.
+    now[0] += 180
+    book.plan(window)
+    await book._task
+    now[0] += 2
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")
+    now[0] += 45
+    book.plan(window)
+    await book._task
+    assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 2
+    assert not book._dirty
+
+
+async def test_a_damaged_or_removed_file_comes_back_with_the_newest_numbers(tmp_path, monkeypatch):
+    """Every look used to write, so the .bak a damaged file comes back from had the latest
+    answer a look later, and a file removed while the app runs came back. A look found as
+    it was still writes until both are so."""
+    import json
+
+    now = [NOON]
+    path = tmp_path / "usage.json"
+    book = UsageBook(path, clock=lambda: now[0])
+    window = {"five_hour": {"utilization": 0.25, "resets_at": NOON + 3600}}
+    book.plan(window)
+    await book._task
+    now[0] += 60
+    book.record("jarvis", 0.10, usage(), "claude-opus-5-5")
+    await book._task
+    writes = _counted(monkeypatch)
+    now[0] += 180
+    book.plan(window)  # the look after the answer: its .bak gets the answer too
+    await book._task
+    now[0] += 180
+    book.plan(window)
+    await book._task
+    assert len(writes) == 1
+    path.unlink()  # removed while the app runs
+    for n in (2, 3, 3):  # written again, then once more for its .bak, then left as it is
+        now[0] += 180
+        book.plan(window)
+        await book._task
+        assert len(writes) == n
+    assert json.loads(path.read_text())["days"]["2026-09-29"]["requests"] == 1
+    path.with_name("usage.json.bak").unlink()  # its .bak too
+    for n in (4, 5, 5):
+        now[0] += 180
+        book.plan(window)
+        await book._task
+        assert len(writes) == n
+    assert path.with_name("usage.json.bak").exists()
+    path.write_text("{ torn")
+    again = UsageBook(path, clock=lambda: now[0])  # damaged: read from its .bak
+    assert again.summary()["today"]["requests"] == 1
