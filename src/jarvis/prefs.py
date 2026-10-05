@@ -372,6 +372,28 @@ def _like(default: Any) -> Any:
     return clean
 
 
+PREFS_DEPTH = 16  # lists and dicts in a setting nested deeper than this: no setting is
+
+
+def nested_past(value: Any, limit: int = PREFS_DEPTH) -> bool:
+    """Whether lists and dicts in value nest more than limit deep. The prefs file is
+    written through dataclasses.asdict, which recurses: a value a few hundred deep (a
+    window's frame can carry one) failed every save after it, and every window's hello."""
+    stack = [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, dict):
+            inner = item.values()
+        elif isinstance(item, (list, tuple)):
+            inner = item
+        else:
+            continue
+        if depth >= limit:
+            return True
+        stack.extend((v, depth + 1) for v in inner)
+    return False
+
+
 def clean_feature_values(value: Any) -> dict[str, Any] | None:
     """prefs.features as given, each registered key cleaned by its feature: a value that
     fails its check is left out (Hub.set_feature_prefs then keeps the old one). A key no
@@ -392,6 +414,8 @@ def clean_feature_values(value: Any) -> dict[str, Any] | None:
                 item = None
             if item is None:
                 continue
+        if nested_past(item, PREFS_DEPTH - 1):  # asdict, which saves prefs, recurses
+            continue
         try:
             if len(json.dumps(item, allow_nan=False)) > FEATURE_VALUE_LIMIT:
                 continue

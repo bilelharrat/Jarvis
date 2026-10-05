@@ -101,7 +101,15 @@ from .desktop_hands import DesktopHands
 from .home import Shortcuts
 from .knowledge import Collector, KnowledgeBase
 from .memory import MemoryStore
-from .prefs import MODEL_NAMES, MODELS, PERSONAS, PrefsStore, clean_feature_values
+from .prefs import (
+    MODEL_NAMES,
+    MODELS,
+    PERSONAS,
+    PREFS_DEPTH,
+    PrefsStore,
+    clean_feature_values,
+)
+from .prefs import nested_past as _nested_past
 from .proactive import Alert, Watcher, in_quiet_hours
 from .providers import GEMINI_STARTERS, MAX_MODELS, ProviderStore
 from .providers import KINDS as PROVIDER_KINDS
@@ -347,6 +355,32 @@ def _hold_cut(text: str, limit: int) -> int:
         if ends and ends[-1] >= limit // 3:
             return ends[-1]
     return limit
+
+
+def _msg_int(msg: dict[str, Any], key: str) -> int:
+    """A window command's number (a session's id, a queued item, a terminal's size): 0 when
+    it isn't one (null, words, a list, infinity), which names no session, so the command
+    does nothing instead of failing with a traceback in the log."""
+    try:
+        return int(msg.get(key, 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _settable(changes: Any) -> Any:
+    """Settings changes without the values nested past PREFS_DEPTH; each feature setting
+    (prefs.features) is weighed on its own, so the others in the same change still apply."""
+    if not isinstance(changes, dict):
+        return changes
+    kept = {}
+    for name, value in changes.items():
+        if name == "features" and isinstance(value, dict):
+            value = {k: v for k, v in value.items() if not _nested_past(v, PREFS_DEPTH - 1)}
+        elif _nested_past(value):
+            log.warning("prefs: ignored %s, nested past reason", str(name)[:40])
+            continue
+        kept[name] = value
+    return kept
 
 
 def _text_size(event: dict[str, Any]) -> int:
@@ -2339,7 +2373,8 @@ class Hub:
             elif kind == "goal_delete":
                 store.remove_goal(str(msg.get("id", "")))
             elif kind == "goal_priorities":
-                store.set_priorities([str(i) for i in (msg.get("ids") or [])][:50])
+                ids = msg.get("ids")
+                store.set_priorities([str(i) for i in (ids if isinstance(ids, list) else [])][:50])
             elif kind == "constraint_add":
                 store.add_constraint(str(msg.get("text", "")), str(msg.get("kind", "")) or None)
             elif kind == "constraint_delete":
@@ -5235,7 +5270,7 @@ class Hub:
         """Apply settings now, then keep them. What they switch takes effect even when the
         file can't be written (a full disk): turning the microphone, the screen watching or
         the phone companion off must never depend on saving."""
-        changed = self.prefs.update(changes)
+        changed = self.prefs.update(_settable(changes))
         if not changed:
             return changed
         # Switching things off first: nothing below can keep them on.
@@ -6322,13 +6357,16 @@ class Hub:
     def _attachments(msg: dict[str, Any]) -> list[dict[str, str]] | None:
         """The composer's attachments: pictures and PDFs as base64, text files as their
         text, each with its name."""
+        images = msg.get("images")
+        if not isinstance(images, list):  # none, or not a list of them (a number, a dict)
+            return None
         items = [
             {
                 "media_type": str(i.get("media_type", ""))[:100],
                 "data": str(i.get("data", "")),
                 "name": str(i.get("name", ""))[:200],
             }
-            for i in (msg.get("images") or [])[:6]
+            for i in images[:6]
             if isinstance(i, dict) and 0 < len(str(i.get("data", ""))) <= 8_000_000
         ]
         return items or None
@@ -6539,7 +6577,7 @@ class Hub:
         elif kind == "reset":
             self._spawn(self.reset())
         elif kind == "task_cancel":
-            self.tasks.cancel(int(msg.get("id", 0)))
+            self.tasks.cancel(_msg_int(msg, "id"))
         elif kind == "task_new":
             known = set(self.tasks.tasks)
             try:
@@ -6581,19 +6619,19 @@ class Hub:
                 if task.id in known:  # that session is already open: show it, never a copy
                     self.emit("show_session", id=task.id)
         elif kind == "task_add_dir":
-            problem = self.tasks.add_dir(int(msg.get("id", 0)), str(msg.get("directory", "")))
+            problem = self.tasks.add_dir(_msg_int(msg, "id"), str(msg.get("directory", "")))
             if problem:
                 self.emit("error", text=problem)
         elif kind == "task_add_plugin":
-            problem = self.tasks.add_plugin(int(msg.get("id", 0)), str(msg.get("directory", "")))
+            problem = self.tasks.add_plugin(_msg_int(msg, "id"), str(msg.get("directory", "")))
             if problem:
                 self.emit("error", text=problem)
         elif kind == "task_mcp_toggle":
             self.tasks.set_mcp(
-                int(msg.get("id", 0)), str(msg.get("name", "")), bool(msg.get("enabled"))
+                _msg_int(msg, "id"), str(msg.get("name", "")), bool(msg.get("enabled"))
             )
         elif kind == "task_ultracode":
-            self.tasks.set_ultracode(int(msg.get("id", 0)), bool(msg.get("on")))
+            self.tasks.set_ultracode(_msg_int(msg, "id"), bool(msg.get("on")))
         elif kind == "code_defaults":
             # The composer's choices with no session open: they're for the next one.
             changes = {
@@ -6605,20 +6643,20 @@ class Hub:
                 changes.pop("code_model")  # not a model on the list (any more)
             self.set_prefs(changes)
         elif kind == "task_unqueue":
-            self.tasks.unqueue(int(msg.get("id", 0)), int(msg.get("item", 0)))
+            self.tasks.unqueue(_msg_int(msg, "id"), _msg_int(msg, "item"))
         elif kind == "task_send":
             self.tasks.send(
-                int(msg.get("id", 0)),
+                _msg_int(msg, "id"),
                 str(msg.get("text", ""))[:20000],
                 self._attachments(msg),
                 plain=msg.get("plain") is True,  # the window's own wording (/init, /review)
                 steer=msg["steer"] if isinstance(msg.get("steer"), bool) else None,
             )
         elif kind == "task_audit":  # the session's permission decisions, for Activity
-            task_id = int(msg.get("id", 0))
+            task_id = _msg_int(msg, "id")
             self.emit("task_audit", id=task_id, items=self.tasks.audit_of(task_id))
         elif kind == "task_steer":  # a waiting message, into the running step now
-            self.tasks.steer_queued(int(msg.get("id", 0)), int(msg.get("item", 0)))
+            self.tasks.steer_queued(_msg_int(msg, "id"), _msg_int(msg, "item"))
         elif kind == "slash_list":
             # The project's and the user's custom commands and skills, for the / palette.
             from .code_commands import catalog
@@ -6630,24 +6668,24 @@ class Hub:
             items = await asyncio.to_thread(catalog, project)
             self.emit("slash_list", directory=str(msg.get("directory", "")), items=items)
         elif kind == "task_model":
-            await self._task_model(int(msg.get("id", 0)), str(msg.get("ref", "")))
+            await self._task_model(_msg_int(msg, "id"), str(msg.get("ref", "")))
         elif kind.startswith("providers_"):
             await self._providers_command(kind, msg)
         elif kind == "task_rename":
-            self.tasks.rename(int(msg.get("id", 0)), str(msg.get("title", "")))
+            self.tasks.rename(_msg_int(msg, "id"), str(msg.get("title", "")))
         elif kind == "task_fork":
-            fork = self.tasks.fork(int(msg.get("id", 0)), str(msg.get("uuid", "")))
+            fork = self.tasks.fork(_msg_int(msg, "id"), str(msg.get("uuid", "")))
             if fork is not None:
                 self.emit("show_session", id=fork.id)
         elif kind == "task_rewind":
-            task_id = int(msg.get("id", 0))
+            task_id = _msg_int(msg, "id")
             reply = await self.tasks.rewind_to(task_id, str(msg.get("uuid", "")))
             self.emit("caption", text=reply)
         elif kind == "task_effort":
-            self.tasks.set_effort(int(msg.get("id", 0)), str(msg.get("effort", "")))
+            self.tasks.set_effort(_msg_int(msg, "id"), str(msg.get("effort", "")))
         elif kind == "task_export":
             try:
-                path = self.tasks.export(int(msg.get("id", 0)))
+                path = self.tasks.export(_msg_int(msg, "id"))
             except OSError as exc:  # a full disk, Documents not writable: say so
                 self.emit("caption", text=f"Couldn't save the transcript: {exc.strerror or exc}")
                 return
@@ -6655,25 +6693,25 @@ class Hub:
                 self.emit("caption", text=f"Saved the transcript to {path.name}.")
                 self._spawn(self._quiet(mac_tools.run_command("open", "-R", str(path))))
         elif kind == "task_mcp":
-            task_id = int(msg.get("id", 0))
+            task_id = _msg_int(msg, "id")
             task = self.tasks.tasks.get(task_id)
             live = task is not None and task.client is not None  # its servers run with it
             servers = await self.tasks.mcp_status(task_id)
             self.emit("task_mcp", id=task_id, servers=servers, connected=live)
         elif kind == "task_bg_stop":
-            await self.tasks.stop_background(int(msg.get("id", 0)), str(msg.get("bg", "")))
+            await self.tasks.stop_background(_msg_int(msg, "id"), str(msg.get("bg", "")))
         elif kind == "task_rules":
-            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            task = self.tasks.tasks.get(_msg_int(msg, "id"))
             if task is not None:
                 if msg.get("remove"):
                     self.tasks.rules.remove(task.cwd, str(msg["remove"]))
                 self.emit("task_rules", id=task.id, rules=self.tasks.rules.for_project(task.cwd))
         elif kind == "task_diff":
-            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            task = self.tasks.tasks.get(_msg_int(msg, "id"))
             if task is not None:
                 self.emit("task_diff", id=task.id, files=await self._diff_files(task))
         elif kind == "task_revert":  # the Changes pane's Revert: one file back to HEAD
-            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            task = self.tasks.tasks.get(_msg_int(msg, "id"))
             if task is not None and task.kind == "code":
                 self.emit("caption", text=await self._revert_file(task, str(msg.get("path", ""))))
                 self.emit("task_diff", id=task.id, files=await self._diff_files(task))
@@ -6689,11 +6727,11 @@ class Hub:
                 "project_files", directory=str(msg.get("directory", "")), files=vocab.files[:6000]
             )
         elif kind == "task_interrupt":
-            await self.tasks.interrupt(int(msg.get("id", 0)))
+            await self.tasks.interrupt(_msg_int(msg, "id"))
         elif kind == "task_mode":
-            self.tasks.set_mode(int(msg.get("id", 0)), str(msg.get("mode", "")))
+            self.tasks.set_mode(_msg_int(msg, "id"), str(msg.get("mode", "")))
         elif kind == "task_transcript":
-            task_id = int(msg.get("id", 0))
+            task_id = _msg_int(msg, "id")
             self.emit("task_transcript", id=task_id, entries=self.tasks.transcript(task_id))
         elif kind == "claude_projects":
             self.emit("claude_projects", items=await self._projects_overview())
@@ -6809,7 +6847,7 @@ class Hub:
         elif kind == "meeting_stop":
             self._spawn(self._stop_meeting_from_window())
         elif kind == "term_open":
-            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            task = self.tasks.tasks.get(_msg_int(msg, "id"))
             try:
                 cwd = task.cwd if task else self.tasks.resolve_dir(str(msg.get("directory", "")))
             except ValueError:
@@ -6829,7 +6867,7 @@ class Hub:
         elif kind == "term_resize":
             term = self.workbench.terminal(str(msg.get("term", "")))
             if term is not None:
-                term.resize(int(msg.get("cols", 0)), int(msg.get("rows", 0)))
+                term.resize(min(_msg_int(msg, "cols"), 9999), min(_msg_int(msg, "rows"), 9999))
         elif kind == "awake":
             # The More menu's switch: keep the Mac awake while Jarvis Code works.
             self.set_prefs({"code_keep_awake": bool(msg.get("on"))})
@@ -6849,16 +6887,16 @@ class Hub:
             self.emit("file_content", directory=str(msg.get("directory", "")), **result)
         elif kind == "code_command":
             # A slash command typed in the Claude Code panel: /plan, /undo, /diff…
-            task = self.tasks.tasks.get(int(msg.get("id", 0)))
+            task = self.tasks.tasks.get(_msg_int(msg, "id"))
             text = str(msg.get("text", "")).strip()
             if task is not None and text:
                 await self._code_command(task, text)
         elif kind == "task_context":
-            usage = await self.tasks.context_usage(int(msg.get("id", 0)))
+            usage = await self.tasks.context_usage(_msg_int(msg, "id"))
             if usage:
-                self.emit("task_context", id=int(msg.get("id", 0)), **usage)
+                self.emit("task_context", id=_msg_int(msg, "id"), **usage)
         elif kind == "task_undo":
-            self.emit("caption", text=await self.tasks.undo(int(msg.get("id", 0))))
+            self.emit("caption", text=await self.tasks.undo(_msg_int(msg, "id")))
         elif kind == "voicecode_start":
             reply = await self.voice_code(str(msg.get("directory", "")))
             self.emit("caption", text=reply)
@@ -6866,7 +6904,7 @@ class Hub:
                 self.emit("show_session", id=self.voicecode.focus)
                 self.say(reply)
         elif kind == "voicecode_enter":
-            self.emit("caption", text=await self.voice_code(task_id=int(msg.get("id", 0))))
+            self.emit("caption", text=await self.voice_code(task_id=_msg_int(msg, "id")))
         elif kind == "voicecode_exit":
             self.voicecode.exit()
         elif kind == "remote_pair":
