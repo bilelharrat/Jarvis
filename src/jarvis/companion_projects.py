@@ -20,8 +20,10 @@ from __future__ import annotations
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Route
+
+from .remote import JSONResponse  # (an answer with half an emoji in it is still sent)
 
 FILE_CAP = 36 * 1024 * 1024  # a 25 MB PDF as base64, in JSON
 

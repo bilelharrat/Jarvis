@@ -143,11 +143,14 @@ class Bridge:
         ident = message.get("id")
         params = message.get("params") if isinstance(message.get("params"), dict) else {}
         if "id" not in message:  # a notification: nothing goes back
-            if method == "notifications/cancelled":
-                task = self.tasks.get(params.get("requestId"))
+            asked = params.get("requestId")
+            if method == "notifications/cancelled" and _plain_id(asked):
+                task = self.tasks.get(asked)
                 if task is not None:
                     task.cancel()
             return None
+        if not _plain_id(ident):  # JSON-RPC's ids are strings or numbers (or null)
+            return _error(None, -32600, "Invalid request: an id is a string or a number")
         if method == "initialize":
             info = params.get("clientInfo") if isinstance(params.get("clientInfo"), dict) else {}
             # Printable ASCII only: it travels in a header to the app.
@@ -180,19 +183,41 @@ class Bridge:
         except asyncio.CancelledError:
             return  # cancelled by the client: no response, as the protocol says
         except Exception as exc:  # never a dead bridge: the client hears what went wrong
-            response = _error(message.get("id"), -32603, f"Internal error: {type(exc).__name__}")
+            ident = message.get("id")
+            response = _error(
+                ident if _plain_id(ident) else None,
+                -32603,
+                f"Internal error: {type(exc).__name__}",
+            )
         finally:
-            self.tasks.pop(message.get("id"), None)
+            if _plain_id(message.get("id")):
+                self.tasks.pop(message.get("id"), None)
         if response is not None:
             await write(response)
 
     async def serve(self, reader: asyncio.StreamReader, write) -> None:
         """Read messages until stdin closes, each answered in its own task (a card waiting
-        on the owner never holds up a ping)."""
+        on the owner never holds up a ping). A line longer than the reader holds at once is
+        answered with a parse error and skipped to its end: the next message is read as it
+        should be, and the bridge never dies of it."""
+        skipping = False  # (the rest of a line too long to read is on its way)
         while True:
-            line = await reader.readline()
-            if not line:
-                break
+            try:
+                line = await reader.readuntil(b"\n")
+            except asyncio.IncompleteReadError as exc:  # stdin closed (a last line, unended)
+                line = b"" if skipping else exc.partial
+                if not line:
+                    break
+            except asyncio.LimitOverrunError as exc:
+                await reader.readexactly(exc.consumed)  # (what it holds of it: let go)
+                if not skipping:
+                    skipping = True
+                    await write(_error(None, -32700, "Parse error: the message is too long"))
+                continue
+            else:
+                if skipping:  # the end of the line too long
+                    skipping = False
+                    continue
             line = line.strip()
             if not line:
                 continue
@@ -209,6 +234,7 @@ class Bridge:
             if (
                 isinstance(message, dict)
                 and "id" in message
+                and _plain_id(message["id"])
                 and message.get("method") == "tools/call"
             ):
                 task = asyncio.create_task(self._answer(message, write))
@@ -219,6 +245,12 @@ class Bridge:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
         if self._http is not None:
             await self._http.aclose()
+
+
+def _plain_id(ident: Any) -> bool:
+    """Whether a message's id is one JSON-RPC allows (a string, a number or null): a list or
+    an object can't be looked up among the calls, and raised out of serve()."""
+    return ident is None or (isinstance(ident, str | int | float) and not isinstance(ident, bool))
 
 
 def _result(ident: Any, result: dict[str, Any]) -> dict[str, Any]:

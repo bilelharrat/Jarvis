@@ -48,7 +48,8 @@ import h11
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import ClientDisconnect, Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, Response
+from starlette.responses import JSONResponse as PlainJSONResponse
 from starlette.routing import Route
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
@@ -94,6 +95,23 @@ RATES = {
     "report": (60, 20),  # push and Live Activity tokens, location, health
     "upload": (10, 3),  # shared files and photos
 }
+
+
+class JSONResponse(PlainJSONResponse):
+    """The companion's JSON answers (every companion module's), whatever a kept value holds.
+    Half of a surrogate pair (a title cut in the middle of an emoji by the window, a client's
+    malformed escape, kept escaped in a store) can't be written as UTF-8: /api/state,
+    /api/code/sessions or /api/projects answered 500 for as long as one was kept. It becomes
+    U+FFFD, as it does in the window's events (server.event_text)."""
+
+    def render(self, content: Any) -> bytes:
+        try:
+            return super().render(content)
+        except UnicodeEncodeError:
+            text = json.dumps(
+                content, ensure_ascii=False, allow_nan=False, indent=None, separators=(",", ":")
+            )
+            return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace").encode()
 
 
 @dataclass

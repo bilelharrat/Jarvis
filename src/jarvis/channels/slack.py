@@ -40,8 +40,12 @@ SECTION = 2900  # characters of a card's detail block: with its fences, inside S
 _APP = re.compile(r"^xapp-[A-Za-z0-9-]{20,300}$")
 _BOT = re.compile(r"^xoxb-[A-Za-z0-9-]{20,300}$")
 _ACTION = re.compile(r"^a:([0-9a-f]{6,32}):([\w-]{1,24})$")
-_LINK = re.compile(r"<((?:https?|mailto):[^|>]+)(?:\|([^>]*))?>")
-_MENTION = re.compile(r"<[@#!]([^|>]+)(?:\|([^>]*))?>")
+# Slack writes a literal < or > in a message as &lt; and &gt;, so neither is ever inside a
+# link or a mention: one stops at the next <. Scanning on to the end from each "<@" instead,
+# a message of "<@" over and over (anyone in the workspace can send one, and it's read
+# before they're checked to be the owner) took seconds of the event loop.
+_LINK = re.compile(r"<((?:https?|mailto):[^|<>]+)(?:\|([^<>]*))?>")
+_MENTION = re.compile(r"<[@#!]([^|<>]+)(?:\|([^<>]*))?>")
 REFUSED = ("invalid_auth", "not_authed", "token_revoked", "account_inactive", "missing_scope")
 
 
@@ -286,7 +290,7 @@ class Slack(Channel):
                 or bool(bot and event.get("parent_user_id") == bot)
             )
             if mark:
-                raw = re.sub(rf"<@{re.escape(str(bot))}(?:\|[^>]*)?>", " ", raw).strip()
+                raw = re.sub(rf"<@{re.escape(str(bot))}(?:\|[^<>]*)?>", " ", raw).strip()
         media = []
         for item in event.get("files") or []:
             if not isinstance(item, dict):

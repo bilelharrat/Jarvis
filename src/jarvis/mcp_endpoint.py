@@ -381,7 +381,7 @@ class Endpoint:
         try:
             offset = max(-31, min(365, int(args.get("start_offset_days") or 0)))
             days = max(1, min(14, int(args.get("days") or 1)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # (JSON's Infinity: int() overflows)
             return "start_offset_days and days are whole numbers.", True
         events = await mac_tools.fetch_events(offset, days)
         text = mac_tools.format_events(events, mac_tools.midnight(offset))

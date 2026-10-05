@@ -19,6 +19,7 @@ permissions); every action is in the companion's audit log.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import time
 import uuid
@@ -27,8 +28,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Route
+
+from .remote import JSONResponse  # (an answer with half an emoji in it is still sent)
 
 log = logging.getLogger("jarvis")
 
@@ -84,6 +87,14 @@ ACTIONS: dict[str, Action] = {
 }
 LISTENED = sorted({kind for a in ACTIONS.values() for kind in a.wait})
 
+# The phone request a command is run for, while hub.handle runs it: the events its work
+# emits (in the request's own task, or in the background tasks it starts, which take a copy
+# of the context) carry it, so each request takes its own answers. A caption has no session
+# id: two actions at once (two phones, an app's retry) each took whichever came first.
+_ASKER: contextvars.ContextVar[asyncio.Queue | None] = contextvars.ContextVar(
+    "phone_code_asker", default=None
+)
+
 
 class CodeDesk:
     """Runs a window command for the phone and gathers the events that answer it."""
@@ -91,10 +102,15 @@ class CodeDesk:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.waiting: list[tuple[set[str], Callable[[dict[str, Any]], bool], asyncio.Queue]] = []
+        # One new session from the phones at a time: what's new when it's done is its own.
+        self.starting = asyncio.Lock()
         hub.add_event_sink(LISTENED, self._heard)
 
     def _heard(self, event: dict[str, Any]) -> None:
+        asker = _ASKER.get()  # (None: not a phone request's doing, so anyone's to take)
         for kinds, wanted, queue in list(self.waiting):
+            if asker is not None and asker is not queue:
+                continue  # another request's answer
             if event.get("type") in kinds and wanted(event):
                 queue.put_nowait(event)
 
@@ -104,17 +120,23 @@ class CodeDesk:
         wait: tuple[str, ...] = (),
         seconds: float = 8.0,
         wanted: Callable[[dict[str, Any]], bool] | None = None,
+        done: Callable[[], bool] | None = None,
     ) -> list[dict[str, Any]]:
         """hub.handle(command), then the answering events: the first of each kind, until
-        every kind came, or a caption or error (which says it's done), or time ran out."""
+        every kind came, or a caption or error (which says it's done), or time ran out.
+        done(): the command has done what it was for once it's handled (nothing to wait for)."""
         queue: asyncio.Queue = asyncio.Queue()
         entry = (set(wait), wanted or (lambda _e: True), queue)
         if wait:
             self.waiting.append(entry)
         try:
-            await self.hub.handle(command)
+            asking = _ASKER.set(queue)
+            try:
+                await self.hub.handle(command)
+            finally:
+                _ASKER.reset(asking)
             heard: list[dict[str, Any]] = []
-            if not wait:
+            if not wait or (done is not None and done()):
                 return heard
             deadline = time.monotonic() + seconds
             kinds = set(wait)
@@ -206,7 +228,6 @@ def routes(api: Any) -> list[Route]:
         directory = str(data.get("directory") or "").strip()[:1000]
         if not prompt or not directory:
             return _bad("a project and what to do")
-        known = set(hub.tasks.tasks)
         command: dict[str, Any] = {"type": "task_new", "prompt": prompt, "directory": directory}
         for key in ("model", "mode", "effort", "title"):
             if isinstance(data.get(key), str) and data[key]:
@@ -216,13 +237,21 @@ def routes(api: Any) -> list[Route]:
         pictures = _pictures(data)
         if pictures:
             command["images"] = pictures
-        said = await desk.run(command, ("error",), 3)
-        new = sorted(set(hub.tasks.tasks) - known)
+        # One at a time, so the session that's new is this one's: two started together each
+        # answered the newest, and the phone opened the wrong session for the first. One
+        # that starts as it's handled answers at once; else its error, if any, comes within
+        # three seconds (a mention read first, a cloud machine's).
+        async with desk.starting:
+            known = set(hub.tasks.tasks)
+            said = await desk.run(
+                command, ("error",), 3, done=lambda: bool(set(hub.tasks.tasks) - known)
+            )
+            new = sorted(set(hub.tasks.tasks) - known)
         if not new:
             problem = next((e.get("text") for e in said if e.get("type") == "error"), "")
             return _bad(str(problem or "the session didn't start"))
-        api.companion.record(device, "code_started", f"#{new[-1]}")
-        return JSONResponse({"ok": True, "id": new[-1]})
+        api.companion.record(device, "code_started", f"#{new[0]}")
+        return JSONResponse({"ok": True, "id": new[0]})
 
     async def code_action(request: Request) -> Response:
         device, data, refused = await api._post(request, "act")

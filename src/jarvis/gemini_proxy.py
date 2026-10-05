@@ -389,6 +389,12 @@ class Stream:
     def stop_reason(self) -> str:
         return "tool_use" if self.used_tools else FINISH.get(self.finish, "end_turn")
 
+    @classmethod
+    def failed(cls, message: str, kind: str = "api_error") -> str:
+        """Anthropic's error event: a stream that didn't finish ends in it, and Claude Code
+        reports it (as the OpenAI relay's do), never taking the words so far for the answer."""
+        return cls.event("error", {"error": {"type": kind, "message": message}})
+
     def end(self) -> str:
         return (
             self._close_text()
@@ -512,29 +518,53 @@ class GeminiRelay:
         converter = Stream(model, self.signatures)
         if not stream:
             try:
-                data = json.loads(await response.aread())
+                raw = await response.aread()
+            except httpx.HTTPError as exc:
+                return (*anthropic_error(529, f"Gemini's answer broke off ({exc})."), None)
             finally:
                 await response.aclose()
-            converter.chunk(data)
+            try:
+                data = json.loads(raw)
+            except (ValueError, RecursionError):  # a Wi-Fi sign-in page, a proxy's: not Gemini
+                return (*anthropic_error(400, "Gemini didn't answer in JSON."), None)
+            converter.chunk(data if isinstance(data, dict) else {})
             return 200, converter.message(), None
 
         async def events() -> AsyncIterator[str]:
             yield converter.start()
+            heard, failed = False, ""
             try:
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
+                    heard = True
                     try:
                         data = json.loads(line[5:].strip())
-                    except ValueError:
+                    except (ValueError, RecursionError):
                         continue
+                    if not isinstance(data, dict):
+                        continue
+                    error = data.get("error")
+                    if isinstance(error, dict | str):  # Google stopped part-way (overloaded)
+                        said = error.get("message") if isinstance(error, dict) else error
+                        said = str(said or "")[:300]
+                        log.warning("gemini: the stream carried an error")
+                        failed = "Gemini stopped with an error" + (f": {said}" if said else ".")
+                        break
                     piece = converter.chunk(data)
                     if piece:
                         yield piece
             except httpx.HTTPError as exc:
+                # A reset or the read timeout: the words so far aren't the whole answer.
                 log.warning("gemini stream broke: %s", exc)
+                failed = "Gemini's answer broke off part-way; try again."
             finally:
                 await response.aclose()
+            if not failed and not heard:
+                failed = "Gemini answered, but no streamed reply came."
+            if failed:
+                yield Stream.failed(failed)
+                return
             yield converter.end()
 
         return 200, None, events()

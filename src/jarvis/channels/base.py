@@ -278,14 +278,18 @@ class PairingCode:
         return "wrong"
 
 
-_PAIR = re.compile(r"^\s*[/!]?(?:pair|配对)(?:@\w+)?[\s:：]*([\d\s-]{0,20})\s*$", re.IGNORECASE)
+# Matched against the message trimmed, with the spaces before the code taken whole (*+ never
+# gives any back): anyone can write to the bot, and "pair" with thousands of line breaks
+# after it made the pattern try every way of sharing them out, half a second of the event
+# loop for one Telegram message, seconds for a Slack one.
+_PAIR = re.compile(r"^[/!]?(?:pair|配对)(?:@\w+)?[\s:：]*+([\d\s-]{0,20})$", re.IGNORECASE)
 
 
 def pair_code(text: str) -> str | None:
     """The code in "/pair 123 456" (or "pair 123456", "配对 123456", in a Chinese keyboard's
     full-width digits too); "" for a pairing message without a proper code; None when it
     isn't one."""
-    m = _PAIR.match(unicodedata.normalize("NFKC", text or ""))  # ６ is 6
+    m = _PAIR.match(unicodedata.normalize("NFKC", text or "").strip())  # ６ is 6
     if m is None:
         return None
     digits = re.sub(r"[^0-9]", "", m.group(1))  # (\d is any script's digits: ٦ is no code)

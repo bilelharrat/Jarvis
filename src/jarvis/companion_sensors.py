@@ -95,13 +95,17 @@ def clean_people(raw: Any) -> list[dict[str, Any]] | str:
 
 
 def _when(value: Any) -> datetime | None:
+    """A time the phone sent, as the Mac's local time with no zone (as the calendar is kept):
+    one with a zone is moved into the Mac's, one without is taken as local already, so a
+    start with a zone and an end without still compare. None for one that isn't a time, or
+    that the Mac's zone would move past the calendar's first or last day."""
     if not isinstance(value, str):
         return None
     try:
         when = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        return when.astimezone().replace(tzinfo=None) if when.tzinfo else when
+    except (ValueError, OverflowError):
         return None
-    return when.astimezone() if when.tzinfo else when
 
 
 def clean_calendar(data: dict[str, Any], now: datetime) -> dict[str, Any] | str:
@@ -119,7 +123,6 @@ def clean_calendar(data: dict[str, Any], now: datetime) -> dict[str, Any] | str:
         begins, ends = _when(item.get("start")), _when(item.get("end"))
         if begins is None or ends is None or ends < begins:
             return "events"
-        begins, ends = begins.replace(tzinfo=None), ends.replace(tzinfo=None)
         if ends < start or begins > end:
             continue  # outside the two weeks: not kept
         event: dict[str, Any] = {

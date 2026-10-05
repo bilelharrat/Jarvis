@@ -20,11 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Route
 
 from . import lang
 from .companion_api import _int
+from .remote import JSONResponse  # (an answer with half an emoji in it is still sent)
 
 log = logging.getLogger("jarvis")
 
@@ -653,6 +654,8 @@ class More:
         if music is None:
             return _missing()
         action = data.get("action")
+        if not isinstance(action, str):  # (a list or an object can't be looked up: a 500)
+            return _bad("action")
         try:
             if action == "playlist":
                 name = data.get("name")

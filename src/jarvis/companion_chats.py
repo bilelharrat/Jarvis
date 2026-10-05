@@ -21,11 +21,12 @@ import logging
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Route
 
 from . import conversation_past as past
 from .conversation_state import title_line, valid_id
+from .remote import JSONResponse  # (an answer with half an emoji in it is still sent)
 
 log = logging.getLogger("jarvis")
 

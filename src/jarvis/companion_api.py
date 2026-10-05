@@ -29,10 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Route
 
 from . import companion_sensors, push
+from .remote import JSONResponse  # (an answer with half an emoji in it is still sent)
 
 log = logging.getLogger("jarvis")
 
@@ -257,7 +258,10 @@ def collect_diff(cwd: Path) -> list[dict[str, Any]]:
         cwd, "diff", "HEAD", "--relative", "--no-color", "--no-ext-diff", "-U3", "--no-renames"
     )
     files = parse_unified(raw or "")
-    for item in (_git(cwd, "ls-files", "--others", "--exclude-standard") or "").splitlines()[:200]:
+    # Only the new files that are shown (DIFF_FILES in all) are read: up to 200 read whole
+    # (256 KB each) to show a few was 75 MB and half a second a look.
+    added = (_git(cwd, "ls-files", "--others", "--exclude-standard") or "").splitlines()
+    for item in added[: max(0, DIFF_FILES - len(files))]:
         path = cwd / item
         lines: list[str] = []
         if not path.is_symlink() and path.is_file() and not is_sensitive(path):

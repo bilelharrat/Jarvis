@@ -25,6 +25,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -163,8 +164,16 @@ def answer(request: bytes, folder: Path) -> tuple[int, dict[str, Any]]:
 
 
 def _read(conn: Any) -> bytes:
+    """The request's head, as much of it as comes within SECONDS all told. The socket's own
+    timeout is for each read: a peer sending a byte every few seconds held a whole Python
+    (one for each connection) for hours, and a few hundred filled the Mac's process table."""
+    deadline = time.monotonic() + SECONDS
     raw = b""
     while b"\r\n\r\n" not in raw and len(raw) < MAX_REQUEST:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        conn.settimeout(left)
         chunk = conn.recv(2048)
         if not chunk:
             break
