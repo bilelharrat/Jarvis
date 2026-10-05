@@ -724,3 +724,45 @@ async def test_a_sign_in_that_stays_gone_is_asked_again_only_once(
     await hub.start()
     await hub.ask("What's the weather?")
     assert len(NeverSignedIn.made) == 2  # one fresh session, then it's said as before
+
+
+async def test_with_no_way_to_sign_in_jarvis_says_where_to_sign_in(
+    settings, quiet_speaker, isolated
+):
+    """No Claude account, API key or Jarvis Plus, and no fallback: in place of Claude Code's
+    ask for a /login nobody can type here, JARVIS says where to sign in (in the user's
+    language), and no heads-up sends them off to add a Gemini key instead."""
+    from jarvis.hub import NOT_SIGNED_IN
+
+    NeverSignedIn.made = []
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.client_factory = NeverSignedIn
+    await hub.start()
+    q = hub.subscribe()
+    answer = await hub.ask("What's the weather?")
+    events = drain(q)
+    assert answer == NOT_SIGNED_IN and "Set up Jarvis again" in answer
+    said = " ".join(str(e.get("text", "")) for e in events)
+    assert "Failed to authenticate" not in said
+    assert not [e for e in events if e["type"] == "notice" and e.get("title") == "Fallback"]
+    hub.prefs.language = "zh"
+    assert "还没有登录 Claude" in await hub.ask("天气怎么样？")
+
+
+async def test_a_session_that_cant_sign_in_says_where_to_sign_in(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from jarvis.hub import NOT_SIGNED_IN
+    from jarvis.tasks import ClaudeTask
+
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    task = ClaudeTask(id=4, prompt="", cwd=tmp_path)
+    assert not hub._code_claude_down(task, "authentication_failed")
+    assert task.transcript[-1]["text"] == NOT_SIGNED_IN  # not "add a Gemini key"
+    task.transcript.clear()
+    hub.prefs.fallback_code = False  # whatever the fallback settings: signing in is the way
+    assert not hub._code_claude_down(task, "authentication_failed")
+    assert task.transcript[-1]["text"] == NOT_SIGNED_IN
+    task.transcript.clear()
+    task.model_ref = "custom:gemini"  # another provider's key: not Claude's sign-in
+    assert not hub._code_claude_down(task, "authentication_failed") and not task.transcript

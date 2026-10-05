@@ -146,6 +146,19 @@ NO_FALLBACK_TALK = (
     "Claude can't answer right now. Add a Gemini key (Settings › Brain › Fallback model) and "
     "I'll switch to Gemini by myself when that happens."
 )
+# Said in Claude Code's place when no sign-in works (no Claude account, API key or Jarvis
+# Plus) and there's no fallback: its own words ask for a /login nobody can type here.
+NOT_SIGNED_IN = (
+    "I'm not signed in to Claude, so I can't answer yet. Sign me in with the Claude step of "
+    "Settings › Health & safety › Set up Jarvis again…, then ask me again."
+)
+# The Chinese spells the name J.A.R.V.I.S.: said aloud, "Jarvis" would wake JARVIS itself.
+lang.add_texts(
+    {
+        NOT_SIGNED_IN: "我还没有登录 Claude，所以暂时无法回答。请在“设置 › 运行状况与安全 › "
+        "重新设置 J.A.R.V.I.S.…”的 Claude 步骤中为我登录，然后再问我一次。",
+    }
+)
 # What a Jarvis Code session, or JARVIS's conversation, is told when the fallback takes over
 # from Claude: the conversation so far is there (the same session, resumed), so it goes on
 # from where Claude stopped instead of starting the request over. After the note, the
@@ -3298,6 +3311,7 @@ class Hub:
             return
         if isinstance(message, AssistantMessage):
             error = getattr(message, "error", None)
+            words = ""
             if error and not self._connected_ref and self.claude_error_words is not None:
                 try:
                     words = self.claude_error_words(error)
@@ -3326,7 +3340,12 @@ class Hub:
                         if isinstance(b, TextBlock) and b.text.strip()
                     )
                     return
-                if self.prefs.fallback_model != FALLBACK_OFF:
+                if error == "authentication_failed" and not words:
+                    # Signing in is the way back, not a fallback model: said in JARVIS's
+                    # words, which say where (Claude Code's ask for a /login).
+                    text = lang.translate(NOT_SIGNED_IN, self.language)
+                    message = dataclasses.replace(message, content=[TextBlock(text=text)])
+                elif self.prefs.fallback_model != FALLBACK_OFF:
                     self.emit("notice", title="Fallback", text=NO_FALLBACK_TALK)
             streamed, self._streamed = self._streamed, False
             for block in message.content:
@@ -6126,13 +6145,20 @@ class Hub:
         fallback model to go to, the session moves there and carries on from where Claude
         stopped: True, the move is under way. Otherwise Claude's error stands, with how to
         get a fallback when there's none."""
-        if not str(task.model_ref).startswith("custom:"):  # on Claude, not another provider
+        on_claude = not str(task.model_ref).startswith("custom:")  # not another provider
+        if on_claude:
             self._claude_couldnt()
-        if task.kind != "code" or not self.prefs.fallback_code:
-            return False
-        ref = self._fallback_ref()
+        ref = self._fallback_ref() if task.kind == "code" and self.prefs.fallback_code else ""
         if not ref:
-            if self.prefs.fallback_model != FALLBACK_OFF:
+            if task.kind == "code" and on_claude and why == "authentication_failed":
+                # Signing in is the way back, whatever the fallback settings: said where.
+                self.tasks._log(task, "system", NOT_SIGNED_IN)
+                self.tasks._changed()
+            elif (
+                task.kind == "code"
+                and self.prefs.fallback_code
+                and self.prefs.fallback_model != FALLBACK_OFF
+            ):
                 self.tasks._log(task, "system", NO_FALLBACK)
                 self.tasks._changed()
             return False
