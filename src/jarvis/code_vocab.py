@@ -17,8 +17,10 @@ import difflib
 import os
 import re
 import subprocess
+import threading
 import time
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REFRESH_SECONDS = 600
@@ -55,12 +57,36 @@ def _split_ident(name: str) -> list[str]:
     return [w.lower() for w in spaced.split() if w]
 
 
+@dataclass
+class _Tables:
+    """What mentions() looks names up in, made from one list of files and one of names."""
+
+    files: list[str]  # the lists they were made from (refresh() makes new ones)
+    idents: list[str]
+    sizes: tuple[int, int]
+    by_name: dict[str, list[str]] = field(default_factory=dict)  # a spoken name -> its files
+    ident_by_words: dict[str, str] = field(default_factory=dict)  # "max retries" -> MAX_RETRIES
+    ident_lower: dict[str, str] = field(default_factory=dict)  # max_retries -> MAX_RETRIES
+    # For the fuzzy pass, made the first time one runs: the names it compares against, and
+    # the first file with each (lowercased) stem.
+    names: list[str] | None = None
+    by_stem: dict[str, str] | None = None
+
+    def fits(self, files: list[str], idents: list[str]) -> bool:
+        return (
+            self.files is files
+            and self.idents is idents
+            and self.sizes == (len(files), len(idents))
+        )
+
+
 class ProjectVocab:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self.files: list[str] = []  # relative paths
         self.idents: list[str] = []  # most common first
         self._at = 0.0
+        self._kept: _Tables | None = None
 
     def refresh(self, force: bool = False) -> None:
         if not force and self.files and time.monotonic() - self._at < REFRESH_SECONDS:
@@ -164,12 +190,8 @@ class ProjectVocab:
             if item not in found:
                 found.append(item)
 
-        by_name: dict[str, list[str]] = {}
-        for rel in self.files:
-            stem = Path(rel).stem
-            by_name.setdefault(Path(rel).name.lower(), []).append(rel)
-            by_name.setdefault(" ".join(_split_ident(stem)), []).append(rel)
-            by_name.setdefault(stem.lower().replace("_", "").replace("-", ""), []).append(rel)
+        tables = self._tables()
+        by_name = tables.by_name
         for lit in literal:
             for rel in by_name.get(Path(lit).name.lower(), [])[:3]:
                 add(rel)
@@ -179,8 +201,7 @@ class ProjectVocab:
             # "voice code" also finds voicecode.py
             for rel in (by_name.get(gram, []) + by_name.get(gram.replace(" ", ""), []))[:2]:
                 add(rel)
-        ident_by_words = {" ".join(_split_ident(n)): n for n in self.idents}
-        ident_lower = {n.lower(): n for n in self.idents}
+        ident_by_words, ident_lower = tables.ident_by_words, tables.ident_lower
         for lit in literal:
             if lit.lower() in ident_lower:  # max_buffer finds MAX_BUFFER
                 add(ident_lower[lit.lower()])
@@ -191,17 +212,45 @@ class ProjectVocab:
             if " " in gram and gram in ident_by_words:
                 add(ident_by_words[gram])
         if not found:  # one fuzzy pass for a misheard name
-            names = list(ident_by_words) + [Path(f).stem.lower() for f in self.files[:5000]]
+            names, by_stem = self._fuzzy(tables)
             for gram in grams:
                 if len(gram) >= 6:
                     close = difflib.get_close_matches(gram, names, n=1, cutoff=0.88)
                     if close:
                         hit = close[0]
-                        add(
-                            ident_by_words.get(hit)
-                            or next((f for f in self.files if Path(f).stem.lower() == hit), hit)
-                        )
+                        add(ident_by_words.get(hit) or by_stem.get(hit, hit))
         return found[:6]
+
+    def _tables(self) -> _Tables:
+        """mentions()'s lookups, made once for the files and names refresh() found: made
+        again for each utterance, they took a tenth of a second and more in a big project."""
+        kept = self._kept
+        if kept is not None and kept.fits(self.files, self.idents):
+            return kept
+        tables = _Tables(self.files, self.idents, (len(self.files), len(self.idents)))
+        by_name = tables.by_name
+        for rel in self.files:
+            stem = Path(rel).stem
+            by_name.setdefault(Path(rel).name.lower(), []).append(rel)
+            by_name.setdefault(" ".join(_split_ident(stem)), []).append(rel)
+            by_name.setdefault(stem.lower().replace("_", "").replace("-", ""), []).append(rel)
+        tables.ident_by_words = {" ".join(_split_ident(n)): n for n in self.idents}
+        tables.ident_lower = {n.lower(): n for n in self.idents}
+        self._kept = tables
+        return tables
+
+    @staticmethod
+    def _fuzzy(tables: _Tables) -> tuple[list[str], dict[str, str]]:
+        """The names a misheard one is compared with, and the first file with each stem."""
+        if tables.names is None or tables.by_stem is None:
+            by_stem: dict[str, str] = {}
+            for rel in tables.files:
+                by_stem.setdefault(Path(rel).stem.lower(), rel)
+            tables.names = list(tables.ident_by_words) + [
+                Path(f).stem.lower() for f in tables.files[:5000]
+            ]
+            tables.by_stem = by_stem
+        return tables.names, tables.by_stem
 
     def hint(self, text: str) -> str:
         found = self.mentions(text)
@@ -248,13 +297,19 @@ def normalize(text: str) -> str:
     return out
 
 
+# The projects' vocabularies, the most lately used last: VOCABS_KEPT of them (each holds up
+# to MAX_FILES names), so a long run that looks into many projects doesn't keep them all.
 _vocabs: dict[Path, ProjectVocab] = {}
+_vocabs_lock = threading.Lock()  # (asked for from more than one thread at once)
+VOCABS_KEPT = 16
 
 
 def vocab_for(root: Path) -> ProjectVocab:
     root = Path(root).resolve()
-    vocab = _vocabs.get(root)
-    if vocab is None:
-        vocab = _vocabs[root] = ProjectVocab(root)
+    with _vocabs_lock:
+        vocab = _vocabs.pop(root, None) or ProjectVocab(root)
+        _vocabs[root] = vocab
+        while len(_vocabs) > VOCABS_KEPT:
+            del _vocabs[next(iter(_vocabs))]
     vocab.refresh()
     return vocab

@@ -255,7 +255,12 @@ class Usage:
 
     async def _write_later(self, data: dict[str, Any]) -> None:
         try:
-            await asyncio.to_thread(self._write, data)
+            try:
+                writing = asyncio.get_running_loop().run_in_executor(None, self._write, data)
+            except RuntimeError:  # the app is quitting (the loop's threads are gone): now
+                self._write(data)
+            else:
+                await writing
         finally:
             self._writing = False
             if self._again:

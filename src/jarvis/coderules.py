@@ -219,13 +219,29 @@ def _paths(tool: str, tool_input: dict[str, Any], cwd: Path) -> list[str]:
     return [_real(r, cwd) for r in raw]
 
 
+def _once(seen: dict[str, Any] | None, key: str, make: Any) -> Any:
+    """What make() gives, worked out once per call weighed (decide's seen), not per rule."""
+    if seen is None:
+        return make()
+    if key not in seen:
+        seen[key] = make()
+    return seen[key]
+
+
 def _path_rule(
-    rule: Rule, behavior: str, tool: str, tool_input: dict[str, Any], cwd: Path, home: Path
+    rule: Rule,
+    behavior: str,
+    tool: str,
+    tool_input: dict[str, Any],
+    cwd: Path,
+    home: Path,
+    seen: dict[str, Any] | None = None,
 ) -> bool:
-    paths = _paths(tool, tool_input, cwd)
+    paths = _once(seen, "paths", lambda: _paths(tool, tool_input, cwd))
     if not paths:
         return behavior != "allow"  # nothing to go by: a deny or an ask holds, an allow doesn't
-    regex = _pattern(rule.content or "", str(cwd.resolve()), str(home))
+    root = _once(seen, "root", lambda: str(cwd.resolve()))
+    regex = _pattern(rule.content or "", root, str(home))
 
     def hit(path: str) -> bool:
         if regex.fullmatch(path):
@@ -368,7 +384,9 @@ def command_parts(command: str, depth: int = 0) -> list[list[str]]:
     return parts
 
 
-def _command_rule(rule: Rule, behavior: str, command: str, cwd: Path) -> bool:
+def _command_rule(
+    rule: Rule, behavior: str, command: str, cwd: Path, seen: dict[str, Any] | None = None
+) -> bool:
     if rule.content is None:
         return True
     want, prefix = _rule_words(rule.content)
@@ -377,14 +395,12 @@ def _command_rule(rule: Rule, behavior: str, command: str, cwd: Path) -> bool:
     if behavior == "allow":
         from .tasks import command_key  # (tasks imports this module's users, never this)
 
-        if command_key(command, cwd) is None:
+        if _once(seen, "key", lambda: command_key(command, cwd)) is None:
             return False  # chained, piped, wrapped or pointed elsewhere: never by a rule
-        words = _words(re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", command))
-        while words and _ASSIGNMENT.match(words[0]):
-            words = words[1:]
+        words = _once(seen, "words", lambda: _plain_words(command))
         return words[: len(want)] == want if prefix else words == want
     program, need = _program(want[0]), want[1:]
-    for words in command_parts(command):
+    for words in _once(seen, "parts", lambda: command_parts(command)):
         # The earliest place the rule's program starts a command: the words after it hold
         # those after any later one, so it's the one to look in.
         at = next((i for i in starts(words) if _program(words[i]) == program), None)
@@ -396,10 +412,27 @@ def _command_rule(rule: Rule, behavior: str, command: str, cwd: Path) -> bool:
     return False
 
 
+def _plain_words(command: str) -> list[str]:
+    """A plain command's words (an allow rule's view of it): after a leading "cd … &&" and
+    any VAR=value in front."""
+    words = _words(re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", command))
+    while words and _ASSIGNMENT.match(words[0]):
+        words = words[1:]
+    return words
+
+
 def matches(
-    rule: Rule, behavior: str, tool: str, tool_input: dict[str, Any], cwd: Path, home: Path
+    rule: Rule,
+    behavior: str,
+    tool: str,
+    tool_input: dict[str, Any],
+    cwd: Path,
+    home: Path,
+    seen: dict[str, Any] | None = None,
 ) -> bool:
-    """Whether a rule covers a call (strictly for an allow, generously otherwise)."""
+    """Whether a rule covers a call (strictly for an allow, generously otherwise). seen: what
+    was worked out about the call for the rules weighed before this one (its paths resolved,
+    its command split), so each is worked out once per call, not once per rule."""
     if rule.tool.startswith("mcp__"):
         return tool == rule.tool or tool.startswith(rule.tool + "__")
     if tool not in _family(rule.tool):
@@ -409,8 +442,8 @@ def matches(
     if rule.tool == "WebFetch":
         return _domain_rule(rule, tool_input)
     if rule.tool == "Bash":
-        return _command_rule(rule, behavior, str(tool_input.get("command") or ""), cwd)
-    return _path_rule(rule, behavior, tool, tool_input, cwd, home)
+        return _command_rule(rule, behavior, str(tool_input.get("command") or ""), cwd, seen)
+    return _path_rule(rule, behavior, tool, tool_input, cwd, home, seen)
 
 
 def decide(
@@ -424,10 +457,11 @@ def decide(
     allow; None when none does. A rule that can't be read covers nothing."""
     home = home or Path.home()
     tool_input = tool_input if isinstance(tool_input, dict) else {}
+    seen: dict[str, Any] = {}  # the call's paths and command, worked out once for every rule
     for behavior in BEHAVIORS:
         for text in rules.get(behavior, ()):
             rule = valid(text)
-            if rule is not None and matches(rule, behavior, tool, tool_input, cwd, home):
+            if rule is not None and matches(rule, behavior, tool, tool_input, cwd, home, seen):
                 return behavior, rule.text
     return None
 

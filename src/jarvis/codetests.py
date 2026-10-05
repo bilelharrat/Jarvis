@@ -880,13 +880,20 @@ class SuiteRunner:
         runproc.kill_all_now([r.proc for r in self.runs.values() if r.proc is not None])
 
 
+def _watched(name: str) -> bool:
+    """Whether a file's name ends in one of WATCHED, as Path(name).suffix would say, without
+    a Path made for each of thousands of files at every look."""
+    dot = name.rfind(".")
+    return dot > 0 and name[dot:] in WATCHED
+
+
 def snapshot(project: Path) -> dict[str, float]:
     """The project's source files and when each last changed (for watch mode)."""
     out: dict[str, float] = {}
     for folder, dirs, files in os.walk(project):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
         for name in files:
-            if Path(name).suffix not in WATCHED:
+            if not _watched(name):
                 continue
             path = os.path.join(folder, name)
             with contextlib.suppress(OSError):

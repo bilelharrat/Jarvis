@@ -427,3 +427,66 @@ async def test_the_hub_revert_and_explain_use_the_sessions_own_numbered_hunks(
     prompt = await hub.explain_change_prompt(task, 1)  # "the second change"
     assert "a.py line 30" in prompt and "+line thirty" in prompt
     task.handle.cancel()
+
+
+def test_marks_resolve_each_path_once_and_keep_their_order(tmp_path, monkeypatch):
+    """A long session's marks are mostly the same few files: each path is resolved once
+    (each resolve looks at every folder on the way), the marks keep their order, and a mark
+    outside the folder is left out, however it's written."""
+    top = tmp_path / "proj"
+    (top / "src").mkdir(parents=True)
+    (top / "src" / "a.py").write_text("a\n")
+    (top / "src" / "b.py").write_text("b\n")
+    outside = tmp_path / "elsewhere.py"
+    paths = ["src/a.py", str(top / "src" / "a.py"), "src/b.py", str(outside)] * 50
+    marks = [
+        cc.EditMark(p, f"u{i}", frozenset({f"x{i}"}), frozenset()) for i, p in enumerate(paths)
+    ]
+    resolved = []
+    real = cc._relative
+    monkeypatch.setattr(cc, "_relative", lambda raw, root: resolved.append(raw) or real(raw, root))
+    by_file = cc.marks_by_file(marks, top)
+    assert sorted(resolved) == sorted(set(paths))
+    assert by_file == {
+        "src/a.py": [m for m in marks if m.path in ("src/a.py", str(top / "src" / "a.py"))],
+        "src/b.py": [m for m in marks if m.path == "src/b.py"],
+    }
+
+
+def test_scope_keeps_just_the_hunks_owns_says_are_the_sessions(tmp_path):
+    """scope works out a file's marks once for all of its hunks: what it keeps is what owns()
+    says, hunk by hunk (telling lines, "}" alone, and a rewritten file's removed lines)."""
+    top = tmp_path / "proj"
+    (top / "src").mkdir(parents=True)
+    for name in ("a.py", "b.py", "c.py"):
+        (top / "src" / name).write_text("x\n")
+    hunks = [
+        cc.Hunk(1, 1, 1, 1, "", [("-", "old_value = 1"), ("+", "new_value = 2")]),
+        cc.Hunk(9, 1, 9, 1, "", [("-", "someone_elses = 1"), ("+", "theirs = 2")]),
+        cc.Hunk(20, 1, 20, 1, "", [("+", "}")]),
+        cc.Hunk(30, 1, 30, 0, "", [("-", "gone_line = 3")]),
+        cc.Hunk(40, 0, 40, 1, "", [("+", "    return None")]),
+    ]
+    files = [cc.FileDiff(f"src/{n}", hunks=list(hunks)) for n in ("a.py", "b.py", "c.py")]
+    for f in files:
+        cc._stamp(f)
+    marks = [
+        cc.EditMark(
+            "src/a.py", "u1", frozenset({"new_value = 2", "}"}), frozenset({"old_value = 1"})
+        ),
+        cc.EditMark("src/a.py", "u2", frozenset({"return None"}), frozenset()),
+        cc.EditMark("src/b.py", "u1", frozenset({"}"}), frozenset(), whole=True),
+        cc.EditMark(str(top / "src" / "b.py"), "u3", frozenset({"theirs = 2"}), frozenset()),
+    ]
+    kept = cc.scope(files, marks, top)
+    by_file = cc.marks_by_file(marks, top)
+    expected = {
+        f.path: [h.id for h in f.hunks if cc.owns(h, by_file[f.path])]
+        for f in files
+        if f.path in by_file
+    }
+    assert {f.path: [h.id for h in f.hunks] for f in kept} == {
+        path: ids for path, ids in expected.items() if ids
+    }
+    assert [h.header for h in kept[0].hunks] == [""] * len(kept[0].hunks)
+    assert "src/c.py" not in {f.path for f in kept}  # no mark of the session's in it

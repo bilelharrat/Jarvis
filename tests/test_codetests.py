@@ -355,3 +355,16 @@ async def test_watch_mode_runs_again_when_files_change(tmp_path, monkeypatch):
         tests.set_watch(project, False)
         await tests.close()
     assert project.as_posix() not in tests.watching
+
+
+def test_watch_mode_picks_files_by_suffix_as_path_suffix_does(tmp_path):
+    """The watch's look at every file names its suffix without a Path for each (thousands,
+    every few seconds): the same files as Path(name).suffix picks, odd names included."""
+    names = ["a.py", ".py", "..py", "a..ts", "a.", "a.py.", "x.tar.gz", "Makefile", ".env.json",
+             "a .css", "page.HTML", "b.min.js", "c.d.ts", "...", "a.yml", "z.pyc"]  # fmt: skip
+    for name in names:
+        assert codetests._watched(name) == (Path(name).suffix in codetests.WATCHED), name
+    for name in names:
+        (tmp_path / name).write_text("x")
+    found = {Path(p).name for p in codetests.snapshot(tmp_path)}
+    assert found == {n for n in names if Path(n).suffix in codetests.WATCHED}

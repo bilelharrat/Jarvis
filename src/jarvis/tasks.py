@@ -3142,7 +3142,10 @@ class TaskManager:
         if not command:
             return None
         rules = self.rules.for_project(task.cwd)
-        matched = next((r for r in rules if rule_allows(r, command, task.cwd)), "")
+        # The command's key once, not once per rule (rule_allows): each works it out again,
+        # resolving any folder it names, on the event loop for every step.
+        key = command_key(command, task.cwd) if any(rules) else None
+        matched = next((r for r in rules if r and key == r), "")
         if matched:
             return "auto", f"your rule: {matched} commands"
         if self.read_only_free() and is_read_only(command):

@@ -539,36 +539,59 @@ def owns(hunk: Hunk, marks: list[EditMark]) -> bool:
     telling, only that counts."""
     if not marks:
         return False
-    added = _norm(hunk.added)
-    removed = _norm(hunk.removed)
-    check_added = {line for line in added if _telling(line)} or added
-    check_removed = {line for line in removed if _telling(line)} or removed
+    return _owned(hunk, *_written(marks))
+
+
+def _written(marks: list[EditMark]) -> tuple[set[str], set[str], bool]:
+    """What a file's marks wrote and took out, all told, and whether one rewrote it whole:
+    worked out once for all of the file's hunks (once per hunk was every mark's lines
+    again for each of them)."""
     wrote: set[str] = set()
     took: set[str] = set()
     for mark in marks:
         wrote |= mark.added
         took |= mark.removed
+    return wrote, took, any(m.whole for m in marks)
+
+
+def _owned(hunk: Hunk, wrote: set[str], took: set[str], whole: bool) -> bool:
+    added = _norm(hunk.added)
+    removed = _norm(hunk.removed)
+    check_added = {line for line in added if _telling(line)} or added
+    check_removed = {line for line in removed if _telling(line)} or removed
     if check_added & wrote or check_removed & took:
         return True
-    return not added and any(m.whole for m in marks)  # lines gone from a file it rewrote
+    return not added and whole  # lines gone from a file it rewrote
 
 
 def marks_by_file(marks: list[EditMark], top: Path) -> dict[str, list[EditMark]]:
-    """The marks keyed by the root-relative path they're in (marks outside it are left out)."""
+    """The marks keyed by the root-relative path they're in (marks outside it are left out).
+    Each path is resolved once, however many marks it has (a long session's 2,000 marks
+    are mostly the same few files, and each resolve looks at every folder on the way)."""
     try:
         root = top.resolve()
     except OSError:
         return {}
     out: dict[str, list[EditMark]] = {}
+    where: dict[str, str | None] = {}  # a mark's path -> its root-relative one (None: outside)
     for mark in marks:
-        try:
-            path = Path(mark.path)
-            path = (path if path.is_absolute() else root / path).resolve()
-            rel = path.relative_to(root).as_posix()
-        except (OSError, ValueError, RuntimeError):
-            continue
-        out.setdefault(rel, []).append(mark)
+        if mark.path in where:
+            rel = where[mark.path]
+        else:
+            rel = where[mark.path] = _relative(mark.path, root)
+        if rel is not None:
+            out.setdefault(rel, []).append(mark)
     return out
+
+
+def _relative(raw: str, root: Path) -> str | None:
+    """Where a mark's path leads, relative to the (resolved) root; None when it's outside."""
+    try:
+        path = Path(raw)
+        path = (path if path.is_absolute() else root / path).resolve()
+        return path.relative_to(root).as_posix()
+    except (OSError, ValueError, RuntimeError):
+        return None
 
 
 def scope(files: list[FileDiff], marks: list[EditMark], top: Path) -> list[FileDiff]:
@@ -582,7 +605,8 @@ def scope(files: list[FileDiff], marks: list[EditMark], top: Path) -> list[FileD
         if f.sensitive or f.binary or not f.hunks:
             kept.append(f)
             continue
-        hunks = [h for h in f.hunks if owns(h, mine)]
+        written = _written(mine)
+        hunks = [h for h in f.hunks if _owned(h, *written)]
         if hunks:
             kept.append(
                 FileDiff(

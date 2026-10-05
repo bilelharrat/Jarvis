@@ -178,6 +178,43 @@ async def test_dont_ask_again_is_remembered_per_project(settings, tmp_path):
     )
 
 
+async def test_dont_ask_again_works_out_a_commands_key_once_for_all_its_rules(
+    settings, tmp_path, monkeypatch
+):
+    """Each step looks at the project's rules on the event loop: the command's key (which
+    resolves any folder it names) is worked out once, not once per rule."""
+    from jarvis import tasks as tasks_mod
+
+    tm, asked, _ = manager(settings, answers=["deny"])
+    (tmp_path / "web").mkdir()
+    for i in range(30):
+        tm.rules.add(tmp_path, f"npm run s{i}")
+    tm.rules.add(tmp_path, "npm test")
+    keys = []
+    real = tasks_mod.command_key
+    monkeypatch.setattr(
+        tasks_mod, "command_key", lambda c, cwd=None: keys.append(c) or real(c, cwd)
+    )
+    task = ClaudeTask(id=1, prompt="x", cwd=tmp_path)
+    assert tm._unasked(task, "Bash", {"command": "cd web && npm test"}) == (
+        "auto",
+        "your rule: npm test commands",
+    )
+    assert keys == ["cd web && npm test"]
+    assert tm._unasked(task, "Bash", {"command": "npm run s29 --silent"}) == (
+        "auto",
+        "your rule: npm run s29 commands",
+    )
+    assert tm._unasked(task, "Bash", {"command": "npm run deploy"}) is None
+    assert tm._unasked(task, "Bash", {"command": "cd .. && npm test"}) is None  # (outside)
+    assert len(keys) == 4
+    tm.rules.rules[str(tmp_path)] = []
+    assert tm._unasked(task, "Bash", {"command": "npm test"}) is None
+    assert len(keys) == 4  # no rules: nothing worked out
+    denied = await tm.policy_for(task)("Bash", {"command": "npm run x"}, ToolPermissionContext())
+    assert isinstance(denied, PermissionResultDeny) and len(asked) == 1
+
+
 async def test_streaming_thinking_todos_agents_and_background(settings, tmp_path):
     from claude_agent_sdk import StreamEvent, TaskStartedMessage, TaskUpdatedMessage, ThinkingBlock
 

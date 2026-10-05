@@ -151,3 +151,52 @@ def test_changes_are_numbered_in_the_order_they_are_read_out(repo):
     changes = diffspeak.collect(repo)
     assert diffspeak.summary(changes).split(". ")[1].startswith("hub dot py")
     assert diffspeak.hunks(changes)[0].path == "src/hub.py"  # the first file it names
+
+
+def test_mentions_reuse_the_projects_tables_until_its_lists_change(tmp_path):
+    """The names an utterance is matched against are worked out once per refresh (each
+    utterance used to build them again: a tenth of a second in a big project), and a new
+    or grown list of files or names is seen at the next utterance."""
+    vocab = code_vocab.ProjectVocab(tmp_path)
+    vocab.files = ["src/hub.py", "src/voicecode.py", "app/Speakable.swift"]
+    vocab.idents = ["MAX_RETRIES", "speakable", "onVoiceCode"]
+    assert vocab.mentions("add a retry in hub dot py") == ["src/hub.py"]
+    tables = vocab._kept
+    assert vocab.mentions("bump max retries to five") == ["MAX_RETRIES"]
+    assert vocab._kept is tables  # the same tables, not made again
+    vocab.files = ["lib/hub.py"]  # refresh() makes new lists
+    assert vocab.mentions("add a retry in hub dot py") == ["lib/hub.py"]
+    assert vocab._kept is not tables
+    vocab.files.append("other/hub.py")  # (a list grown in place is seen too)
+    assert vocab.mentions("add a retry in hub dot py") == ["lib/hub.py", "other/hub.py"]
+    vocab.idents.append("TaskManager")
+    assert "TaskManager" in vocab.mentions("look at the task manager")
+
+
+def test_a_misheard_name_finds_the_first_file_with_that_stem(tmp_path):
+    vocab = code_vocab.ProjectVocab(tmp_path)
+    vocab.files = ["a/Transcriber.py", "b/transcriber.py", "c/other.py"]
+    vocab.idents = ["warm_up"]
+    # Nothing matches as said; the fuzzy pass finds "transcriber", in the first file with it.
+    assert vocab.mentions("make the transcribr faster") == ["a/Transcriber.py"]
+    assert vocab.mentions("make the transcribr faster") == ["a/Transcriber.py"]  # (kept tables)
+    assert vocab.mentions("warm upp the model") == ["warm_up"]
+    assert vocab.mentions("hello there friend") == []
+
+
+def test_vocabularies_kept_are_the_projects_used_lately(tmp_path, monkeypatch):
+    monkeypatch.setattr(code_vocab, "_vocabs", {})
+    monkeypatch.setattr(code_vocab.ProjectVocab, "refresh", lambda self, force=False: None)
+    roots = []
+    for i in range(code_vocab.VOCABS_KEPT + 5):
+        (tmp_path / f"p{i}").mkdir()
+        roots.append((tmp_path / f"p{i}").resolve())
+    first = code_vocab.vocab_for(roots[0])
+    for root in roots[1:]:
+        assert code_vocab.vocab_for(root).root == root
+        assert code_vocab.vocab_for(roots[0]) is first  # (used again: kept)
+    assert len(code_vocab._vocabs) == code_vocab.VOCABS_KEPT
+    assert list(code_vocab._vocabs)[-1] == roots[0]
+    assert roots[1] not in code_vocab._vocabs  # the least lately used went first
+    again = code_vocab.vocab_for(roots[1])
+    assert again.root == roots[1] and roots[1] in code_vocab._vocabs
