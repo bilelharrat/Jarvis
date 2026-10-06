@@ -198,10 +198,9 @@ html body[data-skin="obsidian"] .deck.jc .lb-seg.s3 { background: var(--ob-brass
 html body[data-skin="obsidian"] .deck.jc .lb-ctxnames { font: 11px var(--mono); color: var(--muted); }
 
 /* ── 5. the composer: a contained field, its controls as chips inside it ── */
-html body[data-skin="obsidian"] .deck.jc .jc-dock { padding: 0 var(--lb-pad) 14px; }
-html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column { max-width: 900px; }
+html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column { max-width: 860px; }  /* the default mode's bar, to the pixel */
 html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column > :is(.jc-bg, .jc-todos, .jc-queue, .cs-goal, .cs-asides) { margin-left: calc(var(--lb-gut) + 16px); }
-/* The bar itself is the Ambient Orb's, unchanged (app.css pins its tokens under Obsidian). */
+/* The bar is the default mode's, to the pixel (app.css pins the dock's tokens under Obsidian). */
 
 /* ── 6. the session index: by day, a glyph and a time on each row ── */
 html body[data-skin="obsidian"] .deck.jc .jc-side { top: 0; left: 0; bottom: 0; width: 256px; box-sizing: border-box; padding: 22px 10px 18px 22px; border-radius: 0; gap: 16px; }
